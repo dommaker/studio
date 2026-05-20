@@ -11,7 +11,7 @@ custom_constraints:
     rule: "SCHEMA CHANGES REQUIRE PREMIUM MODEL"
     message: "schema/migration/auth 变更应使用 premium 模型，flash 禁止用于此类变更"
     trigger: ["code_implementation"]
-    description: "flash 模型在 schema 变更时成功率仅 72%（source: KK pitfall），禁止对 schema/auth/financial 变更使用 flash tier"
+    description: "schema/auth/financial 变更应使用 premium 模型，flash tier 在复杂架构变更时成功率不足"
 
   # ── 审查必须通过 ──
   review_required_for_auth:
