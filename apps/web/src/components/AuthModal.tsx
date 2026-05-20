@@ -7,6 +7,7 @@ interface Props {
 }
 
 export function AuthModal({ onClose }: Props) {
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -14,11 +15,11 @@ export function AuthModal({ onClose }: Props) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!password.trim()) return;
+    if (!email.trim() || !password.trim()) return;
     setLoading(true);
     setError('');
     try {
-      const ok = await login('admin@agent-studio.local', password);
+      const ok = await login(email.trim(), password);
       if (ok) window.location.href = '/channels';
       else setError('密码错误');
     } catch {
@@ -36,17 +37,24 @@ export function AuthModal({ onClose }: Props) {
       >
         <form onSubmit={handleSubmit}>
           <input
+            type="email"
+            value={email}
+            onChange={(e) => { setEmail(e.target.value); setError(''); }}
+            placeholder="admin@dommaker.cn"
+            autoFocus
+            className="w-full px-4 py-2.5 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-gray-400 mb-2"
+          />
+          <input
             type="password"
             value={password}
             onChange={(e) => { setPassword(e.target.value); setError(''); }}
             placeholder="••••••••"
-            autoFocus
             className="w-full px-4 py-2.5 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-gray-400 mb-3"
           />
           {error && <p className="text-red-400 text-xs mb-3">{error}</p>}
           <button
             type="submit"
-            disabled={loading || !password.trim()}
+            disabled={loading || !email.trim() || !password.trim()}
             className="w-full px-4 py-2.5 bg-gray-700 rounded-lg text-gray-200 text-sm hover:bg-gray-600 disabled:opacity-50 transition-colors"
           >
             {loading ? '...' : '确认'}
