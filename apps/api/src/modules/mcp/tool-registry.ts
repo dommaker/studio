@@ -36,6 +36,7 @@ export class MCPToolRegistry {
   private tools = new Map<string, RegisteredTool>();
   private stats = new Map<string, ToolStats>();
   private rateLimits = new Map<string, RateLimitEntry>();
+  private failureCounters = new Map<string, { count: number; firstSeen: number }>();
 
   // Per-tool rate limit config: { maxCalls, windowMs }
   private rateLimitConfig: { maxCalls: number; windowMs: number } = {
@@ -173,6 +174,38 @@ export class MCPToolRegistry {
       timestamp: Date.now(),
       riskLevel: this.tools.get(name)?.riskLevel || 'low',
     }).catch(() => { /* non-blocking */ });
+
+    // P0.3: 实时工具故障检测（同 executor 连续 3 次同 tool 失败 → 发布事件）
+    if (!success && caller) {
+      const failKey = `${caller}:${name}`;
+      const current = this.failureCounters.get(failKey) || { count: 0, firstSeen: Date.now() };
+      current.count++;
+      this.failureCounters.set(failKey, current);
+
+      if (current.count >= 3) {
+        logger.warn('[ToolRegistry] Detected 3x same tool failure pattern', {
+          tool: name,
+          caller,
+          count: current.count,
+          firstSeen: new Date(current.firstSeen).toISOString(),
+        });
+        // Publish event so Monitor/Triage can act
+        try {
+          const { eventBus } = require('../../core/event-bus.js');
+          eventBus.publish('tool:repeated_failure', {
+            tool: name,
+            caller,
+            count: current.count,
+            firstSeen: current.firstSeen,
+          });
+        } catch { /* best-effort */ }
+        // Reset counter after alerting
+        this.failureCounters.delete(failKey);
+      }
+    } else if (success && caller) {
+      // Reset on success
+      this.failureCounters.delete(`${caller}:${name}`);
+    }
   }
 
   /**
