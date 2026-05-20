@@ -76,8 +76,8 @@ export class CompanySkillService {
         category: input.category,
         parentSkillId: input.parentSkillId,
         layer: input.layer || 'company',
-        config: input.config as InputJsonValue,
-        requirements: input.requirements as InputJsonValue,
+        config: input.config as unknown as string,
+        requirements: input.requirements as unknown as string,
       },
     });
 
@@ -145,8 +145,8 @@ export class CompanySkillService {
         name: input.name,
         description: input.description,
         category: input.category,
-        config: input.config as InputJsonValue,
-        requirements: input.requirements as InputJsonValue,
+        config: input.config as unknown as string,
+        requirements: input.requirements as unknown as string,
         status: input.status,
       },
     });
@@ -181,7 +181,7 @@ export class CompanySkillService {
     }
 
     // 合并配置
-    const parentConfig = (parent.config as Record<string, unknown>) || {};
+    const parentConfig = (typeof parent.config === 'string' ? JSON.parse(parent.config) : parent.config) as Record<string, unknown> || {};
     const mergedConfig = { ...parentConfig, ...overrides };
 
     // 创建继承技能
@@ -193,7 +193,7 @@ export class CompanySkillService {
         category: parent.category,
         parentSkillId,
         layer: 'company',
-        config: mergedConfig as InputJsonValue,
+        config: mergedConfig as unknown as string,
       },
     });
 
@@ -213,7 +213,7 @@ export class CompanySkillService {
       throw new Error(`技能不存在: ${skillId}`);
     }
 
-    const skillConfig = (skill.config as Record<string, unknown>) || {};
+    const skillConfig = (typeof skill.config === 'string' ? JSON.parse(skill.config) : skill.config) as Record<string, unknown> || {};
 
     if (!skill.parentSkillId) {
       return skillConfig;
@@ -229,7 +229,7 @@ export class CompanySkillService {
     }
 
     // 合并配置
-    const parentConfig = (parent.config as Record<string, unknown>) || {};
+    const parentConfig = (typeof parent.config === 'string' ? JSON.parse(parent.config) : parent.config) as Record<string, unknown> || {};
     return { ...parentConfig, ...skillConfig };
   }
 

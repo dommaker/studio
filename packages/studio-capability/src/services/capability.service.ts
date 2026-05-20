@@ -79,7 +79,6 @@ export class CapabilityService {
         cost: c.cost || CAPABILITY_COST[c.type] || 1000,
         metadata: c.metadata || null,
       })),
-      skipDuplicates: true,
     });
 
     logger.info(`Created ${result.count} capabilities`);

@@ -201,7 +201,18 @@ class AnalystTriggerService {
 
     try {
       // 3. Load accumulated knowledge + build prompt
-      const knowledge = loadKnowledge();
+      const fileKnowledge = loadKnowledge();
+
+      // G-001~005: 加载 DB 知识（KK 提取的 pitfall/pattern + 偏好 + 规则 + 环境）
+      let dbKnowledge = '';
+      try {
+        const { knowledgeQuery } = await import('../../knowledge/knowledge-query.service.js');
+        dbKnowledge = await knowledgeQuery.formatAllForPrompt('analyst');
+      } catch (e) {
+        logger.warn('[AnalystTrigger] Failed to load DB knowledge, continuing with file only', { error: String(e) });
+      }
+
+      const knowledge = [fileKnowledge, dbKnowledge].filter(Boolean).join('\n');
       const prompt = buildAnalystPrompt(content, knowledge);
 
       // 4. Run Claude Code agent (persistent worktree, tool-enabled)

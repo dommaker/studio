@@ -430,13 +430,12 @@ export class GoalScheduler {
     });
 
     // G-001~003: 注入知识上下文（偏好 + 规则 + 环境）
+    // 通过 parameters.knowledgeContext 传递，agent-executor 的 buildPrompt 在 session 1/2+ 都会注入
     let knowledgeContext = '';
     try {
       const { knowledgeQuery } = await import('../knowledge/knowledge-query.service.js');
       knowledgeContext = await knowledgeQuery.formatCompactForPrompt('executor');
     } catch { /* best-effort */ }
-
-    const enhancedPrompt = knowledgeContext ? `${prompt}\n\n---\n${knowledgeContext}` : prompt;
 
     // 直接调用 AgentExecutor
     try {
@@ -445,13 +444,14 @@ export class GoalScheduler {
         executionId,
         agentType: 'claude',
         ...(input?.model ? { model: input.model as string } : {}),
-        prompt: enhancedPrompt,
+        prompt,
         parameters: {
           goalExecutionId: executionId,
           goalId: goal.id,
           acGroup: input?.acGroup || undefined,
           hasWorktree: true,
           repoDir: await this.getProjectRepoPath(goal),
+          knowledgeContext,
           // 🆕 ROLE-001: Executor 的角色约束
           roleConstraints,
         },
