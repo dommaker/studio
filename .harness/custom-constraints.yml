@@ -35,10 +35,10 @@ custom_constraints:
   no_hardcoded_infra:
     id: no_hardcoded_infra
     level: guideline
-    rule: "NO HARDCODED PORTS, PATHS, OR HOSTS"
-    message: "端口/路径/主机 必须从环境变量读取，不得硬编码"
+    rule: "NO HARDCODED PORTS, PATHS, HOSTS, DOMAINS, OR IDENTITIES"
+    message: "端口/路径/主机/域名/身份标识 必须从环境变量读取，不得硬编码"
     trigger: ["code_implementation"]
-    description: "硬编码基础设施参数导致环境迁移困难。使用 process.env.X || default 模式"
+    description: "硬编码基础设施参数导致环境迁移困难。禁止硬编码端口、文件路径、主机名、域名、默认邮箱/密码。使用 process.env.X || default 模式。2026-05-21 故障: AuthModal 硬编码 admin@agent-studio.local 导致登录失败"
 
 # ── 内置约束例外 ──
 # 暂无需要例外的内置约束
