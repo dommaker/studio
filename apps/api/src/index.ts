@@ -55,10 +55,7 @@ async function start() {
       envSnapper.startPeriodicSnapshots();
     });
 
-    // G-004: 决策链提取（监听 meeting.ended 事件）
-    import('./modules/knowledge/decision-chain-extractor.js').then(({ decisionChainExtractor }) => {
-      decisionChainExtractor.startListening();
-    });
+    // G-004: 决策链提取（KK 提取时自动触发，见 knowledge-agent.service.ts）
 
     // ⑨: 初始化 trace 管道（Goal 完成后自动分析 trace 数据）
     const { initTracePipeline } = await import('./modules/monitoring/init-trace.js');
