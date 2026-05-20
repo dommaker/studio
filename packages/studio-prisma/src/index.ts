@@ -7,7 +7,6 @@ export { PrismaClient };
 const JSON_FIELDS: Record<string, string[]> = {
   Agent: ['inputSchema', 'outputSchema', 'configSchema', 'retryPolicy', 'rateLimit', 'metadata'],
   ApiKey: ['permissions'],
-  Assessment: ['metrics'],
   AuditLog: ['details', 'changes'],
   Capability: ['metadata'],
   OKR: ['objectives', 'keyResults'],
@@ -37,7 +36,6 @@ const JSON_FIELDS: Record<string, string[]> = {
   MCPAuditLog: ['input', 'output'],
   CompanySkill: ['config', 'requirements'],
   Settlement: ['metadata'],
-  Appeal: ['evidence'],
   DecisionAudit: ['evidence', 'context'],
   Incident: ['triageLog'],
   ChannelMessage: ['meta'],
