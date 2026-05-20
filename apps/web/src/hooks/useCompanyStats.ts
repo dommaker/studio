@@ -7,8 +7,7 @@ export interface CompanyStats {
   id: string;
   name: string;
   size: 'small' | 'medium' | 'large';
-  balance: number;
-  
+
   // 角色统计
   totalRoles: number;
   onlineRoles: number;
@@ -82,8 +81,6 @@ export function useCompanyStats(options: UseCompanyStatsOptions = {}) {
       ]);
 
       const company = companyRes.data;
-      const balance = company.balance || 0;
-      const economyStats = {};
       const roles = rolesRes.data?.data || [];
       const tasks = tasksRes.data?.data || [];
       const meetings = meetingsRes.data?.data || [];
@@ -118,7 +115,6 @@ export function useCompanyStats(options: UseCompanyStatsOptions = {}) {
         id: company.id,
         name: company.name,
         size: company.size || 'small',
-        balance,
         totalRoles: roles.length,
         onlineRoles,
         workingRoles,
@@ -129,13 +125,13 @@ export function useCompanyStats(options: UseCompanyStatsOptions = {}) {
         activeMeetings,
         todayStats: {
           tasksCompleted: completedTasksToday,
-          messages: economyStats.todayMessages || 0,
-          cost: economyStats.todayCost || 0,
+          messages: 0,
+          cost: 0,
         },
         monthlyStats: {
-          totalCost: economyStats.monthlyCost || 0,
-          totalRevenue: economyStats.monthlyRevenue || 0,
-          avgQualityScore: economyStats.avgQualityScore || 0,
+          totalCost: 0,
+          totalRevenue: 0,
+          avgQualityScore: 0,
         },
       };
 

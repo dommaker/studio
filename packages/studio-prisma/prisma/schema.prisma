@@ -120,20 +120,16 @@ model Company {
   id           String         @id @default(cuid())
   name         String
   size         String         @default("small")
-  balance      Int            @default(30000)
   adminRoleIds String @default("[]")
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   Role         Role[]
   CompanySkill CompanySkill[]
   OKR          OKR[]
-  Documents    Document[]     // 🆕 公司知识库
+  Documents    Document[]
   projects     Project[]
   Goal         Goal[]
-  Settlement   Settlement[]
   Skill        Skill[]
-  Transaction  Transaction[]
-  Coupon       Coupon[]
 }
 
 model OKR {
@@ -571,7 +567,6 @@ model Role {
   ClaimedTasks       Task[]
   CreatedDocuments   Document[]           @relation("DocumentCreator")
   Creator            User?                @relation("CreatedRoles", fields: [creatorId], references: [id])
-  Settlements        Settlement[]
   Skills             Skill[]
   MemoryEntries      RoleMemoryEntry[]
 
@@ -882,29 +877,6 @@ model Task {
   @@index([projectId, status])
 }
 
-model Settlement {
-  id               String   @id @default(cuid())
-  companyId        String
-  roleId           String?
-  taskId           String?
-  type             String   // salary, reward, deposit, adjustment
-  amount           Float
-  roleIncome       Float?
-  companyIncome    Float?
-  qualityScore     Float?
-  userSatisfaction Boolean?
-  roleCount        Int?
-  metadata         String?
-  createdAt        DateTime @default(now())
-
-  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  role             Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
-
-  @@index([companyId, createdAt])
-  @@index([roleId, createdAt])
-  @@index([type])
-}
-
 model Skill {
   id           String   @id @default(cuid())
   companyId    String
@@ -1047,40 +1019,6 @@ model RoleMemoryEntry {
   @@index([roleId, importance])
   @@index([roleId, scope])
   @@index([lastAccessedAt])
-}
-
-model Transaction {
-  id          String   @id @default(cuid())
-  companyId   String
-  type        String   // salary, reward, deposit, purchase, refund
-  amount      Float
-  referenceId String?  // taskId, settlementId, etc.
-  description String?
-  metadata    String?
-  createdAt   DateTime @default(now())
-
-  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId, createdAt])
-  @@index([type])
-  @@index([referenceId])
-}
-
-model Coupon {
-  id        String    @id @default(cuid())
-  companyId String
-  code      String    @unique
-  value     Float
-  usedBy    String?
-  usedAt    DateTime?
-  expiresAt DateTime?
-  createdAt DateTime  @default(now())
-
-  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@index([code])
-  @@index([expiresAt])
 }
 
 model MemoryRelation {

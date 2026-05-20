@@ -589,89 +589,6 @@ const getBalance: MCPTool = {
   },
 };
 
-const settleSalary: MCPTool = {
-  name: 'settleSalary',
-  description: '执行月度工资结算',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      companyId: { type: 'string', description: '公司 ID' },
-    },
-    required: ['companyId'],
-  },
-  handler: async (input) => {
-    const company = await prisma.company.findUnique({ where: { id: input.companyId } });
-    if (!company) throw new Error('Company not found');
-
-    const roles = await prisma.role.findMany({
-      where: { companyId: input.companyId, status: 'active' },
-      select: { id: true, name: true, salary: true, balance: true },
-    });
-
-    const totalSalary = roles.reduce((sum, r) => sum + r.salary, 0);
-
-    // 余额检查
-    if (company.balance < totalSalary) {
-      throw new Error(`Insufficient funds: need ${totalSalary}, have ${company.balance}`);
-    }
-
-    // 原子事务：所有角色工资 + 公司扣款 + 审计日志
-    const settlements = roles.map(r => ({ roleId: r.id, name: r.name, amount: r.salary }));
-
-    await prisma.$transaction([
-      ...roles.map(role =>
-        prisma.role.update({
-          where: { id: role.id },
-          data: { balance: { increment: role.salary } },
-        })
-      ),
-      prisma.company.update({
-        where: { id: input.companyId },
-        data: { balance: { decrement: totalSalary } },
-      }),
-      prisma.auditLog.create({
-        data: {
-          companyId: input.companyId,
-          action: 'monthly_salary_settlement',
-          resource: 'company',
-          resourceId: input.companyId,
-          details: { totalSalary, roleCount: roles.length },
-        },
-      }),
-    ]);
-
-    return { companyId: input.companyId, totalSalary, settlements, remainingBalance: company.balance - totalSalary };
-  },
-};
-
-const getTransactionHistory: MCPTool = {
-  name: 'getTransactionHistory',
-  description: '查询经济交易历史（工资调整、任务结算等）',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      companyId: { type: 'string', description: '公司 ID' },
-      roleId: { type: 'string', description: '角色 ID（可选）' },
-      action: { type: 'string', description: '交易类型过滤（salary_adjustment, monthly_salary_settlement, task_settlement 等）' },
-      limit: { type: 'number', description: '返回数量', default: 20 },
-    },
-    required: ['companyId'],
-  },
-  handler: async (input) => {
-    const where: Record<string, any> = { companyId: input.companyId };
-    if (input.roleId) where.roleId = input.roleId;
-    if (input.action) where.action = input.action;
-
-    const logs = await prisma.auditLog.findMany({
-      where,
-      take: input.limit || 20,
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, action: true, roleId: true, resource: true, resourceId: true, details: true, createdAt: true },
-    });
-    return { logs, total: logs.length };
-  },
-};
-
 // ─── 规格审查 ───
 
 const createSpec: MCPTool = {
@@ -1183,8 +1100,8 @@ const allTools: RegisteredTool[] = [
   getDiscussionStatus,
   // 经济 (3)
   getBalance,
-  settleSalary,
-  getTransactionHistory,
+
+
   // 规格审查 (4)
   createSpec,
   approveSpec,

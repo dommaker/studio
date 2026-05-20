@@ -119,31 +119,10 @@ export interface Role {
   type: string;
   avatar?: string;
   companyId: string;
-  
-  // 级别
-  level: number;
-  experience: number;
-  capabilityLimit: number;
-  
-  // 性格
-  personality?: {
-    prompt: string;
-    traits: string[];
-  };
-  
+
   // 能力（关联）
   roleCapabilities?: RoleCapability[];
-  
-  // 经济（扁平结构）
-  salary: number;
-  balance: number;
-  debt: number;
-  
-  // 绩效（扁平结构）
-  tasksCompleted: number;
-  qualityScore: number;
-  satisfactionRate: number;
-  
+
   // 状态
   status: 'active' | 'on_leave' | 'resigned';
   
@@ -170,7 +149,6 @@ export interface Company {
   id: string;
   name: string;
   size?: string;
-  balance?: number;
   roles?: Role[];
   createdAt: string;
   updatedAt?: string;

@@ -26,7 +26,7 @@ interface MaskedLLMConfig {
   isActive: boolean;
 }
 
-interface Company { id: string; name: string; size: string; balance: number }
+interface Company { id: string; name: string; size: string }
 
 function LanguageSettings() {
   const currentLang = getCurrentLanguage();
@@ -265,7 +265,6 @@ export function Settings() {
   });
   const [company, setCompany] = useState<Company | null>(null);
   const [newCompanyName, setNewCompanyName] = useState('');
-  const [newCompanyBalance, setNewCompanyBalance] = useState(30000);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notifySyncStatus, setNotifySyncStatus] = useState<'checking' | 'synced' | 'needs-resave' | 'no-config'>('checking');
@@ -320,7 +319,6 @@ export function Settings() {
           if (companyRes?.data) {
             setCompany(companyRes.data);
             setNewCompanyName(companyRes.data.name);
-            setNewCompanyBalance(companyRes.data.balance);
           } else {
             localStorage.removeItem('companyId');
             await fetchOrCreateCompany();
@@ -344,18 +342,15 @@ export function Settings() {
         localStorage.setItem('companyId', firstCompany.id);
         setCompany(firstCompany);
         setNewCompanyName(firstCompany.name);
-        setNewCompanyBalance(firstCompany.balance);
       } else {
         // 无公司 → 创建默认公司
-        const createRes = await api.post('/companies', { 
-          name: '我的工作空间', 
-          balance: 30000 
+        const createRes = await api.post('/companies', {
+          name: '我的工作空间',
         }).catch(() => null);
         if (createRes?.data?.id) {
           localStorage.setItem('companyId', createRes.data.id);
           setCompany(createRes.data);
           setNewCompanyName(createRes.data.name);
-          setNewCompanyBalance(createRes.data.balance);
         }
       }
     }
@@ -589,32 +584,10 @@ export function Settings() {
                 placeholder="输入公司名称" className="input w-full" />
             </div>
 
-            {/* Token 余额 */}
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Token 余额</label>
-              <div className="flex items-center gap-2">
-                <input type="number" min="0" step="1000"
-                  value={company?.balance || newCompanyBalance}
-                  onChange={(e) => {
-                    const newBalance = parseInt(e.target.value) || 0;
-                    setNewCompanyBalance(newBalance);
-                    if (company) {
-                      // 自动保存
-                      api.patch(`/companies/${company.id}`, { balance: newBalance }).then(() => {
-                        setCompany({ ...company!, balance: newBalance });
-                      }).catch(err => { console.error('Auto-save failed:', err); toast.error('自动保存失败'); });
-                    }
-                  }}
-                  className="input w-full" />
-                <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Token</span>
-              </div>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>用于 Agent 任务执行的额度，修改后自动保存</p>
-            </div>
-
             {/* 如果没有公司，显示创建提示 */}
             {!company && newCompanyName.trim() && (
               <button onClick={() => {
-                api.post('/companies', { name: newCompanyName, balance: newCompanyBalance }).then(res => {
+                api.post('/companies', { name: newCompanyName }).then(res => {
                   if (res.data?.id) {
                     localStorage.setItem('companyId', res.data.id);
                     setCompany(res.data);
