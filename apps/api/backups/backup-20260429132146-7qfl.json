@@ -1,0 +1,60 @@
+{
+  "metadata": {
+    "id": "backup-20260429132146-7qfl",
+    "type": "full",
+    "models": [
+      "agent",
+      "workflow",
+      "workflowNode",
+      "workflowExecution",
+      "task",
+      "step",
+      "tool",
+      "role",
+      "company",
+      "capability",
+      "roleCapability",
+      "document",
+      "review",
+      "assessment",
+      "issue",
+      "userProfile",
+      "auditLog",
+      "signedDocument"
+    ],
+    "recordCount": 1,
+    "createdAt": "2026-04-29T13:21:46.688Z",
+    "version": "1.0",
+    "database": "postgresql"
+  },
+  "data": {
+    "agent": [],
+    "workflow": [],
+    "workflowNode": [],
+    "workflowExecution": [],
+    "task": [],
+    "step": [],
+    "tool": [],
+    "role": [],
+    "company": [
+      {
+        "id": "cmofiqq6t0000cbqh0l401kv9",
+        "name": "DomMaker Studio",
+        "size": "small",
+        "balance": 50000,
+        "adminRoleIds": [],
+        "createdAt": "2026-04-26T08:40:58.897Z",
+        "updatedAt": "2026-04-26T10:35:00.358Z"
+      }
+    ],
+    "capability": [],
+    "roleCapability": [],
+    "document": [],
+    "review": [],
+    "assessment": [],
+    "issue": [],
+    "userProfile": [],
+    "auditLog": [],
+    "signedDocument": []
+  }
+}

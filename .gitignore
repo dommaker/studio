@@ -1,0 +1,80 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+
+# Environment files (secrets — NEVER commit real values)
+.env
+.env.local
+.env.*.local
+.env.production
+.env.pm2
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# PM2
+.pm2/
+
+# GitHub workflows should be tracked
+# .github/ is ignored except workflows
+.github/*
+!.github/workflows/
+
+# Test coverage
+coverage/
+
+# Temporary files
+*.tmp
+*.temp
+
+# Harness traces
+.harness/traces/
+.harness/diagnoses/
+.harness/proposals/
+
+# Test results (screenshots, videos)
+test-results/
+
+# 🆕 Internal docs (not for public release)
+specs/
+*.spec.md
+
+# PM2 配置（可能包含敏感信息）
+ecosystem.config.cjs
+.env.pm2
+start-pm2.sh
+start-pm2.sh
+packages/studio-prisma/prisma/test.db
+packages/studio-prisma/prisma/test.db
+e2e/.auth.json
+
+# Session data (private)
+.analyst/
+.daemon/
+*.db
+
+# Claude Code (development only)
+CLAUDE.md
+.claude/
+
+# Internal docs (not for public release)
+docs/
+DESIGN_REFACTOR.md
+
+# Development artifacts
+1
+.gitignore.bak

@@ -1,0 +1,55 @@
+// studio-spec 入口
+
+export { SpecBypassService, getSpecBypassService } from './services/spec-bypass.service.js';
+export { SpecVersionService, getSpecVersionService } from './services/spec-version.service.js';
+export { SpecValidatorService, ArchitectureValidator, ApiValidator, AcceptanceValidator } from './services/spec-validator.service.js';
+export { ChangeAnalyzerService, changeAnalyzerService } from './services/change-analyzer.service.js';
+export { ChangeApproverService, changeApproverService } from './services/change-approver.service.js';
+export { ChangeHistoryService, changeHistoryService } from './services/change-history.service.js';
+export { GateCheckerService, gateCheckerService } from './services/gate-checker.service.js';
+
+export type {
+  CreateBypassInput,
+  ApproveBypassInput,
+} from './services/spec-bypass.service.js';
+
+export type {
+  CreateVersionInput,
+  VersionDiff,
+} from './services/spec-version.service.js';
+
+export type {
+  ValidateSpecInput,
+  ValidationResult,
+  ValidationError,
+  ValidationWarning,
+  LayerResult,
+  ValidationLayer,
+  SpecContent,
+} from './types/validation.types.js';
+
+export type {
+  FailureLevel,
+  ChangeLevel,
+  ChangeType,
+  AnalyzeChangeInput,
+  AnalyzeChangeResult,
+  ChangeDetail,
+  ApprovalProcess,
+  ChangeRecord,
+  SubmitChangeInput,
+  SubmitChangeResult,
+  ApproveChangeInput,
+} from './types/change.types.js';
+
+export type {
+  CheckpointType,
+  CheckResult,
+  ValidateChangeInput,
+  ValidateChangeResult,
+  GatePolicy,
+  HarnessCheckConfig,
+  CheckConfig,
+} from './types/gate.types.js';
+
+export { isHarnessCheck, HARNESS_CHECK_TYPES } from './types/gate.types.js';

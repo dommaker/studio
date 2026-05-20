@@ -1,0 +1,1651 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite 不支持数组类型，String[] 和 Float[] 字段
+// 改为 String（JSON 序列化存储），应用层做 parse/stringify
+
+model Agent {
+  id           String         @id @default(cuid())
+  name         String
+  version      String
+  description  String?
+  category     String
+  icon         String?
+  tags String @default("[]")
+  inputSchema  String
+  outputSchema String
+  configSchema String
+  endpoint     String?
+  timeout      Int            @default(1800)
+  retryPolicy  String?
+  rateLimit    String?
+  metadata     String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  @@unique([id, version])
+  @@index([category])
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  userId      String
+  name        String
+  key         String    @unique
+  permissions String?
+  expiresAt   DateTime?
+  lastUsedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([userId])
+}
+
+model Assessment {
+  id           String   @id @default(cuid())
+  roleId       String
+  type         String
+  period       String
+  metrics      String
+  totalScore   Float    @default(0)
+  grade        String   @default("C")
+  qualityBonus Float    @default(0)
+  salaryChange Int      @default(0)
+  levelChange  Int      @default(0)
+  status       String   @default("completed")
+  notes        String?
+  createdAt    DateTime @default(now())
+  Role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, type, period])
+  @@index([grade])
+  @@index([period])
+  @@index([roleId])
+  @@index([type])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  userId       String?
+  roleId       String?
+  companyId    String?
+  ipAddress    String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+  action       String
+  resource     String
+  resourceId   String?
+  details      String?
+  changes      String?
+  status       String   @default("success")
+  errorCode    String?
+  errorMessage String?
+  sessionId    String?
+  requestId    String?
+  
+  User         User?    @relation("UserAuditLogs", fields: [userId], references: [id])
+
+  @@index([action])
+  @@index([companyId])
+  @@index([createdAt])
+  @@index([resourceId])
+  @@index([resource])
+  @@index([roleId])
+  @@index([status])
+  @@index([userId])
+}
+
+model Capability {
+  id                 String             @id @default(cuid())
+  name               String
+  type               String
+  cost               Int                @default(1000)
+  description        String?
+  metadata           String?
+  status             String             @default("active")
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  autoTestStatus     String             @default("pending")
+  ownerId            String?
+  ownershipType      String             @default("private")
+  price              Int                @default(0)
+  rating             Float              @default(0)
+  reviewCount        Int                @default(0)
+  reviewStatus       String             @default("pending")
+  usageCount         Int                @default(0)
+  userApprovalStatus String             @default("pending")
+  CapabilityReview   CapabilityReview[]
+
+  @@unique([name, type])
+  @@index([ownershipType])
+  @@index([rating])
+  @@index([type])
+}
+
+model CapabilityReview {
+  id           String     @id @default(cuid())
+  capabilityId String
+  roleId       String
+  score        Int
+  comment      String?
+  createdAt    DateTime   @default(now())
+  Capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+
+  @@unique([capabilityId, roleId])
+  @@index([capabilityId])
+}
+
+model Company {
+  id           String         @id @default(cuid())
+  name         String
+  size         String         @default("small")
+  balance      Int            @default(30000)
+  adminRoleIds String @default("[]")
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  Role         Role[]
+  CompanySkill CompanySkill[]
+  OKR          OKR[]
+  Documents    Document[]     // 🆕 公司知识库
+  projects     Project[]
+  Goal         Goal[]
+  Settlement   Settlement[]
+  Skill        Skill[]
+  Transaction  Transaction[]
+  Coupon       Coupon[]
+}
+
+model OKR {
+  id         String      @id @default(cuid())
+  companyId  String
+  title      String
+  objectives String
+  keyResults String
+  quarter    String
+  status     String      @default("active")
+  progress   Float       @default(0)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  Execution  Execution[]
+  Company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  Project    Project[]
+
+  @@unique([companyId, quarter])
+  @@index([companyId])
+  @@index([status])
+  @@index([quarter])
+  @@map("okr")
+}
+
+// CompanySkill — 公司级 Skill（SL-001, company-skill.service.ts + tools-std/routes.ts 使用中）
+model CompanySkill {
+  id            String   @id @default(cuid())
+  companyId     String
+  name          String
+  description   String?
+  category      String?
+  parentSkillId String?
+  layer         String   @default("company")
+  config        String?
+  requirements  String?
+  usageCount    Int      @default(0)
+  successRate   Float    @default(0)
+  avgDuration   Float    @default(0)
+  status        String   @default("active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([category])
+  @@index([layer])
+  @@map("company_skill")
+}
+
+model Countersign {
+  id             String         @id @default(cuid())
+  documentId     String
+  config         String
+  signers        String
+  result         String?
+  createdAt      DateTime       @default(now())
+  completedAt    DateTime?
+  SignedDocument SignedDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+}
+
+model DocumentFlow {
+  id             String         @id @default(cuid())
+  documentId     String
+  status         String         @default("running")
+  steps          String
+  currentStep    Int            @default(0)
+  startedAt      DateTime       @default(now())
+  completedAt    DateTime?
+  SignedDocument SignedDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@index([status])
+}
+
+model Execution {
+  id             String    @id @default(cuid())
+  workflowId     String?
+  status         String    @default("pending")
+  startTime      DateTime?
+  endTime        DateTime?
+  parameters     String?
+  nodeExecutions String?
+  error          String?
+  roleId         String?
+  okrId          String?
+  createdAt      DateTime  @default(now())
+  OKR            OKR?      @relation(fields: [okrId], references: [id])
+  Role           Role?     @relation(fields: [roleId], references: [id])
+  Task           Task?
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([workflowId])
+  @@index([roleId])
+  @@index([okrId])
+}
+
+// ─── Goal 驱动架构 ───
+
+model Goal {
+  id            String      @id @default(cuid())
+  title         String
+  description   String
+  status        String      @default("draft")     // draft → planning → executing → succeeded/failed
+  priority      String      @default("normal")    // low/normal/high/critical
+  constraints   String?                               // 人定义的约束条件
+  context       String?                               // 上下文信息（会议、项目等）
+  companyId     String
+  createdBy     String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  completedAt   DateTime?
+  GoalPlan      GoalPlan[]
+  GoalExecution GoalExecution[]
+  Company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model GoalPlan {
+  id          String        @id @default(cuid())
+  goalId      String
+  status      String        @default("draft")     // draft → approved → executing → completed
+  steps       String                                  // GoalStep[]: LLM 生成的执行计划
+  reasoning   String?                               // LLM 的推理过程
+  version     Int           @default(1)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  Goal        Goal          @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  GoalExecution GoalExecution[]
+
+  @@index([goalId])
+  @@index([status])
+}
+
+model GoalExecution {
+  id          String     @id @default(cuid())
+  goalId      String
+  planId      String
+  stepIndex   Int                                    // 对应 GoalPlan.steps 中的索引
+  status      String     @default("pending")         // pending → running → succeeded/failed
+  agentType   String?                                // 执行此步骤的 agent 类型
+  input       String?                                  // 步骤输入
+  output      String?                                  // 步骤输出
+  error       String?
+  startedAt   DateTime?
+  completedAt DateTime?
+  createdAt   DateTime   @default(now())
+  Goal        Goal       @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  GoalPlan    GoalPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([goalId])
+  @@index([planId])
+  @@index([status])
+}
+
+// ─── LLM 配置体系 ───
+
+model LLMConfig {
+  id          String   @id @default(cuid())
+  scope       String   // orchestrator | agent_codex | agent_claude | agent_opencode | agent_default | studio
+  provider    String   // anthropic | openai | tencent | deepseek | custom
+  baseUrl     String?
+  apiKeyEnc   String   // AES-256-GCM 加密后的密文
+  apiKeyIv    String   // 12 字节 IV (Base64)
+  apiKeyTag   String   // GCM auth tag (Base64)
+  model       String
+  options     String?    // temperature, maxTokens, etc.
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([scope, provider])
+  @@index([scope])
+  @@index([isActive])
+}
+
+model IssueReport {
+  id                   String    @id @default(cuid())
+  title                String
+  description          String
+  type                 String
+  severity             String
+  documentId           String?
+  taskId               String?
+  workflowId           String?
+  responsibilityChain  String
+  accountabilityResult String?
+  totalPenalty         Float     @default(0)
+  status               String    @default("reported")
+  resolvedAt           DateTime?
+  reportedBy           String
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@index([documentId])
+  @@index([severity])
+  @@index([taskId])
+  @@index([type])
+}
+
+model Meeting {
+  id                 String               @id @default(cuid())
+  title              String
+  description        String?
+  status             String               @default("pending")
+  topic              String?
+  summary            String?
+  decisions          String?
+  actionItems        String?                 // 结构化待办: [{content, assigneeRoleId, dueDate, status}]
+  keyFindings        String?                 // 关键发现: [{finding, importance, relatedTopic}]
+  mode               String               @default("sync")
+  maxRounds          Int                  @default(3)
+  autoEndMinutes     Int                  @default(30)
+  responseTimeout    Int                  @default(60)
+  companyId          String
+  source             String               @default("api")
+  sourceChannelId    String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  startedAt          DateTime?
+  completedAt        DateTime?
+  isSensitive        Boolean              @default(false)
+  relatedWorkflowId  String?
+  taskId             String?
+  constraintLevel    String               @default("L2")
+  discussionMode     String?
+  discussionStatus   String?
+  riskAssessment     String?                 // 风险评估结果: {level, score, reasons, requiresConfirmation}
+  discussionTaskId   String?
+  discussionTopic    String?
+  outputProjectId    String?
+  projectId          String?
+  pendingQuestions   String?
+  OutputProject      Project?             @relation("MeetingOutput", fields: [outputProjectId], references: [id])
+  Project            Project?             @relation(fields: [projectId], references: [id])
+  MeetingMessage     MeetingMessage[]
+  MeetingParticipant MeetingParticipant[]
+  SpecReview         SpecReview?
+  Tasks              Task[]
+  Topic              Topic[]
+  ExecutionPlan      ExecutionPlan[]
+
+  @@index([companyId, status])
+  @@index([createdAt])
+  @@index([relatedWorkflowId])
+  @@index([taskId])
+  @@index([constraintLevel])
+  @@index([source])
+  @@index([discussionStatus])
+  @@index([projectId])
+  @@index([outputProjectId])
+}
+
+model MeetingMessage {
+  id                 String              @id @default(cuid())
+  meetingId          String
+  participantId      String?
+  roleId             String
+  content            String
+  messageType        String              @default("speech")
+  round              Int                 @default(1)
+  stance             String?
+  metadata           String?
+  createdAt          DateTime            @default(now())
+  Meeting            Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  MeetingParticipant MeetingParticipant? @relation(fields: [participantId], references: [id])
+  Role               Role                @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId, createdAt])
+  @@index([roleId])
+  @@index([round])
+}
+
+model MeetingParticipant {
+  id             String           @id @default(cuid())
+  meetingId      String
+  roleId         String
+  stance         String
+  status         String           @default("invited")
+  joinedAt       DateTime?
+  locked         Boolean          @default(false)
+  lockedBy       String?
+  lockedAt       DateTime?
+  declineReason  String?
+  inviteStatus   String           @default("pending")
+  invitedAt      DateTime         @default(now())
+  respondedAt    DateTime?
+  MeetingMessage MeetingMessage[]
+  Meeting        Meeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  Role           Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, roleId])
+  @@index([inviteStatus])
+  @@index([locked])
+  @@index([meetingId])
+  @@index([roleId])
+}
+
+// §12.10: 三层 Agent 架构 - 会议议题线程
+model Topic {
+  id          String   @id @default(cuid())
+  meetingId   String
+  title       String
+  description String?
+  status      String   @default("open")     // open/discussing/decided/closed
+  priority    Int      @default(0)
+  decidedAt   DateTime?
+  decision    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  Meeting              Meeting              @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  ExecutionPlan        ExecutionPlan[]
+  AgentSubscription    AgentSubscription[]
+
+  @@index([meetingId])
+  @@index([status])
+}
+
+// §12.10: Orchestrator 写入的执行计划
+model ExecutionPlan {
+  id          String   @id @default(cuid())
+  topicId     String?
+  meetingId   String
+  status      String   @default("pending")  // pending/assigned/running/completed/failed
+  plan        String                            // {steps: [{agent, task, dependencies}]}
+  assignedTo  String?                         // AgentRouter 分配的 agent
+  priority    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  Topic    Topic?   @relation(fields: [topicId], references: [id])
+  Meeting  Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  ExecutionResult ExecutionResult?
+
+  @@index([meetingId])
+  @@index([status])
+  @@index([assignedTo])
+  @@index([status, priority])
+}
+
+// §12.10: AgentRouter 写入的执行结果
+model ExecutionResult {
+  id              String   @id @default(cuid())
+  planId          String   @unique
+  agentType       String                          // codex/claude/opencode
+  status          String                          // success/failed/timeout
+  output          String?                           // 执行输出
+  tokenUsage      String?                           // {input, output, total}
+  durationMs      Int?
+  error           String?
+  createdAt       DateTime @default(now())
+
+  ExecutionPlan ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  @@index([planId])
+  @@index([status])
+}
+
+// §12.10: Agent 订阅感兴趣的议题类型
+model AgentSubscription {
+  id          String   @id @default(cuid())
+  agentType   String                          // codex/claude/opencode
+  topicType   String                          // requirement/design/code/review
+  priority    Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  Topic Topic? @relation(fields: [topicType], references: [id])
+
+  @@unique([agentType, topicType])
+  @@index([agentType])
+}
+
+model Performance {
+  id           String   @id @default(cuid())
+  roleId       String
+  month        String
+  tasksCount   Int      @default(0)
+  qualityAvg   Float    @default(0)
+  satisfaction Float    @default(0)
+  notes        String?
+  createdAt    DateTime @default(now())
+  Role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, month])
+  @@index([month])
+  @@index([roleId])
+}
+
+model Review {
+  id            String   @id @default(cuid())
+  reviewerId    String
+  reviewerType  String
+  targetId      String
+  targetType    String
+  featureId     String?
+  taskId        String?
+  ticketId      String?
+  dimensions    String
+  overallScore  Float
+  comment       String?
+  tags String @default("[]")
+  createdAt     DateTime @default(now())
+  rewardGranted Boolean  @default(false)
+  couponId      String?
+
+  @@index([createdAt])
+  @@index([reviewerId])
+  @@index([targetId])
+  @@index([targetType])
+}
+
+model Role {
+  id                 String               @id @default(cuid())
+  name               String
+  type               String
+  avatar             String?
+  personality        String?
+  level              Int                  @default(1)
+  experience         Int                  @default(0)
+  capabilityLimit    Int                  @default(10)
+  salary             Int                  @default(5000)
+  balance            Int                  @default(0)
+  debt               Int                  @default(0)
+  tasksCompleted     Int                  @default(0)
+  qualityScore       Float                @default(0)
+  satisfactionRate   Float                @default(0)
+  status             String               @default("active")
+  companyId          String
+  
+  // 🆕 SEC-001: 创建者追踪（用于权限控制）
+  creatorId          String?
+  
+  isProjectLead      Boolean              @default(false)
+  workflows          String?
+  memory             String?                 // RoleMemory: 角色记忆（经验/决策/反馈/学习）
+  joinedAt           DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  Assessment         Assessment[]
+  Demotion           Demotion[]
+  Execution          Execution[]
+  MeetingMessage     MeetingMessage[]
+  MeetingParticipant MeetingParticipant[]
+  Performance        Performance[]
+  PromotionRequest   PromotionRequest[]
+  Company            Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  ClaimedTasks       Task[]
+  CreatedDocuments   Document[]           @relation("DocumentCreator")
+  Creator            User?                @relation("CreatedRoles", fields: [creatorId], references: [id])
+  Settlements        Settlement[]
+  Skills             Skill[]
+  MemoryEntries      RoleMemoryEntry[]
+
+  @@index([companyId])
+  @@index([status])
+  @@index([type])
+  @@index([isProjectLead])
+}
+
+model SignedDocument {
+  id             String         @id @default(cuid())
+  type           String
+  status         String         @default("draft")
+  title          String
+  body           String
+  attachments    String?
+  signers        String
+  reviewResult   String?
+  parentDocument String?
+  taskId         String?
+  workflowId     String?
+  roleIds String @default("[]")
+  createdBy      String
+  updatedBy      String
+  version        Int            @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  Countersign    Countersign[]
+  DocumentFlow   DocumentFlow[]
+
+  @@index([createdAt])
+  @@index([status])
+  @@index([taskId])
+  @@index([type])
+  @@index([workflowId])
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String?   // null for OAuth users
+  name         String?
+  avatar       String?
+  role         String    @default("Guest") // Guest, User, Admin
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  
+  // 关联
+  sessions     Session[]
+  auditLogs    AuditLog[] @relation("UserAuditLogs")
+  createdRoles Role[]    @relation("CreatedRoles")
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String?
+  token     String    @unique // JWT
+  guestId   String?   // Guest Session 的临时 ID
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  
+  User      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  
+  @@index([userId])
+  @@index([token])
+  @@index([expiresAt])
+}
+
+model UserProfile {
+  id               String   @id @default(cuid())
+  age              Int
+  gender           String
+  occupation       String
+  location         String?
+  interests String @default("[]")
+  techLevel        String
+  spendingHabits   String
+  activityLevel    String
+  feedbackStyle    String
+  priceSensitivity Float    @default(0.5)
+  isSimulated      Boolean  @default(true)
+  balance          Int      @default(0)
+  totalSpent       Int      @default(0)
+  memberLevel      String   @default("free")
+  registeredAt     DateTime @default(now())
+  lastActiveAt     DateTime @default(now())
+  reviewCount      Int      @default(0)
+  averageRating    Float    @default(0)
+  points           Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([isSimulated])
+  @@index([memberLevel])
+}
+
+model SpecReview {
+  id                 String               @id @default(cuid())
+  workflowId         String?
+  meetingId          String?              @unique
+  title              String
+  description        String?
+  changes            String
+  changeType         String
+  impact             String
+  status             String               @default("pending")
+  approvals          String
+  requestedBy        String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  reviewedAt         DateTime?
+  reviewedBy         String?
+  comment            String?
+  SpecBypass         SpecBypass?
+  Meeting            Meeting?             @relation(fields: [meetingId], references: [id])
+  SpecReviewApproval SpecReviewApproval[]
+  SpecVersions       SpecVersion[]
+
+  @@index([workflowId])
+  @@index([status])
+  @@index([changeType])
+  @@index([createdAt])
+  @@index([meetingId])
+}
+
+model SpecReviewApproval {
+  id           String     @id @default(cuid())
+  reviewId     String
+  role         String
+  reviewerId   String
+  reviewerName String
+  approved     Boolean
+  comment      String?
+  createdAt    DateTime   @default(now())
+  SpecReview   SpecReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, role])
+  @@index([reviewId])
+  @@index([reviewerId])
+}
+
+model SpecBypass {
+  id            String      @id @default(cuid())
+  specReviewId  String?     @unique
+  reason        String
+  urgency       String
+  requestedBy   String
+  requestedName String?
+  approvedBy    String?
+  approvedName  String?
+  status        String      @default("pending")
+  reviewedAt    DateTime?
+  completedAt   DateTime?
+  comment       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  specReview    SpecReview? @relation(fields: [specReviewId], references: [id])
+
+  @@index([status])
+  @@index([requestedBy])
+  @@index([approvedBy])
+  @@index([createdAt])
+}
+
+model SpecVersion {
+  id          String     @id @default(cuid())
+  reviewId    String
+  version     Int
+  content     String
+  diff        String?
+  changeType  String
+  changeDesc  String?
+  createdBy   String
+  createdName String?
+  createdAt   DateTime   @default(now())
+  review      SpecReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, version])
+  @@index([reviewId])
+  @@index([version])
+  @@index([createdBy])
+  @@index([createdAt])
+}
+
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  content   String
+  link      String?
+  read      Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  readAt    DateTime?
+
+  @@index([userId])
+  @@index([read])
+  @@index([createdAt])
+}
+
+model PromotionRequest {
+  id            String    @id @default(cuid())
+  roleId        String
+  companyId     String
+  currentLevel  Int
+  targetLevel   Int
+  statement     String?
+  achievements  String?
+  metrics       String?
+  status        String    @default("pending")
+  reviewedBy    String?
+  reviewedAt    DateTime?
+  reviewOpinion String?
+  reviewScore   Float?
+  windowMonth   String
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  Role          Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, windowMonth])
+  @@index([companyId, status])
+  @@index([status])
+  @@index([windowMonth])
+  @@index([createdAt])
+}
+
+model Demotion {
+  id           String    @id @default(cuid())
+  roleId       String
+  companyId    String
+  fromLevel    Int
+  toLevel      Int
+  reason       String
+  status       String    @default("pending")
+  confirmedAt  DateTime?
+  confirmedBy  String?
+  cancelledAt  DateTime?
+  cancelledBy  String?
+  cancelReason String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  Role         Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@index([status])
+  @@index([roleId])
+  @@index([companyId])
+  @@index([createdAt])
+}
+
+// AR-009: 降级提案流程（TD-001 完整实现）
+model DemotionProposal {
+  id           String    @id @default(cuid())
+  agentId      String
+  triggerType  String    // AUTO | MANUAL
+  triggerData  String?
+  fromLevel    Int
+  toLevel      Int
+  demotionLevel Int
+  reason       String
+  status       String    @default("PENDING") // PENDING | IN_REVIEW | APPROVED | REJECTED | APPEALING | EXECUTED | CANCELLED
+  effectiveDate DateTime?
+  createdBy    String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  ApprovalFlow ApprovalFlow?
+  DemotionExecution DemotionExecution?
+  Appeal       Appeal?
+
+  @@index([agentId])
+  @@index([status])
+  @@index([triggerType])
+  @@index([createdAt])
+  @@map("demotion_proposal")
+}
+
+model ApprovalFlow {
+  id           String    @id @default(cuid())
+  proposalId   String    @unique
+  totalSteps   Int
+  decisions    String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  DemotionProposal DemotionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+  Approver     Approver[]
+
+  @@index([proposalId])
+  @@map("approval_flow")
+}
+
+model Approver {
+  id         String    @id @default(cuid())
+  flowId     String
+  userId     String
+  role       String    // manager | hr | director | vp | ceo | delegated
+  step       Int
+  status     String    @default("PENDING") // PENDING | APPROVED | REJECTED | DELEGATED
+  comment    String?
+  decidedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  ApprovalFlow ApprovalFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@unique([flowId, userId])
+  @@index([flowId])
+  @@index([status])
+  @@map("approver")
+}
+
+model DemotionExecution {
+  id               String    @id @default(cuid())
+  proposalId       String    @unique
+  roleUpdated      Boolean   @default(false)
+  salaryUpdated    Boolean   @default(false)
+  permissionsUpdated Boolean @default(false)
+  oldLevel         Int
+  newLevel         Int
+  oldSalary        Int
+  newSalary        Int
+  executedAt       DateTime  @default(now())
+  executedBy       String
+  DemotionProposal DemotionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([proposalId])
+  @@map("demotion_execution")
+}
+
+model Appeal {
+  id            String    @id @default(cuid())
+  proposalId    String    @unique
+  reason        String
+  evidence      String
+  requestedOutcome String // overturn | reduce | delay
+  status        String    @default("SUBMITTED") // SUBMITTED | ACCEPTED | REJECTED | REDUCED
+  deadline      DateTime
+  reviewedAt    DateTime?
+  reviewedBy    String?
+  reviewComment String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  DemotionProposal DemotionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
+
+  @@index([proposalId])
+  @@index([status])
+  @@map("appeal")
+}
+
+model Project {
+  id             String    @id @default(cuid())
+  pmoNumber      String    @unique
+  title          String
+  description    String?
+  requirement    String?
+  companyId      String
+  okrId          String?
+  status         String    @default("pending")
+  priority       String    @default("medium")
+  gitBranch      String?
+  gitRepo        String?
+  progress       Int       @default(0)
+  specFilePath   String?   // 🆕 FL-022: Spec 文档路径
+  specVersion    Int?      @default(1)  // 🆕 FL-022: Spec 版本号
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  OutputMeetings Meeting[] @relation("MeetingOutput")
+  Meetings       Meeting[]
+  Tasks          Task[]
+  Documents      Document[] // 🆕 知识库文档关联
+  Company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  okr            OKR?      @relation(fields: [okrId], references: [id])
+
+  @@unique([companyId, pmoNumber])
+  @@index([companyId])
+  @@index([status])
+  @@index([pmoNumber])
+  @@map("project")
+}
+
+// 🆕 公司知识库文档
+model Document {
+  id              String    @id @default(cuid())
+  projectId       String    // 关联 PMO 项目
+  companyId       String    // 公司 ID
+  
+  // 文档属性
+  type            String    // requirement/design/spec/execution/meeting/archive
+  title           String
+  content         String?   // 文档内容（Markdown）
+  filePath        String?   // 文件路径（可选）
+  
+  // 元数据
+  version         Int       @default(1)
+  status          String    @default("active")  // active/archived/deleted
+  tags String @default("[]")  // 标签
+  
+  // 作者信息
+  createdBy       String?   // 创建者角色 ID
+  updatedBy       String?   // 最后更新者
+  
+  // 时间
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  archivedAt      DateTime?
+  
+  // 关联
+  Project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  Company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  CreatedBy       Role?     @relation("DocumentCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  
+  @@unique([projectId, type, version])
+  @@index([projectId])
+  @@index([companyId])
+  @@index([type])
+  @@index([status])
+  @@index([companyId, status, type])
+  @@map("document")
+}
+
+model Task {
+  id                 String     @id @default(cuid())
+  projectId          String
+  meetingId          String?
+  name               String
+  description        String?
+  assignee           String
+  priority           String     @default("P2")
+  status             String     @default("pending")
+  claimedBy          String?
+  claimedAt          DateTime?
+  dependsOn String @default("[]")
+  acceptanceCriteria String @default("[]")
+  executionId        String?    @unique
+  estimatedHours     Int?
+  startedAt          DateTime?
+  completedAt        DateTime?
+  testEvidence       String?    // 🆕 AS-006: 测试证据路径
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+  ClaimedBy          Role?      @relation(fields: [claimedBy], references: [id])
+  Execution          Execution? @relation(fields: [executionId], references: [id])
+  Meeting            Meeting?   @relation(fields: [meetingId], references: [id])
+  Project            Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([assignee])
+  @@index([priority])
+  @@index([status])
+  @@index([projectId])
+  @@index([meetingId])
+  @@index([claimedBy])
+  @@index([projectId, status])
+}
+
+model Settlement {
+  id               String   @id @default(cuid())
+  companyId        String
+  roleId           String?
+  taskId           String?
+  type             String   // salary, reward, deposit, adjustment
+  amount           Float
+  roleIncome       Float?
+  companyIncome    Float?
+  qualityScore     Float?
+  userSatisfaction Boolean?
+  roleCount        Int?
+  metadata         String?
+  createdAt        DateTime @default(now())
+
+  company          Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  role             Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, createdAt])
+  @@index([roleId, createdAt])
+  @@index([type])
+}
+
+model Skill {
+  id           String   @id @default(cuid())
+  companyId    String
+  roleId       String?
+  name         String
+  source       String   @default("extraction") // extraction, manual, proposal
+  status       String   @default("draft") // draft, testing, published, under_review, deprecated
+  version      Int      @default(1)
+  category     String?
+  description  String?
+  usageCount   Int      @default(0)
+  successRate  Float    @default(0)
+  avgDuration  Float    @default(0)
+  metadata     String?
+  extractedAt  DateTime @default(now())
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  role         Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
+  proposals    SkillProposal[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+  @@index([roleId])
+  @@index([category])
+  @@index([status])
+}
+
+model SkillProposal {
+  id         String   @id @default(cuid())
+  skillId    String
+  status     String   @default("pending") // pending, approved, rejected
+  proposedBy String
+  summary    String?
+  proposedAt DateTime @default(now())
+  reviewedAt DateTime?
+
+  skill      Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
+
+  @@index([skillId])
+  @@index([status])
+  @@index([proposedBy])
+}
+
+model Environment {
+  id               String   @id @default(cuid())
+  name             String   @unique
+  description      String?
+  dockerImage      String   @default("node:20-slim")
+  dependencies     String @default("[]")
+  envVars          String     @default("{}")
+  networkMode      String   @default("bridge")
+  mounts           String     @default("[]")
+  resourceLimits   String     @default("{}")
+  status           String   @default("active") // active, deprecated
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  agentConfigs     AgentConfig[]
+
+  @@index([status])
+}
+
+model AgentConfig {
+  id             String        @id @default(cuid())
+  name           String        @unique
+  description    String?
+  model          String        @default("claude-sonnet-4-6")
+  systemPrompt   String        @default("")
+  tools          String      @default("[]")
+  environmentId  String?
+  maxTokens      Int           @default(4096)
+  temperature    Float         @default(0.7)
+  status         String        @default("active") // active, deprecated
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  environment    Environment?          @relation(fields: [environmentId], references: [id], onDelete: SetNull)
+  versions       AgentConfigVersion[]
+
+  @@index([status])
+  @@index([environmentId])
+}
+
+model AgentConfigVersion {
+  id             String       @id @default(cuid())
+  agentConfigId  String
+  version        Int
+  snapshot       String
+  changedBy      String       @default("system")
+  changeReason   String?
+  createdAt      DateTime     @default(now())
+
+  agentConfig    AgentConfig  @relation(fields: [agentConfigId], references: [id], onDelete: Cascade)
+
+  @@index([agentConfigId])
+  @@unique([agentConfigId, version])
+}
+
+model SpecChangeRequest {
+  id           String    @id @default(cuid())
+  specId       String
+  level        String    // iron_law, guideline, tip
+  changeTypes String @default("[]")
+  summary      String
+  status       String    @default("pending") // pending, approved, applied, rejected
+  submittedBy  String
+  submittedAt  DateTime  @default(now())
+  appliedAt    DateTime?
+  oldVersion   Int?
+  newVersion   Int?
+  metadata     String?
+
+  @@index([specId])
+  @@index([status])
+  @@index([submittedBy])
+  @@index([submittedAt])
+}
+
+model RoleMemoryEntry {
+  id             String   @id @default(cuid())
+  roleId         String
+  type           String   // experience, decision, feedback, learning
+  content        String
+  taskId         String?
+  importance     Int      @default(3) // 1-5
+  scope          String   @default("project") // project | global
+  embedding String @default("[]")  // 向量 embedding（pgvector 升级后改为 vector(1536)）
+  metadata       String?
+  createdAt      DateTime @default(now())
+  lastAccessedAt DateTime @default(now())
+
+  role           Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  outgoingRelations MemoryRelation[] @relation("FromMemory")
+  incomingRelations MemoryRelation[] @relation("ToMemory")
+
+  @@index([roleId])
+  @@index([roleId, type])
+  @@index([roleId, importance])
+  @@index([roleId, scope])
+  @@index([lastAccessedAt])
+}
+
+model Transaction {
+  id          String   @id @default(cuid())
+  companyId   String
+  type        String   // salary, reward, deposit, purchase, refund
+  amount      Float
+  referenceId String?  // taskId, settlementId, etc.
+  description String?
+  metadata    String?
+  createdAt   DateTime @default(now())
+
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, createdAt])
+  @@index([type])
+  @@index([referenceId])
+}
+
+model Coupon {
+  id        String    @id @default(cuid())
+  companyId String
+  code      String    @unique
+  value     Float
+  usedBy    String?
+  usedAt    DateTime?
+  expiresAt DateTime?
+  createdAt DateTime  @default(now())
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([code])
+  @@index([expiresAt])
+}
+
+model MemoryRelation {
+  id           String   @id @default(cuid())
+  fromId       String
+  toId         String
+  relationType String   // caused_by, related_to, refines, contradicts
+  weight       Float    @default(1.0)
+  createdAt    DateTime @default(now())
+
+  from         RoleMemoryEntry @relation("FromMemory", fields: [fromId], references: [id], onDelete: Cascade)
+  to           RoleMemoryEntry @relation("ToMemory", fields: [toId], references: [id], onDelete: Cascade)
+
+  @@index([fromId])
+  @@index([toId])
+  @@index([fromId, relationType])
+}
+
+model MCPAuditLog {
+  id         String   @id @default(cuid())
+  toolName   String
+  roleId     String?
+  input      String?     // sanitized (no secrets)
+  output     String?     // summary only
+  duration   Int       // ms
+  success    Boolean
+  error      String?
+  createdAt  DateTime @default(now())
+
+  @@index([toolName])
+  @@index([roleId])
+  @@index([createdAt])
+}
+
+model MCPPermission {
+  id        String   @id @default(cuid())
+  roleId    String
+  toolName  String
+  allowed   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([roleId, toolName])
+  @@index([roleId])
+}
+
+model DecisionAudit {
+  id          String   @id @default(cuid())
+  eventType   String                       // meeting.completed / requirements.generated / goal.created / execution.completed / review.completed / wiki.updated / constraint.proposed / role.updated
+  entityType  String                       // meeting / goal / execution / review / wiki / constraint / role
+  entityId    String                       // ID of the primary entity
+  companyId   String?
+  projectId   String?
+  summary     String                       // Human-readable one-liner
+  details     String?                        // Full event payload
+  actorRole   String?                      // Which role triggered this (analyst/executor/reviewer/knowledge_keeper/auditor/constraint_evolver)
+  createdAt   DateTime  @default(now())
+
+  @@index([eventType])
+  @@index([entityType, entityId])
+  @@index([companyId])
+  @@index([createdAt])
+}
+
+model RoleConfig {
+  id          String   @id @default(cuid())
+  roleType    String   @unique
+  companyId   String
+
+  // ── 身份 ──
+  systemPrompt String  @default("")
+
+  // ── 立场（JSON，Analyst + Reviewer 共用） ──
+  stances     String?
+
+  // ── 推理档位 ──
+  modelTier   String   @default("standard")
+  modelRouting String?
+
+  // ── 能力 ──
+  boundSkills       String  @default("[]")
+  boundMcps         String  @default("[]")
+  boundTools        String  @default("[]")
+
+  // ── 约束 ──
+  boundConstraints  String  @default("[]")
+
+  // ── 执行参数（Executor） ──
+  executionParams   String?
+
+  // ── 进化权限 ──
+  evolutionHooks    String?
+
+  // ── 元数据 ──
+  version     Int      @default(1)
+  updatedBy   String?
+  updatedReason String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
+  @@index([roleType, companyId])
+}
+
+// ─────────────────────────────────────────────
+// Studio 2.0 新模型（2026-05-08）
+// ─────────────────────────────────────────────
+
+model Channel {
+  id        String   @id @default(cuid())
+  name      String   // "#研发" | "#决策" | "#系统"
+  type      String   @default("rnd") // rnd | decision | system
+  discordChannelId String? // Discord 频道绑定
+  discordWebhookUrl String? // Agent 回复推送目标
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ChannelMessage ChannelMessage[]
+  RequirementsDoc RequirementsDoc[]
+
+  @@unique([name])
+}
+
+model ChannelMessage {
+  id        String   @id @default(cuid())
+  channelId String
+  authorType String  // "human" | "agent"
+  agentName String?  // Analyst | Executor | Reviewer | KK | Auditor | Triage | Deploy
+  content   String   // Markdown
+  replyToId String?  // 弱引用回复关系
+  meta      String   @default("{}") // JSON: { goalId?, requirementsDocId?, cardType?, cardData?, crossChannelRef?, atHuman? }
+  createdAt DateTime @default(now())
+  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, createdAt])
+  @@index([authorType])
+}
+
+model RequirementsDoc {
+  id        String   @id @default(cuid())
+  title     String
+  content   String   // Markdown 全文
+  tags      String   @default("[]") // JSON array
+  goalId    String?  // 开始执行后关联
+  projectId String?
+  sourceChannelId String
+  status    String   @default("draft") // draft | confirmed | done
+  linkedDocIds String @default("[]") // JSON array of RequirementsDoc ids
+  executionSummary String? // Goal 完成后补充
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  channel   Channel  @relation(fields: [sourceChannelId], references: [id])
+
+  @@index([status])
+  @@index([goalId])
+  @@index([sourceChannelId])
+  @@index([projectId])
+}
+
+model Incident {
+  id             String   @id
+  type           String   // service_down | resource_critical | ext_dependency | zombie
+  severity       String   // critical | warning
+  status         String   @default("diagnosing") // diagnosing | fixing | resolved | escalated
+  detectedAt     DateTime @default(now())
+  resolvedAt     DateTime?
+  resolution     String?
+  triageLog      String   @default("[]") // JSON [{time, phase, action, result}]
+  escalatedTo    String?
+  pitfallCreated String?
+
+  @@index([status])
+  @@index([detectedAt])
+}
+
+model KnowledgeEntry {
+  id        String   @id @default(cuid())
+  type      String   // skill | pitfall | pattern | decision
+  level     String   @default("skill") // agent_knowledge | skill | tool
+  content   String   // 可复用的判断规则
+  triggerCondition String? // 什么时候加载此知识
+  sourceGoalId String
+  projectId String?
+  status    String   @default("active") // active | deprecated | under_review
+  promotedAt  DateTime?
+  downgradedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([type, status])
+  @@index([sourceGoalId])
+  @@index([level])
+  @@index([projectId])
+}
+
+// ── 知识库五大缺口 (G-001~005, 2026-05-19) ──
+
+model UserPreference {
+  id          String   @id @default(cuid())
+  userId      String   @default("default") // 当前单用户系统
+
+  // 模型偏好
+  preferredModel    String?  // premium | standard | fast
+  modelUsageRatio   String   @default("{}") // {"premium":0.7,"standard":0.2,"fast":0.1}
+  downgradeAccepted Boolean  @default(false)
+
+  // 交互偏好
+  responseStyle     String?  // concise | detailed | balanced
+  messageFrequency  Float?   // 平均每小时消息数
+  avgMessageLength  Int?
+  preferredAgents   String   @default("[]") // ["@Analyst","@Executor"]
+
+  // 决策偏好
+  autoApproveThreshold  Float?  // 低于此置信度需人工确认
+  reviewRoundsTolerance Int?
+
+  // 工具偏好
+  favoriteTools     String   @default("[]")
+  toolRiskTolerance String?  // low | medium | high
+
+  // 时间模式
+  activeHours       String   @default("[]") // [9,10,11,14,15,16]
+  avgSessionMinutes Int?
+
+  // 元数据
+  confidence        Float    @default(0.3)
+  lastInferredAt    DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model BusinessRule {
+  id          String   @id @default(cuid())
+
+  name        String   // 唯一标识: min_requirement_length
+  category    String   // constraint | architecture | behavior | threshold
+  description String
+
+  condition   String   // 触发条件
+  action      String   // 执行动作
+  defaultValue String? // 默认值
+
+  source      String   // 来源文件: analst-trigger.service.ts:42
+  sourceType  String   // code_constant | env_var | harness_constraint | config_file
+
+  affects     String   @default("[]") // ["analyst","executor","reviewer"]
+
+  status      String   @default("active") // active | modified | deprecated
+  version     Int      @default(1)
+
+  lastExtractedAt DateTime?
+  lastVerifiedAt  DateTime?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, status])
+  @@index([name])
+}
+
+model EnvironmentSnapshot {
+  id          String   @id @default(cuid())
+
+  // 系统层
+  hostname    String
+  platform    String
+  nodeVersion String
+  cpuCores    Int
+  totalMemGB  Float
+
+  // 服务层
+  apiPort     Int
+  webPort     Int
+  nodeEnv     String
+  dbPath      String
+
+  // 部署层
+  nginxConfig    String?
+  serviceManager String?
+  tunnelType     String?
+
+  // 依赖层
+  keyDependencies String  @default("{}") // {"harness":"0.13.0","prisma":"5.x"}
+
+  // 已知限制
+  knownLimitations String @default("[]") // [{"issue":"...","since":"..."}]
+
+  takenAt     DateTime
+  takenBy     String   @default("auto") // auto | manual
+  diffFromPrev String? // 与上次快照的差异摘要
+
+  createdAt   DateTime @default(now())
+
+  @@index([takenAt])
+}
+
+model DecisionChain {
+  id          String   @id @default(cuid())
+
+  topic       String   // 决策主题
+  category    String   // architecture | tooling | process | design
+
+  context     String   // 决策背景
+  options     String   // 候选方案 JSON
+  chosen      String   // 选择的方案
+  rationale   String   // 选择理由
+  tradeoffs   String   // 已知权衡
+
+  sourceType  String   // meeting | execution | pr | audit
+  sourceId    String?  // 关联源 ID
+  participants String  @default("[]")
+  voteDistribution String?
+  dissentNotes String?
+
+  revisable   Boolean  @default(true)
+  revisitCondition String?
+
+  outcomeKnown    Boolean @default(false)
+  outcomeSummary  String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category])
+  @@index([sourceType])
+  @@index([topic])
+}
+
+model InteractionPattern {
+  id          String   @id @default(cuid())
+
+  name        String   // 模式名称
+  category    String   // tool_usage | workflow | error | collaboration
+  description String
+
+  pattern     String   // 模式定义 JSON
+  frequency   Float    // 次/天
+  confidence  Float    // 0-1
+
+  insight     String   // 洞察
+  suggestion  String?  // 优化建议
+
+  observedPeriodStart DateTime
+  observedPeriodEnd   DateTime
+
+  status      String   @default("active") // active | outdated
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([category, status])
+  @@index([confidence])
+}
+
+// ── 管线指标 (B1-016) ──
+
+model PipelineRun {
+  id        String   @id @default(cuid())
+  source    String   // "pipeline" | "window"
+  phase     String   // "analyst" | "executor" | "full"
+  taskName  String
+  model     String
+  inputTokens     Int
+  outputTokens    Int
+  cacheHitTokens  Int      @default(0)
+  durationMs      Int
+  success         Boolean
+  testPassed      Boolean?
+  lintPassed      Boolean?
+  diffLines       Int?
+  error           String?
+  sessionId       String?
+  createdAt DateTime @default(now())
+
+  @@index([source, createdAt])
+  @@index([phase])
+}

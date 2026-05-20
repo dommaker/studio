@@ -1,0 +1,38 @@
+{
+  "name": "@dommaker/studio-meeting",
+  "version": "0.1.0",
+  "private": true,
+  "description": "RS-001: Meeting services",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./events/discussion-events": "./src/events/discussion-events.ts",
+    "./events/discussion-event-handlers": "./src/events/discussion-event-handlers.ts",
+    "./discussion/discussion-driver": "./src/discussion/discussion-driver.ts",
+    "./discussion/redis-context-sharer": "./src/discussion/redis-context-sharer.ts",
+    "./discussion/meeting-message-sender": "./src/discussion/meeting-message-sender.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "test": "vitest",
+    "lint": "eslint src/**/*.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.0",
+    "@dommaker/harness": "^0.12.2",
+    "@dommaker/studio-prisma": "workspace:*",
+    "@dommaker/studio-shared": "workspace:*",
+    "ioredis": "^5.3.0",
+    "uuid": "^9.0.0",
+    "yaml": "^2.3.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0",
+    "tsx": "^4.0.0"
+  }
+}

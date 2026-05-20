@@ -1,0 +1,150 @@
+# 会议室评审规则配置
+# 位置: .architect/review-rules.yml
+# 修改此文件需要走 Spec 评审
+
+review:
+  # 谁可以发起评审
+  initiator:
+    type: any_developer
+
+  # 每个开发者最多同时进行的评审数
+  max_concurrent_per_user: 3
+
+# ============================================
+# 必须参与者（根据 Spec 类型自动强制邀请）
+# ============================================
+required_participants:
+  # 架构变更
+  architecture:
+    high: [architect, tech_lead, product_owner]
+    medium: [architect, tech_lead]
+    low: [architect]
+  
+  # API 变更
+  api:
+    high: [architect, api_owner]
+    medium: [architect, api_owner]
+    low: [api_owner]
+  
+  # 数据模型变更
+  data-model:
+    high: [architect, dba]
+    medium: [architect, dba]
+    low: [architect]
+  
+  # 工作流变更
+  workflow:
+    high: [architect, product_owner]
+    medium: [architect, product_owner]
+    low: [architect]
+  
+  # 门禁规则变更（特殊：需要更严格）
+  review_rules:
+    high: [architect, tech_lead, cto]
+    medium: [architect, tech_lead]
+    low: [architect]
+  
+  # 默认
+  default:
+    high: [architect, tech_lead]
+    medium: [architect]
+    low: [tech_lead]
+
+# ============================================
+# 通过标准
+# ============================================
+approval:
+  # 通过模式: majority_2_3 | simple_majority | unanimous
+  mode: majority_2_3
+  
+  # 最小批准人数
+  min_approvers: 2
+  
+  # 最大拒绝人数（达到此数直接拒绝）
+  max_rejecters: 1
+  
+  # 架构师特殊权限
+  architect:
+    required_approval: true
+    can_veto: true
+    veto_overrides: false
+
+# ============================================
+# 时限规则
+# ============================================
+timeout:
+  # 每人响应时间
+  per_person:
+    duration: 24h
+    reminder_at: 18h
+    
+  # 总评审时间上限
+  total:
+    duration: 72h
+    action_on_timeout: escalate  # close | escalate | auto_approve
+  
+  # 工作时间计算
+  business_hours:
+    enabled: true
+    timezone: "Asia/Shanghai"
+    work_hours: [9, 18]
+    work_days: [1, 2, 3, 4, 5]  # 周一到周五
+
+# ============================================
+# 自动处理规则
+# ============================================
+auto_actions:
+  # 所有人都响应了
+  all_responded:
+    action: finalize
+    finalize_delay: 0h
+  
+  # 达到通过标准
+  threshold_reached:
+    action: finalize
+    finalize_delay: 4h
+  
+  # 有人拒绝
+  rejected:
+    action: notify_author
+    grace_period: 24h
+  
+  # 超时
+  timeout:
+    action: escalate
+    escalate_to: [cto, architect_council]
+
+# ============================================
+# 评审内容检查清单
+# ============================================
+checklist:
+  architecture:
+    - 架构分层是否正确
+    - 是否符合单一职责原则
+    - 是否有更好的替代方案
+  
+  api:
+    - 接口命名是否清晰
+    - 参数设计是否合理
+  
+  implementation:
+    - 实现复杂度是否可控
+    - 是否有现有代码可复用
+  
+  risk:
+    - 对现有系统的影响
+    - 回滚策略
+
+# ============================================
+# 通知规则
+# ============================================
+notifications:
+  author:
+    on_submitted: email
+    on_responded: in_app
+    on_finalized: email
+  
+  participant:
+    on_invited: email
+    on_reminder: in_app
+    on_timeout: email

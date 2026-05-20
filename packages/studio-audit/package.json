@@ -1,0 +1,23 @@
+{
+  "name": "@dommaker/studio-audit",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "studio-audit": "./dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dommaker/studio-shared": "workspace:*",
+    "@dommaker/studio-prisma": "workspace:*",
+    "@dommaker/studio-meeting": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}

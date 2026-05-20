@@ -1,0 +1,432 @@
+{
+  "app": {
+    "title": "Agent Studio",
+    "subtitle": "AI Agent 开发平台"
+  },
+  
+  "nav": {
+    "home": "首页",
+    "tasks": "任务面板",
+    "workflows": "工作流",
+    "workflows_long": "工作流管理",
+    "skills": "技能",
+    "skills_long": "技能管理",
+    "tools": "工具列表",
+    "roles": "角色",
+    "roles_long": "角色管理",
+    "meetings": "会议室",
+    "office": "办公区",
+    "assessments": "考核制度",
+    "issues": "问责制度",
+    "market": "能力市场",
+    "dashboard": "Dashboard",
+    "auditLogs": "审计日志",
+    "backups": "数据备份",
+    "settings": "设置",
+    "advanced": "高级"
+  },
+  
+  "common": {
+    "loading": "加载中...",
+    "error": "错误",
+    "success": "成功",
+    "cancel": "取消",
+    "confirm": "确认",
+    "save": "保存",
+    "delete": "删除",
+    "edit": "编辑",
+    "create": "创建",
+    "search": "搜索",
+    "filter": "筛选",
+    "sort": "排序",
+    "refresh": "刷新",
+    "retry": "重试",
+    "close": "关闭",
+    "submit": "提交",
+    "reset": "重置",
+    "back": "返回",
+    "next": "下一步",
+    "previous": "上一步",
+    "noData": "暂无数据",
+    "all": "全部",
+    "free": "免费",
+    "price": "价格",
+    "rating": "评分",
+    "reviews": "评价",
+    "usageCount": "使用次数",
+    "owner": "发布者"
+  },
+  
+  "theme": {
+    "light": "浅色",
+    "dark": "深色",
+    "system": "跟随系统"
+  },
+  
+  "market": {
+    "title": "能力市场",
+    "subtitle": "浏览、购买和评价市场上的能力",
+    "stats": {
+      "total": "市场能力",
+      "sales": "总销量",
+      "avgRating": "平均评分",
+      "activeTypes": "活跃类型"
+    },
+    "filters": {
+      "type": "类型",
+      "allTypes": "全部类型",
+      "tool": "工具",
+      "step": "步骤",
+      "workflow": "工作流",
+      "rating": "评分",
+      "allRating": "全部评分",
+      "minRating3": "3星及以上",
+      "minRating4": "4星及以上",
+      "minRating45": "4.5星及以上",
+      "sortBy": "排序",
+      "byRating": "按评分排序",
+      "byUsage": "按销量排序",
+      "byPrice": "按价格排序"
+    },
+    "card": {
+      "purchase": "购买",
+      "viewReviews": "查看评价",
+      "confirmPurchase": "确认购买"
+    },
+    "review": {
+      "title": "评价",
+      "writeReview": "发表评价",
+      "score": "评分",
+      "comment": "评价内容（可选）",
+      "submit": "提交评价",
+      "noReviews": "暂无评价"
+    },
+    "purchase": {
+      "title": "购买能力",
+      "success": "购买成功",
+      "failed": "购买失败",
+      "purchasing": "购买中..."
+    },
+    "empty": "暂无市场能力"
+  },
+  
+  "roles": {
+    "title": "角色管理",
+    "subtitle": "管理你的 Agent 团队 - 拟人化角色，像开公司一样开发",
+    "createRole": "创建角色",
+    "editRole": "编辑角色",
+    "deleteRole": "删除角色",
+    "stats": {
+      "total": "总角色数",
+      "active": "在职角色",
+      "avgPerformance": "平均绩效",
+      "promotable": "可晋升"
+    },
+    "fields": {
+      "name": "名称",
+      "type": "类型",
+      "status": "状态",
+      "balance": "余额",
+      "qualityScore": "质量评分",
+      "capabilities": "能力",
+      "company": "所属公司"
+    },
+    "types": {
+      "ceo": "CEO",
+      "architect": "架构师",
+      "developer": "开发",
+      "reviewer": "审核",
+      "tester": "测试",
+      "ops": "运维"
+    },
+    "status": {
+      "active": "活跃",
+      "inactive": "停用",
+      "training": "学习中"
+    }
+  },
+  
+  "assessments": {
+    "title": "考核制度",
+    "subtitle": "六等制考核系统（S/A/B/C/C-/D）",
+    "grade": "等级",
+    "score": "分数",
+    "period": "考核周期",
+    "topPerformers": "优秀角色",
+    "improvementNeeded": "需改进角色",
+    "runAssessment": "执行考核"
+  },
+  
+  "issues": {
+    "title": "问责制度",
+    "subtitle": "问题报告与追责系统",
+    "reportIssue": "报告问题",
+    "issueType": "问题类型",
+    "severity": "严重程度",
+    "assignTo": "分配给",
+    "resolve": "解决",
+    "resolved": "已解决",
+    "pending": "待处理"
+  },
+  
+  "settings": {
+    "title": "设置",
+    "subtitle": "配置 Agent Studio",
+    "language": "语言",
+    "theme": "主题",
+    "apiKeys": "API Keys",
+    "discord": "Discord",
+    "llm": "LLM 配置",
+    "codexApiKey": "Codex API Key",
+    "claudeApiKey": "Claude API Key",
+    "show": "显示",
+    "hide": "隐藏"
+  },
+  
+  "home": {
+    "title": "Agent Studio",
+    "subtitle": "多角色协作的 AI Agent 开发平台",
+    "commandPlaceholder": "输入指令，例如：实现用户登录功能",
+    "analyze": "分析",
+    "execute": "执行",
+    "modify": "修改流程",
+    "recentExecutions": "近期执行",
+    "startNew": "开始新任务",
+    "useLLM": "使用 LLM 智能分析",
+    "commandCenter": "指令中心",
+    "commandSubtitle": "用自然语言描述需求，AI 团队自动完成全流程",
+    "running": "正在进行",
+    "viewAll": "查看全部",
+    "feature": {
+      "intent": "意图识别",
+      "intentDesc": "AI 自动分析需求，匹配最佳执行流程",
+      "orchestration": "自动编排",
+      "orchestrationDesc": "自动调用需求、架构、开发、测试、部署",
+      "feedback": "实时反馈",
+      "feedbackDesc": "查看每个步骤的执行状态和输出结果",
+      "iteration": "快速迭代",
+      "iterationDesc": "一键执行，自动循环直到完成任务"
+    }
+  },
+  
+  "connection": {
+    "connected": "已连接",
+    "disconnected": "未连接"
+  },
+  
+  "workflows": {
+    "title": "工作流管理",
+    "subtitle": "管理和编辑自动化工作流",
+    "templateLibrary": "模板库",
+    "empty": "暂无工作流"
+  },
+  
+  "skills": {
+    "title": "技能管理",
+    "empty": "暂无技能"
+  },
+  
+  "tools": {
+    "title": "工具管理",
+    "empty": "暂无工具"
+  },
+  
+  "auditLogs": {
+    "title": "审计日志",
+    "subtitle": "查看系统操作记录",
+    "stats": {
+      "total": "总日志数",
+      "success": "成功操作",
+      "failure": "失败操作",
+      "successRate": "成功率"
+    },
+    "filters": {
+      "allActions": "全部操作",
+      "allResources": "全部资源",
+      "allStatus": "全部状态",
+      "userIdPlaceholder": "用户 ID"
+    },
+    "status": {
+      "success": "成功",
+      "failure": "失败"
+    },
+    "table": {
+      "time": "时间",
+      "action": "操作",
+      "resource": "资源",
+      "user": "用户",
+      "status": "状态",
+      "ip": "IP",
+      "details": "详情"
+    },
+    "export": "导出",
+    "empty": "暂无审计日志",
+    "viewDetails": "查看",
+    "pagination": "第 {{page}} 页 / 共 {{total}} 页",
+    "detail": {
+      "title": "日志详情",
+      "id": "ID",
+      "time": "时间",
+      "action": "操作",
+      "resource": "资源",
+      "user": "用户",
+      "status": "状态",
+      "details": "操作详情",
+      "changes": "变更记录",
+      "before": "变更前",
+      "after": "变更后",
+      "error": "错误信息"
+    }
+  },
+  
+  "backups": {
+    "title": "数据备份",
+    "subtitle": "管理数据库备份和恢复",
+    "createBackup": "创建备份",
+    "stats": {
+      "total": "总备份数",
+      "completed": "已完成",
+      "totalSize": "总大小",
+      "totalRecords": "总记录数"
+    },
+    "type": {
+      "full": "全量",
+      "partial": "部分"
+    },
+    "table": {
+      "time": "时间",
+      "type": "类型",
+      "size": "大小",
+      "records": "记录数",
+      "duration": "耗时",
+      "trigger": "触发",
+      "status": "状态",
+      "actions": "操作"
+    },
+    "download": "下载",
+    "restore": "恢复",
+    "empty": "暂无备份",
+    "confirmDelete": "确定要删除这个备份吗？",
+    "form": {
+      "type": "备份类型",
+      "description": "描述（可选）",
+      "descriptionPlaceholder": "备份描述..."
+    },
+    "creating": "创建中...",
+    "create": "创建",
+    "restoreBackup": "恢复备份",
+    "restoreWarning": "警告：恢复备份将覆盖现有数据。建议先创建当前数据的备份。",
+    "restoring": "恢复中...",
+    "confirmRestore": "确认恢复"
+  },
+  
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "系统运行状态与业务统计",
+    "tabs": {
+      "overview": "概览",
+      "grafana": "Grafana"
+    },
+    "systemStatus": "系统状态",
+    "uptime": "运行时间",
+    "memory": "内存使用",
+    "memoryPercent": "内存占用",
+    "alerts": "告警",
+    "noAlerts": "暂无告警",
+    "stats": {
+      "roles": "角色",
+      "companies": "公司",
+      "workflows": "工作流",
+      "executions": "执行",
+      "successRate": "成功率",
+      "avgRating": "平均评分",
+      "auditLogs": "审计日志",
+      "capabilities": "能力",
+      "documents": "文档"
+    },
+    "todayStats": "今日统计",
+    "recentActivity": "最近活动",
+    "noActivity": "暂无活动",
+    "collapse": "收起",
+    "expand": "展开"
+  },
+  
+  "versions": {
+    "title": "版本管理",
+    "subtitle": "管理工作流版本历史",
+    "currentVersion": "当前版本",
+    "backToWorkflows": "返回工作流列表",
+    "saveNew": "保存新版本",
+    "compare": "对比",
+    "selectV1": "选择版本1",
+    "selectV2": "选择版本2",
+    "loadError": "加载版本失败",
+    "empty": "暂无版本记录",
+    "current": "当前",
+    "createdAt": "创建时间",
+    "createdBy": "创建者",
+    "description": "描述",
+    "rollbackFrom": "回滚来源",
+    "rollback": "回滚",
+    "view": "查看",
+    "nodes": "节点",
+    "edges": "连线",
+    "diffTitle": "版本对比",
+    "nodesAdded": "新增节点",
+    "nodesRemoved": "移除节点",
+    "nodesModified": "修改节点",
+    "rollbackTitle": "版本回滚",
+    "rollbackConfirm": "确定要回滚到版本",
+    "rollbackNote": "回滚后当前版本将被保存为新版本，工作流将恢复到目标版本的状态。",
+    "confirmRollback": "确认回滚"
+  },
+  
+  "skillVersions": {
+    "title": "技能版本管理",
+    "subtitle": "基于 Git 的版本历史",
+    "currentVersion": "当前版本",
+    "backToSkills": "返回技能列表",
+    "compare": "对比",
+    "selectV1": "选择版本1",
+    "selectV2": "选择版本2",
+    "loadError": "加载版本历史失败",
+    "empty": "暂无版本记录",
+    "noGitHistory": "此步骤可能未提交到 Git 仓库",
+    "latest": "最新",
+    "author": "作者",
+    "date": "日期",
+    "view": "查看",
+    "checkout": "检出",
+    "versionContent": "版本内容",
+    "name": "名称",
+    "description": "描述",
+    "versionField": "版本号",
+    "agent": "Agent",
+    "tools": "工具",
+    "yamlContent": "YAML 内容",
+    "diffTitle": "版本对比",
+    "additions": "新增行",
+    "deletions": "删除行",
+    "fieldChanges": "字段变更",
+    "gitDiff": "Git Diff",
+    "checkoutTitle": "检出版本",
+    "checkoutConfirm": "确定要检出版本",
+    "checkoutNote": "检出将覆盖当前文件内容，恢复到该版本的状态。",
+    "confirmCheckout": "确认检出"
+  },
+  
+  "workflowImportExport": {
+    "import": "导入",
+    "importing": "导入中...",
+    "export": "导出",
+    "exportAll": "导出全部",
+    "exporting": "导出中...",
+    "importResult": "导入结果",
+    "imported": "已导入",
+    "skipped": "已跳过",
+    "errors": "导入失败",
+    "selectFile": "选择文件",
+    "invalidFormat": "无效的导入格式",
+    "noWorkflows": "没有工作流可导出"
+  }
+}

@@ -1,0 +1,12 @@
+@import "tailwindcss";
+
+/* React Flow 节点样式 */
+.react-flow__node {
+  cursor: grab;
+}
+
+.react-flow__node:active {
+  cursor: grabbing;
+}
+
+/* 其他组件样式 */

@@ -1,0 +1,326 @@
+/* 状态变化动画 - 动态过渡效果 */
+
+/* ==================== 基础动画定义 ==================== */
+
+/* 淡入淡出 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* 滑入滑出 */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes slideOut {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+}
+
+/* 缩放 */
+@keyframes scaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes scaleOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+/* 脉冲效果 */
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* 旋转加载 */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 弹跳 */
+@keyframes bounce {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-5px);
+  }
+}
+
+/* 闪烁 */
+@keyframes blink {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ==================== 状态特定动画 ==================== */
+
+/* 状态：运行中 */
+@keyframes statusRunning {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 212, 255, 0.4);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(0, 212, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 212, 255, 0);
+  }
+}
+
+/* 状态：成功 */
+@keyframes statusSuccess {
+  0% {
+    background-color: rgba(16, 185, 129, 0.1);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+/* 状态：失败 */
+@keyframes statusFailed {
+  0%, 100% {
+    transform: translateX(0);
+  }
+  20%, 60% {
+    transform: translateX(-3px);
+  }
+  40%, 80% {
+    transform: translateX(3px);
+  }
+}
+
+/* 状态：警告 */
+@keyframes statusWarning {
+  0%, 100% {
+    background-color: rgba(245, 158, 11, 0.1);
+  }
+  50% {
+    background-color: rgba(245, 158, 11, 0.2);
+  }
+}
+
+/* ==================== 动画类 ==================== */
+
+/* 基础动画类 */
+.animate-fadeIn {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.animate-fadeOut {
+  animation: fadeOut 0.3s ease-out;
+}
+
+.animate-slideIn {
+  animation: slideIn 0.3s ease-out;
+}
+
+.animate-slideOut {
+  animation: slideOut 0.3s ease-out;
+}
+
+.animate-scaleIn {
+  animation: scaleIn 0.2s ease-out;
+}
+
+.animate-scaleOut {
+  animation: scaleOut 0.2s ease-out;
+}
+
+/* 状态动画类 */
+.animate-running {
+  animation: statusRunning 1.5s infinite;
+}
+
+.animate-success {
+  animation: statusSuccess 1s ease-out;
+}
+
+.animate-failed {
+  animation: statusFailed 0.4s ease-out;
+}
+
+.animate-warning {
+  animation: statusWarning 2s infinite;
+}
+
+/* 加载动画 */
+.animate-pulse {
+  animation: pulse 1.5s infinite;
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+.animate-bounce {
+  animation: bounce 1s infinite;
+}
+
+.animate-blink {
+  animation: blink 1s infinite;
+}
+
+/* ==================== 过渡效果 ==================== */
+
+/* 通用过渡 */
+.transition-all {
+  transition: all 0.3s ease;
+}
+
+.transition-colors {
+  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.transition-opacity {
+  transition: opacity 0.2s ease;
+}
+
+.transition-transform {
+  transition: transform 0.2s ease;
+}
+
+/* 快速过渡 */
+.transition-fast {
+  transition: all 0.15s ease;
+}
+
+/* 慢速过渡 */
+.transition-slow {
+  transition: all 0.5s ease;
+}
+
+/* ==================== 组件特定动画 ==================== */
+
+/* 卡片悬停 */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+}
+
+/* 按钮点击 */
+.btn-click {
+  transition: transform 0.1s ease;
+}
+
+.btn-click:active {
+  transform: scale(0.98);
+}
+
+/* 输入框聚焦 */
+.input-focus {
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.input-focus:focus {
+  box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.2);
+}
+
+/* 列表项进入 */
+.list-item-enter {
+  animation: slideIn 0.3s ease-out;
+}
+
+/* 消息气泡 */
+.message-bubble {
+  animation: scaleIn 0.2s ease-out;
+}
+
+/* 角色状态切换 */
+.role-status-change {
+  transition: all 0.3s ease;
+}
+
+/* 任务卡片状态变化 */
+.task-status-change {
+  transition: background-color 0.3s ease, border-color 0.3s ease;
+}
+
+/* ==================== 减少动画偏好 ==================== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ==================== 性能优化 ==================== */
+
+/* 启用硬件加速 */
+.gpu-accelerated {
+  transform: translateZ(0);
+  will-change: transform;
+}
+
+/* 平滑滚动 */
+.smooth-scroll {
+  scroll-behavior: smooth;
+}
+
+/* 内容渲染优化 */
+.optimize-render {
+  content-visibility: auto;
+}

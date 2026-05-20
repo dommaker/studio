@@ -1,0 +1,66 @@
+{
+  "name": "@dommaker/studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agent Studio - Multi-Agent Collaboration Platform",
+  "bin": {
+    "studio": "./bin/studio"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    
+    "=== 开发环境 ===": "",
+    "dev:start": "./scripts/dev/start.sh",
+    "dev:stop": "./scripts/dev/stop.sh",
+    "dev:status": "./scripts/dev/status.sh",
+    "dev:logs": "./scripts/dev/logs.sh",
+    
+    "=== 生产环境 ===": "",
+    "start": "npx tsx apps/api/src/index.ts",
+    "prod:build": "./scripts/prod/build-prod.sh",
+    "prod:deploy": "./scripts/prod/deploy.sh",
+    
+    "=== 数据库 ===": "",
+    "db:generate": "pnpm --filter studio-prisma db:generate",
+    "db:migrate": "pnpm --filter studio-prisma db:migrate",
+    "db:migrate:prod": "pnpm --filter studio-prisma db:migrate:prod",
+    "db:studio": "pnpm --filter studio-prisma db:studio",
+    
+    "=== 单独启动 ===": "",
+    "dev:api": "pnpm --filter @dommaker/studio-api dev",
+    "dev:web": "pnpm --filter @dommaker/studio-web dev",
+    "build:api": "pnpm --filter @dommaker/studio-api build",
+    "build:web": "pnpm --filter @dommaker/studio-web build",
+    "test:api": "pnpm --filter @dommaker/studio-api test",
+    
+    "=== 工具脚本 ===": "",
+    "tools:health": "./scripts/tools/health-check.sh",
+    "tools:status": "./scripts/tools/status.sh",
+    "tools:validate": "./scripts/tools/validate-env.sh",
+
+    "=== 架构检查 ===": "",
+    "architect:check": "npx tsx scripts/tools/architect-check.ts",
+    "spec:gate": "npx tsx scripts/tools/spec-gate.ts --verbose",
+    "cross-project:check": "npx tsx scripts/tools/cross-project-check.ts",
+    "harness:coverage": "npx tsx scripts/tools/harness-coverage.ts",
+    "doc:sync-check": "bash scripts/check-doc-sync.sh",
+    "doc:diff": "npx tsx scripts/tools/arch-doc-diff.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "packageManager": "pnpm@8.0.0"
+}
