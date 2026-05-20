@@ -45,29 +45,6 @@ model ApiKey {
   @@index([userId])
 }
 
-model Assessment {
-  id           String   @id @default(cuid())
-  roleId       String
-  type         String
-  period       String
-  metrics      String
-  totalScore   Float    @default(0)
-  grade        String   @default("C")
-  qualityBonus Float    @default(0)
-  salaryChange Int      @default(0)
-  levelChange  Int      @default(0)
-  status       String   @default("completed")
-  notes        String?
-  createdAt    DateTime @default(now())
-  Role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@unique([roleId, type, period])
-  @@index([grade])
-  @@index([period])
-  @@index([roleId])
-  @@index([type])
-}
-
 model AuditLog {
   id           String   @id @default(cuid())
   userId       String?
@@ -539,22 +516,6 @@ model AgentSubscription {
   @@index([agentType])
 }
 
-model Performance {
-  id           String   @id @default(cuid())
-  roleId       String
-  month        String
-  tasksCount   Int      @default(0)
-  qualityAvg   Float    @default(0)
-  satisfaction Float    @default(0)
-  notes        String?
-  createdAt    DateTime @default(now())
-  Role         Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@unique([roleId, month])
-  @@index([month])
-  @@index([roleId])
-}
-
 model Review {
   id            String   @id @default(cuid())
   reviewerId    String
@@ -585,11 +546,9 @@ model Role {
   avatar             String?
   personality        String?
   level              Int                  @default(1)
-  experience         Int                  @default(0)
   capabilityLimit    Int                  @default(10)
   salary             Int                  @default(5000)
   balance            Int                  @default(0)
-  debt               Int                  @default(0)
   tasksCompleted     Int                  @default(0)
   qualityScore       Float                @default(0)
   satisfactionRate   Float                @default(0)
@@ -605,13 +564,9 @@ model Role {
   joinedAt           DateTime?
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
-  Assessment         Assessment[]
-  Demotion           Demotion[]
   Execution          Execution[]
   MeetingMessage     MeetingMessage[]
   MeetingParticipant MeetingParticipant[]
-  Performance        Performance[]
-  PromotionRequest   PromotionRequest[]
   Company            Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   ClaimedTasks       Task[]
   CreatedDocuments   Document[]           @relation("DocumentCreator")
@@ -818,151 +773,6 @@ model Notification {
   @@index([userId])
   @@index([read])
   @@index([createdAt])
-}
-
-model PromotionRequest {
-  id            String    @id @default(cuid())
-  roleId        String
-  companyId     String
-  currentLevel  Int
-  targetLevel   Int
-  statement     String?
-  achievements  String?
-  metrics       String?
-  status        String    @default("pending")
-  reviewedBy    String?
-  reviewedAt    DateTime?
-  reviewOpinion String?
-  reviewScore   Float?
-  windowMonth   String
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  Role          Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@unique([roleId, windowMonth])
-  @@index([companyId, status])
-  @@index([status])
-  @@index([windowMonth])
-  @@index([createdAt])
-}
-
-model Demotion {
-  id           String    @id @default(cuid())
-  roleId       String
-  companyId    String
-  fromLevel    Int
-  toLevel      Int
-  reason       String
-  status       String    @default("pending")
-  confirmedAt  DateTime?
-  confirmedBy  String?
-  cancelledAt  DateTime?
-  cancelledBy  String?
-  cancelReason String?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  Role         Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@index([status])
-  @@index([roleId])
-  @@index([companyId])
-  @@index([createdAt])
-}
-
-// AR-009: 降级提案流程（TD-001 完整实现）
-model DemotionProposal {
-  id           String    @id @default(cuid())
-  agentId      String
-  triggerType  String    // AUTO | MANUAL
-  triggerData  String?
-  fromLevel    Int
-  toLevel      Int
-  demotionLevel Int
-  reason       String
-  status       String    @default("PENDING") // PENDING | IN_REVIEW | APPROVED | REJECTED | APPEALING | EXECUTED | CANCELLED
-  effectiveDate DateTime?
-  createdBy    String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  ApprovalFlow ApprovalFlow?
-  DemotionExecution DemotionExecution?
-  Appeal       Appeal?
-
-  @@index([agentId])
-  @@index([status])
-  @@index([triggerType])
-  @@index([createdAt])
-  @@map("demotion_proposal")
-}
-
-model ApprovalFlow {
-  id           String    @id @default(cuid())
-  proposalId   String    @unique
-  totalSteps   Int
-  decisions    String
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  DemotionProposal DemotionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-  Approver     Approver[]
-
-  @@index([proposalId])
-  @@map("approval_flow")
-}
-
-model Approver {
-  id         String    @id @default(cuid())
-  flowId     String
-  userId     String
-  role       String    // manager | hr | director | vp | ceo | delegated
-  step       Int
-  status     String    @default("PENDING") // PENDING | APPROVED | REJECTED | DELEGATED
-  comment    String?
-  decidedAt  DateTime?
-  createdAt  DateTime  @default(now())
-  ApprovalFlow ApprovalFlow @relation(fields: [flowId], references: [id], onDelete: Cascade)
-
-  @@unique([flowId, userId])
-  @@index([flowId])
-  @@index([status])
-  @@map("approver")
-}
-
-model DemotionExecution {
-  id               String    @id @default(cuid())
-  proposalId       String    @unique
-  roleUpdated      Boolean   @default(false)
-  salaryUpdated    Boolean   @default(false)
-  permissionsUpdated Boolean @default(false)
-  oldLevel         Int
-  newLevel         Int
-  oldSalary        Int
-  newSalary        Int
-  executedAt       DateTime  @default(now())
-  executedBy       String
-  DemotionProposal DemotionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-
-  @@index([proposalId])
-  @@map("demotion_execution")
-}
-
-model Appeal {
-  id            String    @id @default(cuid())
-  proposalId    String    @unique
-  reason        String
-  evidence      String
-  requestedOutcome String // overturn | reduce | delay
-  status        String    @default("SUBMITTED") // SUBMITTED | ACCEPTED | REJECTED | REDUCED
-  deadline      DateTime
-  reviewedAt    DateTime?
-  reviewedBy    String?
-  reviewComment String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  DemotionProposal DemotionProposal @relation(fields: [proposalId], references: [id], onDelete: Cascade)
-
-  @@index([proposalId])
-  @@index([status])
-  @@map("appeal")
 }
 
 model Project {
