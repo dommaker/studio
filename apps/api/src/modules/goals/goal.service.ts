@@ -10,6 +10,8 @@ import { logger, modelGateway, type ModelTier } from '@dommaker/studio-shared';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
 import { beforeGoalCreate, checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { reviewAgent } from '../agents/review-agent.service.js';
+import { recordPipelineRun } from '../../daemon/metrics.js';
+import { AuditService } from '@dommaker/studio-audit';
 import { deployAgent } from '../agents/deploy-agent.service.js';
 import { triageAgent } from '../agents/triage-agent.service.js';
 import * as path from 'path';
@@ -763,6 +765,74 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       }
     } catch (e) {
       logger.warn('[Goal] Deploy check failed (non-blocking)', { error: String(e) });
+    }
+
+    // P0.2: 管线总结 + 指标记录 + 审计日志
+    await this.recordGoalCompletion(goalId);
+  }
+
+  /** 记录 Goal 完成指标、审计日志、生成总结 */
+  private async recordGoalCompletion(goalId: string): Promise<void> {
+    try {
+      const goal = await prisma.goal.findUnique({ where: { id: goalId } });
+      if (!goal) return;
+
+      // 汇总所有 execution 的 PipelineRun 数据
+      const runs = await prisma.pipelineRun.findMany({
+        where: { sessionId: { in: (await prisma.goalExecution.findMany({
+          where: { goalId },
+          select: { id: true },
+        })).map(e => e.id) } },
+      });
+
+      const totalInputTokens = runs.reduce((s, r) => s + r.inputTokens, 0);
+      const totalOutputTokens = runs.reduce((s, r) => s + r.outputTokens, 0);
+      const totalDurationMs = runs.reduce((s, r) => s + r.durationMs, 0);
+      const totalSessions = runs.length;
+      const successCount = runs.filter(r => r.success).length;
+
+      // 记录全管线 PipelineRun
+      await recordPipelineRun({
+        source: 'pipeline', phase: 'full',
+        taskName: goal.title,
+        model: 'summary',
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        cacheHitTokens: runs.reduce((s, r) => s + r.cacheHitTokens, 0),
+        durationMs: totalDurationMs,
+        success: goal.status === 'succeeded',
+        testPassed: successCount === totalSessions,
+      });
+
+      // 审计日志
+      try {
+        const auditService = new AuditService(prisma);
+        await auditService.log({
+          action: 'goal_completed',
+          resource: 'goal',
+          resourceId: goalId,
+          details: {
+            title: goal.title,
+            status: goal.status,
+            totalInputTokens,
+            totalOutputTokens,
+            totalDurationMs,
+            totalSessions,
+            successCount,
+          },
+          status: 'success',
+        });
+      } catch { /* non-blocking */ }
+
+      logger.info('[Goal] Pipeline summary recorded', {
+        goalId,
+        title: goal.title,
+        sessions: totalSessions,
+        tokens: { input: totalInputTokens, output: totalOutputTokens },
+        durationMs: totalDurationMs,
+      });
+    } catch (e) {
+      logger.warn('[Goal] Failed to record completion metrics', { goalId, error: String(e) });
     }
   }
 

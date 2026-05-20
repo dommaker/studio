@@ -14,6 +14,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { skillLoader } from '@dommaker/studio-skill';
+import { recordPipelineRun } from '../../daemon/metrics.js';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { goalService, GoalStep, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
@@ -478,10 +479,24 @@ export class GoalScheduler {
       if (result.success) {
         // 直接标记成功（不依赖 Redis 事件链保证可靠性）
         await goalService.updateStepExecution(executionId, { status: 'succeeded' });
+        // 记录 PipelineRun 指标
+        recordPipelineRun({
+          source: 'pipeline', phase: 'executor',
+          taskName: goal.title,
+          model: result.model || (typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard'),
+          inputTokens: result.totalTokens?.input || 0,
+          outputTokens: result.totalTokens?.output || 0,
+          cacheHitTokens: result.totalTokens?.cacheHit || 0,
+          durationMs: result.totalDurationMs || dispatchDuration,
+          success: true,
+          sessionId: executionId,
+        }).catch(() => { /* non-blocking */ });
         // M1: agent 冷启动到完成的全链路耗时
         logger.info('[GoalScheduler] Agent succeeded', {
           executionId,
+          goalId: goal.id,
           sessionCount: result.sessionCount,
+          tokens: result.totalTokens,
           dispatchDurationMs: dispatchDuration,
           tier,
           strategy,
@@ -491,8 +506,21 @@ export class GoalScheduler {
           status: 'failed',
           error: result.error || 'Agent execution failed',
         });
+        recordPipelineRun({
+          source: 'pipeline', phase: 'executor',
+          taskName: goal.title,
+          model: typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard',
+          inputTokens: result.totalTokens?.input || 0,
+          outputTokens: result.totalTokens?.output || 0,
+          cacheHitTokens: result.totalTokens?.cacheHit || 0,
+          durationMs: result.totalDurationMs || dispatchDuration,
+          success: false,
+          error: result.error || 'Agent execution failed',
+          sessionId: executionId,
+        }).catch(() => { /* non-blocking */ });
         logger.warn('[GoalScheduler] Agent failed', {
           executionId,
+          goalId: goal.id,
           error: result.error,
           dispatchDurationMs: dispatchDuration,
           tier,
