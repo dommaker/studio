@@ -19,10 +19,6 @@ export interface HookConfig {
 }
 
 const DEFAULTS: HookConfig[] = [
-  // Meeting phase
-  { name: 'afterMeetingDecision', enabled: true, blocking: true },
-  { name: 'afterRequirementsDoc', enabled: true, blocking: false },
-
   // Goal phase
   { name: 'beforeGoalCreate', enabled: true, blocking: false },       // Phase 5: 非阻断（Guideline 级别）
   { name: 'beforeAgentDispatch', enabled: true, blocking: false },    // 非阻断（Guideline 级别）

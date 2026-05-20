@@ -336,182 +336,6 @@ model IssueReport {
   @@index([type])
 }
 
-model Meeting {
-  id                 String               @id @default(cuid())
-  title              String
-  description        String?
-  status             String               @default("pending")
-  topic              String?
-  summary            String?
-  decisions          String?
-  actionItems        String?                 // 结构化待办: [{content, assigneeRoleId, dueDate, status}]
-  keyFindings        String?                 // 关键发现: [{finding, importance, relatedTopic}]
-  mode               String               @default("sync")
-  maxRounds          Int                  @default(3)
-  autoEndMinutes     Int                  @default(30)
-  responseTimeout    Int                  @default(60)
-  companyId          String
-  source             String               @default("api")
-  sourceChannelId    String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  startedAt          DateTime?
-  completedAt        DateTime?
-  isSensitive        Boolean              @default(false)
-  relatedWorkflowId  String?
-  taskId             String?
-  constraintLevel    String               @default("L2")
-  discussionMode     String?
-  discussionStatus   String?
-  riskAssessment     String?                 // 风险评估结果: {level, score, reasons, requiresConfirmation}
-  discussionTaskId   String?
-  discussionTopic    String?
-  outputProjectId    String?
-  projectId          String?
-  pendingQuestions   String?
-  OutputProject      Project?             @relation("MeetingOutput", fields: [outputProjectId], references: [id])
-  Project            Project?             @relation(fields: [projectId], references: [id])
-  MeetingMessage     MeetingMessage[]
-  MeetingParticipant MeetingParticipant[]
-  SpecReview         SpecReview?
-  Tasks              Task[]
-  Topic              Topic[]
-  ExecutionPlan      ExecutionPlan[]
-
-  @@index([companyId, status])
-  @@index([createdAt])
-  @@index([relatedWorkflowId])
-  @@index([taskId])
-  @@index([constraintLevel])
-  @@index([source])
-  @@index([discussionStatus])
-  @@index([projectId])
-  @@index([outputProjectId])
-}
-
-model MeetingMessage {
-  id                 String              @id @default(cuid())
-  meetingId          String
-  participantId      String?
-  roleId             String
-  content            String
-  messageType        String              @default("speech")
-  round              Int                 @default(1)
-  stance             String?
-  metadata           String?
-  createdAt          DateTime            @default(now())
-  Meeting            Meeting             @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  MeetingParticipant MeetingParticipant? @relation(fields: [participantId], references: [id])
-  Role               Role                @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@index([meetingId, createdAt])
-  @@index([roleId])
-  @@index([round])
-}
-
-model MeetingParticipant {
-  id             String           @id @default(cuid())
-  meetingId      String
-  roleId         String
-  stance         String
-  status         String           @default("invited")
-  joinedAt       DateTime?
-  locked         Boolean          @default(false)
-  lockedBy       String?
-  lockedAt       DateTime?
-  declineReason  String?
-  inviteStatus   String           @default("pending")
-  invitedAt      DateTime         @default(now())
-  respondedAt    DateTime?
-  MeetingMessage MeetingMessage[]
-  Meeting        Meeting          @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  Role           Role             @relation(fields: [roleId], references: [id], onDelete: Cascade)
-
-  @@unique([meetingId, roleId])
-  @@index([inviteStatus])
-  @@index([locked])
-  @@index([meetingId])
-  @@index([roleId])
-}
-
-// §12.10: 三层 Agent 架构 - 会议议题线程
-model Topic {
-  id          String   @id @default(cuid())
-  meetingId   String
-  title       String
-  description String?
-  status      String   @default("open")     // open/discussing/decided/closed
-  priority    Int      @default(0)
-  decidedAt   DateTime?
-  decision    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  Meeting              Meeting              @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  ExecutionPlan        ExecutionPlan[]
-  AgentSubscription    AgentSubscription[]
-
-  @@index([meetingId])
-  @@index([status])
-}
-
-// §12.10: Orchestrator 写入的执行计划
-model ExecutionPlan {
-  id          String   @id @default(cuid())
-  topicId     String?
-  meetingId   String
-  status      String   @default("pending")  // pending/assigned/running/completed/failed
-  plan        String                            // {steps: [{agent, task, dependencies}]}
-  assignedTo  String?                         // AgentRouter 分配的 agent
-  priority    Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  startedAt   DateTime?
-  completedAt DateTime?
-
-  Topic    Topic?   @relation(fields: [topicId], references: [id])
-  Meeting  Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
-  ExecutionResult ExecutionResult?
-
-  @@index([meetingId])
-  @@index([status])
-  @@index([assignedTo])
-  @@index([status, priority])
-}
-
-// §12.10: AgentRouter 写入的执行结果
-model ExecutionResult {
-  id              String   @id @default(cuid())
-  planId          String   @unique
-  agentType       String                          // codex/claude/opencode
-  status          String                          // success/failed/timeout
-  output          String?                           // 执行输出
-  tokenUsage      String?                           // {input, output, total}
-  durationMs      Int?
-  error           String?
-  createdAt       DateTime @default(now())
-
-  ExecutionPlan ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@index([planId])
-  @@index([status])
-}
-
-// §12.10: Agent 订阅感兴趣的议题类型
-model AgentSubscription {
-  id          String   @id @default(cuid())
-  agentType   String                          // codex/claude/opencode
-  topicType   String                          // requirement/design/code/review
-  priority    Int      @default(0)
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-
-  Topic Topic? @relation(fields: [topicType], references: [id])
-
-  @@unique([agentType, topicType])
-  @@index([agentType])
-}
-
 model Review {
   id            String   @id @default(cuid())
   reviewerId    String
@@ -561,8 +385,6 @@ model Role {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   Execution          Execution[]
-  MeetingMessage     MeetingMessage[]
-  MeetingParticipant MeetingParticipant[]
   Company            Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
   ClaimedTasks       Task[]
   CreatedDocuments   Document[]           @relation("DocumentCreator")
@@ -669,7 +491,6 @@ model UserProfile {
 model SpecReview {
   id                 String               @id @default(cuid())
   workflowId         String?
-  meetingId          String?              @unique
   title              String
   description        String?
   changes            String
@@ -684,7 +505,6 @@ model SpecReview {
   reviewedBy         String?
   comment            String?
   SpecBypass         SpecBypass?
-  Meeting            Meeting?             @relation(fields: [meetingId], references: [id])
   SpecReviewApproval SpecReviewApproval[]
   SpecVersions       SpecVersion[]
 
@@ -692,7 +512,6 @@ model SpecReview {
   @@index([status])
   @@index([changeType])
   @@index([createdAt])
-  @@index([meetingId])
 }
 
 model SpecReviewApproval {
@@ -789,8 +608,6 @@ model Project {
   completedAt    DateTime?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
-  OutputMeetings Meeting[] @relation("MeetingOutput")
-  Meetings       Meeting[]
   Tasks          Task[]
   Documents      Document[] // 🆕 知识库文档关联
   Company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
@@ -846,7 +663,6 @@ model Document {
 model Task {
   id                 String     @id @default(cuid())
   projectId          String
-  meetingId          String?
   name               String
   description        String?
   assignee           String
@@ -865,14 +681,12 @@ model Task {
   updatedAt          DateTime   @updatedAt
   ClaimedBy          Role?      @relation(fields: [claimedBy], references: [id])
   Execution          Execution? @relation(fields: [executionId], references: [id])
-  Meeting            Meeting?   @relation(fields: [meetingId], references: [id])
   Project            Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([assignee])
   @@index([priority])
   @@index([status])
   @@index([projectId])
-  @@index([meetingId])
   @@index([claimedBy])
   @@index([projectId, status])
 }

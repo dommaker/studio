@@ -1,5 +1,5 @@
 // 首页 - 公司大厅（科幻极简风）
-import { api, projectApi, meetingApi } from '../api';
+import { projectApi } from '../api';
 import type { ExecutionState, IntentAnalysis, ThinkingMessage, Execution } from '../types';
 import { CompanyHall } from '../components/CompanyHall';
 import { HomeSkeleton } from '../components/HomeSkeleton';
@@ -24,11 +24,10 @@ interface HomeProps {
   onRetryTask?: (id: string) => Promise<void>;
   onViewDetails: (execution: ExecutionState) => void;
   onDeleteTask?: (id: string) => Promise<void>;
-  onMeetingCreated?: (meetingId: string) => void;
 }
 
 export function Home(props: HomeProps) {
-  const { isAnalyzing, onCommandSubmit, onMeetingCreated } = props;
+  const { isAnalyzing, onCommandSubmit } = props;
   
   // 🆕 使用聚合 hook（优化首屏加载）
   const { data, loading } = useDashboardData({ refreshInterval: 30000 });
@@ -50,62 +49,14 @@ export function Home(props: HomeProps) {
         return onCommandSubmit(command, useLLM);
       }
 
-      // create/auto: 创建 Project → Meeting → DiscussionDriver
-      // 2. 创建 Project
+      // 创建项目后降级到原有逻辑
       const { data: project } = await projectApi.create({
         companyId: defaultCompanyId,
         title: command.slice(0, 50),
         requirement: command,
       });
 
-      // 3. 创建 Meeting
-      const meetingRes = await meetingApi.create({
-        title: `评审: ${project.pmoNumber}`,
-        topic: command,
-        companyId: defaultCompanyId,
-        mode: 'sync',
-        maxRounds: 3,
-      });
-      const meeting = meetingRes.data.data;
-
-      // 4. 关联 Meeting 和 Project
-      await projectApi.linkMeeting(meeting.id, project.id);
-
-      // 5. 推荐角色并邀请
-      const rolesRes = await api.get(`/meetings/recommend-roles`, {
-        params: { topic: command, companyId: defaultCompanyId },
-      });
-      const recommendedRoles = rolesRes.data?.recommendedRoles || [];
-
-      let roleIds: string[] = [];
-      if (recommendedRoles.length > 0) {
-        roleIds = recommendedRoles.slice(0, 5).map((r: any) => r.id);
-      } else {
-        const allRolesRes = await api.get(`/roles`, {
-          params: { companyId: defaultCompanyId, limit: 5 },
-        });
-        const allRoles = allRolesRes.data?.data || [];
-        roleIds = allRoles.map((r: any) => r.id);
-      }
-
-      for (const roleId of roleIds) {
-        await api.post(`/meetings/${meeting.id}/participants`, { roleId });
-      }
-
-      // 6. 启动会议
-      await meetingApi.start(meeting.id);
-
-      // 7. 启动 DiscussionDriver
-      await meetingApi.runDiscussion(meeting.id, {
-        mode: 'auto',
-        topic: command,
-        maxRounds: 3,
-      });
-
-      // 8. 回调通知
-      if (onMeetingCreated) {
-        onMeetingCreated(meeting.id);
-      }
+      return onCommandSubmit(command, useLLM);
     } catch (error) {
       console.error('FL-001 CEO 指令串联失败:', error);
       return onCommandSubmit(command, useLLM);

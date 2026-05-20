@@ -16,7 +16,6 @@ interface Decision {
 }
 
 interface RecommendNextStepsProps {
-  meetingId: string;
   summary?: string;
   decisions?: Decision[];
 }
@@ -35,7 +34,7 @@ const WORKFLOW_KEYWORDS: Record<string, { workflowId: string; name: string; icon
   '对比': { workflowId: 'wf-compare', name: '版本对比', icon: '📊' },
 };
 
-export function RecommendNextSteps({ meetingId, summary, decisions }: RecommendNextStepsProps) {
+export function RecommendNextSteps({ summary, decisions }: RecommendNextStepsProps) {
   const [recommendations, setRecommendations] = useState<Array<{
     workflowId: string;
     name: string;
@@ -71,7 +70,7 @@ export function RecommendNextSteps({ meetingId, summary, decisions }: RecommendN
           checkedWorkflows.add(workflow.workflowId);
           recs.push({
             ...workflow,
-            reason: `会议总结中提到"${keyword}"`,
+            reason: `总结中提到"${keyword}"`,
           });
         }
       });
@@ -108,7 +107,7 @@ export function RecommendNextSteps({ meetingId, summary, decisions }: RecommendN
         {recommendations.map((rec) => (
           <Link
             key={rec.workflowId}
-            to={`/workflows/${rec.workflowId}/run?fromMeeting=${meetingId}`}
+            to={`/workflows/${rec.workflowId}/run`}
             className="block p-3 rounded transition-colors hover:bg-[var(--bg-hover)]"
             style={{ background: 'var(--bg-primary)' }}
           >

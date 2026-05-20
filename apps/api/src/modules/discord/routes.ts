@@ -65,25 +65,6 @@ function verifyDiscordSignature(
 }
 
 /**
- * 继续执行会议流程
- */
-async function proceedWithBranchCreation(meetingId: string): Promise<void> {
-  logger.info({ meetingId }, 'Proceeding with branch creation');
-
-  await prisma.meeting.update({
-    where: { id: meetingId },
-    data: { discussionStatus: 'confirmed', status: 'completed' },
-  });
-
-  await redis.publish('events:meeting', JSON.stringify({
-    event_type: 'meeting.confirmed',
-    data: { meetingId, confirmedBy: 'discord_button', timestamp: new Date().toISOString() },
-  }));
-
-  logger.info({ meetingId }, 'Meeting confirmed, event published');
-}
-
-/**
  * POST /api/v1/discord/interactions
  *
  * 签名验证优先：Discord 会先发无效签名请求来检测服务器是否做验证，
@@ -336,18 +317,9 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
     logger.info({ action, targetId }, '[Discord] Button clicked');
 
     try {
-      if (action === 'confirm') {
-        await proceedWithBranchCreation(targetId);
-        res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `✅ 会议已确认执行` } });
-        return;
-      }
-
-      if (action === 'reject') {
-        await prisma.meeting.update({
-          where: { id: targetId },
-          data: { discussionStatus: 'rejected', status: 'completed' },
-        });
-        res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ 会议已拒绝执行` } });
+      if (action === 'confirm' || action === 'reject') {
+        logger.info('[Discord] Meeting action ignored (meeting module removed)', { action, targetId });
+        res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `会议操作已忽略（Meeting 模块已移除）` } });
         return;
       }
 

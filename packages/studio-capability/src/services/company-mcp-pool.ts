@@ -8,8 +8,6 @@
  * 4. 敏感信息管理
  */
 
-import type { ContextSharer } from '@dommaker/studio-meeting';
-
 // ==================== 类型定义 ====================
 
 /**
@@ -130,16 +128,12 @@ export interface MCPUsageRecord {
  * MCP 配置
  */
 export interface CompanyMCPPoolConfig {
-  contextSharer: ContextSharer;
 }
 
 // ==================== CompanyMCPPool 类 ====================
 
 export class CompanyMCPPool {
-  private contextSharer: ContextSharer;
-
   constructor(config: CompanyMCPPoolConfig) {
-    this.contextSharer = config.contextSharer;
   }
 
   // ==================== CRUD 操作 ====================

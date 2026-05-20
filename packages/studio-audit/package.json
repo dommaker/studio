@@ -13,8 +13,7 @@
   },
   "dependencies": {
     "@dommaker/studio-shared": "workspace:*",
-    "@dommaker/studio-prisma": "workspace:*",
-    "@dommaker/studio-meeting": "workspace:*"
+    "@dommaker/studio-prisma": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

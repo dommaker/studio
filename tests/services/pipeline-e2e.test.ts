@@ -1,5 +1,5 @@
 /**
- * 端到端流程测试：Meeting → Wiki → Knowledge → Audit
+ * 端到端流程测试：Wiki → Knowledge → Audit
  *
  * 测试已实现功能的完整链路（使用直接文件路径避免 monorepo resolve 问题）
  */
@@ -45,7 +45,7 @@ function createProjectPageLocal(companyId: string, pmoNumber: string, data: any)
   const constraintsSection = data.constraints.length > 0
     ? `\n## 技术约束\n${data.constraints.map((c: string) => `- ${c}`).join('\n')}` : '';
 
-  const content = `## 需求摘要\n${data.summary}\n\n## 验收标准\n${acSection}\n${constraintsSection}\n\n## 关联\n- Meeting: ${data.meetingId || '—'}\n- Goal: ${data.goalId || '—'}\n\n## 执行结果\n*待执行*\n\n## 踩过的坑\n*暂无*`;
+  const content = `## 需求摘要\n${data.summary}\n\n## 验收标准\n${acSection}\n${constraintsSection}\n\n## 关联\n- Goal: ${data.goalId || '—'}\n\n## 执行结果\n*待执行*\n\n## 踩过的坑\n*暂无*`;
 
   const pagePath = path.join(root, 'projects', `${pmoNumber}.md`);
   ensureDir(path.dirname(pagePath));
@@ -127,7 +127,7 @@ function recordAuditEvent(event: any) {
 
 // ═══════════════════════════════════════════════════════
 
-describe('端到端流程：Meeting → Wiki → Knowledge → Audit', () => {
+describe('端到端流程：Wiki → Knowledge → Audit', () => {
   beforeAll(() => cleanTestData());
   afterAll(() => cleanTestData());
 
@@ -140,7 +140,6 @@ describe('端到端流程：Meeting → Wiki → Knowledge → Audit', () => {
         { id: 'group-b', acs: ['AC-3: GitHub OAuth', 'AC-4: 首次登录自动注册'], files: ['src/auth/oauth.ts'], dependencies: ['group-a'] },
       ],
       constraints: ['JWT 密钥走环境变量', 'Token 有效期 15min'],
-      meetingId: 'meeting-test-1',
       goalId: 'goal-test-1',
     });
 
@@ -195,7 +194,7 @@ describe('端到端流程：Meeting → Wiki → Knowledge → Audit', () => {
     expect(formatLocal([])).toBe('');
   });
 
-  it('Step 4: 审计事件 — Meeting → Goal → Execution → Review', () => {
+  it('Step 4: 审计事件 — Goal → Execution → Review', () => {
     recordAuditEvent({ eventType: 'goal.created', entityType: 'goal', entityId: 'g-1', summary: 'Goal 创建（2 步骤）', actorRole: 'analyst' });
     recordAuditEvent({ eventType: 'execution.completed', entityType: 'execution', entityId: 'e-1', summary: 'Executor 完成', actorRole: 'executor' });
     recordAuditEvent({ eventType: 'review.completed', entityType: 'review', entityId: 'r-1', summary: 'Review 通过', actorRole: 'reviewer', details: { score: 85 } });

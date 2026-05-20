@@ -28,11 +28,11 @@ interface Stats { total: number; byType: Record<string, number> }
 
 const typeLabels: Record<string, string> = {
   requirement: '需求', design: '设计', spec: '规范',
-  execution: '执行', meeting: '会议', archive: '归档',
+  execution: '执行', archive: '归档',
 };
 const typeIcons: Record<string, string> = {
   requirement: '📄', design: '📐', spec: '📋',
-  execution: '⚡', meeting: '📝', archive: '📦',
+  execution: '⚡', archive: '📦',
 };
 
 type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction';

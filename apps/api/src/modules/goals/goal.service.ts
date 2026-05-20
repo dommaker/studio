@@ -7,7 +7,6 @@
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway, type ModelTier } from '@dommaker/studio-shared';
-import { createPullRequest } from '../meetings/task-assignment.service.js';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
 import { beforeGoalCreate, checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { reviewAgent } from '../agents/review-agent.service.js';
@@ -404,95 +403,6 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
   }
 
   /**
-   * 🆕 NA-001: 从 RequirementsDoc 创建并行 Goal（Meeting 路径）
-   *
-   * 每个 AcGroup → 一个 GoalStep（互相无依赖 → GoalScheduler 自动并行 dispatch）
-   */
-  async createGoalFromRequirementsDoc(
-    doc: import('@dommaker/studio-meeting').RequirementsDoc,
-    meetingId: string,
-  ): Promise<{ goalId: string; taskCount: number; stepCount: number }> {
-    const meeting = await prisma.meeting.findUnique({
-      where: { id: meetingId },
-      select: { id: true, title: true, companyId: true, projectId: true },
-    });
-    if (!meeting) throw new Error('Meeting not found');
-
-    // Phase 5: Goal 创建前 harness 检查
-    beforeGoalCreate({
-      operation: 'goal_creation',
-      taskDescription: doc.summary || meeting.title || `Goal from ${meetingId}`,
-    }).catch(err => logger.warn('[GoalService] beforeGoalCreate hook failed', { error: String(err) }));
-
-    // 1. 每个 AcGroup 生成一个 step（无依赖 → 可并行）
-    // NA-GAP-01: 将 AcGroup 的字符串 ID 依赖转换为步骤索引
-    const groupIdToIndex = new Map(doc.acGroups.map((g, i) => [g.id, i]));
-
-    const steps = await Promise.all(doc.acGroups.map(async (group, index) => {
-      const model = await assessTaskComplexity(group);
-
-      return {
-        index,
-        title: `AC Group ${group.id}`,
-        description: group.acs.join('; '),
-        agentType: 'claude',
-        input: {
-          taskType: 'sub-agent',
-          acGroup: group,
-          projectId: meeting.projectId,
-          meetingId,
-          model,
-        },
-        dependencies: (group.dependencies || []).map(depId => {
-          const depIndex = groupIdToIndex.get(depId);
-          return depIndex !== undefined ? depIndex : -1;
-        }).filter(i => i >= 0),
-        estimatedDuration: model === 'fast' ? '15m' : model === 'premium' ? '45m' : '30m',
-      };
-    }));
-
-    // 2. 创建 Goal
-    const goal = await prisma.goal.create({
-      data: {
-        title: doc.summary || meeting.title || `Goal from ${meetingId}`,
-        description: `Auto-generated from RequirementsDoc (${doc.acGroups.length} AC groups)`,
-        priority: 'normal',
-        context: { meetingId, projectId: meeting.projectId, requirementsDoc: doc } as any,
-        companyId: meeting.companyId,
-        status: 'executing',
-      },
-    });
-
-    // 3. 创建 GoalPlan（直接 approved）
-    const plan = await prisma.goalPlan.create({
-      data: {
-        goalId: goal.id,
-        steps: steps as any,
-        reasoning: `Auto-generated from RequirementsDoc: ${doc.summary}. ${doc.acGroups.length} parallel groups with ${doc.constraints.length} constraints.`,
-        version: 1,
-        status: 'approved',
-      },
-    });
-
-    // 4. 创建 GoalExecution 记录（可并行）
-    for (const step of steps) {
-      await prisma.goalExecution.create({
-        data: {
-          goalId: goal.id,
-          planId: plan.id,
-          stepIndex: step.index,
-          status: 'pending',
-          agentType: step.agentType,
-          input: JSON.stringify(step.input) as any,
-        },
-      });
-    }
-
-    logger.info(`[Goal] Created from RequirementsDoc: goal=${goal.id}, ${steps.length} parallel steps`);
-    return { goalId: goal.id, taskCount: doc.acGroups.length, stepCount: steps.length };
-  }
-
-  /**
    * 更新步骤执行状态
    */
   async updateStepExecution(
@@ -810,14 +720,9 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       logger.warn('[Goal] Test gate check failed (non-blocking)', { error: String(e) });
     }
 
-    // 创建 PR
+    // PR creation — previously delegated to meetings/task-assignment.service.ts (module deleted)
     if (project.gitBranch) {
-      try {
-        await createPullRequest(project);
-        logger.info(`[Goal] PR created for project ${project.pmoNumber}`);
-      } catch (e) {
-        logger.warn('[Goal] PR creation failed (non-blocking)', { error: String(e) });
-      }
+      logger.info(`[Goal] PR creation skipped (meeting module removed) for project ${project.pmoNumber}`);
     }
 
     // 更新 Project 状态为 in_review

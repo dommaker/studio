@@ -19,9 +19,6 @@ export interface CompanyStats {
   pendingTasks: number;
   completedTasksToday: number;
   
-  // 会议统计
-  activeMeetings: number;
-  
   // 今日统计
   todayStats: {
     tasksCompleted: number;
@@ -73,17 +70,15 @@ export function useCompanyStats(options: UseCompanyStatsOptions = {}) {
     
     try {
       // 并行获取多个 API 数据
-      const [companyRes, rolesRes, tasksRes, meetingsRes] = await Promise.all([
+      const [companyRes, rolesRes, tasksRes] = await Promise.all([
         api.get(`/companies/${id}`),
         api.get('/roles?limit=100').catch(() => ({ data: { data: [] } })),
         api.get('/executions?limit=50').catch(() => ({ data: { data: [] } })),
-        api.get('/meetings?limit=20').catch(() => ({ data: { data: [] } })),
       ]);
 
       const company = companyRes.data;
       const roles = rolesRes.data?.data || [];
       const tasks = tasksRes.data?.data || [];
-      const meetings = meetingsRes.data?.data || [];
 
       // 计算角色状态
       const now = new Date();
@@ -105,11 +100,6 @@ export function useCompanyStats(options: UseCompanyStatsOptions = {}) {
         new Date(t.completedAt || t.updatedAt) >= todayStart
       ).length;
 
-      // 计算会议状态
-      const activeMeetings = meetings.filter((m: any) => 
-        m.status === 'active' || m.status === 'in_progress'
-      ).length;
-
       // 组装统计数据
       const companyStats: CompanyStats = {
         id: company.id,
@@ -122,7 +112,6 @@ export function useCompanyStats(options: UseCompanyStatsOptions = {}) {
         activeTasks,
         pendingTasks,
         completedTasksToday,
-        activeMeetings,
         todayStats: {
           tasksCompleted: completedTasksToday,
           messages: 0,

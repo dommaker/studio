@@ -229,7 +229,7 @@ describe('全链路端到端测试', () => {
 
   it('Audit: 全10类事件记录', () => {
     const events = [
-      { eventType: 'requirements.generated', entityType: 'meeting', entityId: 'm-1', summary: 'Docs产出', actorRole: 'analyst' },
+      { eventType: 'requirements.generated', entityType: 'requirements', entityId: 'r-1', summary: 'Docs产出', actorRole: 'analyst' },
       { eventType: 'wiki.page_created', entityType: 'wiki', entityId: 'w-1', summary: '页面创建', actorRole: 'knowledge_keeper' },
       { eventType: 'goal.created', entityType: 'goal', entityId: 'g-1', summary: 'Goal创建', actorRole: 'analyst' },
       { eventType: 'execution.completed', entityType: 'execution', entityId: 'e-1', summary: '执行完成', actorRole: 'executor' },

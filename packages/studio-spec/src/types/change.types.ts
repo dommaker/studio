@@ -166,7 +166,7 @@ export interface ChangeDetail {
  */
 export interface ApprovalProcess {
   /** 流程类型 */
-  type: 'auto' | 'gate_checker' | 'single_approval' | 'meeting_review';
+  type: 'auto' | 'gate_checker' | 'single_approval' | 'multi_approval';
   /** 所需审批人数 */
   requiredApprovers?: number;
   /** 流程描述 */

@@ -14,7 +14,7 @@
     "@dommaker/studio-agent": "workspace:*",
     "@dommaker/studio-audit": "workspace:*",
     "@dommaker/studio-capability": "workspace:*",
-    "@dommaker/studio-meeting": "workspace:*",
+
     "@dommaker/studio-monitor": "workspace:*",
     "@dommaker/studio-notification": "workspace:*",
     "@dommaker/studio-prisma": "workspace:*",

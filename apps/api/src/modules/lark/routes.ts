@@ -6,7 +6,6 @@
  */
 
 import express, { Router, Request, Response } from 'express';
-import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '../../utils/logger.js';
 import { eventStore } from '../../core/event-store.js';
 
@@ -28,25 +27,6 @@ function verifyLarkSignature(body: string, signature: string, timestamp: string,
     logger.error({ error: String(error) }, 'Lark signature verification error');
     return false;
   }
-}
-
-/**
- * 继续执行会议流程
- */
-async function proceedWithBranchCreation(meetingId: string): Promise<void> {
-  logger.info('Proceeding with branch creation', { meetingId });
-
-  await prisma.meeting.update({
-    where: { id: meetingId },
-    data: { discussionStatus: 'confirmed', status: 'completed' },
-  });
-
-  await redis.publish('events:meeting', JSON.stringify({
-    event_type: 'meeting.confirmed',
-    data: { meetingId, confirmedBy: 'lark_button', timestamp: new Date().toISOString() },
-  }));
-
-  logger.info('Meeting confirmed, event published', { meetingId });
 }
 
 /**
@@ -78,58 +58,8 @@ router.post('/callback', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const [actionType, meetingId] = action.split(':');
-
-    try {
-      if (actionType === 'confirm') {
-        await proceedWithBranchCreation(meetingId);
-        // 更新卡片显示
-        res.json({
-          code: 0,
-          msg: 'success',
-          toast: {
-            type: 'success',
-            content: '✅ 会议已确认执行',
-          },
-        });
-        return;
-      }
-
-      if (actionType === 'reject') {
-        await prisma.meeting.update({
-          where: { id: meetingId },
-          data: { discussionStatus: 'rejected', status: 'completed' },
-        });
-        res.json({
-          code: 0,
-          msg: 'success',
-          toast: {
-            type: 'error',
-            content: '❌ 会议已拒绝执行',
-          },
-        });
-        return;
-      }
-
-      res.json({
-        code: 0,
-        msg: 'success',
-        toast: {
-          type: 'warning',
-          content: `⚠️ 未知操作: ${actionType}`,
-        },
-      });
-    } catch (error) {
-      logger.error({ error: String(error) }, '[LARK] Button handler error');
-      res.json({
-        code: 0,
-        msg: 'success',
-        toast: {
-          type: 'error',
-          content: `❌ 处理失败`,
-        },
-      });
-    }
+    logger.info('[LARK] Meeting action ignored (meeting module removed)', { action });
+    res.json({ code: 0, msg: 'success' });
     return;
   }
 

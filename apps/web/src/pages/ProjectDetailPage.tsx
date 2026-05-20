@@ -49,17 +49,6 @@ interface Execution {
   nodeExecutions?: NodeExecution[];
 }
 
-interface Meeting {
-  id: string;
-  title: string;
-  status: string;
-  createdAt: string;
-  completedAt?: string;
-  topic?: string;
-  summary?: string;
-  decisions?: any[];  // MR-005: 决策追溯
-}
-
 interface Project {
   id: string;
   pmoNumber: string;
@@ -76,8 +65,6 @@ interface Project {
   createdAt: string;
   OKR?: { id: string; title: string; quarter: string };
   Execution?: Execution[];
-  Meetings?: Meeting[];
-  OutputMeetings?: Meeting[];
 }
 
 // VS Code 连接步骤
@@ -108,7 +95,6 @@ export function ProjectDetailPage() {
   // 弹窗状态
   const [showVscodeGuide, setShowVscodeGuide] = useState(false);
   const [showCloudIdeGuide, setShowCloudIdeGuide] = useState(false);
-  const [reviewLoading, setReviewLoading] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
   const [copiedStep, setCopiedStep] = useState<number | null>(null);
@@ -156,38 +142,6 @@ export function ProjectDetailPage() {
     await navigator.clipboard.writeText(path);
     setCopySuccess(true);
     setTimeout(() => setCopySuccess(false), 2000);
-  };
-
-  // 发起会议
-  const handleStartMeeting = async () => {
-    if (!project) return;
-    
-    try {
-      setReviewLoading(true);
-      const companyId = localStorage.getItem('companyId') || '';
-      
-      const res = await api.post('/spec-reviews', {
-        workflowId: `project-${project.id}`,
-        title: `评审: ${project.pmoNumber} - ${project.title}`,
-        description: project.requirement || project.description || '',
-        changes: [{ file: project.requirement || '需求文档', description: project.title, type: 'create' }],
-        requestedBy: 'pmo',
-        createMeeting: true,
-        companyId,
-      });
-      
-      const review = res.data;
-      if (review.meetingId) {
-        toast.success(`会议已发起！会议ID: ${review.meetingId}`);
-        navigate(`/meetings/${review.meetingId}`);
-      } else {
-        toast.success(`评审已创建！审查ID: ${review.id}`);
-      }
-    } catch (err: any) {
-      toast.error(`发起会议失败: ${err.response?.data?.error || err.message}`);
-    } finally {
-      setReviewLoading(false);
-    }
   };
 
   // 归档知识库
@@ -412,52 +366,6 @@ export function ProjectDetailPage() {
         </div>
       )}
 
-      {/* 📝 会议历史（MR-005 增强） */}
-      {project.Meetings && project.Meetings.length > 0 && (
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">📝 会议历史 ({project.Meetings.length})</h3>
-          <div className="space-y-3 max-h-64 overflow-auto">
-            {project.Meetings.slice(0, 10).map(meeting => (
-              <div
-                key={meeting.id}
-                className="p-3 bg-gray-50 rounded cursor-pointer hover:bg-gray-100 transition border border-gray-200"
-                onClick={() => navigate(`/meetings/${meeting.id}`)}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="font-medium text-gray-800">{meeting.title}</div>
-                  <span className={`px-2 py-1 rounded text-xs ${
-                    meeting.status === 'completed' ? 'bg-green-100 text-green-600' :
-                    meeting.status === 'discussing' ? 'bg-blue-100 text-blue-600' :
-                    meeting.status === 'pending_confirmation' ? 'bg-yellow-100 text-yellow-600' :
-                    'bg-gray-100 text-gray-600'
-                  }`}>
-                    {meeting.status === 'completed' ? '已完成' : 
-                     meeting.status === 'discussing' ? '讨论中' : 
-                     meeting.status === 'pending_confirmation' ? '待确认' : meeting.status}
-                  </span>
-                </div>
-                {/* MR-005: 显示纪要摘要 */}
-                {meeting.summary && (
-                  <div className="text-sm text-gray-600 mb-2 line-clamp-2">
-                    📋 {meeting.summary.slice(0, 100)}{meeting.summary.length > 100 ? '...' : ''}
-                  </div>
-                )}
-                {/* MR-005: 显示决策数量 */}
-                {meeting.decisions && Array.isArray(meeting.decisions) && meeting.decisions.length > 0 && (
-                  <div className="text-xs text-purple-600">
-                    ✅ {meeting.decisions.length} 个决策
-                  </div>
-                )}
-                <div className="text-xs text-gray-400 mt-1">
-                  {new Date(meeting.createdAt).toLocaleDateString('zh-CN')}
-                  {meeting.completedAt && ` → ${new Date(meeting.completedAt).toLocaleDateString('zh-CN')}`}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* 📚 知识库 */}
       {documents.length > 0 && (
         <div className="bg-white rounded-lg shadow p-4 mb-6">
@@ -487,11 +395,11 @@ export function ProjectDetailPage() {
                 ))}
               </div>
             </div>
-            {/* execution/meeting/archive */}
+            {/* execution/archive */}
             <div className="p-3 rounded-lg bg-purple-50">
-              <div className="text-xs text-purple-600 mb-2">📦 执行/会议/归档</div>
+              <div className="text-xs text-purple-600 mb-2">📦 执行/归档</div>
               <div className="space-y-1">
-                {documents.filter(d => ['execution', 'meeting', 'archive'].includes(d.type)).map(doc => (
+                {documents.filter(d => ['execution', 'archive'].includes(d.type)).map(doc => (
                   <div key={doc.id} className="p-2 bg-white rounded text-sm cursor-pointer hover:bg-purple-100">
                     <div className="font-medium">{doc.title}</div>
                     <div className="text-xs text-gray-400">{doc.type}</div>
@@ -582,13 +490,6 @@ export function ProjectDetailPage() {
 
       {/* 🛠️ 工具栏 */}
       <div className="flex flex-wrap gap-2">
-        <button
-          onClick={handleStartMeeting}
-          disabled={reviewLoading}
-          className="px-4 py-2 bg-purple-500 text-white rounded hover:bg-purple-600 disabled:opacity-50"
-        >
-          {reviewLoading ? '发起中...' : '发起会议'}
-        </button>
         <button
           onClick={() => setShowVscodeGuide(true)}
           className="px-4 py-2 bg-cyan-500 text-white rounded hover:bg-cyan-600"

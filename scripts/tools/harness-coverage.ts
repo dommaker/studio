@@ -15,11 +15,10 @@ const STUDIO_ROOT = path.resolve(__dirname, '../..');
 const HOOKS_DIR = path.join(STUDIO_ROOT, 'packages/studio-shared/src/harness/hooks');
 
 // 执行阶段
-const PHASES = ['meeting', 'goal', 'agent', 'completion', 'pr'] as const;
+const PHASES = ['goal', 'agent', 'completion', 'pr'] as const;
 
 // 各阶段应覆盖的 hook
 const EXPECTED_HOOKS: Record<string, string[]> = {
-  meeting:    ['afterMeetingDecision', 'afterRequirementsDoc'],
   goal:       ['beforeGoalCreate', 'beforeAgentDispatch'],
   agent:      ['beforeAgentExecute', 'buildAgentConstraintPrompt', 'afterAgentComplete'],
   completion: ['checkBeforeTaskComplete', 'afterReview'],

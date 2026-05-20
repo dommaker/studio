@@ -154,63 +154,6 @@ export const authApi = {
   fetchMe: () => api.get('/auth/me'),
 };
 
-// Meeting API - 会议管理
-export const meetingApi = {
-  // 创建会议
-  create: (data: {
-    title: string;
-    topic?: string;
-    companyId: string;
-    projectId?: string;  // 🆕 FL-001: 关联 Project
-    taskId?: string;
-    relatedWorkflowId?: string;
-    mode?: string;
-    maxRounds?: number;
-    participantIds?: string[];
-  }) => api.post('/meetings', data),
-
-  // 获取会议列表
-  list: (params?: { status?: string; taskId?: string; limit?: number; offset?: number }) =>
-    api.get('/meetings', { params }),
-
-  // 获取会议详情
-  get: (id: string) => api.get(`/meetings/${id}`),
-
-  // 启动会议
-  start: (id: string) => api.post(`/meetings/${id}/start`),
-
-  // 邀请参与者
-  inviteParticipants: (meetingId: string, roleIds: string[]) =>
-    api.post(`/meetings/${meetingId}/participants`, { roleIds }),
-
-  // 发送消息
-  sendMessage: (meetingId: string, data: { roleId: string; content: string; messageType?: string }) =>
-    api.post(`/meetings/${meetingId}/messages`, data),
-
-  // 获取消息列表
-  getMessages: (meetingId: string, params?: { limit?: number; offset?: number }) =>
-    api.get(`/meetings/${meetingId}/messages`, { params }),
-
-  // 结束会议
-  end: (id: string) => api.post(`/meetings/${id}/end`),
-
-  // 生成纪要
-  generateSummary: (id: string) => api.post(`/meetings/${id}/summary`),
-  
-  // 🆕 DD-006: DiscussionDriver API
-  runDiscussion: (id: string, data: {
-    mode: 'manual' | 'auto' | 'mixed';
-    topic?: string;
-    maxRounds?: number;
-    consensusThreshold?: number;
-  }) => api.post(`/meetings/${id}/run-discussion`, data),
-  
-  getDiscussionStatus: (id: string) =>
-    api.get(`/meetings/${id}/discussion-status`),
-  
-  stopDiscussion: (id: string) =>
-    api.post(`/meetings/${id}/stop-discussion`),
-};
 
 // Project API - GEN-005: PMO 项目管理
 export const projectApi = {
@@ -263,22 +206,6 @@ export const projectApi = {
   parseCommand: (command: string) =>
     api.post('/pmo/project/parse-command', { command }),
 
-  // Meeting 关联项目
-  linkMeeting: (meetingId: string, projectId?: string, pmoNumber?: string, companyId?: string) =>
-    api.put(`/meetings/${meetingId}/project`, { projectId, pmoNumber, companyId }),
-
-  // Meeting 产出项目
-  createFromMeeting: (meetingId: string, data: {
-    title?: string;
-    description?: string;
-    requirement?: string;
-    okrId?: string;
-    priority?: string;
-  }) => api.post(`/meetings/${meetingId}/create-project`, data),
-
-  // 获取会议关联的项目
-  getMeetingProject: (meetingId: string) =>
-    api.get(`/meetings/${meetingId}/project`),
 };
 
 // Wiki API (B2-008)

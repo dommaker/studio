@@ -74,23 +74,6 @@ const STEPS = [
   },
   {
     title: '开始使用',
-    description: '创建你的第一个会议',
-    icon: '🚀',
-    content: (
-      <div className="space-y-3">
-        <p>准备好开始了吗？</p>
-        <Link
-          to="/meetings"
-          className="block p-3 rounded text-center transition-colors"
-          style={{
-            background: 'var(--accent-primary)',
-            color: '#fff',
-          }}
-        >
-          前往会议室 →
-        </Link>
-      </div>
-    ),
   },
 ];
 

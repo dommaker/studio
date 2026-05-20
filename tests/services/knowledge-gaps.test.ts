@@ -319,7 +319,6 @@ describe('DecisionChainExtractor (G-004)', () => {
     );
 
     expect(decisionChainExtractor).toBeDefined();
-    expect(typeof decisionChainExtractor.extractFromMeeting).toBe('function');
     expect(typeof decisionChainExtractor.extractFromExecution).toBe('function');
   });
 
@@ -399,7 +398,7 @@ describe('DecisionChainExtractor (G-004)', () => {
   it('提取无效输入 — 空 decisions 返回 0', () => {
     const decisions: any[] = [];
     expect(decisions.length).toBe(0);
-    // extractFromMeeting returns 0 when no decisions
+    // no decisions returns 0
   });
 });
 

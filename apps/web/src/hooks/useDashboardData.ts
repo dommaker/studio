@@ -48,20 +48,17 @@ export function useDashboardData(options: UseDashboardDataOptions = {}) {
         rolesRes,
         goalsRes,
         goalsStatsRes,
-        meetingsRes,
       ] = await Promise.all([
         api.get('/companies').catch(() => ({ data: { data: [] } })),
         api.get('/roles', { params: { limit: 100 } }).catch(() => ({ data: { data: [] } })),
         api.get('/goals', { params: { limit: 20 } }).catch(() => ({ data: { data: [] } })),
         api.get('/goals/stats').catch(() => ({ data: { data: {} } })),
-        api.get('/meetings', { params: { limit: 20 } }).catch(() => ({ data: { data: [] } })),
       ]);
 
       const companies = companiesRes.data?.data || [];
       const roles = rolesRes.data?.data || [];
       const goals = goalsRes.data?.data || [];
       const goalStats = goalsStatsRes.data?.data || {};
-      const meetings = meetingsRes.data?.data || [];
       
       // 计算统计数据
       const now = new Date();
@@ -76,10 +73,6 @@ export function useDashboardData(options: UseDashboardDataOptions = {}) {
         (g.status === 'completed' || g.status === 'succeeded') &&
         new Date(g.completedAt || g.updatedAt) >= todayStart
       ).length;
-      const activeMeetings = meetings.filter((m: any) => 
-        m.status === 'active' || m.status === 'in_progress'
-      ).length;
-      
       // 默认公司
       const defaultCompanyId = roles[0]?.companyId || companies[0]?.id || '';
       const company = companies[0] || { id: 'default', name: '我的工作室' };
@@ -100,7 +93,6 @@ export function useDashboardData(options: UseDashboardDataOptions = {}) {
           activeTasks: activeGoals,
           pendingTasks: goals.filter((g: any) => g.status === 'pending').length,
           completedTasksToday,
-          activeMeetings,
           todayStats: {
             tasksCompleted: completedGoalsToday,
             messages: 0,

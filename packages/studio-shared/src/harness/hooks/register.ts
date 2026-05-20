@@ -10,7 +10,6 @@ import { getHookConfig } from './config';
 
 // ── 导入所有 hook 函数 ──
 
-import { afterMeetingDecision, afterRequirementsDoc } from './meeting.hooks';
 import { beforeGoalCreate, beforeAgentDispatch } from './goal.hooks';
 import {
   beforeAgentExecute,
@@ -24,10 +23,6 @@ import { afterPrCreated } from './pr.hooks';
 
 export function registerAllHooks(registry: HookRegistry): void {
   const hooks: HookDefinition[] = [
-    // Meeting phase
-    toHookDef('afterMeetingDecision', 'after', afterMeetingDecision, true),
-    toHookDef('afterRequirementsDoc', 'after', afterRequirementsDoc, false),
-
     // Goal phase
     toHookDef('beforeGoalCreate', 'before', beforeGoalCreate, false),
     toHookDef('beforeAgentDispatch', 'before', beforeAgentDispatch, false),

@@ -5,7 +5,7 @@
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { modelGateway, logger, eventBus } from '@dommaker/studio-shared';
+import { modelGateway, logger } from '@dommaker/studio-shared';
 
 const EXTRACT_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记录中提取决策链。
 
@@ -41,8 +41,6 @@ const EXTRACT_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记�
 - 最多提取 3 个决策`;
 
 export class DecisionChainExtractor {
-  private eventUnsub: (() => void) | null = null;
-
   /**
    * 从 Meeting 讨论中提取（自动，监听 meeting.ended 事件）
    */
@@ -270,57 +268,6 @@ ${(diff || '').substring(0, 3000)}
       if (c.tradeoffs) lines.push(`  权衡: ${c.tradeoffs}`);
     }
     return lines.join('\n') + '\n';
-  }
-
-  /**
-   * 启动事件监听（监听 meeting.ended 事件）
-   */
-  startListening(): void {
-    if (this.eventUnsub) return;
-
-    eventBus.subscribe('events:meeting', async (event: any) => {
-      if (event?.type !== 'meeting.ended') return;
-
-      try {
-        const meetingId = event.data?.id || event.data?.meetingId;
-        if (!meetingId) return;
-
-        // 加载会议数据
-        const meeting = await prisma.meeting.findUnique({
-          where: { id: meetingId },
-          select: {
-            id: true,
-            decisions: true,
-            summary: true,
-            MeetingParticipant: {
-              select: { roleId: true },
-            },
-          },
-        });
-
-        if (!meeting || !meeting.decisions) return;
-
-        const decisions = JSON.parse(meeting.decisions) as any[];
-        const participants = meeting.MeetingParticipant?.map((p: any) => p.roleId) || [];
-
-        await this.extractFromMeeting({
-          meetingId,
-          decisions,
-          summary: meeting.summary || undefined,
-          participants,
-        });
-      } catch {
-        /* non-blocking listener */
-      }
-    });
-
-    this.eventUnsub = () => { /* eventBus doesn't return unsubscribe func */ };
-    logger.info('[DecisionChainExtractor] Started listening to meeting.ended events');
-  }
-
-  stopListening(): void {
-    this.eventUnsub?.();
-    this.eventUnsub = null;
   }
 
   // ── private ──

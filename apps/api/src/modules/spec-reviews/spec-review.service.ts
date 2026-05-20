@@ -27,11 +27,6 @@ export interface CreateReviewInput {
   description?: string;
   changes: SpecChange[];
   requestedBy?: string;
-  
-  // 🆕 GEN-006: 自动创建 Meeting 选项
-  createMeeting?: boolean;      // 是否自动创建 Meeting
-  companyId?: string;           // 公司 ID（创建 Meeting 需要）
-  participantIds?: string[];    // 参与者（可选）
 }
 
 export interface ApprovalInput {
@@ -52,50 +47,10 @@ export class SpecReviewService {
     const changeType = this.analyzeChangeType(input.changes);
     const impact = this.analyzeImpact(input.changes);
     
-    // 🆕 GEN-006: 自动创建 Meeting
-    let meetingId: string | null = null;
-    
-    if (input.createMeeting && input.companyId) {
-      const meeting = await prisma.meeting.create({
-        data: {
-          id: this.generateMeetingId(),
-          title: `[Spec评审] ${input.title}`,
-          description: input.description || '',
-          companyId: input.companyId,
-          mode: 'sync',
-          maxRounds: 10,
-          autoEndMinutes: 60,
-          status: 'pending',
-          topic: 'spec-review',
-          updatedAt: new Date(),  // 🆕 GEN-006: 添加 updatedAt
-        },
-      });
-      
-      meetingId = meeting.id;
-      
-      // 邀请参与者
-      if (input.participantIds && input.participantIds.length > 0) {
-        for (const roleId of input.participantIds) {
-          await prisma.meetingParticipant.create({
-            data: {
-              meetingId: meeting.id,
-              roleId,
-              stance: 'neutral',
-              status: 'invited',
-              inviteStatus: 'pending',
-            },
-          });
-        }
-      }
-      
-      logger.info('Meeting created for SpecReview', { meetingId, reviewTitle: input.title });
-    }
-    
     const review = await prisma.specReview.create({
       data: {
         id: this.generateId(),
         workflowId: input.workflowId,
-        meetingId,  // 🆕 GEN-006: 关联 Meeting
         title: input.title,
         description: input.description,
         changes: input.changes as any,
@@ -110,8 +65,8 @@ export class SpecReviewService {
         requestedBy: input.requestedBy,
       },
     });
-    
-    logger.info('Spec review created', { reviewId: review.id, changeType, impact, meetingId });
+
+    logger.info('Spec review created', { reviewId: review.id, changeType, impact });
     
     // 触发通知（异步，不等待）
     this.notifyReviewers(review.id, input).catch(err => {
@@ -122,9 +77,9 @@ export class SpecReviewService {
   }
   
   /**
-   * 🆕 GEN-006: 更新 SpecReview
+   * 更新 SpecReview
    */
-  async updateReview(reviewId: string, data: { meetingId?: string; status?: string }) {
+  async updateReview(reviewId: string, data: { status?: string }) {
     const review = await prisma.specReview.update({
       where: { id: reviewId },
       data: {
@@ -132,19 +87,12 @@ export class SpecReviewService {
         updatedAt: new Date(),
       },
     });
-    
+
     logger.info('SpecReview updated', { reviewId, updates: data });
-    
+
     return review;
   }
-  
-  /**
-   * 🆕 GEN-006: 生成 Meeting ID
-   */
-  private generateMeetingId(): string {
-    return `cm_${Date.now()}_${Math.random().toString(36).substr(2, 8)}`;
-  }
-  
+
   /**
    * 查询审查列表
    */

@@ -63,42 +63,29 @@ router.get('/:id', async (req: Request, res: Response) => {
 /**
  * POST /api/v1/spec-reviews
  * 创建审查
- * 
- * 🆕 GEN-006: 支持 createMeeting 参数
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { 
-      workflowId, 
-      title, 
-      description, 
-      changes, 
+    const {
+      workflowId,
+      title,
+      description,
+      changes,
       requestedBy,
-      createMeeting,  // 🆕 GEN-006
-      companyId,      // 🆕 GEN-006
-      participantIds  // 🆕 GEN-006
     } = req.body;
-    
+
     if (!title || !changes || !Array.isArray(changes)) {
       return res.status(400).json({ error: '缺少必要字段：title, changes' });
     }
-    
-    // 🆕 GEN-006: 如果要创建 Meeting，必须有 companyId
-    if (createMeeting && !companyId) {
-      return res.status(400).json({ error: '创建 Meeting 需要提供 companyId' });
-    }
-    
+
     const review = await specReviewService.createReview({
       workflowId,
       title,
       description,
       changes,
       requestedBy,
-      createMeeting,   // 🆕 GEN-006
-      companyId,       // 🆕 GEN-006
-      participantIds,  // 🆕 GEN-006
     });
-    
+
     res.status(201).json(review);
   } catch (error) {
     logger.error('Failed to create spec review', { error: String(error) });
@@ -107,34 +94,21 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 /**
- * 🆕 GEN-006: PATCH /api/v1/spec-reviews/:id
- * 更新审查（如更新 meetingId）
+ * PATCH /api/v1/spec-reviews/:id
+ * 更新审查状态
  */
 router.patch('/:id', async (req: Request, res: Response) => {
   try {
-    const { meetingId, status } = req.body;
-    
-    // 验证至少有一个更新字段
-    if (!meetingId && !status) {
-      return res.status(400).json({ error: '缺少更新字段：meetingId 或 status' });
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: '缺少更新字段：status' });
     }
-    
-    // 如果更新 meetingId，验证 Meeting 存在
-    if (meetingId) {
-      const meeting = await req.app.locals.prisma.meeting.findUnique({
-        where: { id: meetingId },
-      });
-      
-      if (!meeting) {
-        return res.status(404).json({ error: 'Meeting 不存在' });
-      }
-    }
-    
+
     const review = await specReviewService.updateReview(req.params.id, {
-      meetingId,
       status,
     });
-    
+
     res.json(review);
   } catch (error) {
     logger.error('Failed to update spec review', { error: String(error) });
