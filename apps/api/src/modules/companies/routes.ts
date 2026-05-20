@@ -10,9 +10,9 @@ const router = Router();
 
 // 公司规模配置
 const COMPANY_SIZE_CONFIG = {
-  small: { name: '小型公司', balance: 30000, roleLimit: 3 },
-  medium: { name: '中型公司', balance: 100000, roleLimit: 10 },
-  large: { name: '大型公司', balance: 500000, roleLimit: 30 },
+  small: { name: '小型公司', roleLimit: 3 },
+  medium: { name: '中型公司', roleLimit: 10 },
+  large: { name: '大型公司', roleLimit: 30 },
 };
 
 /**
@@ -45,13 +45,12 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name, balance } = req.body;
+    const { name } = req.body;
 
     const company = await prisma.company.create({
       data: {
         name,
         size: 'custom',
-        balance: balance || 30000,  // 默认 30K
       },
     });
 
@@ -80,13 +79,12 @@ router.post('/', async (req: Request, res: Response) => {
 router.patch('/:companyId', async (req: Request, res: Response) => {
   try {
     const { companyId } = req.params;
-    const { name, balance } = req.body;
+    const { name } = req.body;
 
     const company = await prisma.company.update({
       where: { id: companyId },
       data: {
         name,
-        balance,
       },
     });
 
@@ -161,7 +159,7 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
       // 公司信息
       prisma.company.findUnique({
         where: { id: companyId },
-        select: { id: true, name: true, balance: true, size: true },
+        select: { id: true, name: true, size: true },
       }),
       // 角色统计
       prisma.role.findMany({
@@ -192,12 +190,6 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
     // 计算统计数据
     const totalRoles = roles.length;
     const onlineRoles = roles.filter(r => r.status === 'active').length;
-    const totalBalance = company.balance || 0;
-    const spentAgg = await prisma.settlement.aggregate({
-      where: { companyId, type: { in: ['salary', 'reward'] } },
-      _sum: { amount: true },
-    });
-    const totalSpent = spentAgg._sum.amount || 0;
 
     // 今日完成任务数
     const todayCompletedTasks = await prisma.execution.count({
@@ -216,14 +208,11 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
           name: company.name,
           size: company.size,
         },
-        balance: totalBalance,
-        totalSpent,
         totalRoles,
         onlineRoles,
         runningTasks: executions,
         todayMeetings: meetings,
         todayCompletedTasks,
-        transactionCount: await prisma.transaction.count({ where: { companyId } }),
       },
     });
   } catch (error) {

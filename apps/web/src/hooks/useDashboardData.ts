@@ -90,7 +90,6 @@ export function useDashboardData(options: UseDashboardDataOptions = {}) {
           id: company.id,
           name: company.name,
           size: company.size || 'small',
-          balance: company.balance || 0,
           totalRoles: roles.length,
           onlineRoles,
           workingRoles,

@@ -126,7 +126,6 @@
       "name": "Name",
       "type": "Type",
       "status": "Status",
-      "balance": "Balance",
       "qualityScore": "Quality Score",
       "capabilities": "Capabilities",
       "company": "Company"

@@ -2,7 +2,6 @@
 import { Link } from 'react-router-dom';
 import { CompanyHallCard } from './CompanyHallCard';
 import { CEOInput } from './CEOInput';
-import { formatTokens } from '../utils/format';
 import type { CompanyStats } from '../hooks/useCompanyStats';
 import '../styles/theme.css';
 
@@ -85,7 +84,6 @@ export function CompanyHall({
               </div>
               <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
                 {stats?.totalRoles || 0} 名成员
-                {stats && ` · 剩余 ${formatTokens(stats.balance)}`}
               </div>
             </div>
           </div>

@@ -30,12 +30,11 @@ const JSON_FIELDS: Record<string, string[]> = {
   RoleConfig: ['stances', 'boundSkills', 'boundConstraints', 'boundMcps', 'boundTools', 'executionParams', 'evolutionHooks', 'modelRouting'],
   RoleMemoryEntry: ['metadata'],
   Workflow: ['definition'],
-  Transaction: ['metadata'],
-  Coupon: ['metadata', 'rules'],
+
+
   SpecChangeRequest: ['metadata'],
   MCPAuditLog: ['input', 'output'],
   CompanySkill: ['config', 'requirements'],
-  Settlement: ['metadata'],
   DecisionAudit: ['evidence', 'context'],
   Incident: ['triageLog'],
   ChannelMessage: ['meta'],

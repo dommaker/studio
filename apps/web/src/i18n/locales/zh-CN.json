@@ -126,7 +126,6 @@
       "name": "名称",
       "type": "类型",
       "status": "状态",
-      "balance": "余额",
       "qualityScore": "质量评分",
       "capabilities": "能力",
       "company": "所属公司"

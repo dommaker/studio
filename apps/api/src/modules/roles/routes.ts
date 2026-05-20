@@ -8,22 +8,20 @@ import { prisma } from '../../core/database.js';
 import { logger } from '@dommaker/studio-shared';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { getErrorMessage } from '../../utils/errors.js';
-import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';  // PF-002
-import { requireNotGuest, checkOwnership, requireRole, type AuthRequest } from '../../middleware/auth.js';  // SEC-001 / SEC-002
-import { AuditService } from '@dommaker/studio-audit';  // SEC-010
+import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
+import { checkOwnership, type AuthRequest } from '../../middleware/auth.js';
+import { AuditService } from '@dommaker/studio-audit';
 import { createLazyService } from '../../utils/services.js';
 
 const router = Router();
-const auditService = new AuditService(prisma);  // SEC-010
+const auditService = new AuditService(prisma);
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- RoleService type definitions are incomplete
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const getRoleService = createLazyService<any>(() => new RoleService(prisma));
 
 /**
  * GET /api/v1/roles
- * 获取角色列表
  */
-// PF-002: 角色列表缓存（30秒 TTL）
 router.get('/', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Response) => {
   try {
     const service = getRoleService();
@@ -48,27 +46,9 @@ router.get('/', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Respons
 });
 
 /**
- * GET /api/v1/roles/types
- * 获取角色类型列表
- */
-router.get('/types', async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const types = service.getRoleTypes();
-    res.json({ data: types });
-  } catch (error) {
-    logger.error('Failed to get role types', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get role types' },
-    });
-  }
-});
-
-/**
  * GET /api/v1/roles/levels
- * 获取级别配置
  */
-router.get('/levels', async (req: Request, res: Response) => {
+router.get('/levels', async (_req: Request, res: Response) => {
   try {
     const service = getRoleService();
     const config = service.getLevelConfig();
@@ -83,8 +63,6 @@ router.get('/levels', async (req: Request, res: Response) => {
 
 /**
  * POST /api/v1/roles
- * 创建角色
- * SEC-010: 记录审计日志
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -114,24 +92,15 @@ router.post('/', async (req: Request, res: Response) => {
     }).catch(e => logger.error('Audit log error', { error: getErrorMessage(e) }));
 
     if (msg.includes('not found')) {
-      res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    } else if (msg.includes('limit')) {
-      res.status(400).json({
-        error: { code: 'LIMIT_EXCEEDED', message: msg },
-      });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
     } else {
-      res.status(500).json({
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to create role' },
-      });
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to create role' } });
     }
   }
 });
 
 /**
  * GET /api/v1/roles/:roleId
- * 获取角色详情
  */
 router.get('/:roleId', async (req: Request, res: Response) => {
   try {
@@ -149,16 +118,12 @@ router.get('/:roleId', async (req: Request, res: Response) => {
     res.json(role);
   } catch (error) {
     logger.error('Failed to get role', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get role' },
-    });
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to get role' } });
   }
 });
 
 /**
  * PUT /api/v1/roles/:roleId
- * 更新角色
- * SEC-010: 记录审计日志
  */
 router.put('/:roleId', async (req: Request, res: Response) => {
   try {
@@ -185,33 +150,12 @@ router.put('/:roleId', async (req: Request, res: Response) => {
   } catch (error: unknown) {
     const msg = getErrorMessage(error);
     logger.error('Failed to update role', { error: msg });
-
-    await auditService.log({
-      userId: (req as AuthRequest).user?.id,
-      action: 'update',
-      resource: 'role',
-      resourceId: req.params.roleId,
-      status: 'failure',
-      errorMessage: msg,
-    }).catch(e => logger.error('Audit log error', { error: getErrorMessage(e) }));
-
-    if (msg.includes('not found')) {
-      res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    } else {
-      res.status(500).json({
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to update role' },
-      });
-    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to update role' } });
   }
 });
 
 /**
  * DELETE /api/v1/roles/:roleId
- * 删除角色
- * SEC-001: 需要登录
- * SEC-002: 所有者或管理员
  */
 router.delete('/:roleId', checkOwnership('Role'), async (req: Request, res: Response) => {
   try {
@@ -224,222 +168,19 @@ router.delete('/:roleId', checkOwnership('Role'), async (req: Request, res: Resp
     const msg = getErrorMessage(error);
     logger.error('Failed to delete role', { error: msg });
     if (msg.includes('not found')) {
-      res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
     } else {
-      res.status(500).json({
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to delete role' },
-      });
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to delete role' } });
     }
-  }
-});
-
-/**
- * POST /api/v1/roles/:roleId/capabilities
- * 添加能力
- */
-router.post('/:roleId/capabilities', async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId } = req.params;
-    const { capabilityIds, source = 'learned' } = req.body;
-
-    if (!capabilityIds || !Array.isArray(capabilityIds)) {
-      return res.status(400).json({
-        error: { code: 'INVALID_INPUT', message: 'capabilityIds must be an array' },
-      });
-    }
-
-    await service.addCapabilities(roleId, capabilityIds, source);
-    const role = await service.getById(roleId);
-    res.json(role);
-  } catch (error: unknown) {
-    const msg = getErrorMessage(error);
-    logger.error('Failed to add capabilities', { error: msg });
-    if (msg.includes('not found')) {
-      res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    } else if (msg.includes('limit')) {
-      res.status(400).json({
-        error: { code: 'LIMIT_EXCEEDED', message: msg },
-      });
-    } else {
-      res.status(500).json({
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to add capabilities' },
-      });
-    }
-  }
-});
-
-/**
- * DELETE /api/v1/roles/:roleId/capabilities/:capabilityId
- * 移除能力
- * SEC-002: 所有者或管理员
- */
-router.delete('/:roleId/capabilities/:capabilityId', checkOwnership('Role'), async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId, capabilityId } = req.params;
-
-    await service.removeCapability(roleId, capabilityId);
-    const role = await service.getById(roleId);
-    res.json(role);
-  } catch (error: unknown) {
-    logger.error('Failed to remove capability', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to remove capability' },
-    });
   }
 });
 
 // ============================================
-// Skills 管理 API（概念简化）
+// Workflow management
 // ============================================
-
-/**
- * GET /api/v1/roles/:roleId/skills
- * 获取角色的技能列表
- */
-router.get('/:roleId/skills', async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId } = req.params;
-
-    const abilities = await service.getAllAbilities(roleId);
-    res.json({
-      skills: abilities.skills,
-      skillConfig: abilities.skillConfig,
-    });
-  } catch (error: unknown) {
-    logger.error('Failed to get skills', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get skills' },
-    });
-  }
-});
-
-/**
- * POST /api/v1/roles/:roleId/skills
- * 添加技能
- */
-router.post('/:roleId/skills', async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId } = req.params;
-    const { skillIds, config } = req.body;
-
-    if (!skillIds || !Array.isArray(skillIds)) {
-      return res.status(400).json({
-        error: { code: 'INVALID_INPUT', message: 'skillIds must be an array' },
-      });
-    }
-
-    await service.addSkills(roleId, skillIds, config);
-    const role = await service.getById(roleId);
-    res.json(role);
-  } catch (error: unknown) {
-    const msg = getErrorMessage(error);
-    logger.error('Failed to add skills', { error: msg });
-    if (msg.includes('not found')) {
-      res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    } else {
-      res.status(500).json({
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to add skills' },
-      });
-    }
-  }
-});
-
-/**
- * DELETE /api/v1/roles/:roleId/skills/:skillId
- * 移除技能
- * SEC-002: 所有者或管理员
- */
-router.delete('/:roleId/skills/:skillId', checkOwnership('Role'), async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId, skillId } = req.params;
-
-    await service.removeSkill(roleId, skillId);
-    const role = await service.getById(roleId);
-    res.json(role);
-  } catch (error: unknown) {
-    logger.error('Failed to remove skill', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to remove skill' },
-    });
-  }
-});
-
-/**
- * PATCH /api/v1/roles/:roleId/skills/:skillId/config
- * 更新技能配置
- */
-router.patch('/:roleId/skills/:skillId/config', async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId, skillId } = req.params;
-
-    await service.updateSkillConfig(roleId, skillId, req.body);
-    const role = await service.getById(roleId);
-    res.json(role);
-  } catch (error: unknown) {
-    logger.error('Failed to update skill config', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to update skill config' },
-    });
-  }
-});
-
-/**
- * GET /api/v1/roles/:roleId/skills/:skillId/check
- * 检查角色是否拥有技能
- */
-router.get('/:roleId/skills/:skillId/check', async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId, skillId } = req.params;
-
-    const hasSkill = await service.hasSkill(roleId, skillId);
-    res.json({ hasSkill });
-  } catch (error: unknown) {
-    logger.error('Failed to check skill', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to check skill' },
-    });
-  }
-});
-
-// ============================================
-// Workflows 管理 API（概念简化）
-// ============================================
-
-/**
- * GET /api/v1/roles/:roleId/workflows
- * 获取角色的工作流列表
- */
-router.get('/:roleId/workflows', async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId } = req.params;
-
-    const abilities = await service.getAllAbilities(roleId);
-    res.json({ workflows: abilities.workflows });
-  } catch (error: unknown) {
-    logger.error('Failed to get workflows', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get workflows' },
-    });
-  }
-});
 
 /**
  * POST /api/v1/roles/:roleId/workflows
- * 添加工作流
  */
 router.post('/:roleId/workflows', async (req: Request, res: Response) => {
   try {
@@ -460,21 +201,15 @@ router.post('/:roleId/workflows', async (req: Request, res: Response) => {
     const msg = getErrorMessage(error);
     logger.error('Failed to add workflows', { error: msg });
     if (msg.includes('not found')) {
-      res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
+      res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
     } else {
-      res.status(500).json({
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to add workflows' },
-      });
+      res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to add workflows' } });
     }
   }
 });
 
 /**
  * DELETE /api/v1/roles/:roleId/workflows/:workflowId
- * 移除工作流
- * SEC-002: 所有者或管理员
  */
 router.delete('/:roleId/workflows/:workflowId', checkOwnership('Role'), async (req: Request, res: Response) => {
   try {
@@ -486,15 +221,12 @@ router.delete('/:roleId/workflows/:workflowId', checkOwnership('Role'), async (r
     res.json(role);
   } catch (error: unknown) {
     logger.error('Failed to remove workflow', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to remove workflow' },
-    });
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to remove workflow' } });
   }
 });
 
 /**
  * GET /api/v1/roles/:roleId/workflows/:workflowId/check
- * 检查角色是否拥有工作流
  */
 router.get('/:roleId/workflows/:workflowId/check', async (req: Request, res: Response) => {
   try {
@@ -505,39 +237,7 @@ router.get('/:roleId/workflows/:workflowId/check', async (req: Request, res: Res
     res.json({ hasWorkflow });
   } catch (error: unknown) {
     logger.error('Failed to check workflow', { error: getErrorMessage(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to check workflow' },
-    });
-  }
-});
-
-// ============================================
-// Abilities 总览 API（概念简化）
-// ============================================
-
-/**
- * GET /api/v1/roles/:roleId/abilities
- * 获取角色的所有能力（skills + workflows）
- */
-router.get('/:roleId/abilities', async (req: Request, res: Response) => {
-  try {
-    const service = getRoleService();
-    const { roleId } = req.params;
-
-    const abilities = await service.getAllAbilities(roleId);
-    res.json(abilities);
-  } catch (error: unknown) {
-    const msg = getErrorMessage(error);
-    logger.error('Failed to get abilities', { error: msg });
-    if (msg.includes('not found')) {
-      res.status(404).json({
-        error: { code: 'NOT_FOUND', message: msg },
-      });
-    } else {
-      res.status(500).json({
-        error: { code: 'INTERNAL_ERROR', message: 'Failed to get abilities' },
-      });
-    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to check workflow' } });
   }
 });
 

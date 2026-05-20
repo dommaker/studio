@@ -2,12 +2,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-import type { Role, Capability, PerformanceStats, Company, CreateRoleInput } from '../types';
-import { formatTokensShort } from '../utils/format';
+import type { Role, Capability, Company, CreateRoleInput } from '../types';
 import { getApiBase } from '../utils/api';
 import { toast } from '../utils/toast';
 import { DeleteButton } from '../components/DeleteButton';
-import { LEVEL_CONFIG } from '@dommaker/studio-shared';
 
 // 角色类型配置
 const ROLE_TYPES = [
@@ -24,59 +22,32 @@ const ROLE_TYPES = [
 // 角色类型预设能力（按能力类型匹配）
 const ROLE_TYPE_PRESETS: Record<string, {
   capabilityTypes: string[];
-  personalityPrompt: string;
-  personalityTraits: string[];
 }> = {
   'strategy-lead': {
     capabilityTypes: ['step', 'workflow'],
-    personalityPrompt: '你是一个富有创意的方案策划，擅长发散思维和多角度分析问题。你会主动提出多个备选方案，分析利弊，帮助团队做出最佳决策。',
-    personalityTraits: ['创意', '发散思维', '多角度分析', '提案导向'],
   },
   'reviewer': {
     capabilityTypes: ['step', 'tool'],
-    personalityPrompt: '你是一个严谨的评审专家，擅长发现问题、质疑假设、挑刺。你会从质量、安全、性能等多个维度审查代码和方案。',
-    personalityTraits: ['严谨', '批判性思维', '注重细节', '质量导向'],
   },
   'tech-lead': {
     capabilityTypes: ['workflow', 'step'],
-    personalityPrompt: '你是项目负责人，擅长汇总信息、做出决策、派发任务。你会协调团队成员，确保项目按时高质量交付。',
-    personalityTraits: ['领导力', '决策力', '协调能力', '目标导向'],
   },
   'developer': {
     capabilityTypes: ['tool', 'step'],
-    personalityPrompt: '你是一个务实的开发工程师，注重代码质量和测试。你遵循 TDD 实践，编写清晰可维护的代码。',
-    personalityTraits: ['务实', '注重质量', 'TDD 实践者', '代码洁癖'],
   },
   'architect': {
     capabilityTypes: ['step', 'workflow'],
-    personalityPrompt: '你是架构师，擅长系统设计和模块拆分。你会考虑可扩展性、可维护性、性能等因素，设计出优雅的技术方案。',
-    personalityTraits: ['系统思维', '模块化', '可扩展性', '技术深度'],
   },
   'qa': {
     capabilityTypes: ['step', 'tool'],
-    personalityPrompt: '你是测试工程师，擅长发现边界情况和潜在问题。你会从用户角度测试功能，确保产品质量。',
-    personalityTraits: ['细心', '边界思维', '用户视角', '质量保障'],
   },
   'designer': {
     capabilityTypes: ['step', 'workflow'],
-    personalityPrompt: '你是设计师，擅长 UI/UX 设计和交互优化。你会从用户体验角度审视产品设计，提出改进建议，关注可用性、美观性和一致性。',
-    personalityTraits: ['用户导向', '审美敏感', '交互思维', '细节把控'],
   },
   'product-manager': {
     capabilityTypes: ['step', 'workflow'],
-    personalityPrompt: '你是产品经理，擅长需求分析和产品规划。你会从业务价值和用户需求出发，定义产品功能，平衡用户需求和开发成本。',
-    personalityTraits: ['用户洞察', '商业思维', '需求优先级', '数据驱动'],
   },
 };
-
-// 级别配置 - 从共享常量派生
-const LEVELS = Object.entries(LEVEL_CONFIG).map(([id, config]) => ({
-  id: Number(id),
-  name: config.name,
-  color: config.color,
-  salary: config.salary,
-  capLimit: config.capabilityLimit,
-}));
 
 // 状态配置
 const STATUS_MAP = {
@@ -95,7 +66,7 @@ export function RolesPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showCapModal, setShowCapModal] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState({ type: '', level: '', status: '' });
+  const [filter, setFilter] = useState({ type: '', status: '' });
 
   // 加载数据
   useEffect(() => {
@@ -125,7 +96,6 @@ export function RolesPage() {
   // 筛选角色
   const filteredRoles = roles.filter(role => {
     if (filter.type && role.type !== filter.type) return false;
-    if (filter.level && role.level !== parseInt(filter.level)) return false;
     if (filter.status && role.status !== filter.status) return false;
     return true;
   });
@@ -171,11 +141,6 @@ export function RolesPage() {
     return ROLE_TYPES.find(t => t.id === type) || { name: type, icon: '👤', desc: '' };
   };
 
-  // 获取级别信息
-  const getLevelInfo = (level: number) => {
-    return LEVELS.find(l => l.id === level) || LEVELS[0];
-  };
-
   return (
     <div className="p-6" style={{ maxWidth: '1400px' }}>
       {/* 头部 */}
@@ -207,7 +172,7 @@ export function RolesPage() {
       </div>
 
       {/* 统计卡片 */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="card p-4">
           <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('roles.stats.total', '总角色数')}</div>
           <div className="text-2xl font-bold mt-1">{roles.length}</div>
@@ -216,18 +181,6 @@ export function RolesPage() {
           <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('roles.stats.active', '在职角色')}</div>
           <div className="text-2xl font-bold mt-1" style={{ color: '#4CAF50' }}>
             {roles.filter(r => r.status === 'active').length}
-          </div>
-        </div>
-        <div className="card p-4">
-          <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('roles.stats.avgPerformance', '平均绩效')}</div>
-          <div className="text-2xl font-bold mt-1" style={{ color: '#2196F3' }}>
-            {roles.reduce((sum, r) => sum + (r.qualityScore), 0) / roles.length || 0}
-          </div>
-        </div>
-        <div className="card p-4">
-          <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>{t('roles.stats.promotable', '可晋升')}</div>
-          <div className="text-2xl font-bold mt-1" style={{ color: '#FF9800' }}>
-            {roles.filter(r => r.level < 4).length}
           </div>
         </div>
       </div>
@@ -242,16 +195,6 @@ export function RolesPage() {
           <option value="">所有类型</option>
           {ROLE_TYPES.map(t => (
             <option key={t.id} value={t.id}>{t.icon} {t.name}</option>
-          ))}
-        </select>
-        <select
-          value={filter.level}
-          onChange={(e) => setFilter({ ...filter, level: e.target.value })}
-          className="input"
-        >
-          <option value="">所有级别</option>
-          {LEVELS.map(l => (
-            <option key={l.id} value={l.id}>{l.name}</option>
           ))}
         </select>
         <select
@@ -273,9 +216,8 @@ export function RolesPage() {
         <div className="grid grid-cols-3 gap-4">
           {filteredRoles.map(role => {
             const typeInfo = getRoleTypeInfo(role.type);
-            const levelInfo = getLevelInfo(role.level);
             const statusInfo = STATUS_MAP[role.status as keyof typeof STATUS_MAP];
-            
+
             return (
               <div
                 key={role.id}
@@ -287,7 +229,7 @@ export function RolesPage() {
                   <div className="flex items-center gap-3 mb-3">
                     <div
                       className="w-12 h-12 rounded-full flex items-center justify-center text-2xl"
-                      style={{ background: levelInfo.color + '20', border: `2px solid ${levelInfo.color}` }}
+                      style={{ background: 'var(--bg-elevated)', border: '2px solid var(--border-subtle)' }}
                     >
                       {role.avatar || typeInfo.icon}
                     </div>
@@ -297,12 +239,6 @@ export function RolesPage() {
                       </div>
                       <div className="text-sm flex items-center gap-2" style={{ color: 'var(--text-secondary)' }}>
                         <span>{typeInfo.name}</span>
-                        <span
-                          className="px-2 py-0.5 rounded text-xs"
-                          style={{ background: levelInfo.color + '20', color: levelInfo.color }}
-                        >
-                          {levelInfo.name}
-                        </span>
                       </div>
                     </div>
                     <div
@@ -319,43 +255,6 @@ export function RolesPage() {
                     <span className="font-bold">
                       {role.roleCapabilities?.length || 0}
                     </span>
-                    <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
-                      / {role.capabilityLimit || levelInfo.capLimit}
-                    </span>
-                  </div>
-
-                  {/* 绩效 */}
-                  <div className="flex items-center gap-4 text-sm">
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)' }}>任务: </span>
-                      <span className="font-bold">{role.tasksCompleted}</span>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)' }}>质量: </span>
-                      <span className="font-bold" style={{ color: '#4CAF50' }}>
-                        {role.qualityScore.toFixed(1)}
-                      </span>
-                    </div>
-                    <div>
-                      <span style={{ color: 'var(--text-secondary)' }}>满意度: </span>
-                      <span className="font-bold" style={{ color: '#2196F3' }}>
-                        {(role.satisfactionRate * 100).toFixed(0)}%
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* 工资 */}
-                  <div className="mt-2 flex items-center justify-between">
-                    <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-                      月薪: <span className="font-bold" style={{ color: 'var(--accent-primary)' }}>
-                        {formatTokensShort(role.salary || levelInfo.salary)}
-                      </span> tokens/月
-                    </div>
-                    {role.level < 4 && (
-                      <span className="text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-subtle)', color: 'var(--text-tertiary)' }}>
-                        Lv.{role.level}
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -412,29 +311,8 @@ function RoleDetailModal({
   onAddCapability: () => void;
   onRefresh: () => void;
 }) {
-  const [performance, setPerformance] = useState<PerformanceStats | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadPerformance();
-  }, [role.id]);
-
-  const loadPerformance = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${getApiBase()}/api/v1/roles/${role.id}/performance`);
-      const data = await res.json();
-      setPerformance(data.stats);
-    } catch (err) {
-      console.error('加载绩效失败:', err);
-      toast.error('加载绩效数据失败');
-    }
-    setLoading(false);
-  };
-
   const typeInfo = ROLE_TYPES.find(t => t.id === role.type) || { name: role.type, icon: '👤' };
-  const levelInfo = LEVELS.find(l => l.id === role.level) || LEVELS[0];
-  const roleCaps = capabilities.filter(c => 
+  const roleCaps = capabilities.filter(c =>
     role.roleCapabilities?.some(rc => rc.capabilityId === c.id)
   );
 
@@ -454,57 +332,16 @@ function RoleDetailModal({
               <div className="font-bold">{typeInfo.name}</div>
             </div>
             <div>
-              <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>级别</div>
-              <div
-                className="font-bold"
-                style={{ color: levelInfo.color }}
-              >
-                {levelInfo.name}
-              </div>
-            </div>
-            <div>
-              <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>月薪</div>
-              <div className="font-bold" style={{ color: 'var(--accent-primary)' }}>
-                {formatTokensShort(role.salary || levelInfo.salary)} tokens/月
-              </div>
-            </div>
-            <div>
               <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>入职时间</div>
               <div>{new Date(role.createdAt).toLocaleDateString()}</div>
             </div>
           </div>
 
-          {/* 性格设定 */}
-          {role.personality && (
-            <div className="mb-6">
-              <div className="text-sm font-bold mb-2">性格设定</div>
-              <div
-                className="p-3 rounded text-sm"
-                style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
-              >
-                {role.personality.prompt}
-              </div>
-              {role.personality.traits?.length > 0 && (
-                <div className="flex gap-2 mt-2">
-                  {role.personality.traits.map((trait, i) => (
-                    <span
-                      key={i}
-                      className="px-2 py-1 rounded text-xs"
-                      style={{ background: 'var(--accent-primary)20', color: 'var(--accent-primary)' }}
-                    >
-                      {trait}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
           {/* 能力列表 */}
           <div className="mb-6">
             <div className="flex items-center justify-between mb-2">
               <div className="text-sm font-bold">
-                拥有能力 ({roleCaps.length}/{levelInfo.capLimit})
+                拥有能力 ({roleCaps.length})
               </div>
               <button onClick={onAddCapability} className="btn btn-ghost text-sm">
                 ➕ 添加
@@ -531,40 +368,6 @@ function RoleDetailModal({
               )}
             </div>
           </div>
-
-          {/* 绩效统计 */}
-          {loading ? (
-            <div>加载绩效...</div>
-          ) : performance ? (
-            <div className="mb-6">
-              <div className="text-sm font-bold mb-2">绩效统计</div>
-              <div className="grid grid-cols-3 gap-3">
-                <div className="card p-3">
-                  <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>完成任务</div>
-                  <div className="text-lg font-bold">{performance.totalTasks}</div>
-                </div>
-                <div className="card p-3">
-                  <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>质量评分</div>
-                  <div className="text-lg font-bold" style={{ color: '#4CAF50' }}>
-                    {performance.avgQuality.toFixed(1)}
-                  </div>
-                </div>
-                <div className="card p-3">
-                  <div className="text-xs" style={{ color: 'var(--text-secondary)' }}>满意度</div>
-                  <div className="text-lg font-bold" style={{ color: '#2196F3' }}>
-                    {(performance.satisfactionRate * 100).toFixed(0)}%
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : null}
-
-          {/* Role level badge */}
-          {role.level < 4 && (
-            <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-              Level: {role.level}/4
-            </span>
-          )}
         </div>
 
         <div className="modal-footer">
@@ -605,14 +408,9 @@ function CreateRoleModal({
     name: '',
     type: 'developer',
     companyId: '',
-    level: 1,
-    personalityPrompt: '',
-    personalityTraits: '',
     initialCapabilities: [] as string[],
-    salary: 5000,
   });
 
-  const levelInfo = LEVELS.find(l => l.id === form.level) || LEVELS[0];
   const preset = ROLE_TYPE_PRESETS[form.type];
 
   // 根据角色类型筛选推荐能力
@@ -629,12 +427,10 @@ function CreateRoleModal({
         .filter(c => newPreset.capabilityTypes.includes(c.type))
         .slice(0, 5)
         .map(c => c.id);
-      
+
       setForm({
         ...form,
         type,
-        personalityPrompt: newPreset.personalityPrompt,
-        personalityTraits: newPreset.personalityTraits.join(', '),
         initialCapabilities: recommended,
       });
     } else {
@@ -651,12 +447,6 @@ function CreateRoleModal({
       name: form.name,
       type: form.type,
       companyId: form.companyId,
-      level: form.level,
-      personality: {
-        prompt: form.personalityPrompt,
-        traits: form.personalityTraits.split(',').map(t => t.trim()).filter(Boolean),
-      },
-      salary: form.salary,
       initialCapabilities: form.initialCapabilities,
     });
   };
@@ -697,7 +487,7 @@ function CreateRoleModal({
               </select>
               {preset && (
                 <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                  💡 已自动填充预设性格和推荐能力
+                  💡 已自动填充推荐能力
                 </div>
               )}
             </div>
@@ -722,53 +512,12 @@ function CreateRoleModal({
               )}
             </div>
 
-            {/* 级别 */}
-            <div>
-              <label className="text-sm font-bold">初始级别</label>
-              <select
-                value={form.level}
-                onChange={(e) => setForm({ ...form, level: parseInt(e.target.value), salary: LEVELS.find(l => l.id === parseInt(e.target.value))?.salary || 5000 })}
-                className="input w-full mt-1"
-              >
-                {LEVELS.map(l => (
-                  <option key={l.id} value={l.id}>{l.name} (工资: {l.salary})</option>
-                ))}
-              </select>
-              <div className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
-                能力上限: {levelInfo.capLimit} 个
-              </div>
-            </div>
-
-            {/* 性格设定 */}
-            <div>
-              <label className="text-sm font-bold">性格 Prompt</label>
-              <textarea
-                value={form.personalityPrompt}
-                onChange={(e) => setForm({ ...form, personalityPrompt: e.target.value })}
-                className="input w-full mt-1"
-                rows={3}
-                placeholder="描述角色的性格和立场..."
-              />
-            </div>
-
-            {/* 性格标签 */}
-            <div>
-              <label className="text-sm font-bold">性格标签 (逗号分隔)</label>
-              <input
-                type="text"
-                value={form.personalityTraits}
-                onChange={(e) => setForm({ ...form, personalityTraits: e.target.value })}
-                className="input w-full mt-1"
-                placeholder="如: 务实,关注细节,追求质量"
-              />
-            </div>
-
             {/* 初始能力 */}
             <div>
               <label className="text-sm font-bold">
-                初始能力 (已选 {form.initialCapabilities.length}/{levelInfo.capLimit} 个)
+                初始能力 (已选 {form.initialCapabilities.length} 个)
               </label>
-              
+
               {/* 推荐能力 */}
               {preset && recommendedCapabilities.length > 0 && (
                 <div className="mt-2 mb-2">
@@ -780,12 +529,12 @@ function CreateRoleModal({
                       <label
                         key={cap.id}
                         className="flex items-center gap-2 p-2 rounded cursor-pointer"
-                        style={{ 
-                          background: form.initialCapabilities.includes(cap.id) 
-                            ? 'var(--accent-primary)30' 
+                        style={{
+                          background: form.initialCapabilities.includes(cap.id)
+                            ? 'var(--accent-primary)30'
                             : 'var(--bg-secondary)',
-                          border: form.initialCapabilities.includes(cap.id) 
-                            ? '1px solid var(--accent-primary)' 
+                          border: form.initialCapabilities.includes(cap.id)
+                            ? '1px solid var(--accent-primary)'
                             : '1px solid transparent'
                         }}
                       >
@@ -794,11 +543,7 @@ function CreateRoleModal({
                           checked={form.initialCapabilities.includes(cap.id)}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              if (form.initialCapabilities.length < levelInfo.capLimit) {
-                                setForm({ ...form, initialCapabilities: [...form.initialCapabilities, cap.id] });
-                              } else {
-                                toast.warning(`已达能力上限 ${levelInfo.capLimit} 个`);
-                              }
+                              setForm({ ...form, initialCapabilities: [...form.initialCapabilities, cap.id] });
                             } else {
                               setForm({ ...form, initialCapabilities: form.initialCapabilities.filter(id => id !== cap.id) });
                             }
@@ -811,7 +556,7 @@ function CreateRoleModal({
                   </div>
                 </div>
               )}
-              
+
               {/* 其他能力 */}
               <div className="text-xs font-bold mb-1" style={{ color: 'var(--text-muted)' }}>
                 其他能力
@@ -830,11 +575,7 @@ function CreateRoleModal({
                         checked={form.initialCapabilities.includes(cap.id)}
                         onChange={(e) => {
                           if (e.target.checked) {
-                            if (form.initialCapabilities.length < levelInfo.capLimit) {
-                              setForm({ ...form, initialCapabilities: [...form.initialCapabilities, cap.id] });
-                            } else {
-                              toast.warning(`已达能力上限 ${levelInfo.capLimit} 个`);
-                            }
+                            setForm({ ...form, initialCapabilities: [...form.initialCapabilities, cap.id] });
                           } else {
                             setForm({ ...form, initialCapabilities: form.initialCapabilities.filter(id => id !== cap.id) });
                           }
@@ -844,17 +585,6 @@ function CreateRoleModal({
                     </label>
                   ))}
               </div>
-            </div>
-
-            {/* 工资 */}
-            <div>
-              <label className="text-sm font-bold">月薪 (tokens)</label>
-              <input
-                type="number"
-                value={form.salary}
-                onChange={(e) => setForm({ ...form, salary: parseInt(e.target.value) })}
-                className="input w-full mt-1"
-              />
             </div>
           </div>
         </div>
@@ -884,10 +614,8 @@ function AddCapabilityModal({
   onClose: () => void;
   onAdd: (roleId: string, capId: string) => void;
 }) {
-  const levelInfo = LEVELS.find(l => l.id === role.level) || LEVELS[0];
   const roleCapIds = role.roleCapabilities?.map(rc => rc.capabilityId) || [];
   const availableCaps = capabilities.filter(c => !roleCapIds.includes(c.id));
-  const canAdd = roleCapIds.length < (role.capabilityLimit || levelInfo.capLimit);
 
   return (
     <div className="modal-overlay">
@@ -898,23 +626,16 @@ function AddCapabilityModal({
         </div>
 
         <div className="modal-body">
-          {!canAdd && (
-            <div className="mb-4 p-3 rounded" style={{ background: '#FF980020', color: '#FF9800' }}>
-              已达到能力上限 ({role.capabilityLimit || levelInfo.capLimit} 个)，需要晋升才能添加更多能力
-            </div>
-          )}
-
           <div className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
-            当前: {roleCapIds.length}/{role.capabilityLimit || levelInfo.capLimit}
+            当前: {roleCapIds.length}
           </div>
 
           <div className="grid gap-2 max-h-64 overflow-y-auto">
             {availableCaps.map(cap => (
               <button
                 key={cap.id}
-                disabled={!canAdd}
                 onClick={() => onAdd(role.id, cap.id)}
-                className="p-3 rounded flex items-center gap-2 disabled:opacity-50"
+                className="p-3 rounded flex items-center gap-2"
                 style={{ background: 'var(--bg-secondary)' }}
               >
                 <span>{cap.type === 'tool' ? '🔧' : cap.type === 'workflow' ? '📋' : '📚'}</span>
