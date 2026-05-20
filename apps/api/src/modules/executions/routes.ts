@@ -4,6 +4,8 @@ import { prisma } from '../../core/database.js';
 import { eventStore } from '../../core/event-store.js';
 import { logger } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
+import * as os from 'os';
+import * as path from 'path';
 
 const router = Router();
 
@@ -284,7 +286,7 @@ router.post('/:executionId/archive', async (req: Request, res: Response) => {
     }
 
     // 知识库路径
-    const knowledgeBasePath = process.env.KNOWLEDGE_BASE_PATH || 'path.join(os.homedir(), 'knowledge-base')';
+    const knowledgeBasePath = process.env.KNOWLEDGE_BASE_PATH || path.join(os.homedir(), 'knowledge-base');
     const tasksDir = path.join(knowledgeBasePath, 'tasks');
 
     // 确保目录存在
