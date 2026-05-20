@@ -299,7 +299,8 @@ export class AgentExecutor {
         lastCompletedCount = completedCount;
 
         // 构建 prompt（卡住时注入策略切换）
-        const prompt = this.buildPrompt(task, progress, sessionCount, acGroup, stuckCount);
+        const knowledgeContext = (task.parameters?.knowledgeContext as string) || '';
+        const prompt = this.buildPrompt(task, progress, sessionCount, acGroup, stuckCount, knowledgeContext);
         fsSync.mkdirSync(worktree, { recursive: true });
         await fs.writeFile(path.join(worktree, '.prompt.md'), prompt, 'utf-8');
 
@@ -596,6 +597,7 @@ export class AgentExecutor {
     session: number,
     acGroup?: Record<string, any>,
     stuckCount = 0,
+    knowledgeContext?: string,
   ): string {
     // 约束注入
     const constraintPrompt = buildAgentConstraintPrompt({
@@ -611,8 +613,13 @@ export class AgentExecutor {
       ? `\n## 角色约束\n以下约束优先于一般指导原则：\n${roleConstraints.map((c: string) => `- ${c}`).join('\n')}\n`
       : '';
 
-    const constraintSection = constraintPrompt || roleConstraintSection
-      ? (constraintPrompt + roleConstraintSection + '\n---\n\n')
+    // G-001~003: 知识上下文（偏好 + 规则 + 环境 + 历史决策）
+    const knowledgeSection = knowledgeContext
+      ? `\n## 项目上下文\n${knowledgeContext}\n`
+      : '';
+
+    const constraintSection = constraintPrompt || roleConstraintSection || knowledgeSection
+      ? (constraintPrompt + roleConstraintSection + knowledgeSection + '\n---\n\n')
       : '';
 
     if (session === 1 || !progress) {

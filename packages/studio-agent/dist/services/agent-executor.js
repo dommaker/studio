@@ -263,7 +263,8 @@ class AgentExecutor {
                 lastStep = currentStep;
                 lastCompletedCount = completedCount;
                 // 构建 prompt（卡住时注入策略切换）
-                const prompt = this.buildPrompt(task, progress, sessionCount, acGroup, stuckCount);
+                const knowledgeContext = task.parameters?.knowledgeContext || '';
+                const prompt = this.buildPrompt(task, progress, sessionCount, acGroup, stuckCount, knowledgeContext);
                 fsSync.mkdirSync(worktree, { recursive: true });
                 await fs.writeFile(path.join(worktree, '.prompt.md'), prompt, 'utf-8');
                 // 启动 Agent（async spawn）
@@ -529,7 +530,7 @@ class AgentExecutor {
      * Session 2+: 极短续接（文件桥，上下文靠 worktree 文件）
      * 卡住时注入策略切换指令
      */
-    buildPrompt(task, progress, session, acGroup, stuckCount = 0) {
+    buildPrompt(task, progress, session, acGroup, stuckCount = 0, knowledgeContext) {
         // 约束注入
         const constraintPrompt = (0, hooks_1.buildAgentConstraintPrompt)({
             operation: 'code_implementation',
@@ -542,8 +543,12 @@ class AgentExecutor {
         const roleConstraintSection = roleConstraints.length
             ? `\n## 角色约束\n以下约束优先于一般指导原则：\n${roleConstraints.map((c) => `- ${c}`).join('\n')}\n`
             : '';
-        const constraintSection = constraintPrompt || roleConstraintSection
-            ? (constraintPrompt + roleConstraintSection + '\n---\n\n')
+        // G-001~003: 知识上下文（偏好 + 规则 + 环境 + 历史决策）
+        const knowledgeSection = knowledgeContext
+            ? `\n## 项目上下文\n${knowledgeContext}\n`
+            : '';
+        const constraintSection = constraintPrompt || roleConstraintSection || knowledgeSection
+            ? (constraintPrompt + roleConstraintSection + knowledgeSection + '\n---\n\n')
             : '';
         if (session === 1 || !progress) {
             return `${constraintSection}## 你的任务

@@ -133,7 +133,9 @@ export interface CompanyMCPPoolConfig {
 // ==================== CompanyMCPPool 类 ====================
 
 export class CompanyMCPPool {
-  constructor(config: CompanyMCPPoolConfig) {
+  private cache = new Map<string, any>();
+
+  constructor(_config: CompanyMCPPoolConfig) {
   }
 
   // ==================== CRUD 操作 ====================
@@ -382,7 +384,7 @@ export class CompanyMCPPool {
 
     // 这里应该调用实际的 MCP 客户端获取工具列表
     // 简化实现：从缓存读取
-    const tools = await this.contextSharer.getValue<MCPTool[]>(`company:${companyId}:mcp:${mcpKey}:tools`);
+    const tools = await this.cache.get(`company:${companyId}:mcp:${mcpKey}:tools`);
     return tools ?? [];
   }
 
@@ -390,7 +392,7 @@ export class CompanyMCPPool {
    * 缓存 MCP 工具列表
    */
   async cacheMCPTools(companyId: string, mcpKey: string, tools: MCPTool[]): Promise<void> {
-    await this.contextSharer.set(`company:${companyId}:mcp:${mcpKey}:tools`, tools);
+    await this.cache.set(`company:${companyId}:mcp:${mcpKey}:tools`, tools);
   }
 
   // ==================== 使用统计 ====================
@@ -470,7 +472,7 @@ export class CompanyMCPPool {
    * 列出可用的系统级 MCP
    */
   async listSystemMCPs(): Promise<SystemMCP[]> {
-    const data = await this.contextSharer.getValue<SystemMCP[]>('system:mcp-templates');
+    const data = this.cache.get('system:mcp-templates') as SystemMCP[] | undefined;
     return data ?? [];
   }
 
@@ -485,16 +487,16 @@ export class CompanyMCPPool {
   // ==================== 私有方法 ====================
 
   private async getCompanyMCPs(companyId: string): Promise<CompanyMCP[]> {
-    const data = await this.contextSharer.getValue<CompanyMCP[]>(`company:${companyId}:mcps`);
+    const data = this.cache.get(`company:${companyId}:mcps`) as CompanyMCP[] | undefined;
     return data ?? [];
   }
 
   private async saveCompanyMCPs(companyId: string, mcps: CompanyMCP[]): Promise<void> {
-    await this.contextSharer.set(`company:${companyId}:mcps`, mcps);
+    await this.cache.set(`company:${companyId}:mcps`, mcps);
   }
 
   private async getUsageRecords(companyId: string): Promise<MCPUsageRecord[]> {
-    const data = await this.contextSharer.getValue<MCPUsageRecord[]>(`company:${companyId}:mcp-usage`);
+    const data = this.cache.get(`company:${companyId}:mcp-usage`) as MCPUsageRecord[] | undefined;
     return data ?? [];
   }
 
@@ -504,7 +506,7 @@ export class CompanyMCPPool {
     
     // 只保留最近 1000 条
     const trimmed = records.slice(-1000);
-    await this.contextSharer.set(`company:${companyId}:mcp-usage`, trimmed);
+    await this.cache.set(`company:${companyId}:mcp-usage`, trimmed);
   }
 
   /**
