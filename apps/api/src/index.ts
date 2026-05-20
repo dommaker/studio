@@ -19,8 +19,42 @@ import { auditorAgent } from './modules/agents/auditor-agent.service.js';
 import { daemon } from './daemon/studio-daemon.js';
 import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 const PORT = process.env.PORT || 3001;
+
+// ── 配置加载（无论怎么启动都会执行）──
+function loadConfig(): void {
+  const configDir = process.env.STUDIO_CONFIG_DIR;
+  if (!configDir) {
+    // Fallback: ~/.studio/ defaults
+    const studioDir = path.join(os.homedir(), '.studio');
+    if (!process.env.DATABASE_URL) process.env.DATABASE_URL = `file:${path.join(studioDir, 'data', 'data.db')}`;
+    if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = path.join(studioDir, 'worktrees');
+    if (!process.env.EVENTS_DIR) process.env.EVENTS_DIR = path.join(studioDir, 'events');
+    return;
+  }
+
+  // Load .env file from config directory
+  const envPath = configDir.endsWith('.env') ? configDir : path.join(configDir, '.env');
+  if (fs.existsSync(envPath)) {
+    const content = fs.readFileSync(envPath, 'utf-8');
+    for (const line of content.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eqIdx = trimmed.indexOf('=');
+      if (eqIdx === -1) continue;
+      const key = trimmed.slice(0, eqIdx).trim();
+      const val = trimmed.slice(eqIdx + 1).trim();
+      if (!process.env[key]) process.env[key] = val;
+    }
+    logger.info('Config loaded', { source: envPath });
+  }
+}
+
+loadConfig();
 
 async function start() {
   try {
