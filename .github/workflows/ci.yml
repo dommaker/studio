@@ -8,25 +8,13 @@ on:
 
 jobs:
   build-and-test:
-    name: Build & Test
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v4
-
-
       - uses: actions/setup-node@v4
-      - name: Install pnpm
-        run: npm install -g pnpm@latest
         with:
           node-version: '22'
-          cache: 'pnpm'
-
-      - name: Install dependencies
-        run: pnpm install
-
-      - name: Build
-        run: pnpm build
-
-      - name: Test
-        run: pnpm test
+      - run: npm install -g pnpm@latest
+      - run: pnpm install
+      - run: pnpm build
+      - run: pnpm test
