@@ -5,11 +5,15 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
+import { KnowledgeStore } from '@dommaker/harness';
 import { preferenceObserver } from './preference-observer.js';
 import { ruleScanner } from './rule-scanner.js';
 import { envSnapper } from './env-snapper.js';
 import { decisionChainExtractor } from './decision-chain-extractor.js';
 import { patternMiner } from './pattern-miner.js';
+
+// KK 存储的知识（harness KnowledgeStore）
+const kkStore = new KnowledgeStore();
 
 export type KnowledgeType =
   | 'preference'
@@ -84,6 +88,24 @@ export class KnowledgeQueryService {
     try {
       const patPrompt = await patternMiner.formatForPrompt();
       if (patPrompt) parts.push(patPrompt);
+    } catch { /* best-effort */ }
+
+    // KK 提取的 pitfall/guideline（harness KnowledgeStore）
+    try {
+      const kkPitfalls = kkStore.list({ type: 'pitfall' });
+      const kkGuidelines = kkStore.list({ type: 'guideline' });
+      const kkEntries = [...kkPitfalls, ...kkGuidelines]
+        .filter(e => e.maturity !== 'archived')
+        .sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))
+        .slice(0, 5);
+      if (kkEntries.length > 0) {
+        const lines = ['\n## 历史积累（KK 提取）'];
+        for (const e of kkEntries) {
+          const icon = e.type === 'pitfall' ? '⚠️' : '📋';
+          lines.push(`- ${icon} ${e.title}: ${e.content.slice(0, 200)}`);
+        }
+        parts.push(lines.join('\n'));
+      }
     } catch { /* best-effort */ }
 
     return parts.join('\n').trim();

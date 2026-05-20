@@ -70,6 +70,7 @@ export class MonitorAgent {
     alerts.push(...await this.checkTotalExecutionTime());
     alerts.push(...await this.checkHeartbeatLoss());
     alerts.push(...await this.checkPipelineLatency());
+    alerts.push(...await this.checkToolPatterns());
     await this.evaluateTrajectory();  // G4
     await this.analyzeRoutingEvolution();  // G5 evolution
     await this.autoAbandonStaleBlocked();
@@ -500,6 +501,46 @@ export class MonitorAgent {
       logger.warn('[MonitorAgent] Pipeline latency check failed', { error: String(e) });
     }
 
+    return alerts;
+  }
+
+  // ── P0.3: Tool Pattern Detection — 工具调用异常模式 ──
+
+  private async checkToolPatterns(): Promise<MonitorAlert[]> {
+    const alerts: MonitorAlert[] = [];
+    try {
+      const { toolRegistry } = await import('../mcp/tool-registry.js');
+      const allStats = toolRegistry.getStats();
+
+      for (const [toolName, stats] of allStats) {
+        const totalCalls = stats.totalCalls;
+        if (totalCalls === 0) continue;
+
+        const errorRate = stats.errorCalls / totalCalls;
+
+        // 高频工具错误率 > 50% 且至少 5 次调用
+        if (errorRate > 0.5 && totalCalls >= 5) {
+          alerts.push({
+            source: 'tool_error_rate',
+            level: 'warning',
+            message: `Tool "${toolName}" error rate ${Math.round(errorRate * 100)}% (${stats.errorCalls}/${totalCalls} calls)`,
+            timestamp: Date.now(),
+          });
+        }
+
+        // 工具零调用超过 5 次总调用（可能卡住或受限）
+        if (stats.successCalls === 0 && totalCalls >= 10) {
+          alerts.push({
+            source: 'tool_zero_success',
+            level: 'warning',
+            message: `Tool "${toolName}" has zero successful calls in ${totalCalls} attempts`,
+            timestamp: Date.now(),
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn('[MonitorAgent] Tool pattern check failed', { error: String(e) });
+    }
     return alerts;
   }
 
