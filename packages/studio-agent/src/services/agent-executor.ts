@@ -17,6 +17,7 @@ import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import { logger, getModelForTier } from '@dommaker/studio-shared';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
+import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
 
 // 配置类型
 export interface ExecutorConfig {
@@ -622,30 +623,18 @@ export class AgentExecutor {
       ? (constraintPrompt + roleConstraintSection + knowledgeSection + '\n---\n\n')
       : '';
 
+    // Skill 注入：按 trigger + agentType 加载
+    const skillTier = (task.model as SkillTier) || 'standard';
+    const skills = session === 1
+      ? skillLoader.load({ trigger: 'goal_start', agentType: 'executor', tier: skillTier })
+      : skillLoader.load({ trigger: 'goal_continue', agentType: 'executor', tier: skillTier, exclude: ['stuck-recovery'] });
+    const skillPrompt = skillLoader.formatForPrompt(skills);
+
     if (session === 1 || !progress) {
       return `${constraintSection}## 你的任务
 
 读 REQUIREMENTS.md 了解你要完成的任务和验收标准。
-
-## TDD 工作流
-
-严格按以下流程工作：
-
-1. 读 AC → 写失败的测试
-2. 运行测试确认失败
-3. 最小实现让测试通过 → 运行确认通过
-4. 重构优化
-5. 重复 1-4 直到所有 AC 满足
-6. 运行 npm test + type check + lint
-7. 更新 .progress.json
-8. 全部 AC 覆盖 + 全部测试通过 → 设置 .progress.json allComplete: true
-
-## 重要
-
-- 每完成一个步骤后必须更新 .progress.json
-- 如果没有 .progress.json 文件，立即创建
-- 将环境变量 STUDIO_EXECUTION_ID 和 STUDIO_GOAL_ID（如有）写入 .progress.json.executionId 和 .progress.json.goalId
-- 只在你真正完成时才设置 allComplete: true`;
+${skillPrompt}`;
     }
 
     // Session 2+: 极短续接 prompt
@@ -662,6 +651,7 @@ export class AgentExecutor {
       `测试结果：${progress.testResults?.passed || 0} passed / ${progress.testResults?.failed || 0} failed`,
       `备注：${progress.notes || '无'}`,
     ];
+    if (skillPrompt) parts.push('', skillPrompt);
     if (strategyHint) parts.push('', strategyHint);
     parts.push('', '继续工作，从上次中断的地方开始。每完成一步后更新 .progress.json。');
     parts.push('全部完成后设置 allComplete: true。');
