@@ -8,8 +8,7 @@ import { daemon } from '../../daemon/studio-daemon.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const ANALYST_WORKTREE = process.env.REPO_DIR || process.cwd();
-const ANALYST_DIR = path.join(ANALYST_WORKTREE, '.analyst');
+const ANALYST_DIR = process.env.ANALYST_DIR || path.join(process.env.REPO_DIR || process.cwd(), '.analyst');
 const KNOWLEDGE_FILE = path.join(ANALYST_DIR, 'knowledge.md');
 const OUTPUT_FILE = path.join(ANALYST_DIR, 'output.json');
 

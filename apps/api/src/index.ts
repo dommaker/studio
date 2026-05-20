@@ -74,6 +74,12 @@ async function start() {
     monitorAgent.start();
     auditorAgent.start();
     daemon.start();
+    // ── Ops Agent: runtime health loop ──
+    try {
+      const { createOpsAgent } = await import('./modules/agents/ops-agent.service.js');
+      const opsAgent = createOpsAgent();
+      opsAgent.start();
+    } catch (e) { logger.warn('[OpsAgent] Failed to start', { error: String(e) }); }
     startAuditSubscriber();
     agentRouter.startScheduler(15000);
     try { startEvolutionScheduler(); } catch { logger.warn('Evolution scheduler unavailable'); }

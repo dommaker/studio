@@ -97,4 +97,4 @@ export class NotificationService {
 }
 
 // 单例实例
-export const notificationService = new NotificationService(prisma);
+export const notificationService = new NotificationService(prisma as any);

@@ -131,7 +131,7 @@ export class ChangeApproverService {
     logger.info(`[ChangeApprover] 审批变更: ${changeId} by ${approvedBy}, 结果: ${approved}`);
 
     const config = APPROVAL_CONFIG[record.level as ChangeLevel];
-    const metadata = JSON.parse(record.metadata || '{}');
+    const metadata = JSON.parse((record.metadata as string) || '{}');
     const approvers = (metadata.approvers as string[]) || [];
 
     // 如果拒绝
@@ -262,7 +262,7 @@ export class ChangeApproverService {
     summary: string; status: string; submittedBy: string; submittedAt: Date;
     appliedAt: Date | null; metadata: unknown;
   }): ChangeRecord {
-    const metadata = JSON.parse(record.metadata || '{}');
+    const metadata = JSON.parse((record.metadata as string) || '{}');
     return {
       id: record.id,
       specId: record.specId,
