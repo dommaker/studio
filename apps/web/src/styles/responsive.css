@@ -1,0 +1,566 @@
+/* 移动端响应式设计（P2-6） */
+
+/* ==================== 响应式断点 ==================== */
+/*
+  手机: < 640px (sm)
+  平板: 640px - 1024px (md, lg)
+  桌面: > 1024px (xl, 2xl)
+*/
+
+/* ==================== 全局响应式 ==================== */
+
+/* 移动端基础调整 */
+@media (max-width: 639px) {
+  /* 减少内边距 */
+  .p-8 {
+    padding: 1rem;
+  }
+  
+  .px-8 {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+  
+  .py-6 {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+  }
+  
+  /* 调整字体大小 */
+  .text-xl {
+    font-size: 1.125rem;
+  }
+  
+  .text-lg {
+    font-size: 1rem;
+  }
+  
+  /* 隐藏移动端不必要的元素 */
+  .hide-mobile {
+    display: none !important;
+  }
+  
+  /* 调整网格 */
+  .grid-cols-3 {
+    grid-template-columns: 1fr;
+  }
+  
+  .grid-cols-4 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* 平板调整 */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .grid-cols-4 {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ==================== 导航栏响应式 ==================== */
+
+@media (max-width: 639px) {
+  /* 导航栏 */
+  nav {
+    padding: 0.5rem 1rem;
+  }
+  
+  nav .nav-links {
+    display: none;
+  }
+  
+  /* 汉堡菜单按钮 */
+  .mobile-menu-btn {
+    display: flex !important;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+  }
+  
+  .mobile-menu-btn span {
+    width: 20px;
+    height: 2px;
+    background: var(--text-primary);
+    transition: all 0.3s ease;
+  }
+  
+  /* 移动端菜单 */
+  .mobile-menu {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    right: 0;
+    background: var(--bg-elevated);
+    border-top: 1px solid var(--border-subtle);
+    padding: 1rem;
+    transform: translateY(-100%);
+    opacity: 0;
+    transition: all 0.3s ease;
+    z-index: 100;
+  }
+  
+  .mobile-menu.open {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  
+  .mobile-menu a {
+    display: block;
+    padding: 0.75rem 1rem;
+    color: var(--text-primary);
+    text-decoration: none;
+    border-radius: 0.5rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  .mobile-menu a:hover {
+    background: var(--bg-hover);
+  }
+}
+
+/* ==================== 卡片响应式 ==================== */
+
+@media (max-width: 639px) {
+  .card {
+    margin: 0.5rem 0;
+    border-radius: 0.75rem;
+  }
+  
+  .card-glow {
+    box-shadow: none;
+  }
+  
+  .card-glow:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* ==================== 表单响应式 ==================== */
+
+@media (max-width: 639px) {
+  input, textarea, select {
+    font-size: 16px !important; /* 防止 iOS 缩放 */
+  }
+  
+  .btn {
+    padding: 0.625rem 1rem;
+    font-size: 0.875rem;
+  }
+  
+  /* 表单组堆叠 */
+  .form-group {
+    flex-direction: column;
+  }
+  
+  .form-group > * {
+    width: 100%;
+  }
+}
+
+/* ==================== 任务卡片响应式 ==================== */
+
+@media (max-width: 639px) {
+  .task-card {
+    padding: 0.75rem;
+  }
+  
+  .task-card .header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .task-card .actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+  
+  /* 时间线简化 */
+  .timeline {
+    display: none;
+  }
+  
+  .timeline-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+}
+
+/* ==================== 会议页面响应式 ==================== */
+
+@media (max-width: 639px) {
+  /* 会议列表 */
+  .meeting-list {
+    padding: 0.5rem;
+  }
+  
+  .meeting-item {
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+  }
+  
+  /* 会议详情 */
+  .meeting-detail {
+    flex-direction: column;
+  }
+  
+  .meeting-detail .sidebar {
+    order: 1;
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  
+  .meeting-detail .main {
+    order: 2;
+    flex: 1;
+  }
+  
+  /* 消息气泡 */
+  .message-bubble {
+    max-width: 85%;
+    padding: 0.5rem 0.75rem;
+  }
+  
+  /* 参与者列表 */
+  .participants-list {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  
+  .participant-card {
+    width: calc(50% - 0.25rem);
+  }
+}
+
+/* ==================== 办公区页面响应式 ==================== */
+
+@media (max-width: 639px) {
+  .office-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .role-card {
+    padding: 0.75rem;
+  }
+  
+  .role-card .avatar {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .role-card .stats {
+    display: none;
+  }
+  
+  .role-card .stats-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+}
+
+/* ==================== CEO 输入响应式 ==================== */
+
+@media (max-width: 639px) {
+  .ceo-input-container {
+    padding: 0 1rem;
+  }
+  
+  .ceo-input-container .examples {
+    flex-wrap: wrap;
+  }
+  
+  .ceo-input-container .example-btn {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+  }
+  
+  /* 智能补全弹窗 */
+  .suggestions-dropdown {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 50vh;
+    border-radius: 1rem 1rem 0 0;
+  }
+}
+
+/* ==================== 首页响应式 ==================== */
+
+@media (max-width: 639px) {
+  .home-container {
+    padding: 0.5rem;
+  }
+  
+  .home-container .tasks-section {
+    margin-top: 1rem;
+  }
+  
+  .home-container .task-list {
+    gap: 0.5rem;
+  }
+  
+  /* 隐藏思考流 */
+  .thinking-stream {
+    display: none;
+  }
+}
+
+/* ==================== MR-009: Sidebar + TopNav 响应式 ==================== */
+
+@media (max-width: 639px) {
+  /* Sidebar 移动端覆盖层 */
+  .sidebar-mobile-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    padding: 1rem;
+  }
+  
+  .sidebar-mobile-overlay.open {
+    transform: translateX(0);
+  }
+  
+  /* TopNav 简化 */
+  .nav-header {
+    padding: 0.5rem 1rem;
+  }
+  
+  .nav-header nav {
+    display: none; /* 隐藏桌面导航 */
+  }
+  
+  .nav-header .logo-text {
+    font-size: 1rem;
+  }
+  
+  /* 汉堡菜单按钮 */
+  .hamburger-btn {
+    display: flex !important;
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    margin-right: 1rem;
+  }
+  
+  .hamburger-btn span {
+    width: 20px;
+    height: 2px;
+    background: var(--text-primary);
+    transition: all 0.3s ease;
+  }
+  
+  /* 隐藏桌面 Sidebar */
+  aside:not(.sidebar-mobile-overlay) {
+    display: none;
+  }
+}
+
+@media (min-width: 640px) {
+  /* 桌面端隐藏汉堡菜单 */
+  .hamburger-btn {
+    display: none !important;
+  }
+  
+  /* 桌面端 Sidebar 正常显示 */
+  .sidebar {
+    position: static;
+    width: 256px;
+    transform: none;
+    flex-shrink: 0;
+    display: flex;
+  }
+  
+  .sidebar-open {
+    transform: none;
+  }
+  
+  .mobile-close-btn {
+    display: none !important;
+  }
+}
+
+/* ==================== Sidebar 移动端样式 ==================== */
+
+.sidebar {
+  /* 移动端默认隐藏 */
+}
+
+@media (max-width: 639px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 200;
+    transform: translateX(-100%);
+    transition: transform 0.3s ease;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .sidebar-open {
+    transform: translateX(0);
+  }
+  
+  /* 遮罩层 */
+  .sidebar::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  
+  .sidebar-open::before {
+    opacity: 1;
+  }
+}
+
+/* ==================== 触摸优化 ==================== */
+
+@media (hover: none) and (pointer: coarse) {
+  /* 增大点击区域 */
+  .btn, a, button {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  
+  /* 移除悬停效果 */
+  .btn:hover, .card:hover {
+    transform: none;
+    box-shadow: inherit;
+  }
+  
+  /* 点击反馈 */
+  .btn:active {
+    transform: scale(0.98);
+    opacity: 0.8;
+  }
+}
+
+/* ==================== 安全区域（刘海屏） ==================== */
+
+@supports (padding: env(safe-area-inset-bottom)) {
+  .bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  
+  .bottom-sheet {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
+}
+
+/* ==================== 打印样式 ==================== */
+
+@media print {
+  .hide-print {
+    display: none !important;
+  }
+  
+  body {
+    background: white;
+    color: black;
+  }
+  
+  .card {
+    box-shadow: none;
+    border: 1px solid #ddd;
+  }
+}
+
+/* ==================== 工具类 ==================== */
+
+/* 隐藏类 */
+.hide-mobile {
+  display: block;
+}
+
+.hide-tablet {
+  display: block;
+}
+
+.hide-desktop {
+  display: none;
+}
+
+@media (max-width: 639px) {
+  .hide-mobile {
+    display: none !important;
+  }
+  
+  .show-mobile {
+    display: block !important;
+  }
+}
+
+@media (min-width: 640px) and (max-width: 1023px) {
+  .hide-tablet {
+    display: none !important;
+  }
+  
+  .show-tablet {
+    display: block !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .hide-desktop {
+    display: none !important;
+  }
+  
+  .show-desktop {
+    display: block !important;
+  }
+}
+
+/* 响应式间距 */
+@media (max-width: 639px) {
+  .gap-responsive {
+    gap: 0.5rem;
+  }
+  
+  .p-responsive {
+    padding: 0.75rem;
+  }
+  
+  .m-responsive {
+    margin: 0.5rem;
+  }
+}
+
+@media (min-width: 640px) {
+  .gap-responsive {
+    gap: 1rem;
+  }
+  
+  .p-responsive {
+    padding: 1.5rem;
+  }
+  
+  .m-responsive {
+    margin: 1rem;
+  }
+}

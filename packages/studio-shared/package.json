@@ -1,0 +1,36 @@
+{
+  "name": "@dommaker/studio-shared",
+  "version": "0.1.0",
+  "description": "Studio shared utilities and CLI framework",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts",
+    "./cli": "./src/cli/index.ts",
+    "./constants": "./src/constants/levels.ts",
+    "./harness/hooks": "./src/harness/hooks/index.ts",
+    "./harness/runtime/bootstrap": "./src/harness/runtime/bootstrap.ts"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@dommaker/harness": "^0.12.2",
+    "eventemitter3": "^5.0.0",
+    "yaml": "2.3.0"
+  },
+  "devDependencies": {
+    "vitest": "1.0.0",
+    "typescript": "^5.4.5",
+    "@types/node": "20.0.0"
+  },
+  "keywords": [
+    "studio",
+    "cli",
+    "shared"
+  ],
+  "license": "MIT"
+}

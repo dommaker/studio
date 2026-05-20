@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+# studio CLI launcher
+exec npx tsx "$(dirname "$0")/../apps/api/src/cli/studio-cli.ts" "$@"

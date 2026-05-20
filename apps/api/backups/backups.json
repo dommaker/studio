@@ -1,0 +1,38 @@
+[
+  {
+    "id": "backup-20260429132146-7qfl",
+    "filename": "backup-20260429132146-7qfl.json",
+    "type": "full",
+    "size": 1212,
+    "recordCount": 1,
+    "duration": 296,
+    "description": "SEC-008 test",
+    "trigger": "api",
+    "status": "completed",
+    "createdAt": "2026-04-29T13:21:46.392Z"
+  },
+  {
+    "id": "backup-20260429132304-ys0c",
+    "filename": "backup-20260429132304-ys0c.json",
+    "type": "full",
+    "size": 1212,
+    "recordCount": 1,
+    "duration": 10,
+    "trigger": "api",
+    "status": "completed",
+    "createdAt": "2026-04-29T13:23:04.756Z"
+  },
+  {
+    "id": "backup-20260429133202-fprb",
+    "filename": "backup-20260429133202-fprb.dump",
+    "type": "full",
+    "format": "pg_dump",
+    "size": 120680,
+    "recordCount": 0,
+    "duration": 175,
+    "description": "SEC-008 pg_dump test",
+    "trigger": "api",
+    "status": "completed",
+    "createdAt": "2026-04-29T13:32:02.651Z"
+  }
+]

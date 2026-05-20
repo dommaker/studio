@@ -1,0 +1,32 @@
+name: Harness Governance
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  governance:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Constraint check
+        run: npx harness check
+
+      - name: Quality gate
+        run: npx harness passes-gate
+
+      - name: Check docs freshness
+        run: npx harness sync-docs --check
+        continue-on-error: true

@@ -1,0 +1,44 @@
+# 项目专属约束 (2026-05-09)
+#
+# 扩展 @dommaker/harness 内置的 8 Iron Laws + 13 Guidelines
+
+custom_constraints:
+
+  # ── Model Tier 校验 ──
+  model_tier_schema_change:
+    id: model_tier_schema_change
+    level: guideline
+    rule: "SCHEMA CHANGES REQUIRE PREMIUM MODEL"
+    message: "schema/migration/auth 变更应使用 premium 模型，flash 禁止用于此类变更"
+    trigger: ["code_implementation"]
+    description: "flash 模型在 schema 变更时成功率仅 72%（source: KK pitfall），禁止对 schema/auth/financial 变更使用 flash tier"
+
+  # ── 审查必须通过 ──
+  review_required_for_auth:
+    id: review_required_for_auth
+    level: guideline
+    rule: "AUTH CHANGES REQUIRE REVIEW PASS"
+    message: "auth/login/token/session 相关变更必须通过 Reviewer 审查，不得跳过"
+    trigger: ["code_implementation"]
+    description: "安全相关变更必须经过多立场审查（质疑者/架构师/执行者/实用主义者），禁止 bypass"
+
+  # ── 禁止静默失败 ──
+  no_silent_error_swallow:
+    id: no_silent_error_swallow
+    level: tip
+    rule: "ERRORS MUST BE LOGGED WITH CONTEXT"
+    message: "catch 块不能为空，至少要 logger.warn() 输出错误上下文"
+    trigger: ["code_implementation"]
+    description: "静默 catch 导致故障完全不可见。最低要求：logger.warn('context', { error: String(e) })"
+
+  # ── 禁止硬编码端口/路径 ──
+  no_hardcoded_infra:
+    id: no_hardcoded_infra
+    level: guideline
+    rule: "NO HARDCODED PORTS, PATHS, OR HOSTS"
+    message: "端口/路径/主机 必须从环境变量读取，不得硬编码"
+    trigger: ["code_implementation"]
+    description: "硬编码基础设施参数导致环境迁移困难。使用 process.env.X || default 模式"
+
+# ── 内置约束例外 ──
+# 暂无需要例外的内置约束
