@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { skillLoader } from '@dommaker/studio-skill';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { goalService, GoalStep, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
@@ -641,14 +642,7 @@ export class GoalScheduler {
       ...(files.length > 0 ? ['## 预期改动文件', ...files.map((f: string) => `- ${f}`), ''] : []),
       ...(siblingContext ? [siblingContext, ''] : []),
       ...(companyKnowledge ? [companyKnowledge, ''] : []),
-      '## TDD 工作流',
-      '1. 读 AC → 写失败测试 → 运行确认失败',
-      '2. 最小实现让测试通过',
-      '3. 重构优化',
-      '4. 重复直到所有 AC 满足',
-      '5. 运行 npm test + type check + lint',
-      '6. 更新 .progress.json',
-      '7. 全部完成后设置 allComplete: true',
+      skillLoader.formatForPrompt(skillLoader.load({ trigger: 'sub_agent', agentType: 'executor', tier: 'fast' })),
       '',
       '## 完成后',
       '在 .progress.json 的 notes 字段简要记录：',
