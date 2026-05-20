@@ -46,7 +46,7 @@ const APPROVAL_PROCESS_MAP: Record<ChangeLevel, ApprovalProcess> = {
     estimatedTime: '< 1h',
   },
   L4: {
-    type: 'meeting_review',
+    type: 'multi_approval',
     requiredApprovers: 3,
     description: '会议评审（多人签署）',
     estimatedTime: '< 24h',

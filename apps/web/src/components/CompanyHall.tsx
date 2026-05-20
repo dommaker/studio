@@ -193,7 +193,7 @@ export function CompanyHall({
                 </div>
                 <div className="text-center p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)' }}>
                   <div className="text-2xl font-bold" style={{ color: 'var(--warning)' }}>
-                    {formatTokens(stats.todayStats.cost)}
+                    {stats.todayStats.cost.toLocaleString()}
                   </div>
                   <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
                     今日消耗

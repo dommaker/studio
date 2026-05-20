@@ -1,6 +1,6 @@
 // 项目详情弹窗组件
 import { useState, useEffect } from 'react';
-import { runtimeWorkflowApi, meetingApi, api } from '../api';
+import { runtimeWorkflowApi, api } from '../api';
 import { useNavigate } from 'react-router-dom';
 import { toast } from '../utils/toast';
 
@@ -60,38 +60,6 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
     } catch (error) {
       console.error('Failed to execute:', error);
       toast.error('执行失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // 发起讨论 - 创建关联任务的会议
-  const handleStartDiscussion = async () => {
-    try {
-      setLoading(true);
-
-      // 获取公司ID
-      const companyId = localStorage.getItem('companyId') || '219fbcd4-6be4-4e60-955b-7eb49d6fda99';
-
-      // 创建会议并关联当前任务
-      const meetingData = {
-        title: `任务讨论：${project.name}`,
-        topic: `讨论任务执行过程中的问题和下一步计划`,
-        companyId,
-        taskId: project.id,  // 关联任务
-        mode: 'sync',
-        maxRounds: 3,
-      };
-
-      const response = await meetingApi.create(meetingData);
-      const meeting = response.data || response;
-
-      // 跳转到会议详情页
-      navigate(`/meetings/${meeting.id}`);
-      onClose();
-    } catch (error) {
-      console.error('Failed to create meeting:', error);
-      toast.error('创建会议失败');
     } finally {
       setLoading(false);
     }
@@ -193,24 +161,6 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
               <button onClick={() => handleIterate('wf-test')} disabled={loading} className="btn btn-primary">🧪 测试验证</button>
               <button onClick={() => handleIterate('wf-deploy')} disabled={loading} className="btn btn-primary">🚀 部署上线</button>
             </div>
-          </div>
-
-          {/* 协作讨论 */}
-          <div>
-            <h3 className="font-medium mb-3" style={{ color: 'var(--text-secondary)' }}>协作讨论</h3>
-            <button
-              onClick={handleStartDiscussion}
-              disabled={loading}
-              className="w-full px-4 py-3 rounded-lg text-sm font-medium transition-all flex items-center justify-center gap-2"
-              style={{
-                background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(236, 72, 153, 0.15))',
-                color: '#a78bfa',
-                border: '1px solid rgba(139, 92, 246, 0.3)',
-              }}
-            >
-              💬 发起讨论
-              <span className="text-xs opacity-70">邀请角色讨论此任务</span>
-            </button>
           </div>
 
           {/* 执行历史 */}

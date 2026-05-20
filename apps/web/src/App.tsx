@@ -34,7 +34,7 @@ import { GlobalModals } from './components/GlobalModals';
 import { useAgentStore, useRuntimeStore } from './stores';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
-import { projectApi, meetingApi } from './api';
+import { projectApi } from './api';
 import { useWebSocket, WebSocketProvider } from './api/websocket';
 import { useWebSocketHandlers } from './hooks/useWebSocketHandlers';
 import { useGlobalModals } from './hooks/useGlobalModals';
@@ -125,14 +125,7 @@ export default function App() {
       const projectId = projectData.id;
       const newPmoNumber = projectData.pmoNumber;
 
-      const meetingRes = await meetingApi.create({
-        title: `${newPmoNumber} 需求评审`,
-        companyId: defaultCompanyId,
-        projectId,
-        topic: command,
-      });
-      const meetingData = meetingRes.data || meetingRes;
-      navigate(`/meetings/${meetingData.id}`);
+      toast.success(`项目已创建: ${newPmoNumber}`);
     } catch (error) {
       console.error('FL-001 command submit failed:', error);
       toast.error('指令处理失败，请刷新页面后重试');

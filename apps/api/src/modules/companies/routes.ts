@@ -155,7 +155,7 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
     const { companyId } = req.params;
 
     // 并行查询多个数据源
-    const [company, roles, executions, meetings] = await Promise.all([
+    const [company, roles, executions] = await Promise.all([
       // 公司信息
       prisma.company.findUnique({
         where: { id: companyId },
@@ -169,15 +169,6 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
       // 执行中的任务数
       prisma.execution.count({
         where: { status: 'running' },
-      }),
-      // 今日会议数
-      prisma.meeting.count({
-        where: {
-          companyId,
-          createdAt: {
-            gte: new Date(new Date().setHours(0, 0, 0, 0)),
-          },
-        },
       }),
     ]);
 
@@ -211,7 +202,6 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
         totalRoles,
         onlineRoles,
         runningTasks: executions,
-        todayMeetings: meetings,
         todayCompletedTasks,
       },
     });

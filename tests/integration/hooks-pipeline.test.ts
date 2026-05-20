@@ -19,10 +19,9 @@ describe('Hooks Config — per-hook 开关', () => {
   });
 
   it('HARNESS_HOOK_DISABLE 可禁用指定 hook', async () => {
-    process.env.HARNESS_HOOK_DISABLE = 'afterMeetingDecision,beforeAgentDispatch';
+    process.env.HARNESS_HOOK_DISABLE = 'beforeAgentDispatch';
     const { getHookConfig } = await import('../../packages/studio-shared/src/harness/hooks/config.js');
 
-    expect(getHookConfig('afterMeetingDecision').enabled).toBe(false);
     expect(getHookConfig('beforeAgentDispatch').enabled).toBe(false);
     expect(getHookConfig('beforeAgentExecute').enabled).toBe(true); // 未禁用的仍启用
   });
@@ -66,7 +65,6 @@ describe('Hooks 覆盖率 — 所有阶段 hook 已定义', () => {
     const hooks = await import('../../packages/studio-shared/src/harness/hooks/index.js');
     expect(hooks).toBeDefined();
     // 验证关键导出存在
-    expect(typeof hooks.afterMeetingDecision).toBe('function');
     expect(typeof hooks.beforeAgentDispatch).toBe('function');
     expect(typeof hooks.beforeAgentExecute).toBe('function');
     expect(typeof hooks.checkBeforeTaskComplete).toBe('function');
@@ -74,13 +72,12 @@ describe('Hooks 覆盖率 — 所有阶段 hook 已定义', () => {
   });
 
   it('每个阶段至少有一个导出的 hook 函数', async () => {
-    const { afterMeetingDecision, afterRequirementsDoc } = await import('../../packages/studio-shared/src/harness/hooks/meeting.hooks.js');
+    const { afterRequirementsDoc } = await import('../../packages/studio-shared/src/harness/hooks/meeting.hooks.js');
     const { beforeGoalCreate, beforeAgentDispatch } = await import('../../packages/studio-shared/src/harness/hooks/goal.hooks.js');
     const { beforeAgentExecute, afterAgentComplete, buildAgentConstraintPrompt } = await import('../../packages/studio-shared/src/harness/hooks/agent.hooks.js');
     const { checkBeforeTaskComplete, afterReview } = await import('../../packages/studio-shared/src/harness/hooks/completion.hooks.js');
     const { afterPrCreated } = await import('../../packages/studio-shared/src/harness/hooks/pr.hooks.js');
 
-    expect(typeof afterMeetingDecision).toBe('function');
     expect(typeof afterRequirementsDoc).toBe('function');
     expect(typeof beforeGoalCreate).toBe('function');
     expect(typeof beforeAgentDispatch).toBe('function');

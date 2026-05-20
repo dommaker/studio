@@ -55,14 +55,6 @@ export function TopNav({ wsStatus = 'disconnected', onMenuClick }: TopNavProps) 
       {/* L1 核心导航（桌面端） */}
       <nav className="ml-8 flex items-center gap-1 hide-mobile">
         <Link
-          to="/meetings"
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            location.pathname.startsWith('/meetings') ? 'nav-tab-active' : 'nav-tab'
-          }`}
-        >
-          📋 {t('nav.meetings', '会议室')}
-        </Link>
-        <Link
           to="/workflows"
           className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
             location.pathname.startsWith('/workflows') ? 'nav-tab-active' : 'nav-tab'

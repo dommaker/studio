@@ -7,7 +7,6 @@
  * Phase 2: 新增 registerAllHooks() 将 hook 注册到 harness HookPipeline。
  */
 
-export * from './meeting.hooks';
 export * from './goal.hooks';
 export * from './agent.hooks';
 export * from './completion.hooks';

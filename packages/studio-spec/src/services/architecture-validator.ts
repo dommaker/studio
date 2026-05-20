@@ -114,7 +114,6 @@ export class ArchitectureValidator {
       'studio-shared',
       'studio-prisma',
       'studio-notification',
-      'studio-meeting',
       'studio-task',
       'studio-capability',
       'studio-monitor',

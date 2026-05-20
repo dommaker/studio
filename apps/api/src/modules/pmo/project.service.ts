@@ -198,38 +198,12 @@ export const projectService = {
         updatedAt: true,
         Company: { select: { id: true, name: true, size: true, balance: true } },
         okr: { select: { id: true, title: true, quarter: true } },
-        // 🆕 FL-021: Meeting 历史追溯
-        Meetings: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            createdAt: true,
-            completedAt: true,
-            topic: true,
-            summary: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
-        OutputMeetings: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        },
       },
     });
   },
 
   /**
    * 通过 PMO 号获取项目
-   * 
-   * 🆕 FL-021: 包含 Meeting 关联（历史追溯）
    */
   async getByPmoNumber(companyId: string, pmoNumber: string) {
     return prisma.project.findUnique({
@@ -238,30 +212,7 @@ export const projectService = {
       },
       include: {
         Company: true,
-        okr: true,  // 🔧 修复：Prisma 字段名是 okr（小写）
-        // 🆕 FL-021: Meeting 历史追溯
-        Meetings: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            createdAt: true,
-            completedAt: true,
-            topic: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
-        OutputMeetings: {
-          select: {
-            id: true,
-            title: true,
-            status: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 5,
-        },
+        okr: true,
       },
     });
   },

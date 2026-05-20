@@ -200,7 +200,7 @@ describe('ChangeAnalyzerService', () => {
 
     expect(result.level).toBe('L4');
     expect(result.changeTypes).toContain('dependency_remove');
-    expect(result.recommendedApproval.type).toBe('meeting_review');
+    expect(result.recommendedApproval.type).toBe('multi_approval');
     expect(result.recommendedApproval.requiredApprovers).toBe(3);
   });
 
@@ -364,7 +364,7 @@ describe('ChangeAnalyzerService', () => {
     });
 
     expect(result.level).toBe('L4');
-    expect(result.recommendedApproval.type).toBe('meeting_review');
+    expect(result.recommendedApproval.type).toBe('multi_approval');
     expect(result.recommendedApproval.requiredApprovers).toBe(3);
     expect(result.recommendedApproval.estimatedTime).toBe('< 24h');
   });

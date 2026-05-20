@@ -2,7 +2,7 @@
  * 全流程端到端模拟测试
  *
  * 模拟完整链路，不依赖服务器运行。
- * Meeting → Analyst → RequirementsDoc → Wiki → Goal → Executor → Review → Knowledge → Audit
+ * Analyst → RequirementsDoc → Wiki → Goal → Executor → Review → Knowledge → Audit
  */
 
 import * as fs from 'fs';
@@ -55,7 +55,7 @@ function recordAudit(e: any) {
 function shouldAutoPublish(conf: number) { return (conf || 0.5) >= 0.8; }
 
 // ── 模拟角色行为 ──
-function simulateAnalyst(meetingId: string, projectId: string, topic: string) {
+function simulateAnalyst(projectId: string, topic: string) {
   // 1. 冷启动检查
   const cold = query(topic, 5).length === 0;
   // 2. 辩论（模拟：产出3个decisions）
@@ -74,14 +74,14 @@ function simulateAnalyst(meetingId: string, projectId: string, topic: string) {
     summary: 'JWT + OAuth 用户认证系统',
   };
   // 4. 审计
-  recordAudit({ eventType: 'requirements.generated', entityType: 'meeting', entityId: meetingId, projectId, summary: `RequirementsDoc: ${doc.summary}`, details: { acGroupCount: doc.acGroups.length, constraintCount: doc.constraints.length, isColdStart: cold }, actorRole: 'analyst' });
+  recordAudit({ eventType: 'requirements.generated', entityType: 'requirements', entityId: projectId, projectId, summary: `RequirementsDoc: ${doc.summary}`, details: { acGroupCount: doc.acGroups.length, constraintCount: doc.constraints.length, isColdStart: cold }, actorRole: 'analyst' });
   return { decisions, doc, isColdStart: cold };
 }
 
-function simulateKnowledgeKeeper(goalId: string, meetingId: string, doc: any) {
+function simulateKnowledgeKeeper(goalId: string, doc: any) {
   // 1. 创建项目页
   const acList = doc.acGroups.map((g: any) => `### ${g.id}${g.dependencies.length ? ` (依赖: ${g.dependencies.join(',')})` : ''}\n${g.acs.map((a: string) => `- **AC**: ${a}`).join('\n')}\n- 改动: ${g.files.join(', ')}`).join('\n\n');
-  createWikiPage(`projects/${PMO}.md`, `${PMO} · 用户认证系统`, `## 需求摘要\n${doc.summary}\n\n## 验收标准\n${acList}\n\n${doc.constraints.map((c: string) => `- ${c}`).join('\n')}\n\n## 关联\n- Goal: ${goalId}\n- Meeting: ${meetingId}\n\n## 执行结果\n*待执行*\n\n## 踩过的坑\n*暂无*`, { maturity: 'draft', createdAt: new Date().toISOString(), pmoNumber: PMO });
+  createWikiPage(`projects/${PMO}.md`, `${PMO} · 用户认证系统`, `## 需求摘要\n${doc.summary}\n\n## 验收标准\n${acList}\n\n${doc.constraints.map((c: string) => `- ${c}`).join('\n')}\n\n## 关联\n- Goal: ${goalId}\n\n## 执行结果\n*待执行*\n\n## 踩过的坑\n*暂无*`, { maturity: 'draft', createdAt: new Date().toISOString(), pmoNumber: PMO });
   // 2. INDEX
   if (!hasPage('INDEX.md')) createWikiPage('INDEX.md', '公司知识库索引', '## 项目\n- [[projects/PMO-2026-042]] — 用户认证系统\n\n## 技能\n\n## 坑位\n');
   // 3. 审计
@@ -146,7 +146,7 @@ describe('全流程端到端模拟', () => {
   afterAll(() => clean());
 
   it('Phase 1: Analyst 辩论 → RequirementsDoc（冷启动）', () => {
-    const { doc, isColdStart } = simulateAnalyst('meeting-1', 'project-1', '用户认证系统');
+    const { doc, isColdStart } = simulateAnalyst('project-1', '用户认证系统');
 
     expect(isColdStart).toBe(true);
     expect(doc.acGroups).toHaveLength(2);
@@ -162,7 +162,7 @@ describe('全流程端到端模拟', () => {
   });
 
   it('Phase 2: Knowledge Keeper → Wiki 项目页 + Goal 创建', () => {
-    simulateKnowledgeKeeper('goal-1', 'meeting-1', {
+    simulateKnowledgeKeeper('goal-1', {
       summary: 'JWT + OAuth 用户认证系统',
       acGroups: [
         { id: 'auth-jwt', acs: ['JWT签发', 'Token刷新'], files: ['src/auth/jwt.ts'], dependencies: [] },

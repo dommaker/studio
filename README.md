@@ -14,7 +14,7 @@
 
 ```bash
 git clone https://github.com/dommaker/studio.git
-cd agent-studio
+cd studio
 pnpm install && pnpm db:migrate && pnpm dev:start
 ```
 
@@ -69,14 +69,13 @@ pnpm install && pnpm db:migrate && pnpm dev:start
   → Deploy 检查 → KK 提取知识 → knowledge_confirm 卡片 → #系统
 ```
 
-### Packages (10)
+### Packages (9)
 
 | Package | 用途 |
 |---------|------|
 | studio-shared | Logger, LLM client, EventBus, harness wrapper |
 | studio-prisma | Prisma schema + client (SQLite) |
 | studio-agent | AgentExecutor — spawn session loop |
-| studio-meeting | DiscussionDriver + RequirementsDoc + Orchestrator |
 | studio-task | TaskQueue + TaskWorker |
 | studio-spec | GateChecker + 变更分析 + Spec 验证 |
 | studio-audit | 审计日志服务 |

@@ -52,7 +52,6 @@ const TYPE_LABELS: Record<string, { label: string; icon: string }> = {
   design: { label: '设计', icon: '📐' },
   spec: { label: '规范', icon: '📋' },
   execution: { label: '执行', icon: '⚡' },
-  meeting: { label: '会议', icon: '📝' },
 };
 
 export function KnowledgeImportPage() {

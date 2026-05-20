@@ -8,14 +8,11 @@ import { connectDatabase } from './core/database.js';
 import { taskWorker, taskQueue } from '@dommaker/studio-task';
 import { modelGateway } from '@dommaker/studio-shared';
 import { llmConfigService } from './modules/llm/config.service.js';
-import { startTimeoutChecker, stopTimeoutChecker } from '@dommaker/studio-meeting';
-import { initDiscussionEventHandlers } from '@dommaker/studio-meeting/events/discussion-event-handlers';  // 🆕 DD-007
 import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
 import { agentRouter } from './modules/agents/agent-router.js';
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
 import { goalScheduler } from './modules/goals/goal-scheduler.js';
 import { agentEventListener } from './modules/goals/agent-event-listener.js';
-import { startRequirementsSubscriber } from './modules/meetings/requirements-handler.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
 import { monitorAgent } from './modules/agents/monitor-agent.service.js';
 import { auditorAgent } from './modules/agents/auditor-agent.service.js';
@@ -89,11 +86,7 @@ async function start() {
       ensureDefaultChannels()
     ).catch(e => logger.warn('Channel init unavailable', { error: String(e) }));
 
-    // ── 已摘除的 meeting 路径服务 ──
-    // startTimeoutChecker, startRequirementsSubscriber,
-    // initDiscussionEventHandlers, startHealthMonitor, taskWorker
-    // 旧 meeting/discussion 架构已废弃，Goal 管线不需要
-    // 需要时回退此 commit
+    // ── meeting 路径服务已摘除 ──
 
     // Express 4 不自动捕获 async route 异常 → monkey-patch Layer.handle_request
     // (express-async-errors 的等价实现，避免新增依赖)
@@ -211,7 +204,6 @@ async function start() {
       daemon.stop();
       stopAuditSubscriber();
       // Deprecated meeting services removed from startup — stops are no-ops
-      try { stopTimeoutChecker(); } catch {}
       try { await stopHealthMonitor(); } catch {}
       try { await taskWorker.stop(); } catch {}
       try { await taskQueue.close(); } catch {}

@@ -9,7 +9,6 @@
  */
 
 import * as crypto from 'crypto';
-import type { ContextSharer } from '@dommaker/studio-meeting';
 
 // ==================== 类型定义 ====================
 
@@ -91,7 +90,6 @@ export interface AuditChainStats {
  * 审计链配置
  */
 export interface AuditChainConfig {
-  contextSharer: ContextSharer;
   signingKey?: string;  // 签名密钥
   chainId?: string;     // 链 ID（默认 'default'）
 }
@@ -103,12 +101,11 @@ const MAX_AUDIT_ENTRIES = 10_000;  // 审计链最大保留条目数
 // ==================== AuditChain 类 ====================
 
 export class AuditChain {
-  private contextSharer: ContextSharer;
   private signingKey: string;
   private chainId: string;
+  private store: Map<string, any> = new Map();
 
   constructor(config: AuditChainConfig) {
-    this.contextSharer = config.contextSharer;
     this.signingKey = config.signingKey ?? 'default-signing-key';
     this.chainId = config.chainId ?? 'default';
   }
@@ -278,7 +275,7 @@ export class AuditChain {
    * 获取所有条目
    */
   async getAllEntries(): Promise<AuditChainEntry[]> {
-    const data = await this.contextSharer.getValue<AuditChainEntry[]>(this.getChainKey());
+    const data = await this.store.get(this.getChainKey());
     return data ?? [];
   }
 
@@ -354,7 +351,7 @@ export class AuditChain {
    */
   async import(data: string): Promise<void> {
     const entries = JSON.parse(data) as AuditChainEntry[];
-    await this.contextSharer.set(this.getChainKey(), entries);
+    await this.store.set(this.getChainKey(), entries);
   }
 
   // ==================== 私有方法 ====================
@@ -379,7 +376,7 @@ export class AuditChain {
     
     // 只保留最近 N 条
     const trimmed = entries.slice(-MAX_AUDIT_ENTRIES);
-    await this.contextSharer.set(this.getChainKey(), trimmed);
+    await this.store.set(this.getChainKey(), trimmed);
   }
 
   /**
@@ -441,36 +438,9 @@ export class AuditChain {
   }
 }
 
-// ==================== 实现 Auditor 接口 ====================
-
-import type { Auditor, AuditEntry } from '@dommaker/studio-meeting/orchestration/state-listener';
-
-/**
- * 审计链适配器
- * 
- * 实现 Auditor 接口，使用 AuditChain 存储
- */
-export class AuditChainAdapter implements Auditor {
-  private chain: AuditChain;
-
-  constructor(chain: AuditChain) {
-    this.chain = chain;
-  }
-
-  async record(entry: AuditEntry): Promise<void> {
-    await this.chain.record(entry.type as AuditAction, {
-      ...entry.data,
-      meetingId: entry.meetingId,
-    });
-  }
-}
-
 // ==================== 工厂函数 ====================
 
 export function createAuditChain(config: AuditChainConfig): AuditChain {
   return new AuditChain(config);
 }
 
-export function createAuditChainAdapter(chain: AuditChain): Auditor {
-  return new AuditChainAdapter(chain);
-}

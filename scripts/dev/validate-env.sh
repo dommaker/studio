@@ -106,12 +106,6 @@ if [ -f "$BACKEND_ENV" ]; then
     echo "  ${YELLOW}⚠ REDIS_URL: 未配置（可选）${NC}"
   fi
 
-  # MEETING_ENCRYPTION_KEY
-  if grep -q "^MEETING_ENCRYPTION_KEY=" "$BACKEND_ENV"; then
-    echo "  ${GREEN}✓ MEETING_ENCRYPTION_KEY: 已配置${NC}"
-  else
-    echo "  ${YELLOW}⚠ MEETING_ENCRYPTION_KEY: 未配置（会议加密功能不可用）${NC}"
-  fi
 else
   echo "  ${YELLOW}⚠ 后端 .env 文件不存在${NC}"
 fi
@@ -143,19 +137,6 @@ else
 fi
 
 echo ""
-
-# 生成加密密钥建议
-echo "📋 加密密钥生成:"
-
-if [ ! -f "$BACKEND_ENV" ] || ! grep -q "^MEETING_ENCRYPTION_KEY=" "$BACKEND_ENV"; then
-  echo "  生成新的加密密钥:"
-  echo ""
-  openssl rand -base64 32
-  echo ""
-  echo "  将上述密钥添加到 .env 文件:"
-  echo "  MEETING_ENCRYPTION_KEY=<生成的密钥>"
-  echo ""
-fi
 
 # 总结
 echo "================================"

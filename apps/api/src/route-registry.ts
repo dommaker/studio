@@ -30,7 +30,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     roleRoutes,
     companyRoutes,
     auditLogRoutes,
-    meetingRoutes,
     { specReviewRoutes },
     { notificationRoutes },
     { knowledgeRoutes },
@@ -52,7 +51,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/roles/routes.js').then(m => m.default),
     import('./modules/companies/routes.js').then(m => m.default),
     import('./modules/audit-logs/routes.js').then(m => m.default),
-    import('./modules/meetings/routes.js').then(m => m.default),
     import('./modules/spec-reviews/routes.js') as Promise<{ specReviewRoutes: Router }>,
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
     import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router }>,
@@ -127,7 +125,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/agents', router: agentRoutes },
     { path: '/api/v1/executions', router: executionRoutes },
 
-    { path: '/api/v1/meetings', router: meetingRoutes },
     { path: '/api/v1/channels', router: channelRoutes, comment: 'B1-001: Channel chat interface' },
     { path: '/api/v1/requirements-docs', router: requirementsDocRoutes, comment: 'B2-009: RequirementsDoc edit' },
     { path: '/api/v1/pmo', router: pmoRoutes, comment: 'PMO-001' },
