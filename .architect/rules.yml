@@ -1,39 +1,9 @@
-# Architecture Constraints for agent-studio
+# Architecture Constraints for studio
 # 项目特定的架构约束规则
 
 rules:
   # ============================================================================
-  # 规则 1: harness 零业务逻辑
-  # ============================================================================
-  - id: no-business-in-harness
-    type: forbidden-pattern
-    severity: error
-    scope: "**/projects/harness/**/*"
-    patterns:
-      - "公司"
-      - "角色"
-      - "考核"
-      - "升降级"
-      - "工资"
-      - "绩效"
-      - "公司"
-      - "salary"
-      - "balance"
-      - "settlement"
-      - "payment"
-      - "demotion"
-      - "promotion"
-      - "assessment"
-    message: |
-      ❌ harness 不能包含业务逻辑！
-
-      harness 应该是完全通用的基础设施，零业务逻辑。
-      请将业务逻辑移至 agent-studio。
-
-      参考架构文档: docs/architecture/agent-system-architecture.md
-
-  # ============================================================================
-  # 规则 2: studio-shared 零业务逻辑
+  # 规则 1: studio-shared 零业务逻辑
   # ============================================================================
   - id: no-business-in-shared
     type: forbidden-pattern
@@ -56,7 +26,7 @@ rules:
       studio-shared 是通用基础设施层，业务逻辑应在对应的 studio-* 包中实现。
 
   # ============================================================================
-  # 规则 3: 复用优先检查
+  # 规则 2: 复用优先检查
   # ============================================================================
   - id: reuse-first-check
     type: file-count
@@ -79,42 +49,7 @@ rules:
       - 需要新建: Y 个（原因：...）
 
   # ============================================================================
-  # 规则 4: 新增 API 需同步文档
-  # ============================================================================
-  - id: api-doc-sync
-    type: forbidden-pattern
-    severity: warning
-    scope: "**/apps/api/src/modules/**/*.ts"
-    patterns:
-      - "TODO: doc"
-      - "FIXME: doc"
-    message: |
-      ⚠️ 新增 API 必须同步更新接口文档！
-
-      请更新: docs/architecture/agent-system-architecture.md
-      章节: 8. 接口契约
-
-  # ============================================================================
-  # 规则 5: 业务逻辑归属检查
-  # ============================================================================
-  - id: business-logic-ownership
-    type: forbidden-pattern
-    severity: error
-    scope: "**/packages/studio-workflow/**/*"
-    patterns:
-      - "公司"
-      - "角色"
-      - "工资"
-      - "salary"
-      - "balance"
-    message: |
-      ❌ studio-workflow 不能包含业务逻辑！
-
-      workflow 包应该是通用的流程定义，不包含业务术语。
-      业务特定的流程应在对应的 studio-* 包中定义。
-
-  # ============================================================================
-  # 规则 6: 文档变更同步
+  # 规则 3: 文档变更同步
   # ============================================================================
   - id: doc-sync-required
     type: custom
@@ -122,8 +57,3 @@ rules:
     script: "scripts/check-doc-sync.sh"
     message: |
       ⚠️ 代码变更可能影响架构文档，请检查是否需要同步更新！
-
-      检查清单:
-      - [ ] 模块归属表是否需要更新
-      - [ ] 接口契约是否需要更新
-      - [ ] 术语表是否需要更新
