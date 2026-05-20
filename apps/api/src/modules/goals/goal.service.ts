@@ -831,6 +831,31 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
         tokens: { input: totalInputTokens, output: totalOutputTokens },
         durationMs: totalDurationMs,
       });
+
+      // P0.5: 推送管线总结到 Channel
+      try {
+        const ctx = (goal.context as unknown as Record<string, unknown>) || {};
+        const sourceChannelId = ctx.sourceChannelId as string | undefined;
+        if (sourceChannelId) {
+          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          const durationMin = Math.round(totalDurationMs / 60000);
+          const tokenK = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
+          const summary = [
+            `## Goal 完成: ${goal.title}`,
+            `- 状态: ${goal.status === 'succeeded' ? '✅ 成功' : goal.status === 'failed' ? '❌ 失败' : '⏳ ' + goal.status}`,
+            `- Session: ${totalSessions} 轮`,
+            `- Token: ${tokenK(totalInputTokens)} → ${tokenK(totalOutputTokens)}`,
+            `- 耗时: ${durationMin} min`,
+            `- 执行步: ${successCount}/${totalSessions} 成功`,
+          ].join('\n');
+          await channelMessageService.createAgentMessage(sourceChannelId, 'Executor', summary, {
+            goalId,
+            cardType: 'goal_summary',
+          });
+        }
+      } catch (e) {
+        logger.warn('[Goal] Failed to send summary card', { goalId, error: String(e) });
+      }
     } catch (e) {
       logger.warn('[Goal] Failed to record completion metrics', { goalId, error: String(e) });
     }
