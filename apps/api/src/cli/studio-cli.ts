@@ -27,33 +27,80 @@ function checkPrerequisites() {
   }
 }
 
-async function studioUp() {
+async function studioUp(configPath?: string) {
   console.log('Studio starting...');
-  ensureDir(STUDIO_DIR);
-  ensureDir(DATA_DIR);
 
-  // 检查前置依赖
-  checkPrerequisites();
-  // Monorepo only: 检查 studio-agent dist 是否过期
-  if (fs.existsSync(path.join(process.env.REPO_DIR || process.cwd(), 'packages/studio-agent'))) {
-    try {
-      const agentSrc = path.join(process.env.REPO_DIR || process.cwd(), 'packages/studio-agent/src/services/agent-executor.ts');
-      const agentDist = path.join(process.env.REPO_DIR || process.cwd(), 'packages/studio-agent/dist/services/agent-executor.js');
-      if (fs.existsSync(agentSrc) && fs.existsSync(agentDist)) {
-        if (fs.statSync(agentSrc).mtimeMs > fs.statSync(agentDist).mtimeMs) {
-          console.log('⚠️  studio-agent dist is stale. Run: pnpm --filter @dommaker/studio-agent build');
-        }
+  // 1. 加载配置（--config 参数 或 STUDIO_CONFIG_DIR 环境变量 或 默认路径）
+  const configDir = configPath || process.env.STUDIO_CONFIG_DIR;
+  if (configDir) {
+    const envFile = path.resolve(configDir, configDir.endsWith('.env') ? '' : '.env');
+    const actualEnv = configDir.endsWith('.env') ? configDir : envFile;
+    if (fs.existsSync(actualEnv)) {
+      console.log(`Loading config: ${actualEnv}`);
+      const envContent = fs.readFileSync(actualEnv, 'utf-8');
+      for (const line of envContent.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        const val = trimmed.slice(eqIdx + 1).trim();
+        if (!process.env[key]) process.env[key] = val;
       }
-    } catch (e) {
-      console.error('Failed to check dist staleness:', String(e));
+    } else {
+      console.log(`Config not found: ${actualEnv}, using defaults`);
     }
   }
 
-  // 设置默认环境变量
-  if (!process.env.DATABASE_URL) {
-    process.env.DATABASE_URL = `file:${path.join(DATA_DIR, 'data.db')}`;
+  // 2. 确保数据目录
+  ensureDir(STUDIO_DIR);
+  ensureDir(DATA_DIR);
+  const ANALYST_DIR = path.join(STUDIO_DIR, '.analyst');
+  const DAEMON_DIR = path.join(STUDIO_DIR, '.daemon');
+  const KNOWLEDGE_DIR = path.join(STUDIO_DIR, 'knowledge');
+  const EVENTS_DIR = path.join(STUDIO_DIR, 'events');
+  const WORKTREES_DIR = path.join(STUDIO_DIR, 'worktrees');
+  ensureDir(ANALYST_DIR);
+  ensureDir(DAEMON_DIR);
+  ensureDir(KNOWLEDGE_DIR);
+  ensureDir(EVENTS_DIR);
+  ensureDir(WORKTREES_DIR);
+
+  // 3. 设置默认环境变量（不覆盖已配置的值）
+  if (!process.env.DATABASE_URL) process.env.DATABASE_URL = `file:${path.join(DATA_DIR, 'data.db')}`;
+  if (!process.env.JWT_SECRET) {
+    const jwtFile = path.join(DAEMON_DIR, 'jwt-secret');
+    if (fs.existsSync(jwtFile)) {
+      process.env.JWT_SECRET = fs.readFileSync(jwtFile, 'utf-8').trim();
+    } else {
+      const secret = require('crypto').randomBytes(32).toString('hex');
+      fs.writeFileSync(jwtFile, secret, 'utf-8');
+      process.env.JWT_SECRET = secret;
+      console.log('Generated JWT_SECRET (stored in ~/.studio/.daemon/jwt-secret)');
+    }
   }
+  if (!process.env.ENCRYPTION_KEY) {
+    const encFile = path.join(DAEMON_DIR, 'encryption-key');
+    if (fs.existsSync(encFile)) {
+      process.env.ENCRYPTION_KEY = fs.readFileSync(encFile, 'utf-8').trim();
+    } else {
+      const encKey = require('crypto').randomBytes(32).toString('hex');
+      fs.writeFileSync(encFile, encKey, 'utf-8');
+      process.env.ENCRYPTION_KEY = encKey;
+      console.log('Generated ENCRYPTION_KEY (stored in ~/.studio/.daemon/encryption-key)');
+    }
+  }
+  if (!process.env.ANALYST_DIR) process.env.ANALYST_DIR = ANALYST_DIR;
+  if (!process.env.DAEMON_DIR) process.env.DAEMON_DIR = DAEMON_DIR;
+  if (!process.env.KNOWLEDGE_DIR) process.env.KNOWLEDGE_DIR = KNOWLEDGE_DIR;
+  if (!process.env.EVENTS_DIR) process.env.EVENTS_DIR = EVENTS_DIR;
+  if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = WORKTREES_DIR;
+
+  console.log(`Data dir: ${STUDIO_DIR}`);
   console.log(`Database: ${process.env.DATABASE_URL}`);
+
+  // 检查前置依赖
+  checkPrerequisites();
 
   // REPO_DIR: 自动推断项目根（从 CWD 向上找包含 package.json 的目录）
   if (!process.env.REPO_DIR) {
@@ -74,40 +121,40 @@ async function studioUp() {
   }
   console.log(`Project root: ${process.env.REPO_DIR}`);
 
-  // Prisma db push: ensure SQLite schema exists
+  const port = parseInt(process.env.PORT || '3001');
+
+  // ── Ops Pre-flight Guard ──
+  // Replace old --accept-data-loss db push + port check with full pre-flight
   try {
-    // 1st: monorepo path, 2nd: standalone npm package
+    const { createOpsAgent } = await import('../modules/agents/ops-agent.service.js');
+    const ops = createOpsAgent(port);
+    const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+    const preflight = await ops.preflight(process.env.REPO_DIR, frontendDist);
+
+    if (!preflight.passed) {
+      console.error('\nServer start ABORTED. Fix the issues and re-run: studio up\n');
+      process.exit(1);
+    }
+
+    // First-time DB creation (idempotent — only if DB file doesn't exist)
+    const dbPath = (process.env.DATABASE_URL || '').replace('file:', '');
     const monorepoSchema = path.join(process.env.REPO_DIR, 'packages/studio-prisma/prisma/schema.prisma');
     const standaloneSchema = path.join(__dirname, '..', 'prisma', 'schema.prisma');
     const schemaPath = fs.existsSync(monorepoSchema) ? monorepoSchema : standaloneSchema;
-    if (fs.existsSync(schemaPath)) {
-      console.log('Running prisma db push...');
+    if (schemaPath && !fs.existsSync(dbPath)) {
+      console.log('First time — creating database...');
       execSync(`npx prisma db push --schema="${schemaPath}" --skip-generate`, {
         cwd: process.env.REPO_DIR,
         env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
-        stdio: 'pipe',
-        timeout: 30_000,
+        stdio: 'pipe', timeout: 30_000,
       });
-      console.log('Database schema synced');
+      console.log('Database created');
     }
-  } catch (err: any) {
-    console.error('Prisma db push failed:', err.stderr?.toString().slice(0, 300) || err.message);
-    // Continue anyway — DB might already be synced
-  }
 
-  // 端口冲突检测
-  const port = parseInt(process.env.PORT || '3001');
-  try {
-    const used = execSync(`lsof -ti:${port} 2>/dev/null || echo ""`, { encoding: 'utf-8' }).trim();
-    if (used) {
-      console.log(`Port ${port} in use by PID ${used.split('\n')[0]}, killing...`);
-      for (const pid of used.split('\n')) {
-        try { execSync(`kill -9 ${pid} 2>/dev/null || true`); } catch {}
-      }
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  } catch (e) {
-    console.error('Failed to check port usage:', String(e));
+    const defaults = await ops.ensureDefaults();
+    console.log(`Defaults: ${defaults.channels} channels, admin ${defaults.admin ? 'exists' : 'created'}`);
+  } catch (err: any) {
+    console.error('Pre-flight failed:', err.message?.slice(0, 200));
   }
 
   if (!process.env.MODEL_TIER_FAST) process.env.MODEL_TIER_FAST = 'deepseek-v4-flash';
@@ -851,7 +898,7 @@ async function studioDb() {
   switch (subcmd) {
     case 'push':
       console.log('Running prisma db push...');
-      execSync(`npx prisma db push --schema="${schemaPath}" --skip-generate`, {
+      execSync(`npx prisma db push --schema="${schemaPath}" --skip-generate --accept-data-loss`, {
         cwd: repoDir, stdio: 'inherit', timeout: 30_000,
       });
       console.log('DB schema synced');

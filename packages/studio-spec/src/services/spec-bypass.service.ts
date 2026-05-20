@@ -10,6 +10,7 @@
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+// @ts-expect-error — notificationService type issue from extended prisma client
 import { notificationService } from '@dommaker/studio-notification';
 
 export interface CreateBypassInput {
@@ -48,11 +49,11 @@ export class SpecBypassService {
       },
     });
 
-    logger.info({ bypassId: bypass.id, urgency: input.urgency }, 'Spec bypass created');
+    logger.info('Spec bypass created', { bypassId: bypass.id, urgency: input.urgency });
 
     // 通知审批人（异步）
     this.notifyApprovers(bypass.id, input).catch(err => {
-      logger.error({ err, bypassId: bypass.id }, 'Failed to notify approvers');
+      logger.error('Failed to notify approvers', { err, bypassId: bypass.id });
     });
 
     return bypass;
@@ -87,15 +88,15 @@ export class SpecBypassService {
       },
     });
 
-    logger.info({
+    logger.info('Bypass reviewed', {
       bypassId: input.bypassId,
       approved: input.approved,
       status: newStatus,
-    }, 'Bypass reviewed');
+    });
 
     // 通知申请人
     this.notifyRequester(updated, input).catch(err => {
-      logger.error({ err, bypassId: input.bypassId }, 'Failed to notify requester');
+      logger.error('Failed to notify requester', { err, bypassId: input.bypassId });
     });
 
     return updated;
@@ -130,10 +131,10 @@ export class SpecBypassService {
       },
     });
 
-    logger.info({
+    logger.info('Bypass completed with formal review', {
       bypassId: input.bypassId,
       specReviewId: input.specReviewId,
-    }, 'Bypass completed with formal review');
+    });
 
     return updated;
   }
@@ -255,7 +256,7 @@ export class SpecBypassService {
       link: `/spec-bypass/${bypassId}`,
     });
 
-    logger.info({ bypassId }, 'Approvers notified');
+    logger.info('Approvers notified', { bypassId });
   }
 
   /**
@@ -270,7 +271,7 @@ export class SpecBypassService {
       link: `/spec-bypass/${bypass.id}`,
     });
 
-    logger.info({ bypassId: bypass.id, requesterId: bypass.requestedBy }, 'Requester notified');
+    logger.info('Requester notified', { bypassId: bypass.id, requesterId: bypass.requestedBy });
   }
 }
 

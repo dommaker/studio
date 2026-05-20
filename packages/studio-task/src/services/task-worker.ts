@@ -9,7 +9,8 @@
 
 import { TaskQueue, Task } from './task-queue';
 import { v4 as uuidv4 } from 'uuid';
-import fetch from 'node-fetch';
+// @ts-ignore — node-fetch v2 type declarations not in deps
+import fetch from "node-fetch";
 import { logger, memoryStore } from '@dommaker/studio-shared';
 
 // 执行超时常量

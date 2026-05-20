@@ -10,7 +10,8 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
-import * as path from 'path';
+import * as path from "path";
+import * as os from "os";
 
 export const knowledgeImportRoutes = Router();
 

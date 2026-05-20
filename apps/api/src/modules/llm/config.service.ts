@@ -6,7 +6,7 @@
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
-import { encrypt, decrypt } from '../meetings/encryption.js';
+import { encrypt, decrypt } from '../../utils/crypto.js';
 
 // ─── 类型 ───
 

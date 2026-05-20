@@ -59,11 +59,11 @@ export class SpecVersionService {
       },
     });
 
-    logger.info({
+    logger.info('Spec version created', {
       reviewId: input.reviewId,
       version: newVersion,
       changeType: input.changeType,
-    }, 'Spec version created');
+    });
 
     return version;
   }
@@ -168,11 +168,11 @@ export class SpecVersionService {
       createdName: input.createdName,
     });
 
-    logger.info({
+    logger.info('Spec version rollback', {
       reviewId,
       targetVersion,
       newVersion: newVersion.version,
-    }, 'Spec version rollback');
+    });
 
     return newVersion;
   }
