@@ -103,8 +103,16 @@ export async function registerRoutes(): Promise<void> {
   }
 
   // 静态资源服务（前端）- 必须在 API 路由之后注册
+  // no-cache 防止 Cloudflare/CDN 缓存旧版本前端
   const frontendPath = path.join(__dirname, '../frontend/dist');
-  app.use(express.static(frontendPath, { index: false }));
+  app.use(express.static(frontendPath, {
+    index: false,
+    setHeaders: (res: any, filePath: string) => {
+      if (filePath.endsWith('.js') || filePath.endsWith('.css') || filePath.endsWith('.html')) {
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      }
+    },
+  }));
 
   // SPA 回退 - 所有非 API 路由返回 index.html
   app.get('*', (req: any, res: any, next: any) => {
