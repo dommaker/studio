@@ -9,7 +9,7 @@ import { eventStore } from '../../core/event-store.js';
 import { v4 as uuidv4 } from 'uuid';
 import { notifyService } from '../outbound-notify/notify.service.js';
 import { discussionEventPublisher } from '@dommaker/studio-meeting/events/discussion-events';
-import { checkPermission } from '../../middleware/permission-check.js';
+
 import { requireRole } from '../../middleware/auth.js';
 import { sendSuccess, sendError, sendNotFound, sendBadRequest } from '../../utils/response.js';
 
@@ -52,7 +52,6 @@ export {
   uuidv4,
   notifyService,
   discussionEventPublisher,
-  checkPermission,
   requireRole,
   sendSuccess,
   sendError,

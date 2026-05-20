@@ -37,7 +37,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     pmoRoutes,
     specsRoutes,
     notifyRoutes,
-    constraintTestRoutes,
     runtimeConfigRoutes,
     authRoutes,
     discordRoutes,
@@ -60,7 +59,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/pmo/routes.js').then(m => m.default),
     import('./modules/specs/routes.js').then(m => m.default),
     import('./modules/outbound-notify/routes.js').then(m => m.default),
-    import('./modules/test/constraint-routes.js').then(m => m.default),
     import('./modules/runtime-config/routes.js').then(m => m.default),
     import('./modules/auth/routes.js').then(m => m.default),
     import('./modules/discord/routes.js').then(m => m.default),
@@ -174,9 +172,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // 运维
     { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: auth, comment: 'AR-012' },
     { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: auth, comment: 'T-020: CLAUDE.md 新鲜度检查' },
-
-    // 测试
-    { path: '/api/v1/test/constraint', router: constraintTestRoutes, comment: 'Iron Law #6 测试路由' },
 
     // Discord
     { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions' },

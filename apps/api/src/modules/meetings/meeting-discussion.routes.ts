@@ -14,7 +14,6 @@ import {
   notifyService, discussionEventPublisher,
   publishMeetingEvent,
   sendSuccess, sendError, sendNotFound, sendBadRequest,
-  checkPermission,
   DEFAULT_DISCUSSION_MAX_ROUNDS, REDIS_TTL_1H,
 } from './meeting-shared.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
@@ -358,7 +357,7 @@ router.get('/:id/speaking-queue', async (req: Request, res: Response) => {
 });
 
 // 用户干预
-router.post('/:id/user-intervention', checkPermission('force_decision'), async (req: Request, res: Response) => {
+router.post('/:id/user-intervention', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { action, decision, channelId } = req.body;

@@ -5,7 +5,6 @@
  * - GET /:id 详情
  * - PUT /:id 更新
  * - GET /roles/status 角色锁定状态
- * - GET /recommend-roles 角色推荐
  * - GET /by-project/:projectId 按项目查会议
  * - POST /import-topic 导入议题
  * - POST /:id/confirm-minutes 确认纪要
@@ -17,8 +16,6 @@ import {
   sendSuccess, sendError, sendNotFound, sendBadRequest,
   DEFAULT_MAX_ROUNDS,
 } from './meeting-shared.js';
-import { checkDesignConstraints, extractDesignContext } from '../../core/constraint-checker.js';
-import { recommendRolesForTopic } from '../../services/role-recommendation.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 
@@ -42,17 +39,6 @@ router.post('/', async (req: Request, res: Response) => {
       sourceChannelId,
       projectId,
     } = req.body;
-
-    const context = extractDesignContext(req);
-    const violations = checkDesignConstraints(context);
-
-    if (violations.length > 0) {
-      return res.status(400).json({
-        error: 'Iron Law #6 违规',
-        violations,
-        hint: '外部依赖能力必须先验证（查阅文档 + 发送最小测试）',
-      });
-    }
 
     if (!title || !companyId) {
       return sendBadRequest(res, 'Missing required fields: title, companyId');
@@ -164,21 +150,6 @@ router.post('/:id/confirm-minutes', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Error confirming minutes', { error });
     sendError(res, 'Failed to confirm minutes');
-  }
-});
-
-// 角色推荐
-router.get('/recommend-roles', async (req: Request, res: Response) => {
-  try {
-    const { topic, companyId } = req.query;
-    if (!topic || !companyId) {
-      return sendBadRequest(res, 'Missing required params: topic, companyId');
-    }
-    const result = await recommendRolesForTopic(String(topic), String(companyId));
-    res.json(result);
-  } catch (error) {
-    logger.error('Error recommending roles', { error });
-    sendError(res, 'Failed to recommend roles');
   }
 });
 
