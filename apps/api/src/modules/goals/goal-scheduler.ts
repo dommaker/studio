@@ -30,6 +30,7 @@ export class GoalScheduler {
   private interval: NodeJS.Timeout | null = null;
   private processing = false;
   private processingGoals = new Set<string>();
+  private lastRecoveryTime = 0;
   private runtimeConstraints = new Map<string, string[]>(); // 🆕 BP-018: goalId → runtime constraints
   // INF-004: failure rate tracking for strategy switching
   private recentFailures: number = 0;
@@ -113,6 +114,14 @@ export class GoalScheduler {
         await this.processGoal(goal.id).catch(e => {
           logger.error('[GoalScheduler] Error processing goal', { goalId: goal.id, error: String(e) });
         });
+      }
+
+      // P0.4: 周期性恢复卡住的 execution（每 5 分钟）
+      if (!this.lastRecoveryTime || Date.now() - this.lastRecoveryTime > 5 * 60_000) {
+        await this.recoverStaleExecutions().catch(e => {
+          logger.warn('[GoalScheduler] Periodic recovery failed', { error: String(e) });
+        });
+        this.lastRecoveryTime = Date.now();
       }
     } catch (e) {
       logger.error('[GoalScheduler] Tick error', { error: String(e) });
