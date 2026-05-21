@@ -139,22 +139,23 @@ export class OpsAgent {
       add({ name: 'clean-processes', passed: true, message: `Process check skipped: ${e.message.slice(0, 50)}`, critical: false });
     }
 
-    // 4b. Cloudflared tunnel
-    try {
-      const cfAlive = this.isCloudflaredRunning();
-      if (cfAlive) {
-        add({ name: 'cloudflared', passed: true, message: 'Tunnel connected', critical: false });
-      } else {
-        // Try to restart
-        try {
-          execSync(`nohup cloudflared tunnel --url http://localhost:${this.port} --no-autoupdate > /tmp/cloudflared.log 2>&1 &`, { stdio: 'pipe' });
-          add({ name: 'cloudflared', passed: true, message: 'Tunnel restarted', critical: false, autoFixed: true });
-        } catch {
-          add({ name: 'cloudflared', passed: false, critical: false, message: '⚠️ Cloudflared tunnel not running — HTTPS may be unavailable' });
+    // 4b. Cloudflared tunnel (only if enabled — most users don't need it)
+    if (process.env.CLOUDFLARED_ENABLED === 'true') {
+      try {
+        const cfAlive = this.isCloudflaredRunning();
+        if (cfAlive) {
+          add({ name: 'cloudflared', passed: true, message: 'Tunnel connected', critical: false });
+        } else {
+          try {
+            execSync(`nohup cloudflared tunnel --url http://localhost:${this.port} --no-autoupdate > /tmp/cloudflared.log 2>&1 &`, { stdio: 'pipe' });
+            add({ name: 'cloudflared', passed: true, message: 'Tunnel restarted', critical: false, autoFixed: true });
+          } catch {
+            add({ name: 'cloudflared', passed: false, critical: false, message: '⚠️ Cloudflared tunnel not running — HTTPS may be unavailable' });
+          }
         }
+      } catch {
+        add({ name: 'cloudflared', passed: true, message: 'Cloudflared check skipped', critical: false });
       }
-    } catch {
-      add({ name: 'cloudflared', passed: true, message: 'Cloudflared check skipped', critical: false });
     }
 
     // 5. Disk space
@@ -222,8 +223,8 @@ export class OpsAgent {
       if (pct > 90) {
         logger.error('[OpsAgent] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
       }
-      // Cloudflared tunnel check + auto-restart
-      if (!this.isCloudflaredRunning()) {
+      // Cloudflared tunnel check + auto-restart (if enabled)
+      if (process.env.CLOUDFLARED_ENABLED === 'true' && !this.isCloudflaredRunning()) {
         logger.warn('[OpsAgent] Cloudflared not running, restarting...');
         try {
           execSync(`nohup cloudflared tunnel --url http://localhost:${this.port} --no-autoupdate > /tmp/cloudflared.log 2>&1 &`, { stdio: 'pipe' });
