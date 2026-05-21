@@ -76,6 +76,7 @@ export class MonitorAgent {
     await this.analyzeRoutingEvolution();  // G5 evolution
     await this.autoAbandonStaleBlocked();
     await this.systemTriageCheck();
+    await this.gcStaleWorktrees();
 
     // Log all alerts
     for (const alert of alerts) {
@@ -422,6 +423,39 @@ export class MonitorAgent {
 
     if (stale.length > 0) {
       logger.info('[MonitorAgent] Auto-abandoned', { count: stale.length });
+    }
+  }
+
+  /**
+   * GC: clean up stale git worktrees and orphaned task directories.
+   * Non-blocking — runs as part of the 5-min check loop.
+   */
+  private async gcStaleWorktrees(): Promise<void> {
+    try {
+      // Prune git worktree references that point to deleted directories
+      const repoDir = process.env.REPO_DIR || path.join(os.homedir(), 'projects');
+      if (fs.existsSync(path.join(repoDir, '.git'))) {
+        const { execSync } = await import('child_process');
+        execSync('git worktree prune', { cwd: repoDir, timeout: 5000, stdio: 'pipe' });
+      }
+
+      // Clean worktree dirs that are older than 24h
+      if (fs.existsSync(WORKTREES_DIR)) {
+        const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+        const entries = fs.readdirSync(WORKTREES_DIR);
+        for (const entry of entries) {
+          const wtPath = path.join(WORKTREES_DIR, entry);
+          try {
+            const stat = fs.statSync(wtPath);
+            if (stat.isDirectory() && stat.mtimeMs < cutoff) {
+              fs.rmSync(wtPath, { recursive: true, force: true });
+              logger.info('[MonitorAgent] GC removed stale worktree', { path: wtPath, age: Math.round((Date.now() - stat.mtimeMs) / 3600000) + 'h' });
+            }
+          } catch { /* skip */ }
+        }
+      }
+    } catch (e) {
+      // Non-blocking — GC failure must not crash the monitor loop
     }
   }
 
