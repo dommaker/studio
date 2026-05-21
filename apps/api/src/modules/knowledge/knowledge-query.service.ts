@@ -15,6 +15,9 @@ import { patternMiner } from './pattern-miner.js';
 // KK 存储的知识（harness KnowledgeStore）
 const kkStore = new KnowledgeStore();
 
+// H1: 知识总线（Agent 间共享）
+import { knowledgeBus } from './knowledge-bus.service.js';
+
 export type KnowledgeType =
   | 'preference'
   | 'business_rule'
@@ -106,6 +109,12 @@ export class KnowledgeQueryService {
         }
         parts.push(lines.join('\n'));
       }
+    } catch { /* best-effort */ }
+
+    // H1: 知识总线（Monitor/KK/Auditor/Ops 的产出汇总）
+    try {
+      const busContext = knowledgeBus.getRecentContext(agentType || 'analyst', 8);
+      if (busContext) parts.push(busContext);
     } catch { /* best-effort */ }
 
     return parts.join('\n').trim();

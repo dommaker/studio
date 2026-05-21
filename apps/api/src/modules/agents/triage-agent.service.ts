@@ -2,6 +2,7 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { classifySystemError } from '../triage/error-class.js';
+import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import type { SystemTriageResult } from '../triage/error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from './types.js';
 
@@ -364,6 +365,17 @@ class TriageAgent {
     });
 
     eventBus.publish('incident.resolved', { incidentId, resolution });
+
+    // H4: Record fix strategy to KnowledgeBus so KK can extract later
+    knowledgeBus.recordPattern({
+      source: 'triage',
+      type: 'fix',
+      title: `[Triage Fix] ${resolution.slice(0, 80)}`,
+      content: `${resolution}\nIncident: ${incidentId}`,
+      severity: 'info',
+      timestamp: Date.now(),
+    }).catch(() => { /* non-blocking */ });
+
     logger.info('[TriageAgent] Incident resolved', { incidentId, resolution });
     return { incidentId, resolved: true, resolution };
   }
