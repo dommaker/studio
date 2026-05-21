@@ -986,5 +986,187 @@
     "applicablePhases": [],
     "lastReferenced": "2026-05-21T07:15:00.447Z",
     "created": "2026-05-21T07:15:00.447Z"
+  },
+  {
+    "id": "pattern-1779348851648-s91r",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:34:11.648Z",
+    "created": "2026-05-21T07:34:11.648Z"
+  },
+  {
+    "id": "pattern-1779348851685-xese",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:34:11.685Z",
+    "created": "2026-05-21T07:34:11.685Z"
+  },
+  {
+    "id": "pattern-1779349148829-0yza",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Goal cmpf577d took 35min — check pipeline bottleneck",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:39:08.829Z",
+    "created": "2026-05-21T07:39:08.829Z"
+  },
+  {
+    "id": "pattern-1779349149193-5hm7",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:39:09.193Z",
+    "created": "2026-05-21T07:39:09.193Z"
+  },
+  {
+    "id": "pattern-1779349448696-yhi4",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Goal cmpf577d took 41min — check pipeline bottleneck",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:44:08.696Z",
+    "created": "2026-05-21T07:44:08.696Z"
+  },
+  {
+    "id": "pattern-1779349448863-jwz7",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:44:08.863Z",
+    "created": "2026-05-21T07:44:08.863Z"
+  },
+  {
+    "id": "pattern-1779349748707-4n95",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Goal cmpf577d took 41min — check pipeline bottleneck",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:49:08.707Z",
+    "created": "2026-05-21T07:49:08.707Z"
+  },
+  {
+    "id": "pattern-1779349748863-2w5i",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:49:08.863Z",
+    "created": "2026-05-21T07:49:08.863Z"
+  },
+  {
+    "id": "pattern-1779350048704-l377",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Goal cmpf577d took 41min — check pipeline bottleneck",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:54:08.704Z",
+    "created": "2026-05-21T07:54:08.704Z"
+  },
+  {
+    "id": "pattern-1779350048868-hyle",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T07:54:08.868Z",
+    "created": "2026-05-21T07:54:08.868Z"
+  },
+  {
+    "id": "pattern-1779350524889-w7um",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Goal cmpf577d took 41min — check pipeline bottleneck",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T08:02:04.889Z",
+    "created": "2026-05-21T08:02:04.889Z"
+  },
+  {
+    "id": "pattern-1779350525624-mlnc",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T08:02:05.624Z",
+    "created": "2026-05-21T08:02:05.624Z"
+  },
+  {
+    "id": "pattern-1779350525656-z21a",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T08:02:05.656Z",
+    "created": "2026-05-21T08:02:05.656Z"
+  },
+  {
+    "id": "pattern-1779350525682-1prb",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T08:02:05.682Z",
+    "created": "2026-05-21T08:02:05.682Z"
   }
 ]

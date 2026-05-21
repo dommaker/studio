@@ -525,11 +525,19 @@ export class AgentExecutor {
 
     // 创建 git worktree
     const branchName = `task/${path.basename(worktree)}`.substring(0, 50);
-    await execAsync(
-      `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
-      { cwd: repoDir, timeoutMs: 30_000 },
-    );
-
+    try {
+      await execAsync(
+        `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
+        { cwd: repoDir, timeoutMs: 30_000 },
+      );
+    } catch (e: any) {
+      if (e.message?.includes("already exists")) {
+        try {
+          await execAsync(`git branch -D "${branchName}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+          await execAsync(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
+        } catch (e2: any) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
+      } else { throw e; }
+    }
     logger.info('[AgentExecutor] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
   }
 
