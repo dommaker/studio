@@ -47,10 +47,6 @@ export interface ExecutionResult {
   error?: string;
   logFile: string;
   sessionCount: number;
-  /** 累计指标（所有 session 之和） */
-  totalTokens?: { input: number; output: number; cacheHit: number };
-  totalDurationMs?: number;
-  model?: string;
 }
 
 // 前置检查结果
@@ -248,15 +244,10 @@ export class AgentExecutor {
       await this.writeRequirementsMd(worktree, task, acGroup);
 
       // Step 3: Session loop（含卡住检测 + 策略切换）
-      const startTime = Date.now();
       let sessionCount = 0;
       let stuckCount = 0;
       let lastStep = '';
       let lastCompletedCount = 0;
-      // 累计指标（定义在 try 外，catch/finally 可访问）
-      let totalInputTokens = 0;
-      let totalOutputTokens = 0;
-      let totalCacheHitTokens = 0;
 
       // Session-id 文件（复用 SessionManager 的 UUID 持久化模式）
       const sidFile = path.join(worktree, '.daemon', 'session-id');
@@ -368,19 +359,13 @@ export class AgentExecutor {
             childRef,
           });
 
-          // Parse JSON envelope + extract usage
+          // Parse JSON envelope
           let text = stdout;
           let isError = false;
           try {
             const envelope = JSON.parse(stdout);
             if (envelope.is_error) { isError = true; text = ''; }
             if (envelope.result) text = envelope.result;
-            // Extract token usage
-            if (envelope.usage) {
-              totalInputTokens += envelope.usage.input_tokens || 0;
-              totalOutputTokens += envelope.usage.output_tokens || 0;
-              totalCacheHitTokens += envelope.usage.cache_read_input_tokens || 0;
-            }
           } catch (e) {
             logger.error('[AgentExecutor] Failed to parse JSON envelope', { taskId: task.id, executionId: task.executionId, error: String(e) });
           }
@@ -399,10 +384,11 @@ export class AgentExecutor {
           });
 
           if (sessionCount >= this.config.maxSessions) {
-            return this.buildResult(false, worktree, [], logFile, sessionCount,
-              `Max sessions (${this.config.maxSessions}) exhausted. Last error: ${errMsg.slice(0, 200)}`,
-              totalInputTokens, totalOutputTokens, totalCacheHitTokens, startTime, model);
-          }
+            return {
+              success: false, worktree, outputFiles: [],
+              error: `Max sessions (${this.config.maxSessions}) exhausted. Last error: ${errMsg.slice(0, 200)}`,
+              logFile, sessionCount,
+            };
           }
           // 未达上限 → 继续下一轮
           continue;
@@ -417,15 +403,16 @@ export class AgentExecutor {
         if (latest?.allComplete && (latest.testResults?.failed === 0 || latest.testResults?.failed == null)) {
           const outputFiles = await this.collectOutputFiles(worktree);
           logger.info('[AgentExecutor] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount });
-          return this.buildResult(true, worktree, outputFiles, logFile, sessionCount,
-            undefined, totalInputTokens, totalOutputTokens, totalCacheHitTokens, startTime, model);
+          return { success: true, worktree, outputFiles, logFile, sessionCount };
         }
 
         // 5 次耗尽
         if (sessionCount >= this.config.maxSessions) {
-          return this.buildResult(false, worktree, [], logFile, sessionCount,
-            `Max sessions (${this.config.maxSessions}) exhausted without completion`,
-            totalInputTokens, totalOutputTokens, totalCacheHitTokens, startTime, model);
+          return {
+            success: false, worktree, outputFiles: [],
+            error: `Max sessions (${this.config.maxSessions}) exhausted without completion`,
+            logFile, sessionCount,
+          };
         }
 
         // 未完成 → 继续下一轮
@@ -438,13 +425,12 @@ export class AgentExecutor {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return this.buildResult(false, worktree, [], logFile, 0, errorMessage,
-        totalInputTokens || 0, totalOutputTokens || 0, totalCacheHitTokens || 0, startTime || Date.now(), '');
+      return { success: false, worktree, outputFiles: [], error: errorMessage, logFile, sessionCount: 0 };
     } finally {
       this.runningProcesses.delete(task.executionId);
     }
 
-    return this.buildResult(false, worktree, [], logFile, 0, 'Unreachable', 0, 0, 0, Date.now(), '');
+    return { success: false, worktree, outputFiles: [], error: 'Unreachable', logFile, sessionCount: 0 };
   }
 
   // ========================================
@@ -539,27 +525,10 @@ export class AgentExecutor {
 
     // 创建 git worktree
     const branchName = `task/${path.basename(worktree)}`.substring(0, 50);
-    try {
-      await execAsync(
-        `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
-        { cwd: repoDir, timeoutMs: 30_000 },
-      );
-    } catch (e: any) {
-      // Branch already exists — clean and retry
-      if (e.message?.includes('already exists')) {
-        try {
-          await execAsync(`git branch -D "${branchName}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
-          await execAsync(
-            `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
-            { cwd: repoDir, timeoutMs: 30_000 },
-          );
-        } catch (e2: any) {
-          throw new Error(`Worktree creation failed after branch cleanup: ${e2.message}`);
-        }
-      } else {
-        throw e;
-      }
-    }
+    await execAsync(
+      `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
+      { cwd: repoDir, timeoutMs: 30_000 },
+    );
 
     logger.info('[AgentExecutor] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
   }
@@ -665,20 +634,9 @@ export class AgentExecutor {
       return `${constraintSection}## 你的任务
 ${task.prompt}
 
-${skillPrompt}
 
-## TDD 工作流
-
-严格按以下流程工作：
-
-1. 读 AC → 写失败的测试
-2. 运行测试确认失败
-3. 最小实现让测试通过 → 运行确认通过
-4. 重构优化
-5. 重复 1-4 直到所有 AC 满足
-6. 运行 npm test + type check + lint
-7. 更新 .progress.json
-8. 全部 AC 覆盖 + 全部测试通过 → 设置 .progress.json allComplete: true`;
+读 REQUIREMENTS.md 了解你要完成的任务和验收标准。
+${skillPrompt}`;
     }
 
     // Session 2+: 极短续接 prompt
@@ -752,21 +710,6 @@ ${skillPrompt}
     } else {
       logger.info('[AgentExecutor] Stop requested but no child process found', { executionId });
     }
-  }
-
-  private buildResult(
-    success: boolean, worktree: string, outputFiles: string[], logFile: string,
-    sessionCount: number, error: string | undefined,
-    inputTokens: number, outputTokens: number, cacheHitTokens: number,
-    startTime: number, model: string,
-  ): ExecutionResult {
-    return {
-      success, worktree, outputFiles, logFile, sessionCount,
-      ...(error ? { error } : {}),
-      totalTokens: { input: inputTokens, output: outputTokens, cacheHit: cacheHitTokens },
-      totalDurationMs: Date.now() - startTime,
-      ...(model ? { model } : {}),
-    };
   }
 
   getStatus(): { config: ExecutorConfig } {
