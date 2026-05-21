@@ -1047,7 +1047,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
     try {
       const goal = await prisma.goal.findUnique({
         where: { id: goalId },
-        select: { id: true, title: true, companyId: true, projectId: true },
+        select: { id: true, title: true, companyId: true },
       });
       if (!goal?.companyId) return;
 
