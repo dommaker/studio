@@ -545,11 +545,15 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
 
     if (!projectId) return;
 
-    await prisma.project.update({
-      where: { id: projectId },
-      data: { status: 'failed' },
-    });
-    logger.info(`[Goal] Project ${projectId} → failed`);
+    try {
+      await prisma.project.update({
+        where: { id: projectId },
+        data: { status: 'failed' },
+      });
+      logger.info(`[Goal] Project ${projectId} → failed`);
+    } catch (e: any) {
+      logger.warn('[Goal] Project update failed (non-blocking)', { projectId, error: String(e) });
+    }
   }
 
   /**
