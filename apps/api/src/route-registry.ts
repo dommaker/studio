@@ -115,6 +115,25 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Wiki routes (B2-008)
   const { wikiRoutes } = await import('./modules/wiki/wiki.routes.js') as { wikiRoutes: Router };
 
+  // Health routes (M1)
+  const healthRouter = Router();
+  healthRouter.get('/', async (_req, res) => {
+    try {
+      const status = await Promise.race([
+        (async () => {
+          const { createOpsAgent } = await import('./modules/agents/ops-agent.service.js');
+          return await createOpsAgent().getStatus();
+        })(),
+        new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
+      if (!status) return res.status(503).json({ status: 'degraded', error: 'health check timeout' });
+      res.json({ status: status.apiResponding ? 'healthy' : 'degraded', ...status });
+    } catch (e: any) {
+      res.status(500).json({ status: 'error', error: String(e) });
+    }
+  });
+  const healthRoutes = healthRouter;
+
   const auth = [requireAuth];
 
   return [
@@ -167,6 +186,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
 
     // 运维
+    { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Pipeline health check' },
     { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: auth, comment: 'AR-012' },
     { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: auth, comment: 'T-020: CLAUDE.md 新鲜度检查' },
 

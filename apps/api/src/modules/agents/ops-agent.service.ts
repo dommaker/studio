@@ -346,3 +346,22 @@ export class OpsAgent {
 export function createOpsAgent(port?: number): OpsAgent {
   return new OpsAgent(port || parseInt(process.env.PORT || '3001', 10));
 }
+
+// ── Health endpoint factory ──
+import { Router, Request, Response } from 'express';
+export function createHealthRoutes(ops: OpsAgent): Router {
+  const router = Router();
+  router.get('/', async (_req: Request, res: Response) => {
+    try {
+      const status = await ops.getStatus();
+      const isHealthy = status.apiResponding;
+      res.status(isHealthy ? 200 : 503).json({
+        status: isHealthy ? 'healthy' : 'degraded',
+        ...status,
+      });
+    } catch (e: any) {
+      res.status(500).json({ status: 'error', error: String(e) });
+    }
+  });
+  return router;
+}
