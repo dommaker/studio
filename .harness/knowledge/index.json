@@ -1,0 +1,54 @@
+[
+  {
+    "id": "pattern-1779332630116-zlni",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T03:03:50.116Z",
+    "created": "2026-05-21T03:03:50.116Z"
+  },
+  {
+    "id": "pattern-1779332630154-3zis",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T03:03:50.154Z",
+    "created": "2026-05-21T03:03:50.154Z"
+  },
+  {
+    "id": "pattern-1779333107810-c5ne",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T03:11:47.810Z",
+    "created": "2026-05-21T03:11:47.810Z"
+  },
+  {
+    "id": "pattern-1779333107830-y2bt",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T03:11:47.830Z",
+    "created": "2026-05-21T03:11:47.830Z"
+  }
+]

@@ -646,9 +646,22 @@ export class AgentExecutor {
 
     if (session === 1 || !progress) {
       return `${constraintSection}## 你的任务
+${task.prompt}
 
-读 REQUIREMENTS.md 了解你要完成的任务和验收标准。
-${skillPrompt}`;
+${skillPrompt}
+
+## TDD 工作流
+
+严格按以下流程工作：
+
+1. 读 AC → 写失败的测试
+2. 运行测试确认失败
+3. 最小实现让测试通过 → 运行确认通过
+4. 重构优化
+5. 重复 1-4 直到所有 AC 满足
+6. 运行 npm test + type check + lint
+7. 更新 .progress.json
+8. 全部 AC 覆盖 + 全部测试通过 → 设置 .progress.json allComplete: true`;
     }
 
     // Session 2+: 极短续接 prompt
