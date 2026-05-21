@@ -153,10 +153,10 @@ class PostEvalAgent {
     title: string,
     acs: string[],
     changes: string,
-  ): Promise<Omit<GapReport, 'completeness'>> {
+  ): Promise<GapReport> {
     if (!modelGateway.isAvailable()) {
       // Fast path: keyword matching fallback
-      return this.keywordMatch(acs, changes);
+      return this.keywordMatch(acs, changes) as GapReport;
     }
 
     const prompt = `你是交付审计师。对比需求 AC 和代码变更，判断哪些 AC 已实现、哪些遗漏。
@@ -187,21 +187,21 @@ ${changes.slice(0, 4000)}
       }>(prompt, '你是交付审计师，严格按变更证据判断。');
 
       return {
-        goalId: '', goalTitle: title, totalAcs: acs.length,
+        goalId: '', goalTitle: title, totalAcs: acs.length, completeness: 0,
         matchedAcs: result.matched.map(i => acs[i - 1] || `AC#${i}`),
         missedAcs: result.missed.map(i => acs[i - 1] || `AC#${i}`),
         extraChanges: result.extra || [],
       };
     } catch {
       // LLM failed → keyword fallback
-      return this.keywordMatch(acs, changes);
+      return this.keywordMatch(acs, changes) as GapReport;
     }
   }
 
   /**
    * 关键词匹配（LLM 不可用时的回退）
    */
-  private keywordMatch(acs: string[], changes: string): Omit<GapReport, 'completeness'> {
+  private keywordMatch(acs: string[], changes: string): GapReport {
     const matched: string[] = [];
     const missed: string[] = [];
     for (const ac of acs) {
@@ -214,7 +214,7 @@ ${changes.slice(0, 4000)}
       }
     }
     return {
-      goalId: '', goalTitle: '', totalAcs: acs.length,
+      goalId: '', goalTitle: '', totalAcs: acs.length, completeness: 0,
       matchedAcs: matched, missedAcs: missed, extraChanges: [],
     };
   }
