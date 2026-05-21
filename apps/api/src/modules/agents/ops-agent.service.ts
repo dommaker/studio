@@ -221,6 +221,28 @@ export class OpsAgent {
       const status = await this.getStatus();
       logger.info('[OpsAgent] Health check', status);
 
+      // Critical: API not responding → try systemd restart + notify Channel
+      if (!status.apiResponding) {
+        logger.error('[OpsAgent] CRITICAL: API not responding on port', { port: this.port });
+        // Try systemd restart (best-effort, non-blocking)
+        try {
+          execSync('systemctl restart studio-api 2>/dev/null || true', { stdio: 'pipe', timeout: 5000 });
+          logger.info('[OpsAgent] Triggered systemd restart for studio-api');
+        } catch { /* may not be running under systemd */ }
+        // Push alert to #系统 Channel
+        try {
+          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          const { prisma } = await import('@dommaker/studio-prisma');
+          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          if (sysChannel) {
+            await channelMessageService.createAgentMessage(sysChannel.id, 'OpsAgent',
+              `## 🚨 API 不可达告警\n\n- **端口**: ${this.port}\n- **时间**: ${new Date().toISOString()}\n- **动作**: 已触发 systemd 重启`,
+              { meta: { alertType: 'api_unreachable', port: this.port, severity: 'critical' } }
+            );
+          }
+        } catch { /* best-effort */ }
+      }
+
       // Critical conditions → escalate
       const pct = parseInt(status.disk.usePercent);
       if (pct > this.rules.checks.disk_threshold_critical) {

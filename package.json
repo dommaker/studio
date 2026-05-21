@@ -54,7 +54,7 @@
     "doc:diff": "npx tsx scripts/tools/arch-doc-diff.ts"
   },
   "devDependencies": {
-    "@dommaker/harness": "^0.12.2",
+    "@dommaker/harness": "^0.12.4",
     "@types/node": "^20.0.0",
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"

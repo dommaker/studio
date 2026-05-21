@@ -134,6 +134,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   });
   const healthRoutes = healthRouter;
 
+  // Pipeline dashboard routes
+  const { default: pipelineDashboardRoutes } = await import('./modules/pipeline-dashboard/pipeline-dashboard.routes.js') as { default: Router };
+
   const auth = [requireAuth];
 
   return [
@@ -187,6 +190,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // 运维
     { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Pipeline health check' },
+    { path: '/api/v1/pipeline', router: pipelineDashboardRoutes, comment: 'Pipeline status dashboard' },
     { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: auth, comment: 'AR-012' },
     { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: auth, comment: 'T-020: CLAUDE.md 新鲜度检查' },
 

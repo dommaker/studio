@@ -1,5 +1,7 @@
 // Channel Routes — B1-001/B1-002/B1-009/B1-011
 import { Router } from 'express';
+import * as fs from 'fs';
+import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
@@ -8,7 +10,19 @@ import { KnowledgeStore, KnowledgeIngest } from '@dommaker/harness';
 
 const router = Router();
 
-// Parse AC Groups from RequirementsDoc Markdown content (enhanced: implementationNotes/codePatterns/gotchas)
+// ─── AC Group Parser ───────────────────────────────────────────────
+//
+// State machine:
+//   OUTSIDE → (## AC Groups) → IN_GROUPS → (### name) → IN_GROUP → (#### heading) → IN_SECTION
+//
+// Bug fixes (2026-05-21):
+//   B1: H2/H3 inside free-text sections (notes/patterns/gotchas) are content, not structure
+//   B2: Push currentGroup before nullifying on section exit
+//   B3: Parse inline dep name from "#### 依赖: group-name"
+//   B4: Code fence awareness — headings inside ``` blocks are ignored
+//   B5: Loose checkbox fallback when no ACs found via headings
+//   B6: Legacy "Files:"/"Depends on:" only fire in their respective sections
+//
 function parseAcGroupsFromMarkdown(content: string): Array<{
   id: string; acs: string[]; files: string[]; dependencies: string[];
   implementationNotes: string; codePatterns: string[]; gotchas: string[];
@@ -18,30 +32,68 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
     implementationNotes: string; codePatterns: string[]; gotchas: string[];
   }> = [];
   const lines = content.split('\n');
+
+  type Section = 'acs' | 'notes' | 'patterns' | 'gotchas' | 'files' | 'deps';
+  const FREE_TEXT_SECTIONS: Set<Section> = new Set(['notes', 'patterns', 'gotchas']);
+
   let currentGroup: ReturnType<typeof parseAcGroupsFromMarkdown>[0] | null = null;
-  let currentSection: string | null = null;
-  let inAcGroups = false;    // true when inside ## AC Groups section
-  let acGroupsEnded = false; // true when we've passed AC Groups and entered implementation
+  let currentSection: Section | null = null;
+  let inAcGroups = false;
+  let inCodeFence = false;
 
   for (const line of lines) {
-    // Track section boundaries
-    const h2Match = line.match(/^##\s+(.+)/);
-    if (h2Match) {
-      const h2Title = h2Match[1].trim();
-      inAcGroups = h2Title.includes('AC Group') || h2Title.includes('AC组');
-      if (h2Title.includes('实现') || h2Title.includes('Implementation')) {
-        acGroupsEnded = true;
+    // B4: code fence tracking — ignore everything inside code blocks
+    if (/^```/.test(line)) { inCodeFence = !inCodeFence; continue; }
+    if (inCodeFence) {
+      // Still capture code lines into notes if we're in that section
+      if (currentSection === 'notes' && currentGroup) {
+        currentGroup.implementationNotes += '\n' + line;
       }
       continue;
     }
 
+    const inFreeText = currentSection !== null && FREE_TEXT_SECTIONS.has(currentSection);
+
+    // ── H2: document-level section boundary ──
+    const h2Match = line.match(/^##\s+(.+)/);
+    if (h2Match) {
+      const h2Title = h2Match[1].trim();
+      // B1: H2 inside free text is content, not structure
+      if (inFreeText && currentGroup) {
+        currentGroup.implementationNotes += '\n' + line;
+        continue;
+      }
+      const isAcGroupsHeader = h2Title.includes('AC Group') || h2Title.includes('AC组');
+      if (inAcGroups && !isAcGroupsHeader) {
+        // B2: push before exit
+        if (currentGroup && currentGroup.acs.length > 0) groups.push(currentGroup);
+        currentGroup = null;
+        currentSection = null;
+        inAcGroups = false;
+      }
+      if (isAcGroupsHeader) inAcGroups = true;
+      continue;
+    }
+
+    // ── H3: AC group boundary ──
     const h3Match = line.match(/^###\s+(.+)/);
     if (h3Match) {
-      if (acGroupsEnded) continue;  // Skip: past AC Groups section
+      if (!inAcGroups) continue;
+      // B1: H3 inside free text is content
+      if (inFreeText && currentGroup) {
+        currentGroup.implementationNotes += '\n' + line;
+        continue;
+      }
       const h3Title = h3Match[1].trim();
       // Numbered implementation steps are NOT AC groups
-      if (/^\d+[\.\s]/.test(h3Title)) { acGroupsEnded = true; continue; }
-      if (currentGroup) groups.push(currentGroup);
+      if (/^\d+[\.\s]/.test(h3Title)) {
+        if (currentGroup && currentGroup.acs.length > 0) groups.push(currentGroup);
+        currentGroup = null;
+        currentSection = null;
+        inAcGroups = false;
+        continue;
+      }
+      if (currentGroup && currentGroup.acs.length > 0) groups.push(currentGroup);
       currentGroup = { id: h3Title, acs: [], files: [], dependencies: [], implementationNotes: '', codePatterns: [], gotchas: [] };
       currentSection = null;
       continue;
@@ -49,6 +101,7 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
 
     if (!currentGroup) continue;
 
+    // ── H4: section switch within current group ──
     const h4Match = line.match(/^####\s+(.+)/);
     if (h4Match) {
       const title = h4Match[1].trim();
@@ -57,11 +110,21 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
       else if (title.includes('参考模式')) currentSection = 'patterns';
       else if (title.includes('注意事项')) currentSection = 'gotchas';
       else if (title.includes('涉及文件')) currentSection = 'files';
-      else if (title.includes('依赖')) currentSection = 'deps';
+      else if (title.includes('依赖')) {
+        currentSection = 'deps';
+        // B3: parse inline dep name from "#### 依赖: group-name"
+        const inlineDep = title.match(/依赖[：:]\s*(.+)/);
+        if (inlineDep) {
+          for (const d of inlineDep[1].split(/[,，\s]+/).filter(Boolean)) {
+            currentGroup.dependencies.push(d);
+          }
+        }
+      }
       else currentSection = null;
       continue;
     }
 
+    // ── Content parsing ──
     switch (currentSection) {
       case 'acs': {
         const acMatch = line.match(/^-\s*\[([ x])\]\s+(.+)/);
@@ -69,7 +132,9 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
         break;
       }
       case 'notes':
-        if (line.trim()) currentGroup.implementationNotes += (currentGroup.implementationNotes ? '\n' : '') + line.trim();
+        if (line.trim()) {
+          currentGroup.implementationNotes += (currentGroup.implementationNotes ? '\n' : '') + line.trim();
+        }
         break;
       case 'patterns': {
         const pMatch = line.match(/^-\s+(.+)/);
@@ -84,36 +149,54 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
       case 'files': {
         const fMatch = line.match(/^-\s+(.+)/);
         if (fMatch) currentGroup.files.push(fMatch[1].trim());
+        // B6: legacy "Files: a, b" — only in files section
+        const legacyFiles = line.match(/^Files:\s*(.+)/);
+        if (legacyFiles) currentGroup.files = legacyFiles[1].split(',').map(f => f.trim());
         break;
       }
       case 'deps': {
-        const depMatch = line.match(/([a-zA-Z0-9_-]+)/g);
-        if (depMatch) currentGroup.dependencies.push(...depMatch);
+        // B6: only parse structured "- name" or inline "Depends on:" in deps section
+        const depItem = line.match(/^-\s+(.+)/);
+        if (depItem) {
+          currentGroup.dependencies.push(depItem[1].trim());
+        } else {
+          const legacyDeps = line.match(/Depends on:\s*(.+)/);
+          if (legacyDeps) {
+            currentGroup.dependencies = legacyDeps[1].split(',').map(d => d.trim());
+          }
+        }
         break;
       }
     }
-
-    // Legacy fallback patterns
-    const legacyFiles = line.match(/^Files:\s*(.+)/);
-    if (legacyFiles) currentGroup.files = legacyFiles[1].split(',').map(f => f.trim());
-    const legacyDeps = line.match(/Depends on:\s*(.+)/);
-    if (legacyDeps) currentGroup.dependencies = legacyDeps[1].split(',').map(d => d.trim());
   }
-  // Only keep groups that have actual ACs — filter out implementation step headings
+
+  // Finalize last group
   if (currentGroup && currentGroup.acs.length > 0) groups.push(currentGroup);
 
+  // B5: fallback — scan for loose checkboxes if no ACs found via headings
+  if (groups.length === 0) {
+    const acLines: string[] = [];
+    for (const line of lines) {
+      const m = line.match(/^-\s*\[([ x])\]\s+(.+)/);
+      if (m) acLines.push(m[2].trim());
+    }
+    if (acLines.length > 0) {
+      groups.push({
+        id: 'implementation', acs: acLines, files: [], dependencies: [],
+        implementationNotes: '', codePatterns: [], gotchas: [],
+      });
+    }
+  }
+
+  // Absolute fallback: nothing found at all
   if (groups.length === 0) {
     groups.push({
       id: 'implementation',
       acs: ['Complete the implementation as described'],
-      files: [],
-      dependencies: [],
-      implementationNotes: '',
-      codePatterns: [],
-      gotchas: [],
+      files: [], dependencies: [],
+      implementationNotes: '', codePatterns: [], gotchas: [],
     });
   }
-
   return groups;
 }
 
@@ -305,7 +388,15 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       // RequirementGate: 验证 AC 组质量（粒度/文件/依赖/独立性）
       try {
         const { validateRequirementsDoc } = await import('../agents/requirement-gate.js');
-        const gateResult = await validateRequirementsDoc(acGroups, doc.title, process.env.REPO_DIR || process.cwd());
+        // Resolve monorepo root (Analyst writes paths relative to monorepo root, not api package dir)
+        const repoDir = process.env.REPO_DIR || (() => {
+          let dir = process.cwd();
+          while (dir !== '/' && !fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+            dir = path.dirname(dir);
+          }
+          return dir;
+        })();
+        const gateResult = await validateRequirementsDoc(acGroups, doc.title, repoDir);
 
         if (!gateResult.passed) {
           // Push feedback to Channel
@@ -325,7 +416,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
                   ? '请 @Analyst 修正上述问题后重新 /plan'
                   : '已自动升级为 premium 模型重新分析'
               }`,
-              { cardType: 'gate_rejected' }
+              { meta: { cardType: 'gate_rejected' } }
             );
           } catch { /* best-effort */ }
 
@@ -585,7 +676,7 @@ router.delete('/:id', async (req, res) => {
     where: { context: { contains: channel.id } },
   });
   for (const goal of goals) {
-    const ctx = goal.context as Record<string, unknown>;
+    const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) as Record<string, unknown>;
     if (ctx.sourceChannelId === channel.id) {
       ctx.sourceChannelId = rndChannel.id;
       await prisma.goal.update({

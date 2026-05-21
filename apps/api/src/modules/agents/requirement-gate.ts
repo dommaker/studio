@@ -44,6 +44,7 @@ export interface GateCheck {
  */
 function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
   const checks: GateCheck[] = [];
+  const validFilePathRe = /^[\w\-\/]+\.[a-z]{1,6}$/i; // eg: src/modules/foo/bar.ts
 
   // 1. AC 粒度: 每组 ≤6 AC
   for (const g of groups) {
@@ -63,26 +64,58 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
   }
 
   // 2. 文件路径: 至少列出一个，且在仓库中存在
+  //    — 只验证真实文件路径（过滤混入的实现指南文本）
+  //    — 新建文件（所在目录存在但文件不存在）视为合理，不阻塞
   for (const g of groups) {
-    if (g.files.length === 0) {
+    // Filter: only validate entries that look like actual file paths
+    const realFiles = g.files
+      .map(f => f.replace(/`/g, '').trim())
+      .filter(f => validFilePathRe.test(f));
+    const nonFileEntries = g.files.length - realFiles.length;
+
+    if (realFiles.length === 0 && nonFileEntries > 0) {
+      // All "files" are actually notes/guidelines — suggest clean AC group format in Analyst prompt
+      checks.push({
+        name: 'files-format',
+        passed: true, // soft warning, not a hard failure
+        message: `组 "${g.id}" 的 Files 字段包含 ${g.files.length} 个条目但都不是有效文件路径。实现指南请放在 implementationNotes 中`,
+      });
+    } else if (realFiles.length === 0) {
       checks.push({
         name: 'files-missing',
         passed: false,
         message: `组 "${g.id}" 没有列出文件。并行执行依赖 files 字段做冲突检测`,
       });
     }
-    for (const f of g.files) {
-      // Strip inline code markers
-      const clean = f.replace(/`/g, '').trim();
-      if (clean.includes('/') || clean.includes('.')) {
-        const fullPath = path.join(repoDir, clean);
-        if (!fs.existsSync(fullPath)) {
-          checks.push({
-            name: 'file-not-found',
-            passed: false,
-            message: `组 "${g.id}" 声明的文件 "${clean}" 在仓库中不存在`,
-          });
+
+    // Monorepo path resolution: Analyst may write paths relative to monorepo root
+    // (packages/foo/...) or relative to a package dir (src/modules/...).
+    // Try repoDir first, then common package subdirectories.
+    const tryDirs = [repoDir];
+    for (const sub of ['apps/api', 'apps/web', 'packages/studio-shared', 'packages/studio-agent', 'packages/studio-skill', 'packages/studio-prisma']) {
+      const candidate = path.join(repoDir, sub);
+      if (fs.existsSync(candidate)) tryDirs.push(candidate);
+    }
+
+    for (const clean of realFiles) {
+      let found = false;
+      for (const base of tryDirs) {
+        const fullPath = path.join(base, clean);
+        if (fs.existsSync(fullPath)) { found = true; break; }
+        // New file: check if any ancestor directory exists (up to 3 levels)
+        let ancestor = path.dirname(fullPath);
+        for (let level = 0; level < 3; level++) {
+          if (fs.existsSync(ancestor)) { found = true; break; }
+          ancestor = path.dirname(ancestor);
         }
+        if (found) break;
+      }
+      if (!found) {
+        checks.push({
+          name: 'file-not-found',
+          passed: false,
+          message: `组 "${g.id}" 声明的文件 "${clean}" 路径不存在（目录也不存在），请确认路径是否正确`,
+        });
       }
     }
   }
@@ -101,11 +134,12 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
     }
   }
 
-  // 4. 文件冲突: 多个组同时操作同一文件 → 标记依赖
+  // 4. 文件冲突: 多个组同时操作同一文件 → 标记依赖（只检查真实文件路径）
   const fileOwners = new Map<string, string[]>();
   for (const g of groups) {
     for (const f of g.files) {
       const clean = f.replace(/`/g, '').trim();
+      if (!validFilePathRe.test(clean)) continue; // skip non-file-path entries
       if (!fileOwners.has(clean)) fileOwners.set(clean, []);
       fileOwners.get(clean)!.push(g.id);
     }

@@ -80,12 +80,16 @@ export async function registerRoutes(): Promise<void> {
       '/discord/interactions',
       '/cso/validate',
       '/events/stream',  // SSE
+      // Public read-only endpoints (Lurk Wall bypass)
+      '/channels',
+      '/health',
+      '/pipeline/status',
     ]);
     const optAuth = optionalAuth();
     app.use('/api/v1', async (req: any, res: any, next: any) => {
       await new Promise<void>((resolve) => optAuth(req, res, resolve));
       const authReq = req as import('./middleware/auth.js').AuthRequest;
-      if (PUBLIC_API.has(req.path) || authReq.user) {
+      if (PUBLIC_API.has(req.path) || [...PUBLIC_API].some(p => req.path.startsWith(p + '/')) || authReq.user) {
         return next();
       }
       res.status(401).json({ error: 'Authentication required' });
