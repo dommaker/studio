@@ -11,6 +11,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
+import { loadRules, type OpsRules } from './ops-rules.js';
 
 export interface PreflightResult {
   passed: boolean;
@@ -38,9 +39,11 @@ interface HealthStatus {
 export class OpsAgent {
   private interval: NodeJS.Timeout | null = null;
   private port: number;
+  private rules: OpsRules;
 
   constructor(port: number) {
     this.port = port;
+    this.rules = loadRules();
   }
 
   // ============================================
@@ -163,9 +166,9 @@ export class OpsAgent {
       const output = execSync("df -h / | tail -1 | awk '{print $5, $4}'", { encoding: 'utf-8', stdio: 'pipe' }).trim();
       const [usePercent, avail] = output.split(/\s+/);
       const pct = parseInt(usePercent);
-      if (pct > 90) {
+      if (pct > this.rules.checks.disk_threshold_critical) {
         add({ name: 'disk-space', passed: false, critical: true, message: `❌ Disk ${usePercent} full (${avail} available)` });
-      } else if (pct > 80) {
+      } else if (pct > this.rules.checks.disk_threshold_warn) {
         add({ name: 'disk-space', passed: true, message: `⚠️ Disk ${usePercent} (${avail} available)`, critical: false });
       } else {
         add({ name: 'disk-space', passed: true, message: `Disk ${usePercent} (${avail} available)`, critical: false });
@@ -220,10 +223,18 @@ export class OpsAgent {
 
       // Critical conditions → escalate
       const pct = parseInt(status.disk.usePercent);
-      if (pct > 90) {
+      if (pct > this.rules.checks.disk_threshold_critical) {
         logger.error('[OpsAgent] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
       }
       // Cloudflared tunnel check + auto-restart (if enabled)
+      // C2: Worktree GC (daily)
+      const lastGC = (this as any)._lastGc || 0;
+      if (Date.now() - lastGC > 24 * 60 * 60 * 1000) {
+        const cleaned = await this.cleanupWorktrees();
+        if (cleaned > 0) logger.info('[OpsAgent] Worktree GC cleaned', { cleaned });
+        (this as any)._lastGc = Date.now();
+      }
+
       if (process.env.CLOUDFLARED_ENABLED === 'true' && !this.isCloudflaredRunning()) {
         logger.warn('[OpsAgent] Cloudflared not running, restarting...');
         try {
@@ -282,12 +293,13 @@ export class OpsAgent {
 
   private cleanStaleProcesses(): number {
     let count = 0;
+    const patterns = this.rules.checks.processes_to_clean;
     try {
-      const nodeProcs = execSync('ps aux | grep "[t]sx\|[n]ode.*index" | grep -v grep | awk \'{print $2}\'', {
-        encoding: 'utf-8', stdio: 'pipe',
-      }).trim();
-      if (nodeProcs) {
-        const pids = nodeProcs.split('\n').filter(Boolean);
+      const grepPattern = patterns.map(p => `[${p.slice(0,1)}]${p.slice(1)}`).join('\\|');
+      const cmd = `ps aux | grep "${grepPattern}" | grep -v grep | awk '{print $2}'`;
+      const procs = execSync(cmd, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+      if (procs) {
+        const pids = procs.split('\n').filter(Boolean);
         for (const pid of pids) {
           try { execSync(`kill -9 ${pid.trim()} 2>/dev/null`, { stdio: 'pipe' }); count++; } catch { /* already dead */ }
         }
@@ -302,6 +314,41 @@ export class OpsAgent {
         encoding: 'utf-8', stdio: 'pipe',
       }).trim(), 10);
     } catch { return 0; }
+  }
+
+  /**
+   * C2: Worktree GC — 清理超过 7 天的旧 worktree
+   */
+  async cleanupWorktrees(maxAgeDays = 7): Promise<number> {
+    const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), '.studio', 'worktrees');
+    let cleaned = 0;
+    try {
+      if (!fs.existsSync(worktreesDir)) return 0;
+      const entries = fs.readdirSync(worktreesDir, { withFileTypes: true });
+      const cutoff = Date.now() - maxAgeDays * 24 * 60 * 60 * 1000;
+
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const fullPath = path.join(worktreesDir, entry.name);
+        try {
+          const stat = fs.statSync(fullPath);
+          if (stat.mtimeMs < cutoff) {
+            // Remove from git first, then delete directory
+            try {
+              execSync(`git worktree remove --force "${fullPath}" 2>/dev/null || true`, {
+                cwd: process.env.REPO_DIR || process.cwd(), stdio: 'pipe', timeout: 10_000,
+              });
+            } catch { /* git cleanup best-effort */ }
+            fs.rmSync(fullPath, { recursive: true, force: true });
+            cleaned++;
+            logger.info('[OpsAgent] Cleaned old worktree', { path: fullPath, age: Math.round((Date.now() - stat.mtimeMs) / 86400000) + 'd' });
+          }
+        } catch { /* skip problematic entries */ }
+      }
+    } catch (e: any) {
+      logger.warn('[OpsAgent] Worktree GC failed', { error: String(e) });
+    }
+    return cleaned;
   }
 
   /**
