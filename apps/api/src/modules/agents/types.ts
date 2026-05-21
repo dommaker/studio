@@ -92,12 +92,15 @@ export type MonitorAlertSource =
   | 'progress_stagnation'
   | 'session_escalation'
   | 'total_time'
-  | 'heartbeat_loss';
+  | 'heartbeat_loss'
+  | 'tool_error_rate'
+  | 'tool_zero_success';
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';
   message: string;
+  source: MonitorAlertSource;
+  timestamp?: number;
   projectId?: string;
   relatedTaskIds?: string[];
-  source: MonitorAlertSource;
 }

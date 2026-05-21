@@ -109,6 +109,8 @@ export class MonitorAgent {
       heartbeat_loss: 'execution_heartbeat_lost',
       stuck_goals: 'execution_stuck',
       progress_stagnation: 'execution_progress_stagnation',
+      tool_error_rate: null,
+      tool_zero_success: null,
     };
 
     for (const alert of alerts) {
@@ -512,7 +514,7 @@ export class MonitorAgent {
       const { toolRegistry } = await import('../mcp/tool-registry.js');
       const allStats = toolRegistry.getStats();
 
-      for (const [toolName, stats] of allStats) {
+      for (const [toolName, stats] of Object.entries(allStats)) {
         const totalCalls = stats.totalCalls;
         if (totalCalls === 0) continue;
 
