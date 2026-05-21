@@ -40,5 +40,14 @@ custom_constraints:
     trigger: ["code_implementation"]
     description: "硬编码基础设施参数导致环境迁移困难。禁止硬编码端口、文件路径、主机名、域名、默认邮箱/密码。使用 process.env.X || default 模式。2026-05-21 故障: AuthModal 硬编码 admin@agent-studio.local 导致登录失败"
 
+  # ── 禁止下游兼容掩盖上游问题 ──
+  no_fallback_without_root_cause:
+    id: no_fallback_without_root_cause
+    level: guideline
+    rule: "BEFORE ADDING FALLBACK, TRACE UPSTREAM FIRST"
+    message: "禁止用兼容/兜底/fallback 掩盖上游数据异常。遇到空值/异常数据，先追根因——谁产生的？为什么是空？——再决定修上游还是加兜底"
+    trigger: ["code_implementation"]
+    description: "2026-05-21 故障分析：连续 3 次 agent 执行卡在 REQUIREMENTS.md 空模板。第一次修复：兼容空 AC 写'从任务描述中推断'。第二次修复：传 stepTitle 做 fallback。第三次才找到根因：Markdown parser 把实现步骤当成 AC 组。正确做法：第一次就应该 trace '为什么 AC 是空？谁写入的？'"
+
 # ── 内置约束例外 ──
 # 暂无需要例外的内置约束
