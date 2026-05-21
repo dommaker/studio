@@ -236,7 +236,7 @@ model Goal {
   id            String      @id @default(cuid())
   title         String
   description   String
-  status        String      @default("draft")     // draft → planning → executing → succeeded/failed
+  status        String      @default("draft")     // draft | planning | executing | succeeded | failed | blocked
   priority      String      @default("normal")    // low/normal/high/critical
   constraints   String?                               // 人定义的约束条件
   context       String?                               // 上下文信息（会议、项目等）
@@ -257,7 +257,7 @@ model Goal {
 model GoalPlan {
   id          String        @id @default(cuid())
   goalId      String
-  status      String        @default("draft")     // draft → approved → executing → completed
+  status      String        @default("draft")     // draft | approved | executing | completed
   steps       String                                  // GoalStep[]: LLM 生成的执行计划
   reasoning   String?                               // LLM 的推理过程
   version     Int           @default(1)
@@ -275,7 +275,7 @@ model GoalExecution {
   goalId      String
   planId      String
   stepIndex   Int                                    // 对应 GoalPlan.steps 中的索引
-  status      String     @default("pending")         // pending → running → succeeded/failed
+  status      String     @default("pending")         // pending | running | succeeded | failed
   agentType   String?                                // 执行此步骤的 agent 类型
   input       String?                                  // 步骤输入
   output      String?                                  // 步骤输出
