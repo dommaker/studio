@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
 
@@ -95,6 +96,20 @@ export class MonitorAgent {
 
     // Phase 1 (FL-037): Escalate critical execution-level alerts to Triage
     this.escalateToTriage(alerts);
+
+    // H3: Write patterns to KnowledgeBus (Monitor→Auditor/KK→Analyst)
+    for (const alert of alerts) {
+      if (alert.level === 'critical' || alert.level === 'warning') {
+        knowledgeBus.recordPattern({
+          source: 'monitor',
+          type: alert.source.includes('tool') ? 'failure' : 'pattern',
+          title: `[Monitor] ${alert.source}: ${alert.message.slice(0, 80)}`,
+          content: alert.message,
+          severity: alert.level === 'critical' ? 'critical' : 'warning',
+          timestamp: Date.now(),
+        }).catch(() => { /* non-blocking */ });
+      }
+    }
   }
 
   /**
