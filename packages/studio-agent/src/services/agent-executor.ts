@@ -2,20 +2,20 @@
  * Agent Executor - Session Loop 执行模型 (daemon async spawn)
  * ============================================================================
  *
- * 2026-05-09: Docker+tmux+Redis → async spawn (复用 SessionManager 的 execAsync 模式)
+ * 2026-05-09: Docker+tmux+Redis → async spawn (复用 SessionManager 的 execSh 模式)
  *   - 每个 GoalExecution 独立 worktree → 天然支持并行
  *   - Session 1: --session-id <UUID> --name <name>  创建命名 session
  *   - Session 2+: --continue  复用 prompt cache
  *   - 读 .progress.json 判断完成，不信任 exit code
  */
 
-import { spawn, type ChildProcess } from 'child_process';
+import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { v4 as uuidv4 } from 'uuid';
 import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
 
@@ -37,6 +37,8 @@ export interface AgentTask {
   prompt: string;
   notifyTarget?: string;
   parameters?: Record<string, any>;
+  /** 实时进度回调 — 每轮 session 后调用，用于推送到 Channel */
+  onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
 }
 
 // 执行结果
@@ -71,67 +73,6 @@ interface ProgressReport {
 
 const DEFAULT_SESSION_TIMEOUT = 30; // 分钟
 const DEFAULT_MAX_SESSIONS = 5;
-
-/** Async spawn: run shell command, collect stdout/stderr, with timeout */
-function execAsync(
-  cmd: string,
-  opts: { cwd: string; env?: NodeJS.ProcessEnv; timeoutMs: number; maxBuffer?: number; childRef?: { current: ChildProcess | null } },
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('bash', ['-c', cmd], {
-      cwd: opts.cwd,
-      env: { ...process.env, ...opts.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    // Store child reference for external stop()
-    if (opts.childRef) {
-      opts.childRef.current = child;
-    }
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
-      if (opts.maxBuffer && stdout.length > opts.maxBuffer) {
-        child.kill();
-        if (opts.childRef) opts.childRef.current = null;
-        reject(new Error(`stdout maxBuffer (${opts.maxBuffer / 1024 / 1024}MB) exceeded`));
-      }
-    });
-
-    child.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    const timeout = setTimeout(() => {
-      child.kill('SIGTERM');
-      if (opts.childRef) opts.childRef.current = null;
-      reject(new Error(`Task timed out after ${Math.round(opts.timeoutMs / 60000)}min`));
-    }, opts.timeoutMs);
-
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-      if (opts.childRef) opts.childRef.current = null;
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        const err = new Error(`Command exited with code ${code}: ${stderr.slice(0, 200)}`) as any;
-        err.stdout = stdout;
-        err.stderr = stderr;
-        err.code = code;
-        reject(err);
-      }
-    });
-
-    child.on('error', (err) => {
-      clearTimeout(timeout);
-      if (opts.childRef) opts.childRef.current = null;
-      reject(err);
-    });
-  });
-}
 
 /** 策略切换指令 — 逐级升级 */
 const STRATEGY_HINTS: Record<number, string> = {
@@ -214,7 +155,7 @@ export class AgentExecutor {
             const harnessPkgDir = path.dirname(require.resolve('@dommaker/harness/package.json'));
             const nodeApiTpl = path.join(harnessPkgDir, 'templates', 'node-api');
             if (fsSync.existsSync(nodeApiTpl)) {
-              await execAsync(`cp -r "${nodeApiTpl}/.harness" "${harnessDir}" 2>/dev/null || true`, {
+              await execSh(`cp -r "${nodeApiTpl}/.harness" "${harnessDir}" 2>/dev/null || true`, {
                 cwd: worktree, timeoutMs: 5000,
               });
             }
@@ -250,23 +191,14 @@ export class AgentExecutor {
       let lastCompletedCount = 0;
 
       // Session-id 文件（复用 SessionManager 的 UUID 持久化模式）
-      const sidFile = path.join(worktree, '.daemon', 'session-id');
-      fsSync.mkdirSync(path.dirname(sidFile), { recursive: true });
+      const existingId = readSessionIdFile(worktree);
       let sessionId: string;
       let isNewSession: boolean;
-      if (fsSync.existsSync(sidFile)) {
-        const raw = fsSync.readFileSync(sidFile, 'utf-8').trim();
-        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
-          sessionId = raw;
-          isNewSession = false;
-        } else {
-          sessionId = uuidv4();
-          fsSync.writeFileSync(sidFile, sessionId, 'utf-8');
-          isNewSession = true;
-        }
+      if (existingId) {
+        sessionId = existingId;
+        isNewSession = false;
       } else {
-        sessionId = uuidv4();
-        fsSync.writeFileSync(sidFile, sessionId, 'utf-8');
+        sessionId = resolveSessionId(worktree);
         isNewSession = true;
       }
 
@@ -283,6 +215,11 @@ export class AgentExecutor {
 
         // 读进度（session 2+ 用于续接 prompt）
         const progress = this.readProgress(worktree);
+
+        // 实时进度回调 → Channel
+        if (task.onProgress && progress) {
+          task.onProgress(progress, sessionCount).catch(() => {});
+        }
 
         // 卡住检测：连续 session 无进展
         const currentStep = progress?.currentStep || '';
@@ -347,7 +284,7 @@ export class AgentExecutor {
         this.runningProcesses.set(task.executionId, childRef);
 
         try {
-          const { stdout } = await execAsync(cmd, {
+          const { stdout } = await execSh(cmd, {
             cwd: worktree,
             env: {
               ANTHROPIC_MODEL: model,
@@ -443,7 +380,7 @@ export class AgentExecutor {
 
     // Claude Code CLI
     try {
-      const { stdout } = await execAsync('claude --version 2>&1 || echo "NOT_FOUND"', {
+      const { stdout } = await execSh('claude --version 2>&1 || echo "NOT_FOUND"', {
         cwd: '/tmp',
         timeoutMs: 10_000,
       });
@@ -458,7 +395,7 @@ export class AgentExecutor {
 
     // 磁盘空间
     try {
-      const { stdout } = await execAsync('df -h . | tail -1 | awk "{print \$4}"', {
+      const { stdout } = await execSh('df -h . | tail -1 | awk "{print \$4}"', {
         cwd: this.config.worktreesDir,
         timeoutMs: 5_000,
       });
@@ -487,7 +424,7 @@ export class AgentExecutor {
 
     // git repo
     try {
-      await execAsync('git rev-parse --git-dir', {
+      await execSh('git rev-parse --git-dir', {
         cwd: this.config.repoDir,
         timeoutMs: 5_000,
       });
@@ -509,7 +446,7 @@ export class AgentExecutor {
   private async createWorktree(worktree: string, baseBranch: string, repoDir: string): Promise<void> {
     // 清理已存在的目录
     try {
-      await execAsync(`git worktree remove --force "${worktree}" 2>/dev/null || true`, {
+      await execSh(`git worktree remove --force "${worktree}" 2>/dev/null || true`, {
         cwd: repoDir,
         timeoutMs: 10_000,
       });
@@ -526,15 +463,15 @@ export class AgentExecutor {
     // 创建 git worktree
     const branchName = `task/${path.basename(worktree)}`.substring(0, 50);
     try {
-      await execAsync(
+      await execSh(
         `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
         { cwd: repoDir, timeoutMs: 30_000 },
       );
     } catch (e: any) {
       if (e.message?.includes("already exists")) {
         try {
-          await execAsync(`git branch -D "${branchName}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
-          await execAsync(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
+          await execSh(`git branch -D "${branchName}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+          await execSh(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
         } catch (e2: any) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
       } else { throw e; }
     }

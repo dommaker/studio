@@ -1,14 +1,14 @@
 /**
  * Review Agent - 多立场代码审查 (daemon async spawn)
  *
- * 2026-05-09: Docker+tmux → async spawn (复用 SessionManager 的 execAsync 模式)
+ * 2026-05-09: Docker+tmux → async spawn (复用 studio-shared 的 execSh)
  *   Executor 完成后，在 worktree 中 spawn Claude Code 进行多立场审查。
  *   审查结果写入 .review-report.json，供修复循环使用。
  */
 
 import { logger, getModelForTier } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
-import { spawn } from 'child_process';
+import { execSh } from '@dommaker/studio-shared/node';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ReviewResult } from './types.js';
@@ -17,57 +17,6 @@ import { buildReviewPrompt } from './review-report.js';
 
 /** 审查超时（分钟） */
 const REVIEW_TIMEOUT_MINUTES = parseInt(process.env.REVIEW_TIMEOUT_MINUTES || '15', 10);
-
-function execAsync(
-  cmd: string,
-  opts: { cwd: string; env?: NodeJS.ProcessEnv; timeoutMs: number; maxBuffer?: number },
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('bash', ['-c', cmd], {
-      cwd: opts.cwd,
-      env: { ...process.env, ...opts.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
-      if (opts.maxBuffer && stdout.length > opts.maxBuffer) {
-        child.kill();
-        reject(new Error(`stdout maxBuffer exceeded`));
-      }
-    });
-
-    child.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    const timeout = setTimeout(() => {
-      child.kill('SIGTERM');
-      reject(new Error(`Review timed out after ${Math.round(opts.timeoutMs / 60000)}min`));
-    }, opts.timeoutMs);
-
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        const err = new Error(`Command exited with code ${code}: ${stderr.slice(0, 200)}`) as any;
-        err.stdout = stdout;
-        err.stderr = stderr;
-        err.code = code;
-        reject(err);
-      }
-    });
-
-    child.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
 
 export class ReviewAgent {
   /**
@@ -126,7 +75,7 @@ export class ReviewAgent {
       logger.info('[ReviewAgent] Starting review', { taskId, cycle, worktree });
 
       try {
-        await execAsync(cmd, {
+        await execSh(cmd, {
           cwd: worktree,
           env: { ANTHROPIC_MODEL: model },
           timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
@@ -228,7 +177,7 @@ export class ReviewAgent {
    */
   private async hasChanges(worktree: string): Promise<boolean> {
     try {
-      const { stdout } = await execAsync(
+      const { stdout } = await execSh(
         'git diff HEAD~1 --stat 2>/dev/null || git diff --cached --stat 2>/dev/null || git diff --stat 2>/dev/null || echo ""',
         { cwd: worktree, timeoutMs: 5_000 },
       );
