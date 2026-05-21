@@ -302,6 +302,45 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       if (/api|endpoint|route|middleware|webhook/i.test(allAcs)) risks.push('api_change');
       if (/payment|billing|transaction|balance|money/i.test(allAcs)) risks.push('financial');
 
+      // RequirementGate: 验证 AC 组质量（粒度/文件/依赖/独立性）
+      try {
+        const { validateRequirementsDoc } = await import('../agents/requirement-gate.js');
+        const gateResult = await validateRequirementsDoc(acGroups, doc.title, process.env.REPO_DIR || process.cwd());
+
+        if (!gateResult.passed) {
+          // Push feedback to Channel
+          logger.warn('[Channel] RequirementGate: AC group quality check failed', {
+            docId,
+            issues: gateResult.suggestions,
+            tier: gateResult.tierRecommendation,
+          });
+          try {
+            await channelMessageService.createAgentMessage(
+              req.params.channelId,
+              'System',
+              `## ⚠️ RequirementsDoc 质量检查未通过\n\n${
+                gateResult.suggestions.map(s => `- ${s}`).join('\n')
+              }\n\n**建议**: ${
+                gateResult.tierRecommendation === 'needs-human'
+                  ? '请 @Analyst 修正上述问题后重新 /plan'
+                  : '已自动升级为 premium 模型重新分析'
+              }`,
+              { cardType: 'gate_rejected' }
+            );
+          } catch { /* best-effort */ }
+
+          if (gateResult.tierRecommendation === 'needs-human') {
+            return res.status(400).json({ success: false, error: 'RequirementsDoc quality check failed', gateResult });
+          }
+          // upgrade-to-premium: 非阻塞，允许继续但标记警告
+          logger.warn('[Channel] RequirementGate: soft-fail, proceeding with warning');
+        } else {
+          logger.info('[Channel] RequirementGate: passed', { docId, groups: acGroups.length });
+        }
+      } catch (e: any) {
+        logger.warn('[Channel] RequirementGate failed, proceeding anyway', { error: String(e) });
+      }
+
       // B1-002: Create Goal + GoalPlan(approved) + GoalExecutions(pending) via GoalService
       // This creates the GoalPlan that GoalScheduler.getExecutableSteps() requires
       const result = await goalService.createGoalFromChannelDoc({
