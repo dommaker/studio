@@ -258,7 +258,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
   });
   if (!message) return res.status(404).json({ success: false, error: 'Message not found' });
 
-  const meta = JSON.parse(message.meta || '{}');
+  const meta = (typeof message.meta === 'string' ? JSON.parse(message.meta) : message.meta) || {};
 
   if (action === 'start_execution') {
     const docId = meta.requirementsDocId || meta.cardData?.requirementsDocId;
