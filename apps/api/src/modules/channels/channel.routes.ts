@@ -99,7 +99,8 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
     const legacyDeps = line.match(/Depends on:\s*(.+)/);
     if (legacyDeps) currentGroup.dependencies = legacyDeps[1].split(',').map(d => d.trim());
   }
-  if (currentGroup) groups.push(currentGroup);
+  // Only keep groups that have actual ACs — filter out implementation step headings
+  if (currentGroup && currentGroup.acs.length > 0) groups.push(currentGroup);
 
   if (groups.length === 0) {
     groups.push({
