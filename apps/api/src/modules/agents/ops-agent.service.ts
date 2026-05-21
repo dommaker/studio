@@ -139,6 +139,24 @@ export class OpsAgent {
       add({ name: 'clean-processes', passed: true, message: `Process check skipped: ${e.message.slice(0, 50)}`, critical: false });
     }
 
+    // 4b. Cloudflared tunnel
+    try {
+      const cfAlive = this.isCloudflaredRunning();
+      if (cfAlive) {
+        add({ name: 'cloudflared', passed: true, message: 'Tunnel connected', critical: false });
+      } else {
+        // Try to restart
+        try {
+          execSync(`nohup cloudflared tunnel --url http://localhost:${this.port} --no-autoupdate > /tmp/cloudflared.log 2>&1 &`, { stdio: 'pipe' });
+          add({ name: 'cloudflared', passed: true, message: 'Tunnel restarted', critical: false, autoFixed: true });
+        } catch {
+          add({ name: 'cloudflared', passed: false, critical: false, message: '⚠️ Cloudflared tunnel not running — HTTPS may be unavailable' });
+        }
+      }
+    } catch {
+      add({ name: 'cloudflared', passed: true, message: 'Cloudflared check skipped', critical: false });
+    }
+
     // 5. Disk space
     try {
       const output = execSync("df -h / | tail -1 | awk '{print $5, $4}'", { encoding: 'utf-8', stdio: 'pipe' }).trim();
@@ -203,7 +221,16 @@ export class OpsAgent {
       const pct = parseInt(status.disk.usePercent);
       if (pct > 90) {
         logger.error('[OpsAgent] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
-        // TODO: @Triage via Channel when Channel infrastructure is available
+      }
+      // Cloudflared tunnel check + auto-restart
+      if (!this.isCloudflaredRunning()) {
+        logger.warn('[OpsAgent] Cloudflared not running, restarting...');
+        try {
+          execSync(`nohup cloudflared tunnel --url http://localhost:${this.port} --no-autoupdate > /tmp/cloudflared.log 2>&1 &`, { stdio: 'pipe' });
+          logger.info('[OpsAgent] Cloudflared restarted');
+        } catch (e: any) {
+          logger.error('[OpsAgent] Failed to restart cloudflared', { error: String(e) });
+        }
       }
     } catch (e: any) {
       logger.warn('[OpsAgent] Health check failed', { error: String(e) });
@@ -242,6 +269,15 @@ export class OpsAgent {
   // ============================================
   // Utilities
   // ============================================
+
+  private isCloudflaredRunning(): boolean {
+    try {
+      const out = execSync('ps aux | grep "[c]loudflared tunnel" | grep -v grep | wc -l', {
+        encoding: 'utf-8', stdio: 'pipe',
+      }).trim();
+      return parseInt(out, 10) > 0;
+    } catch { return false; }
+  }
 
   private cleanStaleProcesses(): number {
     let count = 0;
