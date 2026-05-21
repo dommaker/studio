@@ -8,3 +8,5 @@ export { getResourceAwareConcurrency, ResourceScheduler, createResourceScheduler
 export type { ResourceMetrics, ResourceThresholds, ResourceStatus } from './scheduler';
 export { parseSpecMarkdown, loadSpecFile } from './spec-parser';
 export type { SpecContent, ApiEndpoint, SchemaDefinition, AcceptanceCriterion } from './spec-parser';
+export { execSh, resolveSessionId, readSessionIdFile, readProgress, writeProgress, readPhaseBridge } from './process-io';
+export type { ExecShOptions, SessionIdOptions, ProgressReport, PhaseBridge } from './process-io';

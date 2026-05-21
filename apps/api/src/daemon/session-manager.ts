@@ -1,10 +1,10 @@
 // Session Manager — manages persistent Claude Code sessions via --session-id + --continue
-import { spawn } from 'child_process';
-import { randomUUID } from 'crypto';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
 import { parseClaudeUsage, recordPipelineRun } from './metrics.js';
 import { writeTaskLog, classifyTaskError } from './task-logger.js';
@@ -41,59 +41,6 @@ interface SessionState {
   isNewSession: boolean;      // true = 刚生成 UUID，需 --session-id；false = 从文件加载，用 --continue
 }
 
-/** Async spawn: run shell command, collect stdout/stderr, with timeout */
-function execAsync(
-  cmd: string,
-  opts: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; maxBuffer?: number },
-): Promise<{ stdout: string; stderr: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn('bash', ['-c', cmd], {
-      cwd: opts.cwd,
-      env: opts.env,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-
-    child.stdout.on('data', (data: Buffer) => {
-      stdout += data.toString();
-      // Enforce maxBuffer (default 10MB)
-      if (opts.maxBuffer && stdout.length > opts.maxBuffer) {
-        child.kill();
-        reject(new Error(`stdout maxBuffer (${opts.maxBuffer / 1024 / 1024}MB) exceeded`));
-      }
-    });
-
-    child.stderr.on('data', (data: Buffer) => {
-      stderr += data.toString();
-    });
-
-    const timeout = setTimeout(() => {
-      child.kill('SIGTERM');
-      reject(new Error(`Task timed out after ${Math.round(opts.timeoutMs / 60000)}min`));
-    }, opts.timeoutMs);
-
-    child.on('close', (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve({ stdout, stderr });
-      } else {
-        const err = new Error(`Command exited with code ${code}: ${stderr.slice(0, 200)}`) as any;
-        err.stdout = stdout;
-        err.stderr = stderr;
-        err.code = code;
-        reject(err);
-      }
-    });
-
-    child.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    });
-  });
-}
-
 export class SessionManager {
   private sessions = new Map<string, SessionState>();
   // M6: session cache hit/miss tracking
@@ -104,25 +51,14 @@ export class SessionManager {
     this.ensureWorktree(config);
 
     // Load or generate session UUID (persisted to worktree)
-    const sidFile = path.join(config.worktree, '.daemon', 'session-id');
-    const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const existingId = readSessionIdFile(config.worktree);
     let sessionId: string;
     let isNewSession: boolean;
-    if (fs.existsSync(sidFile)) {
-      const raw = fs.readFileSync(sidFile, 'utf-8').trim();
-      if (uuidRe.test(raw)) {
-        sessionId = raw;
-        isNewSession = false; // 从文件加载 → 用 --continue 续接
-      } else {
-        logger.warn('[SessionManager] Invalid UUID in session-id file, regenerating', { old: raw.slice(0, 20) });
-        sessionId = randomUUID();
-        fs.writeFileSync(sidFile, sessionId, 'utf-8');
-        isNewSession = true;
-      }
+    if (existingId) {
+      sessionId = existingId;
+      isNewSession = false; // 从文件加载 → 用 --continue 续接
     } else {
-      sessionId = randomUUID();
-      fs.mkdirSync(path.dirname(sidFile), { recursive: true });
-      fs.writeFileSync(sidFile, sessionId, 'utf-8');
+      sessionId = resolveSessionId(config.worktree);
       isNewSession = true;
     }
 
@@ -211,7 +147,7 @@ export class SessionManager {
 
       let stdout: string;
       try {
-        const result = await execAsync(cmd, {
+        const result = await execSh(cmd, {
           cwd: state.config.worktree,
           env: { ...process.env, ANTHROPIC_MODEL: model, ...job.env },
           timeoutMs: state.config.timeoutMs,
@@ -281,7 +217,7 @@ export class SessionManager {
           inputTokens: usage.inputTokens,
           cacheHitRate: this.getCacheHitRate(),
         });
-        state.sessionId = randomUUID();
+        state.sessionId = crypto.randomUUID();
         const sidFile = path.join(state.config.worktree, '.daemon', 'session-id');
         fs.writeFileSync(sidFile, state.sessionId, 'utf-8');
       } else if (isFirstTask && !wasNewSession) {
