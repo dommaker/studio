@@ -20,7 +20,6 @@ pnpm install && pnpm db:migrate && pnpm dev:start
 
 **端口**：前端 http://localhost:5173 | API http://localhost:3001 | SSE `/api/v1/events/stream`
 
-
 ---
 
 ## 核心能力
