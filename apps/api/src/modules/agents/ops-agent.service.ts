@@ -227,9 +227,9 @@ export class OpsAgent {
         logger.error('[OpsAgent] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
       }
       // Cloudflared tunnel check + auto-restart (if enabled)
-      // C2: Worktree GC (daily)
+      // C2: Worktree GC (hourly — dogfood creates many worktrees)
       const lastGC = (this as any)._lastGc || 0;
-      if (Date.now() - lastGC > 24 * 60 * 60 * 1000) {
+      if (Date.now() - lastGC > 60 * 60 * 1000) {
         const cleaned = await this.cleanupWorktrees();
         if (cleaned > 0) logger.info('[OpsAgent] Worktree GC cleaned', { cleaned });
         (this as any)._lastGc = Date.now();
