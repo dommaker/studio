@@ -49,11 +49,9 @@ export class TracePipelineService {
 
     try {
       // 查询最近 24h 的 trace
-      const traces = await this.collector.query({
-        timeRange: {
-          start: Date.now() - 24 * 3600_000,
-          end: Date.now(),
-        },
+      const traces = this.collector.read({
+        start: Date.now() - 24 * 3600_000,
+        end: Date.now(),
       });
 
       if (traces.length === 0) {
@@ -149,8 +147,8 @@ export class TracePipelineService {
     if (!this.collector) return [];
 
     try {
-      const traces = await this.collector.query({
-        timeRange: { start: Date.now() - 24 * 3600_000, end: Date.now() },
+      const traces = this.collector.read({
+        start: Date.now() - 24 * 3600_000, end: Date.now(),
       });
 
       // 筛选 fail traces，按 constraintId 分组
