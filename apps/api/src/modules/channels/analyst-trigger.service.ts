@@ -81,7 +81,7 @@ function buildAnalystPrompt(requirement: string, knowledge: string): string {
     '1. 读 CLAUDE.md 了解项目架构',
     '2. 探索代码库中和需求相关的模块',
     '3. 识别需要改动的文件和可复用的代码模式',
-    '4. 按架构边界拆分为 AC 组（每组可独立并行）',
+    '4. 按架构边界拆分为 AC 组。每组 3-5 个 AC，一个 Agent 一次执行能完成。禁止一个组超过 6 个 AC',
     '5. 为每个 AC 组写实现指南（文件路径、函数名、代码模式、坑位）',
     '',
     '## 行为约束',

@@ -543,6 +543,25 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       logger.warn('[Goal] TriageAgent alert failed (non-blocking)', { error: String(e) });
     }
 
+    // 推送失败通知到 Channel（静默失败 → 可见）
+    try {
+      const ctx = (goal.context as unknown as Record<string, unknown>) || {};
+      const sourceChannelId = ctx.sourceChannelId as string | undefined;
+      if (sourceChannelId) {
+        const failReason = failedExec?.error ? failedExec.error.slice(0, 200) : '未知原因';
+        const { channelMessageService } = await import('../channels/channel-message.service.js');
+        await channelMessageService.createAgentMessage(sourceChannelId, 'Executor', [
+          `## ❌ Goal 失败: ${goal.title}`,
+          '',
+          `**原因**: ${failReason}`,
+          `**建议**: 拆分任务为更小的 AC 组，或使用 premium tier 模型`,
+          `**重试**: @Analyst 小步重构，将大任务拆为独立 Goal`,
+        ].join('\n'), { goalId, cardType: 'goal_failed' });
+      }
+    } catch (e) {
+      logger.warn('[Goal] Failed to send failure notification', { goalId, error: String(e) });
+    }
+
     if (!projectId) return;
 
     try {
