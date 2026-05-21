@@ -52,6 +52,7 @@ const os = __importStar(require("os"));
 const uuid_1 = require("uuid");
 const studio_shared_1 = require("@dommaker/studio-shared");
 const hooks_1 = require("@dommaker/studio-shared/harness/hooks");
+const studio_skill_1 = require("@dommaker/studio-skill");
 const DEFAULT_SESSION_TIMEOUT = 30; // 分钟
 const DEFAULT_MAX_SESSIONS = 5;
 /** Async spawn: run shell command, collect stdout/stderr, with timeout */
@@ -211,10 +212,15 @@ class AgentExecutor {
             const acGroup = task.parameters?.acGroup;
             await this.writeRequirementsMd(worktree, task, acGroup);
             // Step 3: Session loop（含卡住检测 + 策略切换）
+            const startTime = Date.now();
             let sessionCount = 0;
             let stuckCount = 0;
             let lastStep = '';
             let lastCompletedCount = 0;
+            // 累计指标（定义在 try 外，catch/finally 可访问）
+            let totalInputTokens = 0;
+            let totalOutputTokens = 0;
+            let totalCacheHitTokens = 0;
             // Session-id 文件（复用 SessionManager 的 UUID 持久化模式）
             const sidFile = path.join(worktree, '.daemon', 'session-id');
             fsSync.mkdirSync(path.dirname(sidFile), { recursive: true });
@@ -314,7 +320,7 @@ class AgentExecutor {
                         maxBuffer: 10 * 1024 * 1024,
                         childRef,
                     });
-                    // Parse JSON envelope
+                    // Parse JSON envelope + extract usage
                     let text = stdout;
                     let isError = false;
                     try {
@@ -325,6 +331,12 @@ class AgentExecutor {
                         }
                         if (envelope.result)
                             text = envelope.result;
+                        // Extract token usage
+                        if (envelope.usage) {
+                            totalInputTokens += envelope.usage.input_tokens || 0;
+                            totalOutputTokens += envelope.usage.output_tokens || 0;
+                            totalCacheHitTokens += envelope.usage.cache_read_input_tokens || 0;
+                        }
                     }
                     catch (e) {
                         studio_shared_1.logger.error('[AgentExecutor] Failed to parse JSON envelope', { taskId: task.id, executionId: task.executionId, error: String(e) });
@@ -342,218 +354,229 @@ class AgentExecutor {
                         error: errMsg.slice(0, 200),
                     });
                     if (sessionCount >= this.config.maxSessions) {
-                        return {
-                            success: false, worktree, outputFiles: [],
-                            error: `Max sessions (${this.config.maxSessions}) exhausted. Last error: ${errMsg.slice(0, 200)}`,
-                            logFile, sessionCount,
-                        };
+                        return this.buildResult(false, worktree, [], logFile, sessionCount, `Max sessions (${this.config.maxSessions}) exhausted. Last error: ${errMsg.slice(0, 200)}`, totalInputTokens, totalOutputTokens, totalCacheHitTokens, startTime, model);
                     }
-                    // 未达上限 → 继续下一轮
-                    continue;
                 }
-                // After first successful session, future starts use --continue
-                isNewSession = false;
-                // 判断是否真的完成了
-                const latest = this.readProgress(worktree);
-                if (latest?.allComplete && (latest.testResults?.failed === 0 || latest.testResults?.failed == null)) {
-                    const outputFiles = await this.collectOutputFiles(worktree);
-                    studio_shared_1.logger.info('[AgentExecutor] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount });
-                    return { success: true, worktree, outputFiles, logFile, sessionCount };
-                }
-                // 5 次耗尽
-                if (sessionCount >= this.config.maxSessions) {
-                    return {
-                        success: false, worktree, outputFiles: [],
-                        error: `Max sessions (${this.config.maxSessions}) exhausted without completion`,
-                        logFile, sessionCount,
-                    };
-                }
-                // 未完成 → 继续下一轮
-                studio_shared_1.logger.info('[AgentExecutor] Session incomplete, re-spawning', {
-                    taskId: task.id, executionId: task.executionId,
-                    session: sessionCount,
-                    stuckCount,
-                    currentStep: latest?.currentStep || 'unknown',
-                });
+                // 未达上限 → 继续下一轮
+                continue;
             }
-        }
-        catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            return { success: false, worktree, outputFiles: [], error: errorMessage, logFile, sessionCount: 0 };
+            // After first successful session, future starts use --continue
+            isNewSession = false;
+            // 判断是否真的完成了
+            const latest = this.readProgress(worktree);
+            if (latest?.allComplete && (latest.testResults?.failed === 0 || latest.testResults?.failed == null)) {
+                const outputFiles = await this.collectOutputFiles(worktree);
+                studio_shared_1.logger.info('[AgentExecutor] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount });
+                return this.buildResult(true, worktree, outputFiles, logFile, sessionCount, undefined, totalInputTokens, totalOutputTokens, totalCacheHitTokens, startTime, model);
+            }
+            // 5 次耗尽
+            if (sessionCount >= this.config.maxSessions) {
+                return this.buildResult(false, worktree, [], logFile, sessionCount, `Max sessions (${this.config.maxSessions}) exhausted without completion`, totalInputTokens, totalOutputTokens, totalCacheHitTokens, startTime, model);
+            }
+            // 未完成 → 继续下一轮
+            studio_shared_1.logger.info('[AgentExecutor] Session incomplete, re-spawning', {
+                taskId: task.id, executionId: task.executionId,
+                session: sessionCount,
+                stuckCount,
+                currentStep: latest?.currentStep || 'unknown',
+            });
         }
         finally {
-            this.runningProcesses.delete(task.executionId);
-        }
-        return { success: false, worktree, outputFiles: [], error: 'Unreachable', logFile, sessionCount: 0 };
-    }
-    // ========================================
-    // 前置检查
-    // ========================================
-    async checkPrerequisites() {
-        const checks = [];
-        studio_shared_1.logger.info('[AgentExecutor] Checking prerequisites', { repoDir: this.config.repoDir });
-        // Claude Code CLI
-        try {
-            const { stdout } = await execAsync('claude --version 2>&1 || echo "NOT_FOUND"', {
-                cwd: '/tmp',
-                timeoutMs: 10_000,
-            });
-            if (stdout.includes('NOT_FOUND')) {
-                checks.push({ name: 'Claude Code CLI', passed: false, message: 'claude 命令不可用' });
-            }
-            else {
-                checks.push({ name: 'Claude Code CLI', passed: true, message: stdout.trim().slice(0, 80) });
-            }
-        }
-        catch {
-            checks.push({ name: 'Claude Code CLI', passed: false, message: 'claude 命令不可用' });
-        }
-        // 磁盘空间
-        try {
-            const { stdout } = await execAsync('df -h . | tail -1 | awk "{print \$4}"', {
-                cwd: this.config.worktreesDir,
-                timeoutMs: 5_000,
-            });
-            const cleaned = stdout.trim().replace(/[^0-9.]/g, '');
-            const availableGB = parseInt(cleaned, 10);
-            if (isNaN(availableGB)) {
-                checks.push({ name: '磁盘空间', passed: true, message: `无法解析: "${stdout.trim()}"`, isWarning: true });
-            }
-            else {
-                checks.push({
-                    name: '磁盘空间', passed: availableGB >= 5,
-                    message: `磁盘空间: ${availableGB}GB`,
-                    isWarning: availableGB < 5 && availableGB >= 2,
-                });
-            }
-        }
-        catch {
-            checks.push({ name: '磁盘空间', passed: true, message: '无法检测', isWarning: true });
-        }
-        // worktrees 目录
-        try {
-            await fs.mkdir(this.config.worktreesDir, { recursive: true });
-            checks.push({ name: 'worktrees 目录', passed: true, message: `目录可写: ${this.config.worktreesDir}` });
-        }
-        catch {
-            checks.push({ name: 'worktrees 目录', passed: false, message: `目录不可写: ${this.config.worktreesDir}` });
-        }
-        // git repo
-        try {
-            await execAsync('git rev-parse --git-dir', {
-                cwd: this.config.repoDir,
-                timeoutMs: 5_000,
-            });
-            checks.push({ name: 'Git Repo', passed: true, message: `主仓库: ${this.config.repoDir}` });
-        }
-        catch {
-            checks.push({ name: 'Git Repo', passed: false, message: `${this.config.repoDir} 不是 git 仓库` });
-        }
-        return checks;
-    }
-    // ========================================
-    // Worktree
-    // ========================================
-    /**
-     * 创建 worktree（真 git worktree add）
-     */
-    async createWorktree(worktree, baseBranch, repoDir) {
-        // 清理已存在的目录
-        try {
-            await execAsync(`git worktree remove --force "${worktree}" 2>/dev/null || true`, {
-                cwd: repoDir,
-                timeoutMs: 10_000,
-            });
-        }
-        catch (e) {
-            studio_shared_1.logger.warn('[AgentExecutor] Failed to remove worktree, continuing', { error: String(e) });
-        }
-        try {
-            await fs.rm(worktree, { recursive: true, force: true });
-        }
-        catch (e) {
-            studio_shared_1.logger.warn('[AgentExecutor] Failed to clean worktree dir, continuing', { error: String(e) });
-        }
-        // 创建 git worktree
-        const branchName = `task/${path.basename(worktree)}`.substring(0, 50);
-        await execAsync(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
-        studio_shared_1.logger.info('[AgentExecutor] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
-    }
-    // ========================================
-    // 文件桥：REQUIREMENTS.md + .progress.json
-    // ========================================
-    /**
-     * 写入 REQUIREMENTS.md（session 间共享的 AC 上下文）
-     */
-    async writeRequirementsMd(worktree, task, acGroup) {
-        const acs = acGroup?.acs || [];
-        const files = acGroup?.files || [];
-        const notes = acGroup?.implementationNotes || '';
-        const patterns = acGroup?.codePatterns || [];
-        const gotchas = acGroup?.gotchas || [];
-        const sections = [
-            '# 需求',
-            `## 任务`,
-            task.prompt,
-            '',
-            '## 你负责的验收标准',
-            ...(acs.length > 0 ? acs.map((ac, i) => `${i + 1}. ${ac}`) : ['（从任务描述中推断）']),
-            '',
-            ...(notes ? ['## 实现指南', notes, ''] : []),
-            ...(patterns.length ? ['## 参考模式', ...patterns.map(p => `- ${p}`), ''] : []),
-            ...(gotchas.length ? ['## ⚠️ 注意事项', ...gotchas.map(g => `- ${g}`), ''] : []),
-            ...(files.length > 0 ? ['## 预期改动文件', ...files.map(f => `- ${f}`), ''] : []),
-            '## 行为约束',
-            '- 完成前必须运行 npm test + type check + lint',
-            '- 禁止模糊声明完成',
-            '- 每完成一个步骤后立即更新 .progress.json',
-            '- 全部 AC 测试通过后才设置 .progress.json allComplete: true',
-        ];
-        await fs.writeFile(path.join(worktree, 'REQUIREMENTS.md'), sections.join('\n'), 'utf-8');
-    }
-    /**
-     * 读取 .progress.json
-     */
-    readProgress(worktree) {
-        try {
-            const raw = fsSync.readFileSync(path.join(worktree, '.progress.json'), 'utf-8');
-            return JSON.parse(raw);
-        }
-        catch {
-            return null;
         }
     }
-    /**
-     * 构建 Agent prompt
-     *
-     * Session 1: 简要指令 + 读 REQUIREMENTS.md
-     * Session 2+: 极短续接（文件桥，上下文靠 worktree 文件）
-     * 卡住时注入策略切换指令
-     */
-    buildPrompt(task, progress, session, acGroup, stuckCount = 0, knowledgeContext) {
-        // 约束注入
-        const constraintPrompt = (0, hooks_1.buildAgentConstraintPrompt)({
-            operation: 'code_implementation',
-            taskDescription: task.prompt,
+    catch(error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return this.buildResult(false, worktree, [], logFile, 0, errorMessage, totalInputTokens || 0, totalOutputTokens || 0, totalCacheHitTokens || 0, startTime || Date.now(), '');
+    }
+}
+exports.AgentExecutor = AgentExecutor;
+try { }
+finally {
+    this.runningProcesses.delete(task.executionId);
+}
+return this.buildResult(false, worktree, [], logFile, 0, 'Unreachable', 0, 0, 0, Date.now(), '');
+// ========================================
+// 前置检查
+// ========================================
+async;
+checkPrerequisites();
+Promise < PrerequisiteCheck[] > {
+    const: checks, PrerequisiteCheck, []:  = [],
+    logger: studio_shared_1.logger, : .info('[AgentExecutor] Checking prerequisites', { repoDir: this.config.repoDir }),
+    // Claude Code CLI
+    try: {
+        const: { stdout } = await execAsync('claude --version 2>&1 || echo "NOT_FOUND"', {
+            cwd: '/tmp',
+            timeoutMs: 10_000,
+        }),
+        if(stdout) { }, : .includes('NOT_FOUND')
+    }
+};
+{
+    checks.push({ name: 'Claude Code CLI', passed: false, message: 'claude 命令不可用' });
+}
+{
+    checks.push({ name: 'Claude Code CLI', passed: true, message: stdout.trim().slice(0, 80) });
+}
+try { }
+catch {
+    checks.push({ name: 'Claude Code CLI', passed: false, message: 'claude 命令不可用' });
+}
+// 磁盘空间
+try {
+    const { stdout } = await execAsync('df -h . | tail -1 | awk "{print \$4}"', {
+        cwd: this.config.worktreesDir,
+        timeoutMs: 5_000,
+    });
+    const cleaned = stdout.trim().replace(/[^0-9.]/g, '');
+    const availableGB = parseInt(cleaned, 10);
+    if (isNaN(availableGB)) {
+        checks.push({ name: '磁盘空间', passed: true, message: `无法解析: "${stdout.trim()}"`, isWarning: true });
+    }
+    else {
+        checks.push({
+            name: '磁盘空间', passed: availableGB >= 5,
+            message: `磁盘空间: ${availableGB}GB`,
+            isWarning: availableGB < 5 && availableGB >= 2,
         });
-        const rawConstraints = task.parameters?.roleConstraints;
-        const roleConstraints = Array.isArray(rawConstraints) ? rawConstraints
-            : typeof rawConstraints === 'string' ? JSON.parse(rawConstraints)
-                : [];
-        const roleConstraintSection = roleConstraints.length
-            ? `\n## 角色约束\n以下约束优先于一般指导原则：\n${roleConstraints.map((c) => `- ${c}`).join('\n')}\n`
-            : '';
-        // G-001~003: 知识上下文（偏好 + 规则 + 环境 + 历史决策）
-        const knowledgeSection = knowledgeContext
-            ? `\n## 项目上下文\n${knowledgeContext}\n`
-            : '';
-        const constraintSection = constraintPrompt || roleConstraintSection || knowledgeSection
-            ? (constraintPrompt + roleConstraintSection + knowledgeSection + '\n---\n\n')
-            : '';
-        if (session === 1 || !progress) {
-            return `${constraintSection}## 你的任务
+    }
+}
+catch {
+    checks.push({ name: '磁盘空间', passed: true, message: '无法检测', isWarning: true });
+}
+// worktrees 目录
+try {
+    await fs.mkdir(this.config.worktreesDir, { recursive: true });
+    checks.push({ name: 'worktrees 目录', passed: true, message: `目录可写: ${this.config.worktreesDir}` });
+}
+catch {
+    checks.push({ name: 'worktrees 目录', passed: false, message: `目录不可写: ${this.config.worktreesDir}` });
+}
+// git repo
+try {
+    await execAsync('git rev-parse --git-dir', {
+        cwd: this.config.repoDir,
+        timeoutMs: 5_000,
+    });
+    checks.push({ name: 'Git Repo', passed: true, message: `主仓库: ${this.config.repoDir}` });
+}
+catch {
+    checks.push({ name: 'Git Repo', passed: false, message: `${this.config.repoDir} 不是 git 仓库` });
+}
+return checks;
+async;
+createWorktree(worktree, string, baseBranch, string, repoDir, string);
+Promise < void  > {
+    // 清理已存在的目录
+    try: {
+        await
+    }, " 2>/dev/null || true`, {: cwd, repoDir,
+    timeoutMs: 10_000,
+};
+;
+try { }
+catch (e) {
+    studio_shared_1.logger.warn('[AgentExecutor] Failed to remove worktree, continuing', { error: String(e) });
+}
+try {
+    await fs.rm(worktree, { recursive: true, force: true });
+}
+catch (e) {
+    studio_shared_1.logger.warn('[AgentExecutor] Failed to clean worktree dir, continuing', { error: String(e) });
+}
+// 创建 git worktree
+const branchName = `task/${path.basename(worktree)}`.substring(0, 50);
+try {
+    await execAsync(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
+}
+catch (e) {
+    // Branch already exists — clean and retry
+    if (e.message?.includes('already exists')) {
+        try {
+            await execAsync(`git branch -D "${branchName}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+            await execAsync(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
+        }
+        catch (e2) {
+            throw new Error(`Worktree creation failed after branch cleanup: ${e2.message}`);
+        }
+    }
+    else {
+        throw e;
+    }
+}
+studio_shared_1.logger.info('[AgentExecutor] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
+async;
+writeRequirementsMd(worktree, string, task, AgentTask, acGroup ?  : Record);
+Promise < void  > {
+    const: acs, string, []:  = acGroup?.acs || [],
+    const: files, string, []:  = acGroup?.files || [],
+    const: notes, string = acGroup?.implementationNotes || '',
+    const: patterns, string, []:  = acGroup?.codePatterns || [],
+    const: gotchas, string, []:  = acGroup?.gotchas || [],
+    const: sections = [
+        '# 需求',
+        `## 任务`,
+        task.prompt,
+        '',
+        '## 你负责的验收标准',
+        ...(acs.length > 0 ? acs.map((ac, i) => `${i + 1}. ${ac}`) : ['（从任务描述中推断）']),
+        '',
+        ...(notes ? ['## 实现指南', notes, ''] : []),
+        ...(patterns.length ? ['## 参考模式', ...patterns.map(p => `- ${p}`), ''] : []),
+        ...(gotchas.length ? ['## ⚠️ 注意事项', ...gotchas.map(g => `- ${g}`), ''] : []),
+        ...(files.length > 0 ? ['## 预期改动文件', ...files.map(f => `- ${f}`), ''] : []),
+        '## 行为约束',
+        '- 完成前必须运行 npm test + type check + lint',
+        '- 禁止模糊声明完成',
+        '- 每完成一个步骤后立即更新 .progress.json',
+        '- 全部 AC 测试通过后才设置 .progress.json allComplete: true',
+    ],
+    await, fs, : .writeFile(path.join(worktree, 'REQUIREMENTS.md'), sections.join('\n'), 'utf-8')
+};
+readProgress(worktree, string);
+ProgressReport | null;
+{
+    try {
+        const raw = fsSync.readFileSync(path.join(worktree, '.progress.json'), 'utf-8');
+        return JSON.parse(raw);
+    }
+    catch {
+        return null;
+    }
+}
+buildPrompt(task, AgentTask, progress, ProgressReport | null, session, number, acGroup ?  : Record, stuckCount = 0, knowledgeContext ?  : string);
+string;
+{
+    // 约束注入
+    const constraintPrompt = (0, hooks_1.buildAgentConstraintPrompt)({
+        operation: 'code_implementation',
+        taskDescription: task.prompt,
+    });
+    const rawConstraints = task.parameters?.roleConstraints;
+    const roleConstraints = Array.isArray(rawConstraints) ? rawConstraints
+        : typeof rawConstraints === 'string' ? JSON.parse(rawConstraints)
+            : [];
+    const roleConstraintSection = roleConstraints.length
+        ? `\n## 角色约束\n以下约束优先于一般指导原则：\n${roleConstraints.map((c) => `- ${c}`).join('\n')}\n`
+        : '';
+    // G-001~003: 知识上下文（偏好 + 规则 + 环境 + 历史决策）
+    const knowledgeSection = knowledgeContext
+        ? `\n## 项目上下文\n${knowledgeContext}\n`
+        : '';
+    const constraintSection = constraintPrompt || roleConstraintSection || knowledgeSection
+        ? (constraintPrompt + roleConstraintSection + knowledgeSection + '\n---\n\n')
+        : '';
+    // Skill 注入：按 trigger + agentType 加载
+    const skillTier = task.model || 'standard';
+    const skills = session === 1
+        ? studio_skill_1.skillLoader.load({ trigger: 'goal_start', agentType: 'executor', tier: skillTier })
+        : studio_skill_1.skillLoader.load({ trigger: 'goal_continue', agentType: 'executor', tier: skillTier, exclude: ['stuck-recovery'] });
+    const skillPrompt = studio_skill_1.skillLoader.formatForPrompt(skills);
+    if (session === 1 || !progress) {
+        return `${constraintSection}## 你的任务
+${task.prompt}
 
-读 REQUIREMENTS.md 了解你要完成的任务和验收标准。
+${skillPrompt}
 
 ## TDD 工作流
 
@@ -566,90 +589,97 @@ class AgentExecutor {
 5. 重复 1-4 直到所有 AC 满足
 6. 运行 npm test + type check + lint
 7. 更新 .progress.json
-8. 全部 AC 覆盖 + 全部测试通过 → 设置 .progress.json allComplete: true
-
-## 重要
-
-- 每完成一个步骤后必须更新 .progress.json
-- 如果没有 .progress.json 文件，立即创建
-- 将环境变量 STUDIO_EXECUTION_ID 和 STUDIO_GOAL_ID（如有）写入 .progress.json.executionId 和 .progress.json.goalId
-- 只在你真正完成时才设置 allComplete: true`;
-        }
-        // Session 2+: 极短续接 prompt
-        const hintLevel = Math.min(stuckCount, 4);
-        const strategyHint = STRATEGY_HINTS[hintLevel];
-        const parts = [
-            `${constraintSection}## 续接任务`,
-            '',
-            '读 REQUIREMENTS.md 了解任务。',
-            '读 .progress.json 了解进度。',
-            '',
-            `你上次做到：${progress.currentStep || '未知'}`,
-            `已完成：${progress.completedSteps?.join(', ') || '无'}`,
-            `测试结果：${progress.testResults?.passed || 0} passed / ${progress.testResults?.failed || 0} failed`,
-            `备注：${progress.notes || '无'}`,
-        ];
-        if (strategyHint)
-            parts.push('', strategyHint);
-        parts.push('', '继续工作，从上次中断的地方开始。每完成一步后更新 .progress.json。');
-        parts.push('全部完成后设置 allComplete: true。');
-        return parts.join('\n');
+8. 全部 AC 覆盖 + 全部测试通过 → 设置 .progress.json allComplete: true`;
     }
-    // ========================================
-    // 辅助方法
-    // ========================================
-    async collectOutputFiles(worktree) {
-        const files = [];
-        try {
-            const entries = await fs.readdir(worktree);
-            for (const entry of entries) {
-                if (entry.endsWith('.md') || entry.endsWith('.json')) {
-                    files.push(path.join(worktree, entry));
-                }
-            }
-        }
-        catch (e) {
-            studio_shared_1.logger.warn('[AgentExecutor] Failed to collect output files', { error: String(e) });
-        }
-        return files;
-    }
-    /**
-     * Stop a running execution by killing its child process.
-     * Uses the runningProcesses Map to find and SIGTERM the child.
-     */
-    async stop(executionId) {
-        // Try exact match first, then prefix match
-        let childRef = this.runningProcesses.get(executionId);
-        if (!childRef) {
-            for (const [key, value] of this.runningProcesses.entries()) {
-                if (key.startsWith(executionId)) {
-                    childRef = value;
-                    executionId = key;
-                    break;
-                }
-            }
-        }
-        if (childRef?.current) {
-            studio_shared_1.logger.info('[AgentExecutor] Stopping child process', { executionId });
-            childRef.current.kill('SIGTERM');
-            this.runningProcesses.delete(executionId);
-            // Force kill after 5s if still alive
-            setTimeout(() => {
-                if (childRef?.current) {
-                    try {
-                        childRef.current.kill('SIGKILL');
-                    }
-                    catch { }
-                }
-            }, 5000);
-        }
-        else {
-            studio_shared_1.logger.info('[AgentExecutor] Stop requested but no child process found', { executionId });
-        }
-    }
-    getStatus() {
-        return { config: this.config };
-    }
+    // Session 2+: 极短续接 prompt
+    const hintLevel = Math.min(stuckCount, 4);
+    const strategyHint = STRATEGY_HINTS[hintLevel];
+    const parts = [
+        `${constraintSection}## 续接任务`,
+        '',
+        '读 REQUIREMENTS.md 了解任务。',
+        '读 .progress.json 了解进度。',
+        '',
+        `你上次做到：${progress.currentStep || '未知'}`,
+        `已完成：${progress.completedSteps?.join(', ') || '无'}`,
+        `测试结果：${progress.testResults?.passed || 0} passed / ${progress.testResults?.failed || 0} failed`,
+        `备注：${progress.notes || '无'}`,
+    ];
+    if (skillPrompt)
+        parts.push('', skillPrompt);
+    if (strategyHint)
+        parts.push('', strategyHint);
+    parts.push('', '继续工作，从上次中断的地方开始。每完成一步后更新 .progress.json。');
+    parts.push('全部完成后设置 allComplete: true。');
+    return parts.join('\n');
 }
-exports.AgentExecutor = AgentExecutor;
+async;
+collectOutputFiles(worktree, string);
+Promise < string[] > {
+    const: files, string, []:  = [],
+    try: {
+        const: entries = await fs.readdir(worktree),
+        for(, entry, of, entries) {
+            if (entry.endsWith('.md') || entry.endsWith('.json')) {
+                files.push(path.join(worktree, entry));
+            }
+        }
+    }, catch(e) {
+        studio_shared_1.logger.warn('[AgentExecutor] Failed to collect output files', { error: String(e) });
+    },
+    return: files
+};
+/**
+ * Stop a running execution by killing its child process.
+ * Uses the runningProcesses Map to find and SIGTERM the child.
+ */
+async;
+stop(executionId, string);
+Promise < void  > {
+    // Try exact match first, then prefix match
+    let, childRef = this.runningProcesses.get(executionId),
+    if(, childRef) {
+        for (const [key, value] of this.runningProcesses.entries()) {
+            if (key.startsWith(executionId)) {
+                childRef = value;
+                executionId = key;
+                break;
+            }
+        }
+    },
+    if(childRef, current) {
+        studio_shared_1.logger.info('[AgentExecutor] Stopping child process', { executionId });
+        childRef.current.kill('SIGTERM');
+        this.runningProcesses.delete(executionId);
+        // Force kill after 5s if still alive
+        setTimeout(() => {
+            if (childRef?.current) {
+                try {
+                    childRef.current.kill('SIGKILL');
+                }
+                catch { }
+            }
+        }, 5000);
+    }, else: {
+        logger: studio_shared_1.logger, : .info('[AgentExecutor] Stop requested but no child process found', { executionId })
+    }
+};
+buildResult(success, boolean, worktree, string, outputFiles, string[], logFile, string, sessionCount, number, error, string | undefined, inputTokens, number, outputTokens, number, cacheHitTokens, number, startTime, number, model, string);
+ExecutionResult;
+{
+    return {
+        success, worktree, outputFiles, logFile, sessionCount,
+        ...(error ? { error } : {}),
+        totalTokens: { input: inputTokens, output: outputTokens, cacheHit: cacheHitTokens },
+        totalDurationMs: Date.now() - startTime,
+        ...(model ? { model } : {}),
+    };
+}
+getStatus();
+{
+    config: ExecutorConfig;
+}
+{
+    return { config: this.config };
+}
 exports.agentExecutor = new AgentExecutor();
