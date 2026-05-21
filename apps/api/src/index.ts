@@ -227,7 +227,11 @@ async function start() {
         logger.warn('[Cloudflared] Not available, Discord tunnel disabled');
       }
     };
-    startCloudflared();
+    if (process.env.CLOUDFLARED_ENABLED !== 'false') {
+      startCloudflared();
+    } else {
+      logger.info('[Cloudflared] Disabled via CLOUDFLARED_ENABLED=false');
+    }
 
     // 优雅关闭
     const shutdown = async () => {

@@ -238,8 +238,7 @@ ${changes.slice(0, 4000)}
 
     try {
       await channelMessageService.createAgentMessage(channelId, 'PostEval', lines.join('\n'), {
-        goalId: report.goalId,
-        cardType: 'post_eval_report',
+        meta: { goalId: report.goalId, cardType: 'post_eval_report' },
       });
     } catch (e: any) {
       logger.warn('[PostEval] Failed to push gap report', { error: String(e) });

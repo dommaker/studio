@@ -448,6 +448,37 @@ export class GoalScheduler {
       knowledgeContext = await knowledgeQuery.formatCompactForPrompt('executor');
     } catch { /* best-effort */ }
 
+    // 提取 sourceChannelId 用于实时进度推送
+    const goalContext = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+    const sourceChannelId = goalContext.sourceChannelId as string | undefined;
+
+    // 实时进度回调：每个 session 后推送进度卡片到 Channel
+    const onProgress = async (progress: any, session: number) => {
+      if (!sourceChannelId) return;
+      try {
+        const { channelMessageService } = await import('../channels/channel-message.service.js');
+        const pct = progress.allComplete ? 100
+          : progress.completedSteps?.length
+            ? Math.min(95, Math.round((progress.completedSteps.length / Math.max(progress.completedSteps.length + (progress.testResults?.failed ? 1 : 0), 1)) * 100))
+            : session * 15;
+        const statusIcon = progress.allComplete ? '✅' : progress.testResults?.failed ? '⚠️' : '🔄';
+        const lines = [
+          `### ${statusIcon} Agent 进度 — Session ${session}`,
+          '',
+          `**当前步骤**: ${progress.currentStep || '初始化中...'}`,
+          `**已完成**: ${progress.completedSteps?.join(', ') || '无'}`,
+          `**测试**: ${progress.testResults?.passed || 0} passed / ${progress.testResults?.failed || 0} failed / ${progress.testResults?.total || 0} total`,
+          `**备注**: ${progress.notes || '无'}`,
+          '',
+          `---`,
+          `*${pct}% 完成*`,
+        ].join('\n');
+        await channelMessageService.createAgentMessage(sourceChannelId, 'Executor', lines, {
+          meta: { cardType: 'agent_progress', goalId: goal.id, cardData: { executionId, session, pct } },
+        });
+      } catch { /* best-effort */ }
+    };
+
     // 直接调用 AgentExecutor
     try {
       const result = await agentExecutor.execute({
@@ -456,6 +487,7 @@ export class GoalScheduler {
         agentType: 'claude',
         ...(input?.model ? { model: input.model as string } : {}),
         prompt,
+        onProgress,
         parameters: {
           goalExecutionId: executionId,
           goalId: goal.id,
@@ -463,6 +495,7 @@ export class GoalScheduler {
           hasWorktree: true,
           repoDir: await this.getProjectRepoPath(goal),
           knowledgeContext,
+          sourceChannelId,
           // 🆕 ROLE-001: Executor 的角色约束
           roleConstraints,
         },

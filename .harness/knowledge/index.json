@@ -1896,5 +1896,70 @@
     "applicablePhases": [],
     "lastReferenced": "2026-05-21T09:37:42.177Z",
     "created": "2026-05-21T09:37:42.177Z"
+  },
+  {
+    "id": "pattern-1779356560634-kzce",
+    "type": "guideline",
+    "title": "[Monitor] heartbeat_loss: Execution cmpfa2cld000ikm06c6k4o8cw 心跳丢失超过 15 分钟（Level 2）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T09:42:40.634Z",
+    "created": "2026-05-21T09:42:40.634Z"
+  },
+  {
+    "id": "pattern-1779356560673-9fdf",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Goal cmpf7han took 45min — check pipeline bottleneck",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T09:42:40.673Z",
+    "created": "2026-05-21T09:42:40.673Z"
+  },
+  {
+    "id": "pattern-1779356561019-1ggn",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T09:42:41.019Z",
+    "created": "2026-05-21T09:42:41.019Z"
+  },
+  {
+    "id": "pattern-1779356860771-3ijq",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Goal cmpf7han took 45min — check pipeline bottleneck",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T09:47:40.771Z",
+    "created": "2026-05-21T09:47:40.771Z"
+  },
+  {
+    "id": "pattern-1779356861199-42ms",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T09:47:41.199Z",
+    "created": "2026-05-21T09:47:41.199Z"
   }
 ]

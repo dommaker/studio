@@ -1,0 +1,1042 @@
+[
+  {
+    "id": "pattern-1779366378366-1q87",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T12:26:18.366Z",
+    "created": "2026-05-21T12:26:18.366Z"
+  },
+  {
+    "id": "pattern-1779366378389-ve8t",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T12:26:18.389Z",
+    "created": "2026-05-21T12:26:18.389Z"
+  },
+  {
+    "id": "pattern-1779366482199-3m8d",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T12:28:02.199Z",
+    "created": "2026-05-21T12:28:02.199Z"
+  },
+  {
+    "id": "pattern-1779366482226-kqpg",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T12:28:02.226Z",
+    "created": "2026-05-21T12:28:02.226Z"
+  },
+  {
+    "id": "pattern-1779366864469-fkjt",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T12:34:24.469Z",
+    "created": "2026-05-21T12:34:24.469Z"
+  },
+  {
+    "id": "pattern-1779366864495-zxxi",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T12:34:24.495Z",
+    "created": "2026-05-21T12:34:24.495Z"
+  },
+  {
+    "id": "pattern-1779368041564-5dub",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T12:54:01.564Z",
+    "created": "2026-05-21T12:54:01.564Z"
+  },
+  {
+    "id": "pattern-1779368041595-u96a",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T12:54:01.595Z",
+    "created": "2026-05-21T12:54:01.595Z"
+  },
+  {
+    "id": "pattern-1779368483969-co17",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T13:01:23.969Z",
+    "created": "2026-05-21T13:01:23.969Z"
+  },
+  {
+    "id": "pattern-1779368483996-yi7c",
+    "type": "guideline",
+    "title": "[Triage Fix] vendor_error (degraded)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T13:01:23.996Z",
+    "created": "2026-05-21T13:01:23.996Z"
+  },
+  {
+    "id": "pattern-1779374478688-bo3g",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2h（Level 2）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T14:41:18.688Z",
+    "created": "2026-05-21T14:41:18.688Z"
+  },
+  {
+    "id": "pattern-1779374778677-vgg6",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2h（Level 2）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T14:46:18.677Z",
+    "created": "2026-05-21T14:46:18.677Z"
+  },
+  {
+    "id": "pattern-1779375078676-oned",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2h（Level 2）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T14:51:18.676Z",
+    "created": "2026-05-21T14:51:18.676Z"
+  },
+  {
+    "id": "pattern-1779375378690-0q2k",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2h（Level 2）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T14:56:18.690Z",
+    "created": "2026-05-21T14:56:18.690Z"
+  },
+  {
+    "id": "pattern-1779375678687-9dz4",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2h（Level 2）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:01:18.687Z",
+    "created": "2026-05-21T15:01:18.687Z"
+  },
+  {
+    "id": "pattern-1779375978685-bcs2",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2h（Level 2）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:06:18.685Z",
+    "created": "2026-05-21T15:06:18.685Z"
+  },
+  {
+    "id": "pattern-1779376278721-dabl",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:11:18.721Z",
+    "created": "2026-05-21T15:11:18.721Z"
+  },
+  {
+    "id": "pattern-1779376278871-kwrt",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:11:18.872Z",
+    "created": "2026-05-21T15:11:18.872Z"
+  },
+  {
+    "id": "pattern-1779376578678-agx1",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:16:18.678Z",
+    "created": "2026-05-21T15:16:18.678Z"
+  },
+  {
+    "id": "pattern-1779376578790-hray",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:16:18.790Z",
+    "created": "2026-05-21T15:16:18.790Z"
+  },
+  {
+    "id": "pattern-1779376878681-y2lc",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:21:18.681Z",
+    "created": "2026-05-21T15:21:18.681Z"
+  },
+  {
+    "id": "pattern-1779376878792-ecg4",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:21:18.792Z",
+    "created": "2026-05-21T15:21:18.792Z"
+  },
+  {
+    "id": "pattern-1779377178681-2bp1",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:26:18.681Z",
+    "created": "2026-05-21T15:26:18.681Z"
+  },
+  {
+    "id": "pattern-1779377178793-vuiv",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:26:18.793Z",
+    "created": "2026-05-21T15:26:18.793Z"
+  },
+  {
+    "id": "pattern-1779377478690-t1ui",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:31:18.690Z",
+    "created": "2026-05-21T15:31:18.690Z"
+  },
+  {
+    "id": "pattern-1779377478813-k7lq",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:31:18.813Z",
+    "created": "2026-05-21T15:31:18.813Z"
+  },
+  {
+    "id": "pattern-1779377779167-2s53",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:36:19.167Z",
+    "created": "2026-05-21T15:36:19.167Z"
+  },
+  {
+    "id": "pattern-1779377779349-um1l",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:36:19.349Z",
+    "created": "2026-05-21T15:36:19.349Z"
+  },
+  {
+    "id": "pattern-1779378078690-4h34",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:41:18.690Z",
+    "created": "2026-05-21T15:41:18.690Z"
+  },
+  {
+    "id": "pattern-1779378078833-uvjy",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:41:18.833Z",
+    "created": "2026-05-21T15:41:18.833Z"
+  },
+  {
+    "id": "pattern-1779378378649-8rcm",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:46:18.649Z",
+    "created": "2026-05-21T15:46:18.649Z"
+  },
+  {
+    "id": "pattern-1779378378812-j3bo",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:46:18.812Z",
+    "created": "2026-05-21T15:46:18.812Z"
+  },
+  {
+    "id": "pattern-1779378678643-jbr7",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:51:18.643Z",
+    "created": "2026-05-21T15:51:18.643Z"
+  },
+  {
+    "id": "pattern-1779378678801-85vh",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:51:18.801Z",
+    "created": "2026-05-21T15:51:18.801Z"
+  },
+  {
+    "id": "pattern-1779378978648-fgcp",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:56:18.648Z",
+    "created": "2026-05-21T15:56:18.648Z"
+  },
+  {
+    "id": "pattern-1779378978807-whqm",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T15:56:18.807Z",
+    "created": "2026-05-21T15:56:18.807Z"
+  },
+  {
+    "id": "pattern-1779379278646-v1sm",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:01:18.646Z",
+    "created": "2026-05-21T16:01:18.646Z"
+  },
+  {
+    "id": "pattern-1779379278809-fc57",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:01:18.809Z",
+    "created": "2026-05-21T16:01:18.809Z"
+  },
+  {
+    "id": "pattern-1779379578658-1o3i",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:06:18.658Z",
+    "created": "2026-05-21T16:06:18.658Z"
+  },
+  {
+    "id": "pattern-1779379578815-rsdo",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:06:18.815Z",
+    "created": "2026-05-21T16:06:18.815Z"
+  },
+  {
+    "id": "pattern-1779379878639-r6ye",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:11:18.639Z",
+    "created": "2026-05-21T16:11:18.639Z"
+  },
+  {
+    "id": "pattern-1779379878781-gv2g",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:11:18.781Z",
+    "created": "2026-05-21T16:11:18.781Z"
+  },
+  {
+    "id": "pattern-1779380178674-lmkf",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:16:18.674Z",
+    "created": "2026-05-21T16:16:18.674Z"
+  },
+  {
+    "id": "pattern-1779380178846-veyr",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:16:18.846Z",
+    "created": "2026-05-21T16:16:18.846Z"
+  },
+  {
+    "id": "pattern-1779380478656-ny6w",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:21:18.656Z",
+    "created": "2026-05-21T16:21:18.656Z"
+  },
+  {
+    "id": "pattern-1779380478804-nyd8",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:21:18.804Z",
+    "created": "2026-05-21T16:21:18.804Z"
+  },
+  {
+    "id": "pattern-1779380778646-txk3",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:26:18.646Z",
+    "created": "2026-05-21T16:26:18.646Z"
+  },
+  {
+    "id": "pattern-1779380778773-s730",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:26:18.773Z",
+    "created": "2026-05-21T16:26:18.773Z"
+  },
+  {
+    "id": "pattern-1779381078647-8c6b",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:31:18.647Z",
+    "created": "2026-05-21T16:31:18.647Z"
+  },
+  {
+    "id": "pattern-1779381078774-73hk",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:31:18.774Z",
+    "created": "2026-05-21T16:31:18.774Z"
+  },
+  {
+    "id": "pattern-1779381378644-2kor",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:36:18.644Z",
+    "created": "2026-05-21T16:36:18.644Z"
+  },
+  {
+    "id": "pattern-1779381378771-5p34",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:36:18.771Z",
+    "created": "2026-05-21T16:36:18.771Z"
+  },
+  {
+    "id": "pattern-1779381678649-5vp8",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:41:18.649Z",
+    "created": "2026-05-21T16:41:18.649Z"
+  },
+  {
+    "id": "pattern-1779381678781-5rv0",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:41:18.781Z",
+    "created": "2026-05-21T16:41:18.781Z"
+  },
+  {
+    "id": "pattern-1779381978657-yxno",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:46:18.657Z",
+    "created": "2026-05-21T16:46:18.657Z"
+  },
+  {
+    "id": "pattern-1779381978786-giex",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:46:18.786Z",
+    "created": "2026-05-21T16:46:18.786Z"
+  },
+  {
+    "id": "pattern-1779382278642-v8ej",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:51:18.642Z",
+    "created": "2026-05-21T16:51:18.642Z"
+  },
+  {
+    "id": "pattern-1779382278753-9ozq",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:51:18.753Z",
+    "created": "2026-05-21T16:51:18.753Z"
+  },
+  {
+    "id": "pattern-1779382578648-6osd",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:56:18.648Z",
+    "created": "2026-05-21T16:56:18.648Z"
+  },
+  {
+    "id": "pattern-1779382578774-64z1",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T16:56:18.774Z",
+    "created": "2026-05-21T16:56:18.774Z"
+  },
+  {
+    "id": "pattern-1779382878644-iwsb",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:01:18.644Z",
+    "created": "2026-05-21T17:01:18.644Z"
+  },
+  {
+    "id": "pattern-1779382878774-4qph",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:01:18.774Z",
+    "created": "2026-05-21T17:01:18.774Z"
+  },
+  {
+    "id": "pattern-1779383178658-p0ed",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:06:18.658Z",
+    "created": "2026-05-21T17:06:18.658Z"
+  },
+  {
+    "id": "pattern-1779383178821-h8cx",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:06:18.821Z",
+    "created": "2026-05-21T17:06:18.821Z"
+  },
+  {
+    "id": "pattern-1779383478643-psm5",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:11:18.643Z",
+    "created": "2026-05-21T17:11:18.643Z"
+  },
+  {
+    "id": "pattern-1779383478783-4b5g",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:11:18.783Z",
+    "created": "2026-05-21T17:11:18.783Z"
+  },
+  {
+    "id": "pattern-1779383778644-ata2",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:16:18.644Z",
+    "created": "2026-05-21T17:16:18.644Z"
+  },
+  {
+    "id": "pattern-1779383778752-qgqu",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:16:18.752Z",
+    "created": "2026-05-21T17:16:18.752Z"
+  },
+  {
+    "id": "pattern-1779384078642-2fda",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:21:18.642Z",
+    "created": "2026-05-21T17:21:18.642Z"
+  },
+  {
+    "id": "pattern-1779384078752-lndv",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:21:18.752Z",
+    "created": "2026-05-21T17:21:18.752Z"
+  },
+  {
+    "id": "pattern-1779384378649-ykby",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:26:18.649Z",
+    "created": "2026-05-21T17:26:18.649Z"
+  },
+  {
+    "id": "pattern-1779384378785-sh9s",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:26:18.785Z",
+    "created": "2026-05-21T17:26:18.785Z"
+  },
+  {
+    "id": "pattern-1779384678650-429t",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:31:18.650Z",
+    "created": "2026-05-21T17:31:18.650Z"
+  },
+  {
+    "id": "pattern-1779384678799-q7ld",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:31:18.799Z",
+    "created": "2026-05-21T17:31:18.799Z"
+  },
+  {
+    "id": "pattern-1779384978653-z25m",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:36:18.653Z",
+    "created": "2026-05-21T17:36:18.653Z"
+  },
+  {
+    "id": "pattern-1779384978785-mga8",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:36:18.785Z",
+    "created": "2026-05-21T17:36:18.785Z"
+  },
+  {
+    "id": "pattern-1779385278672-2wu9",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:41:18.672Z",
+    "created": "2026-05-21T17:41:18.672Z"
+  },
+  {
+    "id": "pattern-1779385278850-606q",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:41:18.850Z",
+    "created": "2026-05-21T17:41:18.850Z"
+  },
+  {
+    "id": "pattern-1779385578648-d75a",
+    "type": "guideline",
+    "title": "[Monitor] total_time: Execution cmpfh8vd9000qfw51ugsf18qd 执行超过 2.5h — 需要人工介入（Level 3）",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "pattern"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:46:18.648Z",
+    "created": "2026-05-21T17:46:18.648Z"
+  },
+  {
+    "id": "pattern-1779385578775-9szi",
+    "type": "guideline",
+    "title": "[Triage Fix] timeout (critical)",
+    "maturity": "draft",
+    "layer": "project",
+    "tags": [
+      "fix"
+    ],
+    "applicablePhases": [],
+    "lastReferenced": "2026-05-21T17:46:18.776Z",
+    "created": "2026-05-21T17:46:18.776Z"
+  }
+]
