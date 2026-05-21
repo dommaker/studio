@@ -116,7 +116,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const { wikiRoutes } = await import('./modules/wiki/wiki.routes.js') as { wikiRoutes: Router };
 
   // Health routes (M1)
-  const healthRouter = Router();
+  const healthRouter = ExpressRouter();
   healthRouter.get('/', async (_req, res) => {
     try {
       const status = await Promise.race([
