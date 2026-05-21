@@ -119,6 +119,8 @@ export async function registerRoutes(): Promise<void> {
     if (req.path.startsWith('/api/') || req.path.startsWith('/docs/') || req.path.includes('.')) {
       return next();
     }
+    // Prevent Cloudflare/CDN from caching stale SPA HTML
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.sendFile(path.join(frontendPath, 'index.html'));
   });
 
