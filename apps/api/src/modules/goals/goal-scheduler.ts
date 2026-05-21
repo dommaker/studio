@@ -662,11 +662,9 @@ export class GoalScheduler {
     const patterns: string[] = acGroup?.codePatterns || [];
     const gotchas: string[] = acGroup?.gotchas || [];
 
-    const stepTitle = acGroup?.id || input?.stepTitle || 'Task';
-    const stepDesc = acGroup?.description || input?.stepDescription || '';
     const acLines = acs.length > 0
       ? acs.map((ac: string, i: number) => `${i + 1}. ${ac}`).join('\n')
-      : (stepDesc || `完成步骤: ${stepTitle}`);
+      : '（从任务描述中推断）';
 
     return [
       '## 你的任务',

@@ -20,12 +20,29 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
   const lines = content.split('\n');
   let currentGroup: ReturnType<typeof parseAcGroupsFromMarkdown>[0] | null = null;
   let currentSection: string | null = null;
+  let inAcGroups = false;    // true when inside ## AC Groups section
+  let acGroupsEnded = false; // true when we've passed AC Groups and entered implementation
 
   for (const line of lines) {
+    // Track section boundaries
+    const h2Match = line.match(/^##\s+(.+)/);
+    if (h2Match) {
+      const h2Title = h2Match[1].trim();
+      inAcGroups = h2Title.includes('AC Group') || h2Title.includes('AC组');
+      if (h2Title.includes('实现') || h2Title.includes('Implementation')) {
+        acGroupsEnded = true;
+      }
+      continue;
+    }
+
     const h3Match = line.match(/^###\s+(.+)/);
     if (h3Match) {
+      if (acGroupsEnded) continue;  // Skip: past AC Groups section
+      const h3Title = h3Match[1].trim();
+      // Numbered implementation steps are NOT AC groups
+      if (/^\d+[\.\s]/.test(h3Title)) { acGroupsEnded = true; continue; }
       if (currentGroup) groups.push(currentGroup);
-      currentGroup = { id: h3Match[1].trim(), acs: [], files: [], dependencies: [], implementationNotes: '', codePatterns: [], gotchas: [] };
+      currentGroup = { id: h3Title, acs: [], files: [], dependencies: [], implementationNotes: '', codePatterns: [], gotchas: [] };
       currentSection = null;
       continue;
     }

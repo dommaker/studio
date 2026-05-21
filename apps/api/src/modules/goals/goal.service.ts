@@ -390,11 +390,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
           stepIndex: step.index,
           status: 'pending',
           agentType: step.agentType,
-          input: JSON.stringify({
-            ...(step.input as any || {}),
-            stepTitle: step.title,
-            stepDescription: step.description,
-          }) as any,
+          input: JSON.stringify(step.input) as any,
         },
       });
     }
