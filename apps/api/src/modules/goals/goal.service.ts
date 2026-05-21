@@ -856,6 +856,16 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       } catch (e) {
         logger.warn('[Goal] Failed to send summary card', { goalId, error: String(e) });
       }
+
+      // PostEval: 交付完整性审计 (非阻塞)
+      try {
+        const ctx2 = (goal.context as unknown as Record<string, unknown>) || {};
+        const sourceChannelId = ctx2.sourceChannelId as string | undefined;
+        const { postEvalAgent } = await import('../agents/post-eval-agent.service.js');
+        await postEvalAgent.evaluate(goalId, sourceChannelId);
+      } catch (e) {
+        logger.warn('[Goal] PostEval failed', { goalId, error: String(e) });
+      }
     } catch (e) {
       logger.warn('[Goal] Failed to record completion metrics', { goalId, error: String(e) });
     }
