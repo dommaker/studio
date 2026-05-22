@@ -6,7 +6,7 @@
  */
 
 import { modelGateway, logger } from '@dommaker/studio-shared';
-import { KnowledgeStore, KnowledgeIngest, ColdStartImporter } from '@dommaker/harness';
+import { KnowledgeStore, KnowledgeIngest, ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { exec } from 'child_process';
@@ -46,10 +46,12 @@ const KNOWLEDGE_SYSTEM_PROMPT = `你是一个知识提取专家。请从以下�
 export class KnowledgeAgent {
   private store: KnowledgeStore;
   private ingest: KnowledgeIngest;
+  private linter: KnowledgeLinter;
 
   constructor() {
     this.store = new KnowledgeStore();
     this.ingest = new KnowledgeIngest(this.store);
+    this.linter = new KnowledgeLinter(this.store, new ReferenceTracker(this.store));
   }
 
   /**
@@ -264,7 +266,7 @@ ${reviewResult.suggestions.map(s => `- ${s}`).join('\n') || '无'}
       if (!extraction.entries?.length) return;
 
       for (const entry of extraction.entries) {
-        this.ingest.ingestEntry(
+        this.safeIngest(
           { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
           { source: `review:${taskId}`, layer: 'project', maturity: 'draft', tags: entry.tags, projects: [projectId] },
         );
@@ -305,7 +307,7 @@ ${errorChain.slice(0, 2000)}
       if (!extraction.entries?.length) return;
 
       for (const entry of extraction.entries) {
-        this.ingest.ingestEntry(
+        this.safeIngest(
           { type: 'pitfall', title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
           { source: `error:${taskId}`, layer: 'project', maturity: 'draft', tags: [...(entry.tags || []), 'error'], projects: [projectId] },
         );
@@ -343,7 +345,7 @@ ${completionOutput.sessionCount || '?'}
       if (!extraction.entries?.length) return;
 
       for (const entry of extraction.entries) {
-        this.ingest.ingestEntry(
+        this.safeIngest(
           { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
           { source: `completion:${taskId}`, layer: 'project', maturity: 'draft', tags: entry.tags, projects: [projectId] },
         );
@@ -383,7 +385,7 @@ ${deployResult.summary.slice(0, 2000)}
       if (!extraction.entries?.length) return;
 
       for (const entry of extraction.entries) {
-        this.ingest.ingestEntry(
+        this.safeIngest(
           { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
           { source: `deploy:${taskId}`, layer: 'project', maturity: 'draft', tags: [...(entry.tags || []), 'deploy'], projects: [projectId] },
         );
@@ -438,7 +440,7 @@ ${deployResult.summary.slice(0, 2000)}
 
       // Ingest entries
       for (const entry of extraction.entries) {
-        this.ingest.ingestEntry(
+        this.safeIngest(
           {
             type: entry.type as any,
             title: entry.title,
@@ -486,13 +488,47 @@ ${deployResult.summary.slice(0, 2000)}
   /**
    * 直接写入知识库（fallback：当 #系统 Channel 不可用时）
    */
+  /**
+   * P2.5: Validated ingest — runs quality gate before storing.
+   * Same signature as KnowledgeIngest.ingestEntry().
+   * Skips entries that fail validation (content too short, vague title, contradiction).
+   */
+  private safeIngest(
+    partial: Partial<{ type: string; title: string; content: string; tags: string[]; projects: string[] }>,
+    options: { source: string; layer: string; maturity?: string; tags?: string[]; projects?: string[] },
+  ): boolean {
+    const entry = { title: partial.title || '', content: partial.content || '', tags: partial.tags || [], type: partial.type || 'guideline' };
+    const issues = this.linter.validateEntry(entry);
+
+    const blockers = issues.filter(i => i.severity === 'high');
+    if (blockers.length > 0) {
+      logger.warn('[KnowledgeAgent] Entry rejected by quality gate', {
+        title: entry.title,
+        issues: blockers.map(i => i.description),
+        source: options.source,
+      });
+      return false;
+    }
+
+    const warnings = issues.filter(i => i.severity !== 'high');
+    if (warnings.length > 0) {
+      logger.info('[KnowledgeAgent] Entry ingested with warnings', {
+        title: entry.title,
+        warnings: warnings.map(i => i.description),
+      });
+    }
+
+    this.ingest.ingestEntry(partial as any, options as any);
+    return true;
+  }
+
   private writeEntriesDirect(
     entries: Array<{ type: string; title: string; content: string; tags: string[] }>,
     taskId: string,
     projectId: string,
   ): void {
     for (const entry of entries) {
-      this.ingest.ingestEntry(
+      this.safeIngest(
         {
           type: entry.type as any,
           title: entry.title,

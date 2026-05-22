@@ -140,10 +140,11 @@ export class KnowledgeBus {
       if (recent.length === 0) return '';
 
       const lines = ['\n## 历史积累（知识总线）'];
+      lines.push('（引用知识条目时请标注 ID，如 [REF:pattern-xxx]）');
       for (const e of recent) {
         const icon = e.type === 'pitfall' ? '⚠️' : '📋';
         const source = e.contributors?.[0] || '?';
-        lines.push(`- [${source}] ${icon} ${e.title}: ${e.content.slice(0, 200)}`);
+        lines.push(`- [REF:${e.id}] [${source}] ${icon} ${e.title}: ${e.content.slice(0, 200)}`);
       }
       return lines.join('\n');
     } catch (e: any) {
