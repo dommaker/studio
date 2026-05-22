@@ -91,6 +91,11 @@ async function start() {
 
     // G-004: 决策链提取（KK 提取时自动触发，见 knowledge-agent.service.ts）
 
+    // P1b: 冷启动知识导入（异步，不阻塞启动）
+    import('./modules/agents/knowledge-agent.service.js').then(({ knowledgeAgent }) => {
+      knowledgeAgent.coldStartAll().catch(() => { /* non-blocking */ });
+    });
+
     // ⑨: 初始化 trace 管道（Goal 完成后自动分析 trace 数据）
     const { initTracePipeline } = await import('./modules/monitoring/init-trace.js');
     await initTracePipeline();

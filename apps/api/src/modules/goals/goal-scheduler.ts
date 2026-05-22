@@ -448,6 +448,14 @@ export class GoalScheduler {
       knowledgeContext = await knowledgeQuery.formatCompactForPrompt('executor');
     } catch { /* best-effort */ }
 
+    // P0 follow-up: 注入知识总线上下文（Monitor/Auditor/Triage/KK 的模式和踩坑）
+    // Executor 在决定执行策略前需要知道"之前类似任务踩了什么坑"
+    try {
+      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+      const busContext = knowledgeBus.getRecentContext('executor', 5);
+      if (busContext) knowledgeContext += '\n' + busContext;
+    } catch { /* best-effort */ }
+
     // 提取 sourceChannelId 用于实时进度推送
     const goalContext = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
     const sourceChannelId = goalContext.sourceChannelId as string | undefined;

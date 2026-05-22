@@ -20,10 +20,13 @@ const execAsync = promisify(exec);
 const KNOWLEDGE_SYSTEM_PROMPT = `你是一个知识提取专家。请从以下代码变更和执行结果中提取有价值的知识条目。
 
 每个知识条目应包含：
-- type: "decision"（设计决策）| "pitfall"（踩坑记录）| "guideline"（最佳实践）| "model"（架构模式）
-- title: 简洁标题
-- content: 详细描述（2-3 句话）
-- tags: 相关标签
+- type: "decision"（设计决策）| "pitfall"（踩坑记录）| "guideline"（最佳实践）| "model"（架构模式）| "architecture"（架构决策）| "process"（流程改进）
+- title: 简洁标题（应概括根因而非现象，如"缺少 uuid 声明导致运行时崩溃"而非"启动失败"）
+- content: 详细描述，必须包含三层分析：
+  1. 根因（为什么发生？不要停留在表面现象）
+  2. 责任归属（哪个 Agent/流程应该预防这个问题？Review/Monitor/Auditor/Executor/Deploy？）
+  3. 预防建议（具体可操作的改进措施）
+- tags: 相关标签（含根因标签如 phantom-dependency, ghost-dependency, missing-import）
 
 请严格以 JSON 格式返回：
 {
@@ -36,6 +39,7 @@ const KNOWLEDGE_SYSTEM_PROMPT = `你是一个知识提取专家。请从以下�
 - 只提取有价值的、可复用的知识，不要提取显而易见的事实
 - 失败任务重点提取 pitfall（踩坑记录）
 - 成功任务重点提取 decision（设计决策）和 guideline（最佳实践）
+- content 必须做根因分析，不能只描述现象
 - 如果没有值得提取的知识，返回空数组
 - 最多提取 5 个条目`;
 
@@ -295,8 +299,9 @@ ${errorChain.slice(0, 2000)}
 
       const extraction = await modelGateway.promptJson<KnowledgeExtraction>(
         prompt,
-        '你是一个故障分析专家。从失败任务中提取踩坑记录(pitfall)，帮助后续任务避免同类错误。如果没有值得提取的知识，返回空数组。最多提取 3 个条目。输出格式：{ "entries": [{ "type": "pitfall", "title": "...", "content": "...", "tags": ["..."] }] }',
+        '你是故障分析专家。从失败任务中提取踩坑记录(pitfall)。对每条记录必须做根因分析：1) 根本原因是什么（不描述表面现象），2) 哪个 Agent/流程应该预防这个问题，3) 具体可操作的预防措施。如果没有值得提取的知识，返回空数组。最多提取 3 个条目。输出格式：{ "entries": [{ "type": "pitfall", "title": "根因概括", "content": "根因+责任+预防", "tags": ["根因标签"] }] }',
       );
+      if (!extraction.entries?.length) return;
       if (!extraction.entries?.length) return;
 
       for (const entry of extraction.entries) {
@@ -413,14 +418,16 @@ ${deployResult.summary.slice(0, 2000)}
 
       const extraction = await modelGateway.promptJson<KnowledgeExtraction>(
         content.slice(0, 50_000),
-        `你是知识提取专家。从文本中提取结构化知识。关注：
+        `你是知识提取专家。从文本中提取结构化知识。对每条记录必须做三层分析：1) 根因（不描述表面现象），2) 责任归属（哪个 Agent/流程该预防），3) 预防措施（具体可操作）。
+
+关注类型：
 - 架构决策 (architecture) - 关于系统设计的讨论和决定
 - 设计决策 (decision) - 关于实现方式的取舍
-- 踩坑记录 (pitfall) - 遇到的问题和解决方案
-- 流程经验 (process) - 工作流和流程优化
+- 踩坑记录 (pitfall) - 遇到的问题，重点是根因而非现象
+- 流程经验 (process) - 流程中哪个环节该改进
 - 最佳实践 (guideline) - 可复用的经验和模式
 
-输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "...", "content": "...", "tags": ["..."] }] }
+输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "根因概括", "content": "根因+责任+预防", "tags": ["..."] }] }
 只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。`,
       );
 
