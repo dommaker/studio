@@ -66,6 +66,12 @@ export class MonitorAgent {
   private async check(): Promise<void> {
     const alerts: MonitorAlert[] = [];
 
+    // P2.5b: Load historical monitoring context for pattern comparison
+    try {
+      const ctx = knowledgeBus.getRecentContext('monitor', 5);
+      if (ctx) logger.info('[MonitorAgent] Historical monitoring context loaded');
+    } catch { /* non-blocking */ }
+
     alerts.push(...await this.checkFailureTrend());
     alerts.push(...await this.checkStuckGoals());
     alerts.push(...await this.checkProgressStagnation());

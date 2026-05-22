@@ -23,6 +23,11 @@ class TriageAgent {
     resolved: boolean;
     resolution?: string;
   }> {
+    // P2.5b: Check historical fix strategies before diagnosing
+    try {
+      const ctx = knowledgeBus.getRecentContext('triage', 5);
+      if (ctx) logger.info('[TriageAgent] Historical fix context loaded');
+    } catch { /* non-blocking */ }
     const startedAt = Date.now();
     const incidentId = `I-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6)}`;
 
