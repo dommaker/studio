@@ -50,6 +50,7 @@ export class MonitorAgent {
   private interval: NodeJS.Timeout | null = null;
   private circuitCheckInterval: NodeJS.Timeout | null = null;
   private lastDecayRun = 0;
+  private lastUserModelRun = 0;
 
   start(): void {
     if (this.interval) return;
@@ -700,10 +701,10 @@ export class MonitorAgent {
         logger.info('[MonitorAgent] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
       }
 
-      // Decay cycle: once per 24h
+      // Daily cycle: decay + user model update
       if (Date.now() - this.lastDecayRun > 24 * 60 * 60_000) {
         const decayChanges = sharedLifecycle.runDecayCycle();
-        const lintReport = linter.run(true); // autoFix: true
+        const lintReport = linter.run(true);
         this.lastDecayRun = Date.now();
 
         logger.info('[MonitorAgent] Knowledge decay cycle completed', {
@@ -718,6 +719,23 @@ export class MonitorAgent {
             message: `Decay: ${decayChanges.length} entries, Auto-fixed: ${lintReport.fixed} issues`,
             timestamp: Date.now(),
           });
+        }
+      }
+
+      // User model update: once per 24h (alongside decay cycle)
+      if (Date.now() - this.lastUserModelRun > 24 * 60 * 60_000) {
+        this.lastUserModelRun = Date.now();
+        try {
+          const { execSync } = await import('child_process');
+          const result = execSync('npx harness update-user-model --days 1 --json 2>/dev/null || echo "{}"', {
+            encoding: 'utf-8', stdio: 'pipe', timeout: 30_000,
+          }).trim();
+          if (result && result !== '{}') {
+            const data = JSON.parse(result);
+            logger.info('[MonitorAgent] User model updated', { newSessions: (data as any).newSessions, changes: (data as any).changes?.length });
+          }
+        } catch (e: any) {
+          logger.warn('[MonitorAgent] User model update failed (non-blocking)', { error: String(e) });
         }
       }
     } catch (err) {
