@@ -549,6 +549,22 @@ export class MonitorAgent {
         });
       }
 
+      // P2.5: Promotion cycle (every 5 min) — scan all draft/verified entries for promotion
+      const allEntries = store.list({ excludeArchived: false }).filter(e => e.maturity === 'draft' || e.maturity === 'verified');
+      let promoted = 0;
+      for (const entry of allEntries) {
+        try {
+          const result = lifecycle.tryPromote(entry.id);
+          if (result) {
+            promoted++;
+            logger.info('[MonitorAgent] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
+          }
+        } catch { /* individual entry failure is non-blocking */ }
+      }
+      if (promoted > 0) {
+        logger.info('[MonitorAgent] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
+      }
+
       // Decay cycle: once per 24h
       if (Date.now() - this.lastDecayRun > 24 * 60 * 60_000) {
         const decayChanges = lifecycle.runDecayCycle();

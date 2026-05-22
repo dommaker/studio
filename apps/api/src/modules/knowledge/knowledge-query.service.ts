@@ -103,9 +103,10 @@ export class KnowledgeQueryService {
         .slice(0, 5);
       if (kkEntries.length > 0) {
         const lines = ['\n## 历史积累（KK 提取）'];
+        lines.push('（引用知识条目时请标注 ID，如 [REF:DEC-001]）');
         for (const e of kkEntries) {
           const icon = e.type === 'pitfall' ? '⚠️' : '📋';
-          lines.push(`- ${icon} ${e.title}: ${e.content.slice(0, 200)}`);
+          lines.push(`- ${icon} [REF:${e.id}] ${e.title}: ${e.content.slice(0, 200)}`);
         }
         parts.push(lines.join('\n'));
       }

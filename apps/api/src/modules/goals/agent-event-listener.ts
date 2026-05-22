@@ -18,6 +18,7 @@ import { roleConfigService } from '../roles/role-config.service.js';
 import { knowledgeAgent } from '../agents/knowledge-agent.service.js';
 import { afterAgentComplete, recordDecision } from '@dommaker/studio-shared/harness/hooks';
 import { knowledgeKeeper } from '@dommaker/studio-shared';
+import { KnowledgeStore, KnowledgeLifecycle } from '@dommaker/harness';
 import { recordFailure, recordSuccess, recordReviewRejected, runEvolution } from '../harness/evolution.service.js';
 import type { ReviewReport } from '../agents/review-report.js';
 
@@ -459,6 +460,12 @@ export class AgentEventListener {
               });
             }
 
+            // P2.5: Parse Agent output for knowledge references [REF:xxx]
+            // Records references to drive the maturity ladder (draft→verified→proven)
+            if (completionOutput) {
+              this.recordKnowledgeRefs(completionOutput);
+            }
+
             // Phase 3: Skill 提取（面向 GoalExecution，自动检测可复用模式）
             if (goalExecutionId) {
               import('../tools-std/skill-extraction.service.js').then(({ skillExtractionService }) => {
@@ -612,6 +619,42 @@ export class AgentEventListener {
     }
 
     return output;
+  }
+
+  /**
+   * P2.5: Parse completion output for knowledge references [REF:xxx]
+   * and record them via KnowledgeLifecycle.recordReference().
+   * Drives the maturity ladder: draft → verified → proven.
+   */
+  private recordKnowledgeRefs(completionOutput: Record<string, any>): void {
+    try {
+      const store = new KnowledgeStore();
+      const lifecycle = new KnowledgeLifecycle(store);
+
+      // Scan all text fields in completionOutput for [REF:<id>] patterns
+      const text = JSON.stringify(completionOutput);
+      const refPattern = /\[REF:([^\]]+)\]/g;
+      const refs = new Set<string>();
+      let match: RegExpExecArray | null;
+      while ((match = refPattern.exec(text)) !== null) {
+        refs.add(match[1].trim());
+      }
+
+      if (refs.size === 0) return;
+
+      for (const entryId of refs) {
+        try {
+          const updated = lifecycle.recordReference(entryId, 'executor');
+          if (updated) {
+            logger.info('[AgentEventListener] Knowledge reference recorded', { entryId, title: updated.title });
+          }
+        } catch { /* entry may not exist yet */ }
+      }
+
+      logger.info('[AgentEventListener] Knowledge references parsed', { refCount: refs.size, refs: [...refs].slice(0, 10) });
+    } catch (err) {
+      // Non-blocking — reference recording must not affect execution flow
+    }
   }
 
 }
