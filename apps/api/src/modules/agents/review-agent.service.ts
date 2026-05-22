@@ -46,8 +46,15 @@ export class ReviewAgent {
         return { approved: true, score: 100, issues: [], suggestions: [] };
       }
 
+      // P2.5b: 注入历史知识上下文（同类任务踩坑模式）
+      let knowledgeSection = '';
+      try {
+        const busContext = knowledgeBus.getRecentContext('reviewer', 5);
+        if (busContext) knowledgeSection = '\n' + busContext;
+      } catch { /* best-effort */ }
+
       // 构建审查 prompt 并写入 worktree
-      const reviewPrompt = buildReviewPrompt({
+      const reviewPrompt = knowledgeSection + buildReviewPrompt({
         taskDescription,
         acceptanceCriteria,
         cycle,
