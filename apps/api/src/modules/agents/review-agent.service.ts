@@ -9,6 +9,7 @@
 import { logger, getModelForTier } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
+import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ReviewResult } from './types.js';
@@ -121,6 +122,17 @@ export class ReviewAgent {
           ? Object.entries(report.stanceReports).map(([k, v]) => `${k}:${v.issues.length}`)
           : 'n/a',
       });
+
+      // Record review pattern to KnowledgeBus
+      const issueSummary = (report.issues ?? []).slice(0, 5).map(i => `[${i.severity}] ${i.message}`).join('\n');
+      knowledgeBus.recordPattern({
+        source: 'reviewer',
+        type: 'pattern',
+        title: `Review: ${report.overallApproved ? 'APPROVED' : 'REJECTED'} (cycle ${cycle}, score ${reviewScore})`,
+        content: `Task: ${taskId}\nIssues: ${totalIssues}\nScore: ${reviewScore}\n\n${issueSummary}`,
+        severity: report.overallApproved ? 'info' : 'warning',
+        timestamp: Date.now(),
+      }).catch(() => { /* non-blocking */ });
 
       // 审查完成 hook
       afterReview({

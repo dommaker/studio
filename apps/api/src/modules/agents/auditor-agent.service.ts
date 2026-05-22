@@ -7,6 +7,7 @@
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 const SYSTEM_CHANNEL_NAME = '#系统';
@@ -173,6 +174,16 @@ export class AuditorAgent {
 
       // 10. Better-Harness: 失败 → eval case 生成
       await this.generateEvalCases(recentExecs);
+
+      // Record audit findings to KnowledgeBus
+      knowledgeBus.recordPattern({
+        source: 'auditor',
+        type: 'trend',
+        title: `[Auditor] Daily audit ${now.toISOString().slice(0, 10)}: ${total} execs, ${successRate}% success`,
+        content: summary.filter(l => l.startsWith('-')).join('\n'),
+        severity: successRate < 80 ? 'warning' : 'info',
+        timestamp: Date.now(),
+      }).catch(() => { /* non-blocking */ });
 
       logger.info('[AuditorAgent] Daily audit completed', { total, failed, successRate });
     } catch (e) {

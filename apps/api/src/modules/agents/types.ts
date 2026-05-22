@@ -80,7 +80,7 @@ export interface KnowledgeExtraction {
 }
 
 export interface KnowledgeEntryDraft {
-  type: 'decision' | 'pitfall' | 'guideline' | 'model';
+  type: 'decision' | 'pitfall' | 'guideline' | 'model' | 'architecture' | 'process';
   title: string;
   content: string;
   tags: string[];
@@ -94,7 +94,8 @@ export type MonitorAlertSource =
   | 'total_time'
   | 'heartbeat_loss'
   | 'tool_error_rate'
-  | 'tool_zero_success';
+  | 'tool_zero_success'
+  | 'session_file_size';
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';

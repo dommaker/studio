@@ -302,6 +302,11 @@ export class AgentEventListener {
                   actorRole: 'reviewer',
                 });
 
+                // P0a: Extract knowledge from review result (fire-and-forget)
+                knowledgeAgent.extractFromReview(review, taskId, task.projectId).catch(e => {
+                  logger.warn('[AgentEventListener] extractFromReview failed', { error: String(e) });
+                });
+
                 if (!review.approved) {
                   logger.warn('[AgentEventListener] Review not approved', {
                     taskId,
@@ -447,6 +452,13 @@ export class AgentEventListener {
               logger.error('[AgentEventListener] Knowledge agent failed (non-blocking)', { error: String(e) });
             });
 
+            // P0a: Extract from completion output (fire-and-forget)
+            if (completionOutput) {
+              knowledgeAgent.extractFromCompletion(completionOutput, taskId, task.projectId).catch(e => {
+                logger.warn('[AgentEventListener] extractFromCompletion failed', { error: String(e) });
+              });
+            }
+
             // Phase 3: Skill 提取（面向 GoalExecution，自动检测可复用模式）
             if (goalExecutionId) {
               import('../tools-std/skill-extraction.service.js').then(({ skillExtractionService }) => {
@@ -482,6 +494,17 @@ export class AgentEventListener {
               error: (data.error as string) || 'Unknown error',
             }).catch(e => {
               logger.error('[AgentEventListener] Knowledge agent failed (non-blocking)', { error: String(e) });
+            });
+
+            // P0a: Extract from error chain (fire-and-forget)
+            knowledgeAgent.extractFromError(
+              (data.error as string) || 'Unknown error',
+              JSON.stringify({ taskDescription: task.description || task.name, eventType, executionId }),
+              task.description || task.name,
+              taskId,
+              task.projectId,
+            ).catch(e => {
+              logger.warn('[AgentEventListener] extractFromError failed', { error: String(e) });
             });
 
             // 约束进化：记录失败 + 触发进化检查

@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@dommaker/harness':
-        specifier: ^0.12.2
-        version: 0.12.2
+        specifier: ^0.12.4
+        version: 0.12.5
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.41
@@ -325,8 +325,8 @@ importers:
   packages/studio-capability:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.12.2
-        version: 0.12.2
+        specifier: ^0.12.4
+        version: 0.12.5
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -422,8 +422,8 @@ importers:
   packages/studio-shared:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.12.2
-        version: 0.12.2
+        specifier: ^0.12.4
+        version: 0.12.5
       eventemitter3:
         specifier: ^5.0.0
         version: 5.0.4
@@ -647,6 +647,11 @@ packages:
 
   '@dommaker/harness@0.12.2':
     resolution: {integrity: sha512-LjX16PStdeip57WhFicr9yUWF/gnTAQnMoIs9H+sv2j/R/cTPcDpBvGva2pqEvTyMCmhD/uURZDBL+AEZqaZ6w==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+
+  '@dommaker/harness@0.12.5':
+    resolution: {integrity: sha512-NbBdxD6bbKJhEuPUe+9mHISnqpUq/bbyNKwPpqlx2OlSCHfUJD14ogb+AY3d5/c57f9SW/WI0YOUvOK/aiDjHA==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3885,6 +3890,14 @@ snapshots:
   '@csstools/css-tokenizer@4.0.0': {}
 
   '@dommaker/harness@0.12.2':
+    dependencies:
+      chalk: 4.1.2
+      commander: 12.1.0
+      fast-glob: 3.3.3
+      js-yaml: 4.1.1
+      zod: 3.25.76
+
+  '@dommaker/harness@0.12.5':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0

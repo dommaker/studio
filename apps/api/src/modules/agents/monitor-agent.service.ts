@@ -18,6 +18,7 @@ import { logger } from '@dommaker/studio-shared';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
+import { KnowledgeStore, KnowledgeLinter, KnowledgeHealthScorer, KnowledgeLifecycle, ReferenceTracker } from '@dommaker/harness';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 const FAILURE_THRESHOLD = 3;
@@ -44,6 +45,7 @@ const SYSTEM_HEALTH_CONFIRM_WINDOW_MS = 60 * 1000; // 60s between checks (Monito
 
 export class MonitorAgent {
   private interval: NodeJS.Timeout | null = null;
+  private lastDecayRun = 0;
 
   start(): void {
     if (this.interval) return;
@@ -77,6 +79,8 @@ export class MonitorAgent {
     await this.autoAbandonStaleBlocked();
     await this.systemTriageCheck();
     await this.gcStaleWorktrees();
+    await this.checkKnowledgeHealth();
+    alerts.push(...await this.checkSessionFileHealth());
 
     // Log all alerts
     for (const alert of alerts) {
@@ -127,6 +131,7 @@ export class MonitorAgent {
       progress_stagnation: 'execution_progress_stagnation',
       tool_error_rate: null,
       tool_zero_success: null,
+      session_file_size: null,
     };
 
     for (const alert of alerts) {
@@ -460,12 +465,111 @@ export class MonitorAgent {
   }
 
   /**
+   * P1 (CST optimization): Check shared session file size and age.
+   * Warns at >50MB or >3 days old. Runs every 5 min as part of the GC cycle.
+   */
+  private async checkSessionFileHealth(): Promise<MonitorAlert[]> {
+    const alerts: MonitorAlert[] = [];
+    try {
+      const sessionFile = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl');
+      if (!fs.existsSync(sessionFile)) return alerts;
+
+      const stat = fs.statSync(sessionFile);
+      const sizeMB = Math.round(stat.size / (1024 * 1024));
+      const ageDays = Math.round((Date.now() - stat.mtimeMs) / (24 * 60 * 60 * 1000));
+
+      if (sizeMB > 50) {
+        alerts.push({
+          level: 'warning',
+          source: 'session_file_size',
+          message: `CST session file is ${sizeMB}MB (>50MB threshold). Run cstnew to reset.`,
+          timestamp: Date.now(),
+        });
+      }
+
+      if (ageDays > 3) {
+        alerts.push({
+          level: 'warning',
+          source: 'session_file_size',
+          message: `CST session file is ${ageDays}d old (>3d threshold). Run cstnew to reset.`,
+          timestamp: Date.now(),
+        });
+      }
+    } catch { /* non-blocking */ }
+    return alerts;
+  }
+
+  /**
    * 🆕 记录心跳（由 agent.heartbeat 事件调用）
    */
   recordHeartbeat(executionId: string): void {
     const snapshot = progressSnapshots.get(executionId);
     if (snapshot) {
       snapshot.lastHeartbeat = Date.now();
+    }
+  }
+
+  /**
+   * P2a: Knowledge base health check + decay cycle
+   * - Health score: every 5 min (Monitor cycle), escalates to Triage if < 60
+   * - Decay cycle: once per 24h, runs maturity decay + linter auto-fix
+   */
+  private async checkKnowledgeHealth(): Promise<void> {
+    try {
+      const store = new KnowledgeStore();
+      const tracker = new ReferenceTracker(store);
+      const linter = new KnowledgeLinter(store, tracker);
+      const doctor = new KnowledgeHealthScorer(store, linter);
+      const lifecycle = new KnowledgeLifecycle(store);
+
+      const { score, details } = doctor.healthScore();
+
+      logger.info('[MonitorAgent] Knowledge health score', { score, totalEntries: details.length });
+
+      if (score < 60) {
+        // Escalate to Triage
+        triageAgent.handleAlert({
+          type: 'knowledge_health_degraded',
+          severity: 'warning',
+          message: `知识库健康评分: ${score}/100`,
+          details: { score, issues: details },
+        }).catch(err => {
+          logger.warn('[MonitorAgent] Knowledge health triage failed', { error: String(err) });
+        });
+
+        // Also emit as alert
+        this.emitEvent({
+          type: 'monitor:alert',
+          level: 'warning',
+          source: 'knowledge_health',
+          message: `Knowledge health score: ${score}/100`,
+          details,
+          timestamp: Date.now(),
+        });
+      }
+
+      // Decay cycle: once per 24h
+      if (Date.now() - this.lastDecayRun > 24 * 60 * 60_000) {
+        const decayChanges = lifecycle.runDecayCycle();
+        const lintReport = linter.run(true); // autoFix: true
+        this.lastDecayRun = Date.now();
+
+        logger.info('[MonitorAgent] Knowledge decay cycle completed', {
+          decayChanges: decayChanges.length,
+          autoFixed: lintReport.fixed,
+        });
+
+        if (decayChanges.length > 0) {
+          this.emitEvent({
+            type: 'monitor:info',
+            source: 'knowledge_decay',
+            message: `Decay: ${decayChanges.length} entries, Auto-fixed: ${lintReport.fixed} issues`,
+            timestamp: Date.now(),
+          });
+        }
+      }
+    } catch (err) {
+      logger.warn('[MonitorAgent] Knowledge health check failed', { error: String(err) });
     }
   }
 

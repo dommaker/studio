@@ -6,11 +6,13 @@
  */
 
 import { modelGateway, logger } from '@dommaker/studio-shared';
-import { KnowledgeStore, KnowledgeIngest } from '@dommaker/harness';
+import { KnowledgeStore, KnowledgeIngest, ColdStartImporter } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as os from 'os';
+import * as path from 'path';
 import type { KnowledgeExtraction } from './types.js';
 
 const execAsync = promisify(exec);
@@ -44,6 +46,88 @@ export class KnowledgeAgent {
   constructor() {
     this.store = new KnowledgeStore();
     this.ingest = new KnowledgeIngest(this.store);
+  }
+
+  /**
+   * P1b: Four-source cold start import
+   * 1. Docs: memory/*.md + CLAUDE.md + README.md (layer: 'system', types: architecture/process/decision)
+   * 2. Code: package.json + tsconfig.json (layer: 'tech', types: model)
+   * 3. Git: recent refactor/fix commits (layer: 'project', types: pitfall/guideline)
+   * 4. Manual: pipeline flow, agent responsibilities (layer: 'system', types: process)
+   */
+  async coldStartAll(): Promise<void> {
+    const projectRoot = process.env.REPO_DIR || path.join(os.homedir(), 'projects');
+    const memoryDir = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'memory');
+
+    try {
+      const fs = await import('fs');
+      const memoryFiles = await this.getMemoryFiles(memoryDir);
+      const docPaths = [
+        ...memoryFiles,
+        path.join(projectRoot, 'CLAUDE.md'),
+        path.join(projectRoot, 'README.md'),
+      ].filter(p => {
+        try { return fs.existsSync(p); } catch { return false; }
+      });
+
+      const importer = new ColdStartImporter({
+        projectRoot,
+        store: this.store,
+        sources: ['code', 'git', 'docs', 'manual'],
+        docPaths,
+        manualEntries: [
+          {
+            title: 'Pipeline 9-Stage Flow',
+            content: 'Plan→Dispatch→Execute→Review→Deploy→PostEval→Audit→Monitor→Triage',
+            type: 'process',
+            tags: ['pipeline', 'architecture'],
+          },
+          {
+            title: '8-Agent System',
+            content: 'Executor/Review/Knowledge/Monitor/Triage/Auditor/PostEval/Deploy',
+            type: 'architecture',
+            tags: ['agents', 'system'],
+          },
+        ],
+        skipExisting: true,
+      });
+
+      const results = await importer.importAll();
+      const totalEntries = results.reduce((sum, r) => sum + r.entries.length, 0);
+      const totalErrors = results.reduce((sum, r) => sum + r.errors.length, 0);
+
+      logger.info('[KnowledgeAgent] Cold start import completed', {
+        totalEntries,
+        totalErrors,
+        sources: results.map(r => r.source.type),
+      });
+
+      // Discord notify
+      try {
+        const { discordNotifier } = await import('../../utils/discord-notifier.js');
+        await discordNotifier.sendText(
+          '📚 冷启动知识导入完成',
+          `导入了 ${totalEntries} 条知识 (${totalErrors} 个错误)\n来源: ${results.map(r => `${r.source.type}(${r.entries.length})`).join(', ')}`,
+        );
+      } catch { /* non-blocking */ }
+    } catch (err) {
+      logger.error('[KnowledgeAgent] Cold start import failed', { error: String(err) });
+    }
+  }
+
+  /**
+   * 获取 memory 目录下的 markdown 文件列表
+   */
+  private async getMemoryFiles(memoryDir: string): Promise<string[]> {
+    try {
+      const fs = await import('fs');
+      if (!fs.existsSync(memoryDir)) return [];
+      return fs.readdirSync(memoryDir)
+        .filter(f => f.endsWith('.md'))
+        .map(f => path.join(memoryDir, f));
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -147,6 +231,229 @@ ${diff?.substring(0, 4000) || '无 diff'}
     } catch (err) {
       // 知识提取失败不影响主流程
       logger.error('[KnowledgeAgent] Extraction failed', { taskId, error: String(err) });
+    }
+  }
+
+  /**
+   * P0a-1: 从审查结果中提取可复用知识
+   */
+  async extractFromReview(
+    reviewResult: { approved: boolean; score: number; issues: Array<{ severity: string; message: string; file?: string; line?: number }>; suggestions: string[] },
+    taskId: string,
+    projectId: string,
+  ): Promise<void> {
+    try {
+      const prompt = `## 审查结果
+状态: ${reviewResult.approved ? '通过' : '未通过'}
+评分: ${reviewResult.score}/100
+问题数: ${reviewResult.issues.length}
+
+## 发现的问题
+${reviewResult.issues.map(i => `- [${i.severity}] ${i.message}${i.file ? ` (${i.file}:${i.line || '?'})` : ''}`).join('\n') || '无'}
+
+## 改进建议
+${reviewResult.suggestions.map(s => `- ${s}`).join('\n') || '无'}
+
+请从中提取可复用的踩坑记录(pitfall)和最佳实践(guideline)。`;
+
+      const extraction = await modelGateway.promptJson<KnowledgeExtraction>(prompt, KNOWLEDGE_SYSTEM_PROMPT);
+      if (!extraction.entries?.length) return;
+
+      for (const entry of extraction.entries) {
+        this.ingest.ingestEntry(
+          { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
+          { source: `review:${taskId}`, layer: 'project', maturity: 'draft', tags: entry.tags, projects: [projectId] },
+        );
+      }
+      logger.info('[KnowledgeAgent] Extracted from review', { taskId, entryCount: extraction.entries.length });
+    } catch (err) {
+      logger.warn('[KnowledgeAgent] extractFromReview failed', { taskId, error: String(err) });
+    }
+  }
+
+  /**
+   * P0a-2: 从失败任务的错误中提取踩坑记录
+   */
+  async extractFromError(
+    error: string,
+    errorChain: string,
+    taskDescription: string,
+    taskId: string,
+    projectId: string,
+  ): Promise<void> {
+    try {
+      const prompt = `## 任务描述
+${taskDescription}
+
+## 错误信息
+${error.slice(0, 2000)}
+
+## 错误上下文
+${errorChain.slice(0, 2000)}
+
+请从这些失败信息中提取踩坑记录(pitfall)，帮助避免同类错误。`;
+
+      const extraction = await modelGateway.promptJson<KnowledgeExtraction>(
+        prompt,
+        '你是一个故障分析专家。从失败任务中提取踩坑记录(pitfall)，帮助后续任务避免同类错误。如果没有值得提取的知识，返回空数组。最多提取 3 个条目。输出格式：{ "entries": [{ "type": "pitfall", "title": "...", "content": "...", "tags": ["..."] }] }',
+      );
+      if (!extraction.entries?.length) return;
+
+      for (const entry of extraction.entries) {
+        this.ingest.ingestEntry(
+          { type: 'pitfall', title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
+          { source: `error:${taskId}`, layer: 'project', maturity: 'draft', tags: [...(entry.tags || []), 'error'], projects: [projectId] },
+        );
+      }
+      logger.info('[KnowledgeAgent] Extracted from error', { taskId, entryCount: extraction.entries.length });
+    } catch (err) {
+      logger.warn('[KnowledgeAgent] extractFromError failed', { taskId, error: String(err) });
+    }
+  }
+
+  /**
+   * P0a-3: 从执行完成输出中提取设计决策和最佳实践
+   */
+  async extractFromCompletion(
+    completionOutput: Record<string, any>,
+    taskId: string,
+    projectId: string,
+  ): Promise<void> {
+    try {
+      const prompt = `## 变更文件
+${(completionOutput.changedFiles || []).join('\n') || '无'}
+
+## 完成的 AC
+${(completionOutput.completedAcs || []).join('\n') || '无'}
+
+## @sibling 建议
+${(completionOutput.siblingAdvice || []).map((a: any) => `- Target: ${a.targetGroupId}, Priority: ${a.priority}, Message: ${a.message}`).join('\n') || '无'}
+
+## 会话数
+${completionOutput.sessionCount || '?'}
+
+请从执行完成输出中提取设计决策(decision)和最佳实践(guideline)。`;
+
+      const extraction = await modelGateway.promptJson<KnowledgeExtraction>(prompt, KNOWLEDGE_SYSTEM_PROMPT);
+      if (!extraction.entries?.length) return;
+
+      for (const entry of extraction.entries) {
+        this.ingest.ingestEntry(
+          { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
+          { source: `completion:${taskId}`, layer: 'project', maturity: 'draft', tags: entry.tags, projects: [projectId] },
+        );
+      }
+      logger.info('[KnowledgeAgent] Extracted from completion', { taskId, entryCount: extraction.entries.length });
+    } catch (err) {
+      logger.warn('[KnowledgeAgent] extractFromCompletion failed', { taskId, error: String(err) });
+    }
+  }
+
+  /**
+   * P0a-4: 从部署结果中提取部署相关的踩坑和最佳实践
+   */
+  async extractFromDeploy(
+    deployResult: { success: boolean; type: string; findings: Array<{ severity: string; category: string; message: string }>; summary: string; artifact?: string },
+    taskId: string,
+    projectId: string,
+  ): Promise<void> {
+    try {
+      const prompt = `## 部署结果
+成功: ${deployResult.success ? '是' : '否'}
+类型: ${deployResult.type}
+${deployResult.artifact ? `制品: ${deployResult.artifact}` : ''}
+
+## 部署发现
+${deployResult.findings.map(f => `- [${f.severity}] (${f.category}) ${f.message}`).join('\n') || '无'}
+
+## 摘要
+${deployResult.summary.slice(0, 2000)}
+
+请从部署结果中提取部署相关的踩坑记录(pitfall)和最佳实践(guideline)。`;
+
+      const extraction = await modelGateway.promptJson<KnowledgeExtraction>(
+        prompt,
+        '你是一个部署运维专家。从部署结果中提取可复用的部署知识和踩坑记录。如果没有值得提取的知识，返回空数组。最多提取 3 个条目。输出格式：{ "entries": [{ "type": "pitfall", "title": "...", "content": "...", "tags": ["..."] }] }',
+      );
+      if (!extraction.entries?.length) return;
+
+      for (const entry of extraction.entries) {
+        this.ingest.ingestEntry(
+          { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
+          { source: `deploy:${taskId}`, layer: 'project', maturity: 'draft', tags: [...(entry.tags || []), 'deploy'], projects: [projectId] },
+        );
+      }
+      logger.info('[KnowledgeAgent] Extracted from deploy', { taskId, entryCount: extraction.entries.length });
+    } catch (err) {
+      logger.warn('[KnowledgeAgent] extractFromDeploy failed', { taskId, error: String(err) });
+    }
+  }
+
+  /**
+   * P0b: Extract knowledge from arbitrary text content (generic API)
+   *
+   * Studio's public interface for knowledge extraction from any text source.
+   * CST-specific logic (JSONL parsing, message filtering, truncation) belongs
+   * in the caller (events-daemon.js), not here.
+   *
+   * @param content - Raw text to extract knowledge from
+   * @param source - Identifier for the source (e.g. "session:xxx.bak.20260522", "discord:channel:123")
+   * @param layer - Storage layer (default: 'system')
+   */
+  async extractFromText(
+    content: string,
+    source: string,
+    layer: 'project' | 'system' | 'tech' | 'team' | 'domain' | 'personal' = 'system',
+  ): Promise<void> {
+    try {
+      if (!content || content.trim().length === 0) {
+        logger.info('[KnowledgeAgent] Empty text, skipping extraction', { source });
+        return;
+      }
+
+      const extraction = await modelGateway.promptJson<KnowledgeExtraction>(
+        content.slice(0, 50_000),
+        `你是知识提取专家。从文本中提取结构化知识。关注：
+- 架构决策 (architecture) - 关于系统设计的讨论和决定
+- 设计决策 (decision) - 关于实现方式的取舍
+- 踩坑记录 (pitfall) - 遇到的问题和解决方案
+- 流程经验 (process) - 工作流和流程优化
+- 最佳实践 (guideline) - 可复用的经验和模式
+
+输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "...", "content": "...", "tags": ["..."] }] }
+只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。`,
+      );
+
+      if (!extraction.entries?.length) {
+        logger.info('[KnowledgeAgent] No knowledge extracted from text', { source: source.slice(-40) });
+        return;
+      }
+
+      // Ingest entries
+      for (const entry of extraction.entries) {
+        this.ingest.ingestEntry(
+          {
+            type: entry.type as any,
+            title: entry.title,
+            content: entry.content,
+            tags: entry.tags || [],
+          },
+          {
+            source,
+            layer: layer as any,
+            maturity: 'draft',
+            tags: entry.tags || [],
+          },
+        );
+      }
+
+      logger.info('[KnowledgeAgent] Extracted from text', {
+        source: source.slice(-60),
+        entryCount: extraction.entries.length,
+        types: extraction.entries.map(e => e.type),
+      });
+    } catch (err) {
+      logger.warn('[KnowledgeAgent] extractFromText failed', { source: source.slice(-40), error: String(err) });
     }
   }
 
