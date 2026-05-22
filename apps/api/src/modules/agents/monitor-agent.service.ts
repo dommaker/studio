@@ -465,14 +465,15 @@ export class MonitorAgent {
   }
 
   /**
-   * P1 (CST optimization): Check shared session file size and age.
+   * Check shared session file size and age (optional, env-configurable).
    * Warns at >50MB or >3 days old. Runs every 5 min as part of the GC cycle.
+   * Set SESSION_FILE_PATH to enable; skipped if not configured.
    */
   private async checkSessionFileHealth(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
     try {
-      const sessionFile = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890.jsonl');
-      if (!fs.existsSync(sessionFile)) return alerts;
+      const sessionFile = process.env.SESSION_FILE_PATH;
+      if (!sessionFile || !fs.existsSync(sessionFile)) return alerts;
 
       const stat = fs.statSync(sessionFile);
       const sizeMB = Math.round(stat.size / (1024 * 1024));
@@ -482,7 +483,7 @@ export class MonitorAgent {
         alerts.push({
           level: 'warning',
           source: 'session_file_size',
-          message: `CST session file is ${sizeMB}MB (>50MB threshold). Run cstnew to reset.`,
+          message: `Session file is ${sizeMB}MB (>50MB threshold). Consider resetting with a fresh session.`,
           timestamp: Date.now(),
         });
       }
@@ -491,7 +492,7 @@ export class MonitorAgent {
         alerts.push({
           level: 'warning',
           source: 'session_file_size',
-          message: `CST session file is ${ageDays}d old (>3d threshold). Run cstnew to reset.`,
+          message: `Session file is ${ageDays}d old (>3d threshold). Consider resetting with a fresh session.`,
           timestamp: Date.now(),
         });
       }

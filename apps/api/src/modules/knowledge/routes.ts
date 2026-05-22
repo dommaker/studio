@@ -19,7 +19,7 @@ import * as path from 'path';
 
 export const knowledgeRoutes = Router();
 
-// P0b: Internal routes (no auth, called from events-daemon on localhost)
+// Internal routes (no auth, for local service-to-service calls)
 export const knowledgeInternalRoutes = Router();
 
 /**
@@ -657,7 +657,7 @@ knowledgeRoutes.get('/gaps', async (req, res) => {
  * Returns: 202 { queued: true }
  *
  * Generic endpoint: caller provides pre-processed text content.
- * All source-specific logic (CST JSONL parsing, Discord message formatting, etc.)
+ * All source-specific logic (format parsing, message filtering, truncation)
  * belongs in the caller, not here.
  */
 knowledgeInternalRoutes.post('/extract-text', async (req, res) => {

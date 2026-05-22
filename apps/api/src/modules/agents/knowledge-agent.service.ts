@@ -398,11 +398,11 @@ ${deployResult.summary.slice(0, 2000)}
    * P0b: Extract knowledge from arbitrary text content (generic API)
    *
    * Studio's public interface for knowledge extraction from any text source.
-   * CST-specific logic (JSONL parsing, message filtering, truncation) belongs
-   * in the caller (events-daemon.js), not here.
+   * Source-specific preprocessing (format parsing, message filtering, truncation)
+   * belongs in the caller, not here.
    *
    * @param content - Raw text to extract knowledge from
-   * @param source - Identifier for the source (e.g. "session:xxx.bak.20260522", "discord:channel:123")
+   * @param source - Identifier for the source (e.g. "chat:20260522", "discord:channel:123")
    * @param layer - Storage layer (default: 'system')
    */
   async extractFromText(
