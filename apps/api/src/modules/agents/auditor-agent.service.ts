@@ -13,7 +13,8 @@ const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 const SYSTEM_CHANNEL_NAME = '#系统';
 
 interface Suggestion {
-  type: 'skill_weight' | 'skill_status' | 'param_tuning' | 'prompt_optimization';
+  type: 'skill_weight' | 'skill_status' | 'param_tuning' | 'prompt_optimization'
+       | 'model_weight_tune' | 'derived_rule_promote' | 'scope_stale_alert' | 'circuit_fix';
   risk: 'low' | 'high';
   skillId?: string;
   skillName?: string;
@@ -152,8 +153,16 @@ export class AuditorAgent {
 
       const content = summary.join('\n');
 
-      // 6. 生成审计建议 → 分权限执行
-      const suggestions = await this.generateSuggestions(agentTypeStats, errorByAgentType);
+      // 6. 用户模型质量分析 + 知识电路健康
+      const modelSuggestions = await this.analyzeUserModel();
+      const circuitSuggestions = await this.analyzeKnowledgeCircuit();
+
+      // 7. 生成审计建议 → 分权限执行
+      const suggestions = [
+        ...await this.generateSuggestions(agentTypeStats, errorByAgentType),
+        ...modelSuggestions,
+        ...circuitSuggestions,
+      ];
       const lowRisk = suggestions.filter(s => s.risk === 'low');
       const highRisk = suggestions.filter(s => s.risk === 'high');
 
@@ -169,7 +178,15 @@ export class AuditorAgent {
 
       const finalContent = summary.join('\n');
 
-      // 7. 推送到 #系统 channel
+      // 新增: 用户模型 + 电路健康摘要
+      if (modelSuggestions.length > 0) {
+        summary.push('', '### 用户模型质量', ...modelSuggestions.map(s => `- ${s.risk === 'high' ? '⚠️' : '📊'} ${s.detail}`));
+      }
+      if (circuitSuggestions.length > 0) {
+        summary.push('', '### 知识电路健康', ...circuitSuggestions.map(s => `- ${s.risk === 'high' ? '🔴' : '🟡'} ${s.detail}`));
+      }
+
+      // 8. 推送到 #系统 channel
       await this.postToSystemChannel(finalContent);
 
       // 8. Escalate anomalies to Triage (Phase 3)
@@ -275,6 +292,98 @@ export class AuditorAgent {
     }
   }
 
+  // ── User Model Quality Analysis ──
+
+  private async analyzeUserModel(): Promise<Suggestion[]> {
+    const suggestions: Suggestion[] = [];
+    try {
+      const { checkKnowledgeCircuit } = await import('../knowledge/knowledge-bus.service.js');
+      const fs = await import('fs');
+      const path = await import('path');
+      const os = await import('os');
+
+      // Read user model state (written by update-user-model)
+      const stateFile = path.join(os.homedir(), '.claude', 'user-model-state.json');
+      if (!fs.existsSync(stateFile)) return suggestions;
+
+      const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+      const patterns = state.patterns || {};
+
+      // 1. Semantic cluster stability: clusters with >5 occurrences but still "new" → suggest stabilize
+      for (const [concept, p] of Object.entries(patterns) as [string, any][]) {
+        if (p.occurrences >= 5 && p.trend === 'rising') {
+          suggestions.push({
+            type: 'model_weight_tune',
+            risk: 'low',
+            detail: `概念 "${concept}" 出现 ${p.occurrences} 次，趋势 rising → 建议固化权重`,
+            data: { concept, occurrences: p.occurrences, sessions: p.sessions?.length },
+          });
+        }
+        // 2. Falling patterns: was stable, now declining → check if should retire
+        if (p.trend === 'falling' && p.occurrences >= 3) {
+          suggestions.push({
+            type: 'model_weight_tune',
+            risk: 'low',
+            detail: `概念 "${concept}" 趋势 falling → 建议降权`,
+            data: { concept, occurrences: p.occurrences, trend: 'falling' },
+          });
+        }
+      }
+
+      // 3. Lens weight drift: compare current weights vs baseline
+      const lensWeights = state.lensWeights || {};
+      for (const [lens, weight] of Object.entries(lensWeights) as [string, number][]) {
+        if (weight >= 3) {
+          suggestions.push({
+            type: 'derived_rule_promote',
+            risk: 'high',
+            detail: `Lens "${lens}" 权重 ${weight} ≥ 3 → 建议升级为硬约束`,
+            data: { lens, weight },
+          });
+        }
+      }
+    } catch (e: any) {
+      logger.warn('[AuditorAgent] User model analysis failed', { error: String(e) });
+    }
+    return suggestions;
+  }
+
+  // ── Knowledge Circuit Health Analysis ──
+
+  private async analyzeKnowledgeCircuit(): Promise<Suggestion[]> {
+    const suggestions: Suggestion[] = [];
+    try {
+      const { checkKnowledgeCircuit } = await import('../knowledge/knowledge-bus.service.js');
+      const circuit = checkKnowledgeCircuit();
+
+      // Circuit OPEN for >1 cycle → escalate
+      for (const [name, info] of Object.entries(circuit.circuits)) {
+        if (info.status === 'OPEN') {
+          suggestions.push({
+            type: 'circuit_fix',
+            risk: 'high',
+            detail: `知识电路 "${name}" OPEN: ${info.evidence} — ${info.likelyCause || ''}`,
+            data: { circuit: name, evidence: info.evidence, likelyCause: info.likelyCause },
+          });
+        }
+      }
+
+      // Maturity stagnation
+      const draftRatio = (circuit.stats.byMaturity['draft'] || 0) / circuit.stats.total;
+      if (circuit.stats.total > 10 && draftRatio > 0.9) {
+        suggestions.push({
+          type: 'circuit_fix',
+          risk: 'low',
+          detail: `知识成熟度停滞: ${Math.round(draftRatio * 100)}% draft — 可能需要手动触发晋升`,
+          data: { draftRatio, total: circuit.stats.total },
+        });
+      }
+    } catch (e: any) {
+      logger.warn('[AuditorAgent] Circuit analysis failed', { error: String(e) });
+    }
+    return suggestions;
+  }
+
   // ── Generate Suggestions (B3-005) ──
 
   private async generateSuggestions(
@@ -375,6 +484,26 @@ export class AuditorAgent {
           });
           applied.push(`Skill "${s.skillName}" 已自动发布`);
           logger.info('[AuditorAgent] Auto-applied skill_status', { skillId: s.skillId, skillName: s.skillName });
+        } else if (s.type === 'model_weight_tune') {
+          // Update user model state: mark concept trend as stable
+          const fs = await import('fs');
+          const path = await import('path');
+          const os = await import('os');
+          const stateFile = path.join(os.homedir(), '.claude', 'user-model-state.json');
+          if (fs.existsSync(stateFile)) {
+            const state = JSON.parse(fs.readFileSync(stateFile, 'utf-8'));
+            const concept = s.data?.concept as string;
+            if (state.patterns?.[concept]) {
+              state.patterns[concept].trend = 'stable';
+              fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf-8');
+              applied.push(`概念 "${concept}" 趋势已固化为 stable`);
+              logger.info('[AuditorAgent] Auto-applied model_weight_tune', { concept });
+            }
+          }
+        } else if (s.type === 'circuit_fix' && s.risk === 'low') {
+          // Low-risk circuit fix: just record that we tried
+          applied.push(`电路建议已记录: ${s.detail.slice(0, 80)}`);
+          logger.info('[AuditorAgent] Recorded circuit suggestion', { detail: s.detail });
         }
       } catch (err) {
         logger.warn('[AuditorAgent] Failed to apply low-risk suggestion', {
