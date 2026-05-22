@@ -41,10 +41,12 @@ coverage/
 *.tmp
 *.temp
 
-# Harness traces
+# Harness traces and runtime state
 .harness/traces/
 .harness/diagnoses/
 .harness/proposals/
+.harness/knowledge/
+.harness/import-state.json
 
 # Test results (screenshots, videos)
 test-results/

@@ -14,7 +14,13 @@
 import { Router } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '../../utils/logger.js';
+import * as fs from 'fs';
+import * as path from 'path';
+
 export const knowledgeRoutes = Router();
+
+// P0b: Internal routes (no auth, called from events-daemon on localhost)
+export const knowledgeInternalRoutes = Router();
 
 /**
  * 公司知识库 - 所有项目文档
@@ -638,5 +644,39 @@ knowledgeRoutes.get('/gaps', async (req, res) => {
   } catch (error) {
     logger.error({ error }, 'Failed to get knowledge gap stats');
     return res.status(500).json({ error: 'Failed to get knowledge gap stats' });
+  }
+});
+
+// ============================================
+// P0b: Generic text knowledge extraction (no auth, internal only)
+// ============================================
+
+/**
+ * POST /api/knowledge/extract-text
+ * Body: { content: string, source: string, layer?: string }
+ * Returns: 202 { queued: true }
+ *
+ * Generic endpoint: caller provides pre-processed text content.
+ * All source-specific logic (CST JSONL parsing, Discord message formatting, etc.)
+ * belongs in the caller, not here.
+ */
+knowledgeInternalRoutes.post('/extract-text', async (req, res) => {
+  try {
+    const { content, source, layer } = req.body;
+    if (!content || !source) {
+      return res.status(400).json({ error: 'content and source are required' });
+    }
+
+    // 202 Accepted immediately — extraction happens in background
+    res.status(202).json({ queued: true });
+
+    // Fire-and-forget: spawn extraction in background
+    const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
+    knowledgeAgent.extractFromText(content, source, layer).catch(err => {
+      logger.error('[KnowledgeRoutes] Text extraction failed', { source, error: String(err) });
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to queue text extraction');
+    res.status(500).json({ error: 'Failed to queue text extraction' });
   }
 });

@@ -32,7 +32,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     auditLogRoutes,
     { specReviewRoutes },
     { notificationRoutes },
-    { knowledgeRoutes },
+    { knowledgeRoutes, knowledgeInternalRoutes },
     pmoRoutes,
     specsRoutes,
     notifyRoutes,
@@ -53,7 +53,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/audit-logs/routes.js').then(m => m.default),
     import('./modules/spec-reviews/routes.js') as Promise<{ specReviewRoutes: Router }>,
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
-    import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router }>,
+    import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
     import('./modules/pmo/routes.js').then(m => m.default),
     import('./modules/specs/routes.js').then(m => m.default),
     import('./modules/outbound-notify/routes.js').then(m => m.default),
@@ -186,6 +186,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/notify', router: notifyRoutes, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
     { path: '/api/v1/knowledge/import', router: knowledgeImportRoutes, middleware: auth, comment: 'S2: 冷启动导入' },
+    { path: '/api/knowledge', router: knowledgeInternalRoutes, comment: 'P0b: 内部知识提取（events-daemon→Studio, no auth）' },
     { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
 
     // 运维

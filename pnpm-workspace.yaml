@@ -2,6 +2,12 @@ packages:
   - 'packages/*'
   - 'apps/*'
 
+allowBuilds:
+  '@prisma/client': set this to true or false
+  '@prisma/engines': set this to true or false
+  esbuild: set this to true or false
+  prisma: set this to true or false
+
 catalog:
   typescript: ^5.3.0
   '@types/node': ^20.0.0
@@ -11,3 +17,6 @@ catalog:
   fastify: ^4.24.0
   '@fastify/cors': ^8.4.0
   vitest: ^1.0.0
+
+minimumReleaseAgeExclude:
+  - '@dommaker/harness@0.12.5'

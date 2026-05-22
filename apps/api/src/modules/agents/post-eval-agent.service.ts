@@ -9,6 +9,7 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
+import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -71,6 +72,16 @@ class PostEvalAgent {
         matched: report.matchedAcs.length,
         missed: report.missedAcs.length,
       });
+
+      // Record gap findings to KnowledgeBus
+      knowledgeBus.recordPattern({
+        source: 'posteval',
+        type: 'pattern',
+        title: `PostEval gap: ${report.goalTitle}`,
+        content: `Completeness: ${Math.round(report.completeness * 100)}%, Matched: ${report.matchedAcs.length}, Missed: ${report.missedAcs.length}. Missed ACs: ${report.missedAcs.join('; ')}`,
+        severity: report.completeness < 0.5 ? 'warning' : 'info',
+        timestamp: Date.now(),
+      }).catch(() => { /* non-blocking */ });
 
       return report;
     } catch (e: any) {

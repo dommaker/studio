@@ -14,6 +14,7 @@ import { recordPipelineRun } from '../../daemon/metrics.js';
 import { AuditService } from '@dommaker/studio-audit';
 import { deployAgent } from '../agents/deploy-agent.service.js';
 import { triageAgent } from '../agents/triage-agent.service.js';
+import { knowledgeAgent } from '../agents/knowledge-agent.service.js';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
@@ -784,6 +785,11 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
           goalId,
           success: result.success,
           findings: result.findings.length,
+        });
+
+        // P0a: Extract knowledge from deploy result (fire-and-forget)
+        knowledgeAgent.extractFromDeploy(result, goalId, projectId).catch(e => {
+          logger.warn('[Goal] extractFromDeploy failed', { error: String(e) });
         });
       }
     } catch (e) {

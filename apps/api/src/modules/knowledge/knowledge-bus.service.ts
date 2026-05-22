@@ -15,7 +15,7 @@
  * 底层存储：harness KnowledgeStore + DB (DecisionAudit, Incident, PipelineRun)
  */
 
-import { KnowledgeStore } from '@dommaker/harness';
+import { KnowledgeStore, KnowledgeIngest } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 
@@ -23,7 +23,8 @@ import { logger } from '@dommaker/studio-shared';
 
 export type KnowledgeSource =
   | 'monitor' | 'auditor' | 'ops' | 'kk' | 'triage'
-  | 'executor' | 'reviewer' | 'analyst' | 'evolution';
+  | 'executor' | 'reviewer' | 'analyst' | 'evolution'
+  | 'deploy' | 'posteval';
 
 export interface BusEntry {
   source: KnowledgeSource;
@@ -37,9 +38,11 @@ export interface BusEntry {
 
 export class KnowledgeBus {
   private store: KnowledgeStore;
+  private ingest: KnowledgeIngest;
 
   constructor() {
     this.store = new KnowledgeStore();
+    this.ingest = new KnowledgeIngest(this.store);
   }
 
   // ── Write ──
@@ -47,22 +50,25 @@ export class KnowledgeBus {
   /** Monitor: 记录 Agent 执行失败模式 */
   async recordPattern(entry: Omit<BusEntry, 'source'> & { source?: KnowledgeSource }): Promise<void> {
     try {
-      this.store.save({
-        id: `pattern-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        type: 'guideline',
-        title: entry.title,
-        content: entry.content,
-        maturity: 'draft',
-        layer: 'project',
-        created: new Date().toISOString(),
-        lastReferenced: new Date().toISOString(),
-        contributors: [entry.source || 'monitor'],
-        projects: [],
-        tags: [entry.type],
-        applicablePhases: [],
-        sourceReferences: [],
-        referencedBy: [],
-      });
+      const source = entry.source || 'monitor';
+      const result = this.ingest.ingestEntry(
+        {
+          type: 'guideline',
+          title: entry.title,
+          content: entry.content,
+          tags: [entry.type],
+        },
+        {
+          source: `pattern:${source}`,
+          layer: 'project',
+          maturity: 'draft',
+          tags: [entry.type],
+        },
+      );
+      // Log dedup merges
+      if (result.lastReferenced && result.contributors.length > 1) {
+        logger.info('[KnowledgeBus] Dedup merged', { title: entry.title, existingId: result.id });
+      }
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to record pattern', { error: String(e) });
     }
@@ -71,22 +77,23 @@ export class KnowledgeBus {
   /** Ops: 记录故障 */
   async recordIncident(entry: BusEntry): Promise<void> {
     try {
-      this.store.save({
-        id: `incident-${entry.title.slice(0, 30).replace(/\s+/g, '-')}-${Date.now()}`,
-        type: 'pitfall',
-        title: entry.title,
-        content: entry.content,
-        maturity: 'draft',
-        layer: 'tech',
-        created: new Date(entry.timestamp).toISOString(),
-        lastReferenced: new Date().toISOString(),
-        contributors: ['ops'],
-        projects: [],
-        tags: ['incident', entry.severity],
-        applicablePhases: [],
-        sourceReferences: [],
-        referencedBy: [],
-      });
+      const result = this.ingest.ingestEntry(
+        {
+          type: 'pitfall',
+          title: entry.title,
+          content: entry.content,
+          tags: ['incident', entry.severity],
+        },
+        {
+          source: `incident:ops:${new Date(entry.timestamp).toISOString()}`,
+          layer: 'tech',
+          maturity: 'draft',
+          tags: ['incident', entry.severity],
+        },
+      );
+      if (result.lastReferenced && result.contributors.length > 1) {
+        logger.info('[KnowledgeBus] Dedup merged (incident)', { title: entry.title, existingId: result.id });
+      }
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to record incident', { error: String(e) });
     }
@@ -95,22 +102,23 @@ export class KnowledgeBus {
   /** Auditor: 记录趋势 */
   async recordTrend(entry: BusEntry): Promise<void> {
     try {
-      this.store.save({
-        id: `trend-${Date.now()}`,
-        type: 'guideline',
-        title: entry.title,
-        content: entry.content,
-        maturity: 'verified',
-        layer: 'project',
-        created: new Date(entry.timestamp).toISOString(),
-        lastReferenced: new Date().toISOString(),
-        contributors: ['auditor'],
-        projects: [],
-        tags: ['trend'],
-        applicablePhases: [],
-        sourceReferences: [],
-        referencedBy: [],
-      });
+      const result = this.ingest.ingestEntry(
+        {
+          type: 'guideline',
+          title: entry.title,
+          content: entry.content,
+          tags: ['trend'],
+        },
+        {
+          source: `trend:auditor:${new Date(entry.timestamp).toISOString()}`,
+          layer: 'project',
+          maturity: 'verified',
+          tags: ['trend'],
+        },
+      );
+      if (result.lastReferenced && result.contributors.length > 1) {
+        logger.info('[KnowledgeBus] Dedup merged (trend)', { title: entry.title, existingId: result.id });
+      }
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to record trend', { error: String(e) });
     }

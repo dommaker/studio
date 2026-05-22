@@ -10,6 +10,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
+import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import type { DeployParams, DeployResult, DeployFinding } from './types.js';
 
 class DeployAgent {
@@ -33,6 +34,18 @@ class DeployAgent {
     await this.cleanupTaskBranches(params);
 
     eventBus.publish('deploy.completed', { executionId: params.executionId, result: deployResult });
+
+    // Record deploy findings to KnowledgeBus
+    const deployFindings = deployResult.findings?.map(f => `[${f.severity}] ${f.category}: ${f.message}`).join('\n') || 'No findings';
+    knowledgeBus.recordPattern({
+      source: 'deploy',
+      type: 'pattern',
+      title: `Deploy result: ${deployResult.success ? 'SUCCESS' : 'FAILED'} (${deployResult.type})`,
+      content: `${deployResult.summary || 'No summary'}\n\nFindings:\n${deployFindings}`,
+      severity: deployResult.success ? 'info' : 'warning',
+      timestamp: Date.now(),
+    }).catch(() => { /* non-blocking */ });
+
     logger.info('[DeployAgent] Deploy completed', { executionId: params.executionId, success: deployResult.success });
     return deployResult;
   }
