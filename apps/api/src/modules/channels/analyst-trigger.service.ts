@@ -2,9 +2,11 @@
 // Upgraded: Claude Code agent (persistent worktree) instead of one-shot API call
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
+import { formatConstraintsForPrompt } from '@dommaker/harness';
 import { classifyError, formatTriageMessage } from '../triage/error-class.js';
 import { channelMessageService } from './channel-message.service.js';
 import { daemon } from '../../daemon/studio-daemon.js';
+import { recordPipelineRun } from '../../daemon/metrics.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -15,6 +17,11 @@ const OUTPUT_FILE = path.join(ANALYST_DIR, 'output.json');
 interface RequirementsDocJson {
   title: string;
   summary: string;
+  interfaceVerification?: {
+    verified: string[];
+    unverified: string[];
+    newRequired: string[];
+  };
   acGroups: Array<{
     id: string;
     acs: string[];
@@ -70,25 +77,36 @@ function buildAnalystPrompt(requirement: string, knowledge: string): string {
     ? `\n## 历史分析积累\n以下是你之前分析这个代码库时积累的知识，可以直接复用：\n\n${knowledge.slice(-8000)}\n`
     : '\n这是首次分析这个代码库。请先探索项目结构（CLAUDE.md、package.json、关键模块），将发现记录到 .analyst/knowledge.md 以便后续复用。\n';
 
+  const constraintSection = formatConstraintsForPrompt('analyst');
+
   return [
     '你是一个需求分析专家，在 Agent Studio 项目中工作。',
     '',
     '## 你的任务',
     '分析用户需求，深入代码库理解现有架构和模式，输出结构化的 RequirementsDoc。',
     '',
+    constraintSection,
     knowledgeSection,
     '## 工作流',
     '1. 读 CLAUDE.md 了解项目架构',
     '2. 探索代码库中和需求相关的模块',
     '3. 识别需要改动的文件和可复用的代码模式',
-    '4. 按架构边界拆分为 AC 组。每组 3-5 个 AC，一个 Agent 一次执行能完成。禁止一个组超过 6 个 AC',
-    '5. 为每个 AC 组写实现指南（文件路径、函数名、代码模式、坑位）',
+    '4. 验证接口假设（Schema First）— 方案中提及的每个外部接口必须验证存在：',
+    '   - hook 事件 → 搜索 settings.json/hook schema 确认事件名有效',
+    '   - MCP tool → 确认 .mcp.json 中已注册',
+    '   - API endpoint → 确认 route 已注册（方法+路径）',
+    '   - CLI 命令 → 确认 bin/harness.js 中已注册',
+    '   - DB field → 确认 Prisma schema 中已定义',
+    '   - 不存在的接口 → 标记为"需新增"，不可作为"已存在"引用',
+    '5. 按架构边界拆分为 AC 组。每组 3-5 个 AC，一个 Agent 一次执行能完成。禁止一个组超过 6 个 AC',
+    '6. 为每个 AC 组写实现指南（文件路径、函数名、代码模式、坑位）',
     '',
     '## 行为约束',
     '- 不确定的文件路径不要编造，探索后确认',
     '- 实现指南要具体到函数名和行号',
     '- 标记潜在坑位：Prisma JSON 序列化、权限中间件、类型生成、schema 迁移等',
     '- 将代码库发现写入 .analyst/knowledge.md（新 markdown section）',
+    '- **接口假设必须验证**：实现指南中引用的每个 hook/API/MCP tool/CLI 命令，必须在代码库中确认存在',
     '',
     '## 输出格式',
     `将 RequirementsDoc JSON 写入 ${OUTPUT_FILE}：`,
@@ -96,6 +114,11 @@ function buildAnalystPrompt(requirement: string, knowledge: string): string {
     '{',
     '  "title": "需求标题",',
     '  "summary": "一句话总结",',
+    '  "interfaceVerification": {',
+    '    "verified": ["已验证存在的接口: hook:PostToolUse - .claude/settings.json schema"],',
+    '    "unverified": ["未找到但方案引用的接口: hook:afterTurn - 不在有效事件列表中"],',
+    '    "newRequired": ["需要新建的接口: POST /api/knowledge/upsert"]',
+    '  },',
     '  "acGroups": [{',
     '    "id": "组名（架构边界）",',
     '    "acs": ["可验证的验收标准"],',
@@ -119,7 +142,7 @@ function buildAnalystPrompt(requirement: string, knowledge: string): string {
   ].join('\n');
 }
 
-async function runClaudeCode(prompt: string): Promise<RequirementsDocJson> {
+async function runClaudeCode(prompt: string): Promise<{ doc: RequirementsDocJson; usage?: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
   ensureWorktree();
 
   const result = await daemon.submitJob('analyst', {
@@ -135,9 +158,17 @@ async function runClaudeCode(prompt: string): Promise<RequirementsDocJson> {
 
   // --output-format json → Claude Code 返回 JSON envelope: { result, usage }
   let text = raw;
+  let usage: { inputTokens: number; outputTokens: number; cacheHitTokens: number } | undefined;
   try {
     const envelope = JSON.parse(raw);
     if (envelope.result) text = envelope.result;
+    if (envelope.usage) {
+      usage = {
+        inputTokens: envelope.usage.input_tokens || 0,
+        outputTokens: envelope.usage.output_tokens || 0,
+        cacheHitTokens: envelope.usage.cache_read_input_tokens || envelope.usage.cache_creation_input_tokens || 0,
+      };
+    }
   } catch (e) {
     logger.error('[AnalystTrigger] Failed to parse JSON envelope', { error: String(e) });
   }
@@ -146,16 +177,16 @@ async function runClaudeCode(prompt: string): Promise<RequirementsDocJson> {
   if (fs.existsSync(OUTPUT_FILE)) {
     const json = fs.readFileSync(OUTPUT_FILE, 'utf-8');
     try {
-      return JSON.parse(json);
+      return { doc: JSON.parse(json), usage };
     } catch {
       const match = json.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (match?.[1]) return JSON.parse(match[1].trim());
+      if (match?.[1]) return { doc: JSON.parse(match[1].trim()), usage };
     }
   }
 
   // Fallback: try to parse RequirementsDoc from result text
   const jsonMatch = text.match(/\{[\s\S]*"acGroups"[\s\S]*\}/);
-  if (jsonMatch) return JSON.parse(jsonMatch[0]);
+  if (jsonMatch) return { doc: JSON.parse(jsonMatch[0]), usage };
 
   throw new Error(`Analyst did not produce valid output. text: ${text.slice(0, 500)}`);
 }
@@ -215,7 +246,8 @@ class AnalystTriggerService {
       const prompt = buildAnalystPrompt(content, knowledge);
 
       // 4. Run Claude Code agent (persistent worktree, tool-enabled)
-      const response = await runClaudeCode(prompt);
+      const { doc: response, usage } = await runClaudeCode(prompt);
+      const durationMs = Date.now() - startTime;
       clearInterval(progressInterval);
 
       // 5. Save new knowledge for next analysis
@@ -249,8 +281,52 @@ class AnalystTriggerService {
       await channelMessageService.deleteMessage(thinkingMsg.id);
       eventBus.publish('channel.requirements_ready', { channelId, requirementsDocId: doc.id });
 
-      logger.info('[AnalystTrigger] RequirementsDoc generated via Claude Code agent', {
+      // 8. Auto-capture architectural knowledge (KnowledgeSync Cycle 1)
+      try {
+        const { knowledgeSync } = await import('../knowledge/knowledge-sync.service.js');
+        const discoveredFiles = response.acGroups?.flatMap((g: any) => g.files || []) || [];
+        const scopeName = response.title ? response.title.toLowerCase().replace(/\s+/g, '-').slice(0, 40) : 'analysis';
+        if (discoveredFiles.length > 0) {
+          await knowledgeSync.capture({
+            scope: scopeName,
+            content: [
+              `## ${response.title}`,
+              response.summary || '',
+              '',
+              '### Modules Analyzed',
+              ...response.acGroups.map((g: any) => `- **${g.id}**: ${g.files?.join(', ') || 'N/A'}`),
+              '',
+              '### Key Patterns',
+              ...(response.acGroups?.flatMap((g: any) => g.codePatterns || []).slice(0, 5) || []).map((p: string) => `- ${p}`),
+              '',
+              '### Gotchas',
+              ...(response.acGroups?.flatMap((g: any) => g.gotchas || []).slice(0, 5) || []).map((g: string) => `- ⚠️ ${g}`),
+            ].join('\n'),
+            source: 'analyst',
+          });
+        }
+      } catch (e: any) {
+        logger.warn('[AnalystTrigger] KnowledgeSync capture failed (non-blocking)', { error: String(e) });
+      }
+
+      // 9. Record Analyst phase metrics
+      const acCount = response.acGroups?.reduce((sum, g) => sum + g.acs.length, 0) || 0;
+      recordPipelineRun({
+        source: 'pipeline', phase: 'analyst',
+        taskName: response.title || '需求分析',
+        model: usage ? 'claude' : 'claude',
+        inputTokens: usage?.inputTokens || 0,
+        outputTokens: usage?.outputTokens || 0,
+        cacheHitTokens: usage?.cacheHitTokens || 0,
+        durationMs,
+        success: true,
+        sessionId: doc.id,
+      }).catch(() => { /* non-blocking */ });
+
+      logger.info('[AnalystTrigger] RequirementsDoc generated', {
         channelId, docId: doc.id, acGroupCount: response.acGroups?.length || 0,
+        durationMs, fileKnowledgeSize: fileKnowledge.length, dbKnowledgeSize: dbKnowledge.length,
+        tokens: usage,
       });
     } catch (err) {
       clearInterval(progressInterval);
@@ -271,16 +347,33 @@ class AnalystTriggerService {
     const acCount = doc.acGroups.reduce((sum, g) => sum + g.acs.length, 0);
     const tags = doc.tags?.length ? `\n🏷️ ${doc.tags.join(' · ')}` : '';
     const guideCount = doc.acGroups.filter(g => g.implementationNotes).length;
+    const iv = doc.interfaceVerification;
+    const unverifiedWarn = iv?.unverified?.length
+      ? `\n⚠️ ${iv.unverified.length} 个接口假设未验证: ${iv.unverified.join(', ')}`
+      : '';
     return [
       `## 📋 ${doc.title}`,
       '', doc.summary, '',
       `📊 ${doc.acGroups.length} 模块 · ${acCount} 验收标准 · ${guideCount} 实现指南`,
       tags,
+      unverifiedWarn,
     ].join('\n');
   }
 
   private formatRequirementsDoc(doc: RequirementsDocJson): string {
-    const sections = [`# ${doc.title}`, '', doc.summary, '', '## AC Groups'];
+    const sections = [`# ${doc.title}`, '', doc.summary, ''];
+    if (doc.interfaceVerification) {
+      sections.push(
+        '## Schema First Verification',
+        '',
+        `<!-- INTERFACE_VERIFICATION ${JSON.stringify(doc.interfaceVerification)} -->`,
+        '',
+        ...(doc.interfaceVerification.verified.length ? ['### Verified', ...doc.interfaceVerification.verified.map(v => `- ✅ ${v}`), ''] : []),
+        ...(doc.interfaceVerification.unverified.length ? ['### ⚠️ Unverified', ...doc.interfaceVerification.unverified.map(v => `- ❌ ${v}`), ''] : []),
+        ...(doc.interfaceVerification.newRequired.length ? ['### 🆕 New Required', ...doc.interfaceVerification.newRequired.map(v => `- 📝 ${v}`), ''] : []),
+      );
+    }
+    sections.push('', '## AC Groups');
     for (const g of doc.acGroups) {
       sections.push('', `### ${g.id}`);
       sections.push('', '#### 验收标准');

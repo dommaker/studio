@@ -18,6 +18,7 @@ import { recordPipelineRun } from '../../daemon/metrics.js';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { goalService, GoalStep, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
+import { formatConstraintsForPrompt } from '@dommaker/harness';
 import { roleConfigService } from '../roles/role-config.service.js';
 import { eventStore, EventStore } from '../../core/event-store.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
@@ -189,11 +190,21 @@ export class GoalScheduler {
   private getAvailableSlots(): number {
     const freeMemPct = os.freemem() / os.totalmem();
     const load = os.loadavg()[0] / os.cpus().length;
+    const totalMemGB = Math.round(os.totalmem() / (1024 * 1024 * 1024));
+    const freeMemGB = Math.round(os.freemem() / (1024 * 1024 * 1024));
 
-    if (freeMemPct < 0.15) return 1;
-    if (freeMemPct < 0.30) return 2;
-    if (load > 0.90) return 2;
-    return MAX_CONCURRENT;
+    let slots: number;
+    if (freeMemPct < 0.15) slots = 1;
+    else if (freeMemPct < 0.30) slots = 2;
+    else if (load > 0.90) slots = 2;
+    else slots = MAX_CONCURRENT;
+
+    logger.info('[GoalScheduler] Resource check', {
+      freeMemGB, totalMemGB, freeMemPct: Math.round(freeMemPct * 100) + '%',
+      loadAvg: os.loadavg()[0].toFixed(2), cpuCores: os.cpus().length,
+      slots, maxConcurrent: MAX_CONCURRENT,
+    });
+    return slots;
   }
 
   // ========================================
@@ -289,8 +300,12 @@ export class GoalScheduler {
     const combined = `${taskDesc} ${acs}`.toLowerCase();
 
     // Layer 1: 关键词（domain risk）
-    const isHighRiskDomain = /schema|migration|migrate|auth|authentication|security|financial|payment|encrypt|crypto/.test(combined);
-    const isLowRiskDomain = /style|typo|rename|format|lint|comment|doc|readme|spelling|refactor.*simple/.test(combined);
+    const highRiskPattern = /schema|migration|migrate|auth|authentication|security|financial|payment|encrypt|crypto/;
+    const lowRiskPattern = /style|typo|rename|format|lint|comment|doc|readme|spelling|refactor.*simple/;
+    const isHighRiskDomain = highRiskPattern.test(combined);
+    const isLowRiskDomain = lowRiskPattern.test(combined);
+    const highRiskHits = combined.match(new RegExp(highRiskPattern.source, 'gi')) || [];
+    const lowRiskHits = combined.match(new RegExp(lowRiskPattern.source, 'gi')) || [];
 
     // Layer 2: AC 组数量（task breadth）
     const acCount = input?.acGroup?.acs?.length || 1;
@@ -299,16 +314,25 @@ export class GoalScheduler {
     const files: string[] = input?.acGroup?.files || [];
     const fileCount = files.length;
 
-    // 高复杂度 = 高风险域 OR (多 AC 组 + 多文件)
+    let tier: string;
+    let reason: string;
     if (isHighRiskDomain || acCount >= 4 || fileCount >= 5) {
-      return 'premium';
+      tier = 'premium';
+      const triggers = [];
+      if (isHighRiskDomain) triggers.push(`keywords:${highRiskHits.join(',')}`);
+      if (acCount >= 4) triggers.push(`acCount=${acCount}`);
+      if (fileCount >= 5) triggers.push(`fileCount=${fileCount}`);
+      reason = triggers.join('; ');
+    } else if (isLowRiskDomain && acCount <= 1 && fileCount <= 2) {
+      tier = 'fast';
+      reason = `lowRisk keywords:${lowRiskHits.join(',')}, acCount=${acCount}, fileCount=${fileCount}`;
+    } else {
+      tier = 'standard';
+      reason = `default (acCount=${acCount}, fileCount=${fileCount}, highRisk=${isHighRiskDomain}, lowRisk=${isLowRiskDomain})`;
     }
-    // 低复杂度 = 低风险域 AND (单 AC + 少文件)
-    if (isLowRiskDomain && acCount <= 1 && fileCount <= 2) {
-      return 'fast';
-    }
-    // 默认
-    return 'standard';
+
+    logger.info('[GoalScheduler] Complexity classified', { tier, reason, acCount, fileCount });
+    return tier;
   }
 
   // INF-004: strategy switching — 最近失败率 > 50% → 切换为保守模式
@@ -437,7 +461,9 @@ export class GoalScheduler {
       tier: autoTier === tier ? tier : `${tier} (auto-classified: ${autoTier})`,
       hasRoleConstraints: roleConstraints.length > 0,
       hasSiblingContext: !!siblingContext,
+      siblingContextSize: siblingContext?.length || 0,
       hasCompanyKnowledge: !!companyKnowledge,
+      companyKnowledgeSize: companyKnowledge?.length || 0,
     });
 
     // G-001~003: 注入知识上下文（偏好 + 规则 + 环境）
@@ -525,7 +551,7 @@ export class GoalScheduler {
         result: c.outcome as 'success' | 'failure',
         duration: c.durationMs || 0,
         timestamp: Date.now(),
-      }))).catch(() => { /* non-blocking */ });
+      }))).catch((e: any) => { logger.warn('[GoalScheduler] preferenceObserver failed', { error: String(e) }); });
       if (result.success) {
         // 直接标记成功（不依赖 Redis 事件链保证可靠性）
         await goalService.updateStepExecution(executionId, { status: 'succeeded' });
@@ -540,7 +566,7 @@ export class GoalScheduler {
           durationMs: result.totalDurationMs || dispatchDuration,
           success: true,
           sessionId: executionId,
-        }).catch(() => { /* non-blocking */ });
+        }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun failed', { error: String(e) }); });
         // M1: agent 冷启动到完成的全链路耗时
         logger.info('[GoalScheduler] Agent succeeded', {
           executionId,
@@ -567,7 +593,7 @@ export class GoalScheduler {
           success: false,
           error: result.error || 'Agent execution failed',
           sessionId: executionId,
-        }).catch(() => { /* non-blocking */ });
+        }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun (failure) failed', { error: String(e) }); });
         logger.warn('[GoalScheduler] Agent failed', {
           executionId,
           goalId: goal.id,
@@ -771,9 +797,12 @@ export class GoalScheduler {
       ].join('\n');
     }).join('\n\n');
 
+    const constraintSection = formatConstraintsForPrompt('integration');
+
     return [
       '## 集成验证任务',
       '',
+      constraintSection,
       '你的工作是验证以下并行完成的 sub-agent 的代码能否正确集成。',
       '',
       '## 各 AC 组完成情况',

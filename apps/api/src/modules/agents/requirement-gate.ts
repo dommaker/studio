@@ -245,8 +245,26 @@ export async function validateRequirementsDoc(
   groups: AcGroup[],
   title: string,
   repoDir: string,
+  interfaceVerification?: { verified: string[]; unverified: string[]; newRequired: string[] },
 ): Promise<GateResult> {
   const suggestions: string[] = [];
+
+  // Stage 0: Interface assumption check
+  const stage0: GateCheck[] = [];
+  if (interfaceVerification?.unverified?.length) {
+    stage0.push({
+      name: 'interface-unverified',
+      passed: false,
+      message: `${interfaceVerification.unverified.length} 个接口假设未在代码库中验证: ${interfaceVerification.unverified.join(', ')}。请确认接口存在后再继续。`,
+    });
+  }
+  if (interfaceVerification) {
+    stage0.push({
+      name: 'interface-verified',
+      passed: true,
+      message: `${interfaceVerification.verified.length} 个接口已验证, ${interfaceVerification.newRequired.length} 个需新建`,
+    });
+  }
 
   // Stage 1
   const stage1 = stage1CodeCheck(groups, repoDir);
@@ -256,7 +274,8 @@ export async function validateRequirementsDoc(
   const stage2 = stage1Passed ? await stage2LlmCheck(groups, title) : [];
   const stage2Passed = stage2.length === 0 || stage2.every(c => c.passed);
 
-  const passed = stage1Passed && stage2Passed;
+  const stage0Passed = stage0.length === 0 || stage0.every(c => c.passed);
+  const passed = stage0Passed && stage1Passed && stage2Passed;
 
   // Tier 升级建议
   let tierRecommendation: TierRecommendation = 'flash-ok';
@@ -274,7 +293,7 @@ export async function validateRequirementsDoc(
   }
 
   // Build suggestions
-  for (const c of [...stage1, ...stage2]) {
+  for (const c of [...stage0, ...stage1, ...stage2]) {
     if (!c.passed) suggestions.push(c.message);
   }
 

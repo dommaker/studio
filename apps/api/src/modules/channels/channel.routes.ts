@@ -396,7 +396,10 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
           }
           return dir;
         })();
-        const gateResult = await validateRequirementsDoc(acGroups, doc.title, repoDir);
+        // Extract Schema First verification from doc content
+        const ivMatch = doc.content.match(/<!-- INTERFACE_VERIFICATION (.+?) -->/);
+        const interfaceVerification = ivMatch ? JSON.parse(ivMatch[1]) : undefined;
+        const gateResult = await validateRequirementsDoc(acGroups, doc.title, repoDir, interfaceVerification);
 
         if (!gateResult.passed) {
           // Push feedback to Channel

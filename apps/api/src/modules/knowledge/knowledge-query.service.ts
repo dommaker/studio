@@ -5,15 +5,12 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { KnowledgeStore } from '@dommaker/harness';
+import { sharedStore } from './knowledge-bus.service.js';
 import { preferenceObserver } from './preference-observer.js';
 import { ruleScanner } from './rule-scanner.js';
 import { envSnapper } from './env-snapper.js';
 import { decisionChainExtractor } from './decision-chain-extractor.js';
 import { patternMiner } from './pattern-miner.js';
-
-// KK 存储的知识（harness KnowledgeStore）
-const kkStore = new KnowledgeStore();
 
 // H1: 知识总线（Agent 间共享）
 import { knowledgeBus } from './knowledge-bus.service.js';
@@ -95,8 +92,8 @@ export class KnowledgeQueryService {
 
     // KK 提取的 pitfall/guideline（harness KnowledgeStore）
     try {
-      const kkPitfalls = kkStore.list({ type: 'pitfall' });
-      const kkGuidelines = kkStore.list({ type: 'guideline' });
+      const kkPitfalls = sharedStore.list({ type: 'pitfall' });
+      const kkGuidelines = sharedStore.list({ type: 'guideline' });
       const kkEntries = [...kkPitfalls, ...kkGuidelines]
         .filter(e => e.maturity !== 'archived')
         .sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))

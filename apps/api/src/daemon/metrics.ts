@@ -4,7 +4,7 @@ import { logger } from '@dommaker/studio-shared';
 
 export interface MetricEntry {
   source: 'pipeline' | 'window';
-  phase: 'analyst' | 'executor' | 'full';
+  phase: 'analyst' | 'executor' | 'review' | 'deploy' | 'full';
   taskName: string;
   model: string;
   inputTokens: number;

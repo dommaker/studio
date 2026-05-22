@@ -2,7 +2,7 @@
  * Agent Execution Phase Hooks
  */
 
-import { checkBeforeExecution, buildConstraintPrompt, getTraceCollector } from '@dommaker/harness';
+import { checkBeforeExecution, buildConstraintPrompt, getTraceCollector, formatConstraintsForPrompt } from '@dommaker/harness';
 import type { ConstraintContext } from '@dommaker/harness';
 import { safeCallHook } from './config';
 
@@ -31,10 +31,8 @@ export async function beforeAgentExecute(ctx: ConstraintContext & {
 }
 
 export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
-  const base = buildConstraintPrompt({
-    operation: 'code_implementation',
-    taskDescription: ctx.taskDescription,
-  });
+  // Inject all applicable harness constraints by role (full text, not truncated)
+  const harnessConstraints = formatConstraintsForPrompt('executor');
 
   // G2: tool risk awareness — Agent needs to know which tools are dangerous
   const toolRisk = [
@@ -47,7 +45,7 @@ export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
     '',
   ].join('\n');
 
-  return base ? `${base}\n${toolRisk}` : toolRisk;
+  return [harnessConstraints, toolRisk].filter(Boolean).join('\n');
 }
 
 export async function afterAgentComplete(params?: {
