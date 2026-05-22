@@ -18,7 +18,9 @@ export type TriageIncidentType =
   // 跨执行模式（Auditor/Evolution 升级，Phase 3）
   | 'agent_type_failure_trend'
   | 'pipeline_health_degraded'
-  | 'review_cycle_exhausted';
+  | 'review_cycle_exhausted'
+  // 系统健康
+  | 'knowledge_health_degraded';
 
 export interface TriageIncidentInput {
   type: TriageIncidentType;
