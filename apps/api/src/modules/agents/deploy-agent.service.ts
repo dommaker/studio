@@ -17,6 +17,12 @@ class DeployAgent {
   async deploy(params: DeployParams): Promise<DeployResult> {
     logger.info('[DeployAgent] Starting deploy', { executionId: params.executionId, environment: params.environment });
 
+    // P2.5b: Check historical deploy knowledge
+    try {
+      const ctx = knowledgeBus.getRecentContext('deploy', 5);
+      if (ctx) logger.info('[DeployAgent] Historical deploy context loaded', { context: ctx.slice(0, 200) });
+    } catch { /* non-blocking */ }
+
     // 1. Merge to master
     const mergeResult = await this.mergeToMaster(params);
     if (!mergeResult.success) return mergeResult;
