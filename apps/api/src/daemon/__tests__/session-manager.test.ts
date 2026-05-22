@@ -43,7 +43,7 @@ describe('SessionManager', () => {
   it('reuses existing UUID from file', () => {
     const worktree = path.join(TEST_DIR, 'analyst2');
     fs.mkdirSync(path.join(worktree, '.daemon'), { recursive: true });
-    fs.writeFileSync(path.join(worktree, '.daemon', 'session-id'), 'a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+    fs.writeFileSync(path.join(worktree, '.daemon', 'session-id'), '00000000-0000-0000-0000-000000000000');
 
     manager.register({
       name: 'analyst2', worktree, modelTier: 'premium',
@@ -53,7 +53,7 @@ describe('SessionManager', () => {
     const status = manager.getStatus('analyst2');
     // Verify session ID persisted
     const sidFile = path.join(worktree, '.daemon', 'session-id');
-    expect(fs.readFileSync(sidFile, 'utf-8').trim()).toBe('a1b2c3d4-e5f6-7890-abcd-ef1234567890');
+    expect(fs.readFileSync(sidFile, 'utf-8').trim()).toBe('00000000-0000-0000-0000-000000000000');
   });
 
   it('rejects and regenerates invalid UUID in file', () => {
