@@ -463,7 +463,7 @@ export class AgentEventListener {
             // P2.5: Parse Agent output for knowledge references [REF:xxx]
             // Records references to drive the maturity ladder (draft→verified→proven)
             if (completionOutput) {
-              this.recordKnowledgeRefs(completionOutput);
+              this.recordKnowledgeRefs(completionOutput, worktree);
             }
 
             // Phase 3: Skill 提取（面向 GoalExecution，自动检测可复用模式）
@@ -622,22 +622,64 @@ export class AgentEventListener {
   }
 
   /**
-   * P2.5: Parse completion output for knowledge references [REF:xxx]
+   * P2.5: Parse agent output for knowledge references [REF:xxx]
    * and record them via KnowledgeLifecycle.recordReference().
    * Drives the maturity ladder: draft → verified → proven.
+   *
+   * Scans:
+   * - worktree .progress.json notes field
+   * - worktree .review-report.json (if exists)
+   * - Structured completionOutput for any [REF:xxx] in siblingAdvice etc.
    */
-  private recordKnowledgeRefs(completionOutput: Record<string, any>): void {
+  private recordKnowledgeRefs(completionOutput: Record<string, any>, worktree?: string): void {
     try {
       const store = new KnowledgeStore();
       const lifecycle = new KnowledgeLifecycle(store);
-
-      // Scan all text fields in completionOutput for [REF:<id>] patterns
-      const text = JSON.stringify(completionOutput);
       const refPattern = /\[REF:([^\]]+)\]/g;
       const refs = new Set<string>();
-      let match: RegExpExecArray | null;
-      while ((match = refPattern.exec(text)) !== null) {
-        refs.add(match[1].trim());
+
+      // Collect all text sources
+      const textSources: string[] = [];
+
+      // 1. Structured completionOutput
+      textSources.push(JSON.stringify(completionOutput));
+
+      // 2. Worktree .progress.json notes (where agent writes free-form output)
+      if (worktree) {
+        try {
+          const progressPath = path.join(worktree, '.progress.json');
+          if (fs.existsSync(progressPath)) {
+            textSources.push(fs.readFileSync(progressPath, 'utf-8'));
+          }
+        } catch { /* non-blocking */ }
+
+        // 3. Worktree .review-report.json
+        try {
+          const reviewPath = path.join(worktree, '.review-report.json');
+          if (fs.existsSync(reviewPath)) {
+            textSources.push(fs.readFileSync(reviewPath, 'utf-8'));
+          }
+        } catch { /* non-blocking */ }
+
+        // 4. Any output files listed in agent.completed event
+        try {
+          const outputDir = path.join(worktree, 'output');
+          if (fs.existsSync(outputDir)) {
+            for (const f of fs.readdirSync(outputDir).slice(0, 20)) {
+              try {
+                textSources.push(fs.readFileSync(path.join(outputDir, f), 'utf-8'));
+              } catch { /* skip unreadable */ }
+            }
+          }
+        } catch { /* non-blocking */ }
+      }
+
+      // Scan all sources
+      for (const text of textSources) {
+        let match: RegExpExecArray | null;
+        while ((match = refPattern.exec(text)) !== null) {
+          refs.add(match[1].trim());
+        }
       }
 
       if (refs.size === 0) return;
