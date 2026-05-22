@@ -31,6 +31,12 @@ class PostEvalAgent {
    */
   async evaluate(goalId: string, sourceChannelId?: string): Promise<GapReport | null> {
     try {
+      // P2.5b: Load historical post-eval patterns for comparison
+      try {
+        const ctx = knowledgeBus.getRecentContext('posteval', 5);
+        if (ctx) logger.info('[PostEval] Historical eval context loaded');
+      } catch { /* non-blocking */ }
+
       // 1. 获取 Goal 和关联的 RequirementsDoc
       const goal = await prisma.goal.findUnique({
         where: { id: goalId },
