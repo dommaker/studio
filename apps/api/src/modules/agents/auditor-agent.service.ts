@@ -530,12 +530,14 @@ export class AuditorAgent {
       }
 
       const { channelMessageService } = await import('../channels/channel-message.service.js');
+      const { NotificationService } = await import('@dommaker/studio-notification');
 
+      // 1. Push cards to #系统 channel
       const content = [
         '## 🔧 审计建议 — 待人工确认',
         '',
         ...suggestions.map((s, i) => {
-          const icon = s.type === 'param_tuning' ? '⚙️' : '📝';
+          const icon = s.type === 'param_tuning' ? '⚙️' : s.type === 'circuit_fix' ? '🔴' : '📝';
           return `${i + 1}. ${icon} **${s.detail}**`;
         }),
         '',
@@ -550,7 +552,29 @@ export class AuditorAgent {
         { suggestions, status: 'ready' },
       );
 
-      logger.info('[AuditorAgent] Pushed suggestion confirmation cards', { count: suggestions.length });
+      // 2. Push bell notifications to all users
+      try {
+        const notifService = new NotificationService(prisma as any);
+        const users = await prisma.role.findMany({
+          where: { type: 'user' },
+          select: { id: true },
+          take: 10,
+        });
+        for (const user of users) {
+          await notifService.create({
+            userId: user.id,
+            type: 'auditor_suggestion',
+            title: `审计建议 (${suggestions.length} 项)`,
+            content: suggestions.map(s => s.detail).join(' | '),
+            link: `/channels/${channel.id}`,
+          });
+        }
+        logger.info('[AuditorAgent] Push notifications sent', { users: users.length, suggestions: suggestions.length });
+      } catch (notifErr: any) {
+        logger.warn('[AuditorAgent] Bell notification failed (non-blocking)', { error: String(notifErr) });
+      }
+
+      logger.info('[AuditorAgent] Pushed suggestion confirmation cards + notifications', { count: suggestions.length });
     } catch (err) {
       logger.warn('[AuditorAgent] Failed to push suggestion cards', { error: String(err) });
     }

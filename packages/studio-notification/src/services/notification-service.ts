@@ -7,7 +7,7 @@ import { logger } from '@dommaker/studio-shared';
 
 export interface CreateNotificationInput {
   userId: string;
-  type: 'review_request' | 'review_approved' | 'review_rejected' | 'system';
+  type: 'review_request' | 'review_approved' | 'review_rejected' | 'system' | 'auditor_suggestion';
   title: string;
   content: string;
   link?: string;
