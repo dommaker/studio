@@ -48,6 +48,7 @@ export interface GatewayResponse {
     promptTokens: number;
     completionTokens: number;
     totalTokens: number;
+    cacheHitTokens?: number;  // Anthropic cache_read_input_tokens / DeepSeek cache hit
   };
   latencyMs: number;
 }
@@ -58,6 +59,7 @@ export interface UsageRecord {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
+  cacheHitTokens: number;     // 输入缓存命中
   latencyMs: number;
   timestamp: number;
   success: boolean;
@@ -93,6 +95,7 @@ interface RawResponse {
     prompt_tokens: number;
     completion_tokens: number;
     total_tokens: number;
+    cache_read_tokens?: number;
   };
 }
 
@@ -178,6 +181,7 @@ async function callAnthropicProvider(
       prompt_tokens: data.usage.input_tokens || 0,
       completion_tokens: data.usage.output_tokens || 0,
       total_tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
+      cache_read_tokens: data.usage.cache_read_input_tokens || (data.usage as any).cache_hit_tokens || 0,
     } : undefined,
   };
 }
@@ -306,6 +310,7 @@ export class ModelGateway {
           promptTokens: raw.usage.prompt_tokens,
           completionTokens: raw.usage.completion_tokens,
           totalTokens: raw.usage.total_tokens,
+          cacheHitTokens: raw.usage.cache_read_tokens ?? 0,
         } : undefined;
 
         // 质量评分
@@ -318,6 +323,7 @@ export class ModelGateway {
           promptTokens: usage?.promptTokens ?? 0,
           completionTokens: usage?.completionTokens ?? 0,
           totalTokens: usage?.totalTokens ?? 0,
+          cacheHitTokens: usage?.cacheHitTokens ?? 0,
           latencyMs,
           timestamp: Date.now(),
           success: true,
@@ -343,6 +349,7 @@ export class ModelGateway {
           promptTokens: 0,
           completionTokens: 0,
           totalTokens: 0,
+          cacheHitTokens: 0,
           latencyMs,
           timestamp: Date.now(),
           success: false,

@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-interface GapReport {
+export interface GapReport {
   goalId: string;
   goalTitle: string;
   totalAcs: number;
@@ -23,6 +23,16 @@ interface GapReport {
   missedAcs: string[];
   extraChanges: string[];
   completeness: number;  // 0-1
+  /** LLM 调用消耗（仅当使用了 LLM 匹配时有值，keyword fallback 时为 null） */
+  tokensUsed?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cacheHitTokens: number;
+    model: string;
+    provider: string;
+    latencyMs: number;
+  } | null;
 }
 
 class PostEvalAgent {
@@ -77,6 +87,7 @@ class PostEvalAgent {
         completeness: Math.round(report.completeness * 100) + '%',
         matched: report.matchedAcs.length,
         missed: report.missedAcs.length,
+        tokensUsed: report.tokensUsed,
       });
 
       // Record gap findings to KnowledgeBus
@@ -93,6 +104,117 @@ class PostEvalAgent {
     } catch (e: any) {
       logger.warn('[PostEval] Evaluation failed', { goalId, error: String(e) });
       return null;
+    }
+  }
+
+  /**
+   * Plan 覆盖率验证 — 对比 plan.md checklist items 和 staged diff
+   * 用于 pre-commit hook 防止"假装完成"
+   */
+  async evaluatePlanCoverage(planPath: string): Promise<GapReport> {
+    const startTime = Date.now();
+    let executionMode: 'llm' | 'keyword' | 'empty' = 'llm';
+    let planSize = 0;
+    let diffSize = 0;
+    let stagedFiles = 0;
+
+    try {
+      // 1. 读取 plan 文件
+      const planContent = fs.readFileSync(planPath, 'utf-8');
+      planSize = planContent.length;
+
+      // 2. 提取 checklist items（复用 extractAcs 的 markdown checkbox 解析）
+      const items = this.extractAcs(planContent);
+      if (items.length === 0) {
+        executionMode = 'empty';
+        const durationMs = Date.now() - startTime;
+        logger.info('[PostEval] Plan coverage: no items found', { planPath, planSize, durationMs });
+        return {
+          goalId: planPath,
+          goalTitle: path.basename(planPath),
+          totalAcs: 0,
+          matchedAcs: [],
+          missedAcs: [],
+          extraChanges: [],
+          completeness: 1,
+        };
+      }
+
+      // 3. 获取 staged diff
+      let diff: string;
+      try {
+        diff = execSync('git diff --cached', { encoding: 'utf-8', stdio: 'pipe', timeout: 10_000 });
+        diffSize = diff.length;
+        stagedFiles = (execSync('git diff --cached --name-only', { encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }))
+          .trim().split('\n').filter(Boolean).length;
+      } catch (e: any) {
+        logger.warn('[PostEval] git diff --cached failed', { planPath, error: String(e) });
+        diff = '';
+      }
+
+      // 4. 检测执行路径
+      if (!modelGateway.isAvailable()) {
+        executionMode = 'keyword';
+      }
+
+      // 5. LLM 语义匹配（复用 matchAcsToChanges）
+      const matchStart = Date.now();
+      const report = await this.matchAcsToChanges(
+        path.basename(planPath),
+        items,
+        diff || 'No staged changes',
+      );
+      const matchMs = Date.now() - matchStart;
+
+      // 6. 计算完成度
+      report.completeness = items.length > 0 ? report.matchedAcs.length / items.length : 1;
+      const durationMs = Date.now() - startTime;
+
+      // 7. 日志（完整上下文）
+      logger.info('[PostEval] Plan coverage evaluated', {
+        planPath,
+        planSize,
+        diffSize,
+        stagedFiles,
+        totalItems: items.length,
+        completeness: Math.round(report.completeness * 100) + '%',
+        matched: report.matchedAcs.length,
+        missed: report.missedAcs.length,
+        executionMode,
+        durationMs,
+        matchMs,
+        tokensUsed: report.tokensUsed,
+      });
+
+      // 8. 写入知识库（知识积累闭环）
+      knowledgeBus.recordPattern({
+        source: 'posteval',
+        type: 'pattern',
+        title: `Plan coverage: ${path.basename(planPath)}`,
+        content: [
+          `Completeness: ${Math.round(report.completeness * 100)}%`,
+          `Mode: ${executionMode}`,
+          `Items: ${report.matchedAcs.length}/${items.length} matched`,
+          `Plan size: ${planSize}B, Diff: ${diffSize}B, Files: ${stagedFiles}`,
+          `Duration: ${durationMs}ms (match: ${matchMs}ms)`,
+          `Tokens: ${report.tokensUsed ? `${report.tokensUsed.totalTokens} (${report.tokensUsed.model})` : 'N/A'}`,
+          report.missedAcs.length > 0 ? `Missed: ${report.missedAcs.join('; ')}` : '',
+        ].filter(Boolean).join('\n'),
+        severity: report.completeness < 0.5 ? 'warning' : 'info',
+        timestamp: Date.now(),
+      }).catch(() => { /* non-blocking */ });
+
+      return report;
+    } catch (e: any) {
+      const durationMs = Date.now() - startTime;
+      logger.warn('[PostEval] Plan coverage failed', {
+        planPath,
+        planSize,
+        diffSize,
+        durationMs,
+        error: String(e),
+      });
+      throw e; // 重新抛出，让 API route 返回 500
     }
   }
 
@@ -203,15 +325,28 @@ ${changes.slice(0, 4000)}
         extra: string[];
       }>(prompt, '你是交付审计师，严格按变更证据判断。');
 
+      // 读回 modelGateway 内部已记录的 token 用量（promptJson → prompt → chat 链中 chat 已写入 usageLog）
+      const [lastUsage] = modelGateway.getRecentUsage(1);
+      const tokensUsed = lastUsage?.success ? {
+        promptTokens: lastUsage.promptTokens,
+        completionTokens: lastUsage.completionTokens,
+        totalTokens: lastUsage.totalTokens,
+        cacheHitTokens: lastUsage.cacheHitTokens,
+        model: lastUsage.model,
+        provider: lastUsage.provider,
+        latencyMs: lastUsage.latencyMs,
+      } : null;
+
       return {
         goalId: '', goalTitle: title, totalAcs: acs.length, completeness: 0,
         matchedAcs: result.matched.map(i => acs[i - 1] || `AC#${i}`),
         missedAcs: result.missed.map(i => acs[i - 1] || `AC#${i}`),
         extraChanges: result.extra || [],
+        tokensUsed,
       };
     } catch {
       // LLM failed → keyword fallback
-      return this.keywordMatch(acs, changes) as GapReport;
+      return { ...this.keywordMatch(acs, changes), tokensUsed: null };
     }
   }
 

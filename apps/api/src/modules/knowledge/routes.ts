@@ -14,6 +14,9 @@
 import { Router } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '../../utils/logger.js';
+import { upsertKnowledge } from './knowledge-bus.service.js';
+import type { KnowledgeSource } from './knowledge-bus.service.js';
+import { knowledgeSync } from './knowledge-sync.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -21,6 +24,103 @@ export const knowledgeRoutes = Router();
 
 // Internal routes (no auth, for local service-to-service calls)
 export const knowledgeInternalRoutes = Router();
+
+/**
+ * GET /api/knowledge/sync-status — 知识同步状态（新鲜度检测）
+ */
+knowledgeInternalRoutes.get('/sync-status', async (_req, res) => {
+  try {
+    const { stale, unmonitored } = knowledgeSync.detectStaleness();
+    const trackedScopes = knowledgeSync.getTrackedScopes();
+
+    // Heal stale entries
+    let healed: string[] = [];
+    if (stale.length > 0) {
+      healed = await knowledgeSync.heal(stale);
+    }
+
+    res.json({ trackedScopes, stale, unmonitored, healed });
+  } catch (e: any) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+/**
+ * POST /api/knowledge/upsert — 设计时知识沉淀入口
+ *
+ * 写入 KnowledgeStore (单一事实源) + 同步 Prisma Document (Studio UI 可见)
+ * 内部端点，无 auth。供 Claude Code / Analyst / CLI 调用。
+ *
+ * Body: { scope, title, content, type?, source?, projectId?, companyId? }
+ */
+knowledgeInternalRoutes.post('/upsert', async (req, res) => {
+  try {
+    const { scope, title, content, type, source, projectId: reqProjectId, companyId: reqCompanyId } = req.body;
+    if (!scope || !title || !content) {
+      res.status(400).json({ error: 'scope, title, and content are required' });
+      return;
+    }
+
+    // 1. Write to KnowledgeStore (single source of truth)
+    const ksResult = await upsertKnowledge({
+      scope,
+      title,
+      content,
+      type: type as 'architecture' | 'process' | 'guideline' | undefined,
+      source: source as KnowledgeSource | undefined,
+    });
+
+    // 2. Sync to Prisma Document (Studio UI projection)
+    let docResult: { action: string; docId: string } = { action: 'skipped', docId: '' };
+    try {
+      // Resolve projectId/companyId
+      let projectId = reqProjectId;
+      let companyId = reqCompanyId;
+      if (!projectId || !companyId) {
+        const project = await prisma.project.findFirst({ select: { id: true, companyId: true } });
+        if (project) {
+          projectId = projectId || project.id;
+          companyId = companyId || project.companyId;
+        }
+      }
+      if (!projectId || !companyId) {
+        logger.warn('[KnowledgeRoute] No project/company found, skipping Prisma sync', { scope });
+      } else {
+        // Find existing Document by title+type for dedup
+        const existing = await prisma.document.findFirst({
+          where: { title, type: 'design', projectId },
+          orderBy: { version: 'desc' },
+        });
+        if (existing) {
+          await prisma.document.update({
+            where: { id: existing.id },
+            data: { content, version: existing.version + 1 },
+          });
+          docResult = { action: 'updated', docId: existing.id };
+        } else {
+          const doc = await prisma.document.create({
+            data: {
+              projectId, companyId, type: 'design', title, content,
+              tags: JSON.stringify([scope, 'design-doc']),
+              status: 'active', version: 1,
+            },
+          });
+          docResult = { action: 'created', docId: doc.id };
+        }
+      }
+    } catch (e: any) {
+      logger.warn('[KnowledgeRoute] Prisma sync failed (non-blocking)', { error: String(e) });
+    }
+
+    res.json({
+      knowledgeStore: ksResult,
+      prismaDocument: docResult,
+    });
+  } catch (e: any) {
+    logger.error('[KnowledgeRoute] Upsert failed', { error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
 
 /**
  * 公司知识库 - 所有项目文档

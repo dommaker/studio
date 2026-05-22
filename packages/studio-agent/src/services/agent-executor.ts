@@ -161,7 +161,7 @@ export class AgentExecutor {
             }
           }
         }
-      } catch { /* harness init is best-effort — don't block execution */ }
+      } catch { logger.warn('[AgentExecutor] Harness init failed (non-blocking)', { taskId: task.id, executionId: task.executionId }); }
 
       // Step 2.5: 前置硬约束检查 (Iron Laws)
       await beforeAgentExecute({
@@ -189,6 +189,7 @@ export class AgentExecutor {
       let stuckCount = 0;
       let lastStep = '';
       let lastCompletedCount = 0;
+      let cumulativeSessionMs = 0;
 
       // Session-id 文件（复用 SessionManager 的 UUID 持久化模式）
       const existingId = readSessionIdFile(worktree);
@@ -241,6 +242,7 @@ export class AgentExecutor {
         const prompt = this.buildPrompt(task, progress, sessionCount, acGroup, stuckCount, knowledgeContext);
         fsSync.mkdirSync(worktree, { recursive: true });
         await fs.writeFile(path.join(worktree, '.prompt.md'), prompt, 'utf-8');
+        logger.info('[AgentExecutor] Prompt built', { taskId: task.id, executionId: task.executionId, session: sessionCount, promptSize: prompt.length, knowledgeContextSize: knowledgeContext.length });
 
         // 启动 Agent（async spawn）
         const isFirstSession = sessionCount === 1;
@@ -283,6 +285,7 @@ export class AgentExecutor {
         const childRef: { current: ChildProcess | null } = { current: null };
         this.runningProcesses.set(task.executionId, childRef);
 
+        const sessionStart = Date.now();
         try {
           const { stdout } = await execSh(cmd, {
             cwd: worktree,
@@ -314,9 +317,11 @@ export class AgentExecutor {
           const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
           const stderrText = execErr?.stderr?.toString() || '';
 
+          cumulativeSessionMs += Date.now() - sessionStart;
           logger.warn('[AgentExecutor] Session failed', {
             taskId: task.id, executionId: task.executionId,
-            session: sessionCount,
+            session: sessionCount, sessionMs: Date.now() - sessionStart,
+            cumulativeSessionMs,
             error: errMsg.slice(0, 200),
           });
 
@@ -333,14 +338,15 @@ export class AgentExecutor {
 
         // After first successful session, future starts use --continue
         isNewSession = false;
+        cumulativeSessionMs += Date.now() - sessionStart;
 
         // 判断是否真的完成了
         const latest = this.readProgress(worktree);
 
         if (latest?.allComplete && (latest.testResults?.failed === 0 || latest.testResults?.failed == null)) {
           const outputFiles = await this.collectOutputFiles(worktree);
-          logger.info('[AgentExecutor] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount });
-          return { success: true, worktree, outputFiles, logFile, sessionCount };
+          logger.info('[AgentExecutor] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount, cumulativeSessionMs });
+          return { success: true, worktree, outputFiles, logFile, sessionCount, totalDurationMs: cumulativeSessionMs };
         }
 
         // 5 次耗尽
@@ -348,7 +354,7 @@ export class AgentExecutor {
           return {
             success: false, worktree, outputFiles: [],
             error: `Max sessions (${this.config.maxSessions}) exhausted without completion`,
-            logFile, sessionCount,
+            logFile, sessionCount, totalDurationMs: cumulativeSessionMs,
           };
         }
 
@@ -358,6 +364,8 @@ export class AgentExecutor {
           session: sessionCount,
           stuckCount,
           currentStep: latest?.currentStep || 'unknown',
+          sessionMs: Date.now() - sessionStart,
+          cumulativeSessionMs,
         });
       }
     } catch (error) {
@@ -649,7 +657,8 @@ ${skillPrompt}`;
       // Force kill after 5s if still alive
       setTimeout(() => {
         if (childRef?.current) {
-          try { childRef.current.kill('SIGKILL'); } catch {}
+          logger.warn('[AgentExecutor] SIGTERM grace period expired, force SIGKILL', { executionId });
+          try { childRef.current.kill('SIGKILL'); } catch { logger.warn('[AgentExecutor] SIGKILL failed', { executionId }); }
         }
       }, 5000);
     } else {

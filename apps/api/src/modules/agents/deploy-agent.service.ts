@@ -11,10 +11,13 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { recordPipelineRun } from '../../daemon/metrics.js';
 import type { DeployParams, DeployResult, DeployFinding } from './types.js';
 
 class DeployAgent {
   async deploy(params: DeployParams): Promise<DeployResult> {
+    const startTime = Date.now();
+    const timings: Record<string, number> = {};
     logger.info('[DeployAgent] Starting deploy', { executionId: params.executionId, environment: params.environment });
 
     // P2.5b: Check historical deploy knowledge
@@ -24,20 +27,36 @@ class DeployAgent {
     } catch { /* non-blocking */ }
 
     // 1. Merge to master
+    const mergeStart = Date.now();
     const mergeResult = await this.mergeToMaster(params);
-    if (!mergeResult.success) return mergeResult;
+    timings.mergeMs = Date.now() - mergeStart;
+    if (!mergeResult.success) {
+      recordPipelineRun({ source: 'pipeline', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: mergeResult.summary, sessionId: params.executionId }).catch(() => {});
+      return mergeResult;
+    }
 
     // 2. Push to origin
+    const pushStart = Date.now();
     const pushResult = await this.pushToOrigin(params);
-    if (!pushResult.success) return pushResult;
+    timings.pushMs = Date.now() - pushStart;
+    if (!pushResult.success) {
+      recordPipelineRun({ source: 'pipeline', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: pushResult.summary, sessionId: params.executionId }).catch(() => {});
+      return pushResult;
+    }
 
     // 3. Environment-specific deployment
+    const deployStart = Date.now();
     const deployResult = params.environment === 'vps'
       ? await this.deployVps(params)
       : await this.generateCompanyChecklist(params);
+    timings.deployMs = Date.now() - deployStart;
 
     // 4. Cleanup worktrees + task branches
-    await this.cleanupTaskBranches(params);
+    const cleanupStart = Date.now();
+    const cleanupCount = await this.cleanupTaskBranches(params);
+    timings.cleanupMs = Date.now() - cleanupStart;
+
+    const durationMs = Date.now() - startTime;
 
     eventBus.publish('deploy.completed', { executionId: params.executionId, result: deployResult });
 
@@ -52,7 +71,21 @@ class DeployAgent {
       timestamp: Date.now(),
     }).catch(() => { /* non-blocking */ });
 
-    logger.info('[DeployAgent] Deploy completed', { executionId: params.executionId, success: deployResult.success });
+    // Record deploy phase metrics
+    recordPipelineRun({
+      source: 'pipeline', phase: 'deploy',
+      taskName: `deploy-${params.executionId}`,
+      model: 'system',
+      inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
+      durationMs,
+      success: deployResult.success,
+      sessionId: params.executionId,
+    }).catch(() => { /* non-blocking */ });
+
+    logger.info('[DeployAgent] Deploy completed', {
+      executionId: params.executionId, success: deployResult.success,
+      durationMs, timings, cleanupCount,
+    });
     return deployResult;
   }
 
@@ -185,8 +218,10 @@ class DeployAgent {
    * Delete all task/* branches and their worktrees.
    * Called after successful merge+push — branches already merged to master.
    */
-  private async cleanupTaskBranches(params: DeployParams): Promise<void> {
+  private async cleanupTaskBranches(params: DeployParams): Promise<number> {
     const repoDir = await this.getRepoDir();
+    let cleanedBranches = 0;
+    let cleanedDirs = 0;
     try {
       // List all task/ branches
       const { stdout } = await execSh(
@@ -197,27 +232,24 @@ class DeployAgent {
 
       for (const branch of branches) {
         try {
-          // Remove worktree first
           await execSh(`git worktree remove --force "$(git worktree list | grep "${branch}" | head -1 | awk "{print \\$1}")" 2>/dev/null || true`, {
             cwd: repoDir, timeoutMs: 10_000,
           });
         } catch { /* worktree may already be gone */ }
 
         try {
-          // Delete remote branch
           await execSh(`git push origin --delete "${branch}" 2>/dev/null || true`, {
             cwd: repoDir, timeoutMs: 15_000,
           });
         } catch { /* may not have remote */ }
 
         try {
-          // Delete local branch
           await execSh(`git branch -D "${branch}" 2>/dev/null || true`, {
             cwd: repoDir, timeoutMs: 10_000,
           });
         } catch { /* may not exist locally */ }
 
-        logger.info('[DeployAgent] Cleaned up task branch', { branch });
+        cleanedBranches++;
       }
 
       // Prune stale worktree references
@@ -238,6 +270,7 @@ class DeployAgent {
           try {
             if (fs.statSync(wtPath).isDirectory()) {
               fs.rmSync(wtPath, { recursive: true, force: true });
+              cleanedDirs++;
             }
           } catch { /* skip */ }
         }
@@ -245,6 +278,11 @@ class DeployAgent {
     } catch (e) {
       logger.warn('[DeployAgent] Worktree directory cleanup failed', { error: String(e) });
     }
+
+    if (cleanedBranches > 0 || cleanedDirs > 0) {
+      logger.info('[DeployAgent] Cleanup summary', { cleanedBranches, cleanedDirs });
+    }
+    return cleanedBranches + cleanedDirs;
   }
 
   // ── Checks (unchanged from original) ────────────────────

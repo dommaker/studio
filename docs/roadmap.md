@@ -1,6 +1,7 @@
 # Studio Roadmap
 
-> 2026-05-22 更新：进程 IO 去重 + 管线闭环修复 (DeployAgent merge/deploy/cleanup + Monitor GC) + 全链路文档 + 32 分支清理 + claude-session 废弃
+> 2026-05-22 更新：Batch 5 管线闭环修复 + Batch 6 知识缺口审计 (P0 源头捕获 / P1 冷启动 / P2 新鲜度自治)
+> 设计文档：`memory/issue_knowledge_gap_audit.md` — 334 条目 0 架构知识，16 断点+5 Phase 实施
 
 ---
 
@@ -166,6 +167,173 @@ Executor 完成
 
 ---
 
+## Batch 6：知识缺口审计 — 源头捕获 + 冷启动 + 新鲜度自治 (2026-05-22)
+
+> 设计文档：`memory/issue_knowledge_gap_audit.md`
+> 核心矛盾：harness 知识引擎完整（Store/Query/Lifecycle/Linter/Doctor/Evolver/Importer），但输入源只有 Monitor+Triage 故障模式。334 条目 0 架构知识。Agent 执行结果、CST 会话对话（78MB×7天）全部丢弃。
+
+### 三层边界（不可混淆）
+
+```
+CST (Human Shell)  →  Studio (Pipeline Agents)  →  Harness (Knowledge Engine)
+文件事件松耦合           API 调用                       存储/查询/生命周期
+```
+
+交互规则：CST→Studio 走文件事件(cst-emit.sh→events-daemon)，Studio→Harness 走 API，CST 不直接调 Harness。不新建 npm 包。不新建 Agent。
+
+### P0：源头捕获 — 止住正在流失的知识
+
+**对应断点**：A (CST 会话全丢)、B (Agent 执行结果全丢)、C (去重失效 328 条重复)
+
+#### P0a：Agent 执行完成时全量提取
+
+| ID | 任务 | 说明 |
+|----|------|------|
+| **B6-001** | extractFromReview | agent-event-listener → KnowledgeAgent 新增方法：ReviewResult(issues/suggestions/stanceReports/acResults) → LLM 提取 → ingestEntry |
+| **B6-002** | extractFromError | agent-event-listener → KnowledgeAgent 新增方法：error+errorChain → pitfall 条目 |
+| **B6-003** | extractFromCompletion | agent-event-listener → KnowledgeAgent 新增方法：completionOutput(changedFiles/completedAcs/siblingAdvice) → LLM 提取 |
+| **B6-004** | extractFromDeploy | agent-event-listener → KnowledgeAgent 新增方法：DeployAgent 部署发现(merge/push/deploy/cleanup) → LLM 提取 |
+
+关键设计：触发点 agent-event-listener.ts 不改架构只加调用行；所有 extract fire-and-forget 不阻塞管线。
+
+#### P0b：CST 会话归档时自动提取
+
+| ID | 任务 | 说明 |
+|----|------|------|
+| **B6-005** | cstnew → cst-emit.sh session:archive | `/root/.zshrc` cstnew 函数加一行 emit，备份后异步触发 |
+| **B6-006** | events-daemon session:archive 路由 | 新增路由规则：session:* → POST Studio API（不经过 Discord webhook） |
+| **B6-007** | POST /api/knowledge/extract-session | 新端点：接收 sessionFilePath → 202 Accepted → 异步处理 |
+| **B6-008** | KnowledgeAgent.extractFromSession() | 流式读 JSONL → 过滤 user+assistant → 截断 50K chars → LLM 提取 → ingestEntry × N → Discord 通知 |
+
+架构决策：不调 `claude -p --resume`（已验证不可行）；直接读 JSONL 文件；不阻塞 cstnew（emit 后立即启动新会话）；只覆盖 CST（`_CS_ID` 固定），裸 claude 暂不覆盖。
+
+#### P0c：修复去重写入
+
+| ID | 任务 | 说明 |
+|----|------|------|
+| **B6-009** | 排查 ingestEntry 去重失效 | 确认 TriageAgent 是否绕过 ingestEntry 直写 store.save()；title 是否有时间戳后缀致去重失效 |
+| **B6-010** | 修复 + dedup log | 如直写改调 ingestEntry；如 title 变化加 normalizedTitle；每次去重命中 logger.info |
+
+### P1：知识冷启动 — 存量导入
+
+**对应断点**：D (memory 文件腐烂)、E (四源冷启动从未执行)
+
+#### P1a：修复腐烂 memory 文件
+
+| ID | 任务 | 说明 |
+|----|------|------|
+| **B6-011** | 弃用 project_4_agent_system.md | 加 DEPRECATED 标记，指向 pipeline_flow |
+| **B6-012** | 弃用 project_new_architecture_gaps.md | 加 DEPRECATED 标记，指向 issue_knowledge_gap_audit |
+| **B6-013** | 标记 issue_studio_harness_context_integration.md | 加 SUPERSEDED by B5 头部 |
+| **B6-014** | 创建 project_batch_progress_2026_05_22.md | 消除 MEMORY.md 悬挂引用 |
+
+#### P1b：四源冷启动
+
+| ID | 任务 | 说明 |
+|----|------|------|
+| **B6-015** | harness types.ts 加 architecture 类型 + system 层 | KnowledgeType 加 `'architecture'`，StorageLayer 加 `'system'` |
+| **B6-016** | KnowledgeAgent.coldStartAll() | importFromDocs(memory+CLAUDE.md) + importFromCode(package.json+tsconfig) + importFromGit(近期提交) + importManual(管线流程) |
+
+### P2：新鲜度自治 — 不腐烂
+
+**对应断点**：I (新鲜度机制全手动)、F (KnowledgeBus 写入者少)、G (G-003 EnvSnapper)、H (G-004 DecisionChain)、L (ReviewAgent→KB)
+
+#### P2a：MonitorAgent 驱动新鲜度循环
+
+| ID | 任务 | 说明 |
+|----|------|------|
+| **B6-017** | KnowledgeQuery 引用追踪 | query() 返回条目时更新 lastReferenced（衰减链前提） |
+| **B6-018** | KnowledgeDoctor.healthScore() | 创建 harness/src/knowledge/doctor.ts：综合评分 orphan/outdated/decay/lowRef 0-100 |
+| **B6-019** | MonitorAgent.check() 扩展 | 每次 check 调 healthScore()；<60 分 Discord alert；距上次衰减>24h 则 runDecayCycle()+autoFix() |
+
+#### P2b：接通已实现的断线
+
+| ID | 任务 | 说明 |
+|----|------|------|
+| **B6-020** | G-003 EnvSnapper.start() 确认 | 验证 index.ts 已调用 startPeriodicSnapshots()（代码已实现，需确认） |
+| **B6-021** | G-004 DecisionChain extractFromExecution | 验证 KnowledgeAgent.extract() 已调用（代码已实现，需确认） |
+| **B6-022** | KnowledgeBus 多写入者 | Auditor/PostEval/Deploy → recordPattern()（各 Agent service） |
+| **B6-023** | ReviewAgent → KnowledgeBus | review-agent.service.ts → recordPattern({ source: 'reviewer' }) |
+
+### P3：智能进化（Phase 6+，不在当前范围）
+
+| 能力 | 说明 |
+|------|------|
+| 跨条目合成 | 多条相关条目 → LLM 合成 → 新条目 |
+| duplicate 自动归档 | autoFix 扩展覆盖 duplicate lint 类型 |
+| 源文件变更检测 | memory/package.json 变更 → 自动重新导入 |
+| 语义矛盾检测 | 内容级语义对比，非仅成熟度差检测 |
+
+### 完成效果
+
+```
+P0 完成后: 每次 cstnew + Agent 执行 → 知识自动入库，去重正常
+P1 完成后: 存量 memory+code+git 四源导入，问"管线怎么跑"直接答
+P2 完成后: 衰减/去重/修复全自动，健康评分<60 告警，知识库自治运行
+P2.5 (2026-05-22): 质量闸 + 引用验证 + 证据驱动晋升
+P3 (远期): 跨条目合成，完全自治
+```
+
+---
+
+## Batch 6.5：知识进化闭环 — 质量闸 + 引用追踪 + 成熟度晋升 (2026-05-22)
+
+> 第一性分析：P0-P2 修好了"知识怎么入库"，但不知道"知识有没有用"。
+> `tryPromote()` 函数已实现有测试，但从未被调用。所有知识永远 draft，只会向下 decay。
+
+### 五环进化模型
+
+```
+CAPTURE → QUALITY → INJECT → VERIFY → REFINE
+   ✅        ❌        ⚠️        ❌         ❌
+```
+
+| 环 | 卡点 | 修复 |
+|----|------|------|
+| QUALITY | LLM 提取直通入库，无质量闸 | `KnowledgeLinter.validateEntry()` 入库前校验 |
+| INJECT | 知识注入不带 ID，无法追踪 | prompt 中每条知识带 `[KNOWLEDGE #REF-001]` 标识 |
+| VERIFY | Agent 用了哪条知识？不知道 | completion 时解析输出中的引用 → `recordReference()` |
+| REFINE | `tryPromote()` 从未被调用 | MonitorAgent health check 时顺带运行 |
+
+### 实施清单
+
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | `KnowledgeLinter.validateEntry()` 质量闸 | `harness/src/knowledge/lint.ts` |
+| 2 | `KnowledgeAgent.validateBeforeIngest()` 包装器 | `knowledge-agent.service.ts` |
+| 3 | `KnowledgeQuery.formatCompactForPrompt` 输出带 ID | `knowledge-query.service.ts` |
+| 4 | `agent-event-listener.ts` 解析引用 + recordReference | `agent-event-listener.ts` |
+| 5 | `MonitorAgent.checkKnowledgeHealth()` 加 tryPromote | `monitor-agent.service.ts` |
+
+### P2.5b 紧急修复 (2026-05-22)
+
+> 第一性审计发现 P2.5 有两个致命 bug：
+> 1. `recordKnowledgeRefs()` 扫描的是 `completionOutput`（结构化元数据），不是 Agent 输出文本 → [REF:xxx] 永远扫不到
+> 2. `tryPromote()` 的 `projects.length >= 2` 在单项目部署永远不满足
+> 3. ReviewAgent/MonitorAgent 不发知识库 → 没有消费者闭环
+
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | 从 worktree `.progress.json` notes + agent 输出文件扫描 [REF:xxx] | `agent-event-listener.ts` |
+| 2 | 新增单项目晋升路径：referenced > 3 次 + 来自 2+ source → proven | `harness/src/knowledge/lifecycle.ts` |
+| 3 | ReviewAgent `buildReviewPrompt` 注入知识总线上下文 | `review-agent.service.ts` |
+| 4 | MonitorAgent `checkKnowledgeHealth` 参考历史知识调整阈值 | `monitor-agent.service.ts` |
+| 5 | DeployAgent deploy() 注入知识总线上下文 | `deploy-agent.service.ts` |
+| 6 | AuditorAgent dailyAudit() 注入知识总线上下文 | `auditor-agent.service.ts` |
+
+### 当前消费者覆盖
+
+```
+Analyst       ✅ formatAllForPrompt (5 类全量 + 总线)
+Executor      ✅ formatCompactForPrompt + getRecentContext
+ReviewAgent   ✅ getRecentContext (P2.5b)
+DeployAgent   ✅ getRecentContext (P2.5b)
+AuditorAgent  ✅ getRecentContext (P2.5b)
+PostEval      ⚠️ (evaluate 是 LLM 调用, context 注入不适合)
+MonitorAgent  ⚠️ (阈值调整需要结构化的知识查询, 非 prompt 注入)
+```
+
+---
 ## 管线监控架构 (2026-05-08 分析)
 
 ### 四个根本问题
@@ -829,6 +997,7 @@ Phase F: Agent 行为约束（Mnilax 12 规则）
 | H (知识库缺口) | G-001~005: 偏好/规则/环境/决策链/交互模式 + EvalCase | ✅ done |
 | I (Slim Down) | 旧范式清理: -16 pages, -8 modules, -5 packages | ✅ done |
 | J (Package 简化) | 删 4 僵尸包, 合 5 个到 apps/api: 17→8 packages | ✅ done (2026-05-19) |
+| K (知识缺口审计) | B6-001~023: P0 源头捕获 + P1 冷启动 + P2 新鲜度自治 | ⏳ 待实施 |
 
 ---
 ### Phase H：知识库五大缺口 (2026-05-19)
@@ -964,8 +1133,38 @@ Phase 3: 检索 + 注入
 | P2 | Skill 加载/卸载生命周期 — load 注入 prompt+tool, unload 回收 (#76) | 待做 | 2h |
 | P2 | Skill ↔ Tool 权限绑定 — tier 控制 fast/standard/premium (#77) | 待做 | 1.5h |
 | P2 | SkillProposal 端到端审批工作流 — 提案→审批→创建 Skill (#78) | 待做 | 1.5h |
+| P2 | S-001: 统一 Skill schema — 合并 SkillDefinition/Prisma Skill/CompanySkill 三套字段 | 待做 | 2h |
+| P2 | S-002: buildSubAgentPrompt() 收归 buildAgentContext() 统一入口 | 待做 | 1h |
+| P2 | S-003: Execution 反馈闭环 — POST /skills/usage 接入执行管线 | 待做 | 1h |
+| P2 | S-004: Unload 架构重设计 — 结构化作用域替代持久文本注入 | 待做 | 2h |
+| P2 | S-005: Evolution 闭环 — Auditor 报告 → 运行时 SkillDefinition 更新 | 待做 | 2h |
+| P2 | S-006: Cross-Agent DB→runtime 回路 — CompanySkill 接入 SkillLoader | 待做 | 1.5h |
 | P3 | INF-005 DNS | 阻塞 | — |
 | P4 | B4-001/002/003 远期 | 远期 | — |
+| -- | **Batch 6: 知识缺口审计 (2026-05-22)** | -- | -- |
+| **P0** | **B6-001** extractFromReview — ReviewResult → LLM → ingestEntry | 待做 | 1h |
+| **P0** | **B6-002** extractFromError — error+errorChain → pitfall 条目 | 待做 | 0.5h |
+| **P0** | **B6-003** extractFromCompletion — completionOutput → LLM 提取 | 待做 | 0.5h |
+| **P0** | **B6-004** extractFromDeploy — DeployAgent 发现 → LLM 提取 | 待做 | 0.5h |
+| **P0** | **B6-005** cstnew → cst-emit.sh session:archive 事件发出 | 待做 | 0.2h |
+| **P0** | **B6-006** events-daemon session:archive 路由 → POST Studio API | 待做 | 0.5h |
+| **P0** | **B6-007** POST /api/knowledge/extract-session 端点 | 待做 | 0.5h |
+| **P0** | **B6-008** KnowledgeAgent.extractFromSession() JSONL→LLM→ingest | 待做 | 2h |
+| **P0** | **B6-009** 排查 ingestEntry 去重失效原因 | 待做 | 0.5h |
+| **P0** | **B6-010** 修复去重 + dedup log | 待做 | 0.5h |
+| **P1** | **B6-011** 弃用 project_4_agent_system.md | 待做 | 0.1h |
+| **P1** | **B6-012** 弃用 project_new_architecture_gaps.md | 待做 | 0.1h |
+| **P1** | **B6-013** 标记 issue_studio_harness_context_integration.md 为 SUPERSEDED | 待做 | 0.1h |
+| **P1** | **B6-014** 创建 project_batch_progress_2026_05_22.md | 待做 | 0.2h |
+| **P1** | **B6-015** harness types.ts 加 architecture 类型 + system 层 | 待做 | 0.2h |
+| **P1** | **B6-016** KnowledgeAgent.coldStartAll() 四源导入 | 待做 | 1.5h |
+| **P2** | **B6-017** KnowledgeQuery 引用追踪 — query() 更新 lastReferenced | 待做 | 1h |
+| **P2** | **B6-018** KnowledgeDoctor.healthScore() — 创建 harness/src/knowledge/doctor.ts | 待做 | 1.5h |
+| **P2** | **B6-019** MonitorAgent.check() 扩展 — healthScore+decay+autoFix | 待做 | 1.5h |
+| **P2** | **B6-020** G-003 EnvSnapper.start() 验证连通 | 待做 | 0.2h |
+| **P2** | **B6-021** G-004 DecisionChain extractFromExecution 验证 | 待做 | 0.2h |
+| **P2** | **B6-022** KnowledgeBus 多写入者 — Auditor/PostEval/Deploy | 待做 | 1h |
+| **P2** | **B6-023** ReviewAgent → KnowledgeBus recordPattern | 待做 | 0.5h |
 
 ---
 
@@ -1014,7 +1213,7 @@ Phase 3: 检索 + 注入
 | 2 | **算力节点加入 UI** | workspace-daemon-design.md §三 | 无法加入其他电脑 |
 | 3 | **远程任务分发** | deployment-design.md §C | GoalScheduler 只调本地 |
 | 4 | **studio-toolbox 接入** | agent-first-refactoring.md | tool 定义了但不加载 |
-| 5 | **Skill 系统** (6 项缺口: #72~#78) | agent-first-refactoring.md §8 Skills | 硬编码/无生命周期/无工具绑定/无审批流 |
+| 5 | **Skill 系统** (12 项缺口: #72~#78 + S-001~S-006) | agent-first-refactoring.md §8 Skills | 硬编码/无生命周期/无工具绑定/无审批流/无反馈闭环 |
 | 6 | **Agent 记忆模型** | agent-first-design-2026-05-06.md | 无 3 层记忆 |
 | 7 | **Knowledge Phase 3** | knowledge-gaps-design.md §S9,S11 | 提取了未注入/未展示 |
 | 8 | **Discord webhook 多身份** | discord-integration-design.md | 不能换 username |
@@ -1110,6 +1309,32 @@ Phase 3: 检索 + 注入
 **预期产出**：Agent 反复调用同一个失败的工具 → Monitor 检测到 → 推 Channel → 你立刻知道 Agent 卡住了。
 
 ### P0 执行顺序
+
+### P0.4: 管线全阶段日志补齐 + Token 拆分 + Plan Coverage ✅ (2026-05-22)
+
+全部管线阶段监控完成 + model-gateway cacheHit 拆分 + PostEval plan 覆盖率验证。
+
+### P0.5: 知识沉淀基础设施 ✅ (2026-05-22)
+
+KnowledgeSync(自运转)、电路自检+自愈(因果推断)、设计时沉淀(upsert+scope去重)、新鲜度检测(git对比)、API+CLI。
+
+### P0.6: 约束 Prompt 注入 ✅ (2026-05-22)
+
+harness 26 条约束的 promptInjection 按 agent 角色路由到 Analyst/Executor/Integration/Reviewer 四个 prompt builder。
+
+### P0.7: 知识断点 17→0 + 单例 Store ✅ (2026-05-22)
+
+知识库全链路断点修复: BP-17 单例, BP-4 引用追踪, BP-2 lastReferenced 初始化, BP-1 成熟度分层。
+
+### P0.8: 用户模型引擎 ✅ (2026-05-22)
+
+Lenses(6)+Meta-Principles(4)+Derived Rules, analyze-sessions 纠正模式发现, update-user-model 增量演化, harness define→detect→learn 抽象。
+
+### P0.9: Deep Analysis 检测 hooks ✅ (2026-05-22)
+
+PostToolUse+Stop 组合: EnterPlanMode/Agent(Explore)/10+dirs Read → 未写 knowledge → Stop 时 warn。
+
+### P0 执行顺序（已废弃，保留历史）
 
 ```
 P0.1 知识注入 (2h)

@@ -7,9 +7,11 @@
  */
 
 import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { formatConstraintsForPrompt } from '@dommaker/harness';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { recordPipelineRun } from '../../daemon/metrics.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ReviewResult } from './types.js';
@@ -36,13 +38,15 @@ export class ReviewAgent {
     stances?: { id: string; name: string; prompt: string; reviewerFocus?: string }[];
   }): Promise<ReviewResult> {
     const { taskId, worktree, taskDescription, acceptanceCriteria, cycle = 1 } = params;
+    const startTime = Date.now();
 
     try {
       // 检查是否有代码变更
       const hasChanges = await this.hasChanges(worktree);
 
       if (!hasChanges) {
-        logger.info('[ReviewAgent] No changes detected, auto-approving', { taskId });
+        const durationMs = Date.now() - startTime;
+        logger.info('[ReviewAgent] No changes detected, auto-approving', { taskId, durationMs });
         return { approved: true, score: 100, issues: [], suggestions: [] };
       }
 
@@ -54,7 +58,8 @@ export class ReviewAgent {
       } catch { /* best-effort */ }
 
       // 构建审查 prompt 并写入 worktree
-      const reviewPrompt = knowledgeSection + buildReviewPrompt({
+      const constraintSection = formatConstraintsForPrompt('reviewer');
+      const reviewPrompt = constraintSection + knowledgeSection + buildReviewPrompt({
         taskDescription,
         acceptanceCriteria,
         cycle,
@@ -80,18 +85,33 @@ export class ReviewAgent {
         `2>&1`,
       ].join(' ');
 
-      logger.info('[ReviewAgent] Starting review', { taskId, cycle, worktree });
+      logger.info('[ReviewAgent] Starting review', { taskId, cycle, worktree, knowledgeSize: knowledgeSection.length });
 
+      let reviewOutput = '';
+      let reviewTokens: { inputTokens: number; outputTokens: number; cacheHitTokens: number } | null = null;
       try {
-        await execSh(cmd, {
+        const { stdout } = await execSh(cmd, {
           cwd: worktree,
           env: { ANTHROPIC_MODEL: model },
           timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
         });
+        reviewOutput = stdout;
+        // Parse JSON envelope for token usage
+        try {
+          const envelope = JSON.parse(stdout);
+          if (envelope.usage) {
+            reviewTokens = {
+              inputTokens: envelope.usage.input_tokens || 0,
+              outputTokens: envelope.usage.output_tokens || 0,
+              cacheHitTokens: envelope.usage.cache_read_input_tokens || 0,
+            };
+          }
+        } catch { /* best-effort */ }
       } catch (execErr: any) {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
-        logger.error('[ReviewAgent] Claude Code failed', { taskId, cycle, error: errMsg.slice(0, 200) });
+        const durationMs = Date.now() - startTime;
+        logger.error('[ReviewAgent] Claude Code failed', { taskId, cycle, durationMs, error: errMsg.slice(0, 200) });
         // 审查失败不阻塞流程，默认放行
         return {
           approved: true,
@@ -128,7 +148,22 @@ export class ReviewAgent {
         stanceReports: report.stanceReports
           ? Object.entries(report.stanceReports).map(([k, v]) => `${k}:${v.issues.length}`)
           : 'n/a',
+        durationMs: Date.now() - startTime,
+        tokens: reviewTokens,
       });
+
+      // Record review phase metrics
+      recordPipelineRun({
+        source: 'pipeline', phase: 'review',
+        taskName: `review-${taskId}`,
+        model,
+        inputTokens: reviewTokens?.inputTokens || 0,
+        outputTokens: reviewTokens?.outputTokens || 0,
+        cacheHitTokens: reviewTokens?.cacheHitTokens || 0,
+        durationMs: Date.now() - startTime,
+        success: report.overallApproved,
+        sessionId: taskId,
+      }).catch(() => { /* non-blocking */ });
 
       // Record review pattern to KnowledgeBus
       const issueSummary = (report.issues ?? []).slice(0, 5).map(i => `[${i.severity}] ${i.message}`).join('\n');

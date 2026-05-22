@@ -18,11 +18,14 @@ import { logger } from '@dommaker/studio-shared';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
-import { KnowledgeStore, KnowledgeLinter, KnowledgeHealthScorer, KnowledgeLifecycle, ReferenceTracker } from '@dommaker/harness';
+import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
+import { sharedStore, sharedLifecycle, checkKnowledgeCircuit, repairKnowledgeCircuit } from '../knowledge/knowledge-bus.service.js';
+import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 const FAILURE_THRESHOLD = 3;
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+const HEARTBEAT_FILE = path.join(os.homedir(), '.studio', 'heartbeats.json');
 
 // NA Step 7: 告警阈值
 const PROGRESS_STAGNATION_WARN = 3;  // 连续 3 次无进展 → Level 1
@@ -45,13 +48,22 @@ const SYSTEM_HEALTH_CONFIRM_WINDOW_MS = 60 * 1000; // 60s between checks (Monito
 
 export class MonitorAgent {
   private interval: NodeJS.Timeout | null = null;
+  private circuitCheckInterval: NodeJS.Timeout | null = null;
   private lastDecayRun = 0;
 
   start(): void {
     if (this.interval) return;
+    this.loadPersistedHeartbeats();
     this.interval = setInterval(() => this.check().catch(e => {
       logger.error('[MonitorAgent] Check failed', { error: String(e) });
     }), CHECK_INTERVAL);
+
+    // Circuit self-check at startup — detect + auto-repair + write meta-knowledge
+    this.runCircuitCheckAndRepair();
+
+    // Periodic circuit check (hourly)
+    this.circuitCheckInterval = setInterval(() => this.runCircuitCheckAndRepair(), 60 * 60 * 1000);
+
     logger.info('[MonitorAgent] Started', { checkInterval: CHECK_INTERVAL });
   }
 
@@ -59,6 +71,10 @@ export class MonitorAgent {
     if (this.interval) {
       clearInterval(this.interval);
       this.interval = null;
+    }
+    if (this.circuitCheckInterval) {
+      clearInterval(this.circuitCheckInterval);
+      this.circuitCheckInterval = null;
     }
     logger.info('[MonitorAgent] Stopped');
   }
@@ -466,7 +482,8 @@ export class MonitorAgent {
         }
       }
     } catch (e) {
-      // Non-blocking — GC failure must not crash the monitor loop
+      // Non-blocking — GC failure must not crash the monitor loop, but MUST be logged
+      logger.warn('[MonitorAgent] gcStaleWorktrees failed', { error: String(e) });
     }
   }
 
@@ -507,12 +524,48 @@ export class MonitorAgent {
   }
 
   /**
-   * 🆕 记录心跳（由 agent.heartbeat 事件调用）
+   * 🆕 记录心跳（由 agent.heartbeat 事件调用）+ 文件持久化
    */
   recordHeartbeat(executionId: string): void {
     const snapshot = progressSnapshots.get(executionId);
     if (snapshot) {
       snapshot.lastHeartbeat = Date.now();
+    }
+    // Persist to file for restart recovery
+    try {
+      const dir = path.dirname(HEARTBEAT_FILE);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const data: Record<string, number> = {};
+      if (fs.existsSync(HEARTBEAT_FILE)) {
+        Object.assign(data, JSON.parse(fs.readFileSync(HEARTBEAT_FILE, 'utf-8')));
+      }
+      data[executionId] = Date.now();
+      fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify(data), 'utf-8');
+    } catch { /* non-blocking */ }
+  }
+
+  /** Restore heartbeat state from persisted file on startup */
+  private loadPersistedHeartbeats(): void {
+    try {
+      if (!fs.existsSync(HEARTBEAT_FILE)) return;
+      const data = JSON.parse(fs.readFileSync(HEARTBEAT_FILE, 'utf-8')) as Record<string, number>;
+      const stale = Date.now() - 30 * 60 * 1000; // 30 min
+      for (const [execId, ts] of Object.entries(data)) {
+        if (ts > stale) {
+          progressSnapshots.set(execId, {
+            completedCount: 0, unchangedCount: 0, lastHeartbeat: ts,
+          });
+        }
+      }
+      logger.info('[MonitorAgent] Restored heartbeats', { count: progressSnapshots.size });
+      // Clean up stale entries from file
+      const fresh: Record<string, number> = {};
+      for (const [execId, ts] of Object.entries(data)) {
+        if (ts > stale) fresh[execId] = ts;
+      }
+      fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify(fresh), 'utf-8');
+    } catch (e) {
+      logger.warn('[MonitorAgent] Failed to load persisted heartbeats', { error: String(e) });
     }
   }
 
@@ -521,13 +574,89 @@ export class MonitorAgent {
    * - Health score: every 5 min (Monitor cycle), escalates to Triage if < 60
    * - Decay cycle: once per 24h, runs maturity decay + linter auto-fix
    */
+
+  /**
+   * Circuit check → repair → write meta-knowledge to store.
+   * Runs at MonitorAgent startup + hourly. Makes knowledge system self-documenting.
+   */
+  private async runCircuitCheckAndRepair(): Promise<void> {
+    try {
+      // KnowledgeSync Cycle 2+3: detect staleness + unmonitored + heal
+      const syncResult = await knowledgeSync.runSyncCycle();
+      if (syncResult.stale.length > 0 || syncResult.unmonitored.length > 0) {
+        logger.warn('[MonitorAgent] KnowledgeSync detected issues', {
+          staleScopes: syncResult.stale.map(s => ({ scope: s.scope, changedFiles: s.changedFiles, hours: s.stalenessHours })),
+          unmonitored: syncResult.unmonitored.map(u => ({ scope: u.scope, reason: u.reason })),
+          healed: syncResult.healed,
+        });
+      }
+
+      const circuit = checkKnowledgeCircuit();
+      const openCircuits = Object.entries(circuit.circuits).filter(([, c]) => c.status === 'OPEN');
+      const allStatus = Object.entries(circuit.circuits).map(([k, v]) => `${k}:${v.status}`).join(', ');
+
+      // Write circuit health snapshot as meta-knowledge (trend entry)
+      if (openCircuits.length > 0) {
+        const critical = openCircuits.filter(([, c]) => c.likelyCause);
+        logger.warn('[MonitorAgent] Knowledge circuit OPEN — repairing', {
+          openCircuits: openCircuits.map(([name, c]) => ({ circuit: name, evidence: c.evidence, likelyCause: c.likelyCause })),
+        });
+
+        // Auto-repair
+        const repairs = repairKnowledgeCircuit(circuit.circuits);
+        const repairSummary = repairs.map(r => `${r.circuit}: ${r.action} → ${r.result}`).join('\n');
+
+        // Write meta-knowledge to store — so next query finds circuit state without re-scanning code
+        await knowledgeBus.recordPattern({
+          source: 'monitor',
+          type: 'trend',
+          title: `Knowledge circuit: ${openCircuits.length} OPEN (${allStatus})`,
+          content: [
+            `Circuits: ${allStatus}`,
+            `Total entries: ${circuit.stats.total}`,
+            `Maturity: ${JSON.stringify(circuit.stats.byMaturity)}`,
+            '',
+            `Open circuits:`,
+            ...openCircuits.map(([name, c]) => `  - ${name}: ${c.evidence}\n    Likely cause: ${c.likelyCause || 'unknown'}`),
+            '',
+            `Repairs:`,
+            repairSummary,
+          ].join('\n'),
+          severity: 'warning',
+          timestamp: Date.now(),
+        });
+
+        for (const r of repairs) {
+          logger.info('[MonitorAgent] Circuit repair', r);
+        }
+      } else {
+        logger.info('[MonitorAgent] Knowledge circuit all CLOSED');
+
+        // Periodic healthy snapshot (hourly)
+        await knowledgeBus.recordPattern({
+          source: 'monitor',
+          type: 'trend',
+          title: `Knowledge circuit healthy (${allStatus})`,
+          content: [
+            `All circuits CLOSED.`,
+            `Total: ${circuit.stats.total} entries`,
+            `Maturity: ${JSON.stringify(circuit.stats.byMaturity)}`,
+            `Types: ${JSON.stringify(circuit.stats.byType)}`,
+          ].join('\n'),
+          severity: 'info',
+          timestamp: Date.now(),
+        });
+      }
+    } catch (e) {
+      logger.warn('[MonitorAgent] Circuit check failed', { error: String(e) });
+    }
+  }
+
   private async checkKnowledgeHealth(): Promise<void> {
     try {
-      const store = new KnowledgeStore();
-      const tracker = new ReferenceTracker(store);
-      const linter = new KnowledgeLinter(store, tracker);
-      const doctor = new KnowledgeHealthScorer(store, linter);
-      const lifecycle = new KnowledgeLifecycle(store);
+      const tracker = new ReferenceTracker(sharedStore);
+      const linter = new KnowledgeLinter(sharedStore, tracker);
+      const doctor = new KnowledgeHealthScorer(sharedStore, linter);
 
       const { score, details } = doctor.healthScore();
 
@@ -556,11 +685,11 @@ export class MonitorAgent {
       }
 
       // P2.5: Promotion cycle (every 5 min) — scan all draft/verified entries for promotion
-      const allEntries = store.list({ excludeArchived: false }).filter(e => e.maturity === 'draft' || e.maturity === 'verified');
+      const allEntries = sharedStore.list({ excludeArchived: false }).filter(e => e.maturity === 'draft' || e.maturity === 'verified');
       let promoted = 0;
       for (const entry of allEntries) {
         try {
-          const result = lifecycle.tryPromote(entry.id);
+          const result = sharedLifecycle.tryPromote(entry.id);
           if (result) {
             promoted++;
             logger.info('[MonitorAgent] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
@@ -573,7 +702,7 @@ export class MonitorAgent {
 
       // Decay cycle: once per 24h
       if (Date.now() - this.lastDecayRun > 24 * 60 * 60_000) {
-        const decayChanges = lifecycle.runDecayCycle();
+        const decayChanges = sharedLifecycle.runDecayCycle();
         const lintReport = linter.run(true); // autoFix: true
         this.lastDecayRun = Date.now();
 
