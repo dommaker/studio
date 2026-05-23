@@ -371,12 +371,13 @@ class DeployAgent {
       const sqlFiles = stdout.trim().split('\n').filter(f =>
         f.includes('schema.prisma') || f.includes('prisma/migrations/') || f.endsWith('.sql'));
       if (sqlFiles.length > 0) {
-        return [
+        const findings: DeployFinding[] = [
           { severity: 'warning', category: 'sql_change', message: `数据库变更: ${sqlFiles.join(', ')}` },
-          ...(sqlFiles.some(f => f.includes('migrations'))
-            ? [{ severity: 'info', category: 'sql_change', message: '新迁移文件需要 DBA 审批' }]
-            : []),
         ];
+        if (sqlFiles.some(f => f.includes('migrations'))) {
+          findings.push({ severity: 'info', category: 'sql_change', message: '新迁移文件需要 DBA 审批' });
+        }
+        return findings;
       }
       return [{ severity: 'info', category: 'sql_change', message: 'No database changes' }];
     } catch (e) {

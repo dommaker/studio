@@ -1,7 +1,8 @@
 # Studio Roadmap
 
-> 2026-05-22 更新：Batch 5 管线闭环修复 + Batch 6 知识缺口审计 (P0 源头捕获 / P1 冷启动 / P2 新鲜度自治)
+> 2026-05-23 更新：Batch 5 管线闭环修复 + Batch 6 知识缺口审计 + Batch 7 知识进化引擎 + RKB Phase 1
 > 设计文档：`memory/issue_knowledge_gap_audit.md` — 334 条目 0 架构知识，16 断点+5 Phase 实施
+> RKB 分析：`memory/project_knowledge_engine_ops_gap.md` — 六层知识模型 L3~L6 缺口 + Phase 1 实现
 
 ---
 
@@ -1115,7 +1116,7 @@ Phase 3: 检索 + 注入
 | P0 | RequirementGate: flash LLM 语义验证 (AC独立, 隐式依赖, 文件冲突) | ✅ | 1h |
 | P0 | Gate 不通过 → Channel 反馈 → Analyst 修正 → 重新提交 | ✅ | 0.5h |
 | -- | **Agent 上下文统一** | -- | -- |
-| P0.A | 新建 forensic-review + tool-risk Skill | 待做 | 0.5h |
+| P0.A | 新建 forensic-review + tool-risk Skill | ✅ | 0.5h |
 | P0.B | buildAgentContext() 统一入口 | ✅ | 1.5h |
 | P0.C | 实时进度推送 (Agent → Channel progress cards) | ✅ | 1h |
 | P0.D | 管线状态仪表板 (GET /api/v1/pipeline/status) | ✅ | 1h |
@@ -1123,6 +1124,14 @@ Phase 3: 检索 + 注入
 | P0.F | 生产服 systemd + pre-commit 凭证扫描 + harness no_hardcoded_credentials | ✅ | 1h |
 | P0 | 狗粮多步 Goal 调试 (集成/审查/部署/KK 全链路) | 待做 | 4h |
 | **P1** | **审查/部署结果持久化到 DB** | 待做 | 2h |
+| -- | **2026-05-24 管线自举** | -- | -- |
+| P0 | 管线自举: harness trace 写入 (pipeline-⑨) | ✅ | Pipeline 全链 |
+| P0 | Q1: Reviewer 未触发→blocked | ✅ | goal.service |
+| P0 | Q2: Integration 竞态修复 | ✅ | goal.service |
+| P0 | Q6: 数据库路径绝对化 | ✅ | index.ts |
+| P1 | Q5/Q3/Q4/Q7/Q8 + R4: 5个效能+session共享 | ✅ | scheduler/analyst/executor |
+| -- | **待实现: Analyst+Executor 合并** | -- | -- |
+| P1 | direct-executor: Analyst→Executor 同 session | 待做 | ~200行 |
 | P1 | daemon 远程注册 + 远程分发 + 算力 UI | 待做 | 5d |
 | P2 | Agent 记忆模型 | 待做 | — |
 | P2 | Discord webhook 多身份 + @Agent 自由格式 | 待做 | — |
@@ -1370,10 +1379,11 @@ P0.3 Tool 模式检测 (1.5h)
 
 ---
 
-## Batch 7：知识进化引擎 E2E 修复 + Agent 拓扑解耦 (2026-05-23)
+## Batch 7：知识进化引擎 E2E 修复 + Agent 拓扑解耦 + RKB Phase 1 (2026-05-23)
 
 > 端到端测试知识进化引擎时发现三处断裂：events-daemon JSONL 解析器读错字段、modelGateway JSON 提取失败、KnowledgeIngest linter 崩溃。
 > 同步完成 Agent 拓扑解耦：ReviewAgent.reviewDiff + DeployAgent.mergeBranches/pushBranch 参数化。
+> RKB Phase 1：六层知识模型 L3~L5 基建完成 — Resolution Prisma 模型、匹配/创建/验证服务、agent-executor 失败注入、Auditor 自动检测、预置 seed。
 
 ### B7-001: events-daemon JSONL 解析修复
 
@@ -1419,3 +1429,128 @@ PostEval 阶段只做 AC vs diff 审计，不自动更新 docs/roadmap。导致�
 2. 更新 memory docs / batch progress
 3. 更新 roadmap 状态
 4. Commit + push 文档变更
+
+### B7-006: RKB Phase 1 — 运维配置类知识覆盖 (L3~L5)
+
+> 第一性分析发现知识进化引擎只覆盖 L1(代码)+L2(偏好)，L3~L6(工具行为/环境配置/错误解法/跨会话因果)完全盲区。
+> Phase 1 完成基建：Resolution 数据模型 + 匹配/创建/验证服务 + agent-executor 集成 + Auditor 自动检测 + 预置 seed。
+
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | `Resolution` Prisma 模型 (pattern, errorClass, layer, title, fix, status, verifyCount) | `packages/studio-prisma/prisma/schema.prisma` |
+| 2 | SQLite 迁移 | `migrations/20260523000000_add_resolution/migration.sql` |
+| 3 | Resolution 类型定义 (L3/L4/L5/L6 layer, MatchResolutionResult) | `packages/studio-shared/src/types/resolution.ts` |
+| 4 | `ResolutionService` — matchResolutions(两层:regex+子串), createResolution, verifyResolution, listPending, ensureSeedResolutions | `apps/api/src/modules/knowledge/resolution.service.ts` |
+| 5 | 启动时 seed: root+dangerously-skip-permissions → canonical | `apps/api/src/index.ts` |
+| 6 | agent-executor 失败时查 Resolution DB → 匹配则注入 retry prompt | `packages/studio-agent/src/services/agent-executor.ts` |
+| 7 | Auditor 日审: 对未见过的运维类 error pattern 自动创建 pending Resolution | `apps/api/src/modules/agents/auditor-agent.service.ts` |
+| 8 | 六层知识覆盖分析文档 | `memory/project_knowledge_engine_ops_gap.md` |
+
+**六层覆盖状态 (Phase 1 完成后):**
+
+| Layer | 覆盖 | 说明 |
+|-------|:--:|------|
+| L1 代码知识 | 100% | KK + Wiki + Evolution Service |
+| L2 用户偏好 | 100% | PreferenceObserver (5 维度 EMA) |
+| L3 工具行为 | 30% | RKB 基建完成，仅 1 条 canonical seed |
+| L4 环境配置 | 30% | 同上，知识密度待积累 |
+| L5 错误→解法 | 40% | 匹配+注入链路通，解法靠 seed+Auditor 自动检测 |
+| L6 跨会话因果 | 0% | 需 EnvironmentSnapshot diff + DecisionChain 因果关联 |
+
+**知识闭环：**
+```
+执行失败 → ErrorClassifier 归类
+          → Resolution.match() 查已知解法 → 有: 注入 retry prompt
+          → 无: 记录 error
+                → Auditor 日审 → 新 pattern → 自动创建 pending Resolution
+                → 人工回写 fix → verifyCount++ → canonical
+```
+
+**Phase 2 待做 (L6 + 知识密度):**
+- L6 跨会话因果: EnvironmentSnapshot diff → 变更-故障因果链
+- 知识密度: 每次手动解决运维问题后主动回写 Resolution
+- Auto-verify: 同一 Resolution 被 match 并 success → 自动 verifyCount++
+- RAG 互通: Resolution.canonical → 自动 ingest 到 local-rag
+
+### B7-007: 开发文档 → KnowledgeStore 自动沉淀 (memory hook)
+
+> 知识进化引擎只有一条自动输入源（Agent 执行会话），开发分析产出（memory/）完全断开。
+> 新增 PostToolUse(Write) hook：memory/*.md 写完后自动同步到 KnowledgeStore (.harness/knowledge/)。
+
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | `memory-knowledge-sync.js` — 解析 frontmatter ingest/maturity 门，写 KnowledgeStore 兼容格式 | `harness/bin/memory-knowledge-sync.js` |
+| 2 | `memory-knowledge-sync.sh` — PostToolUse hook wrapper，从 stdin JSON 提取 file_path | `harness/bin/memory-knowledge-sync.sh` |
+| 3 | settings.json 新增 PostToolUse(Write) hook → bash memory-knowledge-sync.sh | `~/.claude/settings.json` |
+| 4 | 首批 3 文档标记 ingest:true + frontmatter 并同步 | `memory/project_knowledge_engine_ops_gap.md`, `analysis_auto_precipitate_expose.md`, `project_pipeline_flow.md` |
+
+**内存成熟度门:**
+```yaml
+# memory 文件 frontmatter:
+ingest: true       # 显式标记才触发
+maturity: verified # draft 跳过，canonical 最高
+```
+PostToolUse(Write) 触发 → frontmatter 检查 → 写入 `apps/api/.harness/knowledge/` → Agent 通过 KK 可查询。
+
+**知识输入源覆盖 (B7-007 后):**
+
+| 输入源 | 状态 | 机制 |
+|-------|:--:|------|
+| Agent 执行会话 | ✅ | events-daemon → extract-text → LLM → sharedStore |
+| 开发分析产出 (memory/) | ✅ | PostToolUse(Write) → frontmatter gate → KnowledgeStore |
+| 设计文档 (docs/) | ❌ | 同机制可扩展，待标记 |
+| RAG (local-rag) | ❌ | 手动 ingest，独立体系 |
+
+---
+
+## 十四、预存已知问题 (2026-05-23 曝光)
+
+> 以下问题在 RKB Phase 1 开发中通过 `tsc --noEmit` 暴露，均为预存问题（非本次改动引入）。
+> 按严重度分级：P0=语义 bug 隐患，P1=接口断裂编译阻塞，P2=类型窄化。
+
+### P0 — 语义 bug 隐患
+
+| # | 文件:行 | 错误 | 影响 |
+|---|---------|------|------|
+| P0-1 | `agent-executor.ts:384,392` | `totalDurationMs` 不在 `ExecutionResult` 接口 | runtime 返回对象会丢弃该字段，2 处 return path 受影响 |
+
+### P1 — 接口断裂 (编译阻塞)
+
+| # | 文件:行 | 错误 |
+|---|---------|------|
+| P1-1 | `monitor-agent.service.ts:21` | `KnowledgeHealthScorer` 未从 `@dommaker/harness` 导出 |
+| P1-2 | `review-agent.service.ts:10` | `formatConstraintsForPrompt` 未从 harness 导出 |
+| P1-3 | `routes.ts:3` | `@dommaker/studio-agent` 模块找不到（build 产物缺失或路径错误） |
+| P1-4 | `analyst-trigger.service.ts:11` | harness `dist/core/constraints/index.js` 路径不存在 |
+
+### P2 — 类型窄化
+
+| # | 文件:行 | 错误 |
+|---|---------|------|
+| P2-1 | `deploy-agent.service.ts:376` | `DeployFinding.category` 类型 `string` 不满足 union 约束 |
+| P2-2 | `knowledge-agent.service.ts:501` | `validateEntry` 不存在于 `KnowledgeLinter` |
+| P2-3 | `audit-logs/routes.ts:11` | Prisma client 扩展类型不兼容 |
+| P2-4 | `auth/routes.ts:9` | Prisma client 扩展类型不兼容 |
+| P2-5 | `dingtalk/routes.ts:22,29` | logger 重载类型匹配失败 |
+
+### 备注
+
+- P0-1 是本次 RKB 开发中直接观察到的：`agent-executor.ts` 在 io 去重重构时新增了 `totalDurationMs` 字段到 return 对象，但忘了更新 `ExecutionResult` 接口定义
+- P1-1~P1-4 说明 harness 版本不一致或某些模块的 build 产物过期
+- P2 类问题不阻塞运行时但使类型检查失效
+- **P3-1**: ~~`harness/bin/` 下脚本均为 studio 集成逻辑~~ → 已修复：`memory-knowledge-sync.*` 移至 `studio/bin/`，其余 4 个脚本确认为 harness 约束实现，保持在 `harness/bin/`，npm `files` 收紧为 `"bin/harness.js"` (2026-05-23)
+- **P3-2**: `pre-commit` hook + `resolutions.json` 在 `.harness/` 和 `.git/hooks/` 下未提交 — 下次 `harness init` 时需重新生成
+
+### 本会话新发现断点 (2026-05-24 更新)
+
+| # | 断点 | 状态 | 说明 |
+|---|------|:--:|------|
+| G6 | 开发会话知识提取链路 | ✅ 已建 | session:summary → events-daemon → extract-text |
+| G7 | 敏感文件操作检测 | ✅ 已建 | sensitive-check hook + Stop 警告 |
+| G8 | Harness CI-RKB 闭环 | ✅ 已建 | pre-commit 警告 → resolutions.json 解法提示 |
+| G9 | harness 狗粮噪音 | ✅ 已清 | 3 guideline warnings → 0, 1 checkpoint failure → 0, 4/4 pass |
+| G14 | Auditor 吃 session:summary | ✅ 已建 | 日审新增开发会话行为趋势分析（deepAnalysis/knowledgeCapture/sensitiveOps/turnCount），产出门控洞察 |
+| G10 | 六层知识模型 L3→L6 覆盖 | 🟡 部分 | L3/L4/L5 40% 基建完成，知识密度待积累；L6 0% |
+| G11 | 11 个预存 tsc 错误 | ❌ 待修 | roadmap §14 曝光，等 pre-commit tsc gate 建立后逐个清 |
+| G12 | 开发会话 behavior pattern → harness 进化 | ❌ 方案不可行 | 第一性分析结论：行为模式进化不应走 evolution service（检测信号/输出目标/执行机制三维不同）。正确方案：Auditor + session:summary 趋势洞察 → 人工决策。见 `memory/analysis_evolution_extension.md` |
+| G13 | `knowledge-docs/` 目录空 | ❌ 用途不明 | 已分配但完全无内容，需明确设计意图或废弃 |

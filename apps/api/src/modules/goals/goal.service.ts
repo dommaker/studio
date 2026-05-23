@@ -448,6 +448,43 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       return;
     }
 
+    // Q2修复: 所有常规步骤完成时，先创建 integration step 再判定 Goal 终结
+    // 避免竞态：旧逻辑先标记 succeeded 再创建 integration step → integration 永远 pending
+    const regularSteps = executions.filter(e => e.stepIndex !== 999);
+    const integrationStep = executions.find(e => e.stepIndex === 999);
+    const allRegularDone = regularSteps.every(e => e.status === 'succeeded' || e.status === 'failed');
+
+    if (allRegularDone && !integrationStep && regularSteps.length > 1) {
+      const anyRegularFailed = regularSteps.some(e => e.status === 'failed');
+      if (!anyRegularFailed) {
+        // 多 AC 组且全部成功 → 创建 integration step, 暂不终结 Goal
+        logger.info('[Goal] All sub-agent steps succeeded, creating integration step', { goalId });
+        const plan = await prisma.goalPlan.findFirst({
+          where: { goalId, status: 'approved' },
+          orderBy: { version: 'desc' },
+        });
+        if (plan) {
+          await prisma.goalExecution.create({
+            data: {
+              goalId,
+              planId: plan.id,
+              stepIndex: 999,
+              status: 'pending',
+              agentType: 'claude',
+              input: {
+                taskType: 'integration',
+                goalId,
+                totalSteps: regularSteps.length,
+                model: 'standard',
+              },
+            },
+          });
+          logger.info('[Goal] Integration step created, waiting for scheduler', { goalId });
+        }
+        return; // 不终结 Goal — 等 scheduler 处理完 integration step
+      }
+    }
+
     const allDone = executions.every(e => e.status === 'succeeded' || e.status === 'failed');
     if (!allDone) return;
 
@@ -629,8 +666,22 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
     // 找 worktree
     const worktree = await this.findReviewWorktree(goalId);
     if (!worktree) {
-      logger.warn('[Goal] No review worktree found, proceeding to PR', { goalId });
-      await this.finalizeGoalSucceeded(goalId);
+      // Q1修复: worktree 不存在时不静默跳过审查。阻塞 Goal 等待人工排查
+      logger.error('[Goal] No review worktree found — blocking goal for investigation', { goalId });
+      await prisma.goal.update({
+        where: { id: goalId },
+        data: { status: 'blocked', error: 'No review worktree found after execution completion. Possible causes: cleanupTaskBranches() ran prematurely, WORKTREES_DIR misconfiguration, or worktree creation failed.' },
+      });
+      // 上报 TriageAgent
+      try {
+        const { triageAgent } = await import('../agents/triage-agent.service.js');
+        await triageAgent.handleAlert({
+          type: 'pipeline_health_degraded',
+          severity: 'critical',
+          message: `Goal ${goalId}: No review worktree found after all execution steps completed`,
+          details: { goalId, reason: 'review_worktree_missing' },
+        });
+      } catch (triageErr) { logger.warn('[Goal] Triage escalation failed (non-blocking)', { error: String(triageErr) }); }
       return;
     }
 
@@ -653,6 +704,27 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       logger.error('[Goal] Reviewer crashed, defaulting to pass', { goalId, error: String(err) });
       await this.finalizeGoalSucceeded(goalId);
       return;
+    }
+
+    // ⑨: 写入 harness trace（review trace → .harness/trace/reviews.jsonl）
+    try {
+      const issueSummary = review.issues?.length
+        ? review.issues.slice(0, 5).map((i: any) => `[${i.severity}] ${i.message}`).join('; ')
+        : 'no issues';
+      tracePipeline.writeTrace('review', {
+        executionId: goalId,
+        goalId,
+        agentType: 'reviewer',
+        eventType: 'review.completed',
+        timestamp: Date.now(),
+        success: review.approved,
+        summary: review.approved
+          ? `Review PASSED (cycle ${reviewCycle + 1}, score ${review.score})`
+          : `Review REJECTED (cycle ${reviewCycle + 1}, score ${review.score}, ${review.issues?.length || 0} issues): ${issueSummary}`,
+        tokenUsage: null,
+      });
+    } catch {
+      // best-effort, non-blocking
     }
 
     if (review.approved) {
@@ -930,7 +1002,11 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       });
 
       if (depsSatisfied) {
-        executable.push({ ...exec, step });
+        // Q3: 传递依赖 step 的 executionId, 使下游 worktree 从上游分支创建
+        const depExecId = step.dependencies.length > 0
+          ? executionMap.get(step.dependencies[0])?.id
+          : undefined;
+        executable.push({ ...exec, step, _baseBranchExecId: depExecId });
       }
     }
 

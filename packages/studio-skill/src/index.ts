@@ -6,8 +6,10 @@ export {
   stuckRecovery,
   behaviourConstraints,
   multiStanceReview,
+  forensicReview,
   knowledgeExtraction,
   integrationMerge,
   subAgentWorkflow,
+  toolRisk,
   allSkillDefinitions,
 } from './definitions/index.js';
