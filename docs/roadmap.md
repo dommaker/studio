@@ -1367,3 +1367,55 @@ P0.3 Tool 模式检测 (1.5h)
 4. 如果 Executor 反复调用 createProject 失败 3 次 → Channel 收到告警卡片
 5. KK 提取新 pitfall → 下次 @Analyst 自动加载
 ```
+
+---
+
+## Batch 7：知识进化引擎 E2E 修复 + Agent 拓扑解耦 (2026-05-23)
+
+> 端到端测试知识进化引擎时发现三处断裂：events-daemon JSONL 解析器读错字段、modelGateway JSON 提取失败、KnowledgeIngest linter 崩溃。
+> 同步完成 Agent 拓扑解耦：ReviewAgent.reviewDiff + DeployAgent.mergeBranches/pushBranch 参数化。
+
+### B7-001: events-daemon JSONL 解析修复
+
+`parsed.content` → `parsed.message.content`（Claude v2 JSONL 格式变更）
+
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | user/assistant 消息内容提取改为 `parsed.message?.content` | `/root/transport/events-daemon.js:86-98` |
+
+### B7-002: events-daemon → API 路由修复
+
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | API_PORT 3001 → 13101 | `/etc/systemd/system/events-daemon.service` |
+
+### B7-003: modelGateway JSON 提取增强
+
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | `extractBalancedJson()` 平衡括号提取替代贪婪正则 | `packages/studio-shared/src/llm/model-gateway.ts` |
+| 2 | 多策略顺序: direct→codeblock→object→array | 同上 |
+| 3 | Empty content 诊断日志 | 同上 |
+
+### B7-004: Agent 拓扑无关能力
+
+| # | 改动 | 文件 |
+|---|------|------|
+| 1 | `ReviewAgent.reviewDiff(baseRef, headRef, repoPath)` | `review-agent.service.ts` |
+| 2 | `ReviewAgent.hasBranchChanges()` | 同上 |
+| 3 | `DeployAgent.mergeBranches(source, target, push?)` | `deploy-agent.service.ts` |
+| 4 | `DeployAgent.pushBranch(branch)` | 同上 |
+| 5 | `DeployAgent.resolveRef()` — origin优先+本地fallback | 同上 |
+| 6 | `mergeToMaster()` 修复 main→master 跳过 bug | 同上 |
+| 7 | POST /review/diff, /deploy/merge, /merge-to-master | `agents/routes.ts` |
+| 8 | `ReviewDiffParams`, `MergeBranchesParams`, `MergeBranchesResult`, etc. | `agents/types.ts` |
+
+### B7-005: 文档/roadmap 自动更新缺口（已识别，未实现）
+
+PostEval 阶段只做 AC vs diff 审计，不自动更新 docs/roadmap。导致每次 Deploy 后需要手动："更新文档 → 更新 roadmap → commit → push"。
+
+**后续应做**: PostEval 或 Deploy 完成后自动:
+1. 从 git diff 检测变更类型（feat/fix/chore）
+2. 更新 memory docs / batch progress
+3. 更新 roadmap 状态
+4. Commit + push 文档变更

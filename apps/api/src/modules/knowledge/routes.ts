@@ -780,3 +780,87 @@ knowledgeInternalRoutes.post('/extract-text', async (req, res) => {
     res.status(500).json({ error: 'Failed to queue text extraction' });
   }
 });
+
+// Debug: synchronous extraction for testing pipeline end-to-end
+knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
+  try {
+    const { content, source, layer } = req.body;
+    if (!content || !source) {
+      return res.status(400).json({ error: 'content and source are required' });
+    }
+
+    // Direct DeepSeek API call for debugging
+    const apiKey = process.env.DEEPSEEK_API_KEY || '';
+    const rawResponse = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: `你是知识提取专家。从文本中提取结构化知识。输出格式：{ "entries": [{ "type": "pitfall|guideline|decision|architecture|process", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }。只提取有价值的可复用知识，最多5条。` },
+          { role: 'user', content: content.slice(0, 50_000) },
+        ],
+        temperature: 0.3,
+        max_tokens: 1024,
+      }),
+    });
+    const data = await rawResponse.json() as any;
+    const llmContent = data.choices?.[0]?.message?.content || '';
+
+    // Parse JSON from LLM response
+    let result: any;
+    try {
+      result = JSON.parse(llmContent);
+    } catch {
+      const codeMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (codeMatch?.[1]) {
+        try { result = JSON.parse(codeMatch[1].trim()); } catch {}
+      }
+      if (!result) {
+        return res.json({ success: false, error: 'JSON parse failed', llmContent: llmContent.slice(0, 1000) });
+      }
+    }
+
+    let ingestErrors: string[] = [];
+    if (result.entries?.length) {
+      try {
+        const { sharedStore } = await import('../knowledge/knowledge-bus.service.js');
+        for (const entry of result.entries) {
+          try {
+            const now = new Date().toISOString();
+            const genId = `${entry.type.slice(0, 3).toUpperCase()}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+            sharedStore.save({
+              id: genId,
+              type: entry.type,
+              title: entry.title,
+              content: entry.content,
+              maturity: 'draft' as any,
+              layer: (layer || 'system') as any,
+              created: now,
+              lastReferenced: now,
+              contributors: [],
+              projects: [],
+              tags: entry.tags || [],
+              applicablePhases: [],
+              sourceReferences: [{ source, ingestedAt: now }],
+              referencedBy: [],
+            });
+          } catch (e: any) {
+            ingestErrors.push(e.message);
+          }
+        }
+      } catch (e: any) {
+        ingestErrors.push('import failed: ' + e.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      extracted: result.entries || [],
+      entryCount: result.entries?.length || 0,
+      ingestErrors: ingestErrors.length > 0 ? ingestErrors : undefined,
+    });
+  } catch (error) {
+    res.status(500).json({ error: 'Extraction failed', detail: String(error) });
+  }
+});

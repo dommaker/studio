@@ -22,7 +22,7 @@ import { logger } from '@dommaker/studio-shared';
 // Singleton store + lifecycle + ingest — shared by knowledgeBus and knowledgeQuery
 export const sharedStore = new KnowledgeStore();
 export const sharedLifecycle = new KnowledgeLifecycle(sharedStore);
-const sharedIngest = new KnowledgeIngest(sharedStore);
+export const sharedIngest = new KnowledgeIngest(sharedStore);
 
 // ── 统一条目类型 ──
 
