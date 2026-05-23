@@ -3,6 +3,7 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { formatConstraintsForPrompt } from '@dommaker/harness';
+const getFormatConstraintsForPrompt = async (): Promise<(role: string) => string> => formatConstraintsForPrompt;
 import { classifyError, formatTriageMessage } from '../triage/error-class.js';
 import { channelMessageService } from './channel-message.service.js';
 import { daemon } from '../../daemon/studio-daemon.js';
@@ -72,12 +73,56 @@ function saveKnowledge(analysisTitle: string, findings: string): void {
   }
 }
 
-function buildAnalystPrompt(requirement: string, knowledge: string): string {
+/**
+ * Q7: 按 `## ` 标题分割知识文档，选取与需求关键词匹配的段落
+ * 避免无关历史分析污染 Analyst 上下文。无匹配时回退到末尾段落。
+ */
+function selectRelevantSections(knowledge: string, requirement: string, maxChars: number): string {
+  if (!knowledge || knowledge.length <= maxChars) return knowledge;
+
+  const sections = knowledge.split(/(?=^## )/m).filter(s => s.trim());
+  if (sections.length <= 1) return knowledge.slice(-maxChars);
+
+  // 从需求提取关键词
+  const reqWords = new Set(
+    requirement.toLowerCase()
+      .replace(/[^\w\s\u4e00-\u9fff]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2),
+  );
+
+  // 按匹配关键词数降序排列段落
+  const scored = sections.map(s => {
+    const lower = s.toLowerCase();
+    const hits = [...reqWords].filter(w => lower.includes(w)).length;
+    return { section: s, hits };
+  });
+  scored.sort((a, b) => b.hits - a.hits);
+
+  // 取 Top-N 段落（不超过 maxChars）
+  let result = '';
+  for (const { section } of scored) {
+    if (result.length + section.length > maxChars) break;
+    result += section + '\n';
+  }
+
+  // 回退：无匹配时取最末尾的段落（最新知识）
+  if (!result.trim()) {
+    result = sections.slice(-2).join('\n').slice(-maxChars);
+  }
+
+  return result;
+}
+
+async function buildAnalystPrompt(requirement: string, knowledge: string): Promise<string> {
+  // Q7: 按段落分割知识，取与需求相关的前 N 段落（而非简单的 tail -8000chars）
+  const relevantKnowledge = selectRelevantSections(knowledge, requirement, 6000);
   const knowledgeSection = knowledge
-    ? `\n## 历史分析积累\n以下是你之前分析这个代码库时积累的知识，可以直接复用：\n\n${knowledge.slice(-8000)}\n`
+    ? `\n## 历史分析积累\n以下是你之前分析这个代码库时积累的知识（按相关性筛选），可以直接复用：\n\n${relevantKnowledge}\n`
     : '\n这是首次分析这个代码库。请先探索项目结构（CLAUDE.md、package.json、关键模块），将发现记录到 .analyst/knowledge.md 以便后续复用。\n';
 
-  const constraintSection = formatConstraintsForPrompt('analyst');
+  const fmtFn = await getFormatConstraintsForPrompt();
+  const constraintSection = fmtFn('analyst');
 
   return [
     '你是一个需求分析专家，在 Agent Studio 项目中工作。',
@@ -237,13 +282,16 @@ class AnalystTriggerService {
       let dbKnowledge = '';
       try {
         const { knowledgeQuery } = await import('../knowledge/knowledge-query.service.js');
-        dbKnowledge = await knowledgeQuery.formatAllForPrompt('analyst');
+        const allKnowledge = await knowledgeQuery.formatAllForPrompt('analyst');
+        // P0.2: 按需求相关性评分查询历史知识（与"最近N条"互补）
+        const relevantKnowledge = await knowledgeQuery.queryRelevantForRequirement(content, 8);
+        dbKnowledge = [allKnowledge, relevantKnowledge].filter(Boolean).join('\n');
       } catch (e) {
         logger.warn('[AnalystTrigger] Failed to load DB knowledge, continuing with file only', { error: String(e) });
       }
 
       const knowledge = [fileKnowledge, dbKnowledge].filter(Boolean).join('\n');
-      const prompt = buildAnalystPrompt(content, knowledge);
+      const prompt = await buildAnalystPrompt(content, knowledge);
 
       // 4. Run Claude Code agent (persistent worktree, tool-enabled)
       const { doc: response, usage } = await runClaudeCode(prompt);
@@ -269,7 +317,7 @@ class AnalystTriggerService {
       });
 
       // 7. Post card
-      await channelMessageService.createCardMessage(
+      const cardMsg = await channelMessageService.createCardMessage(
         channelId,
         'Analyst',
         this.formatCardContent(response),
@@ -280,6 +328,11 @@ class AnalystTriggerService {
 
       await channelMessageService.deleteMessage(thinkingMsg.id);
       eventBus.publish('channel.requirements_ready', { channelId, requirementsDocId: doc.id });
+
+      // Q8: 自动触发 start_execution — Analyst 完成即开始执行，无需人工点击
+      this.autoStartExecution(channelId, cardMsg.id).catch((e: any) => {
+        logger.warn('[AnalystTrigger] Auto-start failed (card will show start button)', { error: String(e) });
+      });
 
       // 8. Auto-capture architectural knowledge (KnowledgeSync Cycle 1)
       try {
@@ -305,6 +358,34 @@ class AnalystTriggerService {
             source: 'analyst',
           });
         }
+
+        // P0.2: Write Analyst discoveries to KnowledgeBus (KK→Analyst feedback loop)
+        // Subsequent Analyst runs pick these up via knowledgeBus.getRecentContext()
+        try {
+          const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+          const allGotchas = response.acGroups?.flatMap((g: any) => g.gotchas || []) || [];
+          const allPatterns = response.acGroups?.flatMap((g: any) => g.codePatterns || []) || [];
+          for (const gotcha of allGotchas.slice(0, 5)) {
+            await knowledgeBus.recordPattern({
+              source: 'analyst',
+              type: 'pitfall',
+              title: `[Analyst] ${response.title}: ${gotcha.slice(0, 80)}`,
+              content: gotcha,
+              severity: 'warning',
+              timestamp: Date.now(),
+            });
+          }
+          for (const pattern of allPatterns.slice(0, 5)) {
+            await knowledgeBus.recordPattern({
+              source: 'analyst',
+              type: 'pattern',
+              title: `[Analyst] ${response.title}: ${pattern.slice(0, 80)}`,
+              content: pattern,
+              severity: 'info',
+              timestamp: Date.now(),
+            });
+          }
+        } catch { /* KnowledgeBus write-back is best-effort, don't block pipeline */ }
       } catch (e: any) {
         logger.warn('[AnalystTrigger] KnowledgeSync capture failed (non-blocking)', { error: String(e) });
       }
@@ -358,6 +439,22 @@ class AnalystTriggerService {
       tags,
       unverifiedWarn,
     ].join('\n');
+  }
+
+  /**
+   * Q8: 自动触发 start_execution — 通过内部 HTTP 调用 actions 端点
+   */
+  private async autoStartExecution(channelId: string, cardMessageId: string): Promise<void> {
+    const port = process.env.PORT || '3001';
+    const resp = await fetch(`http://127.0.0.1:${port}/api/v1/channels/${channelId}/messages/${cardMessageId}/actions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'start_execution' }),
+    });
+    const result = await resp.json() as { success: boolean; error?: string };
+    if (!result.success) {
+      throw new Error(result.error || 'start_execution failed');
+    }
   }
 
   private formatRequirementsDoc(doc: RequirementsDocJson): string {

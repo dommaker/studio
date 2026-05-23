@@ -39,6 +39,7 @@ function loadConfig(): void {
 
   // Load .env file from config directory
   const envPath = configDir.endsWith('.env') ? configDir : path.join(configDir, '.env');
+  const configRoot = path.dirname(envPath);
   if (fs.existsSync(envPath)) {
     const content = fs.readFileSync(envPath, 'utf-8');
     for (const line of content.split('\n')) {
@@ -47,8 +48,14 @@ function loadConfig(): void {
       const eqIdx = trimmed.indexOf('=');
       if (eqIdx === -1) continue;
       const key = trimmed.slice(0, eqIdx).trim();
-      const val = trimmed.slice(eqIdx + 1).trim();
-      if (!process.env[key]) process.env[key] = val;
+      let val = trimmed.slice(eqIdx + 1).trim();
+      if (!process.env[key]) {
+        // Q6修复: file:./data.db 相对路径解析到绝对路径, 避免 Prisma 解析到错误位置
+        if (key === 'DATABASE_URL' && val.startsWith('file:./')) {
+          val = `file:${path.resolve(configRoot, val.slice(5))}`;
+        }
+        process.env[key] = val;
+      }
     }
     logger.info('Config loaded', { source: envPath });
   }
@@ -78,6 +85,11 @@ async function start() {
 
     // 初始化 harness 运行时（加载 .harness/config.yml 注入 ConstraintChecker）
     await bootstrapHarness();
+
+    // RKB: 预置已知 Resolution Seed（幂等，异步不阻塞启动）
+    import('./modules/knowledge/resolution.service.js').then(({ resolutionService }) => {
+      resolutionService.ensureSeedResolutions().catch(err => logger.warn('[RKB] Seed failed', { error: String(err) }));
+    });
 
     // G-002: 冷启动业务规则扫描（异步，不阻塞启动）
     import('./modules/knowledge/rule-scanner.js').then(({ ruleScanner }) => {
@@ -258,7 +270,7 @@ async function start() {
     process.on('SIGTERM', async () => { logger.info('SIGTERM received'); await shutdown(); });
     process.on('SIGINT', async () => { logger.info('SIGINT received'); await shutdown(); });
   } catch (error) {
-    logger.error({ error }, 'Failed to start server');
+    logger.error('Failed to start server', { error: String(error) });
     console.error('Full error:', error);
     process.exit(1);
   }

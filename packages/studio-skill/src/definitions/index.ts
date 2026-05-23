@@ -1,5 +1,5 @@
 /**
- * 8 个内置 Skill 定义
+ * 9 个内置 Skill 定义
  *
  * 从 agent-executor.ts、goal-scheduler.ts、review-report.ts、
  * knowledge-agent.service.ts 中的硬编码 prompt 迁移而来。
@@ -113,6 +113,61 @@ export const knowledgeExtraction: SkillDefinition = {
 最多 5 条，按重要性排序。`,
 };
 
+export const forensicReview: SkillDefinition = {
+  id: 'forensic-review',
+  name: 'Forensic Review',
+  description: '第5立场审查：检测 fallback/hack/workaround/临时方案等技术债模式',
+  trigger: 'review',
+  agentTypes: ['reviewer'],
+  tier: 'standard',
+  prompt: `## 第5立场：法证审查 (Forensic)
+
+在前4立场之后，用法证视角审查代码变更，专注检测：
+
+1. **Fallback 模式**: try/catch 吞异常、|| 默认值掩盖错误、silent fail
+2. **Hack/Workaround**: 注释含 HACK/FIXME/WORKAROUND/临时、硬编码魔数绕过逻辑
+3. **降级伪装**: 用简单实现替代设计意图（如 curl 替代 e2e 测试、skip 替代修复）
+4. **门禁绕过**: --no-verify、skip-ci、降阈值让 CI 通过、删测试让构建绿
+5. **僵尸代码**: 被注释但未删除的代码块、unused import/variable 保留"以防万一"
+
+对每个发现：
+- 指出位置（文件:行号）
+- 判断严重程度：critical（必须修）/ warning（建议修）/ info（记录）
+- 提供正确修复方案
+
+如果发现 critical 级别的 hack：overallApproved 必须为 false。`,
+};
+
+export const toolRisk: SkillDefinition = {
+  id: 'tool-risk',
+  name: 'Tool Risk Detection',
+  description: '执行时检测危险工具调用模式：破坏性命令、权限提升、数据丢失',
+  trigger: 'always',
+  agentTypes: ['executor'],
+  tier: 'fast',
+  prompt: `## 工具风险检测
+
+执行任务时自我检查，禁止以下危险模式：
+
+**禁止执行：**
+- rm -rf / git clean -fd（无确认的批量删除）
+- git push --force / git reset --hard（不可逆操作）
+- DROP TABLE / TRUNCATE（数据丢失）
+- chmod 777 / chown root（权限放大）
+- curl | sh / eval（远程代码执行）
+
+**必须确认后执行：**
+- 修改 .env / 配置文件（影响全局）
+- 删除测试文件或 fixture
+- 修改 CI/CD 配置
+- 安装新的系统级依赖
+
+**自检规则：**
+- 每次使用 Bash 工具前，判断命令是否在禁止列表中
+- 如果是，改用安全替代方案
+- 如果无替代方案，在 .progress.json 中记录风险并停止该步骤`,
+};
+
 // ── P2: 集成 + 子 Agent Skills ──
 
 export const integrationMerge: SkillDefinition = {
@@ -163,7 +218,9 @@ export const allSkillDefinitions: SkillDefinition[] = [
   stuckRecovery,
   behaviourConstraints,
   multiStanceReview,
+  forensicReview,
   knowledgeExtraction,
   integrationMerge,
   subAgentWorkflow,
+  toolRisk,
 ];

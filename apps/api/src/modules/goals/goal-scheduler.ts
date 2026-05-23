@@ -14,7 +14,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { skillLoader } from '@dommaker/studio-skill';
-import { recordPipelineRun } from '../../daemon/metrics.js';
+import { recordPipelineRun, parseClaudeUsage } from '../../daemon/metrics.js';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { goalService, GoalStep, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
@@ -374,7 +374,7 @@ export class GoalScheduler {
   // ========================================
 
   private async dispatchStep(execWithStep: any, goal: any): Promise<void> {
-    const { id: executionId, stepIndex } = execWithStep;
+    const { id: executionId, stepIndex, _baseBranchExecId } = execWithStep;
     const input = parseJsonField<Record<string, any> | null>(execWithStep.input, null);
 
     // Phase 3: dispatch 前 harness 检查（Goal 阶段 hook）
@@ -435,9 +435,9 @@ export class GoalScheduler {
     const strategy = this.getDispatchStrategy();
     const effectiveConcurrency = strategy === 'conservative' ? 2 : MAX_CONCURRENT;
 
-    // G5: 动态模型路由 — 根据任务复杂度自动选择 tier
+    // G5/Q4: 动态模型路由 — 根据任务特征自动选择 tier（覆盖 plan 中的静态 model）
     const autoTier = this.classifyTaskComplexity(input, prompt);
-    const tier = (input?.model as string) || autoTier;
+    const tier = autoTier; // 信任运行时复杂度评估
 
     // G5: 记录路由决策（含 outcome 用于进化反馈）
     this.recentClassifications.push({
@@ -528,6 +528,8 @@ export class GoalScheduler {
           acGroup: input?.acGroup || undefined,
           hasWorktree: true,
           repoDir: await this.getProjectRepoPath(goal),
+          // Q3: 依赖继承 — 下游 worktree 从上游 task branch 创建（而非 main）
+          ...(_baseBranchExecId ? { baseBranch: `task/${_baseBranchExecId}` } : {}),
           knowledgeContext,
           sourceChannelId,
           // 🆕 ROLE-001: Executor 的角色约束
@@ -552,17 +554,19 @@ export class GoalScheduler {
         duration: c.durationMs || 0,
         timestamp: Date.now(),
       }))).catch((e: any) => { logger.warn('[GoalScheduler] preferenceObserver failed', { error: String(e) }); });
+      // Q5修复: 从 agent log JSON 提取真实 token 数据（而非 result.totalTokens 始终为 undefined）
+      const worktreeDir = path.join(WORKTREES_DIR, executionId);
       if (result.success) {
         // 直接标记成功（不依赖 Redis 事件链保证可靠性）
         await goalService.updateStepExecution(executionId, { status: 'succeeded' });
-        // 记录 PipelineRun 指标
+        const tokenUsage = this.parseAgentTokenUsage(worktreeDir);
         recordPipelineRun({
           source: 'pipeline', phase: 'executor',
           taskName: goal.title,
-          model: result.model || (typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard'),
-          inputTokens: result.totalTokens?.input || 0,
-          outputTokens: result.totalTokens?.output || 0,
-          cacheHitTokens: result.totalTokens?.cacheHit || 0,
+          model: tokenUsage.model || (typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard'),
+          inputTokens: tokenUsage.inputTokens,
+          outputTokens: tokenUsage.outputTokens,
+          cacheHitTokens: tokenUsage.cacheHitTokens,
           durationMs: result.totalDurationMs || dispatchDuration,
           success: true,
           sessionId: executionId,
@@ -572,7 +576,7 @@ export class GoalScheduler {
           executionId,
           goalId: goal.id,
           sessionCount: result.sessionCount,
-          tokens: result.totalTokens,
+          tokens: tokenUsage,
           dispatchDurationMs: dispatchDuration,
           tier,
           strategy,
@@ -582,13 +586,14 @@ export class GoalScheduler {
           status: 'failed',
           error: result.error || 'Agent execution failed',
         });
+        const failTokens = this.parseAgentTokenUsage(worktreeDir);
         recordPipelineRun({
           source: 'pipeline', phase: 'executor',
           taskName: goal.title,
-          model: typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard',
-          inputTokens: result.totalTokens?.input || 0,
-          outputTokens: result.totalTokens?.output || 0,
-          cacheHitTokens: result.totalTokens?.cacheHit || 0,
+          model: failTokens.model || (typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard'),
+          inputTokens: failTokens.inputTokens,
+          outputTokens: failTokens.outputTokens,
+          cacheHitTokens: failTokens.cacheHitTokens,
           durationMs: result.totalDurationMs || dispatchDuration,
           success: false,
           error: result.error || 'Agent execution failed',
@@ -972,6 +977,40 @@ export class GoalScheduler {
       }
     } catch (e) {
       logger.error('[Recovery] Error in recoverStaleExecutions', { error: String(e) });
+    }
+  }
+  /**
+   * Q5修复: 从 agent log JSON 提取 token 和模型数据
+   * agent log 每行是 Claude JSON 输出，最后一行包含 modelUsage
+   */
+  private parseAgentTokenUsage(worktreeDir: string): {
+    model: string; inputTokens: number; outputTokens: number; cacheHitTokens: number;
+  } {
+    try {
+      const logFile = path.join(worktreeDir, '.agent.log');
+      if (!fs.existsSync(logFile)) return { model: 'unknown', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0 };
+
+      const content = fs.readFileSync(logFile, 'utf-8').trim();
+      if (!content) return { model: 'unknown', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0 };
+
+      // 取最后一行 JSON（最终输出）
+      const lines = content.split('\n').filter(Boolean);
+      const lastLine = lines[lines.length - 1];
+      const parsed = JSON.parse(lastLine);
+      const mu = parsed.modelUsage || {};
+      // modelUsage 的 key 是模型名（如 "deepseek-v4-pro[1m]"）
+      const modelKeys = Object.keys(mu);
+      const model = modelKeys.length > 0 ? modelKeys[0] : 'unknown';
+      const modelData = mu[model] || {};
+
+      return {
+        model,
+        inputTokens: modelData.inputTokens || 0,
+        outputTokens: modelData.outputTokens || 0,
+        cacheHitTokens: modelData.cacheReadInputTokens || 0,
+      };
+    } catch {
+      return { model: 'unknown', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0 };
     }
   }
 }
