@@ -9,7 +9,7 @@ importers:
   .:
     devDependencies:
       '@dommaker/harness':
-        specifier: ^0.12.4
+        specifier: ^0.12.5
         version: 0.12.5
       '@types/node':
         specifier: ^20.0.0
@@ -289,6 +289,15 @@ importers:
       '@prisma/client':
         specifier: ^5.7.0
         version: 5.22.0(prisma@5.22.0)
+      ajv:
+        specifier: ^8.12.0
+        version: 8.20.0
+      ajv-formats:
+        specifier: ^3.0.0
+        version: 3.0.1(ajv@8.20.0)
+      uuid:
+        specifier: ^9.0.0
+        version: 9.0.1
       zod:
         specifier: ^3.22.0
         version: 3.25.76
@@ -314,6 +323,9 @@ importers:
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
+      '@prisma/client':
+        specifier: ^5.7.0
+        version: 5.22.0(prisma@5.22.0)
     devDependencies:
       typescript:
         specifier: ^5.0.0
@@ -650,7 +662,7 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  '@dommaker/harness@0.12.5':
+  '@dommaker/harness@0.12.6':
     resolution: {integrity: sha512-NbBdxD6bbKJhEuPUe+9mHISnqpUq/bbyNKwPpqlx2OlSCHfUJD14ogb+AY3d5/c57f9SW/WI0YOUvOK/aiDjHA==}
     engines: {node: '>=18.0.0'}
     hasBin: true
@@ -3897,7 +3909,7 @@ snapshots:
       js-yaml: 4.1.1
       zod: 3.25.76
 
-  '@dommaker/harness@0.12.5':
+  '@dommaker/harness@0.12.6':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0

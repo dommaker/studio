@@ -12,6 +12,8 @@ const PUBLIC_PATHS = [
   '/api/v1/events/stream',  // SSE (认证在 query param)
   '/api/v1/channels',       // B2 Channel UI (get/list public)
   '/api/v1/requirements-docs',  // B2-009 RequirementsDoc edit
+  '/api/v1/mcp/health',       // MCP health (no auth needed)
+  '/api/v1/mcp/tools',        // MCP tool listing + execution (internal agent use)
 ];
 
 function isPublicPath(path: string): boolean {

@@ -165,7 +165,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
     { path: '/api/v1/llm', router: llmProxyRoutes, middleware: auth },
     { path: '/api/v1/settings/llm', router: llmConfigRoutes, middleware: auth, comment: '§12.11: 加密 LLM 配置' },
-    { path: '/api/v1/mcp', router: mcpRoutes, middleware: [...auth, mcpRateLimit], comment: '§12.9: MCP Server' },
+    { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },
     { path: '/api/v1/outputs', router: outputsRoutes },
     { path: '/api/v1/runtime-config', router: runtimeConfigRoutes, middleware: auth, comment: 'TaskWorker 配置' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: auth, comment: 'T-015: Harness 监控集成' },

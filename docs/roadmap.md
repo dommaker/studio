@@ -997,7 +997,7 @@ Phase F: Agent 行为约束（Mnilax 12 规则）
 | H (知识库缺口) | G-001~005: 偏好/规则/环境/决策链/交互模式 + EvalCase | ✅ done |
 | I (Slim Down) | 旧范式清理: -16 pages, -8 modules, -5 packages | ✅ done |
 | J (Package 简化) | 删 4 僵尸包, 合 5 个到 apps/api: 17→8 packages | ✅ done (2026-05-19) |
-| K (知识缺口审计) | B6-001~023: P0 源头捕获 + P1 冷启动 + P2 新鲜度自治 | ⏳ 待实施 |
+| K (知识缺口审计) | B6-001~023: P0 源头捕获 + P1 冷启动 + P2 新鲜度自治 + P2.5 质量闸 + P2.5b 消费者闭环 | ✅ done (2026-05-23) |
 
 ---
 ### Phase H：知识库五大缺口 (2026-05-19)
@@ -1142,29 +1142,29 @@ Phase 3: 检索 + 注入
 | P3 | INF-005 DNS | 阻塞 | — |
 | P4 | B4-001/002/003 远期 | 远期 | — |
 | -- | **Batch 6: 知识缺口审计 (2026-05-22)** | -- | -- |
-| **P0** | **B6-001** extractFromReview — ReviewResult → LLM → ingestEntry | 待做 | 1h |
-| **P0** | **B6-002** extractFromError — error+errorChain → pitfall 条目 | 待做 | 0.5h |
-| **P0** | **B6-003** extractFromCompletion — completionOutput → LLM 提取 | 待做 | 0.5h |
-| **P0** | **B6-004** extractFromDeploy — DeployAgent 发现 → LLM 提取 | 待做 | 0.5h |
-| **P0** | **B6-005** cstnew → cst-emit.sh session:archive 事件发出 | 待做 | 0.2h |
-| **P0** | **B6-006** events-daemon session:archive 路由 → POST Studio API | 待做 | 0.5h |
-| **P0** | **B6-007** POST /api/knowledge/extract-session 端点 | 待做 | 0.5h |
-| **P0** | **B6-008** KnowledgeAgent.extractFromSession() JSONL→LLM→ingest | 待做 | 2h |
-| **P0** | **B6-009** 排查 ingestEntry 去重失效原因 | 待做 | 0.5h |
-| **P0** | **B6-010** 修复去重 + dedup log | 待做 | 0.5h |
-| **P1** | **B6-011** 弃用 project_4_agent_system.md | 待做 | 0.1h |
-| **P1** | **B6-012** 弃用 project_new_architecture_gaps.md | 待做 | 0.1h |
-| **P1** | **B6-013** 标记 issue_studio_harness_context_integration.md 为 SUPERSEDED | 待做 | 0.1h |
-| **P1** | **B6-014** 创建 project_batch_progress_2026_05_22.md | 待做 | 0.2h |
-| **P1** | **B6-015** harness types.ts 加 architecture 类型 + system 层 | 待做 | 0.2h |
-| **P1** | **B6-016** KnowledgeAgent.coldStartAll() 四源导入 | 待做 | 1.5h |
-| **P2** | **B6-017** KnowledgeQuery 引用追踪 — query() 更新 lastReferenced | 待做 | 1h |
-| **P2** | **B6-018** KnowledgeDoctor.healthScore() — 创建 harness/src/knowledge/doctor.ts | 待做 | 1.5h |
-| **P2** | **B6-019** MonitorAgent.check() 扩展 — healthScore+decay+autoFix | 待做 | 1.5h |
-| **P2** | **B6-020** G-003 EnvSnapper.start() 验证连通 | 待做 | 0.2h |
-| **P2** | **B6-021** G-004 DecisionChain extractFromExecution 验证 | 待做 | 0.2h |
-| **P2** | **B6-022** KnowledgeBus 多写入者 — Auditor/PostEval/Deploy | 待做 | 1h |
-| **P2** | **B6-023** ReviewAgent → KnowledgeBus recordPattern | 待做 | 0.5h |
+| **P0** | **B6-001** extractFromReview — ReviewResult → LLM → ingestEntry | ✅ | 1h |
+| **P0** | **B6-002** extractFromError — error+errorChain → pitfall 条目 | ✅ | 0.5h |
+| **P0** | **B6-003** extractFromCompletion — completionOutput → LLM 提取 | ✅ | 0.5h |
+| **P0** | **B6-004** extractFromDeploy — DeployAgent 发现 → LLM 提取 | ✅ | 0.5h |
+| **P0** | **B6-005** cstnew → cst-emit.sh session:archive 事件发出 | ✅ | 0.2h |
+| **P0** | **B6-006** events-daemon session:archive 路由 → POST Studio API | ✅ | 0.5h |
+| **P0** | **B6-007** POST /api/knowledge/extract-session 端点 | ✅ | 0.5h |
+| **P0** | **B6-008** KnowledgeAgent.extractFromSession() JSONL→LLM→ingest | ✅ | 2h |
+| **P0** | **B6-009** 排查 ingestEntry 去重失效原因 | ✅ | 0.5h |
+| **P0** | **B6-010** 修复去重 + dedup log | ✅ | 0.5h |
+| **P1** | **B6-011** 弃用 project_4_agent_system.md | ✅ | 0.1h |
+| **P1** | **B6-012** 弃用 project_new_architecture_gaps.md | ✅ | 0.1h |
+| **P1** | **B6-013** 标记 issue_studio_harness_context_integration.md 为 SUPERSEDED | ✅ | 0.1h |
+| **P1** | **B6-014** 创建 project_batch_progress_2026_05_22.md | ✅ | 0.2h |
+| **P1** | **B6-015** harness types.ts 加 architecture 类型 + system 层 | ✅ | 0.2h |
+| **P1** | **B6-016** KnowledgeAgent.coldStartAll() 四源导入 | ✅ | 1.5h |
+| **P2** | **B6-017** KnowledgeQuery 引用追踪 — query() 更新 lastReferenced | ✅ | 1h |
+| **P2** | **B6-018** KnowledgeDoctor.healthScore() — 创建 harness/src/knowledge/doctor.ts | ✅ | 1.5h |
+| **P2** | **B6-019** MonitorAgent.check() 扩展 — healthScore+decay+autoFix | ✅ | 1.5h |
+| **P2** | **B6-020** G-003 EnvSnapper.start() 验证连通 | ✅ | 0.2h |
+| **P2** | **B6-021** G-004 DecisionChain extractFromExecution 验证 | ✅ | 0.2h |
+| **P2** | **B6-022** KnowledgeBus 多写入者 — Auditor/PostEval/Deploy | ✅ | 1h |
+| **P2** | **B6-023** ReviewAgent → KnowledgeBus recordPattern | ✅ | 0.5h |
 
 ---
 

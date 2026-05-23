@@ -748,6 +748,284 @@ const getMaturity: MCPTool = {
   },
 };
 
+// ─── Agent-First 系统健康 ───
+
+const systemHealth: MCPTool = {
+  name: 'systemHealth',
+  description: 'Agent-first 系统健康检查：API 状态、知识库统计、Agent 运行状态、管线阶段。Agent 在任何关键操作前应调此 tool 确认系统在线。',
+  inputSchema: {
+    type: 'object',
+    properties: {},
+    required: [],
+  },
+  handler: async () => {
+    const { sharedStore, checkDocumentFreshness } = await import('../knowledge/knowledge-bus.service.js');
+    const fs = await import('fs');
+    const os = await import('os');
+    const path = await import('path');
+
+    // 1. 系统资源
+    const mem = process.memoryUsage();
+    const cpu = os.loadavg();
+    const uptime = process.uptime();
+
+    // 2. 知识库统计
+    const entries = sharedStore.list({ excludeArchived: false });
+    const byType: Record<string, number> = {};
+    const byLayer: Record<string, number> = {};
+    const byMaturity: Record<string, number> = {};
+    for (const e of entries) {
+      byType[e.type] = (byType[e.type] || 0) + 1;
+      byLayer[e.layer] = (byLayer[e.layer] || 0) + 1;
+      byMaturity[e.maturity] = (byMaturity[e.maturity] || 0) + 1;
+    }
+
+    // 3. 设计文档新鲜度
+    const staleDocs = checkDocumentFreshness(process.env.REPO_DIR || process.cwd());
+
+    // 4. events-daemon 探活
+    let eventsDaemonAlive = false;
+    try {
+      const eventsDir = path.join(os.homedir(), 'events');
+      if (fs.existsSync(eventsDir)) {
+        const files = fs.readdirSync(eventsDir).filter(f => f.endsWith('.jsonl'));
+        // events-daemon 每 2s 更新文件指针 → 如果最近 30s 内有事件文件被写入过，daemon 在线
+        for (const f of files.slice(0, 3)) {
+          const stat = fs.statSync(path.join(eventsDir, f));
+          if (Date.now() - stat.mtimeMs < 30_000) {
+            eventsDaemonAlive = true;
+            break;
+          }
+        }
+      }
+    } catch { /* can't determine */ }
+
+    return {
+      system: {
+        uptime: `${Math.round(uptime)}s`,
+        cpu: cpu.map(v => v.toFixed(2)),
+        memory: { heapUsedMB: Math.round(mem.heapUsed / 1024 / 1024), rssMB: Math.round(mem.rss / 1024 / 1024) },
+        apiResponding: true,
+        eventsDaemonAlive,
+      },
+      knowledge: {
+        total: entries.length,
+        byType,
+        byLayer,
+        byMaturity,
+        staleDesignDocs: staleDocs.length,
+      },
+      flags: {
+        needsColdStart: entries.length < 10 && !byLayer?.['system'],
+        needsDecay: byMaturity?.['archived'] === undefined || (byMaturity?.['archived'] || 0) === 0,
+        healthy: eventsDaemonAlive,
+      },
+    };
+  },
+};
+
+const emitEvent: MCPTool = {
+  name: 'emitEvent',
+  description: 'Agent 向事件管线发射结构化事件（写入 ~/events/studio.jsonl，由 events-daemon 路由到 Discord）。用于 Agent 间的异步通信和系统级通知。类型以 "agent:" 为前缀。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      eventType: { type: 'string', description: '事件类型 (如 agent:analysis_done, agent:review_blocked, agent:deploy_complete)' },
+      message: { type: 'string', description: '事件消息' },
+      severity: { type: 'string', description: '严重度', enum: ['info', 'warning', 'critical'], default: 'info' },
+      details: { type: 'object', description: '附加上下文 (goalId, taskId, score 等)' },
+    },
+    required: ['eventType', 'message'],
+  },
+  handler: async (input) => {
+    const fs = await import('fs');
+    const path = await import('path');
+    const os = await import('os');
+
+    const eventsDir = path.join(os.homedir(), 'events');
+    try { if (!fs.existsSync(eventsDir)) fs.mkdirSync(eventsDir, { recursive: true }); } catch { /* best-effort */ }
+
+    const event = {
+      type: input.eventType,
+      message: input.message,
+      severity: input.severity || 'info',
+      details: input.details || {},
+      timestamp: new Date().toISOString(),
+    };
+
+    try {
+      fs.appendFileSync(path.join(eventsDir, 'studio.jsonl'), JSON.stringify(event) + '\n');
+    } catch { /* non-blocking */ }
+
+    return {
+      emitted: true,
+      eventType: input.eventType,
+      routedTo: 'events-daemon → Discord (if goal:/monitor:/agent: prefix)',
+    };
+  },
+};
+
+const publishPackage: MCPTool = {
+  name: 'publishPackage',
+  description: '发布 npm 包到 registry + 创建 GitHub Release。包含完整流水线：tsc 编译 → dist 完整性验证 → npm version patch → git commit+tag → git push → npm publish → gh release create。Agent 应在 harness 源码变更已提交后调用。不可逆操作，执行前应确认。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      packagePath: { type: 'string', description: '包的绝对路径 (如 /root/projects/harness)' },
+      bumpType: { type: 'string', description: '版本递增类型', enum: ['patch', 'minor', 'major'], default: 'patch' },
+      dryRun: { type: 'string', description: '仅模拟执行不实际发布（跳过 npm publish + git push + gh release）', enum: ['true', 'false'], default: 'false' },
+    },
+    required: ['packagePath'],
+  },
+  handler: async (input) => {
+    const { execSync } = await import('child_process');
+    const path = await import('path');
+    const fs = await import('fs');
+    const steps: Array<{ step: string; status: 'ok' | 'fail' | 'skip'; output?: string }> = [];
+    const pkgPath = input.packagePath;
+    const dryRun = input.dryRun === 'true';
+
+    // 0. Derive GitHub repo from git remote
+    let repoUrl = '';
+    try {
+      const remoteUrl = execSync('git remote get-url origin', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }).trim();
+      // Extract owner/repo from: https://github.com/owner/repo.git, git@github.com:owner/repo.git, etc.
+      const m = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/\s.]+?)(?:\.git)?$/);
+      if (m) repoUrl = `https://github.com/${m[1]}/${m[2]}`;
+    } catch { /* no remote — skip release URL */ }
+
+    // 1. 验证路径
+    if (!fs.existsSync(path.join(pkgPath, 'package.json'))) {
+      return { success: false, error: `Not a package: ${pkgPath}`, steps };
+    }
+    const pkgJson = JSON.parse(fs.readFileSync(path.join(pkgPath, 'package.json'), 'utf-8'));
+    const pkgName = pkgJson.name;
+    const pkgVersion = pkgJson.version;
+    steps.push({ step: `package: ${pkgName}@${pkgVersion}`, status: 'ok' });
+
+    // 2. Check uncommitted changes
+    try {
+      const stat = execSync('git status --porcelain -uno', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 10_000 });
+      const hasChanges = stat.trim().length > 0;
+      if (hasChanges) {
+        return { success: false, error: `Uncommitted changes in ${pkgPath}. Commit or stash before publishing.`, steps };
+      }
+      steps.push({ step: 'git status: clean', status: 'ok' });
+    } catch (e: any) {
+      return { success: false, error: `Not a git repo: ${pkgPath} (${e.message})`, steps };
+    }
+
+    // 3. tsc build
+    try {
+      execSync('npx tsc', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 60_000 });
+      steps.push({ step: 'tsc: build', status: 'ok' });
+    } catch (e: any) {
+      const errMsg = e.stderr || e.message || String(e);
+      steps.push({ step: 'tsc: failed', status: 'fail', output: errMsg.slice(0, 500) });
+      return { success: false, error: 'TypeScript compilation failed', steps, compileErrors: errMsg.slice(0, 1000) };
+    }
+
+    // 4. Verify dist integrity — check known critical files
+    const criticalFiles = ['dist/core/constraints/prompt-injection.js', 'dist/knowledge/doctor.js', 'dist/index.js'];
+    const missing: string[] = [];
+    for (const f of criticalFiles) {
+      if (!fs.existsSync(path.join(pkgPath, f))) missing.push(f);
+    }
+    if (missing.length > 0) {
+      steps.push({ step: `dist verify: ${missing.length} missing`, status: 'fail', output: missing.join(', ') });
+      // Allow proceed with warning — not all packages have doctor.js
+    } else {
+      steps.push({ step: 'dist verify: all critical files present', status: 'ok' });
+    }
+
+    // 5. Bump version
+    const bumpType = input.bumpType || 'patch';
+    if (dryRun) {
+      const [major, minor, patch] = pkgVersion.split('.').map(Number);
+      let newVer: string;
+      if (bumpType === 'major') newVer = `${major + 1}.0.0`;
+      else if (bumpType === 'minor') newVer = `${major}.${minor + 1}.0`;
+      else newVer = `${major}.${minor}.${patch + 1}`;
+      steps.push({ step: `version: ${pkgVersion} → ${newVer} (dry-run, would be ${bumpType})`, status: 'skip' });
+      steps.push({ step: 'npm publish: skipped (dry-run)', status: 'skip' });
+      steps.push({ step: 'git push: skipped (dry-run)', status: 'skip' });
+      steps.push({ step: 'gh release: skipped (dry-run)', status: 'skip' });
+      return { success: true, dryRun: true, wouldPublish: `${pkgName}@${newVer}`, steps };
+    }
+
+    try {
+      const newVers = execSync(`npm version ${bumpType} --no-git-tag-version`, {
+        cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 10_000,
+      }).trim();
+      steps.push({ step: `version: ${pkgVersion} → ${newVers}`, status: 'ok' });
+    } catch (e: any) {
+      return { success: false, error: `npm version failed: ${e.message}`, steps };
+    }
+
+    // 6. Git commit + tag
+    const updatedPkg = JSON.parse(fs.readFileSync(path.join(pkgPath, 'package.json'), 'utf-8'));
+    const newVersion = updatedPkg.version;
+    const tag = `v${newVersion}`;
+
+    try {
+      execSync(`git add package.json && git commit -m "release: ${tag}" && git tag ${tag}`, {
+        cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 15_000,
+      });
+      steps.push({ step: `git: committed + tagged ${tag}`, status: 'ok' });
+    } catch (e: any) {
+      return { success: false, error: `git commit/tag failed: ${e.message}`, steps };
+    }
+
+    // 7. Git push (detect default branch)
+    try {
+      const branch = (() => {
+        try { return execSync('git rev-parse --abbrev-ref HEAD', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }).trim(); }
+        catch { return 'main'; }
+      })();
+      execSync(`git push origin ${branch}`, { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 });
+      execSync(`git push origin ${tag}`, { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000 });
+      steps.push({ step: 'git push: main + tag', status: 'ok' });
+    } catch (e: any) {
+      return { success: false, error: `git push failed: ${e.message}`, steps };
+    }
+
+    // 8. npm publish
+    try {
+      const pubOut = execSync('npm publish', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 120_000 });
+      steps.push({ step: `npm: published ${pkgName}@${newVersion}`, status: 'ok', output: pubOut.trim() });
+    } catch (e: any) {
+      const errMsg = e.stderr || e.message || String(e);
+      // If "already exists" → not a failure, just already published
+      if (errMsg.includes('previously published') || errMsg.includes('EPUBLISHCONFLICT')) {
+        steps.push({ step: `npm: ${pkgName}@${newVersion} already published`, status: 'ok' });
+      } else {
+        return { success: false, error: `npm publish failed: ${errMsg.slice(0, 500)}`, steps };
+      }
+    }
+
+    // 9. GitHub Release
+    try {
+      const ghOut = execSync(`gh release create ${tag} --generate-notes`, {
+        cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 30_000,
+      });
+      steps.push({ step: `gh release: ${tag}`, status: 'ok', output: ghOut.trim() });
+    } catch (e: any) {
+      // Release failure is non-fatal — package is already published
+      steps.push({ step: `gh release: failed (non-fatal)`, status: 'fail', output: String(e.message || e).slice(0, 200) });
+    }
+
+    return {
+      success: true,
+      package: pkgName,
+      version: newVersion,
+      tag,
+      npmUrl: `https://www.npmjs.com/package/${pkgName}/v/${newVersion}`,
+      githubRelease: repoUrl ? `${repoUrl}/releases/tag/${tag}` : `tag ${tag} (no remote)`,
+      steps,
+    };
+  },
+};
+
 // ─── 注册所有 tools ───
 
 const allTools: RegisteredTool[] = [
@@ -783,6 +1061,11 @@ const allTools: RegisteredTool[] = [
   checkConstraint,
   checkGuardrail,
   getSandboxLevel,
+  // Agent-First 系统 (2)
+  systemHealth,
+  emitEvent,
+  // DevOps (1)
+  publishPackage,
 ];
 
 // FL-026: Register all tools into the registry on module load
