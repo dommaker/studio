@@ -153,15 +153,13 @@ export class AuditorAgent {
 
       const content = summary.join('\n');
 
-      // 6. 用户模型质量分析 + 知识电路健康
+      // 6. 用户模型质量分析
       const modelSuggestions = await this.analyzeUserModel();
-      const circuitSuggestions = await this.analyzeKnowledgeCircuit();
 
       // 7. 生成审计建议 → 分权限执行
       const suggestions = [
         ...await this.generateSuggestions(agentTypeStats, errorByAgentType),
         ...modelSuggestions,
-        ...circuitSuggestions,
       ];
       const lowRisk = suggestions.filter(s => s.risk === 'low');
       const highRisk = suggestions.filter(s => s.risk === 'high');
@@ -297,7 +295,6 @@ export class AuditorAgent {
   private async analyzeUserModel(): Promise<Suggestion[]> {
     const suggestions: Suggestion[] = [];
     try {
-      const { checkKnowledgeCircuit } = await import('../knowledge/knowledge-bus.service.js');
       const fs = await import('fs');
       const path = await import('path');
       const os = await import('os');
@@ -344,42 +341,6 @@ export class AuditorAgent {
       }
     } catch (e: any) {
       logger.warn('[AuditorAgent] User model analysis failed', { error: String(e) });
-    }
-    return suggestions;
-  }
-
-  // ── Knowledge Circuit Health Analysis ──
-
-  private async analyzeKnowledgeCircuit(): Promise<Suggestion[]> {
-    const suggestions: Suggestion[] = [];
-    try {
-      const { checkKnowledgeCircuit } = await import('../knowledge/knowledge-bus.service.js');
-      const circuit = checkKnowledgeCircuit();
-
-      // Circuit OPEN for >1 cycle → escalate
-      for (const [name, info] of Object.entries(circuit.circuits)) {
-        if (info.status === 'OPEN') {
-          suggestions.push({
-            type: 'circuit_fix',
-            risk: 'high',
-            detail: `知识电路 "${name}" OPEN: ${info.evidence} — ${info.likelyCause || ''}`,
-            data: { circuit: name, evidence: info.evidence, likelyCause: info.likelyCause },
-          });
-        }
-      }
-
-      // Maturity stagnation
-      const draftRatio = (circuit.stats.byMaturity['draft'] || 0) / circuit.stats.total;
-      if (circuit.stats.total > 10 && draftRatio > 0.9) {
-        suggestions.push({
-          type: 'circuit_fix',
-          risk: 'low',
-          detail: `知识成熟度停滞: ${Math.round(draftRatio * 100)}% draft — 可能需要手动触发晋升`,
-          data: { draftRatio, total: circuit.stats.total },
-        });
-      }
-    } catch (e: any) {
-      logger.warn('[AuditorAgent] Circuit analysis failed', { error: String(e) });
     }
     return suggestions;
   }

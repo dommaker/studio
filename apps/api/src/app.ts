@@ -84,6 +84,8 @@ export async function registerRoutes(): Promise<void> {
       '/channels',
       '/health',
       '/pipeline/status',
+      '/mcp/tools',        // MCP tool listing + execution (auth via permission service)
+      '/mcp/health',       // MCP health check
     ]);
     const optAuth = optionalAuth();
     app.use('/api/v1', async (req: any, res: any, next: any) => {

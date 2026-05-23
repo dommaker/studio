@@ -19,7 +19,7 @@ import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
-import { sharedStore, sharedLifecycle, checkKnowledgeCircuit, repairKnowledgeCircuit } from '../knowledge/knowledge-bus.service.js';
+import { sharedStore, sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
 import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
@@ -582,7 +582,7 @@ export class MonitorAgent {
    */
   private async runCircuitCheckAndRepair(): Promise<void> {
     try {
-      // KnowledgeSync Cycle 2+3: detect staleness + unmonitored + heal
+      // KnowledgeSync: detect staleness + unmonitored + heal
       const syncResult = await knowledgeSync.runSyncCycle();
       if (syncResult.stale.length > 0 || syncResult.unmonitored.length > 0) {
         logger.warn('[MonitorAgent] KnowledgeSync detected issues', {
@@ -591,65 +591,8 @@ export class MonitorAgent {
           healed: syncResult.healed,
         });
       }
-
-      const circuit = checkKnowledgeCircuit();
-      const openCircuits = Object.entries(circuit.circuits).filter(([, c]) => c.status === 'OPEN');
-      const allStatus = Object.entries(circuit.circuits).map(([k, v]) => `${k}:${v.status}`).join(', ');
-
-      // Write circuit health snapshot as meta-knowledge (trend entry)
-      if (openCircuits.length > 0) {
-        const critical = openCircuits.filter(([, c]) => c.likelyCause);
-        logger.warn('[MonitorAgent] Knowledge circuit OPEN — repairing', {
-          openCircuits: openCircuits.map(([name, c]) => ({ circuit: name, evidence: c.evidence, likelyCause: c.likelyCause })),
-        });
-
-        // Auto-repair
-        const repairs = repairKnowledgeCircuit(circuit.circuits);
-        const repairSummary = repairs.map(r => `${r.circuit}: ${r.action} → ${r.result}`).join('\n');
-
-        // Write meta-knowledge to store — so next query finds circuit state without re-scanning code
-        await knowledgeBus.recordPattern({
-          source: 'monitor',
-          type: 'trend',
-          title: `Knowledge circuit: ${openCircuits.length} OPEN (${allStatus})`,
-          content: [
-            `Circuits: ${allStatus}`,
-            `Total entries: ${circuit.stats.total}`,
-            `Maturity: ${JSON.stringify(circuit.stats.byMaturity)}`,
-            '',
-            `Open circuits:`,
-            ...openCircuits.map(([name, c]) => `  - ${name}: ${c.evidence}\n    Likely cause: ${c.likelyCause || 'unknown'}`),
-            '',
-            `Repairs:`,
-            repairSummary,
-          ].join('\n'),
-          severity: 'warning',
-          timestamp: Date.now(),
-        });
-
-        for (const r of repairs) {
-          logger.info('[MonitorAgent] Circuit repair', r);
-        }
-      } else {
-        logger.info('[MonitorAgent] Knowledge circuit all CLOSED');
-
-        // Periodic healthy snapshot (hourly)
-        await knowledgeBus.recordPattern({
-          source: 'monitor',
-          type: 'trend',
-          title: `Knowledge circuit healthy (${allStatus})`,
-          content: [
-            `All circuits CLOSED.`,
-            `Total: ${circuit.stats.total} entries`,
-            `Maturity: ${JSON.stringify(circuit.stats.byMaturity)}`,
-            `Types: ${JSON.stringify(circuit.stats.byType)}`,
-          ].join('\n'),
-          severity: 'info',
-          timestamp: Date.now(),
-        });
-      }
     } catch (e) {
-      logger.warn('[MonitorAgent] Circuit check failed', { error: String(e) });
+      logger.warn('[MonitorAgent] KnowledgeSync check failed', { error: String(e) });
     }
   }
 

@@ -48,6 +48,9 @@ export class MCPToolRegistry {
    * Register a tool
    */
   register(tool: RegisteredTool): void {
+    // Default enabled=true — list() and executeTool() require explicit boolean.
+    // Tools defined in allTools array don't set this field (TS errors pre-existing).
+    if (tool.enabled === undefined) tool.enabled = true;
     this.tools.set(tool.name, tool);
     if (!this.stats.has(tool.name)) {
       this.stats.set(tool.name, { totalCalls: 0, successCalls: 0, errorCalls: 0, avgDuration: 0 });
