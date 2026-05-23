@@ -306,6 +306,16 @@ export class ModelGateway {
         const content = raw.choices?.[0]?.message?.content ||
                         raw.choices?.[0]?.message?.reasoning_content || '';
 
+        if (!content) {
+          logger.warn('[Gateway] Empty content from provider', {
+            provider: provider.name,
+            model: raw.model || provider.model,
+            choiceCount: raw.choices?.length || 0,
+            rawKeys: raw.choices?.[0] ? Object.keys(raw.choices[0]) : [],
+            rawSample: JSON.stringify(raw).slice(0, 400),
+          });
+        }
+
         const usage = raw.usage ? {
           promptTokens: raw.usage.prompt_tokens,
           completionTokens: raw.usage.completion_tokens,
@@ -382,17 +392,64 @@ export class ModelGateway {
     const enhanced = `${text}\n\n请以 JSON 格式返回结果，不要包含其他文字。`;
     const response = await this.prompt(enhanced, systemPrompt);
 
-    try {
-      return JSON.parse(response);
-    } catch {
-      const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (jsonMatch?.[1]) return JSON.parse(jsonMatch[1].trim());
+    const parsed = this.extractJson<T>(response);
+    if (parsed !== undefined) return parsed;
 
-      const objectMatch = response.match(/\{[\s\S]*\}/);
-      if (objectMatch?.[0]) return JSON.parse(objectMatch[0]);
+    logger.warn('[Gateway] Failed to parse JSON from LLM response', {
+      responsePreview: response.slice(0, 300),
+    });
+    throw new Error('Failed to parse JSON from LLM response');
+  }
 
-      throw new Error('Failed to parse JSON from LLM response');
+  /**
+   * Extract JSON from potentially messy LLM output.
+   * Tries: direct parse → markdown code block → object match → array match.
+   */
+  private extractJson<T = any>(text: string): T | undefined {
+    // 1. Direct JSON parse
+    try { return JSON.parse(text); } catch {}
+
+    // 2. Markdown code block: ```json ... ```
+    const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (codeBlock?.[1]) {
+      try { return JSON.parse(codeBlock[1].trim()); } catch {}
     }
+
+    // 3. Find outermost JSON object
+    const objMatch = this.extractBalancedJson(text, '{', '}');
+    if (objMatch) {
+      try { return JSON.parse(objMatch); } catch {}
+    }
+
+    // 4. Find outermost JSON array
+    const arrMatch = this.extractBalancedJson(text, '[', ']');
+    if (arrMatch) {
+      try { return JSON.parse(arrMatch); } catch {}
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Extract the longest balanced bracket expression.
+   */
+  private extractBalancedJson(text: string, open: string, close: string): string | undefined {
+    const start = text.indexOf(open);
+    if (start === -1) return undefined;
+
+    let depth = 0;
+    let bestEnd = -1;
+    for (let i = start; i < text.length; i++) {
+      if (text[i] === open) depth++;
+      else if (text[i] === close) {
+        depth--;
+        if (depth === 0) {
+          bestEnd = i;
+          // Don't break — greedy, find outermost
+        }
+      }
+    }
+    return bestEnd > start ? text.slice(start, bestEnd + 1) : undefined;
   }
 
   /**
