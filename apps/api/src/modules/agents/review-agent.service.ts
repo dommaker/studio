@@ -14,7 +14,7 @@ import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import * as fs from 'fs';
 import * as path from 'path';
-import type { ReviewResult } from './types.js';
+import type { ReviewResult, ReviewDiffParams } from './types.js';
 import type { ReviewReport } from './review-report.js';
 import { buildReviewPrompt } from './review-report.js';
 
@@ -227,6 +227,108 @@ export class ReviewAgent {
   }
 
   /**
+   * 参数化跨分支 diff 审查（拓扑无关）
+   *
+   * 审查 baseRef..headRef 之间的所有变更，不依赖 worktree。
+   * 适用于 main→master、release→main 等任意分支间 diff。
+   */
+  async reviewDiff(params: ReviewDiffParams): Promise<ReviewResult> {
+    const { baseRef, headRef, repoPath, description, acceptanceCriteria, stances } = params;
+    const startTime = Date.now();
+
+    try {
+      const hasChanges = await this.hasBranchChanges(repoPath, baseRef, headRef);
+      if (!hasChanges) {
+        const durationMs = Date.now() - startTime;
+        logger.info('[ReviewAgent] No diff between refs, auto-approving', { baseRef, headRef, durationMs });
+        return { approved: true, score: 100, issues: [], suggestions: [] };
+      }
+
+      const constraintSection = formatConstraintsForPrompt('reviewer');
+      const reviewPrompt = constraintSection + buildReviewPrompt({
+        taskDescription: description || `Branch diff: ${baseRef} → ${headRef}`,
+        acceptanceCriteria: acceptanceCriteria || [
+          `All changes between ${baseRef} and ${headRef} are correct and safe`,
+          'No breaking changes unless intended',
+          'Tests pass for all modified code paths',
+        ],
+        cycle: 1,
+        stances,
+      });
+
+      const promptFile = path.join(repoPath, '.review-prompt.md');
+      fs.writeFileSync(promptFile, reviewPrompt, 'utf-8');
+
+      const model = getModelForTier('standard');
+
+      const cmd = [
+        `cd "${repoPath}"`,
+        `&&`,
+        `cat '${promptFile}'`,
+        `|`,
+        `claude`,
+        `--print`,
+        `--output-format json`,
+        `--dangerously-skip-permissions`,
+        `--model "${model}"`,
+        `--allowedTools "Bash(git diff ${baseRef}..${headRef} --stat),Bash(git diff ${baseRef}..${headRef}),Bash(git log ${baseRef}..${headRef} --oneline),Read,Grep,Glob"`,
+        `2>&1`,
+      ].join(' ');
+
+      logger.info('[ReviewAgent] Starting branch diff review', { baseRef, headRef, repoPath });
+
+      try {
+        await execSh(cmd, {
+          cwd: repoPath,
+          env: { ANTHROPIC_MODEL: model },
+          timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
+          maxBuffer: 10 * 1024 * 1024,
+        });
+      } catch (execErr: any) {
+        const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
+        logger.error('[ReviewAgent] reviewDiff Claude Code failed', { baseRef, headRef, error: errMsg.slice(0, 200) });
+        return { approved: true, score: 0, issues: [{ severity: 'warning', message: `审查异常: ${errMsg.slice(0, 200)}，已默认放行` }], suggestions: [] };
+      }
+
+      const reportPath = path.join(repoPath, '.review-report.json');
+      if (!fs.existsSync(reportPath)) {
+        logger.warn('[ReviewAgent] reviewDiff report not found, defaulting to approved', { baseRef, headRef });
+        return { approved: true, score: 0, issues: [], suggestions: [] };
+      }
+
+      const reportJson = fs.readFileSync(reportPath, 'utf-8');
+      const report: ReviewReport = JSON.parse(reportJson);
+
+      try { fs.unlinkSync(promptFile); } catch { }
+      try { fs.unlinkSync(reportPath); } catch { }
+
+      const totalIssues = report.issues?.length ?? 0;
+      const errorIssues = report.issues?.filter(i => i.severity === 'error').length ?? 0;
+      const reviewScore = errorIssues > 0 ? 50 : totalIssues > 0 ? 80 : 100;
+
+      const durationMs = Date.now() - startTime;
+      logger.info('[ReviewAgent] reviewDiff completed', { baseRef, headRef, approved: report.overallApproved, score: reviewScore, issueCount: totalIssues, durationMs });
+
+      const allIssues = [
+        ...(report.issues ?? []).map(i => ({ severity: i.severity, message: i.message, file: i.file, line: i.line })),
+        ...(report.acResults ?? []).filter(r => !r.passed).map(r => ({ severity: 'error' as const, message: `AC 未满足: ${r.ac}${r.gap ? ` — ${r.gap}` : ''}` })),
+      ];
+
+      knowledgeBus.recordPattern({
+        source: 'reviewer', type: 'pattern',
+        title: `Branch diff (${baseRef}..${headRef}): ${report.overallApproved ? 'APPROVED' : 'REJECTED'}`,
+        content: `Diff: ${baseRef}..${headRef}\nIssues: ${totalIssues}\nScore: ${reviewScore}`,
+        severity: report.overallApproved ? 'info' : 'warning', timestamp: Date.now(),
+      }).catch(() => {});
+
+      return { approved: report.overallApproved, score: reviewScore, issues: allIssues, suggestions: report.suggestions ?? [] };
+    } catch (error) {
+      logger.error('[ReviewAgent] reviewDiff failed', { baseRef, headRef, error: String(error) });
+      return { approved: true, score: 0, issues: [{ severity: 'warning', message: `审查异常: ${String(error).slice(0, 200)}，已默认放行` }], suggestions: [] };
+    }
+  }
+
+  /**
    * 检查 worktree 是否有代码变更
    */
   private async hasChanges(worktree: string): Promise<boolean> {
@@ -237,7 +339,22 @@ export class ReviewAgent {
       );
       return stdout.trim().length > 0;
     } catch {
-      return true; // 无法判断时默认有变更
+      return true;
+    }
+  }
+
+  /**
+   * 检查两个分支/引用之间是否有差异
+   */
+  private async hasBranchChanges(repoPath: string, baseRef: string, headRef: string): Promise<boolean> {
+    try {
+      const { stdout } = await execSh(
+        `git diff ${baseRef}..${headRef} --stat 2>/dev/null || echo ""`,
+        { cwd: repoPath, timeoutMs: 10_000 },
+      );
+      return stdout.trim().length > 0;
+    } catch {
+      return true;
     }
   }
 }

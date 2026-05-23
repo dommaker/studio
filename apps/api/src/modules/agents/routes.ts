@@ -3,9 +3,12 @@ import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
 import { prisma } from '../../core/database.js';
 import { postEvalAgent } from './post-eval-agent.service.js';
-import { requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
+import { reviewAgent } from './review-agent.service.js';
+import { deployAgent } from './deploy-agent.service.js';
+import { requireNotGuest, requireRole } from '../../middleware/auth.js';
 import { eventStore } from '../../core/event-store.js';
 import { logger } from '@dommaker/studio-shared';
+import type { MergeToMasterRequest } from './types.js';
 
 const router = Router();
 
@@ -157,6 +160,75 @@ router.post('/post-eval/plan-coverage', async (req: Request, res: Response) => {
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Plan coverage check failed' },
     });
+  }
+});
+
+// ── Review diff between branches ──────────────────────────
+
+router.post('/review/diff', async (req: Request, res: Response) => {
+  try {
+    const { baseRef, headRef, repoPath, description, acceptanceCriteria, stances } = req.body;
+    if (!baseRef || !headRef) {
+      return res.status(400).json({ error: { code: 'MISSING_PARAM', message: 'baseRef and headRef are required' } });
+    }
+    const repoDir = repoPath || process.env.REPO_DIR || '/root/projects/studio';
+    const result = await reviewAgent.reviewDiff({ baseRef, headRef, repoPath: repoDir, description, acceptanceCriteria, stances });
+    res.json(result);
+  } catch (error) {
+    logger.error('[Agents] Review diff failed', { error: String(error) });
+    res.status(500).json({ error: { code: 'REVIEW_FAILED', message: String(error) } });
+  }
+});
+
+// ── Merge branches (topology-agnostic) ───────────────────
+
+router.post('/deploy/merge', async (req: Request, res: Response) => {
+  try {
+    const { source, target, repoPath, push } = req.body;
+    if (!source || !target) {
+      return res.status(400).json({ error: { code: 'MISSING_PARAM', message: 'source and target are required' } });
+    }
+    const result = await deployAgent.mergeBranches({ source, target, repoPath, push });
+    res.json(result);
+  } catch (error) {
+    logger.error('[Agents] Merge branches failed', { error: String(error) });
+    res.status(500).json({ error: { code: 'MERGE_FAILED', message: String(error) } });
+  }
+});
+
+// ── Merge to master (convenience composite) ──────────────
+
+router.post('/deploy/merge-to-master', async (req: Request, res: Response) => {
+  try {
+    const { sourceBranch = 'main', skipReview = false, environment = 'vps' } = req.body as MergeToMasterRequest;
+    const repoDir = process.env.REPO_DIR || '/root/projects/studio';
+    let reviewApproved = true;
+    let reviewScore = 100;
+    const reviewIssues: any[] = [];
+
+    if (!skipReview) {
+      logger.info('[Agents] merge-to-master: running review', { sourceBranch, repoDir });
+      const reviewResult = await reviewAgent.reviewDiff({
+        baseRef: 'origin/master',
+        headRef: `origin/${sourceBranch}`,
+        repoPath: repoDir,
+        description: `Merge ${sourceBranch} → master: ${sourceBranch} branch commits ahead of master`,
+      });
+      reviewApproved = reviewResult.approved;
+      reviewScore = reviewResult.score;
+      reviewIssues.push(...reviewResult.issues);
+
+      if (!reviewApproved) {
+        return res.status(200).json({ reviewApproved: false, reviewScore, reviewIssues, merged: false, pushed: false, summary: `Review rejected (score: ${reviewScore}). Fix issues before merge.` });
+      }
+      logger.info('[Agents] merge-to-master: review approved', { sourceBranch, score: reviewScore });
+    }
+
+    const mergeResult = await deployAgent.mergeBranches({ source: sourceBranch, target: 'master', repoPath: repoDir, push: true });
+    res.status(200).json({ reviewApproved, reviewScore, reviewIssues, merged: mergeResult.merged, pushed: mergeResult.pushed, summary: mergeResult.summary });
+  } catch (error) {
+    logger.error('[Agents] merge-to-master failed', { error: String(error) });
+    res.status(500).json({ error: { code: 'MERGE_TO_MASTER_FAILED', message: String(error) } });
   }
 });
 

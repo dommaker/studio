@@ -12,7 +12,7 @@ import { logger, eventBus } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
-import type { DeployParams, DeployResult, DeployFinding } from './types.js';
+import type { DeployParams, DeployResult, DeployFinding, MergeBranchesParams, MergeBranchesResult } from './types.js';
 
 class DeployAgent {
   async deploy(params: DeployParams): Promise<DeployResult> {
@@ -89,38 +89,96 @@ class DeployAgent {
     return deployResult;
   }
 
+  // ── Merge branches (topology-agnostic) ─────────────────
+
+  /**
+   * Merge source branch into target branch.
+   * Does NOT assume main or master — caller specifies both.
+   */
+  async mergeBranches(params: MergeBranchesParams): Promise<MergeBranchesResult> {
+    const repoDir = params.repoPath || await this.getRepoDir();
+    const { source, target, push = false } = params;
+
+    try {
+      logger.info('[DeployAgent] mergeBranches', { source, target, repoDir, push });
+
+      try {
+        await execSh(`git fetch origin ${target} ${source} 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 30_000 });
+      } catch { /* no remote — use local branches */ }
+
+      const sourceRef = await this.resolveRef(repoDir, source);
+
+      await execSh(`git checkout ${target} && git merge "${sourceRef}" --no-edit`, { cwd: repoDir, timeoutMs: 60_000 });
+
+      const result: MergeBranchesResult = {
+        success: true, merged: true, pushed: false,
+        summary: `Merged ${source} → ${target} successfully`,
+      };
+
+      if (push) {
+        const pushResult = await this.pushBranch({ branch: target, repoDir });
+        result.pushed = pushResult.success;
+        result.summary += pushResult.success
+          ? `, pushed to origin/${target}`
+          : `, push failed: ${pushResult.summary}`;
+        if (!pushResult.success) {
+          result.success = result.merged;
+          logger.warn('[DeployAgent] mergeBranches merge OK but push failed', { source, target });
+        }
+      }
+
+      return result;
+    } catch (e) {
+      try { await execSh('git merge --abort 2>/dev/null || true', { cwd: repoDir, timeoutMs: 5_000 }); } catch { }
+      logger.error('[DeployAgent] mergeBranches failed', { source, target, error: String(e) });
+      return { success: false, merged: false, pushed: false, summary: `Merge ${source} → ${target} failed: ${String(e).slice(0, 200)}` };
+    }
+  }
+
+  /**
+   * Push a branch to origin.
+   */
+  async pushBranch(params: { branch: string; repoDir?: string }): Promise<{ success: boolean; summary: string }> {
+    const repoDir = params.repoDir || await this.getRepoDir();
+    try {
+      logger.info('[DeployAgent] pushBranch', { branch: params.branch });
+      await execSh(`git push origin ${params.branch}`, { cwd: repoDir, timeoutMs: 60_000 });
+      return { success: true, summary: `Pushed origin/${params.branch}` };
+    } catch (e) {
+      logger.error('[DeployAgent] pushBranch failed', { branch: params.branch, error: String(e) });
+      return { success: false, summary: `Push failed: ${String(e).slice(0, 200)}` };
+    }
+  }
+
   // ── Merge to master ────────────────────────────────────
 
   private async mergeToMaster(params: DeployParams): Promise<DeployResult> {
     const repoDir = await this.getRepoDir();
     try {
-      // Get the current integration branch name
       const { stdout: branchOut } = await execSh('git -C . rev-parse --abbrev-ref HEAD', {
         cwd: params.worktree,
         timeoutMs: 10_000,
       });
       const branch = branchOut.trim();
 
-      if (branch === 'master' || branch === 'main') {
-        logger.info('[DeployAgent] Already on main branch, skipping merge');
+      if (branch === 'master') {
+        logger.info('[DeployAgent] Already on master, skipping merge');
+        return this.okResult(params);
+      }
+
+      if (branch === 'main') {
+        logger.info('[DeployAgent] On main branch, merging main → master', { repoDir });
+        await execSh('git checkout master && git merge main --no-edit', { cwd: repoDir, timeoutMs: 60_000 });
         return this.okResult(params);
       }
 
       logger.info('[DeployAgent] Merging to master', { branch, repoDir });
-
-      // Merge the integration/task branch into master
-      await execSh(`git checkout master && git merge "${branch}" --no-edit`, {
-        cwd: repoDir,
-        timeoutMs: 60_000,
-      });
+      await execSh(`git checkout master && git merge "${branch}" --no-edit`, { cwd: repoDir, timeoutMs: 60_000 });
 
       return this.okResult(params);
     } catch (e) {
       logger.error('[DeployAgent] Merge to master failed', { error: String(e) });
-      return {
-        success: false, type: params.environment, findings: [],
-        summary: `Merge to master failed: ${String(e).slice(0, 200)}`,
-      };
+      return { success: false, type: params.environment, findings: [], summary: `Merge to master failed: ${String(e).slice(0, 200)}` };
     }
   }
 
@@ -350,6 +408,18 @@ class DeployAgent {
 
   private async getRepoDir(): Promise<string> {
     return process.env.REPO_DIR || path.join(require('os').homedir(), 'projects');
+  }
+
+  /**
+   * Resolve a branch ref: prefer origin/<branch> if it exists, fall back to local branch.
+   */
+  private async resolveRef(repoDir: string, branch: string): Promise<string> {
+    try {
+      await execSh(`git rev-parse --verify "origin/${branch}" 2>/dev/null`, { cwd: repoDir, timeoutMs: 5_000 });
+      return `origin/${branch}`;
+    } catch {
+      return branch;
+    }
   }
 }
 
