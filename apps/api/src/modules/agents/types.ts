@@ -61,6 +61,50 @@ export interface DeployResult {
   summary: string;
 }
 
+// ── ReviewDiff (parameterized diff review, topology-agnostic) ──
+
+export interface ReviewDiffParams {
+  baseRef: string;
+  headRef: string;
+  repoPath: string;
+  description?: string;
+  acceptanceCriteria?: string[];
+  stances?: { id: string; name: string; prompt: string; reviewerFocus?: string }[];
+}
+
+// ── MergeBranches (topology-agnostic) ──
+
+export interface MergeBranchesParams {
+  source: string;
+  target: string;
+  repoPath?: string;
+  push?: boolean;
+}
+
+export interface MergeBranchesResult {
+  success: boolean;
+  merged: boolean;
+  pushed: boolean;
+  summary: string;
+}
+
+// ── MergeToMaster (convenience composite) ──
+
+export interface MergeToMasterRequest {
+  sourceBranch?: string;
+  skipReview?: boolean;
+  environment?: 'vps' | 'company_frontend' | 'company_backend';
+}
+
+export interface MergeToMasterResult {
+  reviewApproved: boolean;
+  reviewScore: number;
+  reviewIssues: ReviewIssue[];
+  merged: boolean;
+  pushed: boolean;
+  summary: string;
+}
+
 // ── PostEval ──
 
 export type { GapReport } from './post-eval-agent.service.js';
