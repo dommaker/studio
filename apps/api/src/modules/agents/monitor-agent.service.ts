@@ -105,6 +105,7 @@ export class MonitorAgent {
     await this.checkKnowledgeHealth();
     alerts.push(...await this.checkSessionFileHealth());
     alerts.push(...await this.checkReviewQuality());
+    alerts.push(...await this.checkTokenBudget());
 
     // Log all alerts
     for (const alert of alerts) {
@@ -562,6 +563,52 @@ export class MonitorAgent {
       }
     } catch (e) {
       logger.warn('[MonitorAgent] Review quality check failed', { error: String(e) });
+    }
+    return alerts;
+  }
+
+  /**
+   * P2-1: Token budget check — goal 累计 token 超阈值告警
+   */
+  private async checkTokenBudget(): Promise<MonitorAlert[]> {
+    const TOKEN_BUDGET_WARN = 500_000;
+    const TOKEN_BUDGET_CRIT = 1_000_000;
+    const alerts: MonitorAlert[] = [];
+    try {
+      const goals = await prisma.goal.findMany({
+        where: {
+          status: { in: ['executing', 'succeeded', 'blocked'] },
+          updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
+        },
+        select: { id: true, title: true, context: true },
+        take: 10,
+      });
+
+      for (const goal of goals) {
+        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+        const tokens = (ctx._cumulativeTokens as number) || 0;
+        if (tokens >= TOKEN_BUDGET_CRIT) {
+          alerts.push({
+            projectId: goal.id.slice(0, 8),
+            message: `Goal ${goal.id.slice(0, 8)} exceeded critical token budget: ${(tokens / 1000).toFixed(0)}K tokens`,
+            source: 'total_time',
+            level: 'critical',
+            relatedTaskIds: [goal.id],
+            timestamp: Date.now(),
+          });
+        } else if (tokens >= TOKEN_BUDGET_WARN) {
+          alerts.push({
+            projectId: goal.id.slice(0, 8),
+            message: `Goal ${goal.id.slice(0, 8)} approaching token budget: ${(tokens / 1000).toFixed(0)}K tokens`,
+            source: 'total_time',
+            level: 'warning',
+            relatedTaskIds: [goal.id],
+            timestamp: Date.now(),
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn('[MonitorAgent] Token budget check failed', { error: String(e) });
     }
     return alerts;
   }

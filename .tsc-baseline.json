@@ -2,7 +2,7 @@
   "apps/api": [
     {
       "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 149,
+      "line": 150,
       "code": "TS2741"
     },
     {
@@ -22,22 +22,22 @@
     },
     {
       "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 296,
+      "line": 306,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 300,
+      "line": 310,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 300,
+      "line": 310,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 303,
+      "line": 313,
       "code": "TS2339"
     },
     {
@@ -202,27 +202,27 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 695,
+      "line": 719,
       "code": "TS2352"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 841,
+      "line": 865,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 842,
+      "line": 866,
       "code": "TS2352"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 855,
+      "line": 879,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 1038,
+      "line": 1062,
       "code": "TS2322"
     },
     {
@@ -1213,8 +1213,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-24T09:46:43.611Z",
+    "generated": "2026-05-24T10:28:05.212Z",
     "totalErrors": 241,
-    "commit": "a346f83f7a129ab5c561fd9a7950cb1dfaca92d1"
+    "commit": "025fc4b42506261d33c01798bacd34177a0aac2b"
   }
 }
