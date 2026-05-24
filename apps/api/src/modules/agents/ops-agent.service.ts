@@ -382,6 +382,7 @@ export class OpsAgent {
       { name: '#研发', type: 'rnd' },
       { name: '#决策', type: 'decision' },
       { name: '#系统', type: 'system' },
+      { name: '#研发-dev', type: 'rnd' },       // dev 测试消息隔离
     ];
     let channelCount = 0;
     for (const d of defaults) {
