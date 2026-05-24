@@ -222,7 +222,7 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 1064,
+      "line": 1071,
       "code": "TS2322"
     },
     {
@@ -1213,8 +1213,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-24T12:48:23.990Z",
+    "generated": "2026-05-24T13:24:41.450Z",
     "totalErrors": 241,
-    "commit": "b8dc40d35d5d29e41dca40bd7f28fd7d683eea12"
+    "commit": "25c63c256cd340fb383cae4d7d03477b37831dd8"
   }
 }
