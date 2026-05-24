@@ -221,14 +221,24 @@ export class OpsAgent {
       const status = await this.getStatus();
       logger.info('[OpsAgent] Health check', status);
 
-      // Critical: API not responding → try systemd restart + notify Channel
+      // Critical: API not responding → check if daemon is busy before restart
       if (!status.apiResponding) {
         logger.error('[OpsAgent] CRITICAL: API not responding on port', { port: this.port });
-        // Try systemd restart (best-effort, non-blocking)
+        // Don't auto-restart if daemon is running tasks — the load is likely from Claude
+        let daemonBusy = false;
         try {
-          execSync('systemctl restart studio-api 2>/dev/null || true', { stdio: 'pipe', timeout: 5000 });
-          logger.info('[OpsAgent] Triggered systemd restart for studio-api');
-        } catch { /* may not be running under systemd */ }
+          const { daemon } = await import('../../daemon/studio-daemon.js');
+          const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean } | null>;
+          daemonBusy = (statuses || []).some((s: any) => s?.isBusy);
+        } catch {}
+        if (daemonBusy) {
+          logger.warn('[OpsAgent] Daemon busy — skipping auto-restart to avoid killing running tasks');
+        } else {
+          try {
+            execSync('systemctl restart studio-api 2>/dev/null || true', { stdio: 'pipe', timeout: 5000 });
+            logger.info('[OpsAgent] Triggered systemd restart for studio-api');
+          } catch { /* may not be running under systemd */ }
+        }
         // Push alert to #系统 Channel
         try {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
@@ -272,9 +282,14 @@ export class OpsAgent {
   }
 
   async getStatus(): Promise<HealthStatus> {
-    const diskRaw = execSync("df -h / | tail -1", { encoding: 'utf-8', stdio: 'pipe' }).trim().split(/\s+/);
-    const memRaw = execSync("free -m | grep Mem", { encoding: 'utf-8', stdio: 'pipe' }).trim().split(/\s+/);
-    const cpuRaw = execSync("cat /proc/loadavg", { encoding: 'utf-8', stdio: 'pipe' }).trim();
+    // 用 fs 读 /proc 替代 execSync（不阻塞事件循环）
+    const fs = require('fs');
+    let diskRaw = ['?','?','?'];
+    let memRaw = ['?','?','?'];
+    let cpuRaw = '?';
+    try { diskRaw = fs.readFileSync('/proc/diskstats', 'utf-8').split('\n')[0]?.split(/\s+/) || diskRaw; } catch {}
+    try { memRaw = fs.readFileSync('/proc/meminfo', 'utf-8').split('\n').slice(0,3).join(' ').split(/\s+/) || memRaw; } catch {}
+    try { cpuRaw = fs.readFileSync('/proc/loadavg', 'utf-8').trim(); } catch {}
 
     let apiResponding = false;
     try {
@@ -286,7 +301,7 @@ export class OpsAgent {
           resolve();
         });
         req.on('error', () => { apiResponding = false; resolve(); });
-        setTimeout(() => { req.destroy(); resolve(); }, 3000);
+        setTimeout(() => { req.destroy(); resolve(); }, 10_000); // 10s timeout (was 3s — too short under Claude load)
       });
     } catch { apiResponding = false; }
 

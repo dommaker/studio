@@ -3,6 +3,7 @@
 import { SessionManager } from './session-manager.js';
 import type { JobSpec, TaskResult } from './session-manager.js';
 import { logger } from '@dommaker/studio-shared';
+import { execSh } from '@dommaker/studio-shared/node';
 import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
@@ -17,6 +18,9 @@ class StudioDaemon {
 
   start(): void {
     if (this.started) return;
+
+    // Health probe: 确认 Claude CLI 能在当前环境下正常启动
+    this.runHealthProbe();
 
     // Analyst: 在项目根目录运行，能读代码库。worktree 存 .daemon/ 状态
     this.manager.register({
@@ -87,6 +91,19 @@ class StudioDaemon {
   getStatus(sessionName?: string) {
     if (sessionName) return this.manager.getStatus(sessionName);
     return this.manager.getAllStatus();
+  }
+
+  /** 启动健康探测：确认 Claude CLI 能在当前环境正常启动 */
+  private runHealthProbe(): void {
+    const cmd = 'IS_SANDBOX=1 claude --print --output-format json -p "ok" 2>&1';
+    execSh(cmd, { cwd: REPO_DIR, timeoutMs: 30_000, maxBuffer: 1024 * 1024 })
+      .then(() => logger.info('[StudioDaemon] Health probe passed'))
+      .catch((e: any) => {
+        logger.error('[StudioDaemon] Health probe FAILED — Claude CLI may be broken', {
+          error: (e?.message || String(e)).slice(0, 200),
+          hint: 'Check IS_SANDBOX, ANTHROPIC_AUTH_TOKEN, claude binary path',
+        });
+      });
   }
 
   /** Graceful shutdown — wait for running daemon tasks, then stop accepting new ones */
