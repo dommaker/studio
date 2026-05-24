@@ -128,14 +128,11 @@ export class SessionManager {
       const cmd = [
         `cd "${state.config.worktree}"`,
         `&&`,
-        `cat '${promptFile}'`,
-        `|`,
         `claude`,
         `--print`,
         `--output-format json`,
-        `--dangerously-skip-permissions`,
         sessionFlag,
-        `2>&1`,
+        `< "${promptFile}"`,
       ].join(' ');
 
       logger.info('[SessionManager] Running task', {
@@ -340,6 +337,14 @@ export class SessionManager {
   private ensureWorktree(config: SessionConfig): void {
     if (!fs.existsSync(config.worktree)) {
       fs.mkdirSync(config.worktree, { recursive: true });
+    }
+    const claudeDir = path.join(config.worktree, '.claude');
+    if (!fs.existsSync(claudeDir)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+    }
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+      fs.writeFileSync(settingsPath, JSON.stringify({ permissions: { bypassPermissions: true } }, null, 2));
     }
   }
 }

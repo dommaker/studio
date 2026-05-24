@@ -1,22 +1,68 @@
-// SessionManager 边界测试 (B0-007)
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { SessionManager } from '../session-manager.js';
+// SessionManager 边界测试 (B0-007) + AC1 cmd/settings verification
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import * as crypto from 'crypto';
 
 const TEST_DIR = path.join(os.tmpdir(), 'daemon-test-' + Date.now());
+
+// Capture execSh calls
+const execShSpy = vi.fn();
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Mock @dommaker/studio-shared/node — provide all exports session-manager.ts imports
+vi.mock('@dommaker/studio-shared/node', () => ({
+  execSh: (...args: any[]) => execShSpy(...args),
+  resolveSessionId: (worktree: string) => {
+    const sidDir = path.join(worktree, '.daemon');
+    if (!fs.existsSync(sidDir)) fs.mkdirSync(sidDir, { recursive: true });
+    const sidFile = path.join(sidDir, 'session-id');
+    // Reuse valid UUID, regenerate invalid ones
+    let existing = '';
+    try { existing = fs.readFileSync(sidFile, 'utf-8').trim(); } catch {}
+    if (existing && UUID_PATTERN.test(existing)) return existing;
+    const newUuid = crypto.randomUUID();
+    fs.writeFileSync(sidFile, newUuid, 'utf-8');
+    return newUuid;
+  },
+  readSessionIdFile: () => null,
+}));
+
+// Also mock @dommaker/studio-shared for logger, getModelForTier
+vi.mock('@dommaker/studio-shared', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  getModelForTier: () => 'claude-sonnet-4-6',
+}));
+
+// Mock metrics and task-logger — must return Promises for .catch() chaining
+vi.mock('../metrics.js', () => ({
+  parseClaudeUsage: () => ({ inputTokens: 100, outputTokens: 50, cacheHitTokens: 0 }),
+  recordPipelineRun: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('../task-logger.js', () => ({
+  writeTaskLog: vi.fn(),
+  classifyTaskError: () => 'unknown',
+}));
+
+import { SessionManager } from '../session-manager.js';
 
 describe('SessionManager', () => {
   let manager: SessionManager;
 
   beforeEach(() => {
     fs.mkdirSync(TEST_DIR, { recursive: true });
+    execShSpy.mockReset();
+    // Default: execSh resolves with valid envelope JSON
+    execShSpy.mockResolvedValue({ stdout: '{"result": "ok"}', stderr: '' });
     manager = new SessionManager();
   });
 
   afterEach(() => {
     fs.rmSync(TEST_DIR, { recursive: true, force: true });
+    vi.clearAllMocks();
   });
 
   // ── Registration ──
@@ -85,9 +131,6 @@ describe('SessionManager', () => {
       timeoutMs: 5000, persistent: false,
     });
 
-    // First task takes the lock (we're not awaiting it)
-    // But since runTask is sync in execSync, let's just test that
-    // isBusy guard works by checking status after registration
     const status = manager.getStatus('concurrent');
     expect(status!.isBusy).toBe(false);
   });
@@ -115,5 +158,87 @@ describe('SessionManager', () => {
     await expect(
       manager.runTask('unknown', { prompt: 'test', outputFile: '/tmp/test.json' })
     ).rejects.toThrow('Session not found');
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // AC1: cmd construction & ensureWorktree verification
+  // ═══════════════════════════════════════════════════════════
+
+  describe('AC1: cmd construction and ensureWorktree', () => {
+    it('AC1.1: cmd uses < file redirect, not cat | pipe', async () => {
+      const worktree = path.join(TEST_DIR, 'ac1');
+      manager.register({
+        name: 'ac1', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      await manager.runTask('ac1', { prompt: 'hello', outputFile: '/tmp/out.json' });
+
+      const cmd = execShSpy.mock.calls[0]?.[0] as string;
+      expect(cmd).toBeDefined();
+      // Must use file redirect
+      expect(cmd).toContain('<');
+      // Must NOT use cat pipe
+      expect(cmd).not.toMatch(/\bcat\b/);
+      // promptFile reference should exist inside redirect
+      expect(cmd).toMatch(/< "/);
+      expect(cmd).toMatch(/prompt\.md"/);
+    });
+
+    it('AC1.2: cmd does not contain --dangerously-skip-permissions', async () => {
+      const worktree = path.join(TEST_DIR, 'ac2');
+      manager.register({
+        name: 'ac2', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      await manager.runTask('ac2', { prompt: 'hello', outputFile: '/tmp/out.json' });
+
+      const cmd = execShSpy.mock.calls[0]?.[0] as string;
+      expect(cmd).not.toContain('--dangerously-skip-permissions');
+    });
+
+    it('AC1.3: ensureWorktree writes bypassPermissions to .claude/settings.json', () => {
+      const worktree = path.join(TEST_DIR, 'ac3');
+      manager.register({
+        name: 'ac3', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      const settingsPath = path.join(worktree, '.claude', 'settings.json');
+      expect(fs.existsSync(settingsPath)).toBe(true);
+
+      const content = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+      expect(content.permissions?.bypassPermissions).toBe(true);
+    });
+
+    it('AC1.4: cmd does not contain 2>&1', async () => {
+      const worktree = path.join(TEST_DIR, 'ac4');
+      manager.register({
+        name: 'ac4', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      await manager.runTask('ac4', { prompt: 'hello', outputFile: '/tmp/out.json' });
+
+      const cmd = execShSpy.mock.calls[0]?.[0] as string;
+      expect(cmd).not.toContain('2>&1');
+    });
+
+    it('AC1.5: execSh called without opts.stdin', async () => {
+      const worktree = path.join(TEST_DIR, 'ac5');
+      manager.register({
+        name: 'ac5', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      await manager.runTask('ac5', { prompt: 'hello', outputFile: '/tmp/out.json' });
+
+      const opts = execShSpy.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
+      expect(opts).toBeDefined();
+      // execSh should NOT receive opts.stdin — stdin stays 'ignore',
+      // shell's < redirect handles input
+      expect(opts?.stdin).toBeUndefined();
+    });
   });
 });
