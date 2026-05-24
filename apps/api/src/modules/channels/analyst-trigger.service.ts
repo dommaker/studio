@@ -139,6 +139,8 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '## 你的任务',
     '分析用户需求，输出结构化的 RequirementsDoc。',
     '',
+    '**铁律：只输出用户明确要求的需求。** 代码探索中发现的改进机会（如"这个模块可以升级"）→ 写入 .analyst/knowledge.md，不创建额外的 RequirementsDoc。',
+    '',
     '## 分析深度分级（先评估任务复杂度，再决定探索深度）',
     '**Simple**（改 1-2 文件，无新建文件，无 schema 变更）：',
     '  → 只读目标文件 + 直接调用方，30s 内完成分析。不写 architectureContext，不跑全库探索',
