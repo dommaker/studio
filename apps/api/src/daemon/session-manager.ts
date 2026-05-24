@@ -57,13 +57,35 @@ export class SessionManager {
     const existingId = readSessionIdFile(config.worktree);
     let sessionId: string;
     let isNewSession: boolean;
-    if (existingId) {
+
+    // P0-2: read previous boot token from file → detect daemon restart
+    const bootTokenFile = path.join(config.worktree, '.daemon', 'boot-token');
+    let previousBootToken: string | null = null;
+    try { previousBootToken = fs.readFileSync(bootTokenFile, 'utf-8').trim(); } catch {}
+
+    if (existingId && previousBootToken === this.daemonBootToken) {
       sessionId = existingId;
       isNewSession = false; // 从文件加载 → 用 --continue 续接
+    } else if (existingId && previousBootToken !== this.daemonBootToken) {
+      // Daemon restarted — old session is stale, force new session
+      sessionId = resolveSessionId(config.worktree);
+      isNewSession = true;
+      logger.info('[SessionManager] Boot token changed — forcing new session', {
+        name: config.name,
+        previousBootToken: previousBootToken?.slice(0, 12),
+        currentBootToken: this.daemonBootToken?.slice(0, 12),
+      });
     } else {
       sessionId = resolveSessionId(config.worktree);
       isNewSession = true;
     }
+
+    // Persist boot token for next restart detection
+    try {
+      const daemonDir = path.join(config.worktree, '.daemon');
+      if (!fs.existsSync(daemonDir)) fs.mkdirSync(daemonDir, { recursive: true });
+      fs.writeFileSync(bootTokenFile, this.daemonBootToken || '', 'utf-8');
+    } catch {}
 
     this.sessions.set(config.name, {
       config,

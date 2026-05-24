@@ -557,16 +557,18 @@ export class GoalScheduler {
     if (isIntegration) {
       try {
         const result = await this.runIntegrationInCode(goal.id, executionId);
-        let status = result.success ? 'succeeded' : 'failed';
-        await goalService.updateStepExecution(executionId, { status });
-        logger.info('[GoalScheduler] Integration (code) completed', {
-          goalId: goal.id, executionId, success: result.success, durationMs: Date.now() - dispatchStart,
-        });
-        return;
+        if (result.success) {
+          await goalService.updateStepExecution(executionId, { status: 'succeeded' });
+          this.recordDispatchOutcome(true);
+          logger.info('[GoalScheduler] Integration (code) succeeded', {
+            goalId: goal.id, executionId, durationMs: Date.now() - dispatchStart,
+          });
+          return;
+        }
       } catch (err) {
-        logger.error('[GoalScheduler] Integration (code) failed, falling back to Claude', { goalId: goal.id, error: String(err) });
-        // Fall through to Claude executor as backup
+        logger.warn('[GoalScheduler] Integration (code) threw, falling back to Claude', { goalId: goal.id, error: String(err) });
       }
+      // Code integration failed — fall through to Claude executor below
     }
 
     // 直接调用 AgentExecutor
