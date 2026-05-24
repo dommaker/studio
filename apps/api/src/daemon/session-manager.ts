@@ -39,6 +39,7 @@ interface SessionState {
   lastUsed: number;
   taskCount: number;
   isNewSession: boolean;      // true = 刚生成 UUID，需 --session-id；false = 从文件加载，用 --continue
+  bootToken: string | null;   // P0-2: daemon 启动 token，重启后变化
 }
 
 export class SessionManager {
@@ -46,6 +47,8 @@ export class SessionManager {
   // M6: session cache hit/miss tracking
   private cacheHits = 0;
   private cacheMisses = 0;
+  // P0-2: daemon boot token — detect restart, avoid stale --continue
+  private daemonBootToken: string | null = null;
 
   register(config: SessionConfig): void {
     this.ensureWorktree(config);
@@ -69,6 +72,7 @@ export class SessionManager {
       lastUsed: 0,
       taskCount: 0,
       isNewSession,
+      bootToken: this.daemonBootToken,
     });
     logger.info('[SessionManager] Registered session', {
       name: config.name,
@@ -78,6 +82,11 @@ export class SessionManager {
     });
   }
 
+  /** P0-2: daemon 启动时写入 boot token，用于检测重启后 session 失效 */
+  markBoot(): void {
+    this.daemonBootToken = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
   async runTask(sessionName: string, job: JobSpec): Promise<TaskResult> {
     const state = this.sessions.get(sessionName);
     if (!state) throw new Error(`Session not found: ${sessionName}`);
@@ -85,6 +94,20 @@ export class SessionManager {
     // Concurrency guard — now meaningful with async spawn
     if (state.isBusy) throw new Error(`Session ${sessionName} is busy`);
     state.isBusy = true;
+
+    // P0-2: 主动检测 daemon 重启 → session 失效 → 强制新 session，避免 --continue 浪费 cache
+    if (!state.isNewSession && this.daemonBootToken && state.bootToken !== this.daemonBootToken) {
+      logger.info('[SessionManager] Daemon restarted — forcing new session to avoid stale --continue', {
+        session: sessionName,
+        oldBootToken: state.bootToken,
+        newBootToken: this.daemonBootToken,
+      });
+      state.isNewSession = true;
+      state.sessionId = crypto.randomUUID();
+      state.bootToken = this.daemonBootToken;
+      const sidFile = path.join(state.config.worktree, '.daemon', 'session-id');
+      fs.writeFileSync(sidFile, state.sessionId, 'utf-8');
+    }
 
     const startTime = Date.now();
     const daemonDir = path.join(state.config.worktree, '.daemon');

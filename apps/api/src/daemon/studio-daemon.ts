@@ -18,6 +18,8 @@ class StudioDaemon {
   start(): void {
     if (this.started) return;
 
+    this.manager.markBoot();  // P0-2: boot token for stale session detection
+
     // Analyst: 在项目根目录运行，能读代码库。worktree 存 .daemon/ 状态
     this.manager.register({
       name: 'analyst',

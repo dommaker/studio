@@ -1562,3 +1562,15 @@ TSC_GATE_OFF=1 git commit ...       # 紧急跳过
 | G11 | 11 个预存 tsc 错误 | ❌ 待修 | roadmap §14 曝光，等 pre-commit tsc gate 建立后逐个清 |
 | G12 | 开发会话 behavior pattern → harness 进化 | ❌ 方案不可行 | 第一性分析结论：行为模式进化不应走 evolution service（检测信号/输出目标/执行机制三维不同）。正确方案：Auditor + session:summary 趋势洞察 → 人工决策。见 `memory/analysis_evolution_extension.md` |
 | G13 | `knowledge-docs/` 目录空 | ❌ 用途不明 | 已分配但完全无内容，需明确设计意图或废弃 |
+| G15 | 管线 Deploy 未触发 | ✅ 已修 | projectId=文件路径导致 findUnique null→return，PMO/Deploy 解耦 `goal.service.ts` |
+| G16 | Analyst 去重失败也计冷却 | ✅ 已修 | ChannelMessage→daemon session state `analyst-trigger.service.ts` |
+| G17 | Monitor 效率计算盲区 | ✅ 已修 | 5-15min 不计入任何档，三档改四档 `monitor-agent.service.ts` |
+| G18 | Review 阻断阈值太低 | ✅ 已修 | error 级 issue 代码兜底驳回+ac-compliance 立场+阻断规则 `review-report.ts` `goal.service.ts` |
+| G19 | Integration 不审计 diff | ✅ 已修 | prompt 加 AC 范围审计步骤 `goal-scheduler.ts` |
+| G20 | Analyst 不分析原设计意图 | ✅ 已修 | prompt 加三步溯源(为什么/谁在用/边界) `analyst-trigger.service.ts` |
+| G21 | RKB 回归 pattern 未主动注入 | ✅ 已修 | scope_violation resolution+Executor 前注入 `resolution.service.ts` |
+| G22 | execSh stderr 捕获无 e2e 测试 | ✅ 已修 | 4 个 e2e test+2>&1 回修 `session-manager.test.ts` |
+| G23 | Auditor circuitHealth 空壳 | ✅ 已修 | analyzeCircuitHealth() 冷电路/孤岛/断点检测 `auditor-agent.service.ts` |
+| G24 | Review 低分无告警 | ✅ 已修 | Monitor checkReviewQuality() `monitor-agent.service.ts` |
+| G25 | `diagnosis_to_fix_gate` 约束缺失 | ✅ 已修 | harness 新增 guideline+prompt injection+ConstaintContext.hasPlanApproval |
+| G26 | API key 暴露在 settings.json | ✅ 已修 | 移除 ANTHROPIC_AUTH_TOKEN→systemd env+~/.bashrc |
