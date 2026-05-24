@@ -278,13 +278,12 @@ export class AgentExecutor {
         const cmd = [
           `cd "${worktree}"`,
           `&&`,
-          `cat '${promptFile}'`,
-          `|`,
           `claude`,
           `--print`,
           `--output-format json`,
           sessionFlag,
-          `2>&1 | tee -a "${logFile}"`,
+          `<`,
+          `"${promptFile}"`,
         ].join(' ');
 
         logger.info('[AgentExecutor] Spawning session', {

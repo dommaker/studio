@@ -9,8 +9,8 @@ importers:
   .:
     devDependencies:
       '@dommaker/harness':
-        specifier: ^0.12.5
-        version: 0.12.5
+        specifier: ^0.12.4
+        version: 0.12.6
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.41
@@ -24,8 +24,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.12.2
-        version: 0.12.2
+        specifier: ^0.12.4
+        version: 0.12.6
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -338,7 +338,7 @@ importers:
     dependencies:
       '@dommaker/harness':
         specifier: ^0.12.4
-        version: 0.12.5
+        version: 0.12.6
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -435,7 +435,7 @@ importers:
     dependencies:
       '@dommaker/harness':
         specifier: ^0.12.4
-        version: 0.12.5
+        version: 0.12.6
       eventemitter3:
         specifier: ^5.0.0
         version: 5.0.4
@@ -657,14 +657,10 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dommaker/harness@0.12.2':
-    resolution: {integrity: sha512-LjX16PStdeip57WhFicr9yUWF/gnTAQnMoIs9H+sv2j/R/cTPcDpBvGva2pqEvTyMCmhD/uURZDBL+AEZqaZ6w==}
-    engines: {node: '>=18.0.0'}
-    hasBin: true
-
   '@dommaker/harness@0.12.6':
-    resolution: {integrity: sha512-NbBdxD6bbKJhEuPUe+9mHISnqpUq/bbyNKwPpqlx2OlSCHfUJD14ogb+AY3d5/c57f9SW/WI0YOUvOK/aiDjHA==}
+    resolution: {integrity: sha512-DocYVuo15AH9kt2LcngdsbJ12Z9bZG5FOXNDPHMtlQckqLFxc46X2kL2GdOinESYHTRFzEQpKNZBioG32RJWiQ==}
     engines: {node: '>=18.0.0'}
+    deprecated: bin/ contained studio-specific Claude Code hook scripts (no secrets exposed). Upgrade to >=0.12.11
     hasBin: true
 
   '@emnapi/core@1.10.0':
@@ -3900,14 +3896,6 @@ snapshots:
       css-tree: 3.2.1
 
   '@csstools/css-tokenizer@4.0.0': {}
-
-  '@dommaker/harness@0.12.2':
-    dependencies:
-      chalk: 4.1.2
-      commander: 12.1.0
-      fast-glob: 3.3.3
-      js-yaml: 4.1.1
-      zod: 3.25.76
 
   '@dommaker/harness@0.12.6':
     dependencies:
