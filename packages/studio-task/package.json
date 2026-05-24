@@ -12,11 +12,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dommaker/studio-shared": "workspace:*",
+    "@dommaker/harness": "0.12.12",
     "@dommaker/studio-prisma": "workspace:*",
+    "@dommaker/studio-shared": "workspace:*",
     "ioredis": "^5.0.0",
-    "uuid": "^9.0.0",
-    "node-fetch": "^2.0.0"
+    "node-fetch": "^2.0.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

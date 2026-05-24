@@ -45,10 +45,11 @@
     "cross-project:check": "npx tsx scripts/tools/cross-project-check.ts",
     "harness:coverage": "npx tsx scripts/tools/harness-coverage.ts",
     "doc:sync-check": "bash scripts/check-doc-sync.sh",
-    "doc:diff": "npx tsx scripts/tools/arch-doc-diff.ts"
+    "doc:diff": "npx tsx scripts/tools/arch-doc-diff.ts",
+    "postinstall": "node -e \"const v=JSON.parse(require('fs').readFileSync('node_modules/@dommaker/harness/package.json','utf8')).version;try{const c=require('fs').readFileSync('.harness/config.yml','utf8');const m=c.match(/version: (.+)/);if(!m||m[1]!==v){console.log('harness '+m?.[1]+' -> '+v+', re-initing...');require('child_process').execSync('npx harness init',{stdio:'inherit'})}}catch(e){console.log('harness init...');require('child_process').execSync('npx harness init',{stdio:'inherit'})}\""
   },
   "devDependencies": {
-    "@dommaker/harness": "^0.12.4",
+    "@dommaker/harness": "^0.12.12",
     "@types/node": "^20.0.0",
     "typescript": "^5.3.0",
     "vitest": "^1.0.0"
