@@ -52,10 +52,40 @@ export class DiscoveryExposureService {
           });
         } catch {}
 
+        // G33: high/critical discoveries trigger automatic @analyst for pipeline execution
+        if (d.severity === 'high' || d.severity === 'critical') {
+          this.autoTriggerAnalyst(d, sourceChannelId).catch(e =>
+            logger.warn('[DiscoveryExposure] auto-trigger failed', { error: String(e) })
+          );
+        }
+
         logger.info('[DiscoveryExposure] Exposed', { title: d.title, severity: d.severity });
       }
     } catch (e) {
       logger.warn('[DiscoveryExposure] Failed', { error: String(e) });
+    }
+  }
+
+  /** high/critical 发现自动 @analyst → 管线执行，人只看到留痕 */
+  private async autoTriggerAnalyst(d: DiscoveryEntry, sourceChannelId?: string): Promise<void> {
+    try {
+      const channelId = sourceChannelId || (await prisma.channel.findFirst({ where: { type: 'rnd' } }))?.id;
+      if (!channelId) return;
+
+      const port = process.env.PORT || '3001';
+      const resp = await fetch(`http://127.0.0.1:${port}/api/v1/channels/${channelId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          content: `@analyst [自动发现] ${d.title}\n\n来源: 代码探索自动发现\n文件: ${d.file}\n严重度: ${d.severity}\n\n${d.description}`,
+        }),
+      });
+      const result = await resp.json() as { success: boolean };
+      if (result.success) {
+        logger.info('[DiscoveryExposure] Auto-triggered @analyst', { title: d.title });
+      }
+    } catch (e) {
+      logger.warn('[DiscoveryExposure] autoTriggerAnalyst failed', { error: String(e) });
     }
   }
 
