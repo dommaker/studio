@@ -322,6 +322,12 @@ export class GoalScheduler {
     const isLowSkill = trivialPattern.test(notesLower) || notesLower.length < 30;
     const isHighSkill = complexPattern.test(notesLower) && notesLower.length > 80;
 
+    // Layer 5: 改动幅度 (change magnitude) — AC 多但每个都简单 → 不应用 premium
+    // 估算：每个 AC ~15 行改动 (conservative)，getchas 数量 = 复杂度信号
+    const gotchas = (input?.acGroup?.gotchas as string[]) || [];
+    const estimatedLines = acCount * 15;
+    const isSmallChange = estimatedLines <= 80 && fileCount <= 3 && gotchas.length <= 2;
+
     let tier: string;
     let reason: string;
     if (isHighRiskDomain || acCount >= 4 || fileCount >= 5) {
@@ -335,6 +341,11 @@ export class GoalScheduler {
       if (!isHighRiskDomain && isLowSkill && acCount <= 6 && fileCount <= 5) {
         tier = 'standard';
         reason += ` (downgraded: lowSkill, notes="${notes.slice(0, 60)}")`;
+      }
+      // Layer 5 override: 小改动即使 AC 多也不需 premium (pipe fix 类任务)
+      if (!isHighRiskDomain && isSmallChange && tier === 'premium') {
+        tier = 'standard';
+        reason += ` (downgraded: smallChange, estLines~${estimatedLines}, files=${fileCount}, gotchas=${gotchas.length})`;
       }
     } else if (isLowRiskDomain && acCount <= 1 && fileCount <= 2) {
       tier = 'fast';
@@ -616,6 +627,19 @@ export class GoalScheduler {
           success: true,
           sessionId: executionId,
         }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun failed', { error: String(e) }); });
+        // P2-1: 累计 token 到 goal context (cost tracking)
+        try {
+          const g = await prisma.goal.findUnique({ where: { id: goal.id }, select: { context: true } });
+          const gc = (typeof g?.context === 'string' ? JSON.parse(g.context) : g?.context) || {};
+          const prevTokens = (gc._cumulativeTokens as number) || 0;
+          const thisTokens = (tokenUsage.inputTokens || 0) + (tokenUsage.cacheHitTokens || 0);
+          gc._cumulativeTokens = prevTokens + thisTokens;
+          await prisma.goal.update({
+            where: { id: goal.id },
+            data: { context: gc as any },
+          });
+        } catch { /* best-effort */ }
+
         // M1: agent 冷启动到完成的全链路耗时
         logger.info('[GoalScheduler] Agent succeeded', {
           executionId,
