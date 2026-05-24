@@ -29,6 +29,15 @@ interface RequirementsDocJson {
     files: string[];
     dependencies: string[];
     implementationNotes: string;
+    architectureContext?: {
+      functions: string[];
+      callChain: string;
+      imports: string[];
+      typesInScope: string[];
+      testMock: string[];
+      dangerZones: string[];
+      verifiedAt: string;
+    };
     codePatterns: string[];
     gotchas: string[];
   }>;
@@ -114,7 +123,7 @@ function selectRelevantSections(knowledge: string, requirement: string, maxChars
   return result;
 }
 
-async function buildAnalystPrompt(requirement: string, knowledge: string): Promise<string> {
+async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection = ''): Promise<string> {
   // Q7: 按段落分割知识，取与需求相关的前 N 段落（而非简单的 tail -8000chars）
   const relevantKnowledge = selectRelevantSections(knowledge, requirement, 6000);
   const knowledgeSection = knowledge
@@ -130,9 +139,21 @@ async function buildAnalystPrompt(requirement: string, knowledge: string): Promi
     '## 你的任务',
     '分析用户需求，深入代码库理解现有架构和模式，输出结构化的 RequirementsDoc。',
     '',
+    accuracyReflection,
     constraintSection,
     knowledgeSection,
     '## 工作流',
+    '### 0. 修改点溯源（每个拟改动的文件/函数/命令，先追问三段）',
+    '   **a. 为什么存在** — 查 git blame / commit message / 注释，理解原始设计意图',
+    '     - 例：`2>&1` 不是随手的写法——它把 stderr 合并到 stdout，为了让 execSh 能捕获错误信息',
+    '     - 例：`tee -a logFile` 不是装饰——下游消费者（审计/Auditor/调试）依赖 .agent.log',
+    '   **b. 谁在用** — grep 引用链、调用方、import chain、消费者',
+    '     - 删除一个参数 → 查所有调用方是否还在传',
+    '     - 删除一个输出 → 查下游谁在消费（Prisma relation / API consumer / log parser）',
+    '   **c. 边界标注** — 在 AC 里明确标注"只能改 X，不能动 Y，Y 被 Z 消费需要保留"',
+    '     - AC 中标注禁区：`AC1.1: 把 cat pipe 改成 file redirect（⚠ 不要删 2>&1——execSh 依赖它捕获 stderr）`',
+    '     - files 中可以标注行级范围：`session-manager.ts:L128-L143（仅管道部分，不碰 2>&1 和异常处理）`',
+    '   **此步骤是新增的质量闸门——跳过直接进入步骤 1 产生的 AC 会在 RequirementGate 被驳回。**',
     '1. 读 CLAUDE.md 了解项目架构',
     '2. 探索代码库中和需求相关的模块',
     '3. 识别需要改动的文件和可复用的代码模式',
@@ -144,14 +165,33 @@ async function buildAnalystPrompt(requirement: string, knowledge: string): Promi
     '   - DB field → 确认 Prisma schema 中已定义',
     '   - 不存在的接口 → 标记为"需新增"，不可作为"已存在"引用',
     '5. 按架构边界拆分为 AC 组。每组 3-5 个 AC，一个 Agent 一次执行能完成。禁止一个组超过 6 个 AC',
+    '5a. **依赖分析（关键）**：逐对检查 AC 组之间是否存在实现依赖：',
+    '   - 组 B 的 AC 是否调用了组 A 将要创建的函数/类型/接口？',
+    '   - 组 B 的 AC 是否在组 A 将要修改的同一文件中插入代码？',
+    '   - 组 B 的 AC 是否导入了组 A 将要创建的文件？',
+    '   - 有依赖 → 在组 B 的 "dependencies" 中列出组 A 的 id',
+    '   - 无依赖 → dependencies 为空数组',
+    '   - ⚠️ 依赖分析失误是管线最高成本的缺陷（重复实现 3 次），必须严肃对待',
     '6. 为每个 AC 组写实现指南（文件路径、函数名、代码模式、坑位）',
+    '6a. **架构上下文（关键）**：对每个 AC 组输出 architectureContext，让 Executor 不需要自己探索代码库：',
+    '   - functions: 关联函数签名+行号（如 handleGoalSucceeded(goalId): Promise<void> @ L612）',
+    '   - callChain: 调用链说明（谁调用了这个函数，怎么触发的）',
+    '   - imports: 本组需要的 import 语句（完整，可直接复制）',
+    '   - typesInScope: 相关类型定义位置和字段',
+    '   - testMock: mock 设置模板（jest/vi.mock 语句）',
+    '   - dangerZones: 文件中的禁区（不要碰的函数、容易出错的早期 return、共享的中间件）',
+    '   - verifiedAt: 你验证这些信息时的 commit hash 或时间戳',
+    '   - ⚠️ 这个字段是 Executor 不探索代码库的基础，信息错误会导致 Executor 在错误位置插入代码。必须精确。',
     '',
     '## 行为约束',
     '- 不确定的文件路径不要编造，探索后确认',
     '- 实现指南要具体到函数名和行号',
+    '- **AC 必须标注边界**：每个 AC 末尾标注 "（⚠ 保留 X、Y、Z——他们被 A、B、C 消费）"',
     '- 标记潜在坑位：Prisma JSON 序列化、权限中间件、类型生成、schema 迁移等',
+    '- dependencies 必须精确填写：有函数/类型/文件依赖→填组 id，无依赖→空数组[]，不确定→标注"可能依赖"并填组 id',
     '- 将代码库发现写入 .analyst/knowledge.md（新 markdown section）',
     '- **接口假设必须验证**：实现指南中引用的每个 hook/API/MCP tool/CLI 命令，必须在代码库中确认存在',
+    '- **gotchas 要用红线格式**：标注"不可删除: X (下游: Y)"、"不可修改: A (消费者: B)"',
     '',
     '## 输出格式',
     `将 RequirementsDoc JSON 写入 ${OUTPUT_FILE}：`,
@@ -170,6 +210,15 @@ async function buildAnalystPrompt(requirement: string, knowledge: string): Promi
     '    "files": ["具体文件路径"],',
     '    "dependencies": ["依赖的组 id"],',
     '    "implementationNotes": "实现指南：步骤+函数名+关键决策",',
+    '    "architectureContext": {',
+    '      "functions": ["handleGoalSucceeded(goalId: string): Promise<void> @ L612"],',
+    '      "callChain": "checkGoalCompletion() → handleGoalSucceeded() → finalizeGoalSucceeded()",',
+    '      "imports": ["import { writeTrace } from \'../monitoring/trace-pipeline.service\'"],',
+    '      "typesInScope": ["TraceContext { goalId: string; projectId: string; phase: string; timestamp: number } @ trace-pipeline.service.ts:L15"],',
+    '      "testMock": ["vi.mock(\'../monitoring/trace-pipeline.service\', () => ({ writeTrace: vi.fn().mockResolvedValue(undefined) }))"],',
+    '      "dangerZones": ["L640 有早期 return，不要在它之后插入代码"],',
+    '      "verifiedAt": "abc1234 (commit hash)"',
+    '    },',
     '    "codePatterns": ["参考实现（文件:行号）"],',
     '    "gotchas": ["⚠️ 潜在坑位"]',
     '  }],',
@@ -240,17 +289,21 @@ async function runClaudeCode(prompt: string): Promise<{ doc: RequirementsDocJson
 
 class AnalystTriggerService {
   async trigger(channelId: string, triggerMessageId: string, content: string): Promise<void> {
-    // 1. Dedup: prevent concurrent triggers within 5 min
-    const existing = await prisma.channelMessage.findFirst({
-      where: {
-        channelId,
-        agentName: 'Analyst',
-        createdAt: { gte: new Date(Date.now() - 5 * 60 * 1000) },
-      },
-    });
-    if (existing) {
-      logger.info('[AnalystTrigger] Skipped — recent analyst activity', { channelId });
-      return;
+    // 1. Dedup: use daemon session state, not ChannelMessage (失败消息不应阻断重试)
+    const status = daemon.getStatus('analyst');
+    const COOLDOWN_MS = 5 * 60 * 1000;
+    if (status) {
+      if (status.isBusy) {
+        logger.info('[AnalystTrigger] Skipped — analyst session is busy', { channelId });
+        return;
+      }
+      if (status.lastUsed > 0 && (Date.now() - status.lastUsed) < COOLDOWN_MS) {
+        logger.info('[AnalystTrigger] Skipped — analysis completed recently', {
+          channelId,
+          secondsAgo: Math.round((Date.now() - status.lastUsed) / 1000),
+        });
+        return;
+      }
     }
 
     // 2. Post "thinking" message
@@ -290,8 +343,47 @@ class AnalystTriggerService {
         logger.warn('[AnalystTrigger] Failed to load DB knowledge, continuing with file only', { error: String(e) });
       }
 
+      // Analyst accuracy 闭环: 加载上次预测准确率 → 定向纠正
+      let accuracyReflection = '';
+      try {
+        const { sharedStore } = await import('../knowledge/knowledge-bus.service.js');
+        const accuracyEntries = sharedStore.list({ tags: ['analyst_accuracy'] })
+          .filter(e => e.maturity !== 'archived')
+          .sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))
+          .slice(0, 3);
+        if (accuracyEntries.length > 0) {
+          const lines = [
+            '## 预测反思（自动分析）',
+            '以下是你在之前分析中的预测准确率记录，请针对性改进：',
+          ];
+          for (const e of accuracyEntries) {
+            const content = e.content || '';
+            const fileMatch = content.match(/AC匹配率:\s*(\d+)%/);
+            const missed = content.match(/漏预测文件:\s*([^\]]+)/);
+            const extra = content.match(/多预测文件:\s*([^\]]+)/);
+            const missedDeps = content.match(/漏预测依赖:\s*([^\]]+)/);
+            const suggestions: string[] = [];
+            if (missed) suggestions.push(`文件遗漏: ${missed[1].trim()}`);
+            if (extra) suggestions.push(`文件多报: ${extra[1].trim()}`);
+            if (missedDeps) suggestions.push(`依赖遗漏: ${missedDeps[1].trim()}`);
+            if (!missed && !extra && !missedDeps && fileMatch) {
+              suggestions.push('预测准确，继续保持');
+            }
+            const matchRate = fileMatch ? `${fileMatch[1]}%` : 'N/A';
+            lines.push(`- ⚠️ [准确率:${matchRate}] ${e.title}: ${suggestions.join('; ') || content.slice(0, 200)}`);
+          }
+          lines.push(
+            '',
+            '**改进提示**: 以上述模式为鉴，重点检查是否漏报了文件、是否漏声明了依赖关系。',
+          );
+          accuracyReflection = lines.join('\n') + '\n';
+        }
+      } catch (e) {
+        logger.warn('[AnalystTrigger] Failed to load analyst accuracy', { error: String(e) });
+      }
+
       const knowledge = [fileKnowledge, dbKnowledge].filter(Boolean).join('\n');
-      const prompt = await buildAnalystPrompt(content, knowledge);
+      const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection);
 
       // 4. Run Claude Code agent (persistent worktree, tool-enabled)
       const { doc: response, usage } = await runClaudeCode(prompt);

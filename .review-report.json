@@ -1,0 +1,241 @@
+{
+  "cycle": 1,
+  "overallApproved": true,
+  "stanceReports": {
+    "forensic": {
+      "issues": [
+        {
+          "severity": "error",
+          "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+          "line": 636,
+          "message": "recordKnowledgeRefs creates local new KnowledgeStore() and new KnowledgeLifecycle(store) instead of using sharedStore/sharedLifecycle singletons. References parsed from [REF:xxx] in agent output are recorded to an empty local store and immediately discarded — complete no-op that masks the intended maturity-ladder drive."
+        },
+        {
+          "severity": "warning",
+          "file": "apps/api/src/modules/agents/review-agent.service.ts",
+          "line": 116,
+          "message": "Auto-approve on ANY Claude Code failure (exec error, report not found, general exception). If Claude CLI is unavailable, ALL reviews silently pass with score 0. No upstream monitoring or alert on this condition. 3 separate catch blocks with same fallback."
+        }
+      ],
+      "notes": "recordKnowledgeRefs is the most impactful finding — the entire [REF:xxx] scanning pipeline is wired to a discarded local store. ReviewAgent's fail-open pattern is a design choice but lacks any safety net (no metric emitted, no alert). The repeated 'fix' commits (4b86e61, 89ca9a8, 3b12818) are distinct issues, not repeated-symptom pattern."
+    },
+    "skeptic": {
+      "issues": [
+        {
+          "severity": "warning",
+          "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+          "line": 592,
+          "message": "buildCompletionOutput uses execSync (blocking) from child_process in an async event handler. Blocks Node.js event loop for up to 5s on each agent.completed event."
+        },
+        {
+          "severity": "warning",
+          "file": "apps/api/src/modules/agents/deploy-agent.service.ts",
+          "line": 137,
+          "message": "mergeBranches returns success: true when merge succeeds but push fails. Callers that don't check the 'pushed' flag will assume full success. The push failure is logged as warning but the return value is misleading."
+        },
+        {
+          "severity": "warning",
+          "file": "apps/api/src/modules/knowledge/knowledge-sync.service.ts",
+          "line": 209,
+          "message": "detectStaleness uses execSync (blocking) from child_process in detectStaleness. When called from MonitorAgent's runSyncCycle, blocks the event loop."
+        },
+        {
+          "severity": "info",
+          "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
+          "line": 152,
+          "message": "getRecentContext records KnowledgeLifecycle references on every call, including inspection-only reads. Inflates reference counts and prevents legitimate decay of old entries."
+        }
+      ],
+      "notes": "The execSync pattern appears in 3 locations — two in agent-event-listener.ts and one in knowledge-sync.service.ts. All are in async contexts where execSh should be used. The mergeBranches push-failure masking is a design trade-off but callers should be aware."
+    },
+    "architect": {
+      "issues": [
+        {
+          "severity": "warning",
+          "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+          "line": 592,
+          "message": "Layer violation: uses execSync from 'child_process' directly instead of execSh from '@dommaker/studio-shared/node'. Mixed abstraction levels — the rest of the codebase uses execSh."
+        },
+        {
+          "severity": "warning",
+          "file": "apps/api/vitest.config.ts",
+          "line": 7,
+          "message": "Test files in src/modules/agents/__tests__/ and src/modules/knowledge/__tests__/ are not included in API's vitest include pattern (include: ['tests/**/*.test.ts']). These tests are invisible to the local test runner when running from apps/api directory."
+        },
+        {
+          "severity": "info",
+          "file": "apps/api/src/modules/mcp/tools.ts",
+          "line": 32,
+          "message": "MCP tool handlers have direct Prisma access in handlers (createProject, listProjects, etc.), creating tight coupling between the MCP layer and data layer. Adding a new data source requires changing every handler."
+        },
+        {
+          "severity": "info",
+          "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
+          "line": 239,
+          "message": "Dynamic () => import(...) pattern used for knowledge-query and knowledge-sync imports to avoid circular deps. Used in 3+ locations suggesting need for a proper DI container."
+        }
+      ],
+      "notes": "The layer violation in agent-event-listener.ts (execSync vs execSh) is the most architecturally significant. The vitest include pattern is a practical CI gap — these tests never ran in CI before this review (the workspace config does pick them up from root)."
+    },
+    "executor": {
+      "issues": [
+        {
+          "severity": "info",
+          "file": ".npmrc",
+          "line": 3,
+          "message": "Duplicate 'shamefully-hoist=true' on consecutive lines — merge artifact that doesn't break functionality but is unnecessary."
+        },
+        {
+          "severity": "warning",
+          "file": "apps/api/src/modules/agents/routes.ts",
+          "line": 180,
+          "message": "Hardcoded path '/root/projects/studio' appears in routes.ts lines 180 and 234. Should use process.env.REPO_DIR with fallback."
+        },
+        {
+          "severity": "info",
+          "file": "apps/api/src/modules/agents/deploy-agent.service.ts",
+          "line": 358,
+          "message": "cleanupTaskBranches uses path.join(require('os').homedir(), 'worktrees') — may not match actual worktree location configured elsewhere. No config consistency check."
+        },
+        {
+          "severity": "info",
+          "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
+          "line": 290,
+          "message": "checkDocumentFreshness uses require('child_process') in an ESM file. Works in Node.js but inconsistent with project's ESM conventions. Other files use import."
+        }
+      ],
+      "notes": "The hardcoded path in routes.ts is the most actionable finding. The rest are minor. No tests exist for knowledge-sync.service.ts (capture/detect/heal cycles) or most MCP tool handlers."
+    },
+    "pragmatist": {
+      "issues": [
+        {
+          "severity": "info",
+          "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
+          "line": 234,
+          "message": "upsertKnowledge content hash uses Buffer.from(content).toString('base64').slice(0, 32). Base64 encoding then truncating to 32 chars is not a reliable content hash — different inputs can produce the same truncated prefix. Use a proper hash (SHA-256) or direct string comparison."
+        },
+        {
+          "severity": "info",
+          "file": "apps/api/src/modules/mcp/tools.ts",
+          "line": 868,
+          "message": "publishPackage MCP tool handler is 140+ lines containing a full CI/CD pipeline (tsc build, dist verify, npm version, git commit+tag+push, npm publish, gh release). Violates the principle of small composable tools."
+        },
+        {
+          "severity": "info",
+          "file": "apps/api/src/modules/knowledge/knowledge-sync.service.ts",
+          "line": 27,
+          "message": "DEFAULT_SCOPE_REGISTRY has hardcoded file paths that become stale when files are moved/renamed. No mechanism to detect or warn about stale scope-file mappings."
+        }
+      ],
+      "notes": "None of these are blocking issues. The content hash truncation is the most subtle bug — unlikely to cause false dedup collisions in practice but technically incorrect. publishPackage is a convenience tool that trades YAGNI for practicality."
+    }
+  },
+  "acResults": [
+    {
+      "ac": "No breaking changes",
+      "passed": true,
+      "evidence": "All changes between origin/master and origin/main are additive: new interfaces (ReviewDiffParams, MergeBranchesParams, MergeBranchesResult), new methods (mergeBranches, pushBranch, reviewDiff, hasBranchChanges), new services (KnowledgeSync, MCP tools), new routes (review/diff, deploy/merge, deploy/merge-to-master). No existing interfaces were modified, no existing exports were removed, and no existing routes were changed. Existing tests continue to pass (43 pass, 17 pre-existing Prisma DB failures). New test files (deploy-agent 7/7 pass, review-agent 4/5 pass 1 skip, knowledge-bus 10/10 pass) add coverage without changing existing behavior.",
+      "gap": ""
+    }
+  ],
+  "testQualityAudit": [
+    {
+      "executorTest": "apps/api/src/modules/knowledge/__tests__/knowledge-bus.test.ts",
+      "issue": "Supplementary — covers edge cases for KnowledgeBus (empty store, error handling, unique scopes) but does not cover KnowledgeSync service or recordKnowledgeRefs behavior."
+    },
+    {
+      "executorTest": "apps/api/src/modules/agents/__tests__/deploy-agent.test.ts",
+      "issue": "Coverage is good for mergeBranches and pushBranch with temp repos. Missing: merge conflict scenario, push when merge fails, cleanupTaskBranches edge cases."
+    },
+    {
+      "executorTest": "apps/api/src/modules/agents/__tests__/review-agent.test.ts",
+      "issue": "Covers hasBranchChanges and reviewDiff error paths. Missing: real review output parsing tests (skipped), knowledgeSection injection edge cases, report not found paths."
+    }
+  ],
+  "supplementaryTests": [
+    {
+      "file": "apps/api/src/modules/knowledge/__tests__/knowledge-bus.test.ts",
+      "description": "10 tests covering KnowledgeBus edge cases: getRecentContext with empty/zero/invalid params, queryByType with non-existent types and zero limit, getStats shape, recordPattern minimal input, recordIncident minimal input, upsertKnowledge new scope creation and empty content.",
+      "catchesIssue": false
+    }
+  ],
+  "issues": [
+    {
+      "severity": "error",
+      "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+      "line": 636,
+      "message": "recordKnowledgeRefs creates local KnowledgeStore singleton instead of using sharedStore — complete no-op for [REF:xxx] reference tracking",
+      "stance": "forensic"
+    },
+    {
+      "severity": "warning",
+      "file": "apps/api/src/modules/agents/review-agent.service.ts",
+      "line": 116,
+      "message": "Auto-approve fallback on ANY Claude spawn failure — no alert, no monitoring",
+      "stance": "forensic"
+    },
+    {
+      "severity": "warning",
+      "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+      "line": 592,
+      "message": "Blocking execSync in async event handler — blocks event loop for up to 5s",
+      "stance": "skeptic"
+    },
+    {
+      "severity": "warning",
+      "file": "apps/api/src/modules/agents/deploy-agent.service.ts",
+      "line": 137,
+      "message": "mergeBranches returns success:true when merge OK but push fails — 'pushed' flag required for accurate status",
+      "stance": "skeptic"
+    },
+    {
+      "severity": "warning",
+      "file": "apps/api/src/modules/knowledge/knowledge-sync.service.ts",
+      "line": 209,
+      "message": "Blocking execSync in detectStaleness — blocks event loop during sync cycle",
+      "stance": "skeptic"
+    },
+    {
+      "severity": "warning",
+      "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+      "line": 592,
+      "message": "Layer violation: execSync from child_process instead of execSh from @dommaker/studio-shared/node",
+      "stance": "architect"
+    },
+    {
+      "severity": "warning",
+      "file": "apps/api/vitest.config.ts",
+      "line": 7,
+      "message": "Test files in src/modules/agents/__tests__/ and src/modules/knowledge/__tests__/ invisible to local vitest runner (include pattern only covers tests/**/*.test.ts)",
+      "stance": "architect"
+    },
+    {
+      "severity": "warning",
+      "file": "apps/api/src/modules/agents/routes.ts",
+      "line": 180,
+      "message": "Hardcoded path '/root/projects/studio' in routes.ts:180 and :234 — should use REPO_DIR env var",
+      "stance": "executor"
+    },
+    {
+      "severity": "info",
+      "file": ".npmrc",
+      "line": 3,
+      "message": "Duplicate shamefully-hoist=true line (merge artifact)",
+      "stance": "executor"
+    },
+    {
+      "severity": "info",
+      "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
+      "line": 234,
+      "message": "Base64 content hash truncation not a reliable content fingerprint",
+      "stance": "pragmatist"
+    },
+    {
+      "severity": "info",
+      "file": "apps/api/src/modules/mcp/tools.ts",
+      "line": 868,
+      "message": "publishPackage handler is 140+ lines — oversized MCP tool violating composability principle",
+      "stance": "pragmatist"
+    }
+  ]
+}

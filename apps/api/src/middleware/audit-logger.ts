@@ -9,7 +9,7 @@ import { AuditService, AuditLogInput } from '@dommaker/studio-audit';
 import { prisma } from '../core/database.js';
 import { logger } from '../utils/logger.js';
 
-const auditService = new AuditService(prisma);
+const auditService = new AuditService(prisma as any);
 
 /**
  * 获取客户端 IP

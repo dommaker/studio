@@ -30,29 +30,7 @@ function checkPrerequisites() {
 async function studioUp(configPath?: string) {
   console.log('Studio starting...');
 
-  // 1. 加载配置（--config 参数 或 STUDIO_CONFIG_DIR 环境变量 或 默认路径）
-  const configDir = configPath || process.env.STUDIO_CONFIG_DIR;
-  if (configDir) {
-    const envFile = path.resolve(configDir, configDir.endsWith('.env') ? '' : '.env');
-    const actualEnv = configDir.endsWith('.env') ? configDir : envFile;
-    if (fs.existsSync(actualEnv)) {
-      console.log(`Loading config: ${actualEnv}`);
-      const envContent = fs.readFileSync(actualEnv, 'utf-8');
-      for (const line of envContent.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed || trimmed.startsWith('#')) continue;
-        const eqIdx = trimmed.indexOf('=');
-        if (eqIdx === -1) continue;
-        const key = trimmed.slice(0, eqIdx).trim();
-        const val = trimmed.slice(eqIdx + 1).trim();
-        if (!process.env[key]) process.env[key] = val;
-      }
-    } else {
-      console.log(`Config not found: ${actualEnv}, using defaults`);
-    }
-  }
-
-  // 2. 确保数据目录
+  // 1. 确保数据目录
   ensureDir(STUDIO_DIR);
   ensureDir(DATA_DIR);
   const ANALYST_DIR = path.join(STUDIO_DIR, '.analyst');
@@ -66,8 +44,7 @@ async function studioUp(configPath?: string) {
   ensureDir(EVENTS_DIR);
   ensureDir(WORKTREES_DIR);
 
-  // 3. 设置默认环境变量（不覆盖已配置的值）
-  if (!process.env.DATABASE_URL) process.env.DATABASE_URL = `file:${path.join(DATA_DIR, 'data.db')}`;
+  // 2. 自动生成密钥（必须在加载 .env 之前，避免 .env 中的占位值覆盖生成的密钥）
   if (!process.env.JWT_SECRET) {
     const jwtFile = path.join(DAEMON_DIR, 'jwt-secret');
     if (fs.existsSync(jwtFile)) {
@@ -90,6 +67,32 @@ async function studioUp(configPath?: string) {
       console.log('Generated ENCRYPTION_KEY (stored in ~/.studio/.daemon/encryption-key)');
     }
   }
+
+  // 3. 加载配置（--config 参数 或 STUDIO_CONFIG_DIR 环境变量 或 默认路径）
+  // 注：密钥先生成再加载 .env — .env 中的 JWT_SECRET 占位值不会覆盖已生成的密钥
+  const configDir = configPath || process.env.STUDIO_CONFIG_DIR;
+  if (configDir) {
+    const envFile = path.resolve(configDir, configDir.endsWith('.env') ? '' : '.env');
+    const actualEnv = configDir.endsWith('.env') ? configDir : envFile;
+    if (fs.existsSync(actualEnv)) {
+      console.log(`Loading config: ${actualEnv}`);
+      const envContent = fs.readFileSync(actualEnv, 'utf-8');
+      for (const line of envContent.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        const key = trimmed.slice(0, eqIdx).trim();
+        const val = trimmed.slice(eqIdx + 1).trim();
+        if (!process.env[key]) process.env[key] = val;
+      }
+    } else {
+      console.log(`Config not found: ${actualEnv}, using defaults`);
+    }
+  }
+
+  // 4. 设置默认环境变量（不覆盖已配置的值）
+  if (!process.env.DATABASE_URL) process.env.DATABASE_URL = `file:${path.join(DATA_DIR, 'data.db')}`;
   if (!process.env.ANALYST_DIR) process.env.ANALYST_DIR = ANALYST_DIR;
   if (!process.env.DAEMON_DIR) process.env.DAEMON_DIR = DAEMON_DIR;
   if (!process.env.KNOWLEDGE_DIR) process.env.KNOWLEDGE_DIR = KNOWLEDGE_DIR;
@@ -1018,16 +1021,53 @@ async function studioHarnessCli(args: string[]) {
   } catch { /* harness CLI handles errors */ }
 }
 
+// ── CLI helpers ──
+
+function getCompanyId(): string {
+  const activeFile = path.join(STUDIO_DIR, 'active-project');
+  if (fs.existsSync(activeFile)) {
+    return fs.readFileSync(activeFile, 'utf-8').trim();
+  }
+  // Fallback: try to read from company config
+  const companyFile = path.join(STUDIO_DIR, 'company.json');
+  if (fs.existsSync(companyFile)) {
+    try {
+      const company = JSON.parse(fs.readFileSync(companyFile, 'utf-8'));
+      return company.id || '';
+    } catch {}
+  }
+  return '';
+}
+
+async function getToken(): Promise<string> {
+  const tokenFile = path.join(STUDIO_DIR, '.daemon', 'session-token');
+  if (fs.existsSync(tokenFile)) {
+    return fs.readFileSync(tokenFile, 'utf-8').trim();
+  }
+  // No token file — API calls may work without auth for localhost
+  return '';
+}
+
+function extractConfigFlag(rawArgs: string[]): { configPath?: string; args: string[] } {
+  const idx = rawArgs.indexOf('--config');
+  if (idx !== -1 && idx + 1 < rawArgs.length) {
+    const configPath = rawArgs[idx + 1];
+    return { configPath, args: rawArgs.filter((_, i) => i !== idx && i !== idx + 1) };
+  }
+  return { args: rawArgs };
+}
+
 async function main() {
-  const cmd = process.argv[2];
+  const { configPath, args } = extractConfigFlag(process.argv.slice(2));
+  const cmd = args[0];
 
   switch (cmd) {
     case 'up':
-      await studioUp();
+      await studioUp(configPath);
       break;
     case 'project':
-      if (process.argv[3] === 'add') {
-        const projectPath = path.resolve(process.argv[4] || process.cwd());
+      if (args[1] === 'add') {
+        const projectPath = path.resolve(args[2] || process.cwd());
         ensureDir(STUDIO_DIR);
         const projectsFile = path.join(STUDIO_DIR, 'projects.json');
         const existing: string[] = fs.existsSync(projectsFile)
@@ -1038,7 +1078,7 @@ async function main() {
           fs.writeFileSync(projectsFile, JSON.stringify(existing, null, 2));
         }
         console.log(`Project added: ${projectPath}`);
-      } else if (process.argv[3] === 'list') {
+      } else if (args[1] === 'list') {
         const projectsFile = path.join(STUDIO_DIR, 'projects.json');
         const projects: string[] = fs.existsSync(projectsFile)
           ? JSON.parse(fs.readFileSync(projectsFile, 'utf-8'))
@@ -1047,7 +1087,7 @@ async function main() {
       }
       break;
     case 'workon':
-      const name = process.argv[3];
+      const name = args[1];
       if (!name) { console.error('Usage: studio workon <name>'); process.exit(1); }
       // Set active project by writing to .studio/active-project
       ensureDir(STUDIO_DIR);
@@ -1071,7 +1111,7 @@ async function main() {
       studioBuild();
       break;
     case 'daemon':
-      if (process.argv[3] === 'status') {
+      if (args[1] === 'status') {
         const { daemon } = await import('../daemon/studio-daemon.js');
         if (!daemon.isStarted()) {
           console.log('Daemon: not running');
@@ -1092,8 +1132,8 @@ async function main() {
       await studioRun();
       break;
     case 'metrics':
-      if (process.argv[3] === 'compare' && process.argv[4]) {
-        const taskName = process.argv[4];
+      if (args[1] === 'compare' && args[2]) {
+        const taskName = args[2];
         const { getComparison, printComparison } = await import('../daemon/metrics.js');
         const result = await getComparison(taskName);
         if (result) {
@@ -1122,34 +1162,34 @@ async function main() {
       await studioReject();
       break;
     case 'goal':
-      await apiCommand('goals', process.argv.slice(3));
+      await apiCommand('goals', args.slice(1));
       break;
     case 'knowledge':
-      await apiCommand('knowledge', process.argv.slice(3));
+      await apiCommand('knowledge', args.slice(1));
       break;
     case 'channel':
-      await apiCommand('channels', process.argv.slice(3));
+      await apiCommand('channels', args.slice(1));
       break;
     case 'role':
-      await apiCommand('roles', process.argv.slice(3));
+      await apiCommand('roles', args.slice(1));
       break;
     case 'task':
-      await apiCommand('tasks', process.argv.slice(3));
+      await apiCommand('tasks', args.slice(1));
       break;
     case 'agent':
-      await apiCommand('agents', process.argv.slice(3));
+      await apiCommand('agents', args.slice(1));
       break;
     case 'env':
       await studioEnv();
       break;
     case 'mcp':
-      await studioMcp(process.argv.slice(3));
+      await studioMcp(args.slice(1));
       break;
     case 'harness':
-      await studioHarnessCli(process.argv.slice(3));
+      await studioHarnessCli(args.slice(1));
       break;
     case 'skill':
-      await apiCommand('skills', process.argv.slice(3));
+      await apiCommand('skills', args.slice(1));
       break;
     default:
       console.log('Studio CLI');

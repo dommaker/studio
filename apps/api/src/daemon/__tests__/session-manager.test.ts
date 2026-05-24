@@ -1,5 +1,5 @@
 // SessionManager 边界测试 (B0-007) + AC1 cmd/settings verification
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -209,10 +209,10 @@ describe('SessionManager', () => {
       expect(fs.existsSync(settingsPath)).toBe(true);
 
       const content = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
-      expect(content.permissions?.bypassPermissions).toBe(true);
+      expect(content.permissions?.defaultMode).toBe('bypassPermissions');
     });
 
-    it('AC1.4: cmd does not contain 2>&1', async () => {
+    it('AC1.4: cmd contains 2>&1 — stderr merged into stdout for execSh capture', async () => {
       const worktree = path.join(TEST_DIR, 'ac4');
       manager.register({
         name: 'ac4', worktree, modelTier: 'standard',
@@ -222,7 +222,8 @@ describe('SessionManager', () => {
       await manager.runTask('ac4', { prompt: 'hello', outputFile: '/tmp/out.json' });
 
       const cmd = execShSpy.mock.calls[0]?.[0] as string;
-      expect(cmd).not.toContain('2>&1');
+      // 2>&1 merges stderr → stdout so execSh captures error output
+      expect(cmd).toContain('2>&1');
     });
 
     it('AC1.5: execSh called without opts.stdin', async () => {
@@ -239,6 +240,67 @@ describe('SessionManager', () => {
       // execSh should NOT receive opts.stdin — stdin stays 'ignore',
       // shell's < redirect handles input
       expect(opts?.stdin).toBeUndefined();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // F2: execSh stdout/stderr e2e — real shell commands, no mocking
+  // ═══════════════════════════════════════════════════════════
+
+  describe('F2: execSh stdout/stderr capture (e2e)', () => {
+    // Import real execSh for this e2e block (not the mocked one)
+    let realExecSh: typeof import('@dommaker/studio-shared/node').execSh;
+
+    beforeAll(async () => {
+      // Use vi.importActual to get the real execSh
+      const actual = await vi.importActual<typeof import('@dommaker/studio-shared/node')>('@dommaker/studio-shared/node');
+      realExecSh = actual.execSh;
+    });
+
+    it('F2.1: execSh captures stdout from real shell command', async () => {
+      const result = await realExecSh('echo "hello stdout"', {
+        cwd: TEST_DIR,
+        timeoutMs: 5000,
+      });
+      expect(result.stdout).toContain('hello stdout');
+    });
+
+    it('F2.2: execSh captures stderr from real shell command', async () => {
+      const result = await realExecSh('echo "hello stderr" >&2', {
+        cwd: TEST_DIR,
+        timeoutMs: 5000,
+      });
+      expect(result.stderr).toContain('hello stderr');
+    });
+
+    it('F2.3: execSh captures both stdout and stderr independently', async () => {
+      const result = await realExecSh('echo "to stdout"; echo "to stderr" >&2', {
+        cwd: TEST_DIR,
+        timeoutMs: 5000,
+      });
+      expect(result.stdout).toContain('to stdout');
+      expect(result.stderr).toContain('to stderr');
+      // Without 2>&1, stdout does NOT contain stderr content
+      expect(result.stdout).not.toContain('to stderr');
+    });
+
+    it('F2.4: 2>&1 merges stderr into stdout (vital for downstream capture)', async () => {
+      const result = await realExecSh('echo "merge test"; echo "error output" >&2', {
+        cwd: TEST_DIR,
+        timeoutMs: 5000,
+      });
+      // Without 2>&1 in the cmd, stderr is separate
+      expect(result.stderr).toContain('error output');
+      expect(result.stdout).not.toContain('error output');
+
+      // With 2>&1, stderr merges into stdout
+      const merged = await realExecSh('(echo "merge test"; echo "error output" >&2) 2>&1', {
+        cwd: TEST_DIR,
+        timeoutMs: 5000,
+      });
+      expect(merged.stdout).toContain('merge test');
+      expect(merged.stdout).toContain('error output');
+      // With 2>&1, stderr pipe gets nothing (all merged to stdout)
     });
   });
 });

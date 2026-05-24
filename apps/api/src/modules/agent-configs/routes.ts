@@ -32,7 +32,7 @@ async function createVersionSnapshot(configId: string, changedBy?: string, reaso
     data: {
       agentConfigId: configId,
       version: (lastVersion?.version ?? 0) + 1,
-      snapshot,
+      snapshot: JSON.stringify(snapshot),
       changedBy: changedBy || 'system',
       changeReason: reason,
     },
@@ -193,7 +193,7 @@ router.post('/:id/rollback/:versionId', async (req: Request, res: Response) => {
     });
     if (!version) return res.status(404).json({ error: 'Version not found' });
 
-    const snapshot = version.snapshot as Record<string, any>;
+    const snapshot = JSON.parse(version.snapshot || '{}') as Record<string, any>;
 
     // Snapshot current state before rollback
     await createVersionSnapshot(id, 'system', `Rollback to version ${version.version}`);

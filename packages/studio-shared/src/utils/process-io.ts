@@ -17,6 +17,8 @@ export interface ExecShOptions {
   timeoutMs: number;
   maxBuffer?: number;
   childRef?: { current: ChildProcess | null };
+  /** Content to pipe to child's stdin. When set, stdio uses 'pipe' for stdin. */
+  stdin?: string;
 }
 
 export interface SessionIdOptions {
@@ -47,7 +49,7 @@ export function execSh(
     const child = spawn('bash', ['-c', cmd], {
       cwd: opts.cwd,
       env: { ...process.env, ...opts.env },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [opts.stdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
     });
 
     if (opts.childRef) {
@@ -71,6 +73,21 @@ export function execSh(
     child.stderr.on('data', (data: Buffer) => {
       stderr += data.toString();
     });
+
+    // Pipe stdin content if provided, then close stdin
+    if (opts.stdin && child.stdin) {
+      child.stdin.on('error', (err: NodeJS.ErrnoException) => {
+        // EPIPE: child exited before consuming stdin — not actionable
+        if (err.code !== 'EPIPE') reject(err);
+      });
+      child.stdin.write(opts.stdin, (err) => {
+        // err: EPIPE if child already exited — safe to ignore in that case
+        if (err && (err as NodeJS.ErrnoException).code !== 'EPIPE') {
+          if (!settled) { settled = true; clearTimeout(timeout); reject(err as Error); }
+        }
+      });
+      child.stdin.end();
+    }
 
     const timeout = setTimeout(() => {
       if (!settled) {

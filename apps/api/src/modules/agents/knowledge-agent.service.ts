@@ -91,7 +91,7 @@ export class KnowledgeAgent {
           {
             title: '8-Agent System',
             content: 'Executor/Review/Knowledge/Monitor/Triage/Auditor/PostEval/Deploy',
-            type: 'architecture',
+            type: 'model',
             tags: ['agents', 'system'],
           },
         ],

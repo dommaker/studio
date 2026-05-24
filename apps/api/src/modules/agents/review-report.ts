@@ -71,16 +71,17 @@ export function buildReviewPrompt(params: {
     ? acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')
     : '（验收标准未明确，请从任务描述中推断）';
 
-  // 🆕 立场列表（外部配置优先，回退默认4立场）
+  // 🆕 立场列表（外部配置优先，回退默认6立场）
   const defaultReviewStances = [
     { id: 'forensic', name: '根因侦探', focus: 'fallback/default 掩盖上游 bug、hack 而非 root fix、同问题反复出现' },
     { id: 'skeptic', name: '质疑者', focus: '逻辑错误、边界缺失、错误处理、并发时序' },
     { id: 'architect', name: '架构师', focus: '架构越界、模块耦合、安全风险' },
     { id: 'executor', name: '执行者', focus: '可维护性、可运行性、代码导航' },
     { id: 'pragmatist', name: '实用主义者', focus: '过度设计、YAGNI、复杂度' },
+    { id: 'ac-compliance', name: '规范合规者', focus: 'diff vs AC 范围逐项对照、非目标变更检测、未授权删除检测' },
   ];
   const reviewStances = stances?.length
-    ? stances.filter(s => ['skeptic', 'architect', 'executor', 'pragmatist', 'forensic'].includes(s.id)).map(s => ({
+    ? stances.filter(s => ['skeptic', 'architect', 'executor', 'pragmatist', 'forensic', 'ac-compliance'].includes(s.id)).map(s => ({
         id: s.id,
         name: s.name,
         focus: s.reviewerFocus || `代码审查 — ${s.name}视角`,
@@ -126,6 +127,17 @@ forensic (根因侦探) 专项检查:
 - fallback 是否有注释说明根因？无说明 = hgih risk
 - 异常处理是否真正修复了根因，还是只吞掉了错误？
 
+ac-compliance (规范合规者) 专项检查:
+- 逐条 AC 对照 diff：diff 中的每一处变更都必须属于某个 AC 的范围
+- 不属于任何 AC 的变更 → severity='error'，标注为"非目标变更"
+- 被删除的内容（原命令行参数、原代码逻辑）逐项检查：是否在 AC 中明确要求删除？
+- 不在 AC 中的删除 → severity='error'，标注为"未授权的删除"
+
+**阻断规则**:
+- 任何 severity='error' 的问题 → overallApproved 必须为 false。error 不是"建议"，是阻断。
+- 非目标变更（改了不该改的）→ error
+- 未授权删除（删了不该删的）→ error
+
 ---
 
 ## 输出格式
@@ -141,7 +153,8 @@ forensic (根因侦探) 专项检查:
     "architect": { "issues": [], "notes": "" },
     "executor": { "issues": [], "notes": "" },
     "pragmatist": { "issues": [], "notes": "" },
-    "forensic": { "issues": [], "notes": "" }
+    "forensic": { "issues": [], "notes": "" },
+    "ac-compliance": { "issues": [], "notes": "" }
   },
   "acResults": [
     { "ac": "验收标准原文", "passed": true, "evidence": "在 file.ts:XX 行已实现", "gap": "" }

@@ -33,7 +33,7 @@ export type KnowledgeSource =
 
 export interface BusEntry {
   source: KnowledgeSource;
-  type: 'pattern' | 'failure' | 'incident' | 'pitfall' | 'guideline' | 'trend' | 'fix';
+  type: 'pattern' | 'failure' | 'incident' | 'pitfall' | 'guideline' | 'trend' | 'fix' | 'analyst_accuracy';
   title: string;
   content: string;
   severity: 'info' | 'warning' | 'critical';
@@ -166,6 +166,62 @@ export class KnowledgeBus {
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to load context', { error: String(e) });
       return '';
+    }
+  }
+
+  // ── Analyst Accuracy Feedback Loop ──
+
+  /** PostEval 记录 Analyst 预测准确率，供下次 Analyst 运行时注入 */
+  async recordAnalystAccuracy(data: {
+    docId: string;
+    goalTitle: string;
+    predictedFiles: string[];
+    actualFiles: string[];
+    predictedDeps: string[];
+    actualDeps: string[];
+    acMatchRate: number;
+    missesByType: Record<string, number>;
+  }): Promise<void> {
+    try {
+      const missedFiles = data.predictedFiles.filter(f => !data.actualFiles.includes(f));
+      const extraFiles = data.actualFiles.filter(f => !data.predictedFiles.includes(f));
+      const missedDeps = data.predictedDeps.filter(d => !data.actualDeps.includes(d));
+
+      const content = [
+        `任务: ${data.goalTitle}`,
+        `AC匹配率: ${Math.round(data.acMatchRate * 100)}%`,
+        `预测文件: [${data.predictedFiles.join(', ')}]`,
+        `实际文件: [${data.actualFiles.join(', ')}]`,
+        missedFiles.length > 0 ? `漏预测文件: ${missedFiles.join(', ')}` : '',
+        extraFiles.length > 0 ? `多预测文件: ${extraFiles.join(', ')}` : '',
+        missedDeps.length > 0 ? `漏预测依赖: ${missedDeps.join(', ')}` : '',
+        Object.entries(data.missesByType).length > 0
+          ? `误判类型: ${Object.entries(data.missesByType).map(([k, v]) => `${k}(${v})`).join(', ')}`
+          : '',
+      ].filter(Boolean).join('; ');
+
+      const result = this.ingest.ingestEntry(
+        {
+          type: 'guideline',
+          title: `AnalystAccuracy: ${data.goalTitle.slice(0, 80)}`,
+          content,
+          tags: ['analyst_accuracy'],
+        },
+        {
+          source: `analyst_accuracy:posteval:${data.docId.slice(0, 16)}`,
+          layer: 'project',
+          maturity: 'verified',
+          tags: ['analyst_accuracy'],
+        },
+      );
+      if (result.lastReferenced && result.contributors.length > 1) {
+        logger.info('[KnowledgeBus] Analyst accuracy dedup merged', {
+          docId: data.docId.slice(0, 16),
+          existingId: result.id,
+        });
+      }
+    } catch (e: any) {
+      logger.warn('[KnowledgeBus] Failed to record analyst accuracy', { error: String(e) });
     }
   }
 
