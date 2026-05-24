@@ -328,14 +328,18 @@ export class GoalScheduler {
     const estimatedLines = acCount * 15;
     const isSmallChange = estimatedLines <= 80 && fileCount <= 3 && gotchas.length <= 2;
 
+    // Dimension-weighted threshold: acCount alone shouldn't force premium
+    // Raise from 4→6 to let standard handle medium-complexity tasks
+    const premiumTrigger = isHighRiskDomain || acCount >= 6 || fileCount >= 7;
+
     let tier: string;
     let reason: string;
-    if (isHighRiskDomain || acCount >= 4 || fileCount >= 5) {
+    if (premiumTrigger) {
       tier = 'premium';
       const triggers = [];
       if (isHighRiskDomain) triggers.push(`keywords:${highRiskHits.join(',')}`);
-      if (acCount >= 4) triggers.push(`acCount=${acCount}`);
-      if (fileCount >= 5) triggers.push(`fileCount=${fileCount}`);
+      if (acCount >= 6) triggers.push(`acCount=${acCount}`);
+      if (fileCount >= 7) triggers.push(`fileCount=${fileCount}`);
       reason = triggers.join('; ');
       // Layer 4 override: 低技能可降级 (highRisk 不可降级)
       if (!isHighRiskDomain && isLowSkill && acCount <= 6 && fileCount <= 5) {
@@ -347,7 +351,7 @@ export class GoalScheduler {
         tier = 'standard';
         reason += ` (downgraded: smallChange, estLines~${estimatedLines}, files=${fileCount}, gotchas=${gotchas.length})`;
       }
-    } else if (isLowRiskDomain && acCount <= 1 && fileCount <= 2) {
+    } else if (isLowRiskDomain && acCount <= 2 && fileCount <= 3) {
       tier = 'fast';
       reason = `lowRisk keywords:${lowRiskHits.join(',')}, acCount=${acCount}, fileCount=${fileCount}`;
     } else {
