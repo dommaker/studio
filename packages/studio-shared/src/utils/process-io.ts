@@ -107,7 +107,7 @@ export function execSh(
       }
     });
 
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       clearTimeout(timeout);
       if (opts.childRef) opts.childRef.current = null;
       if (settled) return;
@@ -115,7 +115,8 @@ export function execSh(
       if (code === 0) {
         resolve({ stdout, stderr });
       } else {
-        const err = new Error(`Command exited with code ${code}: ${stderr.slice(0, 200)}`) as any;
+        const reason = signal ? `signal ${signal}` : `code ${code}`;
+        const err = new Error(`Command exited with ${reason}: ${stderr.slice(0, 200)}`) as any;
         err.stdout = stdout;
         err.stderr = stderr;
         err.code = code;
