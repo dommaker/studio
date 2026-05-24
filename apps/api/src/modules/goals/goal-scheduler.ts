@@ -47,6 +47,18 @@ export class GoalScheduler {
   private explorationCount = 0;
   private explorationSuccess = 0;
   private readonly EXPLORATION_RATE = 0.1; // 10% chance to try lower tier
+  // Monitor 自动优化：per-category 路由覆盖 + token 预算门控
+  private routingOverrides: Map<string, string> = new Map();  // taskCategory → forced tier
+  private tokenGatedGoals: Set<string> = new Set();           // goalId → force flash
+
+  addRoutingOverride(category: string, tier: string): void {
+    this.routingOverrides.set(category, tier);
+    logger.info('[GoalScheduler] Routing override added', { category, tier });
+  }
+
+  addTokenGate(goalId: string): void {
+    this.tokenGatedGoals.add(goalId);
+  }
 
   private runtimeConstraintSub: typeof eventStore | null = null;
 
@@ -554,7 +566,19 @@ export class GoalScheduler {
 
     // Phase 2: ε-greedy exploration — 10% 概率试探更低 tier
     const { tier: exploredTier, exploring } = this.maybeExploreDowngrade(autoTier, taskCategory);
-    const tier = exploredTier;
+    let tier = exploredTier;
+
+    // Monitor 自动优化：per-category 降级（数据驱动 routing evolution）
+    if (this.routingOverrides.has(taskCategory) && tier === 'premium') {
+      tier = this.routingOverrides.get(taskCategory)!;
+      logger.info('[GoalScheduler] Routing override applied', { taskCategory, original: 'premium', override: tier });
+    }
+
+    // Monitor token 预算门控：超预算 goal → 强制 flash
+    if (this.tokenGatedGoals.has(goal.id) && tier === 'premium') {
+      tier = 'standard';
+      logger.info('[GoalScheduler] Token budget gate applied', { goalId: goal.id.slice(0, 8), forcedTier: tier });
+    }
     this.recentClassifications.push({
       time: new Date().toISOString(),
       executionId,

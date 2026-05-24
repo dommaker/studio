@@ -13,8 +13,8 @@ importers:
         version: 4.22.3
     devDependencies:
       '@dommaker/harness':
-        specifier: ^0.12.12
-        version: 0.12.13
+        specifier: ^0.12.14
+        version: 0.12.14
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.41
@@ -28,8 +28,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.12.13
-        version: 0.12.13
+        specifier: ^0.12.14
+        version: 0.12.14
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -173,8 +173,8 @@ importers:
   apps/web:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@dommaker/studio-api':
         specifier: workspace:*
         version: link:../api
@@ -285,8 +285,8 @@ importers:
   packages/studio-agent:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -328,8 +328,8 @@ importers:
   packages/studio-audit:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -350,8 +350,8 @@ importers:
   packages/studio-capability:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.12.13
-        version: 0.12.13
+        specifier: ^0.12.14
+        version: 0.12.14
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -381,8 +381,8 @@ importers:
   packages/studio-monitor:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -415,8 +415,8 @@ importers:
   packages/studio-notification:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -434,8 +434,8 @@ importers:
   packages/studio-prisma:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@prisma/client':
         specifier: ^5.7.0
         version: 5.22.0(prisma@5.22.0)
@@ -456,8 +456,8 @@ importers:
   packages/studio-shared:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.12.13
-        version: 0.12.13
+        specifier: ^0.12.14
+        version: 0.12.14
       eventemitter3:
         specifier: ^5.0.0
         version: 5.0.4
@@ -478,8 +478,8 @@ importers:
   packages/studio-skill:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -494,8 +494,8 @@ importers:
   packages/studio-spec:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@dommaker/studio-notification':
         specifier: workspace:*
         version: link:../studio-notification
@@ -528,8 +528,8 @@ importers:
   packages/studio-task:
     dependencies:
       '@dommaker/harness':
-        specifier: 0.12.13
-        version: 0.12.13
+        specifier: 0.12.14
+        version: 0.12.14
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -688,8 +688,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dommaker/harness@0.12.13':
-    resolution: {integrity: sha512-rdp4BaFQ2OMe6E5pWBgiE9Skd/f7Vs6FvHxfe2fPxac2BVpQ9cpaYavNNVQL0jDhreZcb2GlaBRDQgG4Nls8XA==}
+  '@dommaker/harness@0.12.14':
+    resolution: {integrity: sha512-VtSQt3cl/xEfmJA326lwoJcqGL1JpqIYqmQib7jNehAADDrUzy1qv8IRNyyXT0IkLiNK+9zok7oJ7cqcJkOHRw==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3327,8 +3327,8 @@ packages:
   tinybench@2.9.0:
     resolution: {integrity: sha512-0+DUvqWMValLmha6lr4kD8iAMK1HzV0/aKnCtWb9v9641TnP/MFb7Pc2bxoxQjTXAErryXVgUOfv2YqNllqGeg==}
 
-  tinyexec@1.1.2:
-    resolution: {integrity: sha512-dAqSqE/RabpBKI8+h26GfLq6Vb3JVXs30XYQjdMjaj/c2tS8IYYMbIzP599KtRj7c57/wYApb3QjgRgXmrCukA==}
+  tinyexec@1.2.0:
+    resolution: {integrity: sha512-j7JZaGdvnT7JYtJKuUOOXZ/tdiudbUdyVy9dqcqVlERHURhLSSGAlniScKj78UQ5QeSwqY/aSkGRS8b65M/aEw==}
     engines: {node: '>=18'}
 
   tinyglobby@0.2.16:
@@ -3347,11 +3347,11 @@ packages:
     resolution: {integrity: sha512-KYad6Vy5VDWV4GH3fjpseMQ/XU2BhIYP7Vzd0LG44qRWm/Yt2WCOTicFdvmgo6gWaqooMQCawTtILVQJupKu7A==}
     engines: {node: '>=14.0.0'}
 
-  tldts-core@7.0.31:
-    resolution: {integrity: sha512-wXjKe2IhLUTHnWRmIa7pe+mdsO8IICf+sXb4+zW/8DuI2/pgDiVPqi4DagqzF6/rL/vGQw48k232Fua0Gu81Ug==}
+  tldts-core@7.0.32:
+    resolution: {integrity: sha512-GbSw6chU2HsHIB/NAyBJYxXQKpcqhtgY6bvWi90OarpbuMia+Z4Gw5BYiW4hJo1DzQ/6k9coba7FU/ijcgVLLw==}
 
-  tldts@7.0.31:
-    resolution: {integrity: sha512-bBexVSujxvWzgbBKAXbj+xpe3nBfhGajXEdQ2DGSwZ7+lNlS4yjq7zuc1BmqBXanbf8T4fEBGdbUqbhp/2B3bw==}
+  tldts@7.0.32:
+    resolution: {integrity: sha512-5eDV0tK2NhLAAqBeXDAQ36+EwuStd1HbsSOnGsp+JbExITnExcALLL5M1kTH8gjDYN5QvwmUWimE3GoMZ2A7xQ==}
     hasBin: true
 
   to-regex-range@5.0.1:
@@ -3928,7 +3928,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dommaker/harness@0.12.13':
+  '@dommaker/harness@0.12.14':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0
@@ -6427,7 +6427,7 @@ snapshots:
 
   tinybench@2.9.0: {}
 
-  tinyexec@1.1.2: {}
+  tinyexec@1.2.0: {}
 
   tinyglobby@0.2.16:
     dependencies:
@@ -6440,11 +6440,11 @@ snapshots:
 
   tinyspy@2.2.1: {}
 
-  tldts-core@7.0.31: {}
+  tldts-core@7.0.32: {}
 
-  tldts@7.0.31:
+  tldts@7.0.32:
     dependencies:
-      tldts-core: 7.0.31
+      tldts-core: 7.0.32
 
   to-regex-range@5.0.1:
     dependencies:
@@ -6454,7 +6454,7 @@ snapshots:
 
   tough-cookie@6.0.1:
     dependencies:
-      tldts: 7.0.31
+      tldts: 7.0.32
 
   tr46@0.0.3: {}
 
@@ -6757,7 +6757,7 @@ snapshots:
       picomatch: 4.0.4
       std-env: 4.1.0
       tinybench: 2.9.0
-      tinyexec: 1.1.2
+      tinyexec: 1.2.0
       tinyglobby: 0.2.16
       tinyrainbow: 3.1.0
       vite: 8.0.14(@types/node@24.12.4)(esbuild@0.28.0)(jiti@2.7.0)(tsx@4.22.3)(yaml@2.9.0)
