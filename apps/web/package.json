@@ -14,7 +14,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@dommaker/harness": "0.12.12",
+    "@dommaker/harness": "0.12.13",
     "@dommaker/studio-api": "workspace:*",
     "@dommaker/studio-prisma": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",

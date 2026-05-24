@@ -202,27 +202,27 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 721,
+      "line": 725,
       "code": "TS2352"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 867,
+      "line": 871,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 868,
+      "line": 872,
       "code": "TS2352"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 881,
+      "line": 885,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 1071,
+      "line": 1075,
       "code": "TS2322"
     },
     {
@@ -1213,8 +1213,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-24T14:01:59.633Z",
+    "generated": "2026-05-24T14:24:42.314Z",
     "totalErrors": 241,
-    "commit": "12e64b91f16da89b4d4a003e192bfda3513c2702"
+    "commit": "afe897b4ab680d3be4206d81dad918f0a818f88e"
   }
 }
