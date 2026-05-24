@@ -1066,10 +1066,14 @@ async function main() {
       await studioUp(configPath);
       break;
     case 'dev':
-      // 开发模式：线上任务不变，只是启动方式换 tsx 热重载，去掉 systemd 依赖
-      console.log('Starting in dev mode (hot reload)...');
+      // 开发模式：独立 DB 隔离测试数据，端口 3001，tsx 热重载
+      // 知识引擎 (RKB/KnowledgeBus) 独立运行，不污染生产
+      console.log('Starting in dev mode (isolated DB, port 3001)...');
       if (!process.env.PORT) process.env.PORT = '3001';
       if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
+      if (!process.env.DATABASE_URL) {
+        process.env.DATABASE_URL = 'file:' + path.join(STUDIO_DIR, 'data', 'dev.db');
+      }
       await studioUp(configPath);
       break;
     case 'project':
