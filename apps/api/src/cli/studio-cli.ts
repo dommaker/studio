@@ -1065,6 +1065,13 @@ async function main() {
     case 'up':
       await studioUp(configPath);
       break;
+    case 'dev':
+      // 开发模式：线上任务不变，只是启动方式换 tsx 热重载，去掉 systemd 依赖
+      console.log('Starting in dev mode (hot reload)...');
+      if (!process.env.PORT) process.env.PORT = '3001';
+      if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
+      await studioUp(configPath);
+      break;
     case 'project':
       if (args[1] === 'add') {
         const projectPath = path.resolve(args[2] || process.cwd());
