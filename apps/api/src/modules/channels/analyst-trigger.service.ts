@@ -239,12 +239,23 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '    "gotchas": ["⚠️ 潜在坑位"]',
     '  }],',
     '  "constraints": ["约束"],',
-    '  "tags": ["标签"]',
+    '  "tags": ["标签"],',
+    '  "discoveries": [{',
+    '    "type": "tech_debt|bug|improvement|security|deprecation|observation",',
+    '    "severity": "low|medium|high|critical",',
+    '    "file": "文件路径",',
+    '    "title": "简短标题",',
+    '    "description": "1-3 句话描述",',
+    '    "effort": "minutes|hours|days|unknown"',
+    '  }]',
     '}',
     '```',
     '',
     '写完 JSON 后，在 stdout 输出 "DONE"。',
     '',
+    '**发现（Discoveries）**：探索过程中发现的不属于本次需求但值得注意的问题 → 写入 discoveries 字段。',
+    '- 不阻塞主需求，不影响 RequirementsDoc 生成',
+    '- 示例：发现某模块使用了废弃的 API、某处存在潜在安全风险',
     '---',
     '',
     '## 用户需求',
@@ -503,6 +514,20 @@ class AnalystTriggerService {
             });
           }
         } catch { /* KnowledgeBus write-back is best-effort, don't block pipeline */ }
+
+        // G33: Expose discoveries to channel (non-blocking)
+        if (response.discoveries?.length) {
+          const { discoveryExposure } = await import('./discovery-exposure.service.js');
+          discoveryExposure.expose(response.discoveries.map((d: any) => ({
+            source: 'analyst' as const,
+            type: d.type || 'observation',
+            severity: d.severity || 'medium',
+            file: d.file || '',
+            title: d.title || '',
+            description: d.description || '',
+            effort: d.effort,
+          })), channelId).catch((e: any) => logger.warn('[AnalystTrigger] Discovery exposure failed', { error: String(e) }));
+        }
       } catch (e: any) {
         logger.warn('[AnalystTrigger] KnowledgeSync capture failed (non-blocking)', { error: String(e) });
       }

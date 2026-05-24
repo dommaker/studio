@@ -1577,7 +1577,7 @@ TSC_GATE_OFF=1 git commit ...       # 紧急跳过
 | G27 | 自优化飞轮开环（有检测无执行） | ✅ 已修 | Monitor 自动 applyRoutingOverride + applyTokenGate `monitor-agent.service.ts` `goal-scheduler.ts` |
 | G28 | 知识沉淀交互模式失效 | ✅ 已修 | Stop hook 调 memory-knowledge-sync.js `harness-knowledge-check.js` |
 | G29 | DailyReflection 数据稀疏 | ✅ 已修 | Stop hook + track script 补 turnCount/duration/tool |
-| G30 | 统一数据入口缺失 | ❌ 待修 | 7 个数据源散落 5 处，缺统一查询层 |
-| G31 | 数据无限膨胀 | ❌ 待修 | .agent.log / studio.jsonl / DB 表缺 TTL，COS 备份待接 |
-| G32 | COS 异地备份 | ❌ 待修 | rclone 已配置 (agent-backup-sync-1258141494)，缺自动归档脚本 |
+| G30 | 统一数据入口缺失 | ✅ 已修 | StudioEvent 表 + POST/GET /api/v1/events + pipeline_run/daily_reflection 写入点 |
+| G31 | 数据无限膨胀 | ✅ 已修 | Monitor.dataLifecycle() TTL + VACUUM + jsonl/knowledge 截断 |
+| G32 | COS 异地备份 | ✅ 已修 | rclone 自动备份脚本 + DATA_COS_BUCKET 环境变量 |
 | G33 | 曝光机制 (Discoveries) | ❌ 待修 | Analyst/Reviewer 发现的无关改进无统一曝光通道 |
