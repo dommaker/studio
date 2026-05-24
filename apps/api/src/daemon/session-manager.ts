@@ -39,7 +39,6 @@ interface SessionState {
   lastUsed: number;
   taskCount: number;
   isNewSession: boolean;      // true = 刚生成 UUID，需 --session-id；false = 从文件加载，用 --continue
-  bootToken: string | null;   // P0-2: daemon 启动 token，重启后变化
 }
 
 export class SessionManager {
@@ -47,45 +46,47 @@ export class SessionManager {
   // M6: session cache hit/miss tracking
   private cacheHits = 0;
   private cacheMisses = 0;
-  // P0-2: daemon boot token — detect restart, avoid stale --continue
-  private daemonBootToken: string | null = null;
 
   register(config: SessionConfig): void {
     this.ensureWorktree(config);
 
-    // Load or generate session UUID (persisted to worktree)
-    const existingId = readSessionIdFile(config.worktree);
+    const daemonDir = path.join(config.worktree, '.daemon');
+    if (!fs.existsSync(daemonDir)) fs.mkdirSync(daemonDir, { recursive: true });
+    const sidFile = path.join(daemonDir, 'session-id');
+    const pidFile = path.join(daemonDir, 'daemon-pid');
+
+    // 读上次 daemon 的 PID — 如果进程还活着，说明 daemon 没重启，session 可复用
+    let previousPid = 0;
+    try { previousPid = parseInt(fs.readFileSync(pidFile, 'utf-8').trim(), 10); } catch {}
+    const daemonAlive = previousPid > 0 && this.isProcessAlive(previousPid);
+
     let sessionId: string;
     let isNewSession: boolean;
 
-    // P0-2: read previous boot token from file → detect daemon restart
-    const bootTokenFile = path.join(config.worktree, '.daemon', 'boot-token');
-    let previousBootToken: string | null = null;
-    try { previousBootToken = fs.readFileSync(bootTokenFile, 'utf-8').trim(); } catch {}
-
-    if (existingId && previousBootToken === this.daemonBootToken) {
-      sessionId = existingId;
-      isNewSession = false; // 从文件加载 → 用 --continue 续接
-    } else if (existingId && previousBootToken !== this.daemonBootToken) {
-      // Daemon restarted — old session is stale, force new session
-      sessionId = resolveSessionId(config.worktree);
-      isNewSession = true;
-      logger.info('[SessionManager] Boot token changed — forcing new session', {
-        name: config.name,
-        previousBootToken: previousBootToken?.slice(0, 12),
-        currentBootToken: this.daemonBootToken?.slice(0, 12),
-      });
+    if (daemonAlive) {
+      const existingId = readSessionIdFile(config.worktree);
+      if (existingId) {
+        sessionId = existingId;
+        isNewSession = false; // daemon 没重启 → session 仍有效 → --continue 复用
+      } else {
+        sessionId = crypto.randomUUID();
+        isNewSession = true;
+      }
     } else {
-      sessionId = resolveSessionId(config.worktree);
+      // daemon 重启了（或首次启动）→ 旧 session 已死 → 生成新 UUID
+      try { fs.unlinkSync(sidFile); } catch {}
+      sessionId = crypto.randomUUID();
       isNewSession = true;
+      fs.writeFileSync(sidFile, sessionId, 'utf-8');
+      if (previousPid > 0) {
+        logger.info('[SessionManager] Previous daemon dead — new session', {
+          name: config.name, previousPid,
+        });
+      }
     }
 
-    // Persist boot token for next restart detection
-    try {
-      const daemonDir = path.join(config.worktree, '.daemon');
-      if (!fs.existsSync(daemonDir)) fs.mkdirSync(daemonDir, { recursive: true });
-      fs.writeFileSync(bootTokenFile, this.daemonBootToken || '', 'utf-8');
-    } catch {}
+    // 写当前 PID 供下次启动判断
+    fs.writeFileSync(pidFile, String(process.pid), 'utf-8');
 
     this.sessions.set(config.name, {
       config,
@@ -94,19 +95,24 @@ export class SessionManager {
       lastUsed: 0,
       taskCount: 0,
       isNewSession,
-      bootToken: this.daemonBootToken,
     });
     logger.info('[SessionManager] Registered session', {
       name: config.name,
       sessionId,
       worktree: config.worktree,
       persistent: config.persistent,
+      daemonAlive,
     });
   }
 
-  /** P0-2: daemon 启动时写入 boot token，用于检测重启后 session 失效 */
-  markBoot(): void {
-    this.daemonBootToken = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  /** 检查进程是否存活 (kill(pid, 0) = 信号探测，不杀进程) */
+  private isProcessAlive(pid: number): boolean {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async runTask(sessionName: string, job: JobSpec): Promise<TaskResult> {
@@ -116,20 +122,6 @@ export class SessionManager {
     // Concurrency guard — now meaningful with async spawn
     if (state.isBusy) throw new Error(`Session ${sessionName} is busy`);
     state.isBusy = true;
-
-    // P0-2: 主动检测 daemon 重启 → session 失效 → 强制新 session，避免 --continue 浪费 cache
-    if (!state.isNewSession && this.daemonBootToken && state.bootToken !== this.daemonBootToken) {
-      logger.info('[SessionManager] Daemon restarted — forcing new session to avoid stale --continue', {
-        session: sessionName,
-        oldBootToken: state.bootToken,
-        newBootToken: this.daemonBootToken,
-      });
-      state.isNewSession = true;
-      state.sessionId = crypto.randomUUID();
-      state.bootToken = this.daemonBootToken;
-      const sidFile = path.join(state.config.worktree, '.daemon', 'session-id');
-      fs.writeFileSync(sidFile, state.sessionId, 'utf-8');
-    }
 
     const startTime = Date.now();
     const daemonDir = path.join(state.config.worktree, '.daemon');

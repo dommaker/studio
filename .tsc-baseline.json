@@ -22,22 +22,22 @@
     },
     {
       "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 306,
+      "line": 308,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 310,
+      "line": 312,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 310,
+      "line": 312,
       "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 313,
+      "line": 315,
       "code": "TS2339"
     },
     {
@@ -1213,8 +1213,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-24T11:33:29.636Z",
+    "generated": "2026-05-24T12:08:39.542Z",
     "totalErrors": 241,
-    "commit": "dd1459927e12cdde127b8771595a3c7490a12b11"
+    "commit": "4a8521d0236996c9e7511fd6353cfa4d3880072c"
   }
 }
