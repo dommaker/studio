@@ -252,6 +252,9 @@ async function start() {
 
     // 优雅关闭
     const shutdown = async () => {
+      // Graceful: stop accepting new work, wait for running Claude tasks
+      try { await daemon.gracefulShutdown(); } catch {}
+
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }
       agentRouter.stopScheduler();
       stopEvolutionScheduler();
@@ -259,7 +262,6 @@ async function start() {
       agentEventListener.stop();
       monitorAgent.stop();
       auditorAgent.stop();
-      daemon.stop();
       stopAuditSubscriber();
       // Deprecated meeting services removed from startup — stops are no-ops
       try { await stopHealthMonitor(); } catch {}

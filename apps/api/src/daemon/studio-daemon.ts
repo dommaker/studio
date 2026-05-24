@@ -89,6 +89,12 @@ class StudioDaemon {
     return this.manager.getAllStatus();
   }
 
+  /** Graceful shutdown — wait for running daemon tasks, then stop accepting new ones */
+  async gracefulShutdown(): Promise<void> {
+    this.started = false; // stop accepting new jobs
+    await this.manager.shutdown(60_000); // wait up to 60s for running tasks
+  }
+
   isStarted(): boolean {
     return this.started;
   }

@@ -369,6 +369,21 @@ export class SessionManager {
     }
   }
 
+  /** Graceful shutdown: wait for running tasks to complete (with timeout) */
+  async shutdown(maxWaitMs = 60_000): Promise<void> {
+    const deadline = Date.now() + maxWaitMs;
+    while (Date.now() < deadline) {
+      const busy = [...this.sessions.values()].filter(s => s.isBusy);
+      if (busy.length === 0) return;
+      logger.info('[SessionManager] Waiting for tasks to finish before shutdown', {
+        busy: busy.map(s => `task-${s.taskCount}`).join(', '),
+        remainingMs: deadline - Date.now(),
+      });
+      await new Promise(r => setTimeout(r, 2000));
+    }
+    logger.warn('[SessionManager] Shutdown timeout reached, forcing exit');
+  }
+
   getStatus(sessionName: string): { name: string; isBusy: boolean; lastUsed: number; taskCount: number; worktree: string; persistent: boolean } | null {
     const state = this.sessions.get(sessionName);
     if (!state) return null;
