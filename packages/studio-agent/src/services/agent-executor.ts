@@ -285,6 +285,9 @@ export class AgentExecutor {
           `<`,
           `"${promptFile}"`,
           `2>&1`,
+          `|`,
+          `tee`,
+          `"${logFile}"`,
         ].join(' ');
 
         logger.info('[AgentExecutor] Spawning session', {

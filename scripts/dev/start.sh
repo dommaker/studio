@@ -8,13 +8,13 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 API_DIR="$PROJECT_ROOT/apps/api"
 WEB_DIR="$PROJECT_ROOT/apps/web"
 
-# 读取 .env（如果存在）
-[ -f "$PROJECT_ROOT/.env" ] && source "$PROJECT_ROOT/.env"
+# 读取 .env.beta（如果存在）
+[ -f "$PROJECT_ROOT/.env.beta" ] && source "$PROJECT_ROOT/.env.beta"
 
-API_PORT="${PORT:-3001}"
-WEB_PORT="${VITE_PORT:-5173}"
+API_PORT="${PORT:-13001}"
+WEB_PORT="${VITE_PORT:-13000}"
 
-echo "🚀 Starting agent-studio (development)"
+echo "🚀 Starting agent-studio (beta)"
 echo "   API: http://localhost:$API_PORT"
 echo "   Web: http://localhost:$WEB_PORT"
 

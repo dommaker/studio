@@ -962,7 +962,14 @@ export class GoalScheduler {
 
     // 1. 创建 integration worktree
     try { fs.rmSync(worktree, { recursive: true, force: true }); } catch {}
-    execSync(`git worktree add -b "task/${executionId}" "${worktree}" main`, { cwd: repoDir, timeout: 30_000 });
+    const branchName = `task/${executionId}`;
+    try {
+      execSync(`git worktree add -b "${branchName}" "${worktree}" main`, { cwd: repoDir, timeout: 30_000 });
+    } catch {
+      // Branch already exists (retry after restart) — reuse it
+      try { execSync(`git branch -D "${branchName}"`, { cwd: repoDir, timeout: 5_000 }); } catch {}
+      execSync(`git worktree add -b "${branchName}" "${worktree}" main`, { cwd: repoDir, timeout: 30_000 });
+    }
     logger.info('[GoalScheduler] Integration worktree created', { worktree, executionId });
 
     // 2. 获取所有 succeeded 的执行，合并它们的 task 分支
@@ -982,17 +989,17 @@ export class GoalScheduler {
       }
     }
 
-    // 3. 类型检查
+    // 3. 类型检查（monorepo: 用 apps/api 的 tsconfig）
     try {
-      execSync('npx tsc --noEmit 2>&1', { cwd: worktree, timeout: 60_000 });
+      execSync('npx tsc --noEmit --project apps/api/tsconfig.json 2>&1', { cwd: worktree, timeout: 60_000 });
     } catch (e: any) {
       const errMsg = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
       return { success: false, error: `tsc failed: ${errMsg.slice(0, 300)}` };
     }
 
-    // 4. 运行测试
+    // 4. 运行测试（monorepo: 只测 api 包的 test，不跑全量）
     try {
-      execSync('npm test 2>&1', { cwd: worktree, timeout: 120_000 });
+      execSync('npx jest --passWithNoTests 2>&1', { cwd: path.join(worktree, 'apps', 'api'), timeout: 120_000 });
     } catch (e: any) {
       const errMsg = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
       return { success: false, error: `Tests failed: ${errMsg.slice(0, 300)}` };

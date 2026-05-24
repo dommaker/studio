@@ -76,3 +76,4 @@ DESIGN_REFACTOR.md
 # Development artifacts
 1
 .gitignore.bak
+.env.beta
