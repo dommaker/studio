@@ -192,9 +192,13 @@ async function studioRun() {
     // Get #研发 channel
     const chResp = await fetch(`${baseUrl}/channels`);
     const { data: channels } = await chResp.json() as { data: Array<{ id: string; type: string; name: string }> };
-    const rndChannel = channels.find((c: any) => c.type === 'rnd');
+    // Dev mode → prefer #研发-dev, prod → prefer #研发 (skip -dev suffixed)
+    const isDev = process.env.NODE_ENV === 'development';
+    const rndChannel = isDev
+      ? channels.find((c: any) => c.type === 'rnd' && c.name?.endsWith('-dev'))
+      : channels.find((c: any) => c.type === 'rnd' && !c.name?.endsWith('-dev'));
     if (!rndChannel) {
-      console.error('No #研发 channel found. Start studio with: studio up');
+      console.error(`No ${isDev ? '#研发-dev' : '#研发'} channel found. Start studio with: studio up`);
       process.exit(1);
     }
 
@@ -215,7 +219,7 @@ async function studioRun() {
       process.exit(1);
     }
 
-    console.log('✅ Submitted to #研发. Analyst is analyzing...');
+    console.log(`✅ Submitted to ${rndChannel.name}. Analyst is analyzing...`);
 
     if (!fullWait) {
       console.log('Tip: use --wait to wait for Goal completion, --pipeline for full pipeline');
