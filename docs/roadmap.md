@@ -1580,4 +1580,4 @@ TSC_GATE_OFF=1 git commit ...       # 紧急跳过
 | G30 | 统一数据入口缺失 | ✅ 已修 | StudioEvent 表 + POST/GET /api/v1/events + pipeline_run/daily_reflection 写入点 |
 | G31 | 数据无限膨胀 | ✅ 已修 | Monitor.dataLifecycle() TTL + VACUUM + jsonl/knowledge 截断 |
 | G32 | COS 异地备份 | ✅ 已修 | rclone 自动备份脚本 + DATA_COS_BUCKET 环境变量 |
-| G33 | 曝光机制 (Discoveries) | ❌ 待修 | Analyst/Reviewer 发现的无关改进无统一曝光通道 |
+| G33 | 曝光机制 (Discoveries) | ✅ 已修 | DiscoveryExposureService → #系统 channel + KnowledgeBus，24h 去重 |
