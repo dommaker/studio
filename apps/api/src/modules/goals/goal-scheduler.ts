@@ -40,13 +40,21 @@ export class GoalScheduler {
   private recentClassifications: Array<{
     time: string; executionId: string; taskType: string;
     acCount: number; fileCount: number; classified: string; final: string;
-    outcome?: 'success' | 'failure'; durationMs?: number;
+    outcome?: 'success' | 'failure'; durationMs?: number; reviewScore?: number;
+    taskCategory?: string; // Phase 3: per-task-type boundary
   }> = [];
+  // Phase 2: ε-greedy exploration counters
+  private explorationCount = 0;
+  private explorationSuccess = 0;
+  private readonly EXPLORATION_RATE = 0.1; // 10% chance to try lower tier
 
   private runtimeConstraintSub: typeof eventStore | null = null;
 
   start(): void {
     if (this.interval) return;
+
+    // Phase 1: 恢复路由统计数据
+    this.restoreRoutingStats();
 
     // Step 6: 服务重启恢复
     this.recoverStaleExecutions().catch(e => {
@@ -250,47 +258,114 @@ export class GoalScheduler {
    * G5 进化：分析路由决策 → 发现误分类模式 → 通知 AuditorAgent
    * 由 MonitorAgent 每 5 分钟调用一次
    */
+  /**
+   * G5 进化: 分析路由决策 → 双向反馈（升级+降级）
+   * Phase 2: ε-greedy — premium 成功率高时试探 standard
+   * Phase 3: per-task-category 独立追踪
+   */
   analyzeRoutingFeedback(): Array<{ type: string; message: string; evidence: string }> {
     const suggestions: Array<{ type: string; message: string; evidence: string }> = [];
     const completed = this.recentClassifications.filter(c => c.outcome);
-    if (completed.length < 10) return suggestions; // 需要足够样本
+    if (completed.length < 5) return suggestions;
 
-    // 按 classified tier 分组统计成功率
-    const byTier = new Map<string, { total: number; success: number }>();
+    // 按 classified tier + taskCategory 分组
+    const byTier = new Map<string, { total: number; success: number; reviewScores: number[] }>();
     for (const c of completed) {
-      const key = c.classified;
-      if (!byTier.has(key)) byTier.set(key, { total: 0, success: 0 });
+      const key = `${c.classified}|${c.taskCategory || 'any'}`;
+      if (!byTier.has(key)) byTier.set(key, { total: 0, success: 0, reviewScores: [] });
       const entry = byTier.get(key)!;
       entry.total++;
-      if (c.outcome === 'success') entry.success++;
+      if (c.outcome === 'success') { entry.success++; }
+      if (c.reviewScore) { entry.reviewScores.push(c.reviewScore); }
     }
 
-    // 发现误分类：standard 失败率 > 50% → 应该用 premium
-    const standard = byTier.get('standard');
-    if (standard && standard.total >= 3) {
-      const failRate = 1 - standard.success / standard.total;
-      if (failRate > 0.5) {
+    for (const [key, stats] of byTier) {
+      const [tier, category] = key.split('|');
+      if (stats.total < 3) continue;
+
+      const successRate = stats.success / stats.total;
+      const avgReview = stats.reviewScores.length > 0
+        ? stats.reviewScores.reduce((a, b) => a + b, 0) / stats.reviewScores.length
+        : null;
+
+      // 升级：standard/fast 成功率过低
+      if (tier !== 'premium' && successRate < 0.5) {
         suggestions.push({
-          type: 'routing.standard_misclassified',
-          message: `standard tier failure rate ${Math.round(failRate * 100)}% (${standard.total} tasks)`,
-          evidence: completed.filter(c => c.classified === 'standard' && c.outcome === 'failure')
-            .map(c => `${c.taskType} (AC=${c.acCount}, files=${c.fileCount})`).join(', '),
+          type: 'routing.upgrade',
+          message: `${tier}/"${category}" failure rate ${Math.round((1 - successRate) * 100)}% → try premium`,
+          evidence: `${stats.total} tasks, ${stats.success} success, avg review ${avgReview ?? 'N/A'}`,
+        });
+      }
+
+      // 降级 (Phase 1): premium 成功率 100% + review ≥ 80 → 可降级
+      if (tier === 'premium' && successRate >= 1.0 && avgReview && avgReview >= 80) {
+        suggestions.push({
+          type: 'routing.downgrade',
+          message: `premium/"${category}" 100% success (${stats.total} tasks, avg review ${Math.round(avgReview)}) → try standard`,
+          evidence: `ε-greedy: next premium/"${category}" task has ${Math.round(this.EXPLORATION_RATE * 100)}% chance to use standard`,
         });
       }
     }
 
-    // 发现误分类：fast 失败 → 至少应该是 standard
-    const fast = byTier.get('fast');
-    if (fast && fast.total >= 2 && fast.success === 0) {
+    // Phase 2: ε-greedy exploration report
+    if (this.explorationCount > 0) {
+      const exploreRate = this.explorationSuccess / this.explorationCount;
       suggestions.push({
-        type: 'routing.fast_misclassified',
-        message: `fast tier 0% success (${fast.total} tasks) — should use standard or premium`,
-        evidence: completed.filter(c => c.classified === 'fast' && c.outcome === 'failure')
-          .map(c => c.taskType).join(', '),
+        type: 'routing.exploration',
+        message: `ε-greedy: ${this.explorationSuccess}/${this.explorationCount} explorations succeeded (${Math.round(exploreRate * 100)}%)`,
+        evidence: exploreRate > 0.8 ? 'boundary expanding' : 'boundary stable',
       });
     }
 
     return suggestions;
+  }
+
+  /** Phase 3: 推断任务类型 */
+  private inferTaskCategory(prompt: string, input: Record<string, any> | null): string {
+    const combined = `${prompt} ${JSON.stringify(input?.acGroup?.acs || [])}`.toLowerCase();
+    if (/test|测试|vitest|jest|spy|mock/i.test(combined)) return 'test';
+    if (/import|修复.*import|添加.*import|fix.*import/i.test(combined)) return 'import-fix';
+    if (/discord|route|endpoint|api.*route|channel/i.test(combined)) return 'integration';
+    if (/schema|migration|prisma|migrate/i.test(combined)) return 'schema';
+    if (/auth|token|jwt|oauth|password|security/i.test(combined)) return 'auth';
+    if (/config|setup|init|start|docker|deploy/i.test(combined)) return 'config';
+    if (/refactor|重构/i.test(combined)) return 'refactor';
+    return 'general';
+  }
+
+  /** Phase 1: 持久化路由统计到文件 */
+  private persistRoutingStats(): void {
+    try {
+      const file = path.join(process.env.STUDIO_CONFIG_DIR || path.join(os.homedir(), '.studio'), '.harness', 'routing.jsonl');
+      const dir = path.dirname(file);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      const last = this.recentClassifications[this.recentClassifications.length - 1];
+      fs.appendFileSync(file, JSON.stringify(last) + '\n', 'utf-8');
+    } catch {}
+  }
+
+  /** Phase 1: 启动时恢复路由统计 */
+  private restoreRoutingStats(): void {
+    try {
+      const file = path.join(process.env.STUDIO_CONFIG_DIR || path.join(os.homedir(), '.studio'), '.harness', 'routing.jsonl');
+      if (!fs.existsSync(file)) return;
+      const lines = fs.readFileSync(file, 'utf-8').trim().split('\n').slice(-200);
+      for (const line of lines) {
+        try { this.recentClassifications.push(JSON.parse(line)); } catch {}
+      }
+      logger.info('[GoalScheduler] Restored routing stats', { count: this.recentClassifications.length });
+    } catch {}
+  }
+
+  /** Phase 2: ε-greedy — premium 任务以 ε 概率降级到 standard 试探边界 */
+  private maybeExploreDowngrade(tier: string, taskCategory: string): { tier: string; exploring: boolean } {
+    if (tier !== 'premium') return { tier, exploring: false };
+    if (taskCategory === 'auth' || taskCategory === 'schema') return { tier, exploring: false }; // 高风险不试探
+    if (Math.random() > this.EXPLORATION_RATE) return { tier, exploring: false };
+
+    this.explorationCount++;
+    logger.info('[GoalScheduler] ε-greedy: exploring standard for premium task', { taskCategory, explorationCount: this.explorationCount });
+    return { tier: 'standard', exploring: true };
   }
 
   // G5: 动态模型路由 — 根据任务特征自动选择 tier
@@ -475,9 +550,11 @@ export class GoalScheduler {
 
     // G5/Q4: 动态模型路由 — 根据任务特征自动选择 tier（覆盖 plan 中的静态 model）
     const autoTier = this.classifyTaskComplexity(input, prompt);
-    const tier = autoTier; // 信任运行时复杂度评估
+    const taskCategory = this.inferTaskCategory(prompt, input);
 
-    // G5: 记录路由决策（含 outcome 用于进化反馈）
+    // Phase 2: ε-greedy exploration — 10% 概率试探更低 tier
+    const { tier: exploredTier, exploring } = this.maybeExploreDowngrade(autoTier, taskCategory);
+    const tier = exploredTier;
     this.recentClassifications.push({
       time: new Date().toISOString(),
       executionId,
@@ -486,8 +563,11 @@ export class GoalScheduler {
       fileCount: (input?.acGroup?.files || []).length,
       classified: autoTier,
       final: tier,
+      taskCategory,
     });
-    if (this.recentClassifications.length > 50) this.recentClassifications.shift();
+    if (this.recentClassifications.length > 200) this.recentClassifications.shift();
+    // Phase 1: 持久化到文件，重启不丢
+    this.persistRoutingStats();
     const dispatchStart = Date.now();
     logger.info('[GoalScheduler] Dispatching', {
       strategy,
@@ -607,6 +687,15 @@ export class GoalScheduler {
       if (cls) {
         cls.outcome = result.success ? 'success' : 'failure';
         cls.durationMs = dispatchDuration;
+        // Phase 2: track ε-greedy exploration result
+        if (cls.final !== cls.classified) {
+          if (result.success) this.explorationSuccess++;
+          logger.info('[GoalScheduler] ε-greedy result', {
+            classified: cls.classified, used: cls.final,
+            success: result.success, explorationTotal: this.explorationCount,
+            explorationSuccess: this.explorationSuccess,
+          });
+        }
       }
       // G-001: 异步更新用户模型偏好
       preferenceObserver.updateFromRoutingFeedback(this.recentClassifications.map(c => ({
