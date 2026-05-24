@@ -110,6 +110,10 @@ export class MonitorAgent {
     // DailyReflection: 每天 23:50 聚合一次每日洞察
     await this.dailyReflection();
 
+    // ── 自动优化执行 ──
+    await this.applyRoutingOptimizations();
+    await this.applyTokenBudgetGate();
+
     // Log all alerts
     for (const alert of alerts) {
       if (alert.level === 'critical') {
@@ -160,6 +164,7 @@ export class MonitorAgent {
       tool_error_rate: null,
       tool_zero_success: null,
       session_file_size: null,
+      review_quality: null,
     };
 
     for (const alert of alerts) {
@@ -1132,6 +1137,64 @@ export class MonitorAgent {
         logger.info('[MonitorAgent] System anomaly resolved', { type: key, wasSeen: counter.count });
       }
     }
+  }
+
+  // ── 自动优化执行 ──
+
+  /**
+   * 根据路由反馈自动调整 classifyTaskComplexity 的阈值。
+   * 只做降级（降低阈值让更多任务用 flash），不自动升级。
+   * ε-greedy 成功率 > 80% → 该 taskCategory 永久降级。
+   */
+  private async applyRoutingOptimizations(): Promise<void> {
+    try {
+      const { goalScheduler } = await import('../goals/goal-scheduler.js');
+      const suggestions = (goalScheduler as any).analyzeRoutingFeedback?.() || [];
+
+      for (const s of suggestions) {
+        if (s.type === 'routing.downgrade') {
+          // Extract task category from the message: premium/"import-fix" 100% success → try standard
+          const catMatch = s.message.match(/premium\/"(\w+)"/);
+          if (catMatch) {
+            const category = catMatch[1];
+            (goalScheduler as any).addRoutingOverride?.(category, 'standard');
+            logger.info('[MonitorAgent] Auto-optimized routing', { category, action: 'downgrade to standard' });
+          }
+        }
+      }
+      // ε-greedy exploration success → expand boundary
+      if (suggestions.some((s: any) => s.type === 'routing.exploration')) {
+        const expSuggestion = suggestions.find((s: any) => s.type === 'routing.exploration');
+        const match = expSuggestion?.message?.match(/(\d+)\/(\d+).*(\d+)%/);
+        if (match && parseInt(match[1]) >= 3 && parseInt(match[3]) > 80) {
+          // Exploration is working well → keep current boundary (don't revert)
+          logger.info('[MonitorAgent] ε-greedy boundary confirmed', { success: match[1], total: match[2] });
+        }
+      }
+    } catch { /* best-effort */ }
+  }
+
+  /**
+   * Token 预算超标的 goal → 在 GoalScheduler 中标记强制降级。
+   * 后续该 goal 的所有 executor dispatch 强制使用 flash。
+   */
+  private async applyTokenBudgetGate(): Promise<void> {
+    try {
+      const TOKEN_BUDGET_CRIT = 1_000_000;
+      const goals = await prisma.goal.findMany({
+        where: { status: 'executing', updatedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
+        select: { id: true, context: true },
+      });
+      for (const goal of goals) {
+        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+        const tokens = (ctx._cumulativeTokens as number) || 0;
+        if (tokens >= TOKEN_BUDGET_CRIT) {
+          const { goalScheduler } = await import('../goals/goal-scheduler.js');
+          (goalScheduler as any).addTokenGate?.(goal.id);
+          logger.warn('[MonitorAgent] Token budget gate applied', { goalId: goal.id.slice(0, 8), tokens });
+        }
+      }
+    } catch { /* best-effort */ }
   }
 
   // ── DailyReflection: 每日洞察聚合 ──
