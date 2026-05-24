@@ -367,6 +367,12 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       const doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
       if (!doc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
 
+      // Idempotency guard: prevent duplicate Goals from race between autoStartExecution + CLI polling
+      if (doc.goalId || doc.status === 'confirmed') {
+        logger.info('[Channel] start_execution skipped — doc already has goal', { docId, goalId: doc.goalId });
+        return res.json({ success: true, data: { skipped: true, goalId: doc.goalId || 'already_confirmed' } });
+      }
+
       // Find or create default company
       let company = await prisma.company.findFirst();
       if (!company) {
