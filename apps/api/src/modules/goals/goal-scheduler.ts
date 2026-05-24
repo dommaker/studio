@@ -746,6 +746,20 @@ export class GoalScheduler {
           success: true,
           sessionId: executionId,
         }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun failed', { error: String(e) }); });
+        // G30: Record pipeline run event
+        prisma.studioEvent.create({
+          data: {
+            type: 'pipeline_run',
+            source: 'goal-scheduler',
+            payload: JSON.stringify({
+              goalId: goal.id,
+              executionId,
+              success: true,
+              model: tokenUsage.model,
+              durationMs: result.totalDurationMs || dispatchDuration,
+            }),
+          },
+        }).catch((e: any) => { logger.warn('[GoalScheduler] StudioEvent failed', { error: String(e) }); });
         // P2-1: 累计 token 到 goal context (cost tracking)
         try {
           const g = await prisma.goal.findUnique({ where: { id: goal.id }, select: { context: true } });
@@ -787,6 +801,18 @@ export class GoalScheduler {
           error: result.error || 'Agent execution failed',
           sessionId: executionId,
         }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun (failure) failed', { error: String(e) }); });
+        // G30: Record pipeline run event (failure)
+        prisma.studioEvent.create({
+          data: {
+            type: 'pipeline_run',
+            source: 'goal-scheduler',
+            payload: JSON.stringify({
+              executionId,
+              success: false,
+              error: result.error || 'Agent execution failed',
+            }),
+          },
+        }).catch((e: any) => { logger.warn('[GoalScheduler] StudioEvent failed', { error: String(e) }); });
         logger.warn('[GoalScheduler] Agent failed', {
           executionId,
           goalId: goal.id,

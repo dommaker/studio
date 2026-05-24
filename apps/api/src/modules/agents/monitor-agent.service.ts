@@ -110,6 +110,9 @@ export class MonitorAgent {
     // DailyReflection: 每天 23:50 聚合一次每日洞察
     await this.dailyReflection();
 
+    // G31: Data lifecycle TTL — 每天 23:55 清理过期数据
+    await this.dataLifecycle();
+
     // ── 自动优化执行 ──
     await this.applyRoutingOptimizations();
     await this.applyTokenBudgetGate();
@@ -1319,6 +1322,15 @@ export class MonitorAgent {
         }
       } catch (e: any) { logger.warn('[MonitorAgent] DailyReflection channel post failed', { error: String(e) }); }
 
+      // G30: Record daily reflection event
+      prisma.studioEvent.create({
+        data: {
+          type: 'daily_reflection',
+          source: 'monitor',
+          payload: JSON.stringify({ date: today, summaryLength: content.length }),
+        },
+      }).catch((e: any) => { logger.warn('[MonitorAgent] StudioEvent failed', { error: String(e) }); });
+
       // Discord alert (fire-and-forget, channel configured via DISCORD_DAILY_CHANNEL)
       try {
         const channel = process.env.DISCORD_DAILY_CHANNEL || null;
@@ -1331,6 +1343,125 @@ export class MonitorAgent {
       } catch { /* Discord best-effort */ }
     } catch (e: any) {
       logger.warn('[MonitorAgent] DailyReflection failed', { error: String(e) });
+    }
+  }
+
+  // ── G31: Data Lifecycle TTL — 每天 23:55 清理过期数据 ──
+
+  /**
+   * Data lifecycle management: purges old records, reclaims disk space.
+   * Runs once per day at 23:55 (± 5 min), right after dailyReflection.
+   * All operations are best-effort with individual try/catch.
+   */
+  private lastDataLifecycleRun = '';
+
+  private async dataLifecycle(): Promise<void> {
+    try {
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      // Run at ~23:55 (± 5 min), once per day
+      if (!(hour === 23 && minute >= 50 && minute <= 59)) return;
+
+      const today = now.toISOString().split('T')[0];
+      if (this.lastDataLifecycleRun === today) return;
+      this.lastDataLifecycleRun = today;
+
+      logger.info('[MonitorAgent] Data lifecycle TTL cleanup starting', { date: today });
+
+      // 1. Delete ChannelMessage older than 30 days
+      try {
+        const channelCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
+        const deleted = await prisma.channelMessage.deleteMany({
+          where: { createdAt: { lt: channelCutoff } },
+        });
+        logger.info('[MonitorAgent] TTL: ChannelMessage cleaned', { deleted: deleted.count, cutoff: channelCutoff.toISOString() });
+      } catch (e) {
+        logger.warn('[MonitorAgent] TTL: ChannelMessage cleanup failed', { error: String(e) });
+      }
+
+      // 2. Delete GoalExecution older than 90 days
+      try {
+        const execCutoff = new Date(Date.now() - 90 * 24 * 3600_000);
+        const deleted = await prisma.goalExecution.deleteMany({
+          where: { createdAt: { lt: execCutoff } },
+        });
+        logger.info('[MonitorAgent] TTL: GoalExecution cleaned', { deleted: deleted.count, cutoff: execCutoff.toISOString() });
+      } catch (e) {
+        logger.warn('[MonitorAgent] TTL: GoalExecution cleanup failed', { error: String(e) });
+      }
+
+      // 3. Delete PipelineRun older than 90 days
+      try {
+        const pipelineCutoff = new Date(Date.now() - 90 * 24 * 3600_000);
+        const deleted = await prisma.pipelineRun.deleteMany({
+          where: { createdAt: { lt: pipelineCutoff } },
+        });
+        logger.info('[MonitorAgent] TTL: PipelineRun cleaned', { deleted: deleted.count, cutoff: pipelineCutoff.toISOString() });
+      } catch (e) {
+        logger.warn('[MonitorAgent] TTL: PipelineRun cleanup failed', { error: String(e) });
+      }
+
+      // 4. VACUUM to reclaim disk space
+      try {
+        await prisma.$executeRawUnsafe('VACUUM');
+        logger.info('[MonitorAgent] TTL: VACUUM completed');
+      } catch (e) {
+        logger.warn('[MonitorAgent] TTL: VACUUM failed (non-fatal)', { error: String(e) });
+      }
+
+      // 5. Truncate ~/events/studio.jsonl keeping only last 7 days
+      try {
+        const eventsFile = path.join(os.homedir(), 'events', 'studio.jsonl');
+        if (fs.existsSync(eventsFile)) {
+          const raw = fs.readFileSync(eventsFile, 'utf-8');
+          const sevenDaysAgo = Date.now() - 7 * 24 * 3600_000;
+          const keepLines: string[] = [];
+          let removedCount = 0;
+          for (const line of raw.split('\n')) {
+            if (!line.trim()) continue;
+            try {
+              const entry = JSON.parse(line);
+              const ts = entry.timestamp || 0;
+              if (ts >= sevenDaysAgo) {
+                keepLines.push(line);
+              } else {
+                removedCount++;
+              }
+            } catch {
+              // Preserve unparseable lines (safer than dropping them)
+              keepLines.push(line);
+            }
+          }
+          fs.writeFileSync(eventsFile, keepLines.join('\n') + '\n', 'utf-8');
+          logger.info('[MonitorAgent] TTL: studio.jsonl truncated', { kept: keepLines.length, removed: removedCount });
+        }
+      } catch (e) {
+        logger.warn('[MonitorAgent] TTL: studio.jsonl truncation failed', { error: String(e) });
+      }
+
+      // 6. Truncate .analyst/knowledge.md keeping last 50 entries
+      try {
+        const analystDir = process.env.ANALYST_DIR || path.join(process.env.REPO_DIR || path.join(os.homedir(), 'projects'), '.analyst');
+        const knowledgeFile = path.join(analystDir, 'knowledge.md');
+        if (fs.existsSync(knowledgeFile)) {
+          const raw = fs.readFileSync(knowledgeFile, 'utf-8');
+          const sections = raw.split(/(?=^## )/m).filter(Boolean);
+          if (sections.length > 50) {
+            const kept = sections.slice(-50);
+            fs.writeFileSync(knowledgeFile, kept.join(''), 'utf-8');
+            logger.info('[MonitorAgent] TTL: knowledge.md truncated', { original: sections.length, kept: kept.length });
+          } else {
+            logger.info('[MonitorAgent] TTL: knowledge.md under limit, skipped', { sections: sections.length });
+          }
+        }
+      } catch (e) {
+        logger.warn('[MonitorAgent] TTL: knowledge.md truncation failed', { error: String(e) });
+      }
+
+      logger.info('[MonitorAgent] Data lifecycle TTL cleanup completed', { date: today });
+    } catch (e: any) {
+      logger.warn('[MonitorAgent] Data lifecycle TTL failed', { error: String(e) });
     }
   }
 }
