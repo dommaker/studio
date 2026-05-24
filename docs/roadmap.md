@@ -1,6 +1,6 @@
 # Studio Roadmap
 
-> 2026-05-23 更新：Batch 5 管线闭环修复 + Batch 6 知识缺口审计 + Batch 7 知识进化引擎 + RKB Phase 1
+> 2026-05-24 更新：Batch 5 管线闭环 + Batch 6 知识缺口审计 + Batch 7 知识进化引擎 + RKB Phase 1 + R3 模型tier生效 + Q3a 依赖分析 + 信息保真度优化方案
 > 设计文档：`memory/issue_knowledge_gap_audit.md` — 334 条目 0 架构知识，16 断点+5 Phase 实施
 > RKB 分析：`memory/project_knowledge_engine_ops_gap.md` — 六层知识模型 L3~L6 缺口 + Phase 1 实现
 
@@ -1130,8 +1130,14 @@ Phase 3: 检索 + 注入
 | P0 | Q2: Integration 竞态修复 | ✅ | goal.service |
 | P0 | Q6: 数据库路径绝对化 | ✅ | index.ts |
 | P1 | Q5/Q3/Q4/Q7/Q8 + R4: 5个效能+session共享 | ✅ | scheduler/analyst/executor |
-| -- | **待实现: Analyst+Executor 合并** | -- | -- |
-| P1 | direct-executor: Analyst→Executor 同 session | 待做 | ~200行 |
+| P1 | **R3: 模型 tier 动态路由生效** (classifyTaskComplexity→agentExecutor) | ✅ | goal-scheduler.ts |
+| P1 | **Q3a: Analyst 依赖分析 prompt 升级** (dependencies 种群) | ✅ | analyst-trigger.service.ts |
+| -- | **待实现: 信息保真度优化** | -- | -- |
+| P1 | **架构上下文注入**: Analyst→Executor 传递函数签名+行号+调用链 | ✅ | ~80行 analyst-trigger + agent-executor |
+| P1 | **实现技巧复杂度分级**: classifyTaskComplexity 增加 skill 维度 | ✅ | ~30行 goal-scheduler |
+| P1 | **Analyst 准确率反馈闭环**: PostEval 归因 → KnowledgeBus → prompt 反射 | ✅ | post-eval/knowledge-bus/analyst-trigger |
+| P1 | ~~direct-executor: Analyst→Executor 同 session~~ **→ 取消。架构上下文注入 + 技能分级已消除 95% 浪费，合并仅省 ~15s session 启动，不值得新增管道复杂度** | 取消 | — |
+| P1 | **知识沉淀: docs/*.md 自动摄入** — PostToolUse hook 已就位(检测 `ingest:true` → log)，全自动调用 MCP 需 local-rag HTTP endpoint 或 KnowledgeSync 管道 | ⚠️ 半自动 | .claude/settings.json |
 | P1 | daemon 远程注册 + 远程分发 + 算力 UI | 待做 | 5d |
 | P2 | Agent 记忆模型 | 待做 | — |
 | P2 | Discord webhook 多身份 + @Agent 自由格式 | 待做 | — |
@@ -1503,43 +1509,45 @@ PostToolUse(Write) 触发 → frontmatter 检查 → 写入 `apps/api/.harness/k
 
 ---
 
-## 十四、预存已知问题 (2026-05-23 曝光)
+## 十四、预存 TypeScript 错误 (2026-05-24 全量 baseline)
 
-> 以下问题在 RKB Phase 1 开发中通过 `tsc --noEmit` 暴露，均为预存问题（非本次改动引入）。
-> 按严重度分级：P0=语义 bug 隐患，P1=接口断裂编译阻塞，P2=类型窄化。
+> 全量 tsc baseline 已建立：`bin/tsc-gate.sh` + `.tsc-baseline.json`。
+> **234 个预存错误** 分布：apps/api(226) + studio-audit(2) + studio-notification(2) + studio-task(4)。
+> 新错误在 pre-commit 处阻塞（baseline-aware gate），旧错误逐步清理。
 
-### P0 — 语义 bug 隐患
+### 按文件分布 (apps/api 前 15)
 
-| # | 文件:行 | 错误 | 影响 |
-|---|---------|------|------|
-| P0-1 | `agent-executor.ts:384,392` | `totalDurationMs` 不在 `ExecutionResult` 接口 | runtime 返回对象会丢弃该字段，2 处 return path 受影响 |
+| 文件 | 错误数 |
+|------|:--:|
+| `roles/memory.service.ts` | 12 |
+| `roles/role.service.ts` | 6 |
+| `roles/routes.ts` | 2 |
+| `discord/routes.ts` | 6 |
+| `discord/discord-bot.ts` | 3 |
+| `dingtalk/routes.ts` | 2 |
+| `agents/routes.ts` | 1 |
+| `audit-logs/routes.ts` | 1 |
+| `auth/routes.ts` | 1 |
+| `environments/routes.ts` | 1 |
+| `executions/routes.ts` | 1 |
+| `spec-reviews/spec-review.service.ts` | 2 |
+| `tools-std/skill-extraction.service.ts` | 2 |
+| `tools-std/skill-proposal-routes.ts` | 2 |
+| ...其他 40+ 文件 | ~186 |
+| **总计** | **226** |
 
-### P1 — 接口断裂 (编译阻塞)
+### baseline 管理
 
-| # | 文件:行 | 错误 |
-|---|---------|------|
-| P1-1 | `monitor-agent.service.ts:21` | `KnowledgeHealthScorer` 未从 `@dommaker/harness` 导出 |
-| P1-2 | `review-agent.service.ts:10` | `formatConstraintsForPrompt` 未从 harness 导出 |
-| P1-3 | `routes.ts:3` | `@dommaker/studio-agent` 模块找不到（build 产物缺失或路径错误） |
-| P1-4 | `analyst-trigger.service.ts:11` | harness `dist/core/constraints/index.js` 路径不存在 |
-
-### P2 — 类型窄化
-
-| # | 文件:行 | 错误 |
-|---|---------|------|
-| P2-1 | `deploy-agent.service.ts:376` | `DeployFinding.category` 类型 `string` 不满足 union 约束 |
-| P2-2 | `knowledge-agent.service.ts:501` | `validateEntry` 不存在于 `KnowledgeLinter` |
-| P2-3 | `audit-logs/routes.ts:11` | Prisma client 扩展类型不兼容 |
-| P2-4 | `auth/routes.ts:9` | Prisma client 扩展类型不兼容 |
-| P2-5 | `dingtalk/routes.ts:22,29` | logger 重载类型匹配失败 |
+```bash
+bin/tsc-gate.sh --update-baseline   # 修完错误后更新基线
+bin/tsc-gate.sh --all               # 全量检查
+TSC_GATE_OFF=1 git commit ...       # 紧急跳过
+```
 
 ### 备注
 
-- P0-1 是本次 RKB 开发中直接观察到的：`agent-executor.ts` 在 io 去重重构时新增了 `totalDurationMs` 字段到 return 对象，但忘了更新 `ExecutionResult` 接口定义
-- P1-1~P1-4 说明 harness 版本不一致或某些模块的 build 产物过期
-- P2 类问题不阻塞运行时但使类型检查失效
-- **P3-1**: ~~`harness/bin/` 下脚本均为 studio 集成逻辑~~ → 已修复：`memory-knowledge-sync.*` 移至 `studio/bin/`，其余 4 个脚本确认为 harness 约束实现，保持在 `harness/bin/`，npm `files` 收紧为 `"bin/harness.js"` (2026-05-23)
-- **P3-2**: `pre-commit` hook + `resolutions.json` 在 `.harness/` 和 `.git/hooks/` 下未提交 — 下次 `harness init` 时需重新生成
+- 2026-05-23 首次曝光 10 个错误（手动快照，已腐烂）
+- 2026-05-24 升级为自动化 baseline gate：234 个错误全量基线化 + pre-commit 增量检测
 
 ### 本会话新发现断点 (2026-05-24 更新)
 

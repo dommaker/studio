@@ -89,7 +89,7 @@ export async function registerRoutes(): Promise<void> {
     ]);
     const optAuth = optionalAuth();
     app.use('/api/v1', async (req: any, res: any, next: any) => {
-      await new Promise<void>((resolve) => optAuth(req, res, resolve));
+      await new Promise<void>((resolve) => optAuth(req, res, resolve as any));
       const authReq = req as import('./middleware/auth.js').AuthRequest;
       if (PUBLIC_API.has(req.path) || [...PUBLIC_API].some(p => req.path.startsWith(p + '/')) || authReq.user) {
         return next();

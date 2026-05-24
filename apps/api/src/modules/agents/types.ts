@@ -145,7 +145,8 @@ export type MonitorAlertSource =
   | 'heartbeat_loss'
   | 'tool_error_rate'
   | 'tool_zero_success'
-  | 'session_file_size';
+  | 'session_file_size'
+  | 'review_quality';
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';

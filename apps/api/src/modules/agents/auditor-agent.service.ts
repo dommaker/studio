@@ -5,6 +5,9 @@
  * 远期 B4-001：系统级 GC + 模型 tier 成功率矩阵 + 约束效果评估。
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
@@ -155,6 +158,8 @@ export class AuditorAgent {
 
       // 6. 用户模型质量分析
       const modelSuggestions = await this.analyzeUserModel();
+      // 知识电路健康分析
+      const circuitSuggestions = await this.analyzeCircuitHealth();
 
       // 7. 生成审计建议 → 分权限执行
       const suggestions = [
@@ -196,6 +201,15 @@ export class AuditorAgent {
       // 10. Better-Harness: 失败 → eval case 生成
       await this.generateEvalCases(recentExecs);
 
+      // RKB: 对新 error pattern 自动创建 pending Resolution
+      await this.autoCreateResolutions(recentExecs);
+
+      // 开发会话行为趋势 (session:summary → behavioral insights)
+      const sessionTrends = await this.analyzeSessionTrends(yesterday);
+      if (sessionTrends.length > 0) {
+        summary.push('', '### 开发会话行为趋势', ...sessionTrends);
+      }
+
       // Record audit findings to KnowledgeBus
       knowledgeBus.recordPattern({
         source: 'auditor',
@@ -214,6 +228,99 @@ export class AuditorAgent {
 
   // ── Error Classification ──
 
+  /**
+   * 分析开发会话行为趋势 (session:summary → behavioral insights)
+   *
+   * 读取 ~/events/studio.jsonl 中的 session:summary 事件，
+   * 聚合最近 24h 的行为信号，产出入门级洞察。
+   * 不自动进化约束 — 行为约束的执行机制（Claude Code hooks）与代码约束（harness check）不同。
+   */
+  private async analyzeSessionTrends(since: Date): Promise<string[]> {
+    const lines: string[] = [];
+    try {
+      const eventsFile = path.join(os.homedir(), 'events', 'studio.jsonl');
+      if (!fs.existsSync(eventsFile)) return [];
+
+      const raw = fs.readFileSync(eventsFile, 'utf-8');
+      for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+        try {
+          const evt = JSON.parse(line);
+          if (evt.type === 'session:summary' && new Date(evt.timestamp) >= since) {
+            lines.push(line);
+          }
+        } catch {}
+      }
+    } catch { return []; }
+
+    if (lines.length === 0) return [];
+
+    // Aggregate metrics
+    let totalSessions = 0;
+    let deepAnalysisCount = 0;
+    let missingCaptureCount = 0;
+    let sensitiveOpsSessions = 0;
+    let highSensitiveOpsCount = 0;
+    let totalTurnCount = 0;
+    let maxTurnCount = 0;
+
+    for (const line of lines) {
+      try {
+        const evt = JSON.parse(line);
+        totalSessions++;
+        if (evt.deepAnalysis) deepAnalysisCount++;
+        if (evt.deepAnalysis && !evt.knowledgeCaptured) missingCaptureCount++;
+        if (evt.sensitiveOpsCount > 0) sensitiveOpsSessions++;
+        if (evt.sensitiveOpsCount >= 3) highSensitiveOpsCount++;
+        totalTurnCount += (evt.turnCount || 0);
+        if ((evt.turnCount || 0) > maxTurnCount) maxTurnCount = evt.turnCount;
+      } catch {}
+    }
+
+    const insights: string[] = [];
+
+    // Knowledge capture health
+    if (totalSessions > 0) {
+      const captureRate = deepAnalysisCount > 0
+        ? Math.round((1 - missingCaptureCount / deepAnalysisCount) * 100)
+        : 100;
+      insights.push(`- 开发会话: ${totalSessions} 次 | 深度分析: ${deepAnalysisCount} | 知识捕获率: ${captureRate}%`);
+    }
+
+    // Sensitive ops trend
+    if (sensitiveOpsSessions > 0) {
+      const pct = Math.round((sensitiveOpsSessions / Math.max(totalSessions, 1)) * 100);
+      insights.push(`- ⚠️  ${sensitiveOpsSessions}/${totalSessions} 会话有未验证敏感操作 (${pct}%)`);
+
+      if (sensitiveOpsSessions >= 3) {
+        insights.push('  - 📋 建议：review `feedback_verify_before_move.md` 规则是否需要加强');
+      }
+      if (highSensitiveOpsCount >= 2) {
+        insights.push('  - 🔴 多个会话高频触发敏感操作检测，考虑加强 hook 拦截力度');
+      }
+    }
+
+    // Knowledge capture degradation
+    if (deepAnalysisCount >= 3 && missingCaptureCount >= deepAnalysisCount * 0.5) {
+      insights.push(`- ⚠️  知识捕获率 < 50% (${missingCaptureCount}/${deepAnalysisCount} 会话深度分析无产出)`);
+      insights.push('  - 📋 建议：运行 `npx harness sync-docs`，检查 `ingest:true` 标记是否遗漏');
+    }
+
+    // Session length anomaly
+    if (maxTurnCount > 50) {
+      insights.push(`- ⚠️  最长会话 ${maxTurnCount} turns — 考虑运行 cstnew 清理长会话`);
+    }
+
+    if (totalSessions > 0) {
+      const avgTurns = Math.round(totalTurnCount / totalSessions);
+      if (avgTurns > 30) {
+        insights.push(`- 📊 平均会话 ${avgTurns} turns — 偏高，建议拆分大任务为小 session`);
+      }
+    }
+
+    return insights;
+  }
+
   private classifyError(errorMsg: string): string {
     const msg = (typeof errorMsg === 'string' ? errorMsg : String(errorMsg)).toLowerCase();
     if (msg.includes('timeout') || msg.includes('timed out')) return 'timeout';
@@ -226,6 +333,47 @@ export class AuditorAgent {
     if (msg.includes('permission') || msg.includes('denied')) return 'permission';
     if (msg.includes('model') || msg.includes('token') || msg.includes('llm')) return 'llm/model';
     return 'other';
+  }
+
+  /**
+   * RKB: 对未见过的错误 pattern 自动创建 pending Resolution
+   *
+   * 只对 L3/L4 层的运维配置类错误（permission/config/docker/git）自动创建，
+   * 代码类错误（type/lint/test）留给开发者处理。
+   */
+  private async autoCreateResolutions(
+    recentExecs: Array<{ status: string; error: string | null; agentType: string | null }>,
+  ): Promise<void> {
+    const opsErrorClasses = new Set(['permission', 'docker', 'git/worktree', 'port_conflict', 'llm/model']);
+    try {
+      const { resolutionService } = await import('../knowledge/resolution.service.js');
+
+      for (const e of recentExecs) {
+        if (e.status !== 'failed' || !e.error) continue;
+        const errorClass = this.classifyError(e.error);
+        if (!opsErrorClasses.has(errorClass)) continue;
+
+        // Extract key pattern from error message (first 120 chars, trim noise)
+        const pattern = e.error.slice(0, 120).replace(/[\n\r]/g, ' ').trim();
+        if (pattern.length < 10) continue;
+
+        // Check if resolution already exists
+        const { matched } = await resolutionService.matchResolutions({ errorMessage: pattern, errorClass });
+        if (matched) continue; // Already covered
+
+        // Create pending resolution
+        await resolutionService.createResolution({
+          pattern,
+          errorClass,
+          layer: errorClass === 'permission' || errorClass === 'port_conflict' ? 'L4_env_config' : 'L3_tool_behavior',
+          title: `${errorClass}: ${pattern.slice(0, 60)}`,
+          fix: '（待人工补充解法）',
+          tags: [errorClass, 'auto-detected'],
+        });
+      }
+    } catch (err) {
+      logger.warn('[AuditorAgent] autoCreateResolutions failed', { error: String(err) });
+    }
   }
 
   // ── Triage Escalation (Phase 3) ──
@@ -341,6 +489,63 @@ export class AuditorAgent {
       }
     } catch (e: any) {
       logger.warn('[AuditorAgent] User model analysis failed', { error: String(e) });
+    }
+    return suggestions;
+  }
+
+  // ── Knowledge Circuit Health (I2) ──
+
+  /**
+   * 分析知识电路的连通性：
+   * - 读/写比例 → 检测"只写不读"的断点
+   * - 跨 agent 引用率 → 检测知识孤岛
+   * - 总条目数 → 检测冷电路
+   */
+  private async analyzeCircuitHealth(): Promise<Suggestion[]> {
+    const suggestions: Suggestion[] = [];
+    try {
+      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+      const stats = knowledgeBus.getStats();
+      const total = stats.total || 0;
+
+      // Circuit 1: 冷电路 — 知识总线为空
+      if (total === 0) {
+        suggestions.push({
+          type: 'circuit_fix',
+          risk: 'high',
+          agentType: 'auditor',
+          detail: `知识总线为空 — 管线运行多轮仍未沉淀任何知识。建议：① 确认 Auditor 日审已启用；② 检查 KnowledgeBus.recordPattern() 写入链路；③ 排查 harness trace → knowledge 同步`,
+        });
+        return suggestions;
+      }
+
+      // Circuit 2: 总条目低于阈值
+      if (total < 10) {
+        suggestions.push({
+          type: 'circuit_fix',
+          risk: 'high',
+          agentType: 'auditor',
+          detail: `知识总线仅 ${total} 条记录 — 知识积累速度过低。建议：检查 RKB seed 是否已写入、Monitor/Auditor/Triage 的知识写入回路是否正常`,
+        });
+      }
+
+      // Circuit 3: 按类型分布 — 检测断点
+      const byType = Object.entries(stats).filter(([k]) => k !== 'total');
+      const typeSummary = byType.map(([k, v]) => `${k}:${v}`).join(', ');
+
+      // Circuit 4: 无跨 agent 引用 — 知识孤岛
+      if (byType.length <= 1 && total > 0) {
+        suggestions.push({
+          type: 'circuit_fix',
+          risk: 'high',
+          agentType: 'auditor',
+          detail: `知识总线仅有 ${byType.length} 种类型 (${typeSummary}) — 所有知识来自同一个 source，存在知识孤岛风险。跨 agent 知识闭环未形成`,
+        });
+      }
+
+      logger.info('[AuditorAgent] Circuit health analyzed', { total, typeCount: byType.length, types: typeSummary });
+    } catch (e) {
+      logger.warn('[AuditorAgent] Circuit health analysis failed', { error: String(e) });
     }
     return suggestions;
   }

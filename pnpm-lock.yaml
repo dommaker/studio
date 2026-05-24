@@ -7,6 +7,10 @@ settings:
 importers:
 
   .:
+    dependencies:
+      tsx:
+        specifier: ^4.22.3
+        version: 4.22.3
     devDependencies:
       '@dommaker/harness':
         specifier: ^0.12.4

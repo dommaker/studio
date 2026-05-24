@@ -104,6 +104,7 @@ export class MonitorAgent {
     await this.gcStaleWorktrees();
     await this.checkKnowledgeHealth();
     alerts.push(...await this.checkSessionFileHealth());
+    alerts.push(...await this.checkReviewQuality());
 
     // Log all alerts
     for (const alert of alerts) {
@@ -525,6 +526,47 @@ export class MonitorAgent {
   }
 
   /**
+   * I3: Review quality alert — 审查低分但通过的目标
+   *
+   * score < 75 but goal succeeded → 质量门可能漏过了有问题的代码
+   */
+  private async checkReviewQuality(): Promise<MonitorAlert[]> {
+    const REVIEW_QUALITY_THRESHOLD = 75;
+    const alerts: MonitorAlert[] = [];
+    try {
+      const recentGoals = await prisma.goal.findMany({
+        where: {
+          status: 'succeeded',
+          updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
+        },
+        select: { id: true, title: true, context: true },
+        orderBy: { updatedAt: 'desc' },
+        take: 20,
+      });
+
+      for (const goal of recentGoals) {
+        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+        const reviewScore = ctx.reviewScore as number | undefined;
+        const reviewCycle = (ctx.reviewCycle as number) || 1;
+
+        if (reviewScore !== undefined && reviewScore < REVIEW_QUALITY_THRESHOLD) {
+          alerts.push({
+            projectId: goal.id.slice(0, 8),
+            message: `Goal ${goal.id.slice(0, 8)} review score ${reviewScore} < ${REVIEW_QUALITY_THRESHOLD} but approved. ${reviewCycle > 1 ? `(after ${reviewCycle} cycles)` : '(first cycle)'}. Review may be letting sub-par code through.`,
+            source: 'review_quality',
+            level: reviewScore < 50 ? 'critical' : 'warning',
+            relatedTaskIds: [goal.id],
+            timestamp: Date.now(),
+          });
+        }
+      }
+    } catch (e) {
+      logger.warn('[MonitorAgent] Review quality check failed', { error: String(e) });
+    }
+    return alerts;
+  }
+
+  /**
    * 🆕 记录心跳（由 agent.heartbeat 事件调用）+ 文件持久化
    */
   recordHeartbeat(executionId: string): void {
@@ -825,9 +867,11 @@ export class MonitorAgent {
 
       let totalExecutions = 0;
       let efficientCount = 0;
+      let normalCount = 0;
       let slowCount = 0;
       let retryCount = 0;
       let failureCount = 0;
+      let timedCount = 0;   // 有 startedAt+completedAt 的执行数
 
       for (const exec of recent) {
         totalExecutions++;
@@ -838,18 +882,21 @@ export class MonitorAgent {
           retryCount++;
         }
 
-        // Check execution time
+        // Check execution time — three tiers, 5-15min gap filled
         if (exec.startedAt && exec.completedAt) {
+          timedCount++;
           const durationMin = (new Date(exec.completedAt).getTime() - new Date(exec.startedAt).getTime()) / 60000;
           if (durationMin > 15) slowCount++;
-          else if (durationMin <= 5) efficientCount++;
+          else if (durationMin > 5) normalCount++;
+          else efficientCount++;
         }
 
         if (exec.status === 'failed') failureCount++;
       }
 
-      const efficiency = totalExecutions > 0 ? Math.round((efficientCount / totalExecutions) * 100) : 0;
-      const slowRate = totalExecutions > 0 ? Math.round((slowCount / totalExecutions) * 100) : 0;
+      // Efficiency: (efficient + normal) / timed (only executions with timing data)
+      const efficiency = timedCount > 0 ? Math.round(((efficientCount + normalCount) / timedCount) * 100) : 0;
+      const slowRate = timedCount > 0 ? Math.round((slowCount / timedCount) * 100) : 0;
 
       const report = {
         type: 'monitor:trajectory',

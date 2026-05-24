@@ -727,9 +727,27 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       // best-effort, non-blocking
     }
 
-    if (review.approved) {
+    // E1: 代码级兜底 — Claude gave approved 但有 error 级 issue 时强制驳回
+    const blockingErrors = (review.issues || []).filter(
+      (i: any) => i.severity === 'error'
+    );
+    const effectiveApproved = review.approved && blockingErrors.length === 0;
+    if (blockingErrors.length > 0) {
+      logger.warn('[Goal] Review approved but has blocking errors — overriding to rejected', {
+        goalId,
+        errorCount: blockingErrors.length,
+        errors: blockingErrors.map((i: any) => i.message).slice(0, 5),
+      });
+    }
+
+    if (effectiveApproved) {
       // Step 2a: 审查通过 → PR + Project 更新
       logger.info('[Goal] Review approved', { goalId, score: review.score, cycle: reviewCycle + 1 });
+      // Persist review score for Monitor quality tracking
+      await prisma.goal.update({
+        where: { id: goalId },
+        data: { context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } as any },
+      });
       await this.finalizeGoalSucceeded(goalId);
     } else if (reviewCycle + 1 >= 3) {
       // Step 2b: 3 轮耗尽 → 升级人工介入
@@ -784,16 +802,14 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
     if (!goal) return;
 
     const projectId = (goal.context as unknown as Record<string, unknown>)?.projectId as string | undefined;
-    if (!projectId) {
-      logger.info('[Goal] No projectId in goal context, skipping PR/project update', { goalId });
-      return;
-    }
 
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, pmoNumber: true, gitBranch: true, gitRepo: true, status: true, okrId: true },
-    });
-    if (!project) return;
+    // Project record (may be null — PMO features are optional)
+    const project = projectId
+      ? await prisma.project.findUnique({
+          where: { id: projectId },
+          select: { id: true, pmoNumber: true, gitBranch: true, gitRepo: true, status: true, okrId: true },
+        })
+      : null;
 
     // Test gate: 从 worktree 读 .progress.json 验证测试通过
     try {
@@ -818,49 +834,54 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       logger.warn('[Goal] Test gate check failed (non-blocking)', { error: String(e) });
     }
 
-    // PR creation — previously delegated to meetings/task-assignment.service.ts (module deleted)
-    if (project.gitBranch) {
-      logger.info(`[Goal] PR creation skipped (meeting module removed) for project ${project.pmoNumber}`);
-    }
-
-    // 更新 Project 状态为 in_review
-    if (project.status === 'active') {
-      await prisma.project.update({
-        where: { id: projectId },
-        data: { status: 'in_review' },
-      });
-      logger.info(`[Goal] Project ${project.pmoNumber} → in_review`);
-    }
-
-    // 更新 OKR 进度
-    if (project.okrId) {
-      try {
-        const { okrService } = await import('../pmo/okr.service');
-        await okrService.updateProgress(project.okrId);
-      } catch {
-        logger.warn('[Goal] Failed to update OKR progress');
+    // ── PMO 工作流（需要 DB Project 记录，project 不存在时跳过）──
+    if (project) {
+      // PR creation — previously delegated to meetings/task-assignment.service.ts (module deleted)
+      if (project.gitBranch) {
+        logger.info(`[Goal] PR creation skipped (meeting module removed) for project ${project.pmoNumber}`);
       }
+
+      // 更新 Project 状态为 in_review
+      if (project.status === 'active') {
+        await prisma.project.update({
+          where: { id: project.id },
+          data: { status: 'in_review' },
+        });
+        logger.info(`[Goal] Project ${project.pmoNumber} → in_review`);
+      }
+
+      // 更新 OKR 进度
+      if (project.okrId) {
+        try {
+          const { okrService } = await import('../pmo/okr.service');
+          await okrService.updateProgress(project.okrId);
+        } catch {
+          logger.warn('[Goal] Failed to update OKR progress');
+        }
+      }
+    } else {
+      logger.info('[Goal] No project record — skipping PMO updates, proceeding to deploy', { goalId, projectId });
     }
 
-    // Deploy 就绪检查 (non-blocking)
+    // ── Deploy（独立于 PMO，只需要 worktree）──
     try {
       const worktree = await this.findReviewWorktree(goalId);
       if (worktree) {
         const result = await deployAgent.deploy({
-          projectId,
+          projectId: projectId || goalId,
           executionId: goalId,
           worktree,
           environment: 'vps',
           taskDescription: goal.title,
         });
-        logger.info('[Goal] Deploy check completed', {
+        logger.info('[Goal] Deploy completed', {
           goalId,
           success: result.success,
           findings: result.findings.length,
         });
 
         // P0a: Extract knowledge from deploy result (fire-and-forget)
-        knowledgeAgent.extractFromDeploy(result, goalId, projectId).catch(e => {
+        knowledgeAgent.extractFromDeploy(result, goalId, projectId || goalId).catch(e => {
           logger.warn('[Goal] extractFromDeploy failed', { error: String(e) });
         });
       }

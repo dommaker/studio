@@ -314,6 +314,14 @@ export class GoalScheduler {
     const files: string[] = input?.acGroup?.files || [];
     const fileCount = files.length;
 
+    // Layer 4: 实现技巧复杂度 (implementationNotes 关键词 → skill level)
+    const notes = (input?.acGroup?.implementationNotes as string) || '';
+    const notesLower = notes.toLowerCase();
+    const trivialPattern = /^[（(]?\s*(import|添加\s*import|调用|add\s*call|insert|加一行|照抄)/;
+    const complexPattern = /泛型|generic|状态机|state\s*machine|并发|concurrent|迁移|migrate|加密|encrypt|类型体操|type\s*transform/;
+    const isLowSkill = trivialPattern.test(notesLower) || notesLower.length < 30;
+    const isHighSkill = complexPattern.test(notesLower) && notesLower.length > 80;
+
     let tier: string;
     let reason: string;
     if (isHighRiskDomain || acCount >= 4 || fileCount >= 5) {
@@ -323,12 +331,23 @@ export class GoalScheduler {
       if (acCount >= 4) triggers.push(`acCount=${acCount}`);
       if (fileCount >= 5) triggers.push(`fileCount=${fileCount}`);
       reason = triggers.join('; ');
+      // Layer 4 override: 低技能可降级 (highRisk 不可降级)
+      if (!isHighRiskDomain && isLowSkill && acCount <= 6 && fileCount <= 5) {
+        tier = 'standard';
+        reason += ` (downgraded: lowSkill, notes="${notes.slice(0, 60)}")`;
+      }
     } else if (isLowRiskDomain && acCount <= 1 && fileCount <= 2) {
       tier = 'fast';
       reason = `lowRisk keywords:${lowRiskHits.join(',')}, acCount=${acCount}, fileCount=${fileCount}`;
     } else {
       tier = 'standard';
       reason = `default (acCount=${acCount}, fileCount=${fileCount}, highRisk=${isHighRiskDomain}, lowRisk=${isLowRiskDomain})`;
+      // Layer 4 override: 高技能需升级
+      if (isHighSkill) {
+        tier = 'premium';
+        reason += ` (upgraded: highSkill, notes="${notes.slice(0, 60)}")`;
+      }
+      // Layer 4 override: 低技能维持 standard (already correct tier)
     }
 
     logger.info('[GoalScheduler] Complexity classified', { tier, reason, acCount, fileCount });
@@ -475,11 +494,17 @@ export class GoalScheduler {
     } catch { /* best-effort */ }
 
     // P0 follow-up: 注入知识总线上下文（Monitor/Auditor/Triage/KK 的模式和踩坑）
-    // Executor 在决定执行策略前需要知道"之前类似任务踩了什么坑"
     try {
       const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
       const busContext = knowledgeBus.getRecentContext('executor', 5);
       if (busContext) knowledgeContext += '\n' + busContext;
+    } catch { /* best-effort */ }
+
+    // B1: RKB 已知回归 pattern 主动注入（不仅是失败时，执行前就提醒）
+    try {
+      const { resolutionMatcher } = await import('../knowledge/resolution.service.js');
+      const rkbContext = await resolutionMatcher.formatForPrompt();
+      if (rkbContext) knowledgeContext += '\n## 已知回归模式（Resolution Knowledge Base）\n' + rkbContext;
     } catch { /* best-effort */ }
 
     // 提取 sourceChannelId 用于实时进度推送
@@ -519,7 +544,7 @@ export class GoalScheduler {
         id: executionId,
         executionId,
         agentType: 'claude',
-        ...(input?.model ? { model: input.model as string } : {}),
+        model: (input?.model as string) || autoTier,
         prompt,
         onProgress,
         parameters: {
@@ -793,14 +818,23 @@ export class GoalScheduler {
     });
 
     const groupList = execs.map(e => {
+      const input = e.input as Record<string, any> | null;
       const output = e.output as Record<string, any> | null;
       return [
         `### AC 组 ${e.stepIndex + 1}`,
         `  - 执行 ID: ${e.id}`,
+        `  - ACs: ${(input?.acGroup?.acs || []).join('; ') || '未知'}`,
+        `  - AC 范围文件: ${(input?.acGroup?.files || []).join(', ') || '未知'}`,
         `  - 摘要: ${output?.summary || '无'}`,
-        `  - 改动文件: ${(output?.changedFiles || []).join(', ') || '未知'}`,
+        `  - 实际改动文件: ${(output?.changedFiles || []).join(', ') || '未知'}`,
       ].join('\n');
     }).join('\n\n');
+
+    // D1: 收集 AC 范围文件列表，供 diff 审计使用
+    const acScopedFiles = execs.flatMap(e => {
+      const input = e.input as Record<string, any> | null;
+      return (input?.acGroup?.files || []) as string[];
+    });
 
     const constraintSection = formatConstraintsForPrompt('integration');
 
@@ -814,6 +848,19 @@ export class GoalScheduler {
       groupList,
       '',
       '## 验证流程',
+      '',
+      `### 0. AC 范围审计（合并前）`,
+      `以下文件在 AC 中明确定义为修改范围：`,
+      `${acScopedFiles.length > 0 ? acScopedFiles.map(f => `  - ${f}`).join('\n') : '  （无明确文件范围，跳过）'}`,
+      '',
+      '合并所有 task 分支后，运行 diff 审计：',
+      '```bash',
+      'git diff main...HEAD --name-only',
+      '```',
+      '检查：',
+      '- diff 中的每个文件是否在上面的 AC 范围列表中？',
+      '- 如果 diff 中出现未授权的文件 → 标记为"非目标变更"，在 notes 中记录',
+      '- 如果 AC 范围外的文件被修改 → Integration 失败，不要继续 tsc/test',
       '',
       '### 1. 合并所有分支',
       '每个 sub-agent 在一个独立的 git worktree 中工作：',

@@ -35,6 +35,18 @@ export interface GapReport {
   } | null;
 }
 
+/** Analyst 预测准确率 — PostEval 归因分析产出 */
+export interface AnalystAccuracy {
+  docId: string;
+  goalTitle: string;
+  predictedFiles: string[];
+  actualFiles: string[];
+  predictedDeps: string[];
+  actualDeps: string[];
+  acMatchRate: number;
+  missesByType: Record<string, number>;
+}
+
 class PostEvalAgent {
   /**
    * Goal 完成后触发 — 比对 RequirementsDoc AC 和实际 git diff
@@ -76,6 +88,11 @@ class PostEvalAgent {
 
       // 5. 计算完成度
       report.completeness = acs.length > 0 ? report.matchedAcs.length / acs.length : 0;
+
+      // 5a. 归因分析: 对比 Analyst 预测 vs 实际执行
+      await this.attributeAnalystAccuracy(goalId, goal.title, docId).catch(e => {
+        logger.warn('[PostEval] Attribution analysis failed', { goalId, error: String(e) });
+      });
 
       // 6. 推送 gap report 到 Channel
       if (sourceChannelId) {
@@ -283,6 +300,106 @@ class PostEvalAgent {
     } catch { /* best-effort */ }
 
     return lines.join('\n') || 'No changes detected';
+  }
+
+  /**
+   * 归因分析：对比 Analyst 预测的 files/deps vs git diff 实际结果
+   * 产出 AnalystAccuracy → KnowledgeBus → 下次 Analyst 运行时注入
+   */
+  private async attributeAnalystAccuracy(
+    goalId: string,
+    goalTitle: string,
+    docId: string,
+  ): Promise<AnalystAccuracy | null> {
+    try {
+      // 1. 从 GoalExecutions 提取 Analyst 预测的 acGroup 数据
+      const execs = await prisma.goalExecution.findMany({
+        where: { goalId },
+        select: { input: true, id: true },
+      });
+
+      const predictedFiles: string[] = [];
+      const predictedDeps: string[] = [];
+      for (const e of execs) {
+        const input = (typeof e.input === 'string' ? JSON.parse(e.input) : e.input) as Record<string, any>;
+        const acGroup = input?.acGroup as Record<string, any> | undefined;
+        if (acGroup?.files?.length) predictedFiles.push(...acGroup.files.map((f: string) => f.replace(/`/g, '').trim()));
+        if (acGroup?.dependencies?.length) predictedDeps.push(...(acGroup.dependencies as string[]));
+      }
+
+      // 2. 从 git diff 提取实际改动的文件
+      const actualFiles: string[] = [];
+      try {
+        const diffNameOnly = execSync('git diff --name-only HEAD', {
+          encoding: 'utf-8', stdio: 'pipe', timeout: 10_000,
+        }).trim();
+        if (diffNameOnly) {
+          actualFiles.push(...diffNameOnly.split('\n').filter(Boolean).map(f => f.trim()));
+        }
+      } catch {
+        // 不在 git repo 中，使用 worktree diff
+        const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), '.studio', 'worktrees');
+        for (const e of execs) {
+          const wtPath = path.join(worktreesDir, e.id);
+          if (fs.existsSync(wtPath)) {
+            try {
+              const nameOnly = execSync('git diff --name-only HEAD', {
+                cwd: wtPath, encoding: 'utf-8', stdio: 'pipe', timeout: 10_000,
+              }).trim();
+              if (nameOnly) actualFiles.push(...nameOnly.split('\n').filter(Boolean).map(f => f.trim()));
+            } catch { /* worktree may not be a git repo */ }
+          }
+        }
+      }
+
+      // 3. 对比：哪些文件命中了预测
+      const missedFiles = predictedFiles.filter(pf =>
+        !actualFiles.some(af => af.includes(pf) || pf.includes(af)),
+      );
+      const extraFiles = actualFiles.filter(af =>
+        !predictedFiles.some(pf => af.includes(pf) || pf.includes(af)),
+      );
+
+      // 4. 误判类型分类
+      const missesByType: Record<string, number> = {};
+      if (missedFiles.length > 0) missesByType.missingFile = missedFiles.length;
+      if (extraFiles.length > 0) missesByType.extraFile = extraFiles.length;
+      // predictedDeps 在实际中无法直接验证（需要执行日志），暂时记录预测值供分析
+      if (predictedDeps.length === 0 && execs.length > 1) missesByType.missingDep = 1;
+
+      // 5. AC 匹配率（复用 evaluate() 中已计算的 GapReport completeness）
+      // 注: 此时 GapReport 尚未返回，使用文件级近似: 1 - missedFiles/predictedFiles
+      const acMatchRate = predictedFiles.length > 0
+        ? 1 - missedFiles.length / Math.max(predictedFiles.length, 1)
+        : 1;
+
+      const accuracy: AnalystAccuracy = {
+        docId,
+        goalTitle,
+        predictedFiles: [...new Set(predictedFiles)],
+        actualFiles: [...new Set(actualFiles)],
+        predictedDeps: [...new Set(predictedDeps)],
+        actualDeps: [], // 无法从 git diff 直接推断
+        acMatchRate: Math.max(0, Math.min(1, acMatchRate)),
+        missesByType,
+      };
+
+      // 6. 写入 KnowledgeBus（闭环反馈）
+      if (missedFiles.length > 0 || extraFiles.length > 0 || predictedDeps.length === 0) {
+        await knowledgeBus.recordAnalystAccuracy(accuracy);
+        logger.info('[PostEval] Analyst accuracy recorded', {
+          goalId: goalId.slice(0, 16),
+          fileMatchRate: Math.round(accuracy.acMatchRate * 100) + '%',
+          missed: missedFiles.length,
+          extra: extraFiles.length,
+        });
+      }
+
+      return accuracy;
+    } catch (e: any) {
+      logger.warn('[PostEval] Analyst accuracy attribution failed', { error: String(e) });
+      return null;
+    }
   }
 
   /**

@@ -46,8 +46,8 @@ router.get('/', async (_req: Request, res: Response) => {
       ].filter(r => relevantIds.includes(r.id));
 
       result.harnessCheck = {
-        passed: relevantResults.every(r => r.passed),
-        details: relevantResults.map(r => ({ id: r.id, passed: r.passed, message: r.message })),
+        passed: relevantResults.every(r => r.satisfied),
+        details: relevantResults.map(r => ({ id: r.id, passed: r.satisfied, message: r.message })),
       };
     } catch {
       logger.warn('Harness docs freshness check unavailable');
@@ -55,7 +55,7 @@ router.get('/', async (_req: Request, res: Response) => {
 
     res.json(result);
   } catch (error) {
-    logger.error({ error }, 'Docs freshness check failed');
+    logger.error('Docs freshness check failed', { error: String(error) });
     res.status(500).json({ error: 'Freshness check failed' });
   }
 });

@@ -9,6 +9,7 @@
  */
 
 import { modelGateway, logger } from '@dommaker/studio-shared';
+import { sharedStore } from '../knowledge/knowledge-bus.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -292,9 +293,38 @@ export async function validateRequirementsDoc(
     tierRecommendation = 'upgrade-to-premium'; // 隐式依赖/文件缺失 → premium 可修正
   }
 
+  // P0.2: Query KK for historical pitfalls related to the files being modified
+  let kkSuggestions: string[] = [];
+  try {
+    const allFiles = groups.flatMap(g => g.files || []);
+    const allPitfalls = sharedStore.list({ types: ['pitfall'] }).filter(e => e.maturity !== 'archived');
+    for (const pf of allPitfalls) {
+      const pfContent = (pf.content || '').toLowerCase();
+      const pfTitle = (pf.title || '').toLowerCase();
+      // Check if any file path segment appears in the pitfall content/title
+      for (const file of allFiles) {
+        const segments = file.toLowerCase().split(/[\/\\]/);
+        for (const seg of segments) {
+          if (seg.length >= 3 && (pfContent.includes(seg) || pfTitle.includes(seg))) {
+            kkSuggestions.push(`⚠️ 历史陷阱 [${pf.title.slice(0, 100)}]: ${pf.content.slice(0, 150)}`);
+            break;
+          }
+        }
+      }
+    }
+    // Dedup
+    kkSuggestions = [...new Set(kkSuggestions)].slice(0, 3);
+  } catch { /* best-effort */ }
+
   // Build suggestions
   for (const c of [...stage0, ...stage1, ...stage2]) {
     if (!c.passed) suggestions.push(c.message);
+  }
+
+  // Append KK-identified pitfalls as contextual warnings
+  if (kkSuggestions.length > 0) {
+    suggestions.push('\n## 历史教训（知识库匹配）');
+    suggestions.push(...kkSuggestions);
   }
 
   // Add tier recommendation

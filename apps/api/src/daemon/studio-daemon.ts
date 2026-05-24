@@ -23,7 +23,7 @@ class StudioDaemon {
       name: 'analyst',
       worktree: REPO_DIR,
       modelTier: 'premium',
-      timeoutMs: 10 * 60 * 1000, // 10 min
+      timeoutMs: 30 * 60 * 1000, // 30 min
       persistent: true,
     });
 

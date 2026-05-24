@@ -24,6 +24,7 @@ export * from './constants/stage-definitions';
 // 导出 Types 模块
 export * from './types/stance';
 export * from './types/goal-status';
+export * from './types/resolution';
 
 // 导出 Harness 类型（供下游包使用）
 export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';

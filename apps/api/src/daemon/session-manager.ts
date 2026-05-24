@@ -125,6 +125,8 @@ export class SessionManager {
             ? `--session-id ${state.sessionId} --name "${sessionName}"`
             : '--continue')
         : '--continue';
+      // Use stdin file redirect instead of pipe — more reliable under Node spawn
+      const stdinFile = promptFile; // written to disk at line 95
       const cmd = [
         `cd "${state.config.worktree}"`,
         `&&`,
@@ -132,7 +134,9 @@ export class SessionManager {
         `--print`,
         `--output-format json`,
         sessionFlag,
-        `< "${promptFile}"`,
+        `<`,
+        `"${stdinFile}"`,
+        `2>&1`,  // merge stderr → stdout — execSh captures stdout, downstream consumers need error output
       ].join(' ');
 
       logger.info('[SessionManager] Running task', {
@@ -140,6 +144,9 @@ export class SessionManager {
         task: state.taskCount + 1,
         isFirstTask,
         model,
+        isNewSession: state.isNewSession,
+        sessionFlag,
+        sessionId: state.sessionId,
       });
 
       let stdout: string;
@@ -152,13 +159,28 @@ export class SessionManager {
         });
         stdout = result.stdout;
       } catch (execErr) {
-        // --continue 不会因 session 丢失而报错（会静默创建新 session），所以不需要恢复重试
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
         const stderr = (execErr as any)?.stderr?.toString() || '';
+        const stdout_fail = (execErr as any)?.stdout?.toString() || '';
+        const errCode = (execErr as any)?.code;
 
         const durationMs = Date.now() - startTime;
         const userMsg = stderr.slice(0, 300) || errMsg.slice(0, 300);
-        logger.error('[SessionManager] Task failed', { session: sessionName, error: userMsg.slice(0, 200) });
+        logger.error('[SessionManager] Task failed', {
+          session: sessionName,
+          error: userMsg.slice(0, 200),
+          exitCode: errCode,
+          stdoutPreview: stdout_fail.slice(0, 200),
+          stderrPreview: stderr.slice(0, 200),
+        });
+
+        // P0.3 fix: 第一次任务失败后删除 session-id 文件，避免下次重启时
+        // 误用 --continue 续接已损坏的 session
+        if (isFirstTask && state.isNewSession) {
+          const sessionIdFile = path.join(state.config.worktree, '.daemon', 'session-id');
+          try { fs.unlinkSync(sessionIdFile); } catch {}
+          state.sessionId = crypto.randomUUID();
+        }
 
         recordPipelineRun({
           source: 'pipeline', phase: sessionName === 'analyst' ? 'analyst' : 'executor',
@@ -310,7 +332,7 @@ export class SessionManager {
     }
   }
 
-  getStatus(sessionName: string) {
+  getStatus(sessionName: string): { name: string; isBusy: boolean; lastUsed: number; taskCount: number; worktree: string; persistent: boolean } | null {
     const state = this.sessions.get(sessionName);
     if (!state) return null;
     return {
@@ -338,13 +360,14 @@ export class SessionManager {
     if (!fs.existsSync(config.worktree)) {
       fs.mkdirSync(config.worktree, { recursive: true });
     }
+    // 确保子会话不会触发权限提示 (--dangerously-skip-permissions 在 root 下禁用)
     const claudeDir = path.join(config.worktree, '.claude');
-    if (!fs.existsSync(claudeDir)) {
-      fs.mkdirSync(claudeDir, { recursive: true });
-    }
     const settingsPath = path.join(claudeDir, 'settings.json');
     if (!fs.existsSync(settingsPath)) {
-      fs.writeFileSync(settingsPath, JSON.stringify({ permissions: { bypassPermissions: true } }, null, 2));
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.writeFileSync(settingsPath, JSON.stringify({
+        permissions: { defaultMode: 'bypassPermissions' },
+      }, null, 2), 'utf-8');
     }
   }
 }

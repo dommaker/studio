@@ -29,6 +29,14 @@ export default defineWorkspace([
       globalSetup: ['./tests/globalSetup.ts'],
     },
   },
+  // daemon 测试（mocked — 不需要 Claude CLI）
+  {
+    test: {
+      include: ['apps/api/src/daemon/__tests__/**/*.test.ts'],
+      exclude: baseExclude,
+      environment: 'node',
+    },
+  },
   // apps tests/ 目录
   {
     test: {

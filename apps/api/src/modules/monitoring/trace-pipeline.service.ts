@@ -12,6 +12,8 @@ import type {
   TraceCollector,
   TraceAnomaly,
 } from '@dommaker/harness';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface TracePipelineResult {
   goalId: string;
@@ -141,6 +143,21 @@ export class TracePipelineService {
   /**
    * ⑱: 检测同 Goal 内跨并行 Executor 的同类错误模式
    */
+  /**
+   * 写入 trace 事件（best-effort，非阻塞）
+   * 输出到 .harness/trace/reviews.jsonl
+   */
+  writeTrace(type: string, data: Record<string, unknown>): void {
+    try {
+      const traceDir = path.join(process.cwd(), '.harness', 'trace');
+      fs.mkdirSync(traceDir, { recursive: true });
+      const line = JSON.stringify({ type, ...data, _timestamp: new Date().toISOString() }) + '\n';
+      fs.appendFileSync(path.join(traceDir, 'reviews.jsonl'), line);
+    } catch {
+      // best-effort, non-blocking
+    }
+  }
+
   async detectCrossExecutorErrors(goalId: string): Promise<
     Array<{ constraintId: string; executionCount: number; pattern: string }>
   > {

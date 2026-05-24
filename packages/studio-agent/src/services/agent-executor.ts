@@ -284,6 +284,7 @@ export class AgentExecutor {
           sessionFlag,
           `<`,
           `"${promptFile}"`,
+          `2>&1`,
         ].join(' ');
 
         logger.info('[AgentExecutor] Spawning session', {
@@ -542,6 +543,7 @@ export class AgentExecutor {
     const notes: string = acGroup?.implementationNotes || '';
     const patterns: string[] = acGroup?.codePatterns || [];
     const gotchas: string[] = acGroup?.gotchas || [];
+    const archCtx = acGroup?.architectureContext as Record<string, any> | undefined;
 
     const sections = [
       '# 需求',
@@ -551,6 +553,15 @@ export class AgentExecutor {
       '## 你负责的验收标准',
       ...(acs.length > 0 ? acs.map((ac, i) => `${i + 1}. ${ac}`) : ['（从任务描述中推断）']),
       '',
+      // ── 架构上下文（Analyst 已探索，你不需要重新读 CLAUDE.md）──
+      ...(archCtx ? ['## 架构上下文（Analyst 已探索并验证）', '', '**下面的信息已经验证过，先确认仍然有效再使用。不需要自己探索代码库。**', ''] : []),
+      ...(archCtx?.functions?.length ? ['### 关键函数', ...archCtx.functions.map((f: string) => `- ${f}`), ''] : []),
+      ...(archCtx?.callChain ? ['### 调用链', archCtx.callChain, ''] : []),
+      ...(archCtx?.imports?.length ? ['### 需要导入', ...archCtx.imports.map((i: string) => `\`\`\`${i}\`\`\``), ''] : []),
+      ...(archCtx?.typesInScope?.length ? ['### 相关类型', ...archCtx.typesInScope.map((t: string) => `- ${t}`), ''] : []),
+      ...(archCtx?.dangerZones?.length ? ['### ⚠️ 禁区（不要触碰）', ...archCtx.dangerZones.map((d: string) => `- ${d}`), ''] : []),
+      ...(archCtx?.testMock?.length ? ['### 测试 mock 模板', ...archCtx.testMock.map((m: string) => `\`\`\`typescript\n${m}\n\`\`\``), ''] : []),
+      ...(archCtx?.verifiedAt ? [`*以上信息验证于 commit ${archCtx.verifiedAt}*`, ''] : []),
       ...(notes ? ['## 实现指南', notes, ''] : []),
       ...(patterns.length ? ['## 参考模式', ...patterns.map(p => `- ${p}`), ''] : []),
       ...(gotchas.length ? ['## ⚠️ 注意事项', ...gotchas.map(g => `- ${g}`), ''] : []),
@@ -624,11 +635,14 @@ export class AgentExecutor {
     const skillPrompt = skillLoader.formatForPrompt(skills);
 
     if (session === 1 || !progress) {
+      const verifyStep = acGroup?.architectureContext
+        ? '\n⚠️ REQUIREMENTS.md 包含架构上下文（Analyst 已探索的代码位置和签名）。\n第一步必须是验证关键函数签名和行号是否仍然有效，如果已偏移请修正后再实现。\n'
+        : '';
       const base = `${constraintSection}## 你的任务
 ${task.prompt}
 
 
-读 REQUIREMENTS.md 了解你要完成的任务和验收标准。
+读 REQUIREMENTS.md 了解你要完成的任务和验收标准。${verifyStep}
 ${skillPrompt}`;
       return resolutionHint ? `${base}\n\n${resolutionHint}` : base;
     }
