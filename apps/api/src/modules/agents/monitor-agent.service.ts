@@ -1319,12 +1319,15 @@ export class MonitorAgent {
         }
       } catch (e: any) { logger.warn('[MonitorAgent] DailyReflection channel post failed', { error: String(e) }); }
 
-      // Discord alert (fire-and-forget)
+      // Discord alert (fire-and-forget, channel configured via DISCORD_DAILY_CHANNEL)
       try {
-        const { discordNotifier } = await import('../../utils/discord-notifier.js');
-        await discordNotifier.sendChannelMessage('discord-alert', 'DailyReflection', content, {
-          cardType: 'daily_reflection',
-        });
+        const channel = process.env.DISCORD_DAILY_CHANNEL || null;
+        if (channel) {
+          const { discordNotifier } = await import('../../utils/discord-notifier.js');
+          await discordNotifier.sendChannelMessage(channel, 'DailyReflection', content, {
+            cardType: 'daily_reflection',
+          });
+        }
       } catch { /* Discord best-effort */ }
     } catch (e: any) {
       logger.warn('[MonitorAgent] DailyReflection failed', { error: String(e) });
