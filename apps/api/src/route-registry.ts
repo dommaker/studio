@@ -91,6 +91,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Event Stream SSE routes (HZ-028)
   const { default: sseRoutes } = await import('./modules/events/sse.routes.js') as { default: Router };
 
+  // StudioEvent CRUD routes (G30)
+  const { default: eventRoutes } = await import('./modules/events/event.routes.js') as { default: Router };
+
   // Iron Laws routes (ex-runtime-proxy, 2026-05-14)
   const { default: ironLawsRoutes } = await import('./modules/harness/iron-laws.routes.js') as { default: Router };
 
@@ -163,6 +166,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // 运行时
     { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
+    { path: '/api/v1/events', router: eventRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD' },
     { path: '/api/v1/llm', router: llmProxyRoutes, middleware: auth },
     { path: '/api/v1/settings/llm', router: llmConfigRoutes, middleware: auth, comment: '§12.11: 加密 LLM 配置' },
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },

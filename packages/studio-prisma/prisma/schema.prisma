@@ -1237,3 +1237,16 @@ model PipelineRun {
   @@index([source, createdAt])
   @@index([phase])
 }
+
+// ── G30: Unified StudioEvent Table ──
+
+model StudioEvent {
+  id        String   @id @default(cuid())
+  type      String
+  source    String
+  timestamp DateTime @default(now())
+  payload   String
+
+  @@index([type])
+  @@index([timestamp])
+}
