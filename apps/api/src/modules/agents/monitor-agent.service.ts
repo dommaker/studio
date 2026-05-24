@@ -51,6 +51,7 @@ export class MonitorAgent {
   private circuitCheckInterval: NodeJS.Timeout | null = null;
   private lastDecayRun = 0;
   private lastUserModelRun = 0;
+  private lastDailyReflection = '';
 
   start(): void {
     if (this.interval) return;
@@ -106,6 +107,8 @@ export class MonitorAgent {
     alerts.push(...await this.checkSessionFileHealth());
     alerts.push(...await this.checkReviewQuality());
     alerts.push(...await this.checkTokenBudget());
+    // DailyReflection: 每天 23:50 聚合一次每日洞察
+    await this.dailyReflection();
 
     // Log all alerts
     for (const alert of alerts) {
@@ -1128,6 +1131,140 @@ export class MonitorAgent {
         systemHealthCounters.delete(key);
         logger.info('[MonitorAgent] System anomaly resolved', { type: key, wasSeen: counter.count });
       }
+    }
+  }
+
+  // ── DailyReflection: 每日洞察聚合 ──
+
+  /**
+   * 每天 23:50 聚合所有数据源 → 输出每日开发洞察
+   * 数据源: session:summary + pipelineRun + routing.jsonl + git log + KnowledgeBus
+   * 输出: #系统 channel 卡片 + Discord discord-alert 频道
+   */
+  private async dailyReflection(): Promise<void> {
+    try {
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      // Run at ~23:50 (± 5 min), once per day
+      if (!(hour === 23 && minute >= 48 && minute <= 55)) return;
+
+      const today = now.toISOString().split('T')[0];
+      if (this.lastDailyReflection === today) return;
+      this.lastDailyReflection = today;
+
+      const since = new Date(now.getTime() - 24 * 3600_000);
+      const lines: string[] = [
+        `## 📊 每日洞察 — ${today}`,
+        '',
+      ];
+
+      // 1. Session summary
+      try {
+        const eventsFile = path.join(os.homedir(), 'events', 'studio.jsonl');
+        if (fs.existsSync(eventsFile)) {
+          const raw = fs.readFileSync(eventsFile, 'utf-8');
+          const sessions: any[] = [];
+          for (const line of raw.split('\n')) {
+            if (!line.trim()) continue;
+            try {
+              const e = JSON.parse(line);
+              if (e.type === 'session:summary' && new Date(e.timestamp) >= since) sessions.push(e);
+            } catch {}
+          }
+          if (sessions.length > 0) {
+            const totalTurns = sessions.reduce((s: number, e: any) => s + (e.turnCount || 0), 0);
+            const deepCount = sessions.filter((e: any) => e.deepAnalysis).length;
+            const captureRate = deepCount > 0
+              ? Math.round((sessions.filter((e: any) => e.knowledgeCaptured).length / deepCount) * 100)
+              : 0;
+            const tools = [...new Set(sessions.map((e: any) => e.tool || 'unknown'))];
+            const totalMin = sessions.reduce((s: number, e: any) => s + (e.durationMin || 0), 0);
+
+            lines.push('### 会话活动');
+            lines.push(`- 会话: ${sessions.length} 次 | 总 turn: ${totalTurns} | 总时长: ${totalMin}min`);
+            lines.push(`- 工具: ${tools.join(', ')}`);
+            lines.push(`- 深度分析: ${deepCount} | 知识捕获率: ${captureRate}%`);
+            const highTurn = sessions.filter((e: any) => e.turnCount > 30);
+            if (highTurn.length > 0) {
+              lines.push(`- ⚠️ ${highTurn.length} 个会话超过 30 turns — 考虑 cstnew 重置上下文`);
+            }
+          }
+        }
+      } catch { lines.push('### 会话活动\n(数据源不可用)'); }
+
+      // 2. Pipeline runs
+      try {
+        const runs = await prisma.pipelineRun.findMany({
+          where: { createdAt: { gte: since } },
+          select: { phase: true, success: true, inputTokens: true, cacheHitTokens: true, durationMs: true },
+        });
+        if (runs.length > 0) {
+          const goals = runs.filter((r: any) => r.phase === 'full');
+          const totalInput = runs.reduce((s: number, r: any) => s + (r.inputTokens || 0), 0);
+          const totalCache = runs.reduce((s: number, r: any) => s + (r.cacheHitTokens || 0), 0);
+
+          lines.push('', '### 管线执行');
+          lines.push(`- Pipeline runs: ${runs.length} | Goals: ${goals.length}`);
+          lines.push(`- Token: ${(totalInput / 1000).toFixed(0)}K input + ${(totalCache / 1000).toFixed(0)}K cache`);
+
+          const execRuns = runs.filter((r: any) => r.phase === 'executor');
+          const successRate = execRuns.length > 0
+            ? Math.round((execRuns.filter((r: any) => r.success).length / execRuns.length) * 100)
+            : 0;
+          lines.push(`- Executor 成功率: ${successRate}% (${execRuns.filter((r: any) => r.success).length}/${execRuns.length})`);
+        }
+      } catch { /* best-effort */ }
+
+      // 3. Git commits
+      try {
+        const { execSync } = await import('child_process');
+        const repoDir = process.env.REPO_DIR || '/root/projects/studio';
+        const gitLog = execSync(
+          `git log --since="${since.toISOString()}" --oneline --no-merges 2>/dev/null | wc -l`,
+          { cwd: repoDir, timeout: 5000 }
+        ).toString().trim();
+        const fileCount = execSync(
+          `git diff --stat HEAD "@{24 hours ago}" 2>/dev/null | tail -1`,
+          { cwd: repoDir, timeout: 5000 }
+        ).toString().trim();
+
+        if (parseInt(gitLog) > 0) {
+          lines.push('', '### 代码变更');
+          lines.push(`- Commits: ${gitLog} | ${fileCount || 'N/A'}`);
+        }
+      } catch { /* best-effort */ }
+
+      // 4. KnowledgeBus
+      try {
+        const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+        const stats = knowledgeBus.getStats();
+        lines.push('', '### 知识积累');
+        lines.push(`- KnowledgeBus: ${stats.total || 0} 条 (pattern:${stats.pattern || 0} fix:${stats.fix || 0})`);
+      } catch { /* best-effort */ }
+
+      // Post to #系统 channel
+      const content = lines.join('\n');
+      try {
+        const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+        if (sysChannel) {
+          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          await channelMessageService.createAgentMessage(sysChannel.id, 'DailyReflection', content, {
+            meta: { cardType: 'daily_reflection', date: today },
+          });
+          logger.info('[MonitorAgent] DailyReflection posted', { date: today });
+        }
+      } catch (e: any) { logger.warn('[MonitorAgent] DailyReflection channel post failed', { error: String(e) }); }
+
+      // Discord alert (fire-and-forget)
+      try {
+        const { discordNotifier } = await import('../../utils/discord-notifier.js');
+        await discordNotifier.sendChannelMessage('discord-alert', 'DailyReflection', content, {
+          cardType: 'daily_reflection',
+        });
+      } catch { /* Discord best-effort */ }
+    } catch (e: any) {
+      logger.warn('[MonitorAgent] DailyReflection failed', { error: String(e) });
     }
   }
 }
