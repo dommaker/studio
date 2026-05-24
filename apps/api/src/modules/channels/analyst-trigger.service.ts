@@ -322,6 +322,15 @@ class AnalystTriggerService {
       }
     }
 
+    // 1b. Pre-flight: verify API key + Claude availability before spending tokens
+    try {
+      const token = process.env.ANTHROPIC_AUTH_TOKEN;
+      if (!token || token.length < 10) {
+        logger.error('[AnalystTrigger] Pre-flight failed — ANTHROPIC_AUTH_TOKEN missing or invalid');
+        return;
+      }
+    } catch { /* best-effort */ }
+
     // 2. Post "thinking" message
     const thinkingMsg = await channelMessageService.createAgentMessage(
       channelId,
