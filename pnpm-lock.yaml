@@ -13,8 +13,8 @@ importers:
         version: 4.22.3
     devDependencies:
       '@dommaker/harness':
-        specifier: ^0.12.14
-        version: 0.12.14
+        specifier: ^0.12.16
+        version: 0.12.16
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.41
@@ -690,6 +690,11 @@ packages:
 
   '@dommaker/harness@0.12.14':
     resolution: {integrity: sha512-VtSQt3cl/xEfmJA326lwoJcqGL1JpqIYqmQib7jNehAADDrUzy1qv8IRNyyXT0IkLiNK+9zok7oJ7cqcJkOHRw==}
+    engines: {node: '>=18.0.0'}
+    hasBin: true
+
+  '@dommaker/harness@0.12.16':
+    resolution: {integrity: sha512-Qlq9NX1aqkkLf7X4DucPn8b+ruf5tSWIKOV4BfhUWi1S7xSSKvkpi5b4XZC6LqNcgJLPRUEDA2eNj4oyllw23Q==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3929,6 +3934,14 @@ snapshots:
   '@csstools/css-tokenizer@4.0.0': {}
 
   '@dommaker/harness@0.12.14':
+    dependencies:
+      chalk: 4.1.2
+      commander: 12.1.0
+      fast-glob: 3.3.3
+      js-yaml: 4.1.1
+      zod: 3.25.76
+
+  '@dommaker/harness@0.12.16':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0

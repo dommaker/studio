@@ -12,12 +12,12 @@
     },
     {
       "file": "apps/api/src/modules/agents/session-summary-agent.service.ts",
-      "line": 157,
+      "line": 189,
       "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/agents/session-summary-agent.service.ts",
-      "line": 180,
+      "line": 215,
       "code": "TS2322"
     },
     {
@@ -1253,8 +1253,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-25T10:47:54.677Z",
+    "generated": "2026-05-25T13:33:29.391Z",
     "totalErrors": 249,
-    "commit": "7c6e71478fdb6faadbfe285bb38c490c6d12fe30"
+    "commit": "af16d871c1ec8f487bb85650fdbb96e67d93369a"
   }
 }

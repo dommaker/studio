@@ -53,6 +53,9 @@ class SessionSummaryAgent {
 
       // 分类
       const classified = commits.map(c => ({ ...c, type: this.classifyCommit(c.message) }));
+      logger.info('[SessionSummary] Classified commits', {
+        types: classified.reduce((acc, c) => { acc[c.type] = (acc[c.type] || 0) + 1; return acc; }, {} as Record<string, number>),
+      });
 
       // 提取 fix patterns → KnowledgeBus
       patternCount = await this.extractFixPatterns(classified);
@@ -106,24 +109,51 @@ class SessionSummaryAgent {
         `git log ${sinceCommit}..HEAD --format="%H||%s" --name-only`,
         { cwd: REPO_DIR, encoding: 'utf-8', timeout: 10_000, stdio: 'pipe' },
       );
-      return this.parseGitLog(out);
-    } catch {
+      const result = this.parseGitLog(out);
+      if (result.length <= 1 && out.length > 1000) {
+        logger.warn('[SessionSummary] Git log parsing may be incomplete', { outputLen: out.length, parsedCount: result.length, firstLine: out.split('\n')[0]?.slice(0, 80) });
+      }
+      return result;
+    } catch(e) {
+      logger.warn('[SessionSummary] Git log failed', { error: String(e) });
       return [];
     }
   }
 
   private parseGitLog(output: string): CommitInfo[] {
     const commits: CommitInfo[] = [];
-    const blocks = output.split('\n\n');
-    for (const block of blocks) {
-      const lines = block.trim().split('\n');
-      if (lines.length === 0) continue;
-      const [hash, ...msgParts] = lines[0].split('||');
-      const message = msgParts.join('||');
-      const files = lines.slice(1).filter(f => f.trim());
-      if (hash && message) {
-        commits.push({ hash: hash.trim(), message, files, type: 'unknown' });
+    const HASH_RE = /^[0-9a-f]{40}/;
+    let currentHash = '';
+    let currentMsg = '';
+    let currentFiles: string[] = [];
+    let passedSeparator = false; // blank line between hash||msg and file list
+
+    for (const line of output.split('\n')) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        passedSeparator = true; // git inserts blank line after hash||msg
+        continue;
       }
+
+      // New commit: detect 40-char hex hash at start
+      if (HASH_RE.test(trimmed) && trimmed.includes('||')) {
+        if (currentHash) {
+          commits.push({ hash: currentHash, message: currentMsg, files: currentFiles, type: 'unknown' });
+        }
+        const parts = trimmed.split('||');
+        currentHash = parts[0];
+        currentMsg = parts.slice(1).join('||') || '';
+        currentFiles = [];
+        passedSeparator = false;
+        continue;
+      }
+
+      // File line
+      currentFiles.push(trimmed);
+    }
+    // Last commit
+    if (currentHash && currentMsg) {
+      commits.push({ hash: currentHash, message: currentMsg, files: currentFiles, type: 'unknown' });
     }
     return commits;
   }
@@ -149,22 +179,27 @@ class SessionSummaryAgent {
 
       for (const c of commits) {
         if (c.type !== 'fix') continue;
+        logger.info('[SessionSummary] Extracting fix pattern', { commit: c.hash.slice(0, 8), message: c.message.slice(0, 80) });
 
         const gap = this.extractGapFromMessage(c.message);
         const trigger = this.extractTrigger(c.message, c.files);
 
-        await knowledgeBus.recordPattern({
-          source: 'session-summary',
-          type: 'pattern',
-          title: `[Session Fix] ${c.message.slice(0, 120)}`,
-          content: `Commit: ${c.hash.slice(0, 8)}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}\nPattern: ${gap}\nTriggers: ${trigger}`,
-          severity: 'info',
-          timestamp: Date.now(),
-        });
-        count++;
+        try {
+          await knowledgeBus.recordPattern({
+            source: 'session-summary',
+            type: 'pattern',
+            title: `[Session Fix] ${c.message.slice(0, 120)}`,
+            content: `Commit: ${c.hash.slice(0, 8)}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}\nPattern: ${gap}\nTriggers: ${trigger}`,
+            severity: 'info',
+            timestamp: Date.now(),
+          });
+          count++;
+        } catch (e) {
+          logger.warn('[SessionSummary] Failed to record pattern', { commit: c.hash.slice(0, 8), error: String(e) });
+        }
       }
     } catch (e) {
-      logger.warn('[SessionSummary] Pattern extraction failed', { error: String(e) });
+      logger.warn('[SessionSummary] Pattern extraction failed (import phase)', { error: String(e) });
     }
     return count;
   }

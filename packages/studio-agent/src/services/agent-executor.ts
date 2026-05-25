@@ -174,6 +174,16 @@ export class AgentExecutor {
         }
       } catch { logger.warn('[AgentExecutor] Harness/Claude config init failed (non-blocking)', { taskId: task.id, executionId: task.executionId }); }
 
+      // Write shared cache prefix file — identical content across all worktrees so
+      // DeepSeek's prefix cache matches across pipeline agent sessions.
+      try {
+        const prefixPath = path.join(worktree, 'CACHE_PREFIX.md');
+        if (!fsSync.existsSync(prefixPath)) {
+          const shared = this.buildCachePrefix();
+          fsSync.writeFileSync(prefixPath, shared, 'utf-8');
+        }
+      } catch { /* non-blocking */ }
+
       // Step 2.5: 前置硬约束检查 (Iron Laws)
       await beforeAgentExecute({
         operation: 'code_implementation',
@@ -578,6 +588,26 @@ export class AgentExecutor {
     ];
 
     await fs.writeFile(path.join(worktree, 'REQUIREMENTS.md'), sections.join('\n'), 'utf-8');
+  }
+
+  /**
+   * Build shared cache prefix — byte-identical across all worktrees
+   * so DeepSeek's prefix cache matches across pipeline agent sessions.
+   */
+  private buildCachePrefix(): string {
+    const lines = [
+      '<!-- SHARED_CACHE_PREFIX — DO NOT EDIT — identical across all worktrees -->',
+      '',
+      '# Project Context (shared)',
+      '',
+    ];
+    // Read CLAUDE.md content
+    try {
+      const claudeMd = fsSync.readFileSync(path.join(this.config.repoDir, 'CLAUDE.md'), 'utf-8');
+      lines.push(claudeMd);
+    } catch {}
+    lines.push('');
+    return lines.join('\n');
   }
 
   /**

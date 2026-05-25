@@ -69,6 +69,67 @@ export async function recordPipelineRun(entry: MetricEntry): Promise<void> {
   }
 }
 
+/**
+ * 从 worktree 的 .agent.log 读取会话级缓存指标并写入 PipelineRun。
+ * 补充 per-turn 的 parseClaudeUsage —— 这个记录 num_turns 和缓存比。
+ */
+export function recordAgentSessionFromLog(
+  worktree: string,
+  sessionId: string,
+  phase: MetricEntry['phase'],
+  taskName: string,
+): void {
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const logPath = path.join(worktree, '.agent.log');
+    if (!fs.existsSync(logPath)) return;
+
+    const raw = fs.readFileSync(logPath, 'utf-8');
+    const log = JSON.parse(raw);
+    const u = log.usage || {};
+    const mu = log.modelUsage || {};
+    const model = Object.keys(mu)[0] || 'unknown';
+    const m = mu[model] || {};
+
+    const inputTokens = m.inputTokens || u.input_tokens || 0;
+    const cacheHitTokens = m.cacheReadInputTokens || u.cache_read_input_tokens || 0;
+    const turns = log.num_turns || 0;
+    const cost = log.total_cost_usd || 0;
+
+    // 同步写 Prisma（fire-and-forget，不阻塞）
+    prisma.pipelineRun.create({
+      data: {
+        source: 'pipeline',
+        phase,
+        taskName,
+        model,
+        inputTokens,
+        outputTokens: m.outputTokens || u.output_tokens || 0,
+        cacheHitTokens,
+        durationMs: log.duration_ms || 0,
+        success: log.is_error !== true,
+        sessionId,
+        // 复用 diffLines 存 turns（语义复用，避免 schema 变更）
+        diffLines: turns,
+      },
+    }).then(() => {
+      const ratio = inputTokens > 0 ? (cacheHitTokens / inputTokens).toFixed(1) : '0';
+      logger.info('[Metrics] Agent session cache', {
+        sessionId: sessionId.slice(0, 12),
+        phase,
+        model,
+        turns,
+        cacheRatio: `${ratio}x`,
+        costUSD: cost.toFixed(3),
+      });
+    }).catch(e => {
+      logger.warn('[Metrics] Session log record failed', { error: String(e) });
+    });
+  } catch {
+    // non-blocking
+  }
+}
 export async function getComparison(taskName: string): Promise<{
   pipeline?: MetricEntry;
   window?: MetricEntry;
