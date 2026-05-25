@@ -310,6 +310,16 @@ export class SessionManager {
         sessionId: state.sessionId,
       }).catch(e => logger.warn('[SessionManager] Metrics record failed', { error: String(e) }));
 
+      // 从 .agent.log 记录会话级缓存指标（num_turns, cache ratio, cost）
+      import('../daemon/metrics.js').then(({ recordAgentSessionFromLog }) => {
+        recordAgentSessionFromLog(
+          state.config.worktree,
+          state.sessionId,
+          sessionName === 'analyst' ? 'analyst' as const : 'executor' as const,
+          `daemon-${sessionName}-${state.taskCount}`,
+        );
+      }).catch(() => {});
+
       writeTaskLog(buildLog({
         command: cmd.replace(/sk-[a-zA-Z0-9]+/g, 'sk-***'),
         success: true,
