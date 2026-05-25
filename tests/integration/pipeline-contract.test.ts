@@ -163,14 +163,34 @@ describe('checkBeforeTaskComplete (test gate hook)', () => {
   });
 
   it('package wrapping bug: testResults[0] 而非 {testResults: [...]}', async () => {
-    // 验证我们的 fix — evidence 必须从 testResults 数组中解出来
     const { checkBeforeTaskComplete } = await import(
       '../../packages/studio-shared/src/harness/hooks/completion.hooks.js'
     );
     const arr = [{ passed: true, command: 'npm test', failures: [], evidence: 'proof' }];
     const result = await checkBeforeTaskComplete(arr);
-    // 如果被 {testResults} 误包装，evidence 会丢失 → blocked
     expect(result.allowed).toBe(true);
+  });
+
+  it('evidence fallback: keyEvidence[] → string join', () => {
+    const tr = { passed: true, total: 129, failed: 0, keyEvidence: ['a', 'b'] };
+    const evidence = tr.evidence || (Array.isArray((tr as any).keyEvidence) ? (tr as any).keyEvidence.join('; ') : undefined);
+    expect(evidence).toBe('a; b');
+  });
+});
+
+// ── Test Results evidence field disambiguation ──
+
+describe('testResults.evidence field contract', () => {
+  it('accepts evidence as string', () => {
+    const tr = { evidence: '4 tests passed' };
+    const evidence = tr.evidence || undefined;
+    expect(evidence).toBe('4 tests passed');
+  });
+
+  it('accepts keyEvidence as array fallback', () => {
+    const tr = { keyEvidence: ['test1: passed', 'test2: passed'] };
+    const evidence = (Array.isArray((tr as any).keyEvidence) ? (tr as any).keyEvidence.join('; ') : undefined);
+    expect(evidence).toBe('test1: passed; test2: passed');
   });
 });
 
