@@ -32,26 +32,25 @@ class DeployAgent {
     timings.mergeMs = Date.now() - mergeStart;
     if (!mergeResult.success) {
       recordPipelineRun({ source: 'pipeline', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: mergeResult.summary, sessionId: params.executionId }).catch(() => {});
+      await this.cleanupTaskBranches(params); // cleanup: merge failed, nothing to keep
       return mergeResult;
     }
 
-    // 2. Push to origin
+    // 2. Push to origin (non-blocking — cleanup still runs even if push fails)
     const pushStart = Date.now();
     const pushResult = await this.pushToOrigin(params);
     timings.pushMs = Date.now() - pushStart;
-    if (!pushResult.success) {
-      recordPipelineRun({ source: 'pipeline', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: pushResult.summary, sessionId: params.executionId }).catch(() => {});
-      return pushResult;
-    }
 
-    // 3. Environment-specific deployment
+    // 3. Environment-specific deployment (skip if push failed — no reason to deploy what isn't pushed)
     const deployStart = Date.now();
-    const deployResult = params.environment === 'vps'
-      ? await this.deployVps(params)
-      : await this.generateCompanyChecklist(params);
+    const deployResult = pushResult.success
+      ? (params.environment === 'vps'
+        ? await this.deployVps(params)
+        : await this.generateCompanyChecklist(params))
+      : pushResult;
     timings.deployMs = Date.now() - deployStart;
 
-    // 4. Cleanup worktrees + task branches
+    // 4. Cleanup worktrees + task branches (always run, regardless of push/deploy outcome)
     const cleanupStart = Date.now();
     const cleanupCount = await this.cleanupTaskBranches(params);
     timings.cleanupMs = Date.now() - cleanupStart;
