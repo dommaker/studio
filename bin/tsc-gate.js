@@ -162,8 +162,30 @@ if (flag('--check')) {
     process.exit(1);
   }
 
+  // Auto-update baseline when errors were fixed (self-healing)
   if (totalFixed > 0) {
-    console.log(`✅ No new errors (${totalFixed} fixed across checked packages)`);
+    console.log(`♻️  ${totalFixed} errors fixed — auto-updating baseline...`);
+    // Rebuild full baseline
+    const newBaseline = {};
+    for (const pkg of PKGS) {
+      if (!fs.existsSync(`${pkg}/tsconfig.json`)) continue;
+      const out = runTsc(pkg);
+      const errors = parseErrors(out);
+      if (errors.length > 0) newBaseline[pkg] = errors;
+    }
+    let total = 0;
+    for (const v of Object.values(newBaseline)) total += v.length;
+    newBaseline._meta = {
+      generated: new Date().toISOString(),
+      totalErrors: total,
+      commit: execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim(),
+    };
+    fs.writeFileSync(baselineFile, JSON.stringify(newBaseline, null, 2));
+    // Stage the updated baseline for commit
+    try {
+      execSync(`git add "${baselineFile}"`, { stdio: 'pipe' });
+    } catch {}
+    console.log(`✅ Baseline auto-updated: ${total} errors`);
   } else {
     console.log('✅ tsc-gate: no new errors detected');
   }
