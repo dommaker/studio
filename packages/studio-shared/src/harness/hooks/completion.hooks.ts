@@ -13,7 +13,8 @@ export async function checkBeforeTaskComplete(
   config?: { requireEvidence?: boolean },
 ): Promise<{ allowed: boolean; violations: string[] }> {
   const gate = new PassesGate(config);
-  const result = await gate.check({ testResults } as any);
+  // Pass the first test result directly — gate.check() expects {passed, evidence}, not {testResults: [...]}
+  const result = await gate.check(testResults[0] || { passed: false, command: 'unknown' } as any);
   return {
     allowed: result.allowed,
     violations: result.violations?.map((v: any) => v.message) || [],
