@@ -574,6 +574,7 @@ export class AgentExecutor {
       '- 禁止模糊声明完成',
       '- 每完成一个步骤后立即更新 .progress.json',
       '- 全部 AC 测试通过后才设置 .progress.json allComplete: true',
+      '- 将测试证据写入 .progress.json.testResults: { passed, total, failed: 0, command: "npm test", evidence: "<测试输出>" }',
     ];
 
     await fs.writeFile(path.join(worktree, 'REQUIREMENTS.md'), sections.join('\n'), 'utf-8');
