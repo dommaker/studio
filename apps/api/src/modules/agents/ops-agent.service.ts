@@ -205,20 +205,27 @@ export class OpsAgent {
   // Runtime Health
   // ============================================
 
+  private stopped = false;
+
   start(intervalMs: number = 300_000): void {
     if (this.interval) return;
+    this.stopped = false;
     this.interval = setInterval(() => this.healthCheck(), intervalMs);
     logger.info('[OpsAgent] Started', { intervalMs, port: this.port });
   }
 
   stop(): void {
+    this.stopped = true;
     if (this.interval) { clearInterval(this.interval); this.interval = null; }
     logger.info('[OpsAgent] Stopped');
   }
 
   private async healthCheck(): Promise<void> {
+    // Bail out if stop() was called while this check was in-flight (race with graceful shutdown)
+    if (this.stopped) return;
     try {
       const status = await this.getStatus();
+      if (this.stopped) return; // re-check after async gap
       logger.info('[OpsAgent] Health check', status);
 
       // Critical: API not responding → check if daemon is busy before restart
@@ -231,13 +238,14 @@ export class OpsAgent {
           const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean } | null>;
           daemonBusy = (statuses || []).some((s: any) => s?.isBusy);
         } catch {}
+        if (this.stopped) return; // re-check after async gap
         if (daemonBusy) {
           logger.warn('[OpsAgent] Daemon busy — skipping auto-restart to avoid killing running tasks');
         } else {
-          try {
-            execSync('systemctl restart studio-api 2>/dev/null || true', { stdio: 'pipe', timeout: 5000 });
-            logger.info('[OpsAgent] Triggered systemd restart for studio-api');
-          } catch { /* may not be running under systemd */ }
+          // Self-exit instead of spawning `systemctl restart` which creates orphan processes
+          // and cascade loops. Systemd's Restart=always will handle the restart naturally.
+          logger.error('[OpsAgent] API unresponsive and daemon idle — exiting for systemd restart');
+          process.exit(1);
         }
         // Push alert to #系统 Channel
         try {

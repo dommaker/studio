@@ -267,7 +267,9 @@ async function start() {
       try { await stopHealthMonitor(); } catch {}
       try { await taskWorker.stop(); } catch {}
       try { await taskQueue.close(); } catch {}
-      server.close();
+      server.close(() => process.exit(0));
+      // Fallback: force exit if server.close() hangs (lingering connections/handles)
+      setTimeout(() => process.exit(0), 5000).unref();
     };
     process.on('SIGTERM', async () => { logger.info('SIGTERM received'); await shutdown(); });
     process.on('SIGINT', async () => { logger.info('SIGINT received'); await shutdown(); });

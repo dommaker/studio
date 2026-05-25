@@ -36,6 +36,15 @@ export async function beforeAgentDispatch(ctx: ConstraintContext & {
       projectPath: ctx.projectPath,
       hasWorktree: ctx.hasWorktree,
       worktreePath: ctx.worktreePath,
+      hasVerificationEvidence: (ctx as any).hasVerificationEvidence,
+      hasRequirement: (ctx as any).hasRequirement,
+      hasSingleTask: (ctx as any).hasSingleTask,
+      hasRequirementReview: (ctx as any).hasRequirementReview,
+      hasExternalCapabilityVerification: (ctx as any).hasExternalCapabilityVerification,
+      hasTest: (ctx as any).hasTest,
+      hasTwoStageReview: (ctx as any).hasTwoStageReview,
+      hasRootCauseInvestigation: (ctx as any).hasRootCauseInvestigation,
+      hasFailingTest: (ctx as any).hasFailingTest,
     });
   });
 }
