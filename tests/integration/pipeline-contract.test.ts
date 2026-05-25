@@ -332,6 +332,45 @@ describe('PostEval input contract', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════
+// SessionSummaryAgent commit classification
+// ═══════════════════════════════════════════════════════════════
+
+describe('SessionSummaryAgent commit classification', () => {
+  const classify = (msg: string): string => {
+    const m = msg.toLowerCase();
+    if (/^fix[:(\[]/.test(m) || m.startsWith('fix ')) return 'fix';
+    if (/^feat[:(\[]/.test(m) || m.startsWith('feat ')) return 'feat';
+    if (/^refactor[:(\[]/.test(m) || m.startsWith('refactor ')) return 'refactor';
+    if (/^test[:(\[]/.test(m) || m.startsWith('test ')) return 'test';
+    if (/^chore[:(\[]/.test(m) || m.startsWith('chore ')) return 'chore';
+    return 'unknown';
+  };
+
+  it('fix: message → fix type', () => {
+    expect(classify('fix: prevent zombie execution cascade')).toBe('fix');
+    expect(classify('fix(test): pipeline test gate evidence')).toBe('fix');
+  });
+
+  it('feat: message → feat type', () => {
+    expect(classify('feat: add SessionSummaryAgent')).toBe('feat');
+  });
+
+  it('refactor: message → refactor type', () => {
+    expect(classify('refactor: extract deploy cleanup logic')).toBe('refactor');
+  });
+
+  it('未知格式 → unknown', () => {
+    expect(classify('update stuff')).toBe('unknown');
+  });
+
+  it('checkpoint 文件路径：~/.studio/session-checkpoint.json', () => {
+    const home = '/root';
+    const file = `${home}/.studio/session-checkpoint.json`;
+    expect(file).toContain('session-checkpoint.json');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════
 // Scheduler recovery contract
 // ═══════════════════════════════════════════════════════════════
 

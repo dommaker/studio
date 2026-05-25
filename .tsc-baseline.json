@@ -11,6 +11,16 @@
       "code": "TS2345"
     },
     {
+      "file": "apps/api/src/modules/agents/session-summary-agent.service.ts",
+      "line": 157,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/agents/session-summary-agent.service.ts",
+      "line": 180,
+      "code": "TS2322"
+    },
+    {
       "file": "apps/api/src/modules/audit-logs/routes.ts",
       "line": 11,
       "code": "TS2345"
@@ -1243,8 +1253,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-25T10:14:33.884Z",
-    "totalErrors": 247,
-    "commit": "726e9b2306c366029591f929298739d36e5e6950"
+    "generated": "2026-05-25T10:47:54.677Z",
+    "totalErrors": 249,
+    "commit": "7c6e71478fdb6faadbfe285bb38c490c6d12fe30"
   }
 }

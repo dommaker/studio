@@ -91,6 +91,11 @@ async function start() {
       resolutionService.ensureSeedResolutions().catch(err => logger.warn('[RKB] Seed failed', { error: String(err) }));
     });
 
+    // SessionSummary: 提取上次会话以来的知识（非 Goal 维度）
+    import('./modules/agents/session-summary-agent.service.js').then(({ sessionSummaryAgent }) => {
+      setTimeout(() => sessionSummaryAgent.summarize(), 3000); // 等 DB + KB 完全就绪
+    }).catch(err => logger.warn('[SessionSummary] Import failed', { error: String(err) }));
+
     // G-002: 冷启动业务规则扫描（异步，不阻塞启动）
     import('./modules/knowledge/rule-scanner.js').then(({ ruleScanner }) => {
       ruleScanner.fullScan().catch(err => logger.warn('[RuleScanner] Cold start scan failed', { error: String(err) }));
