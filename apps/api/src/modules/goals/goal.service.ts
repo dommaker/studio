@@ -571,7 +571,8 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       select: { id: true, error: true, stepIndex: true },
       orderBy: { stepIndex: 'desc' },
     });
-    const errorMsg = (failedExec?.error as string) || 'Unknown failure';
+    const errorRaw: any = failedExec?.error;
+    const errorMsg = typeof errorRaw === 'object' ? (errorRaw?.message || JSON.stringify(errorRaw)) : (String(errorRaw || 'Unknown failure'));
 
     // Triage: 自动分析失败原因 → 决定重试/升级
     try {
@@ -823,11 +824,12 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
         const progressPath = path.join(worktree, '.progress.json');
         if (fs.existsSync(progressPath)) {
           const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-          const testResults = progress.testResults || { passed: 0, failed: 0, total: 0 };
+          const testResults = progress.testResults || { passed: false, failed: 1, total: 0 };
           const { allowed, violations } = await checkBeforeTaskComplete([{
-            passed: testResults.failed === 0,
-            command: 'npm test',
+            passed: testResults.passed !== false && testResults.failed === 0,
+            command: testResults.command || 'npm test',
             failures: [],
+            evidence: testResults.evidence || undefined,
           }]);
           if (!allowed) {
             logger.warn('[Goal] Test gate blocked finalization', { goalId, violations });

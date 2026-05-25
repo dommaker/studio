@@ -277,27 +277,27 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 602,
+      "line": 603,
       "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 678,
+      "line": 679,
       "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 936,
+      "line": 938,
       "code": "TS2345"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 979,
+      "line": 981,
       "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1083,
+      "line": 1085,
       "code": "TS2353"
     },
     {
@@ -1243,8 +1243,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-25T06:13:54.885Z",
+    "generated": "2026-05-25T07:17:28.749Z",
     "totalErrors": 247,
-    "commit": "bd33fcffe98c7c3fe74d38d694054f78f58ab8e7"
+    "commit": "4de20d7dc2f366a8b972f96c586ce8a03ef6d09c"
   }
 }
