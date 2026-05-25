@@ -825,11 +825,14 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
         if (fs.existsSync(progressPath)) {
           const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
           const testResults = progress.testResults || { passed: false, failed: 1, total: 0 };
+          const evidenceText = testResults.evidence
+            || (Array.isArray(testResults.keyEvidence) ? testResults.keyEvidence.join('; ') : undefined)
+            || undefined;
           const { allowed, violations } = await checkBeforeTaskComplete([{
             passed: testResults.passed !== false && testResults.failed === 0,
             command: testResults.command || 'npm test',
             failures: [],
-            evidence: testResults.evidence || undefined,
+            evidence: evidenceText,
           }]);
           if (!allowed) {
             logger.warn('[Goal] Test gate blocked finalization', { goalId, violations });

@@ -287,17 +287,17 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 938,
+      "line": 941,
       "code": "TS2345"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 981,
+      "line": 984,
       "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1085,
+      "line": 1088,
       "code": "TS2353"
     },
     {
@@ -1243,8 +1243,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-25T07:17:28.749Z",
+    "generated": "2026-05-25T10:14:33.884Z",
     "totalErrors": 247,
-    "commit": "4de20d7dc2f366a8b972f96c586ce8a03ef6d09c"
+    "commit": "726e9b2306c366029591f929298739d36e5e6950"
   }
 }
