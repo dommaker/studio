@@ -412,10 +412,15 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
     executionId: string,
     updates: { status?: string; output?: any; error?: string; input?: any }
   ): Promise<any> {
+    const data: Record<string, any> = { ...updates };
+    // Store error as valid JSON object for Prisma jsonLookup read hook
+    if (updates.error !== undefined) {
+      data.error = JSON.stringify({ message: updates.error, timestamp: Date.now() });
+    }
     const execution = await prisma.goalExecution.update({
       where: { id: executionId },
       data: {
-        ...updates,
+        ...data,
         ...(updates.status === 'running' ? { startedAt: new Date() } : {}),
         ...(updates.status === 'succeeded' || updates.status === 'failed'
           ? { completedAt: new Date() }
@@ -1177,6 +1182,13 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       });
       if (!goal?.companyId) return;
 
+      // Document.create requires projectId FK — find a project for this company
+      const project = await prisma.project.findFirst({
+        where: { companyId: goal.companyId },
+        select: { id: true },
+      });
+      if (!project) return;
+
       const execs = await prisma.goalExecution.findMany({
         where: { goalId },
         select: { id: true, output: true, stepIndex: true, status: true },
@@ -1189,7 +1201,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
 
       await prisma.document.create({
         data: {
-          projectId: goal.projectId || goal.id,
+          projectId: project.id,
           companyId: goal.companyId,
           type: 'execution',
           title: goal.title || `Goal ${goalId.slice(0, 8)}`,

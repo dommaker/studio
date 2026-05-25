@@ -290,13 +290,40 @@ export class OpsAgent {
   }
 
   async getStatus(): Promise<HealthStatus> {
-    // 用 fs 读 /proc 替代 execSync（不阻塞事件循环）
+    // Read /proc directly (no execSync blocking)
     const fs = require('fs');
-    let diskRaw = ['?','?','?'];
-    let memRaw = ['?','?','?'];
+
+    // Disk: use statfs (no shell needed, reads kernel data instantly)
+    let diskUsed = '?', diskAvail = '?', diskUsePct = '?';
+    try {
+      const s = fs.statfsSync('/');
+      const total = s.blocks * s.bsize;
+      const avail = s.bavail * s.bsize;
+      const used = total - avail;
+      diskUsed = String(Math.round(used / (1024 * 1024 * 1024)));
+      diskAvail = String(Math.round(avail / (1024 * 1024 * 1024)));
+      diskUsePct = total > 0 ? String(Math.round((used / total) * 100)) : '?';
+    } catch {}
+
+    // Memory: parse /proc/meminfo line by line
+    let memTotal = '?', memFree = '?', memUsed = '?';
+    try {
+      const meminfo = fs.readFileSync('/proc/meminfo', 'utf-8');
+      const totalMatch = meminfo.match(/^MemTotal:\s+(\d+)/m);
+      const freeMatch = meminfo.match(/^MemAvailable:\s+(\d+)/m);
+      if (totalMatch) {
+        const totalKb = parseInt(totalMatch[1]);
+        memTotal = String(Math.round(totalKb / 1024));
+        if (freeMatch) {
+          const freeKb = parseInt(freeMatch[1]);
+          memFree = String(Math.round(freeKb / 1024));
+          memUsed = String(Math.round((totalKb - freeKb) / 1024));
+        }
+      }
+    } catch {}
+
+    // CPU load
     let cpuRaw = '?';
-    try { diskRaw = fs.readFileSync('/proc/diskstats', 'utf-8').split('\n')[0]?.split(/\s+/) || diskRaw; } catch {}
-    try { memRaw = fs.readFileSync('/proc/meminfo', 'utf-8').split('\n').slice(0,3).join(' ').split(/\s+/) || memRaw; } catch {}
     try { cpuRaw = fs.readFileSync('/proc/loadavg', 'utf-8').trim(); } catch {}
 
     let apiResponding = false;
@@ -309,13 +336,13 @@ export class OpsAgent {
           resolve();
         });
         req.on('error', () => { apiResponding = false; resolve(); });
-        setTimeout(() => { req.destroy(); resolve(); }, 10_000); // 10s timeout (was 3s — too short under Claude load)
+        setTimeout(() => { req.destroy(); resolve(); }, 10_000);
       });
     } catch { apiResponding = false; }
 
     return {
-      disk: { used: diskRaw[2] || '?', avail: diskRaw[3] || '?', usePercent: diskRaw[4] || '?' },
-      memory: { total: memRaw[1] || '?', used: memRaw[2] || '?', free: memRaw[3] || '?' },
+      disk: { used: diskUsed + 'G', avail: diskAvail + 'G', usePercent: diskUsePct + '%' },
+      memory: { total: memTotal + 'M', used: memUsed + 'M', free: memFree + 'M' },
       cpu: { load: cpuRaw },
       apiResponding,
       processes: this.countProcesses(),

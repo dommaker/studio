@@ -101,6 +101,7 @@ export class MonitorAgent {
     await this.evaluateTrajectory();  // G4
     await this.analyzeRoutingEvolution();  // G5 evolution
     await this.autoAbandonStaleBlocked();
+    await this.autoAbandonStaleRunning();
     await this.systemTriageCheck();
     await this.gcStaleWorktrees();
     await this.checkKnowledgeHealth();
@@ -464,6 +465,50 @@ export class MonitorAgent {
 
     if (stale.length > 0) {
       logger.info('[MonitorAgent] Auto-abandoned', { count: stale.length });
+    }
+  }
+
+  // ── Zombie running 自动放弃（2.5h 无活跃 agent session）──
+
+  private async autoAbandonStaleRunning(): Promise<void> {
+    const cutoff = new Date(Date.now() - TIME_CRITICAL_MS);
+
+    const stale = await prisma.goalExecution.findMany({
+      where: { status: 'running', startedAt: { lt: cutoff } },
+      select: { id: true },
+      take: 20,
+    });
+
+    if (stale.length === 0) return;
+
+    // Check if daemon has an active session for any of these executions
+    const activeSessionIds = new Set<string>();
+    try {
+      const { daemon } = await import('../../daemon/studio-daemon.js');
+      const statuses = daemon.getStatus() as Array<{ name: string; sessionId?: string; isBusy: boolean; pid?: number } | null>;
+      for (const s of (statuses || [])) {
+        if (s?.isBusy && s?.sessionId) activeSessionIds.add(s.sessionId);
+      }
+    } catch {}
+
+    const abandoned: string[] = [];
+    for (const exec of stale) {
+      // Don't auto-abandon if daemon still has an active session for this execution
+      if (activeSessionIds.has(exec.id)) continue;
+
+      try {
+        await prisma.goalExecution.update({
+          where: { id: exec.id },
+          data: { status: 'failed', error: `Auto-abandoned after 2.5h running — no active agent session` },
+        });
+        abandoned.push(exec.id);
+      } catch (e) {
+        logger.error('[MonitorAgent] Failed to auto-abandon stale running', { executionId: exec.id, error: String(e) });
+      }
+    }
+
+    if (abandoned.length > 0) {
+      logger.info('[MonitorAgent] Auto-abandoned stale running', { count: abandoned.length, ids: abandoned.map(id => id.slice(0, 8)) });
     }
   }
 
