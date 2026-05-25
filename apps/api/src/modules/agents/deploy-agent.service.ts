@@ -185,20 +185,31 @@ class DeployAgent {
 
   private async pushToOrigin(params: DeployParams): Promise<DeployResult> {
     const repoDir = await this.getRepoDir();
-    try {
-      logger.info('[DeployAgent] Pushing to origin');
-      await execSh('git push origin master', {
-        cwd: repoDir,
-        timeoutMs: 120_000,
-      });
-      return this.okResult(params);
-    } catch (e) {
-      logger.error('[DeployAgent] Push failed', { error: String(e) });
-      return {
-        success: false, type: params.environment, findings: [],
-        summary: `Push failed: ${String(e).slice(0, 200)}`,
-      };
+    const maxRetries = 3;
+    let lastError = '';
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        logger.info(`[DeployAgent] Pushing to origin (attempt ${attempt + 1}/${maxRetries})`);
+        await execSh('git push origin master', {
+          cwd: repoDir,
+          timeoutMs: 120_000,
+        });
+        return this.okResult(params);
+      } catch (e) {
+        lastError = String(e);
+        if (attempt < maxRetries - 1) {
+          const delay = Math.pow(2, attempt) * 10_000;
+          logger.warn(`[DeployAgent] Push failed, retrying in ${delay / 1000}s`, { attempt: attempt + 1, error: lastError.slice(0, 100) });
+          await new Promise(r => setTimeout(r, delay));
+        }
+      }
     }
+    logger.error('[DeployAgent] Push failed after all retries', { retries: maxRetries, error: lastError });
+    return {
+      success: false, type: params.environment, findings: [],
+      summary: `Push failed after ${maxRetries} attempts: ${lastError.slice(0, 200)}`,
+    };
   }
 
   // ── VPS Deploy ─────────────────────────────────────────

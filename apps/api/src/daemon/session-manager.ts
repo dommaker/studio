@@ -105,6 +105,37 @@ export class SessionManager {
     });
   }
 
+  /** Ad-hoc session: 注册一个临时 session，不持久化，用于并发任务。 */
+  registerAdhoc(config: SessionConfig): void {
+    const sessionId = crypto.randomUUID();
+    // Ensure .claude/settings.json with bypassPermissions for root daemon
+    const claudeDir = path.join(config.worktree, '.claude');
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.writeFileSync(settingsPath, JSON.stringify({
+        permissions: { defaultMode: 'bypassPermissions' },
+      }, null, 2), 'utf-8');
+    }
+    this.sessions.set(config.name, {
+      config,
+      sessionId,
+      isBusy: false,
+      lastUsed: 0,
+      taskCount: 0,
+      isNewSession: true,
+    });
+    logger.info('[SessionManager] Registered ad-hoc session', {
+      name: config.name,
+      sessionId: sessionId.slice(0, 8),
+    });
+  }
+
+  /** 从 sessions map 中移除 */
+  unregister(name: string): void {
+    this.sessions.delete(name);
+  }
+
   /** 检查进程是否存活 (kill(pid, 0) = 信号探测，不杀进程) */
   private isProcessAlive(pid: number): boolean {
     try {

@@ -387,7 +387,7 @@ export class GoalScheduler {
     const combined = `${taskDesc} ${acs}`.toLowerCase();
 
     // Layer 1: 关键词（domain risk）
-    const highRiskPattern = /schema|migration|migrate|auth|authentication|security|financial|payment|encrypt|crypto/;
+    const highRiskPattern = /migration|migrate|auth|authentication|security|financial|payment|encrypt|crypto/;
     const lowRiskPattern = /style|typo|rename|format|lint|comment|doc|readme|spelling|refactor.*simple/;
     const isHighRiskDomain = highRiskPattern.test(combined);
     const isLowRiskDomain = lowRiskPattern.test(combined);
@@ -532,6 +532,22 @@ export class GoalScheduler {
       logger.info('[BP-018] Injected runtime constraints', { executionId, count: runtimeConstraints.length });
     }
 
+    // G5/Q4: 动态模型路由 — 必须在 status=running 之前更新 input.model
+    const autoTier = this.classifyTaskComplexity(input, '');
+    const taskCategory = this.inferTaskCategory('', input);
+    const { tier: exploredTier } = this.maybeExploreDowngrade(autoTier, taskCategory);
+    let tier: string = exploredTier;
+    if (this.routingOverrides.has(taskCategory) && tier === 'premium') {
+      tier = this.routingOverrides.get(taskCategory)!;
+    }
+    if (this.tokenGatedGoals.has(goal.id) && tier === 'premium') tier = 'standard';
+
+    // 更新 input 中的 model 字段，确保 task worker 拿到的是动态 tier
+    if (input && tier !== input.model) {
+      input.model = tier;
+      await goalService.updateStepExecution(executionId, { input }).catch(() => {});
+    }
+
     // 标记 step 为 running
     await goalService.updateStepExecution(executionId, { status: 'running' });
 
@@ -560,25 +576,7 @@ export class GoalScheduler {
     const strategy = this.getDispatchStrategy();
     const effectiveConcurrency = strategy === 'conservative' ? 2 : MAX_CONCURRENT;
 
-    // G5/Q4: 动态模型路由 — 根据任务特征自动选择 tier（覆盖 plan 中的静态 model）
-    const autoTier = this.classifyTaskComplexity(input, prompt);
-    const taskCategory = this.inferTaskCategory(prompt, input);
-
-    // Phase 2: ε-greedy exploration — 10% 概率试探更低 tier
-    const { tier: exploredTier, exploring } = this.maybeExploreDowngrade(autoTier, taskCategory);
-    let tier = exploredTier;
-
-    // Monitor 自动优化：per-category 降级（数据驱动 routing evolution）
-    if (this.routingOverrides.has(taskCategory) && tier === 'premium') {
-      tier = this.routingOverrides.get(taskCategory)!;
-      logger.info('[GoalScheduler] Routing override applied', { taskCategory, original: 'premium', override: tier });
-    }
-
-    // Monitor token 预算门控：超预算 goal → 强制 flash
-    if (this.tokenGatedGoals.has(goal.id) && tier === 'premium') {
-      tier = 'standard';
-      logger.info('[GoalScheduler] Token budget gate applied', { goalId: goal.id.slice(0, 8), forcedTier: tier });
-    }
+    // Track classification for routing evolution (tier already computed above)
     this.recentClassifications.push({
       time: new Date().toISOString(),
       executionId,

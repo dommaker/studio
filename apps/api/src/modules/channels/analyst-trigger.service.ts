@@ -13,7 +13,10 @@ import * as path from 'path';
 
 const ANALYST_DIR = process.env.ANALYST_DIR || path.join(process.env.REPO_DIR || process.cwd(), '.analyst');
 const KNOWLEDGE_FILE = path.join(ANALYST_DIR, 'knowledge.md');
-const OUTPUT_FILE = path.join(ANALYST_DIR, 'output.json');
+
+function perInvocationOutputFile(): string {
+  return path.join(ANALYST_DIR, `output-${Date.now()}-${Math.random().toString(36).slice(2, 6)}.json`);
+}
 
 interface RequirementsDocJson {
   title: string;
@@ -123,7 +126,7 @@ function selectRelevantSections(knowledge: string, requirement: string, maxChars
   return result;
 }
 
-async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection = ''): Promise<string> {
+async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection = '', outputFile: string): Promise<string> {
   // Q7: 按段落分割知识，取与需求相关的前 N 段落（而非简单的 tail -8000chars）
   const relevantKnowledge = selectRelevantSections(knowledge, requirement, 6000);
   const knowledgeSection = knowledge
@@ -210,7 +213,7 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '- **gotchas 要用红线格式**：标注"不可删除: X (下游: Y)"、"不可修改: A (消费者: B)"',
     '',
     '## 输出格式',
-    `将 RequirementsDoc JSON 写入 ${OUTPUT_FILE}：`,
+    `将 RequirementsDoc JSON 写入 ${outputFile}：`,
     '```json',
     '{',
     '  "title": "需求标题",',
@@ -263,12 +266,16 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
   ].join('\n');
 }
 
-async function runClaudeCode(prompt: string): Promise<{ doc: RequirementsDocJson; usage?: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
+async function runClaudeCode(prompt: string, outputFile: string): Promise<{ doc: RequirementsDocJson; usage?: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
   ensureWorktree();
 
-  const result = await daemon.submitJob('analyst', {
+  // Use ad-hoc session for concurrent @Analyst support
+  const result = await daemon.submitAdhocJob({
     prompt,
-    outputFile: OUTPUT_FILE,
+    outputFile,
+  }, {
+    worktree: process.env.REPO_DIR || process.cwd(), // needs access to project source, not .analyst/
+    modelTier: 'premium',
   });
 
   if (!result.success) {
@@ -295,8 +302,8 @@ async function runClaudeCode(prompt: string): Promise<{ doc: RequirementsDocJson
   }
 
   // Read the output JSON file (Claude Code writes structured output here)
-  if (fs.existsSync(OUTPUT_FILE)) {
-    const json = fs.readFileSync(OUTPUT_FILE, 'utf-8');
+  if (fs.existsSync(outputFile)) {
+    const json = fs.readFileSync(outputFile, 'utf-8');
     try {
       return { doc: JSON.parse(json), usage };
     } catch {
@@ -419,10 +426,11 @@ class AnalystTriggerService {
       }
 
       const knowledge = [fileKnowledge, dbKnowledge].filter(Boolean).join('\n');
-      const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection);
+      const outputFile = perInvocationOutputFile();
+      const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile);
 
-      // 4. Run Claude Code agent (persistent worktree, tool-enabled)
-      const { doc: response, usage } = await runClaudeCode(prompt);
+      // 4. Run Claude Code agent (ad-hoc session, supports concurrent @Analyst)
+      const { doc: response, usage } = await runClaudeCode(prompt, outputFile);
       const durationMs = Date.now() - startTime;
       clearInterval(progressInterval);
 
