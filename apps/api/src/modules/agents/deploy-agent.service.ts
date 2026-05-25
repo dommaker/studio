@@ -190,7 +190,7 @@ class DeployAgent {
       logger.info('[DeployAgent] Pushing to origin');
       await execSh('git push origin master', {
         cwd: repoDir,
-        timeoutMs: 60_000,
+        timeoutMs: 120_000,
       });
       return this.okResult(params);
     } catch (e) {
