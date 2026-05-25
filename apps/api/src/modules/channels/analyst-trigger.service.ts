@@ -143,7 +143,7 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '',
     '## 分析深度分级（先评估任务复杂度，再决定探索深度）',
     '**Simple**（改 1-2 文件，无新建文件，无 schema 变更）：',
-    '  → 只读目标文件 + 直接调用方，30s 内完成分析。不写 architectureContext，不跑全库探索',
+    '  → 只读目标文件 + 直接调用方，30s 内完成分析。写精简 architectureContext（至少含 functions、dangerZones、imports、verifiedAt）',
     '**Medium**（改 3-5 文件，有新建文件，跨模块）：',
     '  → 读相关模块 + 调用链，2min 内完成。写关键 architectureContext',
     '**Complex**（新模块、auth/migration/schema 变更、架构重构）：',

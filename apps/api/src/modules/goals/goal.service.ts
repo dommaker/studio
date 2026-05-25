@@ -315,7 +315,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
   async createGoalFromChannelDoc(input: {
     title: string;
     summary: string;
-    acGroups: Array<{ id: string; acs: string[]; files: string[]; dependencies: string[]; implementationNotes?: string; codePatterns?: string[]; gotchas?: string[] }>;
+    acGroups: Array<{ id: string; acs: string[]; files: string[]; dependencies: string[]; implementationNotes?: string; codePatterns?: string[]; gotchas?: string[]; architectureContext?: Record<string, any> }>;
     constraints?: string[];
     companyId: string;
     sourceChannelId: string;
