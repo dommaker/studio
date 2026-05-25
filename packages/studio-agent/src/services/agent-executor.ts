@@ -557,7 +557,7 @@ export class AgentExecutor {
       ...(acs.length > 0 ? acs.map((ac, i) => `${i + 1}. ${ac}`) : ['（从任务描述中推断）']),
       '',
       // ── 架构上下文（Analyst 已探索，你不需要重新读 CLAUDE.md）──
-      ...(archCtx ? ['## 架构上下文（Analyst 已探索并验证）', '', '**下面的信息已经验证过，先确认仍然有效再使用。不需要自己探索代码库。**', ''] : []),
+      ...(archCtx ? ['## 架构上下文（Analyst 已探索并验证）', '', '**下面的信息已经过 Analyst 代码探索验证。直接使用，不需要自己重新读文件。** 只在出现矛盾时才验证。', ''] : []),
       ...(archCtx?.functions?.length ? ['### 关键函数', ...archCtx.functions.map((f: string) => `- ${f}`), ''] : []),
       ...(archCtx?.callChain ? ['### 调用链', archCtx.callChain, ''] : []),
       ...(archCtx?.imports?.length ? ['### 需要导入', ...archCtx.imports.map((i: string) => `\`\`\`${i}\`\`\``), ''] : []),
