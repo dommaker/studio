@@ -1251,12 +1251,12 @@ export class GoalScheduler {
   private async abandonOrphanedRunning(): Promise<void> {
     try {
       const orphaned = await prisma.goalExecution.findMany({
-        where: { status: 'running' },
+        where: { status: { in: ['running', 'pending'] } },
         select: { id: true },
       });
       if (orphaned.length === 0) return;
 
-      logger.info('[GoalScheduler] Abandoning orphaned running executions after restart', { count: orphaned.length });
+      logger.info('[GoalScheduler] Abandoning orphaned executions after restart', { count: orphaned.length });
       for (const exec of orphaned) {
         try {
           await goalService.updateStepExecution(exec.id, {
