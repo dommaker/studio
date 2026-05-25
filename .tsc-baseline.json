@@ -2,7 +2,7 @@
   "apps/api": [
     {
       "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 1326,
+      "line": 1371,
       "code": "TS2339"
     },
     {
@@ -272,38 +272,33 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 474,
+      "line": 479,
       "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 597,
+      "line": 602,
       "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 673,
+      "line": 678,
       "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 931,
+      "line": 936,
       "code": "TS2345"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 974,
+      "line": 979,
       "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1078,
+      "line": 1083,
       "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1192,
-      "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/harness/routes.ts",
@@ -1248,8 +1243,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-25T04:27:58.232Z",
-    "totalErrors": 248,
-    "commit": "60c3916908e79f831b6f728d70a8d6961f68a22e"
+    "generated": "2026-05-25T06:13:54.885Z",
+    "totalErrors": 247,
+    "commit": "bd33fcffe98c7c3fe74d38d694054f78f58ab8e7"
   }
 }
