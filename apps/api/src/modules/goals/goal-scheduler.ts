@@ -68,9 +68,9 @@ export class GoalScheduler {
     // Phase 1: 恢复路由统计数据
     this.restoreRoutingStats();
 
-    // Step 6: 服务重启恢复
-    this.recoverStaleExecutions().catch(e => {
-      logger.error('[GoalScheduler] Recovery failed', { error: String(e) });
+    // Step 6: 服务重启时放弃所有孤儿 running 执行（无活跃 session）
+    this.abandonOrphanedRunning().catch(e => {
+      logger.error('[GoalScheduler] Abandon orphaned failed', { error: String(e) });
     });
 
     // 🆕 BP-018: 订阅运行时约束
@@ -1246,6 +1246,31 @@ export class GoalScheduler {
   // ========================================
   // Step 6: 服务重启恢复
   // ========================================
+
+  /** 服务重启：放弃所有孤儿 running 执行（daemon 重启后无活跃 Claude session） */
+  private async abandonOrphanedRunning(): Promise<void> {
+    try {
+      const orphaned = await prisma.goalExecution.findMany({
+        where: { status: 'running' },
+        select: { id: true },
+      });
+      if (orphaned.length === 0) return;
+
+      logger.info('[GoalScheduler] Abandoning orphaned running executions after restart', { count: orphaned.length });
+      for (const exec of orphaned) {
+        try {
+          await goalService.updateStepExecution(exec.id, {
+            status: 'failed',
+            error: 'Daemon restarted — active Claude session lost',
+          });
+        } catch (e) {
+          logger.error('[GoalScheduler] Failed to abandon orphaned', { executionId: exec.id, error: String(e) });
+        }
+      }
+    } catch (e) {
+      logger.error('[GoalScheduler] Error in abandonOrphanedRunning', { error: String(e) });
+    }
+  }
 
   private async recoverStaleExecutions(): Promise<void> {
     try {

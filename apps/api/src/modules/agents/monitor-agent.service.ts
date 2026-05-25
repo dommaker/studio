@@ -94,6 +94,7 @@ export class MonitorAgent {
     alerts.push(...await this.checkStuckGoals());
     alerts.push(...await this.checkProgressStagnation());
     alerts.push(...await this.checkSessionEscalation());
+    await this.autoAbandonStaleRunning(); // 先清理僵尸，再检查执行时间告警
     alerts.push(...await this.checkTotalExecutionTime());
     alerts.push(...await this.checkHeartbeatLoss());
     alerts.push(...await this.checkPipelineLatency());
@@ -101,7 +102,6 @@ export class MonitorAgent {
     await this.evaluateTrajectory();  // G4
     await this.analyzeRoutingEvolution();  // G5 evolution
     await this.autoAbandonStaleBlocked();
-    await this.autoAbandonStaleRunning();
     await this.systemTriageCheck();
     await this.gcStaleWorktrees();
     await this.checkKnowledgeHealth();
