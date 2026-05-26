@@ -318,13 +318,27 @@ export class SessionManager {
       } else {
         output = text || stdout;
       }
+      // Extract turns from .agent.log for logging
+      let numTurns = 0;
+      let sessionCost = 0;
+      try {
+        const agentLogPath = path.join(state.config.worktree, '.agent.log');
+        if (fs.existsSync(agentLogPath)) {
+          const agentLog = JSON.parse(fs.readFileSync(agentLogPath, 'utf-8'));
+          numTurns = agentLog.num_turns || 0;
+          sessionCost = agentLog.total_cost_usd || 0;
+        }
+      } catch {}
+
       logger.info('[SessionManager] Task completed', {
         session: sessionName,
         task: state.taskCount,
         durationMs,
+        turns: numTurns,
         outputLen: output?.length || 0,
         inputTokens: usage.inputTokens,
         cacheHitTokens: usage.cacheHitTokens,
+        costUSD: Math.round(sessionCost * 1000) / 1000,
       });
 
       // B1-016: 记录管线指标
