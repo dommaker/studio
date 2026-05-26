@@ -156,7 +156,7 @@ export class AgentExecutor {
       // 优先使用任务指定的 project repo，否则回退到 agent-studio 自身仓库
       const projectRepo = (task.parameters?.repoDir as string) || this.config.repoDir;
       const baseBranch = (task.parameters?.baseBranch as string) || 'main';
-      await this.createWorktree(worktree, baseBranch, projectRepo);
+      await this.createWorktree(worktree, baseBranch, projectRepo, task);
 
       // Step 2.1: 传播 harness 约束 + Claude 权限配置
       try {
@@ -558,7 +558,7 @@ export class AgentExecutor {
   /**
    * 创建 worktree（真 git worktree add）
    */
-  private async createWorktree(worktree: string, baseBranch: string, repoDir: string): Promise<void> {
+  private async createWorktree(worktree: string, baseBranch: string, repoDir: string, task?: AgentTask): Promise<void> {
     // 清理已存在的目录
     try {
       await execSh(`git worktree remove --force "${worktree}" 2>/dev/null || true`, {
@@ -575,8 +575,12 @@ export class AgentExecutor {
       logger.warn('[AgentExecutor] Failed to clean worktree dir, continuing', { error: String(e) });
     }
 
-    // 创建 git worktree
-    const branchName = `task/${path.basename(worktree)}`.substring(0, 50);
+    // 创建 git worktree（A3: 使用 PMO number 命名分支）
+    const pmoNumber = (task?.parameters?.pmoNumber as string) || '';
+    const branchSuffix = pmoNumber
+      ? `${pmoNumber}-${path.basename(worktree).slice(0, 30)}`
+      : path.basename(worktree).substring(0, 50);
+    const branchName = `task/${branchSuffix}`;
     try {
       await execSh(
         `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
@@ -698,6 +702,7 @@ export class AgentExecutor {
     stuckCount = 0,
     knowledgeContext?: string,
     resolutionHint?: string,
+    role: 'analyst' | 'executor' | 'reviewer' | 'integration' | 'deploy' = 'executor',
   ): string {
     // 约束注入
     const constraintPrompt = buildAgentConstraintPrompt({
@@ -722,6 +727,16 @@ export class AgentExecutor {
       ? (constraintPrompt + roleConstraintSection + knowledgeSection + '\n---\n\n')
       : '';
 
+    // O2f/O2g: Output style compression per Agent role
+    const OUTPUT_STYLE_MAP: Record<string, string> = {
+      analyst: 'Output style: Be concise. Drop filler words (just, really, basically). No sycophantic openers or closing fluff. Keep complete sentences. Technical terms exact.',
+      executor: 'Output style: Terse like caveman. Drop articles (a/an/the), filler words, pleasantries, hedging. Fragments OK. Short synonyms. Code blocks unchanged. Technical substance exact.',
+      reviewer: 'Output style: Terse like caveman. Drop articles (a/an/the), filler words, pleasantries, hedging. Fragments OK. Short synonyms. Code blocks unchanged. Technical substance exact.',
+      integration: 'Output style: Ultra-terse. Maximum compression. Telegraphic style. Drop all non-essential words. Code output only — no explanation unless error.',
+      deploy: 'Output style: Be concise. Drop filler words. No fluff. Keep complete sentences. Technical terms exact.',
+    };
+    const outputStyleSection = `## 输出风格\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
+
     // Skill 注入：按 trigger + agentType 加载
     const skillTier = (task.model as SkillTier) || 'standard';
     const skills = session === 1
@@ -733,7 +748,7 @@ export class AgentExecutor {
       const verifyStep = acGroup?.architectureContext
         ? '\n⚠️ REQUIREMENTS.md 包含架构上下文（Analyst 已探索的代码位置和签名）。\n第一步必须是验证关键函数签名和行号是否仍然有效，如果已偏移请修正后再实现。\n'
         : '';
-      const base = `${constraintSection}## 你的任务
+      const base = `${constraintSection}${outputStyleSection}## 你的任务
 ${task.prompt}
 
 
@@ -746,7 +761,7 @@ ${skillPrompt}`;
     const hintLevel = Math.min(stuckCount, 4);
     const strategyHint = STRATEGY_HINTS[hintLevel];
     const parts = [
-      `${constraintSection}## 续接任务`,
+      `${constraintSection}${outputStyleSection}## 续接任务`,
       '',
       '读 REQUIREMENTS.md 了解任务。',
       '读 .progress.json 了解进度。',

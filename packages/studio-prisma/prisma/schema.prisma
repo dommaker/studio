@@ -604,6 +604,7 @@ model Project {
   progress       Int       @default(0)
   specFilePath   String?   // 🆕 FL-022: Spec 文档路径
   specVersion    Int?      @default(1)  // 🆕 FL-022: Spec 版本号
+  requirementsDocId String?  // A4: bidirectional link to RequirementsDoc
   startedAt      DateTime?
   completedAt    DateTime?
   createdAt      DateTime  @default(now())

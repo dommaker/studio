@@ -16,6 +16,7 @@ export interface CreateProjectInput {
   priority?: string;
   gitBranch?: string;
   gitRepo?: string;
+  requirementsDocId?: string;  // A4: bidirectional link to RequirementsDoc
 }
 
 export interface UpdateProjectInput {
@@ -160,6 +161,7 @@ export const projectService = {
         priority: input.priority || 'normal',
         gitBranch: input.gitBranch,
         gitRepo: input.gitRepo,
+        requirementsDocId: input.requirementsDocId,
         status: 'pending',
         progress: 0,
       },

@@ -7,6 +7,7 @@ import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { goalService } from '../goals/goal.service.js';
 import { KnowledgeStore, KnowledgeIngest } from '@dommaker/harness';
+import { projectService } from '../pmo/project.service.js';
 
 const router = Router();
 
@@ -447,6 +448,36 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         return res.status(500).json({ success: false, error: 'RequirementGate failed' });
       }
 
+      // A6: Check for duplicate PMO project
+      const existingProject = await prisma.project.findFirst({
+        where: {
+          companyId: company.id,
+          title: { contains: doc.title.slice(0, 30) },
+          status: { in: ['pending', 'active', 'in_review'] },
+        },
+      });
+      if (existingProject) {
+        logger.info('[Channel] Duplicate PMO detected', { existingId: existingProject.id, pmoNumber: existingProject.pmoNumber });
+      }
+
+      // A1: Create PMO project before Goal
+      let projectId = doc.projectId;
+      if (!projectId) {
+        const okr = await prisma.oKR.findFirst({ where: { status: 'active' }, orderBy: { createdAt: 'desc' } });
+        const pmoProject = await projectService.create({
+          companyId: company.id,
+          title: doc.title,
+          requirement: doc.content.slice(0, 500),
+          okrId: okr?.id || undefined,
+          priority: risks.length > 0 ? 'high' : 'medium',
+          requirementsDocId: docId,
+        });
+        projectId = pmoProject.id;
+        // Update RequirementsDoc with projectId
+        await prisma.requirementsDoc.update({ where: { id: docId }, data: { projectId } });
+        logger.info('[Channel] PMO project created', { pmoNumber: pmoProject.pmoNumber, projectId });
+      }
+
       // B1-002: Create Goal + GoalPlan(approved) + GoalExecutions(pending) via GoalService
       // This creates the GoalPlan that GoalScheduler.getExecutableSteps() requires
       const result = await goalService.createGoalFromChannelDoc({
@@ -456,7 +487,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         companyId: company.id,
         sourceChannelId: req.params.channelId,
         requirementsDocId: docId,
-        projectId: doc.projectId || undefined,
+        projectId,
         risks,
       });
 
