@@ -12,7 +12,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, eventBus } from '@dommaker/studio-shared';
 import { skillLoader } from '@dommaker/studio-skill';
 import { recordPipelineRun, parseClaudeUsage } from '../../daemon/metrics.js';
 import { agentExecutor } from '@dommaker/studio-agent';
@@ -77,6 +77,13 @@ export class GoalScheduler {
     this.startRuntimeConstraintSub();
 
     this.interval = setInterval(() => this.tick(), POLL_INTERVAL);
+
+    // O1a: Event-driven trigger — immediate tick on new goal creation
+    eventBus.subscribe('goal.created', () => {
+      logger.debug('[GoalScheduler] Goal created event received, triggering immediate tick');
+      this.tick();
+    });
+
     logger.info('[GoalScheduler] Started', { pollInterval: POLL_INTERVAL, maxConcurrent: MAX_CONCURRENT });
   }
 

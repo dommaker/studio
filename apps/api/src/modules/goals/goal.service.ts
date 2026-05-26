@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway, type ModelTier } from '@dommaker/studio-shared';
+import { logger, modelGateway, eventBus, type ModelTier } from '@dommaker/studio-shared';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
 import { beforeGoalCreate, checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { reviewAgent } from '../agents/review-agent.service.js';
@@ -401,6 +401,9 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       requirementsDocId,
       risks,
     });
+
+    // O1a: Notify GoalScheduler of new goal for immediate scheduling
+    eventBus.publish('goal.created', { goalId: goal.id });
 
     return { goalId: goal.id, planId: plan.id, stepCount: steps.length };
   }

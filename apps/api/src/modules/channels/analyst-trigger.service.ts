@@ -136,6 +136,12 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
   const fmtFn = await getFormatConstraintsForPrompt();
   const constraintSection = fmtFn('analyst');
 
+  // Detect if preContext was injected (from CST trigger)
+  const hasPreContext = requirement.includes('[PRE_CONTEXT]');
+  const preContextInstruction = hasPreContext
+    ? `\n## 已有上下文（来自前置讨论）\n以下文件和决策已在前期讨论中确认。请先验证这些文件是否仍然存在且未变更（git log -1 <file>），然后直接基于已有上下文生成 RequirementsDoc。只对未覆盖的路径做补充探索。\n`
+    : '';
+
   return [
     '你是一个需求分析专家，在 Agent Studio 项目中工作。',
     '',
@@ -286,6 +292,7 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '---',
     '',
     '## 用户需求',
+    preContextInstruction,
     requirement,
   ].join('\n');
 }
@@ -471,7 +478,7 @@ class AnalystTriggerService {
           content: this.formatRequirementsDoc(response),
           tags: JSON.stringify(response.tags || []),
           sourceChannelId: channelId,
-          projectId: process.env.REPO_DIR || process.cwd(),
+          projectId: null,
           status: 'draft',
         },
       });
