@@ -18,6 +18,7 @@ import { logger, getModelForTier } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
+import { parseSessionMetrics } from '@dommaker/studio-shared/harness';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
 
 // 配置类型
@@ -88,6 +89,25 @@ const STRATEGY_HINTS: Record<number, string> = {
 /**
  * Agent 执行器（session loop + async spawn）
  */
+// Constraint metadata cache — loaded once at startup via harness CLI
+let _constraintHash = '';
+let _constraintSize = 0;
+async function getConstraintMeta(): Promise<{ hash: string; size: number }> {
+  if (_constraintHash) return { hash: _constraintHash, size: _constraintSize };
+  try {
+    const { execSync } = await import('child_process');
+    const output = execSync('npx harness constraints --json 2>/dev/null || node -e "console.log(JSON.stringify({hash:\\"unknown\\",textSize:{total:0}}))"', {
+      encoding: 'utf-8', timeout: 10_000, stdio: 'pipe',
+    });
+    const meta = JSON.parse(output);
+    _constraintHash = meta.hash || 'unknown';
+    _constraintSize = meta.textSize?.total || 0;
+  } catch {
+    _constraintHash = 'unknown';
+  }
+  return { hash: _constraintHash, size: _constraintSize };
+}
+
 export class AgentExecutor {
   private config: ExecutorConfig;
   private runningProcesses = new Map<string, { current: ChildProcess | null }>();
@@ -340,6 +360,40 @@ export class AgentExecutor {
 
           if (isError) {
             logger.warn('[AgentExecutor] Claude Code returned error', { taskId: task.id, executionId: task.executionId, session: sessionCount, text: text.slice(0, 200) });
+          }
+
+          // Record session metrics as StudioEvent (observability)
+          const sessionMs = Date.now() - sessionStart;
+          try {
+            const metrics = parseSessionMetrics(stdout);
+            const { hash, size } = await getConstraintMeta();
+            await prisma.studioEvent.create({
+              data: {
+                type: 'agent_session',
+                source: 'agent-executor',
+                executionId: task.executionId,
+                agentRole: 'executor',
+                modelTier: (task.model as string) || 'standard',
+                modelName: metrics.modelName,
+                stage: task.parameters?.stage as string,
+                sessionCount,
+                isContinued: !isFirstSession,
+                durationMs: sessionMs,
+                numTurns: metrics.numTurns,
+                promptSize: prompt.length,
+                tokenInput: metrics.tokenInput,
+                tokenOutput: metrics.tokenOutput,
+                tokenCacheRead: metrics.tokenCacheRead,
+                tokenCacheWrite: metrics.tokenCacheWrite,
+                costUsd: metrics.costUsd,
+                serviceTier: metrics.serviceTier,
+                constraintHash: hash,
+                constraintSize: size,
+                payload: JSON.stringify({ stdout: stdout.slice(0, 2000) }),
+              },
+            });
+          } catch (metricErr) {
+            logger.warn('[AgentExecutor] Failed to record session metrics', { error: String(metricErr) });
           }
         } catch (execErr: any) {
           const errMsg = execErr instanceof Error ? execErr.message : String(execErr);

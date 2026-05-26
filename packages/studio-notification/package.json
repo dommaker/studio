@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dommaker/harness": "0.12.14",
+    "@dommaker/harness": "^0.13.0",
     "@dommaker/studio-prisma": "workspace:*",
     "@dommaker/studio-shared": "workspace:*"
   },

@@ -1247,6 +1247,28 @@ model StudioEvent {
   timestamp DateTime @default(now())
   payload   String
 
+  // Pipeline execution metrics (observability)
+  executionId    String?
+  agentRole      String?
+  modelTier      String?
+  modelName      String?
+  stage          String?
+  sessionCount   Int?
+  isContinued    Boolean?
+  durationMs     Int?
+  numTurns       Int?
+  promptSize     Int?
+  tokenInput     Int?
+  tokenOutput    Int?
+  tokenCacheRead Int?
+  tokenCacheWrite Int?
+  costUsd        Float?
+  serviceTier    String?
+  constraintHash String?
+  constraintSize Int?
+
   @@index([type])
   @@index([timestamp])
+  @@index([executionId])
+  @@index([agentRole])
 }

@@ -2,7 +2,7 @@
 // Upgraded: Claude Code agent (persistent worktree) instead of one-shot API call
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
-import { formatConstraintsForPrompt } from '@dommaker/harness';
+import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 const getFormatConstraintsForPrompt = async (): Promise<(role: string) => string> => formatConstraintsForPrompt;
 import { classifyError, formatTriageMessage } from '../triage/error-class.js';
 import { channelMessageService } from './channel-message.service.js';

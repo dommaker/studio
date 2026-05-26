@@ -172,6 +172,10 @@ export class ConstraintService {
 // 向后兼容的类型别名
 export type IronLawService = ConstraintService;
 
+// Prompt injection — 约束前置声明注入 Agent prompt
+export { formatConstraintsForPrompt } from './prompt-injection';
+export type { AgentRole } from './prompt-injection';
+
 /**
  * 检查点服务
  */
@@ -253,6 +257,10 @@ export class SafetyService {
   getToolGuardrail(): ToolGuardrail { return this.toolGuardrail; }
   getSandbox(): Sandbox { return this.sandbox; }
 }
+
+// Session metrics (observability)
+export { parseSessionMetrics, estimateTokens } from './session-metrics';
+export type { SessionMetrics } from './session-metrics';
 
 // Phase 1-6 服务单例
 export const safetyService = new SafetyService();
