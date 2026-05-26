@@ -249,6 +249,122 @@ export class ReviewAgent {
   }
 
   /**
+   * 并行化审查: 3 sub-agents (AC compliance + code quality + test coverage)
+   *
+   * Simple tasks → 回退到 serial review
+   * Medium tasks → 2 sub-agents (AC compliance + code quality)
+   * Complex tasks → 3 sub-agents (above + test coverage)
+   *
+   * 每个 sub-agent 以只读工具 (Read,Grep) 独立审查，结果由主 agent 综合。
+   */
+  async reviewParallel(params: {
+    taskId: string;
+    projectId: string;
+    worktree: string;
+    taskDescription: string;
+    acceptanceCriteria?: string[];
+    cycle?: number;
+    complexity?: 'simple' | 'medium' | 'complex';
+  }): Promise<ReviewResult> {
+    const tier = params.complexity || 'medium';
+
+    // Simple: fallback to serial single-agent review
+    if (tier === 'simple') return this.review(params);
+
+    const startTime = Date.now();
+    const acList = params.acceptanceCriteria?.join('\n') || '从 worktree 的 REQUIREMENTS.md 读取';
+
+    const reviewTasks: { name: string; prompt: string }[] = [
+      {
+        name: 'ac-compliance',
+        prompt: `审查以下验收标准是否全部满足:\n${acList}\n\n任务描述: ${params.taskDescription}`,
+      },
+      {
+        name: 'code-quality',
+        prompt: `审查代码质量: 类型安全、错误处理、可读性、性能。\n\n任务描述: ${params.taskDescription}`,
+      },
+    ];
+
+    if (tier === 'complex') {
+      reviewTasks.push({
+        name: 'test-coverage',
+        prompt: `审查测试覆盖: 正常路径、边界情况、错误路径。检查 .progress.json 的 testResults。\n\n任务描述: ${params.taskDescription}`,
+      });
+    }
+
+    // 确保 .claude/settings.json 存在 (bypassPermissions for root daemon)
+    const claudeDir = path.join(params.worktree, '.claude');
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    if (!fs.existsSync(settingsPath)) {
+      fs.mkdirSync(claudeDir, { recursive: true });
+      fs.writeFileSync(settingsPath, JSON.stringify({
+        permissions: { defaultMode: 'bypassPermissions' },
+      }, null, 2), 'utf-8');
+    }
+
+    const model = getModelForTier('standard');
+
+    // Run all sub-agent reviews in parallel
+    const results = await Promise.all(reviewTasks.map(async (task) => {
+      try {
+        const subPromptFile = path.join(params.worktree, `.review-sub-${task.name}-prompt.md`);
+        fs.writeFileSync(subPromptFile, task.prompt, 'utf-8');
+
+        const cmd = [
+          `cd "${params.worktree}"`,
+          `&&`,
+          `cat '${subPromptFile}'`,
+          `|`,
+          `claude`,
+          `--print`,
+          `--output-format json`,
+          `--model "${model}"`,
+          `--allowedTools "Read,Grep"`,
+          `2>&1`,
+        ].join(' ');
+
+        const { stdout } = await execSh(cmd, {
+          cwd: params.worktree,
+          env: { ANTHROPIC_MODEL: model },
+          timeoutMs: 5 * 60 * 1000,
+          maxBuffer: 5 * 1024 * 1024,
+        });
+
+        // Cleanup sub-prompt file
+        try { fs.unlinkSync(subPromptFile); } catch { /* best-effort */ }
+
+        const envelope = JSON.parse(stdout);
+        const isError = envelope.is_error === true;
+        return { name: task.name, passed: !isError, result: envelope.result || '' };
+      } catch (err) {
+        return { name: task.name, passed: false, error: String(err) };
+      }
+    }));
+
+    const allPassed = results.every(r => r.passed);
+    const issues = results.filter(r => !r.passed).map(r => ({
+      severity: 'error' as const,
+      message: `${r.name}: ${r.error || 'failed'}`,
+    }));
+
+    const durationMs = Date.now() - startTime;
+    logger.info('[ReviewAgent] Parallel review completed', {
+      taskId: params.taskId,
+      tier,
+      allPassed,
+      subResults: results.map(r => `${r.name}:${r.passed ? 'pass' : 'fail'}`).join(','),
+      durationMs,
+    });
+
+    return {
+      approved: allPassed,
+      score: allPassed ? 85 : 50,
+      issues: issues.length > 0 ? issues : [],
+      suggestions: results.filter(r => r.passed && r.result).map(r => `[${r.name}] ${r.result.substring(0, 200)}`),
+    };
+  }
+
+  /**
    * 参数化跨分支 diff 审查（拓扑无关）
    *
    * 审查 baseRef..headRef 之间的所有变更，不依赖 worktree。

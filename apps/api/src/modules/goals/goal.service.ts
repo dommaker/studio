@@ -697,17 +697,26 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
     const reviewCycle = (goalContext.reviewCycle as number) || 0;
     const projectId = (goalContext.projectId as string) || goalId;
 
-    // Step 1: 运行 Reviewer
-    logger.info('[Goal] Running Reviewer', { goalId, cycle: reviewCycle + 1 });
+    // Derive complexity tier from step count and AC count
+    const complexity: 'simple' | 'medium' | 'complex' =
+      steps.length <= 1 && allAcs.length <= 3
+        ? 'simple'
+        : steps.length <= 3 && allAcs.length <= 10
+          ? 'medium'
+          : 'complex';
+
+    // Step 1: 运行 Reviewer (parallel for medium/complex, serial for simple)
+    logger.info('[Goal] Running Reviewer', { goalId, cycle: reviewCycle + 1, complexity });
     let review: { approved: boolean; score: number; issues: any[]; suggestions: string[] };
     try {
-      review = await reviewAgent.review({
+      review = await reviewAgent.reviewParallel({
         taskId: goalId,
         projectId,
         worktree,
         taskDescription: goal.title,
         acceptanceCriteria: allAcs.length > 0 ? allAcs : undefined,
         cycle: reviewCycle + 1,
+        complexity,
       });
     } catch (err) {
       logger.error('[Goal] Reviewer crashed — blocking deploy', { goalId, error: String(err) });

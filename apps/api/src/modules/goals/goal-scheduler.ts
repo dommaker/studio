@@ -769,6 +769,7 @@ export class GoalScheduler {
           goalExecutionId: executionId,
           goalId: goal.id,
           acGroup: input?.acGroup || undefined,
+          analystContext: (input?.acGroup as any)?._analystContext || null,
           hasWorktree: true,
           repoDir: await this.getProjectRepoPath(goal),
           // Q3: 依赖继承 — 下游 worktree 从上游 task branch 创建（而非 main）
