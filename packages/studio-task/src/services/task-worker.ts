@@ -8,7 +8,7 @@
  */
 
 import { TaskQueue, Task } from './task-queue';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 // @ts-ignore — node-fetch v2 type declarations not in deps
 import fetch from "node-fetch";
 import { logger, memoryStore } from '@dommaker/studio-shared';
@@ -323,7 +323,7 @@ ${task.prompt}
 
     const result = await response.json() as any;
     const runtimeExecutionId = result.executionId;
-    const studioExecutionId = task.executionId || uuidv4();
+    const studioExecutionId = task.executionId || randomUUID();
 
     // 注册到 executionProgress（用于 Redis 订阅匹配）
     this.executionProgress.set(runtimeExecutionId, {
@@ -471,7 +471,7 @@ ${task.prompt}
     steps?: any[];
   }): Promise<void> {
     const event = {
-      event_id: uuidv4(),
+      event_id: randomUUID(),
       event_type: 'thinking.stream',
       timestamp: new Date().toISOString(),
       data: {
@@ -489,7 +489,7 @@ ${task.prompt}
   private async publishStepEvent(executionId: string, steps: any[]): Promise<void> {
     for (const step of steps) {
       const event = {
-        event_id: uuidv4(),
+        event_id: randomUUID(),
         event_type: `pipeline.step_${step.status}`,
         timestamp: new Date().toISOString(),
         data: {

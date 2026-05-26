@@ -4,7 +4,7 @@
  * 基于 MemoryStore 实现的任务队列（B0-011: Redis → MemoryStore）
  */
 
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { logger, memoryStore } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
 
@@ -86,7 +86,7 @@ export class TaskQueue {
     parameters?: Record<string, any>;
   }): Promise<Task> {
     const task: Task = {
-      id: `task-${uuidv4()}`,
+      id: `task-${randomUUID()}`,
       workflowId: params.workflowId,
       executionId: params.executionId,
       nodeId: params.nodeId,
