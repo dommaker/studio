@@ -297,13 +297,15 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
   ].join('\n');
 }
 
-async function runClaudeCode(prompt: string, outputFile: string): Promise<{ doc: RequirementsDocJson; usage?: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
+// O1d: accept optional claudeArgs for tool restriction on Simple tasks
+async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: string[]): Promise<{ doc: RequirementsDocJson; usage?: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
   ensureWorktree();
 
   // Use ad-hoc session for concurrent @Analyst support
   const result = await daemon.submitAdhocJob({
     prompt,
     outputFile,
+    ...(claudeArgs ? { claudeArgs } : {}),
   }, {
     worktree: process.env.REPO_DIR || process.cwd(), // needs access to project source, not .analyst/
     modelTier: 'premium',
@@ -461,7 +463,10 @@ class AnalystTriggerService {
       const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile);
 
       // 4. Run Claude Code agent (ad-hoc session, supports concurrent @Analyst)
-      const { doc: response, usage } = await runClaudeCode(prompt, outputFile);
+      // O1d: Restrict tool access for Simple tasks (short content, no schema change keywords)
+      const isSimpleTask = content.length < 500 && !/(schema|migration|migrate|auth|new\s+module|架构重构)/i.test(content);
+      const claudeArgs = isSimpleTask ? ['--allowedTools', 'Bash,Edit,Read,Grep'] : undefined;
+      const { doc: response, usage } = await runClaudeCode(prompt, outputFile, claudeArgs);
       const durationMs = Date.now() - startTime;
       clearInterval(progressInterval);
 

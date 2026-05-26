@@ -22,6 +22,7 @@ export interface JobSpec {
   prompt: string;
   outputFile: string;
   env?: Record<string, string>;
+  claudeArgs?: string[]; // O1d: extra CLI args passed to claude command
 }
 
 export interface TaskResult {
@@ -195,6 +196,8 @@ export class SessionManager {
         : '--continue';
       // Use stdin file redirect instead of pipe — more reliable under Node spawn
       const stdinFile = promptFile; // written to disk at line 95
+      // O1d: Inject extra claude args (e.g. --allowedTools restriction)
+      const claudeFlags = job.claudeArgs || [];
       const cmd = [
         `cd "${state.config.worktree}"`,
         `&&`,
@@ -202,6 +205,7 @@ export class SessionManager {
         `--print`,
         `--output-format json`,
         sessionFlag,
+        ...claudeFlags,
         `<`,
         `"${stdinFile}"`,
         `2>&1`,  // merge stderr → stdout — execSh captures stdout, downstream consumers need error output
