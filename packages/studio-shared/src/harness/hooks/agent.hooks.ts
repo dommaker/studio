@@ -2,9 +2,12 @@
  * Agent Execution Phase Hooks
  */
 
-import { checkBeforeExecution, buildConstraintPrompt, getTraceCollector, formatConstraintsForPrompt } from '@dommaker/harness';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+import { checkBeforeExecution, getTraceCollector } from '@dommaker/harness';
 import type { ConstraintContext } from '@dommaker/harness';
 import { safeCallHook } from './config';
+import { formatConstraintsForPrompt } from '../prompt-injection';
 
 export async function beforeAgentExecute(ctx: ConstraintContext & {
   hasWorktree?: boolean;
@@ -34,6 +37,27 @@ export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
   // Inject all applicable harness constraints by role (full text, not truncated)
   const harnessConstraints = formatConstraintsForPrompt('executor');
 
+  // Runtime dedup: if CLAUDE.md already has HARNESS_CONSTRAINTS section,
+  // inject a reference instead of duplicating the full constraint text.
+  // This avoids double injection (CLAUDE.md + system prompt) per Step 8 of the plan.
+  let constraintSection: string;
+  const projectPath = ctx.projectPath || process.cwd();
+  const claudePath = join(projectPath, 'CLAUDE.md');
+  if (existsSync(claudePath)) {
+    try {
+      const content = readFileSync(claudePath, 'utf-8');
+      if (content.includes('<!-- HARNESS_CONSTRAINTS_START -->')) {
+        constraintSection = '## 行为约束\n遵循 CLAUDE.md 中「Governance Rules」章节的所有约束。';
+      } else {
+        constraintSection = harnessConstraints;
+      }
+    } catch {
+      constraintSection = harnessConstraints;
+    }
+  } else {
+    constraintSection = harnessConstraints;
+  }
+
   // G2: tool risk awareness — Agent needs to know which tools are dangerous
   const toolRisk = [
     '## 工具风险（sandbox 级别）',
@@ -45,7 +69,7 @@ export function buildAgentConstraintPrompt(ctx: ConstraintContext): string {
     '',
   ].join('\n');
 
-  return [harnessConstraints, toolRisk].filter(Boolean).join('\n');
+  return [constraintSection, toolRisk].filter(Boolean).join('\n');
 }
 
 export async function afterAgentComplete(params?: {

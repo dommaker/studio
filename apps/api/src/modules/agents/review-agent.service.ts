@@ -43,11 +43,23 @@ export class ReviewAgent {
     try {
       // 检查是否有代码变更
       const hasChanges = await this.hasChanges(worktree);
-
       if (!hasChanges) {
         const durationMs = Date.now() - startTime;
         logger.info('[ReviewAgent] No changes detected, auto-approving', { taskId, durationMs });
         return { approved: true, score: 100, issues: [], suggestions: [] };
+      }
+
+      // Fast-path: 简单改动（1 file, ≤3 ACs, 纯增量）→ 先试 AC-compliance
+      const isSimple = await this.isSimpleChange(worktree, acceptanceCriteria);
+      if (isSimple) {
+        const fastResult = await this.fastPathReview(taskId, worktree, taskDescription, acceptanceCriteria, startTime);
+        if (fastResult.approved && fastResult.score >= 80) {
+          logger.info('[ReviewAgent] Fast-path review accepted', { taskId, score: fastResult.score, durationMs: Date.now() - startTime });
+          return fastResult;
+        }
+        logger.info('[ReviewAgent] Fast-path not confident, falling back to full review', { taskId, score: fastResult.score });
+      } else {
+        logger.info('[ReviewAgent] Full review (not simple change)', { taskId });
       }
 
       // P2.5b: 注入历史知识上下文（同类任务踩坑模式）
@@ -360,6 +372,84 @@ export class ReviewAgent {
       return stdout.trim().length > 0;
     } catch {
       return true;
+    }
+  }
+
+  /**
+   * Fast-path 判定：单文件、少 AC、纯增量改动
+   */
+  private async isSimpleChange(worktree: string, acs?: string[]): Promise<boolean> {
+    if ((acs?.length || 0) > 3) return false;
+    try {
+      const { stdout } = await execSh(
+        'git diff HEAD~1 --numstat 2>/dev/null || git diff --cached --numstat 2>/dev/null || echo ""',
+        { cwd: worktree, timeoutMs: 5_000 },
+      );
+      // Filter: only source files (skip .review-report.json, .progress.json, test files)
+      const srcFiles = stdout.trim().split('\n').filter(line => {
+        const file = line.split(/\s+/).slice(2).join(' ');
+        return file && !file.startsWith('.') && !file.includes('__tests__') && !file.includes('.test.');
+      });
+      if (srcFiles.length === 0 || srcFiles.length > 2) return false;
+      // All changed files must be additive-only (no deletions)
+      let totalAdded = 0, totalDeleted = 0;
+      for (const f of srcFiles) {
+        const parts = f.split(/\s+/);
+        totalAdded += Number(parts[0]) || 0;
+        totalDeleted += Number(parts[1]) || 0;
+      }
+      return totalAdded > 0 && totalDeleted === 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Fast-path review: 只跑 AC-compliance 立场（跳过完整 6 立场）
+   */
+  private async fastPathReview(
+    taskId: string, worktree: string, taskDescription: string,
+    acs?: string[], startTime?: number,
+  ): Promise<ReviewResult> {
+    logger.info('[ReviewAgent] Fast-path: simple change, AC-compliance only', { taskId });
+    const t0 = startTime || Date.now();
+
+    try {
+      // Build minimal prompt — only ac-compliance stance
+      const acOnlyStance = { id: 'ac-compliance', name: 'AC 合规审查', prompt: '逐条对照验收标准，确认每条 AC 已实现', reviewerFocus: 'ac' };
+      const prompt = buildReviewPrompt({ taskDescription, acceptanceCriteria: acs, cycle: 1, stances: [acOnlyStance] });
+      const promptFile = path.join(worktree, '.review-prompt.md');
+      fs.writeFileSync(promptFile, prompt, 'utf-8');
+
+      const model = getModelForTier('standard');
+      const reportPath = path.join(worktree, '.review-report.json');
+      // Clean old report so Claude writes fresh one
+      try { fs.unlinkSync(reportPath); } catch {}
+      const cmd = `cd "${worktree}" && cat '${promptFile}' | claude --print --output-format json --model "${model}" 2>&1`;
+      await execSh(cmd, {
+        cwd: worktree, env: { ANTHROPIC_MODEL: model },
+        timeoutMs: 5 * 60 * 1000, maxBuffer: 5 * 1024 * 1024,
+      });
+
+      // Read review report (same format as full review)
+      if (!fs.existsSync(reportPath)) {
+        return { approved: false, score: 0, issues: [{ severity: 'warning', message: 'Fast-path: no report generated' }], suggestions: [] };
+      }
+      const report: ReviewReport = JSON.parse(fs.readFileSync(reportPath, 'utf-8'));
+      const totalIssues = report.issues?.length ?? 0;
+      const errorIssues = report.issues?.filter(i => i.severity === 'error').length ?? 0;
+      const score = errorIssues > 0 ? 50 : totalIssues > 0 ? 80 : 100;
+      const durationMs = Date.now() - t0;
+      logger.info('[ReviewAgent] Fast-path completed', { taskId, score, approved: report.overallApproved !== false, durationMs });
+      return {
+        approved: report.overallApproved !== false,
+        score,
+        issues: (report.issues || []).map(i => ({ severity: i.severity, message: i.message, file: i.file, line: i.line })),
+        suggestions: report.suggestions || [],
+      };
+    } catch (e) {
+      logger.warn('[ReviewAgent] Fast-path failed', { error: String(e) });
+      return { approved: false, score: 0, issues: [{ severity: 'warning', message: 'Fast-path error' }], suggestions: [] };
     }
   }
 

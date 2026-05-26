@@ -558,8 +558,15 @@ export class AgentExecutor {
     const gotchas: string[] = acGroup?.gotchas || [];
     const archCtx = acGroup?.architectureContext as Record<string, any> | undefined;
 
+    const isSimple = files.length <= 1 && acs.length <= 3 && gotchas.length <= 2;
+
     const sections = [
       '# 需求',
+      ...(isSimple ? [
+        '> ⚡ **简单改动** — Analyst 已验证。直接执行，不探索。',
+        '> 步骤：读目标文件 → 按实现指南改 → tsc → npm test → .progress.json',
+        '',
+      ] : []),
       `## 任务`,
       task.prompt,
       '',

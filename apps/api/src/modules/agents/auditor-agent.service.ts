@@ -165,6 +165,7 @@ export class AuditorAgent {
       const suggestions = [
         ...await this.generateSuggestions(agentTypeStats, errorByAgentType),
         ...modelSuggestions,
+        ...circuitSuggestions,
       ];
       const lowRisk = suggestions.filter(s => s.risk === 'low');
       const highRisk = suggestions.filter(s => s.risk === 'high');
@@ -542,6 +543,64 @@ export class AuditorAgent {
           detail: `知识总线仅有 ${byType.length} 种类型 (${typeSummary}) — 所有知识来自同一个 source，存在知识孤岛风险。跨 agent 知识闭环未形成`,
         });
       }
+
+      // Circuit 5: Pipeline cache efficiency — from PipelineRun.sessionId entries
+      try {
+        const recentRuns = await prisma.pipelineRun.findMany({
+          where: {
+            sessionId: { not: null },
+            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          },
+          select: { phase: true, model: true, cacheHitTokens: true, inputTokens: true },
+          orderBy: { createdAt: 'desc' },
+          take: 30,
+        });
+        if (recentRuns.length > 0) {
+          const byPhase = new Map<string, { total: number; ratio: number; model: string }>();
+          for (const r of recentRuns) {
+            const key = r.phase;
+            const existing = byPhase.get(key);
+            if (!existing || r.inputTokens > 0) {
+              const ratio = r.inputTokens > 0 ? r.cacheHitTokens / r.inputTokens : 0;
+              byPhase.set(key, { total: (existing?.total || 0) + 1, ratio: existing ? Math.max(existing.ratio, ratio) : ratio, model: r.model });
+            }
+          }
+          for (const [phase, s] of byPhase) {
+            if (s.ratio < 5) {
+              suggestions.push({
+                type: 'circuit_fix',
+                risk: 'low',
+                agentType: 'auditor',
+                detail: `${phase} 缓存比仅 ${s.ratio.toFixed(1)}x (${s.total} sessions, ${s.model}) — 检查 shared prefix 是否生效`,
+              });
+            }
+          }
+        }
+      } catch { /* non-blocking */ }
+
+      // Circuit 6: CONTEXT.md 覆盖率 — 关键目录缺索引则 Analysist 每次都重探索
+      try {
+        const fs = require('fs');
+        const p = require('path');
+        const modulesDir = p.join(process.env.REPO_DIR || process.cwd(), 'apps/api/src/modules');
+        if (fs.existsSync(modulesDir)) {
+          const dirs = fs.readdirSync(modulesDir, { withFileTypes: true })
+            .filter((d: any) => d.isDirectory() && d.name !== '__tests__');
+          const missing: string[] = [];
+          for (const d of dirs) {
+            const ctxPath = p.join(modulesDir, d.name, 'CONTEXT.md');
+            if (!fs.existsSync(ctxPath)) missing.push(d.name);
+          }
+          if (missing.length > 0) {
+            suggestions.push({
+              type: 'circuit_fix',
+              risk: 'low',
+              agentType: 'auditor',
+              detail: `${missing.length} 个模块目录缺 CONTEXT.md: ${missing.join(', ')} — Analyst 每次探索都会重读代码。用 @Analyst 初始化即可。`,
+            });
+          }
+        }
+      } catch { /* non-blocking */ }
 
       logger.info('[AuditorAgent] Circuit health analyzed', { total, typeCount: byType.length, types: typeSummary });
     } catch (e) {
