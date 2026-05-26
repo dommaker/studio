@@ -18,7 +18,7 @@ import { recordPipelineRun, parseClaudeUsage } from '../../daemon/metrics.js';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { goalService, GoalStep, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
-import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
+
 import { roleConfigService } from '../roles/role-config.service.js';
 import { eventStore, EventStore } from '../../core/event-store.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
@@ -1094,10 +1094,9 @@ export class GoalScheduler {
   }
 
   /**
-   * 集成验证 prompt（INF-003：语义冲突检测）
-   *
-   * 在所有 sub-agent 完成后运行。merge 各 worktree 分支，
-   * 运行 type-check + test，检测 git merge 无法发现的语义冲突。
+   * O1f: Lightweight integration prompt — pure code execution (merge + tsc + test),
+   * no constraints, no skills. Full prompt only used as Claude fallback when
+   * runIntegrationInCode() fails.
    */
   private async buildIntegrationPrompt(goalId: string): Promise<string> {
     const execs = await prisma.goalExecution.findMany({
@@ -1119,74 +1118,15 @@ export class GoalScheduler {
       ].join('\n');
     }).join('\n\n');
 
-    // D1: 收集 AC 范围文件列表，供 diff 审计使用
-    const acScopedFiles = execs.flatMap(e => {
-      const input = e.input as Record<string, any> | null;
-      return (input?.acGroup?.files || []) as string[];
-    });
-
-    const constraintSection = formatConstraintsForPrompt('integration');
-
     return [
-      '## 集成验证任务',
-      '',
-      constraintSection,
-      '你的工作是验证以下并行完成的 sub-agent 的代码能否正确集成。',
+      '合并所有 AC 组的变更，运行 tsc 和测试。',
+      '1. git merge --no-ff 所有 task 分支',
+      '2. npm run build',
+      '3. npm test',
+      '如果冲突: 按 AC 组文件的路径优先级解决',
       '',
       '## 各 AC 组完成情况',
       groupList,
-      '',
-      '## 验证流程',
-      '',
-      `### 0. AC 范围审计（合并前）`,
-      `以下文件在 AC 中明确定义为修改范围：`,
-      `${acScopedFiles.length > 0 ? acScopedFiles.map(f => `  - ${f}`).join('\n') : '  （无明确文件范围，跳过）'}`,
-      '',
-      '合并所有 task 分支后，运行 diff 审计：',
-      '```bash',
-      'git diff main...HEAD --name-only',
-      '```',
-      '检查：',
-      '- diff 中的每个文件是否在上面的 AC 范围列表中？',
-      '- 如果 diff 中出现未授权的文件 → 标记为"非目标变更"，在 notes 中记录',
-      '- 如果 AC 范围外的文件被修改 → Integration 失败，不要继续 tsc/test',
-      '',
-      '### 1. 合并所有分支',
-      '每个 sub-agent 在一个独立的 git worktree 中工作：',
-      `Worktree 目录: ${path.join(os.homedir(), 'worktrees')}`,
-      '',
-      '依次将各 AC 组的 worktree 分支合并到当前集成分支：',
-      '```bash',
-      'for worktree in <各个 worktree 目录>; do',
-      '  branch=$(cd "$worktree" && git rev-parse --abbrev-ref HEAD)',
-      '  git merge "$branch" || echo "MERGE CONFLICT: $branch"',
-      'done',
-      '```',
-      '',
-      '### 2. 类型检查（语义冲突检测核心）',
-      '运行 TypeScript 编译检查，这是发现语义冲突最有效的手段：',
-      '```bash',
-      'npx tsc --noEmit 2>&1',
-      '```',
-      '重点关注：函数签名不匹配、导入路径断裂、类型定义不一致。',
-      '',
-      '### 3. 运行测试',
-      '```bash',
-      'npm test 2>&1',
-      '```',
-      '',
-      '### 4. 判断与报告',
-      '- **全部通过** → 设置 .progress.json allComplete: true',
-      '- **有失败** → 分析错误日志，找出是哪两个 AC 组的代码产生了冲突，',
-      '  在 .progress.json notes 中具体记录：',
-      '  - 冲突位置（文件 + 行号）',
-      '  - 冲突原因（如"组 A 改了函数签名而组 B 仍用旧签名调用"）',
-      '  - 建议修复方向',
-      '',
-      '## 重要',
-      '- 如果发现合并冲突，先解决再继续',
-      '- 如果 tsc 或 test 失败且无法快速修复，诚实记录在 notes 中',
-      '- 每完成一个步骤后更新 .progress.json',
     ].join('\n');
   }
 
