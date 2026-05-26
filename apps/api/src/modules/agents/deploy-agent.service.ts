@@ -291,9 +291,12 @@ class DeployAgent {
     let cleanedBranches = 0;
     let cleanedDirs = 0;
     try {
-      // List all task/ branches
+      // List task/ branches scoped to execution IDs
+      const scopePattern = params.executionIds?.length
+        ? params.executionIds.map(id => `task/${id}`).join('\\|')
+        : 'task/';
       const { stdout } = await execSh(
-        'git branch -a | grep "task/" | sed "s/[* ]*remotes\\/origin\\///" | sed "s/^[* ]*//" | sort -u',
+        `git branch -a | grep "${scopePattern}" | sed "s/[* ]*remotes\\/origin\\///" | sed "s/^[* ]*//" | sort -u`,
         { cwd: repoDir, timeoutMs: 10_000 },
       );
       const branches = stdout.trim().split('\n').filter(Boolean);
@@ -328,12 +331,20 @@ class DeployAgent {
       logger.warn('[DeployAgent] Branch cleanup failed (non-blocking)', { error: String(e) });
     }
 
-    // Clean up worktree directories on disk
+    // Clean up worktree directories on disk (scoped to execution IDs)
     try {
       const worktreesDir = path.join(require('os').homedir(), 'worktrees');
       if (fs.existsSync(worktreesDir)) {
         const entries = fs.readdirSync(worktreesDir);
         for (const entry of entries) {
+          // Only delete worktrees matching one of the given execution IDs
+          if (params.executionIds?.length) {
+            if (!params.executionIds.some(id => entry === id)) continue;
+          } else {
+            // No execution IDs provided — log warning and skip
+            logger.warn('[DeployAgent] No execution IDs for cleanup, skipping worktree cleanup');
+            break;
+          }
           const wtPath = path.join(worktreesDir, entry);
           try {
             if (fs.statSync(wtPath).isDirectory()) {

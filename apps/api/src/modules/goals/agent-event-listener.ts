@@ -587,15 +587,23 @@ export class AgentEventListener {
       // .progress.json 缺失或损坏，非致命
     }
 
-    // git diff 获取改动文件列表
+    // git status 获取改动文件列表（Agent 不 commit，所以不用 HEAD~1..HEAD）
     try {
       const diffOut = execSync(
-        'git diff --name-only HEAD~1..HEAD 2>/dev/null || git diff --name-only --cached 2>/dev/null || git diff --name-only 2>/dev/null || true',
+        'git status --porcelain 2>/dev/null | sed "s/^...//" | sort -u || git diff --name-only --cached 2>/dev/null | sort -u || echo ""',
         { cwd: worktree, encoding: 'utf-8', timeout: 5000 },
       );
-      output.changedFiles = diffOut.split('\n').filter(Boolean);
+      output.changedFiles = diffOut.trim().split('\n').filter(f => f.length > 0 && !f.includes('.agent.log') && !f.includes('.progress.json') && !f.includes('.prompt.md'));
     } catch {
-      // git diff 失败，非致命
+      // git status 失败，非致命
+    }
+
+    // 如果没有 git 信息，fallback 到文件系统最近修改
+    if (output.changedFiles.length === 0) {
+      try {
+        const altOut = execSync('find . -name "*.ts" -newer .agent.log -not -path "*/node_modules/*" 2>/dev/null | head -50 || echo ""', { cwd: worktree, encoding: 'utf-8', timeout: 5000 });
+        output.changedFiles = altOut.trim().split('\n').filter(f => f.length > 0);
+      } catch { /* best-effort */ }
     }
 
     // 解析 @sibling 标记（agent 在 notes 中留下的跨组级建议）
