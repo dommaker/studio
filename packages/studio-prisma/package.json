@@ -14,7 +14,7 @@
     "db:seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
-    "@dommaker/harness": "^0.13.0",
+    "@dommaker/harness": "^0.13.1",
     "@prisma/client": "^5.7.0"
   },
   "devDependencies": {
