@@ -15,11 +15,14 @@ import { execSync } from 'child_process';
 
 const ROOT = __dirname + '/..';
 const DRY_RUN = process.argv.includes('--dry-run');
-const MSG = process.argv.find(a => a.includes(' ') || !a.startsWith('-')) || 'chore: release';
+// Find first non-flag arg as commit message (skip --flags and node/tsx paths)
+const MSG = process.argv.slice(2).find(a => !a.startsWith('-') && !a.includes('node') && !a.includes('tsx')) || 'chore: release';
 
 function sh(cmd: string): string {
   try {
-    return execSync(cmd, { cwd: ROOT, encoding: 'utf-8', stdio: DRY_RUN ? 'pipe' : 'inherit' }).trim();
+    const result = execSync(cmd, { cwd: ROOT, encoding: 'utf-8', stdio: 'pipe' });
+    if (!DRY_RUN) console.log(result.trim());
+    return (result || '').trim();
   } catch (e: any) {
     console.error(`⚠️  ${cmd}: ${e.stderr || e.message}`);
     return '';
