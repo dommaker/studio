@@ -531,4 +531,32 @@ router.post('/init-admin', async (req: Request, res: Response) => {
   }
 });
 
+// ============================================
+// O3g: Pipeline Health Dashboard API
+// ============================================
+
+/**
+ * GET /api/v1/pmo/health — pipeline health dashboard
+ */
+router.get('/health', async (_req: Request, res: Response) => {
+  try {
+    const [activeGoals, pendingGoals, recentEvents] = await Promise.all([
+      prisma.goal.count({ where: { status: 'executing' } }),
+      prisma.goalExecution.count({ where: { status: 'pending' } }),
+      prisma.studioEvent.findMany({ orderBy: { timestamp: 'desc' }, take: 20 }),
+    ]);
+    res.json({
+      activeGoals,
+      pendingExecutions: pendingGoals,
+      recentActivity: recentEvents.length,
+      ok: activeGoals > 0 || pendingGoals > 0,
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get pipeline health');
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to get pipeline health' },
+    });
+  }
+});
+
 export default router;
