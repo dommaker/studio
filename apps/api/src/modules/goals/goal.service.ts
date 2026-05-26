@@ -707,8 +707,19 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
         cycle: reviewCycle + 1,
       });
     } catch (err) {
-      logger.error('[Goal] Reviewer crashed, defaulting to pass', { goalId, error: String(err) });
-      await this.finalizeGoalSucceeded(goalId);
+      logger.error('[Goal] Reviewer crashed — blocking deploy', { goalId, error: String(err) });
+      await prisma.goal.update({ where: { id: goalId }, data: { status: 'blocked' } });
+      // Push notification to Channel
+      const goalCtx = goal.context as unknown as Record<string, unknown> || {};
+      const channelId = goalCtx.sourceChannelId as string;
+      if (channelId) {
+        try {
+          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          await channelMessageService.createAgentMessage(channelId, 'System',
+            `## 🚨 审查 Agent 崩溃\n\nGoal \`${goalId.slice(0, 8)}\` 的审查流程遇到异常。\n\n已阻断部署。请手动检查。`
+          );
+        } catch { /* best-effort */ }
+      }
       return;
     }
 
@@ -809,6 +820,13 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
 
     const projectId = (goal.context as unknown as Record<string, unknown>)?.projectId as string | undefined;
 
+    // Collect all execution IDs for this goal to scope cleanup
+    const goalExecutions = await prisma.goalExecution.findMany({
+      where: { goalId },
+      select: { id: true },
+    });
+    const executionIds = goalExecutions.map(e => e.id);
+
     // Project record (may be null — PMO features are optional)
     const project = projectId
       ? await prisma.project.findUnique({
@@ -841,7 +859,9 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
         }
       }
     } catch (e) {
-      logger.warn('[Goal] Test gate check failed (non-blocking)', { error: String(e) });
+      logger.error('[Goal] Test gate check failed — blocking deploy', { goalId, error: String(e) });
+      await prisma.goal.update({ where: { id: goalId }, data: { status: 'blocked' } });
+      throw new Error(`Test gate check failed: ${String(e)}`);
     }
 
     // ── PMO 工作流（需要 DB Project 记录，project 不存在时跳过）──
@@ -880,6 +900,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
         const result = await deployAgent.deploy({
           projectId: projectId || goalId,
           executionId: goalId,
+          executionIds,
           worktree,
           environment: 'vps',
           taskDescription: goal.title,
@@ -889,6 +910,15 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
           success: result.success,
           findings: result.findings.length,
         });
+
+        // 部署成功后标记 project 为 completed
+        if (result.success && project) {
+          await prisma.project.update({
+            where: { id: project.id },
+            data: { status: 'completed' },
+          });
+          logger.info(`[Goal] Project ${project.pmoNumber} → completed`);
+        }
 
         // P0a: Extract knowledge from deploy result (fire-and-forget)
         knowledgeAgent.extractFromDeploy(result, goalId, projectId || goalId).catch(e => {

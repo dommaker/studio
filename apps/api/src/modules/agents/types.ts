@@ -42,6 +42,7 @@ export interface TriageLogEntry {
 export interface DeployParams {
   projectId: string;
   executionId: string;
+  executionIds?: string[]; // execution IDs to scope cleanup to (one per GoalExecution)
   worktree: string;
   environment: 'vps' | 'company_frontend' | 'company_backend';
   taskDescription: string;

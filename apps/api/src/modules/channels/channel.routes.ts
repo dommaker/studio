@@ -438,7 +438,13 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
           logger.info('[Channel] RequirementGate: passed', { docId, groups: acGroups.length });
         }
       } catch (e: any) {
-        logger.warn('[Channel] RequirementGate failed, proceeding anyway', { error: String(e) });
+        logger.error('[Channel] RequirementGate failed — blocking', { error: String(e) });
+        try {
+          await channelMessageService.createAgentMessage(req.params.channelId, 'System',
+            `## ⚠️ 需求验证异常\n\nRequirementGate 执行失败: ${String(e).slice(0, 200)}\n\n请 @channel 排查后重新触发。`
+          );
+        } catch { /* best-effort */ }
+        return res.status(500).json({ success: false, error: 'RequirementGate failed' });
       }
 
       // B1-002: Create Goal + GoalPlan(approved) + GoalExecutions(pending) via GoalService
