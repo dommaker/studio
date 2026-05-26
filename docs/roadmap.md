@@ -1,6 +1,6 @@
 # Studio Roadmap
 
-> 2026-05-24 更新：Batch 5 管线闭环 + Batch 6 知识缺口审计 + Batch 7 知识进化引擎 + RKB Phase 1 + R3 模型tier生效 + Q3a 依赖分析 + 信息保真度优化方案
+> 2026-05-26 更新：Batch 5 (Pipeline OKR) — 统一管线入口 + 6 KR + 27 断点 + PMO 闭环 + 知识飞轮锚定
 > 设计文档：`memory/issue_knowledge_gap_audit.md` — 334 条目 0 架构知识，16 断点+5 Phase 实施
 > RKB 分析：`memory/project_knowledge_engine_ops_gap.md` — 六层知识模型 L3~L6 缺口 + Phase 1 实现
 
@@ -540,6 +540,53 @@ harness 约束集成审计 + 全代码扫描发现的 12 个新断点。7 个已
 
 ---
 
+### Batch 5：Pipeline OKR — O1 时间 + O2 经济 + O3 并行效率
+
+> 2026-05-26 第一性审计 | OKR: okr-pipeline-001
+> 设计文档：`docs/roadmap/pipeline-okr-q2-2026.md`
+> 三个目标：O1 时间效率 (<15min) + O2 经济效率 (token vs CST) + O3 开发效率 (N 并行)
+
+#### Phase 0: 修复 Critical 级 bug（P0，阻塞 Phase 1-6）
+
+| ID | 任务 | 位置 | 影响 |
+|----|------|------|------|
+| **B5-C01** | deploy-agent cleanup 作用域限定 | deploy-agent.service.ts | 并发 Goal 的 branch/worktree 被其他 Goal 清理删除 |
+| **B5-C02** | Reviewer 崩溃不静默 pass | goal.service.ts:L710 | 所有审查被绕过 |
+| **B5-C03** | 测试门禁异常不跳过 | goal.service.ts:L843 | 测试失败也能部署 |
+| **B5-C04** | RequirementGate 异常不静默通过 | channel.routes.ts:L440 | AC 质量检查被跳过 |
+| **B5-C05** | git diff 改用文件系统比较 | agent-event-listener.ts:L592 | Agent 不 commit → changedFiles 永远为空 |
+| **B5-C06** | Project 状态机补 completed | project.service.ts | 部署后不改 completed |
+
+#### Phase 1: PMO/Pipeline 集成（P0，管线可追溯的前提）
+
+| ID | 任务 | 位置 | 说明 |
+|----|------|------|------|
+| **B5-P01** | start_execution 自动创建 PMO 项目 | channel.routes.ts | 生成 PM-xxx 号 + gitBranch |
+| **B5-P02** | projectId 存储修复 | analyst-trigger.service.ts:L474 | 文件路径 → 实际 projectId |
+| **B5-P03** | Executor 分支用 PMO 号 | agent-executor.ts | task/xxx → feature/PM-001-xxx |
+| **B5-P04** | OKR progress 链路打通 | goal.service.ts + okr.service.ts | Goal → Project → OKR 三层进度 |
+
+#### Phase 2: 管线 Optimization（KR1-KR5）
+
+| ID | 任务 | KR | 方向 |
+|----|------|:---:|------|
+| **B5-O01** | 先观测：管线跑 3-5 天收集 StudioEvent 数据 | KR5 | 反馈闭环 |
+| **B5-O02** | Analyst→Executor 上下文传递 | KR1 | 减少重复探索 |
+| **B5-O03** | Review 阶段 Agent 工具并行化 | KR2 | 3 子 Agent 并行审查 |
+| **B5-O04** | 跨 Goal base block 缓存 | KR4 | CLI prompt cache 复用 |
+| **B5-O05** | StudioEvent 数据驱动的路由 + 策略自优化 | KR5 | 反馈闭环 |
+
+#### Phase 3: High 级修复（P2）
+
+| ID | 任务 | 位置 |
+|----|------|------|
+| **B5-H01** | Analyst 输出 JSON Schema 验证 | analyst-trigger.service.ts:L329 |
+| **B5-H02** | Worktree 查找失败降级策略 | goal.service.ts:L625 |
+| **B5-H03** | PR 创建或通知 | goal.service.ts:L850 |
+| **B5-H04** | @Analyst 触发条件改进 | channel.routes.ts:L291 |
+
+---
+
 ## 四、依赖关系
 
 ```
@@ -548,9 +595,14 @@ B0（基础设施）
         ├── B2（Channel UI）
         └── B3（Discord 集成）
               └── B4（远期，等数据）
+                    └── B5（Pipeline OKR）
+                          ├── Phase 0: 7 Critical bug 修复（P0，阻塞）
+                          ├── Phase 1: PMO/Pipeline 集成（P0）
+                          ├── Phase 2: 管线优化 5 KR（P1-P2）
+                          └── Phase 3: High 级修复（P2）
 ```
 
-B2 和 B3 可并行。
+B5 Phase 0 必须优先——质量闸门绕过和并发数据破坏阻塞所有后续优化。
 
 ---
 
