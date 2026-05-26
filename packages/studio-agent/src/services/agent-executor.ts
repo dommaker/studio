@@ -317,12 +317,23 @@ export class AgentExecutor {
         fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
         fsSync.writeFileSync(promptFile, prompt, 'utf-8');
 
+        // O1c: Restrict tool access to verified files (prevents exploration drift)
+        const _analystCtx = (task.parameters?.analystContext as any) || null;
+        const _restrictDirs = _analystCtx?.verifiedFiles as string[] | undefined;
+        const addDirArgs = _restrictDirs?.length
+          ? _restrictDirs.map((f: string) => {
+              const dir = f.split('/').slice(0, -1).join('/');
+              return `--add-dir "${dir}"`;
+            }).join(' ')
+          : '';
+
         const cmd = [
           `cd "${worktree}"`,
           `&&`,
           `claude`,
           `--print`,
           `--output-format json`,
+          addDirArgs,
           sessionFlag,
           `<`,
           `"${promptFile}"`,
@@ -330,7 +341,7 @@ export class AgentExecutor {
           `|`,
           `tee`,
           `"${logFile}"`,
-        ].join(' ');
+        ].filter(Boolean).join(' ');
 
         logger.info('[AgentExecutor] Spawning session', {
           taskId: task.id,
@@ -757,10 +768,23 @@ export class AgentExecutor {
     const skillPrompt = skillLoader.formatForPrompt(skills);
 
     if (session === 1 || !progress) {
+      // O1c: Inject Analyst context to prevent re-exploring verified files
+      const analystContext = (task.parameters?.analystContext as any) || null;
+      const analystContextSection = analystContext ? [
+        '## 已有分析上下文（来自 Analyst 探索）',
+        '',
+        `**已验证文件** (不需要重新探索): ${(analystContext.verifiedFiles || []).join(', ')}`,
+        analystContext.architectureContext ? `\n**架构说明**: ${analystContext.architectureContext}` : '',
+        analystContext.gotchas?.length ? `\n**注意事项**: ${analystContext.gotchas.join('; ')}` : '',
+        '',
+        '只修改上述文件。如需查看额外文件，说明原因——Scheduler 将添加权限后继续。',
+        '',
+      ].join('\n') : '';
+
       const verifyStep = acGroup?.architectureContext
         ? '\n⚠️ REQUIREMENTS.md 包含架构上下文（Analyst 已探索的代码位置和签名）。\n第一步必须是验证关键函数签名和行号是否仍然有效，如果已偏移请修正后再实现。\n'
         : '';
-      const base = `${constraintSection}${outputStyleSection}## 你的任务
+      const base = `${constraintSection}${outputStyleSection}${analystContextSection}## 你的任务
 ${task.prompt}
 
 

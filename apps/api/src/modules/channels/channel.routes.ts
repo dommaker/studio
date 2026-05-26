@@ -384,6 +384,18 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       const acGroups = parseAcGroupsFromMarkdown(doc.content);
       const groupIdToIndex = new Map(acGroups.map((g, i) => [g.id, i]));
 
+      // O1c: Extract Analyst context for each AC group (prevents Executor from re-exploring verified files)
+      const ivMatchO1c = doc.content.match(/<!-- INTERFACE_VERIFICATION (.+?) -->/);
+      const interfaceVerificationStr = ivMatchO1c ? ivMatchO1c[1] : null;
+      for (const group of acGroups) {
+        (group as any)._analystContext = {
+          verifiedFiles: group.files || [],
+          interfaceVerification: interfaceVerificationStr,
+          gotchas: group.gotchas || [],
+          architectureContext: (group as any).architectureContext || '',
+        };
+      }
+
       // Assess risk (B1-009): check for sensitive keywords in ACs
       const allAcs = acGroups.flatMap(g => g.acs).join(' ');
       const risks: string[] = [];
