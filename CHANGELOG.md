@@ -1,15 +1,133 @@
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-
-## [Unreleased]
+## [2026-05-26]
 
 ### Added
-- Initial project setup with harness governance
+- full studio release pipeline + docs gitignore
+- harness-upgrade auto-commits after upgrade
+- studio release — end-of-cycle automation
+- harness-upgrade automation tool
+- O2i O1d O1f — Skill filter, Analyst tool restrict, Integration slim
+- O1c O1e — Executor context + --add-dir + Review parallelization
+- Phase 5-6 — parallel pipelines + caching + knowledge flywheel
+- Phase 1-4 — PMO integration + output style + event-driven scheduler
+- harness init on studio — CLAUDE.md + 49 CONTEXT.md + config v0.13.0
+- harness v0.13.0 integration + pipeline observability
+- per-agent session cache metrics from .agent.log
+- SessionSummaryAgent — extract non-Goal knowledge at daemon startup
+- full pipeline contract tests — 26 tests, 633ms
+- G33 — auto-@analyst for high/critical discoveries
+- G33 — unified discovery exposure mechanism
+- G30/G31/G32 — unified events, data lifecycle TTL, COS backup
+- self-optimization flywheel — Monitor auto-applies routing + budget
+- harness-sync — auto-init on every install/update via prepare hook
+- DailyReflection Agent + enriched session tracking
+- dynamic model routing — persistence, downgrade, ε-greedy
+- studio run auto-routes to #研发-dev in dev mode
+- add #研发-dev channel + upgrade harness to 0.12.12
+- studio dev — isolated dev.db, port 3001, same pipeline
+- add studio dev command — hot-reload dev mode on port 3001
+- Knowledge Engine E2E gap fixes + modelGateway JSON extraction
+- topology-agnostic ReviewAgent + DeployAgent for main→master merge
+- MCP tools (systemHealth + emitEvent + publishPackage) + fix tool-registry enabled default
+- Auditor high-risk suggestions → bell notifications + #system cards
+- Auditor agent user model quality + knowledge circuit health analysis
+- auto-run update-user-model daily via MonitorAgent 24h cycle
+- pipeline-wide logging, knowledge infrastructure, user model engine
+- P2.5b — complete agent consumer loop (PostEval, Triage, Monitor)
+- P2.5b — knowledge consumer loop for DeployAgent + AuditorAgent
+- knowledge evolution closed loop — quality gate + reference tracking + promote
+- knowledge gap audit implementation — P0/P1/P2 complete
+- complete pipeline — DeployAgent merge/deploy/cleanup + Monitor GC
 
----
+### Fixed
+- un-ignore CAPABILITIES.md — should be tracked
+- skip commit when no changes
+- release script sh() null trim + MSG parsing
+- Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency
+- DeployAgent cleanup runs regardless of push/deploy outcome
+- bump deploy push timeout 60s→120s for slow networks
+- test gate evidence — accept keyEvidence[] as fallback
+- abandon pending executions too on restart
+- test gate — pass test result directly instead of wrapping in object
+- pipeline blocking — zombie execution + test gate evidence
+- prevent zombie execution blocking pipeline after daemon restart
+- P0 noise + P1 data quality — 4 pipeline hygiene fixes
+- Analyst always writes architectureContext — including Simple tier
+- Executor prompt — require testResults evidence in .progress.json
+- P0.3 beforeAgentDispatch context completion + OpsAgent restart cascade
+- OpsAgent skip restart when daemon busy, health check non-blocking
+- graceful shutdown — wait for running Claude tasks before exit
+- use DISCORD_DAILY_CHANNEL env var instead of hardcoded channel
+- token tracking, accidental Goal, code integration
+- replace boot token with PID-based session validity detection
+- P0-1 integration fallback — only return on success, fall through on failure
+- pipeline gap closure — 8 fixes from session bootstrap audit
+- (agent-executor): cmd construction — remove cat pipe, 2>&1, tee
+- (daemon): session-manager cmd construction — remove cat pipe, skip-permissions, 2>&1
+- pipeline self-bootstrap — 8 fixes from first-principles analysis
+- knowledge_health_degraded type + auto-run update-user-model daily
+- P2.5b — scan actual agent output for [REF:xxx], inject knowledge into ReviewAgent
+- close 4 knowledge pipeline gaps — prompts, injection, cold start, phantom deps
+- parser filter — only keep groups with AC checkboxes
+- silent failure notification + smaller AC groups
+- re-apply branch collision retry to agent-executor
+- restore agent-executor + re-apply task.prompt injection
+- Worktree GC hourly + branch collision auto-retry
+- handleGoalFailed project.update non-blocking
+- createGoalDocument projectId + trace-pipeline collector API
+- parseAcGroupsFromMarkdown stops at implementation section
+- empty AC fallback to step title+description in sub-agent prompt
+- include task.prompt in AgentExecutor session 1
+- JSON.parse on already-parsed Prisma JSON field
+- analyst-trigger knowledge-query import path
+- Router → ExpressRouter in route-registry health routes
+- add Cache-Control to SPA fallback route
+- AuthModal hardcoded email → email input field
+- load config in index.ts regardless of startup method
+- remove broken decisionChainExtractor.startListening() call
+- replace pnpm/action-setup with npm install -g pnpm
+- pnpm version conflict — sync packageManager with action-setup
+- CI workflows — pnpm, harness devDep, remove dead jobs
 
-> 此文件可由 `harness sync-docs` 辅助维护
+### Security
+- replace git add -A with git add -u in release script
+- remove hardcoded admin credentials from README
+
+### Dependencies
+- harness 0.13.2 → 0.13.3
+- harness 0.13.1 → 0.13.2
+- harness 0.13.0 → 0.13.1 (auto-upgrade via harness-upgrade.ts)
+- upgrade @dommaker/harness to 0.13.0
+
+### Other
+- /root/.nvm/versions/node/v22.22.0/bin/node
+- test: pipeline contract tests — stage-level input/output format verification
+- perf: pre-flight API key check + raise model routing thresholds
+- perf: Analyst prefer merge dependent AC groups over serial chains
+- perf: P2-2/P2-1/P1-4 — model routing, token tracking, analyst depth
+- perf: P0-1/2/3 — integration to code, session cache proactive, harness ctx
+- refactor: extract duplicate process IO to studio-shared/node
+- RequirementGate: AC group quality validation + tier escalation
+- Reviewer: add forensic stance for fallback/hack detection
+- PostEval Agent: delivery completeness audit (9th Agent)
+- Update custom-constraints: business case for no_fallback guideline
+- Update harness to ^0.12.3 + add no_fallback_without_root_cause
+- H1+H3+H4: KnowledgeBus + Monitor→Bus + Triage→Bus
+- H2+C2: Ops rules data-driven + worktree GC + type fixes
+- M4+M1: env docs + health endpoint
+- C1: Goal state machine — TypeScript type guards
+- Ops Agent: gate cloudflared behind CLOUDFLARED_ENABLED env var
+- Ops Agent: add cloudflared tunnel monitoring + auto-restart
+- Add Cache-Control: no-cache for frontend static assets
+- Expand harness no_hardcoded_infra: cover domains/identities + record incidents
+- Ops Agent + Pre-flight Guard (P0)
+- P0.4+P0.5: Goal stuck recovery + pipeline summary card
+- P0: Pipeline traceability — traceId, PipelineRun, AuditLog, summary
+- Skill system: SkillDefinition + SkillLoader + AgentExecutor integration
+- P0.2+P0.3: KK→Analyst feedback loop + Tool pattern detection
+- P0.1: Knowledge S9 — inject preferences/rules/env into Agent prompts
+- Delete Meeting module and studio-meeting package
+- Round 2: Strip System A economy/game layer (active dependencies)
+- Round 1: Strip System A gamification layer (safe deletions)
+- Remove dead files that imported from already-deleted modules
+- Clean up dead files, fix CI workflow YAML, and remove stale architect rules
+
