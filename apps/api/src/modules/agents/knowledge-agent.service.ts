@@ -249,6 +249,13 @@ ${diff?.substring(0, 4000) || '无 diff'}
     projectId: string,
   ): Promise<void> {
     try {
+      // Part D: Resolve PMO number for knowledge tagging
+      let pmoTag = '';
+      try {
+        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { pmoNumber: true } });
+        if (project?.pmoNumber) pmoTag = `pmo:${project.pmoNumber}`;
+      } catch { /* best-effort */ }
+
       const prompt = `## 审查结果
 状态: ${reviewResult.approved ? '通过' : '未通过'}
 评分: ${reviewResult.score}/100
@@ -266,12 +273,13 @@ ${reviewResult.suggestions.map(s => `- ${s}`).join('\n') || '无'}
       if (!extraction.entries?.length) return;
 
       for (const entry of extraction.entries) {
+        const tags = [...(entry.tags || []), ...(pmoTag ? [pmoTag] : [])];
         this.safeIngest(
-          { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
-          { source: `review:${taskId}`, layer: 'project', maturity: 'draft', tags: entry.tags, projects: [projectId] },
+          { type: entry.type as any, title: entry.title, content: entry.content, tags, projects: [projectId] },
+          { source: `review:${taskId}`, layer: 'project', maturity: 'draft', tags, projects: [projectId] },
         );
       }
-      logger.info('[KnowledgeAgent] Extracted from review', { taskId, entryCount: extraction.entries.length });
+      logger.info('[KnowledgeAgent] Extracted from review', { taskId, entryCount: extraction.entries.length, pmoTag: pmoTag || 'none' });
     } catch (err) {
       logger.warn('[KnowledgeAgent] extractFromReview failed', { taskId, error: String(err) });
     }
@@ -365,6 +373,13 @@ ${completionOutput.sessionCount || '?'}
     projectId: string,
   ): Promise<void> {
     try {
+      // Part D: Resolve PMO number for knowledge tagging
+      let pmoTag = '';
+      try {
+        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { pmoNumber: true } });
+        if (project?.pmoNumber) pmoTag = `pmo:${project.pmoNumber}`;
+      } catch { /* best-effort */ }
+
       const prompt = `## 部署结果
 成功: ${deployResult.success ? '是' : '否'}
 类型: ${deployResult.type}
@@ -385,12 +400,13 @@ ${deployResult.summary.slice(0, 2000)}
       if (!extraction.entries?.length) return;
 
       for (const entry of extraction.entries) {
+        const tags = [...(entry.tags || []), 'deploy', ...(pmoTag ? [pmoTag] : [])];
         this.safeIngest(
-          { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId] },
-          { source: `deploy:${taskId}`, layer: 'project', maturity: 'draft', tags: [...(entry.tags || []), 'deploy'], projects: [projectId] },
+          { type: entry.type as any, title: entry.title, content: entry.content, tags, projects: [projectId] },
+          { source: `deploy:${taskId}`, layer: 'project', maturity: 'draft', tags, projects: [projectId] },
         );
       }
-      logger.info('[KnowledgeAgent] Extracted from deploy', { taskId, entryCount: extraction.entries.length });
+      logger.info('[KnowledgeAgent] Extracted from deploy', { taskId, entryCount: extraction.entries.length, pmoTag: pmoTag || 'none' });
     } catch (err) {
       logger.warn('[KnowledgeAgent] extractFromDeploy failed', { taskId, error: String(err) });
     }

@@ -236,17 +236,29 @@ export class AgentExecutor {
       // Session-id：同 Goal 内所有 step 共享，避免每个 step 从零重建上下文
       // 持久化到 Goal 级目录（非 per-worktree），使 step 1/2/3 的 Claude 缓存互通
       const goalId = (task.parameters?.goalId as string) || task.executionId;
+      // O2a: Share session-id per agent role for cross-goal cache
+      const agentRole = (task.parameters?.agentRole as string) || 'executor';
+      const sessionDir = path.join(this.config.worktreesDir, '.shared-sessions', agentRole);
+      const sessionFile = path.join(sessionDir, 'session-id');
+      // Keep per-goal session file as fallback
       const goalSessionDir = path.join(this.config.worktreesDir, '.goal-sessions', goalId.slice(0, 16));
-      const sessionFile = path.join(goalSessionDir, 'session-id');
-      const existingId = readSessionIdFile(worktree, { sessionIdFile: sessionFile });
+      const goalSessionFile = path.join(goalSessionDir, 'session-id');
       let sessionId: string;
       let isNewSession: boolean;
-      if (existingId) {
-        sessionId = existingId;
+      // Try shared session first, fall back to per-goal
+      const sharedId = fsSync.existsSync(sessionFile) ? readSessionIdFile(worktree, { sessionIdFile: sessionFile }) : null;
+      if (sharedId) {
+        sessionId = sharedId;
         isNewSession = false;
       } else {
-        sessionId = resolveSessionId(worktree, { sessionIdFile: sessionFile });
-        isNewSession = true;
+        const existingGoalId = readSessionIdFile(worktree, { sessionIdFile: goalSessionFile });
+        if (existingGoalId) {
+          sessionId = existingGoalId;
+          isNewSession = false;
+        } else {
+          sessionId = resolveSessionId(worktree, { sessionIdFile: sessionFile });
+          isNewSession = true;
+        }
       }
 
       while (sessionCount < this.config.maxSessions) {

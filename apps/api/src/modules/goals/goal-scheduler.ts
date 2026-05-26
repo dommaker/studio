@@ -195,8 +195,63 @@ export class GoalScheduler {
       const goal = await prisma.goal.findUnique({ where: { id: goalId } });
       if (!goal) return;
 
+      // O3e: Check PMO dependency before dispatching this Goal's steps
+      try {
+        const ctx = typeof goal.context === 'string' ? JSON.parse(goal.context) : (goal.context || {});
+        const projectId = ctx?.projectId as string | undefined;
+        if (projectId) {
+          const project = await prisma.project.findUnique({ where: { id: projectId } });
+          if (project?.dependsOnPmoId) {
+            const depProject = await prisma.project.findFirst({
+              where: { pmoNumber: project.dependsOnPmoId, companyId: goal.companyId },
+            });
+            if (depProject && depProject.status !== 'completed') {
+              logger.info('[GoalScheduler] PMO dependency not met, deferring Goal', {
+                goalId, projectId, dependsOn: project.dependsOnPmoId,
+                depStatus: depProject.status,
+              });
+              return; // Don't dispatch any steps until dependency is satisfied
+            }
+          }
+        }
+      } catch (e) {
+        logger.warn('[GoalScheduler] PMO dependency check error, continuing', { error: String(e) });
+      }
+
       // 并行 dispatch（用 Promise.allSettled 替代串行 await）
-      const toDispatch = executableSteps.slice(0, availableSlots);
+      let toDispatch: any[] = executableSteps.slice(0, availableSlots);
+
+      // O3c: File conflict detection — defer steps that touch files currently being modified
+      try {
+        const currentlyRunning = await prisma.goalExecution.findMany({
+          where: { status: 'running' },
+          select: { id: true, goalId: true },
+        });
+        const activeFiles = new Set<string>();
+        for (const running of currentlyRunning) {
+          const exec = await prisma.goalExecution.findUnique({ where: { id: running.id } });
+          const input = parseJsonField<Record<string, any> | null>(exec?.input, null);
+          const files = (input?.acGroup?.files as string[]) || [];
+          files.forEach(f => activeFiles.add(f));
+        }
+        const filtered: typeof toDispatch = [];
+        for (const exec of toDispatch) {
+          const stepInput = parseJsonField<Record<string, any> | null>(exec.input, null);
+          const stepFiles = (stepInput?.acGroup?.files as string[]) || [];
+          const conflicts = stepFiles.filter(f => activeFiles.has(f));
+          if (conflicts.length > 0) {
+            logger.warn('[GoalScheduler] File conflict detected, deferring step', {
+              executionId: exec.id, conflicts,
+              conflictingWith: currentlyRunning.filter(r => r.goalId !== goalId).map(r => r.id),
+            });
+            continue;
+          }
+          filtered.push(exec);
+        }
+        toDispatch = filtered;
+      } catch (e) {
+        logger.warn('[GoalScheduler] File conflict check error, continuing with all steps', { error: String(e) });
+      }
       const results = await Promise.allSettled(
         toDispatch.map(exec => this.dispatchStep(exec, goal).catch(e => {
           logger.error('[GoalScheduler] Dispatch error', { executionId: exec.id, error: String(e) });
@@ -548,6 +603,23 @@ export class GoalScheduler {
       tier = this.routingOverrides.get(taskCategory)!;
     }
     if (this.tokenGatedGoals.has(goal.id) && tier === 'premium') tier = 'standard';
+
+    // O2c: Adaptive routing — if cache hit rate consistently low, don't spend premium tokens
+    try {
+      const recentSessions = await prisma.studioEvent.findMany({
+        where: { agentRole: 'executor', tokenInput: { gt: 0 } },
+        orderBy: { timestamp: 'desc' },
+        take: 10,
+      });
+      if (recentSessions.length >= 5) {
+        const avgCacheHitRate = recentSessions.reduce((sum, e) =>
+          sum + (e.tokenCacheRead || 0) / Math.max(e.tokenInput || 1, 1), 0) / recentSessions.length;
+        if (avgCacheHitRate < 0.3 && tier === 'premium') {
+          tier = 'standard';
+          logger.info('[GoalScheduler] Adaptive routing: downgraded to standard due to low cache hit rate', { avgCacheHitRate: avgCacheHitRate.toFixed(3) });
+        }
+      }
+    } catch { /* best-effort */ }
 
     // 更新 input 中的 model 字段，确保 task worker 拿到的是动态 tier
     if (input && tier !== input.model) {

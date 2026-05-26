@@ -15,6 +15,60 @@ import { recordPipelineRun } from '../../daemon/metrics.js';
 import type { DeployParams, DeployResult, DeployFinding, MergeBranchesParams, MergeBranchesResult } from './types.js';
 
 class DeployAgent {
+  // O3f: static merge queue for priority-based ordering
+  private static mergeQueue: Array<{ executionId: string; projectId: string; priority: string; createdAt: Date }> = [];
+  private static mergeInProgress = false;
+
+  /**
+   * O3f: Wait for turn in merge queue, ordered by priority then creation time.
+   */
+  private async acquireMergeSlot(params: DeployParams): Promise<void> {
+    const project = await prisma.project.findUnique({ where: { id: params.projectId }, select: { priority: true, createdAt: true, pmoNumber: true } });
+    const priority = project?.priority || 'medium';
+    const createdAt = project?.createdAt || new Date();
+
+    const entry = { executionId: params.executionId, projectId: params.projectId, priority, createdAt };
+    if (!DeployAgent.mergeQueue.some(e => e.executionId === entry.executionId)) {
+      DeployAgent.mergeQueue.push(entry);
+    }
+
+    // Sort queue: critical > high > medium > low, then by createdAt
+    const priorityOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    DeployAgent.mergeQueue.sort((a, b) => {
+      const pa = priorityOrder[a.priority] ?? 99;
+      const pb = priorityOrder[b.priority] ?? 99;
+      if (pa !== pb) return pa - pb;
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+    });
+
+    // Wait for our turn (busy-wait polling, acceptable for deploy which is already I/O bound)
+    while (true) {
+      const first = DeployAgent.mergeQueue[0];
+      if (first?.executionId === params.executionId && !DeployAgent.mergeInProgress) break;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    DeployAgent.mergeInProgress = true;
+    logger.info('[DeployAgent] Acquired merge slot', {
+      executionId: params.executionId,
+      pmoNumber: project?.pmoNumber,
+      queuePosition: DeployAgent.mergeQueue.findIndex(e => e.executionId === params.executionId),
+      queueOrder: DeployAgent.mergeQueue.map(e => e.executionId),
+    });
+  }
+
+  /**
+   * O3f: Release merge slot, allowing next in queue to proceed.
+   */
+  private releaseMergeSlot(executionId: string): void {
+    DeployAgent.mergeQueue = DeployAgent.mergeQueue.filter(e => e.executionId !== executionId);
+    DeployAgent.mergeInProgress = false;
+    logger.info('[DeployAgent] Released merge slot', {
+      executionId,
+      remainingQueue: DeployAgent.mergeQueue.map(e => e.executionId),
+    });
+  }
+
   async deploy(params: DeployParams): Promise<DeployResult> {
     const startTime = Date.now();
     const timings: Record<string, number> = {};
@@ -26,11 +80,15 @@ class DeployAgent {
       if (ctx) logger.info('[DeployAgent] Historical deploy context loaded', { context: ctx.slice(0, 200) });
     } catch { /* non-blocking */ }
 
+    // O3f: Acquire merge queue slot before merging
+    await this.acquireMergeSlot(params);
+
     // 1. Merge to master
     const mergeStart = Date.now();
     const mergeResult = await this.mergeToMaster(params);
     timings.mergeMs = Date.now() - mergeStart;
     if (!mergeResult.success) {
+      this.releaseMergeSlot(params.executionId);
       recordPipelineRun({ source: 'pipeline', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: mergeResult.summary, sessionId: params.executionId }).catch(() => {});
       await this.cleanupTaskBranches(params); // cleanup: merge failed, nothing to keep
       return mergeResult;
@@ -49,6 +107,9 @@ class DeployAgent {
         : await this.generateCompanyChecklist(params))
       : pushResult;
     timings.deployMs = Date.now() - deployStart;
+
+    // O3f: Release merge slot so next in queue can proceed
+    this.releaseMergeSlot(params.executionId);
 
     // 4. Cleanup worktrees + task branches (always run, regardless of push/deploy outcome)
     const cleanupStart = Date.now();
