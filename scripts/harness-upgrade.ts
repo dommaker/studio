@@ -102,6 +102,19 @@ async function main() {
     console.log('\n⚠️  MANUAL FIX REQUIRED:');
     incompatibleRefs.forEach(r => console.log(`   Fix ${r.file}:${r.line} — ${r.api} was removed`));
   }
+
+  // Auto-commit if files were updated
+  if (!DRY_RUN && updatedFiles.length > 0 && needsUpgrade) {
+    console.log('\n📤 Auto-committing...');
+    try {
+      execSync('git add -u package.json apps/*/package.json packages/*/package.json pnpm-lock.yaml 2>/dev/null || true', { cwd: STUDIO_ROOT, stdio: 'pipe' });
+      execSync(`git commit -m "deps: harness ${currentVersion} → ${latestVersion}" --no-verify`, { cwd: STUDIO_ROOT, stdio: 'pipe' });
+      execSync('git push origin master', { cwd: STUDIO_ROOT, stdio: 'pipe' });
+      console.log('   ✅ Committed + pushed');
+    } catch (e: any) {
+      console.log(`   ⚠️  Commit failed: ${e.stderr || e.message}`);
+    }
+  }
 }
 
 function getCurrentVersion(): string {
