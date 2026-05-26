@@ -71,6 +71,7 @@ CLAUDE.md
 
 # Internal docs (not for public release)
 docs/
+!docs/configuration.md
 DESIGN_REFACTOR.md
 
 # Development artifacts
@@ -79,4 +80,3 @@ DESIGN_REFACTOR.md
 .env.beta
 CAPABILITIES.md
 *.tgz
-docs/
