@@ -49,7 +49,7 @@ async function main() {
   }
 
   console.log('\n📤 Step 4: Commit and push...');
-  sh('git add -A');
+  sh('git add -u');  // only tracked files — never stage untracked (.env etc.)
   sh(`git commit -m "${MSG}" --no-verify`);
   sh('git push origin master');
 
