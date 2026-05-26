@@ -77,3 +77,5 @@ DESIGN_REFACTOR.md
 1
 .gitignore.bak
 .env.beta
+CAPABILITIES.md
+*.tgz
