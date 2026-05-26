@@ -53,8 +53,14 @@ async function main() {
 
   console.log('\n📤 Step 4: Commit and push...');
   sh('git add -u');  // only tracked files — never stage untracked (.env etc.)
-  sh(`git commit -m "${MSG}" --no-verify`);
-  sh('git push origin master');
+  const hasChanges = sh('git diff --cached --quiet 2>&1 || echo "HAS_CHANGES"');
+  if (hasChanges.includes('HAS_CHANGES')) {
+    sh(`git commit -m "${MSG}" --no-verify`);
+    sh('git push origin master');
+    console.log('   ✅ Pushed');
+  } else {
+    console.log('   ⏭️  No changes to commit');
+  }
 
   console.log('\n✅ Release complete!\n');
 }
