@@ -13,8 +13,8 @@ importers:
         version: 4.22.3
     devDependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.41
@@ -28,8 +28,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -173,8 +173,8 @@ importers:
   apps/web:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-api':
         specifier: workspace:*
         version: link:../api
@@ -285,8 +285,8 @@ importers:
   packages/studio-agent:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -328,8 +328,8 @@ importers:
   packages/studio-audit:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -350,8 +350,8 @@ importers:
   packages/studio-capability:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -381,8 +381,8 @@ importers:
   packages/studio-monitor:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -415,8 +415,8 @@ importers:
   packages/studio-notification:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -434,8 +434,8 @@ importers:
   packages/studio-prisma:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@prisma/client':
         specifier: ^5.7.0
         version: 5.22.0(prisma@5.22.0)
@@ -456,8 +456,8 @@ importers:
   packages/studio-shared:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       eventemitter3:
         specifier: ^5.0.0
         version: 5.0.4
@@ -478,8 +478,8 @@ importers:
   packages/studio-skill:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -494,8 +494,8 @@ importers:
   packages/studio-spec:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-notification':
         specifier: workspace:*
         version: link:../studio-notification
@@ -528,8 +528,8 @@ importers:
   packages/studio-task:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.13.1
-        version: 0.13.1
+        specifier: ^0.13.2
+        version: 0.13.2
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -688,8 +688,8 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dommaker/harness@0.13.1':
-    resolution: {integrity: sha512-yuKKMoZjryr0HZ2QjoODD5pL18ldxbgy+rMt5cFH6dHsMztQ1x7+GGuuv1PE6FtyGMwH/tzPOJY0nul1C/N73w==}
+  '@dommaker/harness@0.13.2':
+    resolution: {integrity: sha512-9WCVNNLCHCnoDgh/Qa9A79xdrnZZYLaoGJdorfllyhQnoBioL+ZjegwL7aOZ/fVQ9lIbGiYCChN0O/cIaVK9xg==}
     engines: {node: '>=18.0.0'}
     hasBin: true
 
@@ -3928,7 +3928,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dommaker/harness@0.13.1':
+  '@dommaker/harness@0.13.2':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0
