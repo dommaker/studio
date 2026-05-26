@@ -60,7 +60,7 @@ export function execSh(
     let stderr = '';
     let settled = false;
 
-    child.stdout.on('data', (data: Buffer) => {
+    child.stdout?.on('data', (data: Buffer) => {
       stdout += data.toString();
       if (opts.maxBuffer && stdout.length > opts.maxBuffer) {
         settled = true;
@@ -70,7 +70,7 @@ export function execSh(
       }
     });
 
-    child.stderr.on('data', (data: Buffer) => {
+    child.stderr?.on('data', (data: Buffer) => {
       stderr += data.toString();
     });
 
