@@ -7,7 +7,7 @@
  */
 
 import { logger, getModelForTier } from '@dommaker/studio-shared';
-import { formatConstraintsForPrompt } from '@dommaker/harness';
+import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';

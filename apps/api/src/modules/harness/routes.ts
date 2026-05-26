@@ -570,8 +570,8 @@ router.post('/check-constraints', async (req: Request, res: Response) => {
     const { operation, taskDescription, projectPath, hasRequirement, hasRequirementReview } = req.body;
     if (!operation) return res.status(400).json({ error: 'operation is required' });
 
-    // Use checkConstraintsSafe (S11) — never throws, returns full results
-    const result = await harnessModule!.checkConstraintsSafe({
+    // Use checkConstraints (checkConstraintsSafe removed in harness 0.13.0)
+    const result = await harnessModule!.checkConstraints({
       operation: operation as string,
       taskDescription,
       projectPath,

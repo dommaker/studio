@@ -18,7 +18,7 @@ import { recordPipelineRun, parseClaudeUsage } from '../../daemon/metrics.js';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { goalService, GoalStep, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
-import { formatConstraintsForPrompt } from '@dommaker/harness';
+import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { roleConfigService } from '../roles/role-config.service.js';
 import { eventStore, EventStore } from '../../core/event-store.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
