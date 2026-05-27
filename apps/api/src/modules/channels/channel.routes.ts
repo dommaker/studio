@@ -27,10 +27,12 @@ const router = Router();
 function parseAcGroupsFromMarkdown(content: string): Array<{
   id: string; acs: string[]; files: string[]; dependencies: string[];
   implementationNotes: string; codePatterns: string[]; gotchas: string[];
+  modelTier?: string; modelTierReason?: string;
 }> {
   const groups: Array<{
     id: string; acs: string[]; files: string[]; dependencies: string[];
     implementationNotes: string; codePatterns: string[]; gotchas: string[];
+    modelTier?: string; modelTierReason?: string;
   }> = [];
   const lines = content.split('\n');
 
@@ -50,6 +52,17 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
       if (currentSection === 'notes' && currentGroup) {
         currentGroup.implementationNotes += '\n' + line;
       }
+      continue;
+    }
+
+    // MODEL_TIER HTML comment: <!-- MODEL_TIER {"tier":"fast","reason":"..."} -->
+    const modelTierMatch = line.match(/<!--\s*MODEL_TIER\s+(\{.+\})\s*-->/);
+    if (modelTierMatch && currentGroup) {
+      try {
+        const mt = JSON.parse(modelTierMatch[1]);
+        currentGroup.modelTier = mt.tier;
+        currentGroup.modelTierReason = mt.reason || '';
+      } catch { /* ignore malformed */ }
       continue;
     }
 

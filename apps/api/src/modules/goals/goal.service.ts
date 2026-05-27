@@ -42,61 +42,6 @@ export interface GoalStep {
   estimatedDuration: string; // 预估耗时
 }
 
-/**
- * Superpowers 三层模型路由：评估任务复杂度
- *
- * fast     (flash): 小改动、配置、文档
- * standard (flash): 常规开发
- * premium  (pro):   架构、重构、安全
- */
-async function assessTaskComplexity(acGroup: { acs?: string[]; files?: string[] }): Promise<ModelTier> {
-  const acs = acGroup.acs || [];
-  const files = acGroup.files || [];
-  const allText = [...acs, ...files].join(' ');
-
-  const premiumKeywords = ['架构', '重构', '设计', '迁移', '集成', 'auth', '安全', '性能优化', '数据库迁移'];
-  const fastKeywords = ['修复', 'fix', 'typo', '拼写', '配置', 'config', '文档', 'doc', '补充测试', '小改动', '更新', 'update', '依赖'];
-
-  const isPremium = premiumKeywords.some(k => allText.toLowerCase().includes(k.toLowerCase()));
-  const isFast = fastKeywords.some(k => allText.toLowerCase().includes(k.toLowerCase())) && acs.length <= 2 && files.length <= 3;
-
-  let tier: ModelTier = 'standard';
-  if (isPremium) tier = 'premium';
-  else if (isFast) tier = 'fast';
-
-  // Auditor→Analyst 反馈回路: 加载最新 tier 成功率，调整选择
-  try {
-    const latestStats = await prisma.decisionAudit.findFirst({
-      where: { eventType: 'tier_success_rate' },
-      orderBy: { createdAt: 'desc' },
-      select: { summary: true },
-    });
-    if (latestStats?.summary) {
-      const tierRates: Array<{ tier: string; total: number; failed: number; successRate: number }> =
-        JSON.parse(latestStats.summary as string);
-      const currentTier = tierRates.find(t => t.tier === tier);
-
-      // 如果当前 tier 成功率 < 50% 且样本量 >= 5，降级
-      if (currentTier && currentTier.total >= 5 && currentTier.successRate < 50) {
-        if (tier === 'premium') tier = 'standard';
-        else if (tier === 'fast') tier = 'standard';
-      }
-      // 如果 premium 比 standard 的 成功率更高，升级非 premium 任务
-      const premiumStats = tierRates.find(t => t.tier === 'premium');
-      const standardStats = tierRates.find(t => t.tier === 'standard');
-      if (tier !== 'premium' && premiumStats && standardStats &&
-          premiumStats.total >= 5 && standardStats.total >= 5 &&
-          premiumStats.successRate > standardStats.successRate + 20) {
-        tier = 'premium';
-      }
-    }
-  } catch {
-    // 反馈回路不影响主流程，静默降级
-  }
-
-  return tier;
-}
-
 export interface GoalPlanDraft {
   steps: GoalStep[];
   reasoning: string;         // LLM 的推理过程
@@ -315,7 +260,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
   async createGoalFromChannelDoc(input: {
     title: string;
     summary: string;
-    acGroups: Array<{ id: string; acs: string[]; files: string[]; dependencies: string[]; implementationNotes?: string; codePatterns?: string[]; gotchas?: string[]; architectureContext?: Record<string, any> }>;
+    acGroups: Array<{ id: string; acs: string[]; files: string[]; dependencies: string[]; implementationNotes?: string; codePatterns?: string[]; gotchas?: string[]; architectureContext?: Record<string, any>; modelTier?: string; modelTierReason?: string }>;
     constraints?: string[];
     companyId: string;
     sourceChannelId: string;
@@ -335,7 +280,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
     const groupIdToIndex = new Map(acGroups.map((g, i) => [g.id, i]));
 
     const steps: GoalStep[] = await Promise.all(acGroups.map(async (group, index) => {
-      const model = await assessTaskComplexity(group);
+      const model: ModelTier = (group.modelTier as ModelTier) || 'standard';
       return {
         index,
         title: group.id,

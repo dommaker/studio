@@ -43,6 +43,8 @@ interface RequirementsDocJson {
     };
     codePatterns: string[];
     gotchas: string[];
+    modelTier?: 'fast' | 'standard' | 'premium';
+    modelTierReason?: string;
   }>;
   constraints: string[];
   tags: string[];
@@ -249,6 +251,11 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '- 将代码库发现写入 .analyst/knowledge.md（新 markdown section）',
     '- **接口假设必须验证**：实现指南中引用的每个 hook/API/MCP tool/CLI 命令，必须在代码库中确认存在',
     '- **gotchas 要用红线格式**：标注"不可删除: X (下游: Y)"、"不可修改: A (消费者: B)"',
+    '- **modelTier 决策**：为每个 AC 组标注执行模型档位（你探索过代码，知道真实复杂度）：',
+    '  - fast: files ≤ 2，implementationNotes 精确到函数名+行号，gotchas 为空或仅信息性，无跨模块依赖',
+    '  - standard: files 3~4，implementationNotes 有方向但缺部分细节，gotchas 有约束但非红线，模块内依赖',
+    '  - premium: files ≥ 5，architectureContext 有完整调用链，gotchas 包含红线约束，涉及架构变更/安全/外部 API，需要 Executor 自己探索',
+    '  - 核心区别：fast 照着做，standard 想着做，premium 探着做',
     '',
     '## 输出格式',
     `将 RequirementsDoc JSON 写入 ${outputFile}：`,
@@ -277,7 +284,9 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '      "verifiedAt": "abc1234 (commit hash)"',
     '    },',
     '    "codePatterns": ["参考实现（文件:行号）"],',
-    '    "gotchas": ["⚠️ 潜在坑位"]',
+    '    "gotchas": ["⚠️ 潜在坑位"],',
+    '    "modelTier": "fast|standard|premium",',
+    '    "modelTierReason": "选档理由（一句话）"',
     '  }],',
     '  "constraints": ["约束"],',
     '  "tags": ["标签"],',
@@ -667,6 +676,9 @@ class AnalystTriggerService {
     sections.push('', '## AC Groups');
     for (const g of doc.acGroups) {
       sections.push('', `### ${g.id}`);
+      if (g.modelTier) {
+        sections.push(`<!-- MODEL_TIER ${JSON.stringify({ tier: g.modelTier, reason: g.modelTierReason || '' })} -->`);
+      }
       sections.push('', '#### 验收标准');
       for (const ac of g.acs) sections.push(`- [ ] ${ac}`);
       if (g.implementationNotes) {
