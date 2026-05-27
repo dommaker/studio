@@ -1,26 +1,6 @@
 {
   "apps/api": [
     {
-      "file": "apps/api/src/index.ts",
-      "line": 12,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/index.ts",
-      "line": 15,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/middleware/audit-logger.ts",
-      "line": 8,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/agents/auditor-agent.service.ts",
-      "line": 866,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
       "line": 685,
       "code": "TS2353"
@@ -61,36 +41,6 @@
       "code": "TS2339"
     },
     {
-      "file": "apps/api/src/modules/agents/routes.ts",
-      "line": 3,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/audit-logs/routes.ts",
-      "line": 3,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/auth/routes.ts",
-      "line": 4,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/capabilities/routes.ts",
-      "line": 6,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/discord/routes.ts",
-      "line": 261,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/discord/routes.ts",
-      "line": 286,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/discord/routes.ts",
       "line": 344,
       "code": "TS2353"
@@ -119,11 +69,6 @@
       "file": "apps/api/src/modules/executions/routes.ts",
       "line": 229,
       "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/executions/routes.ts",
-      "line": 244,
-      "code": "TS2307"
     },
     {
       "file": "apps/api/src/modules/executions/routes.ts",
@@ -177,11 +122,6 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 18,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
       "line": 123,
       "code": "TS2339"
     },
@@ -204,11 +144,6 @@
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
       "line": 1295,
       "code": "TS2322"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 14,
-      "code": "TS2307"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
@@ -991,11 +926,6 @@
       "code": "TS2353"
     },
     {
-      "file": "apps/api/src/modules/notifications/routes.ts",
-      "line": 6,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/pmo/okr.service.ts",
       "line": 261,
       "code": "TS2322"
@@ -1096,31 +1026,6 @@
       "code": "TS2322"
     },
     {
-      "file": "apps/api/src/modules/roles/role.service.ts",
-      "line": 209,
-      "code": "TS2345"
-    },
-    {
-      "file": "apps/api/src/modules/roles/routes.ts",
-      "line": 13,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/roles/routes.ts",
-      "line": 20,
-      "code": "TS2345"
-    },
-    {
-      "file": "apps/api/src/modules/spec-reviews/routes.ts",
-      "line": 11,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/spec-reviews/spec-review.service.ts",
-      "line": 13,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/spec-reviews/spec-review.service.ts",
       "line": 61,
       "code": "TS2322"
@@ -1129,16 +1034,6 @@
       "file": "apps/api/src/modules/spec-reviews/spec-review.service.ts",
       "line": 283,
       "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/specs/routes.ts",
-      "line": 14,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/tools-std/routes.ts",
-      "line": 11,
-      "code": "TS2307"
     },
     {
       "file": "apps/api/src/modules/tools-std/skill-extraction.service.ts",
@@ -1159,11 +1054,6 @@
       "file": "apps/api/src/modules/tools-std/skill-proposal-routes.ts",
       "line": 76,
       "code": "TS2551"
-    },
-    {
-      "file": "apps/api/src/test-executor.ts",
-      "line": 1,
-      "code": "TS2307"
     }
   ],
   "packages/studio-monitor": [
@@ -1174,8 +1064,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-27T13:18:28.269Z",
-    "totalErrors": 234,
-    "commit": "6d1744aabd98ab126290c6214eb72d973c5596e8"
+    "generated": "2026-05-27T13:46:08.746Z",
+    "totalErrors": 212,
+    "commit": "a88bccd6a7e35efa6399ae16175e87981e294741"
   }
 }

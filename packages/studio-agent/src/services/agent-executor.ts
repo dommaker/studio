@@ -697,6 +697,8 @@ export class AgentExecutor {
       '- 每完成一个步骤后立即更新 .progress.json',
       '- 全部 AC 测试通过后才设置 .progress.json allComplete: true',
       '- 将测试证据写入 .progress.json.testResults: { passed, total, failed: 0, command: "npm test", evidence: "<测试输出>" }',
+      '- 将设计决策写入 .progress.json.designNotes: { decisions: ["选X不选Y因为Z"], failedAttempts: ["试过A遇到B问题"], uncertainties: ["C部分需要特别关注"], constraintsDiscovered: ["实现中发现AC未覆盖的限制D"] }',
+      '- designNotes 只记录对 Review 有意义的决策信息，不写琐碎细节',
     ];
 
     await fs.writeFile(path.join(worktree, 'REQUIREMENTS.md'), sections.join('\n'), 'utf-8');

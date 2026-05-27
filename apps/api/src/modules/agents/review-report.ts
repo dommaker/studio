@@ -107,6 +107,15 @@ ${taskDescription}
 
 ### 验收标准
 ${acList}
+
+### Executor 设计笔记
+读 \`.progress.json\` 的 \`designNotes\` 字段（如果存在）。它包含 Executor 在实现过程中的关键决策:
+- \`decisions\`: 为什么选这个方案而不是别的
+- \`failedAttempts\`: 尝试过但放弃的路径及原因
+- \`uncertainties\`: Executor 自己不确定、需要重点审查的区域
+- \`constraintsDiscovered\`: 实现过程中发现的 AC 未覆盖的限制
+
+使用这些信息来理解**为什么**这样实现，而不只是**做了什么**。如果 Executor 标记了 uncertainties，这些区域是审查重点。
 ${previousInstructions}
 
 ---
@@ -117,6 +126,7 @@ ${stanceSection}
 
 每个立场审查相关的问题域。通用检查项：
 - 读 git diff 和变更文件完整内容
+- 读 .progress.json 的 designNotes（如果有）
 - 运行 Executor 的测试，确认通过
 - 逐条 AC 核对：代码逻辑是否真的满足了 AC？
 - 补写边界测试，尝试打破代码
@@ -126,17 +136,20 @@ forensic (根因侦探) 专项检查:
 - 连续 commit 是否有"反复修同一个问题"的模式？（2+ commits 同 symptom）
 - fallback 是否有注释说明根因？无说明 = hgih risk
 - 异常处理是否真正修复了根因，还是只吞掉了错误？
+- 对照 designNotes.failedAttempts：放弃的路径是否留下了未清理的代码或注释？
 
 ac-compliance (规范合规者) 专项检查:
 - 逐条 AC 对照 diff：diff 中的每一处变更都必须属于某个 AC 的范围
 - 不属于任何 AC 的变更 → severity='error'，标注为"非目标变更"
 - 被删除的内容（原命令行参数、原代码逻辑）逐项检查：是否在 AC 中明确要求删除？
 - 不在 AC 中的删除 → severity='error'，标注为"未授权的删除"
+- 对照 designNotes.decisions：方案选择是否合理？是否存在 AC 要求但 decisions 中回避了的部分？
 
 **阻断规则**:
 - 任何 severity='error' 的问题 → overallApproved 必须为 false。error 不是"建议"，是阻断。
 - 非目标变更（改了不该改的）→ error
 - 未授权删除（删了不该删的）→ error
+- designNotes.uncertainties 中标记的区域如果确实有问题 → error（因为 Executor 已经知道了风险但没处理好）
 
 ---
 
