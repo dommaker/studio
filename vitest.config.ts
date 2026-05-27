@@ -19,7 +19,7 @@ export default defineConfig({
     },
     envFile: './.env.test',
     env: {
-      DATABASE_URL: 'file:./packages/studio-prisma/prisma/test.db',
+      DATABASE_URL: 'file:./test.db',
     },
     hookTimeout: 30000,
     setupFiles: ['./tests/setup.ts'],
