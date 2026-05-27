@@ -147,7 +147,9 @@ export type MonitorAlertSource =
   | 'tool_error_rate'
   | 'tool_zero_success'
   | 'session_file_size'
-  | 'review_quality';
+  | 'review_quality'
+  | 'deploy_push_failed'
+  | 'proxy_restart_exhausted';
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';

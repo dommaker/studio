@@ -108,6 +108,8 @@ export class MonitorAgent {
     alerts.push(...await this.checkSessionFileHealth());
     alerts.push(...await this.checkReviewQuality());
     alerts.push(...await this.checkTokenBudget());
+    alerts.push(...await this.checkDeployPushFailed());
+    alerts.push(...await this.checkProxyRestartExhausted());
     // DailyReflection: 每天 23:50 聚合一次每日洞察
     await this.dailyReflection();
 
@@ -169,6 +171,8 @@ export class MonitorAgent {
       tool_zero_success: null,
       session_file_size: null,
       review_quality: null,
+      deploy_push_failed: 'ext_dependency',
+      proxy_restart_exhausted: 'ext_dependency',
     };
 
     for (const alert of alerts) {
@@ -665,6 +669,66 @@ export class MonitorAgent {
       }
     } catch (e) {
       logger.warn('[MonitorAgent] Token budget check failed', { error: String(e) });
+    }
+    return alerts;
+  }
+
+  /**
+   * Check recent deploy_push_failed events from DeployAgent.
+   * Push failures are critical — code is merged locally but not pushed to remote.
+   */
+  private async checkDeployPushFailed(): Promise<MonitorAlert[]> {
+    const alerts: MonitorAlert[] = [];
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'deploy_push_failed', createdAt: { gte: oneHourAgo } },
+        select: { id: true, payload: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+      });
+      for (const event of events) {
+        let details: any = {};
+        try { details = JSON.parse(event.payload || '{}'); } catch {}
+        alerts.push({
+          source: 'deploy_push_failed',
+          level: 'critical',
+          message: `Deploy push failed: ${details.error || 'unknown error'} (branch: ${details.branch || '?'})`,
+          timestamp: new Date(event.createdAt).getTime(),
+        });
+      }
+    } catch (e) {
+      logger.warn('[MonitorAgent] Deploy push failed check error', { error: String(e) });
+    }
+    return alerts;
+  }
+
+  /**
+   * Check recent proxy_restart_exhausted events from OpsAgent.
+   * Proxy restart limit reached — external connectivity at risk.
+   */
+  private async checkProxyRestartExhausted(): Promise<MonitorAlert[]> {
+    const alerts: MonitorAlert[] = [];
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'proxy_restart_exhausted', createdAt: { gte: oneHourAgo } },
+        select: { id: true, payload: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take: 3,
+      });
+      for (const event of events) {
+        let details: any = {};
+        try { details = JSON.parse(event.payload || '{}'); } catch {}
+        alerts.push({
+          source: 'proxy_restart_exhausted',
+          level: 'critical',
+          message: `Proxy restart limit exhausted (${details.restartsThisHour || '?'} restarts/h, ${details.synSentCount || '?'} SYN-SENT)`,
+          timestamp: new Date(event.createdAt).getTime(),
+        });
+      }
+    } catch (e) {
+      logger.warn('[MonitorAgent] Proxy restart exhausted check error', { error: String(e) });
     }
     return alerts;
   }

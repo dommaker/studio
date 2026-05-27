@@ -1,21 +1,6 @@
 {
   "apps/api": [
     {
-      "file": "apps/api/src/core/database.ts",
-      "line": 2,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/core/database.ts",
-      "line": 3,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/daemon/metrics.ts",
-      "line": 2,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/index.ts",
       "line": 12,
       "code": "TS2307"
@@ -31,59 +16,49 @@
       "code": "TS2307"
     },
     {
-      "file": "apps/api/src/middleware/auth.ts",
-      "line": 8,
-      "code": "TS2305"
-    },
-    {
-      "file": "apps/api/src/middleware/auth.ts",
-      "line": 8,
-      "code": "TS2305"
-    },
-    {
-      "file": "apps/api/src/middleware/auth.ts",
-      "line": 9,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/agents/auditor-agent.service.ts",
-      "line": 11,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/agents/auditor-agent.service.ts",
       "line": 866,
       "code": "TS2307"
     },
     {
-      "file": "apps/api/src/modules/agents/deploy-agent.service.ts",
-      "line": 10,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/agents/knowledge-agent.service.ts",
-      "line": 10,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 685,
+      "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 16,
-      "code": "TS2307"
+      "line": 686,
+      "code": "TS2353"
     },
     {
-      "file": "apps/api/src/modules/agents/ops-agent.service.ts",
-      "line": 13,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 687,
+      "code": "TS2353"
     },
     {
-      "file": "apps/api/src/modules/agents/ops-agent.service.ts",
-      "line": 253,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 697,
+      "code": "TS2339"
     },
     {
-      "file": "apps/api/src/modules/agents/post-eval-agent.service.ts",
-      "line": 9,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 715,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 716,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 717,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 727,
+      "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/agents/routes.ts",
@@ -101,17 +76,7 @@
       "code": "TS2322"
     },
     {
-      "file": "apps/api/src/modules/agents/triage-agent.service.ts",
-      "line": 2,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/audit-logs/routes.ts",
-      "line": 3,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/audit/audit-subscriber.ts",
       "line": 3,
       "code": "TS2307"
     },
@@ -121,28 +86,8 @@
       "code": "TS2307"
     },
     {
-      "file": "apps/api/src/modules/auth/service.ts",
-      "line": 6,
-      "code": "TS2305"
-    },
-    {
-      "file": "apps/api/src/modules/auth/service.ts",
-      "line": 6,
-      "code": "TS2305"
-    },
-    {
-      "file": "apps/api/src/modules/auth/service.ts",
-      "line": 7,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/capabilities/routes.ts",
       "line": 6,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 3,
       "code": "TS2307"
     },
     {
@@ -176,29 +121,9 @@
       "code": "TS2339"
     },
     {
-      "file": "apps/api/src/modules/channels/channel-init.ts",
-      "line": 2,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/channels/channel-message.service.ts",
-      "line": 2,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/channels/channel.routes.ts",
-      "line": 5,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/channels/discovery-exposure.service.ts",
-      "line": 8,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/channels/requirements-doc.routes.ts",
-      "line": 3,
-      "code": "TS2307"
+      "line": 105,
+      "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/dingtalk/routes.ts",
@@ -211,19 +136,14 @@
       "code": "TS2769"
     },
     {
-      "file": "apps/api/src/modules/discord/command-runner.ts",
-      "line": 7,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/discord/routes.ts",
-      "line": 9,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/discord/routes.ts",
       "line": 114,
       "code": "TS2769"
+    },
+    {
+      "file": "apps/api/src/modules/discord/routes.ts",
+      "line": 188,
+      "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/discord/routes.ts",
@@ -246,9 +166,29 @@
       "code": "TS2769"
     },
     {
-      "file": "apps/api/src/modules/events/event.routes.ts",
-      "line": 9,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/discord/routes.ts",
+      "line": 332,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/discord/routes.ts",
+      "line": 344,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/environments/routes.ts",
+      "line": 145,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 51,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 63,
+      "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/executions/routes.ts",
@@ -257,18 +197,103 @@
     },
     {
       "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 114,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 127,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 129,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 130,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 157,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 165,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 204,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 217,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 229,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
       "line": 244,
       "code": "TS2307"
     },
     {
-      "file": "apps/api/src/modules/goals/agent-event-listener.ts",
-      "line": 12,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 269,
+      "code": "TS2353"
     },
     {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 14,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 301,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 307,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 308,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 366,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/executions/routes.ts",
+      "line": 367,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+      "line": 176,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+      "line": 288,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+      "line": 427,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/goals/agent-event-listener.ts",
+      "line": 428,
+      "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/goals/goal-scheduler.ts",
@@ -281,9 +306,24 @@
       "code": "TS2339"
     },
     {
-      "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 8,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 983,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 1150,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 1151,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 1295,
+      "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
@@ -292,7 +332,27 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
+      "line": 129,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal.service.ts",
+      "line": 130,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal.service.ts",
+      "line": 482,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal.service.ts",
       "line": 606,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal.service.ts",
+      "line": 682,
       "code": "TS2353"
     },
     {
@@ -302,38 +362,8 @@
     },
     {
       "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1071,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1076,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1082,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1084,
-      "code": "TS2698"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1092,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal.service.ts",
-      "line": 1092,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/routes.ts",
-      "line": 22,
-      "code": "TS2307"
+      "line": 1132,
+      "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/harness/routes.ts",
@@ -586,26 +616,6 @@
       "code": "TS2345"
     },
     {
-      "file": "apps/api/src/modules/knowledge/decision-chain-extractor.ts",
-      "line": 7,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/env-snapper.ts",
-      "line": 7,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/eval-case-generator.ts",
-      "line": 8,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/evolution-scheduler.ts",
-      "line": 11,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/knowledge/evolution-scheduler.ts",
       "line": 31,
       "code": "TS2345"
@@ -647,8 +657,8 @@
     },
     {
       "file": "apps/api/src/modules/knowledge/evolution.service.ts",
-      "line": 12,
-      "code": "TS2307"
+      "line": 83,
+      "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/knowledge/evolution.service.ts",
@@ -662,13 +672,18 @@
     },
     {
       "file": "apps/api/src/modules/knowledge/evolution.service.ts",
+      "line": 180,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/knowledge/evolution.service.ts",
       "line": 187,
       "code": "TS2345"
     },
     {
-      "file": "apps/api/src/modules/knowledge/import.routes.ts",
-      "line": 10,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/knowledge/evolution.service.ts",
+      "line": 255,
+      "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/knowledge/import.routes.ts",
@@ -684,31 +699,6 @@
       "file": "apps/api/src/modules/knowledge/import.routes.ts",
       "line": 299,
       "code": "TS2345"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
-      "line": 19,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/pattern-miner.ts",
-      "line": 8,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/preference-observer.ts",
-      "line": 8,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/resolution.service.ts",
-      "line": 8,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/routes.ts",
-      "line": 15,
-      "code": "TS2307"
     },
     {
       "file": "apps/api/src/modules/knowledge/routes.ts",
@@ -746,11 +736,6 @@
       "code": "TS2353"
     },
     {
-      "file": "apps/api/src/modules/knowledge/rule-scanner.ts",
-      "line": 7,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/lark/routes.ts",
       "line": 53,
       "code": "TS2769"
@@ -767,13 +752,13 @@
     },
     {
       "file": "apps/api/src/modules/llm/config.service.ts",
-      "line": 7,
-      "code": "TS2307"
+      "line": 90,
+      "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/llm/config.service.ts",
-      "line": 90,
-      "code": "TS2339"
+      "line": 92,
+      "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/llm/config.service.ts",
@@ -793,6 +778,16 @@
     {
       "file": "apps/api/src/modules/llm/config.service.ts",
       "line": 184,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/llm/config.service.ts",
+      "line": 186,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/llm/config.service.ts",
+      "line": 187,
       "code": "TS2339"
     },
     {
@@ -892,11 +887,6 @@
     },
     {
       "file": "apps/api/src/modules/mcp/tools.ts",
-      "line": 8,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/mcp/tools.ts",
       "line": 19,
       "code": "TS2741"
     },
@@ -927,6 +917,11 @@
     },
     {
       "file": "apps/api/src/modules/mcp/tools.ts",
+      "line": 157,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/mcp/tools.ts",
       "line": 165,
       "code": "TS2741"
     },
@@ -939,6 +934,11 @@
       "file": "apps/api/src/modules/mcp/tools.ts",
       "line": 230,
       "code": "TS2741"
+    },
+    {
+      "file": "apps/api/src/modules/mcp/tools.ts",
+      "line": 256,
+      "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/mcp/tools.ts",
@@ -962,13 +962,33 @@
     },
     {
       "file": "apps/api/src/modules/mcp/tools.ts",
+      "line": 376,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/mcp/tools.ts",
+      "line": 383,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/mcp/tools.ts",
       "line": 392,
       "code": "TS2741"
     },
     {
       "file": "apps/api/src/modules/mcp/tools.ts",
+      "line": 410,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/mcp/tools.ts",
       "line": 425,
       "code": "TS2741"
+    },
+    {
+      "file": "apps/api/src/modules/mcp/tools.ts",
+      "line": 475,
+      "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/mcp/tools.ts",
@@ -1096,9 +1116,9 @@
       "code": "TS2307"
     },
     {
-      "file": "apps/api/src/modules/pipeline-dashboard/pipeline-dashboard.routes.ts",
-      "line": 8,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 261,
+      "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/pmo/okr.service.ts",
@@ -1106,9 +1126,9 @@
       "code": "TS2769"
     },
     {
-      "file": "apps/api/src/modules/roles/memory.service.ts",
-      "line": 10,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/pmo/project.service.ts",
+      "line": 201,
+      "code": "TS2353"
     },
     {
       "file": "apps/api/src/modules/roles/memory.service.ts",
@@ -1117,8 +1137,33 @@
     },
     {
       "file": "apps/api/src/modules/roles/memory.service.ts",
+      "line": 68,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/roles/memory.service.ts",
+      "line": 104,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/roles/memory.service.ts",
+      "line": 148,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/roles/memory.service.ts",
       "line": 388,
       "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/roles/memory.service.ts",
+      "line": 468,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/roles/memory.service.ts",
+      "line": 473,
+      "code": "TS2352"
     },
     {
       "file": "apps/api/src/modules/roles/memory.service.ts",
@@ -1132,48 +1177,58 @@
     },
     {
       "file": "apps/api/src/modules/roles/memory.service.ts",
+      "line": 533,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/roles/memory.service.ts",
+      "line": 537,
+      "code": "TS2352"
+    },
+    {
+      "file": "apps/api/src/modules/roles/memory.service.ts",
       "line": 566,
       "code": "TS2345"
     },
     {
-      "file": "apps/api/src/modules/roles/role-config.service.ts",
-      "line": 7,
-      "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/modules/roles/role.service.ts",
-      "line": 7,
-      "code": "TS2305"
-    },
-    {
-      "file": "apps/api/src/modules/roles/role.service.ts",
-      "line": 8,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/modules/roles/role.service.ts",
       "line": 40,
-      "code": "TS2694"
+      "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/roles/role.service.ts",
-      "line": 69,
-      "code": "TS2694"
-    },
-    {
-      "file": "apps/api/src/modules/roles/role.service.ts",
-      "line": 88,
-      "code": "TS2694"
+      "line": 56,
+      "code": "TS2352"
     },
     {
       "file": "apps/api/src/modules/roles/role.service.ts",
       "line": 96,
-      "code": "TS2694"
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/roles/role.service.ts",
+      "line": 128,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/roles/role.service.ts",
+      "line": 142,
+      "code": "TS2322"
+    },
+    {
+      "file": "apps/api/src/modules/roles/role.service.ts",
+      "line": 209,
+      "code": "TS2345"
     },
     {
       "file": "apps/api/src/modules/roles/routes.ts",
       "line": 13,
       "code": "TS2307"
+    },
+    {
+      "file": "apps/api/src/modules/roles/routes.ts",
+      "line": 20,
+      "code": "TS2345"
     },
     {
       "file": "apps/api/src/modules/spec-reviews/routes.ts",
@@ -1182,13 +1237,13 @@
     },
     {
       "file": "apps/api/src/modules/spec-reviews/spec-review.service.ts",
-      "line": 11,
+      "line": 13,
       "code": "TS2307"
     },
     {
       "file": "apps/api/src/modules/spec-reviews/spec-review.service.ts",
-      "line": 13,
-      "code": "TS2307"
+      "line": 61,
+      "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/spec-reviews/spec-review.service.ts",
@@ -1207,8 +1262,8 @@
     },
     {
       "file": "apps/api/src/modules/tools-std/skill-extraction.service.ts",
-      "line": 8,
-      "code": "TS2307"
+      "line": 106,
+      "code": "TS2322"
     },
     {
       "file": "apps/api/src/modules/tools-std/skill-extraction.service.ts",
@@ -1226,157 +1281,9 @@
       "code": "TS2551"
     },
     {
-      "file": "apps/api/src/modules/wiki/wiki.routes.ts",
-      "line": 3,
-      "code": "TS2307"
-    },
-    {
       "file": "apps/api/src/test-executor.ts",
       "line": 1,
       "code": "TS2307"
-    },
-    {
-      "file": "apps/api/src/test-executor.ts",
-      "line": 2,
-      "code": "TS2307"
-    }
-  ],
-  "packages/studio-agent": [
-    {
-      "file": "packages/studio-agent/src/services/agent-executor.ts",
-      "line": 19,
-      "code": "TS2307"
-    }
-  ],
-  "packages/studio-spec": [
-    {
-      "file": "packages/studio-spec/src/services/architecture-validator.ts",
-      "line": 19,
-      "code": "TS2339"
-    },
-    {
-      "file": "packages/studio-spec/src/services/spec-bypass.service.ts",
-      "line": 11,
-      "code": "TS2307"
-    },
-    {
-      "file": "packages/studio-spec/src/services/spec-version.service.ts",
-      "line": 11,
-      "code": "TS2307"
-    }
-  ],
-  "packages/studio-audit": [
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 12,
-      "code": "TS2305"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 267,
-      "code": "TS7006"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 267,
-      "code": "TS7006"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 276,
-      "code": "TS7006"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 276,
-      "code": "TS7006"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 285,
-      "code": "TS7006"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 285,
-      "code": "TS7006"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 285,
-      "code": "TS7006"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 295,
-      "code": "TS2339"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 295,
-      "code": "TS2339"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 296,
-      "code": "TS2339"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 296,
-      "code": "TS2339"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 302,
-      "code": "TS7006"
-    },
-    {
-      "file": "packages/studio-audit/src/services/audit-service.ts",
-      "line": 303,
-      "code": "TS7006"
-    }
-  ],
-  "packages/studio-capability": [
-    {
-      "file": "packages/studio-capability/src/services/capability.service.ts",
-      "line": 8,
-      "code": "TS2305"
-    },
-    {
-      "file": "packages/studio-capability/src/services/capability.service.ts",
-      "line": 8,
-      "code": "TS2305"
-    },
-    {
-      "file": "packages/studio-capability/src/services/capability.service.ts",
-      "line": 120,
-      "code": "TS2694"
-    },
-    {
-      "file": "packages/studio-capability/src/services/capability.service.ts",
-      "line": 309,
-      "code": "TS2694"
-    },
-    {
-      "file": "packages/studio-capability/src/services/capability.service.ts",
-      "line": 317,
-      "code": "TS2694"
-    },
-    {
-      "file": "packages/studio-capability/src/services/company-skill.service.ts",
-      "line": 18,
-      "code": "TS2307"
-    },
-    {
-      "file": "packages/studio-capability/src/services/company-skill.service.ts",
-      "line": 21,
-      "code": "TS2694"
-    },
-    {
-      "file": "packages/studio-capability/src/services/company-skill.service.ts",
-      "line": 22,
-      "code": "TS2694"
     }
   ],
   "packages/studio-monitor": [
@@ -1386,28 +1293,9 @@
       "code": "TS2307"
     }
   ],
-  "packages/studio-notification": [
-    {
-      "file": "packages/studio-notification/src/services/notification-service.ts",
-      "line": 5,
-      "code": "TS2307"
-    }
-  ],
-  "packages/studio-task": [
-    {
-      "file": "packages/studio-task/src/services/task-queue.ts",
-      "line": 9,
-      "code": "TS2307"
-    },
-    {
-      "file": "packages/studio-task/src/services/task-queue.ts",
-      "line": 380,
-      "code": "TS7006"
-    }
-  ],
   "_meta": {
-    "generated": "2026-05-27T12:29:37.971Z",
-    "totalErrors": 278,
-    "commit": "27bb4e411013bcd84695df5bf3cb98b48623c6dc"
+    "generated": "2026-05-27T13:09:35.769Z",
+    "totalErrors": 258,
+    "commit": "57d7e717b8819fb7ce55fbe2da82387b761e9c62"
   }
 }

@@ -197,16 +197,28 @@ class DeployAgent {
 
   /**
    * Push a branch to origin.
+   * Pre-flight: git ls-remote --heads origin checks connectivity before push.
    */
   async pushBranch(params: { branch: string; repoDir?: string }): Promise<{ success: boolean; summary: string }> {
     const repoDir = params.repoDir || await this.getRepoDir();
+    try {
+      // Pre-flight: lightweight connectivity probe (few KB, no data transfer)
+      await execSh(`git ls-remote --heads origin 2>&1`, { cwd: repoDir, timeoutMs: 15_000 });
+    } catch (e) {
+      const err = String(e).slice(0, 200);
+      logger.error('[DeployAgent] Pre-flight connectivity check failed — cannot reach origin', { branch: params.branch, error: err });
+      await this.emitPushFailedAlert(params.branch, `Cannot reach origin: ${err}`);
+      return { success: false, summary: `Push aborted — cannot reach origin: ${err}` };
+    }
     try {
       logger.info('[DeployAgent] pushBranch', { branch: params.branch });
       await execSh(`git push origin ${params.branch}`, { cwd: repoDir, timeoutMs: 60_000 });
       return { success: true, summary: `Pushed origin/${params.branch}` };
     } catch (e) {
-      logger.error('[DeployAgent] pushBranch failed', { branch: params.branch, error: String(e) });
-      return { success: false, summary: `Push failed: ${String(e).slice(0, 200)}` };
+      const err = String(e).slice(0, 200);
+      logger.error('[DeployAgent] pushBranch failed', { branch: params.branch, error: err });
+      await this.emitPushFailedAlert(params.branch, err);
+      return { success: false, summary: `Push failed: ${err}` };
     }
   }
 
@@ -246,6 +258,20 @@ class DeployAgent {
 
   private async pushToOrigin(params: DeployParams): Promise<DeployResult> {
     const repoDir = await this.getRepoDir();
+
+    // Pre-flight: lightweight connectivity probe before retry loop
+    try {
+      await execSh(`git ls-remote --heads origin 2>&1`, { cwd: repoDir, timeoutMs: 15_000 });
+    } catch (e) {
+      const err = String(e).slice(0, 200);
+      logger.error('[DeployAgent] Pre-flight connectivity check failed — cannot reach origin');
+      await this.emitPushFailedAlert('master', `Cannot reach origin: ${err}`);
+      return {
+        success: false, type: params.environment, findings: [],
+        summary: `Push aborted — cannot reach origin: ${err}`,
+      };
+    }
+
     const maxRetries = 3;
     let lastError = '';
 
@@ -267,6 +293,7 @@ class DeployAgent {
       }
     }
     logger.error('[DeployAgent] Push failed after all retries', { retries: maxRetries, error: lastError });
+    await this.emitPushFailedAlert('master', lastError);
     return {
       success: false, type: params.environment, findings: [],
       summary: `Push failed after ${maxRetries} attempts: ${lastError.slice(0, 200)}`,
@@ -493,6 +520,23 @@ class DeployAgent {
   }
 
   // ── Helpers ────────────────────────────────────────────
+
+  /**
+   * Emit deploy_push_failed alert via StudioEvent for Monitor to pick up.
+   */
+  private async emitPushFailedAlert(branch: string, error: string): Promise<void> {
+    try {
+      await prisma.studioEvent.create({
+        data: {
+          type: 'deploy_push_failed',
+          source: 'deploy-agent',
+          payload: JSON.stringify({ branch, error: error.slice(0, 500), timestamp: Date.now() }),
+        },
+      });
+    } catch (e) {
+      logger.warn('[DeployAgent] Failed to emit push failed alert', { error: String(e) });
+    }
+  }
 
   private okResult(params: DeployParams): DeployResult {
     return { success: true, type: params.environment, findings: [], summary: '' };

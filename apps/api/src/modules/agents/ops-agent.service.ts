@@ -207,6 +207,10 @@ export class OpsAgent {
 
   private stopped = false;
 
+  // Proxy health: restart rate limiting (max 3 per hour)
+  private proxyRestartCount = 0;
+  private proxyRestartWindowStart = 0;
+
   start(intervalMs: number = 300_000): void {
     if (this.interval) return;
     this.stopped = false;
@@ -284,6 +288,9 @@ export class OpsAgent {
           logger.error('[OpsAgent] Failed to restart cloudflared', { error: String(e) });
         }
       }
+
+      // Proxy health: detect SYN-SENT → restart ss-local with rate limiting
+      await this.checkProxyHealth();
     } catch (e: any) {
       logger.warn('[OpsAgent] Health check failed', { error: String(e) });
     }
@@ -348,6 +355,95 @@ export class OpsAgent {
       processes: this.countProcesses(),
       timestamp: new Date().toISOString(),
     };
+  }
+
+  // ============================================
+  // Proxy Health
+  // ============================================
+
+  /**
+   * Proxy health: detect SYN-SENT on proxy port → restart ss-local.
+   * Rate-limited: max 3 restarts per hour. Exceeded → emit alert to Monitor.
+   */
+  private async checkProxyHealth(): Promise<void> {
+    const PROXY_PORT = 1080;
+    const MAX_RESTARTS_PER_HOUR = 3;
+    const HOUR_MS = 60 * 60 * 1000;
+
+    try {
+      // Reset counter if outside the current hourly window
+      if (Date.now() - this.proxyRestartWindowStart > HOUR_MS) {
+        this.proxyRestartCount = 0;
+        this.proxyRestartWindowStart = Date.now();
+      }
+
+      // Detect SYN-SENT connections on proxy port
+      const { execSync } = await import('child_process');
+      const output = execSync(
+        `ss -tnp 2>/dev/null | grep ":${PROXY_PORT}" | grep "SYN-SENT" | wc -l`,
+        { encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' },
+      ).trim();
+      const synSentCount = parseInt(output, 10) || 0;
+
+      if (synSentCount < 2) {
+        // Proxy healthy (or acceptable transient state) — reset stale counter
+        if (synSentCount === 0 && this.proxyRestartCount > 0) {
+          logger.info('[OpsAgent] Proxy recovered', { proxyPort: PROXY_PORT });
+          this.proxyRestartCount = 0;
+        }
+        return;
+      }
+
+      // Proxy is dead (2+ SYN-SENT)
+      logger.warn('[OpsAgent] Proxy health degraded', { proxyPort: PROXY_PORT, synSentCount });
+
+      // Check rate limit
+      if (this.proxyRestartCount >= MAX_RESTARTS_PER_HOUR) {
+        logger.error('[OpsAgent] Proxy restart limit exhausted', {
+          proxyPort: PROXY_PORT,
+          restarts: this.proxyRestartCount,
+          windowStart: new Date(this.proxyRestartWindowStart).toISOString(),
+        });
+        await this.emitProxyRestartExhaustedAlert(synSentCount);
+        return;
+      }
+
+      // Restart proxy service
+      this.proxyRestartCount++;
+      logger.info('[OpsAgent] Restarting proxy service', {
+        proxyPort: PROXY_PORT,
+        attempt: this.proxyRestartCount,
+        maxPerHour: MAX_RESTARTS_PER_HOUR,
+      });
+      execSync('systemctl restart ss-local 2>/dev/null || true', {
+        encoding: 'utf-8', timeout: 10_000, stdio: 'pipe',
+      });
+    } catch (e: any) {
+      logger.warn('[OpsAgent] Proxy health check failed', { error: String(e) });
+    }
+  }
+
+  /**
+   * Emit proxy_restart_exhausted alert when restart limit reached.
+   */
+  private async emitProxyRestartExhaustedAlert(synSentCount: number): Promise<void> {
+    try {
+      await prisma.studioEvent.create({
+        data: {
+          type: 'proxy_restart_exhausted',
+          source: 'ops-agent',
+          payload: JSON.stringify({
+            proxyPort: 1080,
+            synSentCount,
+            restartsThisHour: this.proxyRestartCount,
+            windowStart: new Date(this.proxyRestartWindowStart).toISOString(),
+            timestamp: Date.now(),
+          }),
+        },
+      });
+    } catch (e) {
+      logger.warn('[OpsAgent] Failed to emit proxy alert', { error: String(e) });
+    }
   }
 
   // ============================================
