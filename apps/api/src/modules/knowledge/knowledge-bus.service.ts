@@ -29,7 +29,8 @@ export const sharedIngest = new KnowledgeIngest(sharedStore);
 export type KnowledgeSource =
   | 'monitor' | 'auditor' | 'ops' | 'kk' | 'triage'
   | 'executor' | 'reviewer' | 'analyst' | 'evolution'
-  | 'deploy' | 'posteval';
+  | 'deploy' | 'posteval'
+  | 'session-summary';
 
 export interface BusEntry {
   source: KnowledgeSource;

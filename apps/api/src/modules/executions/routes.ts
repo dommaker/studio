@@ -48,7 +48,7 @@ router.get('/', async (req: Request, res: Response) => {
 
     // 计算每个执行的进度
     const executionsWithProgress = executions.map(exec => {
-      const nodeExecutions = (exec.nodeExecutions as NodeExecution[] | null) || [];
+      const nodeExecutions = (exec.nodeExecutions as unknown as NodeExecution[] | null) || [];
       const totalSteps = nodeExecutions.length;
       const completedSteps = nodeExecutions.filter(n =>
         n.status === 'succeeded' || n.status === 'completed'
@@ -60,7 +60,7 @@ router.get('/', async (req: Request, res: Response) => {
         currentStep: runningStep >= 0 ? runningStep + 1 : completedSteps,
         totalSteps,
         progress: totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0,
-        goalName: exec.Goal?.name,
+        goalName: (exec as any).Goal?.name,
       };
     });
 
@@ -111,7 +111,7 @@ router.post('/events', async (req: Request, res: Response) => {
       });
       
       const studioExecution = allExecutions.find(e => {
-        const params = e.parameters as Record<string, unknown> | null;
+        const params = e.parameters as unknown as Record<string, unknown> | null;
         return params?.runtimeExecutionId === executionId;
       });
       
@@ -124,12 +124,12 @@ router.post('/events', async (req: Request, res: Response) => {
           data: {
             status: newStatus,
             endTime: newStatus !== 'running' ? new Date() : undefined,
-            error: error ? { message: error } : undefined,
+            error: error ? { message: error } as any : undefined,
             parameters: {
-              ...((studioExecution.parameters as Record<string, unknown>) || {}),
+              ...((studioExecution.parameters as unknown as Record<string, unknown>) || {}),
               outputs,
               runtimeStatus: newStatus,
-            },
+            } as any,
           },
         });
         
@@ -154,7 +154,7 @@ router.post('/events', async (req: Request, res: Response) => {
 
             // 非 Goal 路径的旧流程已废弃：Project 状态由 GoalScheduler → agent-event-listener 处理
             if (newStatus === 'completed') {
-              const goalExecId = (studioExecution.parameters as Record<string, unknown>)?.goalExecutionId as string | undefined;
+              const goalExecId = (studioExecution.parameters as unknown as Record<string, unknown>)?.goalExecutionId as string | undefined;
               if (!goalExecId) {
                 logger.info('[Legacy] Task completed without Goal, skipping Project status update (deprecated path)');
               }

@@ -19,14 +19,14 @@ const redis = eventStore;
 router.get('/action', async (req: Request, res: Response): Promise<void> => {
   const action = req.query.action as string;
 
-  logger.info('[DINGTALK] Button clicked', { action });
+  logger.info({ action }, '[DINGTALK] Button clicked');
 
   if (!action || typeof action !== 'string') {
     res.send('<html><body><h1>⚠️ 无效操作</h1></body></html>');
     return;
   }
 
-  logger.info('[DINGTALK] Meeting action ignored (meeting module removed)', { action });
+  logger.info({ action }, '[DINGTALK] Meeting action ignored (meeting module removed)');
   res.send(`
     <html>
       <body style="font-family: sans-serif; text-align: center; padding: 50px;">

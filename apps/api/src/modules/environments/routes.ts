@@ -142,7 +142,7 @@ router.post('/seed-defaults', async (_req: Request, res: Response) => {
     for (const def of defaults) {
       const existing = await prisma.environment.findUnique({ where: { name: def.name } });
       if (!existing) {
-        const env = await prisma.environment.create({ data: def });
+        const env = await prisma.environment.create({ data: def as any });
         created.push(env);
       }
     }

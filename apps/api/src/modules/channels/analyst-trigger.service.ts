@@ -46,6 +46,14 @@ interface RequirementsDocJson {
   }>;
   constraints: string[];
   tags: string[];
+  discoveries?: Array<{
+    type: string;
+    severity: string;
+    file: string;
+    title: string;
+    description?: string;
+    category?: string;
+  }>;
 }
 
 // ── Persistent Analyst Session ──
@@ -357,7 +365,7 @@ async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: st
 class AnalystTriggerService {
   async trigger(channelId: string, triggerMessageId: string, content: string): Promise<void> {
     // 1. Dedup: use daemon session state, not ChannelMessage (失败消息不应阻断重试)
-    const status = daemon.getStatus('analyst');
+    const status = daemon.getStatus('analyst') as { isBusy: boolean; lastUsed: number } | null;
     const COOLDOWN_MS = 5 * 60 * 1000;
     if (status) {
       if (status.isBusy) {

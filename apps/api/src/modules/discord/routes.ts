@@ -111,7 +111,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
     const { name, options } = body.data || {};
     const subcommand = options?.[0]?.name || name;
 
-    logger.info('[Discord] Slash command', { name, subcommand });
+    logger.info({ name, subcommand }, '[Discord] Slash command');
 
     try {
       if (name === 'studio') {
@@ -185,7 +185,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
             const runningExecs = await prisma.goalExecution.findMany({
               where: { status: 'running' },
-              orderBy: { updatedAt: 'desc' },
+              orderBy: { createdAt: 'desc' } as any,
               take: 5,
               select: { id: true, goalId: true, stepIndex: true, agentType: true, startedAt: true },
             });
@@ -216,7 +216,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
                   progressInfo = `\`${step}\` | completed: ${completed} | tests: ${tests} | sessions: ${sessions}`;
                 }
               } catch (e) {
-                logger.error('[Discord] Failed to read progress file', { error: String(e) });
+                logger.error({ error: String(e) }, '[Discord] Failed to read progress file');
               }
 
               lines.push(`**${exec.id.slice(0, 8)}** step=${exec.stepIndex} goal=${exec.goalId.slice(0, 8)} ${elapsed}`);
@@ -318,7 +318,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
     try {
       if (action === 'confirm' || action === 'reject') {
-        logger.info('[Discord] Meeting action ignored (meeting module removed)', { action, targetId });
+        logger.info({ action, targetId }, '[Discord] Meeting action ignored (meeting module removed)');
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `会议操作已忽略（Meeting 模块已移除）` } });
         return;
       }
@@ -329,7 +329,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
           where: { id: targetId },
           data: {
             status: 'pending',
-            input: { resumeAfterRetry: true, extraRounds },
+            input: { resumeAfterRetry: true, extraRounds } as any,
           },
         });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔁 已重置，再给 ${extraRounds} 轮` } });

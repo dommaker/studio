@@ -92,7 +92,7 @@ export class DiscoveryExposureService {
   private async isDuplicate(title: string): Promise<boolean> {
     try {
       const cutoff = new Date(Date.now() - this.COOLDOWN_MS);
-      const existing = await prisma.channelMessage.findFirst({
+      const existing = await prisma.channelMessage.findMany({
         where: {
           agentName: { in: ['Analyst', 'Reviewer'] },
           createdAt: { gte: cutoff },
@@ -101,7 +101,7 @@ export class DiscoveryExposureService {
         orderBy: { createdAt: 'desc' },
         take: 50,
       });
-      if (!existing) return false;
+      if (existing.length === 0) return false;
       return existing.some(msg => {
         try {
           const m = typeof msg.meta === 'string' ? JSON.parse(msg.meta) : msg.meta;

@@ -66,16 +66,6 @@
       "code": "TS2307"
     },
     {
-      "file": "apps/api/src/modules/agents/session-summary-agent.service.ts",
-      "line": 192,
-      "code": "TS2322"
-    },
-    {
-      "file": "apps/api/src/modules/agents/session-summary-agent.service.ts",
-      "line": 218,
-      "code": "TS2322"
-    },
-    {
       "file": "apps/api/src/modules/audit-logs/routes.ts",
       "line": 3,
       "code": "TS2307"
@@ -91,66 +81,6 @@
       "code": "TS2307"
     },
     {
-      "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 363,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 367,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 367,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 370,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 563,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/channels/analyst-trigger.service.ts",
-      "line": 565,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/channels/discovery-exposure.service.ts",
-      "line": 105,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/dingtalk/routes.ts",
-      "line": 22,
-      "code": "TS2769"
-    },
-    {
-      "file": "apps/api/src/modules/dingtalk/routes.ts",
-      "line": 29,
-      "code": "TS2769"
-    },
-    {
-      "file": "apps/api/src/modules/discord/routes.ts",
-      "line": 114,
-      "code": "TS2769"
-    },
-    {
-      "file": "apps/api/src/modules/discord/routes.ts",
-      "line": 188,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/discord/routes.ts",
-      "line": 219,
-      "code": "TS2769"
-    },
-    {
       "file": "apps/api/src/modules/discord/routes.ts",
       "line": 261,
       "code": "TS2307"
@@ -162,63 +92,13 @@
     },
     {
       "file": "apps/api/src/modules/discord/routes.ts",
-      "line": 321,
-      "code": "TS2769"
-    },
-    {
-      "file": "apps/api/src/modules/discord/routes.ts",
-      "line": 332,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/discord/routes.ts",
       "line": 344,
       "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/environments/routes.ts",
-      "line": 145,
-      "code": "TS2322"
-    },
-    {
-      "file": "apps/api/src/modules/executions/routes.ts",
-      "line": 51,
-      "code": "TS2352"
-    },
-    {
-      "file": "apps/api/src/modules/executions/routes.ts",
-      "line": 63,
-      "code": "TS2339"
     },
     {
       "file": "apps/api/src/modules/executions/routes.ts",
       "line": 89,
       "code": "TS2345"
-    },
-    {
-      "file": "apps/api/src/modules/executions/routes.ts",
-      "line": 114,
-      "code": "TS2352"
-    },
-    {
-      "file": "apps/api/src/modules/executions/routes.ts",
-      "line": 127,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/executions/routes.ts",
-      "line": 129,
-      "code": "TS2352"
-    },
-    {
-      "file": "apps/api/src/modules/executions/routes.ts",
-      "line": 130,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/executions/routes.ts",
-      "line": 157,
-      "code": "TS2352"
     },
     {
       "file": "apps/api/src/modules/executions/routes.ts",
@@ -1294,8 +1174,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-27T13:09:35.769Z",
-    "totalErrors": 258,
-    "commit": "57d7e717b8819fb7ce55fbe2da82387b761e9c62"
+    "generated": "2026-05-27T13:18:28.269Z",
+    "totalErrors": 234,
+    "commit": "6d1744aabd98ab126290c6214eb72d973c5596e8"
   }
 }

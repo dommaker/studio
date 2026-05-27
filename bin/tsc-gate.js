@@ -162,29 +162,39 @@ if (flag('--check')) {
     process.exit(1);
   }
 
-  // Auto-update baseline when errors were fixed (self-healing)
+  // Auto-update baseline: surgical per-package update (no full rebuild).
+  // Full rebuilds shift line numbers in unrelated packages → false "new" errors.
   if (totalFixed > 0) {
     console.log(`♻️  ${totalFixed} errors fixed — auto-updating baseline...`);
-    // Rebuild full baseline
-    const newBaseline = {};
-    for (const pkg of PKGS) {
+
+    // Only rebuild packages that were checked (affected by staged files)
+    for (const pkg of packages) {
+      if (!PKGS.includes(pkg)) continue;
       if (!fs.existsSync(`${pkg}/tsconfig.json`)) continue;
+
       const out = runTsc(pkg);
-      const errors = parseErrors(out);
-      if (errors.length > 0) newBaseline[pkg] = errors;
+      const current = parseErrors(out);
+      if (current.length > 0) {
+        baseline[pkg] = current;
+      } else {
+        delete baseline[pkg]; // package is now clean
+      }
     }
+
+    // Recalculate _meta totals from existing baseline entries
     let total = 0;
-    for (const v of Object.values(newBaseline)) total += v.length;
-    newBaseline._meta = {
+    for (const k of Object.keys(baseline)) {
+      if (k === '_meta') continue;
+      total += (baseline[k] || []).length;
+    }
+    baseline._meta = {
       generated: new Date().toISOString(),
       totalErrors: total,
       commit: execSync('git rev-parse HEAD', { encoding: 'utf-8' }).trim(),
     };
-    fs.writeFileSync(baselineFile, JSON.stringify(newBaseline, null, 2));
-    // Stage the updated baseline for commit
-    try {
-      execSync(`git add "${baselineFile}"`, { stdio: 'pipe' });
-    } catch {}
+
+    fs.writeFileSync(baselineFile, JSON.stringify(baseline, null, 2));
+    try { execSync(`git add "${baselineFile}"`, { stdio: 'pipe' }); } catch {}
     console.log(`✅ Baseline auto-updated: ${total} errors`);
   } else {
     console.log('✅ tsc-gate: no new errors detected');
