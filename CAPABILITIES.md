@@ -98,12 +98,12 @@
 | auditor-agent.service | apps/api/src/modules/agents/auditor-agent.service.ts | Auditor Agent — 跨任务审计 + 周期洞察 |
 | deploy-agent.service | apps/api/src/modules/agents/deploy-agent.service.ts | Deploy Agent — merge to master, push, deploy, cleanup |
 | knowledge-agent.service | apps/api/src/modules/agents/knowledge-agent.service.ts | Knowledge Agent - 从执行结果中异步提取知识 |
-| monitor-agent.service | apps/api/src/modules/agents/monitor-agent.service.ts | Monitor Agent - 健康监控 + NA Step 7 渐进告警 |
+| monitor-agent.service | apps/api/src/modules/agents/monitor-agent.service.ts | Monitor Agent - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
 | ops-agent.service | apps/api/src/modules/agents/ops-agent.service.ts | Ops Agent — 系统生命周期守护 |
 | ops-rules | apps/api/src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | post-eval-agent.service | apps/api/src/modules/agents/post-eval-agent.service.ts | PostEval Agent — 交付完整性审计 (2026-05-21) |
 | requirement-gate | apps/api/src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
-| review-agent.service | apps/api/src/modules/agents/review-agent.service.ts | Review Agent - 多立场代码审查 (daemon async spawn) |
+| review-agent.service | apps/api/src/modules/agents/review-agent.service.ts | Review Agent - 多立场代码审查 + G33 非阻断发现自动曝光 |
 | review-report | apps/api/src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
 | session-summary-agent.service | apps/api/src/modules/agents/session-summary-agent.service.ts | SessionSummaryAgent — 会话级知识提取 (2026-05-25) |
@@ -119,7 +119,7 @@
 | channel-init | apps/api/src/modules/channels/channel-init.ts | Seed default channels on startup (B1-001) |
 | channel-message.service | apps/api/src/modules/channels/channel-message.service.ts | ChannelMessage Service — centralized message creation + event publishing |
 | channel.routes | apps/api/src/modules/channels/channel.routes.ts | Channel Routes — B1-001/B1-002/B1-009/B1-011 |
-| discovery-exposure.service | apps/api/src/modules/channels/discovery-exposure.service.ts | Discovery Exposure Service — G33 |
+| discovery-exposure.service | apps/api/src/modules/channels/discovery-exposure.service.ts | Discovery Exposure Service — G33 Analyst+Reviewer 发现→#系统 channel |
 | requirements-doc.routes | apps/api/src/modules/channels/requirements-doc.routes.ts | RequirementsDoc edit routes — B2-009 |
 | routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |

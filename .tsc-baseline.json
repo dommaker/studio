@@ -1,46 +1,6 @@
 {
   "apps/api": [
     {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 685,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 686,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 687,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 697,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 715,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 716,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 717,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 727,
-      "code": "TS2339"
-    },
-    {
       "file": "apps/api/src/modules/discord/routes.ts",
       "line": 344,
       "code": "TS2353"
@@ -1064,8 +1024,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-27T13:46:08.746Z",
-    "totalErrors": 212,
-    "commit": "a88bccd6a7e35efa6399ae16175e87981e294741"
+    "generated": "2026-05-27T18:26:09.412Z",
+    "totalErrors": 204,
+    "commit": "73a3bca67a074c9b1e27cee644ae6dc427dd626d"
   }
 }

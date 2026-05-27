@@ -11,6 +11,7 @@ import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { discoveryExposure } from '../channels/discovery-exposure.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -215,6 +216,20 @@ export class ReviewAgent {
       severity: report.overallApproved ? 'info' : 'warning',
       timestamp: Date.now(),
     }).catch(() => { /* non-blocking */ });
+
+    // G33: 暴露非阻断发现到 #系统 channel
+    const nonBlockingIssues = (report.issues ?? []).filter(i => i.severity === 'warning' || i.severity === 'info');
+    if (nonBlockingIssues.length > 0) {
+      const discoveries = nonBlockingIssues.slice(0, 5).map(i => ({
+        source: 'reviewer' as const,
+        type: 'improvement' as const,
+        severity: (i.severity === 'warning' ? 'medium' : 'low') as 'medium' | 'low',
+        file: i.file || 'unknown',
+        title: i.message.slice(0, 100),
+        description: `[Review cycle ${cycle}, score ${reviewScore}] ${i.message}${i.file ? `\nFile: ${i.file}${i.line ? `:${i.line}` : ''}` : ''}`,
+      }));
+      discoveryExposure.expose(discoveries).catch(() => { /* non-blocking */ });
+    }
 
       // 审查完成 hook
       afterReview({
@@ -486,6 +501,17 @@ export class ReviewAgent {
         content: `Diff: ${baseRef}..${headRef}\nIssues: ${totalIssues}\nScore: ${reviewScore}`,
         severity: report.overallApproved ? 'info' : 'warning', timestamp: Date.now(),
       }).catch(() => {});
+
+      // G33: 暴露非阻断发现
+      const nonBlocking = (report.issues ?? []).filter(i => i.severity === 'warning' || i.severity === 'info');
+      if (nonBlocking.length > 0) {
+        discoveryExposure.expose(nonBlocking.slice(0, 5).map(i => ({
+          source: 'reviewer' as const, type: 'improvement' as const,
+          severity: (i.severity === 'warning' ? 'medium' : 'low') as 'medium' | 'low',
+          file: i.file || 'unknown', title: i.message.slice(0, 100),
+          description: `[Branch diff ${baseRef}..${headRef}] ${i.message}`,
+        }))).catch(() => {});
+      }
 
       return { approved: report.overallApproved, score: reviewScore, issues: allIssues, suggestions: report.suggestions ?? [] };
     } catch (error) {

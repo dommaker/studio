@@ -1282,6 +1282,7 @@ model StudioEvent {
   serviceTier    String?
   constraintHash String?
   constraintSize Int?
+  precipitated   Boolean  @default(false) // G31: 知识沉淀标记，清理前必须为 true
 
   @@index([type])
   @@index([timestamp])

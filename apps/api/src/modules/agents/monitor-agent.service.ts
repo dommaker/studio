@@ -14,7 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, modelGateway } from '@dommaker/studio-shared';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
@@ -682,9 +682,9 @@ export class MonitorAgent {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
       const events = await prisma.studioEvent.findMany({
-        where: { type: 'deploy_push_failed', createdAt: { gte: oneHourAgo } },
-        select: { id: true, payload: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
+        where: { type: 'deploy_push_failed', timestamp: { gte: oneHourAgo } },
+        select: { id: true, payload: true, timestamp: true },
+        orderBy: { timestamp: 'desc' },
         take: 5,
       });
       for (const event of events) {
@@ -694,7 +694,7 @@ export class MonitorAgent {
           source: 'deploy_push_failed',
           level: 'critical',
           message: `Deploy push failed: ${details.error || 'unknown error'} (branch: ${details.branch || '?'})`,
-          timestamp: new Date(event.createdAt).getTime(),
+          timestamp: new Date(event.timestamp).getTime(),
         });
       }
     } catch (e) {
@@ -712,9 +712,9 @@ export class MonitorAgent {
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
       const events = await prisma.studioEvent.findMany({
-        where: { type: 'proxy_restart_exhausted', createdAt: { gte: oneHourAgo } },
-        select: { id: true, payload: true, createdAt: true },
-        orderBy: { createdAt: 'desc' },
+        where: { type: 'proxy_restart_exhausted', timestamp: { gte: oneHourAgo } },
+        select: { id: true, payload: true, timestamp: true },
+        orderBy: { timestamp: 'desc' },
         take: 3,
       });
       for (const event of events) {
@@ -724,7 +724,7 @@ export class MonitorAgent {
           source: 'proxy_restart_exhausted',
           level: 'critical',
           message: `Proxy restart limit exhausted (${details.restartsThisHour || '?'} restarts/h, ${details.synSentCount || '?'} SYN-SENT)`,
-          timestamp: new Date(event.createdAt).getTime(),
+          timestamp: new Date(event.timestamp).getTime(),
         });
       }
     } catch (e) {
@@ -1455,12 +1455,234 @@ export class MonitorAgent {
     }
   }
 
-  // ── G31: Data Lifecycle TTL — 每天 23:55 清理过期数据 ──
+  // ── G31: Data Lifecycle TTL — 每天 23:55 沉淀→清理 ──
+
+  /**
+   * 知识沉淀闸门：清理前从即将过期的数据中提取知识写入 KnowledgeBus。
+   * 成功后标记 precipitated=true，只有已沉淀的数据源才允许清理。
+   * 沉淀失败 → 不清理对应数据源，下次重试。
+   */
+  private lastPrecipitateRun = '';
+
+  private async precipitate(): Promise<Record<string, boolean>> {
+    const results: Record<string, boolean> = {};
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    if (this.lastPrecipitateRun === today) return results;
+    this.lastPrecipitateRun = today;
+
+    // 1. StudioEvent: 提取 >7d 且未沉淀的事件
+    results.studioEvent = await this.precipitateStudioEvents();
+
+    // 2. routing.jsonl: 提取路由决策模式
+    results.routing = await this.precipitateRouting();
+
+    // 3. .agent.log 归档: 提取执行失败模式
+    results.sessions = await this.precipitateSessionLogs();
+
+    logger.info('[MonitorAgent] Precipitation completed', results);
+    return results;
+  }
+
+  /** 从 StudioEvent 提取知识，成功后标记 precipitated */
+  private async precipitateStudioEvents(): Promise<boolean> {
+    try {
+      const cutoff = new Date(Date.now() - 7 * 24 * 3600_000);
+      const oldCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
+      // 只处理 7d~30d 之间的未沉淀事件（<7d 留给 dailyReflection，>30d 即将清理）
+      const events = await prisma.studioEvent.findMany({
+        where: {
+          precipitated: false,
+          timestamp: { gte: oldCutoff, lt: cutoff },
+        },
+        orderBy: { timestamp: 'asc' },
+        take: 200,
+      });
+      if (events.length === 0) {
+        logger.info('[MonitorAgent] Precipitate: no unprompted StudioEvents');
+        return true;
+      }
+
+      // 按 type 聚合
+      const byType: Record<string, typeof events> = {};
+      for (const e of events) {
+        const key = e.type || 'unknown';
+        if (!byType[key]) byType[key] = [];
+        byType[key].push(e);
+      }
+
+      // 构建摘要文本供 LLM 提取
+      const summary = Object.entries(byType).map(([type, evts]) => {
+        const sample = evts.slice(0, 10).map(e => {
+          const p = e.payload ? JSON.parse(e.payload) : {};
+          return `  - ${e.source} @ ${e.timestamp.toISOString()}: ${JSON.stringify(p).slice(0, 200)}`;
+        }).join('\n');
+        return `## ${type} (${evts.length} events)\n${sample}`;
+      }).join('\n\n');
+
+      const extraction = await modelGateway.promptJson<{ entries: Array<{ type: string; title: string; content: string; tags: string[] }> }>(
+        summary.slice(0, 30_000),
+        `你是运维知识提取专家。从 Agent 系统的事件日志中提取可复用的运维知识。
+
+关注：
+- 失败模式（哪些 type 的事件失败率高，根因是什么）
+- 性能趋势（token 消耗、延迟异常）
+- 资源使用模式（模型选择、成本）
+
+输出格式：{ "entries": [{ "type": "failure|trend|pitfall", "title": "根因概括", "content": "根因+预防措施", "tags": [...] }] }
+只提取有价值的模式。没有则返回空数组。最多 5 条。`,
+      );
+
+      if (extraction.entries?.length) {
+        for (const entry of extraction.entries) {
+          await knowledgeBus.recordPattern({
+            source: 'monitor',
+            type: entry.type as any,
+            title: `[沉淀] ${entry.title}`,
+            content: entry.content,
+            severity: entry.type === 'failure' ? 'warning' : 'info',
+            timestamp: Date.now(),
+          });
+        }
+        logger.info('[MonitorAgent] Precipitate StudioEvent: extracted', { count: extraction.entries.length });
+      }
+
+      // 标记已沉淀
+      const ids = events.map(e => e.id);
+      await prisma.studioEvent.updateMany({
+        where: { id: { in: ids } },
+        data: { precipitated: true },
+      });
+      logger.info('[MonitorAgent] Precipitate StudioEvent: marked', { count: ids.length });
+      return true;
+    } catch (e) {
+      logger.warn('[MonitorAgent] Precipitate StudioEvent failed', { error: String(e) });
+      return false;
+    }
+  }
+
+  /** 从 routing.jsonl 提取路由决策模式 */
+  private async precipitateRouting(): Promise<boolean> {
+    try {
+      const routingFile = path.join(os.homedir(), '.studio', '.harness', 'routing.jsonl');
+      if (!fs.existsSync(routingFile)) return true;
+
+      const raw = fs.readFileSync(routingFile, 'utf-8');
+      const lines = raw.split('\n').filter(l => l.trim());
+      if (lines.length < 10) return true; // 数据太少不值得提取
+
+      // 统计路由分布
+      const stats = { premium: 0, standard: 0, degraded: 0, total: 0 };
+      const recent = lines.slice(-100);
+      for (const line of recent) {
+        try {
+          const entry = JSON.parse(line);
+          stats.total++;
+          if (entry.tier === 'premium') stats.premium++;
+          else if (entry.tier === 'standard') stats.standard++;
+          if (entry.degraded) stats.degraded++;
+        } catch { /* skip */ }
+      }
+
+      if (stats.total < 5) return true;
+
+      const content = [
+        `路由统计 (最近 ${stats.total} 条):`,
+        `  premium: ${stats.premium} (${Math.round(stats.premium / stats.total * 100)}%)`,
+        `  standard: ${stats.standard} (${Math.round(stats.standard / stats.total * 100)}%)`,
+        `  降级: ${stats.degraded} (${Math.round(stats.degraded / stats.total * 100)}%)`,
+      ].join('\n');
+
+      await knowledgeBus.recordTrend({
+        source: 'monitor',
+        type: 'trend',
+        title: `[沉淀] 路由分布 ${new Date().toISOString().split('T')[0]}`,
+        content,
+        severity: stats.degraded / stats.total > 0.3 ? 'warning' : 'info',
+        timestamp: Date.now(),
+      });
+
+      logger.info('[MonitorAgent] Precipitate routing: done', { total: stats.total, degraded: stats.degraded });
+      return true;
+    } catch (e) {
+      logger.warn('[MonitorAgent] Precipitate routing failed', { error: String(e) });
+      return false;
+    }
+  }
+
+  /** 从 .agent.log 归档提取执行失败模式 */
+  private async precipitateSessionLogs(): Promise<boolean> {
+    try {
+      const sessionsDir = path.join(os.homedir(), '.studio', 'sessions');
+      if (!fs.existsSync(sessionsDir)) return true;
+
+      const cutoff = Date.now() - 30 * 24 * 3600_000;
+      const files = fs.readdirSync(sessionsDir)
+        .filter(f => f.endsWith('.log'))
+        .map(f => ({
+          name: f,
+          mtime: fs.statSync(path.join(sessionsDir, f)).mtimeMs,
+        }))
+        .filter(f => f.mtime < cutoff)
+        .slice(0, 20); // 每次最多处理 20 个
+
+      if (files.length === 0) return true;
+
+      // 提取错误模式（只读最后 2KB，错误通常在末尾）
+      const errorSnippets: string[] = [];
+      for (const f of files) {
+        try {
+          const content = fs.readFileSync(path.join(sessionsDir, f.name), 'utf-8');
+          const tail = content.slice(-2000);
+          if (tail.includes('Error') || tail.includes('error') || tail.includes('failed')) {
+            errorSnippets.push(`### ${f.name}\n${tail.slice(0, 500)}`);
+          }
+        } catch { /* skip */ }
+      }
+
+      if (errorSnippets.length === 0) return true;
+
+      const extraction = await modelGateway.promptJson<{ entries: Array<{ type: string; title: string; content: string; tags: string[] }> }>(
+        errorSnippets.join('\n\n').slice(0, 20_000),
+        `你是运维知识提取专家。从 Agent 执行日志的错误片段中提取可复用的失败模式。
+
+关注：
+- 高频错误类型（什么错误反复出现）
+- 根因模式（环境问题？代码问题？配置问题？）
+- 预防措施（如何避免同类错误）
+
+输出格式：{ "entries": [{ "type": "failure|pitfall", "title": "根因概括", "content": "根因+预防", "tags": [...] }] }
+只提取有共性的模式，单次偶发错误不提取。最多 3 条。`,
+      );
+
+      if (extraction.entries?.length) {
+        for (const entry of extraction.entries) {
+          await knowledgeBus.recordPattern({
+            source: 'monitor',
+            type: entry.type as any,
+            title: `[沉淀] ${entry.title}`,
+            content: entry.content,
+            severity: 'warning',
+            timestamp: Date.now(),
+          });
+        }
+        logger.info('[MonitorAgent] Precipitate sessions: extracted', { count: extraction.entries.length });
+      }
+
+      logger.info('[MonitorAgent] Precipitate sessions: done', { files: files.length, extracted: extraction.entries?.length || 0 });
+      return true;
+    } catch (e) {
+      logger.warn('[MonitorAgent] Precipitate sessions failed', { error: String(e) });
+      return false;
+    }
+  }
 
   /**
    * Data lifecycle management: purges old records, reclaims disk space.
    * Runs once per day at 23:55 (± 5 min), right after dailyReflection.
    * All operations are best-effort with individual try/catch.
+   *
+   * G31: 闸门模式 — 先沉淀后清理，沉淀失败的数据源不清理。
    */
   private lastDataLifecycleRun = '';
 
@@ -1477,6 +1699,10 @@ export class MonitorAgent {
       this.lastDataLifecycleRun = today;
 
       logger.info('[MonitorAgent] Data lifecycle TTL cleanup starting', { date: today });
+
+      // G31: 先沉淀后清理 — 沉淀失败的数据源不清理
+      const gate = await this.precipitate();
+      logger.info('[MonitorAgent] Precipitation gate', gate);
 
       // 1. Delete ChannelMessage older than 30 days
       try {
@@ -1566,6 +1792,89 @@ export class MonitorAgent {
         }
       } catch (e) {
         logger.warn('[MonitorAgent] TTL: knowledge.md truncation failed', { error: String(e) });
+      }
+
+      // 7. StudioEvent TTL: 删除已沉淀且 >30d 的事件
+      if (gate.studioEvent !== false) {
+        try {
+          const eventCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
+          const deleted = await prisma.studioEvent.deleteMany({
+            where: { precipitated: true, timestamp: { lt: eventCutoff } },
+          });
+          logger.info('[MonitorAgent] TTL: StudioEvent cleaned', { deleted: deleted.count });
+        } catch (e) {
+          logger.warn('[MonitorAgent] TTL: StudioEvent cleanup failed', { error: String(e) });
+        }
+      } else {
+        logger.warn('[MonitorAgent] TTL: StudioEvent cleanup skipped (precipitation failed)');
+      }
+
+      // 8. routing.jsonl: 截断保留最近 500 行（需沉淀成功）
+      if (gate.routing !== false) {
+        try {
+          const routingFile = path.join(os.homedir(), '.studio', '.harness', 'routing.jsonl');
+          if (fs.existsSync(routingFile)) {
+            const raw = fs.readFileSync(routingFile, 'utf-8');
+            const lines = raw.split('\n').filter(l => l.trim());
+            if (lines.length > 500) {
+              const kept = lines.slice(-500);
+              fs.writeFileSync(routingFile, kept.join('\n') + '\n', 'utf-8');
+              logger.info('[MonitorAgent] TTL: routing.jsonl truncated', { original: lines.length, kept: kept.length });
+            }
+          }
+        } catch (e) {
+          logger.warn('[MonitorAgent] TTL: routing.jsonl truncation failed', { error: String(e) });
+        }
+      } else {
+        logger.warn('[MonitorAgent] TTL: routing.jsonl cleanup skipped (precipitation failed)');
+      }
+
+      // 9. sessions 归档 log: 删除 >30d 的文件（需沉淀成功）
+      if (gate.sessions !== false) {
+        try {
+          const sessionsDir = path.join(os.homedir(), '.studio', 'sessions');
+          if (fs.existsSync(sessionsDir)) {
+            const sessionCutoff = Date.now() - 30 * 24 * 3600_000;
+            const files = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.log'));
+            let deleted = 0;
+            for (const f of files) {
+              try {
+                const fp = path.join(sessionsDir, f);
+                if (fs.statSync(fp).mtimeMs < sessionCutoff) {
+                  fs.unlinkSync(fp);
+                  deleted++;
+                }
+              } catch { /* skip */ }
+            }
+            logger.info('[MonitorAgent] TTL: sessions cleaned', { deleted, total: files.length });
+          }
+        } catch (e) {
+          logger.warn('[MonitorAgent] TTL: sessions cleanup failed', { error: String(e) });
+        }
+      } else {
+        logger.warn('[MonitorAgent] TTL: sessions cleanup skipped (precipitation failed)');
+      }
+
+      // 10. traces.log: 清理 >30d 的备份文件
+      try {
+        const tracesDir = path.join(process.cwd(), '.harness', 'logs');
+        if (fs.existsSync(tracesDir)) {
+          const traceCutoff = Date.now() - 30 * 24 * 3600_000;
+          const files = fs.readdirSync(tracesDir).filter(f => f.startsWith('traces-') && f.endsWith('.log'));
+          let deleted = 0;
+          for (const f of files) {
+            try {
+              const fp = path.join(tracesDir, f);
+              if (fs.statSync(fp).mtimeMs < traceCutoff) {
+                fs.unlinkSync(fp);
+                deleted++;
+              }
+            } catch { /* skip */ }
+          }
+          logger.info('[MonitorAgent] TTL: traces backup cleaned', { deleted, total: files.length });
+        }
+      } catch (e) {
+        logger.warn('[MonitorAgent] TTL: traces cleanup failed', { error: String(e) });
       }
 
       logger.info('[MonitorAgent] Data lifecycle TTL cleanup completed', { date: today });
