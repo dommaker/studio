@@ -959,7 +959,7 @@ export class GoalScheduler {
   ): Promise<string> {
     const allExecs = await prisma.goalExecution.findMany({
       where: { goalId },
-      select: { id: true, stepIndex: true, status: true, output: true },
+      select: { id: true, stepIndex: true, status: true, output: true, input: true },
     });
 
     const completed = allExecs.filter(
@@ -967,24 +967,20 @@ export class GoalScheduler {
     );
     if (completed.length === 0) return '';
 
-    const plan = await prisma.goalPlan.findFirst({
-      where: { goalId, status: 'approved' },
-      orderBy: { version: 'desc' },
-    });
-    const steps = parseJsonField<GoalStep[]>(plan?.steps, []);
-
     const lines: string[] = [
       '## 已完成的相关工作',
       '以下并行步骤已先完成，参考其输出可避免重复劳动或冲突：',
     ];
 
     for (const sibling of completed) {
-      const step = steps.find(s => s.index === sibling.stepIndex);
+      // G34: Get step title from execution input (acGroup.id) instead of GoalPlan
+      const siblingInput = parseJsonField<Record<string, any>>(sibling.input, {});
+      const stepTitle = siblingInput?.acGroup?.id || 'AC 组 ' + (sibling.stepIndex + 1);
       const output = sibling.output as unknown as Record<string, any> | null;
       if (!output) continue;
 
       lines.push('');
-      lines.push(`### ${step?.title || 'AC 组 ' + (sibling.stepIndex + 1)}`);
+      lines.push(`### ${stepTitle}`);
 
       if (output.summary) lines.push(`摘要: ${output.summary}`);
       if (output.changedFiles?.length) {
@@ -1279,16 +1275,10 @@ export class GoalScheduler {
 
     // 创建 Integration GoalExecution
     logger.info('[GoalScheduler] Creating integration step', { goalId });
-    const plan = await prisma.goalPlan.findFirst({
-      where: { goalId, status: 'approved' },
-      orderBy: { version: 'desc' },
-    });
-    if (!plan) return;
 
     await prisma.goalExecution.create({
       data: {
         goalId,
-        planId: plan.id,
         stepIndex: 999, // Integration step 索引
         status: 'pending',
         agentType: 'claude',

@@ -287,7 +287,7 @@ model GoalPlan {
 model GoalExecution {
   id          String     @id @default(cuid())
   goalId      String
-  planId      String
+  planId      String?    // G34: optional — GoalPlan stage eliminated for direct acGroup→Execution
   stepIndex   Int                                    // 对应 GoalPlan.steps 中的索引
   status      String     @default("pending")         // pending | running | succeeded | failed
   agentType   String?                                // 执行此步骤的 agent 类型
@@ -298,7 +298,7 @@ model GoalExecution {
   completedAt DateTime?
   createdAt   DateTime   @default(now())
   Goal        Goal       @relation(fields: [goalId], references: [id], onDelete: Cascade)
-  GoalPlan    GoalPlan   @relation(fields: [planId], references: [id], onDelete: Cascade)
+  GoalPlan    GoalPlan?  @relation(fields: [planId], references: [id], onDelete: Cascade)
 
   @@index([goalId])
   @@index([planId])
@@ -990,6 +990,7 @@ model RequirementsDoc {
   id        String   @id @default(cuid())
   title     String
   content   String   // Markdown 全文
+  acGroups  String?  // G34: JSON array of structured AC groups (source of truth)
   tags      String   @default("[]") // JSON array
   goalId    String?  // 开始执行后关联
   projectId String?

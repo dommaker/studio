@@ -45,6 +45,7 @@ export interface AnalystAccuracy {
   actualDeps: string[];
   acMatchRate: number;
   missesByType: Record<string, number>;
+  tierStats?: Record<string, { total: number; succeeded: number; failed: number; avgDurationMs: number }>;
 }
 
 class PostEvalAgent {
@@ -312,19 +313,29 @@ class PostEvalAgent {
     docId: string,
   ): Promise<AnalystAccuracy | null> {
     try {
-      // 1. 从 GoalExecutions 提取 Analyst 预测的 acGroup 数据
+      // 1. 从 GoalExecutions 提取 Analyst 预测的 acGroup 数据 + 执行统计
       const execs = await prisma.goalExecution.findMany({
         where: { goalId },
-        select: { input: true, id: true },
+        select: { input: true, id: true, status: true, startedAt: true, completedAt: true },
       });
 
       const predictedFiles: string[] = [];
       const predictedDeps: string[] = [];
+      // G34-feedback-loop: 收集每个 execution 的 modelTier + 状态 + 耗时
+      const tierBuckets: Record<string, { total: number; succeeded: number; failed: number; totalDurationMs: number }> = {};
       for (const e of execs) {
         const input = (typeof e.input === 'string' ? JSON.parse(e.input) : e.input) as Record<string, any>;
         const acGroup = input?.acGroup as Record<string, any> | undefined;
         if (acGroup?.files?.length) predictedFiles.push(...acGroup.files.map((f: string) => f.replace(/`/g, '').trim()));
         if (acGroup?.dependencies?.length) predictedDeps.push(...(acGroup.dependencies as string[]));
+        const tier = (acGroup?.modelTier as string) || 'standard';
+        if (!tierBuckets[tier]) tierBuckets[tier] = { total: 0, succeeded: 0, failed: 0, totalDurationMs: 0 };
+        tierBuckets[tier].total++;
+        if (e.status === 'succeeded') tierBuckets[tier].succeeded++;
+        else if (e.status === 'failed') tierBuckets[tier].failed++;
+        if (e.startedAt && e.completedAt) {
+          tierBuckets[tier].totalDurationMs += e.completedAt.getTime() - e.startedAt.getTime();
+        }
       }
 
       // 2. 从 git diff 提取实际改动的文件
@@ -373,6 +384,17 @@ class PostEvalAgent {
         ? 1 - missedFiles.length / Math.max(predictedFiles.length, 1)
         : 1;
 
+      // G34-feedback-loop: 计算 per-tier 统计
+      const tierStats: Record<string, { total: number; succeeded: number; failed: number; avgDurationMs: number }> = {};
+      for (const [tier, bucket] of Object.entries(tierBuckets)) {
+        tierStats[tier] = {
+          total: bucket.total,
+          succeeded: bucket.succeeded,
+          failed: bucket.failed,
+          avgDurationMs: bucket.total > 0 ? Math.round(bucket.totalDurationMs / bucket.total) : 0,
+        };
+      }
+
       const accuracy: AnalystAccuracy = {
         docId,
         goalTitle,
@@ -382,18 +404,18 @@ class PostEvalAgent {
         actualDeps: [], // 无法从 git diff 直接推断
         acMatchRate: Math.max(0, Math.min(1, acMatchRate)),
         missesByType,
+        tierStats: Object.keys(tierStats).length > 0 ? tierStats : undefined,
       };
 
       // 6. 写入 KnowledgeBus（闭环反馈）
-      if (missedFiles.length > 0 || extraFiles.length > 0 || predictedDeps.length === 0) {
-        await knowledgeBus.recordAnalystAccuracy(accuracy);
-        logger.info('[PostEval] Analyst accuracy recorded', {
-          goalId: goalId.slice(0, 16),
-          fileMatchRate: Math.round(accuracy.acMatchRate * 100) + '%',
-          missed: missedFiles.length,
-          extra: extraFiles.length,
-        });
-      }
+      await knowledgeBus.recordAnalystAccuracy(accuracy);
+      logger.info('[PostEval] Analyst accuracy recorded', {
+        goalId: goalId.slice(0, 16),
+        fileMatchRate: Math.round(accuracy.acMatchRate * 100) + '%',
+        missed: missedFiles.length,
+        extra: extraFiles.length,
+        tierStats: accuracy.tierStats,
+      });
 
       return accuracy;
     } catch (e: any) {

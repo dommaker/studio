@@ -393,8 +393,10 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         company = await prisma.company.create({ data: { name: 'Default' } });
       }
 
-      // Parse AC Groups from RequirementsDoc content (Markdown → structured)
-      const acGroups = parseAcGroupsFromMarkdown(doc.content);
+      // G34: Read acGroups from JSON column (source of truth), fallback to Markdown parse
+      const acGroups = doc.acGroups
+        ? JSON.parse(doc.acGroups as string)
+        : parseAcGroupsFromMarkdown(doc.content);
       const groupIdToIndex = new Map(acGroups.map((g, i) => [g.id, i]));
 
       // O1c: Extract Analyst context for each AC group (prevents Executor from re-exploring verified files)

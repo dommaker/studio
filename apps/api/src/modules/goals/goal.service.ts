@@ -316,23 +316,11 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       },
     });
 
-    // Create GoalPlan (approved, so GoalScheduler picks it up)
-    const plan = await prisma.goalPlan.create({
-      data: {
-        goalId: goal.id,
-        steps: JSON.stringify(steps) as any,
-        reasoning: `Auto-generated from RequirementsDoc from channel ${sourceChannelId}: ${summary}. ${acGroups.length} parallel groups with ${constraints.length} constraints.`,
-        version: 1,
-        status: 'approved',
-      },
-    });
-
-    // Create GoalExecutions (one per AC group, with planId)
+    // G34: Create GoalExecutions directly (GoalPlan stage eliminated)
     for (const step of steps) {
       await prisma.goalExecution.create({
         data: {
           goalId: goal.id,
-          planId: plan.id,
           stepIndex: step.index,
           status: 'pending',
           agentType: step.agentType,
@@ -350,7 +338,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
     // O1a: Notify GoalScheduler of new goal for immediate scheduling
     eventBus.publish('goal.created', { goalId: goal.id });
 
-    return { goalId: goal.id, planId: plan.id, stepCount: steps.length };
+    return { goalId: goal.id, stepCount: steps.length };
   }
 
   /**
@@ -412,28 +400,22 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       if (!anyRegularFailed) {
         // 多 AC 组且全部成功 → 创建 integration step, 暂不终结 Goal
         logger.info('[Goal] All sub-agent steps succeeded, creating integration step', { goalId });
-        const plan = await prisma.goalPlan.findFirst({
-          where: { goalId, status: 'approved' },
-          orderBy: { version: 'desc' },
-        });
-        if (plan) {
-          await prisma.goalExecution.create({
-            data: {
+        // G34: Create integration step without requiring GoalPlan
+        await prisma.goalExecution.create({
+          data: {
+            goalId,
+            stepIndex: 999,
+            status: 'pending',
+            agentType: 'claude',
+            input: JSON.stringify({
+              taskType: 'integration',
               goalId,
-              planId: plan.id,
-              stepIndex: 999,
-              status: 'pending',
-              agentType: 'claude',
-              input: JSON.stringify({
-                taskType: 'integration',
-                goalId,
-                totalSteps: regularSteps.length,
-                model: 'standard',
-              }),
-            },
-          });
-          logger.info('[Goal] Integration step created, waiting for scheduler', { goalId });
-        }
+              totalSteps: regularSteps.length,
+              model: 'standard',
+            }),
+          },
+        });
+        logger.info('[Goal] Integration step created, waiting for scheduler', { goalId });
         return; // 不终结 Goal — 等 scheduler 处理完 integration step
       }
     }
@@ -606,16 +588,29 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
 
     const goalContext = (goal.context as unknown as Record<string, unknown>) || {};
 
-    // 提取 ACs
+    // 提取 ACs (G34: try GoalPlan first, fallback to GoalExecution.input)
     const plan = await prisma.goalPlan.findFirst({
       where: { goalId, status: 'approved' },
       orderBy: { version: 'desc' },
     });
-    const steps = (plan?.steps as unknown as GoalStep[]) || [];
-    const allAcs = steps.flatMap(s => {
-      const input = s.input as Record<string, any> | null;
-      return input?.acGroup?.acs || [];
-    });
+    let allAcs: string[] = [];
+    let steps: GoalStep[] = [];
+    if (plan) {
+      steps = (plan.steps as unknown as GoalStep[]) || [];
+      allAcs = steps.flatMap(s => {
+        const inp = s.input as Record<string, any> | null;
+        return inp?.acGroup?.acs || [];
+      });
+    } else {
+      const execs = await prisma.goalExecution.findMany({
+        where: { goalId },
+        select: { input: true },
+      });
+      for (const e of execs) {
+        const inp = parseJsonField<Record<string, any>>(e.input, {});
+        allAcs.push(...(inp?.acGroup?.acs || []));
+      }
+    }
 
     // 找 worktree
     const worktree = await this.findReviewWorktree(goalId);
@@ -995,17 +990,48 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
    * 获取目标的可执行步骤（依赖已满足的 pending 步骤）
    */
   async getExecutableSteps(goalId: string): Promise<any[]> {
+    // G34: Try GoalPlan first (legacy), then fall back to GoalExecution.input
     const plan = await prisma.goalPlan.findFirst({
       where: { goalId, status: 'approved' },
       orderBy: { version: 'desc' },
     });
-    if (!plan) { logger.info('[Goal] No approved plan found', { goalId }); return []; }
 
-    const steps = parseJsonField<GoalStep[]>(plan.steps, []);
-    logger.info('[Goal] Found plan', { goalId, planId: plan.id, stepCount: steps.length, stepsType: typeof plan.steps });
-    const executions = await prisma.goalExecution.findMany({
-      where: { goalId, planId: plan.id },
-    });
+    let steps: GoalStep[];
+    let executions: any[];
+
+    if (plan) {
+      steps = parseJsonField<GoalStep[]>(plan.steps, []);
+      logger.info('[Goal] Found plan', { goalId, planId: plan.id, stepCount: steps.length });
+      executions = await prisma.goalExecution.findMany({
+        where: { goalId, planId: plan.id },
+      });
+    } else {
+      // G34: No GoalPlan — reconstruct steps from GoalExecution.input
+      executions = await prisma.goalExecution.findMany({
+        where: { goalId },
+        orderBy: { stepIndex: 'asc' },
+      });
+      steps = executions.map(e => {
+        const input = parseJsonField<Record<string, any>>(e.input, {});
+        const acGroup = input?.acGroup || {};
+        return {
+          index: e.stepIndex,
+          title: acGroup.id || `step-${e.stepIndex}`,
+          description: (acGroup.acs || []).join('; '),
+          agentType: e.agentType || 'claude',
+          input,
+          dependencies: (acGroup.dependencies || []).map((depId: string) => {
+            const depExec = executions.find(ex => {
+              const depInput = parseJsonField<Record<string, any>>(ex.input, {});
+              return depInput?.acGroup?.id === depId;
+            });
+            return depExec?.stepIndex ?? -1;
+          }).filter((i: number) => i >= 0),
+          estimatedDuration: '30m',
+        };
+      });
+      logger.info('[Goal] No GoalPlan — reconstructed from executions', { goalId, stepCount: steps.length });
+    }
 
     const executionMap = new Map(executions.map(e => [e.stepIndex, e]));
     const executable = [];

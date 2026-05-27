@@ -1,14 +1,96 @@
 {
-  "packages/studio-monitor": [
+  "apps/api": [
     {
-      "file": "packages/studio-monitor/src/services/health-monitor.ts",
-      "line": 2,
-      "code": "TS2307"
+      "file": "apps/api/src/modules/agents/auditor-agent.service.ts",
+      "line": 618,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 1495,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 1554,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
+      "line": 1802,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/agents/review-agent.service.ts",
+      "line": 194,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 204,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 206,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 210,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 610,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 616,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 616,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 841,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 858,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
+      "line": 923,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 419,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/project.service.ts",
+      "line": 164,
+      "code": "TS2353"
+    }
+  ],
+  "packages/studio-agent": [
+    {
+      "file": "packages/studio-agent/src/services/agent-executor.ts",
+      "line": 398,
+      "code": "TS2353"
     }
   ],
   "_meta": {
-    "generated": "2026-05-27T18:52:38.856Z",
-    "totalErrors": 1,
-    "commit": "ad27cc63fed468025492b91c47a975de5ab76c91"
+    "generated": "2026-05-27T20:19:25.079Z",
+    "totalErrors": 17,
+    "commit": "4fbb26ac07f1ad724ec4f45ef1bb73a94a9a2a86"
   }
 }

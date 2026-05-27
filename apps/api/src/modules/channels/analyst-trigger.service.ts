@@ -503,6 +503,7 @@ class AnalystTriggerService {
         data: {
           title: response.title || '需求分析',
           content: this.formatRequirementsDoc(response),
+          acGroups: JSON.stringify(response.acGroups || []),
           tags: JSON.stringify(response.tags || []),
           sourceChannelId: channelId,
           projectId: null,
