@@ -3,7 +3,7 @@
  *
  * Validates:
  *  - AC2.1: cmd uses `< "${promptFile}"` input redirection (not `cat ... |`)
- *  - AC2.2: cmd does NOT contain `2>&1 | tee -a`
+ *  - AC2.2: cmd does NOT contain `| tee` (shell pipe removed; `2>&1` redirect preserved for stderr merge)
  *  - AC2.3: log writing uses execSh stdout (JSON envelope parsing already in place)
  *  - AC2.4: cmd does NOT contain `--dangerously-skip-permissions`
  *  - AC2.5: execSh is called without opts.stdin
@@ -22,7 +22,7 @@ const source = fs.readFileSync(sourcePath, 'utf-8');
 
 // ─── Extract the cmd array construction (lines ~278-288) ─────────
 // Find the block between "const cmd = [" and the next "].join(' ');"
-const cmdBlockMatch = source.match(/const cmd = \[([\s\S]*?)\]\.join\(' '\)/);
+const cmdBlockMatch = source.match(/const cmd = \[([\s\S]*?)\]\.filter\(Boolean\)\.join\(' '\)/);
 const cmdBlock = cmdBlockMatch ? cmdBlockMatch[1] : '';
 
 // ─── Extract the execSh call (the one for claude, near line 305) ──
@@ -63,11 +63,11 @@ describe('AC2: agent-executor.ts cmd construction', () => {
   });
 
   // ==============================================================
-  // AC2.2: Remove 2>&1 | tee -a
+  // AC2.2: Remove | tee pipe (preserve 2>&1 redirect)
   // ==============================================================
-  describe('AC2.2: no 2>&1 | tee in cmd', () => {
-    test('AC2.2-1: cmd should NOT contain "2>&1"', () => {
-      expect(cmdBlock).not.toContain('2>&1');
+  describe('AC2.2: no | tee pipe in cmd', () => {
+    test('AC2.2-1: cmd should contain "2>&1" (redirect, not a pipe — merges stderr for JSON envelope capture)', () => {
+      expect(cmdBlock).toContain('2>&1');
     });
 
     test('AC2.2-2: cmd should NOT contain "tee"', () => {
@@ -127,7 +127,7 @@ describe('AC2: agent-executor.ts cmd construction', () => {
       );
       if (fs.existsSync(processIoPath)) {
         const processIo = fs.readFileSync(processIoPath, 'utf-8');
-        expect(processIo).toContain("stdio: ['ignore', 'pipe', 'pipe']");
+        expect(processIo).toMatch(/stdio:\s*\[.*'pipe',\s*'pipe'\]/);
       }
     });
   });

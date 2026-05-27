@@ -338,9 +338,6 @@ export class AgentExecutor {
           `<`,
           `"${promptFile}"`,
           `2>&1`,
-          `|`,
-          `tee`,
-          `"${logFile}"`,
         ].filter(Boolean).join(' ');
 
         logger.info('[AgentExecutor] Spawning session', {
@@ -371,6 +368,8 @@ export class AgentExecutor {
             maxBuffer: 10 * 1024 * 1024,
             childRef,
           });
+          // OBS-3: Persist raw stdout to .agent.log (replaces shell pipe | tee)
+          fsSync.writeFileSync(logFile, stdout, 'utf-8');
 
           // Parse JSON envelope
           let text = stdout;
