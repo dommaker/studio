@@ -51,6 +51,56 @@ const METRIC_TYPE_OPTIONS = [
   { value: 'token_saving_ratio', label: 'Token 节省率' },
 ];
 
+// B8 Phase 1.5: metricType 元数据
+const METRIC_META: Record<string, { unit: string; upperBound: number; baseline?: number }> = {
+  '': { unit: '', upperBound: 100 },
+  pipeline_duration_p90: { unit: 'min', upperBound: Infinity, baseline: 23 },
+  pipeline_duration_per_phase: { unit: 'min', upperBound: Infinity },
+  cache_hit_rate: { unit: '%', upperBound: 99.9, baseline: 94 },
+  execution_success_rate: { unit: '%', upperBound: 100, baseline: 12 },
+  review_pass_rate: { unit: '%', upperBound: 100 },
+  token_saving_ratio: { unit: '%', upperBound: 90 },
+};
+
+interface KRValidation {
+  status: 'pass' | 'warning' | 'blocked';
+  reason: string;
+}
+
+function validateKRTarget(kr: KR): KRValidation {
+  if (kr.target <= 0) return { status: 'blocked', reason: '目标必须大于 0' };
+  if (!kr.metricType) return { status: 'pass', reason: '' };
+
+  const meta = METRIC_META[kr.metricType];
+  if (!meta) return { status: 'pass', reason: '' };
+
+  // Baseline check: target below current level
+  if (meta.baseline !== undefined && kr.target < meta.baseline) {
+    return {
+      status: 'blocked',
+      reason: `目标 (${kr.target}${meta.unit}) 低于当前水平 (${meta.baseline}${meta.unit})。建议 >= ${Math.ceil(meta.baseline * 1.05)}${meta.unit}`,
+    };
+  }
+
+  // Upper bound check: target too close to theoretical limit
+  if (meta.upperBound !== Infinity && kr.target > meta.upperBound * 0.95) {
+    return {
+      status: 'warning',
+      reason: `接近理论上限 (${meta.upperBound}${meta.unit})，可能不可实现`,
+    };
+  }
+
+  // Gap check: target too far from baseline
+  if (meta.baseline !== undefined && kr.target > meta.baseline * 3) {
+    return {
+      status: 'warning',
+      reason: `距当前水平 (${meta.baseline}${meta.unit}) 差距大，建议分阶段`,
+    };
+  }
+
+  return { status: 'pass', reason: '' };
+}
+
 interface Project {
   id: string;
   pmoNumber: string;
@@ -485,6 +535,21 @@ export function PMOPage({ companyId }: PMOPageProps) {
                         </select>
                       </div>
                     </div>
+                    {/* B8 Phase 1.5: inline validation */}
+                    {kr.metricType && (() => {
+                      const v = validateKRTarget(kr);
+                      const meta = METRIC_META[kr.metricType];
+                      if (v.status === 'pass' && !meta?.baseline) return null;
+                      const color = v.status === 'blocked' ? '#F44336' : v.status === 'warning' ? '#FF9800' : '#4CAF50';
+                      return (
+                        <div className="mt-2 text-xs" style={{ color }}>
+                          {meta?.baseline !== undefined && `基准: ${meta.baseline}${meta.unit}`}
+                          {meta?.baseline !== undefined && v.status !== 'pass' && ' · '}
+                          {v.status !== 'pass' ? v.reason : ''}
+                          {v.status === 'pass' && meta?.baseline !== undefined && ` ✓ 目标合理`}
+                        </div>
+                      );
+                    })()}
                   </div>
                 ))}
               </div>

@@ -586,6 +586,118 @@ export class OKRService {
     if (windowTokens === 0) return null;
     return Math.round((1 - pipelineTokens / windowTokens) * 100);
   }
+
+  // ── B8 Phase 1.5: KR 目标校验 ──
+
+  /** 理论上限 */
+  private static readonly UPPER_BOUNDS: Record<string, number> = {
+    pipeline_duration_p90: Infinity,   // 越低越好，不设上限
+    pipeline_duration_per_phase: Infinity,
+    cache_hit_rate: 99.9,
+    execution_success_rate: 100,
+    review_pass_rate: 100,
+    token_saving_ratio: 90,
+  };
+
+  /** 获取 metricType 的系统基线值 */
+  async getMetricBaseline(metricType: string): Promise<number | null> {
+    const kr: OKRKeyResult = {
+      id: '_baseline_', objectiveId: '', title: '', target: 0, current: 0, unit: '',
+      metricType, queryParams: { days: 7 },
+    };
+    return this.queryKRActual(kr);
+  }
+
+  /** 校验 KR target 是否合理 */
+  async validateKRTarget(kr: OKRKeyResult): Promise<{
+    status: 'pass' | 'warning' | 'blocked';
+    reasons: string[];
+    baseline: number | null;
+    upperBound: number;
+  }> {
+    const reasons: string[] = [];
+    let status: 'pass' | 'warning' | 'blocked' = 'pass';
+
+    // R4: target > 0
+    if (kr.target <= 0) {
+      reasons.push('目标值必须大于 0');
+      status = 'blocked';
+      return { status, reasons, baseline: null, upperBound: 0 };
+    }
+
+    const upperBound = OKRService.UPPER_BOUNDS[kr.metricType || ''] || 100;
+
+    // 没有 metricType → 手动更新，不校验
+    if (!kr.metricType) {
+      return { status: 'pass', reasons: ['手动更新，不校验'], baseline: null, upperBound };
+    }
+
+    // R3: 数据源可用性
+    const dsHealth = await this.checkDataSourceHealth();
+    const ds = this.getDataSourceForMetric(kr.metricType);
+    if (ds && dsHealth[ds] === 'empty') {
+      reasons.push(`数据源 ${ds} 为空，不能自动度量。选"手动更新"或等数据就绪`);
+      status = 'blocked';
+      return { status, reasons, baseline: null, upperBound };
+    }
+
+    // 查基线
+    const baseline = await this.getMetricBaseline(kr.metricType);
+
+    if (baseline === null) {
+      reasons.push('暂时无法获取基线数据');
+      return { status: 'warning', reasons, baseline: null, upperBound };
+    }
+
+    // R1: target 不能低于 baseline
+    if (kr.target < baseline) {
+      const suggestedMin = Math.ceil(baseline * 1.05);
+      reasons.push(`目标 (${kr.target}${kr.unit}) 低于当前水平 (${baseline}${kr.unit})。建议 >= ${suggestedMin}${kr.unit}`);
+      status = 'blocked';
+    }
+
+    // R2: target 远高于 baseline → 警告分阶段
+    if (baseline > 0 && kr.target > baseline * 3) {
+      const stage1 = Math.ceil(baseline * 2);
+      reasons.push(`目标 (${kr.target}${kr.unit}) 距当前水平 (${baseline}${kr.unit}) 差距过大，建议分阶段。第一阶段: ${stage1}${kr.unit}`);
+      if (status !== 'blocked') status = 'warning';
+    }
+
+    // R2b: target 超过理论上限 95%
+    if (upperBound !== Infinity && kr.target > upperBound * 0.95) {
+      reasons.push(`目标 (${kr.target}${kr.unit}) 接近理论上限 (${upperBound}${kr.unit})，可能不可实现`);
+      if (status !== 'blocked') status = 'warning';
+    }
+
+    return { status, reasons, baseline, upperBound };
+  }
+
+  /** Auditor 重校准: baseline 已超 target → 建议上调 */
+  async getRecalibrationSuggestions(okrId: string): Promise<string[]> {
+    const suggestions: string[] = [];
+    try {
+      const okr = await this.get(okrId);
+      const raw = okr.keyResults;
+      const krs: OKRKeyResult[] = typeof raw === 'string' ? JSON.parse(raw) : raw;
+
+      for (const kr of krs) {
+        if (!kr.metricType || kr.target <= 0) continue;
+
+        const baseline = await this.getMetricBaseline(kr.metricType);
+        if (baseline === null) continue;
+
+        if (baseline > kr.target * 1.05) {
+          const suggested = Math.ceil(baseline * 1.02);
+          suggestions.push(
+            `KR "${kr.title}": 当前实际 ${baseline}${kr.unit} 已超过目标 ${kr.target}${kr.unit}。建议上调 target 至 >= ${suggested}${kr.unit}`
+          );
+        }
+      }
+    } catch (e) {
+      logger.warn('[OKR] Recalibration failed', { error: String(e) });
+    }
+    return suggestions;
+  }
 }
 
 export const okrService = new OKRService();

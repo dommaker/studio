@@ -664,6 +664,17 @@ export class AuditorAgent {
                 detail: `OKR "${okr.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，低于目标`,
               });
             }
+
+            // 🆕 B8 Phase 1.5: 重校准 — baseline 已超 target 时建议上调
+            if (ratio > 1.05) {
+              const suggested = Math.ceil(latest.value * 1.02);
+              suggestions.push({
+                type: 'circuit_fix',
+                risk: 'low',
+                agentType: 'auditor',
+                detail: `OKR "${okr.title}" KR "${kr.title}": 当前实际 ${latest.value}${kr.unit || ''} 已超过目标 ${kr.target}${kr.unit || ''} (${Math.round(ratio * 100)}%)。建议上调 target 至 >= ${suggested}${kr.unit || ''}`,
+              });
+            }
           }
         }
       } catch (e) {
