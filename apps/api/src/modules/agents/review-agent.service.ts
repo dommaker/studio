@@ -187,16 +187,34 @@ export class ReviewAgent {
         sessionId: taskId,
       }).catch(() => { /* non-blocking */ });
 
-      // Record review pattern to KnowledgeBus
-      const issueSummary = (report.issues ?? []).slice(0, 5).map(i => `[${i.severity}] ${i.message}`).join('\n');
-      knowledgeBus.recordPattern({
-        source: 'reviewer',
-        type: 'pattern',
-        title: `Review: ${report.overallApproved ? 'APPROVED' : 'REJECTED'} (cycle ${cycle}, score ${reviewScore})`,
-        content: `Task: ${taskId}\nIssues: ${totalIssues}\nScore: ${reviewScore}\n\n${issueSummary}`,
-        severity: report.overallApproved ? 'info' : 'warning',
-        timestamp: Date.now(),
-      }).catch(() => { /* non-blocking */ });
+      // OBS-2: Persist review to DB (before worktree cleanup deletes .review-report.json)
+    try {
+      const { prisma } = await import('../../core/database.js');
+      await prisma.pipelineReview.create({
+        data: {
+          executionId: taskId,
+          overallApproved: report.overallApproved,
+          score: reviewScore,
+          stanceCount: report.stanceReports ? Object.keys(report.stanceReports).length : 0,
+          stancesJson: JSON.stringify(report.stanceReports || {}),
+          issuesJson: JSON.stringify(report.issues || []),
+          summary: `Review ${report.overallApproved ? 'APPROVED' : 'REJECTED'} cycle ${cycle}: ${totalIssues} issues, score ${reviewScore}`,
+        },
+      });
+    } catch (e) {
+      logger.warn('[ReviewAgent] Failed to persist review', { error: String(e) });
+    }
+
+    // Record review pattern to KnowledgeBus
+    const issueSummary = (report.issues ?? []).slice(0, 5).map(i => `[${i.severity}] ${i.message}`).join('\n');
+    knowledgeBus.recordPattern({
+      source: 'reviewer',
+      type: 'pattern',
+      title: `Review: ${report.overallApproved ? 'APPROVED' : 'REJECTED'} (cycle ${cycle}, score ${reviewScore})`,
+      content: `Task: ${taskId}\nIssues: ${totalIssues}\nScore: ${reviewScore}\n\n${issueSummary}`,
+      severity: report.overallApproved ? 'info' : 'warning',
+      timestamp: Date.now(),
+    }).catch(() => { /* non-blocking */ });
 
       // 审查完成 hook
       afterReview({

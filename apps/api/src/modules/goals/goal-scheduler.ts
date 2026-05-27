@@ -621,9 +621,13 @@ export class GoalScheduler {
       }
     } catch { /* best-effort */ }
 
-    // 更新 input 中的 model 字段，确保 task worker 拿到的是动态 tier
-    if (input && tier !== input.model) {
+    // OBS-6: 注入分类上下文到 input，供 execution 完成时保存决策
+    if (input) {
       input.model = tier;
+      (input as any).classifyReason = this.classifyTaskComplexity(input, '');
+      (input as any).taskCategory = taskCategory;
+      (input as any).riskHits = (input?.acGroup?.acs ? JSON.stringify(input.acGroup.acs).toLowerCase().match(/(migration|migrate|auth|authentication|security|financial|payment|encrypt|crypto)/gi)?.length || 0 : 0);
+      (input as any).estimatedLines = (input?.acGroup?.acs?.length || 1) * 15;
       await goalService.updateStepExecution(executionId, { input }).catch(() => {});
     }
 
@@ -810,8 +814,12 @@ export class GoalScheduler {
       // Q5修复: 从 agent log JSON 提取真实 token 数据（而非 result.totalTokens 始终为 undefined）
       const worktreeDir = path.join(WORKTREES_DIR, executionId);
       if (result.success) {
-        // 直接标记成功（不依赖 Redis 事件链保证可靠性）
-        await goalService.updateStepExecution(executionId, { status: 'succeeded' });
+        // OBS-5: Store execution output + mark succeeded
+        const execOutput = (result as any).output || (result as any).stdout?.slice(0, 5000);
+        await goalService.updateStepExecution(executionId, {
+          status: 'succeeded',
+          ...(execOutput ? { output: execOutput } : {}),
+        });
         const tokenUsage = this.parseAgentTokenUsage(worktreeDir);
         recordPipelineRun({
           source: 'pipeline', phase: 'executor',
@@ -824,20 +832,46 @@ export class GoalScheduler {
           success: true,
           sessionId: executionId,
         }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun failed', { error: String(e) }); });
-        // G30: Record pipeline run event
-        prisma.studioEvent.create({
-          data: {
-            type: 'pipeline_run',
-            source: 'goal-scheduler',
-            payload: JSON.stringify({
-              goalId: goal.id,
+        // OBS-1: Record pipeline run event (reliable — awaited, not fire-and-forget)
+        try {
+          await prisma.studioEvent.create({
+            data: {
+              type: 'pipeline_run',
+              source: 'goal-scheduler',
               executionId,
-              success: true,
-              model: tokenUsage.model,
-              durationMs: result.totalDurationMs || dispatchDuration,
-            }),
-          },
-        }).catch((e: any) => { logger.warn('[GoalScheduler] StudioEvent failed', { error: String(e) }); });
+              payload: JSON.stringify({
+                goalId: goal.id,
+                success: true,
+                model: tokenUsage.model,
+                durationMs: result.totalDurationMs || dispatchDuration,
+              }),
+            },
+          });
+        } catch (e) {
+          logger.warn('[GoalScheduler] StudioEvent write failed', { error: String(e), executionId });
+        }
+        // OBS-6: Persist routing decision (from dispatch context)
+        try {
+          const execInput = (input as Record<string, any> | null) || {};
+          const acs = execInput?.acGroup?.acs || [];
+          const files = execInput?.acGroup?.files || [];
+          await prisma.pipelineDecision.create({
+            data: {
+              executionId,
+              goalId: goal.id,
+              tier: (execInput.modelTier as string) || 'standard',
+              reason: execInput.classifyReason || 'default',
+              acCount: acs.length || 0,
+              fileCount: files.length || 0,
+              taskCategory: (execInput.taskCategory as string) || undefined,
+              riskHits: execInput.riskHits || 0,
+              estimatedLines: execInput.estimatedLines,
+              featuresJson: JSON.stringify({ acs: acs.length, files: files.length, tier: execInput.modelTier }),
+            },
+          });
+        } catch (e) {
+          logger.warn('[GoalScheduler] PipelineDecision write failed', { error: String(e) });
+        }
         // P2-1: 累计 token 到 goal context (cost tracking)
         try {
           const g = await prisma.goal.findUnique({ where: { id: goal.id }, select: { context: true } });
@@ -879,18 +913,25 @@ export class GoalScheduler {
           error: result.error || 'Agent execution failed',
           sessionId: executionId,
         }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun (failure) failed', { error: String(e) }); });
-        // G30: Record pipeline run event (failure)
-        prisma.studioEvent.create({
-          data: {
-            type: 'pipeline_run',
-            source: 'goal-scheduler',
-            payload: JSON.stringify({
+        // OBS-1: Record pipeline run event (failure) — awaited, not fire-and-forget
+        const errDetail = result.error || 'Agent execution failed';
+        try {
+          await prisma.studioEvent.create({
+            data: {
+              type: 'pipeline_run',
+              source: 'goal-scheduler',
               executionId,
-              success: false,
-              error: result.error || 'Agent execution failed',
-            }),
-          },
-        }).catch((e: any) => { logger.warn('[GoalScheduler] StudioEvent failed', { error: String(e) }); });
+              payload: JSON.stringify({
+                goalId: goal.id,
+                executionId,
+                success: false,
+                error: errDetail,
+              }),
+            },
+          });
+        } catch (e) {
+          logger.warn('[GoalScheduler] StudioEvent (failure) write failed', { error: String(e) });
+        }
         logger.warn('[GoalScheduler] Agent failed', {
           executionId,
           goalId: goal.id,

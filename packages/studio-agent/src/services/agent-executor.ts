@@ -422,9 +422,32 @@ export class AgentExecutor {
           }
         } catch (execErr: any) {
           const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
-          const stderrText = execErr?.stderr?.toString() || '';
+          const errStack = execErr instanceof Error ? execErr.stack?.slice(0, 2000) : undefined;
+          const stderrText = execErr?.stderr?.toString().slice(0, 500) || '';
 
           cumulativeSessionMs += Date.now() - sessionStart;
+          // OBS-4: Store full error with stack trace in GoalExecution
+          try {
+            await prisma.goalExecution.update({
+              where: { id: task.executionId },
+              data: {
+                status: 'failed',
+                error: JSON.stringify({
+                  message: errMsg,
+                  stack: errStack,
+                  stderr: stderrText,
+                  sessionCount,
+                  cumulativeSessionMs,
+                  signal: execErr?.signal,
+                  code: execErr?.code,
+                  timestamp: Date.now(),
+                }),
+              },
+            });
+          } catch (e) {
+            logger.warn('[AgentExecutor] Failed to store error details', { error: String(e) });
+          }
+
           logger.warn('[AgentExecutor] Session failed', {
             taskId: task.id, executionId: task.executionId,
             session: sessionCount, sessionMs: Date.now() - sessionStart,

@@ -1288,3 +1288,41 @@ model StudioEvent {
   @@index([executionId])
   @@index([agentRole])
 }
+
+// PipelineReview — 审查结果持久化 (OBS-2)
+model PipelineReview {
+  id             String   @id @default(cuid())
+  executionId    String   @unique
+  goalId         String?
+  overallApproved Boolean  @default(false)
+  score          Int?      // 0-100
+  stanceCount    Int       @default(0)
+  stancesJson    String    // JSON: 完整 stanceReports
+  issuesJson     String    // JSON: 所有 issues
+  summary        String?
+  createdAt      DateTime  @default(now())
+
+  @@index([goalId])
+  @@index([createdAt])
+  @@map("pipeline_review")
+}
+
+// PipelineDecision — 路由决策持久化 (OBS-6)
+model PipelineDecision {
+  id             String   @id @default(cuid())
+  executionId    String   @unique
+  goalId         String?
+  tier           String    // fast/standard/premium
+  reason         String    // classification reason
+  acCount        Int       @default(0)
+  fileCount      Int       @default(0)
+  taskCategory   String?   // feature/bug/refactor/config/test
+  riskHits       Int       @default(0)
+  estimatedLines Int?
+  featuresJson   String?   // JSON: full classification inputs
+  createdAt      DateTime  @default(now())
+
+  @@index([goalId])
+  @@index([createdAt])
+  @@map("pipeline_decision")
+}

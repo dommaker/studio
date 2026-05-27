@@ -393,25 +393,34 @@ class DeployAgent {
     }
 
     // Clean up worktree directories on disk (scoped to execution IDs)
+    // OBS-3: Preserve .agent.log to persistent session storage before deleting
     try {
       const worktreesDir = path.join(require('os').homedir(), 'worktrees');
+      const sessionsDir = path.join(require('os').homedir(), '.studio', 'sessions');
       if (fs.existsSync(worktreesDir)) {
         const entries = fs.readdirSync(worktreesDir);
         for (const entry of entries) {
-          // Only delete worktrees matching one of the given execution IDs
           if (params.executionIds?.length) {
             if (!params.executionIds.some(id => entry === id)) continue;
           } else {
-            // No execution IDs provided — log warning and skip
             logger.warn('[DeployAgent] No execution IDs for cleanup, skipping worktree cleanup');
             break;
           }
           const wtPath = path.join(worktreesDir, entry);
           try {
-            if (fs.statSync(wtPath).isDirectory()) {
-              fs.rmSync(wtPath, { recursive: true, force: true });
-              cleanedDirs++;
+            if (!fs.statSync(wtPath).isDirectory()) continue;
+
+            // OBS-3: Copy .agent.log before deleting worktree
+            const agentLog = path.join(wtPath, '.agent.log');
+            if (fs.existsSync(agentLog)) {
+              fs.mkdirSync(sessionsDir, { recursive: true });
+              const dest = path.join(sessionsDir, `${entry}-${Date.now()}.log`);
+              fs.copyFileSync(agentLog, dest);
+              logger.debug('[DeployAgent] Preserved session log', { executionId: entry, dest });
             }
+
+            fs.rmSync(wtPath, { recursive: true, force: true });
+            cleanedDirs++;
           } catch { /* skip */ }
         }
       }
