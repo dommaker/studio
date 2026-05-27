@@ -374,7 +374,9 @@ export class OKRService {
    */
   async syncKRProgress(okrId: string): Promise<KRActual[]> {
     const okr = await this.get(okrId);
-    const krs: OKRKeyResult[] = JSON.parse(okr.keyResults);
+    // Prisma SQLite auto-parses JSON strings — handle both cases
+    const raw = okr.keyResults;
+    const krs: OKRKeyResult[] = typeof raw === 'string' ? JSON.parse(raw) : raw;
     const results: KRActual[] = [];
 
     const dsHealth = await this.checkDataSourceHealth();

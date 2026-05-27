@@ -607,7 +607,7 @@ export class AuditorAgent {
         const { okrService } = await import('../pmo/okr.service.js');
         const okrs = await prisma.oKR.findMany({ where: { status: 'active' } });
         for (const okr of okrs) {
-          const krs = JSON.parse(okr.keyResults);
+          const krs: any[] = typeof okr.keyResults === 'string' ? JSON.parse(okr.keyResults) : okr.keyResults;
           for (const kr of krs) {
             if (!kr.metricType || !kr.target || kr.target <= 0) continue;
 
@@ -980,7 +980,7 @@ export class AuditorAgent {
     try {
       const okr = await prisma.oKR.findUnique({ where: { id: okrId } });
       if (!okr) return null;
-      const krs = JSON.parse(okr.keyResults);
+      const krs: any[] = typeof okr.keyResults === 'string' ? JSON.parse(okr.keyResults) : okr.keyResults;
       const kr = krs.find((k: any) => k.title === krTitle);
       if (!kr || !kr.metricType) return null;
 
