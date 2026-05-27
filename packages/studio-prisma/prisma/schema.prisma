@@ -154,6 +154,20 @@ model OKR {
   @@map("okr")
 }
 
+// KRHistory — KR 进度历史快照 (B8 OKR 驱动闭环)
+model KRHistory {
+  id        String   @id @default(cuid())
+  krId      String
+  okrId     String
+  value     Float
+  status    String   // ok | no_data | stale
+  timestamp DateTime @default(now())
+
+  @@index([okrId, krId])
+  @@index([timestamp])
+  @@map("kr_history")
+}
+
 // CompanySkill — 公司级 Skill（SL-001, company-skill.service.ts + tools-std/routes.ts 使用中）
 model CompanySkill {
   id            String   @id @default(cuid())

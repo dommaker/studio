@@ -897,6 +897,8 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
         try {
           const { okrService } = await import('../pmo/okr.service');
           await okrService.updateProgress(project.okrId);
+          // 🆕 B8: 同步 KR 进度 (metricType 查询实值)
+          await okrService.syncKRProgress(project.okrId);
         } catch {
           logger.warn('[Goal] Failed to update OKR progress');
         }

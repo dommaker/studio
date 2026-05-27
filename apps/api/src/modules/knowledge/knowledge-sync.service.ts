@@ -13,7 +13,6 @@ import { execSync } from 'child_process';
 import { logger } from '@dommaker/studio-shared';
 import { sharedStore, sharedLifecycle, upsertKnowledge, knowledgeBus } from './knowledge-bus.service.js';
 import type { KnowledgeSource } from './knowledge-bus.service.js';
-import { recordPipelineRun } from '../../daemon/metrics.js';
 
 // ── Scope Registry ──
 // scope → associated source files (glob patterns). When any of these files change, the scope is stale.
@@ -342,15 +341,7 @@ class KnowledgeSyncService {
       timestamp: Date.now(),
     }).catch(() => {});
 
-    // Record metrics
-    recordPipelineRun({
-      source: 'pipeline', phase: 'full',
-      taskName: 'knowledge-sync-cycle',
-      model: 'system',
-      inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
-      durationMs,
-      success: true,
-    }).catch(() => {});
+    logger.debug('[KnowledgeSync] cycle complete', { durationMs, stale: stale.length, unmonitored: unmonitored.length, healed: healed.length });
 
     if (unmonitored.length > 0) {
       logger.warn('[KnowledgeSync] Unmonitored design-docs detected (auto-registered)', {

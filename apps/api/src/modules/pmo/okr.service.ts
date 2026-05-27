@@ -15,6 +15,14 @@ export interface OKRKeyResult {
   target: number;
   current: number;
   unit: string;
+  metricType?: string;     // 🆕 B8: 度量类型 e.g. "pipeline_duration_p90", "cache_hit_rate"
+  queryParams?: Record<string, unknown>;  // 🆕 B8: 查询参数 e.g. { days: 7 }
+}
+
+export interface KRActual {
+  value: number | null;
+  status: 'ok' | 'no_data' | 'stale';
+  lastUpdated: Date;
 }
 
 export interface CreateOKRInput {
@@ -104,6 +112,8 @@ export class OKRService {
 
     return okrs.map(okr => ({
       ...okr,
+      objectives: typeof okr.objectives === 'string' ? JSON.parse(okr.objectives) : okr.objectives,
+      keyResults: typeof okr.keyResults === 'string' ? JSON.parse(okr.keyResults) : okr.keyResults,
       projectCount: okr._count.Execution,
     }));
   }
@@ -299,29 +309,276 @@ export class OKRService {
       where: { okrId },
       select: { progress: true, status: true },
     });
-    
+
     if (projects.length === 0) {
       return 0;
     }
-    
+
     // 只计算 active/in_review/completed 的项目
-    const activeProjects = projects.filter(p => 
+    const activeProjects = projects.filter(p =>
       ['active', 'in_review', 'completed'].includes(p.status)
     );
-    
+
     if (activeProjects.length === 0) {
       return 0;
     }
-    
+
     const avgProgress = activeProjects.reduce((sum, p) => sum + p.progress, 0) / activeProjects.length;
-    
+
     await prisma.oKR.update({
       where: { id: okrId },
       data: { progress: Math.round(avgProgress) },
     });
-    
+
     logger.info({ okrId, progress: Math.round(avgProgress), projectCount: activeProjects.length }, 'OKR progress updated');
     return Math.round(avgProgress);
+  }
+
+  // ── B8: OKR 驱动闭环 ──
+
+  /**
+   * 检查数据源可用性
+   */
+  async checkDataSourceHealth(): Promise<Record<string, 'ok' | 'empty'>> {
+    const [pipelineRunCount, studioEventCount, goalCount, goalExecCount] = await Promise.all([
+      prisma.pipelineRun.count(),
+      prisma.studioEvent.count(),
+      prisma.goal.count(),
+      prisma.goalExecution.count(),
+    ]);
+    return {
+      pipeline_run: pipelineRunCount > 0 ? 'ok' : 'empty',
+      studio_event: studioEventCount > 0 ? 'ok' : 'empty',
+      goal: goalCount > 0 ? 'ok' : 'empty',
+      goal_execution: goalExecCount > 0 ? 'ok' : 'empty',
+    };
+  }
+
+  /**
+   * metricType → 数据源映射
+   */
+  private getDataSourceForMetric(metricType: string): string {
+    const map: Record<string, string> = {
+      pipeline_duration_p90: 'goal_execution',
+      pipeline_duration_per_phase: 'pipeline_run',
+      cache_hit_rate: 'pipeline_run',
+      execution_success_rate: 'goal',
+      review_pass_rate: 'goal',
+      token_saving_ratio: 'studio_event',
+    };
+    return map[metricType] || 'unknown';
+  }
+
+  /**
+   * 同步 KR 进度 — 从数据源查询实值
+   */
+  async syncKRProgress(okrId: string): Promise<KRActual[]> {
+    const okr = await this.get(okrId);
+    const krs: OKRKeyResult[] = JSON.parse(okr.keyResults);
+    const results: KRActual[] = [];
+
+    const dsHealth = await this.checkDataSourceHealth();
+
+    for (const kr of krs) {
+      if (!kr.metricType) {
+        results.push({ value: kr.current, status: 'ok', lastUpdated: new Date() });
+        continue;
+      }
+
+      const requiredDS = this.getDataSourceForMetric(kr.metricType);
+      if (dsHealth[requiredDS] === 'empty') {
+        results.push({ value: null, status: 'no_data', lastUpdated: new Date() });
+        continue;
+      }
+
+      const actual = await this.queryKRActual(kr);
+      if (actual === null) {
+        results.push({ value: null, status: 'no_data', lastUpdated: new Date() });
+      } else {
+        kr.current = actual;
+        results.push({ value: actual, status: 'ok', lastUpdated: new Date() });
+      }
+    }
+
+    // 只统计 status='ok' 的 KR 参与进度计算
+    const okKRs = results.filter(r => r.status === 'ok' && r.value !== null);
+    if (okKRs.length > 0) {
+      const progress = this.calculateProgress(krs.filter(k =>
+        results.some(r => r.status === 'ok' && r.value !== null)
+      ));
+      await prisma.oKR.update({
+        where: { id: okrId },
+        data: { keyResults: JSON.stringify(krs), progress },
+      });
+    }
+
+    // 写 KRHistory 记录
+    const now = new Date();
+    await prisma.kRHistory.createMany({
+      data: results.map(r => ({
+        krId: krs.find(k => k.current === r.value || r.value === null)?.id || 'unknown',
+        okrId,
+        value: r.value ?? 0,
+        status: r.status,
+        timestamp: now,
+      })),
+    });
+
+    logger.info({ okrId, results: results.map(r => r.status) }, 'KR progress synced');
+    return results;
+  }
+
+  /**
+   * 按 metricType 查询 KR 实际值
+   */
+  private async queryKRActual(kr: OKRKeyResult): Promise<number | null> {
+    const days = (kr.queryParams?.days as number) || 7;
+
+    switch (kr.metricType) {
+      case 'pipeline_duration_p90':
+        return this.queryPipelineDurationP90(days);
+      case 'pipeline_duration_per_phase':
+        return this.queryPipelineDurationPerPhase(kr.queryParams?.phase as string, days);
+      case 'cache_hit_rate':
+        return this.queryCacheHitRate(days);
+      case 'execution_success_rate':
+        return this.queryExecutionSuccessRate(days);
+      case 'review_pass_rate':
+        return this.queryReviewPassRate(days);
+      case 'token_saving_ratio':
+        return this.queryTokenSavingRatio(days);
+      default:
+        logger.warn({ metricType: kr.metricType }, 'Unknown metricType');
+        return null;
+    }
+  }
+
+  // ── 具体 metric 查询 ──
+
+  /** 管线 e2e 耗时 p90 (从 GoalExecution wall clock) */
+  private async queryPipelineDurationP90(days: number): Promise<number | null> {
+    const since = new Date(Date.now() - days * 86400000);
+    const executions = await prisma.goalExecution.findMany({
+      where: {
+        startedAt: { gte: since },
+        completedAt: { not: null },
+        status: 'succeeded',
+      },
+      select: { goalId: true, startedAt: true, completedAt: true },
+    });
+
+    if (executions.length === 0) return null;
+
+    // 按 goalId 分组，算每个 Goal 的 wall clock
+    const byGoal = new Map<string, { startedAt: Date; completedAt: Date }>();
+    for (const e of executions) {
+      const existing = byGoal.get(e.goalId);
+      if (!existing) {
+        byGoal.set(e.goalId, { startedAt: e.startedAt!, completedAt: e.completedAt! });
+      } else {
+        if (e.startedAt! < existing.startedAt) existing.startedAt = e.startedAt!;
+        if (e.completedAt! > existing.completedAt) existing.completedAt = e.completedAt!;
+      }
+    }
+
+    const durations = Array.from(byGoal.values())
+      .map(g => g.completedAt.getTime() - g.startedAt.getTime())
+      .filter(d => d > 1000)  // 排除 <1s 的异常值
+      .sort((a, b) => a - b);
+
+    if (durations.length === 0) return null;
+
+    // p90
+    const idx = Math.ceil(durations.length * 0.9) - 1;
+    return Math.round(durations[Math.min(idx, durations.length - 1)] / 1000 / 60);
+  }
+
+  /** 管线单阶段耗时 */
+  private async queryPipelineDurationPerPhase(phase?: string, days?: number): Promise<number | null> {
+    const since = new Date(Date.now() - (days || 7) * 86400000);
+    const where: Record<string, unknown> = {
+      createdAt: { gte: since },
+      phase: { not: 'full' },
+    };
+    if (phase) where.phase = phase;
+
+    const result = await prisma.pipelineRun.aggregate({
+      where,
+      _avg: { durationMs: true },
+    });
+
+    return result._avg.durationMs ? Math.round(result._avg.durationMs / 1000 / 60) : null;
+  }
+
+  /** 缓存命中率 */
+  private async queryCacheHitRate(days: number): Promise<number | null> {
+    const since = new Date(Date.now() - days * 86400000);
+    const result = await prisma.pipelineRun.aggregate({
+      where: {
+        createdAt: { gte: since },
+        phase: { not: 'full' },
+        inputTokens: { gt: 0 },
+      },
+      _sum: { cacheHitTokens: true, inputTokens: true },
+    });
+
+    if (!result._sum.inputTokens || result._sum.inputTokens === 0) return null;
+    return Math.round((result._sum.cacheHitTokens || 0) / result._sum.inputTokens * 100);
+  }
+
+  /** 执行成功率 */
+  private async queryExecutionSuccessRate(days: number): Promise<number | null> {
+    const since = new Date(Date.now() - days * 86400000);
+    const [total, succeeded] = await Promise.all([
+      prisma.goal.count({ where: { createdAt: { gte: since }, status: { not: 'draft' } } }),
+      prisma.goal.count({ where: { createdAt: { gte: since }, status: 'succeeded' } }),
+    ]);
+
+    if (total === 0) return null;
+    return Math.round((succeeded / total) * 100);
+  }
+
+  /** 审查通过率 */
+  private async queryReviewPassRate(days: number): Promise<number | null> {
+    const since = new Date(Date.now() - days * 86400000);
+    const goals = await prisma.goal.findMany({
+      where: { createdAt: { gte: since }, status: { in: ['succeeded', 'failed'] } },
+      select: { context: true },
+    });
+
+    const withReview = goals.filter(g => {
+      try {
+        const ctx = JSON.parse(g.context);
+        return typeof ctx?.reviewScore === 'number';
+      } catch { return false; }
+    });
+
+    if (withReview.length === 0) return null;
+
+    const passed = withReview.filter(g => {
+      const ctx = JSON.parse(g.context);
+      return ctx.reviewScore >= 70;
+    });
+
+    return Math.round((passed.length / withReview.length) * 100);
+  }
+
+  /** Token 节省率 (pipeline vs window baseline) */
+  private async queryTokenSavingRatio(days: number): Promise<number | null> {
+    const since = new Date(Date.now() - days * 86400000);
+    const pipeline = await prisma.pipelineRun.aggregate({
+      where: { createdAt: { gte: since }, source: 'pipeline', phase: { not: 'full' } },
+      _sum: { inputTokens: true },
+    });
+    const window = await prisma.pipelineRun.aggregate({
+      where: { createdAt: { gte: since }, source: 'window', phase: { not: 'full' } },
+      _sum: { inputTokens: true },
+    });
+
+    const pipelineTokens = pipeline._sum.inputTokens || 0;
+    const windowTokens = window._sum.inputTokens || 0;
+    if (windowTokens === 0) return null;
+    return Math.round((1 - pipelineTokens / windowTokens) * 100);
   }
 }
 

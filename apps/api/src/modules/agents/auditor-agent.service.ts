@@ -9,7 +9,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, modelGateway } from '@dommaker/studio-shared';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
@@ -602,6 +602,74 @@ export class AuditorAgent {
         }
       } catch { /* non-blocking */ }
 
+      // Circuit 7: OKR 达成率 (B8 OKR 驱动闭环)
+      try {
+        const { okrService } = await import('../pmo/okr.service.js');
+        const okrs = await prisma.oKR.findMany({ where: { status: 'active' } });
+        for (const okr of okrs) {
+          const krs = JSON.parse(okr.keyResults);
+          for (const kr of krs) {
+            if (!kr.metricType || !kr.target || kr.target <= 0) continue;
+
+            const ds = okrService ? 'ok' : 'empty'; // service exists
+            if (!ds) continue;
+
+            // Query KR history for trend
+            const history = await prisma.kRHistory.findMany({
+              where: { okrId: okr.id, krId: kr.id },
+              orderBy: { timestamp: 'desc' },
+              take: 7,
+            });
+
+            const latest = history[0];
+            if (!latest) continue;
+
+            if (latest.status === 'no_data') {
+              suggestions.push({
+                type: 'circuit_fix',
+                risk: 'low',
+                agentType: 'auditor',
+                detail: `OKR "${okr.title}" KR "${kr.title}": 数据暂不可用 (metricType: ${kr.metricType})`,
+              });
+              continue;
+            }
+
+            if (latest.status === 'stale') {
+              suggestions.push({
+                type: 'circuit_fix',
+                risk: 'low',
+                agentType: 'auditor',
+                detail: `OKR "${okr.title}" KR "${kr.title}": 数据已过期`,
+              });
+              continue;
+            }
+
+            const ratio = latest.value / kr.target;
+            const trend = history.length >= 2
+              ? (latest.value - history[history.length - 1].value) / history[history.length - 1].value
+              : 0;
+
+            if (ratio < 0.6 && trend <= 0) {
+              suggestions.push({
+                type: 'circuit_fix',
+                risk: 'high',
+                agentType: 'auditor',
+                detail: `OKR "${okr.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，趋势${trend < 0 ? '恶化中' : '未改善'}。建议触发深度根因分析`,
+              });
+            } else if (ratio < 0.8) {
+              suggestions.push({
+                type: 'circuit_fix',
+                risk: 'low',
+                agentType: 'auditor',
+                detail: `OKR "${okr.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，低于目标`,
+              });
+            }
+          }
+        }
+      } catch (e) {
+        logger.warn('[AuditorAgent] OKR circuit health check failed', { error: String(e) });
+      }
+
       logger.info('[AuditorAgent] Circuit health analyzed', { total, typeCount: byType.length, types: typeSummary });
     } catch (e) {
       logger.warn('[AuditorAgent] Circuit health analysis failed', { error: String(e) });
@@ -896,6 +964,166 @@ export class AuditorAgent {
     } catch (e) {
       logger.warn('[AuditorAgent] Failed to post to system channel', { error: String(e) });
     }
+  }
+
+  // ── B8: OKR 驱动闭环 ──
+
+  /**
+   * 根因诊断 + 优化提案 (每周/按需触发)
+   */
+  async diagnoseRootCause(okrId: string, krTitle: string, trigger: 'weekly' | 'critical' = 'weekly'): Promise<{
+    rootCause: string;
+    suggestedFix: string;
+    expectedImprovement: string;
+    confidence: number;  // 0-1
+  } | null> {
+    try {
+      const okr = await prisma.oKR.findUnique({ where: { id: okrId } });
+      if (!okr) return null;
+      const krs = JSON.parse(okr.keyResults);
+      const kr = krs.find((k: any) => k.title === krTitle);
+      if (!kr || !kr.metricType) return null;
+
+      // 聚合信号
+      const signals = await this.aggregateDiagnosticSignals();
+
+      // 构建 LLM 根因分析 prompt
+      const prompt = [
+        `你是系统优化分析师。管线 OKR KR "${krTitle}" 当前值 ${kr.current || '?'}，目标值 ${kr.target}${kr.unit || ''}。`,
+        kr.current && kr.target ? `达成率: ${Math.round(kr.current / kr.target * 100)}%。` : '',
+        '',
+        '### 近期数据',
+        ...signals,
+        '',
+        '### 要求',
+        '请分析：',
+        '1. 核心瓶颈是什么？（引用数据来源）',
+        '2. 建议的优化方案（具体到代码层面，不空泛）',
+        '3. 预期改善效果（量化估计）',
+        '4. 置信度 (high/medium/low)',
+        '',
+        '返回 JSON: {"rootCause": "...", "suggestedFix": "...", "expectedImprovement": "...", "confidence": "high|medium|low"}',
+      ].filter(Boolean).join('\n');
+
+      const result = await modelGateway.promptJson<{
+        rootCause: string;
+        suggestedFix: string;
+        expectedImprovement: string;
+        confidence: string;
+      }>(prompt, '你是系统优化分析师。基于数据找瓶颈，给具体优化方案。');
+
+      const confidenceMap: Record<string, number> = { high: 0.8, medium: 0.5, low: 0.3 };
+      return {
+        rootCause: result.rootCause,
+        suggestedFix: result.suggestedFix,
+        expectedImprovement: result.expectedImprovement,
+        confidence: confidenceMap[result.confidence] || 0.5,
+      };
+    } catch (e) {
+      logger.warn('[AuditorAgent] diagnoseRootCause failed', { error: String(e) });
+      return null;
+    }
+  }
+
+  /**
+   * 聚合诊断信号
+   */
+  private async aggregateDiagnosticSignals(): Promise<string[]> {
+    const signals: string[] = [];
+    const since = new Date(Date.now() - 7 * 86400000);
+
+    try {
+      // Phase breakdown
+      const phaseStats = await prisma.pipelineRun.groupBy({
+        by: ['phase'],
+        where: { createdAt: { gte: since }, phase: { not: 'full' }, inputTokens: { gt: 0 } },
+        _avg: { durationMs: true },
+        _count: true,
+      });
+      if (phaseStats.length > 0) {
+        const total = phaseStats.reduce((s, p) => s + (p._avg.durationMs || 0), 0);
+        signals.push(`- Phase 耗时分布: ${phaseStats.map(p => `${p.phase} ${Math.round((p._avg.durationMs || 0) / 1000 / 60)}min (${total > 0 ? Math.round((p._avg.durationMs || 0) / total * 100) : 0}%)`).join(', ')}`);
+      }
+    } catch { /* non-blocking */ }
+
+    try {
+      // Session count
+      const multiSession = await prisma.pipelineRun.count({
+        where: { createdAt: { gte: since }, phase: 'executor', sessionId: { not: null } },
+      });
+      signals.push(`- Executor 执行次数: ${multiSession}`);
+    } catch { /* non-blocking */ }
+
+    try {
+      // KnowledgeBus patterns via getStats
+      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+      const stats = knowledgeBus.getStats();
+      if (stats.total && stats.total > 0) {
+        const entries = Object.entries(stats).filter(([k]) => k !== 'total')
+          .map(([k, v]) => `${k}:${v}`).join(', ');
+        signals.push(`- KnowledgeBus 统计: ${entries || 'empty'} (total: ${stats.total})`);
+      }
+    } catch { /* non-blocking */ }
+
+    try {
+      // RKB patterns
+      const resolutions = await prisma.resolution.count({ where: { status: 'canonical' } });
+      signals.push(`- RKB 已知解法: ${resolutions} 条 canonical`);
+    } catch { /* non-blocking */ }
+
+    return signals;
+  }
+
+  /**
+   * 提案预检 — 轻量可行性校验
+   */
+  async preCheckProposal(proposal: { suggestedFix: string; confidence: number }): Promise<{
+    status: 'pass' | 'warning' | 'blocked';
+    reasons: string[];
+  }> {
+    const reasons: string[] = [];
+
+    // 1. Confidence 阈值
+    if (proposal.confidence < 0.5) {
+      reasons.push('confidence 低于 0.5，分析结果可信度不足');
+    }
+
+    // 2. RKB 历史: 类似提案之前失败过?
+    try {
+      const similar = await prisma.resolution.findFirst({
+        where: {
+          status: { in: ['pending', 'canonical'] },
+          fix: { contains: proposal.suggestedFix.substring(0, 50) },
+        },
+      });
+      if (similar && similar.status === 'pending') {
+        reasons.push(`类似方案 "${similar.title}" 仍在 pending 状态，建议等待验证结果`);
+      }
+    } catch { /* non-blocking */ }
+
+    // 3. 检查重复提案
+    try {
+      const recentGoals = await prisma.goal.findMany({
+        where: {
+          title: { contains: proposal.suggestedFix.substring(0, 30) },
+          createdAt: { gte: new Date(Date.now() - 14 * 86400000) },
+        },
+      });
+      if (recentGoals.length > 0) {
+        reasons.push(`最近 14 天内已有 ${recentGoals.length} 个相似 Goal，建议检查是否需要重新提案`);
+      }
+    } catch { /* non-blocking */ }
+
+    let status: 'pass' | 'warning' | 'blocked' = 'pass';
+    if (reasons.length === 0) {
+      status = 'pass';
+    } else if (proposal.confidence < 0.3 || reasons.length >= 2) {
+      status = 'blocked';
+    } else {
+      status = 'warning';
+    }
+
+    return { status, reasons };
   }
 }
 
