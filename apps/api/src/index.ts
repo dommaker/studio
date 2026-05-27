@@ -1,5 +1,9 @@
 // Pipeline Studio - 主入口
 import 'dotenv/config';
+
+// 固定 KnowledgeStore 路径 — CWD 无关, 与 memory-knowledge-sync hook 共用
+process.env.KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || require('path').resolve(__dirname, '..', '.harness', 'knowledge');
+
 import { createServer } from 'http';
 import { app, registerRoutes } from './app.js';
 // WebSocket server removed (B0-003: migrated to SSE). See modules/events/sse.routes.ts
