@@ -83,9 +83,9 @@ describe('DeployAgent (topology-agnostic)', () => {
         repoDir: tmpDir,
       });
 
-      // No remote configured in temp repo
+      // No remote configured in temp repo — pre-flight catches it before push
       expect(result.success).toBe(false);
-      expect(result.summary).toContain('Push failed');
+      expect(result.summary).toMatch(/cannot reach origin/i);
     });
 
     it('returns correct shape on failure', async () => {
