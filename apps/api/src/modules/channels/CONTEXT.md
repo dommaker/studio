@@ -2,6 +2,13 @@
 
 > 此文件描述 apps/api/src/modules/channels 目录的职责和上下文
 
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
+
+<!-- STALE_SINCE: 2026-05-27 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts
+
 ## 职责
 
 <!-- 本目录的核心职责是什么 -->
@@ -17,3 +24,9 @@
 ## 注意事项
 
 <!-- 开发时需要注意的约束或约定 -->
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors
+- ✅ `7d5b0fda`: Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency

@@ -27,6 +27,7 @@ export interface CreateReviewInput {
   description?: string;
   changes: SpecChange[];
   requestedBy?: string;
+  companyId?: string;
 }
 
 export interface ApprovalInput {
@@ -58,10 +59,10 @@ export class SpecReviewService {
         impact,
         status: 'pending',
         updatedAt: new Date(),
-        approvals: {
+        approvals: JSON.stringify({
           architect: { approved: false },
           projectLead: { approved: false },
-        },
+        }),
         requestedBy: input.requestedBy,
       },
     });

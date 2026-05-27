@@ -120,8 +120,8 @@ export class GoalScheduler {
         logger.warn('[GoalScheduler] Ignoring malformed event', { error: String(e) });
       }
     });
-    this.runtimeConstraintSub.on = () => {}; // no-op, was Redis .on('message')
-    this.runtimeConstraintSub.disconnect = () => {}; // no-op
+    (this.runtimeConstraintSub as any).on = () => {}; // no-op, was Redis .on('message')
+    (this.runtimeConstraintSub as any).disconnect = () => {}; // no-op
   }
 
   // ========================================
@@ -980,7 +980,7 @@ export class GoalScheduler {
 
     for (const sibling of completed) {
       const step = steps.find(s => s.index === sibling.stepIndex);
-      const output = sibling.output as Record<string, any> | null;
+      const output = sibling.output as unknown as Record<string, any> | null;
       if (!output) continue;
 
       lines.push('');
@@ -1142,13 +1142,13 @@ export class GoalScheduler {
   private async buildIntegrationPrompt(goalId: string): Promise<string> {
     const execs = await prisma.goalExecution.findMany({
       where: { goalId, status: 'succeeded' },
-      select: { id: true, stepIndex: true, output: true },
+      select: { id: true, stepIndex: true, input: true, output: true },
       orderBy: { stepIndex: 'asc' },
     });
 
     const groupList = execs.map(e => {
-      const input = e.input as Record<string, any> | null;
-      const output = e.output as Record<string, any> | null;
+      const input = e.input as unknown as Record<string, any> | null;
+      const output = e.output as unknown as Record<string, any> | null;
       return [
         `### AC 组 ${e.stepIndex + 1}`,
         `  - 执行 ID: ${e.id}`,
@@ -1292,12 +1292,12 @@ export class GoalScheduler {
         stepIndex: 999, // Integration step 索引
         status: 'pending',
         agentType: 'claude',
-        input: {
+        input: JSON.stringify({
           taskType: 'integration',
           goalId,
           totalSteps: all.length,
           model: 'standard',  // 集成步骤涉及 merge + tsc + test
-        },
+        }),
       },
     });
   }

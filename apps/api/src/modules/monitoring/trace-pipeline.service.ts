@@ -52,8 +52,7 @@ export class TracePipelineService {
     try {
       // 查询最近 24h 的 trace
       const traces = this.collector.read({
-        start: Date.now() - 24 * 3600_000,
-        end: Date.now(),
+        timeRange: { start: Date.now() - 24 * 3600_000, end: Date.now() },
       });
 
       if (traces.length === 0) {
@@ -73,7 +72,7 @@ export class TracePipelineService {
       // 统计
       const passCount = traces.filter(t => t.result === 'pass').length;
       const failCount = traces.filter(t => t.result === 'fail').length;
-      const bypassCount = traces.filter(t => t.result === 'bypass' || t.result === 'bypassed').length;
+      const bypassCount = traces.filter(t => t.result === 'bypassed').length;
       const constraintsChecked = new Set(traces.map(t => t.constraintId)).size;
 
       const result: TracePipelineResult = {
@@ -107,8 +106,8 @@ export class TracePipelineService {
     if (result.anomalies.length > 0) {
       for (const anomaly of result.anomalies) {
         alerts.push({
-          level: anomaly.severity === 'high' ? 'critical' : 'warning',
-          message: `Trace anomaly: ${anomaly.constraintId} — ${anomaly.description || 'unexpected pattern'}`,
+          level: anomaly.level === 'iron_law' ? 'critical' : 'warning',
+          message: `Trace anomaly: ${anomaly.constraintId} — ${anomaly.message || 'unexpected pattern'}`,
         });
       }
     }
@@ -165,7 +164,7 @@ export class TracePipelineService {
 
     try {
       const traces = this.collector.read({
-        start: Date.now() - 24 * 3600_000, end: Date.now(),
+        timeRange: { start: Date.now() - 24 * 3600_000, end: Date.now() },
       });
 
       // 筛选 fail traces，按 constraintId 分组

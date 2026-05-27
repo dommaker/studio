@@ -28,10 +28,10 @@ export function startEvolutionScheduler(): void {
     try {
       const results = await knowledgeEvolution.decayCheck();
       if (results.length > 0) {
-        logger.info({ archived: results.length }, 'Knowledge decay check completed');
+        logger.info('Knowledge decay check completed', { archived: results.length });
       }
     } catch (error) {
-      logger.error({ error: String(error) }, 'Knowledge decay check failed');
+      logger.error('Knowledge decay check failed', { error: String(error) });
     }
   }, DECAY_INTERVAL_MS);
 
@@ -51,10 +51,10 @@ export function startEvolutionScheduler(): void {
       }
 
       if (totalPatterns > 0) {
-        logger.info({ projects: projects.length, patterns: totalPatterns }, 'Meso evolution completed');
+        logger.info('Meso evolution completed', { projects: projects.length, patterns: totalPatterns });
       }
     } catch (error) {
-      logger.error({ error: String(error) }, 'Meso evolution failed');
+      logger.error('Meso evolution failed', { error: String(error) });
     }
   }, MESO_INTERVAL_MS);
 
@@ -64,10 +64,10 @@ export function startEvolutionScheduler(): void {
       const { patternMiner } = await import('./pattern-miner.js');
       const count = await patternMiner.analyzeDaily();
       if (count > 0) {
-        logger.info({ patterns: count }, 'Interaction pattern mining completed');
+        logger.info('Interaction pattern mining completed', { patterns: count });
       }
     } catch (error) {
-      logger.error({ error: String(error) }, 'Pattern mining failed');
+      logger.error('Pattern mining failed', { error: String(error) });
     }
   }, PATTERN_INTERVAL_MS);
 
@@ -77,10 +77,10 @@ export function startEvolutionScheduler(): void {
       const { evalCaseGenerator } = await import('./eval-case-generator.js');
       const marked = await evalCaseGenerator.markSaturatedEvals();
       if (marked > 0) {
-        logger.info({ marked }, 'Eval spring cleaning completed');
+        logger.info('Eval spring cleaning completed', { marked });
       }
     } catch (error) {
-      logger.error({ error: String(error) }, 'Eval spring cleaning failed');
+      logger.error('Eval spring cleaning failed', { error: String(error) });
     }
   }, DECAY_INTERVAL_MS);
 

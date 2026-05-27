@@ -198,7 +198,7 @@ export const projectService = {
         completedAt: true,
         createdAt: true,
         updatedAt: true,
-        Company: { select: { id: true, name: true, size: true, balance: true } },
+        Company: { select: { id: true, name: true, size: true } },
         okr: { select: { id: true, title: true, quarter: true } },
       },
     });

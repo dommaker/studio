@@ -196,7 +196,7 @@ knowledgeImportRoutes.post('/scan', async (req: Request, res: Response) => {
       files: sortedFiles,
     });
   } catch (error) {
-    logger.error({ error }, 'Knowledge import scan failed');
+    logger.error('Knowledge import scan failed', { error: String(error) });
     return res.status(500).json({ error: 'Scan failed' });
   }
 });
@@ -287,7 +287,7 @@ knowledgeImportRoutes.post('/execute', async (req: Request, res: Response) => {
     const skipped = results.filter(r => r.status === 'skipped').length;
     const errors = results.filter(r => r.status === 'error').length;
 
-    logger.info({ projectId, imported, skipped, errors }, 'Knowledge import completed');
+    logger.info('Knowledge import completed', { projectId, imported, skipped, errors });
 
     return res.json({
       imported,
@@ -296,7 +296,7 @@ knowledgeImportRoutes.post('/execute', async (req: Request, res: Response) => {
       results,
     });
   } catch (error) {
-    logger.error({ error }, 'Knowledge import execution failed');
+    logger.error('Knowledge import execution failed', { error: String(error) });
     return res.status(500).json({ error: 'Import failed' });
   }
 });

@@ -258,7 +258,7 @@ export class OKRService {
     await prisma.company.update({
       where: { id: companyId },
       data: {
-        adminRoleIds: [ceoRole.id],
+        adminRoleIds: JSON.stringify([ceoRole.id]),
       },
     });
 
@@ -694,7 +694,7 @@ export class OKRService {
         }
       }
     } catch (e) {
-      logger.warn('[OKR] Recalibration failed', { error: String(e) });
+      logger.warn({ error: String(e) }, '[OKR] Recalibration failed');
     }
     return suggestions;
   }

@@ -152,8 +152,8 @@ export async function analyzeIntentWithLLM(input: string): Promise<IntentResult 
     // 合并能力列表
     const capabilities = [
       ...registry.tools.map(c => ({ ...c, type: 'tool' as const })),
-      ...registry.workflows.map(c => ({ ...c, type: 'workflow' as const })),
-      ...registry.skills.map(c => ({ ...c, type: 'skill' as const })),
+      ...((registry as unknown as { workflows?: typeof registry.tools }).workflows ?? []).map(c => ({ ...c, type: 'workflow' as const })),
+      ...((registry as unknown as { skills?: typeof registry.tools }).skills ?? []).map(c => ({ ...c, type: 'skill' as const })),
     ];
     
     const { messages } = buildPrompt(input, capabilities);

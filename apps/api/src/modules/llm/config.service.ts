@@ -87,18 +87,18 @@ export class LLMConfigService {
         baseUrl: input.baseUrl || null,
         apiKeyEnc: enc.encrypted,
         apiKeyIv: enc.iv,
-        apiKeyTag: enc.authTag,
+        apiKeyTag: enc.tag,
         model: input.model,
-        options: input.options || {},
+        options: JSON.stringify(input.options || {}),
         isActive: true,
       },
       update: {
         baseUrl: input.baseUrl || null,
         apiKeyEnc: enc.encrypted,
         apiKeyIv: enc.iv,
-        apiKeyTag: enc.authTag,
+        apiKeyTag: enc.tag,
         model: input.model,
-        options: input.options || {},
+        options: JSON.stringify(input.options || {}),
         isActive: true,
       },
     });
@@ -172,10 +172,11 @@ export class LLMConfigService {
         const apiKey = decrypt({
           encrypted: config.apiKeyEnc,
           iv: config.apiKeyIv,
-          authTag: config.apiKeyTag,
+          tag: config.apiKeyTag,
         });
 
-        const defaults = PROVIDER_DEFAULTS[config.provider] || {};
+        const defaults = PROVIDER_DEFAULTS[config.provider] || {} as { baseUrl?: string; model?: string };
+        const opts = typeof config.options === 'string' ? JSON.parse(config.options) : (config.options || {});
 
         modelGateway.addProvider({
           name: `${config.scope}:${config.provider}`,
@@ -183,8 +184,8 @@ export class LLMConfigService {
           apiKey,
           model: config.model || defaults.model || '',
           priority: config.scope === 'orchestrator' ? 0 : 1,
-          temperature: config.options?.temperature,
-          maxTokens: config.options?.maxTokens,
+          temperature: opts.temperature,
+          maxTokens: opts.maxTokens,
         });
 
         registered++;
@@ -246,20 +247,21 @@ export class LLMConfigService {
       apiKey = decrypt({
         encrypted: config.apiKeyEnc,
         iv: config.apiKeyIv,
-        authTag: config.apiKeyTag,
+        tag: config.apiKeyTag,
       });
     } catch (error) {
       throw new Error(`Failed to decrypt API key for config ${config.id} (scope: ${config.scope}, provider: ${config.provider}): ${String(error)}`);
     }
 
-    const defaults = PROVIDER_DEFAULTS[config.provider] || {};
+    const defaults = PROVIDER_DEFAULTS[config.provider] || {} as { baseUrl?: string; model?: string };
+    const opts = typeof config.options === 'string' ? JSON.parse(config.options) : (config.options || {});
 
     return {
       provider: config.provider,
       baseUrl: config.baseUrl || defaults.baseUrl || '',
       apiKey,
       model: config.model || defaults.model || '',
-      options: config.options,
+      options: opts,
       source,
     };
   }
@@ -317,7 +319,7 @@ export class LLMConfigService {
       const decrypted = decrypt({
         encrypted: config.apiKeyEnc,
         iv: config.apiKeyIv,
-        authTag: config.apiKeyTag,
+        tag: config.apiKeyTag,
       });
       apiKeyLast4 = `****${decrypted.slice(-4)}`;
     } catch {

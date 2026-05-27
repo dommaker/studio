@@ -103,7 +103,7 @@ export class SkillExtractionService {
         companyId: proposal.companyId, name: proposal.name, description: proposal.description,
         category: proposal.category, source: 'auto_extracted',
         status: autoPublish ? 'published' : 'draft',  // 🆕 BP-003: ≥ 0.8 直接 published
-        metadata: { pattern: proposal.pattern, sourceGoalIds: proposal.sourceGoalIds, confidence },
+        metadata: JSON.stringify({ pattern: proposal.pattern, sourceGoalIds: proposal.sourceGoalIds, confidence }),
       },
     });
 
@@ -180,7 +180,7 @@ export class SkillExtractionService {
         const { roleConfigService } = await import('../roles/role-config.service.js');
         const roles = await prisma.role.findMany({ where: { name: { in: ['executor', 'developer'] } } });
         for (const role of roles) {
-          await roleConfigService.addCapability(role.id, `skill:${p.skill?.name || p.skillId}`, 'learned').catch(() => {});
+          await (roleConfigService as unknown as { addCapability: (roleId: string, cap: string, source: string) => Promise<void> }).addCapability(role.id, `skill:${p.skill?.name || p.skillId}`, 'learned').catch(() => {});
         }
         logger.info('[SkillExtraction] Capabilities synced to roles', { skillName: p.skill?.name, roleCount: roles.length });
       } catch (e) {

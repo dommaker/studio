@@ -27,7 +27,7 @@ router.post('/', async (req: Request, res: Response) => {
     const response = await mcpServer.handleRequest(req.body);
     res.json(response);
   } catch (error) {
-    logger.error({ error }, 'MCP request failed');
+    logger.error('MCP request failed', { error: String(error) });
     res.status(500).json({
       jsonrpc: '2.0',
       id: req.body?.id || 0,
@@ -45,7 +45,7 @@ router.get('/tools', async (_req: Request, res: Response) => {
     const tools = getToolSchemas();
     res.json({ tools, total: tools.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to list MCP tools');
+    logger.error('Failed to list MCP tools', { error: String(error) });
     res.status(500).json({ error: 'Failed to list tools' });
   }
 });
@@ -62,7 +62,7 @@ router.post('/tools/:name', async (req: Request, res: Response) => {
 
     if (!result.success) {
       return res.status(400).json({
-        error: result.error,
+        error: (result as any).error,
         duration: result.duration,
       });
     }
@@ -72,7 +72,7 @@ router.post('/tools/:name', async (req: Request, res: Response) => {
       duration: result.duration,
     });
   } catch (error) {
-    logger.error({ error }, 'MCP tool call failed');
+    logger.error('MCP tool call failed', { error: String(error) });
     return res.status(500).json({ error: String(error) });
   }
 });
@@ -87,7 +87,7 @@ router.get('/health', async (_req: Request, res: Response) => {
     const statusCode = health.status === 'healthy' ? 200 : health.status === 'degraded' ? 200 : 503;
     res.status(statusCode).json(health);
   } catch (error) {
-    logger.error({ error }, 'MCP health check failed');
+    logger.error('MCP health check failed', { error: String(error) });
     res.status(500).json({ status: 'unhealthy', error: String(error) });
   }
 });

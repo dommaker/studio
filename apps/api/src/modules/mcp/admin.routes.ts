@@ -30,7 +30,7 @@ router.get('/tools', async (_req: Request, res: Response) => {
 
     res.json({ data, total: data.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to list MCP tools');
+    logger.error('Failed to list MCP tools', { error: String(error) });
     res.status(500).json({ error: 'Failed to list tools' });
   }
 });
@@ -55,7 +55,7 @@ router.patch('/tools/:name', async (req: Request, res: Response) => {
 
     res.json({ name, enabled });
   } catch (error) {
-    logger.error({ error }, 'Failed to update tool');
+    logger.error('Failed to update tool', { error: String(error) });
     res.status(500).json({ error: 'Failed to update tool' });
   }
 });
@@ -87,7 +87,7 @@ router.get('/stats', async (_req: Request, res: Response) => {
       byTool: stats,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to get MCP stats');
+    logger.error('Failed to get MCP stats', { error: String(error) });
     res.status(500).json({ error: 'Failed to get stats' });
   }
 });
@@ -106,7 +106,7 @@ router.get('/permissions', async (req: Request, res: Response) => {
     const permissions = await mcpPermissionService.getRolePermissions(roleId as string);
     res.json({ roleId, permissions });
   } catch (error) {
-    logger.error({ error }, 'Failed to get permissions');
+    logger.error('Failed to get permissions', { error: String(error) });
     res.status(500).json({ error: 'Failed to get permissions' });
   }
 });
@@ -126,7 +126,7 @@ router.put('/permissions', async (req: Request, res: Response) => {
     await mcpPermissionService.setPermission(roleId, toolName, allowed);
     res.json({ roleId, toolName, allowed });
   } catch (error) {
-    logger.error({ error }, 'Failed to set permission');
+    logger.error('Failed to set permission', { error: String(error) });
     res.status(500).json({ error: 'Failed to set permission' });
   }
 });
@@ -149,7 +149,7 @@ router.get('/audit', async (req: Request, res: Response) => {
 
     res.json(result);
   } catch (error) {
-    logger.error({ error }, 'Failed to query audit logs');
+    logger.error('Failed to query audit logs', { error: String(error) });
     res.status(500).json({ error: 'Failed to query audit logs' });
   }
 });

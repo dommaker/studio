@@ -89,7 +89,7 @@ export class MCPPermissionService {
         },
       });
     } catch (error) {
-      logger.error({ error: String(error) }, '[MCP Audit] Failed to log');
+      logger.error('[MCP Audit] Failed to log', { error: String(error) });
     }
   }
 

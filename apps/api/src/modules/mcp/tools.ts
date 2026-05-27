@@ -154,7 +154,7 @@ const getTaskBoard: MCPTool = {
       where,
       take: 50,
       orderBy: { createdAt: 'desc' },
-      select: { id: true, title: true, status: true, assignedTo: true, createdAt: true },
+      select: { id: true, name: true, status: true, assignee: true, createdAt: true },
     });
     return { tasks, total: tasks.length };
   },
@@ -253,7 +253,7 @@ const createTask: MCPTool = {
         assignee: input.assignee,
         description: input.description,
         priority: input.priority || 'P2',
-        meetingId: input.meetingId,
+        // meetingId removed — not in Task schema
         dependsOn: input.dependsOn || [],
         acceptanceCriteria: input.acceptanceCriteria || [],
         estimatedHours: input.estimatedHours,
@@ -373,14 +373,14 @@ const getBalance: MCPTool = {
     if (input.roleId) {
       const role = await prisma.role.findUnique({
         where: { id: input.roleId },
-        select: { id: true, name: true, balance: true, debt: true, salary: true, level: true },
+        select: { id: true, name: true, salary: true, level: true },
       });
       if (!role) throw new Error('Role not found');
       return { type: 'role', ...role };
     }
     const company = await prisma.company.findUnique({
       where: { id: input.companyId },
-      select: { id: true, name: true, balance: true },
+      select: { id: true, name: true },
     });
     if (!company) throw new Error('Company not found');
     return { type: 'company', ...company };
@@ -416,7 +416,7 @@ const createSpec: MCPTool = {
         requestedBy: input.requestedBy,
         workflowId: input.workflowId,
         status: 'pending',
-      },
+      } as any,
     });
     return { reviewId: review.id, title: review.title, status: review.status };
   },
@@ -477,7 +477,7 @@ const approveSpec: MCPTool = {
           reviewerName: a.reviewerName,
           approved: a.approved,
           comment: a.comment,
-        })),
+        })) as any,
         ...(newStatus !== 'pending' ? { reviewedAt: new Date(), reviewedBy: input.reviewerName } : {}),
       },
     });
@@ -553,13 +553,14 @@ const checkConstraint: MCPTool = {
       const { constraintService } = await import('@dommaker/studio-shared');
       const context = input.context || {};
       const result = await constraintService.checkConstraints(context);
+      const violations = [...result.ironLaws, ...result.guidelines, ...result.tips].filter(r => !r.satisfied);
       return {
         operation: input.operation,
-        allowed: result.violations.length === 0,
-        violations: result.violations,
-        message: result.violations.length === 0
+        allowed: result.passed,
+        violations,
+        message: result.passed
           ? 'Constraint check passed'
-          : `${result.violations.length} violation(s) found`,
+          : `${violations.length} violation(s) found`,
         checkedAt: new Date().toISOString(),
       };
     } catch {
@@ -595,10 +596,10 @@ const checkGuardrail: MCPTool = {
       const result = guardrail.check(input.content);
       return {
         direction,
-        passed: result.passed,
+        passed: result.safe,
         violations: result.violations,
         content: input.content.slice(0, 200),
-        message: result.passed ? 'Guardrail check passed' : `${result.violations.length} violation(s) found`,
+        message: result.safe ? 'Guardrail check passed' : `${result.violations.length} violation(s) found`,
       };
     } catch {
       return {
@@ -1119,7 +1120,7 @@ export async function executeTool(
     throw new Error(`Permission denied: role ${roleId} is not allowed to call tool "${name}"`);
   }
 
-  logger.info({ tool: name, roleId, ...traceCtx, input }, 'MCP tool execution');
+  logger.info('MCP tool execution', { tool: name, roleId, ...traceCtx, input });
   const start = Date.now();
   let success = false;
   let result: any;
@@ -1145,6 +1146,6 @@ export async function executeTool(
       duration,
       success,
       error,
-    }).catch(err => logger.warn({ error: String(err) }, '[MCP] Audit log failed'));
+    }).catch(err => logger.warn('[MCP] Audit log failed', { error: String(err) }));
   }
 }

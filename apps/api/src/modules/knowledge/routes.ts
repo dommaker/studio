@@ -19,6 +19,7 @@ import type { KnowledgeSource } from './knowledge-bus.service.js';
 import { knowledgeSync } from './knowledge-sync.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 
 export const knowledgeRoutes = Router();
 
@@ -84,7 +85,7 @@ knowledgeInternalRoutes.post('/upsert', async (req, res) => {
         }
       }
       if (!projectId || !companyId) {
-        logger.warn('[KnowledgeRoute] No project/company found, skipping Prisma sync', { scope });
+        logger.warn({ scope }, '[KnowledgeRoute] No project/company found, skipping Prisma sync');
       } else {
         // Find existing Document by title+type for dedup
         const existing = await prisma.document.findFirst({
@@ -109,7 +110,7 @@ knowledgeInternalRoutes.post('/upsert', async (req, res) => {
         }
       }
     } catch (e: any) {
-      logger.warn('[KnowledgeRoute] Prisma sync failed (non-blocking)', { error: String(e) });
+      logger.warn({ error: String(e) }, '[KnowledgeRoute] Prisma sync failed (non-blocking)');
     }
 
     res.json({
@@ -117,7 +118,7 @@ knowledgeInternalRoutes.post('/upsert', async (req, res) => {
       prismaDocument: docResult,
     });
   } catch (e: any) {
-    logger.error('[KnowledgeRoute] Upsert failed', { error: String(e) });
+    logger.error({ error: String(e) }, '[KnowledgeRoute] Upsert failed');
     res.status(500).json({ error: String(e) });
   }
 });
@@ -773,7 +774,7 @@ knowledgeInternalRoutes.post('/extract-text', async (req, res) => {
     // Fire-and-forget: spawn extraction in background
     const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
     knowledgeAgent.extractFromText(content, source, layer).catch(err => {
-      logger.error('[KnowledgeRoutes] Text extraction failed', { source, error: String(err) });
+      logger.error({ source, error: String(err) }, '[KnowledgeRoutes] Text extraction failed');
     });
   } catch (error) {
     logger.error({ error }, 'Failed to queue text extraction');
@@ -842,7 +843,7 @@ knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
               projects: [],
               tags: entry.tags || [],
               applicablePhases: [],
-              sourceReferences: [{ source, ingestedAt: now }],
+              sourceReferences: [{ commit: source, timestamp: now }],
               referencedBy: [],
             });
           } catch (e: any) {

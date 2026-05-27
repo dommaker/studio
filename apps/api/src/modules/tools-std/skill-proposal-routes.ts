@@ -41,12 +41,12 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.post('/scan', async (req: Request, res: Response) => {
   try {
-    const { companyId, limit } = req.body;
+    const { companyId } = req.body;
     if (!companyId) {
       return res.status(400).json({ error: { code: 'VALIDATION', message: 'companyId is required' } });
     }
 
-    const proposals = await skillExtractionService.scanForPatterns(companyId, limit);
+    const proposals = await skillExtractionService.scanForPatterns(companyId);
 
     // 保存提案
     const saved: Array<{ skillId: string; proposalId: string }> = [];
@@ -73,7 +73,7 @@ router.post('/scan', async (req: Request, res: Response) => {
 router.post('/extract/:executionId', async (req: Request, res: Response) => {
   try {
     const { executionId } = req.params;
-    const proposal = await skillExtractionService.extractFromExecution(executionId);
+    const proposal = await skillExtractionService.extractFromGoalExecution(executionId);
 
     if (!proposal) {
       return res.json({ extracted: false, message: 'No reusable pattern found' });

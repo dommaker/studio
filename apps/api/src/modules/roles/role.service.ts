@@ -37,7 +37,7 @@ export class RoleService {
         type: input.type,
         avatar: input.avatar,
         companyId: input.companyId,
-        workflows: (input.workflows ?? []) as unknown as Prisma.InputJsonValue,
+        workflows: JSON.stringify(input.workflows ?? []),
       },
     });
 
@@ -53,7 +53,7 @@ export class RoleService {
 
     return {
       ...role,
-      workflows: (role.workflows as string[]) ?? [],
+      workflows: role.workflows ? JSON.parse(role.workflows) as string[] : [],
     };
   }
 
@@ -93,7 +93,7 @@ export class RoleService {
     };
 
     if (input.workflows !== undefined) {
-      updateData.workflows = input.workflows as unknown as Prisma.InputJsonValue;
+      updateData.workflows = JSON.stringify(input.workflows);
     }
 
     return this.prisma.role.update({
@@ -125,7 +125,7 @@ export class RoleService {
 
     await this.prisma.role.update({
       where: { id: roleId },
-      data: { workflows: newWorkflows },
+      data: { workflows: JSON.stringify(newWorkflows) },
     });
 
     logger.info(`Added ${workflowIds.length} workflows to role ${roleId}`);
@@ -139,7 +139,7 @@ export class RoleService {
 
     await this.prisma.role.update({
       where: { id: roleId },
-      data: { workflows: newWorkflows },
+      data: { workflows: JSON.stringify(newWorkflows) },
     });
   }
 

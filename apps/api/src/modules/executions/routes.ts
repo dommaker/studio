@@ -86,7 +86,7 @@ router.post('/events', async (req: Request, res: Response) => {
   try {
     const event = req.body;
     
-    logger.info({ event: JSON.stringify(event).substring(0, 100) }, 'Received runtime event');
+    logger.info('Received runtime event', { event: JSON.stringify(event).substring(0, 100) });
     
     // 🆕 发布到 Redis（让 TaskWorker 也能接收，无需轮询）
     await eventStore.publish('events', JSON.stringify({
@@ -162,7 +162,7 @@ router.post('/events', async (req: Request, res: Response) => {
           }
 
           // 更新 GoalExecution 状态（如果有关联）
-          const goalExecId = (studioExecution.parameters as Record<string, unknown>)?.goalExecutionId as string | undefined;
+          const goalExecId = (studioExecution.parameters as unknown as Record<string, unknown>)?.goalExecutionId as string | undefined;
           if (goalExecId) {
             try {
               const { goalService } = await import('../goals/goal.service.js');
@@ -198,7 +198,7 @@ router.get('/:executionId', async (req: Request, res: Response) => {
   try {
     const { executionId } = req.params;
 
-    const execution = await prisma.execution.findUnique({
+    const execution = await (prisma.execution.findUnique as Function)({
       where: { id: executionId },
       include: {
         Goal: {
@@ -214,7 +214,7 @@ router.get('/:executionId', async (req: Request, res: Response) => {
     }
 
     // 计算进度
-    const nodeExecutions = (execution.nodeExecutions as NodeExecution[] | null) || [];
+    const nodeExecutions = (execution.nodeExecutions as unknown as NodeExecution[] | null) || [];
     const totalSteps = nodeExecutions.length;
     const completedSteps = nodeExecutions.filter(n =>
       n.status === 'succeeded' || n.status === 'completed'
@@ -226,7 +226,7 @@ router.get('/:executionId', async (req: Request, res: Response) => {
       currentStep: runningStep >= 0 ? runningStep + 1 : completedSteps,
       totalSteps,
       progress: totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0,
-      goalName: execution.Goal?.name,
+      goalName: (execution as any).Goal?.name,
     };
 
     res.json(executionWithProgress);
@@ -263,7 +263,7 @@ router.post('/:executionId/archive', async (req: Request, res: Response) => {
     const path = await import('path');
 
     // 获取执行详情
-    const execution = await prisma.execution.findUnique({
+    const execution = await (prisma.execution.findUnique as Function)({
       where: { id: executionId },
       include: {
         Goal: {
@@ -298,14 +298,14 @@ router.post('/:executionId/archive', async (req: Request, res: Response) => {
 
     // 生成文件名
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '');
-    const goalName = execution.Goal?.name || execution.workflowId || "";
+    const goalName = (execution as any).Goal?.name || execution.workflowId || "";
     const sanitizedName = goalName.replace(/[📝📋🏗️🎨⚙️🧪🚀🌐🔄👀]/g, '').replace(/[^a-zA-Z0-9\u4e00-\u9fa5-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     const fileName = `${sanitizedName || 'task'}-${timestamp.slice(0, 12)}.md`;
     const filePath = path.join(tasksDir, fileName);
 
     // 生成 Markdown 内容
-    const nodeExecutions = (execution.nodeExecutions as NodeExecution[] | null) || [];
-    const parameters = (execution.parameters as Record<string, unknown> | null) || {};
+    const nodeExecutions = (execution.nodeExecutions as unknown as NodeExecution[] | null) || [];
+    const parameters = (execution.parameters as unknown as Record<string, unknown> | null) || {};
 
     const content = `# 任务归档: ${goalName}
 
@@ -363,8 +363,8 @@ ${JSON.stringify(execution.error || {}, null, 2)}
 
 ## 📁 相关文件
 
-${((execution.error as Record<string, unknown>)?.outputFiles as string[] | undefined)?.length > 0
-  ? ((execution.error as Record<string, unknown>).outputFiles as string[]).map((f: string) => `- ${f}`).join('\n')
+${((execution.error as unknown as Record<string, unknown>)?.outputFiles as string[] | undefined)?.length > 0
+  ? ((execution.error as unknown as Record<string, unknown>).outputFiles as string[]).map((f: string) => `- ${f}`).join('\n')
   : '无输出文件'
 }
 

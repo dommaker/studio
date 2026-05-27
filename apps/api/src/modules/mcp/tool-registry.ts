@@ -14,7 +14,7 @@ export interface RegisteredTool {
   handler: (input: Record<string, any>) => Promise<any>;
   category?: string;
   version?: string;
-  enabled: boolean;
+  enabled?: boolean;
   requiredPermissions?: string[];
   /** G2: 工具风险级别。high=破坏性操作需确认，low=只读安全 */
   riskLevel?: ToolRiskLevel;

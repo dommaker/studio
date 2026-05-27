@@ -50,7 +50,7 @@ router.post('/callback', async (req: Request, res: Response): Promise<void> => {
     const event = body.event;
     const action = event?.action?.value?.action || event?.action?.value;
 
-    logger.info('[LARK] Button clicked', { action, event });
+    logger.info({ action, event }, '[LARK] Button clicked');
 
     if (!action || typeof action !== 'string') {
       logger.warn('[LARK] Invalid action value');
@@ -58,13 +58,13 @@ router.post('/callback', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    logger.info('[LARK] Meeting action ignored (meeting module removed)', { action });
+    logger.info({ action }, '[LARK] Meeting action ignored (meeting module removed)');
     res.json({ code: 0, msg: 'success' });
     return;
   }
 
   // 其他事件类型
-  logger.info('[LARK] Unhandled event type', { eventType: body.header?.event_type });
+  logger.info({ eventType: body.header?.event_type }, '[LARK] Unhandled event type');
   res.json({ code: 0, msg: 'success' });
 });
 

@@ -341,7 +341,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
           where: { id: targetId },
           data: {
             status: 'pending',
-            input: { resumeAfterRetry: true, freshPrompt: true },
+            input: JSON.stringify({ resumeAfterRetry: true, freshPrompt: true }),
           },
         });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔄 已重置，换了新方向` } });

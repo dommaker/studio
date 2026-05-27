@@ -101,11 +101,11 @@ router.get('/traces', async (req: Request, res: Response) => {
       filter.timeRange = { start: Date.now() - h * 3600_000, end: Date.now() };
     }
 
-    const traces = await c.query(filter);
+    const traces = c.read(filter);
     const limited = traces.slice(0, Number(limit) || 100);
     return res.json({ data: limited, total: traces.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to query traces');
+    logger.error('Failed to query traces', { error: String(error) });
     return res.status(500).json({ error: 'Failed to query traces' });
   }
 });
@@ -142,7 +142,7 @@ router.post('/traces', async (req: Request, res: Response) => {
 
     return res.json({ recorded: true });
   } catch (error) {
-    logger.error({ error }, 'Failed to record trace');
+    logger.error('Failed to record trace', { error: String(error) });
     return res.status(500).json({ error: 'Failed to record trace' });
   }
 });
@@ -167,7 +167,7 @@ router.get('/analysis', async (req: Request, res: Response) => {
       totalAnomalies: anomalies.length,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to analyze traces');
+    logger.error('Failed to analyze traces', { error: String(error) });
     return res.status(500).json({ error: 'Failed to analyze traces' });
   }
 });
@@ -187,7 +187,7 @@ router.get('/analysis/anomalies', async (req: Request, res: Response) => {
 
     return res.json({ data: anomalies, total: anomalies.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to get anomalies');
+    logger.error('Failed to get anomalies', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get anomalies' });
   }
 });
@@ -209,7 +209,7 @@ router.post('/diagnose', async (req: Request, res: Response) => {
     if (a) {
       const c = await getCollector();
       if (c) {
-        const traces = await c.query({ constraintId: anomaly.constraintId });
+        const traces = c.read({ constraintId: anomaly.constraintId });
         doctor.setData(traces);
       }
     }
@@ -217,7 +217,7 @@ router.post('/diagnose', async (req: Request, res: Response) => {
     const diagnosis = await doctor.diagnose(anomaly);
     return res.json({ data: diagnosis });
   } catch (error) {
-    logger.error({ error }, 'Failed to diagnose');
+    logger.error('Failed to diagnose', { error: String(error) });
     return res.status(500).json({ error: 'Failed to diagnose' });
   }
 });
@@ -249,7 +249,7 @@ router.get('/proposals', async (_req: Request, res: Response) => {
       return res.json({ data: [], total: 0 });
     }
   } catch (error) {
-    logger.error({ error }, 'Failed to list proposals');
+    logger.error('Failed to list proposals', { error: String(error) });
     return res.status(500).json({ error: 'Failed to list proposals' });
   }
 });
@@ -290,7 +290,7 @@ router.post('/proposals/:id/review', async (req: Request, res: Response) => {
           proposal.status = executionResult.success ? 'implemented' : 'accepted';
           proposal.executionResult = executionResult;
         } catch (execError) {
-          logger.warn({ error: String(execError), proposalId: id }, 'Proposal execution failed, keeping accepted status');
+          logger.warn('Proposal execution failed, keeping accepted status', { error: String(execError), proposalId: id });
         }
       }
 
@@ -300,7 +300,7 @@ router.post('/proposals/:id/review', async (req: Request, res: Response) => {
       return res.status(404).json({ error: `Proposal not found: ${id}` });
     }
   } catch (error) {
-    logger.error({ error }, 'Failed to review proposal');
+    logger.error('Failed to review proposal', { error: String(error) });
     return res.status(500).json({ error: 'Failed to review proposal' });
   }
 });
@@ -327,7 +327,7 @@ router.post('/evolve', async (req: Request, res: Response) => {
     if (!analyzer) return res.status(503).json({ error: 'Harness not available' });
 
     // 2. 分析 + 检测异常
-    const traces = await collector.query({
+    const traces = collector.read({
       timeRange: { start: Date.now() - h * 3600_000, end: Date.now() },
     });
     const summaries = analyzer.analyzeRecent(h);
@@ -363,7 +363,7 @@ router.post('/evolve', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to run auto evolution');
+    logger.error('Failed to run auto evolution', { error: String(error) });
     return res.status(500).json({ error: 'Failed to run auto evolution' });
   }
 });
@@ -402,7 +402,7 @@ router.post('/proposals/:id/execute', async (req: Request, res: Response) => {
       return res.status(404).json({ error: `Proposal not found: ${req.params.id}` });
     }
   } catch (error) {
-    logger.error({ error }, 'Failed to execute proposal');
+    logger.error('Failed to execute proposal', { error: String(error) });
     return res.status(500).json({ error: 'Failed to execute proposal' });
   }
 });
@@ -429,7 +429,7 @@ router.get('/constraints', async (_req: Request, res: Response) => {
     }));
     return res.json({ data: constraints, total: constraints.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to list constraints');
+    logger.error('Failed to list constraints', { error: String(error) });
     return res.status(500).json({ error: 'Failed to list constraints' });
   }
 });
@@ -445,7 +445,7 @@ router.get('/constraints/stats', async (_req: Request, res: Response) => {
     const stats = registry.getLayerStats();
     return res.json({ data: stats });
   } catch (error) {
-    logger.error({ error }, 'Failed to get constraint stats');
+    logger.error('Failed to get constraint stats', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get constraint stats' });
   }
 });
@@ -462,7 +462,7 @@ router.get('/constraints/:id', async (req: Request, res: Response) => {
     if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
     return res.json({ data: constraint });
   } catch (error) {
-    logger.error({ error }, 'Failed to get constraint');
+    logger.error('Failed to get constraint', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get constraint' });
   }
 });
@@ -488,7 +488,7 @@ router.post('/constraints/:id/degrade', async (req: Request, res: Response) => {
     const updated = registry.get(req.params.id);
     return res.json({ data: updated, degraded: true });
   } catch (error) {
-    logger.error({ error }, 'Failed to degrade constraint');
+    logger.error('Failed to degrade constraint', { error: String(error) });
     return res.status(500).json({ error: 'Failed to degrade constraint' });
   }
 });
@@ -513,7 +513,7 @@ router.post('/constraints/:id/rollback', async (req: Request, res: Response) => 
     const updated = registry.get(req.params.id);
     return res.json({ data: updated, rolledBack: true });
   } catch (error) {
-    logger.error({ error }, 'Failed to rollback constraint');
+    logger.error('Failed to rollback constraint', { error: String(error) });
     return res.status(500).json({ error: 'Failed to rollback constraint' });
   }
 });
@@ -551,7 +551,7 @@ router.post('/constraints/:id/schedule', async (req: Request, res: Response) => 
     const updated = registry.get(req.params.id);
     return res.json({ data: updated, scheduled: true });
   } catch (error) {
-    logger.error({ error }, 'Failed to schedule deprecation');
+    logger.error('Failed to schedule deprecation', { error: String(error) });
     return res.status(500).json({ error: 'Failed to schedule deprecation' });
   }
 });
@@ -581,7 +581,7 @@ router.post('/check-constraints', async (req: Request, res: Response) => {
 
     return res.json({ data: result });
   } catch (error) {
-    logger.error({ error }, 'Failed to check constraints');
+    logger.error('Failed to check constraints', { error: String(error) });
     return res.status(500).json({ error: 'Failed to check constraints' });
   }
 });
@@ -606,7 +606,7 @@ router.post('/check-input', async (req: Request, res: Response) => {
 
     return res.json({ data: result });
   } catch (error) {
-    logger.error({ error }, 'Failed to check input');
+    logger.error('Failed to check input', { error: String(error) });
     return res.status(500).json({ error: 'Failed to check input' });
   }
 });
@@ -629,7 +629,7 @@ router.post('/check-output', async (req: Request, res: Response) => {
 
     return res.json({ data: result });
   } catch (error) {
-    logger.error({ error }, 'Failed to check output');
+    logger.error('Failed to check output', { error: String(error) });
     return res.status(500).json({ error: 'Failed to check output' });
   }
 });
@@ -654,7 +654,7 @@ router.get('/sandbox', async (_req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to get sandbox');
+    logger.error('Failed to get sandbox', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get sandbox' });
   }
 });
@@ -694,7 +694,7 @@ router.post('/knowledge/query', async (req: Request, res: Response) => {
     const result = query.query(budget, filter);
     return res.json({ data: result });
   } catch (error) {
-    logger.error({ error }, 'Failed to query knowledge');
+    logger.error('Failed to query knowledge', { error: String(error) });
     return res.status(500).json({ error: 'Failed to query knowledge' });
   }
 });
@@ -724,7 +724,7 @@ router.get('/knowledge', async (req: Request, res: Response) => {
     setCache(cacheKey, result);
     return res.json(result);
   } catch (error) {
-    logger.error({ error }, 'Failed to list knowledge');
+    logger.error('Failed to list knowledge', { error: String(error) });
     return res.status(500).json({ error: 'Failed to list knowledge' });
   }
 });
@@ -742,7 +742,7 @@ router.get('/knowledge/:id', async (req: Request, res: Response) => {
     if (!entry) return res.status(404).json({ error: 'Knowledge entry not found' });
     return res.json({ data: entry });
   } catch (error) {
-    logger.error({ error }, 'Failed to get knowledge');
+    logger.error('Failed to get knowledge', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get knowledge' });
   }
 });
@@ -761,10 +761,10 @@ router.post('/knowledge', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'id, title, and content are required' });
     }
 
-    store.save({ id, title, content, type, tags, maturity: maturity || 'draft' });
+    store.save({ id, title, content, type, tags, maturity: maturity || 'draft' } as any);
     return res.json({ saved: true, id });
   } catch (error) {
-    logger.error({ error }, 'Failed to save knowledge');
+    logger.error('Failed to save knowledge', { error: String(error) });
     return res.status(500).json({ error: 'Failed to save knowledge' });
   }
 });
@@ -782,7 +782,7 @@ router.delete('/knowledge/:id', async (req: Request, res: Response) => {
     if (!deleted) return res.status(404).json({ error: 'Knowledge entry not found' });
     return res.json({ deleted: true });
   } catch (error) {
-    logger.error({ error }, 'Failed to delete knowledge');
+    logger.error('Failed to delete knowledge', { error: String(error) });
     return res.status(500).json({ error: 'Failed to delete knowledge' });
   }
 });
@@ -800,13 +800,14 @@ router.post('/knowledge/lint', async (_req: Request, res: Response) => {
     if (!store) return res.status(503).json({ error: 'Harness not available' });
 
     const harness = await import('@dommaker/harness');
-    const linter = new harnessModule!.KnowledgeLinter(store);
-    const entries = store.readEntriesFromDisk();
-    const issues = linter.lint(entries);
+    const tracker = new harnessModule!.ReferenceTracker(store);
+    const linter = new harnessModule!.KnowledgeLinter(store, tracker);
+    const report = linter.run();
+    const issues = report.issues;
 
     return res.json({ data: issues, total: issues.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to lint knowledge');
+    logger.error('Failed to lint knowledge', { error: String(error) });
     return res.status(500).json({ error: 'Failed to lint knowledge' });
   }
 });
@@ -837,7 +838,7 @@ router.post('/estimate-tokens', async (req: Request, res: Response) => {
 
     return res.json({ tokens, method: 'character-based-estimate' });
   } catch (error) {
-    logger.error({ error }, 'Failed to estimate tokens');
+    logger.error('Failed to estimate tokens', { error: String(error) });
     return res.status(500).json({ error: 'Failed to estimate tokens' });
   }
 });
@@ -864,7 +865,7 @@ router.post('/sessions', async (req: Request, res: Response) => {
 
     return res.json({ data: { id, created: true } });
   } catch (error) {
-    logger.error({ error }, 'Failed to create session');
+    logger.error('Failed to create session', { error: String(error) });
     return res.status(500).json({ error: 'Failed to create session' });
   }
 });
@@ -889,7 +890,7 @@ router.post('/sessions/:id/events', async (req: Request, res: Response) => {
     entry.manager.appendToSession(id, event);
     return res.json({ recorded: true });
   } catch (error) {
-    logger.error({ error }, 'Failed to append event');
+    logger.error('Failed to append event', { error: String(error) });
     return res.status(500).json({ error: 'Failed to append event' });
   }
 });
@@ -916,7 +917,7 @@ router.get('/sessions/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: `Session not found: ${id}` });
     }
   } catch (error) {
-    logger.error({ error }, 'Failed to get session');
+    logger.error('Failed to get session', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get session' });
   }
 });
@@ -943,7 +944,7 @@ router.post('/sessions/:id/checkpoint', async (req: Request, res: Response) => {
       return res.status(404).json({ error: `Session not found: ${id}` });
     }
   } catch (error) {
-    logger.error({ error }, 'Failed to checkpoint session');
+    logger.error('Failed to checkpoint session', { error: String(error) });
     return res.status(500).json({ error: 'Failed to checkpoint session' });
   }
 });
@@ -977,7 +978,7 @@ router.post('/agents', async (req: Request, res: Response) => {
     const state = lifecycle.register({ id, type, name, capabilities, ...config });
     return res.json({ data: state });
   } catch (error) {
-    logger.error({ error }, 'Failed to register agent');
+    logger.error('Failed to register agent', { error: String(error) });
     return res.status(500).json({ error: 'Failed to register agent' });
   }
 });
@@ -995,7 +996,7 @@ router.post('/agents/:id/start', async (req: Request, res: Response) => {
     if (!state) return res.status(404).json({ error: 'Agent not found' });
     return res.json({ data: state });
   } catch (error) {
-    logger.error({ error }, 'Failed to start agent');
+    logger.error('Failed to start agent', { error: String(error) });
     return res.status(500).json({ error: 'Failed to start agent' });
   }
 });
@@ -1013,7 +1014,7 @@ router.post('/agents/:id/complete', async (req: Request, res: Response) => {
     if (!state) return res.status(404).json({ error: 'Agent not found' });
     return res.json({ data: state });
   } catch (error) {
-    logger.error({ error }, 'Failed to complete agent');
+    logger.error('Failed to complete agent', { error: String(error) });
     return res.status(500).json({ error: 'Failed to complete agent' });
   }
 });
@@ -1032,7 +1033,7 @@ router.post('/agents/:id/fail', async (req: Request, res: Response) => {
     if (!state) return res.status(404).json({ error: 'Agent not found' });
     return res.json({ data: state });
   } catch (error) {
-    logger.error({ error }, 'Failed to mark agent as failed');
+    logger.error('Failed to mark agent as failed', { error: String(error) });
     return res.status(500).json({ error: 'Failed to mark agent as failed' });
   }
 });
@@ -1049,7 +1050,7 @@ router.get('/agents', async (_req: Request, res: Response) => {
     const agents = lifecycle.getAllStates();
     return res.json({ data: agents, total: agents.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to list agents');
+    logger.error('Failed to list agents', { error: String(error) });
     return res.status(500).json({ error: 'Failed to list agents' });
   }
 });
@@ -1067,7 +1068,7 @@ router.get('/agents/:id', async (req: Request, res: Response) => {
     if (!state) return res.status(404).json({ error: 'Agent not found' });
     return res.json({ data: state });
   } catch (error) {
-    logger.error({ error }, 'Failed to get agent');
+    logger.error('Failed to get agent', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get agent' });
   }
 });
@@ -1096,7 +1097,7 @@ router.post('/classify', async (req: Request, res: Response) => {
 
     return res.json({ data: { ...result, level } });
   } catch (error) {
-    logger.error({ error }, 'Failed to classify error');
+    logger.error('Failed to classify error', { error: String(error) });
     return res.status(500).json({ error: 'Failed to classify error' });
   }
 });
@@ -1128,7 +1129,7 @@ router.post('/failures', async (req: Request, res: Response) => {
     await recorder.record(record);
     return res.json({ data: record });
   } catch (error) {
-    logger.error({ error }, 'Failed to record failure');
+    logger.error('Failed to record failure', { error: String(error) });
     return res.status(500).json({ error: 'Failed to record failure' });
   }
 });
@@ -1169,7 +1170,7 @@ router.post('/check-spec', async (req: Request, res: Response) => {
       totalWarnings,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to check spec annotations');
+    logger.error('Failed to check spec annotations', { error: String(error) });
     return res.status(500).json({ error: 'Failed to check spec annotations' });
   }
 });
@@ -1203,7 +1204,7 @@ router.post('/verify', async (req: Request, res: Response) => {
 
     return res.json({ data: results, passed: allPassed, total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to run verification');
+    logger.error('Failed to run verification', { error: String(error) });
     return res.status(500).json({ error: 'Failed to run verification' });
   }
 });
@@ -1227,7 +1228,7 @@ router.get('/verify/rules', async (_req: Request, res: Response) => {
       ],
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to list rules');
+    logger.error('Failed to list rules', { error: String(error) });
     return res.status(500).json({ error: 'Failed to list rules' });
   }
 });
@@ -1253,7 +1254,7 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
     const dashboard = provider.generate(entries);
     return res.json({ data: dashboard });
   } catch (error) {
-    logger.error({ error }, 'Failed to generate dashboard');
+    logger.error('Failed to generate dashboard', { error: String(error) });
     return res.status(500).json({ error: 'Failed to generate dashboard' });
   }
 });
@@ -1274,7 +1275,7 @@ router.get('/health', async (_req: Request, res: Response) => {
       constraintsActive: true,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to get harness health');
+    logger.error('Failed to get harness health', { error: String(error) });
     return res.status(500).json({ error: 'Failed to get health status' });
   }
 });

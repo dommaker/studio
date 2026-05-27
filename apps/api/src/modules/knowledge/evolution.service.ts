@@ -80,7 +80,7 @@ export class KnowledgeEvolutionService {
         const existing = await prisma.document.findFirst({
           where: {
             projectId,
-            title: { contains: entry.title?.slice(0, 20), mode: 'insensitive' },
+            title: { contains: entry.title?.slice(0, 20) } as any,
             status: 'active',
           },
         });
@@ -122,7 +122,7 @@ export class KnowledgeEvolutionService {
         }
       }
     } catch (error) {
-      logger.error({ executionId, error: String(error) }, 'Micro evolution failed');
+      logger.error('Micro evolution failed', { executionId, error: String(error) });
     }
 
     return results;
@@ -166,7 +166,7 @@ export class KnowledgeEvolutionService {
           );
 
           if (analysis?.pattern) {
-            logger.info({ projectId, type, pattern: analysis.pattern }, 'Pattern identified in meso evolution');
+            logger.info('Pattern identified in meso evolution', { projectId, type, pattern: analysis.pattern });
             // Gap 2: 写入结果
             const project = await prisma.project.findUnique({ where: { id: projectId }, select: { companyId: true } });
             if (project?.companyId) {
@@ -177,14 +177,14 @@ export class KnowledgeEvolutionService {
                   title: `[Pattern] ${analysis.pattern}`,
                   content: analysis.recommendation || `跨 ${typeDocs.length} 个文档的公共模式`,
                   status: 'active', version: 1,
-                  tags: ['meso-evolution', type],
+                  tags: JSON.stringify(['meso-evolution', type]),
                 },
               });
               results.push({ documentId: doc.id, previousMaturity: 'draft', newMaturity: 'candidate', reason: 'meso pattern identified' });
             }
           }
         } catch (error) {
-          logger.error({ projectId, type, error: String(error) }, 'Meso evolution analysis failed');
+          logger.error('Meso evolution analysis failed', { projectId, type, error: String(error) });
         }
       }
     }
@@ -252,7 +252,7 @@ export class KnowledgeEvolutionService {
                     title: `[Shared] ${sourceDoc.title}`,
                     content: `跨项目知识迁移，源自项目 ${sourceProject.project.title}:\n\n${sourceDoc.content?.slice(0, 2000) || ''}`,
                     status: 'active', version: 1,
-                    tags: ['macro-evolution', 'cross-project', missingType],
+                    tags: JSON.stringify(['macro-evolution', 'cross-project', missingType]),
                   },
                 });
                 insights.push(`  → 已为 "${ps.project.title}" 创建 ${missingType} 文档`);

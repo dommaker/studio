@@ -20,7 +20,8 @@ let redis: any = null;
 async function getRedis() {
   if (redis !== null) return redis;
   try {
-    const mod = await import('../../../../apps/api/src/core/redis.js').catch(() => null);
+    // @ts-expect-error — redis module may not exist; handled by catch
+    const mod = await import('../../../../apps/api/src/core/redis.js').catch(() => null) as { getRedis?: () => unknown } | null;
     if (mod?.getRedis) {
       redis = mod.getRedis();
       return redis;
@@ -65,7 +66,7 @@ export class MemoryService {
         taskId: entry.taskId,
         importance: entry.importance,
         scope,
-        embedding,
+        embedding: JSON.stringify(embedding),
       },
     });
 
@@ -103,7 +104,7 @@ export class MemoryService {
       where: { id: entryId },
       data: {
         ...updates,
-        ...(embedding ? { embedding } : {}),
+        ...(embedding ? { embedding: JSON.stringify(embedding) } : {}),
         lastAccessedAt: new Date(),
       },
     });
@@ -145,7 +146,7 @@ export class MemoryService {
 
     // 1. 关键词匹配
     const keywordRows = await prisma.roleMemoryEntry.findMany({
-      where: { roleId, ...scopeFilter, content: { contains: query, mode: 'insensitive' } },
+      where: { roleId, ...scopeFilter, content: { contains: query } },
       orderBy: { importance: 'desc' },
       take: limit,
     });
@@ -385,7 +386,7 @@ export class MemoryService {
       await prisma.roleMemoryEntry.createMany({ data: entries });
       logger.info(`[Memory] Migrated ${entries.length} entries from JSON to table for role ${roleId}`);
     } catch (err) {
-      logger.error({ err, roleId }, '[Memory] Failed to migrate from JSON');
+      logger.error('[Memory] Failed to migrate from JSON', { err: String(err), roleId });
     }
   }
 
@@ -465,12 +466,12 @@ export class MemoryService {
 
       // 自动发现相似记忆（相似度 > 0.8）
       const existing = await prisma.roleMemoryEntry.findMany({
-        where: { roleId, id: { not: newId }, embedding: { isEmpty: false } },
+        where: { roleId, id: { not: newId }, embedding: { not: '[]' } },
         select: { id: true, embedding: true },
       });
 
       for (const e of existing) {
-        const sim = this.cosineSimilarity(newEmbedding, e.embedding as number[]);
+        const sim = this.cosineSimilarity(newEmbedding, JSON.parse(e.embedding) as number[]);
         if (sim > 0.8) {
           await prisma.memoryRelation.create({
             data: { fromId: newId, toId: e.id, relationType: 'related_to', weight: sim },
@@ -478,7 +479,7 @@ export class MemoryService {
         }
       }
     } catch (err) {
-      logger.debug({ err }, '[Memory] Auto-create relations failed (non-blocking)');
+      logger.debug('[Memory] Auto-create relations failed (non-blocking)', { err: String(err) });
     }
   }
 
@@ -488,7 +489,7 @@ export class MemoryService {
     try {
       return await llmClient.embedding(text);
     } catch (err) {
-      logger.debug({ err }, '[Memory] Embedding generation failed (non-blocking)');
+      logger.debug('[Memory] Embedding generation failed (non-blocking)', { err: String(err) });
       return [];
     }
   }
@@ -530,11 +531,11 @@ export class MemoryService {
 
     // JS 降级：全量加载 + 余弦相似度
     const allEntries = await prisma.roleMemoryEntry.findMany({
-      where: { roleId, ...scopeFilter, embedding: { isEmpty: false } },
+      where: { roleId, ...scopeFilter, embedding: { not: '[]' } },
       select: { id: true, embedding: true },
     });
     return allEntries
-      .map(e => ({ id: e.id, score: this.cosineSimilarity(embedding, e.embedding as number[]) }))
+      .map(e => ({ id: e.id, score: this.cosineSimilarity(embedding, JSON.parse(e.embedding) as unknown as number[]) }))
       .sort((a, b) => b.score - a.score)
       .slice(0, limit);
   }
@@ -563,7 +564,7 @@ export class MemoryService {
       if (!client) return;
       await client.setex(this.cacheKey(roleId), CACHE_TTL, JSON.stringify(entries));
     } catch (err) {
-      logger.debug({ err }, '[Memory] Redis cache write failed (non-blocking)');
+      logger.debug('[Memory] Redis cache write failed (non-blocking)', { err: String(err) });
     }
   }
 

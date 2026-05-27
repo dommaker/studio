@@ -126,8 +126,8 @@ export class GoalService {
         title: input.title,
         description: input.description,
         priority: input.priority || 'normal',
-        constraints: input.constraints || {},
-        context: input.context || {},
+        constraints: JSON.stringify(input.constraints || {}),
+        context: JSON.stringify(input.context || {}),
         companyId: input.companyId,
         createdBy: input.createdBy,
         status: 'draft',
@@ -479,12 +479,12 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
               stepIndex: 999,
               status: 'pending',
               agentType: 'claude',
-              input: {
+              input: JSON.stringify({
                 taskType: 'integration',
                 goalId,
                 totalSteps: regularSteps.length,
                 model: 'standard',
-              },
+              }),
             },
           });
           logger.info('[Goal] Integration step created, waiting for scheduler', { goalId });
@@ -603,7 +603,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
           `**原因**: ${failReason}`,
           `**建议**: 拆分任务为更小的 AC 组，或使用 premium tier 模型`,
           `**重试**: @Analyst 小步重构，将大任务拆为独立 Goal`,
-        ].join('\n'), { goalId, cardType: 'goal_failed' });
+        ].join('\n'), { meta: { goalId, cardType: 'goal_failed' } });
       }
     } catch (e) {
       logger.warn('[Goal] Failed to send failure notification', { goalId, error: String(e) });
@@ -679,7 +679,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       logger.error('[Goal] No review worktree found — blocking goal for investigation', { goalId });
       await prisma.goal.update({
         where: { id: goalId },
-        data: { status: 'blocked', error: 'No review worktree found after execution completion. Possible causes: cleanupTaskBranches() ran prematurely, WORKTREES_DIR misconfiguration, or worktree creation failed.' },
+        data: { status: 'blocked', error: 'No review worktree found after execution completion. Possible causes: cleanupTaskBranches() ran prematurely, WORKTREES_DIR misconfiguration, or worktree creation failed.' } as any,
       });
       // 上报 TriageAgent
       try {
@@ -1025,8 +1025,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
             `- 执行步: ${successCount}/${totalSessions} 成功`,
           ].join('\n');
           await channelMessageService.createAgentMessage(sourceChannelId, 'Executor', summary, {
-            goalId,
-            cardType: 'goal_summary',
+            meta: { goalId, cardType: 'goal_summary' },
           });
         }
       } catch (e) {
@@ -1129,7 +1128,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
       where: { id: executionId },
       data: {
         status: 'failed',
-        error: { message: '用户取消', cancelledAt: new Date().toISOString() },
+        error: JSON.stringify({ message: '用户取消', cancelledAt: new Date().toISOString() }),
         completedAt: new Date(),
       },
     });

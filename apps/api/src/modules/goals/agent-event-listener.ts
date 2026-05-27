@@ -173,7 +173,7 @@ export class AgentEventListener {
       });
 
       if (goalExec) {
-        const input = goalExec.input as Record<string, unknown> | null;
+        const input = goalExec.input as unknown as Record<string, unknown> | null;
         const taskId = input?.taskId as string | undefined;
 
         if (taskId) {
@@ -285,7 +285,7 @@ export class AgentEventListener {
                   projectId: task.projectId,
                   worktree,
                   taskDescription: task.description || task.name,
-                  acceptanceCriteria: task.acceptanceCriteria || [],
+                  acceptanceCriteria: (task.acceptanceCriteria || []) as string[],
                   cycle: previousCycle + 1,
                   stances: reviewerStances,
                 });
@@ -423,12 +423,12 @@ export class AgentEventListener {
                       where: { id: goalExecutionId },
                       data: {
                         status: 'pending',
-                        input: {
-                          ...((goalExec.input as Record<string, unknown>) || {}),
+                        input: JSON.stringify({
+                          ...((goalExec.input as unknown as Record<string, unknown>) || {}),
                           reviewReportPath: path.join(worktree, '.review-report.json'),
                           reviewCycle: previousCycle + 1,
                           fixContext: reportContext,
-                        },
+                        }),
                       },
                     });
                     logger.info('[AgentEventListener] Re-queued execution for review fixes', {

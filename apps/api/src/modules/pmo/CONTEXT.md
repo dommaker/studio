@@ -2,6 +2,13 @@
 
 > 此文件描述 apps/api/src/modules/pmo 目录的职责和上下文
 
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/project.service.ts, apps/api/src/modules/pmo/CONTEXT.md
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/project.service.ts, apps/api/src/modules/pmo/CONTEXT.md
+
+<!-- STALE_SINCE: 2026-05-27 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts
+
 ## 职责
 
 <!-- 本目录的核心职责是什么 -->
@@ -17,3 +24,9 @@
 ## 注意事项
 
 <!-- 开发时需要注意的约束或约定 -->
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ `78c6856d`: Prisma SQLite auto-parses JSON String fields — handle both string and object
+- ✅ `403d82df`: B8 cacheHitRate 公式修正 — cacheHit/(cacheHit+input) 替代 cacheHit/input

@@ -145,7 +145,7 @@ export class MCPServer {
           content: [
             {
               type: 'text',
-              text: `Error: ${result.error}`,
+              text: `Error: ${(result as unknown as { error?: string }).error}`,
             },
           ],
           isError: true,
