@@ -677,6 +677,35 @@ export class AuditorAgent {
             }
           }
         }
+      // Circuit 8: Memory→KnowledgeStore sync health
+      try {
+        const memoryDir = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'memory');
+        const knowledgeDir = path.join(process.env.REPO_DIR || process.cwd(), '.harness', 'knowledge');
+        if (fs.existsSync(memoryDir) && fs.existsSync(knowledgeDir)) {
+          const batchFiles = fs.readdirSync(memoryDir)
+            .filter(f => f.startsWith('project_batch_progress_') && f.endsWith('.md'))
+            .sort()
+            .slice(-3); // last 3 batch progress files
+
+          const knowledgeFiles = new Set(fs.readdirSync(knowledgeDir));
+          const missing: string[] = [];
+          for (const f of batchFiles) {
+            const expected = `process-batch_progress_${f.replace('project_batch_progress_', '').replace('.md', '')}.md`;
+            if (!knowledgeFiles.has(expected)) {
+              missing.push(f);
+            }
+          }
+          if (missing.length > 0) {
+            suggestions.push({
+              type: 'circuit_fix',
+              risk: 'high',
+              agentType: 'auditor',
+              detail: `${missing.length} 个 batch progress 文件未同步到 KnowledgeStore: ${missing.join(', ')}。检查 memory 文件的 frontmatter 是否有 maturity 字段 (draft 会被跳过)`,
+            });
+          }
+        }
+      } catch { /* non-blocking */ }
+
       } catch (e) {
         logger.warn('[AuditorAgent] OKR circuit health check failed', { error: String(e) });
       }

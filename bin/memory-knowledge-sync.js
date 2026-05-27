@@ -98,14 +98,9 @@ function syncFile(filePath) {
   const content = fs.readFileSync(filePath, 'utf-8');
   const { frontmatter, body } = parseFrontmatter(content);
 
-  // Gate: only ingest if explicitly marked
-  const ingest = frontmatter.ingest === 'true' || frontmatter.ingest === true;
-  if (!ingest) {
-    console.log('[memory-sync] Skipped (ingest not enabled):', path.basename(filePath));
-    return;
-  }
-
   const maturity = frontmatter.maturity || 'verified';
+  // Only skip drafts — verified/canonical always ingested
+  // (ingest:true gate removed: maturity already handles quality control)
   if (maturity === 'draft') {
     console.log('[memory-sync] Skipped (maturity=draft):', path.basename(filePath));
     return;
