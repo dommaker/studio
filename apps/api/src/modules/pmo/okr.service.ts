@@ -522,8 +522,12 @@ export class OKRService {
       _sum: { cacheHitTokens: true, inputTokens: true },
     });
 
-    if (!result._sum.inputTokens || result._sum.inputTokens === 0) return null;
-    return Math.round((result._sum.cacheHitTokens || 0) / result._sum.inputTokens * 100);
+    const cacheHit = result._sum.cacheHitTokens || 0;
+    const input = result._sum.inputTokens || 0;
+    const total = cacheHit + input;
+    if (total === 0) return null;
+    // Claude: cache_read_input_tokens / (cache_read_input_tokens + input_tokens)
+    return Math.round(cacheHit / total * 100);
   }
 
   /** 执行成功率 */
