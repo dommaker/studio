@@ -143,7 +143,7 @@ export class KnowledgeBus {
 
       const recent = all
         .filter(e => e.maturity !== 'archived')
-        .sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))
+        .sort((a, b) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))
         .slice(0, maxItems);
 
       if (recent.length === 0) return '';
