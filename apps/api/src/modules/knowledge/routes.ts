@@ -612,6 +612,40 @@ knowledgeRoutes.delete('/:documentId', async (req, res) => {
 });
 
 // ============================================
+// B9-021: Knowledge Export API
+// TODO: rewrite to use KnowledgeStore instead of deleted KnowledgeService
+// ============================================
+
+/**
+ * GET /api/v1/knowledge/export
+ * Query: format=md|json, types=guideline,pitfall (comma-separated), limit=100
+ */
+knowledgeRoutes.get('/export', async (req, res) => {
+  try {
+    const { sharedStore } = await import('./knowledge-bus.service.js');
+    const format = (req.query.format as string) === 'json' ? 'json' : 'md';
+    const types = req.query.types ? (req.query.types as string).split(',').filter(Boolean) : undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+
+    const entries = sharedStore.list({ type: types?.[0], limit });
+    const content = format === 'json'
+      ? JSON.stringify(entries, null, 2)
+      : entries.map((e: any) => `# ${e.title || e.id}\n\n${e.content}`).join('\n\n---\n\n');
+
+    if (format === 'json') {
+      res.setHeader('Content-Type', 'application/json');
+    } else {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="knowledge-export.md"');
+    }
+    res.send(content);
+  } catch (error) {
+    logger.error({ error }, 'Failed to export knowledge');
+    res.status(500).json({ error: 'Failed to export knowledge' });
+  }
+});
+
+// ============================================
 // §12.12: 知识进化引擎 API
 // ============================================
 
