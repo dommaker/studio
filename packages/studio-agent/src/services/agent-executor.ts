@@ -786,18 +786,11 @@ export class AgentExecutor {
     };
     const outputStyleSection = `## 输出风格\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
 
-    // O2i: Skill on-demand injection — filter skills by task relevance
+    // O2i: Skill on-demand injection
     const skillTier = (task.model as SkillTier) || 'standard';
-    const taskKeywords = (task.prompt || '').toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
-    const allSkills = session === 1
+    const skillsToInject = session === 1
       ? skillLoader.load({ trigger: 'goal_start', agentType: 'executor', tier: skillTier })
       : skillLoader.load({ trigger: 'goal_continue', agentType: 'executor', tier: skillTier, exclude: ['stuck-recovery'] });
-    const relevantSkills = allSkills.filter((s: any) => {
-      const skillText = (s.name + ' ' + (s.description || '')).toLowerCase();
-      return taskKeywords.some((kw: string) => skillText.includes(kw));
-    });
-    // If filtering removed too many, fall back to all skills
-    const skillsToInject = relevantSkills.length >= 2 ? relevantSkills : allSkills;
     const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
     if (session === 1 || !progress) {
