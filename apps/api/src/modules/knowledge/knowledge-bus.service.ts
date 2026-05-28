@@ -234,7 +234,7 @@ export class KnowledgeBus {
       const entries = this.store.list({});
       return entries
         .filter(e => e.tags?.includes(type))
-        .sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))
+        .sort((a, b) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))
         .slice(0, limit)
         .map(e => ({
           source: (e.contributors?.[0] || 'unknown') as KnowledgeSource,
@@ -304,7 +304,7 @@ export async function upsertKnowledge(params: {
   }
 
   // 有已有条目 → 对比内容
-  const latest = existing.sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))[0];
+  const latest = existing.sort((a, b) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))[0];
   const existingHash = Buffer.from(latest.content).toString('base64').slice(0, 32);
 
   if (contentHash !== existingHash) {

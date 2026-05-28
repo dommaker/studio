@@ -427,28 +427,56 @@ ${deployResult.summary.slice(0, 2000)}
         return;
       }
 
-      const extraction = await modelGateway.promptJson<KnowledgeExtraction>(
-        content.slice(0, 50_000),
-        `你是知识提取专家。从文本中提取结构化知识。对每条记录必须做三层分析：1) 根因（不描述表面现象），2) 责任归属（哪个 Agent/流程该预防），3) 预防措施（具体可操作）。
+      // Direct DeepSeek API call (modelGateway.promptJson has JSON parsing issues with some responses)
+      const apiKey = process.env.DEEPSEEK_API_KEY || '';
+      if (!apiKey) {
+        logger.warn('[KnowledgeAgent] No DEEPSEEK_API_KEY, skipping extraction', { source });
+        return;
+      }
 
-关注类型：
-- 架构决策 (architecture) - 关于系统设计的讨论和决定
-- 设计决策 (decision) - 关于实现方式的取舍
-- 踩坑记录 (pitfall) - 遇到的问题，重点是根因而非现象
-- 流程经验 (process) - 流程中哪个环节该改进
-- 最佳实践 (guideline) - 可复用的经验和模式
+      const rawResponse = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: `你是知识提取专家。从文本中提取结构化知识。对每条记录必须做三层分析：1) 根因（不描述表面现象），2) 责任归属（哪个 Agent/流程该预防），3) 预防措施（具体可操作）。\n\n关注类型：\n- 架构决策 (architecture) - 关于系统设计的讨论和决定\n- 设计决策 (decision) - 关于实现方式的取舍\n- 踩坑记录 (pitfall) - 遇到的问题，重点是根因而非现象\n- 流程经验 (process) - 流程中哪个环节该改进\n- 最佳实践 (guideline) - 可复用的经验和模式\n\n输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }\n只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。` },
+            { role: 'user', content: content.slice(0, 50_000) },
+          ],
+          temperature: 0.3,
+          max_tokens: 1024,
+        }),
+      });
+      const data = await rawResponse.json() as any;
+      const llmContent = data.choices?.[0]?.message?.content || '';
 
-输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "根因概括", "content": "根因+责任+预防", "tags": ["..."] }] }
-只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。`,
-      );
+      if (!llmContent) {
+        logger.info('[KnowledgeAgent] Empty LLM response for extraction', { source: source.slice(-40) });
+        return;
+      }
 
-      if (!extraction.entries?.length) {
+      // Parse JSON from LLM response (handle markdown code blocks)
+      let result: any;
+      try {
+        result = JSON.parse(llmContent);
+      } catch {
+        const codeMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeMatch?.[1]) {
+          try { result = JSON.parse(codeMatch[1].trim()); } catch {}
+        }
+        if (!result) {
+          logger.warn('[KnowledgeAgent] Failed to parse extraction JSON', { source: source.slice(-40), preview: llmContent.slice(0, 200) });
+          return;
+        }
+      }
+
+      if (!result.entries?.length) {
         logger.info('[KnowledgeAgent] No knowledge extracted from text', { source: source.slice(-40) });
         return;
       }
 
       // Ingest entries
-      for (const entry of extraction.entries) {
+      for (const entry of result.entries) {
         this.safeIngest(
           {
             type: entry.type as any,
@@ -467,8 +495,8 @@ ${deployResult.summary.slice(0, 2000)}
 
       logger.info('[KnowledgeAgent] Extracted from text', {
         source: source.slice(-60),
-        entryCount: extraction.entries.length,
-        types: extraction.entries.map(e => e.type),
+        entryCount: result.entries.length,
+        types: result.entries.map((e: any) => e.type),
       });
     } catch (err) {
       logger.warn('[KnowledgeAgent] extractFromText failed', { source: source.slice(-40), error: String(err) });
