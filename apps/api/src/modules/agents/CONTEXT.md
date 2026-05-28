@@ -8,8 +8,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts
 
-<!-- STALE_SINCE: 2026-05-27 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
+
+<!-- STALE_SINCE: 2026-05-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
 
 ## 职责
 
@@ -30,6 +34,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `7ab15321`: use ANTHROPIC_AUTH_TOKEN as fallback for knowledge extraction
+- ✅ `ce7c3955`: knowledge extraction JSON parse failure + localeCompare crash
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
 - ✅ `e82b47e6`: 知识飞轮自动闭环 — 消除 ingest 手动标记 + Auditor Circuit #8
 - ✅ `78c6856d`: Prisma SQLite auto-parses JSON String fields — handle both string and object

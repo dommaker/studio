@@ -6,8 +6,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-bus.service.ts
 
-<!-- STALE_SINCE: 2026-05-27 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/CONTEXT.md, apps/api/src/modules/knowledge/evolution-scheduler.ts, apps/api/src/modules/knowledge/evolution.service.ts, apps/api/src/modules/knowledge/import.routes.ts, apps/api/src/modules/knowledge/routes.ts
+
+<!-- STALE_SINCE: 2026-05-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-bus.service.ts
 
 ## 职责
 
@@ -28,6 +30,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `ce7c3955`: knowledge extraction JSON parse failure + localeCompare crash
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
 - ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors
 - ✅ `d136e830`: getRecentContext crash — lastReferenced undefined on process entries
