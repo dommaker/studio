@@ -47,9 +47,8 @@ coverage/
 # Test results (screenshots, videos)
 test-results/
 
-# 🆕 Internal docs (not for public release)
-specs/
-*.spec.md
+# Spec source (tracked)
+!docs/specs/
 
 # PM2 配置（可能包含敏感信息）
 ecosystem.config.cjs
@@ -69,9 +68,8 @@ e2e/.auth.json
 CLAUDE.md
 .claude/
 
-# Internal docs (not for public release)
-docs/
-!docs/configuration.md
+# Design docs (tracked)
+!docs/
 DESIGN_REFACTOR.md
 
 # Development artifacts
