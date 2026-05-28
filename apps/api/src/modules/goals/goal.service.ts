@@ -133,8 +133,8 @@ export class GoalService {
     const roleTypes = [...new Set(roles.map(r => r.type))];
 
     // 获取可用 skills
-    const skills = await prisma.companySkill.findMany({
-      where: { companyId: goal.companyId, status: 'active' },
+    const skills = await prisma.skill.findMany({
+      where: { companyId: goal.companyId, status: 'published' },
       select: { name: true, category: true },
     });
 

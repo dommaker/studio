@@ -124,7 +124,6 @@ model Company {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
   Role         Role[]
-  CompanySkill CompanySkill[]
   OKR          OKR[]
   Documents    Document[]
   projects     Project[]
@@ -168,31 +167,6 @@ model KRHistory {
   @@map("kr_history")
 }
 
-// CompanySkill — 公司级 Skill（SL-001, company-skill.service.ts + tools-std/routes.ts 使用中）
-model CompanySkill {
-  id            String   @id @default(cuid())
-  companyId     String
-  name          String
-  description   String?
-  category      String?
-  parentSkillId String?
-  layer         String   @default("company")
-  config        String?
-  requirements  String?
-  usageCount    Int      @default(0)
-  successRate   Float    @default(0)
-  avgDuration   Float    @default(0)
-  status        String   @default("active")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, name])
-  @@index([companyId])
-  @@index([category])
-  @@index([layer])
-  @@map("company_skill")
-}
 
 model Countersign {
   id             String         @id @default(cuid())
@@ -717,6 +691,12 @@ model Skill {
   version      Int      @default(1)
   category     String?
   description  String?
+  prompt       String?   // 注入 Agent 的 prompt 内容
+  trigger      String?   // goal_start | goal_continue | review | ...
+  agentTypes   String?   // JSON array: ["executor", "reviewer"]
+  tier         String?   // fast | standard | premium
+  tools        String?   // JSON array: ["tool-name-1", "tool-name-2"]
+  isBuiltin    Boolean   @default(false)
   usageCount   Int      @default(0)
   successRate  Float    @default(0)
   avgDuration  Float    @default(0)

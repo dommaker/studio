@@ -32,7 +32,6 @@ const JSON_FIELDS: Record<string, string[]> = {
 
   SpecChangeRequest: ['metadata'],
   MCPAuditLog: ['input', 'output'],
-  CompanySkill: ['config', 'requirements'],
   DecisionAudit: ['evidence', 'context'],
   Incident: ['triageLog'],
   ChannelMessage: ['meta'],
