@@ -646,6 +646,65 @@ knowledgeRoutes.get('/export', async (req, res) => {
 });
 
 // ============================================
+// §12.11b: 知识问答 API
+// ============================================
+
+import { knowledgeService } from './knowledge.service.js';
+import { modelGateway } from '@dommaker/studio-shared';
+
+/**
+ * POST /api/v1/knowledge/ask
+ * 知识问答：检索相关知识条目 → LLM 生成回答
+ *
+ * Body: { question: string, types?: string[], limit?: number }
+ * Returns: { answer: string, sources: Array<{ id, title, type }> }
+ */
+knowledgeRoutes.post('/ask', async (req, res) => {
+  try {
+    const { question, types, limit = 10 } = req.body;
+    if (!question || typeof question !== 'string') {
+      return res.status(400).json({ error: 'question is required' });
+    }
+
+    // 1. Retrieve relevant KnowledgeEntry rows
+    const entries = await knowledgeService.query({
+      keyword: question,
+      types: types as any,
+      limit,
+      archived: false,
+    });
+
+    if (entries.length === 0) {
+      return res.json({ answer: '未找到相关知识条目。', sources: [] });
+    }
+
+    // 2. Format context for LLM
+    const contextLines = entries.map((e, i) =>
+      `[${i + 1}] ${e.title || '(无标题)'} (${e.type})\n${e.content}`
+    );
+    const context = contextLines.join('\n\n---\n\n');
+
+    // 3. LLM call
+    const systemPrompt = '你是知识库问答助手。根据提供的知识条目回答用户问题。回答必须基于知识条目内容，不要编造。引用时标注来源编号如 [1] [2]。';
+    const userPrompt = `知识条目：\n${context}\n\n---\n\n用户问题：${question}`;
+
+    const answer = await modelGateway.prompt(userPrompt, systemPrompt);
+
+    // 4. Return answer + source references
+    const sources = entries.map(e => ({
+      id: e.id,
+      title: e.title || e.content.slice(0, 60),
+      type: e.type,
+    }));
+
+    res.json({ answer, sources });
+  } catch (error) {
+    logger.error({ error }, 'Knowledge ask failed');
+    res.status(500).json({ error: 'Knowledge ask failed' });
+  }
+});
+
+// ============================================
 // §12.12: 知识进化引擎 API
 // ============================================
 
