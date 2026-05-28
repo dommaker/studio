@@ -444,6 +444,14 @@ export class GoalScheduler {
 
   // G5: 动态模型路由 — 根据任务特征自动选择 tier
   private classifyTaskComplexity(input: Record<string, any> | null, prompt: string): string {
+    // Phase 1: Analyst modelTier 优先 — Analyst 探索代码后标注的复杂度是最可靠信号
+    const analystTier = input?.acGroup?.modelTier as string | undefined;
+    if (analystTier && ['fast', 'standard', 'premium'].includes(analystTier)) {
+      const reason = input?.acGroup?.modelTierReason || 'analyst-classified';
+      logger.info('[GoalScheduler] Analyst modelTier adopted', { tier: analystTier, reason });
+      return analystTier;
+    }
+
     const acs = input?.acGroup?.acs ? JSON.stringify(input.acGroup.acs) : '';
     const taskDesc = (input?.taskDescription as string) || prompt || '';
     const combined = `${taskDesc} ${acs}`.toLowerCase();
