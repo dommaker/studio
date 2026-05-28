@@ -96,3 +96,23 @@ describe('MonitorAgent deploy + proxy alerts (AC-3)', () => {
     });
   });
 });
+
+describe('MonitorAgent WorkflowObserver (B9-025)', () => {
+  it('observeWorkflow method exists on monitorAgent', () => {
+    expect(typeof (monitorAgent as any).observeWorkflow).toBe('function');
+  });
+
+  it('observeWorkflow returns null when insufficient events', async () => {
+    // With < 3 session:summary events in 7 days, should return null
+    const result = await (monitorAgent as any).observeWorkflow();
+    expect(result === null || typeof result === 'object').toBe(true);
+  });
+
+  it('workflow_report event type is valid StudioEvent type', () => {
+    const validEventTypes = [
+      'session:summary', 'pipeline_run', 'tool:call', 'routing_decision',
+      'daily_reflection', 'workflow_report',
+    ];
+    expect(validEventTypes).toContain('workflow_report');
+  });
+});

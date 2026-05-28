@@ -1053,6 +1053,11 @@ model UserPreference {
   activeHours       String   @default("[]") // [9,10,11,14,15,16]
   avgSessionMinutes Int?
 
+  // 工作流模式 (B9-025)
+  workflowDistribution  String?  // JSON: {"ci_fix":5,"refactor":3,...}
+  recurringWorkflows    String?  // JSON: [{type,count,successRate,lastSeen}]
+  preferredWorkflowTypes String? // JSON: ["ci_fix","test_triage"]
+
   // 元数据
   confidence        Float    @default(0.3)
   lastInferredAt    DateTime?
