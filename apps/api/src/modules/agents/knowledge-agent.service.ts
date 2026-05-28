@@ -6,7 +6,8 @@
  */
 
 import { modelGateway, logger } from '@dommaker/studio-shared';
-import { KnowledgeStore, KnowledgeIngest, ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
+import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
+import { sharedStore, sharedIngest } from '../knowledge/knowledge-bus.service.js';
 import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { exec } from 'child_process';
@@ -16,6 +17,7 @@ import * as path from 'path';
 import type { KnowledgeExtraction } from './types.js';
 
 const execAsync = promisify(exec);
+const sharedLinter = new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore));
 
 const KNOWLEDGE_SYSTEM_PROMPT = `你是一个知识提取专家。请从以下代码变更和执行结果中提取有价值的知识条目。
 
@@ -44,15 +46,6 @@ const KNOWLEDGE_SYSTEM_PROMPT = `你是一个知识提取专家。请从以下�
 - 最多提取 5 个条目`;
 
 export class KnowledgeAgent {
-  private store: KnowledgeStore;
-  private ingest: KnowledgeIngest;
-  private linter: KnowledgeLinter;
-
-  constructor() {
-    this.store = new KnowledgeStore();
-    this.ingest = new KnowledgeIngest(this.store);
-    this.linter = new KnowledgeLinter(this.store, new ReferenceTracker(this.store));
-  }
 
   /**
    * P1b: Four-source cold start import
@@ -78,7 +71,7 @@ export class KnowledgeAgent {
 
       const importer = new ColdStartImporter({
         projectRoot,
-        store: this.store,
+        store: sharedStore,
         sources: ['code', 'git', 'docs', 'manual'],
         docPaths,
         manualEntries: [
@@ -514,7 +507,7 @@ ${deployResult.summary.slice(0, 2000)}
     options: { source: string; layer: string; maturity?: string; tags?: string[]; projects?: string[] },
   ): boolean {
     const entry = { title: partial.title || '', content: partial.content || '', tags: partial.tags || [], type: partial.type || 'guideline' };
-    const issues = this.linter.validateEntry(entry);
+    const issues = sharedLinter.validateEntry(entry);
 
     const blockers = issues.filter(i => i.severity === 'high');
     if (blockers.length > 0) {
@@ -534,7 +527,7 @@ ${deployResult.summary.slice(0, 2000)}
       });
     }
 
-    this.ingest.ingestEntry(partial as any, options as any);
+    sharedIngest.ingestEntry(partial as any, options as any);
     return true;
   }
 

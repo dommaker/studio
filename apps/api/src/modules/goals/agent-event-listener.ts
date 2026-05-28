@@ -18,7 +18,7 @@ import { roleConfigService } from '../roles/role-config.service.js';
 import { knowledgeAgent } from '../agents/knowledge-agent.service.js';
 import { afterAgentComplete, recordDecision } from '@dommaker/studio-shared/harness/hooks';
 import { knowledgeKeeper } from '@dommaker/studio-shared';
-import { KnowledgeStore, KnowledgeLifecycle } from '@dommaker/harness';
+import { sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
 import { recordFailure, recordSuccess, recordReviewRejected, runEvolution } from '../harness/evolution.service.js';
 import type { ReviewReport } from '../agents/review-report.js';
 
@@ -641,8 +641,6 @@ export class AgentEventListener {
    */
   private recordKnowledgeRefs(completionOutput: Record<string, any>, worktree?: string): void {
     try {
-      const store = new KnowledgeStore();
-      const lifecycle = new KnowledgeLifecycle(store);
       const refPattern = /\[REF:([^\]]+)\]/g;
       const refs = new Set<string>();
 
@@ -694,7 +692,7 @@ export class AgentEventListener {
 
       for (const entryId of refs) {
         try {
-          const updated = lifecycle.recordReference(entryId, 'executor');
+          const updated = sharedLifecycle.recordReference(entryId, 'executor');
           if (updated) {
             logger.info('[AgentEventListener] Knowledge reference recorded', { entryId, title: updated.title });
           }

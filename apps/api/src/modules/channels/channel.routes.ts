@@ -6,7 +6,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { goalService } from '../goals/goal.service.js';
-import { KnowledgeStore, KnowledgeIngest } from '@dommaker/harness';
+import { sharedIngest } from '../knowledge/knowledge-bus.service.js';
 import { projectService } from '../pmo/project.service.js';
 
 const router = Router();
@@ -567,12 +567,9 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
     const source = cardData.source as string | undefined;
 
     if (entries?.length && taskId) {
-      const store = new KnowledgeStore();
-      const ingest = new KnowledgeIngest(store);
-
       for (const entry of entries) {
         // harness 文件存储
-        ingest.ingestEntry(
+        sharedIngest.ingestEntry(
           { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId || taskId] },
           { source: source || `task:${taskId}`, layer: 'project', maturity: 'draft', tags: entry.tags, projects: [projectId || taskId] },
         );

@@ -1,86 +1,4 @@
 {
-  "apps/api": [
-    {
-      "file": "apps/api/src/modules/agents/auditor-agent.service.ts",
-      "line": 618,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 1495,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 1554,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 1802,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/agents/review-agent.service.ts",
-      "line": 194,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 204,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 206,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 210,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 610,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 616,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 616,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 841,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 858,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/goals/goal-scheduler.ts",
-      "line": 923,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/pmo/okr.service.ts",
-      "line": 419,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/pmo/project.service.ts",
-      "line": 164,
-      "code": "TS2353"
-    }
-  ],
   "packages/studio-agent": [
     {
       "file": "packages/studio-agent/src/services/agent-executor.ts",
@@ -89,8 +7,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-27T20:19:25.079Z",
-    "totalErrors": 17,
-    "commit": "4fbb26ac07f1ad724ec4f45ef1bb73a94a9a2a86"
+    "generated": "2026-05-28T14:19:54.289Z",
+    "totalErrors": 1,
+    "commit": "7fe3b3b526e26a05a57e9ef942c367eeb0111a84"
   }
 }
