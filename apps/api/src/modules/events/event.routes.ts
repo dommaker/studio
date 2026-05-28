@@ -12,6 +12,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
 import { requireAuth } from '../../middleware/auth.js';
 import { logger } from '@dommaker/studio-shared';
+import { generateSessionSummary } from './session-summary-generator.js';
 
 const router = Router();
 
@@ -137,6 +138,14 @@ router.post('/agent-events', requireAuth, async (req: Request, res: Response) =>
 
     logger.info('[AgentEvents] Batch ingested', { count: created.length, agentId: events[0].agentId });
     res.status(201).json({ ingested: created.length });
+
+    // B9-015: fire-and-forget session:summary generation on session:end
+    const sessionEndEvents = events.filter((e) => e.type === 'session:end');
+    for (const se of sessionEndEvents) {
+      generateSessionSummary(se.sessionId).catch((err: unknown) => {
+        logger.warn('[AgentEvents] SessionSummary generation failed', { sessionId: se.sessionId, error: String(err) });
+      });
+    }
   } catch (error: unknown) {
     logger.error('[AgentEvents] Batch ingest failed', { error: String(error) });
     res.status(500).json({ error: 'Failed to ingest agent events' });
