@@ -17,7 +17,7 @@
     },
     {
       "file": "apps/api/src/modules/agents/auditor-agent.service.ts",
-      "line": 877,
+      "line": 938,
       "code": "TS2307"
     },
     {
@@ -114,8 +114,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-28T07:16:19.857Z",
+    "generated": "2026-05-28T07:58:41.572Z",
     "totalErrors": 22,
-    "commit": "3de7e2ac17f5bb20174997c008a42531509c9868"
+    "commit": "e607c37ecae45db7266bef30db151ec9872bfa49"
   }
 }

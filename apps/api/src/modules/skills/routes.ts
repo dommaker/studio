@@ -222,7 +222,9 @@ router.post('/:id/usage', async (req: Request, res: Response) => {
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     const newCount = skill.usageCount + 1;
-    const newSuccessRate = ((skill.successRate * skill.usageCount) + (success ? 1 : 0)) / newCount;
+    // EMA with alpha=0.3 (recent samples weighted 30%, history 70%)
+    const alpha = 0.3;
+    const newSuccessRate = alpha * (success ? 1 : 0) + (1 - alpha) * skill.successRate;
     const newAvgDuration = durationMs
       ? ((skill.avgDuration * skill.usageCount) + durationMs) / newCount
       : skill.avgDuration;
