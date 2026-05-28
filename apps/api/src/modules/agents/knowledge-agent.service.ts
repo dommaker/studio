@@ -428,9 +428,9 @@ ${deployResult.summary.slice(0, 2000)}
       }
 
       // Direct DeepSeek API call (modelGateway.promptJson has JSON parsing issues with some responses)
-      const apiKey = process.env.DEEPSEEK_API_KEY || '';
+      const apiKey = process.env.DEEPSEEK_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || '';
       if (!apiKey) {
-        logger.warn('[KnowledgeAgent] No DEEPSEEK_API_KEY, skipping extraction', { source });
+        logger.warn('[KnowledgeAgent] No API key (DEEPSEEK_API_KEY or ANTHROPIC_AUTH_TOKEN), skipping extraction', { source });
         return;
       }
 
