@@ -152,7 +152,7 @@ export class PatternMiner {
         .map(line => {
           try { return JSON.parse(line); } catch { return null; }
         })
-        .filter((e: any) => e && e.type === 'tool:call' && e.timestamp > since)
+        .filter((e: any) => e && e.type === 'tool:call' && e.timestamp > since && !(e.tool || '').startsWith('__'))
         .map((e: any) => ({
           type: e.type,
           tool: e.tool,

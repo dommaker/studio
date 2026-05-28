@@ -1368,6 +1368,43 @@ export class MonitorAgent {
         }
       } catch { lines.push('### 会话活动\n(数据源不可用)'); }
 
+      // 1b. Workflow detection (7-day window, from StudioEvent session:summary)
+      try {
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 3600_000);
+        const summaryEvents = await prisma.studioEvent.findMany({
+          where: { type: 'session:summary', timestamp: { gte: weekAgo } },
+          select: { payload: true },
+        });
+
+        if (summaryEvents.length >= 5) {
+          const typeCounts: Record<string, { count: number; successCount: number }> = {};
+          for (const ev of summaryEvents) {
+            try {
+              const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+              const wt = (p as any)?.workflowType || 'unknown';
+              if (!typeCounts[wt]) typeCounts[wt] = { count: 0, successCount: 0 };
+              typeCounts[wt].count++;
+              if ((p as any)?.success !== false) typeCounts[wt].successCount++;
+            } catch {}
+          }
+
+          const recurring = Object.entries(typeCounts)
+            .filter(([_, s]) => s.count >= 3 && s.successCount / s.count > 0.7)
+            .sort((a, b) => b[1].count - a[1].count);
+
+          if (recurring.length > 0) {
+            lines.push('', '### 工作流模式（7天）');
+            for (const [wt, s] of recurring) {
+              const rate = Math.round((s.successCount / s.count) * 100);
+              lines.push(`- **${wt}**: ${s.count} 次, 成功率 ${rate}%`);
+              if (['ci_fix', 'test_triage', 'release_prep'].includes(wt)) {
+                lines.push(`  → 建议创建 Skill 自动化此工作流`);
+              }
+            }
+          }
+        }
+      } catch { /* best-effort */ }
+
       // 2. Pipeline runs
       try {
         const runs = await prisma.pipelineRun.findMany({
