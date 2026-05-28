@@ -407,6 +407,38 @@ export class GoalScheduler {
     return 'general';
   }
 
+  /** Phase 3: 从历史数据中找到该 category 成功率最高的 tier（样本 ≥ 5 才生效） */
+  private getHistoricalBestTier(taskCategory: string): string | null {
+    const stats: Record<string, { total: number; success: number }> = {};
+    for (const c of this.recentClassifications) {
+      if (c.taskCategory !== taskCategory || !c.outcome) continue;
+      const key = c.final;
+      if (!stats[key]) stats[key] = { total: 0, success: 0 };
+      stats[key].total++;
+      if (c.outcome === 'success') stats[key].success++;
+    }
+
+    const MIN_SAMPLES = 5;
+    let bestTier: string | null = null;
+    let bestRate = 0;
+    for (const [tier, s] of Object.entries(stats)) {
+      if (s.total < MIN_SAMPLES) continue;
+      const rate = s.success / s.total;
+      if (rate > bestRate) {
+        bestRate = rate;
+        bestTier = tier;
+      }
+    }
+
+    if (bestTier) {
+      logger.info('[GoalScheduler] Historical routing feedback', {
+        taskCategory, bestTier, bestRate: bestRate.toFixed(2),
+        samples: Object.fromEntries(Object.entries(stats).map(([t, s]) => [t, `${s.success}/${s.total}`])),
+      });
+    }
+    return bestTier;
+  }
+
   /** Phase 1: 持久化路由统计到文件 */
   private persistRoutingStats(): void {
     try {
@@ -605,7 +637,10 @@ export class GoalScheduler {
     // G5/Q4: 动态模型路由 — 必须在 status=running 之前更新 input.model
     const autoTier = this.classifyTaskComplexity(input, '');
     const taskCategory = this.inferTaskCategory('', input);
-    const { tier: exploredTier } = this.maybeExploreDowngrade(autoTier, taskCategory);
+    // Phase 3: 历史成功率反馈 — 用数据修正规则分类
+    const historicalTier = this.getHistoricalBestTier(taskCategory);
+    const baseTier = historicalTier || autoTier;
+    const { tier: exploredTier } = this.maybeExploreDowngrade(baseTier, taskCategory);
     let tier: string = exploredTier;
     if (this.routingOverrides.has(taskCategory) && tier === 'premium') {
       tier = this.routingOverrides.get(taskCategory)!;
