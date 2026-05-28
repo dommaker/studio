@@ -627,7 +627,7 @@ knowledgeRoutes.get('/export', async (req, res) => {
     const types = req.query.types ? (req.query.types as string).split(',').filter(Boolean) : undefined;
     const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
 
-    const entries = sharedStore.list({ type: types?.[0], limit });
+    const entries = sharedStore.list({ types: types as any }).slice(0, limit);
     const content = format === 'json'
       ? JSON.stringify(entries, null, 2)
       : entries.map((e: any) => `# ${e.title || e.id}\n\n${e.content}`).join('\n\n---\n\n');
@@ -649,7 +649,7 @@ knowledgeRoutes.get('/export', async (req, res) => {
 // §12.11b: 知识问答 API
 // ============================================
 
-import { knowledgeService } from './knowledge.service.js';
+import { sharedStore } from './knowledge-bus.service.js';
 import { modelGateway } from '@dommaker/studio-shared';
 
 /**
@@ -666,20 +666,27 @@ knowledgeRoutes.post('/ask', async (req, res) => {
       return res.status(400).json({ error: 'question is required' });
     }
 
-    // 1. Retrieve relevant KnowledgeEntry rows
-    const entries = await knowledgeService.query({
-      keyword: question,
-      types: types as any,
-      limit,
-      archived: false,
-    });
+    // 1. Retrieve relevant entries from KnowledgeStore
+    const allEntries = sharedStore.list({ types: types as any }).slice(0, 100);
+    // Simple keyword matching on title + content
+    const keywords = question.toLowerCase().split(/\s+/).filter(Boolean);
+    const scored = allEntries
+      .map((e: any) => {
+        const text = `${e.title || ''} ${e.content}`.toLowerCase();
+        const hits = keywords.filter((k: string) => text.includes(k)).length;
+        return { entry: e, score: hits };
+      })
+      .filter((s: any) => s.score > 0)
+      .sort((a: any, b: any) => b.score - a.score)
+      .slice(0, limit);
 
-    if (entries.length === 0) {
+    if (scored.length === 0) {
       return res.json({ answer: '未找到相关知识条目。', sources: [] });
     }
 
     // 2. Format context for LLM
-    const contextLines = entries.map((e, i) =>
+    const entries = scored.map((s: any) => s.entry);
+    const contextLines = entries.map((e: any, i: number) =>
       `[${i + 1}] ${e.title || '(无标题)'} (${e.type})\n${e.content}`
     );
     const context = contextLines.join('\n\n---\n\n');
@@ -691,7 +698,7 @@ knowledgeRoutes.post('/ask', async (req, res) => {
     const answer = await modelGateway.prompt(userPrompt, systemPrompt);
 
     // 4. Return answer + source references
-    const sources = entries.map(e => ({
+    const sources = entries.map((e: any) => ({
       id: e.id,
       title: e.title || e.content.slice(0, 60),
       type: e.type,
