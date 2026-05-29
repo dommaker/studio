@@ -247,6 +247,41 @@ export class PreferenceObserver {
     return `\n## 用户偏好 (推断)\n${lines.join('\n')}\n`;
   }
 
+  /**
+   * 从 workflow_report 更新工作流偏好 (B9-025)
+   */
+  async updateFromWorkflowReport(distribution: Record<string, number>, recurring: Array<{ type: string; count: number; successRate: number; lastSeen: string }>): Promise<void> {
+    try {
+      const pref = await this.getOrCreatePreference();
+
+      // Merge distribution with existing
+      const existing = (pref as any).workflowDistribution ? JSON.parse((pref as any).workflowDistribution) as Record<string, number> : {};
+      for (const [k, v] of Object.entries(distribution)) {
+        existing[k] = (existing[k] || 0) + v;
+      }
+
+      // High-frequency types (>= 5 in a week)
+      const preferred = Object.entries(existing)
+        .filter(([_, count]) => count >= 5)
+        .sort((a, b) => b[1] - a[1])
+        .map(([type]) => type)
+        .slice(0, 5);
+
+      await (prisma as any).userPreference.update({
+        where: { id: pref.id },
+        data: {
+          workflowDistribution: JSON.stringify(existing),
+          recurringWorkflows: JSON.stringify(recurring),
+          preferredWorkflowTypes: JSON.stringify(preferred),
+          confidence: this.computeConfidence(pref.confidence),
+          lastInferredAt: new Date(),
+        },
+      });
+    } catch (err) {
+      /* non-blocking */
+    }
+  }
+
   // ── private ──
 
   private async getOrCreatePreference() {

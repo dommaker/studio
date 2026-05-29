@@ -8,7 +8,7 @@ import { promises as fsPromises } from 'fs';
 import * as path from 'path';
 import * as yaml from 'js-yaml';
 import { getToolsDir } from '@dommaker/harness';
-import { companySkillService } from '@dommaker/studio-capability';
+
 import { logger } from '@dommaker/studio-shared';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -547,141 +547,7 @@ router.delete('/:id', requireRole('Admin'), async (req: Request, res: Response) 
   }
 });
 
-// ==================== CompanySkill API（SL-001）====================
 
-// POST /api/v1/skills/company - 创建公司技能
-router.post('/company', async (req: Request, res: Response) => {
-  try {
-    const { companyId, name, description, category, parentSkillId, config, requirements } = req.body;
 
-    if (!companyId || !name) {
-      return res.status(400).json({ success: false, error: 'companyId 和 name 为必填字段' });
-    }
-
-    const skill = await companySkillService.create({
-      companyId,
-      name,
-      description,
-      category,
-      parentSkillId,
-      config,
-      requirements,
-    });
-
-    res.status(201).json({ success: true, skill });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('already exists')) {
-      return res.status(409).json({ success: false, error: '技能名在公司内已存在' });
-    }
-    res.status(500).json({
-      success: false,
-      error: getErrorMessage(error) || '创建公司技能失败',
-    });
-  }
-});
-
-// GET /api/v1/skills/company - 查询公司技能列表
-router.get('/company', async (req: Request, res: Response) => {
-  try {
-    const { companyId, category, layer, status, search } = req.query;
-    const { page, limit, offset } = parsePagination(req);
-
-    if (!companyId) {
-      return res.status(400).json({ success: false, error: 'companyId 为必填参数' });
-    }
-
-    const result = await companySkillService.list({
-      companyId: companyId as string,
-      category: category as string,
-      layer: layer as string,
-      status: status as string,
-      search: search as string,
-    });
-
-    const paginatedSkills = result.slice(offset, offset + limit);
-
-    res.json({
-      success: true,
-      skills: paginatedSkills,
-      ...formatPaginatedResponse([], result.length, page, limit),
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: getErrorMessage(error) || '查询公司技能列表失败',
-    });
-  }
-});
-
-// GET /api/v1/skills/company/:id - 查询技能详情
-router.get('/company/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    const skill = await companySkillService.get(id);
-
-    if (!skill) {
-      return res.status(404).json({ success: false, error: '公司技能不存在' });
-    }
-
-    res.json({ success: true, skill });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: getErrorMessage(error) || '查询公司技能详情失败',
-    });
-  }
-});
-
-// PUT /api/v1/skills/company/:id - 更新技能
-router.put('/company/:id', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { name, description, category, config, requirements, status } = req.body;
-
-    const skill = await companySkillService.update(id, {
-      name,
-      description,
-      category,
-      config,
-      requirements,
-      status,
-    });
-
-    if (!skill) {
-      return res.status(404).json({ success: false, error: '公司技能不存在' });
-    }
-
-    res.json({ success: true, skill });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('already exists')) {
-      return res.status(409).json({ success: false, error: '技能名在公司内已存在' });
-    }
-    res.status(500).json({
-      success: false,
-      error: getErrorMessage(error) || '更新公司技能失败',
-    });
-  }
-});
-
-// DELETE /api/v1/skills/company/:id - 删除技能
-// SEC-002: Admin only
-router.delete('/company/:id', requireRole('Admin'), async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-
-    await companySkillService.delete(id);
-
-    res.json({ success: true, message: '公司技能已删除' });
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('not found')) {
-      return res.status(404).json({ success: false, error: '公司技能不存在' });
-    }
-    res.status(500).json({
-      success: false,
-      error: getErrorMessage(error) || '删除公司技能失败',
-    });
-  }
-});
 
 export default router;

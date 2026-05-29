@@ -115,6 +115,9 @@ export function buildAgentContext(options: AgentContextOptions = {}): AgentConte
 /**
  * 异步扩展：加载知识上下文和角色约束
  * 调用方在 async 上下文中使用此方法获取完整 prompt
+ *
+ * @deprecated KE-002 P4: 无调用方。Agent 直接用 getRecentContext() + formatAllForPrompt()。
+ * 保留供未来统一入口参考。
  */
 export async function buildAgentContextAsync(options: AgentContextOptions = {}): Promise<AgentContext> {
   const base = buildAgentContext({ ...options, compact: true });

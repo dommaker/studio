@@ -21,6 +21,7 @@ import { triageAgent } from './triage-agent.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
 import { sharedStore, sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
 import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
+import { preferenceObserver } from '../knowledge/preference-observer.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 const FAILURE_THRESHOLD = 3;
@@ -1368,6 +1369,63 @@ export class MonitorAgent {
         }
       } catch { lines.push('### 会话活动\n(数据源不可用)'); }
 
+      // 1b. Workflow detection (7-day window, from StudioEvent session:summary)
+      try {
+        const weekAgo = new Date(now.getTime() - 7 * 24 * 3600_000);
+        const summaryEvents = await prisma.studioEvent.findMany({
+          where: { type: 'session:summary', timestamp: { gte: weekAgo } },
+          select: { payload: true },
+        });
+
+        if (summaryEvents.length >= 5) {
+          const typeCounts: Record<string, { count: number; successCount: number }> = {};
+          for (const ev of summaryEvents) {
+            try {
+              const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+              const wt = (p as any)?.workflowType || 'unknown';
+              if (!typeCounts[wt]) typeCounts[wt] = { count: 0, successCount: 0 };
+              typeCounts[wt].count++;
+              if ((p as any)?.success !== false) typeCounts[wt].successCount++;
+            } catch {}
+          }
+
+          const recurring = Object.entries(typeCounts)
+            .filter(([_, s]) => s.count >= 3 && s.successCount / s.count > 0.7)
+            .sort((a, b) => b[1].count - a[1].count);
+
+          if (recurring.length > 0) {
+            lines.push('', '### 工作流模式（7天）');
+            for (const [wt, s] of recurring) {
+              const rate = Math.round((s.successCount / s.count) * 100);
+              lines.push(`- **${wt}**: ${s.count} 次, 成功率 ${rate}%`);
+              if (['ci_fix', 'test_triage', 'release_prep'].includes(wt)) {
+                lines.push(`  → 建议创建 Skill 自动化此工作流`);
+              }
+            }
+          }
+
+          // B9-025: Persist workflow_report + update UserPreference
+          const distribution: Record<string, number> = {};
+          for (const [wt, s] of Object.entries(typeCounts)) distribution[wt] = s.count;
+          const recurringData = recurring.map(([wt, s]) => ({
+            type: wt,
+            count: s.count,
+            successRate: Math.round((s.successCount / s.count) * 100) / 100,
+            lastSeen: today,
+          }));
+
+          prisma.studioEvent.create({
+            data: {
+              type: 'workflow_report',
+              source: 'monitor',
+              payload: JSON.stringify({ distribution, recurring: recurringData, date: today }),
+            },
+          }).catch((e: any) => { logger.warn('[MonitorAgent] workflow_report event failed', { error: String(e) }); });
+
+          preferenceObserver.updateFromWorkflowReport(distribution, recurringData).catch(() => {});
+        }
+      } catch { /* best-effort */ }
+
       // 2. Pipeline runs
       try {
         const runs = await prisma.pipelineRun.findMany({
@@ -1418,6 +1476,41 @@ export class MonitorAgent {
         lines.push(`- KnowledgeBus: ${stats.total || 0} 条 (pattern:${stats.pattern || 0} fix:${stats.fix || 0})`);
       } catch { /* best-effort */ }
 
+      // B9-025: Weekly profile report (every Sunday)
+      if (now.getDay() === 0) {
+        try {
+          const weekAgoForProfile = new Date(now.getTime() - 7 * 24 * 3600_000);
+          const weeklyEvents = await prisma.studioEvent.findMany({
+            where: { type: 'workflow_report', timestamp: { gte: weekAgoForProfile } },
+            select: { payload: true },
+            orderBy: { timestamp: 'desc' },
+          });
+
+          if (weeklyEvents.length > 0) {
+            const merged: Record<string, number> = {};
+            for (const ev of weeklyEvents) {
+              try {
+                const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+                const dist = (p as any)?.distribution || {};
+                for (const [k, v] of Object.entries(dist)) merged[k] = (merged[k] || 0) + (v as number);
+              } catch {}
+            }
+
+            const sorted = Object.entries(merged).sort((a, b) => b[1] - a[1]);
+            if (sorted.length > 0) {
+              lines.push('', '### 周工作画像');
+              lines.push(`- Top 工作流: ${sorted.slice(0, 3).map(([t, c]) => `${t}(${c})`).join(', ')}`);
+              const pref = await (prisma as any).userPreference.findFirst({ where: { userId: 'default' }, select: { preferredWorkflowTypes: true } });
+              if (pref?.preferredWorkflowTypes) {
+                const preferred = JSON.parse(pref.preferredWorkflowTypes) as string[];
+                const newTypes = sorted.filter(([t]) => !preferred.includes(t)).map(([t]) => t);
+                if (newTypes.length > 0) lines.push(`- 新增高频类型: ${newTypes.join(', ')}`);
+              }
+            }
+          }
+        } catch { /* best-effort */ }
+      }
+
       // Post to #系统 channel
       const content = lines.join('\n');
       try {
@@ -1452,6 +1545,56 @@ export class MonitorAgent {
       } catch { /* Discord best-effort */ }
     } catch (e: any) {
       logger.warn('[MonitorAgent] DailyReflection failed', { error: String(e) });
+    }
+  }
+
+  // ── B9-025: WorkflowObserver — 工作流模式持久化 ──
+
+  /**
+   * 从 session:summary 事件中提取工作流分布，写入 workflow_report + 更新 UserPreference。
+   * 可独立调用（非 DailyReflection 时间窗口也可触发）。
+   */
+  async observeWorkflow(): Promise<{ distribution: Record<string, number>; recurring: Array<{ type: string; count: number; successRate: number }> } | null> {
+    try {
+      const weekAgo = new Date(Date.now() - 7 * 24 * 3600_000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'session:summary', timestamp: { gte: weekAgo } },
+        select: { payload: true },
+      });
+      if (events.length < 3) return null;
+
+      const typeCounts: Record<string, { count: number; successCount: number }> = {};
+      for (const ev of events) {
+        try {
+          const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+          const wt = (p as any)?.workflowType || 'unknown';
+          if (!typeCounts[wt]) typeCounts[wt] = { count: 0, successCount: 0 };
+          typeCounts[wt].count++;
+          if ((p as any)?.success !== false) typeCounts[wt].successCount++;
+        } catch {}
+      }
+
+      const distribution: Record<string, number> = {};
+      for (const [wt, s] of Object.entries(typeCounts)) distribution[wt] = s.count;
+
+      const recurring = Object.entries(typeCounts)
+        .filter(([_, s]) => s.count >= 3 && s.successCount / s.count > 0.7)
+        .map(([wt, s]) => ({ type: wt, count: s.count, successRate: Math.round((s.successCount / s.count) * 100) / 100 }));
+
+      const today = new Date().toISOString().split('T')[0];
+      await prisma.studioEvent.create({
+        data: {
+          type: 'workflow_report',
+          source: 'monitor',
+          payload: JSON.stringify({ distribution, recurring, date: today }),
+        },
+      });
+
+      await preferenceObserver.updateFromWorkflowReport(distribution, recurring.map(r => ({ ...r, lastSeen: today })));
+      return { distribution, recurring };
+    } catch (e: any) {
+      logger.warn('[MonitorAgent] observeWorkflow failed', { error: String(e) });
+      return null;
     }
   }
 

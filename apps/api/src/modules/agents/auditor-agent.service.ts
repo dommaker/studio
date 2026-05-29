@@ -726,34 +726,95 @@ export class AuditorAgent {
     const suggestions: Suggestion[] = [];
 
     try {
-      // Query skills with sufficient usage for weight/status analysis
-      const skills = await prisma.skill.findMany({
-        where: { usageCount: { gte: 5 } },
+      // Skip if insufficient active sessions (4-week window)
+      const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 3600_000);
+      const activeSessionCount = await prisma.studioEvent.count({
+        where: { type: 'session:summary', timestamp: { gte: fourWeeksAgo } },
       });
 
-      // Detection rule 1: skill_weight — low successRate + sufficient usage
-      for (const skill of skills) {
-        if (skill.successRate < 0.3) {
-          suggestions.push({
-            type: 'skill_weight',
-            risk: 'low',
-            skillId: skill.id,
-            skillName: skill.name,
-            detail: `Skill "${skill.name}" 成功率 ${(skill.successRate * 100).toFixed(0)}% < 30%，建议调整权重`,
-            data: { successRate: skill.successRate, usageCount: skill.usageCount },
-          });
+      if (activeSessionCount < 5) {
+        logger.info('[AuditorAgent] Skipping skill audit — insufficient active sessions', { activeSessionCount });
+      } else {
+        // Query skills with sufficient usage for analysis
+        const skills = await prisma.skill.findMany({
+          where: { usageCount: { gte: 3 } }, // minimum 3 uses for可信度
+        });
+
+        for (const skill of skills) {
+          const successPct = Math.round(skill.successRate * 100);
+
+          // skill_underperform: successRate < 50% → suggest optimize prompt
+          if (skill.successRate < 0.5 && skill.status === 'published') {
+            suggestions.push({
+              type: 'skill_weight',
+              risk: 'low',
+              skillId: skill.id,
+              skillName: skill.name,
+              detail: `Skill "${skill.name}" 成功率 ${successPct}% < 50%，建议优化 prompt`,
+              data: { successRate: skill.successRate, usageCount: skill.usageCount },
+            });
+          }
+
+          // skill_auto_publish: successRate >= 80% + draft → auto publish
+          if (skill.successRate >= 0.8 && skill.status === 'draft') {
+            suggestions.push({
+              type: 'skill_status',
+              risk: 'low',
+              skillId: skill.id,
+              skillName: skill.name,
+              detail: `Skill "${skill.name}" 成功率达 ${successPct}%，建议发布`,
+              data: { successRate: skill.successRate, currentStatus: skill.status },
+            });
+          }
+
+          // skill_auto_demote: successRate < 30% + published → demote to draft
+          if (skill.successRate < 0.3 && skill.status === 'published') {
+            suggestions.push({
+              type: 'skill_weight',
+              risk: 'high',
+              skillId: skill.id,
+              skillName: skill.name,
+              detail: `Skill "${skill.name}" 成功率 ${successPct}% < 30%，自动降级为 draft`,
+              data: { successRate: skill.successRate, action: 'demote' },
+            });
+          }
+
+          // skill_retire: deprecated + 0 recent usage → physical delete
+          if (skill.status === 'deprecated') {
+            const recentUsage = await prisma.studioEvent.count({
+              where: {
+                type: 'skill:used',
+                timestamp: { gte: fourWeeksAgo },
+                payload: { contains: skill.id },
+              },
+            });
+            if (recentUsage === 0) {
+              suggestions.push({
+                type: 'skill_status',
+                risk: 'high',
+                skillId: skill.id,
+                skillName: skill.name,
+                detail: `Skill "${skill.name}" 已废弃且 4 周内无使用，建议删除`,
+                data: { action: 'retire' },
+              });
+            }
+          }
         }
 
-        // Detection rule 2: skill_status — high successRate + still draft
-        if (skill.successRate >= 0.8 && skill.status === 'draft') {
-          suggestions.push({
-            type: 'skill_status',
-            risk: 'low',
-            skillId: skill.id,
-            skillName: skill.name,
-            detail: `Skill "${skill.name}" 成功率达 ${(skill.successRate * 100).toFixed(0)}%，建议发布`,
-            data: { successRate: skill.successRate, currentStatus: skill.status },
-          });
+        // skill_inactive: usage rate < 10% in 4-week window
+        for (const skill of skills) {
+          if (skill.status !== 'published') continue;
+          const usageRate = skill.usageCount / activeSessionCount;
+          if (usageRate < 0.1) {
+            suggestions.push({
+              type: 'skill_weight',
+              risk: 'low',
+              skillId: skill.id,
+              skillName: skill.name,
+              detail: `Skill "${skill.name}" 使用率 ${(usageRate * 100).toFixed(0)}% < 10%，建议废弃`,
+              data: { usageRate, usageCount: skill.usageCount, activeSessionCount },
+            });
+          }
         }
       }
 

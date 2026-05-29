@@ -52,6 +52,7 @@ const studio_shared_1 = require("@dommaker/studio-shared");
 const node_1 = require("@dommaker/studio-shared/node");
 const studio_prisma_1 = require("@dommaker/studio-prisma");
 const hooks_1 = require("@dommaker/studio-shared/harness/hooks");
+const harness_1 = require("@dommaker/studio-shared/harness");
 const studio_skill_1 = require("@dommaker/studio-skill");
 const DEFAULT_SESSION_TIMEOUT = 30; // 分钟
 const DEFAULT_MAX_SESSIONS = 5;
@@ -66,6 +67,26 @@ const STRATEGY_HINTS = {
 /**
  * Agent 执行器（session loop + async spawn）
  */
+// Constraint metadata cache — loaded once at startup via harness CLI
+let _constraintHash = '';
+let _constraintSize = 0;
+async function getConstraintMeta() {
+    if (_constraintHash)
+        return { hash: _constraintHash, size: _constraintSize };
+    try {
+        const { execSync } = await import('child_process');
+        const output = execSync('npx harness constraints --json 2>/dev/null || node -e "console.log(JSON.stringify({hash:\\"unknown\\",textSize:{total:0}}))"', {
+            encoding: 'utf-8', timeout: 10_000, stdio: 'pipe',
+        });
+        const meta = JSON.parse(output);
+        _constraintHash = meta.hash || 'unknown';
+        _constraintSize = meta.textSize?.total || 0;
+    }
+    catch {
+        _constraintHash = 'unknown';
+    }
+    return { hash: _constraintHash, size: _constraintSize };
+}
 class AgentExecutor {
     config;
     runningProcesses = new Map();
@@ -108,7 +129,7 @@ class AgentExecutor {
             // 优先使用任务指定的 project repo，否则回退到 agent-studio 自身仓库
             const projectRepo = task.parameters?.repoDir || this.config.repoDir;
             const baseBranch = task.parameters?.baseBranch || 'main';
-            await this.createWorktree(worktree, baseBranch, projectRepo);
+            await this.createWorktree(worktree, baseBranch, projectRepo, task);
             // Step 2.1: 传播 harness 约束 + Claude 权限配置
             try {
                 const harnessDir = path.join(worktree, '.harness');
@@ -147,6 +168,16 @@ class AgentExecutor {
             catch {
                 studio_shared_1.logger.warn('[AgentExecutor] Harness/Claude config init failed (non-blocking)', { taskId: task.id, executionId: task.executionId });
             }
+            // Write shared cache prefix file — identical content across all worktrees so
+            // DeepSeek's prefix cache matches across pipeline agent sessions.
+            try {
+                const prefixPath = path.join(worktree, 'CACHE_PREFIX.md');
+                if (!fsSync.existsSync(prefixPath)) {
+                    const shared = this.buildCachePrefix();
+                    fsSync.writeFileSync(prefixPath, shared, 'utf-8');
+                }
+            }
+            catch { /* non-blocking */ }
             // Step 2.5: 前置硬约束检查 (Iron Laws)
             await (0, hooks_1.beforeAgentExecute)({
                 operation: 'code_implementation',
@@ -176,18 +207,32 @@ class AgentExecutor {
             // Session-id：同 Goal 内所有 step 共享，避免每个 step 从零重建上下文
             // 持久化到 Goal 级目录（非 per-worktree），使 step 1/2/3 的 Claude 缓存互通
             const goalId = task.parameters?.goalId || task.executionId;
+            // O2a: Share session-id per agent role for cross-goal cache
+            const agentRole = task.parameters?.agentRole || 'executor';
+            const sessionDir = path.join(this.config.worktreesDir, '.shared-sessions', agentRole);
+            const sessionFile = path.join(sessionDir, 'session-id');
+            // Keep per-goal session file as fallback
             const goalSessionDir = path.join(this.config.worktreesDir, '.goal-sessions', goalId.slice(0, 16));
-            const sessionFile = path.join(goalSessionDir, 'session-id');
-            const existingId = (0, node_1.readSessionIdFile)(worktree, { sessionIdFile: sessionFile });
+            const goalSessionFile = path.join(goalSessionDir, 'session-id');
             let sessionId;
             let isNewSession;
-            if (existingId) {
-                sessionId = existingId;
+            const collectedSessionIds = []; // B9-014: collect session IDs
+            // Try shared session first, fall back to per-goal
+            const sharedId = fsSync.existsSync(sessionFile) ? (0, node_1.readSessionIdFile)(worktree, { sessionIdFile: sessionFile }) : null;
+            if (sharedId) {
+                sessionId = sharedId;
                 isNewSession = false;
             }
             else {
-                sessionId = (0, node_1.resolveSessionId)(worktree, { sessionIdFile: sessionFile });
-                isNewSession = true;
+                const existingGoalId = (0, node_1.readSessionIdFile)(worktree, { sessionIdFile: goalSessionFile });
+                if (existingGoalId) {
+                    sessionId = existingGoalId;
+                    isNewSession = false;
+                }
+                else {
+                    sessionId = (0, node_1.resolveSessionId)(worktree, { sessionIdFile: sessionFile });
+                    isNewSession = true;
+                }
             }
             while (sessionCount < this.config.maxSessions) {
                 sessionCount++;
@@ -236,17 +281,27 @@ class AgentExecutor {
                 const promptFile = path.join(worktree, '.daemon', 'prompt.md');
                 fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
                 fsSync.writeFileSync(promptFile, prompt, 'utf-8');
+                // O1c: Restrict tool access to verified files (prevents exploration drift)
+                const _analystCtx = task.parameters?.analystContext || null;
+                const _restrictDirs = _analystCtx?.verifiedFiles;
+                const addDirArgs = _restrictDirs?.length
+                    ? _restrictDirs.map((f) => {
+                        const dir = f.split('/').slice(0, -1).join('/');
+                        return `--add-dir "${dir}"`;
+                    }).join(' ')
+                    : '';
                 const cmd = [
                     `cd "${worktree}"`,
                     `&&`,
-                    `cat '${promptFile}'`,
-                    `|`,
                     `claude`,
                     `--print`,
                     `--output-format json`,
+                    addDirArgs,
                     sessionFlag,
-                    `2>&1 | tee -a "${logFile}"`,
-                ].join(' ');
+                    `<`,
+                    `"${promptFile}"`,
+                    `2>&1`,
+                ].filter(Boolean).join(' ');
                 studio_shared_1.logger.info('[AgentExecutor] Spawning session', {
                     taskId: task.id,
                     executionId: task.executionId,
@@ -259,11 +314,25 @@ class AgentExecutor {
                 const childRef = { current: null };
                 this.runningProcesses.set(task.executionId, childRef);
                 const sessionStart = Date.now();
+                collectedSessionIds.push(sessionId);
+                // B9-014: emit session:start event
+                try {
+                    await studio_prisma_1.prisma.studioEvent.create({
+                        data: {
+                            type: 'session:start',
+                            source: 'agent-executor',
+                            payload: JSON.stringify({ sessionId, agentId: task.executionId, executionId: task.executionId, sessionCount }),
+                        },
+                    });
+                }
+                catch { /* non-blocking */ }
                 try {
                     const { stdout } = await (0, node_1.execSh)(cmd, {
                         cwd: worktree,
                         env: {
                             ANTHROPIC_MODEL: model,
+                            ANTHROPIC_AUTH_TOKEN: process.env.ANTHROPIC_AUTH_TOKEN,
+                            ANTHROPIC_BASE_URL: process.env.ANTHROPIC_BASE_URL,
                             STUDIO_EXECUTION_ID: task.executionId,
                             ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId } : {}),
                         },
@@ -271,6 +340,8 @@ class AgentExecutor {
                         maxBuffer: 10 * 1024 * 1024,
                         childRef,
                     });
+                    // OBS-3: Persist raw stdout to .agent.log (replaces shell pipe | tee)
+                    fsSync.writeFileSync(logFile, stdout, 'utf-8');
                     // Parse JSON envelope
                     let text = stdout;
                     let isError = false;
@@ -289,11 +360,79 @@ class AgentExecutor {
                     if (isError) {
                         studio_shared_1.logger.warn('[AgentExecutor] Claude Code returned error', { taskId: task.id, executionId: task.executionId, session: sessionCount, text: text.slice(0, 200) });
                     }
+                    // Record session metrics as StudioEvent (observability)
+                    const sessionMs = Date.now() - sessionStart;
+                    try {
+                        const metrics = (0, harness_1.parseSessionMetrics)(stdout);
+                        const { hash, size } = await getConstraintMeta();
+                        await studio_prisma_1.prisma.studioEvent.create({
+                            data: {
+                                type: 'agent_session',
+                                source: 'agent-executor',
+                                executionId: task.executionId,
+                                agentRole: 'executor',
+                                modelTier: task.model || 'standard',
+                                modelName: metrics.modelName,
+                                stage: task.parameters?.stage,
+                                sessionCount,
+                                isContinued: !isFirstSession,
+                                durationMs: sessionMs,
+                                numTurns: metrics.numTurns,
+                                promptSize: prompt.length,
+                                tokenInput: metrics.tokenInput,
+                                tokenOutput: metrics.tokenOutput,
+                                tokenCacheRead: metrics.tokenCacheRead,
+                                tokenCacheWrite: metrics.tokenCacheWrite,
+                                costUsd: metrics.costUsd,
+                                serviceTier: metrics.serviceTier,
+                                constraintHash: hash,
+                                constraintSize: size,
+                                payload: JSON.stringify({ stdout: stdout.slice(0, 2000) }),
+                            },
+                        });
+                    }
+                    catch (metricErr) {
+                        studio_shared_1.logger.warn('[AgentExecutor] Failed to record session metrics', { error: String(metricErr) });
+                    }
+                    // B9-014: emit session:end event (triggers SessionSummaryGenerator)
+                    try {
+                        await studio_prisma_1.prisma.studioEvent.create({
+                            data: {
+                                type: 'session:end',
+                                source: 'agent-executor',
+                                payload: JSON.stringify({ sessionId, agentId: task.executionId, executionId: task.executionId, sessionCount }),
+                            },
+                        });
+                    }
+                    catch { /* non-blocking */ }
                 }
                 catch (execErr) {
                     const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
-                    const stderrText = execErr?.stderr?.toString() || '';
+                    const errStack = execErr instanceof Error ? execErr.stack?.slice(0, 2000) : undefined;
+                    const stderrText = execErr?.stderr?.toString().slice(0, 500) || '';
                     cumulativeSessionMs += Date.now() - sessionStart;
+                    // OBS-4: Store full error with stack trace in GoalExecution
+                    try {
+                        await studio_prisma_1.prisma.goalExecution.update({
+                            where: { id: task.executionId },
+                            data: {
+                                status: 'failed',
+                                error: JSON.stringify({
+                                    message: errMsg,
+                                    stack: errStack,
+                                    stderr: stderrText,
+                                    sessionCount,
+                                    cumulativeSessionMs,
+                                    signal: execErr?.signal,
+                                    code: execErr?.code,
+                                    timestamp: Date.now(),
+                                }),
+                            },
+                        });
+                    }
+                    catch (e) {
+                        studio_shared_1.logger.warn('[AgentExecutor] Failed to store error details', { error: String(e) });
+                    }
                     studio_shared_1.logger.warn('[AgentExecutor] Session failed', {
                         taskId: task.id, executionId: task.executionId,
                         session: sessionCount, sessionMs: Date.now() - sessionStart,
@@ -344,7 +483,7 @@ class AgentExecutor {
                 if (latest?.allComplete && (latest.testResults?.failed === 0 || latest.testResults?.failed == null)) {
                     const outputFiles = await this.collectOutputFiles(worktree);
                     studio_shared_1.logger.info('[AgentExecutor] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount, cumulativeSessionMs });
-                    return { success: true, worktree, outputFiles, logFile, sessionCount, totalDurationMs: cumulativeSessionMs };
+                    return { success: true, worktree, outputFiles, logFile, sessionCount, totalDurationMs: cumulativeSessionMs, sessionIds: collectedSessionIds };
                 }
                 // 5 次耗尽
                 if (sessionCount >= this.config.maxSessions) {
@@ -445,7 +584,7 @@ class AgentExecutor {
     /**
      * 创建 worktree（真 git worktree add）
      */
-    async createWorktree(worktree, baseBranch, repoDir) {
+    async createWorktree(worktree, baseBranch, repoDir, task) {
         // 清理已存在的目录
         try {
             await (0, node_1.execSh)(`git worktree remove --force "${worktree}" 2>/dev/null || true`, {
@@ -462,8 +601,12 @@ class AgentExecutor {
         catch (e) {
             studio_shared_1.logger.warn('[AgentExecutor] Failed to clean worktree dir, continuing', { error: String(e) });
         }
-        // 创建 git worktree
-        const branchName = `task/${path.basename(worktree)}`.substring(0, 50);
+        // 创建 git worktree（A3: 使用 PMO number 命名分支）
+        const pmoNumber = task?.parameters?.pmoNumber || '';
+        const branchSuffix = pmoNumber
+            ? `${pmoNumber}-${path.basename(worktree).slice(0, 30)}`
+            : path.basename(worktree).substring(0, 50);
+        const branchName = `task/${branchSuffix}`;
         try {
             await (0, node_1.execSh)(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
         }
@@ -495,14 +638,30 @@ class AgentExecutor {
         const notes = acGroup?.implementationNotes || '';
         const patterns = acGroup?.codePatterns || [];
         const gotchas = acGroup?.gotchas || [];
+        const archCtx = acGroup?.architectureContext;
+        const isSimple = files.length <= 1 && acs.length <= 3 && gotchas.length <= 2;
         const sections = [
             '# 需求',
+            ...(isSimple ? [
+                '> ⚡ **简单改动** — Analyst 已验证。直接执行，不探索。',
+                '> 步骤：读目标文件 → 按实现指南改 → tsc → npm test → .progress.json',
+                '',
+            ] : []),
             `## 任务`,
             task.prompt,
             '',
             '## 你负责的验收标准',
             ...(acs.length > 0 ? acs.map((ac, i) => `${i + 1}. ${ac}`) : ['（从任务描述中推断）']),
             '',
+            // ── 架构上下文（Analyst 已探索，你不需要重新读 CLAUDE.md）──
+            ...(archCtx ? ['## 架构上下文（Analyst 已探索并验证）', '', '**下面的信息已经过 Analyst 代码探索验证。直接使用，不需要自己重新读文件。** 只在出现矛盾时才验证。', ''] : []),
+            ...(archCtx?.functions?.length ? ['### 关键函数', ...archCtx.functions.map((f) => `- ${f}`), ''] : []),
+            ...(archCtx?.callChain ? ['### 调用链', archCtx.callChain, ''] : []),
+            ...(archCtx?.imports?.length ? ['### 需要导入', ...archCtx.imports.map((i) => `\`\`\`${i}\`\`\``), ''] : []),
+            ...(archCtx?.typesInScope?.length ? ['### 相关类型', ...archCtx.typesInScope.map((t) => `- ${t}`), ''] : []),
+            ...(archCtx?.dangerZones?.length ? ['### ⚠️ 禁区（不要触碰）', ...archCtx.dangerZones.map((d) => `- ${d}`), ''] : []),
+            ...(archCtx?.testMock?.length ? ['### 测试 mock 模板', ...archCtx.testMock.map((m) => `\`\`\`typescript\n${m}\n\`\`\``), ''] : []),
+            ...(archCtx?.verifiedAt ? [`*以上信息验证于 commit ${archCtx.verifiedAt}*`, ''] : []),
             ...(notes ? ['## 实现指南', notes, ''] : []),
             ...(patterns.length ? ['## 参考模式', ...patterns.map(p => `- ${p}`), ''] : []),
             ...(gotchas.length ? ['## ⚠️ 注意事项', ...gotchas.map(g => `- ${g}`), ''] : []),
@@ -512,8 +671,31 @@ class AgentExecutor {
             '- 禁止模糊声明完成',
             '- 每完成一个步骤后立即更新 .progress.json',
             '- 全部 AC 测试通过后才设置 .progress.json allComplete: true',
+            '- 将测试证据写入 .progress.json.testResults: { passed, total, failed: 0, command: "npm test", evidence: "<测试输出>" }',
+            '- 将设计决策写入 .progress.json.designNotes: { decisions: ["选X不选Y因为Z"], failedAttempts: ["试过A遇到B问题"], uncertainties: ["C部分需要特别关注"], constraintsDiscovered: ["实现中发现AC未覆盖的限制D"] }',
+            '- designNotes 只记录对 Review 有意义的决策信息，不写琐碎细节',
         ];
         await fs.writeFile(path.join(worktree, 'REQUIREMENTS.md'), sections.join('\n'), 'utf-8');
+    }
+    /**
+     * Build shared cache prefix — byte-identical across all worktrees
+     * so DeepSeek's prefix cache matches across pipeline agent sessions.
+     */
+    buildCachePrefix() {
+        const lines = [
+            '<!-- SHARED_CACHE_PREFIX — DO NOT EDIT — identical across all worktrees -->',
+            '',
+            '# Project Context (shared)',
+            '',
+        ];
+        // Read CLAUDE.md content
+        try {
+            const claudeMd = fsSync.readFileSync(path.join(this.config.repoDir, 'CLAUDE.md'), 'utf-8');
+            lines.push(claudeMd);
+        }
+        catch { }
+        lines.push('');
+        return lines.join('\n');
     }
     /**
      * 读取 .progress.json
@@ -534,7 +716,7 @@ class AgentExecutor {
      * Session 2+: 极短续接（文件桥，上下文靠 worktree 文件）
      * 卡住时注入策略切换指令
      */
-    buildPrompt(task, progress, session, acGroup, stuckCount = 0, knowledgeContext, resolutionHint) {
+    buildPrompt(task, progress, session, acGroup, stuckCount = 0, knowledgeContext, resolutionHint, role = 'executor') {
         // 约束注入
         const constraintPrompt = (0, hooks_1.buildAgentConstraintPrompt)({
             operation: 'code_implementation',
@@ -554,18 +736,42 @@ class AgentExecutor {
         const constraintSection = constraintPrompt || roleConstraintSection || knowledgeSection
             ? (constraintPrompt + roleConstraintSection + knowledgeSection + '\n---\n\n')
             : '';
-        // Skill 注入：按 trigger + agentType 加载
+        // O2f/O2g: Output style compression per Agent role
+        const OUTPUT_STYLE_MAP = {
+            analyst: 'Output style: Be concise. Drop filler words (just, really, basically). No sycophantic openers or closing fluff. Keep complete sentences. Technical terms exact.',
+            executor: 'Output style: Terse like caveman. Drop articles (a/an/the), filler words, pleasantries, hedging. Fragments OK. Short synonyms. Code blocks unchanged. Technical substance exact.',
+            reviewer: 'Output style: Terse like caveman. Drop articles (a/an/the), filler words, pleasantries, hedging. Fragments OK. Short synonyms. Code blocks unchanged. Technical substance exact.',
+            integration: 'Output style: Ultra-terse. Maximum compression. Telegraphic style. Drop all non-essential words. Code output only — no explanation unless error.',
+            deploy: 'Output style: Be concise. Drop filler words. No fluff. Keep complete sentences. Technical terms exact.',
+        };
+        const outputStyleSection = `## 输出风格\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
+        // O2i: Skill on-demand injection
         const skillTier = task.model || 'standard';
-        const skills = session === 1
+        const skillsToInject = session === 1
             ? studio_skill_1.skillLoader.load({ trigger: 'goal_start', agentType: 'executor', tier: skillTier })
             : studio_skill_1.skillLoader.load({ trigger: 'goal_continue', agentType: 'executor', tier: skillTier, exclude: ['stuck-recovery'] });
-        const skillPrompt = studio_skill_1.skillLoader.formatForPrompt(skills);
+        const skillPrompt = studio_skill_1.skillLoader.formatForPrompt(skillsToInject);
         if (session === 1 || !progress) {
-            const base = `${constraintSection}## 你的任务
+            // O1c: Inject Analyst context to prevent re-exploring verified files
+            const analystContext = task.parameters?.analystContext || null;
+            const analystContextSection = analystContext ? [
+                '## 已有分析上下文（来自 Analyst 探索）',
+                '',
+                `**已验证文件** (不需要重新探索): ${(analystContext.verifiedFiles || []).join(', ')}`,
+                analystContext.architectureContext ? `\n**架构说明**: ${analystContext.architectureContext}` : '',
+                analystContext.gotchas?.length ? `\n**注意事项**: ${analystContext.gotchas.join('; ')}` : '',
+                '',
+                '只修改上述文件。如需查看额外文件，说明原因——Scheduler 将添加权限后继续。',
+                '',
+            ].join('\n') : '';
+            const verifyStep = acGroup?.architectureContext
+                ? '\n⚠️ REQUIREMENTS.md 包含架构上下文（Analyst 已探索的代码位置和签名）。\n第一步必须是验证关键函数签名和行号是否仍然有效，如果已偏移请修正后再实现。\n'
+                : '';
+            const base = `${constraintSection}${outputStyleSection}${analystContextSection}## 你的任务
 ${task.prompt}
 
 
-读 REQUIREMENTS.md 了解你要完成的任务和验收标准。
+读 REQUIREMENTS.md 了解你要完成的任务和验收标准。${verifyStep}
 ${skillPrompt}`;
             return resolutionHint ? `${base}\n\n${resolutionHint}` : base;
         }
@@ -573,7 +779,7 @@ ${skillPrompt}`;
         const hintLevel = Math.min(stuckCount, 4);
         const strategyHint = STRATEGY_HINTS[hintLevel];
         const parts = [
-            `${constraintSection}## 续接任务`,
+            `${constraintSection}${outputStyleSection}## 续接任务`,
             '',
             '读 REQUIREMENTS.md 了解任务。',
             '读 .progress.json 了解进度。',

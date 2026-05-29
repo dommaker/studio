@@ -612,6 +612,106 @@ knowledgeRoutes.delete('/:documentId', async (req, res) => {
 });
 
 // ============================================
+// B9-021: Knowledge Export API
+// TODO: rewrite to use KnowledgeStore instead of deleted KnowledgeService
+// ============================================
+
+/**
+ * GET /api/v1/knowledge/export
+ * Query: format=md|json, types=guideline,pitfall (comma-separated), limit=100
+ */
+knowledgeRoutes.get('/export', async (req, res) => {
+  try {
+    const { sharedStore } = await import('./knowledge-bus.service.js');
+    const format = (req.query.format as string) === 'json' ? 'json' : 'md';
+    const types = req.query.types ? (req.query.types as string).split(',').filter(Boolean) : undefined;
+    const limit = req.query.limit ? parseInt(req.query.limit as string) : 100;
+
+    const entries = sharedStore.list({ types: types as any }).slice(0, limit);
+    const content = format === 'json'
+      ? JSON.stringify(entries, null, 2)
+      : entries.map((e: any) => `# ${e.title || e.id}\n\n${e.content}`).join('\n\n---\n\n');
+
+    if (format === 'json') {
+      res.setHeader('Content-Type', 'application/json');
+    } else {
+      res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="knowledge-export.md"');
+    }
+    res.send(content);
+  } catch (error) {
+    logger.error({ error }, 'Failed to export knowledge');
+    res.status(500).json({ error: 'Failed to export knowledge' });
+  }
+});
+
+// ============================================
+// §12.11b: 知识问答 API
+// ============================================
+
+import { sharedStore } from './knowledge-bus.service.js';
+import { modelGateway } from '@dommaker/studio-shared';
+
+/**
+ * POST /api/v1/knowledge/ask
+ * 知识问答：检索相关知识条目 → LLM 生成回答
+ *
+ * Body: { question: string, types?: string[], limit?: number }
+ * Returns: { answer: string, sources: Array<{ id, title, type }> }
+ */
+knowledgeRoutes.post('/ask', async (req, res) => {
+  try {
+    const { question, types, limit = 10 } = req.body;
+    if (!question || typeof question !== 'string') {
+      return res.status(400).json({ error: 'question is required' });
+    }
+
+    // 1. Retrieve relevant entries from KnowledgeStore
+    const allEntries = sharedStore.list({ types: types as any }).slice(0, 100);
+    // Simple keyword matching on title + content
+    const keywords = question.toLowerCase().split(/\s+/).filter(Boolean);
+    const scored = allEntries
+      .map((e: any) => {
+        const text = `${e.title || ''} ${e.content}`.toLowerCase();
+        const hits = keywords.filter((k: string) => text.includes(k)).length;
+        return { entry: e, score: hits };
+      })
+      .filter((s: any) => s.score > 0)
+      .sort((a: any, b: any) => b.score - a.score)
+      .slice(0, limit);
+
+    if (scored.length === 0) {
+      return res.json({ answer: '未找到相关知识条目。', sources: [] });
+    }
+
+    // 2. Format context for LLM
+    const entries = scored.map((s: any) => s.entry);
+    const contextLines = entries.map((e: any, i: number) =>
+      `[${i + 1}] ${e.title || '(无标题)'} (${e.type})\n${e.content}`
+    );
+    const context = contextLines.join('\n\n---\n\n');
+
+    // 3. LLM call
+    const systemPrompt = '你是知识库问答助手。根据提供的知识条目回答用户问题。回答必须基于知识条目内容，不要编造。引用时标注来源编号如 [1] [2]。';
+    const userPrompt = `知识条目：\n${context}\n\n---\n\n用户问题：${question}`;
+
+    const answer = await modelGateway.prompt(userPrompt, systemPrompt);
+
+    // 4. Return answer + source references
+    const sources = entries.map((e: any) => ({
+      id: e.id,
+      title: e.title || e.content.slice(0, 60),
+      type: e.type,
+    }));
+
+    res.json({ answer, sources });
+  } catch (error) {
+    logger.error({ error }, 'Knowledge ask failed');
+    res.status(500).json({ error: 'Knowledge ask failed' });
+  }
+});
+
+// ============================================
 // §12.12: 知识进化引擎 API
 // ============================================
 

@@ -18,6 +18,7 @@ import { recordPipelineRun, parseClaudeUsage } from '../../daemon/metrics.js';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { goalService, GoalStep, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
+import { generateSessionSummary } from '../events/session-summary-generator.js';
 
 import { roleConfigService } from '../roles/role-config.service.js';
 import { eventStore, EventStore } from '../../core/event-store.js';
@@ -829,6 +830,16 @@ export class GoalScheduler {
       });
 
       const dispatchDuration = Date.now() - dispatchStart;
+
+      // B9-015: fire-and-forget session:summary generation
+      if (result.sessionIds?.length) {
+        for (const sid of result.sessionIds) {
+          generateSessionSummary(sid).catch((err: unknown) => {
+            logger.warn('[GoalScheduler] SessionSummary generation failed', { sessionId: sid, error: String(err) });
+          });
+        }
+      }
+
       // INF-004: record outcome for strategy switching
       this.recordDispatchOutcome(result.success);
       // G5: record routing outcome for classifier evolution
