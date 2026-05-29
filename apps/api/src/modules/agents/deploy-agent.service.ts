@@ -187,6 +187,11 @@ class DeployAgent {
         }
       }
 
+      // Delete source branch after successful merge (not master/main)
+      if (result.merged && source !== 'master' && source !== 'main') {
+        await this.deleteBranch(source, repoDir);
+      }
+
       return result;
     } catch (e) {
       try { await execSh('git merge --abort 2>/dev/null || true', { cwd: repoDir, timeoutMs: 5_000 }); } catch { }
@@ -371,43 +376,55 @@ class DeployAgent {
   // ── Cleanup ────────────────────────────────────────────
 
   /**
-   * Delete all task/* branches and their worktrees.
-   * Called after successful merge+push — branches already merged to master.
+   * Delete a single branch (local + remote) and its worktree if any.
+   */
+  private async deleteBranch(branch: string, repoDir: string): Promise<void> {
+    try {
+      // Remove worktree first
+      await execSh(`git worktree remove --force "$(git worktree list | grep "${branch}" | head -1 | awk "{print \\$1}")" 2>/dev/null || true`, {
+        cwd: repoDir, timeoutMs: 10_000,
+      });
+    } catch { /* worktree may not exist */ }
+
+    try {
+      await execSh(`git push origin --delete "${branch}" 2>/dev/null || true`, {
+        cwd: repoDir, timeoutMs: 15_000,
+      });
+    } catch { /* may not have remote */ }
+
+    try {
+      await execSh(`git branch -D "${branch}" 2>/dev/null || true`, {
+        cwd: repoDir, timeoutMs: 10_000,
+      });
+    } catch { /* may not exist locally */ }
+
+    logger.debug('[DeployAgent] Branch deleted', { branch });
+  }
+
+  /**
+   * Delete all stale branches: task/*, daemon/*, worktree-* and their worktrees.
+   * Called after successful merge+push.
    */
   private async cleanupTaskBranches(params: DeployParams): Promise<number> {
     const repoDir = await this.getRepoDir();
     let cleanedBranches = 0;
     let cleanedDirs = 0;
     try {
-      // List task/ branches scoped to execution IDs
-      const scopePattern = params.executionIds?.length
+      // Scope: task/* by execution IDs, daemon/* and worktree-* always full cleanup
+      const taskPattern = params.executionIds?.length
         ? params.executionIds.map(id => `task/${id}`).join('\\|')
         : 'task/';
+      const stalePattern = `${taskPattern}\\|daemon/\\|worktree-`;
+
       const { stdout } = await execSh(
-        `git branch -a | grep "${scopePattern}" | sed "s/[* ]*remotes\\/origin\\///" | sed "s/^[* ]*//" | sort -u`,
+        `git branch | grep -E "(task/|daemon/|worktree-)" | sed "s/^[* ]*//" | sort -u`,
         { cwd: repoDir, timeoutMs: 10_000 },
       );
       const branches = stdout.trim().split('\n').filter(Boolean);
 
       for (const branch of branches) {
-        try {
-          await execSh(`git worktree remove --force "$(git worktree list | grep "${branch}" | head -1 | awk "{print \\$1}")" 2>/dev/null || true`, {
-            cwd: repoDir, timeoutMs: 10_000,
-          });
-        } catch { /* worktree may already be gone */ }
-
-        try {
-          await execSh(`git push origin --delete "${branch}" 2>/dev/null || true`, {
-            cwd: repoDir, timeoutMs: 15_000,
-          });
-        } catch { /* may not have remote */ }
-
-        try {
-          await execSh(`git branch -D "${branch}" 2>/dev/null || true`, {
-            cwd: repoDir, timeoutMs: 10_000,
-          });
-        } catch { /* may not exist locally */ }
-
+        // Skip active daemon branch (marked with + in git branch output)
+        await this.deleteBranch(branch, repoDir);
         cleanedBranches++;
       }
 
