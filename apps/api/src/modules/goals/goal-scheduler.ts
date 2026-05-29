@@ -1013,11 +1013,35 @@ export class GoalScheduler {
           tier,
           strategy,
         });
+        // Phase 2: Executor feedback loop — 失败时 recordPattern
+        try {
+          const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+          await knowledgeBus.recordPattern({
+            source: 'executor',
+            type: 'failure',
+            title: `[Executor] ${goal.title?.slice(0, 60) || executionId}: ${(result.error || 'failed').slice(0, 80)}`,
+            content: `Goal: ${goal.id}\nError: ${result.error}\nTier: ${tier}\nStrategy: ${strategy}`,
+            severity: 'warning',
+            timestamp: Date.now(),
+          });
+        } catch { /* non-blocking */ }
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       await goalService.updateStepExecution(executionId, { status: 'failed', error: errorMsg });
       logger.error('[GoalScheduler] Agent error', { executionId, error: errorMsg });
+      // Phase 2: Executor feedback loop — dispatch 异常
+      try {
+        const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+        await knowledgeBus.recordPattern({
+          source: 'executor',
+          type: 'failure',
+          title: `[Executor] dispatch error: ${errorMsg.slice(0, 80)}`,
+          content: `ExecutionId: ${executionId}\nError: ${errorMsg}`,
+          severity: 'warning',
+          timestamp: Date.now(),
+        });
+      } catch { /* non-blocking */ }
     }
   }
 
