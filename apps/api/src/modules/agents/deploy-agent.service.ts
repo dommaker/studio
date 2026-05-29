@@ -74,12 +74,6 @@ class DeployAgent {
     const timings: Record<string, number> = {};
     logger.info('[DeployAgent] Starting deploy', { executionId: params.executionId, environment: params.environment });
 
-    // P2.5b: Check historical deploy knowledge
-    try {
-      const ctx = knowledgeBus.getRecentContext('deploy', 5);
-      if (ctx) logger.info('[DeployAgent] Historical deploy context loaded', { context: ctx.slice(0, 200) });
-    } catch { /* non-blocking */ }
-
     // O3f: Acquire merge queue slot before merging
     await this.acquireMergeSlot(params);
 
@@ -254,8 +248,31 @@ class DeployAgent {
 
       return this.okResult(params);
     } catch (e) {
-      logger.error('[DeployAgent] Merge to master failed', { error: String(e) });
-      return { success: false, type: params.environment, findings: [], summary: `Merge to master failed: ${String(e).slice(0, 200)}` };
+      const errMsg = String(e).slice(0, 200);
+      logger.error('[DeployAgent] Merge to master failed', { error: errMsg });
+      // B11-007: Resolution 查询 — 已知解法匹配
+      let resolutionHint = '';
+      try {
+        const { resolutionService } = await import('../knowledge/resolution.service.js');
+        const matched = await resolutionService.matchResolutions({ errorMessage: errMsg });
+        if (matched.resolutions.length > 0) {
+          resolutionHint = `\n已知解法: ${matched.resolutions[0].fix}`;
+          logger.info('[DeployAgent] Resolution matched', { title: matched.resolutions[0].title });
+        }
+      } catch { /* best-effort */ }
+      // B11-009: LLM 兜底 — 未知场景升级到 LLM 推理
+      if (!resolutionHint) {
+        try {
+          const { modelGateway } = await import('@dommaker/studio-shared');
+          const llmHint = await modelGateway.prompt(
+            `Git merge 失败:\n${errMsg}\n\n请简要分析根因并建议修复策略（1-3 句话）。`,
+            '你是 DevOps 专家。简短回答，给出可执行的修复建议。',
+          );
+          if (llmHint) resolutionHint = `\nLLM 建议: ${llmHint}`;
+          logger.info('[DeployAgent] LLM fallback diagnosis (merge)', { hint: llmHint?.slice(0, 200) });
+        } catch { /* LLM unavailable */ }
+      }
+      return { success: false, type: params.environment, findings: [], summary: `Merge to master failed: ${errMsg}${resolutionHint}` };
     }
   }
 
@@ -299,9 +316,31 @@ class DeployAgent {
     }
     logger.error('[DeployAgent] Push failed after all retries', { retries: maxRetries, error: lastError });
     await this.emitPushFailedAlert('master', lastError);
+    // B11-007: Resolution 查询 — 已知解法匹配
+    let resolutionHint = '';
+    try {
+      const { resolutionService } = await import('../knowledge/resolution.service.js');
+      const matched = await resolutionService.matchResolutions({ errorMessage: lastError });
+      if (matched.resolutions.length > 0) {
+        resolutionHint = `\n已知解法: ${matched.resolutions[0].fix}`;
+        logger.info('[DeployAgent] Resolution matched', { title: matched.resolutions[0].title });
+      }
+    } catch { /* best-effort */ }
+    // B11-009: LLM 兜底 — 未知场景升级到 LLM 推理
+    if (!resolutionHint) {
+      try {
+        const { modelGateway } = await import('@dommaker/studio-shared');
+        const llmHint = await modelGateway.prompt(
+          `Git push 失败 (重试 ${maxRetries} 次):\n${lastError.slice(0, 500)}\n\n请简要分析根因并建议修复策略（1-3 句话）。`,
+          '你是 DevOps 专家。简短回答，给出可执行的修复建议。',
+        );
+        if (llmHint) resolutionHint = `\nLLM 建议: ${llmHint}`;
+        logger.info('[DeployAgent] LLM fallback diagnosis (push)', { hint: llmHint?.slice(0, 200) });
+      } catch { /* LLM unavailable */ }
+    }
     return {
       success: false, type: params.environment, findings: [],
-      summary: `Push failed after ${maxRetries} attempts: ${lastError.slice(0, 200)}`,
+      summary: `Push failed after ${maxRetries} attempts: ${lastError.slice(0, 200)}${resolutionHint}`,
     };
   }
 

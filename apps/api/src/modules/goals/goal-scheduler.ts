@@ -28,6 +28,27 @@ const POLL_INTERVAL = 10_000; // 10s
 const MAX_CONCURRENT = 5;
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
+// B11-011: tier 路由配置 — 可通过环境变量或配置文件覆盖
+interface TierRoutingConfig {
+  highRiskKeywords: RegExp;
+  lowRiskKeywords: RegExp;
+  premiumAcThreshold: number;       // acCount >= N → premium
+  premiumFileThreshold: number;     // fileCount >= N → premium
+  fastAcThreshold: number;          // acCount <= N + lowRisk → fast
+  fastFileThreshold: number;        // fileCount <= N + lowRisk → fast
+  explorationRate: number;          // ε-greedy 探索概率
+}
+
+const DEFAULT_TIER_ROUTING: TierRoutingConfig = {
+  highRiskKeywords: /migration|migrate|auth|authentication|security|financial|payment|encrypt|crypto/,
+  lowRiskKeywords: /style|typo|rename|format|lint|comment|doc|readme|spelling|refactor.*simple/,
+  premiumAcThreshold: 6,
+  premiumFileThreshold: 7,
+  fastAcThreshold: 2,
+  fastFileThreshold: 3,
+  explorationRate: 0.1,
+};
+
 export class GoalScheduler {
   private interval: NodeJS.Timeout | null = null;
   private processing = false;
@@ -489,13 +510,12 @@ export class GoalScheduler {
     const taskDesc = (input?.taskDescription as string) || prompt || '';
     const combined = `${taskDesc} ${acs}`.toLowerCase();
 
-    // Layer 1: 关键词（domain risk）
-    const highRiskPattern = /migration|migrate|auth|authentication|security|financial|payment|encrypt|crypto/;
-    const lowRiskPattern = /style|typo|rename|format|lint|comment|doc|readme|spelling|refactor.*simple/;
-    const isHighRiskDomain = highRiskPattern.test(combined);
-    const isLowRiskDomain = lowRiskPattern.test(combined);
-    const highRiskHits = combined.match(new RegExp(highRiskPattern.source, 'gi')) || [];
-    const lowRiskHits = combined.match(new RegExp(lowRiskPattern.source, 'gi')) || [];
+    // B11-011: 使用可配置的 tier 路由
+    const config = DEFAULT_TIER_ROUTING;
+    const isHighRiskDomain = config.highRiskKeywords.test(combined);
+    const isLowRiskDomain = config.lowRiskKeywords.test(combined);
+    const highRiskHits = combined.match(new RegExp(config.highRiskKeywords.source, 'gi')) || [];
+    const lowRiskHits = combined.match(new RegExp(config.lowRiskKeywords.source, 'gi')) || [];
 
     // Layer 2: AC 组数量（task breadth）
     const acCount = input?.acGroup?.acs?.length || 1;
@@ -518,9 +538,8 @@ export class GoalScheduler {
     const estimatedLines = acCount * 15;
     const isSmallChange = estimatedLines <= 80 && fileCount <= 3 && gotchas.length <= 2;
 
-    // Dimension-weighted threshold: acCount alone shouldn't force premium
-    // Raise from 4→6 to let standard handle medium-complexity tasks
-    const premiumTrigger = isHighRiskDomain || acCount >= 6 || fileCount >= 7;
+    // B11-011: 使用可配置阈值
+    const premiumTrigger = isHighRiskDomain || acCount >= config.premiumAcThreshold || fileCount >= config.premiumFileThreshold;
 
     let tier: string;
     let reason: string;
@@ -528,11 +547,11 @@ export class GoalScheduler {
       tier = 'premium';
       const triggers = [];
       if (isHighRiskDomain) triggers.push(`keywords:${highRiskHits.join(',')}`);
-      if (acCount >= 6) triggers.push(`acCount=${acCount}`);
-      if (fileCount >= 7) triggers.push(`fileCount=${fileCount}`);
+      if (acCount >= config.premiumAcThreshold) triggers.push(`acCount=${acCount}`);
+      if (fileCount >= config.premiumFileThreshold) triggers.push(`fileCount=${fileCount}`);
       reason = triggers.join('; ');
       // Layer 4 override: 低技能可降级 (highRisk 不可降级)
-      if (!isHighRiskDomain && isLowSkill && acCount <= 6 && fileCount <= 5) {
+      if (!isHighRiskDomain && isLowSkill && acCount <= config.premiumAcThreshold && fileCount <= 5) {
         tier = 'standard';
         reason += ` (downgraded: lowSkill, notes="${notes.slice(0, 60)}")`;
       }
@@ -541,7 +560,7 @@ export class GoalScheduler {
         tier = 'standard';
         reason += ` (downgraded: smallChange, estLines~${estimatedLines}, files=${fileCount}, gotchas=${gotchas.length})`;
       }
-    } else if (isLowRiskDomain && acCount <= 2 && fileCount <= 3) {
+    } else if (isLowRiskDomain && acCount <= config.fastAcThreshold && fileCount <= config.fastFileThreshold) {
       tier = 'fast';
       reason = `lowRisk keywords:${lowRiskHits.join(',')}, acCount=${acCount}, fileCount=${fileCount}`;
     } else {
@@ -741,18 +760,18 @@ export class GoalScheduler {
       knowledgeContext = await knowledgeQuery.formatCompactForPrompt('executor');
     } catch { /* best-effort */ }
 
-    // P0 follow-up: 注入知识总线上下文（Monitor/Auditor/Triage/KK 的模式和踩坑）
-    try {
-      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-      const busContext = knowledgeBus.getRecentContext('executor', 5);
-      if (busContext) knowledgeContext += '\n' + busContext;
-    } catch { /* best-effort */ }
-
     // B1: RKB 已知回归 pattern 主动注入（不仅是失败时，执行前就提醒）
     try {
       const { resolutionMatcher } = await import('../knowledge/resolution.service.js');
       const rkbContext = await resolutionMatcher.formatForPrompt();
       if (rkbContext) knowledgeContext += '\n## 已知回归模式（Resolution Knowledge Base）\n' + rkbContext;
+    } catch { /* best-effort */ }
+
+    // B11-005: 知识索引摘要 — 告知 agent 有哪些知识可用及如何 MCP 检索
+    try {
+      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+      const indexSummary = knowledgeBus.formatIndexSummary();
+      if (indexSummary) knowledgeContext += '\n## 知识检索\n' + indexSummary;
     } catch { /* best-effort */ }
 
     // 提取 sourceChannelId 用于实时进度推送
@@ -1123,8 +1142,7 @@ export class GoalScheduler {
 
     return [
       '## 你的任务',
-      '读 REQUIREMENTS.md 了解完整上下文。',
-      '',
+      '', // B11-015: 不再要求读完整 REQUIREMENTS.md，当前 step AC 已在下方注入
       '## 验收标准',
       acLines,
       '',

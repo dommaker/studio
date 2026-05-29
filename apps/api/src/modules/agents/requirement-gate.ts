@@ -155,6 +155,26 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
     }
   }
 
+  // 5. B11-013: AC 结构化质量校验 — 每个 AC 必须含文件路径、位置、改动描述
+  const locationPattern = /L\d+|行\s*\d+|在.{2,30}(后|前|中|内|处)/;
+  const verbPattern = /^(添加|移除|修改|更新|重写|重构|创建|删除|修复|调整|升级|降级|替换|拆分|合并|注入|接入|配置|清理|Add|Remove|Update|Modify|Refactor|Create|Delete|Fix)/;
+  const filePathInAc = /[\w\-\/]+\.(ts|js|tsx|jsx|json|prisma|md|yaml|yml)/;
+  for (const g of groups) {
+    for (const ac of g.acs) {
+      const issues: string[] = [];
+      if (!filePathInAc.test(ac)) issues.push('缺少文件路径');
+      if (!locationPattern.test(ac)) issues.push('缺少位置（行号或锚点）');
+      if (!verbPattern.test(ac)) issues.push('改动描述应以动词开头');
+      if (issues.length > 0) {
+        checks.push({
+          name: 'ac-structure',
+          passed: false, // hard gate — force Analyst to improve AC quality
+          message: `组 "${g.id}" AC 质量不足: ${issues.join('、')}。AC: "${ac.slice(0, 80)}..."`,
+        });
+      }
+    }
+  }
+
   // 如果以上检查都没问题，pass
   if (checks.length === 0) {
     checks.push({ name: 'stage1-summary', passed: true, message: '所有纯代码检查通过' });

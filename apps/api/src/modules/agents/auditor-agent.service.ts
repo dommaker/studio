@@ -49,12 +49,6 @@ export class AuditorAgent {
       const now = new Date();
       const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-      // P2.5b: Load historical audit context
-      try {
-        const ctx = knowledgeBus.getRecentContext('auditor', 5);
-        if (ctx) logger.info('[AuditorAgent] Historical audit context loaded');
-      } catch { /* non-blocking */ }
-
       // 1. 过去 24h 的执行统计（含 agentType 用于 3D 分析）
       const recentExecs = await prisma.goalExecution.findMany({
         where: { completedAt: { gte: yesterday } },

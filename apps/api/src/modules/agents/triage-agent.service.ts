@@ -23,11 +23,6 @@ class TriageAgent {
     resolved: boolean;
     resolution?: string;
   }> {
-    // P2.5b: Check historical fix strategies before diagnosing
-    try {
-      const ctx = knowledgeBus.getRecentContext('triage', 5);
-      if (ctx) logger.info('[TriageAgent] Historical fix context loaded');
-    } catch { /* non-blocking */ }
     const startedAt = Date.now();
     const incidentId = `I-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -76,7 +71,7 @@ class TriageAgent {
       for (let attempt = 1; attempt <= MAX_FIX_ATTEMPTS; attempt++) {
         if (this.timedOut(startedAt)) break;
 
-        const actResult = await this.act(input.type, attempt);
+        const actResult = await this.act(input, attempt);
         triageLog.push(actResult.log);
         await this.appendLog(incidentId, triageLog);
 
@@ -248,8 +243,20 @@ class TriageAgent {
 
   // ── Phase 3: Act ──
 
-  private async act(incidentType: string, attempt: number): Promise<PhaseResult> {
+  private async act(input: TriageIncidentInput, attempt: number): Promise<PhaseResult> {
     const phaseStart = Date.now();
+    const incidentType = input.type;
+
+    // B11-007: Resolution 查询 — 已知解法匹配
+    let resolutionHint = '';
+    try {
+      const { resolutionService } = await import('../knowledge/resolution.service.js');
+      const matched = await resolutionService.matchResolutions({ errorMessage: input.message });
+      if (matched.resolutions.length > 0) {
+        resolutionHint = matched.resolutions[0].fix;
+        logger.info('[TriageAgent] Resolution matched', { incidentType, title: matched.resolutions[0].title });
+      }
+    } catch { /* best-effort */ }
 
     const actions: Record<string, string[]> = {
       // 系统级（已有）
@@ -321,24 +328,43 @@ class TriageAgent {
         }
       }
 
+      const resolutionNote = resolutionHint ? ` [Resolution: ${resolutionHint.slice(0, 100)}]` : '';
       return {
         success: verified,
         log: {
           time: new Date().toISOString(),
           phase: 'act',
-          action: `Attempt ${attempt}: ${cmd.slice(0, 80)}`,
+          action: `Attempt ${attempt}: ${cmd.slice(0, 80)}${resolutionNote}`,
           result: verified ? 'Success' : `Command ran but verification failed: ${output.slice(0, 200)}`,
           durationMs: Date.now() - phaseStart,
         },
       };
     } catch (e) {
+      // B11-008: LLM 兜底 — 未知场景升级到 LLM 推理
+      const errMsg = String(e).slice(0, 500);
+      let llmDiagnosis = '';
+      try {
+        const { modelGateway } = await import('@dommaker/studio-shared');
+        const diagPrompt = [
+          `事件类型: ${incidentType}`,
+          `消息: ${input.message}`,
+          `诊断: ${input.details ? JSON.stringify(input.details) : 'N/A'}`,
+          `Resolution 提示: ${resolutionHint || '无'}`,
+          `已尝试命令失败: ${errMsg}`,
+          '',
+          '请简要分析根因并建议下一步修复策略（1-3 句话）。',
+        ].join('\n');
+        llmDiagnosis = await modelGateway.prompt(diagPrompt, '你是 SRE 故障诊断专家。简短回答，给出可执行的修复建议。');
+        logger.info('[TriageAgent] LLM fallback diagnosis', { incidentType, diagnosis: llmDiagnosis.slice(0, 200) });
+      } catch { /* LLM unavailable — fall through to escalate */ }
+
       return {
         success: false,
         log: {
           time: new Date().toISOString(),
           phase: 'act',
-          action: `Attempt ${attempt}: ${cmd.slice(0, 80)}`,
-          result: `Failed: ${String(e).slice(0, 200)}`,
+          action: `Attempt ${attempt}: ${cmd.slice(0, 80)}${llmDiagnosis ? ` [LLM: ${llmDiagnosis.slice(0, 100)}]` : ''}`,
+          result: `Failed: ${errMsg}${llmDiagnosis ? `\nLLM 建议: ${llmDiagnosis}` : ''}`,
           durationMs: Date.now() - phaseStart,
         },
       };

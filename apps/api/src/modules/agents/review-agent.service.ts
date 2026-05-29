@@ -63,16 +63,15 @@ export class ReviewAgent {
         logger.info('[ReviewAgent] Full review (not simple change)', { taskId });
       }
 
-      // P2.5b: 注入历史知识上下文（同类任务踩坑模式）
-      let knowledgeSection = '';
-      try {
-        const busContext = knowledgeBus.getRecentContext('reviewer', 5);
-        if (busContext) knowledgeSection = '\n' + busContext;
-      } catch { /* best-effort */ }
-
       // 构建审查 prompt 并写入 worktree
       const constraintSection = formatConstraintsForPrompt('reviewer');
-      const reviewPrompt = constraintSection + knowledgeSection + buildReviewPrompt({
+      // B11-005: 知识索引摘要 — 告知 agent 有哪些知识可用及如何 MCP 检索
+      let indexSection = '';
+      try {
+        const indexSummary = knowledgeBus.formatIndexSummary();
+        if (indexSummary) indexSection = '\n## 知识检索\n' + indexSummary + '\n';
+      } catch { /* best-effort */ }
+      const reviewPrompt = constraintSection + indexSection + buildReviewPrompt({
         taskDescription,
         acceptanceCriteria,
         cycle,
@@ -108,7 +107,7 @@ export class ReviewAgent {
         `2>&1`,
       ].join(' ');
 
-      logger.info('[ReviewAgent] Starting review', { taskId, cycle, worktree, knowledgeSize: knowledgeSection.length });
+      logger.info('[ReviewAgent] Starting review', { taskId, cycle, worktree, knowledgeSize: indexSection.length });
 
       let reviewOutput = '';
       let reviewTokens: { inputTokens: number; outputTokens: number; cacheHitTokens: number } | null = null;
@@ -416,7 +415,13 @@ export class ReviewAgent {
       }
 
       const constraintSection = formatConstraintsForPrompt('reviewer');
-      const reviewPrompt = constraintSection + buildReviewPrompt({
+      // B11-014: 知识索引摘要 — 统一前缀顺序
+      let indexSection = '';
+      try {
+        const indexSummary = knowledgeBus.formatIndexSummary();
+        if (indexSummary) indexSection = '\n## 知识检索\n' + indexSummary + '\n';
+      } catch { /* best-effort */ }
+      const reviewPrompt = constraintSection + indexSection + buildReviewPrompt({
         taskDescription: description || `Branch diff: ${baseRef} → ${headRef}`,
         acceptanceCriteria: acceptanceCriteria || [
           `All changes between ${baseRef} and ${headRef} are correct and safe`,

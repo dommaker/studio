@@ -288,6 +288,44 @@ export class KnowledgeBus {
       return { total: 0 };
     }
   }
+
+  /**
+   * 知识索引摘要 — 告知 agent 有哪些知识可用及如何检索
+   * 注入到所有 agent prompt（~150 tokens）
+   */
+  formatIndexSummary(): string {
+    try {
+      const stats = this.getStats();
+      const total = stats.total || 0;
+      if (total === 0) return '';
+
+      const typeLabels: Record<string, string> = {
+        pattern: '代码模式、实现方案',
+        pitfall: '已知坑点、常见错误',
+        guideline: '编码规范、最佳实践',
+        fix: '已验证的修复方案',
+        trend: '趋势分析、性能数据',
+      };
+
+      const lines = [`你有 ${total} 条团队知识可用，类型分布：`];
+      for (const [type, label] of Object.entries(typeLabels)) {
+        const count = stats[type] || 0;
+        if (count > 0) lines.push(`- ${type}: ${count} 条（${label}）`);
+      }
+      const otherCount = total - Object.keys(typeLabels).reduce((sum, t) => sum + (stats[t] || 0), 0);
+      if (otherCount > 0) lines.push(`- 其他: ${otherCount} 条`);
+
+      lines.push(
+        '',
+        '需要知识时，使用 mcp__local-rag__query_documents 工具检索。',
+        '示例：遇到部署错误时 → query_documents("deploy timeout mergeBranches")',
+        '不要猜测，先检索再行动。',
+      );
+      return lines.join('\n');
+    } catch {
+      return '';
+    }
+  }
 }
 
 export const knowledgeBus = new KnowledgeBus();

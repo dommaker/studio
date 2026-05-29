@@ -112,41 +112,4 @@ export function buildAgentContext(options: AgentContextOptions = {}): AgentConte
   };
 }
 
-/**
- * 异步扩展：加载知识上下文和角色约束
- * 调用方在 async 上下文中使用此方法获取完整 prompt
- *
- * @deprecated KE-002 P4: 无调用方。Agent 直接用 getRecentContext() + formatAllForPrompt()。
- * 保留供未来统一入口参考。
- */
-export async function buildAgentContextAsync(options: AgentContextOptions = {}): Promise<AgentContext> {
-  const base = buildAgentContext({ ...options, compact: true });
-  const { agentType = 'executor' } = options;
 
-  let knowledgePrompt = '';
-
-  // 知识上下文
-  try {
-    const { knowledgeQuery } = await import('../knowledge/knowledge-query.service.js');
-    knowledgePrompt = await knowledgeQuery.formatCompactForPrompt(agentType);
-  } catch { /* best-effort */ }
-
-  // 知识总线
-  let busPrompt = '';
-  try {
-    const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-    busPrompt = knowledgeBus.getRecentContext(agentType, 5);
-  } catch { /* best-effort */ }
-
-  const allParts = [base.prompt, knowledgePrompt, busPrompt].filter(Boolean);
-
-  return {
-    prompt: allParts.join('\n\n---\n\n'),
-    summary: {
-      skills: base.summary.skills,
-      knowledge: !!knowledgePrompt,
-      harness: base.summary.harness,
-      roles: false,
-    },
-  };
-}

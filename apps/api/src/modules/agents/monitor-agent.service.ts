@@ -85,12 +85,6 @@ export class MonitorAgent {
   private async check(): Promise<void> {
     const alerts: MonitorAlert[] = [];
 
-    // P2.5b: Load historical monitoring context for pattern comparison
-    try {
-      const ctx = knowledgeBus.getRecentContext('monitor', 5);
-      if (ctx) logger.info('[MonitorAgent] Historical monitoring context loaded');
-    } catch { /* non-blocking */ }
-
     alerts.push(...await this.checkFailureTrend());
     alerts.push(...await this.checkStuckGoals());
     alerts.push(...await this.checkProgressStagnation());
@@ -136,6 +130,31 @@ export class MonitorAgent {
           this.emitEvent({ type: 'monitor:alert', ...alert, timestamp: Date.now() });
         } catch { /* non-blocking */ }
       }
+    }
+
+    // B11-010: LLM 根因分析 — 多告警关联时调 LLM 诊断
+    const significantAlerts = alerts.filter(a => a.level === 'critical' || a.level === 'warning');
+    if (significantAlerts.length >= 2) {
+      try {
+        const { modelGateway } = await import('@dommaker/studio-shared');
+        const alertSummary = significantAlerts.map(a => `[${a.level}] ${a.source}: ${a.message}`).join('\n');
+        const rootCause = await modelGateway.prompt(
+          `以下是监控系统同时检测到的 ${significantAlerts.length} 条告警：\n${alertSummary}\n\n分析这些告警的关联性，指出可能的根因（1-3 句话）。`,
+          '你是 SRE 根因分析专家。简短回答，指出最可能的共同根因。',
+        );
+        if (rootCause) {
+          logger.warn('[MonitorAgent] LLM root cause analysis', { rootCause: rootCause.slice(0, 300) });
+          // Record root cause as a pattern for future reference
+          knowledgeBus.recordPattern({
+            source: 'monitor',
+            type: 'pattern',
+            title: `[Monitor RCA] ${significantAlerts.length} alerts correlated`,
+            content: `告警: ${alertSummary}\n根因分析: ${rootCause}`,
+            severity: 'warning',
+            timestamp: Date.now(),
+          }).catch(() => { /* non-blocking */ });
+        }
+      } catch { /* LLM unavailable — non-blocking */ }
     }
 
     // Phase 1 (FL-037): Escalate critical execution-level alerts to Triage
@@ -814,7 +833,7 @@ export class MonitorAgent {
 
       const { score, details } = doctor.healthScore();
 
-      logger.info('[MonitorAgent] Knowledge health score', { score, totalEntries: details.length });
+      logger.info('[MonitorAgent] Knowledge health score', { score, issueCount: details.length });
 
       if (score < 60) {
         // Escalate to Triage

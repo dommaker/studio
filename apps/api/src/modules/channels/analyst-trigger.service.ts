@@ -152,7 +152,11 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     ? `\n## 已有上下文（来自前置讨论）\n以下文件和决策已在前期讨论中确认。请先验证这些文件是否仍然存在且未变更（git log -1 <file>），然后直接基于已有上下文生成 RequirementsDoc。只对未覆盖的路径做补充探索。\n`
     : '';
 
+  // B11-014: 统一前缀顺序 [约束][知识索引][任务上下文] — 最大化 prefix cache 命中
   return [
+    constraintSection,
+    knowledgeSection,
+    '',
     '你是一个需求分析专家，在 Agent Studio 项目中工作。',
     '',
     '## 你的任务',
@@ -171,8 +175,6 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '**自检**：任务描述中有 "修复"/"改"/"替换"/"移除" 关键字 + 指定了具体文件路径 → Simple',
     '',
     accuracyReflection,
-    constraintSection,
-    knowledgeSection,
     '## 工作流',
     '### 0. 修改点溯源（每个拟改动的文件/函数/命令，先追问三段）',
     '   **a. 为什么存在** — 查 git blame / commit message / 注释，理解原始设计意图',
@@ -252,6 +254,18 @@ async function buildAnalystPrompt(requirement: string, knowledge: string, accura
     '- **接口假设必须验证**：实现指南中引用的每个 hook/API/MCP tool/CLI 命令，必须在代码库中确认存在',
     '- **gotchas 要用红线格式**：标注"不可删除: X (下游: Y)"、"不可修改: A (消费者: B)"',
     '- **modelTier 决策**：为每个 AC 组标注执行模型档位（你探索过代码，知道真实复杂度）：',
+    '',
+    '## AC 结构化要求（B11-012）',
+    '每个 AC 必须包含以下五要素（写在 AC 字符串内，用分号分隔）：',
+    '1. **文件路径**：精确到文件（如 `apps/api/src/modules/goals/goal-scheduler.ts`）',
+    '2. **位置**：行号范围或锚点（如 `L120-L145` 或 `在 handleGoalSucceeded() 方法后`）',
+    '3. **改动描述**：动词开头（如 `添加 Resolution 查询逻辑`、`移除 getRecentContext 调用`）',
+    '4. **边界情况**：失败/异常怎么处理（如 `Resolution 无匹配时静默跳过`、`LLM 不可用时降级为空`）',
+    '5. **不做**：明确排除的范围（如 `不修改 act() 的硬编码命令逻辑`、`不改动 triageLog 格式`）',
+    '',
+    '示例 AC：',
+    '`在 deploy-agent.service.ts L250-L264；添加 Resolution 查询和 LLM 兜底；Resolution 无匹配时尝试 LLM，LLM 不可用时静默降级；不修改 mergeToMaster() 的成功路径`',
+    '',
     '  - fast: files ≤ 2，implementationNotes 精确到函数名+行号，gotchas 为空或仅信息性，无跨模块依赖',
     '  - standard: files 3~4，implementationNotes 有方向但缺部分细节，gotchas 有约束但非红线，模块内依赖',
     '  - premium: files ≥ 5，architectureContext 有完整调用链，gotchas 包含红线约束，涉及架构变更/安全/外部 API，需要 Executor 自己探索',
@@ -429,14 +443,15 @@ class AnalystTriggerService {
       // 3. Load accumulated knowledge + build prompt
       const fileKnowledge = loadKnowledge();
 
-      // G-001~005: 加载 DB 知识（KK 提取的 pitfall/pattern + 偏好 + 规则 + 环境）
+      // G-001~005: 加载 DB 知识（偏好 + 规则 + 环境）
       let dbKnowledge = '';
       try {
         const { knowledgeQuery } = await import('../knowledge/knowledge-query.service.js');
         const allKnowledge = await knowledgeQuery.formatAllForPrompt('analyst');
-        // P0.2: 按需求相关性评分查询历史知识（与"最近N条"互补）
-        const relevantKnowledge = await knowledgeQuery.queryRelevantForRequirement(content, 8);
-        dbKnowledge = [allKnowledge, relevantKnowledge].filter(Boolean).join('\n');
+        // B11-005: 知识索引摘要 — 告知 agent 有哪些知识可用及如何 MCP 检索
+        const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+        const indexSummary = knowledgeBus.formatIndexSummary();
+        dbKnowledge = [allKnowledge, indexSummary ? '\n## 知识检索\n' + indexSummary : ''].filter(Boolean).join('\n');
       } catch (e) {
         logger.warn('[AnalystTrigger] Failed to load DB knowledge, continuing with file only', { error: String(e) });
       }
