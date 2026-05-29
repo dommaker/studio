@@ -52,6 +52,7 @@ export interface ExecutionResult {
   logFile: string;
   sessionCount: number;
   totalDurationMs?: number;
+  sessionIds?: string[]; // B9-014: collected session IDs for summary generation
 }
 
 // 前置检查结果
@@ -245,6 +246,7 @@ export class AgentExecutor {
       const goalSessionFile = path.join(goalSessionDir, 'session-id');
       let sessionId: string;
       let isNewSession: boolean;
+      const collectedSessionIds: string[] = []; // B9-014: collect session IDs
       // Try shared session first, fall back to per-goal
       const sharedId = fsSync.existsSync(sessionFile) ? readSessionIdFile(worktree, { sessionIdFile: sessionFile }) : null;
       if (sharedId) {
@@ -354,6 +356,19 @@ export class AgentExecutor {
         this.runningProcesses.set(task.executionId, childRef);
 
         const sessionStart = Date.now();
+        collectedSessionIds.push(sessionId);
+
+        // B9-014: emit session:start event
+        try {
+          await prisma.studioEvent.create({
+            data: {
+              type: 'session:start',
+              source: 'agent-executor',
+              payload: JSON.stringify({ sessionId, agentId: task.executionId, executionId: task.executionId, sessionCount }),
+            },
+          });
+        } catch { /* non-blocking */ }
+
         try {
           const { stdout } = await execSh(cmd, {
             cwd: worktree,
@@ -419,6 +434,17 @@ export class AgentExecutor {
           } catch (metricErr) {
             logger.warn('[AgentExecutor] Failed to record session metrics', { error: String(metricErr) });
           }
+
+          // B9-014: emit session:end event (triggers SessionSummaryGenerator)
+          try {
+            await prisma.studioEvent.create({
+              data: {
+                type: 'session:end',
+                source: 'agent-executor',
+                payload: JSON.stringify({ sessionId, agentId: task.executionId, executionId: task.executionId, sessionCount }),
+              },
+            });
+          } catch { /* non-blocking */ }
         } catch (execErr: any) {
           const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
           const errStack = execErr instanceof Error ? execErr.stack?.slice(0, 2000) : undefined;
@@ -500,7 +526,7 @@ export class AgentExecutor {
         if (latest?.allComplete && (latest.testResults?.failed === 0 || latest.testResults?.failed == null)) {
           const outputFiles = await this.collectOutputFiles(worktree);
           logger.info('[AgentExecutor] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount, cumulativeSessionMs });
-          return { success: true, worktree, outputFiles, logFile, sessionCount, totalDurationMs: cumulativeSessionMs };
+          return { success: true, worktree, outputFiles, logFile, sessionCount, totalDurationMs: cumulativeSessionMs, sessionIds: collectedSessionIds };
         }
 
         // 5 次耗尽
