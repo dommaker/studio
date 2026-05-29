@@ -14,6 +14,7 @@
 
 import { Router, Request, Response } from 'express';
 import { logger } from '@dommaker/studio-shared';
+import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge/knowledge-bus.service.js';
 import type {
   TraceCollector as TraceCollectorType,
   TraceAnalyzer as TraceAnalyzerType,
@@ -668,7 +669,7 @@ async function getKnowledgeStore(): Promise<KnowledgeStoreType | null> {
   if (!knowledgeStore) {
     const loaded = await loadHarness();
     if (!loaded || !harnessModule) return null;
-    knowledgeStore = new harnessModule.KnowledgeStore();
+    knowledgeStore = new harnessModule.KnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
     knowledgeQuery = new harnessModule.KnowledgeQuery(knowledgeStore);
   }
   return knowledgeStore;

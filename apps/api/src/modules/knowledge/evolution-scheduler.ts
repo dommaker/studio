@@ -65,6 +65,11 @@ export function startEvolutionScheduler(): void {
       const count = await patternMiner.analyzeDaily();
       if (count > 0) {
         logger.info('Interaction pattern mining completed', { patterns: count });
+        // KE-001 Phase 5: auto-suggest Skills from high-confidence patterns
+        const suggested = await patternMiner.suggestSkillsFromPatterns();
+        if (suggested > 0) {
+          logger.info('Skill proposals from patterns', { suggested });
+        }
       }
     } catch (error) {
       logger.error('Pattern mining failed', { error: String(error) });

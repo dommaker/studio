@@ -5,7 +5,7 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { sharedStore } from './knowledge-bus.service.js';
+import { sharedStore, sharedQuery } from './knowledge-bus.service.js';
 import { preferenceObserver } from './preference-observer.js';
 import { ruleScanner } from './rule-scanner.js';
 import { envSnapper } from './env-snapper.js';
@@ -90,18 +90,18 @@ export class KnowledgeQueryService {
       if (patPrompt) parts.push(patPrompt);
     } catch { /* best-effort */ }
 
-    // KK 提取的 pitfall/guideline（harness KnowledgeStore）
+    // KK 提取的 pitfall/guideline — KE-002 P3: budget-aware query
     try {
-      const kkPitfalls = sharedStore.list({ types: ['pitfall'] });
-      const kkGuidelines = sharedStore.list({ types: ['guideline'] });
-      const kkEntries = [...kkPitfalls, ...kkGuidelines]
-        .filter(e => e.maturity !== 'archived')
-        .sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))
-        .slice(0, 5);
-      if (kkEntries.length > 0) {
+      const queryResult = sharedQuery.query({
+        phase: 'agent-context',
+        maxTokens: 1500,
+        maxEntries: 10,
+        focusTypes: ['pitfall', 'guideline'],
+      });
+      if (queryResult.entries.length > 0) {
         const lines = ['\n## 历史积累（KK 提取）'];
         lines.push('（引用知识条目时请标注 ID，如 [REF:DEC-001]）');
-        for (const e of kkEntries) {
+        for (const e of queryResult.entries) {
           const icon = e.type === 'pitfall' ? '⚠️' : '📋';
           lines.push(`- ${icon} [REF:${e.id}] ${e.title}: ${e.content.slice(0, 200)}`);
         }

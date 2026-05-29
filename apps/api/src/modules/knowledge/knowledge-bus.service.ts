@@ -15,14 +15,37 @@
  * 底层存储：harness KnowledgeStore + DB (DecisionAudit, Incident, PipelineRun)
  */
 
-import { KnowledgeStore, KnowledgeIngest, KnowledgeLifecycle } from '@dommaker/harness';
+import { KnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector } from '@dommaker/harness';
+import type { KnowledgeType } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import * as path from 'path';
+import * as os from 'os';
+
+// KE-002 P0: unified absolute path for knowledge storage
+export const UNIFIED_KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowledge');
+
+// BusEntry type → KnowledgeType 保真映射 (KE-002 P1)
+const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeType> = {
+  pattern: 'guideline',
+  failure: 'pitfall',
+  incident: 'pitfall',
+  pitfall: 'pitfall',
+  guideline: 'guideline',
+  trend: 'process',
+  fix: 'guideline',
+  analyst_accuracy: 'model',
+};
 
 // Singleton store + lifecycle + ingest — shared by knowledgeBus and knowledgeQuery
-export const sharedStore = new KnowledgeStore();
-export const sharedLifecycle = new KnowledgeLifecycle(sharedStore);
+export const sharedStore = new KnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
+export const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
+  autoPromoteSources: ['triage', 'auditor', 'evolution', 'posteval'],
+});
 export const sharedIngest = new KnowledgeIngest(sharedStore);
+// KE-002 P3: budget-aware query + injector (replaces naive store.list)
+export const sharedQuery = new KnowledgeQuery(sharedStore, sharedLifecycle);
+export const sharedInjector = new KnowledgeInjector(sharedQuery);
 
 // ── 统一条目类型 ──
 
@@ -57,13 +80,10 @@ export class KnowledgeBus {
   async recordPattern(entry: Omit<BusEntry, 'source'> & { source?: KnowledgeSource }): Promise<void> {
     try {
       const source = entry.source || 'monitor';
-      // Triage fix + Auditor trend are battle-tested → start at verified
-      const maturity = source === 'triage' || source === 'auditor' || source === 'evolution'
-        ? 'verified' as const
-        : 'draft' as const;
+      const maturity = sharedLifecycle.shouldAutoPromote(source) ? 'verified' as const : 'draft' as const;
       const result = this.ingest.ingestEntry(
         {
-          type: 'guideline',
+          type: BUS_ENTRY_TO_KNOWLEDGE_TYPE[entry.type] || 'guideline',
           title: entry.title,
           content: entry.content,
           tags: [entry.type],
@@ -114,7 +134,7 @@ export class KnowledgeBus {
     try {
       const result = this.ingest.ingestEntry(
         {
-          type: 'guideline',
+          type: BUS_ENTRY_TO_KNOWLEDGE_TYPE[entry.type] || 'process',
           title: entry.title,
           content: entry.content,
           tags: ['trend'],
@@ -122,7 +142,7 @@ export class KnowledgeBus {
         {
           source: `trend:auditor:${new Date(entry.timestamp).toISOString()}`,
           layer: 'project',
-          maturity: 'verified',
+          maturity: sharedLifecycle.shouldAutoPromote('auditor') ? 'verified' : 'draft',
           tags: ['trend'],
         },
       );
@@ -203,7 +223,7 @@ export class KnowledgeBus {
 
       const result = this.ingest.ingestEntry(
         {
-          type: 'guideline',
+          type: BUS_ENTRY_TO_KNOWLEDGE_TYPE['analyst_accuracy'],
           title: `AnalystAccuracy: ${data.goalTitle.slice(0, 80)}`,
           content,
           tags: ['analyst_accuracy'],
@@ -211,7 +231,7 @@ export class KnowledgeBus {
         {
           source: `analyst_accuracy:posteval:${data.docId.slice(0, 16)}`,
           layer: 'project',
-          maturity: 'verified',
+          maturity: sharedLifecycle.shouldAutoPromote('posteval') ? 'verified' : 'draft',
           tags: ['analyst_accuracy'],
         },
       );
