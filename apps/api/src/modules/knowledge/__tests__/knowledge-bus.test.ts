@@ -40,6 +40,35 @@ describe('KnowledgeBus', () => {
     });
   });
 
+  describe('formatIndexSummary', () => {
+    it('returns string without throwing', () => {
+      expect(() => knowledgeBus.formatIndexSummary()).not.toThrow();
+    });
+
+    it('includes MCP retrieval instruction', () => {
+      const summary = knowledgeBus.formatIndexSummary();
+      if (summary.length > 0) {
+        expect(summary).toContain('mcp__local-rag__query_documents');
+      }
+    });
+
+    it('includes [REF:xxx] markers when entries exist', () => {
+      const summary = knowledgeBus.formatIndexSummary();
+      // If store has entries, summary should include REF markers
+      const stats = knowledgeBus.getStats();
+      if (stats.total > 0) {
+        expect(summary).toMatch(/\[REF:/);
+      }
+    });
+
+    it('includes knowledge retrieval instruction after entries', () => {
+      const summary = knowledgeBus.formatIndexSummary();
+      if (summary.length > 0) {
+        expect(summary).toContain('需要更多知识时');
+      }
+    });
+  });
+
   describe('recordPattern', () => {
     it('does not throw on minimal input', async () => {
       await expect(knowledgeBus.recordPattern({

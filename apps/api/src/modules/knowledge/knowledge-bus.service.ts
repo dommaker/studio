@@ -291,7 +291,7 @@ export class KnowledgeBus {
 
   /**
    * 知识索引摘要 — 告知 agent 有哪些知识可用及如何检索
-   * 注入到所有 agent prompt（~150 tokens）
+   * 同时注入最近 5 条知识条目 + recordReference（闭合消费→成熟度回路）
    */
   formatIndexSummary(): string {
     try {
@@ -315,9 +315,27 @@ export class KnowledgeBus {
       const otherCount = total - Object.keys(typeLabels).reduce((sum, t) => sum + (stats[t] || 0), 0);
       if (otherCount > 0) lines.push(`- 其他: ${otherCount} 条`);
 
+      // B13-004: 注入最近条目 + recordReference（吸收 getRecentContext 闭环设计）
+      try {
+        const recent = this.store.list({ excludeArchived: true })
+          .sort((a, b) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))
+          .slice(0, 5);
+
+        if (recent.length > 0) {
+          lines.push('', '### 最近知识条目（引用时标注 ID）');
+          for (const e of recent) {
+            const icon = e.type === 'pitfall' ? '!' : '-';
+            lines.push(`- [REF:${e.id}] ${icon} ${e.title}: ${e.content.slice(0, 100)}`);
+            // 闭合消费→成熟度回路
+            try { sharedLifecycle.recordReference(e.id, 'prompt-inject'); } catch { /* non-blocking */ }
+          }
+          logger.info('[KnowledgeBus] Knowledge injected into prompt', { count: recent.length, ids: recent.map(e => e.id) });
+        }
+      } catch { /* non-blocking — entry injection is best-effort */ }
+
       lines.push(
         '',
-        '需要知识时，使用 mcp__local-rag__query_documents 工具检索。',
+        '需要更多知识时，使用 mcp__local-rag__query_documents 工具检索。',
         '示例：遇到部署错误时 → query_documents("deploy timeout mergeBranches")',
         '不要猜测，先检索再行动。',
       );
