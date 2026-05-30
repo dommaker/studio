@@ -47,6 +47,11 @@ echo "🔧 Step 2: Starting backend services..."
 # 复制环境配置
 cp "$ENV_FILE" "$API_DIR/.env"
 
+# 数据库迁移（幂等，已应用的会跳过）
+echo "   Applying Prisma migrations..."
+cd "$PROJECT_ROOT/packages/studio-prisma"
+DATABASE_URL="file:$PROJECT_ROOT/packages/studio-prisma/prisma/data.db" npx prisma migrate deploy 2>&1 | sed 's/^/   /'
+
 # 启动后端 API
 cd "$API_DIR"
 nohup npx tsx src/index.ts > /tmp/studio-api-prod.log 2>&1 &
