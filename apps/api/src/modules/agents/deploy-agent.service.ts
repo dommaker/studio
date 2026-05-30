@@ -258,6 +258,8 @@ class DeployAgent {
         if (matched.resolutions.length > 0) {
           resolutionHint = `\n已知解法: ${matched.resolutions[0].fix}`;
           logger.info('[DeployAgent] Resolution matched', { title: matched.resolutions[0].title });
+          // B13-001: Verify matched resolution (pending→verified→canonical)
+          try { await resolutionService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
         }
       } catch { /* best-effort */ }
       // B11-009: LLM 兜底 — 未知场景升级到 LLM 推理
@@ -324,6 +326,8 @@ class DeployAgent {
       if (matched.resolutions.length > 0) {
         resolutionHint = `\n已知解法: ${matched.resolutions[0].fix}`;
         logger.info('[DeployAgent] Resolution matched', { title: matched.resolutions[0].title });
+        // B13-001: Verify matched resolution (pending→verified→canonical)
+        try { await resolutionService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
       }
     } catch { /* best-effort */ }
     // B11-009: LLM 兜底 — 未知场景升级到 LLM 推理

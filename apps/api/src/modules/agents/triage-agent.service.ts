@@ -255,6 +255,8 @@ class TriageAgent {
       if (matched.resolutions.length > 0) {
         resolutionHint = matched.resolutions[0].fix;
         logger.info('[TriageAgent] Resolution matched', { incidentType, title: matched.resolutions[0].title });
+        // B13-001: Verify matched resolution (pending→verified→canonical)
+        try { await resolutionService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
       }
     } catch { /* best-effort */ }
 
