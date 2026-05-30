@@ -90,6 +90,15 @@ export class ResolutionService {
           ).join('\n\n')
         : '';
 
+      // B13-006: Resolution 匹配结果日志
+      if (matched.length > 0) {
+        logger.info('[ResolutionService] Resolution matched', {
+          count: matched.length,
+          ids: matched.map(r => r.id),
+          titles: matched.map(r => r.title),
+        });
+      }
+
       return { matched: matched.length > 0, resolutions: matched, promptSnippet };
     } catch (err) {
       logger.warn('[ResolutionService] match failed', { error: String(err) });
