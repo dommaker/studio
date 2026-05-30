@@ -11,6 +11,7 @@
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
+import { knowledgeBus } from './knowledge-bus.service.js';
 
 // ─── 类型 ───
 
@@ -119,6 +120,16 @@ export class KnowledgeEvolutionService {
             newMaturity: 'draft',
             reason: 'New knowledge extracted from execution',
           });
+
+          // B13-008: 飞轮接桥 — microEvolution 产出写入 KnowledgeBus
+          knowledgeBus.recordPattern({
+            source: 'evolution',
+            type: 'pattern',
+            title: `[Evolution] ${entry.title}`,
+            content: entry.content,
+            severity: 'info',
+            timestamp: Date.now(),
+          }).catch(() => { /* non-blocking */ });
         }
       }
     } catch (error) {
@@ -181,6 +192,16 @@ export class KnowledgeEvolutionService {
                 },
               });
               results.push({ documentId: doc.id, previousMaturity: 'draft', newMaturity: 'candidate', reason: 'meso pattern identified' });
+
+              // B13-008: 飞轮接桥 — mesoEvolution 模式写入 KnowledgeBus
+              knowledgeBus.recordPattern({
+                source: 'evolution',
+                type: 'pattern',
+                title: `[Meso Pattern] ${analysis.pattern}`,
+                content: analysis.recommendation || `跨 ${typeDocs.length} 个 ${type} 文档的公共模式`,
+                severity: 'info',
+                timestamp: Date.now(),
+              }).catch(() => { /* non-blocking */ });
             }
           }
         } catch (error) {
