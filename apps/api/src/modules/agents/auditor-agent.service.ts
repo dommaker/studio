@@ -313,6 +313,98 @@ export class AuditorAgent {
       }
     }
 
+    // B13-011: Save daily snapshot + detect multi-day trends
+    const snapshot = {
+      date: since.toISOString().slice(0, 10),
+      totalSessions,
+      deepAnalysisCount,
+      missingCaptureCount,
+      sensitiveOpsSessions,
+      highSensitiveOpsCount,
+      avgTurns: totalSessions > 0 ? Math.round(totalTurnCount / totalSessions) : 0,
+      maxTurnCount,
+    };
+
+    try {
+      const trendInsights = this.trackTrends(snapshot);
+      if (trendInsights.length > 0) {
+        insights.push('', '### 趋势变化（7 日对比）', ...trendInsights);
+      }
+    } catch { /* non-blocking */ }
+
+    return insights;
+  }
+
+  /**
+   * B13-011: 保存每日快照 + 检测趋势变化
+   *
+   * 快照存储：~/.studio/auditor/daily-snapshots.jsonl
+   * 每行一个 JSON 对象，保留 30 天。
+   */
+  private trackTrends(snapshot: {
+    date: string; totalSessions: number; deepAnalysisCount: number;
+    missingCaptureCount: number; sensitiveOpsSessions: number;
+    highSensitiveOpsCount: number; avgTurns: number; maxTurnCount: number;
+  }): string[] {
+    const auditorDir = path.join(os.homedir(), '.studio', 'auditor');
+    fs.mkdirSync(auditorDir, { recursive: true });
+    const snapshotFile = path.join(auditorDir, 'daily-snapshots.jsonl');
+
+    // Load existing snapshots
+    let snapshots: typeof snapshot[] = [];
+    try {
+      const raw = fs.readFileSync(snapshotFile, 'utf-8');
+      snapshots = raw.split('\n').filter(Boolean).map(l => JSON.parse(l));
+    } catch { /* file doesn't exist yet */ }
+
+    // Dedup by date (keep latest for today)
+    snapshots = snapshots.filter(s => s.date !== snapshot.date);
+    snapshots.push(snapshot);
+
+    // Keep last 30 days
+    snapshots.sort((a, b) => a.date.localeCompare(b.date));
+    if (snapshots.length > 30) snapshots = snapshots.slice(-30);
+
+    // Write back
+    fs.writeFileSync(snapshotFile, snapshots.map(s => JSON.stringify(s)).join('\n') + '\n', 'utf-8');
+
+    // Need at least 3 days of history for trend detection
+    if (snapshots.length < 3) return [];
+
+    // Compare current vs 7-day average (excluding today)
+    const prev = snapshots.slice(0, -1);
+    const window = prev.slice(-7);
+    if (window.length < 2) return [];
+
+    const avg = (nums: number[]) => nums.reduce((a, b) => a + b, 0) / nums.length;
+
+    const prevSensitiveOps = avg(window.map(s => s.sensitiveOpsSessions));
+    const prevCaptureRate = avg(window.map(s =>
+      s.deepAnalysisCount > 0 ? (1 - s.missingCaptureCount / s.deepAnalysisCount) * 100 : 100
+    ));
+    const prevAvgTurns = avg(window.map(s => s.avgTurns));
+
+    const currentCaptureRate = snapshot.deepAnalysisCount > 0
+      ? (1 - snapshot.missingCaptureCount / snapshot.deepAnalysisCount) * 100
+      : 100;
+
+    const insights: string[] = [];
+
+    // Sensitive ops increasing
+    if (snapshot.sensitiveOpsSessions > prevSensitiveOps * 1.5 && snapshot.sensitiveOpsSessions >= 2) {
+      insights.push(`- 🔴 敏感操作会话数上升: ${snapshot.sensitiveOpsSessions}（7日均值 ${prevSensitiveOps.toFixed(1)}），需关注`);
+    }
+
+    // Capture rate declining
+    if (currentCaptureRate < prevCaptureRate - 15 && snapshot.deepAnalysisCount >= 2) {
+      insights.push(`- 📉 知识捕获率下降: ${Math.round(currentCaptureRate)}%（7日均值 ${Math.round(prevCaptureRate)}%）`);
+    }
+
+    // Session length increasing
+    if (snapshot.avgTurns > prevAvgTurns * 1.3 && snapshot.avgTurns > 20) {
+      insights.push(`- 📈 平均会话长度上升: ${snapshot.avgTurns} turns（7日均值 ${Math.round(prevAvgTurns)}）`);
+    }
+
     return insights;
   }
 

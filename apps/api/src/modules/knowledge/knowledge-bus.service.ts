@@ -162,9 +162,16 @@ export class KnowledgeBus {
       const all = this.store.list({});
       if (all.length === 0) return '';
 
+      // B13-007: maturity 加权排序
+      const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, draft: 1 };
       const recent = all
         .filter(e => e.maturity !== 'archived')
-        .sort((a, b) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))
+        .sort((a, b) => {
+          const wa = MATURITY_WEIGHT[a.maturity] || 1;
+          const wb = MATURITY_WEIGHT[b.maturity] || 1;
+          if (wa !== wb) return wb - wa;
+          return (b.lastReferenced || '').localeCompare(a.lastReferenced || '');
+        })
         .slice(0, maxItems);
 
       if (recent.length === 0) return '';
@@ -316,9 +323,16 @@ export class KnowledgeBus {
       if (otherCount > 0) lines.push(`- 其他: ${otherCount} 条`);
 
       // B13-004: 注入最近条目 + recordReference（吸收 getRecentContext 闭环设计）
+      // B13-007: maturity 加权排序（proven > verified > draft）
       try {
+        const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, draft: 1 };
         const recent = this.store.list({ excludeArchived: true })
-          .sort((a, b) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))
+          .sort((a, b) => {
+            const wa = MATURITY_WEIGHT[a.maturity] || 1;
+            const wb = MATURITY_WEIGHT[b.maturity] || 1;
+            if (wa !== wb) return wb - wa; // higher maturity first
+            return (b.lastReferenced || '').localeCompare(a.lastReferenced || ''); // then by recency
+          })
           .slice(0, 5);
 
         if (recent.length > 0) {

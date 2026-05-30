@@ -7,12 +7,17 @@
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import type {
   Resolution,
   CreateResolutionInput,
   MatchResolutionInput,
   MatchResolutionResult,
 } from '@dommaker/studio-shared';
+
+const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'knowledge', 'resolutions');
 
 export class ResolutionService {
   private static instance: ResolutionService;
@@ -183,6 +188,11 @@ export class ResolutionService {
         verifyCount: newCount,
         status: newStatus,
       });
+
+      // B13-003: 同步到 local-rag（非阻塞）
+      if (newStatus === 'canonical') {
+        this.syncCanonicalToLocalRag().catch(() => { /* non-blocking */ });
+      }
     } catch (err) {
       logger.warn('[ResolutionService] verify failed', { error: String(err) });
     }
@@ -265,6 +275,70 @@ export class ResolutionService {
       } catch (err) {
         logger.warn('[ResolutionService] Seed failed for pattern', { pattern: seed.pattern, error: String(err) });
       }
+    }
+
+    // B13-003: 启动后同步 canonical resolutions 到 local-rag
+    this.syncCanonicalToLocalRag().catch(() => { /* non-blocking */ });
+  }
+
+  /**
+   * B13-003: 同步 canonical resolutions 到 local-rag vector DB
+   *
+   * 写 .md 文件到 ~/.studio/knowledge/resolutions/ → mcp-local-rag ingest
+   * 使 canonical 解法可通过 mcp__local-rag__query_documents 语义检索。
+   */
+  async syncCanonicalToLocalRag(): Promise<void> {
+    try {
+      const canonicals = await prisma.resolution.findMany({
+        where: { status: 'canonical' },
+      });
+      if (canonicals.length === 0) return;
+
+      fs.mkdirSync(RESOLUTIONS_DIR, { recursive: true });
+
+      for (const row of canonicals) {
+        const filename = `resolution-${row.id}.md`;
+        const filePath = path.join(RESOLUTIONS_DIR, filename);
+        const tags = this.parseTags(row.tags);
+
+        const content = [
+          '---',
+          `id: ${row.id}`,
+          'type: resolution',
+          'status: canonical',
+          `errorClass: ${row.errorClass}`,
+          `layer: ${row.layer}`,
+          `verifyCount: ${row.verifyCount}`,
+          '---',
+          '',
+          `# ${row.title}`,
+          '',
+          `**Pattern**: \`${row.pattern}\``,
+          `**Error Class**: ${row.errorClass}`,
+          `**Layer**: ${row.layer}`,
+          `**Verified**: ${row.verifyCount}x`,
+          `**Tags**: ${tags.join(', ')}`,
+          '',
+          '## Solution',
+          '',
+          row.fix,
+        ].join('\n');
+
+        fs.writeFileSync(filePath, content, 'utf-8');
+      }
+
+      const { execSync } = await import('child_process');
+      execSync(`mcp-local-rag ingest "${RESOLUTIONS_DIR}"`, {
+        timeout: 30_000,
+        encoding: 'utf-8',
+        stdio: 'pipe',
+      });
+
+      logger.info('[ResolutionService] Synced canonical resolutions to local-rag', {
+        count: canonicals.length,
+      });
+    } catch (err) {
+      logger.warn('[ResolutionService] syncToLocalRag failed', { error: String(err) });
     }
   }
 
