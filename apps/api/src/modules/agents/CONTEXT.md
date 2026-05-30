@@ -12,8 +12,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
 
-<!-- STALE_SINCE: 2026-05-28 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
+
+<!-- STALE_SINCE: 2026-05-29 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/agent-context.ts
 
 ## 职责
 
@@ -34,6 +36,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `b2bf3f63`: branch cleanup gap — delete source after merge + clean daemon/worktree branches
 - ✅ `7ab15321`: use ANTHROPIC_AUTH_TOKEN as fallback for knowledge extraction
 - ✅ `ce7c3955`: knowledge extraction JSON parse failure + localeCompare crash
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

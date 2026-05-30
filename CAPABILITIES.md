@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-05-26
+> 最后更新: 2026-05-29
 
 ---
 
@@ -214,3 +214,6 @@
 | slugify | apps/web/src/utils/slugify.ts | 将字符串转换为 URL 友好的 slug |
 | status-utils | apps/web/src/utils/status-utils.ts | Unified status / role / stance utilities. |
 | toast | apps/web/src/utils/toast.ts | Lightweight toast notification system (zero dependencies) |
+
+| session-summary-generator | apps/api/src/modules/events/session-summary-generator.ts | B9-015: SessionSummaryGenerator — server-side session aggregation |
+| workflowEditorStore | apps/web/src/stores/workflowEditorStore.ts | workflowEditorStore.ts - Workflow 编辑器状态管理 |

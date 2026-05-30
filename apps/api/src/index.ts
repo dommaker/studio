@@ -177,8 +177,7 @@ async function start() {
     }
 
     process.on('unhandledRejection', (reason: any) => {
-      logger.error('Unhandled rejection, restarting HTTP', { message: reason?.message });
-      try { server.close(); server.listen(PORT, () => logger.info('HTTP recovered')); } catch (e) { logger.error('Failed to restart HTTP server', { error: String(e) }); }
+      logger.error('Unhandled rejection (logged, not restarting HTTP)', { message: reason?.message, stack: reason?.stack });
     });
     app.use((err: any, _req: any, res: any, _next: any) => {
       logger.error('Express error', { message: err?.message });
