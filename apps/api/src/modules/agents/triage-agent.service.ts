@@ -409,6 +409,19 @@ class TriageAgent {
       timestamp: Date.now(),
     }).catch(() => { /* non-blocking */ });
 
+    // B13-002: Triage→Resolution 回写 — 将修复方案写入 Resolution KB
+    try {
+      const { resolutionService } = await import('../knowledge/resolution.service.js');
+      await resolutionService.createResolution({
+        pattern: resolution.slice(0, 200),
+        errorClass: 'triage_fix',
+        layer: 'L3_tool_behavior',
+        title: `[Triage] ${resolution.slice(0, 60)}`,
+        fix: resolution,
+        tags: ['triage', 'auto-resolved'],
+      });
+    } catch { /* non-blocking */ }
+
     logger.info('[TriageAgent] Incident resolved', { incidentId, resolution });
     return { incidentId, resolved: true, resolution };
   }
