@@ -21,26 +21,6 @@
       "code": "TS2345"
     },
     {
-      "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
-      "line": 43,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
-      "line": 83,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
-      "line": 145,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/knowledge-bus.service.ts",
-      "line": 234,
-      "code": "TS2339"
-    },
-    {
       "file": "apps/api/src/modules/notifications/routes.ts",
       "line": 13,
       "code": "TS2345"
@@ -62,8 +42,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-05-29T15:31:37.774Z",
-    "totalErrors": 12,
-    "commit": "1b543db3e4f1d2c9fe710a1d08dd4a9c72dbd703"
+    "generated": "2026-05-30T15:38:02.269Z",
+    "totalErrors": 8,
+    "commit": "972a4aa08bcff796425d694b2552db7802d09200"
   }
 }

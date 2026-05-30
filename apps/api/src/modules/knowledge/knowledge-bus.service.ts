@@ -40,7 +40,7 @@ const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeType> = {
 // Singleton store + lifecycle + ingest — shared by knowledgeBus and knowledgeQuery
 export const sharedStore = new KnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
 export const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
-  autoPromoteSources: ['triage', 'auditor', 'evolution', 'posteval'],
+  autoPromoteSources: ['triage', 'auditor', 'evolution', 'posteval', 'analyst'],
 });
 export const sharedIngest = new KnowledgeIngest(sharedStore);
 // KE-002 P3: budget-aware query + injector (replaces naive store.list)

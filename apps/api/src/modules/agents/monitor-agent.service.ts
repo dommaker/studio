@@ -873,11 +873,20 @@ export class MonitorAgent {
         logger.info('[MonitorAgent] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
       }
 
-      // Daily cycle: decay + user model update
+      // Daily cycle: decay + lint + LLM maintenance
       if (Date.now() - this.lastDecayRun > 24 * 60 * 60_000) {
         const decayChanges = sharedLifecycle.runDecayCycle();
         const lintReport = linter.run(true);
         this.lastDecayRun = Date.now();
+
+        // F1: KnowledgeAgent LLM-powered maintenance (semantic dedup, quality, freshness, contradictions)
+        try {
+          const { knowledgeAgent } = await import('./knowledge-agent.service.js');
+          const maintenance = await knowledgeAgent.runDailyMaintenance();
+          logger.info('[MonitorAgent] KnowledgeAgent daily maintenance', maintenance);
+        } catch (err) {
+          logger.warn('[MonitorAgent] KnowledgeAgent maintenance failed', { error: String(err) });
+        }
 
         logger.info('[MonitorAgent] Knowledge decay cycle completed', {
           decayChanges: decayChanges.length,

@@ -69,6 +69,21 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     title: 'Pipeline State Machines & Model Tiers',
     knowledgeType: 'architecture',
   },
+  'knowledge-engine-flywheel': {
+    files: [
+      'apps/api/src/modules/knowledge/*.ts',
+      'apps/api/src/modules/agents/monitor-agent.service.ts',
+      'apps/api/src/modules/agents/auditor-agent.service.ts',
+      'apps/api/src/modules/events/agent-event-listener.ts',
+      'packages/studio-shared/src/services/knowledge-*.ts',
+      'packages/studio-shared/src/types/resolution.ts',
+      '../../harness/src/knowledge/*.ts',
+      '../../harness/src/monitoring/knowledge-*.ts',
+      '../../harness/src/context/knowledge-injector.ts',
+    ],
+    title: 'Knowledge Engine Flywheel',
+    knowledgeType: 'architecture',
+  },
 };
 
 // ── Types ──
