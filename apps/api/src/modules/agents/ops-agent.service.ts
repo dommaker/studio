@@ -235,6 +235,18 @@ export class OpsAgent {
       // Critical: API not responding → check if daemon is busy before restart
       if (!status.apiResponding) {
         logger.error('[OpsAgent] CRITICAL: API not responding on port', { port: this.port });
+        // B13-009: Record incident to KnowledgeBus
+        try {
+          const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+          knowledgeBus.recordIncident({
+            source: 'ops',
+            type: 'incident',
+            title: 'API not responding',
+            content: `API on port ${this.port} is not responding. Time: ${new Date().toISOString()}`,
+            severity: 'critical',
+            timestamp: Date.now(),
+          }).catch(() => { /* non-blocking */ });
+        } catch { /* non-blocking */ }
         // Don't auto-restart if daemon is running tasks — the load is likely from Claude
         let daemonBusy = false;
         try {
@@ -269,6 +281,18 @@ export class OpsAgent {
       const pct = parseInt(status.disk.usePercent);
       if (pct > this.rules.checks.disk_threshold_critical) {
         logger.error('[OpsAgent] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
+        // B13-009: Record incident to KnowledgeBus
+        try {
+          const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+          knowledgeBus.recordIncident({
+            source: 'ops',
+            type: 'incident',
+            title: 'Disk nearly full',
+            content: `Disk usage at ${status.disk.usePercent}% (threshold: ${this.rules.checks.disk_threshold_critical}%). Time: ${new Date().toISOString()}`,
+            severity: 'critical',
+            timestamp: Date.now(),
+          }).catch(() => { /* non-blocking */ });
+        } catch { /* non-blocking */ }
       }
       // Cloudflared tunnel check + auto-restart (if enabled)
       // C2: Worktree GC (hourly — dogfood creates many worktrees)
