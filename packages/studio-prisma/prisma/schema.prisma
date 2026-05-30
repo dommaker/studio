@@ -1313,3 +1313,25 @@ model PipelineDecision {
   @@index([createdAt])
   @@map("pipeline_decision")
 }
+
+// KE-003: User behavior distillation profiles
+model UserBehaviorProfile {
+  id              String   @id @default(cuid())
+  sessionId       String
+  category        String   // correction | workflow | automation
+  title           String
+  evidence        String
+  pattern         String
+  suggestedAction String   // create_rule | create_skill | create_automation | skip
+  confidence      Float
+  alreadyCovered  String?
+  status          String   @default("pending") // pending | confirmed | rejected | applied
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([sessionId])
+  @@index([category])
+  @@index([status])
+  @@index([createdAt])
+  @@map("user_behavior_profile")
+}

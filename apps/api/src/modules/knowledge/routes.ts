@@ -883,6 +883,33 @@ knowledgeInternalRoutes.post('/extract-text', async (req, res) => {
 });
 
 // Debug: synchronous extraction for testing pipeline end-to-end
+
+/**
+ * POST /api/knowledge/extract-behavior
+ * Body: { content: string, source: string, threshold?: number }
+ * Returns: 202 { queued: true }
+ *
+ * KE-003: Extract user behavior patterns from session transcript.
+ * Runs in parallel with extract-text (both triggered by session:archive).
+ */
+knowledgeInternalRoutes.post('/extract-behavior', async (req, res) => {
+  try {
+    const { content, source, threshold } = req.body;
+    if (!content || !source) {
+      return res.status(400).json({ error: 'content and source are required' });
+    }
+
+    res.status(202).json({ queued: true });
+
+    const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
+    knowledgeAgent.extractUserBehavior(content, source, threshold).catch(err => {
+      logger.error({ source, error: String(err) }, '[KnowledgeRoutes] Behavior extraction failed');
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to queue behavior extraction');
+    res.status(500).json({ error: 'Failed to queue behavior extraction' });
+  }
+});
 knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
   try {
     const { content, source, layer } = req.body;

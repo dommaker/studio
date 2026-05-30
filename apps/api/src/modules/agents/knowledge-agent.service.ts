@@ -513,6 +513,220 @@ ${deployResult.summary.slice(0, 2000)}
   }
 
   /**
+   * KE-003: Extract user behavior patterns from session transcript.
+   *
+   * Three signal types: correction (user corrects assistant), workflow (decision chain),
+   * automation (repeated manual ops). Results stored in UserBehaviorProfile table.
+   *
+   * Layer 1 context injection: existing profiles + memory rules into prompt to avoid re-extraction.
+   *
+   * @param content - Preprocessed transcript (filtered + truncated by caller)
+   * @param source - "session:<uuid>" identifier
+   * @param threshold - Minimum confidence (default 0.6)
+   */
+  async extractUserBehavior(
+    content: string,
+    source: string,
+    threshold: number = 0.6,
+  ): Promise<void> {
+    try {
+      if (!content || content.trim().length === 0) {
+        logger.info('[KnowledgeAgent] Empty transcript, skipping behavior extraction', { source });
+        return;
+      }
+
+      const apiKey = process.env.DEEPSEEK_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || '';
+      if (!apiKey) {
+        logger.warn('[KnowledgeAgent] No API key, skipping behavior extraction', { source });
+        return;
+      }
+
+      // Extract sessionId from source: "session:<uuid>.jsonl.bak..." → "<uuid>"
+      const sessionId = source.replace('session:', '').split('.jsonl')[0];
+
+      // Layer 1: inject existing patterns for dedup
+      const existingProfiles = await prisma.userBehaviorProfile.findMany({
+        select: { title: true },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      const existingTitles = existingProfiles.map(p => p.title);
+
+      // Read memory rules for dedup
+      const memoryDir = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'memory');
+      let memoryRules: string[] = [];
+      try {
+        const { readdirSync, readFileSync } = await import('fs');
+        const files = readdirSync(memoryDir).filter(f => f.endsWith('.md'));
+        memoryRules = files.slice(0, 30).map(f => {
+          const raw = readFileSync(path.join(memoryDir, f), 'utf-8');
+          const titleMatch = raw.match(/^name:\s*(.+)$/m);
+          return titleMatch ? titleMatch[1] : f.replace('.md', '');
+        });
+      } catch { /* non-critical */ }
+
+      const existingPatternsBlock = [
+        existingTitles.length > 0 ? `已有行为模式（不要重复提取）:\n${existingTitles.map(t => `- ${t}`).join('\n')}` : '',
+        memoryRules.length > 0 ? `已有 memory 规则:\n${memoryRules.map(r => `- ${r}`).join('\n')}` : '',
+        '只提取以上未覆盖的新模式。',
+      ].filter(Boolean).join('\n\n');
+
+      const systemPrompt = `你是一个行为模式分析师。从以下 Claude Code 会话对话中，提取用户的行为模式。
+
+## 提取维度
+
+### A. 纠正信号（correction）
+用户纠正助手的时刻。识别标志：
+- 显式纠正："不对"/"应该是"/"你错了"/"先验证"/"不要删"
+- 隐式纠正："我感觉你陷入了误区"/"你扫的是哪个工程"/"按照X来判断有点问题"
+- 方案推翻：用户否定助手的方案并给出新方向
+- 假设质疑：用户质疑助手的前提假设
+
+**不是纠正的情况（负面示例）**：
+- 正常指令："先看看待办"/"写个spec" — 这是任务分配，不是纠正
+- 信息补充："对，而且还要..." — 这是补充，不是否定
+- 确认："可以"/"没问题" — 这是同意
+
+提取：纠正内容 + 触发场景 + 推断的规则
+
+### B. 决策模式（workflow）
+用户的决策链。识别标志：
+- "先X再Y" / "先看...再做..."
+- 用户引导助手的执行顺序
+- 用户在多个选项中的选择逻辑
+提取：触发条件 + 步骤序列 + 产出物
+
+### C. 重复操作（automation）
+用户反复手动执行的操作。识别标志：
+- 多次相同请求
+- 每次都要确认/查询的东西
+- 可以用脚本/hook 替代的手动步骤
+提取：操作内容 + 频率 + 自动化价值
+
+## 输出格式（JSON 数组）
+
+[
+  {
+    "category": "correction|workflow|automation",
+    "title": "简短标题（10字以内）",
+    "evidence": "原文引用",
+    "pattern": "模式描述",
+    "suggestedAction": "create_rule|create_skill|create_automation|skip",
+    "confidence": 0.0-1.0
+  }
+]
+
+## 过滤条件
+
+- 只输出 confidence > ${threshold} 的条目
+- 只输出以下未覆盖的条目
+- 保持简洁，每个条目不超过 3 行
+
+${existingPatternsBlock}`;
+
+      const rawResponse = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: content.slice(0, 40_000) },
+          ],
+          temperature: 0.3,
+          max_tokens: 2048,
+        }),
+      });
+      const data = await rawResponse.json() as any;
+      const llmContent = data.choices?.[0]?.message?.content || '';
+
+      if (!llmContent) {
+        logger.info('[KnowledgeAgent] Empty LLM response for behavior extraction', { source: source.slice(-40) });
+        return;
+      }
+
+      // Parse JSON — 4 strategies: direct → codeblock → {...} → [...]
+      let profiles: any[] | undefined;
+      try {
+        const parsed = JSON.parse(llmContent);
+        profiles = Array.isArray(parsed) ? parsed : parsed.profiles || parsed.entries;
+      } catch {
+        const codeMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeMatch?.[1]) {
+          try {
+            const parsed = JSON.parse(codeMatch[1].trim());
+            profiles = Array.isArray(parsed) ? parsed : parsed.profiles || parsed.entries;
+          } catch {}
+        }
+        if (!profiles) {
+          const arrMatch = llmContent.match(/\[[\s\S]*\]/);
+          if (arrMatch) {
+            try { profiles = JSON.parse(arrMatch[0]); } catch {}
+          }
+        }
+        if (!profiles) {
+          const objMatch = llmContent.match(/\{[\s\S]*\}/);
+          if (objMatch) {
+            try {
+              const parsed = JSON.parse(objMatch[0]);
+              profiles = Array.isArray(parsed) ? parsed : parsed.profiles || parsed.entries;
+            } catch {}
+          }
+        }
+        if (!profiles) {
+          logger.warn('[KnowledgeAgent] Failed to parse behavior extraction JSON', {
+            source: source.slice(-40),
+            preview: llmContent.slice(0, 200),
+          });
+          return;
+        }
+      }
+
+      if (!profiles?.length) {
+        logger.info('[KnowledgeAgent] No behavior patterns extracted', { source: source.slice(-40) });
+        return;
+      }
+
+      // Store profiles with dedup check
+      let stored = 0;
+      for (const p of profiles) {
+        if (!p.category || !p.title || !p.pattern) continue;
+        if (typeof p.confidence === 'number' && p.confidence < threshold) continue;
+
+        // Code-level dedup: title substring match against existing profiles
+        const titleNorm = p.title.toLowerCase().trim();
+        const alreadyCovered = existingTitles.find(
+          t => t.toLowerCase().includes(titleNorm) || titleNorm.includes(t.toLowerCase()),
+        );
+
+        await prisma.userBehaviorProfile.create({
+          data: {
+            sessionId,
+            category: p.category,
+            title: p.title.slice(0, 100),
+            evidence: (p.evidence || '').slice(0, 500),
+            pattern: p.pattern.slice(0, 500),
+            suggestedAction: p.suggestedAction || 'skip',
+            confidence: Math.min(1, Math.max(0, p.confidence || 0.5)),
+            alreadyCovered: alreadyCovered || null,
+            status: alreadyCovered ? 'rejected' : 'pending',
+          },
+        });
+        stored++;
+      }
+
+      logger.info('[KnowledgeAgent] Extracted behavior profiles', {
+        source: source.slice(-40),
+        total: profiles.length,
+        stored,
+        skipped: profiles.length - stored,
+      });
+    } catch (err) {
+      logger.warn('[KnowledgeAgent] extractUserBehavior failed', { source: source.slice(-40), error: String(err) });
+    }
+  }
+
+  /**
    * 获取或创建 #系统 Channel
    */
   private async getOrCreateSystemChannel(): Promise<{ id: string; name: string } | null> {
