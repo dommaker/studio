@@ -16,6 +16,24 @@ ERRORS=0
 
 echo "=== Preflight Check ==="
 
+# 0. 磁盘空间
+echo -n "Disk space... "
+DISK_PCT=$(df / | awk 'NR==2 {gsub(/%/,""); print $5}')
+DISK_AVAIL=$(df -h / | awk 'NR==2 {print $4}')
+if [ "$DISK_PCT" -ge 95 ]; then
+  echo "❌ ${DISK_PCT}% used (${DISK_AVAIL} free) — CRITICAL"
+  ERRORS=$((ERRORS + 1))
+elif [ "$DISK_PCT" -ge 85 ]; then
+  echo "⚠️ ${DISK_PCT}% used (${DISK_AVAIL} free) — cleaning npm cache..."
+  npm cache clean --force 2>/dev/null && echo "  ✅ npm cache cleaned" || echo "  ⚠️ cache clean failed"
+  rm -rf /tmp/node-compile-cache /tmp/jest_* 2>/dev/null
+  NEW_PCT=$(df / | awk 'NR==2 {gsub(/%/,""); print $5}')
+  NEW_AVAIL=$(df -h / | awk 'NR==2 {print $4}')
+  echo "  → ${NEW_PCT}% used (${NEW_AVAIL} free)"
+else
+  echo "✅ ${DISK_PCT}% used (${DISK_AVAIL} free)"
+fi
+
 # 1. Prisma 迁移
 echo -n "Prisma migrations... "
 PENDING=$(DATABASE_URL="file:$DB_PATH" npx prisma migrate status 2>&1 | grep "not yet applied" || true)
@@ -29,6 +47,14 @@ fi
 
 # 2. events-daemon
 echo -n "events-daemon... "
+SYSTEMD_PID=$(systemctl show events-daemon --property=MainPID --value 2>/dev/null || echo 0)
+# 找所有 events-daemon 进程，清理不在 systemd 管理下的孤儿
+for PID in $(pgrep -f "node.*events-daemon" 2>/dev/null || true); do
+  if [ "$PID" != "$SYSTEMD_PID" ]; then
+    echo -n "orphan PID $PID — killing... "
+    kill "$PID" 2>/dev/null && echo "killed" || echo "failed"
+  fi
+done
 DAEMON_PID=$(pgrep -f "node.*events-daemon" | head -1 || true)
 if [ -z "$DAEMON_PID" ]; then
   echo "NOT RUNNING — starting..."

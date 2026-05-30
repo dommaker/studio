@@ -14,8 +14,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
 
-<!-- STALE_SINCE: 2026-05-29 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/agent-context.ts
+
+<!-- STALE_SINCE: 2026-05-30 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
 
 ## 职责
 
@@ -36,6 +38,10 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `79c3de0a`: knowledge): B13 飞轮闭环 — Resolution→local-rag + 行为趋势 + maturity 排序
+- ✅ `62cf3d37`: knowledge): B13-009 — OpsAgent 关键失败写入 KnowledgeBus
+- ✅ `958e433f`: knowledge): B13-002 — Triage resolve 时回写 Resolution
+- ✅ `456cf62f`: knowledge): B13-001 — verifyResolution 接线到 Triage/Deploy
 - ✅ `b2bf3f63`: branch cleanup gap — delete source after merge + clean daemon/worktree branches
 - ✅ `7ab15321`: use ANTHROPIC_AUTH_TOKEN as fallback for knowledge extraction
 - ✅ `ce7c3955`: knowledge extraction JSON parse failure + localeCompare crash
