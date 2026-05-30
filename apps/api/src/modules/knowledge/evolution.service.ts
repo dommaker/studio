@@ -6,23 +6,15 @@
  * - 中观：项目级别知识整合和模式识别
  * - 宏观：跨项目知识迁移和最佳实践提炼
  *
- * 知识成熟度：draft → candidate → validated → canonical → archived
+ * 知识成熟度：draft → verified → proven → archived (与 harness 对齐)
  */
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
+import type { MaturityLevel } from '@dommaker/harness';
 import { knowledgeBus } from './knowledge-bus.service.js';
 
 // ─── 类型 ───
-
-export type MaturityLevel = 'draft' | 'candidate' | 'validated' | 'canonical' | 'archived';
-
-export interface MaturityConfig {
-  level: MaturityLevel;
-  confidence: number;       // 0-1
-  accessThreshold: number;  // 最少被引用次数
-  decayDays: number;        // 未使用多少天后降级
-}
 
 export interface EvolutionResult {
   documentId: string;
@@ -30,16 +22,6 @@ export interface EvolutionResult {
   newMaturity: MaturityLevel;
   reason: string;
 }
-
-// ─── 成熟度配置 ───
-
-const MATURITY_LADDER: MaturityConfig[] = [
-  { level: 'draft', confidence: 0.3, accessThreshold: 0, decayDays: 30 },
-  { level: 'candidate', confidence: 0.5, accessThreshold: 2, decayDays: 60 },
-  { level: 'validated', confidence: 0.7, accessThreshold: 5, decayDays: 90 },
-  { level: 'canonical', confidence: 0.9, accessThreshold: 10, decayDays: 180 },
-  { level: 'archived', confidence: 0, accessThreshold: 0, decayDays: 0 },
-];
 
 // ─── Knowledge Evolution Service ───
 
@@ -97,8 +79,8 @@ export class KnowledgeEvolutionService {
           });
           results.push({
             documentId: existing.id,
-            previousMaturity: 'candidate', // 简化
-            newMaturity: 'validated',
+            previousMaturity: 'verified',
+            newMaturity: 'proven',
             reason: 'Referenced by new execution',
           });
         } else {
@@ -191,7 +173,7 @@ export class KnowledgeEvolutionService {
                   tags: JSON.stringify(['meso-evolution', type]),
                 },
               });
-              results.push({ documentId: doc.id, previousMaturity: 'draft', newMaturity: 'candidate', reason: 'meso pattern identified' });
+              results.push({ documentId: doc.id, previousMaturity: 'draft', newMaturity: 'verified', reason: 'meso pattern identified' });
 
               // B13-008: 飞轮接桥 — mesoEvolution 模式写入 KnowledgeBus
               knowledgeBus.recordPattern({
@@ -323,7 +305,7 @@ export class KnowledgeEvolutionService {
           });
           results.push({
             documentId: doc.id,
-            previousMaturity: 'validated',
+            previousMaturity: 'proven',
             newMaturity: 'archived',
             reason: `Decayed after ${Math.floor(daysSinceUpdate)} days of inactivity`,
           });
