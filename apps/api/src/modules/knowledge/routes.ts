@@ -17,7 +17,7 @@ import { logger } from '../../utils/logger.js';
 import { upsertKnowledge } from './knowledge-bus.service.js';
 import type { KnowledgeSource } from './knowledge-bus.service.js';
 import { knowledgeSync } from './knowledge-sync.service.js';
-import { getProviderApiKey } from '@dommaker/studio-shared';
+import { modelGateway } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -918,72 +918,19 @@ knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
       return res.status(400).json({ error: 'content and source are required' });
     }
 
-    // LLM API call - auto-select available provider
-    const providers = [
-      { name: 'deepseek' as const, url: 'https://api.deepseek.com/v1/chat/completions', model: 'deepseek-chat' },
-      { name: 'anthropic' as const, url: 'https://api.anthropic.com/v1/messages', model: 'claude-sonnet-4-20250514' },
-      { name: 'openai' as const, url: 'https://api.openai.com/v1/chat/completions', model: 'gpt-4o-mini' },
-    ];
-
-    let apiKey = '';
-    let selectedProvider: typeof providers[number] | null = null;
-
-    for (const p of providers) {
-      const key = getProviderApiKey(p.name);
-      if (key) {
-        apiKey = key;
-        selectedProvider = p;
-        break;
-      }
-    }
-
-    if (!apiKey || !selectedProvider) {
-      return res.status(500).json({ error: 'No LLM API key configured. Set DEEPSEEK_API_KEY, ANTHROPIC_AUTH_TOKEN, or OPENAI_API_KEY.' });
-    }
-
+    // LLM API call via ModelGateway (auto-select provider based on config)
     const systemPrompt = `你是知识提取专家。从文本中提取结构化知识。输出格式：{ "entries": [{ "type": "pitfall|guideline|decision|architecture|process", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }。只提取有价值的可复用知识，最多5条。`;
 
-    let rawResponse: Response;
+    const gatewayResponse = await modelGateway.chat({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: content.slice(0, 50_000) },
+      ],
+      temperature: 0.3,
+      maxTokens: 1024,
+    });
 
-    if (selectedProvider.name === 'anthropic') {
-      // Anthropic API format
-      rawResponse = await fetch(selectedProvider.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': apiKey,
-          'anthropic-version': '2023-06-01',
-        },
-        body: JSON.stringify({
-          model: selectedProvider.model,
-          max_tokens: 1024,
-          system: systemPrompt,
-          messages: [{ role: 'user', content: content.slice(0, 50_000) }],
-        }),
-      });
-      const data = await rawResponse.json() as any;
-      const llmContent = data.content?.[0]?.text || '';
-      // Convert to OpenAI format for unified parsing
-      var parsedData = { choices: [{ message: { content: llmContent } }] };
-    } else {
-      // OpenAI-compatible format (DeepSeek, OpenAI)
-      rawResponse = await fetch(selectedProvider.url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: selectedProvider.model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: content.slice(0, 50_000) },
-          ],
-          temperature: 0.3,
-          max_tokens: 1024,
-        }),
-      });
-      var parsedData = await rawResponse.json() as any;
-    }
-    const data = parsedData;
-    const llmContent = data.choices?.[0]?.message?.content || '';
+    const llmContent = gatewayResponse.content;
 
     // Parse JSON from LLM response
     let result: any;
