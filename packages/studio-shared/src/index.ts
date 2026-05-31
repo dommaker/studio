@@ -16,6 +16,9 @@ export * from './harness/index';
 // 导出 Model Tier（类型安全，无依赖，可安全引入前端）
 export { type ModelTier, getModelForTier } from './config/model-tier';
 
+// 导出统一配置 API
+export { getProviderApiKey, getConfigSummary, getConfiguredProviders, loadConfigEnv, type LlmProvider } from './config/index';
+
 // 导出 Constants 模块
 export * from './constants/levels';
 export * from './constants/responsibility-chain';
