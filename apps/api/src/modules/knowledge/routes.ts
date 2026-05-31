@@ -17,7 +17,6 @@ import { logger } from '../../utils/logger.js';
 import { upsertKnowledge } from './knowledge-bus.service.js';
 import type { KnowledgeSource } from './knowledge-bus.service.js';
 import { knowledgeSync } from './knowledge-sync.service.js';
-import { modelGateway } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -918,19 +917,23 @@ knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
       return res.status(400).json({ error: 'content and source are required' });
     }
 
-    // LLM API call via ModelGateway (auto-select provider based on config)
-    const systemPrompt = `你是知识提取专家。从文本中提取结构化知识。输出格式：{ "entries": [{ "type": "pitfall|guideline|decision|architecture|process", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }。只提取有价值的可复用知识，最多5条。`;
-
-    const gatewayResponse = await modelGateway.chat({
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: content.slice(0, 50_000) },
-      ],
-      temperature: 0.3,
-      maxTokens: 1024,
+    // Direct DeepSeek API call for debugging
+    const apiKey = process.env.DEEPSEEK_API_KEY || '';
+    const rawResponse = await fetch('https://api.deepseek.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: 'deepseek-chat',
+        messages: [
+          { role: 'system', content: `你是知识提取专家。从文本中提取结构化知识。输出格式：{ "entries": [{ "type": "pitfall|guideline|decision|architecture|process", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }。只提取有价值的可复用知识，最多5条。` },
+          { role: 'user', content: content.slice(0, 50_000) },
+        ],
+        temperature: 0.3,
+        max_tokens: 1024,
+      }),
     });
-
-    const llmContent = gatewayResponse.content;
+    const data = await rawResponse.json() as any;
+    const llmContent = data.choices?.[0]?.message?.content || '';
 
     // Parse JSON from LLM response
     let result: any;
