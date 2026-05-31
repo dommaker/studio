@@ -2,15 +2,44 @@
  * Config - TypeScript 配置管理
  * ============================================================================
  * 功能: 替代 config.sh，提供统一的配置管理
- * 
+ *
  * 配置优先级:
- *   1. 环境变量
- *   2. .env 文件
+ *   1. 环境变量（最高，.env 覆盖）
+ *   2. ~/.studio/config.env（统一配置文件）
  *   3. 默认值
  */
 
 import * as path from 'path';
 import * as os from 'os';
+import * as fs from 'fs';
+
+/**
+ * 加载 ~/.studio/config.env 到 process.env（仅当 env 未设置时）
+ */
+export function loadConfigEnv(): void {
+  const configPath = path.join(os.homedir(), '.studio', 'config.env');
+  if (!fs.existsSync(configPath)) return;
+
+  const content = fs.readFileSync(configPath, 'utf-8');
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+
+    const eqIndex = trimmed.indexOf('=');
+    if (eqIndex === -1) continue;
+
+    const key = trimmed.slice(0, eqIndex).trim();
+    const value = trimmed.slice(eqIndex + 1).trim();
+
+    // 仅当环境变量未设置时才加载（env 优先级更高）
+    if (!process.env[key]) {
+      process.env[key] = value;
+    }
+  }
+}
+
+// 启动时自动加载 config.env
+loadConfigEnv();
 
 export interface AgentStudioConfig {
   // 路径配置
@@ -106,14 +135,70 @@ export function getApiKey(keyIndex: 1 | 2 = 1): {
  */
 export function checkRequiredConfig(): { valid: boolean; missing: string[] } {
   const missing: string[] = [];
-  
+
   // 至少需要一个 API Key
   if (!agentStudioConfig.codingApiKey1 && !agentStudioConfig.anthropicApiKey1) {
     missing.push('CODING_API_KEY_1 or ANTHROPIC_API_KEY');
   }
-  
+
   return {
     valid: missing.length === 0,
     missing,
   };
+}
+
+/**
+ * 按 provider 获取 API Key（统一入口，禁止直接 process.env）
+ */
+export type LlmProvider = 'deepseek' | 'anthropic' | 'openai' | 'coding';
+
+const PROVIDER_KEY_MAP: Record<LlmProvider, string[]> = {
+  deepseek: ['DEEPSEEK_API_KEY'],
+  anthropic: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY_1', 'ANTHROPIC_API_KEY'],
+  openai: ['OPENAI_API_KEY', 'LLM_API_KEY'],
+  coding: ['CODING_API_KEY_1'],
+};
+
+export function getProviderApiKey(provider: LlmProvider): string | undefined {
+  const keys = PROVIDER_KEY_MAP[provider];
+  for (const key of keys) {
+    const value = process.env[key];
+    if (value) return value;
+  }
+  return undefined;
+}
+
+/**
+ * 获取所有已配置的 provider 列表
+ */
+export function getConfiguredProviders(): LlmProvider[] {
+  const providers: LlmProvider[] = [];
+  for (const provider of Object.keys(PROVIDER_KEY_MAP) as LlmProvider[]) {
+    if (getProviderApiKey(provider)) {
+      providers.push(provider);
+    }
+  }
+  return providers;
+}
+
+/**
+ * 获取配置摘要（masked）
+ */
+export function getConfigSummary(): Record<string, string> {
+  const summary: Record<string, string> = {};
+  const allKeys = [
+    'DEEPSEEK_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY',
+    'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1',
+    'JWT_SECRET', 'ENCRYPTION_KEY',
+    'DISCORD_BOT_TOKEN', 'DISCORD_PUBLIC_KEY',
+  ];
+  for (const key of allKeys) {
+    const value = process.env[key];
+    if (value) {
+      summary[key] = value.length > 8
+        ? `${value.slice(0, 4)}...${value.slice(-4)}`
+        : '****';
+    }
+  }
+  return summary;
 }
