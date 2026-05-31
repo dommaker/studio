@@ -7,7 +7,7 @@
 
 import { modelGateway, logger } from '@dommaker/studio-shared';
 import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
-import { sharedStore, sharedIngest } from '../knowledge/knowledge-bus.service.js';
+import { sharedStore, sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { exec } from 'child_process';
@@ -809,6 +809,7 @@ ${existingPatternsBlock}`;
     }
 
     const result = sharedIngest.ingestEntry(partial as any, options as any);
+    scheduleVectorDbSync();
     logger.info('[KnowledgeAgent] Entry ingested', {
       id: result.id,
       title: entry.title,

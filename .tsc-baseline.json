@@ -1,7 +1,49 @@
 {
+  "apps/api": [
+    {
+      "file": "apps/api/src/modules/agents/routes.ts",
+      "line": 20,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/audit-logs/routes.ts",
+      "line": 11,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/auth/routes.ts",
+      "line": 9,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal.service.ts",
+      "line": 925,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/notifications/routes.ts",
+      "line": 13,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/roles/role.service.ts",
+      "line": 209,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/roles/routes.ts",
+      "line": 17,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/roles/routes.ts",
+      "line": 20,
+      "code": "TS2345"
+    }
+  ],
   "_meta": {
-    "generated": "2026-05-31T15:13:41.301Z",
-    "totalErrors": 0,
-    "commit": "d073972f0a13af4a57171cdd649408147753f982"
+    "generated": "2026-05-31T18:42:15.846Z",
+    "totalErrors": 8,
+    "commit": "065567cc543e219f02e84234d92ba7cbd066d1dc"
   }
 }

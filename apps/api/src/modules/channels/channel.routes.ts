@@ -6,7 +6,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { goalService } from '../goals/goal.service.js';
-import { sharedIngest } from '../knowledge/knowledge-bus.service.js';
+import { sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { projectService } from '../pmo/project.service.js';
 
 const router = Router();
@@ -573,6 +573,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
           { type: entry.type as any, title: entry.title, content: entry.content, tags: entry.tags, projects: [projectId || taskId] },
           { source: source || `task:${taskId}`, layer: 'project', maturity: 'draft', tags: entry.tags, projects: [projectId || taskId] },
         );
+        scheduleVectorDbSync();
 
         // Prisma Document 双写
         try {

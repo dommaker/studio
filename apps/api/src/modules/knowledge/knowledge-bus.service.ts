@@ -19,11 +19,17 @@ import { KnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, Kn
 import type { KnowledgeType } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { exec } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 
 // KE-002 P0: unified absolute path for knowledge storage
 export const UNIFIED_KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowledge');
+
+// local-rag vector-db paths (must match MCP server config)
+const LANCE_DB_PATH = path.join(os.homedir(), '.cache', 'mcp-local-rag', 'lancedb');
+const MODEL_CACHE_DIR = path.join(os.homedir(), '.cache', 'huggingface', 'hub');
+const MODEL_NAME = path.join(MODEL_CACHE_DIR, 'models--onnx-community--bge-small-zh-v1.5-ONNX', 'snapshots', 'main');
 
 // BusEntry type → KnowledgeType 保真映射 (KE-002 P1)
 const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeType> = {
@@ -95,6 +101,7 @@ export class KnowledgeBus {
           tags: [entry.type],
         },
       );
+      scheduleVectorDbSync();
       // Log dedup merges
       if (result.lastReferenced && result.contributors.length > 1) {
         logger.info('[KnowledgeBus] Dedup merged', { title: entry.title, existingId: result.id });
@@ -121,6 +128,7 @@ export class KnowledgeBus {
           tags: ['incident', entry.severity],
         },
       );
+      scheduleVectorDbSync();
       if (result.lastReferenced && result.contributors.length > 1) {
         logger.info('[KnowledgeBus] Dedup merged (incident)', { title: entry.title, existingId: result.id });
       }
@@ -146,6 +154,7 @@ export class KnowledgeBus {
           tags: ['trend'],
         },
       );
+      scheduleVectorDbSync();
       if (result.lastReferenced && result.contributors.length > 1) {
         logger.info('[KnowledgeBus] Dedup merged (trend)', { title: entry.title, existingId: result.id });
       }
@@ -242,6 +251,7 @@ export class KnowledgeBus {
           tags: ['analyst_accuracy'],
         },
       );
+      scheduleVectorDbSync();
       if (result.lastReferenced && result.contributors.length > 1) {
         logger.info('[KnowledgeBus] Analyst accuracy dedup merged', {
           docId: data.docId.slice(0, 16),
@@ -362,6 +372,81 @@ export class KnowledgeBus {
 
 export const knowledgeBus = new KnowledgeBus();
 
+// ── local-rag sync debounce timer + mutex ──
+let syncTimer: ReturnType<typeof setTimeout> | null = null;
+let syncInProgress = false;
+let deferredSince: number | null = null;  // #2: track deferral start for log dedup
+let failCount = 0;  // #3: consecutive failure count for backoff
+
+/**
+ * 将 .studio/knowledge/ 同步到 local-rag 向量库。
+ * 防止 safeIngest 写盘后 Agent 无法通过 mcp__local-rag__query_documents 检索到新条目。
+ *
+ * 使用 mcp-local-rag CLI 增量 ingest（已 ingest 的文件自动跳过）。
+ * 5s 防抖：批量 ingest 15 条 → 只触发 1 次 sync。
+ * 互斥锁：防止并发写入 LanceDB 导致 commit conflict。
+ * 失败重试：指数退避（10s, 20s, 40s... 最多 5 次）。
+ */
+export function isVectorDbSyncing(): boolean {
+  return syncInProgress;
+}
+
+export function scheduleVectorDbSync(): void {
+  if (syncTimer) clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    syncTimer = null;
+    if (syncInProgress) {
+      // #2: only log first defer, not every 5s
+      if (!deferredSince) {
+        deferredSince = Date.now();
+        logger.info('[KnowledgeBus] vector-db sync deferred (previous sync still running)');
+      }
+      scheduleVectorDbSync();
+      return;
+    }
+    syncInProgress = true;
+    const cmd = `mcp-local-rag --db-path ${LANCE_DB_PATH} --cache-dir ${MODEL_CACHE_DIR} --model-name ${MODEL_NAME} ingest "${UNIFIED_KNOWLEDGE_DIR}" --base-dir "${UNIFIED_KNOWLEDGE_DIR}"`;
+    exec(cmd, { timeout: 300_000 }, (err, stdout, stderr) => {
+      syncInProgress = false;
+      // #2: log resume after deferral
+      if (deferredSince) {
+        const waited = Math.round((Date.now() - deferredSince) / 1000);
+        deferredSince = null;
+        logger.info('[KnowledgeBus] vector-db sync resumed after deferral', { waitedSec: waited });
+      }
+      if (err) {
+        // optimize() failures are non-fatal (data already inserted)
+        const msg = err.message || '';
+        if (msg.includes('Succeeded:')) {
+          const summary = msg.match(/Succeeded:\s*\d+.*Failed:\s*\d+.*Total chunks:\s*\d+/s)?.[0];
+          logger.info('[KnowledgeBus] vector-db synced (with optimize warning)', { summary });
+          failCount = 0;
+          return;
+        }
+        // #3: re-schedule with exponential backoff on real failure
+        failCount++;
+        if (failCount <= 5) {
+          const backoffSec = Math.min(10 * Math.pow(2, failCount - 1), 120);
+          logger.warn('[KnowledgeBus] vector-db sync failed, retrying', {
+            attempt: failCount, backoffSec, error: msg.slice(0, 200),
+          });
+          setTimeout(() => scheduleVectorDbSync(), backoffSec * 1000);
+        } else {
+          logger.warn('[KnowledgeBus] vector-db sync failed permanently (giving up)', {
+            attempts: failCount, error: msg.slice(0, 200), stderr: stderr?.slice(0, 200),
+          });
+          failCount = 0;  // reset for next trigger
+        }
+        return;
+      }
+      failCount = 0;
+      // Extract summary line from stdout
+      const summary = stdout.match(/Succeeded:\s*\d+.*Failed:\s*\d+.*Total chunks:\s*\d+/s)?.[0] || stdout.slice(-100);
+      logger.info('[KnowledgeBus] vector-db synced', { summary });
+    });
+  }, 5_000);
+}
+
 /**
  * 设计时知识沉淀：按 scope 去重写入。
  * 对比已有条目 → 新增/更新/刷新 lastReferenced，防止重复和腐烂。
@@ -389,6 +474,7 @@ export async function upsertKnowledge(params: {
       { type: type as any, title, content, tags: [scope, 'design-doc'] },
       { source: `design:${source}:${scope}`, layer: 'tech', maturity: 'verified', tags: [scope, 'design-doc'] },
     );
+    scheduleVectorDbSync();
     logger.info('[KnowledgeBus] Created design-entry', { scope, entryId: result.id, title });
     return { action: 'created', entryId: result.id };
   }
@@ -405,6 +491,7 @@ export async function upsertKnowledge(params: {
       title,
       maturity: 'verified',  // 重置为 verified，新一轮验证
     });
+    scheduleVectorDbSync();
     logger.info('[KnowledgeBus] Updated design-entry (content changed)', { scope, entryId: latest.id });
     return { action: 'updated', entryId: latest.id };
   }

@@ -7,6 +7,7 @@
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { scheduleVectorDbSync } from './knowledge-bus.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -189,9 +190,10 @@ export class ResolutionService {
         status: newStatus,
       });
 
-      // B13-003: 同步到 local-rag（非阻塞）
+      // B13-003: 写 .md 到 disk → scheduleVectorDbSync() 统一 sync
       if (newStatus === 'canonical') {
-        this.syncCanonicalToLocalRag().catch(() => { /* non-blocking */ });
+        this.writeCanonicalToDisk().catch(() => { /* non-blocking */ });
+        scheduleVectorDbSync();
       }
     } catch (err) {
       logger.warn('[ResolutionService] verify failed', { error: String(err) });
@@ -277,17 +279,15 @@ export class ResolutionService {
       }
     }
 
-    // B13-003: 启动后同步 canonical resolutions 到 local-rag
-    this.syncCanonicalToLocalRag().catch(() => { /* non-blocking */ });
+    // B13-003: 启动 sync 由 knowledge-bus scheduleVectorDbSync() 统一处理（覆盖 resolutions 目录）
+    // 不再单独调用 CLI sync，避免并发写入 LanceDB 冲突
   }
 
   /**
-   * B13-003: 同步 canonical resolutions 到 local-rag vector DB
-   *
-   * 写 .md 文件到 ~/.studio/knowledge/resolutions/ → mcp-local-rag ingest
-   * 使 canonical 解法可通过 mcp__local-rag__query_documents 语义检索。
+   * 写 canonical resolutions 到磁盘 .md 文件。
+   * sync 由 knowledge-bus scheduleVectorDbSync() 统一处理。
    */
-  async syncCanonicalToLocalRag(): Promise<void> {
+  async writeCanonicalToDisk(): Promise<void> {
     try {
       const canonicals = await prisma.resolution.findMany({
         where: { status: 'canonical' },
@@ -327,19 +327,9 @@ export class ResolutionService {
         fs.writeFileSync(filePath, content, 'utf-8');
       }
 
-      const { execSync } = await import('child_process');
-      const resolutionsParent = path.dirname(RESOLUTIONS_DIR);
-      execSync(`mcp-local-rag ingest "${RESOLUTIONS_DIR}" --base-dir "${resolutionsParent}"`, {
-        timeout: 30_000,
-        encoding: 'utf-8',
-        stdio: 'pipe',
-      });
-
-      logger.info('[ResolutionService] Synced canonical resolutions to local-rag', {
-        count: canonicals.length,
-      });
+      logger.info('[ResolutionService] Wrote canonical resolutions to disk', { count: canonicals.length });
     } catch (err) {
-      logger.warn('[ResolutionService] syncToLocalRag failed', { error: String(err) });
+      logger.warn('[ResolutionService] writeCanonicalToDisk failed', { error: String(err) });
     }
   }
 
