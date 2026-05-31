@@ -328,7 +328,8 @@ export class ResolutionService {
       }
 
       const { execSync } = await import('child_process');
-      execSync(`mcp-local-rag ingest "${RESOLUTIONS_DIR}"`, {
+      const resolutionsParent = path.dirname(RESOLUTIONS_DIR);
+      execSync(`mcp-local-rag ingest "${RESOLUTIONS_DIR}" --base-dir "${resolutionsParent}"`, {
         timeout: 30_000,
         encoding: 'utf-8',
         stdio: 'pipe',

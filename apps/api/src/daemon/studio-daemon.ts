@@ -119,7 +119,7 @@ class StudioDaemon {
       .catch((e: any) => {
         logger.error('[StudioDaemon] Health probe FAILED — Claude CLI may be broken', {
           error: (e?.message || String(e)).slice(0, 200),
-          hint: 'Check IS_SANDBOX, ANTHROPIC_AUTH_TOKEN, claude binary path',
+          hint: 'Check IS_SANDBOX, STUDIO_API_KEY, claude binary path',
         });
       });
   }

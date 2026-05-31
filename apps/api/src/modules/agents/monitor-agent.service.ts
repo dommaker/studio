@@ -1061,6 +1061,8 @@ export class MonitorAgent {
         take: 10,
       });
 
+      if (recent.length === 0) return; // No executions to evaluate
+
       let totalExecutions = 0;
       let efficientCount = 0;
       let normalCount = 0;

@@ -162,6 +162,15 @@ class AgentExecutor {
                     fsSync.mkdirSync(claudeDir, { recursive: true });
                     fsSync.writeFileSync(settingsPath, JSON.stringify({
                         permissions: { defaultMode: 'bypassPermissions' },
+                        mcpServers: {
+                            'local-rag': {
+                                command: 'mcp-local-rag',
+                                args: [
+                                    '--db-path', process.env.LOCAL_RAG_DB_PATH || '/root/.cache/mcp-local-rag/lancedb',
+                                    '--model-name', process.env.LOCAL_RAG_MODEL || '/root/.cache/huggingface/hub/models--onnx-community--bge-small-zh-v1.5-ONNX/snapshots/main',
+                                ],
+                            },
+                        },
                     }, null, 2), 'utf-8');
                 }
             }

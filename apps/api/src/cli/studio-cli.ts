@@ -1060,7 +1060,7 @@ async function studioConfig(args: string[]) {
     case 'list': {
       const config = loadConfig();
       console.log(`Config: ${CONFIG_PATH}\n`);
-      const keys = ['DEEPSEEK_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1', 'JWT_SECRET', 'ENCRYPTION_KEY', 'DISCORD_BOT_TOKEN', 'DISCORD_PUBLIC_KEY'];
+      const keys = ['STUDIO_API_KEY', 'PIPELINE_API_KEY', 'KNOWLEDGE_API_KEY', 'JWT_SECRET', 'ENCRYPTION_KEY', 'DISCORD_DAILY_CHANNEL'];
       for (const key of keys) {
         const envVal = process.env[key];
         const fileVal = config[key];
@@ -1093,7 +1093,7 @@ async function studioConfig(args: string[]) {
         if (!process.env[k]) process.env[k] = v;
       }
       const checks = [
-        { name: 'LLM API Key', keys: ['DEEPSEEK_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'] },
+        { name: 'Studio API Key', keys: ['STUDIO_API_KEY'] },
         { name: 'JWT Secret', keys: ['JWT_SECRET'] },
         { name: 'Encryption Key', keys: ['ENCRYPTION_KEY'] },
       ];

@@ -427,12 +427,19 @@ ${deployResult.summary.slice(0, 2000)}
         return;
       }
 
-      // Direct DeepSeek API call (modelGateway.promptJson has JSON parsing issues with some responses)
-      const apiKey = process.env.DEEPSEEK_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || '';
+      // Direct API call for knowledge extraction
+      const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
       if (!apiKey) {
-        logger.warn('[KnowledgeAgent] No API key (DEEPSEEK_API_KEY or ANTHROPIC_AUTH_TOKEN), skipping extraction', { source });
+        logger.warn('[KnowledgeAgent] No API key (KNOWLEDGE_API_KEY or STUDIO_API_KEY), skipping extraction', { source });
         return;
       }
+
+      const truncatedContent = content.slice(0, 50_000);
+      logger.info('[KnowledgeAgent] extractFromText starting', {
+        source: source.slice(-40),
+        contentLength: truncatedContent.length,
+        originalLength: content.length,
+      });
 
       const rawResponse = await fetch('https://api.deepseek.com/v1/chat/completions', {
         method: 'POST',
@@ -441,14 +448,33 @@ ${deployResult.summary.slice(0, 2000)}
           model: 'deepseek-chat',
           messages: [
             { role: 'system', content: `你是知识提取专家。从文本中提取结构化知识。对每条记录必须做三层分析：1) 根因（不描述表面现象），2) 责任归属（哪个 Agent/流程该预防），3) 预防措施（具体可操作）。\n\n关注类型：\n- 架构决策 (architecture) - 关于系统设计的讨论和决定\n- 设计决策 (decision) - 关于实现方式的取舍\n- 踩坑记录 (pitfall) - 遇到的问题，重点是根因而非现象\n- 流程经验 (process) - 流程中哪个环节该改进\n- 最佳实践 (guideline) - 可复用的经验和模式\n\n输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }\n只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。` },
-            { role: 'user', content: content.slice(0, 50_000) },
+            { role: 'user', content: truncatedContent },
           ],
           temperature: 0.3,
           max_tokens: 1024,
         }),
       });
+
+      if (!rawResponse.ok) {
+        const errorBody = await rawResponse.text().catch(() => 'unreadable');
+        logger.warn('[KnowledgeAgent] DeepSeek API error', {
+          source: source.slice(-40),
+          status: rawResponse.status,
+          body: errorBody.slice(0, 300),
+        });
+        return;
+      }
+
       const data = await rawResponse.json() as any;
       const llmContent = data.choices?.[0]?.message?.content || '';
+      const finishReason = data.choices?.[0]?.finish_reason;
+
+      logger.info('[KnowledgeAgent] DeepSeek response received', {
+        source: source.slice(-40),
+        responseLength: llmContent.length,
+        finishReason,
+        preview: llmContent.slice(0, 200),
+      });
 
       if (!llmContent) {
         logger.info('[KnowledgeAgent] Empty LLM response for extraction', { source: source.slice(-40) });
@@ -480,7 +506,11 @@ ${deployResult.summary.slice(0, 2000)}
       }
 
       if (!result.entries?.length) {
-        logger.info('[KnowledgeAgent] No knowledge extracted from text', { source: source.slice(-40) });
+        logger.info('[KnowledgeAgent] No knowledge extracted from text', {
+          source: source.slice(-40),
+          llmResponsePreview: llmContent.slice(0, 300),
+          parsedKeys: Object.keys(result),
+        });
         return;
       }
 
@@ -535,7 +565,7 @@ ${deployResult.summary.slice(0, 2000)}
         return;
       }
 
-      const apiKey = process.env.DEEPSEEK_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN || '';
+      const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
       if (!apiKey) {
         logger.warn('[KnowledgeAgent] No API key, skipping behavior extraction', { source });
         return;
@@ -778,7 +808,13 @@ ${existingPatternsBlock}`;
       });
     }
 
-    sharedIngest.ingestEntry(partial as any, options as any);
+    const result = sharedIngest.ingestEntry(partial as any, options as any);
+    logger.info('[KnowledgeAgent] Entry ingested', {
+      id: result.id,
+      title: entry.title,
+      maturity: result.maturity,
+      sourceRefs: result.sourceReferences?.length ?? 0,
+    });
     return true;
   }
 

@@ -917,8 +917,8 @@ knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
       return res.status(400).json({ error: 'content and source are required' });
     }
 
-    // Direct DeepSeek API call for debugging
-    const apiKey = process.env.DEEPSEEK_API_KEY || '';
+    // Direct API call for knowledge extraction
+    const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
     const rawResponse = await fetch('https://api.deepseek.com/v1/chat/completions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },

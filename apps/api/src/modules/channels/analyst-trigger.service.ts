@@ -411,9 +411,9 @@ class AnalystTriggerService {
 
     // 1b. Pre-flight: verify API key + Claude availability before spending tokens
     try {
-      const token = process.env.ANTHROPIC_AUTH_TOKEN;
+      const token = process.env.STUDIO_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
       if (!token || token.length < 10) {
-        logger.error('[AnalystTrigger] Pre-flight failed — ANTHROPIC_AUTH_TOKEN missing or invalid');
+        logger.error('[AnalystTrigger] Pre-flight failed — STUDIO_API_KEY missing or invalid');
         return;
       }
     } catch { /* best-effort */ }

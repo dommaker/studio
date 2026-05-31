@@ -36,10 +36,11 @@ fi
 
 # 1. Prisma 迁移
 echo -n "Prisma migrations... "
-PENDING=$(DATABASE_URL="file:$DB_PATH" npx prisma migrate status 2>&1 | grep "not yet applied" || true)
+PRISMA_BIN="$PRISMA_DIR/node_modules/.bin/prisma"
+PENDING=$(cd "$PRISMA_DIR" && DATABASE_URL="file:$DB_PATH" "$PRISMA_BIN" migrate status 2>&1 | grep "not yet applied" || true)
 if [ -n "$PENDING" ]; then
   echo "PENDING — applying..."
-  DATABASE_URL="file:$DB_PATH" npx prisma migrate deploy 2>&1 | sed 's/^/  /'
+  cd "$PRISMA_DIR" && DATABASE_URL="file:$DB_PATH" "$PRISMA_BIN" migrate deploy 2>&1 | sed 's/^/  /'
   echo "  ✅ Migrations applied"
 else
   echo "✅ up to date"
