@@ -1,10 +1,10 @@
-// runtime-config API - TaskWorker 配置（Redis 存储）
+// runtime-config API - TaskWorker 配置（内存存储）
 import { Router, Request, Response } from 'express';
 import { eventStore } from '../../core/event-store.js';
 import { logger } from '@dommaker/studio-shared';
 
 const router = Router();
-const redis = eventStore;
+const store = eventStore;
 const CONFIG_KEY = 'studio:worker:config';
 
 /**
@@ -13,7 +13,7 @@ const CONFIG_KEY = 'studio:worker:config';
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const configStr = await redis.get(CONFIG_KEY);
+    const configStr = await store.get(CONFIG_KEY);
     
     if (!configStr) {
       // 返回默认配置
@@ -32,7 +32,7 @@ router.get('/', async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: config,
-      source: 'redis',
+      source: 'store',
     });
   } catch (error) {
     logger.error('Failed to get runtime config', { error: String(error) });
@@ -45,7 +45,7 @@ router.get('/', async (req: Request, res: Response) => {
 
 /**
  * POST /api/v1/runtime-config
- * 更新 TaskWorker 配置（写入 Redis）
+ * 更新 TaskWorker 配置（写入 EventStore）
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -71,7 +71,7 @@ router.post('/', async (req: Request, res: Response) => {
     }
     
     // 合并现有配置
-    const existingStr = await redis.get(CONFIG_KEY);
+    const existingStr = await store.get(CONFIG_KEY);
     const existing = existingStr ? JSON.parse(existingStr) : {};
     
     const newConfig = {
@@ -81,8 +81,8 @@ router.post('/', async (req: Request, res: Response) => {
       ...(showTokenUsage !== undefined && { showTokenUsage }),
     };
     
-    // 写入 Redis（无 TTL，永久存储）
-    await redis.set(CONFIG_KEY, JSON.stringify(newConfig));
+    // 写入 EventStore（无 TTL，内存存储）
+    await store.set(CONFIG_KEY, JSON.stringify(newConfig));
     
     logger.info('Runtime config updated', { config: newConfig });
     
@@ -107,7 +107,7 @@ router.post('/', async (req: Request, res: Response) => {
 router.post('/reload', async (req: Request, res: Response) => {
   try {
     // 发布重载事件（TaskWorker 监听）
-    await redis.publish('studio:worker:reload', JSON.stringify({
+    await store.publish('studio:worker:reload', JSON.stringify({
       timestamp: new Date().toISOString(),
     }));
     

@@ -9,9 +9,7 @@ import express, { Router, Request, Response } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '../../utils/logger.js';
 import { eventStore } from '../../core/event-store.js';
-
 const router = express.Router();
-const redis = eventStore;
 
 // Discord Interaction Types
 const InteractionType = {

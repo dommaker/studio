@@ -2,8 +2,8 @@
  * MemoryService - 角色记忆管理
  *
  * 三层存储：
- * 1. Redis 热缓存（getTopMemories 结果，TTL 5min）
- * 2. RoleMemoryEntry 表（PG，主要存储）
+ * 1. 内存热缓存（getTopMemories 结果，TTL 5min）
+ * 2. RoleMemoryEntry 表（SQLite，主要存储）
  * 3. Role.memory JSON 列（降级兼容，只读）
  */
 
@@ -12,26 +12,14 @@ import { logger, llmClient } from '@dommaker/studio-shared';
 import type { RoleMemory, RoleMemoryEntry } from './role.types.js';
 
 const DEFAULT_MAX_ENTRIES = 200;
-const CACHE_TTL = 300; // 5 minutes
-const CACHE_PREFIX = 'memory:role';
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// Redis 客户端（延迟加载，避免未配置时报错）
-let redis: any = null;
-async function getRedis() {
-  if (redis !== null) return redis;
-  try {
-    // @ts-expect-error — redis module may not exist; handled by catch
-    const mod = await import('../../../../apps/api/src/core/redis.js').catch(() => null) as { getRedis?: () => unknown } | null;
-    if (mod?.getRedis) {
-      redis = mod.getRedis();
-      return redis;
-    }
-  } catch (e) {
-    logger.error('[Memory] Failed to load Redis module', { error: String(e) });
-  }
-  redis = undefined;
-  return undefined;
+// 内存热缓存（B0-002: 替代 Redis）
+interface CacheEntry {
+  data: RoleMemoryEntry[];
+  expiresAt: number;
 }
+const memoryCache = new Map<string, CacheEntry>();
 
 export class MemoryService {
   /**
@@ -75,7 +63,7 @@ export class MemoryService {
       await this.autoCreateRelations(roleId, created.id, embedding, options?.relatedTo);
     }
 
-    await this.invalidateCache(roleId);
+    this.invalidateCache(roleId);
     logger.info(`[Memory] Added entry to role ${roleId}`, { type: entry.type, importance: entry.importance, scope, hasEmbedding: embedding.length > 0 });
 
     return this.toMemoryEntry(created);
@@ -109,7 +97,7 @@ export class MemoryService {
       },
     });
 
-    await this.invalidateCache(roleId);
+    this.invalidateCache(roleId);
     return this.toMemoryEntry(updated);
   }
 
@@ -123,7 +111,7 @@ export class MemoryService {
 
     if (result.count === 0) return false;
 
-    await this.invalidateCache(roleId);
+    this.invalidateCache(roleId);
     return true;
   }
 
@@ -182,13 +170,14 @@ export class MemoryService {
   }
 
   /**
-   * 获取高重要性记忆（带 Redis 缓存）
+   * 获取高重要性记忆（带内存缓存，TTL 5min）
    */
   async getTopMemories(roleId: string, limit = 10): Promise<RoleMemoryEntry[]> {
-    // 尝试从 Redis 缓存读取
-    const cached = await this.getFromCache(roleId);
-    if (cached) {
-      return cached.slice(0, limit);
+    // 尝试从内存缓存读取
+    const cacheKey = `${roleId}:top`;
+    const cached = memoryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data.slice(0, limit);
     }
 
     // 从 DB 读取
@@ -201,7 +190,7 @@ export class MemoryService {
     const entries = rows.map(r => this.toMemoryEntry(r));
 
     // 写入缓存
-    await this.setToCache(roleId, entries);
+    memoryCache.set(cacheKey, { data: entries, expiresAt: Date.now() + CACHE_TTL_MS });
 
     return entries;
   }
@@ -296,7 +285,7 @@ export class MemoryService {
    */
   async clearMemory(roleId: string): Promise<void> {
     await prisma.roleMemoryEntry.deleteMany({ where: { roleId } });
-    await this.invalidateCache(roleId);
+    this.invalidateCache(roleId);
   }
 
   /**
@@ -540,42 +529,10 @@ export class MemoryService {
       .slice(0, limit);
   }
 
-  // ─── Redis 缓存 ───
+  // ─── 内存缓存 ───
 
-  private cacheKey(roleId: string): string {
-    return `${CACHE_PREFIX}:${roleId}:top`;
-  }
-
-  private async getFromCache(roleId: string): Promise<RoleMemoryEntry[] | null> {
-    try {
-      const client = await getRedis();
-      if (!client) return null;
-      const raw = await client.get(this.cacheKey(roleId));
-      if (!raw) return null;
-      return JSON.parse(raw);
-    } catch {
-      return null;
-    }
-  }
-
-  private async setToCache(roleId: string, entries: RoleMemoryEntry[]): Promise<void> {
-    try {
-      const client = await getRedis();
-      if (!client) return;
-      await client.setex(this.cacheKey(roleId), CACHE_TTL, JSON.stringify(entries));
-    } catch (err) {
-      logger.debug('[Memory] Redis cache write failed (non-blocking)', { err: String(err) });
-    }
-  }
-
-  private async invalidateCache(roleId: string): Promise<void> {
-    try {
-      const client = await getRedis();
-      if (!client) return;
-      await client.del(this.cacheKey(roleId));
-    } catch {
-      // non-blocking
-    }
+  private invalidateCache(roleId: string): void {
+    memoryCache.delete(`${roleId}:top`);
   }
 }
 

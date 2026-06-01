@@ -7,10 +7,7 @@
 
 import express, { Router, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
-import { eventStore } from '../../core/event-store.js';
-
 const router = express.Router();
-const redis = eventStore;
 
 /**
  * 验证飞书签名

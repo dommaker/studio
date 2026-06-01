@@ -8,7 +8,7 @@ import { logger } from '../../utils/logger.js';
 import { requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 
 const router = Router();
-const redis = eventStore;
+const store = eventStore;
 
 // 产出文档存储目录：环境变量 → 本地 .harness/outputs/
 const OUTPUTS_DIR = process.env.OUTPUTS_DIR
@@ -36,9 +36,9 @@ export async function saveOutput(
   
   fs.writeFileSync(outputPath, content, 'utf-8');
   
-  // 更新 Redis 索引
+  // 更新索引
   const key = `outputs:${executionId}`;
-  await redis.hset(key, outputFilename, JSON.stringify({
+  await store.hset(key, outputFilename, JSON.stringify({
     filename: outputFilename,
     stepId,
     size: content.length,
@@ -56,8 +56,8 @@ router.get('/:executionId', async (req, res) => {
     const { executionId } = req.params;
     const key = `outputs:${executionId}`;
     
-    // 从 Redis 获取索引
-    const outputs = await redis.hgetall(key);
+    // 从 EventStore 获取索引
+    const outputs = await store.hgetall(key);
     
     if (Object.keys(outputs).length === 0) {
       // 尝试从文件系统读取
@@ -82,7 +82,7 @@ router.get('/:executionId', async (req, res) => {
       return;
     }
     
-    // 解析 Redis 数据
+    // 解析缓存数据
     const result = Object.values(outputs).map((data: string) => JSON.parse(data));
     res.json({ executionId, outputs: result });
   } catch (error) {
@@ -144,8 +144,8 @@ router.delete('/:executionId', requireRole('Admin'), async (req, res) => {
       fs.rmSync(dir, { recursive: true });
     }
     
-    // 清除 Redis 索引
-    await redis.del(`outputs:${executionId}`);
+    // 清除索引
+    await store.del(`outputs:${executionId}`);
     
     res.json({ success: true, message: 'Outputs deleted' });
   } catch (error) {
