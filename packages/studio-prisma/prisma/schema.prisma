@@ -696,6 +696,8 @@ model Skill {
   agentTypes   String?   // JSON array: ["executor", "reviewer"]
   tier         String?   // fast | standard | premium
   tools        String?   // JSON array: ["tool-name-1", "tool-name-2"]
+  required     String?   // JSON array: ["skill-id-1"] — 依赖的其他 skill
+  autoLoad     Boolean   @default(false) // 条件匹配时自动加载
   isBuiltin    Boolean   @default(false)
   usageCount   Int      @default(0)
   successRate  Float    @default(0)
@@ -941,6 +943,11 @@ model Channel {
   id        String   @id @default(cuid())
   name      String   // "#研发" | "#决策" | "#系统"
   type      String   @default("rnd") // rnd | decision | system
+  mode      String   @default("broadcast") // broadcast | conversation
+  agentName String?  // conversation 模式绑定的 agent (analyst/reviewer/kk/...)
+  sessionId String?  // Claude session-id (conversation 模式跨消息续接)
+  defaultWorkspaceId String? // 默认执行 Workspace
+  defaultPath        String? // 默认执行路径（相对于 workspaceRoot）
   discordChannelId String? // Discord 频道绑定
   discordWebhookUrl String? // Agent 回复推送目标
   createdAt DateTime @default(now())
@@ -1334,4 +1341,85 @@ model UserBehaviorProfile {
   @@index([status])
   @@index([createdAt])
   @@map("user_behavior_profile")
+}
+
+// ── AS-020: Workspace + Daemon 算力接入 ──
+
+model Workspace {
+  id            String   @id @default(cuid())
+  name          String
+  tokenId       String?
+  token         WorkspaceToken? @relation(fields: [tokenId], references: [id])
+  workspaceRoot String
+  hasDocker     Boolean  @default(false)
+  os            String?
+  arch          String?
+  status        String   @default("offline")
+  currentTask   String?
+  lastHeartbeat DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  runtimes      WorkspaceRuntime[]
+  tasks         WorkspaceTask[]
+  events        WorkspaceEvent[]
+}
+
+model WorkspaceToken {
+  id          String   @id @default(cuid())
+  name        String
+  tokenHash   String   @unique
+  permissions String
+  createdAt   DateTime @default(now())
+  revokedAt   DateTime?
+
+  workspaces  Workspace[]
+}
+
+model WorkspaceRuntime {
+  id          String   @id @default(cuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  provider    String
+  name        String
+  version     String?
+  status      String   @default("online")
+  lastSeenAt  DateTime?
+  createdAt   DateTime @default(now())
+
+  tasks       WorkspaceTask[]
+
+  @@unique([workspaceId, provider])
+}
+
+model WorkspaceTask {
+  id            String     @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  runtimeId     String?
+  runtime       WorkspaceRuntime? @relation(fields: [runtimeId], references: [id])
+  parentGoalId  String?
+  path          String
+  prompt        String
+  agent         String
+  modelTier     String     @default("standard")
+  sessionId     String?
+  workDir       String?
+  metadata      String?
+  status        String     @default("pending")
+  result        String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  completedAt   DateTime?
+}
+
+model WorkspaceEvent {
+  id          String     @id @default(cuid())
+  workspaceId String
+  workspace   Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  taskId      String?
+  type        String
+  content     String
+  metadata    String?
+  createdAt   DateTime   @default(now())
 }

@@ -5,7 +5,7 @@
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { User, Session } from '@prisma/client';
+import { User, Session, Workspace, WorkspaceToken } from '@prisma/client';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '../utils/logger.js';
 import { verifyToken } from '../modules/auth/service.js';
@@ -18,6 +18,8 @@ declare global {
       user?: User | null;
       session?: Session | null;
       anonymousId?: string;  // 🆕 SEC-009: 匿名用户标识
+      workspace?: Workspace | null;
+      workspaceToken?: WorkspaceToken | null;
     }
   }
 }
@@ -29,6 +31,8 @@ export interface AuthRequest extends Request {
   user?: User | null;
   session?: Session | null;
   anonymousId?: string;  // 🆕 SEC-009
+  workspace?: Workspace | null;
+  workspaceToken?: WorkspaceToken | null;
 }
 
 /**
@@ -304,14 +308,76 @@ export function checkOwnership(model: string, paramKey: string = 'id') {
 export function requireNotGuest() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
-    
+
     if (!authReq.user || authReq.user.role === 'Guest') {
       return res.status(403).json({
         error: '访客无权执行此操作，请先登录',
         code: 'GUEST_FORBIDDEN',
       });
     }
-    
+
     next();
+  };
+}
+
+/**
+ * Workspace Token 认证 - 用于 Daemon 端点
+ * 读取 Authorization: Bearer st_mach_xxx header
+ * hash token → 查 WorkspaceToken → 查 Workspace
+ */
+export function workspaceAuth() {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const authReq = req as AuthRequest;
+
+    try {
+      const token = parseAuthHeader(req);
+      if (!token) {
+        return res.status(401).json({
+          error: 'Missing workspace token',
+          code: 'MISSING_WORKSPACE_TOKEN',
+        });
+      }
+
+      // Hash incoming token to compare with stored hash
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+
+      const workspaceToken = await prisma.workspaceToken.findUnique({
+        where: { tokenHash },
+        include: { workspaces: true },
+      });
+
+      if (!workspaceToken) {
+        return res.status(401).json({
+          error: 'Invalid workspace token',
+          code: 'INVALID_WORKSPACE_TOKEN',
+        });
+      }
+
+      if (workspaceToken.revokedAt) {
+        return res.status(401).json({
+          error: 'Workspace token has been revoked',
+          code: 'WORKSPACE_TOKEN_REVOKED',
+        });
+      }
+
+      // Find workspace associated with this token
+      const workspace = workspaceToken.workspaces[0];
+      if (!workspace) {
+        return res.status(401).json({
+          error: 'No workspace registered for this token',
+          code: 'WORKSPACE_NOT_FOUND',
+        });
+      }
+
+      authReq.workspace = workspace;
+      authReq.workspaceToken = workspaceToken;
+      next();
+    } catch (error) {
+      logger.error({ error }, 'Workspace auth middleware error');
+      return res.status(500).json({
+        error: 'Workspace authentication failed',
+        code: 'WORKSPACE_AUTH_ERROR',
+      });
+    }
   };
 }

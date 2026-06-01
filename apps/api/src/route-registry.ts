@@ -112,6 +112,10 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Channel routes (B1-001)
   const { default: channelRoutes } = await import('./modules/channels/channel.routes.js') as { default: Router };
 
+  // Workspace routes (AS-020 P2)
+  const { default: workspaceRoutes } = await import('./modules/workspaces/workspace.routes.js') as { default: Router };
+  const { default: workspaceTokenRoutes } = await import('./modules/workspaces/token.routes.js') as { default: Router };
+
   // RequirementsDoc routes (B2-009)
   const { default: requirementsDocRoutes } = await import('./modules/channels/requirements-doc.routes.js') as { default: Router };
 
@@ -201,6 +205,10 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // Discord
     { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions' },
+
+    // Workspace (AS-020 P2: Daemon registration + token management)
+    { path: '/api/v1/workspaces', router: workspaceRoutes, comment: 'AS-020: Workspace registration + heartbeat' },
+    { path: '/api/v1/workspace-tokens', router: workspaceTokenRoutes, comment: 'AS-020: Workspace token management' },
 
     // Lark (飞书)
     { path: '/api/v1/lark', router: larkRoutes, comment: '飞书机器人回调' },

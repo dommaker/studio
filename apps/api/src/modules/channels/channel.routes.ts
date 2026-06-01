@@ -294,11 +294,32 @@ router.post('/:id/messages', async (req, res) => {
   const channelId = req.params.id;
   const trimmedContent = content.trim();
 
+  // Fetch channel to check mode
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } });
+  if (!channel) {
+    return res.status(404).json({ success: false, error: 'Channel not found' });
+  }
+
   const message = await channelMessageService.createHumanMessage(
     channelId,
     trimmedContent,
     replyToId || undefined,
   );
+
+  // AS-020 P1-02: Conversation mode routing
+  if (channel.mode === 'conversation' && channel.agentName) {
+    // Fire-and-forget: route to conversation handler
+    import('./conversation-handler.js')
+      .then(({ conversationHandler }) =>
+        conversationHandler.handle(channel, { id: message.id }, trimmedContent)
+      )
+      .catch(err =>
+        logger.error('[Channel] Conversation handler failed', { error: String(err) })
+      );
+
+    logger.info('[Channel] Conversation mode message', { channelId, messageId: message.id, agentName: channel.agentName });
+    return res.status(201).json({ success: true, data: { ...message, conversationMode: true } });
+  }
 
   // @Analyst trigger detection (≥30 chars, case-insensitive)
   const isAnalystTrigger =

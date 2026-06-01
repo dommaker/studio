@@ -133,6 +133,11 @@ async function start() {
     await registerRoutes();
     logger.info('Routes registered');
 
+    // AS-020 P2-04: VPS 本地 Workspace 注册（异步，不阻塞启动）
+    import('./modules/workspaces/local-workspace.js').then(({ ensureLocalWorkspace }) => {
+      ensureLocalWorkspace().catch(err => logger.warn('[LocalWorkspace] Registration failed', { error: String(err) }));
+    }).catch(err => logger.warn('[LocalWorkspace] Import failed', { error: String(err) }));
+
     // 创建 HTTP 服务器
     const server = createServer(app);
 
