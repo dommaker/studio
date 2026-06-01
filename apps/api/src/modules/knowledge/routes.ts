@@ -147,8 +147,8 @@ knowledgeRoutes.get('/', async (req, res) => {
     if (status) where.status = String(status);
     if (search) {
       where.OR = [
-        { title: { contains: String(search), mode: 'insensitive' } },
-        { content: { contains: String(search), mode: 'insensitive' } },
+        { title: { contains: String(search) } },
+        { content: { contains: String(search) } },
       ];
     }
 
@@ -845,6 +845,336 @@ knowledgeRoutes.get('/gaps', async (req, res) => {
   } catch (error) {
     logger.error({ error }, 'Failed to get knowledge gap stats');
     return res.status(500).json({ error: 'Failed to get knowledge gap stats' });
+  }
+});
+
+// ============================================
+// B10-102: UserBehaviorProfile API
+// ============================================
+
+/**
+ * GET /api/v1/knowledge/behavior
+ * Query: status, category, limit, offset
+ */
+knowledgeRoutes.get('/behavior', async (req, res) => {
+  try {
+    const { status, category, limit = '50', offset = '0' } = req.query;
+    const where: Record<string, unknown> = {};
+    if (status) where.status = String(status);
+    if (category) where.category = String(category);
+
+    const profiles = await prisma.userBehaviorProfile.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take: Math.min(Number(limit), 100),
+      skip: Number(offset),
+    });
+
+    const total = await prisma.userBehaviorProfile.count({ where });
+
+    const byCategory = await prisma.userBehaviorProfile.groupBy({
+      by: ['category'],
+      _count: true,
+    });
+
+    res.json({
+      profiles,
+      total,
+      byCategory: byCategory.reduce((acc, c) => ({ ...acc, [c.category]: c._count }), {}),
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to list behavior profiles');
+    res.status(500).json({ error: 'Failed to list behavior profiles' });
+  }
+});
+
+/**
+ * PATCH /api/v1/knowledge/behavior/:id
+ * Body: { status: 'confirmed' | 'rejected' | 'applied' }
+ * B10-104: Feedback-driven status update
+ */
+knowledgeRoutes.patch('/behavior/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+    if (!['pending', 'confirmed', 'rejected', 'applied'].includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+    const profile = await prisma.userBehaviorProfile.update({
+      where: { id },
+      data: { status },
+    });
+    logger.info({ id, status }, '[KnowledgeRoute] Behavior profile status updated');
+
+    // RKB Phase 2: Auto-verify matching resolutions on confirmation
+    if (status === 'confirmed' || status === 'applied') {
+      try {
+        const { resolutionService } = await import('./resolution.service.js');
+        const verified = await resolutionService.autoVerifyFromBehavior(profile.category, profile.pattern);
+        if (verified > 0) {
+          logger.info({ id, verified }, '[KnowledgeRoute] Auto-verified resolutions from behavior');
+        }
+      } catch { /* non-blocking */ }
+    }
+
+    res.json(profile);
+  } catch (error) {
+    logger.error({ error }, 'Failed to update behavior profile');
+    res.status(500).json({ error: 'Failed to update behavior profile' });
+  }
+});
+
+/**
+ * GET /api/v1/knowledge/behavior/stats
+ * B10-104: Feedback statistics for behavior profiles
+ */
+knowledgeRoutes.get('/behavior/stats', async (req, res) => {
+  try {
+    const [total, pending, confirmed, rejected, applied] = await Promise.all([
+      prisma.userBehaviorProfile.count(),
+      prisma.userBehaviorProfile.count({ where: { status: 'pending' } }),
+      prisma.userBehaviorProfile.count({ where: { status: 'confirmed' } }),
+      prisma.userBehaviorProfile.count({ where: { status: 'rejected' } }),
+      prisma.userBehaviorProfile.count({ where: { status: 'applied' } }),
+    ]);
+
+    const byCategory = await prisma.userBehaviorProfile.groupBy({
+      by: ['category'],
+      _count: true,
+      _avg: { confidence: true },
+    });
+
+    const feedbackRate = total > 0 ? Math.round(((confirmed + rejected + applied) / total) * 100) : 0;
+    const confirmationRate = (confirmed + applied + rejected) > 0
+      ? Math.round(((confirmed + applied) / (confirmed + applied + rejected)) * 100)
+      : 0;
+
+    res.json({
+      total,
+      pending,
+      confirmed,
+      rejected,
+      applied,
+      feedbackRate,
+      confirmationRate,
+      byCategory: byCategory.map(c => ({
+        category: c.category,
+        count: c._count,
+        avgConfidence: Math.round((c._avg.confidence || 0) * 100),
+      })),
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get behavior stats');
+    res.status(500).json({ error: 'Failed to get behavior stats' });
+  }
+});
+
+// ============================================
+// S11: Resolution browsing + unified search
+// ============================================
+
+/**
+ * GET /api/v1/knowledge/resolutions
+ * Query: status, errorClass, layer, search, limit, offset
+ */
+knowledgeRoutes.get('/resolutions', async (req, res) => {
+  try {
+    const { status, errorClass, layer, search, limit = '50', offset = '0' } = req.query;
+    const where: Record<string, unknown> = {};
+    if (status) where.status = String(status);
+    if (errorClass) where.errorClass = String(errorClass);
+    if (layer) where.layer = String(layer);
+    if (search) {
+      where.OR = [
+        { title: { contains: String(search) } },
+        { fix: { contains: String(search) } },
+        { pattern: { contains: String(search) } },
+      ];
+    }
+
+    const resolutions = await prisma.resolution.findMany({
+      where,
+      orderBy: [{ verifyCount: 'desc' }, { createdAt: 'desc' }],
+      take: Math.min(Number(limit), 100),
+      skip: Number(offset),
+    });
+
+    const total = await prisma.resolution.count({ where });
+
+    const byStatus = await prisma.resolution.groupBy({
+      by: ['status'],
+      _count: true,
+    });
+
+    res.json({
+      resolutions,
+      total,
+      byStatus: byStatus.reduce((acc, s) => ({ ...acc, [s.status]: s._count }), {}),
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to list resolutions');
+    res.status(500).json({ error: 'Failed to list resolutions' });
+  }
+});
+
+/**
+ * GET /api/v1/knowledge/search
+ * Unified search across all knowledge types
+ * Query: q (required), types (comma-separated: document,resolution,behavior,pattern)
+ */
+knowledgeRoutes.get('/search', async (req, res) => {
+  try {
+    const { q, types, limit = '20' } = req.query;
+    if (!q) {
+      return res.status(400).json({ error: 'q (search query) is required' });
+    }
+    const query = String(q).toLowerCase();
+    const searchTypes = types ? String(types).split(',') : ['document', 'resolution', 'behavior', 'pattern'];
+    const takeLimit = Math.min(Number(limit), 50);
+
+    const results: Array<{ type: string; id: string; title: string; snippet: string; score: number }> = [];
+
+    // Search documents
+    if (searchTypes.includes('document')) {
+      const docs = await prisma.document.findMany({
+        where: {
+          OR: [
+            { title: { contains: query } },
+            { content: { contains: query } },
+          ],
+        },
+        take: takeLimit,
+        orderBy: { updatedAt: 'desc' },
+      });
+      for (const d of docs) {
+        const titleLower = d.title.toLowerCase();
+        const score = titleLower.includes(query) ? 3 : 1;
+        results.push({
+          type: 'document',
+          id: d.id,
+          title: d.title,
+          snippet: (d.content || '').slice(0, 200),
+          score,
+        });
+      }
+    }
+
+    // Search resolutions
+    if (searchTypes.includes('resolution')) {
+      const resolutions = await prisma.resolution.findMany({
+        where: {
+          OR: [
+            { title: { contains: query } },
+            { fix: { contains: query } },
+            { pattern: { contains: query } },
+          ],
+        },
+        take: takeLimit,
+        orderBy: { verifyCount: 'desc' },
+      });
+      for (const r of resolutions) {
+        const titleLower = r.title.toLowerCase();
+        const score = titleLower.includes(query) ? 3 : 1;
+        results.push({
+          type: 'resolution',
+          id: r.id,
+          title: r.title,
+          snippet: r.fix.slice(0, 200),
+          score: score + (r.status === 'canonical' ? 1 : 0),
+        });
+      }
+    }
+
+    // Search behavior profiles
+    if (searchTypes.includes('behavior')) {
+      const profiles = await prisma.userBehaviorProfile.findMany({
+        where: {
+          OR: [
+            { title: { contains: query } },
+            { pattern: { contains: query } },
+            { evidence: { contains: query } },
+          ],
+        },
+        take: takeLimit,
+        orderBy: { confidence: 'desc' },
+      });
+      for (const p of profiles) {
+        results.push({
+          type: 'behavior',
+          id: p.id,
+          title: p.title,
+          snippet: p.pattern.slice(0, 200),
+          score: 1,
+        });
+      }
+    }
+
+    // Search interaction patterns
+    if (searchTypes.includes('pattern')) {
+      const patterns = await prisma.interactionPattern.findMany({
+        where: {
+          OR: [
+            { name: { contains: query } },
+            { description: { contains: query } },
+            { insight: { contains: query } },
+          ],
+          status: 'active',
+        },
+        take: takeLimit,
+        orderBy: { confidence: 'desc' },
+      });
+      for (const p of patterns) {
+        results.push({
+          type: 'pattern',
+          id: p.id,
+          title: p.name,
+          snippet: (p.insight || p.description).slice(0, 200),
+          score: 2,
+        });
+      }
+    }
+
+    // Sort by score descending
+    results.sort((a, b) => b.score - a.score);
+
+    res.json({ results: results.slice(0, takeLimit), total: results.length });
+  } catch (error) {
+    logger.error({ error }, 'Knowledge search failed');
+    res.status(500).json({ error: 'Knowledge search failed' });
+  }
+});
+
+// ============================================
+// RKB Phase 2: Knowledge density + cross-session + auto-verify
+// ============================================
+
+/**
+ * GET /api/v1/knowledge/resolution/density
+ * Knowledge density score (0-100) based on coverage, verification, breadth
+ */
+knowledgeRoutes.get('/resolution/density', async (_req, res) => {
+  try {
+    const { resolutionService } = await import('./resolution.service.js');
+    const density = await resolutionService.getDensityScore();
+    res.json(density);
+  } catch (error) {
+    logger.error({ error }, 'Failed to get density score');
+    res.status(500).json({ error: 'Failed to get density score' });
+  }
+});
+
+/**
+ * GET /api/v1/knowledge/resolution/cross-session
+ * Cross-session causality stats: goal-linked vs unlinked resolutions
+ */
+knowledgeRoutes.get('/resolution/cross-session', async (_req, res) => {
+  try {
+    const { resolutionService } = await import('./resolution.service.js');
+    const stats = await resolutionService.getCrossSessionStats();
+    res.json(stats);
+  } catch (error) {
+    logger.error({ error }, 'Failed to get cross-session stats');
+    res.status(500).json({ error: 'Failed to get cross-session stats' });
   }
 });
 

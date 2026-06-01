@@ -17,7 +17,7 @@ import { reviewAgent } from '../agents/review-agent.service.js';
 import { roleConfigService } from '../roles/role-config.service.js';
 import { knowledgeAgent } from '../agents/knowledge-agent.service.js';
 import { afterAgentComplete, recordDecision } from '@dommaker/studio-shared/harness/hooks';
-import { knowledgeKeeper } from '@dommaker/studio-shared';
+import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
 import { recordFailure, recordSuccess, recordReviewRejected, runEvolution } from '../harness/evolution.service.js';
 import type { ReviewReport } from '../agents/review-report.js';
@@ -117,14 +117,15 @@ export class AgentEventListener {
               if (project) {
                 const ge = await prisma.goalExecution.findUnique({ where: { id: goalExecutionId }, select: { input: true } });
                 const acGroupId = ((ge?.input as any)?.acGroup?.id as string) || undefined;
-                knowledgeKeeper.ingestExecutionResult(goal.companyId, project.pmoNumber, {
-                  acGroupId,
-                  status: isCompleted ? 'succeeded' : 'failed',
-                  summary: isCompleted
-                    ? `AC 组完成（sessions: ${data.sessionCount || '?'}）`
-                    : `AC 组失败: ${(data.error as string)?.slice(0, 100) || '未知错误'}`,
-                  changedFiles: completionOutput?.changedFiles,
-                  error: isCompleted ? undefined : (data.error as string),
+                knowledgeBus.recordPattern({
+                  type: isCompleted ? 'pattern' : 'failure',
+                  title: `${project.pmoNumber} ${acGroupId || ''} ${isCompleted ? '完成' : '失败'}`,
+                  content: isCompleted
+                    ? `AC 组完成（sessions: ${data.sessionCount || '?'}）${completionOutput?.changedFiles?.length ? ` 改动: ${completionOutput.changedFiles.join(', ')}` : ''}`
+                    : `AC 组失败: ${(data.error as string)?.slice(0, 200) || '未知错误'}`,
+                  severity: isCompleted ? 'info' : 'warning',
+                  timestamp: Date.now(),
+                  context: { goalId, acGroupId, pmoNumber: project.pmoNumber },
                 });
 
                 // 🆕 审计: Wiki 页面更新
@@ -237,17 +238,13 @@ export class AgentEventListener {
                     reviewIssues = (report.issues || []).map((i: any) => `- [${i.severity}] ${i.message}`).join('\n') || '无具体问题';
                   }
                   const pitfallId = `review-exhausted-${taskId.slice(0, 8)}`;
-                  knowledgeKeeper.ingestPage(companyId, {
-                    path: `pitfalls/${pitfallId}.md`,
+                  knowledgeBus.recordPattern({
+                    type: 'failure',
                     title: `审查循环耗尽: ${task.name}`,
-                    content: `## 问题\n任务"${task.name}"经过 ${MAX_REVIEW_CYCLES} 轮审查仍未通过。\n\n## 审查发现\n${reviewIssues}\n\n## 关联\n- Task: ${taskId}\n- Project: ${task.projectId}\n\n## 处理\n需要人工介入分析根因。`,
-                    frontmatter: {
-                      maturity: 'draft',
-                      sourceTaskId: taskId,
-                      sourceProjectId: task.projectId,
-                      reviewCycles: MAX_REVIEW_CYCLES,
-                      createdAt: new Date().toISOString(),
-                    },
+                    content: `任务"${task.name}"经过 ${MAX_REVIEW_CYCLES} 轮审查仍未通过。审查发现:\n${reviewIssues}\n需要人工介入分析根因。`,
+                    severity: 'critical',
+                    timestamp: Date.now(),
+                    context: { taskId, projectId: task.projectId, reviewCycles: MAX_REVIEW_CYCLES },
                   });
                   logger.info('[AgentEventListener] Pitfall recorded', { pitfallId, taskId, goalExecutionId, goalId });
 
@@ -381,12 +378,13 @@ export class AgentEventListener {
                         : undefined;
                       if (companyId) {
                         const issueList = review.issues.slice(0, 10).map((i: any) => `- [${i.severity}] ${i.message}`).join('\n');
-                        const pitfallId = `review-exhausted-${taskId.slice(0, 8)}`;
-                        knowledgeKeeper.ingestPage(companyId, {
-                          path: `pitfalls/${pitfallId}.md`,
+                        knowledgeBus.recordPattern({
+                          type: 'failure',
                           title: `审查循环耗尽: ${task.name}`,
-                          content: `## 问题\n任务"${task.name}"经过 ${previousCycle + 1} 轮审查仍未通过（最后一轮 score: ${review.score}）。\n\n## 审查发现\n${issueList || '无具体问题'}\n\n## 关联\n- Task: ${taskId}\n- Project: ${task.projectId}\n\n## 处理\n需要人工介入分析根因。`,
-                          frontmatter: { maturity: 'draft', sourceTaskId: taskId, reviewCycles: previousCycle + 1, createdAt: new Date().toISOString() },
+                          content: `任务"${task.name}"经过 ${previousCycle + 1} 轮审查仍未通过（最后一轮 score: ${review.score}）。审查发现:\n${issueList || '无具体问题'}\n需要人工介入分析根因。`,
+                          severity: 'critical',
+                          timestamp: Date.now(),
+                          context: { taskId, projectId: task.projectId, reviewCycles: previousCycle + 1, score: review.score },
                         });
                       }
                     } catch (e) {

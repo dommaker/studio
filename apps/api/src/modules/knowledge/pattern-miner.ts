@@ -86,7 +86,11 @@ export class PatternMiner {
       }
     }
 
-    // 3. 清理旧模式
+    // 3. B10-103: Mine UserBehaviorProfile for workflow patterns
+    const behaviorPatterns = await this.mineBehaviorProfiles(yesterday);
+    newPatterns.push(...behaviorPatterns);
+
+    // 4. 清理旧模式
     await prisma.interactionPattern.updateMany({
       where: {
         observedPeriodEnd: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
@@ -94,6 +98,30 @@ export class PatternMiner {
       },
       data: { status: 'outdated' },
     });
+
+    // S10: Push high-confidence pattern insights to #系统 channel
+    if (newPatterns.length > 0) {
+      try {
+        const highConfPatterns = await prisma.interactionPattern.findMany({
+          where: { status: 'active', confidence: { gte: 0.7 } },
+          orderBy: { confidence: 'desc' },
+          take: 3,
+        });
+        if (highConfPatterns.length > 0) {
+          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          if (sysChannel) {
+            const insightLines = highConfPatterns.map(p =>
+              `- **${p.name}**: ${p.insight || p.description} (置信度: ${Math.round(p.confidence * 100)}%)`
+            ).join('\n');
+            await channelMessageService.createAgentMessage(sysChannel.id, 'PatternMiner',
+              `发现 ${highConfPatterns.length} 个高置信度模式:\n${insightLines}`,
+              { meta: { cardType: 'pattern_insight', count: highConfPatterns.length } },
+            );
+          }
+        }
+      } catch { /* non-blocking */ }
+    }
 
     logger.info('[PatternMiner] Daily analysis complete', { patternsFound: newPatterns.length });
     return newPatterns.length;
@@ -240,6 +268,65 @@ export class PatternMiner {
       },
     });
     return 1;
+  }
+
+  /**
+   * B10-103: Mine UserBehaviorProfile entries for workflow/automation patterns.
+   * Aggregates similar behavior profiles into InteractionPattern entries.
+   */
+  private async mineBehaviorProfiles(since: number): Promise<number[]> {
+    const newPatterns: number[] = [];
+
+    try {
+      const profiles = await prisma.userBehaviorProfile.findMany({
+        where: {
+          createdAt: { gte: new Date(since) },
+          status: { notIn: ['rejected'] },
+          confidence: { gte: 0.5 },
+        },
+        orderBy: { confidence: 'desc' },
+      });
+
+      if (profiles.length === 0) return newPatterns;
+
+      // Aggregate by category + suggestedAction
+      const groups = new Map<string, typeof profiles>();
+      for (const p of profiles) {
+        const key = `${p.category}:${p.suggestedAction}`;
+        const group = groups.get(key) || [];
+        group.push(p);
+        groups.set(key, group);
+      }
+
+      for (const [key, group] of groups) {
+        if (group.length < 2) continue; // need at least 2 to form a pattern
+
+        const [category, suggestedAction] = key.split(':');
+        const avgConfidence = group.reduce((s, p) => s + p.confidence, 0) / group.length;
+        const titles = group.map(p => p.title).slice(0, 5);
+
+        const name = `行为模式: ${category} → ${suggestedAction}`;
+        const p = await this.upsertPattern({
+          name,
+          category: 'workflow',
+          description: `${group.length} 个行为模式指向 ${suggestedAction}（${titles.join(', ')}）`,
+          pattern: JSON.stringify({ category, suggestedAction, titles }),
+          frequency: group.length,
+          confidence: Math.min(avgConfidence, 0.95),
+          insight: `用户在 ${category} 类场景中反复出现相似模式，建议 ${suggestedAction}`,
+          suggestion: suggestedAction === 'create_rule' ? '考虑自动创建规则' :
+            suggestedAction === 'create_skill' ? '考虑创建 Skill 自动化' :
+            suggestedAction === 'create_automation' ? '考虑脚本自动化' : undefined,
+          observedPeriodStart: new Date(since),
+          observedPeriodEnd: new Date(),
+        });
+        newPatterns.push(p);
+      }
+    } catch (err) {
+      logger.warn('[PatternMiner] mineBehaviorProfiles failed', { error: String(err) });
+    }
+
+    return newPatterns;
   }
 
   /**

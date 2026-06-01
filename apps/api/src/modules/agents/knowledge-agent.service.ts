@@ -537,6 +537,25 @@ ${deployResult.summary.slice(0, 2000)}
         entryCount: result.entries.length,
         types: result.entries.map((e: any) => e.type),
       });
+
+      // B10-101: ChannelMessage + Discord webhook notification
+      try {
+        const sysChannel = await this.getOrCreateSystemChannel();
+        if (sysChannel) {
+          const entrySummary = result.entries
+            .map((e: any) => `- [${e.type}] ${e.title}`)
+            .join('\n');
+          await channelMessageService.createAgentMessage(sysChannel.id, 'KK',
+            `从 ${source.slice(-40)} 提取了 ${result.entries.length} 条知识:\n${entrySummary}`,
+            { meta: { cardType: 'knowledge_extracted', source, entryCount: result.entries.length } },
+          );
+        }
+        const { discordNotifier: dn } = await import('../../utils/discord-notifier.js');
+        await dn.sendText(
+          `知识提取完成 (${result.entries.length} 条)`,
+          `来源: ${source.slice(-40)}\n类型: ${result.entries.map((e: any) => e.type).join(', ')}`,
+        );
+      } catch { /* non-blocking */ }
     } catch (err) {
       logger.warn('[KnowledgeAgent] extractFromText failed', { source: source.slice(-40), error: String(err) });
     }
@@ -751,6 +770,24 @@ ${existingPatternsBlock}`;
         stored,
         skipped: profiles.length - stored,
       });
+
+      // B10-101: ChannelMessage notification for behavior extraction
+      if (stored > 0) {
+        try {
+          const sysChannel = await this.getOrCreateSystemChannel();
+          if (sysChannel) {
+            const profileSummary = profiles
+              .filter((p: any) => p.category && p.title && p.pattern)
+              .slice(0, 5)
+              .map((p: any) => `- [${p.category}] ${p.title} (置信度: ${Math.round((p.confidence || 0) * 100)}%)`)
+              .join('\n');
+            await channelMessageService.createAgentMessage(sysChannel.id, 'KK',
+              `从会话 ${sessionId.slice(0, 8)} 提取了 ${stored} 条行为模式:\n${profileSummary}`,
+              { meta: { cardType: 'behavior_extracted', sessionId, stored, total: profiles.length } },
+            );
+          }
+        } catch { /* non-blocking */ }
+      }
     } catch (err) {
       logger.warn('[KnowledgeAgent] extractUserBehavior failed', { source: source.slice(-40), error: String(err) });
     }

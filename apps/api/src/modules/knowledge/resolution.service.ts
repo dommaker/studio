@@ -357,6 +357,136 @@ export class ResolutionService {
   private parseTags(tagsJson: string): string[] {
     try { return JSON.parse(tagsJson); } catch { return []; }
   }
+
+  /**
+   * RKB Phase 2: Knowledge density scoring.
+   * Returns a density score (0-100) based on:
+   * - Total resolutions count
+   * - Verified/canonical ratio
+   * - Error class coverage breadth
+   * - Layer coverage
+   */
+  async getDensityScore(): Promise<{
+    score: number;
+    total: number;
+    verified: number;
+    canonical: number;
+    errorClasses: number;
+    layers: number;
+  }> {
+    try {
+      const [total, verified, canonical, byErrorClass, byLayer] = await Promise.all([
+        prisma.resolution.count(),
+        prisma.resolution.count({ where: { status: 'verified' } }),
+        prisma.resolution.count({ where: { status: 'canonical' } }),
+        prisma.resolution.groupBy({ by: ['errorClass'], _count: true }),
+        prisma.resolution.groupBy({ by: ['layer'], _count: true }),
+      ]);
+
+      // Score components (each 0-25, total 0-100)
+      const countScore = Math.min(total / 20, 1) * 25; // 20 resolutions = max
+      const verifiedRatio = total > 0 ? (verified + canonical) / total : 0;
+      const verifiedScore = verifiedRatio * 25;
+      const breadthScore = Math.min(byErrorClass.length / 8, 1) * 25; // 8 error classes = max
+      const layerScore = Math.min(byLayer.length / 4, 1) * 25; // 4 layers = max
+
+      const score = Math.round(countScore + verifiedScore + breadthScore + layerScore);
+
+      return {
+        score,
+        total,
+        verified,
+        canonical,
+        errorClasses: byErrorClass.length,
+        layers: byLayer.length,
+      };
+    } catch {
+      return { score: 0, total: 0, verified: 0, canonical: 0, errorClasses: 0, layers: 0 };
+    }
+  }
+
+  /**
+   * RKB Phase 2: Auto-verify resolution from behavior profile confirmation.
+   * When a user confirms a behavior pattern that matches a resolution's error class,
+   * auto-increment verifyCount.
+   */
+  async autoVerifyFromBehavior(category: string, pattern: string): Promise<number> {
+    try {
+      // Map behavior category to error class
+      const categoryToErrorClass: Record<string, string> = {
+        correction: 'scope_violation',
+        automation: 'repetitive_task',
+      };
+      const errorClass = categoryToErrorClass[category];
+      if (!errorClass) return 0;
+
+      // Find matching resolutions
+      const candidates = await prisma.resolution.findMany({
+        where: {
+          errorClass,
+          status: { in: ['pending', 'verified'] },
+        },
+      });
+
+      let verified = 0;
+      for (const r of candidates) {
+        // Check if pattern text matches
+        try {
+          const re = new RegExp(r.pattern, 'i');
+          if (re.test(pattern)) {
+            await this.verifyResolution(r.id);
+            verified++;
+          }
+        } catch {
+          if (pattern.toLowerCase().includes(r.pattern.toLowerCase())) {
+            await this.verifyResolution(r.id);
+            verified++;
+          }
+        }
+      }
+
+      return verified;
+    } catch (err) {
+      logger.warn('[ResolutionService] autoVerifyFromBehavior failed', { error: String(err) });
+      return 0;
+    }
+  }
+
+  /**
+   * RKB Phase 2: Cross-session causality stats.
+   * Returns resolutions grouped by sourceGoalId to show cross-session patterns.
+   */
+  async getCrossSessionStats(): Promise<{
+    linkedToGoals: number;
+    unlinked: number;
+    topErrorClasses: Array<{ errorClass: string; count: number; avgVerifyCount: number }>;
+  }> {
+    try {
+      const [linkedToGoals, unlinked, topClasses] = await Promise.all([
+        prisma.resolution.count({ where: { sourceGoalId: { not: null } } }),
+        prisma.resolution.count({ where: { sourceGoalId: null } }),
+        prisma.resolution.groupBy({
+          by: ['errorClass'],
+          _count: true,
+          _avg: { verifyCount: true },
+          orderBy: { _count: { errorClass: 'desc' } },
+          take: 10,
+        }),
+      ]);
+
+      return {
+        linkedToGoals,
+        unlinked,
+        topErrorClasses: topClasses.map(c => ({
+          errorClass: c.errorClass,
+          count: c._count,
+          avgVerifyCount: Math.round(c._avg.verifyCount || 0),
+        })),
+      };
+    } catch {
+      return { linkedToGoals: 0, unlinked: 0, topErrorClasses: [] };
+    }
+  }
 }
 
 export const resolutionService = ResolutionService.getInstance();

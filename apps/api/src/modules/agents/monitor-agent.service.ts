@@ -1506,6 +1506,38 @@ export class MonitorAgent {
         lines.push(`- KnowledgeBus: ${stats.total || 0} 条 (pattern:${stats.pattern || 0} fix:${stats.fix || 0})`);
       } catch { /* best-effort */ }
 
+      // B10-201: Behavior profile trends
+      try {
+        const behaviorProfiles = await prisma.userBehaviorProfile.findMany({
+          where: { createdAt: { gte: since } },
+          select: { category: true, suggestedAction: true, confidence: true, status: true },
+        });
+        if (behaviorProfiles.length > 0) {
+          const byCat: Record<string, number> = {};
+          const byAction: Record<string, number> = {};
+          let pendingCount = 0;
+          for (const p of behaviorProfiles) {
+            byCat[p.category] = (byCat[p.category] || 0) + 1;
+            byAction[p.suggestedAction] = (byAction[p.suggestedAction] || 0) + 1;
+            if (p.status === 'pending') pendingCount++;
+          }
+          const catLabels: Record<string, string> = { correction: '纠正', workflow: '决策', automation: '自动化' };
+          const actLabels: Record<string, string> = { create_rule: '规则', create_skill: 'Skill', create_automation: '自动化', skip: '跳过' };
+
+          lines.push('', '### 行为模式（24h）');
+          lines.push(`- 新提取: ${behaviorProfiles.length} 条 | 待确认: ${pendingCount} 条`);
+          const catLine = Object.entries(byCat).map(([c, n]) => `${catLabels[c] || c}(${n})`).join(', ');
+          lines.push(`- 分类: ${catLine}`);
+          const topAction = Object.entries(byAction).sort((a, b) => b[1] - a[1])[0];
+          if (topAction) {
+            lines.push(`- 最多建议: ${actLabels[topAction[0]] || topAction[0]} (${topAction[1]} 次)`);
+          }
+          if (pendingCount >= 5) {
+            lines.push(`- ⚠️ 积压 ${pendingCount} 条待确认行为模式 — 考虑批量审核`);
+          }
+        }
+      } catch { /* best-effort */ }
+
       // B9-025: Weekly profile report (every Sunday)
       if (now.getDay() === 0) {
         try {

@@ -35,7 +35,7 @@ const typeIcons: Record<string, string> = {
   execution: '⚡', archive: '📦',
 };
 
-type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction';
+type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction' | 'behavior' | 'resolution';
 
 const gapLabels: Record<GapTab, string> = {
   preference: '偏好',
@@ -43,10 +43,12 @@ const gapLabels: Record<GapTab, string> = {
   environment: '环境',
   decision_chain: '决策链',
   interaction: '交互模式',
+  behavior: '行为模式',
+  resolution: '解法库',
 };
 const gapIcons: Record<GapTab, string> = {
   preference: '👤', business_rule: '📏', environment: '🖥️',
-  decision_chain: '🔗', interaction: '📊',
+  decision_chain: '🔗', interaction: '📊', behavior: '🧩', resolution: '🔧',
 };
 
 type ActiveTab = 'documents' | GapTab;
@@ -71,6 +73,11 @@ export function KnowledgePage() {
   const [gapData, setGapData] = useState<any[]>([]);
   const [gapLoading, setGapLoading] = useState(false);
 
+  // S11: Unified search state
+  const [globalSearch, setGlobalSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+
   const loadDocuments = useCallback(async () => {
     setLoading(true);
     try {
@@ -87,8 +94,16 @@ export function KnowledgePage() {
   const loadGapData = useCallback(async (type: string) => {
     setGapLoading(true);
     try {
-      const res = await api.get(`/knowledge/gaps/${type}`);
-      setGapData(res.data.data || []);
+      if (type === 'behavior') {
+        const res = await api.get('/knowledge/behavior');
+        setGapData(res.data.profiles || []);
+      } else if (type === 'resolution') {
+        const res = await api.get('/knowledge/resolutions');
+        setGapData(res.data.resolutions || []);
+      } else {
+        const res = await api.get(`/knowledge/gaps/${type}`);
+        setGapData(res.data.data || []);
+      }
     } catch { setGapData([]); }
     finally { setGapLoading(false); }
   }, []);
@@ -98,6 +113,17 @@ export function KnowledgePage() {
     if (activeTab === 'documents') loadDocuments();
     else loadGapData(activeTab);
   }, [activeTab, loadDocuments, loadGapData, companyId]);
+
+  // S11: Unified search across all types
+  const handleGlobalSearch = useCallback(async () => {
+    if (!globalSearch.trim()) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    try {
+      const res = await api.get(`/knowledge/search?q=${encodeURIComponent(globalSearch)}`);
+      setSearchResults(res.data.results || []);
+    } catch { setSearchResults([]); }
+    finally { setSearchLoading(false); }
+  }, [globalSearch]);
 
   const handleViewDocument = async (doc: Document) => {
     if (doc.content) { setSelectedDoc(doc); return; }
@@ -129,6 +155,10 @@ export function KnowledgePage() {
         return <DecisionChainCard item={item} />;
       case 'interaction':
         return <InteractionPatternCard item={item} />;
+      case 'behavior':
+        return <BehaviorProfileCard item={item} />;
+      case 'resolution':
+        return <ResolutionCard item={item} />;
       default:
         return <pre className="text-xs">{JSON.stringify(item, null, 2)}</pre>;
     }
@@ -139,10 +169,53 @@ export function KnowledgePage() {
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>公司知识库</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>文档资产 + 五大知识类型（偏好 / 规则 / 环境 / 决策链 / 交互模式）</p>
+          <p style={{ color: 'var(--text-secondary)' }}>文档资产 + 七大知识类型（偏好 / 规则 / 环境 / 决策链 / 交互模式 / 行为模式 / 解法库）</p>
         </div>
         <button onClick={() => navigate('/knowledge/import')} className="btn btn-primary text-sm">📥 冷启动导入</button>
       </div>
+
+      {/* S11: Unified search across all knowledge types */}
+      <div className="mb-4 flex gap-2">
+        <input type="text" placeholder="全局搜索知识（文档 / 解法 / 行为模式 / 交互模式）..."
+          value={globalSearch}
+          onChange={e => setGlobalSearch(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleGlobalSearch()}
+          className="flex-1 px-4 py-2 rounded-lg" style={{
+            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
+            color: 'var(--text-primary)', outline: 'none',
+          }} />
+        <button onClick={handleGlobalSearch}
+          className="px-4 py-2 rounded-lg text-sm" style={{ background: 'var(--accent-primary)', color: 'white' }}>
+          搜索
+        </button>
+      </div>
+
+      {/* Search results overlay */}
+      {searchResults.length > 0 && (
+        <div className="mb-4 p-4 rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
+              搜索结果 ({searchResults.length})
+            </span>
+            <button onClick={() => { setSearchResults([]); setGlobalSearch(''); }}
+              className="text-xs" style={{ color: 'var(--text-tertiary)' }}>清除</button>
+          </div>
+          <div className="space-y-2">
+            {searchResults.map((r, i) => (
+              <div key={`${r.type}-${r.id}-${i}`} className="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
+                    {r.type === 'document' ? '📄' : r.type === 'resolution' ? '🔧' : r.type === 'behavior' ? '🧩' : '📊'} {r.type}
+                  </span>
+                  <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{r.title}</span>
+                </div>
+                <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{r.snippet}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {searchLoading && <div className="text-center py-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>搜索中...</div>}
 
       {/* Tab bar */}
       <div className="flex gap-1 mb-6 overflow-x-auto pb-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
@@ -389,6 +462,129 @@ function InteractionPatternCard({ item }: { item: any }) {
       <p className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>{item.description}</p>
       {item.insight && <p className="text-sm" style={{ color: 'var(--accent-primary)' }}>💡 {item.insight}</p>}
       {item.suggestion && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>建议: {item.suggestion}</p>}
+    </div>
+  );
+}
+
+function BehaviorProfileCard({ item }: { item: any }) {
+  const categoryLabels: Record<string, string> = {
+    correction: '纠正信号',
+    workflow: '决策模式',
+    automation: '重复操作',
+  };
+  const statusColors: Record<string, string> = {
+    pending: 'var(--warning)',
+    confirmed: 'var(--accent-primary)',
+    rejected: 'var(--text-tertiary)',
+    applied: 'var(--success, #22c55e)',
+  };
+  const actionLabels: Record<string, string> = {
+    create_rule: '创建规则',
+    create_skill: '创建 Skill',
+    create_automation: '创建自动化',
+    skip: '跳过',
+  };
+
+  const handleFeedback = async (newStatus: string) => {
+    try {
+      await api.patch(`/knowledge/behavior/${item.id}`, { status: newStatus });
+      item.status = newStatus;
+    } catch (err) {
+      console.error('Failed to update behavior status:', err);
+    }
+  };
+
+  return (
+    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+      <div className="flex items-center gap-2 mb-2">
+        <span>🧩</span>
+        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</span>
+        <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
+          {categoryLabels[item.category] || item.category}
+        </span>
+        <span className="text-xs px-2 py-0.5 rounded" style={{
+          background: statusColors[item.status] || 'var(--text-tertiary)',
+          color: 'white',
+        }}>{item.status}</span>
+        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>
+          置信度: {Math.round((item.confidence || 0) * 100)}%
+        </span>
+      </div>
+      {item.evidence && (
+        <p className="text-xs mb-1 italic" style={{ color: 'var(--text-tertiary)' }}>"{item.evidence.slice(0, 150)}"</p>
+      )}
+      <p className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>{item.pattern}</p>
+      <div className="flex items-center gap-2 mt-2 text-xs" style={{ color: 'var(--text-tertiary)' }}>
+        <span>建议: {actionLabels[item.suggestedAction] || item.suggestedAction}</span>
+        {item.alreadyCovered && <span> (已覆盖: {item.alreadyCovered})</span>}
+        <span className="ml-auto">{new Date(item.createdAt).toLocaleDateString('zh-CN')}</span>
+      </div>
+      {item.status === 'pending' && (
+        <div className="flex gap-2 mt-3">
+          <button onClick={() => handleFeedback('confirmed')}
+            className="px-3 py-1 text-xs rounded" style={{ background: 'var(--accent-primary)', color: 'white' }}>
+            确认
+          </button>
+          <button onClick={() => handleFeedback('rejected')}
+            className="px-3 py-1 text-xs rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
+            跳过
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResolutionCard({ item }: { item: any }) {
+  const statusColors: Record<string, string> = {
+    pending: 'var(--warning)',
+    verified: 'var(--accent-primary)',
+    canonical: 'var(--success, #22c55e)',
+    deprecated: 'var(--text-tertiary)',
+  };
+  const layerLabels: Record<string, string> = {
+    L3_tool_behavior: 'L3 工具行为',
+    L4_env_config: 'L4 环境配置',
+    L5_error_fix: 'L5 错误解法',
+    L6_causality: 'L6 因果关系',
+  };
+
+  let tags: string[] = [];
+  try { tags = typeof item.tags === 'string' ? JSON.parse(item.tags) : (item.tags || []); } catch { /* ignore */ }
+
+  return (
+    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+      <div className="flex items-center gap-2 mb-2">
+        <span>🔧</span>
+        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</span>
+        <span className="text-xs px-2 py-0.5 rounded" style={{
+          background: statusColors[item.status] || 'var(--text-tertiary)',
+          color: 'white',
+        }}>{item.status}</span>
+        <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
+          {layerLabels[item.layer] || item.layer}
+        </span>
+        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>
+          验证: {item.verifyCount}x
+        </span>
+      </div>
+      <p className="text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>
+        模式: <code className="px-1 rounded" style={{ background: 'var(--bg-elevated)' }}>{item.pattern}</code>
+      </p>
+      <p className="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>{item.fix}</p>
+      {tags.length > 0 && (
+        <div className="flex gap-1 flex-wrap">
+          {tags.map((t: string) => (
+            <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>{t}</span>
+          ))}
+        </div>
+      )}
+      {item.errorClass && (
+        <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+          错误类型: {item.errorClass}
+          {item.sourceGoalId && ` · 来源: ${item.sourceGoalId.slice(0, 8)}`}
+        </div>
+      )}
     </div>
   );
 }

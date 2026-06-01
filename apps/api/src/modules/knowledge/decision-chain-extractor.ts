@@ -102,6 +102,25 @@ ${participants.join(', ')}
       }
 
       logger.info('[DecisionChainExtractor] Extracted from meeting', { meetingId, count });
+
+      // S10: Push decision confirmation card to #系统 channel
+      if (count > 0) {
+        try {
+          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          if (sysChannel) {
+            const decisionSummary = decisions
+              .slice(0, 3)
+              .map(d => `- ${d.content.slice(0, 80)}`)
+              .join('\n');
+            await channelMessageService.createAgentMessage(sysChannel.id, 'KK',
+              `从会议 ${meetingId.slice(0, 8)} 提取了 ${count} 个决策:\n${decisionSummary}`,
+              { meta: { cardType: 'decision_chain', meetingId, count } },
+            );
+          }
+        } catch { /* non-blocking */ }
+      }
+
       return count;
     } catch (err) {
       logger.error('[DecisionChainExtractor] Meeting extraction failed', { meetingId, error: String(err) });
@@ -165,6 +184,25 @@ ${(diff || '').substring(0, 3000)}
       }
 
       logger.info('[DecisionChainExtractor] Extracted from execution', { taskId, count });
+
+      // S10: Push decision confirmation card to #系统 channel
+      if (count > 0) {
+        try {
+          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          if (sysChannel) {
+            const decisionSummary = result.decisions
+              .slice(0, 3)
+              .map(d => `- **${d.topic}**: 选择 ${d.chosen}${d.rationale ? ` (${d.rationale.slice(0, 80)})` : ''}`)
+              .join('\n');
+            await channelMessageService.createAgentMessage(sysChannel.id, 'KK',
+              `从执行 ${taskId.slice(0, 8)} 提取了 ${count} 个决策:\n${decisionSummary}`,
+              { meta: { cardType: 'decision_chain', taskId, count } },
+            );
+          }
+        } catch { /* non-blocking */ }
+      }
+
       return count;
     } catch (err) {
       logger.error('[DecisionChainExtractor] Execution extraction failed', { taskId, error: String(err) });

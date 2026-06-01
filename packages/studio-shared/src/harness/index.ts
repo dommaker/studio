@@ -269,7 +269,5 @@ export const safetyService = new SafetyService();
 export { bootstrapHarness, getHarness, getPipeline, isHarnessInitialized } from './runtime/bootstrap';
 export type { HarnessBootstrap } from '@dommaker/harness';
 export * from './hooks/index';
-// Wiki 服务（Knowledge Keeper 文件操作）
-export * from './wiki/wiki-service';
-export * from './wiki/knowledge-query';
-export { KnowledgeKeeper, knowledgeKeeper } from './wiki/knowledge-keeper';
+// Wiki 服务已移除 (B11-002): KnowledgeKeeper/wiki-service/knowledge-query
+// 知识系统统一使用 harness KnowledgeStore + KnowledgeBus
