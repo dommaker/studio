@@ -602,6 +602,21 @@ export class GoalScheduler {
     return process.env.REPO_DIR || path.join(os.homedir(), 'projects');
   }
 
+  /** B5-P03: 按 execution ID 查找 task/* 分支（分支名可能包含 PMO 号） */
+  private async findTaskBranch(executionId: string, repoDir: string): Promise<string | null> {
+    try {
+      const { execSync } = await import('child_process');
+      // 先尝试精确匹配
+      try {
+        execSync(`git rev-parse --verify "task/${executionId}"`, { cwd: repoDir, timeout: 5_000, stdio: 'pipe' });
+        return `task/${executionId}`;
+      } catch { /* not found */ }
+      // 模糊匹配：task/*<executionId>*
+      const found = execSync(`git branch --list "task/*${executionId}*" | head -1 | sed "s/^[* ]*//"`, { cwd: repoDir, encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' }).trim();
+      return found || null;
+    } catch { return null; }
+  }
+
   private recordDispatchOutcome(success: boolean): void {
     this.recentFailures += success ? 0 : 1;
     this.recentTotal++;
@@ -778,6 +793,16 @@ export class GoalScheduler {
     const goalContext = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
     const sourceChannelId = goalContext.sourceChannelId as string | undefined;
 
+    // B5-P03: 从 Project 获取 PMO 号，传给 Executor 命名分支
+    let pmoNumber = '';
+    try {
+      const projectId = goalContext.projectId as string | undefined;
+      if (projectId) {
+        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { pmoNumber: true } });
+        if (project?.pmoNumber) pmoNumber = project.pmoNumber;
+      }
+    } catch { /* best-effort */ }
+
     // 实时进度回调：每个 session 后推送进度卡片到 Channel
     const onProgress = async (progress: any, session: number) => {
       if (!sourceChannelId) return;
@@ -808,7 +833,7 @@ export class GoalScheduler {
     // P0-1: Integration step — 用代码执行替代 Claude session（merge+tsc+test 是确定性操作）
     if (isIntegration) {
       try {
-        const result = await this.runIntegrationInCode(goal.id, executionId);
+        const result = await this.runIntegrationInCode(goal.id, executionId, pmoNumber);
         if (result.success) {
           await goalService.updateStepExecution(executionId, { status: 'succeeded' });
           this.recordDispatchOutcome(true);
@@ -824,6 +849,7 @@ export class GoalScheduler {
     }
 
     // 直接调用 AgentExecutor
+    const projectRepoDir = await this.getProjectRepoPath(goal);
     try {
       const result = await agentExecutor.execute({
         id: executionId,
@@ -838,13 +864,16 @@ export class GoalScheduler {
           acGroup: input?.acGroup || undefined,
           analystContext: (input?.acGroup as any)?._analystContext || null,
           hasWorktree: true,
-          repoDir: await this.getProjectRepoPath(goal),
+          repoDir: projectRepoDir,
           // Q3: 依赖继承 — 下游 worktree 从上游 task branch 创建（而非 main）
-          ...(_baseBranchExecId ? { baseBranch: `task/${_baseBranchExecId}` } : {}),
+          // B5-P03: 查找实际分支名（可能包含 PMO 号）
+          ...(_baseBranchExecId ? { baseBranch: await this.findTaskBranch(_baseBranchExecId, projectRepoDir) || `task/${_baseBranchExecId}` } : {}),
           knowledgeContext,
           sourceChannelId,
           // 🆕 ROLE-001: Executor 的角色约束
           roleConstraints,
+          // B5-P03: PMO 号用于分支命名
+          ...(pmoNumber ? { pmoNumber } : {}),
         },
       });
 
@@ -1270,6 +1299,7 @@ export class GoalScheduler {
   private async runIntegrationInCode(
     goalId: string,
     executionId: string,
+    pmoNumber?: string,
   ): Promise<{ success: boolean; error?: string }> {
     const execSync = (await import('child_process')).execSync;
     const repoDir = process.env.REPO_DIR || '/root/projects/studio';
@@ -1278,7 +1308,10 @@ export class GoalScheduler {
 
     // 1. 创建 integration worktree
     try { fs.rmSync(worktree, { recursive: true, force: true }); } catch {}
-    const branchName = `task/${executionId}`;
+    const branchSuffix = pmoNumber
+      ? `${pmoNumber}-integration-${executionId.slice(0, 20)}`
+      : executionId;
+    const branchName = `task/${branchSuffix}`;
     try {
       execSync(`git worktree add -b "${branchName}" "${worktree}" main`, { cwd: repoDir, timeout: 30_000 });
     } catch {
@@ -1294,7 +1327,18 @@ export class GoalScheduler {
       orderBy: { stepIndex: 'asc' },
     });
     for (const exec of succeededExecs) {
-      const branch = `task/${exec.id}`;
+      // B5-P03: 分支名可能包含 PMO 号，按 execution ID 模糊匹配
+      let branch = `task/${exec.id}`;
+      try {
+        // 先尝试精确匹配（向后兼容无 PMO 号的分支）
+        execSync(`git rev-parse --verify "${branch}"`, { cwd: worktree, timeout: 5_000 });
+      } catch {
+        // 精确匹配失败，搜索包含 execution ID 的 task/* 分支
+        try {
+          const found = execSync(`git branch --list "task/*${exec.id}*" | head -1 | sed "s/^[* ]*//"`, { cwd: worktree, encoding: 'utf-8', timeout: 5_000 }).trim();
+          if (found) branch = found;
+        } catch { /* fallback to exact name */ }
+      }
       try {
         execSync(`git merge "${branch}" --no-edit`, { cwd: worktree, timeout: 15_000 });
         logger.info('[GoalScheduler] Integration merged', { branch, executionId });

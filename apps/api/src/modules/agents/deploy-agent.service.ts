@@ -454,11 +454,6 @@ class DeployAgent {
     let cleanedDirs = 0;
     try {
       // Scope: task/* by execution IDs, daemon/* and worktree-* always full cleanup
-      const taskPattern = params.executionIds?.length
-        ? params.executionIds.map(id => `task/${id}`).join('\\|')
-        : 'task/';
-      const stalePattern = `${taskPattern}\\|daemon/\\|worktree-`;
-
       const { stdout } = await execSh(
         `git branch | grep -E "(task/|daemon/|worktree-)" | sed "s/^[* ]*//" | sort -u`,
         { cwd: repoDir, timeoutMs: 10_000 },
@@ -466,7 +461,11 @@ class DeployAgent {
       const branches = stdout.trim().split('\n').filter(Boolean);
 
       for (const branch of branches) {
-        // Skip active daemon branch (marked with + in git branch output)
+        // B5-C01: Only delete task/* branches belonging to this execution
+        if (branch.startsWith('task/') && params.executionIds?.length) {
+          const branchExecId = branch.slice('task/'.length);
+          if (!params.executionIds.includes(branchExecId)) continue;
+        }
         await this.deleteBranch(branch, repoDir);
         cleanedBranches++;
       }

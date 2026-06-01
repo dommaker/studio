@@ -388,6 +388,59 @@ async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: st
   throw new Error(`Analyst did not produce valid output. text: ${text.slice(0, 500)}`);
 }
 
+// ── B5-H01: Analyst 输出 JSON Schema 验证 ──
+
+interface AnalystOutput {
+  title?: string;
+  acGroups?: Array<{
+    id?: string;
+    acs?: unknown[];
+    files?: unknown[];
+    dependencies?: unknown[];
+    implementationNotes?: string;
+  }>;
+  tags?: unknown[];
+  constraints?: unknown[];
+  discoveries?: unknown[];
+}
+
+/** 验证 Analyst 输出结构，返回错误列表（空 = 通过） */
+function validateAnalystOutput(doc: unknown): string[] {
+  const errors: string[] = [];
+  if (!doc || typeof doc !== 'object') {
+    return ['Output is not an object'];
+  }
+  const d = doc as AnalystOutput;
+
+  // title: optional but if present must be string
+  if (d.title !== undefined && typeof d.title !== 'string') {
+    errors.push('title must be a string');
+  }
+
+  // acGroups: required, must be non-empty array
+  if (!Array.isArray(d.acGroups) || d.acGroups.length === 0) {
+    errors.push('acGroups must be a non-empty array');
+  } else {
+    for (let i = 0; i < d.acGroups.length; i++) {
+      const g = d.acGroups[i];
+      if (!g || typeof g !== 'object') { errors.push(`acGroups[${i}] must be an object`); continue; }
+      if (typeof g.id !== 'string' || !g.id.trim()) errors.push(`acGroups[${i}].id must be a non-empty string`);
+      if (!Array.isArray(g.acs) || g.acs.length === 0) errors.push(`acGroups[${i}].acs must be a non-empty array`);
+      if (g.files !== undefined && !Array.isArray(g.files)) errors.push(`acGroups[${i}].files must be an array`);
+      if (g.dependencies !== undefined && !Array.isArray(g.dependencies)) errors.push(`acGroups[${i}].dependencies must be an array`);
+    }
+  }
+
+  // tags/constraints/discoveries: optional, if present must be arrays
+  for (const field of ['tags', 'constraints', 'discoveries'] as const) {
+    if (d[field] !== undefined && !Array.isArray(d[field])) {
+      errors.push(`${field} must be an array`);
+    }
+  }
+
+  return errors;
+}
+
 // ── Service ──
 
 class AnalystTriggerService {
@@ -506,6 +559,16 @@ class AnalystTriggerService {
       const { doc: response, usage } = await runClaudeCode(prompt, outputFile, claudeArgs);
       const durationMs = Date.now() - startTime;
       clearInterval(progressInterval);
+
+      // B5-H01: 验证 Analyst 输出结构
+      const validationErrors = validateAnalystOutput(response);
+      if (validationErrors.length > 0) {
+        logger.error('[AnalystTrigger] Output validation failed', { errors: validationErrors, channelId });
+        await channelMessageService.createAgentMessage(channelId, 'System',
+          `## ⚠️ Analyst 输出格式错误\n\n${validationErrors.join('\n')}\n\n请重新 @Analyst 触发分析。`
+        );
+        return;
+      }
 
       // 5. Save new knowledge for next analysis
       const findings = response.acGroups
