@@ -152,6 +152,9 @@ export function checkRequiredConfig(): { valid: boolean; missing: string[] } {
  */
 export type LlmProvider = 'deepseek' | 'anthropic' | 'openai' | 'coding';
 
+/** Workload 类型：conversation（对话）/ pipeline（管线）/ undefined（默认） */
+export type WorkloadType = 'conversation' | 'pipeline';
+
 const PROVIDER_KEY_MAP: Record<LlmProvider, string[]> = {
   deepseek: ['DEEPSEEK_API_KEY'],
   anthropic: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY_1', 'ANTHROPIC_API_KEY'],
@@ -159,7 +162,25 @@ const PROVIDER_KEY_MAP: Record<LlmProvider, string[]> = {
   coding: ['CODING_API_KEY_1'],
 };
 
-export function getProviderApiKey(provider: LlmProvider): string | undefined {
+/**
+ * 按 provider + workload 获取 API Key
+ *
+ * workload 优先级:
+ *   'conversation' → CONVERSATION_API_KEY → fallback to base keys
+ *   'pipeline'     → PIPELINE_API_KEY → fallback to base keys
+ *   undefined      → base keys only (current behavior)
+ */
+export function getProviderApiKey(provider: LlmProvider, workload?: WorkloadType): string | undefined {
+  // Workload-specific key takes priority
+  if (workload === 'conversation') {
+    const convKey = process.env.CONVERSATION_API_KEY;
+    if (convKey) return convKey;
+  } else if (workload === 'pipeline') {
+    const pipeKey = process.env.PIPELINE_API_KEY;
+    if (pipeKey) return pipeKey;
+  }
+
+  // Fallback to provider's base key chain
   const keys = PROVIDER_KEY_MAP[provider];
   for (const key of keys) {
     const value = process.env[key];
@@ -189,6 +210,7 @@ export function getConfigSummary(): Record<string, string> {
   const allKeys = [
     'DEEPSEEK_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY',
     'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1',
+    'CONVERSATION_API_KEY', 'PIPELINE_API_KEY',
     'JWT_SECRET', 'ENCRYPTION_KEY',
     'DISCORD_BOT_TOKEN', 'DISCORD_PUBLIC_KEY',
   ];

@@ -35,11 +35,11 @@ router.get('/', async (req: Request, res: Response) => {
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { scope, provider, baseUrl, apiKey, model, options } = req.body;
+    const { scope, provider, baseUrl, model, options } = req.body;
 
-    if (!scope || !provider || !apiKey || !model) {
+    if (!scope || !provider || !model) {
       return res.status(400).json({
-        error: { code: 'VALIDATION', message: 'scope, provider, apiKey, model are required' },
+        error: { code: 'VALIDATION', message: 'scope, provider, model are required. API keys are resolved from environment (config.env)' },
       });
     }
 
@@ -50,7 +50,7 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const config = await llmConfigService.saveConfig({ scope, provider, baseUrl, apiKey, model, options });
+    const config = await llmConfigService.saveConfig({ scope, provider, baseUrl, model, options });
     return res.json(config);
   } catch (error) {
     logger.error('[LLM Config API] Save failed', { error: String(error) });

@@ -286,9 +286,6 @@ model LLMConfig {
   scope       String   // orchestrator | agent_codex | agent_claude | agent_opencode | agent_default | studio
   provider    String   // anthropic | openai | tencent | deepseek | custom
   baseUrl     String?
-  apiKeyEnc   String   // AES-256-GCM 加密后的密文
-  apiKeyIv    String   // 12 字节 IV (Base64)
-  apiKeyTag   String   // GCM auth tag (Base64)
   model       String
   options     String?    // temperature, maxTokens, etc.
   isActive    Boolean  @default(true)

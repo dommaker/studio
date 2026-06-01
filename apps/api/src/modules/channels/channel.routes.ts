@@ -8,6 +8,7 @@ import { channelMessageService } from './channel-message.service.js';
 import { goalService } from '../goals/goal.service.js';
 import { sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { projectService } from '../pmo/project.service.js';
+import { requireAuth } from '../../middleware/auth.js';
 
 const router = Router();
 
@@ -744,6 +745,29 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
   const updated = await channelMessageService.updateMessageMeta(message.id, meta);
 
   res.json({ success: true, data: updated });
+});
+
+// POST /api/v1/channels/:id/convert — convert conversation to pipeline (AS-020 P10)
+router.post('/:id/convert', requireAuth(), async (req, res) => {
+  const channelId = req.params.id;
+
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } });
+  if (!channel) {
+    return res.status(404).json({ success: false, error: 'Channel not found' });
+  }
+
+  try {
+    const { convertConversationToPipeline } = await import('./conversation-converter.js');
+    const result = await convertConversationToPipeline(channelId);
+    res.json({ success: true, data: result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message === 'No conversation messages found in channel') {
+      return res.status(400).json({ success: false, error: message });
+    }
+    logger.error('[Channel] Conversation conversion failed', { channelId, error: message });
+    res.status(500).json({ success: false, error: 'Conversion failed' });
+  }
 });
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)

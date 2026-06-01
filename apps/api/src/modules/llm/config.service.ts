@@ -1,12 +1,12 @@
 /**
- * LLM Config Service - 加密存储 + 分层配置解析
+ * LLM Config Service - 分层配置解析
  *
- * §12.11: UI 配置 → AES-256-GCM 加密存 DB → 分层下发给各消费方
+ * UI 配置 → DB（scope/provider/model/options）→ API key 从 config.env 解析
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway } from '@dommaker/studio-shared';
-import { encrypt, decrypt } from '../../utils/crypto.js';
+import { logger, modelGateway, getProviderApiKey } from '@dommaker/studio-shared';
+import type { LlmProvider } from '@dommaker/studio-shared';
 
 // ─── 类型 ───
 
@@ -24,7 +24,6 @@ export interface LLMConfigInput {
   scope: LLMConfigScope;
   provider: LLMProvider;
   baseUrl?: string;
-  apiKey: string;
   model: string;
   options?: Record<string, any>;
 }
@@ -62,7 +61,7 @@ const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
 
 export class LLMConfigService {
   /**
-   * 保存 LLM 配置（加密存储）
+   * 保存 LLM 配置（scope/provider/model/options，API key 从 env 解析）
    */
   async saveConfig(input: LLMConfigInput): Promise<MaskedLLMConfig> {
     // 验证 scope 和 provider
@@ -75,8 +74,6 @@ export class LLMConfigService {
       throw new Error(`Invalid provider: ${input.provider}. Valid: ${validProviders.join(', ')}`);
     }
 
-    const enc = encrypt(input.apiKey);
-
     const config = await prisma.lLMConfig.upsert({
       where: {
         scope_provider: { scope: input.scope, provider: input.provider },
@@ -85,18 +82,12 @@ export class LLMConfigService {
         scope: input.scope,
         provider: input.provider,
         baseUrl: input.baseUrl || null,
-        apiKeyEnc: enc.encrypted,
-        apiKeyIv: enc.iv,
-        apiKeyTag: enc.tag,
         model: input.model,
         options: JSON.stringify(input.options || {}),
         isActive: true,
       },
       update: {
         baseUrl: input.baseUrl || null,
-        apiKeyEnc: enc.encrypted,
-        apiKeyIv: enc.iv,
-        apiKeyTag: enc.tag,
         model: input.model,
         options: JSON.stringify(input.options || {}),
         isActive: true,
@@ -169,11 +160,11 @@ export class LLMConfigService {
       if (config.scope !== 'studio' && config.scope !== 'orchestrator') continue;
 
       try {
-        const apiKey = decrypt({
-          encrypted: config.apiKeyEnc,
-          iv: config.apiKeyIv,
-          tag: config.apiKeyTag,
-        });
+        const apiKey = getProviderApiKey(config.provider as LlmProvider);
+        if (!apiKey) {
+          logger.warn(`[LLM Config] No API key in env for ${config.provider}, skipping ${config.scope}`);
+          continue;
+        }
 
         const defaults = PROVIDER_DEFAULTS[config.provider] || {} as { baseUrl?: string; model?: string };
         const opts = typeof config.options === 'string' ? JSON.parse(config.options) : (config.options || {});
@@ -242,15 +233,9 @@ export class LLMConfigService {
   }
 
   private toResolved(config: any, source: string): ResolvedLLMConfig {
-    let apiKey: string;
-    try {
-      apiKey = decrypt({
-        encrypted: config.apiKeyEnc,
-        iv: config.apiKeyIv,
-        tag: config.apiKeyTag,
-      });
-    } catch (error) {
-      throw new Error(`Failed to decrypt API key for config ${config.id} (scope: ${config.scope}, provider: ${config.provider}): ${String(error)}`);
+    const apiKey = getProviderApiKey(config.provider as LlmProvider);
+    if (!apiKey) {
+      throw new Error(`No API key in environment for provider "${config.provider}" (scope: ${config.scope}). Set the appropriate env var in ~/.studio/config.env`);
     }
 
     const defaults = PROVIDER_DEFAULTS[config.provider] || {} as { baseUrl?: string; model?: string };
@@ -313,25 +298,15 @@ export class LLMConfigService {
   }
 
   private maskConfig(config: any): MaskedLLMConfig {
-    // 从加密数据解密后只取后 4 位
-    let apiKeyLast4 = '****';
-    try {
-      const decrypted = decrypt({
-        encrypted: config.apiKeyEnc,
-        iv: config.apiKeyIv,
-        tag: config.apiKeyTag,
-      });
-      apiKeyLast4 = `****${decrypted.slice(-4)}`;
-    } catch {
-      apiKeyLast4 = '****(decrypt-error)';
-    }
+    const apiKey = getProviderApiKey(config.provider as LlmProvider);
+    const apiKeyMasked = apiKey ? `****${apiKey.slice(-4)}` : '****(not-set)';
 
     return {
       id: config.id,
       scope: config.scope,
       provider: config.provider,
       baseUrl: config.baseUrl,
-      apiKeyMasked: apiKeyLast4,
+      apiKeyMasked,
       model: config.model,
       options: config.options,
       isActive: config.isActive,
