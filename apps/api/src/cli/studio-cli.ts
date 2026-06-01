@@ -1155,6 +1155,79 @@ function extractConfigFlag(rawArgs: string[]): { configPath?: string; args: stri
   return { args: rawArgs };
 }
 
+async function studioDaemonStart() {
+  const rawArgs = process.argv.slice(3);
+  const serverUrlIdx = rawArgs.indexOf('--server-url');
+  const tokenIdx = rawArgs.indexOf('--token');
+  const rootIdx = rawArgs.indexOf('--workspace-root');
+  const nameIdx = rawArgs.indexOf('--name');
+
+  const serverUrl = serverUrlIdx >= 0 ? rawArgs[serverUrlIdx + 1] : undefined;
+  const token = tokenIdx >= 0 ? rawArgs[tokenIdx + 1] : undefined;
+  const workspaceRoot = rootIdx >= 0 ? rawArgs[rootIdx + 1] : undefined;
+  const name = nameIdx >= 0 ? rawArgs[nameIdx + 1] : undefined;
+
+  if (!serverUrl || !token) {
+    console.error('Usage: studio daemon start --server-url <url> --token <token> [--workspace-root <path>] [--name <name>]');
+    process.exit(1);
+  }
+
+  // Dynamic imports to avoid loading daemon modules on every CLI invocation
+  const { scanAllProviders, hasDocker } = await import('../daemon/cli-scanner.js');
+  const { generateWorkspaceConfig, writeWorkspaceConfig } = await import('../daemon/workspace-config.js');
+  const { registerWorkspace } = await import('../daemon/registration.js');
+
+  // 1. Scan for available CLIs
+  console.log('Scanning for agent CLIs...');
+  const runtimes = scanAllProviders();
+  if (runtimes.length === 0) {
+    console.warn('Warning: No agent CLIs detected (claude, codex, opencode, openclaw)');
+  } else {
+    for (const r of runtimes) {
+      console.log(`  Found: ${r.provider} (${r.version}) at ${r.path}`);
+    }
+  }
+
+  const dockerAvailable = hasDocker();
+
+  // 2. Generate workspace config
+  const config = generateWorkspaceConfig({
+    serverUrl,
+    token,
+    runtimes: runtimes.map(r => r.provider),
+    hasDocker: dockerAvailable,
+    workspaceRoot,
+    name,
+  });
+
+  // 3. Write workspace.json
+  writeWorkspaceConfig(config);
+  console.log(`Workspace config written to ~/.studio/workspace.json`);
+  console.log(`  Name: ${config.name}`);
+  console.log(`  Server: ${config.serverUrl}`);
+  console.log(`  Root: ${config.workspaceRoot}`);
+  console.log(`  Runtimes: ${config.runtimes.join(', ') || 'none'}`);
+  console.log(`  Docker: ${config.hasDocker}`);
+  console.log(`  OS/Arch: ${config.os}/${config.arch}`);
+
+  // 4. Register with server
+  console.log('Registering workspace with server...');
+  const result = await registerWorkspace(config, runtimes.map(r => ({ provider: r.provider, version: r.version })));
+
+  if (result.success) {
+    console.log(`Registered successfully. Workspace ID: ${result.workspaceId || '(pending)'}`);
+    if (result.workspaceId) {
+      // Persist workspaceId
+      const { updateWorkspaceConfig } = await import('../daemon/workspace-config.js');
+      updateWorkspaceConfig({ workspaceId: result.workspaceId });
+    }
+  } else {
+    console.error(`Registration failed: ${result.error}`);
+    console.error('Workspace config saved locally. Retry registration later.');
+    process.exit(1);
+  }
+}
+
 async function main() {
   const { configPath, args } = extractConfigFlag(process.argv.slice(2));
   const cmd = args[0];
@@ -1220,7 +1293,9 @@ async function main() {
       studioBuild();
       break;
     case 'daemon':
-      if (args[1] === 'status') {
+      if (args[1] === 'start') {
+        await studioDaemonStart();
+      } else if (args[1] === 'status') {
         const { daemon } = await import('../daemon/studio-daemon.js');
         if (!daemon.isStarted()) {
           console.log('Daemon: not running');
@@ -1234,6 +1309,7 @@ async function main() {
         }
       } else {
         console.log('Studio Daemon');
+        console.log('  studio daemon start       Register workspace with server');
         console.log('  studio daemon status      Show daemon session status');
       }
       break;
@@ -1350,6 +1426,7 @@ async function main() {
       console.log('    studio project add <path> Register a project');
       console.log('    studio project list       List registered projects');
       console.log('    studio workon <name>      Set active project');
+      console.log('    studio daemon start       Register workspace with server');
       console.log('    studio daemon status      Daemon session status');
       console.log('    studio metrics compare <t> Metrics');
       break;
