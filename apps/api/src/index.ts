@@ -141,6 +141,11 @@ async function start() {
     // 创建 HTTP 服务器
     const server = createServer(app);
 
+    // AS-020 P4: WebSocket gateway for Daemon persistent connections
+    const { attachWsGateway } = await import('./modules/workspaces/ws-gateway.js');
+    const detachWsGateway = attachWsGateway(server);
+    logger.info('[WsGateway] Attached to HTTP server at /ws/daemon');
+
     // ── Goal 管线核心服务 ──
     goalScheduler.start();
     agentEventListener.start();
@@ -276,6 +281,7 @@ async function start() {
       // Graceful: stop accepting new work, wait for running Claude tasks
       try { await daemon.gracefulShutdown(); } catch {}
 
+      detachWsGateway();
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }
       agentRouter.stopScheduler();
       stopEvolutionScheduler();

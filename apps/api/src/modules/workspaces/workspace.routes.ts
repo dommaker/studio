@@ -16,8 +16,12 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
+import discoverProxyRouter from './discover-proxy.js';
 
 const router = Router();
+
+// Mount discover proxy (P4: WS-backed directory discovery)
+router.use('/', discoverProxyRouter);
 
 // ─── POST /api/v1/workspaces/register ───
 // Daemon registration with workspace token auth

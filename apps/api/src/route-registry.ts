@@ -116,6 +116,12 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const { default: workspaceRoutes } = await import('./modules/workspaces/workspace.routes.js') as { default: Router };
   const { default: workspaceTokenRoutes } = await import('./modules/workspaces/token.routes.js') as { default: Router };
 
+  // Daemon routes (AS-020 P5: HTTP Claim + Event Reporting)
+  const { default: daemonRoutes } = await import('./modules/workspaces/daemon-routes.js') as { default: Router };
+
+  // Task management routes (AS-020 P5: UI/Server task CRUD)
+  const { default: taskRoutes } = await import('./modules/workspaces/task-routes.js') as { default: Router };
+
   // RequirementsDoc routes (B2-009)
   const { default: requirementsDocRoutes } = await import('./modules/channels/requirements-doc.routes.js') as { default: Router };
 
@@ -209,6 +215,12 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // Workspace (AS-020 P2: Daemon registration + token management)
     { path: '/api/v1/workspaces', router: workspaceRoutes, comment: 'AS-020: Workspace registration + heartbeat' },
     { path: '/api/v1/workspace-tokens', router: workspaceTokenRoutes, comment: 'AS-020: Workspace token management' },
+
+    // Daemon (AS-020 P5: HTTP Claim + Event Reporting)
+    { path: '/api/v1/daemon', router: daemonRoutes, comment: 'AS-020 P5: Daemon task claim + events' },
+
+    // Task management (AS-020 P5: UI/Server task CRUD)
+    { path: '/api/v1/workspaces', router: taskRoutes, comment: 'AS-020 P5: Task create/get/cancel' },
 
     // Lark (飞书)
     { path: '/api/v1/lark', router: larkRoutes, comment: '飞书机器人回调' },
