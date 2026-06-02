@@ -20,8 +20,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md
 
-<!-- STALE_SINCE: 2026-06-01 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
+
+<!-- STALE_SINCE: 2026-06-02 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts
 
 ## 职责
 
@@ -42,6 +44,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `8d4bb203`: auditor): 知识库路径统一到 ~/.studio/knowledge/
 - ✅ `7ab11eb8`: knowledge sync pipeline — auto-sync to vector DB after ingest
 - ✅ `d073972f`: preflight 磁盘检查 + 孤儿进程清理 + roadmap B14 启动流水线
 - ✅ `79c3de0a`: knowledge): B13 飞轮闭环 — Resolution→local-rag + 行为趋势 + maturity 排序
