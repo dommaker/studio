@@ -53,6 +53,21 @@ export const sharedIngest = new KnowledgeIngest(sharedStore);
 export const sharedQuery = new KnowledgeQuery(sharedStore, sharedLifecycle);
 export const sharedInjector = new KnowledgeInjector(sharedQuery);
 
+// D6 flywheel: emit consumption events on every recordReference() call
+// (same-day dedup already handled by lifecycle, so max 1 event per contributor per entry per day)
+// Cast needed: onReference added in harness 0.13.4+, npm version may lag
+(sharedLifecycle as any).onReference?.((event: { entryId: string; contributor: string; timestamp: string }) => {
+  prisma.studioEvent.create({
+    data: {
+      type: 'knowledge:consumption',
+      source: event.contributor,
+      payload: JSON.stringify({ entryId: event.entryId, timestamp: event.timestamp }),
+    },
+  }).catch((e: any) => {
+    logger.warn('[KnowledgeBus] consumption event failed', { error: String(e) });
+  });
+});
+
 // ── 统一条目类型 ──
 
 export type KnowledgeSource =
@@ -454,6 +469,25 @@ export class KnowledgeBus {
       // Record references for returned entries
       for (const r of scored) {
         try { sharedLifecycle.recordReference(r.id, 'search'); } catch { /* non-blocking */ }
+      }
+
+      // D6 flywheel: record search hit rate with scores
+      if (scored.length > 0) {
+        const avgScore = scored.reduce((s, r) => s + r.score, 0) / scored.length;
+        prisma.studioEvent.create({
+          data: {
+            type: 'knowledge:search_hit',
+            source: 'search',
+            payload: JSON.stringify({
+              query: query.slice(0, 200),
+              hitCount: scored.length,
+              avgScore: Math.round(avgScore * 100) / 100,
+              entryIds: scored.map(r => r.id),
+            }),
+          },
+        }).catch((e: any) => {
+          logger.warn('[KnowledgeBus] search_hit event failed', { error: String(e) });
+        });
       }
 
       return scored;

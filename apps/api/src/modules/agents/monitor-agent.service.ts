@@ -1506,6 +1506,89 @@ export class MonitorAgent {
         lines.push(`- KnowledgeBus: ${stats.total || 0} 条 (pattern:${stats.pattern || 0} fix:${stats.fix || 0})`);
       } catch { /* best-effort */ }
 
+      // 4b. Knowledge consumption hit rate (24h)
+      try {
+        const consumptionEvents = await prisma.studioEvent.findMany({
+          where: { type: 'knowledge:consumption', timestamp: { gte: since } },
+          select: { source: true, payload: true },
+        });
+        const searchHitEvents = await prisma.studioEvent.findMany({
+          where: { type: 'knowledge:search_hit', timestamp: { gte: since } },
+          select: { payload: true },
+        });
+
+        if (consumptionEvents.length > 0 || searchHitEvents.length > 0) {
+          lines.push('', '### 知识消费（24h）');
+          lines.push(`- 引用事件: ${consumptionEvents.length} 次`);
+
+          // By contributor
+          const byContributor: Record<string, number> = {};
+          for (const ev of consumptionEvents) {
+            byContributor[ev.source] = (byContributor[ev.source] || 0) + 1;
+          }
+          const contribLine = Object.entries(byContributor)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5)
+            .map(([c, n]) => `${c}(${n})`)
+            .join(', ');
+          if (contribLine) lines.push(`- 来源: ${contribLine}`);
+
+          // Search hit rate
+          if (searchHitEvents.length > 0) {
+            let totalHits = 0;
+            let totalScore = 0;
+            for (const ev of searchHitEvents) {
+              try {
+                const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
+                totalHits += (p as any).hitCount || 0;
+                totalScore += ((p as any).avgScore || 0) * ((p as any).hitCount || 1);
+              } catch {}
+            }
+            const avgHitCount = Math.round(totalHits / searchHitEvents.length);
+            const avgScore = totalHits > 0 ? Math.round(totalScore / totalHits * 100) / 100 : 0;
+            lines.push(`- 搜索: ${searchHitEvents.length} 次查询, 平均命中 ${avgHitCount} 条, 平均分 ${avgScore}`);
+          }
+        }
+
+        // Write aggregated stats for audit D6 to read
+        try {
+          const statsPath = path.join(os.homedir(), '.studio', 'knowledge', '.consumption-stats.json');
+          fs.writeFileSync(statsPath, JSON.stringify({
+            date: today,
+            dailyEvents: consumptionEvents.length,
+            searchHits: searchHitEvents.length,
+          }), 'utf-8');
+        } catch { /* best-effort */ }
+      } catch { /* best-effort */ }
+
+      // 5. Knowledge quality audit (daily, auto-fix)
+      try {
+        const { KnowledgeAudit } = await import('@dommaker/harness') as any;
+        const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+        const audit = new KnowledgeAudit({ baseDir: knowledgeDir });
+        const report = audit.run({ autoFix: true });
+        if (report.totalEntries > 0) {
+          lines.push('', '### 知识质量审计');
+          lines.push(`- 总条目: ${report.totalEntries} | 健康分: ${report.healthScore.before}→${report.healthScore.after}/100`);
+          if (report.autoFixed > 0) {
+            lines.push(`- 自动修复: ${report.autoFixed} 条`);
+          }
+          const dimLabels: Record<string, string> = {
+            structure: '结构', content: '内容', dedup: '去重',
+            maturity: '成熟度', freshness: '新鲜度', flywheel: '飞轮',
+          };
+          const dimLine = Object.entries(report.dimensions)
+            .map(([k, d]: [string, any]) => `${dimLabels[k] || k}:${d.score}`)
+            .join(' | ');
+          lines.push(`- 维度: ${dimLine}`);
+          const criticalCount = report.issues.filter((i: any) => i.severity === 'critical').length;
+          const highCount = report.issues.filter((i: any) => i.severity === 'high').length;
+          if (criticalCount > 0 || highCount > 0) {
+            lines.push(`- ⚠️ 需关注: ${criticalCount} critical, ${highCount} high`);
+          }
+        }
+      } catch { /* best-effort: audit module may not be available */ }
+
       // B10-201: Behavior profile trends
       try {
         const behaviorProfiles = await prisma.userBehaviorProfile.findMany({
