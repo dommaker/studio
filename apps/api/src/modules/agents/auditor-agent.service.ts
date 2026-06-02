@@ -814,7 +814,7 @@ export class AuditorAgent {
       // Circuit 8: Memory→KnowledgeStore sync health
       try {
         const memoryDir = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'memory');
-        const knowledgeDir = path.join(process.env.REPO_DIR || process.cwd(), '.harness', 'knowledge');
+        const knowledgeDir = process.env.KNOWLEDGE_BASE_DIR || path.join(os.homedir(), '.studio', 'knowledge');
         if (fs.existsSync(memoryDir) && fs.existsSync(knowledgeDir)) {
           const batchFiles = fs.readdirSync(memoryDir)
             .filter(f => f.startsWith('project_batch_progress_') && f.endsWith('.md'))
