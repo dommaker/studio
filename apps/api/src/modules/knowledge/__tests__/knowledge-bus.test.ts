@@ -153,9 +153,17 @@ vi.mock('../knowledge-bus.service.js', async () => {
       return lines.join('\n');
     },
     async recordPattern(entry: any) {
+      const source = entry.source || 'monitor';
+      // Triage quality gate: require root_cause + fix_action
+      if (source === 'triage') {
+        const content = (entry.content || '').toLowerCase();
+        if (!content.includes('root_cause') || !content.includes('fix_action')) {
+          throw new Error('Triage entry must include root_cause and fix_action');
+        }
+      }
       ingest.ingestEntry(
         { type: 'guideline', title: entry.title, content: entry.content, tags: [entry.type] },
-        { source: `pattern:${entry.source || 'monitor'}`, layer: 'project', maturity: 'draft', tags: [entry.type] },
+        { source: `pattern:${source}`, layer: 'project', maturity: 'draft', tags: [entry.type] },
       );
     },
     async recordIncident(entry: any) {
@@ -314,6 +322,51 @@ describe('KnowledgeBus', () => {
         type: 'pattern',
         title: 'Test pattern',
         content: 'Test content for recordPattern boundary test with enough chars.',
+        severity: 'info',
+        timestamp: Date.now(),
+      })).resolves.not.toThrow();
+    });
+
+    // Triage quality gate
+    it('accepts triage entry with root_cause and fix_action', async () => {
+      await expect(knowledgeBus.recordPattern({
+        source: 'triage',
+        type: 'pattern',
+        title: 'Triage: timeout fix',
+        content: 'root_cause: connection pool exhausted. fix_action: increased pool size to 20.',
+        severity: 'warning',
+        timestamp: Date.now(),
+      })).resolves.not.toThrow();
+    });
+
+    it('rejects triage entry missing root_cause', async () => {
+      await expect(knowledgeBus.recordPattern({
+        source: 'triage',
+        type: 'pattern',
+        title: 'Triage: timeout fix',
+        content: 'fix_action: increased pool size to 20.',
+        severity: 'warning',
+        timestamp: Date.now(),
+      })).rejects.toThrow('root_cause');
+    });
+
+    it('rejects triage entry missing fix_action', async () => {
+      await expect(knowledgeBus.recordPattern({
+        source: 'triage',
+        type: 'pattern',
+        title: 'Triage: timeout fix',
+        content: 'root_cause: connection pool exhausted.',
+        severity: 'warning',
+        timestamp: Date.now(),
+      })).rejects.toThrow('fix_action');
+    });
+
+    it('does not require root_cause for non-triage source', async () => {
+      await expect(knowledgeBus.recordPattern({
+        source: 'monitor',
+        type: 'pattern',
+        title: 'Monitor pattern',
+        content: 'Some observation without root_cause or fix_action.',
         severity: 'info',
         timestamp: Date.now(),
       })).resolves.not.toThrow();

@@ -101,6 +101,17 @@ export class KnowledgeBus {
   async recordPattern(entry: Omit<BusEntry, 'source'> & { source?: KnowledgeSource }): Promise<void> {
     try {
       const source = entry.source || 'monitor';
+
+      // Triage quality gate: require root_cause + fix_action
+      if (source === 'triage') {
+        const content = (entry.content || '').toLowerCase();
+        if (!content.includes('root_cause') || !content.includes('fix_action')) {
+          const msg = 'Triage entry must include root_cause and fix_action';
+          logger.warn(`[KnowledgeBus] ${msg}`, { title: entry.title });
+          throw new Error(msg);
+        }
+      }
+
       const maturity = sharedLifecycle.shouldAutoPromote(source) ? 'verified' as const : 'draft' as const;
       const result = this.ingest.ingestEntry(
         {
