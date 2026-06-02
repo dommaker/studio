@@ -39,7 +39,7 @@ export class NotifyService {
       await discordNotifier.sendText(title, content);
     }
 
-    // 发布到 Redis 通知频道
+    // 发布到通知频道
     await this.store.publish('notifications', JSON.stringify({
       type,
       taskId: taskId || meetingId,

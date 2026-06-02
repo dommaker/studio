@@ -5,7 +5,8 @@
  */
 
 import { Prisma, Role } from '@prisma/client';
-import { PrismaClient, prisma } from '@dommaker/studio-prisma';
+import { prisma } from '@dommaker/studio-prisma';
+import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
 import { logger, LEVEL_CONFIG } from '@dommaker/studio-shared';
 
 export interface CreateRoleInput {
@@ -28,7 +29,7 @@ export interface RoleWithCapabilities extends Omit<Role, 'workflows'> {
 }
 
 export class RoleService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: ExtendedPrismaClient) {}
 
   async create(input: CreateRoleInput): Promise<RoleWithCapabilities> {
     const role = await this.prisma.role.create({

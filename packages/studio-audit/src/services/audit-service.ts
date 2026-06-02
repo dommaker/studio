@@ -9,7 +9,8 @@
  * - 统计分析（操作频率、错误率等）
  */
 
-import { PrismaClient, AuditLog, Prisma } from '@prisma/client';
+import { AuditLog, Prisma } from '@prisma/client';
+import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 
 // ========== 类型定义 ==========
@@ -108,7 +109,7 @@ export const AuditResources = {
 // ========== 审计服务 ==========
 
 export class AuditService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: ExtendedPrismaClient) {}
 
   /**
    * 记录审计日志

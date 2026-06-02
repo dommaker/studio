@@ -88,7 +88,7 @@ router.post('/events', async (req: Request, res: Response) => {
     
     logger.info('Received runtime event', { event: JSON.stringify(event).substring(0, 100) });
     
-    // 🆕 发布到 Redis（让 TaskWorker 也能接收，无需轮询）
+    // 发布到 EventStore（让 TaskWorker 也能接收，无需轮询）
     await eventStore.publish('events', JSON.stringify({
       event_id: event.executionId || uuidv4(),
       event_type: event.type || event.event_type || 'runtime.event',

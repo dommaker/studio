@@ -1,4 +1,4 @@
-// Studio Event Bus — 替代 Redis pub/sub（2026-05-08）
+// Studio Event Bus — 内存 pub/sub
 // 单进程 EventEmitter，零外部依赖
 // 支持通配符匹配（events:* 匹配 events:task）
 

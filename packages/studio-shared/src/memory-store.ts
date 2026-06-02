@@ -1,4 +1,4 @@
-// MemoryStore — 内存替代 Redis (B0-011)
+// MemoryStore — 内存 KV + Pub/Sub 存储
 // 单进程模式下的 KV + Pub/Sub 替代
 import { eventBus } from './event-bus.js';
 
@@ -110,7 +110,7 @@ export const memoryStore = {
     );
   },
   on(_event: string, _handler: (...args: any[]) => void): void {
-    // no-op: Redis 'message' event pattern — handled via subscribe()
+    // no-op: message event pattern — handled via subscribe()
   },
 
   // ── Lifecycle ──

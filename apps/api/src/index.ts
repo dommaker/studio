@@ -13,7 +13,6 @@ import { taskWorker, taskQueue } from '@dommaker/studio-task';
 import { modelGateway } from '@dommaker/studio-shared';
 import { llmConfigService } from './modules/llm/config.service.js';
 import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
-import { agentRouter } from './modules/agents/agent-router.js';
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
 import { goalScheduler } from './modules/goals/goal-scheduler.js';
 import { agentEventListener } from './modules/goals/agent-event-listener.js';
@@ -159,7 +158,6 @@ async function start() {
       opsAgent.start();
     } catch (e) { logger.warn('[OpsAgent] Failed to start', { error: String(e) }); }
     startAuditSubscriber();
-    agentRouter.startScheduler(15000);
     try { startEvolutionScheduler(); } catch { logger.warn('Evolution scheduler unavailable'); }
 
     // ── Channel 初始化（Goal 管线需要）──
@@ -283,7 +281,6 @@ async function start() {
 
       detachWsGateway();
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }
-      agentRouter.stopScheduler();
       stopEvolutionScheduler();
       goalScheduler.stop();
       agentEventListener.stop();

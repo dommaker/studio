@@ -34,8 +34,8 @@ export * from './types/user-behavior';
 export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';
 export * from './harness/auditor/auditor-types';
 
-// 导出 EventBus（替代 Redis pub/sub）
+// 导出 EventBus
 export { eventBus, StudioEventBus } from './event-bus';
 
-// 导出 MemoryStore（替代 Redis KV + List + ZSet + Pub/Sub）
+// 导出 MemoryStore
 export { memoryStore } from './memory-store';

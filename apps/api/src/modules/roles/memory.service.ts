@@ -14,7 +14,7 @@ import type { RoleMemory, RoleMemoryEntry } from './role.types.js';
 const DEFAULT_MAX_ENTRIES = 200;
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-// 内存热缓存（B0-002: 替代 Redis）
+// 内存热缓存
 interface CacheEntry {
   data: RoleMemoryEntry[];
   expiresAt: number;

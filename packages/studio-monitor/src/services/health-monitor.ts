@@ -87,7 +87,7 @@ export class HealthMonitor {
    */
   private async checkZombieTasks(): Promise<void> {
     try {
-      // 检查 Redis 队列与实际进程的一致性
+      // 检查 MemoryStore 队列与实际进程的一致性
       const runningTasks = await this.getRunningTasks();
       
       for (const task of runningTasks) {

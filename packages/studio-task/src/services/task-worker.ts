@@ -4,7 +4,7 @@
  * 消费任务队列并执行，通过 HTTP API 调用 agent-runtime
  * 微服务友好：无本地依赖，可部署到任何服务
  *
- * 支持 Redis 订阅（无需轮询）+ fallback 轮询
+ * 支持事件订阅（无需轮询）+ fallback 轮询
  */
 
 import { TaskQueue, Task } from './task-queue';
@@ -23,7 +23,7 @@ export interface WorkerConfig {
   pollInterval?: number;
   enableRetry?: boolean;
   agentRuntimeUrl?: string;
-  enableRedisSubscription?: boolean;  // 🆕 是否启用 Redis 订阅
+  enableEventSubscription?: boolean;  // 是否启用事件订阅
 }
 
 interface ExecutionProgress {
@@ -40,10 +40,10 @@ export class TaskWorker {
   private concurrency: number;
   private pollInterval: number;
   private enableRetry: boolean;
-  private enableRedisSubscription: boolean;
+  private enableEventSubscription: boolean;
   private activeTasks = new Map<string, Promise<void>>();
   private executionProgress = new Map<string, ExecutionProgress>();  // 🆕 存储执行进度
-  private redis: typeof memoryStore;
+  private store: typeof memoryStore;
   private agentRuntimeUrl: string;
   private taskQueue: TaskQueue;
 
@@ -51,8 +51,8 @@ export class TaskWorker {
     this.concurrency = config.concurrency || 1;
     this.pollInterval = config.pollInterval || 1000;
     this.enableRetry = config.enableRetry ?? true;
-    this.enableRedisSubscription = config.enableRedisSubscription ?? true;
-    this.redis = memoryStore;
+    this.enableEventSubscription = config.enableEventSubscription ?? true;
+    this.store = memoryStore;
     this.agentRuntimeUrl = config.agentRuntimeUrl || process.env.AGENT_RUNTIME_URL || 'http://localhost:3001';
     this.taskQueue = new TaskQueue();
   }
@@ -64,27 +64,27 @@ export class TaskWorker {
     if (this.running) return;
     this.running = true;
 
-    // 🆕 从 Redis 读取配置
+    // 从 MemoryStore 读取配置
     try {
-      const configStr = await this.redis.get('studio:worker:config');
+      const configStr = await this.store.get('studio:worker:config');
       if (configStr) {
         const config = JSON.parse(configStr);
         if (config.maxConcurrent) {
           this.concurrency = config.maxConcurrent;
-          logger.info('Loaded concurrency from Redis', { maxConcurrent: this.concurrency });
+          logger.info('Loaded concurrency from MemoryStore', { maxConcurrent: this.concurrency });
         }
       }
     } catch (err) {
-      logger.warn('Failed to load config from Redis, using default', { error: String(err) });
+      logger.warn('Failed to load config from MemoryStore, using default', { error: String(err) });
     }
-    
-    // 🆕 监听 events channel（接收 runtime 推送的进度）
-    if (this.enableRedisSubscription) {
+
+    // 监听 events channel（接收 runtime 推送的进度）
+    if (this.enableEventSubscription) {
       try {
-        this.redis.subscribe('events', (message) => {
+        this.store.subscribe('events', (message) => {
           this.handleProgressEvent(message);
         });
-        this.redis.subscribe('studio:worker:reload', () => {
+        this.store.subscribe('studio:worker:reload', () => {
           this.reloadConfig();
         });
         logger.info('Subscribed to events channel');
@@ -96,14 +96,14 @@ export class TaskWorker {
     logger.info("Task worker started", {
       concurrency: this.concurrency,
       agentRuntimeUrl: this.agentRuntimeUrl,
-      redisSubscription: this.enableRedisSubscription,
+      eventSubscription: this.enableEventSubscription,
     });
 
     this.poll();
   }
   
   /**
-   * 🆕 处理进度事件（来自 Redis）
+   * 处理进度事件（来自 MemoryStore）
    */
   private handleProgressEvent(messageStr: string): void {
     try {
@@ -179,7 +179,7 @@ export class TaskWorker {
    */
   private async reloadConfig(): Promise<void> {
     try {
-      const configStr = await this.redis.get('studio:worker:config');
+      const configStr = await this.store.get('studio:worker:config');
       if (configStr) {
         const config = JSON.parse(configStr);
         if (config.maxConcurrent && config.maxConcurrent !== this.concurrency) {
@@ -227,7 +227,7 @@ export class TaskWorker {
           }
         }
 
-        // 阻塞等待新任务（Redis BLPOP，超时后重新检查 running 状态）
+        // 阻塞等待新任务（MemoryStore BLPOP，超时后重新检查 running 状态）
         const task = await this.taskQueue.waitForTask(5);
         if (task) {
           this.launchTask(task);
@@ -325,7 +325,7 @@ ${task.prompt}
     const runtimeExecutionId = result.executionId;
     const studioExecutionId = task.executionId || randomUUID();
 
-    // 注册到 executionProgress（用于 Redis 订阅匹配）
+    // 注册到 executionProgress（用于事件订阅匹配）
     this.executionProgress.set(runtimeExecutionId, {
       runtimeExecutionId,
       studioExecutionId,
@@ -333,18 +333,18 @@ ${task.prompt}
       steps: [],
     });
 
-    // 等待完成（通过 Redis 事件 或 fallback 轮询）
+    // 等待完成（通过事件 或 fallback 轮询）
     return await this.waitForCompletion(runtimeExecutionId, studioExecutionId);
   }
   
   /**
-   * 🆕 等待执行完成（Redis 事件优先，fallback 轮询）
+   * 等待执行完成（事件优先，fallback 轮询）
    */
   private async waitForCompletion(runtimeExecutionId: string, studioExecutionId: string): Promise<any> {
     const startTime = Date.now();
 
     while (Date.now() - startTime < EXECUTION_MAX_WAIT_MS) {
-      // 检查 executionProgress（由 Redis 事件更新）
+      // 检查 executionProgress（由事件更新）
       const progress = this.executionProgress.get(runtimeExecutionId);
       
       if (progress) {
@@ -368,8 +368,8 @@ ${task.prompt}
         }
       }
       
-      // Fallback: 如果 Redis 事件未到达，定期轮询 HTTP API
-      if (!this.enableRedisSubscription || !progress || Date.now() - startTime > FALLBACK_POLL_DELAY_MS) {
+      // Fallback: 如果事件未到达，定期轮询 HTTP API
+      if (!this.enableEventSubscription || !progress || Date.now() - startTime > FALLBACK_POLL_DELAY_MS) {
         // 1 分钟后开始 fallback 轮询
         const statusResult = await this.pollExecutionStatusOnce(runtimeExecutionId, studioExecutionId);
         if (statusResult.completed) {
@@ -446,7 +446,7 @@ ${task.prompt}
     activeTasks: number;
     maxConcurrency: number;
     agentRuntimeUrl: string;
-    redisSubscription: boolean;
+    eventSubscription: boolean;
     pendingExecutions: number;
   } {
     return {
@@ -454,7 +454,7 @@ ${task.prompt}
       activeTasks: this.activeTasks.size,
       maxConcurrency: this.concurrency,
       agentRuntimeUrl: this.agentRuntimeUrl,
-      redisSubscription: this.enableRedisSubscription,
+      eventSubscription: this.enableEventSubscription,
       pendingExecutions: this.executionProgress.size,
     };
   }
@@ -480,7 +480,7 @@ ${task.prompt}
       },
     };
     
-    await this.redis.publish('events', JSON.stringify(event));
+    await this.store.publish('events', JSON.stringify(event));
   }
 
   /**
@@ -499,8 +499,8 @@ ${task.prompt}
           output: step.output,
         },
       };
-      
-      await this.redis.publish('events', JSON.stringify(event));
+
+      await this.store.publish('events', JSON.stringify(event));
     }
   }
 }

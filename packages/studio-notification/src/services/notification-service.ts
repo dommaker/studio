@@ -2,7 +2,8 @@
  * 通知服务
  */
 
-import { PrismaClient, prisma } from '@dommaker/studio-prisma';
+import { prisma } from '@dommaker/studio-prisma';
+import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 
 export interface CreateNotificationInput {
@@ -14,7 +15,7 @@ export interface CreateNotificationInput {
 }
 
 export class NotificationService {
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: ExtendedPrismaClient) {}
 
   /**
    * 创建通知

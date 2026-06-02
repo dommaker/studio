@@ -3,7 +3,7 @@
  *
  * P11-02: Extracted from agent-executor.ts
  *
- * 2026-05-09: Docker+tmux+Redis → async spawn (复用 SessionManager 的 execSh 模式)
+ * 2026-05-09: Docker+tmux → async spawn (复用 SessionManager 的 execSh 模式)
  *   - 每个 GoalExecution 独立 worktree → 天然支持并行
  *   - Session 1: --session-id <UUID> --name <name>  创建命名 session
  *   - Session 2+: --continue  复用 prompt cache

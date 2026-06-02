@@ -263,8 +263,8 @@ export async function handleReviewCycle(
           });
           if (siblingExecs.length > 0) {
             const { eventStore } = await import('../../core/event-store.js');
-            const pubRedis = eventStore;
-            await pubRedis.publish('events:goal', JSON.stringify({
+            const pubStore = eventStore;
+            await pubStore.publish('events:goal', JSON.stringify({
               event_type: 'goal.runtime_constraints',
               goalId: goalExec.goalId,
               constraints: systemicIssues.map(i => `⚠️ [跨执行者预警] ${i.message}`),

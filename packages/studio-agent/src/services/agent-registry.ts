@@ -1,9 +1,9 @@
 // Agent Registry - Agent 注册中心
-import { PrismaClient } from '@prisma/client';
+import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
 import { v4 as uuidv4 } from 'uuid';
-// Cache store interface (was ioredis, now EventStore)
+// Cache store interface
 interface CacheStore {
   get(key: string): Promise<string | null>;
   setex(key: string, ttl: number, value: string): Promise<void>;
@@ -17,12 +17,12 @@ const ajv = new Ajv({ allErrors: true, useDefaults: true });
 addFormats(ajv);
 
 export class AgentRegistry {
-  private prisma: PrismaClient;
+  private prisma: ExtendedPrismaClient;
   private store: CacheStore;
   private cachePrefix = 'agent:';
   private cacheTTL = 3600; // 1 hour
 
-  constructor(prisma: PrismaClient, store: CacheStore) {
+  constructor(prisma: ExtendedPrismaClient, store: CacheStore) {
     this.prisma = prisma;
     this.store = store;
   }

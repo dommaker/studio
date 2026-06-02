@@ -5,8 +5,8 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock Redis
-const mockRedis = {
+// Mock MemoryStore
+const mockStore = {
   lpop: vi.fn(),
   lpush: vi.fn(),
   hset: vi.fn(),
@@ -19,10 +19,6 @@ const mockRedis = {
   quit: vi.fn().mockResolvedValue('OK'),
   on: vi.fn(),
 };
-
-vi.mock('ioredis', () => ({
-  default: vi.fn(() => mockRedis),
-}));
 
 vi.mock('uuid', () => ({
   v4: vi.fn(() => 'test-uuid'),
@@ -90,7 +86,7 @@ describe('TaskWorker', () => {
 
   describe('start', () => {
     it('启动 worker 设置 running 状态', async () => {
-      mockRedis.subscribe.mockResolvedValueOnce(1);
+      mockStore.subscribe.mockResolvedValueOnce(1);
 
       const { TaskWorker } = await import('../task-worker');
 
@@ -107,7 +103,7 @@ describe('TaskWorker', () => {
     });
 
     it('重复启动返回警告', async () => {
-      mockRedis.subscribe.mockResolvedValueOnce(1);
+      mockStore.subscribe.mockResolvedValueOnce(1);
 
       const { TaskWorker } = await import('../task-worker');
 
@@ -126,7 +122,7 @@ describe('TaskWorker', () => {
 
   describe('stop', () => {
     it('停止 worker 设置 running 为 false', async () => {
-      mockRedis.subscribe.mockResolvedValueOnce(1);
+      mockStore.subscribe.mockResolvedValueOnce(1);
 
       const { TaskWorker } = await import('../task-worker');
 
@@ -150,7 +146,7 @@ describe('TaskWorker', () => {
         }),
       });
 
-      mockRedis.hset.mockResolvedValueOnce(1);
+      mockStore.hset.mockResolvedValueOnce(1);
 
       const { TaskWorker } = await import('../task-worker');
 

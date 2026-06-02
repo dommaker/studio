@@ -33,7 +33,7 @@ const DEFAULTS: HookConfig[] = [
   { name: 'afterReview', enabled: true, blocking: false },              // 审查结果写入 TraceCollector + FailureRecorder
 
   // PR phase
-  { name: 'afterPrCreated', enabled: true, blocking: false },           // PR 创建后：门禁检查（Phase 3 enabled, GateChecker 全量接入待 Meeting 解耦）
+  { name: 'afterPrCreated', enabled: true, blocking: false },           // PR 创建后：门禁检查（待 GateChecker 全量接入）
 ];
 
 /** 从环境变量解析禁用列表 */

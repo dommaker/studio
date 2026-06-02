@@ -1,4 +1,4 @@
-// API 缓存中间件 — 内存 Map (B0-002: Redis → EventEmitter)
+// API 缓存中间件 — 内存 Map
 import { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger.js';
 

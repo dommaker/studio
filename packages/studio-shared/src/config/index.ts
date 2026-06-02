@@ -57,9 +57,6 @@ export interface AgentStudioConfig {
   // Agent 配置
   defaultAgentType: 'codex' | 'claude';
   
-  // Redis 配置
-  redisUrl: string;
-  
   // API Keys（从环境变量读取）
   codingApiKey1?: string;
   codingApiKey2?: string;
@@ -78,7 +75,6 @@ const DEFAULT_CONFIG: AgentStudioConfig = {
   taskTimeoutMinutes: 60,
   heartbeatIntervalMinutes: 10,
   defaultAgentType: 'codex',
-  redisUrl: 'redis://localhost:6379',
 };
 
 /**
@@ -100,10 +96,7 @@ export function loadAgentStudioConfig(): AgentStudioConfig {
     
     // Agent 配置
     defaultAgentType: (process.env.DEFAULT_AGENT_TYPE as 'codex' | 'claude') || DEFAULT_CONFIG.defaultAgentType,
-    
-    // Redis 配置
-    redisUrl: process.env.REDIS_URL || DEFAULT_CONFIG.redisUrl,
-    
+
     // API Keys
     codingApiKey1: process.env.CODING_API_KEY_1,
     codingApiKey2: process.env.CODING_API_KEY_2,

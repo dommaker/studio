@@ -1,11 +1,11 @@
 // @ts-nocheck
 /**
- * TaskQueue 测试 — B0-011: MemoryStore 替代 Redis
+ * TaskQueue 测试
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock memoryStore（MemoryStore API, not ioredis）
+// Mock memoryStore
 const mockMemoryStore = {
   get: vi.fn().mockResolvedValue(null),
   set: vi.fn().mockResolvedValue(undefined),

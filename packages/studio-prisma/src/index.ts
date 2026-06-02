@@ -135,4 +135,5 @@ const prisma = new PrismaClient({
   },
 });
 
+export type ExtendedPrismaClient = typeof prisma;
 export { prisma };

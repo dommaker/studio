@@ -1,7 +1,7 @@
 /**
  * TaskQueue - 任务队列管理器
  * 
- * 基于 MemoryStore 实现的任务队列（B0-011: Redis → MemoryStore）
+ * 基于 MemoryStore 实现的任务队列
  */
 
 import { randomUUID } from 'crypto';
@@ -70,7 +70,7 @@ export class TaskQueue {
     events: 'events:task',
   };
 
-  constructor(_redisUrl?: string) {
+  constructor() {
     this.store = memoryStore;
   }
 

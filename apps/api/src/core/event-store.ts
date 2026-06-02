@@ -1,4 +1,4 @@
-// EventStore — Redis 替代 (B0-002: EventEmitter + 内存 Map)
+// EventStore — EventEmitter + 内存 Map
 // 提供 get/set/del/keys + pub/sub，全部走 eventBus + Map
 import { eventBus } from '@dommaker/studio-shared';
 
