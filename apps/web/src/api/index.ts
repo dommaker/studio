@@ -234,3 +234,28 @@ export const goalApi = {
   retryExecution: (goalId: string, executionId: string) =>
     api.post(`/goals/${goalId}/executions/${executionId}/retry`),
 };
+
+// Workspace API — AS-020 P2/P7
+export const workspaceApi = {
+  list: () => api.get('/workspaces'),
+  get: (id: string) => api.get(`/workspaces/${id}`),
+  discover: (id: string, path: string, timeout?: number) =>
+    api.get(`/workspaces/${id}/discover`, { params: { path, timeout } }),
+};
+
+// Workspace Token API — AS-020 P2-05/P7-03
+export const workspaceTokenApi = {
+  generate: (name: string, permissions?: string[]) =>
+    api.post('/workspace-tokens', { name, permissions }),
+  list: () => api.get('/workspace-tokens'),
+  revoke: (id: string) => api.delete(`/workspace-tokens/${id}`),
+};
+
+// LLM Config API — AS-020 P9
+export const llmConfigApi = {
+  list: (scope?: string) => api.get('/llm/configs', { params: { scope } }),
+  save: (data: { scope: string; provider: string; model: string; baseUrl?: string }) =>
+    api.post('/llm/configs', data),
+  delete: (id: string) => api.delete(`/llm/configs/${id}`),
+  test: (scope: string) => api.post(`/llm/configs/test`, { scope }),
+};
