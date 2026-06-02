@@ -46,6 +46,13 @@ export interface RequirementsDocJson {
     description?: string;
     category?: string;
   }>;
+  /** TDD-05: Analyst 写的契约测试（按 AC 组组织，RED 状态） */
+  contractTests?: Array<{
+    /** 测试文件名，如 ac-group-1.test.ts */
+    file: string;
+    /** 测试代码内容（可执行的 vitest 代码） */
+    content: string;
+  }>;
 }
 
 // O1d: accept optional claudeArgs for tool restriction on Simple tasks
@@ -117,6 +124,7 @@ interface AnalystOutput {
   tags?: unknown[];
   constraints?: unknown[];
   discoveries?: unknown[];
+  contractTests?: unknown[];
 }
 
 /** 验证 Analyst 输出结构，返回错误列表（空 = 通过） */
@@ -150,6 +158,20 @@ export function validateAnalystOutput(doc: unknown): string[] {
   for (const field of ['tags', 'constraints', 'discoveries'] as const) {
     if (d[field] !== undefined && !Array.isArray(d[field])) {
       errors.push(`${field} must be an array`);
+    }
+  }
+
+  // TDD-07: contractTests validation (optional but if present must be valid)
+  if (d.contractTests !== undefined) {
+    if (!Array.isArray(d.contractTests)) {
+      errors.push('contractTests must be an array');
+    } else {
+      for (let i = 0; i < d.contractTests.length; i++) {
+        const t = d.contractTests[i] as Record<string, unknown> | undefined;
+        if (!t || typeof t !== 'object') { errors.push(`contractTests[${i}] must be an object`); continue; }
+        if (typeof t.file !== 'string' || !t.file.trim()) errors.push(`contractTests[${i}].file must be a non-empty string`);
+        if (typeof t.content !== 'string') errors.push(`contractTests[${i}].content must be a string`);
+      }
     }
   }
 

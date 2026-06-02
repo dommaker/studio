@@ -256,8 +256,10 @@ export async function createGoalFromChannelDoc(input: {
   projectId?: string;
   risks?: string[];
   priority?: 'low' | 'normal' | 'high' | 'critical';
+  /** TDD-07: Analyst 的契约测试（写入每个 worktree） */
+  contractTests?: Array<{ file: string; content: string }>;
 }) {
-  const { title, summary, acGroups, constraints = [], companyId, sourceChannelId, requirementsDocId, projectId, risks = [] } = input;
+  const { title, summary, acGroups, constraints = [], companyId, sourceChannelId, requirementsDocId, projectId, risks = [], contractTests } = input;
 
   beforeGoalCreate({
     operation: 'goal_creation',
@@ -279,6 +281,7 @@ export async function createGoalFromChannelDoc(input: {
         sourceChannelId,
         requirementsDocId,
         model,
+        ...(contractTests?.length ? { contractTests } : {}),
       },
       dependencies: (group.dependencies || []).map(depId => {
         const depIndex = groupIdToIndex.get(depId);

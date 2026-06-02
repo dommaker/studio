@@ -6,6 +6,7 @@
 import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 const getFormatConstraintsForPrompt = async (): Promise<(role: string) => string> => formatConstraintsForPrompt;
 import { selectRelevantSections } from './analyst-knowledge.js';
+import { skillLoader } from '@dommaker/studio-skill';
 
 export async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection: string, outputFile: string): Promise<string> {
   // Q7: 按段落分割知识，取与需求相关的前 N 段落（而非简单的 tail -8000chars）
@@ -17,6 +18,12 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
   const fmtFn = await getFormatConstraintsForPrompt();
   const constraintSection = fmtFn('analyst');
 
+  // TDD-03: Load analyst skills via SkillLoader
+  const analystSkills = skillLoader.load({ trigger: 'goal_start', agentType: 'analyst' });
+  const skillSection = analystSkills.length > 0
+    ? '\n' + skillLoader.formatForPrompt(analystSkills) + '\n'
+    : '';
+
   // Detect if preContext was injected (from CST trigger)
   const hasPreContext = requirement.includes('[PRE_CONTEXT]');
   const preContextInstruction = hasPreContext
@@ -24,9 +31,11 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
     : '';
 
   // B11-014: 统一前缀顺序 [约束][知识索引][任务上下文] — 最大化 prefix cache 命中
+  // skillSection 放在知识之后（skills 是 agent-specific，放在共享前缀中会破坏缓存）
   return [
     constraintSection,
     knowledgeSection,
+    skillSection,
     '',
     '你是一个需求分析专家，在 Agent Studio 项目中工作。',
     '',
@@ -187,9 +196,19 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
     '    "title": "简短标题",',
     '    "description": "1-3 句话描述",',
     '    "effort": "minutes|hours|days|unknown"',
+    '  }],',
+    '  "contractTests": [{',
+    '    "file": "__tests__/ac-group-1.test.ts",',
+    '    "content": "import { describe, it, expect } from \'vitest\';\\n..."',
     '  }]',
     '}',
     '```',
+    '',
+    '**契约测试（contractTests）**：按 AC 组组织的可执行 vitest 测试代码。',
+    '- 每个 acGroup 对应一个测试文件',
+    '- 只写契约测试（公共 API 正常路径 + AC 对照），不写边界测试（留给 Reviewer）',
+    '- 测试在 Analyst 阶段结束时全部 FAIL（RED 状态）',
+    '- 测试基于已验证的接口（architectureContext.verifiedAt）',
     '',
     '写完 JSON 后，在 stdout 输出 "DONE"。',
     '',

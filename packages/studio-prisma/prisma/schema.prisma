@@ -975,6 +975,7 @@ model RequirementsDoc {
   title     String
   content   String   // Markdown 全文
   acGroups  String?  // G34: JSON array of structured AC groups (source of truth)
+  contractTests String? // TDD-07: JSON array of { file, content } — Analyst 契约测试
   tags      String   @default("[]") // JSON array
   goalId    String?  // 开始执行后关联
   projectId String?

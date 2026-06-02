@@ -117,6 +117,10 @@ export interface ReviewResult {
   score: number;
   issues: ReviewIssue[];
   suggestions: string[];
+  /** TDD-08: Reviewer 补写的边界测试文件（保留到测试套件） */
+  supplementaryTestFiles?: { file: string; content: string }[];
+  /** TDD-09: AC 覆盖率报告 */
+  acCoverage?: { total: number; covered: number; missing: string[] };
 }
 
 export interface ReviewIssue {

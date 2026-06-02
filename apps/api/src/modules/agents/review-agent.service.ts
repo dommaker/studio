@@ -13,6 +13,7 @@ import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { discoveryExposure } from '../channels/discovery-exposure.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
+import { skillLoader } from '@dommaker/studio-skill';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { ReviewResult, ReviewDiffParams } from './types.js';
@@ -71,7 +72,12 @@ export class ReviewAgent {
         const indexSummary = knowledgeBus.formatIndexSummary();
         if (indexSummary) indexSection = '\n## 知识检索\n' + indexSummary + '\n';
       } catch { /* best-effort */ }
-      const reviewPrompt = constraintSection + indexSection + buildReviewPrompt({
+      // TDD-04: Load reviewer skills via SkillLoader
+      const reviewerSkills = skillLoader.load({ trigger: 'review', agentType: 'reviewer' });
+      const skillSection = reviewerSkills.length > 0
+        ? '\n' + skillLoader.formatForPrompt(reviewerSkills) + '\n'
+        : '';
+      const reviewPrompt = constraintSection + indexSection + skillSection + buildReviewPrompt({
         taskDescription,
         acceptanceCriteria,
         cycle,
@@ -159,7 +165,19 @@ export class ReviewAgent {
       // 计算审查得分
       const totalIssues = report.issues?.length ?? 0;
       const errorIssues = report.issues?.filter(i => i.severity === 'error').length ?? 0;
-      const reviewScore = errorIssues > 0 ? 50 : totalIssues > 0 ? 80 : 100;
+      let reviewScore = errorIssues > 0 ? 50 : totalIssues > 0 ? 80 : 100;
+
+      // Phase 2: AC 覆盖率纳入 verdict
+      if (report.acCoverage && report.acCoverage.missing.length > 0) {
+        reviewScore = Math.min(reviewScore, 60);
+        report.overallApproved = false;
+        logger.warn('[ReviewAgent] AC coverage incomplete', {
+          taskId,
+          total: report.acCoverage.total,
+          covered: report.acCoverage.covered,
+          missing: report.acCoverage.missing,
+        });
+      }
 
       logger.info('[ReviewAgent] Review completed', {
         taskId,
@@ -239,6 +257,24 @@ export class ReviewAgent {
         cycle,
       }).catch(err => logger.warn('[ReviewAgent] afterReview hook failed', { taskId, error: String(err) }));
 
+      // TDD-08: Collect supplementary test file contents from worktree
+      const supplementaryTestFiles: { file: string; content: string }[] = [];
+      for (const st of report.supplementaryTests ?? []) {
+        if (st.retained && st.file) {
+          const testPath = path.join(worktree, st.file);
+          try {
+            if (fs.existsSync(testPath)) {
+              supplementaryTestFiles.push({
+                file: st.file,
+                content: fs.readFileSync(testPath, 'utf-8'),
+              });
+            } else {
+              logger.warn('[ReviewAgent] Supplementary test file missing on disk', { taskId, file: st.file });
+            }
+          } catch { /* best-effort */ }
+        }
+      }
+
       // 转换为 ReviewResult
       const allIssues = [
         ...(report.issues ?? []).map(i => ({
@@ -265,6 +301,8 @@ export class ReviewAgent {
         score: reviewScore,
         issues: allIssues,
         suggestions: report.suggestions ?? [],
+        supplementaryTestFiles,
+        acCoverage: report.acCoverage,
       };
     } catch (error) {
       logger.error('[ReviewAgent] Review failed', { taskId, cycle, error: String(error) });
@@ -421,7 +459,12 @@ export class ReviewAgent {
         const indexSummary = knowledgeBus.formatIndexSummary();
         if (indexSummary) indexSection = '\n## 知识检索\n' + indexSummary + '\n';
       } catch { /* best-effort */ }
-      const reviewPrompt = constraintSection + indexSection + buildReviewPrompt({
+      // TDD-04: Load reviewer skills for branch diff review too
+      const reviewerSkills = skillLoader.load({ trigger: 'review', agentType: 'reviewer' });
+      const skillSection = reviewerSkills.length > 0
+        ? '\n' + skillLoader.formatForPrompt(reviewerSkills) + '\n'
+        : '';
+      const reviewPrompt = constraintSection + indexSection + skillSection + buildReviewPrompt({
         taskDescription: description || `Branch diff: ${baseRef} → ${headRef}`,
         acceptanceCriteria: acceptanceCriteria || [
           `All changes between ${baseRef} and ${headRef} are correct and safe`,

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SkillLoader } from '../loader.js';
-import { allSkillDefinitions, tddWorkflow, forensicReview, toolRisk } from '../definitions/index.js';
+import { allSkillDefinitions, greenOnlyTdd, forensicReview, toolRisk, contractTestWriting } from '../definitions/index.js';
 
 describe('SkillLoader', () => {
   const loader = new SkillLoader();
@@ -8,7 +8,7 @@ describe('SkillLoader', () => {
   it('should load skills for goal_start trigger', () => {
     const skills = loader.load({ trigger: 'goal_start', agentType: 'executor', tier: 'fast' });
     expect(skills.length).toBeGreaterThan(0);
-    expect(skills.some(s => s.id === 'tdd-workflow')).toBe(true);
+    expect(skills.some(s => s.id === 'green-only-tdd')).toBe(true);
   });
 
   it('should include always-trigger skills', () => {
@@ -31,24 +31,24 @@ describe('SkillLoader', () => {
   });
 
   it('should respect exclude option', () => {
-    const skills = loader.load({ trigger: 'goal_start', agentType: 'executor', exclude: ['tdd-workflow'] });
-    expect(skills.some(s => s.id === 'tdd-workflow')).toBe(false);
+    const skills = loader.load({ trigger: 'goal_start', agentType: 'executor', exclude: ['green-only-tdd'] });
+    expect(skills.some(s => s.id === 'green-only-tdd')).toBe(false);
   });
 
   it('should format skills for prompt', () => {
-    const skills = [tddWorkflow];
+    const skills = [greenOnlyTdd];
     const prompt = loader.formatForPrompt(skills);
-    expect(prompt).toContain('TDD 工作流');
+    expect(prompt).toContain('GREEN');
   });
 
-  it('should have 9 skill definitions', () => {
-    expect(allSkillDefinitions).toHaveLength(9);
+  it('should have 10 skill definitions', () => {
+    expect(allSkillDefinitions).toHaveLength(10);
   });
 
   it('should get single skill by id', () => {
-    const skill = loader.get('tdd-workflow');
+    const skill = loader.get('green-only-tdd');
     expect(skill).toBeDefined();
-    expect(skill!.name).toBe('TDD Workflow');
+    expect(skill!.name).toBe('GREEN-Only TDD');
   });
 
   describe('forensic-review skill', () => {
@@ -84,6 +84,37 @@ describe('SkillLoader', () => {
       expect(toolRisk.prompt).toContain('rm -rf');
       expect(toolRisk.prompt).toContain('force');
       expect(toolRisk.prompt).toContain('禁止执行');
+    });
+  });
+
+  describe('contract-test-writing skill', () => {
+    it('should load for analyst at premium tier on goal_start trigger', () => {
+      const skills = loader.load({ trigger: 'goal_start', agentType: 'analyst', tier: 'premium' });
+      expect(skills.some(s => s.id === 'contract-test-writing')).toBe(true);
+    });
+
+    it('should not load for executor', () => {
+      const skills = loader.load({ trigger: 'goal_start', agentType: 'executor', tier: 'premium' });
+      expect(skills.some(s => s.id === 'contract-test-writing')).toBe(false);
+    });
+
+    it('should have contract test prompt content', () => {
+      expect(contractTestWriting.prompt).toContain('契约测试');
+      expect(contractTestWriting.prompt).toContain('AC');
+      expect(contractTestWriting.prompt).toContain('vitest');
+    });
+  });
+
+  describe('green-only-tdd skill', () => {
+    it('should not contain RED phase instructions', () => {
+      expect(greenOnlyTdd.prompt).not.toContain('写失败');
+      expect(greenOnlyTdd.prompt).not.toContain('确认失败');
+    });
+
+    it('should contain GREEN phase instructions', () => {
+      expect(greenOnlyTdd.prompt).toContain('读 Analyst');
+      expect(greenOnlyTdd.prompt).toContain('实现代码');
+      expect(greenOnlyTdd.prompt).toContain('确认通过');
     });
   });
 });

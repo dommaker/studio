@@ -26,6 +26,7 @@ import {
   propagateHarnessConfig,
   buildCachePrefix,
   writeRequirementsMd,
+  writeContractTests,
 } from './worktree-resolver.js';
 import {
   readProgress,
@@ -182,6 +183,12 @@ export class AgentExecutor {
       const acGroup = task.parameters?.acGroup as Record<string, any> | undefined;
       await writeRequirementsMd(worktree, task, acGroup);
 
+      // TDD-07: 写入 Analyst 的契约测试
+      const contractTests = task.parameters?.contractTests as Array<{ file: string; content: string }> | undefined;
+      if (contractTests?.length) {
+        await writeContractTests(worktree, contractTests);
+      }
+
       // Step 3: Session loop（含卡住检测 + 策略切换）
       let sessionCount = 0;
       let stuckCount = 0;
@@ -227,6 +234,10 @@ export class AgentExecutor {
           fsSync.mkdirSync(worktree, { recursive: true });
           logger.warn('[AgentExecutor] REQUIREMENTS.md missing, re-writing', { taskId: task.id, executionId: task.executionId, session: sessionCount });
           await writeRequirementsMd(worktree, task, acGroup);
+          // TDD-07: Re-write contract tests if REQUIREMENTS.md was deleted
+          if (contractTests?.length) {
+            await writeContractTests(worktree, contractTests);
+          }
         }
 
         // 读进度（session 2+ 用于续接 prompt）

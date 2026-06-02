@@ -2,7 +2,8 @@ export type { SkillDefinition, SkillTrigger, SkillTier } from './types.js';
 export { SkillLoader, skillLoader } from './loader.js';
 export type { LoadOptions } from './loader.js';
 export {
-  tddWorkflow,
+  greenOnlyTdd,
+  contractTestWriting,
   stuckRecovery,
   behaviourConstraints,
   multiStanceReview,

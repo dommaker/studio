@@ -419,6 +419,22 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       const acGroups = doc.acGroups
         ? JSON.parse(doc.acGroups as string)
         : parseAcGroupsFromMarkdown(doc.content);
+      // TDD-07: Read contractTests from DB (Analyst 契约测试)
+      const contractTests = doc.contractTests
+        ? JSON.parse(doc.contractTests as string)
+        : undefined;
+
+      // Phase 3: 无契约测试的 RequirementsDoc 不允许进入 Scheduler
+      if (!contractTests?.length) {
+        logger.warn('[Channel] RequirementsDoc missing contractTests — blocking execution', { docId });
+        try {
+          await channelMessageService.createAgentMessage(req.params.channelId, 'System',
+            `## ⚠️ 缺少契约测试\n\nRequirementsDoc 没有包含契约测试（contractTests）。管线要求 Analyst 输出可执行的契约测试后才能进入执行阶段。\n\n请重新触发 @Analyst 分析需求。`
+          );
+        } catch { /* best-effort */ }
+        return res.status(400).json({ success: false, error: 'Missing contractTests in RequirementsDoc' });
+      }
+
       const groupIdToIndex = new Map(acGroups.map((g, i) => [g.id, i]));
 
       // O1c: Extract Analyst context for each AC group (prevents Executor from re-exploring verified files)
@@ -538,6 +554,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         requirementsDocId: docId,
         projectId,
         risks,
+        ...(contractTests?.length ? { contractTests } : {}),
       });
 
       // Update RequirementsDoc

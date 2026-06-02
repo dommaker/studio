@@ -169,10 +169,35 @@ export async function writeRequirementsMd(
     '- 禁止模糊声明完成',
     '- 每完成一个步骤后立即更新 .progress.json',
     '- 全部 AC 测试通过后才设置 .progress.json allComplete: true',
+    '- **Phase 3: 禁止创建新的 .test.ts / .spec.ts 文件**（测试由 Analyst + Reviewer 提供，你只实现代码让测试通过）',
     '- 将测试证据写入 .progress.json.testResults: { passed, total, failed: 0, command: "npm test", evidence: "<测试输出>" }',
     '- 将设计决策写入 .progress.json.designNotes: { decisions: ["选X不选Y因为Z"], failedAttempts: ["试过A遇到B问题"], uncertainties: ["C部分需要特别关注"], constraintsDiscovered: ["实现中发现AC未覆盖的限制D"] }',
     '- designNotes 只记录对 Review 有意义的决策信息，不写琐碎细节',
   ];
 
   await fs.writeFile(path.join(worktree, 'REQUIREMENTS.md'), sections.join('\n'), 'utf-8');
+}
+
+/**
+ * TDD-07: 写入 Analyst 的契约测试到 worktree __tests__/
+ *
+ * RequirementsDoc.contractTests 包含按 AC 组组织的可执行测试代码。
+ * 测试在写入时处于 RED 状态（全部 FAIL），Executor 实现后变为 GREEN。
+ */
+export async function writeContractTests(
+  worktree: string,
+  contractTests: Array<{ file: string; content: string }>,
+): Promise<void> {
+  if (!contractTests?.length) return;
+
+  const testsDir = path.join(worktree, '__tests__');
+  await fs.mkdir(testsDir, { recursive: true });
+
+  for (const test of contractTests) {
+    const testPath = path.join(worktree, test.file);
+    const testDir = path.dirname(testPath);
+    await fs.mkdir(testDir, { recursive: true });
+    await fs.writeFile(testPath, test.content, 'utf-8');
+    logger.info('[WorktreeResolver] Contract test written', { file: test.file, size: test.content.length });
+  }
 }

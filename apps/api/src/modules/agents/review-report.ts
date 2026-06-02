@@ -27,6 +27,12 @@ export interface ReviewReport {
   supplementaryTests: SupplementaryTestResult[];
   issues: CodeQualityIssue[];
   suggestions?: string[];
+  /** TDD-09: AC 覆盖率报告 */
+  acCoverage?: {
+    total: number;
+    covered: number;
+    missing: string[];
+  };
 }
 
 export interface AcVerificationResult {
@@ -47,6 +53,8 @@ export interface SupplementaryTestResult {
   description: string;
   /** 补充测试是否发现了 Executor 未处理的问题 */
   catchesIssue: boolean;
+  /** TDD-08: 测试是否已保留到 __tests__/ 目录 */
+  retained?: boolean;
 }
 
 export interface CodeQualityIssue {
@@ -176,13 +184,30 @@ ac-compliance (规范合规者) 专项检查:
     { "executorTest": "test file path", "issue": "只测了 happy path" }
   ],
   "supplementaryTests": [
-    { "file": "补充测试路径", "description": "", "catchesIssue": false }
+    { "file": "__tests__/boundary-ac1.test.ts", "description": "null input handling", "catchesIssue": false, "retained": true }
   ],
+  "acCoverage": {
+    "total": 5,
+    "covered": 5,
+    "missing": []
+  },
   "issues": [
     { "severity": "warning", "file": "src/foo.ts", "line": 42, "message": "变量命名不够清晰", "stance": "executor" }
   ]
 }
 \`\`\`
+
+**补充测试要求（TDD-08）**：
+- 补写的边界测试必须写入 \`__tests__/\` 目录（与 Analyst 的契约测试同级）
+- 测试文件必须是可执行的 vitest 代码，不是伪代码
+- 在 supplementaryTests 中记录 \`retained: true\` 表示测试已保留到测试套件
+- 测试套件 = Analyst 契约测试 + Reviewer 边界测试
+
+**AC 覆盖率检查（TDD-09）**：
+- 检查每条 AC 是否有对应的契约测试
+- AC 覆盖率 = 有契约测试的 AC / 总 AC
+- 在 acCoverage 中报告覆盖率数据
+- missing 列出没有契约测试的 AC 编号
 
 **overallApproved** 为 true 当且仅当：
 - 所有 AC 通过（acResults 中无 passed=false）

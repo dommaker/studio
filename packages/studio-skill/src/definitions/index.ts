@@ -1,5 +1,5 @@
 /**
- * 9 个内置 Skill 定义
+ * 10 个内置 Skill 定义
  *
  * 从 agent-executor.ts、goal-scheduler.ts、review-report.ts、
  * knowledge-agent.service.ts 中的硬编码 prompt 迁移而来。
@@ -9,25 +9,83 @@ import type { SkillDefinition } from '../types.js';
 
 // ── P0: 核心执行 Skills ──
 
-export const tddWorkflow: SkillDefinition = {
-  id: 'tdd-workflow',
-  name: 'TDD Workflow',
-  description: '测试驱动开发工作流：写失败测试→最小实现→通过→重构→循环',
+export const greenOnlyTdd: SkillDefinition = {
+  id: 'green-only-tdd',
+  name: 'GREEN-Only TDD',
+  description: 'GREEN-only TDD 工作流：读 Analyst 契约测试→实现代码→确认通过→重构',
   trigger: 'goal_start',
   agentTypes: ['executor'],
   tier: 'fast',
-  prompt: `## TDD 工作流
+  prompt: `## GREEN-Only TDD 工作流
+
+你只负责实现代码，测试由 Analyst 预先写好。
 
 严格按以下流程工作：
 
-1. 读 AC → 写失败的测试
-2. 运行测试确认失败
-3. 最小实现让测试通过 → 运行确认通过
-4. 重构优化
-5. 重复 1-4 直到所有 AC 满足
-6. 运行 npm test + type check + lint
-7. 更新 .progress.json
-8. 全部 AC 覆盖 + 全部测试通过 → 设置 .progress.json allComplete: true`,
+1. 读 Analyst 写的契约测试 → 理解每条 AC 的预期行为
+2. 最小实现让测试通过 → 运行确认通过
+3. 重构优化
+4. 重复 1-3 直到所有 AC 满足
+5. 运行 npm test + type check + lint
+6. 更新 .progress.json
+7. 全部 AC 覆盖 + 全部测试通过 → 设置 .progress.json allComplete: true
+
+**约束**：
+- 不写测试文件（测试是 Analyst 的契约 + Reviewer 的边界测试）
+- 可以修改现有测试，但必须记录修改原因（接口变化时）
+- 禁止创建新的 .test.ts / .spec.ts 文件（Phase 3 强制）
+- 完成标准：所有测试 PASS + tsc --noEmit 无错误`,
+};
+
+export const contractTestWriting: SkillDefinition = {
+  id: 'contract-test-writing',
+  name: 'Contract Test Writing',
+  description: 'Analyst 写契约测试：按 AC 组织可执行测试，定义公共 API 契约',
+  trigger: 'goal_start',
+  agentTypes: ['analyst'],
+  tier: 'premium',
+  prompt: `## 契约测试写作
+
+你在输出 RequirementsDoc 的同时，为每条 AC 编写可执行的契约测试。
+
+### 规则
+
+- 只写**契约测试**（公共 API 的正常路径 + AC 对照）
+- 不写边界测试（留给 Reviewer）
+- 测试必须可执行（不是伪代码），使用 vitest
+- 按 AC 组组织文件（与 GoalExecution 调度对齐）
+- 测试在 Analyst 阶段结束时全部 FAIL（RED 状态）
+- 测试基于已验证的接口（architectureContext.verifiedAt）
+
+### 输出格式
+
+ContractTests（按 AC 组组织）:
+\`\`\`
+ac-group-1.test.ts:
+  - it('AC-1: 公共 API 正常路径') → 具体断言
+  - it('AC-1: 必填参数缺失') → 具体断言
+ac-group-2.test.ts:
+  - it('AC-2: 公共 API 正常路径') → 具体断言
+  - it('AC-2: 边界值') → 具体断言
+\`\`\`
+
+### 测试模板
+
+\`\`\`typescript
+import { describe, it, expect } from 'vitest';
+import { functionUnderTest } from '../module.js';
+
+describe('AC-N: 描述', () => {
+  it('AC-N: 公共 API 正常路径', () => {
+    // Arrange
+    const input = ...;
+    // Act
+    const result = functionUnderTest(input);
+    // Assert
+    expect(result).toBe(expected);
+  });
+});
+\`\`\``,
 };
 
 export const stuckRecovery: SkillDefinition = {
@@ -214,7 +272,8 @@ export const subAgentWorkflow: SkillDefinition = {
 // ── 所有 Skills 列表 ──
 
 export const allSkillDefinitions: SkillDefinition[] = [
-  tddWorkflow,
+  greenOnlyTdd,
+  contractTestWriting,
   stuckRecovery,
   behaviourConstraints,
   multiStanceReview,

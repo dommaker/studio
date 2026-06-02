@@ -28,6 +28,7 @@ export {
   propagateHarnessConfig,
   buildCachePrefix,
   writeRequirementsMd,
+  writeContractTests,
 } from './worktree-resolver.js';
 
 // Re-export output-capture functions
