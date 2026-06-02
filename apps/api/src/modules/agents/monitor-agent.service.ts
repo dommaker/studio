@@ -1589,6 +1589,14 @@ export class MonitorAgent {
         }
       } catch { /* best-effort: audit module may not be available */ }
 
+      // 5b. Knowledge index snapshot (for KR4 30d survival rate)
+      try {
+        const { KnowledgeStore } = await import('@dommaker/harness') as any;
+        const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+        const store = new KnowledgeStore({ baseDir: knowledgeDir });
+        store.snapshot();
+      } catch { /* best-effort */ }
+
       // B10-201: Behavior profile trends
       try {
         const behaviorProfiles = await prisma.userBehaviorProfile.findMany({
