@@ -1,7 +1,19 @@
 /**
  * KnowledgeBus 边界测试
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+
+// Mock prisma for event emission tests
+const { studioEventCreateMock } = vi.hoisted(() => ({
+  studioEventCreateMock: vi.fn().mockResolvedValue({ id: 'mock-event-id' }),
+}));
+
+vi.mock('@dommaker/studio-prisma', () => ({
+  prisma: {
+    studioEvent: { create: studioEventCreateMock },
+  },
+}));
+
 import { knowledgeBus, sharedStore, upsertKnowledge, KnowledgeBus } from '../knowledge-bus.service.js';
 
 describe('KnowledgeBus', () => {
@@ -328,5 +340,109 @@ describe('formatSearchForPrompt', () => {
       { id: 'x', type: 'pattern', title: 't', content: 'c', maturity: 'verified', score: 1, matchContext: 'ctx' },
     ]);
     expect(formatted).toContain('🔍');
+  });
+});
+
+// ── GAP-07: knowledge:injected event emission ──
+
+describe('knowledge:injected events', () => {
+  beforeEach(() => {
+    studioEventCreateMock.mockClear();
+  });
+
+  describe('getRecentContext', () => {
+    it('emits knowledge:injected event with method=getRecentContext when entries exist', () => {
+      const stats = knowledgeBus.getStats();
+      if (stats.total === 0) return; // skip if store empty
+
+      knowledgeBus.getRecentContext('test-agent', 5);
+
+      const injectedCalls = studioEventCreateMock.mock.calls.filter(
+        (c: any[]) => c[0]?.data?.type === 'knowledge:injected',
+      );
+      expect(injectedCalls.length).toBeGreaterThan(0);
+      const payload = JSON.parse(injectedCalls[0][0].data.payload);
+      expect(payload.method).toBe('getRecentContext');
+      expect(payload.agentType).toBe('test-agent');
+      expect(payload.entryCount).toBeGreaterThan(0);
+      expect(Array.isArray(payload.entryIds)).toBe(true);
+    });
+
+    it('does not emit knowledge:injected when store is empty', () => {
+      // getRecentContext with maxItems=0 returns empty, no injection
+      knowledgeBus.getRecentContext('test-agent', 0);
+
+      const injectedCalls = studioEventCreateMock.mock.calls.filter(
+        (c: any[]) => c[0]?.data?.type === 'knowledge:injected',
+      );
+      expect(injectedCalls).toHaveLength(0);
+    });
+  });
+
+  describe('formatIndexSummary', () => {
+    it('emits knowledge:injected event with method=formatIndexSummary when entries exist', () => {
+      const stats = knowledgeBus.getStats();
+      if (stats.total === 0) return; // skip if store empty
+
+      knowledgeBus.formatIndexSummary();
+
+      const injectedCalls = studioEventCreateMock.mock.calls.filter(
+        (c: any[]) => c[0]?.data?.type === 'knowledge:injected',
+      );
+      expect(injectedCalls.length).toBeGreaterThan(0);
+      const payload = JSON.parse(injectedCalls[0][0].data.payload);
+      expect(payload.method).toBe('formatIndexSummary');
+      expect(payload.entryCount).toBeGreaterThan(0);
+      expect(Array.isArray(payload.entryIds)).toBe(true);
+    });
+  });
+});
+
+// ── GAP-08: low_quality tag filtering ──
+
+describe('GAP-08: low_quality filtering', () => {
+  const lqId = `test-lq-${Date.now()}`;
+
+  beforeAll(() => {
+    // Seed a low_quality entry
+    sharedStore.save({
+      id: lqId,
+      type: 'guideline',
+      title: 'Low quality entry',
+      content: 'Short content that was flagged as low quality by audit.',
+      maturity: 'verified',
+      layer: 'L1',
+      created: new Date().toISOString(),
+      lastReferenced: new Date().toISOString(),
+      contributors: ['test'],
+      projects: [],
+      tags: ['low_quality', 'guideline'],
+      applicablePhases: [],
+      sourceReferences: [],
+      referencedBy: [],
+    });
+  });
+
+  it('getRecentContext excludes low_quality entries', () => {
+    const result = knowledgeBus.getRecentContext('test-agent', 100);
+    // low_quality entry should NOT appear in injection
+    expect(result).not.toContain(lqId);
+  });
+
+  it('formatIndexSummary excludes low_quality entries from recent injection', () => {
+    const summary = knowledgeBus.formatIndexSummary();
+    // low_quality entry should NOT appear in the recent entries section
+    expect(summary).not.toContain(lqId);
+  });
+
+  it('search deprioritizes low_quality entries (score penalty)', () => {
+    const results = knowledgeBus.search('low quality entry');
+    const lqResult = results.find(r => r.id === lqId);
+    if (lqResult) {
+      // With qualityPenalty=0.3, low_quality score should be < 50% of what it would be unpenalized
+      // Baseline: same entry without low_quality tag would score ~9 (3 keywords × 3 title match)
+      // With penalty: 9 * 0.3 = 2.7, so expect < 5
+      expect(lqResult.score).toBeLessThan(5);
+    }
   });
 });

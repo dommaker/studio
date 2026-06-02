@@ -189,7 +189,7 @@ export class KnowledgeBus {
       // B13-007: maturity 加权排序
       const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, draft: 1 };
       const recent = all
-        .filter(e => e.maturity !== 'archived')
+        .filter(e => e.maturity !== 'archived' && !e.tags?.includes('low_quality'))
         .sort((a, b) => {
           const wa = MATURITY_WEIGHT[a.maturity] || 1;
           const wb = MATURITY_WEIGHT[b.maturity] || 1;
@@ -214,6 +214,23 @@ export class KnowledgeBus {
         const source = e.contributors?.[0] || '?';
         lines.push(`- [REF:${e.id}] [${source}] ${icon} ${e.title}: ${e.content.slice(0, 200)}`);
       }
+
+      // GAP-07: emit knowledge:injected event
+      prisma.studioEvent.create({
+        data: {
+          type: 'knowledge:injected',
+          source: agentType,
+          payload: JSON.stringify({
+            method: 'getRecentContext',
+            agentType,
+            entryCount: recent.length,
+            entryIds: recent.map(e => e.id),
+          }),
+        },
+      }).catch((e: any) => {
+        logger.warn('[KnowledgeBus] knowledge:injected event failed', { error: String(e) });
+      });
+
       return lines.join('\n');
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to load context', { error: String(e) });
@@ -352,6 +369,7 @@ export class KnowledgeBus {
       try {
         const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, draft: 1 };
         const recent = this.store.list({ excludeArchived: true })
+          .filter(e => !e.tags?.includes('low_quality'))
           .sort((a, b) => {
             const wa = MATURITY_WEIGHT[a.maturity] || 1;
             const wb = MATURITY_WEIGHT[b.maturity] || 1;
@@ -369,6 +387,21 @@ export class KnowledgeBus {
             try { sharedLifecycle.recordReference(e.id, 'prompt-inject'); } catch { /* non-blocking */ }
           }
           logger.info('[KnowledgeBus] Knowledge injected into prompt', { count: recent.length, ids: recent.map(e => e.id) });
+
+          // GAP-07: emit knowledge:injected event
+          prisma.studioEvent.create({
+            data: {
+              type: 'knowledge:injected',
+              source: 'formatIndexSummary',
+              payload: JSON.stringify({
+                method: 'formatIndexSummary',
+                entryCount: recent.length,
+                entryIds: recent.map(e => e.id),
+              }),
+            },
+          }).catch((e: any) => {
+            logger.warn('[KnowledgeBus] knowledge:injected event failed', { error: String(e) });
+          });
         }
       } catch { /* non-blocking — entry injection is best-effort */ }
 
@@ -450,8 +483,10 @@ export class KnowledgeBus {
             : 30;
           const freshness = daysAgo < 7 ? 1.0 : Math.max(0.2, 1 - (daysAgo - 7) / 30);
           const maturityWeight = { proven: 1.5, verified: 1.0, draft: 0.5 }[e.maturity] || 0.5;
+          // GAP-08: deprioritize low_quality entries
+          const qualityPenalty = e.tags?.includes('low_quality') ? 0.3 : 1.0;
 
-          const score = keywordScore * typeWeight * freshness * maturityWeight;
+          const score = keywordScore * typeWeight * freshness * maturityWeight * qualityPenalty;
           // Extract match context: snippet around first keyword match
           const matchContext = bestMatchPos >= 0
             ? e.content.slice(Math.max(0, bestMatchPos - 40), bestMatchPos + 160)
