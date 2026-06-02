@@ -1,6 +1,22 @@
 -- P9-01: Remove encrypted API key fields from LLMConfig.
 -- API keys are now resolved via config.env + getProviderApiKey() (B15).
 
+-- Baseline: LLMConfig table was created via db push, shadow DB needs this
+CREATE TABLE IF NOT EXISTS "LLMConfig" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "scope" TEXT NOT NULL,
+    "provider" TEXT NOT NULL,
+    "baseUrl" TEXT,
+    "model" TEXT NOT NULL,
+    "options" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS "LLMConfig_scope_provider_key" ON "LLMConfig"("scope", "provider");
+CREATE INDEX IF NOT EXISTS "LLMConfig_scope_idx" ON "LLMConfig"("scope");
+CREATE INDEX IF NOT EXISTS "LLMConfig_isActive_idx" ON "LLMConfig"("isActive");
+
 -- RedefineTables
 PRAGMA defer_foreign_keys=ON;
 PRAGMA foreign_keys=OFF;
