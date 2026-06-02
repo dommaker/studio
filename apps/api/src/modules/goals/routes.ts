@@ -5,9 +5,9 @@
  * GET  /api/v1/goals — 目标列表
  * GET  /api/v1/goals/stats — 仪表盘统计
  * GET  /api/v1/goals/:id — 目标详情
- * POST /api/v1/goals/:id/plan — 生成执行计划
- * POST /api/v1/goals/:id/approve — 审批计划
- * POST /api/v1/goals/:id/execute — 开始执行
+ * POST /api/v1/goals/:id/plan — @deprecated (410)
+ * POST /api/v1/goals/:id/approve — @deprecated (410)
+ * POST /api/v1/goals/:id/execute — @deprecated (410)
  * PUT  /api/v1/goals/:id/steps/:stepId — 更新步骤状态
  * GET  /api/v1/goals/:id/executable — 获取可执行步骤
  * GET  /api/v1/goals/:id/executions — GoalExecution 列表
@@ -120,44 +120,27 @@ router.get('/:id', async (req: Request, res: Response) => {
 
 /**
  * POST /api/v1/goals/:id/plan
- * 用 LLM 生成执行计划
+ * @deprecated 已废弃 — Analyst 直接输出 acGroups + modelTier，不再需要 LLM 二次分解。
+ * Channel 流程走 createGoalFromChannelDoc，此端点无消费方。
  */
-router.post('/:id/plan', async (req: Request, res: Response) => {
-  try {
-    const plan = await goalService.generatePlan(req.params.id);
-    return res.json(plan);
-  } catch (error) {
-    logger.error('[Goal API] Plan generation failed', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to generate plan' } });
-  }
+router.post('/:id/plan', async (_req: Request, res: Response) => {
+  return res.status(410).json({ error: { code: 'DEPRECATED', message: 'Plan generation deprecated. Analyst outputs acGroups directly via Channel flow.' } });
 });
 
 /**
  * POST /api/v1/goals/:id/approve
- * 审批计划
+ * @deprecated 已废弃 — Channel 流程直接创建 executing 状态的 Goal，无需手动审批。
  */
-router.post('/:id/approve', async (req: Request, res: Response) => {
-  try {
-    await goalService.approvePlan(req.params.id);
-    return res.json({ success: true, status: 'approved' });
-  } catch (error) {
-    logger.error('[Goal API] Approve failed', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to approve plan' } });
-  }
+router.post('/:id/approve', async (_req: Request, res: Response) => {
+  return res.status(410).json({ error: { code: 'DEPRECATED', message: 'Plan approval deprecated. Channel flow creates goals in executing state directly.' } });
 });
 
 /**
  * POST /api/v1/goals/:id/execute
- * 开始执行
+ * @deprecated 已废弃 — Channel 流程直接创建 GoalExecution，无需手动触发。
  */
-router.post('/:id/execute', async (req: Request, res: Response) => {
-  try {
-    const executions = await goalService.startExecution(req.params.id);
-    return res.json({ executions });
-  } catch (error) {
-    logger.error('[Goal API] Execute failed', { error: String(error) });
-    return res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: 'Failed to start execution' } });
-  }
+router.post('/:id/execute', async (_req: Request, res: Response) => {
+  return res.status(410).json({ error: { code: 'DEPRECATED', message: 'Manual execution deprecated. Channel flow creates executions directly.' } });
 });
 
 /**
