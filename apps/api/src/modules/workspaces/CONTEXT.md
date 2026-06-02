@@ -1,0 +1,31 @@
+# workspaces
+
+> AS-020 P2/P4/P5/P6: Workspace 管理 + Daemon 通信 + 任务分发
+
+## 职责
+
+远程 Workspace 注册/心跳、Token 管理、WS 网关（Daemon 通信）、目录发现代理、任务 claim/事件回报、GC 清理。
+
+## 核心导出
+
+| 文件 | 职责 |
+|------|------|
+| workspace.routes.ts | Workspace CRUD + 注册/心跳 API |
+| token.routes.ts | Token 生成/列表/撤销 API |
+| ws-gateway.ts | /ws/daemon WebSocket 网关（auth + 消息路由） |
+| discover-proxy.ts | WS 代理转发 /api/discover 到 Daemon |
+| task-routes.ts | POST /tasks/:id/claim（Daemon 拉取任务） |
+| daemon-routes.ts | Daemon 事件回报 API |
+| gc-service.ts | GC 策略（done 24h / orphan 72h / artifact 12h） |
+| local-workspace.ts | VPS 本地 Workspace 自动注册 |
+
+## 依赖关系
+
+- 依赖：`@dommaker/studio-prisma`（Prisma 模型）、`ws`（WebSocket 库）
+- 被依赖：`agents/`（任务分发）、`channels/`（Channel Workspace 设置）、`web/`（UI 组件）
+
+## 注意事项
+
+- Token hash 用 SHA-256，原始 token 只在生成时返回一次
+- WS 网关同端口 nginx upgrade（`location /ws/`）
+- Local workspace token=NULL，Server 启动时自动创建

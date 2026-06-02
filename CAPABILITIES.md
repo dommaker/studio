@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-05-29
+> 最后更新: 2026-06-02
 
 ---
 
@@ -217,3 +217,34 @@
 
 | session-summary-generator | apps/api/src/modules/events/session-summary-generator.ts | B9-015: SessionSummaryGenerator — server-side session aggregation |
 | workflowEditorStore | apps/web/src/stores/workflowEditorStore.ts | workflowEditorStore.ts - Workflow 编辑器状态管理 |
+| output-capture | packages/studio-agent/src/services/output-capture.ts | Output Capture — 进度读取 + 输出文件收集 + session 指标记录 |
+| session-manager | packages/studio-agent/src/services/session-manager.ts | Session Manager — Agent 执行器核心（session loop + async spawn） |
+| worktree-resolver | packages/studio-agent/src/services/worktree-resolver.ts | Worktree Resolver — git worktree 创建 + harness 配置传播 + 文件桥 |
+| model-router | packages/studio-shared/src/llm/model-router.ts | Model Router — 类型定义 + 模型选择/路由逻辑 + 统一调用入口 + prompt 缓存 |
+| provider-registry | packages/studio-shared/src/llm/provider-registry.ts | Provider Registry — LLM provider 注册/查询 |
+| usage-tracker | packages/studio-shared/src/llm/usage-tracker.ts | Usage Tracker — token/cost 用量统计 |
+| user-behavior | packages/studio-shared/src/types/user-behavior.ts | User Behavior Profile types — KE-003 |
+| analyst-executor | apps/api/src/modules/channels/analyst-executor.ts | Analyst Executor — Claude Code 执行 + 输出验证 |
+| analyst-knowledge | apps/api/src/modules/channels/analyst-knowledge.ts | Analyst Knowledge — 知识加载、保存、段落筛选 |
+| analyst-prompt | apps/api/src/modules/channels/analyst-prompt.ts | Analyst Prompt — prompt 构建逻辑 |
+| conversation-converter | apps/api/src/modules/channels/conversation-converter.ts | Conversation → Pipeline Conversion (AS-020 §6.6 P10) |
+| conversation-handler | apps/api/src/modules/channels/conversation-handler.ts | ConversationHandler — Channel conversation mode (AS-020 §6.4) |
+| event-handler | apps/api/src/modules/goals/event-handler.ts | Event Handler — Agent 事件核心处理逻辑 |
+| goal-crud | apps/api/src/modules/goals/goal-crud.ts | Goal CRUD — 创建/读取/更新/删除操作 |
+| goal-lifecycle | apps/api/src/modules/goals/goal-lifecycle.ts | Goal Lifecycle — 状态转换（pending→executing→succeeded/failed） |
+| goal-review | apps/api/src/modules/goals/goal-review.ts | Goal Review — 审查集成 + 成功处理 + 部署 |
+| knowledge-promoter | apps/api/src/modules/goals/knowledge-promoter.ts | Knowledge Promoter — 知识引用记录 + 完成后知识提取 |
+| review-orchestrator | apps/api/src/modules/goals/review-orchestrator.ts | Review Orchestrator — 审查循环管理 |
+| scheduler-dispatch | apps/api/src/modules/goals/scheduler-dispatch.ts | Scheduler Dispatch — dispatchStep 核心逻辑 + DispatchContext |
+| scheduler-integration | apps/api/src/modules/goals/scheduler-integration.ts | Scheduler Integration — GoalScheduler 类的生命周期和调度循环 |
+| scheduler-prompt | apps/api/src/modules/goals/scheduler-prompt.ts | Scheduler Prompt — prompt 构建、上下文收集、Integration 代码执行 |
+| scheduler-queue | apps/api/src/modules/goals/scheduler-queue.ts | Scheduler Queue — 路由分类、资源管理、队列管理 |
+| skill-loader | apps/api/src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
+| daemon-routes | apps/api/src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
+| discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
+| gc-service | apps/api/src/modules/workspaces/gc-service.ts | GC Service — AS-020 P5: Garbage collection for old tasks and events |
+| local-workspace | apps/api/src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
+| task-routes | apps/api/src/modules/workspaces/task-routes.ts | Task Routes — AS-020 P5: UI/Server task management |
+| token.routes | apps/api/src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
+| workspace.routes | apps/api/src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
+| ws-gateway | apps/api/src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
