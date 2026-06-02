@@ -10,24 +10,33 @@
  *
  * Tests verify the source code directly since the execute() method is too complex
  * to mock fully (git worktree, harness deps, etc.).
+ *
+ * P11-02: Source split into session-manager.ts / output-capture.ts / worktree-resolver.ts
+ * Tests read from the appropriate sub-module source files.
  */
 
 import { describe, test, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-// ─── Load source ─────────────────────────────────────────────────
-const sourcePath = path.resolve(__dirname, '../agent-executor.ts');
-const source = fs.readFileSync(sourcePath, 'utf-8');
+// ─── Load sources (P11-02 split) ────────────────────────────────
+const sessionManagerPath = path.resolve(__dirname, '../session-manager.ts');
+const sessionManagerSrc = fs.readFileSync(sessionManagerPath, 'utf-8');
 
-// ─── Extract the cmd array construction (lines ~278-288) ─────────
+const outputCapturePath = path.resolve(__dirname, '../output-capture.ts');
+const outputCaptureSrc = fs.readFileSync(outputCapturePath, 'utf-8');
+
+const worktreeResolverPath = path.resolve(__dirname, '../worktree-resolver.ts');
+const worktreeResolverSrc = fs.readFileSync(worktreeResolverPath, 'utf-8');
+
+// ─── Extract the cmd array construction ─────────────────────────
 // Find the block between "const cmd = [" and the next "].join(' ');"
-const cmdBlockMatch = source.match(/const cmd = \[([\s\S]*?)\]\.filter\(Boolean\)\.join\(' '\)/);
+const cmdBlockMatch = sessionManagerSrc.match(/const cmd = \[([\s\S]*?)\]\.filter\(Boolean\)\.join\(' '\)/);
 const cmdBlock = cmdBlockMatch ? cmdBlockMatch[1] : '';
 
-// ─── Extract the execSh call (the one for claude, near line 305) ──
+// ─── Extract the execSh call (the one for claude) ───────────────
 // Find the execSh call that contains the cmd variable reference
-const execShCallMatch = source.match(/await execSh\(cmd,\s*\{([\s\S]*?)\}\);/);
+const execShCallMatch = sessionManagerSrc.match(/await execSh\(cmd,\s*\{([\s\S]*?)\}\);/);
 const execShOpts = execShCallMatch ? execShCallMatch[1] : '';
 
 // ─── Tests ──────────────────────────────────────────────────────
@@ -38,8 +47,6 @@ describe('AC2: agent-executor.ts cmd construction', () => {
   // ==============================================================
   describe('AC2.1: input redirection replaces cat|pipe', () => {
     test('AC2.1-1: cmd should NOT contain "cat" with pipe', () => {
-      // Current code uses: cat '${promptFile}' |
-      // After fix: `< "${promptFile}"`
       expect(cmdBlock).not.toMatch(/cat\s+['"]/);
     });
 
@@ -79,20 +86,20 @@ describe('AC2: agent-executor.ts cmd construction', () => {
   // AC2.3: Log writing uses execSh stdout (JSON envelope parsing)
   // ==============================================================
   describe('AC2.3: log writing uses execSh stdout via JSON envelope parsing', () => {
-    test('AC2.3-1: JSON.parse(stdout) exists for envelope extraction', () => {
-      expect(source).toContain('JSON.parse(stdout)');
+    test('AC2.3-1: JSON.parse(stdout) exists in output-capture (parseJsonEnvelope)', () => {
+      expect(outputCaptureSrc).toContain('JSON.parse(stdout)');
     });
 
-    test('AC2.3-2: envelope.is_error check exists', () => {
-      expect(source).toContain('envelope.is_error');
+    test('AC2.3-2: envelope.is_error check exists in output-capture', () => {
+      expect(outputCaptureSrc).toContain('envelope.is_error');
     });
 
-    test('AC2.3-3: envelope.result extraction exists', () => {
-      expect(source).toContain('envelope.result');
+    test('AC2.3-3: envelope.result extraction exists in output-capture', () => {
+      expect(outputCaptureSrc).toContain('envelope.result');
     });
 
-    test('AC2.3-4: stdout is destructed from execSh result', () => {
-      expect(source).toContain('const { stdout } = await execSh(cmd,');
+    test('AC2.3-4: stdout is destructed from execSh result in session-manager', () => {
+      expect(sessionManagerSrc).toContain('const { stdout } = await execSh(cmd,');
     });
   });
 
@@ -104,9 +111,9 @@ describe('AC2: agent-executor.ts cmd construction', () => {
       expect(cmdBlock).not.toContain('--dangerously-skip-permissions');
     });
 
-    test('AC2.4-2: settings.json bypassPermissions is used instead (line 167-174)', () => {
-      expect(source).toContain('bypassPermissions');
-      expect(source).toContain('.claude/settings.json');
+    test('AC2.4-2: settings.json bypassPermissions is used instead (in worktree-resolver)', () => {
+      expect(worktreeResolverSrc).toContain('bypassPermissions');
+      expect(worktreeResolverSrc).toContain('.claude/settings.json');
     });
   });
 
@@ -115,8 +122,6 @@ describe('AC2: agent-executor.ts cmd construction', () => {
   // ==============================================================
   describe('AC2.5: execSh called without opts.stdin', () => {
     test('AC2.5-1: execSh opts do NOT contain "stdin"', () => {
-      // execSh in process-io.ts:52 always uses stdio: ['ignore', 'pipe', 'pipe']
-      // The call site should not attempt to pass stdin in opts
       expect(execShOpts).not.toContain('stdin');
     });
 
@@ -136,21 +141,16 @@ describe('AC2: agent-executor.ts cmd construction', () => {
 // ─── Cross-AC integrity check ────────────────────────────────────
 describe('Cross-AC integrity', () => {
   test('cmd structure: must start with cd, then claude with flags, then input redirect', () => {
-    // The cmd array should follow the canonical order:
-    // cd → claude → --print → --output-format → sessionFlag → < → promptFile
     expect(cmdBlock).toMatch(/cd\s+"\$\{worktree\}"/);
-    // claude appears before the redirect
     const claudeIdx = cmdBlock.indexOf('claude');
     const redirectIdx = cmdBlock.indexOf('<');
     expect(claudeIdx).toBeGreaterThan(0);
     expect(redirectIdx).toBeGreaterThan(claudeIdx);
   });
 
-  test('promptFile variable is reused (line 274), not renamed', () => {
-    // promptFile is defined at line 274 — the cmd block references it directly
-    const promptFileDefs = source.match(/promptFile/g);
+  test('promptFile variable is reused, not renamed (in session-manager)', () => {
+    const promptFileDefs = sessionManagerSrc.match(/promptFile/g);
     expect(promptFileDefs).not.toBeNull();
-    // Should be referenced at least twice: once for definition, once in cmd
     expect(promptFileDefs!.length).toBeGreaterThanOrEqual(2);
   });
 });

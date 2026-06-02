@@ -1,584 +1,96 @@
 /**
- * Model Gateway - 统一 LLM 调用网关
+ * Model Gateway - Facade
  *
- * 功能：多 provider 管理、优先级路由、自动 fallback、token 用量统计
+ * 统一 LLM 调用网关：多 provider 管理、优先级路由、自动 fallback、token 用量统计
+ *
+ * P11-06: Split into sub-modules:
+ *   provider-registry.ts — LLM provider 注册/查询
+ *   model-router.ts — 类型定义 + 模型选择/路由逻辑 + 统一调用入口 + prompt 缓存
+ *   usage-tracker.ts — token/cost 用量统计
  */
 
-import { logger } from '../utils/logger.js';
-import { createHash } from 'crypto';
+// Re-export all types from model-router (canonical source)
+export type {
+  ProviderConfig,
+  GatewayMessage,
+  GatewayRequest,
+  GatewayResponse,
+  UsageRecord,
+  GatewayStats,
+} from './model-router.js';
 
-declare const fetch: (url: string, init?: any) => Promise<any>;
+// Re-export provider-registry functions
+export {
+  addProvider,
+  loadFromEnv,
+  getProviders,
+  isAvailable,
+  resolveProviders,
+} from './provider-registry.js';
 
-// ─── 类型定义 ───
+// Re-export model-router functions and classes
+export {
+  PromptCache,
+  chat,
+  prompt,
+  promptJson,
+  extractJson,
+} from './model-router.js';
 
-export interface ProviderConfig {
-  name: string;
-  baseUrl: string;
-  apiKey: string;
-  model: string;
-  priority: number;
-  maxTokens?: number;
-  temperature?: number;
-  enabled?: boolean;
-  allowedRoles?: string[];
-  protocol?: 'openai' | 'anthropic';
-}
+// Re-export usage-tracker functions
+export {
+  recordUsage,
+  getStats,
+  getRecentUsage,
+  scoreQuality,
+} from './usage-tracker.js';
 
-export interface GatewayMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string;
-}
+// ─── ModelGateway class (thin facade over sub-modules) ───
 
-export interface GatewayRequest {
-  messages: GatewayMessage[];
-  model?: string;          // 覆盖默认模型
-  temperature?: number;
-  maxTokens?: number;
-  stream?: boolean;
-  provider?: string;       // 指定 provider（跳过路由）
-  role?: string;           // 调用方角色（用于权限过滤）
-  cache?: boolean;         // 是否使用缓存（默认 true）
-}
-
-export interface GatewayResponse {
-  content: string;
-  model: string;
-  provider: string;
-  usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
-    cacheHitTokens?: number;  // Anthropic cache_read_input_tokens / DeepSeek cache hit
-  };
-  latencyMs: number;
-}
-
-export interface UsageRecord {
-  provider: string;
-  model: string;
-  promptTokens: number;
-  completionTokens: number;
-  totalTokens: number;
-  cacheHitTokens: number;     // 输入缓存命中
-  latencyMs: number;
-  timestamp: number;
-  success: boolean;
-  qualityScore?: number;  // 0-100
-  error?: string;
-}
-
-export interface GatewayStats {
-  totalCalls: number;
-  successRate: number;
-  avgLatencyMs: number;
-  totalTokens: number;
-  avgQualityScore: number;
-  byProvider: Record<string, {
-    calls: number;
-    successes: number;
-    totalTokens: number;
-    avgLatencyMs: number;
-    avgQualityScore: number;
-  }>;
-}
-
-// ─── Provider 适配器 ───
-
-interface RawResponse {
-  id: string;
-  model: string;
-  choices: Array<{
-    message?: { content?: string; reasoning_content?: string };
-    finish_reason?: string;
-  }>;
-  usage?: {
-    prompt_tokens: number;
-    completion_tokens: number;
-    total_tokens: number;
-    cache_read_tokens?: number;
-  };
-}
-
-async function callProvider(
-  provider: ProviderConfig,
-  messages: GatewayMessage[],
-  options: { temperature?: number; maxTokens?: number; stream?: boolean }
-): Promise<RawResponse> {
-  const url = `${provider.baseUrl}/chat/completions`;
-  const body = {
-    model: provider.model,
-    messages,
-    temperature: options.temperature ?? provider.temperature ?? 0.7,
-    max_tokens: options.maxTokens ?? provider.maxTokens ?? 4096,
-    stream: options.stream ?? false,
-  };
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${provider.apiKey}`,
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`[${provider.name}] HTTP ${response.status}: ${errorText.slice(0, 200)}`);
-  }
-
-  return response.json() as Promise<RawResponse>;
-}
-
-async function callAnthropicProvider(
-  provider: ProviderConfig,
-  messages: GatewayMessage[],
-  options: { temperature?: number; maxTokens?: number; stream?: boolean }
-): Promise<RawResponse> {
-  const url = `${provider.baseUrl}/messages`;
-
-  // Anthropic API 不接受 system role，需要提取为 top-level system 参数
-  const systemMsg = messages.find(m => m.role === 'system');
-  const chatMessages = messages.filter(m => m.role !== 'system').map(m => ({
-    role: m.role,
-    content: m.content,
-  }));
-
-  const body: Record<string, unknown> = {
-    model: provider.model,
-    max_tokens: options.maxTokens ?? provider.maxTokens ?? 4096,
-    messages: chatMessages,
-  };
-  if (systemMsg) body.system = systemMsg.content;
-  if (options.temperature != null) body.temperature = options.temperature;
-  if (options.stream) body.stream = true;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': provider.apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => '');
-    throw new Error(`[${provider.name}] HTTP ${response.status}: ${errorText.slice(0, 200)}`);
-  }
-
-  const data = await response.json() as any;
-  // 统一输出为 RawResponse 格式
-  return {
-    id: data.id || '',
-    model: data.model || provider.model,
-    choices: data.content?.map((block: any) => ({
-      message: { content: block.text || '' },
-      finish_reason: data.stop_reason || 'stop',
-    })) || [],
-    usage: data.usage ? {
-      prompt_tokens: data.usage.input_tokens || 0,
-      completion_tokens: data.usage.output_tokens || 0,
-      total_tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
-      cache_read_tokens: data.usage.cache_read_input_tokens || (data.usage as any).cache_hit_tokens || 0,
-    } : undefined,
-  };
-}
-
-// ─── Model Gateway ───
+import type { ProviderConfig, GatewayRequest, GatewayResponse, UsageRecord, GatewayStats } from './model-router.js';
+import { addProvider as addProviderFn, loadFromEnv as loadFromEnvFn, getProviders as getProvidersFn, isAvailable as isAvailableFn } from './provider-registry.js';
+import { PromptCache, chat as chatFn, prompt as promptFn, promptJson as promptJsonFn } from './model-router.js';
+import { getStats as getStatsFn, getRecentUsage as getRecentUsageFn } from './usage-tracker.js';
 
 export class ModelGateway {
   private providers: ProviderConfig[] = [];
   private usageLog: UsageRecord[] = [];
-  private maxLogSize = 10000;
+  private promptCache = new PromptCache();
 
-  // Prompt 缓存（语义去重）
-  private promptCache = new Map<string, { response: GatewayResponse; expiresAt: number }>();
-  private readonly CACHE_TTL = 10 * 60 * 1000; // 10 分钟
-  private readonly CACHE_MAX = 500;
-
-  /**
-   * 注册 provider
-   */
   addProvider(config: ProviderConfig): void {
-    this.providers.push({ ...config, enabled: config.enabled ?? true });
-    this.providers.sort((a, b) => a.priority - b.priority);
-    logger.info(`[Gateway] Provider registered: ${config.name} (${config.model})`);
+    addProviderFn(this.providers, config);
   }
 
-  /**
-   * 从环境变量自动注册 providers
-   */
   loadFromEnv(): void {
-    // Anthropic 协议 (Messages API) — 通过 ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN 检测
-    // 官方配置: export ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic
-    if (process.env.ANTHROPIC_AUTH_TOKEN && process.env.ANTHROPIC_BASE_URL) {
-      const url = new URL(process.env.ANTHROPIC_BASE_URL);
-      this.addProvider({
-        name: url.hostname,
-        baseUrl: process.env.ANTHROPIC_BASE_URL,
-        apiKey: process.env.ANTHROPIC_AUTH_TOKEN,
-        model: process.env.ANTHROPIC_MODEL || 'deepseek-v4-pro[1m]',
-        priority: 0,
-        protocol: 'anthropic',
-      });
-    }
-
-    // OpenAI-compatible (DeepSeek 旧端点)
-    if (process.env.DEEPSEEK_API_KEY) {
-      this.addProvider({
-        name: 'deepseek',
-        baseUrl: 'https://api.deepseek.com/v1',
-        apiKey: process.env.DEEPSEEK_API_KEY,
-        model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-        priority: 2,
-      });
-    }
-
-    // OpenAI
-    if (process.env.OPENAI_API_KEY || process.env.LLM_API_KEY) {
-      this.addProvider({
-        name: 'openai',
-        baseUrl: process.env.LLM_BASE_URL || 'https://api.openai.com/v1',
-        apiKey: process.env.OPENAI_API_KEY || process.env.LLM_API_KEY!,
-        model: process.env.LLM_MODEL || 'gpt-3.5-turbo',
-        priority: 3,
-      });
-    }
-
-    // Tencent GLM
-    if (process.env.CODING_API_KEY_1) {
-      this.addProvider({
-        name: 'tencent',
-        baseUrl: process.env.LLM_BASE_URL_TENCENT || 'https://api.lkeap.cloud.tencent.com/coding/v3',
-        apiKey: process.env.CODING_API_KEY_1,
-        model: process.env.LLM_MODEL_TENCENT || 'glm-5',
-        priority: 4,
-      });
-    }
-
-    // 用户配置（Settings 页面）
-    if (process.env.LLM_API_KEY_USER) {
-      this.addProvider({
-        name: 'user-config',
-        baseUrl: process.env.LLM_BASE_URL_USER || 'https://api.openai.com/v1',
-        apiKey: process.env.LLM_API_KEY_USER,
-        model: process.env.LLM_MODEL_USER || 'gpt-3.5-turbo',
-        priority: 1,
-      });
-    }
+    loadFromEnvFn((config) => this.addProvider(config));
   }
 
-  /**
-   * 统一调用入口（带 fallback）
-   */
   async chat(request: GatewayRequest): Promise<GatewayResponse> {
-    // Prompt 缓存检查
-    const useCache = request.cache !== false;
-    if (useCache) {
-      const cacheKey = this.getCacheKey(request);
-      const cached = this.promptCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
-        logger.debug('[Gateway] Cache hit', { cacheKey: cacheKey.slice(0, 16) });
-        return cached.response;
-      }
-    }
-
-    const providers = this.resolveProviders(request);
-    if (providers.length === 0) {
-      throw new Error('[Gateway] No available providers. Configure LLM in Settings or environment variables.');
-    }
-
-    let lastError: Error | null = null;
-
-    for (const provider of providers) {
-      const startTime = Date.now();
-      try {
-        const call = provider.protocol === 'anthropic' ? callAnthropicProvider : callProvider;
-        const raw = await call(provider, request.messages, {
-          temperature: request.temperature,
-          maxTokens: request.maxTokens,
-          stream: request.stream,
-        });
-
-        const latencyMs = Date.now() - startTime;
-        const content = raw.choices?.[0]?.message?.content ||
-                        raw.choices?.[0]?.message?.reasoning_content || '';
-
-        if (!content) {
-          logger.warn('[Gateway] Empty content from provider', {
-            provider: provider.name,
-            model: raw.model || provider.model,
-            choiceCount: raw.choices?.length || 0,
-            rawKeys: raw.choices?.[0] ? Object.keys(raw.choices[0]) : [],
-            rawSample: JSON.stringify(raw).slice(0, 400),
-          });
-        }
-
-        const usage = raw.usage ? {
-          promptTokens: raw.usage.prompt_tokens,
-          completionTokens: raw.usage.completion_tokens,
-          totalTokens: raw.usage.total_tokens,
-          cacheHitTokens: raw.usage.cache_read_tokens ?? 0,
-        } : undefined;
-
-        // 质量评分
-        const qualityScore = this.scoreQuality(content, raw.choices?.[0]?.finish_reason, latencyMs);
-
-        // 记录成功
-        this.recordUsage({
-          provider: provider.name,
-          model: raw.model || provider.model,
-          promptTokens: usage?.promptTokens ?? 0,
-          completionTokens: usage?.completionTokens ?? 0,
-          totalTokens: usage?.totalTokens ?? 0,
-          cacheHitTokens: usage?.cacheHitTokens ?? 0,
-          latencyMs,
-          timestamp: Date.now(),
-          success: true,
-          qualityScore,
-        });
-
-        const response: GatewayResponse = { content, model: raw.model || provider.model, provider: provider.name, usage, latencyMs };
-
-        // 写入缓存
-        if (useCache) {
-          this.setCache(this.getCacheKey(request), response);
-        }
-
-        return response;
-      } catch (error) {
-        const latencyMs = Date.now() - startTime;
-        lastError = error instanceof Error ? error : new Error(String(error));
-
-        // 记录失败
-        this.recordUsage({
-          provider: provider.name,
-          model: provider.model,
-          promptTokens: 0,
-          completionTokens: 0,
-          totalTokens: 0,
-          cacheHitTokens: 0,
-          latencyMs,
-          timestamp: Date.now(),
-          success: false,
-          error: lastError.message,
-        });
-
-        logger.warn(`[Gateway] ${provider.name} failed, trying next`, { error: lastError.message });
-      }
-    }
-
-    throw new Error(`[Gateway] All providers failed. Last error: ${lastError?.message}`);
+    return chatFn(request, this.providers, { log: this.usageLog }, this.promptCache);
   }
 
-  /**
-   * 简单调用（单条消息）
-   */
   async prompt(text: string, systemPrompt?: string): Promise<string> {
-    const messages: GatewayMessage[] = [];
-    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: text });
-
-    const response = await this.chat({ messages });
-    return response.content;
+    return promptFn(text, systemPrompt, (req) => this.chat(req));
   }
 
-  /**
-   * 结构化输出（JSON）
-   */
   async promptJson<T = any>(text: string, systemPrompt?: string): Promise<T> {
-    const enhanced = `${text}\n\n请以 JSON 格式返回结果，不要包含其他文字。`;
-    const response = await this.prompt(enhanced, systemPrompt);
-
-    const parsed = this.extractJson<T>(response);
-    if (parsed !== undefined) return parsed;
-
-    logger.warn('[Gateway] Failed to parse JSON from LLM response', {
-      responsePreview: response.slice(0, 300),
-    });
-    throw new Error('Failed to parse JSON from LLM response');
+    return promptJsonFn<T>(text, systemPrompt, (req) => this.chat(req));
   }
 
-  /**
-   * Extract JSON from potentially messy LLM output.
-   * Tries: direct parse → markdown code block → object match → array match.
-   */
-  private extractJson<T = any>(text: string): T | undefined {
-    // 1. Direct JSON parse
-    try { return JSON.parse(text); } catch {}
-
-    // 2. Markdown code block: ```json ... ```
-    const codeBlock = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (codeBlock?.[1]) {
-      try { return JSON.parse(codeBlock[1].trim()); } catch {}
-    }
-
-    // 3. Find outermost JSON object
-    const objMatch = this.extractBalancedJson(text, '{', '}');
-    if (objMatch) {
-      try { return JSON.parse(objMatch); } catch {}
-    }
-
-    // 4. Find outermost JSON array
-    const arrMatch = this.extractBalancedJson(text, '[', ']');
-    if (arrMatch) {
-      try { return JSON.parse(arrMatch); } catch {}
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Extract the longest balanced bracket expression.
-   */
-  private extractBalancedJson(text: string, open: string, close: string): string | undefined {
-    const start = text.indexOf(open);
-    if (start === -1) return undefined;
-
-    let depth = 0;
-    let bestEnd = -1;
-    for (let i = start; i < text.length; i++) {
-      if (text[i] === open) depth++;
-      else if (text[i] === close) {
-        depth--;
-        if (depth === 0) {
-          bestEnd = i;
-          // Don't break — greedy, find outermost
-        }
-      }
-    }
-    return bestEnd > start ? text.slice(start, bestEnd + 1) : undefined;
-  }
-
-  /**
-   * 获取可用 providers 列表
-   */
   getProviders(): Array<{ name: string; model: string; priority: number; enabled: boolean }> {
-    return this.providers.map(p => ({
-      name: p.name,
-      model: p.model,
-      priority: p.priority,
-      enabled: p.enabled ?? true,
-    }));
+    return getProvidersFn(this.providers);
   }
 
-  /**
-   * 获取用量统计
-   */
   getStats(): GatewayStats {
-    const byProvider: Record<string, { calls: number; successes: number; totalTokens: number; avgLatencyMs: number; avgQualityScore: number }> = {};
-
-    for (const record of this.usageLog) {
-      if (!byProvider[record.provider]) {
-        byProvider[record.provider] = { calls: 0, successes: 0, totalTokens: 0, avgLatencyMs: 0, avgQualityScore: 0 };
-      }
-      const p = byProvider[record.provider];
-      p.calls++;
-      if (record.success) p.successes++;
-      p.totalTokens += record.totalTokens;
-      p.avgLatencyMs = Math.round((p.avgLatencyMs * (p.calls - 1) + record.latencyMs) / p.calls);
-      if (record.qualityScore !== undefined) {
-        p.avgQualityScore = Math.round((p.avgQualityScore * (p.calls - 1) + record.qualityScore) / p.calls);
-      }
-    }
-
-    const totalCalls = this.usageLog.length;
-    const successes = this.usageLog.filter(r => r.success).length;
-    const qualityScores = this.usageLog.filter(r => r.qualityScore !== undefined).map(r => r.qualityScore!);
-
-    return {
-      totalCalls,
-      successRate: totalCalls > 0 ? Math.round((successes / totalCalls) * 100) : 0,
-      avgLatencyMs: totalCalls > 0
-        ? Math.round(this.usageLog.reduce((sum, r) => sum + r.latencyMs, 0) / totalCalls)
-        : 0,
-      totalTokens: this.usageLog.reduce((sum, r) => sum + r.totalTokens, 0),
-      avgQualityScore: qualityScores.length > 0
-        ? Math.round(qualityScores.reduce((a, b) => a + b, 0) / qualityScores.length)
-        : 0,
-      byProvider,
-    };
+    return getStatsFn(this.usageLog);
   }
 
-  /**
-   * 获取最近 N 条调用记录
-   */
   getRecentUsage(n = 50): UsageRecord[] {
-    return this.usageLog.slice(-n);
+    return getRecentUsageFn(this.usageLog, n);
   }
 
-  /**
-   * 是否有可用 provider
-   */
   isAvailable(): boolean {
-    return this.providers.some(p => p.enabled !== false && !!p.apiKey);
-  }
-
-  // ─── 内部方法 ───
-
-  private resolveProviders(request: GatewayRequest): ProviderConfig[] {
-    let providers = this.providers.filter(p => p.enabled !== false && !!p.apiKey);
-
-    // 角色权限过滤
-    if (request.role) {
-      providers = providers.filter(p => !p.allowedRoles || p.allowedRoles.length === 0 || p.allowedRoles.includes(request.role!));
-    }
-
-    // 指定 provider
-    if (request.provider) {
-      const named = providers.filter(p => p.name === request.provider);
-      if (named.length > 0) return named;
-      logger.warn(`[Gateway] Requested provider "${request.provider}" not found, using default routing`);
-    }
-
-    return providers;
-  }
-
-  private recordUsage(record: UsageRecord): void {
-    this.usageLog.push(record);
-    if (this.usageLog.length > this.maxLogSize) {
-      this.usageLog = this.usageLog.slice(-this.maxLogSize / 2);
-    }
-  }
-
-  // ─── Prompt 缓存 ───
-
-  private getCacheKey(request: GatewayRequest): string {
-    const payload = JSON.stringify(request.messages);
-    return createHash('sha256').update(payload).digest('hex');
-  }
-
-  private setCache(key: string, response: GatewayResponse): void {
-    // LRU 淘汰
-    if (this.promptCache.size >= this.CACHE_MAX) {
-      const oldest = this.promptCache.keys().next().value;
-      if (oldest) this.promptCache.delete(oldest);
-    }
-    this.promptCache.set(key, { response, expiresAt: Date.now() + this.CACHE_TTL });
-  }
-
-  // ─── 质量评分 ───
-
-  private scoreQuality(content: string, finishReason: string | undefined, latencyMs: number): number {
-    let score = 50; // 基础分
-
-    // 响应长度合理性（太短扣分，适中加分）
-    if (content.length > 100) score += 15;
-    else if (content.length > 20) score += 10;
-    else if (content.length < 5) score -= 20;
-
-    // finish_reason = stop 为正常结束
-    if (finishReason === 'stop') score += 15;
-    else if (finishReason === 'length') score -= 10;
-
-    // 延迟评分（<2s 优，<5s 良，>10s 差）
-    if (latencyMs < 2000) score += 20;
-    else if (latencyMs < 5000) score += 10;
-    else if (latencyMs > 10000) score -= 15;
-
-    return Math.max(0, Math.min(100, score));
+    return isAvailableFn(this.providers);
   }
 }
 

@@ -1,0 +1,178 @@
+/**
+ * Worktree Resolver — git worktree 创建 + harness 配置传播 + 文件桥
+ *
+ * P11-02: Extracted from agent-executor.ts
+ */
+
+import * as path from 'path';
+import * as fs from 'fs/promises';
+import * as fsSync from 'fs';
+import { logger } from '@dommaker/studio-shared';
+import { execSh } from '@dommaker/studio-shared/node';
+
+import type { AgentTask } from './session-manager.js';
+
+/**
+ * 创建 worktree（真 git worktree add）
+ */
+export async function createWorktree(worktree: string, baseBranch: string, repoDir: string, task?: AgentTask): Promise<void> {
+  // 清理已存在的目录
+  try {
+    await execSh(`git worktree remove --force "${worktree}" 2>/dev/null || true`, {
+      cwd: repoDir,
+      timeoutMs: 10_000,
+    });
+  } catch (e) {
+    logger.warn('[WorktreeResolver] Failed to remove worktree, continuing', { error: String(e) });
+  }
+
+  try {
+    await fs.rm(worktree, { recursive: true, force: true });
+  } catch (e) {
+    logger.warn('[WorktreeResolver] Failed to clean worktree dir, continuing', { error: String(e) });
+  }
+
+  // 创建 git worktree（A3: 使用 PMO number 命名分支）
+  const pmoNumber = (task?.parameters?.pmoNumber as string) || '';
+  const branchSuffix = pmoNumber
+    ? `${pmoNumber}-${path.basename(worktree).slice(0, 30)}`
+    : path.basename(worktree).substring(0, 50);
+  const branchName = `task/${branchSuffix}`;
+  try {
+    await execSh(
+      `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
+      { cwd: repoDir, timeoutMs: 30_000 },
+    );
+  } catch (e: any) {
+    if (e.message?.includes("already exists")) {
+      try {
+        await execSh(`git branch -D "${branchName}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+        await execSh(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
+      } catch (e2: any) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
+    } else { throw e; }
+  }
+  logger.info('[WorktreeResolver] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
+}
+
+/**
+ * 传播 harness 约束 + Claude 权限配置到 worktree
+ */
+export async function propagateHarnessConfig(worktree: string, taskId: string, executionId: string): Promise<void> {
+  try {
+    const harnessDir = path.join(worktree, '.harness');
+    if (!fsSync.existsSync(harnessDir)) {
+      const templateDir = path.resolve(process.cwd(), '.harness');
+      if (fsSync.existsSync(templateDir)) {
+        fsSync.mkdirSync(harnessDir, { recursive: true });
+        for (const f of ['config.yml', 'checkpoints.yml', 'custom-constraints.yml']) {
+          const src = path.join(templateDir, f);
+          if (fsSync.existsSync(src)) {
+            fsSync.copyFileSync(src, path.join(harnessDir, f));
+          }
+        }
+      } else {
+        const harnessPkgDir = path.dirname(require.resolve('@dommaker/harness/package.json'));
+        const nodeApiTpl = path.join(harnessPkgDir, 'templates', 'node-api');
+        if (fsSync.existsSync(nodeApiTpl)) {
+          await execSh(`cp -r "${nodeApiTpl}/.harness" "${harnessDir}" 2>/dev/null || true`, {
+            cwd: worktree, timeoutMs: 5000,
+          });
+        }
+      }
+    }
+
+    // 写入 .claude/settings.json 使 root daemon 无需 --dangerously-skip-permissions
+    const claudeDir = path.join(worktree, '.claude');
+    const settingsPath = path.join(claudeDir, 'settings.json');
+    if (!fsSync.existsSync(settingsPath)) {
+      fsSync.mkdirSync(claudeDir, { recursive: true });
+      fsSync.writeFileSync(settingsPath, JSON.stringify({
+        permissions: { defaultMode: 'bypassPermissions' },
+        mcpServers: {
+          'local-rag': {
+            command: 'mcp-local-rag',
+            args: [
+              '--db-path', process.env.LOCAL_RAG_DB_PATH || '/root/.cache/mcp-local-rag/lancedb',
+              '--model-name', process.env.LOCAL_RAG_MODEL || '/root/.cache/huggingface/hub/models--onnx-community--bge-small-zh-v1.5-ONNX/snapshots/main',
+            ],
+          },
+        },
+      }, null, 2), 'utf-8');
+    }
+  } catch { logger.warn('[WorktreeResolver] Harness/Claude config init failed (non-blocking)', { taskId, executionId }); }
+}
+
+/**
+ * Build shared cache prefix — byte-identical across all worktrees
+ * so DeepSeek's prefix cache matches across pipeline agent sessions.
+ */
+export function buildCachePrefix(repoDir: string): string {
+  const lines = [
+    '<!-- SHARED_CACHE_PREFIX — DO NOT EDIT — identical across all worktrees -->',
+    '',
+    '# Project Context (shared)',
+    '',
+  ];
+  try {
+    const claudeMd = fsSync.readFileSync(path.join(repoDir, 'CLAUDE.md'), 'utf-8');
+    lines.push(claudeMd);
+  } catch {}
+  lines.push('');
+  return lines.join('\n');
+}
+
+/**
+ * 写入 REQUIREMENTS.md（session 间共享的 AC 上下文）
+ */
+export async function writeRequirementsMd(
+  worktree: string,
+  task: AgentTask,
+  acGroup?: Record<string, any>,
+): Promise<void> {
+  const acs: string[] = acGroup?.acs || [];
+  const files: string[] = acGroup?.files || [];
+  const notes: string = acGroup?.implementationNotes || '';
+  const patterns: string[] = acGroup?.codePatterns || [];
+  const gotchas: string[] = acGroup?.gotchas || [];
+  const archCtx = acGroup?.architectureContext as Record<string, any> | undefined;
+
+  const isSimple = files.length <= 1 && acs.length <= 3 && gotchas.length <= 2;
+
+  const sections = [
+    '# 需求',
+    ...(isSimple ? [
+      '> ⚡ **简单改动** — Analyst 已验证。直接执行，不探索。',
+      '> 步骤：读目标文件 → 按实现指南改 → tsc → npm test → .progress.json',
+      '',
+    ] : []),
+    `## 任务`,
+    task.prompt,
+    '',
+    '## 你负责的验收标准',
+    ...(acs.length > 0 ? acs.map((ac, i) => `${i + 1}. ${ac}`) : ['（从任务描述中推断）']),
+    '',
+    // ── 架构上下文（Analyst 已探索，你不需要重新读 CLAUDE.md）──
+    ...(archCtx ? ['## 架构上下文（Analyst 已探索并验证）', '', '**下面的信息已经过 Analyst 代码探索验证。直接使用，不需要自己重新读文件。** 只在出现矛盾时才验证。', ''] : []),
+    ...(archCtx?.functions?.length ? ['### 关键函数', ...archCtx.functions.map((f: string) => `- ${f}`), ''] : []),
+    ...(archCtx?.callChain ? ['### 调用链', archCtx.callChain, ''] : []),
+    ...(archCtx?.imports?.length ? ['### 需要导入', ...archCtx.imports.map((i: string) => `\`\`\`${i}\`\`\``), ''] : []),
+    ...(archCtx?.typesInScope?.length ? ['### 相关类型', ...archCtx.typesInScope.map((t: string) => `- ${t}`), ''] : []),
+    ...(archCtx?.dangerZones?.length ? ['### ⚠️ 禁区（不要触碰）', ...archCtx.dangerZones.map((d: string) => `- ${d}`), ''] : []),
+    ...(archCtx?.testMock?.length ? ['### 测试 mock 模板', ...archCtx.testMock.map((m: string) => `\`\`\`typescript\n${m}\n\`\`\``), ''] : []),
+    ...(archCtx?.verifiedAt ? [`*以上信息验证于 commit ${archCtx.verifiedAt}*`, ''] : []),
+    ...(notes ? ['## 实现指南', notes, ''] : []),
+    ...(patterns.length ? ['## 参考模式', ...patterns.map(p => `- ${p}`), ''] : []),
+    ...(gotchas.length ? ['## ⚠️ 注意事项', ...gotchas.map(g => `- ${g}`), ''] : []),
+    ...(files.length > 0 ? ['## 预期改动文件', ...files.map(f => `- ${f}`), ''] : []),
+    '## 行为约束',
+    '- 完成前必须运行 npm test + type check + lint',
+    '- 禁止模糊声明完成',
+    '- 每完成一个步骤后立即更新 .progress.json',
+    '- 全部 AC 测试通过后才设置 .progress.json allComplete: true',
+    '- 将测试证据写入 .progress.json.testResults: { passed, total, failed: 0, command: "npm test", evidence: "<测试输出>" }',
+    '- 将设计决策写入 .progress.json.designNotes: { decisions: ["选X不选Y因为Z"], failedAttempts: ["试过A遇到B问题"], uncertainties: ["C部分需要特别关注"], constraintsDiscovered: ["实现中发现AC未覆盖的限制D"] }',
+    '- designNotes 只记录对 Review 有意义的决策信息，不写琐碎细节',
+  ];
+
+  await fs.writeFile(path.join(worktree, 'REQUIREMENTS.md'), sections.join('\n'), 'utf-8');
+}
