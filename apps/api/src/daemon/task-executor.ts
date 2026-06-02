@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger } from '@dommaker/studio-shared';
+import { logger, getModelForTier, type ModelTier } from '@dommaker/studio-shared';
 import { buildSpawnArgs, type AgentCliParams } from './cli-adapter.js';
 import type { ProviderName } from './cli-scanner.js';
 import type { ClaimedTask } from './claim-loop.js';
@@ -71,7 +71,7 @@ export class TaskExecutor {
 
     // Build spawn args
     const spawnArgs = buildSpawnArgs(runtime.provider, {
-      model: this.mapModelTier(task.modelTier),
+      model: getModelForTier((task.modelTier || 'standard') as ModelTier),
       outputFormat: 'stream-json',
       sessionId: task.sessionId ?? undefined,
       maxTurns: this.config.maxTurns ?? DEFAULT_MAX_TURNS,
@@ -203,15 +203,6 @@ export class TaskExecutor {
   private resolveRuntime(runtimeId: string | null): DetectedRuntime | undefined {
     if (!runtimeId) return this.config.runtimes[0];
     return this.config.runtimes.find(r => r.provider === runtimeId);
-  }
-
-  private mapModelTier(tier: string | null): string {
-    const map: Record<string, string> = {
-      fast: 'claude-haiku-4-5-20251001',
-      standard: 'claude-sonnet-4-6',
-      premium: 'claude-opus-4-6',
-    };
-    return map[tier ?? 'standard'] ?? tier ?? 'claude-sonnet-4-6';
   }
 
   private spawnAgent(spawnArgs: ReturnType<typeof buildSpawnArgs>, cwd: string, taskId: string): ChildProcess {

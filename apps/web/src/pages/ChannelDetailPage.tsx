@@ -5,6 +5,7 @@ import { api } from '../api';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelInput } from '../components/channel/ChannelInput';
+import { ChannelWorkspaceSetting } from '../components/ChannelWorkspaceSetting';
 
 function isToday(d: Date) {
   const now = new Date();
@@ -58,6 +59,12 @@ export function ChannelDetailPage() {
           <p className="text-xs text-gray-500">
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </p>
+        </div>
+        <div className="ml-auto">
+          <ChannelWorkspaceSetting
+            channelId={id}
+            defaultWorkspaceId={channel?.defaultWorkspaceId}
+          />
         </div>
       </div>
 

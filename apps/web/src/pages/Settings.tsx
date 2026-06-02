@@ -2,6 +2,9 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, runtimeWorkflowApi } from '../api';
+import { WorkspaceStatusBar } from '../components/WorkspaceStatusBar';
+import { JoinComputeDialog } from '../components/JoinComputeDialog';
+import { TokenManager } from '../components/TokenManager';
 import { useTheme, type Theme } from '../contexts/ThemeContext';
 import { changeLanguage, getCurrentLanguage, supportedLanguages } from '../i18n';
 import { toast } from '../utils/toast';
@@ -268,6 +271,7 @@ export function Settings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [notifySyncStatus, setNotifySyncStatus] = useState<'checking' | 'synced' | 'needs-resave' | 'no-config'>('checking');
+  const [showJoinDialog, setShowJoinDialog] = useState(false);
   const LOCAL_STORAGE_KEY = 'agent-studio-secrets';
 
   useEffect(() => {
@@ -465,6 +469,33 @@ export function Settings() {
           </div>
         </section>
 
+        {/* 🖥️ 算力接入 — AS-020 P7 */}
+        <section className="space-y-4">
+          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🖥️ 算力接入</h2>
+          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
+            管理远程 Workspace 连接和 Token，让外部机器加入算力池
+          </p>
+          <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+            <div>
+              <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>已连接 Workspace</h3>
+              <WorkspaceStatusBar />
+            </div>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowJoinDialog(true)}
+                className="px-4 py-2 rounded-lg text-sm"
+                style={{ background: 'var(--accent-primary)', color: 'white' }}
+              >
+                + 加入算力
+              </button>
+            </div>
+            <div>
+              <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Token 管理</h3>
+              <TokenManager />
+            </div>
+          </div>
+        </section>
+
         {/* 📢 通知配置同步状态提示 */}
         {notifySyncStatus === 'needs-resave' && (
           <div className="p-3 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b' }}>
@@ -635,6 +666,11 @@ export function Settings() {
           <button onClick={handleSave} disabled={saving} className="btn btn-primary">{saving ? '保存中...' : '💾 保存设置'}</button>
         </div>
       </div>
+
+      <JoinComputeDialog
+        open={showJoinDialog}
+        onClose={() => setShowJoinDialog(false)}
+      />
     </div>
   );
 }
