@@ -5,6 +5,7 @@ import { projectService, parsePmoNumberFromCommand } from './project.service.js'
 import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
 import { requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
+import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 
 const router = Router();
 
@@ -224,7 +225,7 @@ router.post('/project/parse-command', async (req: Request, res: Response) => {
  * GET /api/v1/pmo/okr
  * 获取 OKR 列表
  */
-router.get('/okr', async (req: Request, res: Response) => {
+router.get('/okr', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Response) => {
   try {
     const companyId = req.query.companyId as string;
     const status = req.query.status as string | undefined;

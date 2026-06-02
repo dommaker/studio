@@ -53,6 +53,7 @@ class PostEvalAgent {
    * Goal 完成后触发 — 比对 RequirementsDoc AC 和实际 git diff
    */
   async evaluate(goalId: string, sourceChannelId?: string): Promise<GapReport | null> {
+    const evalStart = Date.now();
     try {
       // 1. 获取 Goal 和关联的 RequirementsDoc
       const goal = await prisma.goal.findUnique({
@@ -94,13 +95,33 @@ class PostEvalAgent {
         await this.pushGapReport(sourceChannelId, report);
       }
 
+      const evalDurationMs = Date.now() - evalStart;
       logger.info('[PostEval] Evaluation complete', {
         goalId,
         completeness: Math.round(report.completeness * 100) + '%',
         matched: report.matchedAcs.length,
         missed: report.missedAcs.length,
         tokensUsed: report.tokensUsed,
+        durationMs: evalDurationMs,
       });
+
+      // 7. AS-018 UPDATE: sync KR progress after pipeline completion
+      const projectId = ctx.projectId as string | undefined;
+      if (projectId) {
+        try {
+          const project = await prisma.project.findUnique({
+            where: { id: projectId },
+            select: { okrId: true },
+          });
+          if (project?.okrId) {
+            const { okrService } = await import('../pmo/okr.service.js');
+            await okrService.syncKRProgress(project.okrId);
+            logger.info('[PostEval] KR progress synced', { okrId: project.okrId });
+          }
+        } catch (e) {
+          logger.warn('[PostEval] syncKRProgress failed', { error: String(e) });
+        }
+      }
 
       // Record gap findings to KnowledgeBus
       knowledgeBus.recordPattern({
@@ -114,7 +135,7 @@ class PostEvalAgent {
 
       return report;
     } catch (e: any) {
-      logger.warn('[PostEval] Evaluation failed', { goalId, error: String(e) });
+      logger.warn('[PostEval] Evaluation failed', { goalId, error: String(e), durationMs: Date.now() - evalStart });
       return null;
     }
   }

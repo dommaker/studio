@@ -14,6 +14,7 @@
 import { Router } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '../../utils/logger.js';
+import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { upsertKnowledge } from './knowledge-bus.service.js';
 import type { KnowledgeSource } from './knowledge-bus.service.js';
 import { knowledgeSync } from './knowledge-sync.service.js';
@@ -1022,7 +1023,7 @@ knowledgeRoutes.get('/resolutions', async (req, res) => {
  * Unified search across all knowledge types
  * Query: q (required), types (comma-separated: document,resolution,behavior,pattern)
  */
-knowledgeRoutes.get('/search', async (req, res) => {
+knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
   try {
     const { q, types, limit = '20' } = req.query;
     if (!q) {
@@ -1132,6 +1133,23 @@ knowledgeRoutes.get('/search', async (req, res) => {
           score: 2,
         });
       }
+    }
+
+    // AS-019: Search KnowledgeStore entries (file-based knowledge)
+    if (searchTypes.includes('knowledge') || searchTypes.includes('store')) {
+      try {
+        const { knowledgeBus } = await import('./knowledge-bus.service.js');
+        const kbResults = knowledgeBus.search(String(q), { limit: takeLimit });
+        for (const r of kbResults) {
+          results.push({
+            type: 'knowledge',
+            id: r.id,
+            title: r.title,
+            snippet: r.matchContext.slice(0, 200),
+            score: r.score,
+          });
+        }
+      } catch { /* non-blocking */ }
     }
 
     // Sort by score descending

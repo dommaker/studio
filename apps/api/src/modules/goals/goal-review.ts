@@ -282,7 +282,7 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
       try {
         const { okrService } = await import('../pmo/okr.service');
         await okrService.updateProgress(project.okrId);
-        await okrService.syncKRProgress(project.okrId);
+        // syncKRProgress moved to PostEval (AS-018 UPDATE: pipeline completion triggers KR sync)
       } catch {
         logger.warn('[Goal] Failed to update OKR progress');
       }

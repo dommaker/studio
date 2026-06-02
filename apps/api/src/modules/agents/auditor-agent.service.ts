@@ -742,6 +742,54 @@ export class AuditorAgent {
                 agentType: 'auditor',
                 detail: `OKR "${okr.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，趋势${trend < 0 ? '恶化中' : '未改善'}。建议触发深度根因分析`,
               });
+
+              // AS-018 PROPOSE: critical → root cause analysis + draft Goal
+              try {
+                const diagnosis = await this.diagnoseRootCause(okr.id, kr.title, 'critical');
+                if (diagnosis) {
+                  const preCheck = await this.preCheckProposal({
+                    suggestedFix: diagnosis.suggestedFix,
+                    confidence: diagnosis.confidence,
+                  });
+                  if (preCheck.status !== 'blocked') {
+                    const goal = await prisma.goal.create({
+                      data: {
+                        title: `[OKR优化] ${kr.title}: ${diagnosis.suggestedFix.substring(0, 80)}`,
+                        description: JSON.stringify({
+                          rootCause: diagnosis.rootCause,
+                          suggestedFix: diagnosis.suggestedFix,
+                          expectedImprovement: diagnosis.expectedImprovement,
+                          confidence: diagnosis.confidence,
+                          preCheck,
+                          okrId: okr.id,
+                          krId: kr.id,
+                        }),
+                        priority: 'high',
+                        companyId: okr.companyId,
+                        status: 'draft',
+                        context: JSON.stringify({ source: 'okr-optimization', okrId: okr.id }),
+                      },
+                    });
+
+                    const icon = preCheck.status === 'warning' ? '⚠️' : '✅';
+                    await this.postToSystemChannel(
+                      `### OKR 优化提案 ${icon}\n\n` +
+                      `**KR**: ${kr.title} (达成率 ${Math.round(ratio * 100)}%)\n` +
+                      `**根因**: ${diagnosis.rootCause}\n` +
+                      `**建议**: ${diagnosis.suggestedFix}\n` +
+                      `**预期改善**: ${diagnosis.expectedImprovement}\n` +
+                      `**置信度**: ${Math.round(diagnosis.confidence * 100)}%\n` +
+                      (preCheck.reasons.length > 0 ? `**注意**: ${preCheck.reasons.join('; ')}\n` : '') +
+                      `\nDraft Goal 已创建: ${goal.id}`
+                    );
+                    logger.info('[Auditor] OKR proposal created', { okrId: okr.id, kr: kr.title, goalId: goal.id });
+                  } else {
+                    logger.info('[Auditor] OKR proposal blocked', { kr: kr.title, reasons: preCheck.reasons });
+                  }
+                }
+              } catch (e) {
+                logger.warn('[Auditor] OKR propose failed', { kr: kr.title, error: String(e) });
+              }
             } else if (ratio < 0.8) {
               suggestions.push({
                 type: 'circuit_fix',

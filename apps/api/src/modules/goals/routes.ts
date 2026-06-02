@@ -20,6 +20,7 @@ import { Router, Request, Response } from 'express';
 import { goalService } from './goal.service.js';
 import { logger } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
+import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 
 const router = Router();
 
@@ -52,7 +53,7 @@ router.post('/', async (req: Request, res: Response) => {
  * GET /api/v1/goals
  * 目标列表
  */
-router.get('/', async (req: Request, res: Response) => {
+router.get('/', apiCache(CACHE_CONFIG.short), async (req: Request, res: Response) => {
   try {
     const { companyId, status } = req.query;
     if (!companyId) {
@@ -72,7 +73,7 @@ router.get('/', async (req: Request, res: Response) => {
 /**
  * GET /api/v1/goals/stats — 仪表盘聚合统计
  */
-router.get('/stats', async (req: Request, res: Response) => {
+router.get('/stats', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Response) => {
   try {
     const { companyId } = req.query;
     const where: any = {};

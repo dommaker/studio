@@ -195,11 +195,21 @@ export async function dispatchStep(
     companyKnowledgeSize: companyKnowledge?.length || 0,
   });
 
-  // Knowledge context injection
+  // Knowledge context injection — AS-019: keyword search with fallback
   let knowledgeContext = '';
   try {
     const { knowledgeQuery } = await import('../knowledge/knowledge-query.service.js');
     knowledgeContext = await knowledgeQuery.formatCompactForPrompt('executor');
+  } catch { /* best-effort */ }
+
+  // AS-019: task-relevant knowledge search (replaces generic getRecentContext)
+  try {
+    const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+    const searchResults = knowledgeBus.search(prompt || goal.title, { limit: 5 });
+    if (searchResults.length > 0) {
+      const searchContext = knowledgeBus.formatSearchForPrompt(searchResults);
+      if (searchContext) knowledgeContext += searchContext;
+    }
   } catch { /* best-effort */ }
 
   try {

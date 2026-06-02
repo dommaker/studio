@@ -9,6 +9,7 @@ import { goalService } from '../goals/goal.service.js';
 import { sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { projectService } from '../pmo/project.service.js';
 import { requireAuth } from '../../middleware/auth.js';
+import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 
 const router = Router();
 
@@ -216,7 +217,7 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
 }
 
 // GET /api/v1/channels — list all channels
-router.get('/', async (_req, res) => {
+router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
   const channels = await prisma.channel.findMany({
     orderBy: { createdAt: 'asc' },
   });

@@ -368,6 +368,111 @@ export class KnowledgeBus {
       return '';
     }
   }
+
+  // ── AS-019: Keyword Search ──
+
+  private static readonly STOP_WORDS = new Set([
+    'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+    'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+    'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
+    'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
+    'and', 'but', 'or', 'nor', 'not', 'so', 'yet', 'both', 'either',
+    'each', 'every', 'all', 'any', 'few', 'more', 'most', 'other', 'some',
+    'such', 'only', 'own', 'same', 'than', 'too', 'very', 'just',
+    'this', 'that', 'these', 'those', 'it', 'its',
+    '需要', '实现', '增加', '修改', '支持', '添加', '使用', '一个',
+  ]);
+
+  private static readonly TYPE_WEIGHT: Record<string, number> = {
+    pitfall: 3, pattern: 2, guideline: 2, fix: 2,
+    process: 1, analysis: 1, trend: 1,
+  };
+
+  /** Extract keywords from prompt text (zero token cost) */
+  static extractKeywords(prompt: string): string[] {
+    return prompt
+      .toLowerCase()
+      .split(/[\s,，。！？、；：""''（）\(\)\[\]{}<>\/\\|@#$%^&*+=~`!\-_]+/)
+      .filter(w => w.length >= 2 && !KnowledgeBus.STOP_WORDS.has(w))
+      .slice(0, 8);
+  }
+
+  /** Search knowledge entries by keyword relevance */
+  search(query: string, opts?: { limit?: number; type?: string }): Array<{
+    id: string; type: string; title: string; content: string;
+    maturity: string; score: number; matchContext: string;
+  }> {
+    try {
+      const limit = opts?.limit || 5;
+      const all = this.store.list({});
+      if (all.length === 0) return [];
+
+      const keywords = KnowledgeBus.extractKeywords(query);
+      if (keywords.length === 0) return [];
+
+      const now = Date.now();
+      const scored = all
+        .filter(e => e.maturity !== 'archived')
+        .filter(e => !opts?.type || e.tags?.includes(opts.type))
+        .map(e => {
+          const titleLower = (e.title || '').toLowerCase();
+          const contentLower = (e.content || '').toLowerCase();
+          let keywordScore = 0;
+          let bestMatchPos = -1;
+          for (const kw of keywords) {
+            if (titleLower.includes(kw)) keywordScore += 3;
+            const pos = contentLower.indexOf(kw);
+            if (pos !== -1) {
+              keywordScore += 1;
+              if (bestMatchPos === -1 || pos < bestMatchPos) bestMatchPos = pos;
+            }
+          }
+          if (keywordScore === 0) return null;
+
+          const typeWeight = KnowledgeBus.TYPE_WEIGHT[e.tags?.[0] || ''] || 1;
+          const daysAgo = e.lastReferenced
+            ? (now - new Date(e.lastReferenced).getTime()) / 86400000
+            : 30;
+          const freshness = daysAgo < 7 ? 1.0 : Math.max(0.2, 1 - (daysAgo - 7) / 30);
+          const maturityWeight = { proven: 1.5, verified: 1.0, draft: 0.5 }[e.maturity] || 0.5;
+
+          const score = keywordScore * typeWeight * freshness * maturityWeight;
+          // Extract match context: snippet around first keyword match
+          const matchContext = bestMatchPos >= 0
+            ? e.content.slice(Math.max(0, bestMatchPos - 40), bestMatchPos + 160)
+            : e.content.slice(0, 200);
+
+          return {
+            id: e.id, type: e.tags?.[0] || 'pattern', title: e.title,
+            content: e.content, maturity: e.maturity, score, matchContext,
+          };
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, limit);
+
+      // Record references for returned entries
+      for (const r of scored) {
+        try { sharedLifecycle.recordReference(r.id, 'search'); } catch { /* non-blocking */ }
+      }
+
+      return scored;
+    } catch (e) {
+      logger.warn('[KnowledgeBus] search failed', { error: String(e) });
+      return [];
+    }
+  }
+
+  /** Format search results for prompt injection (match-context priority) */
+  formatSearchForPrompt(results: ReturnType<typeof this.search>): string {
+    if (results.length === 0) return '';
+    const lines = ['\n## 历史相关知识（按需求匹配度排序）'];
+    for (const r of results) {
+      const icon = r.type === 'pitfall' ? '⚠️' : r.type === 'guideline' ? '📋' : '🔍';
+      lines.push(`- [REF:${r.id}] ${icon} ${r.title}: ${r.matchContext}`);
+    }
+    return lines.join('\n');
+  }
 }
 
 export const knowledgeBus = new KnowledgeBus();
