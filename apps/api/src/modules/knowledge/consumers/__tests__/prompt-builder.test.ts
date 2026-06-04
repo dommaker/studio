@@ -1,6 +1,5 @@
 /**
  * buildKnowledgeContext — unified knowledge injection tests
- * Phase 2: uses UnifiedQuery for rules/context/signal injection
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -8,20 +7,23 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockQueryEntries = vi.fn().mockResolvedValue([]);
 const mockGetIndexes = vi.fn().mockReturnValue([]);
 const mockCount = vi.fn().mockResolvedValue(0);
+const mockUqInstance = {
+  queryEntries: mockQueryEntries,
+  getIndexes: mockGetIndexes,
+  count: mockCount,
+};
 vi.mock('../../engine/unified-query.js', () => ({
-  UnifiedQuery: vi.fn().mockImplementation(() => ({
-    queryEntries: mockQueryEntries,
-    getIndexes: mockGetIndexes,
-    count: mockCount,
-  })),
+  UnifiedQuery: class {
+    constructor() { return mockUqInstance; }
+  },
 }));
 
-// Mock knowledgeBus (legacy compatibility)
-const mockFormatIndexSummary = vi.fn().mockReturnValue('');
+// Mock knowledgeBus dependencies
+const mockRecordReference = vi.fn();
+const mockStoreList = vi.fn().mockReturnValue([]);
 vi.mock('../../knowledge-bus.service.js', () => ({
-  knowledgeBus: {
-    formatIndexSummary: mockFormatIndexSummary,
-  },
+  sharedStore: { list: mockStoreList },
+  sharedLifecycle: { recordReference: mockRecordReference },
 }));
 
 // Import after mocks
@@ -83,10 +85,8 @@ describe('buildKnowledgeContext', () => {
 
     const result = await buildKnowledgeContext('executor');
 
-    // Content should be stripped: no backticks, no links
     expect(result).not.toContain('`');
     expect(result).not.toContain('](http');
-    // But the text content should remain
     expect(result).toContain('标题');
     expect(result).toContain('code');
   });
@@ -94,7 +94,58 @@ describe('buildKnowledgeContext', () => {
   it('should handle empty knowledge gracefully', async () => {
     const result = await buildKnowledgeContext('executor');
 
-    // Should not crash, may have empty sections or legacy index
     expect(typeof result).toBe('string');
+  });
+
+  it('should show knowledge stats summary', async () => {
+    mockStoreList.mockReturnValue([
+      { tags: ['pattern'] },
+      { tags: ['pattern'] },
+      { tags: ['pitfall'] },
+      { tags: ['guideline'] },
+    ]);
+
+    const result = await buildKnowledgeContext('executor');
+
+    expect(result).toContain('知识库: 4 条');
+    expect(result).toContain('代码模式 2');
+    expect(result).toContain('坑点 1');
+    expect(result).toContain('规范 1');
+  });
+
+  it('should record references for injected entries', async () => {
+    mockQueryEntries
+      .mockResolvedValueOnce([{ id: 'rule:no_redis', content: 'test', consumptionMode: 'rule' }])
+      .mockResolvedValueOnce([{ id: 'pref:user', content: 'test', consumptionMode: 'context' }]);
+    mockGetIndexes.mockReturnValue([
+      { id: 'signal:001', summary: 'test', tags: [], source: 'store' },
+    ]);
+
+    await buildKnowledgeContext('executor');
+
+    expect(mockRecordReference).toHaveBeenCalledWith('rule:no_redis', 'prompt-inject');
+    expect(mockRecordReference).toHaveBeenCalledWith('pref:user', 'prompt-inject');
+    expect(mockRecordReference).toHaveBeenCalledWith('signal:001', 'prompt-inject');
+    expect(mockRecordReference).toHaveBeenCalledTimes(3);
+  });
+
+  it('should not fail if recordReference throws', async () => {
+    mockQueryEntries.mockResolvedValueOnce([
+      { id: 'rule:test', content: 'test', consumptionMode: 'rule' },
+    ]);
+    mockRecordReference.mockImplementation(() => { throw new Error('db error'); });
+
+    const result = await buildKnowledgeContext('executor');
+
+    expect(result).toContain('## 系统约束');
+  });
+
+  it('should not show stats when store is empty', async () => {
+    mockStoreList.mockReturnValue([]);
+    mockCount.mockResolvedValue(0);
+
+    const result = await buildKnowledgeContext('executor');
+
+    expect(result).not.toContain('知识库:');
   });
 });

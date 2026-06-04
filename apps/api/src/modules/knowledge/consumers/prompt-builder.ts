@@ -1,9 +1,17 @@
 /**
  * Unified knowledge injection entry point.
- * Phase 2: uses UnifiedQuery for rules/context (full injection) + signal (index injection).
+ * Single entry for all agent knowledge injection.
+ * - rule: full content injection (constraints must be followed)
+ * - context: full content injection (preferences/environment)
+ * - signal: index injection (informational, agent searches on demand)
+ * - reference: not injected, hint only
+ *
+ * Also handles:
+ * - Knowledge stats summary (how many entries available)
+ * - recordReference calls (closes maturity loop)
  */
-import { UnifiedQuery } from '../engine/unified-query.js';
-import { knowledgeBus } from '../knowledge-bus.service.js';
+import { UnifiedQuery, type IndexEntry } from '../engine/unified-query.js';
+import { sharedStore, sharedLifecycle } from '../knowledge-bus.service.js';
 
 interface BuildOptions {
   /** 'compact' = rules + context (default), 'full' = all knowledge types */
@@ -32,11 +40,51 @@ function stripFormat(text: string): string {
 }
 
 /**
+ * Record references for injected entries (closes maturity loop).
+ * Best-effort: failures don't block injection.
+ */
+function recordReferences(entryIds: string[]): void {
+  for (const id of entryIds) {
+    try { sharedLifecycle.recordReference(id, 'prompt-inject'); } catch { /* non-blocking */ }
+  }
+}
+
+/**
+ * Build knowledge stats summary line.
+ */
+function buildStatsSummary(): string {
+  try {
+    const entries = sharedStore.list({});
+    const total = entries.length;
+    if (total === 0) return '';
+
+    const typeLabels: Record<string, string> = {
+      pattern: '代码模式',
+      pitfall: '坑点',
+      guideline: '规范',
+      fix: '修复方案',
+      trend: '趋势',
+    };
+
+    const byType: Record<string, number> = {};
+    for (const e of entries) {
+      const cat = e.tags?.[0] || 'other';
+      byType[cat] = (byType[cat] || 0) + 1;
+    }
+
+    const parts = [`知识库: ${total} 条`];
+    for (const [type, label] of Object.entries(typeLabels)) {
+      const count = byType[type] || 0;
+      if (count > 0) parts.push(`${label} ${count}`);
+    }
+    return parts.join(' | ');
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Build knowledge context for an agent's prompt.
- * - rule: full content injection (constraints must be followed)
- * - context: full content injection (preferences/environment)
- * - signal: index injection (informational, agent searches on demand)
- * - reference: not injected, hint only
  */
 export async function buildKnowledgeContext(
   agentType: string,
@@ -44,12 +92,14 @@ export async function buildKnowledgeContext(
 ): Promise<string> {
   const uq = getUnifiedQuery();
   const sections: string[] = [];
+  const injectedIds: string[] = [];
 
   // 1. rule — full content injection (constraints must be followed)
   const rules = await uq.queryEntries({ consumptionModes: ['rule'], agentType });
   if (rules.length) {
     const lines = rules.map(r => `- ${stripFormat(r.content)}`);
     sections.push(`## 系统约束\n${lines.join('\n')}`);
+    injectedIds.push(...rules.map(r => r.id));
   }
 
   // 2. context — full content injection (preferences + environment)
@@ -57,6 +107,7 @@ export async function buildKnowledgeContext(
   if (context.length) {
     const lines = context.map(c => `- ${stripFormat(c.content)}`);
     sections.push(`## 上下文\n${lines.join('\n')}`);
+    injectedIds.push(...context.map(c => c.id));
   }
 
   // 3. signal — index injection (informational)
@@ -64,6 +115,7 @@ export async function buildKnowledgeContext(
   if (signals.length) {
     const lines = signals.map(s => `- [${s.id}] ${s.summary}`);
     sections.push(`## 近期信号\n${lines.join('\n')}`);
+    injectedIds.push(...signals.map(s => s.id));
   }
 
   // 4. reference — hint only
@@ -72,10 +124,15 @@ export async function buildKnowledgeContext(
     sections.push(`[知识库: ${refCount} 条参考，遇到问题时用 search()]`);
   }
 
-  // 5. knowledge index summary (legacy compatibility — formatIndexSummary)
-  const index = knowledgeBus.formatIndexSummary();
-  if (index) {
-    sections.push(index);
+  // 5. knowledge stats summary
+  const stats = buildStatsSummary();
+  if (stats) {
+    sections.push(stats);
+  }
+
+  // 6. recordReference — close maturity loop
+  if (injectedIds.length > 0) {
+    recordReferences(injectedIds);
   }
 
   return sections.join('\n\n');

@@ -11,6 +11,7 @@ import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { buildKnowledgeContext } from '../knowledge/consumers/prompt-builder.js';
 import { discoveryExposure } from '../channels/discovery-exposure.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import { skillLoader } from '@dommaker/studio-skill';
@@ -66,11 +67,11 @@ export class ReviewAgent {
 
       // 构建审查 prompt 并写入 worktree
       const constraintSection = formatConstraintsForPrompt('reviewer');
-      // B11-005: 知识索引摘要 — 告知 agent 有哪些知识可用及如何 MCP 检索
+      // AS-022: unified knowledge injection
       let indexSection = '';
       try {
-        const indexSummary = knowledgeBus.formatIndexSummary();
-        if (indexSummary) indexSection = '\n## 知识检索\n' + indexSummary + '\n';
+        const knowledgeContext = await buildKnowledgeContext('reviewer');
+        if (knowledgeContext) indexSection = '\n## 知识检索\n' + knowledgeContext + '\n';
       } catch { /* best-effort */ }
       // TDD-04: Load reviewer skills via SkillLoader
       const reviewerSkills = skillLoader.load({ trigger: 'review', agentType: 'reviewer' });
@@ -453,11 +454,11 @@ export class ReviewAgent {
       }
 
       const constraintSection = formatConstraintsForPrompt('reviewer');
-      // B11-014: 知识索引摘要 — 统一前缀顺序
+      // AS-022: unified knowledge injection
       let indexSection = '';
       try {
-        const indexSummary = knowledgeBus.formatIndexSummary();
-        if (indexSummary) indexSection = '\n## 知识检索\n' + indexSummary + '\n';
+        const knowledgeContext = await buildKnowledgeContext('reviewer');
+        if (knowledgeContext) indexSection = '\n## 知识检索\n' + knowledgeContext + '\n';
       } catch { /* best-effort */ }
       // TDD-04: Load reviewer skills for branch diff review too
       const reviewerSkills = skillLoader.load({ trigger: 'review', agentType: 'reviewer' });
