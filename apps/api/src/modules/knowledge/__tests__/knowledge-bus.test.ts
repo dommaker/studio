@@ -60,41 +60,6 @@ vi.mock('../knowledge-bus.service.js', async () => {
   const bus = {
     store,
     ingest,
-    getRecentContext(agentType: string, maxItems = 10): string {
-      const all = store.list({});
-      if (all.length === 0) return '';
-      const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, draft: 1 };
-      const recent = all
-        .filter((e: any) => e.maturity !== 'archived' && !e.tags?.includes('low_quality'))
-        .sort((a: any, b: any) => {
-          const wa = MATURITY_WEIGHT[a.maturity] || 1;
-          const wb = MATURITY_WEIGHT[b.maturity] || 1;
-          if (wa !== wb) return wb - wa;
-          return (b.lastReferenced || '').localeCompare(a.lastReferenced || '');
-        })
-        .slice(0, maxItems);
-      if (recent.length === 0) return '';
-      for (const e of recent) {
-        try { lifecycle.recordReference(e.id, agentType); } catch {}
-      }
-      const lines = ['\n## 历史积累（知识总线）', '（引用知识条目时请标注 ID，如 [REF:pattern-xxx]）'];
-      for (const e of recent) {
-        const icon = e.type === 'pitfall' ? '⚠️' : '📋';
-        const source = e.contributors?.[0] || '?';
-        lines.push(`- [REF:${e.id}] [${source}] ${icon} ${e.title}: ${e.content.slice(0, 200)}`);
-      }
-      // GAP-07: emit knowledge:injected event
-      try {
-        (globalThis as any).__kbTestMocks.studioEventCreate({
-          data: {
-            type: 'knowledge:injected',
-            source: agentType,
-            payload: JSON.stringify({ method: 'getRecentContext', agentType, entryCount: recent.length, entryIds: recent.map((e: any) => e.id) }),
-          },
-        });
-      } catch {}
-      return lines.join('\n');
-    },
     async queryByType(type: string, limit = 10) {
       const entries = store.list({});
       return entries
@@ -300,21 +265,6 @@ afterAll(() => {
 // ── Tests ──
 
 describe('KnowledgeBus', () => {
-  describe('getRecentContext', () => {
-    it('returns empty string when store is empty', () => {
-      const result = knowledgeBus.getRecentContext('test-agent', 5);
-      expect(typeof result).toBe('string');
-    });
-
-    it('handles maxItems=0 gracefully', () => {
-      expect(() => knowledgeBus.getRecentContext('test-agent', 0)).not.toThrow();
-    });
-
-    it('does not throw on invalid agent type', () => {
-      expect(() => knowledgeBus.getRecentContext('')).not.toThrow();
-    });
-  });
-
   describe('queryByType', () => {
     it('does not throw for non-existent type', async () => {
       const results = await knowledgeBus.queryByType('__nonexistent__' + Date.now());
@@ -690,48 +640,6 @@ describe('knowledge:injected events', () => {
     studioEventCreateMock.mockClear();
   });
 
-  describe('getRecentContext', () => {
-    it('emits knowledge:injected event when entries exist', () => {
-      sharedStore.save({
-        id: `inj-test-${Date.now()}`,
-        type: 'guideline',
-        title: 'Injection test entry',
-        content: 'Content for testing knowledge:injected event emission.',
-        maturity: 'verified',
-        layer: 'L1',
-        created: new Date().toISOString(),
-        lastReferenced: new Date().toISOString(),
-        contributors: ['test'],
-        projects: [],
-        tags: ['test'],
-        applicablePhases: [],
-        sourceReferences: [],
-        referencedBy: [],
-      });
-
-      knowledgeBus.getRecentContext('test-agent', 5);
-
-      const injectedCalls = studioEventCreateMock.mock.calls.filter(
-        (c: any[]) => c[0]?.data?.type === 'knowledge:injected',
-      );
-      expect(injectedCalls.length).toBeGreaterThan(0);
-      const payload = JSON.parse(injectedCalls[0][0].data.payload);
-      expect(payload.method).toBe('getRecentContext');
-      expect(payload.agentType).toBe('test-agent');
-      expect(payload.entryCount).toBeGreaterThan(0);
-      expect(Array.isArray(payload.entryIds)).toBe(true);
-    });
-
-    it('does not emit knowledge:injected when maxItems=0', () => {
-      knowledgeBus.getRecentContext('test-agent', 0);
-
-      const injectedCalls = studioEventCreateMock.mock.calls.filter(
-        (c: any[]) => c[0]?.data?.type === 'knowledge:injected',
-      );
-      expect(injectedCalls).toHaveLength(0);
-    });
-  });
-
   describe('formatIndexSummary', () => {
     it('emits knowledge:injected event when entries exist', () => {
       knowledgeBus.formatIndexSummary();
@@ -770,11 +678,6 @@ describe('GAP-08: low_quality filtering', () => {
       sourceReferences: [],
       referencedBy: [],
     });
-  });
-
-  it('getRecentContext excludes low_quality entries', () => {
-    const result = knowledgeBus.getRecentContext('test-agent', 100);
-    expect(result).not.toContain(lqId);
   });
 
   it('formatIndexSummary excludes low_quality entries from recent injection', () => {

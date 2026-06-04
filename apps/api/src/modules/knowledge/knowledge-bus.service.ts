@@ -191,66 +191,6 @@ export class KnowledgeBus {
     }
   }
 
-  // ── Read ──
-
-  /** 加载最近的相关知识（供 Agent 注入 prompt）+ 记录引用 */
-  getRecentContext(agentType: string, maxItems = 10): string {
-    try {
-      const all = this.store.list({});
-      if (all.length === 0) return '';
-
-      // B13-007: maturity 加权排序
-      const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, draft: 1 };
-      const recent = all
-        .filter(e => e.maturity !== 'archived' && !e.tags?.includes('low_quality'))
-        .sort((a, b) => {
-          const wa = MATURITY_WEIGHT[a.maturity] || 1;
-          const wb = MATURITY_WEIGHT[b.maturity] || 1;
-          if (wa !== wb) return wb - wa;
-          return (b.lastReferenced || '').localeCompare(a.lastReferenced || '');
-        })
-        .slice(0, maxItems);
-
-      if (recent.length === 0) return '';
-
-      // Record reference for each returned entry (closes the read→reference→promote circuit)
-      for (const e of recent) {
-        try {
-          sharedLifecycle.recordReference(e.id, agentType);
-        } catch { /* non-blocking */ }
-      }
-
-      const lines = ['\n## 历史积累（知识总线）'];
-      lines.push('（引用知识条目时请标注 ID，如 [REF:pattern-xxx]）');
-      for (const e of recent) {
-        const icon = e.type === 'pitfall' ? '⚠️' : '📋';
-        const source = e.contributors?.[0] || '?';
-        lines.push(`- [REF:${e.id}] [${source}] ${icon} ${e.title}: ${e.content.slice(0, 200)}`);
-      }
-
-      // GAP-07: emit knowledge:injected event
-      prisma.studioEvent.create({
-        data: {
-          type: 'knowledge:injected',
-          source: agentType,
-          payload: JSON.stringify({
-            method: 'getRecentContext',
-            agentType,
-            entryCount: recent.length,
-            entryIds: recent.map(e => e.id),
-          }),
-        },
-      }).catch((e: any) => {
-        logger.warn('[KnowledgeBus] knowledge:injected event failed', { error: String(e) });
-      });
-
-      return lines.join('\n');
-    } catch (e: any) {
-      logger.warn('[KnowledgeBus] Failed to load context', { error: String(e) });
-      return '';
-    }
-  }
-
   // ── Analyst Accuracy Feedback Loop ──
 
   /** PostEval 记录 Analyst 预测准确率，供下次 Analyst 运行时注入 */

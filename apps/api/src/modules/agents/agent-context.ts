@@ -98,7 +98,7 @@ export function buildAgentContext(options: AgentContextOptions = {}): AgentConte
 
   // Full mode — async loading not possible in sync function,
   // return what's available synchronously (harness + skills).
-  // Callers should also call knowledgeQuery.formatCompactForPrompt() separately.
+  // Callers should also call buildKnowledgeContext() separately.
   const promptParts = [harnessPrompt, skillPrompt].filter(Boolean);
 
   return {

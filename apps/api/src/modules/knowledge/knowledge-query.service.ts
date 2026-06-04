@@ -57,40 +57,6 @@ export class KnowledgeQueryService {
   }
 
   /**
-   * 全量格式化：五种知识类型合并为 prompt 注入文本
-   */
-  async formatAllForPrompt(agentType?: string): Promise<string> {
-    const parts: string[] = [];
-
-    try {
-      const prefPrompt = await preferenceObserver.formatForPrompt();
-      if (prefPrompt) parts.push(prefPrompt);
-    } catch { /* best-effort */ }
-
-    try {
-      const rulesPrompt = await ruleScanner.formatForPrompt(agentType);
-      if (rulesPrompt) parts.push(rulesPrompt);
-    } catch { /* best-effort */ }
-
-    try {
-      const envPrompt = await envSnapper.formatForPrompt();
-      if (envPrompt) parts.push(envPrompt);
-    } catch { /* best-effort */ }
-
-    try {
-      const dcPrompt = await decisionChainExtractor.formatForPrompt();
-      if (dcPrompt) parts.push(dcPrompt);
-    } catch { /* best-effort */ }
-
-    try {
-      const patPrompt = await patternMiner.formatForPrompt();
-      if (patPrompt) parts.push(patPrompt);
-    } catch { /* best-effort */ }
-
-    return parts.join('\n').trim();
-  }
-
-  /**
    * P0.2: 按需求相关性评分查询知识（KK→Analyst feedback loop）
    *
    * 与 getRecentContext 不同：不是取最近的 N 条，而是按关键词匹配度评分排序。
@@ -150,50 +116,6 @@ export class KnowledgeQueryService {
       logger.warn('[KnowledgeQuery] Relevance query failed', { error: String(e) });
       return '';
     }
-  }
-
-  /**
-   * 精简版：仅注入偏好+规则+环境（tokens 敏感场景）
-   */
-  async formatCompactForPrompt(agentType?: string): Promise<string> {
-    const parts: string[] = [];
-
-    try {
-      const prefs = await preferenceObserver.getPreferences();
-      if (prefs && prefs.confidence > 0.4) {
-        const lines = ['\n## 用户偏好'];
-        if (prefs.responseStyle) lines.push(`- 回复风格: ${prefs.responseStyle}`);
-        if (prefs.preferredModel) lines.push(`- 偏好模型: ${prefs.preferredModel}`);
-        parts.push(lines.join('\n'));
-      }
-    } catch { /* best-effort */ }
-
-    try {
-      const rules = await ruleScanner.getActiveRules();
-      if (rules.length > 0) {
-        const lines = ['\n## 系统规则'];
-        const topRules = rules.slice(0, 5);
-        for (const r of topRules) {
-          lines.push(`- ${r.name}: ${r.description}`);
-        }
-        parts.push(lines.join('\n'));
-      }
-    } catch { /* best-effort */ }
-
-    try {
-      const snap = await envSnapper.getLatest();
-      if (snap) {
-        const lines = ['\n## 环境'];
-        lines.push(`- ${snap.nodeEnv}, Node ${snap.nodeVersion}, API:${snap.apiPort}`);
-        const lims = snap.knownLimitations || [];
-        if (lims.length > 0) {
-          lines.push(`- 已知限制: ${lims.map((l: any) => l.issue).join('; ')}`);
-        }
-        parts.push(lines.join('\n'));
-      }
-    } catch { /* best-effort */ }
-
-    return parts.join('\n').trim();
   }
 
   /**

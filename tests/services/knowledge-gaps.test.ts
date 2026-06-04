@@ -498,24 +498,7 @@ describe('KnowledgeQueryService (S8)', () => {
 
     expect(knowledgeQuery).toBeDefined();
     expect(typeof knowledgeQuery.query).toBe('function');
-    expect(typeof knowledgeQuery.formatAllForPrompt).toBe('function');
-    expect(typeof knowledgeQuery.formatCompactForPrompt).toBe('function');
     expect(typeof knowledgeQuery.getStats).toBe('function');
-  });
-
-  it('formatCompactForPrompt 处理无数据场景', async () => {
-    const { knowledgeQuery } = await import(
-      '../../apps/api/src/modules/knowledge/knowledge-query.service.js'
-    );
-
-    // In test env without DB, should return '' without crashing
-    try {
-      const result = await knowledgeQuery.formatCompactForPrompt();
-      expect(typeof result).toBe('string');
-    } catch {
-      // DB unavailable is expected in test env
-      expect(true).toBe(true);
-    }
   });
 
   it('知识统计包含所有类型', async () => {
@@ -573,13 +556,11 @@ describe('ToolRegistry → PreferenceObserver wiring (G-001)', () => {
 // ════════════════════════════════════════════
 
 describe('GoalScheduler knowledge injection (S9)', () => {
-  it('调度器导入 knowledgeQuery 可用', async () => {
-    const { knowledgeQuery } = await import(
-      '../../apps/api/src/modules/knowledge/knowledge-query.service.js'
+  it('调度器导入 buildKnowledgeContext 可用', async () => {
+    const { buildKnowledgeContext } = await import(
+      '../../apps/api/src/modules/knowledge/consumers/prompt-builder.js'
     );
 
-    expect(knowledgeQuery).toBeDefined();
-    expect(typeof knowledgeQuery.formatCompactForPrompt).toBe('function');
-    // formatCompactForPrompt 被 goal-scheduler 的 dispatch 调用
+    expect(typeof buildKnowledgeContext).toBe('function');
   });
 });
