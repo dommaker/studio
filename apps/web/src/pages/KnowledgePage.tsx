@@ -51,7 +51,7 @@ const gapIcons: Record<GapTab, string> = {
   decision_chain: '🔗', interaction: '📊', behavior: '🧩', resolution: '🔧',
 };
 
-type ActiveTab = 'documents' | GapTab;
+type ActiveTab = 'documents' | GapTab | 'unified';
 
 export function KnowledgePage() {
   const searchParams = useSearchParams()[0];
@@ -77,6 +77,15 @@ export function KnowledgePage() {
   const [globalSearch, setGlobalSearch] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+
+  // AS-022: Unified knowledge view state
+  const [unifiedEntries, setUnifiedEntries] = useState<any[]>([]);
+  const [unifiedTotal, setUnifiedTotal] = useState(0);
+  const [unifiedLoading, setUnifiedLoading] = useState(false);
+  const [unifiedMode, setUnifiedMode] = useState('');
+  const [unifiedOffset, setUnifiedOffset] = useState(0);
+  const [showManualEntry, setShowManualEntry] = useState(false);
+  const [manualForm, setManualForm] = useState({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
 
   const loadDocuments = useCallback(async () => {
     setLoading(true);
@@ -111,8 +120,35 @@ export function KnowledgePage() {
   useEffect(() => {
     if (!companyId) return;
     if (activeTab === 'documents') loadDocuments();
+    else if (activeTab === 'unified') loadUnified();
     else loadGapData(activeTab);
-  }, [activeTab, loadDocuments, loadGapData, companyId]);
+  }, [activeTab, loadDocuments, loadGapData, loadUnified, companyId]);
+
+  // AS-022: Submit manual entry
+  const handleManualEntry = async () => {
+    try {
+      await api.post('/knowledge/unified', {
+        ...manualForm,
+        tags: manualForm.tags ? manualForm.tags.split(',').map(t => t.trim()) : [],
+      });
+      setShowManualEntry(false);
+      setManualForm({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
+      loadUnified();
+    } catch (err) { console.error('Failed to create entry:', err); }
+  };
+
+  // AS-022: Load unified knowledge entries
+  const loadUnified = useCallback(async () => {
+    setUnifiedLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: '50', offset: String(unifiedOffset) });
+      if (unifiedMode) params.set('consumptionMode', unifiedMode);
+      const res = await api.get(`/knowledge/unified?${params}`);
+      setUnifiedEntries(res.data.entries || []);
+      setUnifiedTotal(res.data.total || 0);
+    } catch { setUnifiedEntries([]); }
+    finally { setUnifiedLoading(false); }
+  }, [unifiedMode, unifiedOffset]);
 
   // S11: Unified search across all types
   const handleGlobalSearch = useCallback(async () => {
@@ -137,6 +173,7 @@ export function KnowledgePage() {
 
   const tabs: Array<{ id: ActiveTab; icon: string; label: string }> = [
     { id: 'documents', icon: '📚', label: '文档' },
+    { id: 'unified', icon: '🔗', label: '统一视图' },
     ...(Object.entries(gapLabels) as [GapTab, string][]).map(([id, label]) => ({
       id, icon: gapIcons[id], label,
     })),
@@ -334,6 +371,101 @@ export function KnowledgePage() {
             )}
           </div>
         </>
+      )}
+
+      {/* ── AS-022: Unified Knowledge Tab ── */}
+      {activeTab === 'unified' && (
+        <div>
+          <div className="flex gap-2 mb-4">
+            <select value={unifiedMode} onChange={e => { setUnifiedMode(e.target.value); setUnifiedOffset(0); }}
+              className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
+              <option value="">全部类型</option>
+              <option value="rule">规则 (rule)</option>
+              <option value="context">上下文 (context)</option>
+              <option value="signal">信号 (signal)</option>
+              <option value="reference">参考 (reference)</option>
+            </select>
+            <span className="text-sm self-center" style={{ color: 'var(--text-tertiary)' }}>
+              {unifiedTotal} 条
+            </span>
+            <button onClick={() => setShowManualEntry(!showManualEntry)} className="ml-auto px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--accent-primary)', color: 'white' }}>
+              {showManualEntry ? '取消' : '+ 新建'}
+            </button>
+          </div>
+          {showManualEntry && (
+            <div className="mb-4 p-4 rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
+              <div className="grid grid-cols-2 gap-3 mb-3">
+                <select value={manualForm.type} onChange={e => setManualForm({ ...manualForm, type: e.target.value })}
+                  className="px-3 py-2 rounded text-sm" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
+                  <option value="guideline">指南</option>
+                  <option value="pitfall">踩坑</option>
+                  <option value="architecture">架构</option>
+                  <option value="process">流程</option>
+                </select>
+                <select value={manualForm.consumptionMode} onChange={e => setManualForm({ ...manualForm, consumptionMode: e.target.value })}
+                  className="px-3 py-2 rounded text-sm" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
+                  <option value="reference">参考 (reference)</option>
+                  <option value="signal">信号 (signal)</option>
+                  <option value="rule">规则 (rule)</option>
+                  <option value="context">上下文 (context)</option>
+                </select>
+              </div>
+              <input type="text" placeholder="标题" value={manualForm.title} onChange={e => setManualForm({ ...manualForm, title: e.target.value })}
+                className="w-full px-3 py-2 rounded text-sm mb-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />
+              <textarea placeholder="内容" value={manualForm.content} onChange={e => setManualForm({ ...manualForm, content: e.target.value })} rows={4}
+                className="w-full px-3 py-2 rounded text-sm mb-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />
+              <input type="text" placeholder="标签（逗号分隔）" value={manualForm.tags} onChange={e => setManualForm({ ...manualForm, tags: e.target.value })}
+                className="w-full px-3 py-2 rounded text-sm mb-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />
+              <button onClick={handleManualEntry} disabled={!manualForm.title || !manualForm.content}
+                className="px-4 py-2 rounded text-sm disabled:opacity-50" style={{ background: 'var(--accent-primary)', color: 'white' }}>
+                保存
+              </button>
+            </div>
+          )}
+          {unifiedLoading ? (
+            <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>加载中...</div>
+          ) : unifiedEntries.length === 0 ? (
+            <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>暂无数据</div>
+          ) : (
+            <div className="space-y-3">
+              {unifiedEntries.map((entry, i) => (
+                <div key={entry.id || i} className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs px-2 py-0.5 rounded" style={{
+                      background: entry.consumptionMode === 'rule' ? 'var(--accent-danger)' :
+                        entry.consumptionMode === 'context' ? 'var(--accent-primary)' :
+                          entry.consumptionMode === 'signal' ? 'var(--accent-warning)' : 'var(--bg-elevated)',
+                      color: 'white',
+                    }}>
+                      {entry.consumptionMode}
+                    </span>
+                    <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
+                      {entry.source}
+                    </span>
+                    <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{entry.title}</span>
+                  </div>
+                  <p className="text-xs mb-2" style={{ color: 'var(--text-tertiary)' }}>
+                    {entry.content?.slice(0, 200)}{entry.content?.length > 200 ? '...' : ''}
+                  </p>
+                  {entry.tags?.length > 0 && (
+                    <div className="flex gap-1 flex-wrap">
+                      {entry.tags.map((tag: string) => (
+                        <span key={tag} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+              {unifiedTotal > unifiedOffset + 50 && (
+                <div className="text-center mt-4">
+                  <button onClick={() => setUnifiedOffset(unifiedOffset + 50)} className="px-4 py-2 rounded text-sm" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>加载更多</button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       )}
 
       {/* ── Gap Type Tabs ── */}

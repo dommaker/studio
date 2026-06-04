@@ -10,8 +10,11 @@ import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge-bus.service.js';
 
 // ── Types ──────────────────────────────────────────────────
 
-/** Harness KnowledgeEntry extended with Studio-specific applicableAgents */
-type StudioEntry = HarnessEntry & { applicableAgents?: string[] };
+/** Harness KnowledgeEntry extended with Studio-specific fields */
+type StudioEntry = HarnessEntry & {
+  applicableAgents?: string[];
+  source?: 'prisma' | 'store';
+};
 
 export interface IndexEntry {
   id: string;
@@ -31,7 +34,13 @@ export interface UnifiedQueryFilter {
   agentType?: string;
   sources?: ('prisma' | 'store')[];
   limit?: number;
+  offset?: number;
   sortBy?: 'maturity' | 'lastReferenced' | 'createdAt';
+}
+
+export interface ListEntriesResult {
+  entries: StudioEntry[];
+  total: number;
 }
 
 // ── UnifiedQuery ───────────────────────────────────────────
@@ -61,6 +70,69 @@ export class UnifiedQuery {
       );
     }
     return entries;
+  }
+
+  /**
+   * List entries from both stores with pagination (Studio UI use).
+   * Returns merged + filtered entries with total count for pagination.
+   */
+  async listEntries(filter: UnifiedQueryFilter): Promise<ListEntriesResult> {
+    const allEntries: StudioEntry[] = [];
+
+    // KnowledgeStore entries
+    if (!filter.sources || filter.sources.includes('store')) {
+      const harnessFilter: HarnessFilter = {};
+      if (filter.consumptionModes?.length) {
+        harnessFilter.consumptionModes = filter.consumptionModes as HarnessEntry['consumptionMode'][];
+      }
+      if (filter.tags?.length) {
+        harnessFilter.tags = filter.tags;
+      }
+      if (filter.origins?.length) {
+        harnessFilter.origins = filter.origins as HarnessEntry['origin'][];
+      }
+      if (filter.maturity?.length) {
+        harnessFilter.maturity = filter.maturity as HarnessEntry['maturity'][];
+      }
+
+      let storeEntries = this.store.list(harnessFilter);
+
+      // Exclude low_quality
+      if (filter.excludeTags?.includes('low_quality')) {
+        storeEntries = storeEntries.filter(e => !e.tags.includes('low_quality'));
+      }
+
+      allEntries.push(...storeEntries.map(e => ({
+        ...e,
+        source: 'store' as const,
+        applicableAgents: (e as any).applicableAgents,
+      })));
+    }
+
+    // Prisma entries
+    if (!filter.sources || filter.sources.includes('prisma')) {
+      const prismaEntries = await this.prismaToEntries(filter);
+      allEntries.push(...prismaEntries.map(e => ({ ...e, source: 'prisma' as const })));
+    }
+
+    // Sort
+    const sortBy = filter.sortBy || 'lastReferenced';
+    allEntries.sort((a, b) => {
+      if (sortBy === 'maturity') {
+        const order = { proven: 3, verified: 2, active: 2, draft: 1 } as Record<string, number>;
+        return (order[b.maturity] || 0) - (order[a.maturity] || 0);
+      }
+      const aVal = sortBy === 'createdAt' ? a.created : a.lastReferenced;
+      const bVal = sortBy === 'createdAt' ? b.created : b.lastReferenced;
+      return (bVal || '').localeCompare(aVal || '');
+    });
+
+    const total = allEntries.length;
+    const offset = filter.offset || 0;
+    const limit = filter.limit || 50;
+    const entries = allEntries.slice(offset, offset + limit);
+
+    return { entries, total };
   }
 
   /**

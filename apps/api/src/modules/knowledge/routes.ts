@@ -1343,3 +1343,86 @@ knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
     res.status(500).json({ error: 'Extraction failed', detail: String(error) });
   }
 });
+
+// ── AS-022: Unified Knowledge API ─────────────────────────
+
+// Lazy-load UnifiedQuery to avoid circular deps
+let _uq: InstanceType<typeof import('./engine/unified-query.js').UnifiedQuery> | null = null;
+async function getUnifiedQuery() {
+  if (!_uq) {
+    const { UnifiedQuery } = await import('./engine/unified-query.js');
+    _uq = new UnifiedQuery();
+  }
+  return _uq;
+}
+
+/**
+ * GET /unified — unified knowledge browser
+ * Query params: consumptionMode, tags, origin, maturity, limit, offset, sortBy
+ */
+knowledgeRoutes.get('/unified', async (req, res) => {
+  try {
+    const uq = await getUnifiedQuery();
+    const filter = {
+      consumptionModes: req.query.consumptionMode ? String(req.query.consumptionMode).split(',') : undefined,
+      tags: req.query.tags ? String(req.query.tags).split(',') : undefined,
+      origins: req.query.origin ? String(req.query.origin).split(',') : undefined,
+      maturity: req.query.maturity ? String(req.query.maturity).split(',') : undefined,
+      excludeTags: ['low_quality'],
+      limit: req.query.limit ? Math.min(Number(req.query.limit), 100) : 50,
+      offset: req.query.offset ? Number(req.query.offset) : 0,
+      sortBy: req.query.sortBy as any || 'lastReferenced',
+      sources: ['store' as const, 'prisma' as const],
+    };
+    const result = await uq.listEntries(filter);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: 'Query failed', detail: String(error) });
+  }
+});
+
+/**
+ * POST /unified — manual knowledge entry creation
+ * Body: { type, title, content, consumptionMode, applicableAgents?, tags? }
+ */
+knowledgeRoutes.post('/unified', async (req, res) => {
+  try {
+    const { type, title, content, consumptionMode, applicableAgents, tags } = req.body;
+
+    if (!type || !title || !content || !consumptionMode) {
+      res.status(400).json({ error: 'Missing required fields: type, title, content, consumptionMode' });
+      return;
+    }
+
+    const { sharedStore } = await import('./knowledge-bus.service.js');
+    const id = `manual-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = new Date().toISOString();
+
+    // Store applicableAgents in tags (KnowledgeEntry doesn't have applicableAgents field)
+    const entryTags = [...(tags || []), ...(applicableAgents || []).map((a: string) => `agent:${a}`)];
+
+    sharedStore.save({
+      id,
+      type,
+      title,
+      content,
+      maturity: 'draft',
+      layer: 'project',
+      created: now,
+      lastReferenced: now,
+      contributors: ['manual'],
+      projects: [],
+      tags: entryTags,
+      applicablePhases: [],
+      sourceReferences: [],
+      referencedBy: [],
+      executionResults: [],
+      consumptionMode,
+      origin: 'human',
+    });
+
+    res.status(201).json({ id, title, consumptionMode });
+  } catch (error) {
+    res.status(500).json({ error: 'Creation failed', detail: String(error) });
+  }
+});

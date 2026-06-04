@@ -2,7 +2,7 @@
  * UnifiedQuery — dual-store unified query tests
  * Phase 2: Prisma (structured) + KnowledgeStore (narrative) → single query entry
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -23,13 +23,21 @@ vi.mock('../knowledge-bus.service.js', () => ({
 
 // Use real KnowledgeStore (it's file-based, no external deps)
 const { UnifiedQuery } = await import('../unified-query.js');
+const { KnowledgeStore } = await import('@dommaker/harness');
 
 describe('UnifiedQuery', () => {
   let uq: InstanceType<typeof UnifiedQuery>;
+  let testDir: string;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    uq = new UnifiedQuery();
+    // Fresh temp dir per test for isolation
+    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uq-case-'));
+    uq = new UnifiedQuery(new KnowledgeStore({ baseDir: testDir }));
+  });
+
+  afterEach(() => {
+    try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
   });
 
   describe('queryEntries', () => {
@@ -148,6 +156,102 @@ describe('UnifiedQuery', () => {
     it('should return empty when KnowledgeStore has no matching entries', () => {
       const indexes = uq.getIndexes({ consumptionModes: ['signal'] });
       expect(indexes).toEqual([]);
+    });
+  });
+
+  describe('listEntries', () => {
+    it('should return store entries with pagination', async () => {
+      // Save some entries to the store
+      const store = (uq as any).store;
+      store.save({
+        id: 'list-1', type: 'guideline', title: 'Entry 1', content: 'Content 1',
+        maturity: 'verified', layer: 'project', created: '2026-06-01T00:00:00Z',
+        lastReferenced: '2026-06-04T00:00:00Z', contributors: ['test'], projects: [],
+        tags: ['pattern'], applicablePhases: [], sourceReferences: [], referencedBy: [],
+        executionResults: [], consumptionMode: 'signal', origin: 'agent',
+      });
+      store.save({
+        id: 'list-2', type: 'pitfall', title: 'Entry 2', content: 'Content 2',
+        maturity: 'draft', layer: 'project', created: '2026-06-02T00:00:00Z',
+        lastReferenced: '2026-06-03T00:00:00Z', contributors: ['test'], projects: [],
+        tags: ['incident'], applicablePhases: [], sourceReferences: [], referencedBy: [],
+        executionResults: [], consumptionMode: 'signal', origin: 'agent',
+      });
+
+      const result = await uq.listEntries({ limit: 10 });
+
+      expect(result.total).toBeGreaterThanOrEqual(2);
+      expect(result.entries.length).toBeGreaterThanOrEqual(2);
+    });
+
+    it('should filter by consumptionMode', async () => {
+      const store = (uq as any).store;
+      store.save({
+        id: 'mode-signal', type: 'guideline', title: 'Signal', content: 'C',
+        maturity: 'verified', layer: 'project', created: '2026-06-01T00:00:00Z',
+        lastReferenced: '2026-06-04T00:00:00Z', contributors: [], projects: [],
+        tags: [], applicablePhases: [], sourceReferences: [], referencedBy: [],
+        executionResults: [], consumptionMode: 'signal', origin: 'agent',
+      });
+      store.save({
+        id: 'mode-ref', type: 'guideline', title: 'Ref', content: 'C',
+        maturity: 'verified', layer: 'project', created: '2026-06-01T00:00:00Z',
+        lastReferenced: '2026-06-04T00:00:00Z', contributors: [], projects: [],
+        tags: [], applicablePhases: [], sourceReferences: [], referencedBy: [],
+        executionResults: [], consumptionMode: 'reference', origin: 'agent',
+      });
+
+      const result = await uq.listEntries({ consumptionModes: ['signal'] });
+
+      expect(result.entries.every(e => e.consumptionMode === 'signal')).toBe(true);
+    });
+
+    it('should apply offset and limit', async () => {
+      const store = (uq as any).store;
+      for (let i = 0; i < 5; i++) {
+        store.save({
+          id: `page-${i}`, type: 'guideline', title: `Entry ${i}`, content: 'C',
+          maturity: 'verified', layer: 'project', created: '2026-06-01T00:00:00Z',
+          lastReferenced: `2026-06-0${i + 1}T00:00:00Z`, contributors: [], projects: [],
+          tags: [], applicablePhases: [], sourceReferences: [], referencedBy: [],
+          executionResults: [], consumptionMode: 'signal', origin: 'agent',
+        });
+      }
+
+      const page1 = await uq.listEntries({ limit: 2, offset: 0 });
+      const page2 = await uq.listEntries({ limit: 2, offset: 2 });
+
+      expect(page1.entries).toHaveLength(2);
+      expect(page2.entries).toHaveLength(2);
+      expect(page1.entries[0].id).not.toBe(page2.entries[0].id);
+      expect(page1.total).toBe(page2.total);
+    });
+
+    it('should filter by origin', async () => {
+      const store = (uq as any).store;
+      store.save({
+        id: 'origin-ext', type: 'guideline', title: 'External', content: 'C',
+        maturity: 'verified', layer: 'project', created: '2026-06-01T00:00:00Z',
+        lastReferenced: '2026-06-04T00:00:00Z', contributors: [], projects: [],
+        tags: [], applicablePhases: [], sourceReferences: [], referencedBy: [],
+        executionResults: [], consumptionMode: 'reference', origin: 'external',
+      });
+
+      const result = await uq.listEntries({ origins: ['external'] });
+
+      expect(result.entries.every(e => e.origin === 'external')).toBe(true);
+    });
+
+    it('should include Prisma entries when sources include prisma', async () => {
+      mockPrisma.businessRule.findMany.mockResolvedValue([
+        { id: 'r1', name: 'test_rule', category: 'c', description: 'd', affects: '[]', status: 'active', updatedAt: new Date() },
+      ]);
+      mockPrisma.userPreference.findFirst.mockResolvedValue(null);
+      mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
+
+      const result = await uq.listEntries({ sources: ['prisma', 'store'], consumptionModes: ['rule'] });
+
+      expect(result.entries.some(e => e.source === 'prisma')).toBe(true);
     });
   });
 
