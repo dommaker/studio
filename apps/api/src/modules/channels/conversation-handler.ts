@@ -252,9 +252,10 @@ class ConversationHandler {
       logger.warn('[ConversationHandler] Failed to build agent context', { error: String(err) });
     }
 
-    // 3. Knowledge injection from local knowledge base
+    // 3. Knowledge injection from local knowledge base (unified via buildKnowledgeContext)
     try {
-      const knowledgePrompt = await knowledgeQuery.formatCompactForPrompt(channel.agentName?.toLowerCase());
+      const { buildKnowledgeContext } = await import('../knowledge/consumers/prompt-builder.js');
+      const knowledgePrompt = await buildKnowledgeContext(channel.agentName?.toLowerCase());
       if (knowledgePrompt) {
         parts.push(`# Knowledge Context\n${knowledgePrompt}`);
       }

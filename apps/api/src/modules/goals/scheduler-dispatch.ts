@@ -195,11 +195,11 @@ export async function dispatchStep(
     companyKnowledgeSize: companyKnowledge?.length || 0,
   });
 
-  // Knowledge context injection — AS-019: keyword search with fallback
+  // Knowledge context injection — unified via buildKnowledgeContext
   let knowledgeContext = '';
   try {
-    const { knowledgeQuery } = await import('../knowledge/knowledge-query.service.js');
-    knowledgeContext = await knowledgeQuery.formatCompactForPrompt('executor');
+    const { buildKnowledgeContext } = await import('../knowledge/consumers/prompt-builder.js');
+    knowledgeContext = await buildKnowledgeContext('executor');
   } catch { /* best-effort */ }
 
   // AS-019: task-relevant knowledge search (replaces generic getRecentContext)
@@ -218,11 +218,7 @@ export async function dispatchStep(
     if (rkbContext) knowledgeContext += '\n## 已知回归模式（Resolution Knowledge Base）\n' + rkbContext;
   } catch { /* best-effort */ }
 
-  try {
-    const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-    const indexSummary = knowledgeBus.formatIndexSummary();
-    if (indexSummary) knowledgeContext += '\n## 知识检索\n' + indexSummary;
-  } catch { /* best-effort */ }
+  // Index summary already included in buildKnowledgeContext above
 
   const goalContext = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
   const sourceChannelId = goalContext.sourceChannelId as string | undefined;

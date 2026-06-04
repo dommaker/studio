@@ -72,15 +72,11 @@ class AnalystTriggerService {
       // 3. Load accumulated knowledge + build prompt
       const fileKnowledge = loadKnowledge();
 
-      // G-001~005: 加载 DB 知识（偏好 + 规则 + 环境）
+      // G-001~005: 加载 DB 知识（unified via buildKnowledgeContext）
       let dbKnowledge = '';
       try {
-        const { knowledgeQuery } = await import('../knowledge/knowledge-query.service.js');
-        const allKnowledge = await knowledgeQuery.formatAllForPrompt('analyst');
-        // B11-005: 知识索引摘要 — 告知 agent 有哪些知识可用及如何 MCP 检索
-        const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-        const indexSummary = knowledgeBus.formatIndexSummary();
-        dbKnowledge = [allKnowledge, indexSummary ? '\n## 知识检索\n' + indexSummary : ''].filter(Boolean).join('\n');
+        const { buildKnowledgeContext } = await import('../knowledge/consumers/prompt-builder.js');
+        dbKnowledge = await buildKnowledgeContext('analyst', { mode: 'full' });
       } catch (e) {
         logger.warn('[AnalystTrigger] Failed to load DB knowledge, continuing with file only', { error: String(e) });
       }
