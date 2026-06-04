@@ -112,7 +112,6 @@ export class KnowledgeBus {
         }
       }
 
-      const maturity = sharedLifecycle.shouldAutoPromote(source) ? 'verified' as const : 'draft' as const;
       const result = this.ingest.ingestEntry(
         {
           type: BUS_ENTRY_TO_KNOWLEDGE_TYPE[entry.type] || 'guideline',
@@ -123,8 +122,9 @@ export class KnowledgeBus {
         {
           source: `pattern:${source}`,
           layer: 'project',
-          maturity,
+          maturity: 'active',
           tags: [entry.type],
+          consumptionMode: 'signal',
         },
       );
       scheduleVectorDbSync();
@@ -150,8 +150,9 @@ export class KnowledgeBus {
         {
           source: `incident:ops:${new Date(entry.timestamp).toISOString()}`,
           layer: 'tech',
-          maturity: 'draft',
+          maturity: 'active',
           tags: ['incident', entry.severity],
+          consumptionMode: 'signal',
         },
       );
       scheduleVectorDbSync();
@@ -176,8 +177,9 @@ export class KnowledgeBus {
         {
           source: `trend:auditor:${new Date(entry.timestamp).toISOString()}`,
           layer: 'project',
-          maturity: sharedLifecycle.shouldAutoPromote('auditor') ? 'verified' : 'draft',
+          maturity: 'active',
           tags: ['trend'],
+          consumptionMode: 'signal',
         },
       );
       scheduleVectorDbSync();
@@ -377,15 +379,26 @@ export class KnowledgeBus {
 
       // B13-004: 注入最近条目 + recordReference（吸收 getRecentContext 闭环设计）
       // B13-007: maturity 加权排序（proven > verified > draft）
+      // GAP-2: signal 条目聚合注入（~150 tokens），非 signal 条目逐条注入
       try {
-        const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, draft: 1 };
-        const recent = this.store.list({ excludeArchived: true })
-          .filter(e => !e.tags?.includes('low_quality'))
+        const all = this.store.list({ excludeArchived: true })
+          .filter(e => !e.tags?.includes('low_quality'));
+
+        // Signal detection: consumptionMode OR legacy tags (backward compatible)
+        const SIGNAL_TAGS = ['pattern', 'incident', 'trend'];
+        const isSignal = (e: typeof all[0]) =>
+          e.consumptionMode === 'signal' || e.tags?.some(t => SIGNAL_TAGS.includes(t));
+        const signals = all.filter(isSignal);
+        const nonSignals = all.filter(e => !isSignal(e));
+
+        // Non-signal: inject top 5 individually
+        const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, active: 2, draft: 1 };
+        const recent = nonSignals
           .sort((a, b) => {
             const wa = MATURITY_WEIGHT[a.maturity] || 1;
             const wb = MATURITY_WEIGHT[b.maturity] || 1;
-            if (wa !== wb) return wb - wa; // higher maturity first
-            return (b.lastReferenced || '').localeCompare(a.lastReferenced || ''); // then by recency
+            if (wa !== wb) return wb - wa;
+            return (b.lastReferenced || '').localeCompare(a.lastReferenced || '');
           })
           .slice(0, 5);
 
@@ -394,12 +407,10 @@ export class KnowledgeBus {
           for (const e of recent) {
             const icon = e.type === 'pitfall' ? '!' : '-';
             lines.push(`- [REF:${e.id}] ${icon} ${e.title}: ${e.content.slice(0, 100)}`);
-            // 闭合消费→成熟度回路
             try { sharedLifecycle.recordReference(e.id, 'prompt-inject'); } catch { /* non-blocking */ }
           }
           logger.info('[KnowledgeBus] Knowledge injected into prompt', { count: recent.length, ids: recent.map(e => e.id) });
 
-          // GAP-07: emit knowledge:injected event
           prisma.studioEvent.create({
             data: {
               type: 'knowledge:injected',
@@ -413,6 +424,18 @@ export class KnowledgeBus {
           }).catch((e: any) => {
             logger.warn('[KnowledgeBus] knowledge:injected event failed', { error: String(e) });
           });
+        }
+
+        // Signal: aggregate summary (recent 5 titles, ~150 tokens)
+        if (signals.length > 0) {
+          const recentSignals = signals
+            .sort((a, b) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))
+            .slice(0, 5);
+          lines.push('', `### Signal 条目（最近 ${recentSignals.length}/${signals.length} 条）`);
+          for (const e of recentSignals) {
+            lines.push(`- ${e.title}`);
+            try { sharedLifecycle.recordReference(e.id, 'prompt-inject'); } catch { /* non-blocking */ }
+          }
         }
       } catch { /* non-blocking — entry injection is best-effort */ }
 

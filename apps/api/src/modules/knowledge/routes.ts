@@ -1320,6 +1320,9 @@ knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
               applicablePhases: [],
               sourceReferences: [{ commit: source, timestamp: now }],
               referencedBy: [],
+              executionResults: [],
+              consumptionMode: 'reference',
+              origin: 'agent',
             });
           } catch (e: any) {
             ingestErrors.push(e.message);

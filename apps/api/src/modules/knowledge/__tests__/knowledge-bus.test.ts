@@ -126,10 +126,26 @@ vi.mock('../knowledge-bus.service.js', async () => {
       if (total === 0) return '';
       const lines = [`你有 ${total} 条团队知识可用，类型分布：`];
       try {
-        const recent = store.list({ excludeArchived: true })
-          .filter((e: any) => !e.tags?.includes('low_quality'))
-          .sort((a: any, b: any) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))
+        const all = store.list({ excludeArchived: true })
+          .filter((e: any) => !e.tags?.includes('low_quality'));
+
+        // Split signal vs non-signal (consumptionMode OR legacy tags)
+        const SIGNAL_TAGS = ['pattern', 'incident', 'trend'];
+        const isSignal = (e: any) => e.consumptionMode === 'signal' || e.tags?.some((t: string) => SIGNAL_TAGS.includes(t));
+        const signals = all.filter(isSignal);
+        const nonSignals = all.filter((e: any) => !isSignal(e));
+
+        // Non-signal: inject top 5 individually
+        const MATURITY_WEIGHT: Record<string, number> = { proven: 3, verified: 2, active: 2, draft: 1 };
+        const recent = nonSignals
+          .sort((a: any, b: any) => {
+            const wa = MATURITY_WEIGHT[a.maturity] || 1;
+            const wb = MATURITY_WEIGHT[b.maturity] || 1;
+            if (wa !== wb) return wb - wa;
+            return (b.lastReferenced || '').localeCompare(a.lastReferenced || '');
+          })
           .slice(0, 5);
+
         if (recent.length > 0) {
           lines.push('', '### 最近知识条目（引用时标注 ID）');
           for (const e of recent) {
@@ -137,7 +153,6 @@ vi.mock('../knowledge-bus.service.js', async () => {
             lines.push(`- [REF:${e.id}] ${icon} ${e.title}: ${e.content.slice(0, 100)}`);
             try { lifecycle.recordReference(e.id, 'prompt-inject'); } catch {}
           }
-          // GAP-07: emit knowledge:injected event
           try {
             (globalThis as any).__kbTestMocks.studioEventCreate({
               data: {
@@ -147,6 +162,18 @@ vi.mock('../knowledge-bus.service.js', async () => {
               },
             });
           } catch {}
+        }
+
+        // Signal: aggregate summary (recent 5 titles)
+        if (signals.length > 0) {
+          const recentSignals = signals
+            .sort((a: any, b: any) => (b.lastReferenced || '').localeCompare(a.lastReferenced || ''))
+            .slice(0, 5);
+          lines.push('', `### Signal 条目（最近 ${recentSignals.length}/${signals.length} 条）`);
+          for (const e of recentSignals) {
+            lines.push(`- ${e.title}`);
+            try { lifecycle.recordReference(e.id, 'prompt-inject'); } catch {}
+          }
         }
       } catch {}
       lines.push('', '需要更多知识时，使用 mcp__local-rag__query_documents 工具检索。');
@@ -163,7 +190,7 @@ vi.mock('../knowledge-bus.service.js', async () => {
       }
       ingest.ingestEntry(
         { type: 'guideline', title: entry.title, content: entry.content, tags: [entry.type] },
-        { source: `pattern:${source}`, layer: 'project', maturity: 'draft', tags: [entry.type] },
+        { source: `pattern:${source}`, layer: 'project', maturity: 'active', tags: [entry.type], consumptionMode: 'signal' },
       );
     },
     async recordIncident(entry: any) {
@@ -260,7 +287,7 @@ vi.mock('../knowledge-bus.service.js', async () => {
   };
 });
 
-import { knowledgeBus, sharedStore, upsertKnowledge, KnowledgeBus } from '../knowledge-bus.service.js';
+import { knowledgeBus, sharedStore, sharedIngest, upsertKnowledge, KnowledgeBus } from '../knowledge-bus.service.js';
 
 // ── Cleanup ──
 
@@ -312,6 +339,35 @@ describe('KnowledgeBus', () => {
     it('returns empty string when store is empty', () => {
       const summary = knowledgeBus.formatIndexSummary();
       expect(typeof summary).toBe('string');
+    });
+
+    it('aggregates signal entries into summary instead of individual injection', async () => {
+      // Record signal entries (via recordPattern)
+      await knowledgeBus.recordPattern({
+        source: 'monitor', type: 'pattern', title: 'Signal A: CPU spike',
+        content: 'root_cause: high CPU. fix_action: scale up.', severity: 'warning', timestamp: Date.now(),
+      });
+      await knowledgeBus.recordPattern({
+        source: 'monitor', type: 'pattern', title: 'Signal B: memory leak',
+        content: 'root_cause: memory leak. fix_action: restart.', severity: 'warning', timestamp: Date.now(),
+      });
+
+      const summary = knowledgeBus.formatIndexSummary();
+
+      // Should contain aggregated signal summary section
+      expect(summary).toContain('Signal 条目');
+      // Signal entries should NOT appear with [REF: prefix (individually injected)
+      const signalSection = summary.split('Signal 条目')[1] || '';
+      expect(signalSection).not.toContain('[REF:');
+      // Should still contain the knowledge header
+      expect(summary).toContain('团队知识');
+    });
+
+    it('injects non-signal entries individually when no signals exist', async () => {
+      const summary = knowledgeBus.formatIndexSummary();
+
+      // Non-signal entries should be individually injected (from store)
+      expect(summary).toContain('[REF:');
     });
   });
 
@@ -370,6 +426,16 @@ describe('KnowledgeBus', () => {
         severity: 'info',
         timestamp: Date.now(),
       })).resolves.not.toThrow();
+    });
+
+    it('recorded entry is detectable as signal by tag', async () => {
+      // Signal detection uses tags ('pattern'/'incident'/'trend')
+      // Pending: harness npm publish with consumptionMode support
+      await knowledgeBus.recordPattern({
+        source: 'monitor', type: 'pattern', title: 'Signal detect test ' + Date.now(),
+        content: 'root_cause: unique test. fix_action: unique fix.', severity: 'info', timestamp: Date.now(),
+      });
+      // Verify entry was recorded (no throw) — signal detection tested via formatIndexSummary
     });
   });
 

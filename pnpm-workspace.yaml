@@ -20,3 +20,6 @@ catalog:
 
 minimumReleaseAgeExclude:
   - '@dommaker/harness'
+
+overrides:
+  '@dommaker/harness': link:../harness
