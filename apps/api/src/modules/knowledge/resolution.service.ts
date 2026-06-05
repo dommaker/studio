@@ -103,6 +103,23 @@ export class ResolutionService {
           ids: matched.map(r => r.id),
           titles: matched.map(r => r.title),
         });
+
+        // GAP-06: Record consumption event for D6 flywheel
+        // Resolution is in Prisma DB (not KnowledgeStore), so we write StudioEvent directly
+        // instead of going through recordReference (which only works on KnowledgeStore entries)
+        prisma.studioEvent.create({
+          data: {
+            type: 'knowledge:consumption',
+            source: 'resolution-match',
+            payload: JSON.stringify({
+              resolutionIds: matched.map(r => r.id),
+              pattern: errorMessage.slice(0, 200),
+              count: matched.length,
+            }),
+          },
+        }).catch((e: any) => {
+          logger.warn('[ResolutionService] consumption event failed', { error: String(e) });
+        });
       }
 
       return { matched: matched.length > 0, resolutions: matched, promptSnippet };

@@ -52,7 +52,7 @@ export class MonitorAgent {
   private circuitCheckInterval: NodeJS.Timeout | null = null;
   private lastDecayRun = 0;
   private lastUserModelRun = 0;
-  private lastDailyReflection = '';
+  private lastDailyReflectionTs = 0;
 
   start(): void {
     if (this.interval) return;
@@ -1343,23 +1343,21 @@ export class MonitorAgent {
   // ── DailyReflection: 每日洞察聚合 ──
 
   /**
-   * 每天 23:50 聚合所有数据源 → 输出每日开发洞察
+   * 每天聚合所有数据源 → 输出每日开发洞察
+   * GAP-15: 去掉 23:50 时间窗口，改为"距上次 >24h 则运行"
    * 数据源: session:summary + pipelineRun + routing.jsonl + git log + KnowledgeBus
    * 输出: #系统 channel 卡片 + Discord discord-alert 频道
    */
   private async dailyReflection(): Promise<void> {
     try {
-      const now = new Date();
-      const hour = now.getHours();
-      const minute = now.getMinutes();
-      // Run at ~23:50 (± 5 min), once per day
-      if (!(hour === 23 && minute >= 48 && minute <= 55)) return;
+      const now = Date.now();
+      // GAP-15: Run if last run was >24h ago (no time-of-day constraint)
+      if (now - this.lastDailyReflectionTs < 24 * 3600_000) return;
+      this.lastDailyReflectionTs = now;
 
-      const today = now.toISOString().split('T')[0];
-      if (this.lastDailyReflection === today) return;
-      this.lastDailyReflection = today;
+      const today = new Date(now).toISOString().split('T')[0];
 
-      const since = new Date(now.getTime() - 24 * 3600_000);
+      const since = new Date(now - 24 * 3600_000);
       const lines: string[] = [
         `## 📊 每日洞察 — ${today}`,
         '',
@@ -1401,7 +1399,7 @@ export class MonitorAgent {
 
       // 1b. Workflow detection (7-day window, from StudioEvent session:summary)
       try {
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 3600_000);
+        const weekAgo = new Date(now - 7 * 24 * 3600_000);
         const summaryEvents = await prisma.studioEvent.findMany({
           where: { type: 'session:summary', timestamp: { gte: weekAgo } },
           select: { payload: true },
@@ -1630,9 +1628,9 @@ export class MonitorAgent {
       } catch { /* best-effort */ }
 
       // B9-025: Weekly profile report (every Sunday)
-      if (now.getDay() === 0) {
+      if (new Date(now).getDay() === 0) {
         try {
-          const weekAgoForProfile = new Date(now.getTime() - 7 * 24 * 3600_000);
+          const weekAgoForProfile = new Date(now - 7 * 24 * 3600_000);
           const weeklyEvents = await prisma.studioEvent.findMany({
             where: { type: 'workflow_report', timestamp: { gte: weekAgoForProfile } },
             select: { payload: true },

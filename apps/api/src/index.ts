@@ -94,6 +94,11 @@ async function start() {
     // 初始化 harness 运行时（加载 .harness/config.yml 注入 ConstraintChecker）
     await bootstrapHarness();
 
+    // GAP-16: 验证消费事件链完整性（异步，不阻塞启动）
+    import('./modules/knowledge/knowledge-bus.service.js').then(({ verifyConsumptionChain }) => {
+      verifyConsumptionChain().catch(() => { /* non-blocking */ });
+    });
+
     // RKB: 预置已知 Resolution Seed（幂等，异步不阻塞启动）
     import('./modules/knowledge/resolution.service.js').then(({ resolutionService }) => {
       resolutionService.ensureSeedResolutions().catch(err => logger.warn('[RKB] Seed failed', { error: String(err) }));

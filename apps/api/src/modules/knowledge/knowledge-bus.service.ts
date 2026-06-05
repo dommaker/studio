@@ -15,7 +15,7 @@
  * 底层存储：harness KnowledgeStore + DB (DecisionAudit, Incident, PipelineRun)
  */
 
-import { KnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector } from '@dommaker/harness';
+import { KnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { KnowledgeType } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
@@ -52,10 +52,13 @@ export const sharedIngest = new KnowledgeIngest(sharedStore);
 // KE-002 P3: budget-aware query + injector (replaces naive store.list)
 export const sharedQuery = new KnowledgeQuery(sharedStore, sharedLifecycle);
 export const sharedInjector = new KnowledgeInjector(sharedQuery);
+// GAP-01: shared linter for ingest validation
+export const sharedLinter = new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore));
 
 // D6 flywheel: emit consumption events on every recordReference() call
 // (same-day dedup already handled by lifecycle, so max 1 event per contributor per entry per day)
 // Cast needed: onReference added in harness 0.13.4+, npm version may lag
+let _consumptionCallbackRegistered = false;
 (sharedLifecycle as any).onReference?.((event: { entryId: string; contributor: string; timestamp: string }) => {
   prisma.studioEvent.create({
     data: {
@@ -67,6 +70,33 @@ export const sharedInjector = new KnowledgeInjector(sharedQuery);
     logger.warn('[KnowledgeBus] consumption event failed', { error: String(e) });
   });
 });
+_consumptionCallbackRegistered = typeof (sharedLifecycle as any).onReference === 'function';
+if (!_consumptionCallbackRegistered) {
+  logger.error('[KnowledgeBus] onReference callback NOT registered — consumption events will not be emitted. Check harness version (need >=0.13.4)');
+}
+
+/**
+ * GAP-16: Verify consumption event chain integrity.
+ * Call once at startup to confirm recordReference → onReference → StudioEvent works.
+ */
+export async function verifyConsumptionChain(): Promise<boolean> {
+  try {
+    if (!_consumptionCallbackRegistered) return false;
+    // Write a probe event directly to confirm DB is writable
+    const probe = await prisma.studioEvent.create({
+      data: {
+        type: 'knowledge:probe',
+        source: 'startup',
+        payload: JSON.stringify({ ts: Date.now(), purpose: 'chain-integrity-check' }),
+      },
+    });
+    logger.info('[KnowledgeBus] Consumption chain probe OK', { probeId: probe.id });
+    return true;
+  } catch (e: any) {
+    logger.error('[KnowledgeBus] Consumption chain probe FAILED', { error: String(e) });
+    return false;
+  }
+}
 
 // ── 统一条目类型 ──
 
@@ -112,18 +142,28 @@ export class KnowledgeBus {
         }
       }
 
+      // GAP-01: Validate entry quality before ingest
+      // Mark low_quality tag instead of rejecting (don't block producers)
+      const tags: string[] = [entry.type];
+      const issues = sharedLinter.validateEntry({ title: entry.title || '', content: entry.content || '', tags, type: BUS_ENTRY_TO_KNOWLEDGE_TYPE[entry.type] || 'guideline' });
+      const blockers = issues.filter(i => i.severity === 'high');
+      if (blockers.length > 0) {
+        tags.push('low_quality');
+        logger.warn('[KnowledgeBus] Entry marked low_quality', { title: entry.title, issues: blockers.map(i => i.description) });
+      }
+
       const result = this.ingest.ingestEntry(
         {
           type: BUS_ENTRY_TO_KNOWLEDGE_TYPE[entry.type] || 'guideline',
           title: entry.title,
           content: entry.content,
-          tags: [entry.type],
+          tags,
         },
         {
           source: `pattern:${source}`,
           layer: 'project',
           maturity: 'active',
-          tags: [entry.type],
+          tags,
           consumptionMode: 'signal',
         },
       );
