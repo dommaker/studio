@@ -27,7 +27,13 @@ vi.mock('@dommaker/studio-shared/node', () => ({
     fs.writeFileSync(sidFile, newUuid, 'utf-8');
     return newUuid;
   },
-  readSessionIdFile: () => null,
+  readSessionIdFile: (worktree: string) => {
+    const sidFile = path.join(worktree, '.daemon', 'session-id');
+    try {
+      const content = fs.readFileSync(sidFile, 'utf-8').trim();
+      return UUID_PATTERN.test(content) ? content : null;
+    } catch { return null; }
+  },
 }));
 
 // Also mock @dommaker/studio-shared for logger, getModelForTier
@@ -90,6 +96,8 @@ describe('SessionManager', () => {
     const worktree = path.join(TEST_DIR, 'analyst2');
     fs.mkdirSync(path.join(worktree, '.daemon'), { recursive: true });
     fs.writeFileSync(path.join(worktree, '.daemon', 'session-id'), '00000000-0000-0000-0000-000000000000');
+    // Write current PID so isProcessAlive returns true
+    fs.writeFileSync(path.join(worktree, '.daemon', 'daemon-pid'), String(process.pid));
 
     manager.register({
       name: 'analyst2', worktree, modelTier: 'premium',

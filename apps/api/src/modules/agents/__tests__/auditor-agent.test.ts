@@ -26,6 +26,16 @@ describe('AuditorAgent B3-005', () => {
     if (!channel) {
       channel = await prisma.channel.create({ data: { name: '#系统', type: 'system' } });
     }
+
+    // Create session:summary events so activeSessionCount >= 5 (required for skill audit)
+    const eventCount = await prisma.studioEvent.count({
+      where: { type: 'session:summary', timestamp: { gte: new Date(Date.now() - 28 * 24 * 3600_000) } },
+    });
+    for (let i = eventCount; i < 5; i++) {
+      await prisma.studioEvent.create({
+        data: { type: 'session:summary', source: 'test', payload: '{}', timestamp: new Date() },
+      });
+    }
     testChannelId = channel.id;
   });
 
@@ -380,7 +390,8 @@ describe('AuditorAgent B3-005', () => {
       });
 
       expect(card).not.toBeNull();
-      const meta = JSON.parse(card!.meta as string);
+      // meta is auto-parsed by Prisma middleware
+      const meta = typeof card!.meta === 'string' ? JSON.parse(card!.meta as string) : card!.meta;
       expect(meta.cardType).toBe('auditor_suggestion');
       expect(meta.status).toBe('ready');
       expect(meta.cardData.suggestions).toHaveLength(1);

@@ -64,6 +64,7 @@ describe('KnowledgeAgent.extractUserBehavior (KE-003)', () => {
     vi.clearAllMocks();
     mockFindMany.mockResolvedValue([]);
     mockCreate.mockResolvedValue({});
+    process.env.STUDIO_API_KEY = 'test-key';
 
     // Mock successful DeepSeek response
     mockFetch.mockResolvedValue({
@@ -190,16 +191,13 @@ describe('KnowledgeAgent.extractUserBehavior (KE-003)', () => {
   });
 
   it('should skip when no API key', async () => {
-    const origKey = process.env.DEEPSEEK_API_KEY;
-    const origToken = process.env.ANTHROPIC_AUTH_TOKEN;
-    delete process.env.DEEPSEEK_API_KEY;
-    delete process.env.ANTHROPIC_AUTH_TOKEN;
+    const origKey = process.env.STUDIO_API_KEY;
+    delete process.env.STUDIO_API_KEY;
 
     await extractUserBehavior('User: test', 'session:test');
     expect(mockCreate).not.toHaveBeenCalled();
 
-    process.env.DEEPSEEK_API_KEY = origKey;
-    process.env.ANTHROPIC_AUTH_TOKEN = origToken;
+    if (origKey) process.env.STUDIO_API_KEY = origKey;
   });
 
   it('should skip empty content', async () => {
