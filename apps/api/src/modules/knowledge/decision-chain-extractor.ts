@@ -69,10 +69,12 @@ ${participants.join(', ')}
 
 请从以上会议中提取结构化决策链。`;
 
+      const llmStart = Date.now();
       const result = await modelGateway.promptJson<{ decisions: any[] }>(prompt, EXTRACT_SYSTEM_PROMPT);
+      const llmMs = Date.now() - llmStart;
 
       if (!result.decisions?.length) {
-        logger.debug('[DecisionChainExtractor] No decision chains extracted from meeting', { meetingId });
+        logger.debug('[DecisionChainExtractor] No decision chains extracted from meeting', { meetingId, llmMs });
         return 0;
       }
 
@@ -101,7 +103,7 @@ ${participants.join(', ')}
         count++;
       }
 
-      logger.info('[DecisionChainExtractor] Extracted from meeting', { meetingId, count });
+      logger.info('[DecisionChainExtractor] Extracted from meeting', { meetingId, count, llmMs });
 
       // S10: Push decision confirmation card to #系统 channel
       if (count > 0) {
@@ -157,7 +159,9 @@ ${(diff || '').substring(0, 3000)}
 
 从这个任务执行中识别隐含的设计决策。这个任务做出了什么技术选择？`;
 
+      const llmStart = Date.now();
       const result = await modelGateway.promptJson<{ decisions: any[] }>(prompt, EXTRACT_SYSTEM_PROMPT);
+      const llmMs = Date.now() - llmStart;
 
       if (!result.decisions?.length) return 0;
 
@@ -183,7 +187,7 @@ ${(diff || '').substring(0, 3000)}
         count++;
       }
 
-      logger.info('[DecisionChainExtractor] Extracted from execution', { taskId, count });
+      logger.info('[DecisionChainExtractor] Extracted from execution', { taskId, count, llmMs });
 
       // S10: Push decision confirmation card to #系统 channel
       if (count > 0) {
