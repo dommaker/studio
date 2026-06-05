@@ -9,6 +9,7 @@ import { EventEmitter } from 'events';
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  getModelForTier: vi.fn(() => 'claude-sonnet-4-20250514'),
 }));
 
 vi.mock('../cli-adapter.js', () => ({
