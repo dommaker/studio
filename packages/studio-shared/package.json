@@ -19,7 +19,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dommaker/harness": "^0.13.3",
+    "@dommaker/harness": "file:../../../harness/dommaker-harness-0.14.0.tgz",
     "eventemitter3": "^5.0.0",
     "yaml": "2.3.0"
   },
