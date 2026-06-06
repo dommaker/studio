@@ -560,19 +560,58 @@ export class KnowledgeService {
   // ═══════════ Measure (metrics + audit) ════════════
 
   async getFlywheelMetrics(): Promise<FlywheelMetrics> {
-    return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp: '' };
+    try {
+      const entries = this.store.list({});
+      const total = entries.length;
+      if (total === 0) return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp: new Date().toISOString() };
+
+      // Quality: weighted maturity score (proven=3, verified=2, draft=1)
+      const maturityWeight: Record<string, number> = { proven: 3, verified: 2, active: 1.5, draft: 1, deprecated: 0, archived: 0 };
+      const qualitySum = entries.reduce((s: number, e: any) => s + (maturityWeight[e.maturity] || 0), 0);
+      const quality = Math.min(100, Math.round((qualitySum / (total * 3)) * 100));
+
+      // Freshness: % referenced in last 30 days
+      const now = Date.now();
+      const recentCount = entries.filter((e: any) =>
+        e.lastReferenced && (now - new Date(e.lastReferenced).getTime()) < 30 * 86400000
+      ).length;
+      const freshness = Math.round((recentCount / total) * 100);
+
+      return { quality, hitRate: 0, improvement: 0, freshness, timestamp: new Date().toISOString() };
+    } catch {
+      return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp: new Date().toISOString() };
+    }
   }
 
   async getHealthReport(): Promise<HealthReport> {
-    return { score: 0, totalEntries: 0, staleEntries: 0, orphanEntries: 0, duplicateEntries: 0, timestamp: '' };
+    try {
+      const entries = this.store.list({});
+      const total = entries.length;
+      const now = Date.now();
+      const staleThreshold = 30 * 86400000; // 30 days
+      const staleEntries = entries.filter((e: any) =>
+        !e.lastReferenced || (now - new Date(e.lastReferenced).getTime()) > staleThreshold
+      ).length;
+      const score = total === 0 ? 0 : Math.round(((total - staleEntries) / total) * 100);
+      return {
+        score,
+        totalEntries: total,
+        staleEntries,
+        orphanEntries: 0,
+        duplicateEntries: 0,
+        timestamp: new Date().toISOString(),
+      };
+    } catch {
+      return { score: 0, totalEntries: 0, staleEntries: 0, orphanEntries: 0, duplicateEntries: 0, timestamp: new Date().toISOString() };
+    }
   }
 
   async getAuditReport(): Promise<AuditReport> {
-    return { findings: [], trend: '', timestamp: '' };
+    return { findings: [], trend: 'stable', timestamp: new Date().toISOString() };
   }
 
   async getAnalystAccuracy(): Promise<AccuracyReport> {
-    return { overallAccuracy: 0, byAnalyst: {}, recentPredictions: [], timestamp: '' };
+    return { overallAccuracy: 0, byAnalyst: {}, recentPredictions: [], timestamp: new Date().toISOString() };
   }
 }
 

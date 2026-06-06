@@ -428,3 +428,98 @@ describe('KnowledgeService Phase 1B: Resolve', () => {
     });
   });
 });
+
+// ── Phase 1C: Measure + Extract ──
+
+describe('KnowledgeService Phase 1C: Measure', () => {
+  describe('getFlywheelMetrics', () => {
+    it('returns metrics with correct shape', async () => {
+      const entries = [
+        { id: '1', title: 'A', content: 'x', tags: ['pattern'], maturity: 'proven', lastReferenced: new Date().toISOString() },
+        { id: '2', title: 'B', content: 'y', tags: ['guideline'], maturity: 'draft', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks } = createKS({ entries });
+      const m = await ks.getFlywheelMetrics();
+      expect(m).toHaveProperty('quality');
+      expect(m).toHaveProperty('hitRate');
+      expect(m).toHaveProperty('improvement');
+      expect(m).toHaveProperty('freshness');
+      expect(m).toHaveProperty('timestamp');
+      expect(typeof m.quality).toBe('number');
+    });
+
+    it('calculates quality based on maturity distribution', async () => {
+      const entries = [
+        { id: '1', title: 'A', content: 'x', tags: ['pattern'], maturity: 'proven', lastReferenced: new Date().toISOString() },
+        { id: '2', title: 'B', content: 'y', tags: ['pattern'], maturity: 'proven', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks } = createKS({ entries });
+      const m = await ks.getFlywheelMetrics();
+      expect(m.quality).toBeGreaterThan(0);
+    });
+  });
+
+  describe('getHealthReport', () => {
+    it('returns health report with correct shape', async () => {
+      const entries = [
+        { id: '1', title: 'A', content: 'x', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks } = createKS({ entries });
+      const r = await ks.getHealthReport();
+      expect(r).toHaveProperty('score');
+      expect(r).toHaveProperty('totalEntries');
+      expect(r).toHaveProperty('staleEntries');
+      expect(r).toHaveProperty('timestamp');
+      expect(r.totalEntries).toBe(1);
+    });
+
+    it('counts stale entries', async () => {
+      const staleDate = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString();
+      const entries = [
+        { id: '1', title: 'Fresh', content: 'x', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
+        { id: '2', title: 'Stale', content: 'y', tags: ['pattern'], maturity: 'active', lastReferenced: staleDate },
+      ];
+      const { ks } = createKS({ entries });
+      const r = await ks.getHealthReport();
+      expect(r.staleEntries).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('getAuditReport', () => {
+    it('returns audit report with correct shape', async () => {
+      const { ks } = createKS();
+      const r = await ks.getAuditReport();
+      expect(r).toHaveProperty('findings');
+      expect(r).toHaveProperty('trend');
+      expect(r).toHaveProperty('timestamp');
+      expect(Array.isArray(r.findings)).toBe(true);
+    });
+  });
+
+  describe('getAnalystAccuracy', () => {
+    it('returns accuracy report with correct shape', async () => {
+      const { ks } = createKS();
+      const r = await ks.getAnalystAccuracy();
+      expect(r).toHaveProperty('overallAccuracy');
+      expect(r).toHaveProperty('byAnalyst');
+      expect(r).toHaveProperty('recentPredictions');
+      expect(r).toHaveProperty('timestamp');
+    });
+  });
+});
+
+describe('KnowledgeService Phase 1C: Extract', () => {
+  describe('extractFromExecution', () => {
+    it('does not throw for valid input', async () => {
+      const { ks } = createKS();
+      await expect(ks.extractFromExecution({
+        task: 'Fix auth bug',
+        diff: '+fixed auth',
+        success: true,
+        duration: 1000,
+        agentType: 'executor',
+        consumedKnowledge: [],
+      })).resolves.not.toThrow();
+    });
+  });
+});
