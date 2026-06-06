@@ -26,6 +26,7 @@ import type {
   MaturityLevel,
   KnowledgeType,
 } from '@dommaker/harness';
+import { logger } from '@dommaker/studio-shared';
 
 // ── Type mapping (absorbed from KnowledgeBus) ──
 
@@ -570,7 +571,7 @@ export class KnowledgeService {
           payload: JSON.stringify(params),
         },
       });
-    } catch { /* non-blocking */ }
+    } catch (e) { logger.warn('[KnowledgeService] pipelineStepFeedback failed', { error: String(e) }); }
 
     this.eventEmitter.emit('knowledge', {
       type: 'pipelineStepFeedback',

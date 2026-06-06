@@ -1,5 +1,5 @@
 // B8 OKR 核心逻辑测试
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '../../../core/database.js';
 import { OKRService, getCurrentQuarter } from '../okr.service.js';
 import type { OKRKeyResult } from '../okr.service.js';
@@ -107,6 +107,10 @@ describe('B8 OKR Service', () => {
     });
 
     it('blocks when data source is empty (R3)', async () => {
+      // Mock checkDataSourceHealth to simulate empty studio_event
+      const spy = vi.spyOn(service, 'checkDataSourceHealth').mockResolvedValue({
+        pipeline_run: 'ok', studio_event: 'empty', goal: 'ok', goal_execution: 'ok',
+      });
       const kr: OKRKeyResult = {
         id: 'test-r3', objectiveId: 'o1', title: 'token saving',
         target: 60, current: 0, unit: '%', metricType: 'token_saving_ratio',
@@ -114,6 +118,7 @@ describe('B8 OKR Service', () => {
       const result = await service.validateKRTarget(kr);
       expect(result.status).toBe('blocked');
       expect(result.reasons[0]).toContain('为空');
+      spy.mockRestore();
     });
 
     it('blocks target <= 0 (R4)', async () => {
