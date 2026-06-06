@@ -614,7 +614,7 @@ knowledgeRoutes.delete('/:documentId', async (req, res) => {
 
 // ============================================
 // B9-021: Knowledge Export API
-// TODO: rewrite to use KnowledgeStore instead of deleted KnowledgeService
+// Uses sharedStore directly — KnowledgeService.list() wraps the same store
 // ============================================
 
 /**

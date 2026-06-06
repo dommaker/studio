@@ -3,7 +3,6 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { classifySystemError } from '../triage/error-class.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
-import { resolutionService } from '../knowledge/resolution.service.js';
 import type { SystemTriageResult } from '../triage/error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from './types.js';
 
@@ -251,7 +250,7 @@ class TriageAgent {
     // B11-007: Resolution 查询 — 已知解法匹配
     let resolutionHint = '';
     try {
-      const matched = await resolutionService.matchResolutions({ errorMessage: input.message });
+      const matched = await knowledgeService.matchResolutions(input.message);
       if (matched.resolutions.length > 0) {
         resolutionHint = matched.resolutions[0].fix;
         logger.info('[TriageAgent] Resolution matched', { incidentType, title: matched.resolutions[0].title });
@@ -409,7 +408,7 @@ class TriageAgent {
 
     // B13-002: Triage→Resolution 回写 — 将修复方案写入 Resolution KB
     try {
-      await resolutionService.createResolution({
+      await knowledgeService.createResolution({
         pattern: resolution.slice(0, 200),
         errorClass: 'triage_fix',
         layer: 'L3_tool_behavior',

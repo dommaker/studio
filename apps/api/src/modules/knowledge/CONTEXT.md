@@ -8,7 +8,7 @@
 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。
 
 - **摄入（Ingest）**: 7 类 producer 往里写（preference/rule/env/decision/pattern/external/behavior）
-- **消费（Consume）**: 2 条路径 — prompt 注入（buildKnowledgeContext）+ 按需查询（search/UnifiedQuery）
+- **消费（Consume）**: 2 条路径 — prompt 注入（knowledgeService.injectContext）+ 按需查询（search/UnifiedQuery）
 - **质量（Quality）**: 去重、衰减、成熟度、low_quality 过滤
 - **演化（Evolve）**: 重复知识 → Skill 化
 
@@ -18,7 +18,7 @@
 |------|------|------|
 | `knowledgeBus` | `knowledge-bus.service.ts` | Agent 间共享知识总线（write + search + formatIndexSummary） |
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore） |
-| `buildKnowledgeContext` | `consumers/prompt-builder.ts` | 统一 prompt 注入入口 |
+| `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder） |
 | `fetchExternal` | `producers/external-fetcher.ts` | 外部文档抓取 + 摄入 |
 | `knowledgeRoutes` | `routes.ts` | REST API（含 /unified 统一浏览） |
 
@@ -52,7 +52,7 @@ knowledge/
 
 - **上游**: `@dommaker/harness`（KnowledgeStore/KnowledgeIngest/KnowledgeLifecycle）
 - **上游**: `@dommaker/studio-prisma`（UserPreference/BusinessRule/EnvironmentSnapshot）
-- **下游**: `agents/*`（通过 buildKnowledgeContext 注入 prompt）
+- **下游**: `agents/*`（通过 knowledgeService.injectContext 注入 prompt）
 - **下游**: `channels/*`（conversation-handler/analyst-trigger）
 - **下游**: `goals/*`（scheduler-dispatch）
 

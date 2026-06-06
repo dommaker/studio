@@ -10,7 +10,6 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
-import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -420,7 +419,7 @@ class PostEvalAgent {
       };
 
       // 6. 写入 KnowledgeBus（闭环反馈）
-      await knowledgeBus.recordAnalystAccuracy(accuracy);
+      await knowledgeService.recordAnalystAccuracy(accuracy);
       logger.info('[PostEval] Analyst accuracy recorded', {
         goalId: goalId.slice(0, 16),
         fileMatchRate: Math.round(accuracy.acMatchRate * 100) + '%',

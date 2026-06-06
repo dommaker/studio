@@ -27,6 +27,8 @@ import type {
   KnowledgeType,
 } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
+import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
+import { scheduleVectorDbSync } from './knowledge-bus.service.js';
 
 // ── Type mapping (absorbed from KnowledgeBus) ──
 
@@ -96,6 +98,18 @@ export interface AccuracyData {
   actual: string;
   accurate: boolean;
   timestamp: string;
+}
+
+export interface AnalystAccuracyInput {
+  docId: string;
+  goalTitle: string;
+  predictedFiles: string[];
+  actualFiles: string[];
+  predictedDeps: string[];
+  actualDeps: string[];
+  acMatchRate: number;
+  missesByType: Record<string, number>;
+  tierStats?: Record<string, { total: number; succeeded: number; failed: number; avgDurationMs: number }>;
 }
 
 export interface ExtractionResult {
@@ -329,8 +343,43 @@ export class KnowledgeService {
     }
   }
 
-  async recordAnalystAccuracy(_data: AccuracyData): Promise<void> {
-    // Phase 1C: absorb from KnowledgeBus.recordAnalystAccuracy
+  async recordAnalystAccuracy(data: AnalystAccuracyInput): Promise<void> {
+    try {
+      const missedFiles = data.predictedFiles.filter(f => !data.actualFiles.includes(f));
+      const extraFiles = data.actualFiles.filter(f => !data.predictedFiles.includes(f));
+      const missedDeps = data.predictedDeps.filter(d => !data.actualDeps.includes(d));
+
+      const content = [
+        `任务: ${data.goalTitle}`,
+        `AC匹配率: ${Math.round(data.acMatchRate * 100)}%`,
+        `预测文件: [${data.predictedFiles.join(', ')}]`,
+        `实际文件: [${data.actualFiles.join(', ')}]`,
+        missedFiles.length > 0 ? `漏预测文件: ${missedFiles.join(', ')}` : '',
+        extraFiles.length > 0 ? `多预测文件: ${extraFiles.join(', ')}` : '',
+        missedDeps.length > 0 ? `漏预测依赖: ${missedDeps.join(', ')}` : '',
+        Object.entries(data.missesByType).length > 0
+          ? `误判类型: ${Object.entries(data.missesByType).map(([k, v]) => `${k}(${v})`).join(', ')}`
+          : '',
+      ].filter(Boolean).join('; ');
+
+      this.ingest.ingestEntry(
+        {
+          type: ENTRY_TYPE_MAP['analyst_accuracy'] || 'model',
+          title: `AnalystAccuracy: ${data.goalTitle.slice(0, 80)}`,
+          content,
+          tags: ['analyst_accuracy'],
+        },
+        {
+          source: `analyst_accuracy:posteval:${data.docId.slice(0, 16)}`,
+          layer: 'project',
+          maturity: 'draft',
+          tags: ['analyst_accuracy'],
+        },
+      );
+      scheduleVectorDbSync();
+    } catch (e) {
+      logger.warn('[KnowledgeService] Failed to record analyst accuracy', { error: String(e) });
+    }
   }
 
   // ═══════════ Consume (read knowledge) ════════════
@@ -442,14 +491,14 @@ export class KnowledgeService {
     }
   }
 
-  async matchResolutions(problem: string): Promise<KnowledgeEntry[]> {
+  async matchResolutions(problem: string): Promise<MatchResolutionResult> {
     try {
       const candidates = await this.prisma.resolution.findMany({
         where: { status: { in: ['verified', 'canonical'] } },
         orderBy: { verifyCount: 'desc' },
       });
 
-      const matched: any[] = [];
+      const matched: Resolution[] = [];
       const lowerMsg = problem.toLowerCase();
 
       for (const row of candidates) {
@@ -468,29 +517,27 @@ export class KnowledgeService {
         if (isMatch) {
           matched.push({
             id: row.id,
+            pattern: row.pattern,
+            errorClass: row.errorClass || '',
+            layer: row.layer || 'L5_error_fix',
             title: row.title || pattern,
-            content: row.fix || '',
-            type: 'guideline',
-            maturity: row.status === 'canonical' ? 'proven' : 'verified',
-            tags: ['resolution', row.errorClass || ''].filter(Boolean),
-            layer: 'project',
-            created: row.createdAt?.toISOString?.() || '',
-            lastReferenced: row.updatedAt?.toISOString?.() || '',
-            contributors: [],
-            projects: [],
-            applicablePhases: [],
-            sourceReferences: [],
-            referencedBy: [],
-            executionResults: [],
-            consumptionMode: 'reference',
-            origin: 'system',
+            fix: row.fix || '',
+            status: row.status,
+            verifyCount: row.verifyCount || 0,
+            tags: row.tags ? (typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags) : [],
+            createdAt: row.createdAt?.toISOString?.() || '',
+            updatedAt: row.updatedAt?.toISOString?.() || '',
           });
         }
       }
 
-      return matched;
+      const promptSnippet = matched.length > 0
+        ? matched.map(r => `[Known Fix] ${r.title}: ${r.fix}`).join('\n')
+        : '';
+
+      return { matched: matched.length > 0, resolutions: matched, promptSnippet };
     } catch {
-      return [];
+      return { matched: false, resolutions: [], promptSnippet: '' };
     }
   }
 
@@ -625,17 +672,19 @@ export class KnowledgeService {
 
   // ═══════════ Resolve (known solutions) ════════════
 
-  async createResolution(problem: string, fix: string): Promise<void> {
+  async createResolution(input: CreateResolutionInput): Promise<void> {
     try {
-      const existing = await this.prisma.resolution.findFirst({ where: { pattern: problem } });
+      const existing = await this.prisma.resolution.findFirst({ where: { pattern: input.pattern } });
       if (existing) return;
       await this.prisma.resolution.create({
         data: {
-          pattern: problem,
-          fix,
+          pattern: input.pattern,
+          errorClass: input.errorClass || 'unknown',
+          layer: input.layer || 'L5_error_fix',
+          title: input.title || input.pattern.slice(0, 100),
+          fix: input.fix,
           status: 'pending',
-          title: problem.slice(0, 100),
-          errorClass: 'unknown',
+          tags: input.tags ? JSON.stringify(input.tags) : '[]',
         },
       });
     } catch {

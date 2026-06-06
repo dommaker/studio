@@ -11,7 +11,6 @@ import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
-import { buildKnowledgeContext } from '../knowledge/consumers/prompt-builder.js';
 import { discoveryExposure } from '../channels/discovery-exposure.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import { skillLoader } from '@dommaker/studio-skill';
@@ -70,7 +69,7 @@ export class ReviewAgent {
       // AS-022: unified knowledge injection
       let indexSection = '';
       try {
-        const knowledgeContext = await buildKnowledgeContext('reviewer');
+        const knowledgeContext = await knowledgeService.injectContext('reviewer');
         if (knowledgeContext) indexSection = '\n## 知识检索\n' + knowledgeContext + '\n';
       } catch { /* best-effort */ }
       // TDD-04: Load reviewer skills via SkillLoader
@@ -455,7 +454,7 @@ export class ReviewAgent {
       // AS-022: unified knowledge injection
       let indexSection = '';
       try {
-        const knowledgeContext = await buildKnowledgeContext('reviewer');
+        const knowledgeContext = await knowledgeService.injectContext('reviewer');
         if (knowledgeContext) indexSection = '\n## 知识检索\n' + knowledgeContext + '\n';
       } catch { /* best-effort */ }
       // TDD-04: Load reviewer skills for branch diff review too

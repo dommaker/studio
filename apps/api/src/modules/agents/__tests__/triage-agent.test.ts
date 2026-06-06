@@ -85,7 +85,8 @@ describe('TriageAgent + MonitorAgent', () => {
       const incident = await prisma.incident.findUnique({
         where: { id: result.incidentId },
       });
-      const logs = JSON.parse(incident!.triageLog as string);
+      // Prisma auto-deserializes JSON fields — triageLog is already an array
+      const logs = incident!.triageLog as unknown as Record<string, unknown>[];
       expect(Array.isArray(logs)).toBe(true);
       expect(logs.length).toBeGreaterThan(0);
       for (const entry of logs) {
@@ -108,7 +109,8 @@ describe('TriageAgent + MonitorAgent', () => {
       const incident = await prisma.incident.findUnique({
         where: { id: result.incidentId },
       });
-      const logs = JSON.parse(incident!.triageLog as string);
+      // Prisma auto-deserializes JSON fields — triageLog is already an array
+      const logs = incident!.triageLog as unknown as Record<string, unknown>[];
       const phases = logs.map((l: any) => l.phase);
       expect(phases).toContain('diagnose');
       expect(phases).toContain('classify');
