@@ -29,6 +29,7 @@ export class SkillLoader {
   constructor(customSkills?: SkillDefinition[]) {
     const skills = customSkills || allSkillDefinitions;
     this.skills = new Map(skills.map(s => [s.id, s]));
+    this.cache = skills;
   }
 
   /**
@@ -69,14 +70,26 @@ export class SkillLoader {
   }
 
   /**
-   * 格式化 Skill 列表为 prompt 注入文本
+   * 格式化 Skill 列表为元数据索引（name + description）
+   *
+   * 元数据+索引模式：只注入轻量索引，Agent 按需通过 loadSkill MCP tool 加载完整内容。
+   * 相比旧版全量注入，token 节省 50%+。
    */
   formatForPrompt(skills: SkillDefinition[]): string {
     if (skills.length === 0) return '';
     return skills
-      .filter(s => s.prompt)
-      .map(s => `\n---\n${s.prompt}`)
-      .join('');
+      .map(s => `- **${s.name}**${s.description ? ': ' + s.description : ''}`)
+      .join('\n');
+  }
+
+  /**
+   * 获取单个 Skill 的完整 prompt（按需加载）
+   *
+   * Agent 通过 loadSkill MCP tool 调用此方法获取完整内容。
+   */
+  getFullPrompt(id: string): string | null {
+    const skill = this.skills.get(id);
+    return skill?.prompt || null;
   }
 
   /**

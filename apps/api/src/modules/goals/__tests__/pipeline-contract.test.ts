@@ -3,8 +3,9 @@
  *
  * 验证 Knowledge feedback loop 三个方法已正确接线到管线：
  * - pipelineStepFeedback → scheduler-dispatch.ts (成功+失败路径)
- * - extractFromExecution → scheduler-dispatch.ts (成功路径)
+ * - extractFromExecution → scheduler-dispatch.ts (成功+失败路径)
  * - recordOutcome → goal-lifecycle.ts recordGoalCompletion
+ * - recordKnowledgeRefs → scheduler-dispatch.ts (成功+失败路径)
  *
  * 这是源码级契约测试，不运行管线，只验证接线存在。
  */
@@ -49,6 +50,31 @@ describe('Pipeline feedback loop contract', () => {
       const successIdx = dispatchSrc.indexOf('Agent succeeded');
       const extractIdx = dispatchSrc.indexOf('extractFromExecution');
       expect(extractIdx).toBeGreaterThan(successIdx);
+    });
+
+    it('calls extractFromExecution on failure path', () => {
+      // Verify extractFromExecution also called on failure path (success: false)
+      const failFeedbackIdx = dispatchSrc.indexOf('Knowledge feedback loop: pipelineStepFeedback (failure)');
+      expect(failFeedbackIdx).toBeGreaterThan(-1);
+      const failBlock = dispatchSrc.slice(failFeedbackIdx, dispatchSrc.indexOf('handleDispatchFailure', failFeedbackIdx + 1) || dispatchSrc.length);
+      expect(failBlock).toContain('extractFromExecution');
+      expect(failBlock).toContain('success: false');
+    });
+
+    it('calls recordKnowledgeRefs on success path', () => {
+      expect(dispatchSrc).toContain('recordKnowledgeRefs');
+      const successBlock = dispatchSrc.slice(
+        dispatchSrc.indexOf('Agent succeeded'),
+        dispatchSrc.indexOf('Agent failed') || dispatchSrc.length,
+      );
+      expect(successBlock).toContain('recordKnowledgeRefs');
+    });
+
+    it('calls recordKnowledgeRefs on failure path', () => {
+      const failIdx = dispatchSrc.indexOf('Agent failed');
+      expect(failIdx).toBeGreaterThan(-1);
+      const failBlock = dispatchSrc.slice(failIdx, failIdx + 2000);
+      expect(failBlock).toContain('recordKnowledgeRefs');
     });
 
     it('passes goalId to pipelineStepFeedback', () => {

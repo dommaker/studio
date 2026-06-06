@@ -427,7 +427,7 @@ async function handleDispatchSuccess(
     strategy,
   });
 
-  // ── Knowledge feedback loop: pipelineStepFeedback + extractFromExecution ──
+  // ── Knowledge feedback loop: pipelineStepFeedback + extractFromExecution + recordKnowledgeRefs ──
   try {
     const { knowledgeService } = await import('../knowledge/knowledge-service.js');
     await knowledgeService.pipelineStepFeedback({
@@ -450,6 +450,12 @@ async function handleDispatchSuccess(
       agentType: 'executor',
       consumedKnowledge: [],
     });
+  } catch { /* non-blocking */ }
+  try {
+    const worktreeDir = path.join(WORKTREES_DIR, executionId);
+    const { recordKnowledgeRefs } = await import('./knowledge-promoter.js');
+    const completionOutput = (result as any).output || {};
+    recordKnowledgeRefs(completionOutput, worktreeDir);
   } catch { /* non-blocking */ }
 }
 
@@ -533,6 +539,25 @@ async function handleDispatchFailure(
       severity: 'warning',
       timestamp: Date.now(),
     });
+  } catch { /* non-blocking */ }
+
+  // ── extractFromExecution (failure): learn from failed execution ──
+  try {
+    const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+    await knowledgeService.extractFromExecution({
+      task: goal.title || executionId,
+      diff: (result.error || '').slice(0, 5000),
+      success: false,
+      duration: result.totalDurationMs || dispatchDuration,
+      agentType: 'executor',
+      consumedKnowledge: [],
+    });
+  } catch { /* non-blocking */ }
+
+  // ── recordKnowledgeRefs: scan worktree for [REF:xxx] markers ──
+  try {
+    const { recordKnowledgeRefs } = await import('./knowledge-promoter.js');
+    recordKnowledgeRefs({}, worktreeDir);
   } catch { /* non-blocking */ }
 }
 

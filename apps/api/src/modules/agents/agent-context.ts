@@ -62,7 +62,7 @@ export function buildAgentContext(options: AgentContextOptions = {}): AgentConte
     });
   } catch { /* harness may not be initialized */ }
 
-  // 2. Skill 注入
+  // 2. Skill 注入（元数据+索引模式：只注入索引，Agent 按需通过 loadSkill MCP tool 加载完整内容）
   let skillPrompt = '';
   let skillCount = 0;
   try {
@@ -72,7 +72,15 @@ export function buildAgentContext(options: AgentContextOptions = {}): AgentConte
       tier,
     });
     skillCount = skills.length;
-    skillPrompt = skillLoader.formatForPrompt(skills);
+    const skillIndex = skillLoader.formatForPrompt(skills);
+    if (skillIndex) {
+      skillPrompt = [
+        '## Available Skills',
+        '以下 skill 可用。需要时使用 `loadSkill` MCP tool 加载完整内容。',
+        '',
+        skillIndex,
+      ].join('\n');
+    }
   } catch { /* best-effort */ }
 
   // 3. Knowledge — deferred import to avoid circular deps
