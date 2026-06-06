@@ -4,6 +4,14 @@ import 'dotenv/config';
 // 固定 KnowledgeStore 路径 — CWD 无关, 与 memory-knowledge-sync hook 共用
 process.env.KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || require('path').resolve(__dirname, '..', '.harness', 'knowledge');
 
+// DATABASE_URL 必须在 @dommaker/studio-prisma 加载前解析为绝对路径
+// Prisma 从 CWD 解析 file:./data.db，不同启动目录会读到不同 DB
+// ESM import 顺序: app.ts → auth.ts → @dommaker/studio-prisma 在此行之后立即触发
+import * as _path from 'path';
+if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('file:./')) {
+  process.env.DATABASE_URL = `file:${_path.resolve(process.cwd(), process.env.DATABASE_URL.slice(5))}`;
+}
+
 import { createServer } from 'http';
 import { app, registerRoutes } from './app.js';
 // WebSocket server removed (B0-003: migrated to SSE). See modules/events/sse.routes.ts
@@ -19,6 +27,7 @@ import { agentEventListener } from './modules/goals/agent-event-listener.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
 import { monitorAgent } from './modules/agents/monitor-agent.service.js';
 import { auditorAgent } from './modules/agents/auditor-agent.service.js';
+import { dataAnalystAgent } from './modules/agents/data-analyst-agent.service.js';
 import { daemon } from './daemon/studio-daemon.js';
 import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';
@@ -155,6 +164,7 @@ async function start() {
     agentEventListener.start();
     monitorAgent.start();
     auditorAgent.start();
+    dataAnalystAgent.start();
     daemon.start();
     // ── Ops Agent: runtime health loop ──
     try {

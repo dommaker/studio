@@ -309,20 +309,24 @@ export class GoalScheduler {
 
     logger.info('[GoalScheduler] Creating integration step', { goalId });
 
-    await prisma.goalExecution.create({
-      data: {
-        goalId,
-        stepIndex: 999,
-        status: 'pending',
-        agentType: 'claude',
-        input: JSON.stringify({
-          taskType: 'integration',
+    try {
+      await prisma.goalExecution.create({
+        data: {
           goalId,
-          totalSteps: all.length,
-          model: 'standard',
-        }),
-      },
-    });
+          stepIndex: 999,
+          status: 'pending',
+          agentType: 'claude',
+          input: JSON.stringify({
+            taskType: 'integration',
+            goalId,
+            totalSteps: all.length,
+            model: 'standard',
+          }),
+        },
+      });
+    } catch (err) {
+      logger.error('[GoalScheduler] Failed to create integration step', { goalId, error: String(err) });
+    }
   }
 
   // ========================================

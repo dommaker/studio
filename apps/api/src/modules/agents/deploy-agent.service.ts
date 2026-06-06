@@ -8,9 +8,10 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
+import { getDefaultBranch } from '../../utils/git.js';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
-import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import type { DeployParams, DeployResult, DeployFinding, MergeBranchesParams, MergeBranchesResult } from './types.js';
 
@@ -116,13 +117,11 @@ class DeployAgent {
 
     // Record deploy findings to KnowledgeBus
     const deployFindings = deployResult.findings?.map(f => `[${f.severity}] ${f.category}: ${f.message}`).join('\n') || 'No findings';
-    knowledgeBus.recordPattern({
-      source: 'deploy',
+    knowledgeService.recordPattern({
       type: 'pattern',
       title: `Deploy result: ${deployResult.success ? 'SUCCESS' : 'FAILED'} (${deployResult.type})`,
       content: `${deployResult.summary || 'No summary'}\n\nFindings:\n${deployFindings}`,
-      severity: deployResult.success ? 'info' : 'warning',
-      timestamp: Date.now(),
+      tags: ['deploy'],
     }).catch(() => { /* non-blocking */ });
 
     // Record deploy phase metrics
@@ -181,8 +180,9 @@ class DeployAgent {
         }
       }
 
-      // Delete source branch after successful merge (not master/main)
-      if (result.merged && source !== 'master' && source !== 'main') {
+      // Delete source branch after successful merge (not default branch)
+      const defaultBranch = getDefaultBranch(repoDir);
+      if (result.merged && source !== defaultBranch) {
         await this.deleteBranch(source, repoDir);
       }
 
@@ -225,6 +225,7 @@ class DeployAgent {
 
   private async mergeToMaster(params: DeployParams): Promise<DeployResult> {
     const repoDir = await this.getRepoDir();
+    const defaultBranch = getDefaultBranch(repoDir);
     try {
       const { stdout: branchOut } = await execSh('git -C . rev-parse --abbrev-ref HEAD', {
         cwd: params.worktree,
@@ -232,24 +233,18 @@ class DeployAgent {
       });
       const branch = branchOut.trim();
 
-      if (branch === 'master') {
-        logger.info('[DeployAgent] Already on master, skipping merge');
+      if (branch === defaultBranch) {
+        logger.info(`[DeployAgent] Already on ${defaultBranch}, skipping merge`);
         return this.okResult(params);
       }
 
-      if (branch === 'main') {
-        logger.info('[DeployAgent] On main branch, merging main → master', { repoDir });
-        await execSh('git checkout master && git merge main --no-edit', { cwd: repoDir, timeoutMs: 60_000 });
-        return this.okResult(params);
-      }
-
-      logger.info('[DeployAgent] Merging to master', { branch, repoDir });
-      await execSh(`git checkout master && git merge "${branch}" --no-edit`, { cwd: repoDir, timeoutMs: 60_000 });
+      logger.info(`[DeployAgent] Merging to ${defaultBranch}`, { branch, repoDir });
+      await execSh(`git checkout ${defaultBranch} && git merge "${branch}" --no-edit`, { cwd: repoDir, timeoutMs: 60_000 });
 
       return this.okResult(params);
     } catch (e) {
       const errMsg = String(e).slice(0, 200);
-      logger.error('[DeployAgent] Merge to master failed', { error: errMsg });
+      logger.error(`[DeployAgent] Merge to ${defaultBranch} failed`, { error: errMsg });
       // B11-007: Resolution 查询 — 已知解法匹配
       let resolutionHint = '';
       try {
@@ -259,7 +254,7 @@ class DeployAgent {
           resolutionHint = `\n已知解法: ${matched.resolutions[0].fix}`;
           logger.info('[DeployAgent] Resolution matched', { title: matched.resolutions[0].title });
           // B13-001: Verify matched resolution (pending→verified→canonical)
-          try { await resolutionService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
+          try { await knowledgeService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
         }
       } catch { /* best-effort */ }
       // B11-009: LLM 兜底 — 未知场景升级到 LLM 推理
@@ -274,7 +269,7 @@ class DeployAgent {
           logger.info('[DeployAgent] LLM fallback diagnosis (merge)', { hint: llmHint?.slice(0, 200) });
         } catch { /* LLM unavailable */ }
       }
-      return { success: false, type: params.environment, findings: [], summary: `Merge to master failed: ${errMsg}${resolutionHint}` };
+      return { success: false, type: params.environment, findings: [], summary: `Merge to ${defaultBranch} failed: ${errMsg}${resolutionHint}` };
     }
   }
 
@@ -282,6 +277,7 @@ class DeployAgent {
 
   private async pushToOrigin(params: DeployParams): Promise<DeployResult> {
     const repoDir = await this.getRepoDir();
+    const defaultBranch = getDefaultBranch(repoDir);
 
     // Pre-flight: lightweight connectivity probe before retry loop
     try {
@@ -289,7 +285,7 @@ class DeployAgent {
     } catch (e) {
       const err = String(e).slice(0, 200);
       logger.error('[DeployAgent] Pre-flight connectivity check failed — cannot reach origin');
-      await this.emitPushFailedAlert('master', `Cannot reach origin: ${err}`);
+      await this.emitPushFailedAlert(defaultBranch, `Cannot reach origin: ${err}`);
       return {
         success: false, type: params.environment, findings: [],
         summary: `Push aborted — cannot reach origin: ${err}`,
@@ -302,7 +298,7 @@ class DeployAgent {
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
         logger.info(`[DeployAgent] Pushing to origin (attempt ${attempt + 1}/${maxRetries})`);
-        await execSh('git push origin master', {
+        await execSh(`git push origin ${defaultBranch}`, {
           cwd: repoDir,
           timeoutMs: 120_000,
         });
@@ -317,7 +313,7 @@ class DeployAgent {
       }
     }
     logger.error('[DeployAgent] Push failed after all retries', { retries: maxRetries, error: lastError });
-    await this.emitPushFailedAlert('master', lastError);
+    await this.emitPushFailedAlert(defaultBranch, lastError);
     // B11-007: Resolution 查询 — 已知解法匹配
     let resolutionHint = '';
     try {
@@ -327,7 +323,7 @@ class DeployAgent {
         resolutionHint = `\n已知解法: ${matched.resolutions[0].fix}`;
         logger.info('[DeployAgent] Resolution matched', { title: matched.resolutions[0].title });
         // B13-001: Verify matched resolution (pending→verified→canonical)
-        try { await resolutionService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
+        try { await knowledgeService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
       }
     } catch { /* best-effort */ }
     // B11-009: LLM 兜底 — 未知场景升级到 LLM 推理

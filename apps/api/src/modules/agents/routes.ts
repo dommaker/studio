@@ -196,23 +196,25 @@ router.post('/deploy/merge', async (req: Request, res: Response) => {
   }
 });
 
-// ── Merge to master (convenience composite) ──────────────
+// ── Merge to default branch (convenience composite) ──────
 
 router.post('/deploy/merge-to-master', async (req: Request, res: Response) => {
   try {
-    const { sourceBranch = 'main', skipReview = false, environment = 'vps' } = req.body as MergeToMasterRequest;
     const repoDir = process.env.REPO_DIR || '/root/projects/studio';
+    const { getDefaultBranch } = await import('../../utils/git.js');
+    const defaultBranch = getDefaultBranch(repoDir);
+    const { sourceBranch, skipReview = false, environment = 'vps' } = req.body as MergeToMasterRequest;
     let reviewApproved = true;
     let reviewScore = 100;
     const reviewIssues: any[] = [];
 
     if (!skipReview) {
-      logger.info('[Agents] merge-to-master: running review', { sourceBranch, repoDir });
+      logger.info(`[Agents] merge-to-${defaultBranch}: running review`, { sourceBranch, repoDir });
       const reviewResult = await reviewAgent.reviewDiff({
-        baseRef: 'origin/master',
+        baseRef: `origin/${defaultBranch}`,
         headRef: `origin/${sourceBranch}`,
         repoPath: repoDir,
-        description: `Merge ${sourceBranch} → master: ${sourceBranch} branch commits ahead of master`,
+        description: `Merge ${sourceBranch} → ${defaultBranch}: ${sourceBranch} branch commits ahead of ${defaultBranch}`,
       });
       reviewApproved = reviewResult.approved;
       reviewScore = reviewResult.score;
@@ -221,10 +223,10 @@ router.post('/deploy/merge-to-master', async (req: Request, res: Response) => {
       if (!reviewApproved) {
         return res.status(200).json({ reviewApproved: false, reviewScore, reviewIssues, merged: false, pushed: false, summary: `Review rejected (score: ${reviewScore}). Fix issues before merge.` });
       }
-      logger.info('[Agents] merge-to-master: review approved', { sourceBranch, score: reviewScore });
+      logger.info(`[Agents] merge-to-${defaultBranch}: review approved`, { sourceBranch, score: reviewScore });
     }
 
-    const mergeResult = await deployAgent.mergeBranches({ source: sourceBranch, target: 'master', repoPath: repoDir, push: true });
+    const mergeResult = await deployAgent.mergeBranches({ source: sourceBranch, target: defaultBranch, repoPath: repoDir, push: true });
     res.status(200).json({ reviewApproved, reviewScore, reviewIssues, merged: mergeResult.merged, pushed: mergeResult.pushed, summary: mergeResult.summary });
   } catch (error) {
     logger.error('[Agents] merge-to-master failed', { error: String(error) });

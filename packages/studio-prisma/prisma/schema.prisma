@@ -1239,10 +1239,12 @@ model PipelineRun {
   diffLines       Int?
   error           String?
   sessionId       String?
+  goalId          String?
   createdAt DateTime @default(now())
 
   @@index([source, createdAt])
   @@index([phase])
+  @@index([goalId])
 }
 
 // ── G30: Unified StudioEvent Table ──

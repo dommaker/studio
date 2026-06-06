@@ -365,6 +365,7 @@ async function handleDispatchSuccess(
     durationMs: result.totalDurationMs || dispatchDuration,
     success: true,
     sessionId: executionId,
+    goalId: goal.id,
   }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun failed', { error: String(e) }); });
   try {
     await prisma.studioEvent.create({
@@ -425,6 +426,31 @@ async function handleDispatchSuccess(
     tier,
     strategy,
   });
+
+  // ── Knowledge feedback loop: pipelineStepFeedback + extractFromExecution ──
+  try {
+    const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+    await knowledgeService.pipelineStepFeedback({
+      goalId: goal.id,
+      executionId,
+      phase: 'executor',
+      success: true,
+      durationMs: result.totalDurationMs || dispatchDuration,
+      tokensUsed: tokenUsage.inputTokens + tokenUsage.outputTokens,
+    });
+  } catch { /* non-blocking */ }
+  try {
+    const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+    const execOutput = (result as any).output || (result as any).stdout || '';
+    await knowledgeService.extractFromExecution({
+      task: goal.title || executionId,
+      diff: execOutput.slice(0, 5000),
+      success: true,
+      duration: result.totalDurationMs || dispatchDuration,
+      agentType: 'executor',
+      consumedKnowledge: [],
+    });
+  } catch { /* non-blocking */ }
 }
 
 /** dispatch 失败后的处理：记录 metrics、feedback loop */
@@ -455,6 +481,7 @@ async function handleDispatchFailure(
     success: false,
     error: result.error || 'Agent execution failed',
     sessionId: executionId,
+    goalId: goal.id,
   }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun (failure) failed', { error: String(e) }); });
   const errDetail = result.error || 'Agent execution failed';
   try {
@@ -482,6 +509,20 @@ async function handleDispatchFailure(
     tier,
     strategy,
   });
+
+  // ── Knowledge feedback loop: pipelineStepFeedback (failure) ──
+  try {
+    const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+    await knowledgeService.pipelineStepFeedback({
+      goalId: goal.id,
+      executionId,
+      phase: 'executor',
+      success: false,
+      durationMs: result.totalDurationMs || dispatchDuration,
+      error: result.error || 'Agent execution failed',
+    });
+  } catch { /* non-blocking */ }
+
   try {
     const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
     await knowledgeBus.recordPattern({

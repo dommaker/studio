@@ -8,7 +8,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, eventBus } from '@dommaker/studio-shared';
 import { skillLoader } from '@dommaker/studio-skill';
 import { parseJsonField } from './goal.service.js';
 
@@ -267,10 +267,10 @@ export async function runIntegrationInCode(
     : executionId;
   const branchName = `task/${branchSuffix}`;
   try {
-    execSync(`git worktree add -b "${branchName}" "${worktree}" main`, { cwd: repoDir, timeout: 30_000 });
+    execSync(`git worktree add -b "${branchName}" "${worktree}" HEAD`, { cwd: repoDir, timeout: 30_000 });
   } catch {
     try { execSync(`git branch -D "${branchName}"`, { cwd: repoDir, timeout: 5_000 }); } catch {}
-    execSync(`git worktree add -b "${branchName}" "${worktree}" main`, { cwd: repoDir, timeout: 30_000 });
+    execSync(`git worktree add -b "${branchName}" "${worktree}" HEAD`, { cwd: repoDir, timeout: 30_000 });
   }
   logger.info('[GoalScheduler] Integration worktree created', { worktree, executionId });
 
@@ -294,6 +294,7 @@ export async function runIntegrationInCode(
     } catch (e: any) {
       const errMsg = e?.stderr?.toString() || e?.message || String(e);
       logger.warn('[GoalScheduler] Integration merge conflict', { branch, error: errMsg.slice(0, 200) });
+      eventBus.publish('pipeline.merge_conflict', { branch, executionId, error: errMsg.slice(0, 500) });
       return { success: false, error: `Merge conflict on ${branch}: ${errMsg.slice(0, 200)}` };
     }
   }

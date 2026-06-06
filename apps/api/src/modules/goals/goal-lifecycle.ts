@@ -76,11 +76,31 @@ export async function cancelGoalExecution(
 /**
  * 重试 GoalExecution — 重置失败的任务让 GoalScheduler 重新分派
  */
+const MAX_RETRIES = 3;
+
 export async function retryGoalExecution(executionId: string): Promise<any> {
   const execution = await prisma.goalExecution.findUnique({ where: { id: executionId } });
   if (!execution) throw new Error(`GoalExecution not found: ${executionId}`);
   if (execution.status !== 'failed') {
     throw new Error(`Can only retry failed executions, current: ${execution.status}`);
+  }
+
+  // Check retry count from input metadata
+  const input = (typeof execution.input === 'string' ? JSON.parse(execution.input) : execution.input) as Record<string, any> || {};
+  const retryCount = input._retryCount || 0;
+  if (retryCount >= MAX_RETRIES) {
+    // Mark goal as blocked — repeated failures indicate a systematic issue
+    await prisma.goal.update({
+      where: { id: execution.goalId },
+      data: { status: 'blocked' },
+    });
+    logger.warn(`[Goal] Execution ${executionId} exceeded max retries (${MAX_RETRIES}), goal ${execution.goalId} marked blocked`);
+    return {
+      blocked: true,
+      goalId: execution.goalId,
+      reason: `Execution retried ${retryCount} times with same error. Goal marked as blocked — requires manual investigation.`,
+      lastError: execution.error,
+    };
   }
 
   const updated = await prisma.goalExecution.update({
@@ -90,10 +110,11 @@ export async function retryGoalExecution(executionId: string): Promise<any> {
       error: null,
       completedAt: null,
       startedAt: null,
+      input: JSON.stringify({ ...input, _retryCount: retryCount + 1 }),
     },
   });
 
-  logger.info(`[Goal] Execution retried: ${executionId}`);
+  logger.info(`[Goal] Execution retried: ${executionId} (attempt ${retryCount + 1}/${MAX_RETRIES})`);
   return updated;
 }
 
@@ -121,21 +142,28 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
     const anyRegularFailed = regularSteps.some(e => e.status === 'failed');
     if (!anyRegularFailed) {
       logger.info('[Goal] All sub-agent steps succeeded, creating integration step', { goalId });
-      await prisma.goalExecution.create({
-        data: {
-          goalId,
-          stepIndex: 999,
-          status: 'pending',
-          agentType: 'claude',
-          input: JSON.stringify({
-            taskType: 'integration',
+      try {
+        await prisma.goalExecution.create({
+          data: {
             goalId,
-            totalSteps: regularSteps.length,
-            model: 'standard',
-          }),
-        },
-      });
-      logger.info('[Goal] Integration step created, waiting for scheduler', { goalId });
+            stepIndex: 999,
+            status: 'pending',
+            agentType: 'claude',
+            input: JSON.stringify({
+              taskType: 'integration',
+              goalId,
+              totalSteps: regularSteps.length,
+              model: 'standard',
+            }),
+          },
+        });
+        logger.info('[Goal] Integration step created, waiting for scheduler', { goalId });
+      } catch (err) {
+        logger.error('[Goal] Failed to create integration step', { goalId, error: String(err) });
+        await prisma.goal.update({
+          where: { id: goalId }, data: { status: 'failed', completedAt: new Date() },
+        });
+      }
       return;
     }
   }
@@ -293,6 +321,7 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
       durationMs: totalDurationMs,
       success: goal.status === 'succeeded',
       testPassed: successCount === totalSessions,
+      goalId: goal.id,
     });
 
     try {
@@ -321,6 +350,20 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
       tokens: { input: totalInputTokens, output: totalOutputTokens },
       durationMs: totalDurationMs,
     });
+
+    // ── Knowledge feedback loop: recordOutcome at goal completion ──
+    try {
+      const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+      await knowledgeService.recordOutcome({
+        executionId: goalId,
+        agentType: 'executor',
+        consumedKnowledge: [],
+        success: goal.status === 'succeeded',
+        details: `Goal "${goal.title}" ${goal.status}. Sessions: ${totalSessions}, Tokens: ${totalInputTokens + totalOutputTokens}`,
+        timestamp: new Date().toISOString(),
+        mode: 'pipeline',
+      });
+    } catch { /* non-blocking */ }
 
     try {
       const ctx = (goal.context as unknown as Record<string, unknown>) || {};
