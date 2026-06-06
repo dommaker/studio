@@ -1,122 +1,313 @@
 /**
- * KnowledgeService — Phase 0 contract test
+ * KnowledgeService — Phase 1A behavior tests (Produce + Consume)
  *
- * Verifies the interface exists with correct method signatures.
- * No behavior tested — implementation comes in Phase 1.
+ * Tests verify KnowledgeService methods produce same behavior as originals:
+ * - recordPattern/Incident/Trend: ingest with quality gate + dedup
+ * - search: keyword scoring + ranking
+ * - injectContext: rule + context + signal assembly
+ * - matchResolutions: Prisma delegation
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { KnowledgeService } from '../knowledge-service.js';
+import type { PatternEntry, IncidentEntry, TrendEntry } from '../knowledge-service.js';
 
-describe('KnowledgeService (Phase 0: interface contract)', () => {
-  const ks = new KnowledgeService();
+// ── Mock factories ──
 
-  describe('Produce', () => {
-    it('extractFromExecution exists', () => {
-      expect(typeof ks.extractFromExecution).toBe('function');
+function createMockStore(initialEntries: any[] = []) {
+  const entries = [...initialEntries];
+  return {
+    list: vi.fn(() => entries),
+    get: vi.fn((id: string) => entries.find(e => e.id === id) || null),
+    save: vi.fn((entry: any) => { entries.push(entry); return entry; }),
+    _entries: entries, // expose for test setup
+  };
+}
+
+function createMockLifecycle() {
+  return {
+    recordReference: vi.fn(),
+    shouldAutoPromote: vi.fn(() => false),
+  };
+}
+
+function createMockIngest() {
+  return {
+    ingestEntry: vi.fn((entry: any, opts: any) => ({
+      id: `ingested-${Date.now()}`,
+      ...entry,
+      ...opts,
+      lastReferenced: new Date().toISOString(),
+      contributors: ['test'],
+    })),
+  };
+}
+
+function createMockLinter() {
+  return {
+    validateEntry: vi.fn(() => []), // no issues
+  };
+}
+
+function createMockPrisma() {
+  return {
+    resolution: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findFirst: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({ id: 'res-1' }),
+    },
+    studioEvent: {
+      create: vi.fn().mockResolvedValue({ id: 'event-1' }),
+    },
+    userPreference: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+    businessRule: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+    environmentSnapshot: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0) },
+  };
+}
+
+function createMockQuery() {
+  return {
+    queryEntries: vi.fn().mockResolvedValue([]),
+    listEntries: vi.fn().mockResolvedValue([]),
+    getIndexes: vi.fn().mockReturnValue([]),
+    count: vi.fn().mockResolvedValue(0),
+  };
+}
+
+function createMockEventEmitter() {
+  return { emit: vi.fn() };
+}
+
+// ── Helper: create KnowledgeService with mocks ──
+
+function createKS(opts?: { entries?: any[] }) {
+  const store = createMockStore(opts?.entries);
+  const lifecycle = createMockLifecycle();
+  const ingest = createMockIngest();
+  const linter = createMockLinter();
+  const prisma = createMockPrisma();
+  const query = createMockQuery();
+  const eventEmitter = createMockEventEmitter();
+
+  const ks = new KnowledgeService({
+    store: store as any,
+    lifecycle: lifecycle as any,
+    ingest: ingest as any,
+    linter: linter as any,
+    prisma: prisma as any,
+    query: query as any,
+    eventEmitter: eventEmitter as any,
+  });
+
+  return { ks, store, lifecycle, ingest, linter, prisma, query, eventEmitter };
+}
+
+// ── Produce ──
+
+describe('KnowledgeService Phase 1A: Produce', () => {
+  describe('recordPattern', () => {
+    it('ingests entry with correct type mapping', async () => {
+      const { ks, ingest } = createKS();
+      const entry: PatternEntry = {
+        type: 'review',
+        title: 'Test pattern',
+        content: 'Some content here for quality check',
+        tags: ['test'],
+      };
+      await ks.recordPattern(entry);
+      expect(ingest.ingestEntry).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'guideline', title: 'Test pattern' }),
+        expect.objectContaining({ source: expect.stringContaining('pattern:'), layer: 'project' }),
+      );
     });
-    it('extractFromConversation exists', () => {
-      expect(typeof ks.extractFromConversation).toBe('function');
+
+    it('rejects triage entry without root_cause', async () => {
+      const { ks, ingest } = createKS();
+      const entry: PatternEntry = {
+        type: 'triage',
+        title: 'Bad triage',
+        content: 'no root cause here',
+        tags: ['triage'],
+      };
+      await ks.recordPattern(entry);
+      // Should NOT call ingest (rejected by triage quality gate)
+      expect(ingest.ingestEntry).not.toHaveBeenCalled();
     });
-    it('recordPattern exists', () => {
-      expect(typeof ks.recordPattern).toBe('function');
+
+    it('accepts triage entry with root_cause + fix_action', async () => {
+      const { ks, ingest } = createKS();
+      const entry: PatternEntry = {
+        type: 'triage',
+        title: 'Good triage',
+        content: 'root_cause: X caused Y. fix_action: change Z.',
+        tags: ['triage'],
+      };
+      await ks.recordPattern(entry);
+      expect(ingest.ingestEntry).toHaveBeenCalled();
     });
-    it('recordIncident exists', () => {
-      expect(typeof ks.recordIncident).toBe('function');
+
+    it('marks low_quality when linter finds blockers', async () => {
+      const { ks, ingest, linter } = createKS();
+      linter.validateEntry.mockReturnValue([{ severity: 'high', description: 'too short', type: 'quality' }]);
+      const entry: PatternEntry = {
+        type: 'review',
+        title: 'Bad',
+        content: 'x',
+        tags: ['test'],
+      };
+      await ks.recordPattern(entry);
+      expect(ingest.ingestEntry).toHaveBeenCalledWith(
+        expect.objectContaining({ tags: expect.arrayContaining(['low_quality']) }),
+        expect.anything(),
+      );
     });
-    it('recordTrend exists', () => {
-      expect(typeof ks.recordTrend).toBe('function');
-    });
-    it('recordAnalystAccuracy exists', () => {
-      expect(typeof ks.recordAnalystAccuracy).toBe('function');
+
+    it('does not throw on failure (best-effort)', async () => {
+      const { ks, ingest } = createKS();
+      ingest.ingestEntry.mockImplementation(() => { throw new Error('DB down'); });
+      const entry: PatternEntry = { type: 'review', title: 'X', content: 'content here for quality', tags: [] };
+      await expect(ks.recordPattern(entry)).resolves.not.toThrow();
     });
   });
 
-  describe('Consume', () => {
-    it('injectContext returns string', async () => {
+  describe('recordIncident', () => {
+    it('ingests as pitfall type with severity tags', async () => {
+      const { ks, ingest } = createKS();
+      const entry: IncidentEntry = {
+        title: 'DB outage',
+        content: 'Connection pool exhausted',
+        severity: 'critical',
+        tags: ['ops'],
+      };
+      await ks.recordIncident(entry);
+      expect(ingest.ingestEntry).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'pitfall', tags: expect.arrayContaining(['incident', 'critical']) }),
+        expect.objectContaining({ layer: 'tech', consumptionMode: 'signal' }),
+      );
+    });
+  });
+
+  describe('recordTrend', () => {
+    it('ingests with trend tag', async () => {
+      const { ks, ingest } = createKS();
+      const entry: TrendEntry = {
+        title: 'Build time increasing',
+        content: 'Average build time up 20%',
+        metric: 'build_time',
+        tags: ['performance'],
+      };
+      await ks.recordTrend(entry);
+      expect(ingest.ingestEntry).toHaveBeenCalledWith(
+        expect.objectContaining({ tags: expect.arrayContaining(['trend']) }),
+        expect.objectContaining({ source: expect.stringContaining('trend:') }),
+      );
+    });
+  });
+});
+
+// ── Consume ──
+
+describe('KnowledgeService Phase 1A: Consume', () => {
+  describe('search', () => {
+    it('returns empty for empty store', async () => {
+      const { ks } = createKS();
+      const results = await ks.search('test query');
+      expect(results).toEqual([]);
+    });
+
+    it('returns entries matching keywords, sorted by score', async () => {
+      const entries = [
+        { id: '1', title: 'deploy timeout', content: 'deploy timeout caused by network', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
+        { id: '2', title: 'test guide', content: 'how to write tests', tags: ['guideline'], maturity: 'active', lastReferenced: new Date().toISOString() },
+        { id: '3', title: 'deploy fix', content: 'deploy timeout fix: increase timeout', tags: ['pitfall'], maturity: 'verified', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks } = createKS({ entries });
+      const results = await ks.search('deploy timeout', { limit: 5 });
+      expect(results.length).toBeGreaterThan(0);
+      // Pitfall (weight 3) should rank higher than pattern (weight 2) for same keywords
+      expect(results[0].entry.id).toBe('3');
+    });
+
+    it('records references for returned entries', async () => {
+      const entries = [
+        { id: '1', title: 'test', content: 'test content here', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, lifecycle } = createKS({ entries });
+      await ks.search('test');
+      expect(lifecycle.recordReference).toHaveBeenCalledWith('1', 'search');
+    });
+
+    it('excludes archived entries', async () => {
+      const entries = [
+        { id: '1', title: 'old', content: 'archived content', tags: ['pattern'], maturity: 'archived', lastReferenced: new Date().toISOString() },
+        { id: '2', title: 'new', content: 'active content', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks } = createKS({ entries });
+      const results = await ks.search('content', { limit: 5 });
+      expect(results.every(r => r.entry.id !== '1')).toBe(true);
+    });
+
+    it('penalizes low_quality entries', async () => {
+      const entries = [
+        { id: '1', title: 'good', content: 'good deploy info', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
+        { id: '2', title: 'bad', content: 'deploy info low quality', tags: ['pattern', 'low_quality'], maturity: 'active', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks } = createKS({ entries });
+      const results = await ks.search('deploy', { limit: 5 });
+      expect(results[0].entry.id).toBe('1'); // good ranks higher
+    });
+  });
+
+  describe('injectContext', () => {
+    it('returns empty string when no knowledge exists', async () => {
+      const { ks } = createKS();
       const result = await ks.injectContext('executor');
-      expect(typeof result).toBe('string');
+      expect(result).toBe('');
     });
-    it('search returns array', async () => {
-      const result = await ks.search('test');
-      expect(Array.isArray(result)).toBe(true);
+
+    it('includes rules section when rules exist', async () => {
+      const { ks, query } = createKS();
+      query.queryEntries.mockResolvedValueOnce([
+        { id: 'r1', content: 'Always use TypeScript', type: 'guideline' },
+      ]);
+      const result = await ks.injectContext('executor');
+      expect(result).toContain('## 系统约束');
+      expect(result).toContain('Always use TypeScript');
     });
-    it('matchResolutions returns array', async () => {
-      const result = await ks.matchResolutions('problem');
-      expect(Array.isArray(result)).toBe(true);
+
+    it('includes context section', async () => {
+      const { ks, query } = createKS();
+      // First call = rules (empty), second = context
+      query.queryEntries
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ id: 'c1', content: 'Use ESM imports', type: 'model' }]);
+      const result = await ks.injectContext('executor');
+      expect(result).toContain('## 上下文');
+      expect(result).toContain('Use ESM imports');
     });
-    it('list returns array', async () => {
-      const result = await ks.list();
-      expect(Array.isArray(result)).toBe(true);
-    });
-    it('get returns null for missing id', async () => {
-      const result = await ks.get('nonexistent');
-      expect(result).toBeNull();
+
+    it('records references for injected entries', async () => {
+      const { ks, query, lifecycle } = createKS();
+      query.queryEntries.mockResolvedValueOnce([{ id: 'r1', content: 'Rule 1', type: 'guideline' }]);
+      await ks.injectContext('executor');
+      expect(lifecycle.recordReference).toHaveBeenCalledWith('r1', 'prompt-inject');
     });
   });
 
-  describe('Track', () => {
-    it('recordConsumption is synchronous', () => {
-      expect(() => ks.recordConsumption(['id1'], 'ctx')).not.toThrow();
+  describe('matchResolutions', () => {
+    it('returns empty array when no resolutions match', async () => {
+      const { ks } = createKS();
+      const result = await ks.matchResolutions('unknown problem');
+      expect(result).toEqual([]);
     });
-    it('recordOutcome exists', () => {
-      expect(typeof ks.recordOutcome).toBe('function');
-    });
-    it('recordFeedback exists', () => {
-      expect(typeof ks.recordFeedback).toBe('function');
-    });
-  });
 
-  describe('Lifecycle', () => {
-    it('promote exists', () => {
-      expect(typeof ks.promote).toBe('function');
-    });
-    it('decay exists', () => {
-      expect(typeof ks.decay).toBe('function');
-    });
-    it('merge exists', () => {
-      expect(typeof ks.merge).toBe('function');
-    });
-    it('graduateConstraint exists', () => {
-      expect(typeof ks.graduateConstraint).toBe('function');
-    });
-  });
-
-  describe('Resolve', () => {
-    it('createResolution exists', () => {
-      expect(typeof ks.createResolution).toBe('function');
-    });
-  });
-
-  describe('Measure', () => {
-    it('getFlywheelMetrics returns FlywheelMetrics shape', async () => {
-      const m = await ks.getFlywheelMetrics();
-      expect(m).toHaveProperty('quality');
-      expect(m).toHaveProperty('hitRate');
-      expect(m).toHaveProperty('improvement');
-      expect(m).toHaveProperty('freshness');
-    });
-    it('getHealthReport returns HealthReport shape', async () => {
-      const r = await ks.getHealthReport();
-      expect(r).toHaveProperty('score');
-      expect(r).toHaveProperty('totalEntries');
-    });
-    it('getAuditReport returns AuditReport shape', async () => {
-      const r = await ks.getAuditReport();
-      expect(r).toHaveProperty('findings');
-      expect(r).toHaveProperty('trend');
-    });
-    it('getAnalystAccuracy returns AccuracyReport shape', async () => {
-      const r = await ks.getAnalystAccuracy();
-      expect(r).toHaveProperty('overallAccuracy');
-      expect(r).toHaveProperty('byAnalyst');
-    });
-  });
-
-  describe('method count', () => {
-    it('has exactly 23 public methods', () => {
-      const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
-        .filter(m => m !== 'constructor');
-      expect(methods).toHaveLength(23);
+    it('matches resolutions via Prisma', async () => {
+      const { ks, prisma } = createKS();
+      prisma.resolution.findMany.mockResolvedValueOnce([
+        { id: 'r1', problem: 'permission error', fix: 'check perms', status: 'verified', pattern: 'permission', verifyCount: 3 },
+      ]);
+      const result = await ks.matchResolutions('permission denied on file');
+      expect(result.length).toBe(1);
+      expect(prisma.resolution.findMany).toHaveBeenCalled();
     });
   });
 });

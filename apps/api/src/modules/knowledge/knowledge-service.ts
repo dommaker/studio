@@ -1,5 +1,5 @@
 /**
- * KnowledgeService — Unified knowledge capability layer (Phase 0: interface only)
+ * KnowledgeService — Unified knowledge capability layer
  *
  * Single owner of all knowledge capabilities. Not a facade — real implementation.
  * All consumers (Pipeline Agents, Channel, External Agent Runtime, Studio UI)
@@ -18,13 +18,55 @@
 
 import type {
   KnowledgeEntry,
+  KnowledgeStore,
+  KnowledgeIngest,
+  KnowledgeLifecycle,
+  KnowledgeLinter,
   QueryFilter,
   MaturityLevel,
+  KnowledgeType,
 } from '@dommaker/harness';
 
-// ── Studio-side types (defined here, refined during implementation) ──
+// ── Type mapping (absorbed from KnowledgeBus) ──
 
-/** Structured write entry (review/alert/audit/deploy patterns) */
+const ENTRY_TYPE_MAP: Record<string, KnowledgeType> = {
+  pattern: 'guideline',
+  failure: 'pitfall',
+  incident: 'pitfall',
+  pitfall: 'pitfall',
+  guideline: 'guideline',
+  trend: 'process',
+  fix: 'guideline',
+  analyst_accuracy: 'model',
+  review: 'guideline',
+  alert: 'pitfall',
+  audit: 'guideline',
+  deploy: 'guideline',
+  gap: 'guideline',
+  resolution: 'guideline',
+};
+
+// ── Stop words for keyword extraction ──
+
+const STOP_WORDS = new Set([
+  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
+  'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
+  'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
+  'and', 'but', 'or', 'nor', 'not', 'so', 'yet', 'both', 'either',
+  'each', 'every', 'all', 'any', 'few', 'more', 'most', 'other', 'some',
+  'such', 'only', 'own', 'same', 'than', 'too', 'very', 'just',
+  'this', 'that', 'these', 'those', 'it', 'its',
+  '需要', '实现', '增加', '修改', '支持', '添加', '使用', '一个',
+]);
+
+const TYPE_WEIGHT: Record<string, number> = {
+  pitfall: 3, pattern: 2, guideline: 2, fix: 2,
+  process: 1, analysis: 1, trend: 1,
+};
+
+// ── Studio-side types ──
+
 export interface PatternEntry {
   type: string;
   title: string;
@@ -33,7 +75,6 @@ export interface PatternEntry {
   maturity?: MaturityLevel;
 }
 
-/** Incident write entry */
 export interface IncidentEntry {
   title: string;
   content: string;
@@ -41,7 +82,6 @@ export interface IncidentEntry {
   tags: string[];
 }
 
-/** Trend write entry */
 export interface TrendEntry {
   title: string;
   content: string;
@@ -49,7 +89,6 @@ export interface TrendEntry {
   tags: string[];
 }
 
-/** Analyst accuracy data */
 export interface AccuracyData {
   analystId: string;
   prediction: string;
@@ -58,7 +97,6 @@ export interface AccuracyData {
   timestamp: string;
 }
 
-/** Execution result for knowledge extraction */
 export interface ExtractionResult {
   task: string;
   diff: string;
@@ -68,7 +106,6 @@ export interface ExtractionResult {
   consumedKnowledge: string[];
 }
 
-/** Execution outcome for feedback loop */
 export interface ExecutionOutcome {
   executionId: string;
   agentType: string;
@@ -79,28 +116,24 @@ export interface ExecutionOutcome {
   mode?: 'external_agent' | 'channel' | 'pipeline';
 }
 
-/** Context injection options */
 export interface InjectOpts {
   tags?: string[];
   maxTokens?: number;
   includeRules?: boolean;
 }
 
-/** Search options */
 export interface SearchOpts {
   limit?: number;
   tags?: string[];
   type?: string;
 }
 
-/** Search result entry */
 export interface SearchResult {
   entry: KnowledgeEntry;
   score: number;
   highlights: string[];
 }
 
-/** Flywheel health metrics */
 export interface FlywheelMetrics {
   quality: number;
   hitRate: number;
@@ -109,7 +142,6 @@ export interface FlywheelMetrics {
   timestamp: string;
 }
 
-/** KB health report */
 export interface HealthReport {
   score: number;
   totalEntries: number;
@@ -119,7 +151,6 @@ export interface HealthReport {
   timestamp: string;
 }
 
-/** Audit report */
 export interface AuditReport {
   findings: AuditFinding[];
   trend: string;
@@ -133,7 +164,6 @@ export interface AuditFinding {
   entryId?: string;
 }
 
-/** Analyst accuracy report */
 export interface AccuracyReport {
   overallAccuracy: number;
   byAnalyst: Record<string, number>;
@@ -141,105 +171,388 @@ export interface AccuracyReport {
   timestamp: string;
 }
 
+// ── Dependencies interface ──
+
+export interface KnowledgeServiceDeps {
+  store: KnowledgeStore;
+  lifecycle: KnowledgeLifecycle;
+  ingest: KnowledgeIngest;
+  linter: KnowledgeLinter;
+  prisma: any; // PrismaClient
+  query: any;  // UnifiedQuery
+  eventEmitter: any; // EventEmitter
+}
+
 // ── KnowledgeService ─────────────────────────────────────────
 
 export class KnowledgeService {
+  private store: KnowledgeStore;
+  private lifecycle: KnowledgeLifecycle;
+  private ingest: KnowledgeIngest;
+  private linter: KnowledgeLinter;
+  private prisma: any;
+  private query: any;
+  private eventEmitter: any;
+
+  constructor(deps: KnowledgeServiceDeps) {
+    this.store = deps.store;
+    this.lifecycle = deps.lifecycle;
+    this.ingest = deps.ingest;
+    this.linter = deps.linter;
+    this.prisma = deps.prisma;
+    this.query = deps.query;
+    this.eventEmitter = deps.eventEmitter;
+  }
 
   // ═══════════ Produce (write knowledge) ════════════
 
-  /** Extract knowledge from execution result (success + failure) */
-  async extractFromExecution(result: ExtractionResult): Promise<void> {}
+  async extractFromExecution(_result: ExtractionResult): Promise<void> {
+    // Phase 4: absorb from EvolutionService.microEvolution
+  }
 
-  /** Extract knowledge from conversation/discussion */
-  async extractFromConversation(messages: { role: string; content: string }[]): Promise<void> {}
+  async extractFromConversation(_messages: { role: string; content: string }[]): Promise<void> {
+    // Phase 5: new capability
+  }
 
-  /** Structured write (review/alert/audit/deploy patterns) */
-  async recordPattern(entry: PatternEntry): Promise<void> {}
+  async recordPattern(entry: PatternEntry): Promise<void> {
+    try {
+      const source = entry.tags?.[0] || 'monitor';
 
-  /** Incident write */
-  async recordIncident(entry: IncidentEntry): Promise<void> {}
+      // Triage quality gate: require root_cause + fix_action
+      if (entry.type === 'triage') {
+        const content = (entry.content || '').toLowerCase();
+        if (!content.includes('root_cause') || !content.includes('fix_action')) {
+          return; // silently skip invalid triage entries
+        }
+      }
 
-  /** Trend write */
-  async recordTrend(entry: TrendEntry): Promise<void> {}
+      // Validate entry quality — mark low_quality instead of rejecting
+      const tags: string[] = [entry.type];
+      const knowledgeType = ENTRY_TYPE_MAP[entry.type] || 'guideline';
+      const issues = this.linter.validateEntry({
+        title: entry.title || '',
+        content: entry.content || '',
+        tags,
+        type: knowledgeType,
+      });
+      const blockers = issues.filter((i: any) => i.severity === 'high');
+      if (blockers.length > 0) {
+        tags.push('low_quality');
+      }
 
-  /** Record analyst accuracy data */
-  async recordAnalystAccuracy(data: AccuracyData): Promise<void> {}
+      this.ingest.ingestEntry(
+        {
+          type: knowledgeType,
+          title: entry.title,
+          content: entry.content,
+          tags,
+        },
+        {
+          source: `pattern:${source}`,
+          layer: 'project',
+          maturity: 'active',
+          tags,
+          consumptionMode: 'signal',
+        },
+      );
+    } catch {
+      // best-effort — don't block producers
+    }
+  }
+
+  async recordIncident(entry: IncidentEntry): Promise<void> {
+    try {
+      this.ingest.ingestEntry(
+        {
+          type: 'pitfall',
+          title: entry.title,
+          content: entry.content,
+          tags: ['incident', entry.severity],
+        },
+        {
+          source: `incident:ops:${new Date().toISOString()}`,
+          layer: 'tech',
+          maturity: 'active',
+          tags: ['incident', entry.severity],
+          consumptionMode: 'signal',
+        },
+      );
+    } catch {
+      // best-effort
+    }
+  }
+
+  async recordTrend(entry: TrendEntry): Promise<void> {
+    try {
+      this.ingest.ingestEntry(
+        {
+          type: 'process' as KnowledgeType,
+          title: entry.title,
+          content: entry.content,
+          tags: ['trend'],
+        },
+        {
+          source: `trend:auditor:${new Date().toISOString()}`,
+          layer: 'project',
+          maturity: 'active',
+          tags: ['trend'],
+          consumptionMode: 'signal',
+        },
+      );
+    } catch {
+      // best-effort
+    }
+  }
+
+  async recordAnalystAccuracy(_data: AccuracyData): Promise<void> {
+    // Phase 1C: absorb from KnowledgeBus.recordAnalystAccuracy
+  }
 
   // ═══════════ Consume (read knowledge) ════════════
 
-  /** Context injection for prompt assembly */
-  async injectContext(agentType: string, opts?: InjectOpts): Promise<string> {
-    return '';
+  async injectContext(agentType: string, _opts?: InjectOpts): Promise<string> {
+    const sections: string[] = [];
+    const injectedIds: string[] = [];
+
+    // 1. rule — full content injection (constraints must be followed)
+    const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType });
+    if (rules.length) {
+      const lines = rules.map((r: any) => `- ${stripFormat(r.content)}`);
+      sections.push(`## 系统约束\n${lines.join('\n')}`);
+      injectedIds.push(...rules.map((r: any) => r.id));
+    }
+
+    // 2. context — full content injection (preferences + environment)
+    const context = await this.query.queryEntries({ consumptionModes: ['context'] });
+    if (context.length) {
+      const lines = context.map((c: any) => `- ${stripFormat(c.content)}`);
+      sections.push(`## 上下文\n${lines.join('\n')}`);
+      injectedIds.push(...context.map((c: any) => c.id));
+    }
+
+    // 3. signal — index injection (informational)
+    const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
+    if (signals.length) {
+      const lines = signals.map((s: any) => `- [${s.id}] ${s.summary}`);
+      sections.push(`## 近期信号\n${lines.join('\n')}`);
+      injectedIds.push(...signals.map((s: any) => s.id));
+    }
+
+    // 4. reference — hint only
+    const refCount = await this.query.count({ consumptionModes: ['reference'] });
+    if (refCount > 0) {
+      sections.push(`[知识库: ${refCount} 条参考，遇到问题时用 search()]`);
+    }
+
+    // 5. recordReference — close maturity loop
+    if (injectedIds.length > 0) {
+      for (const id of injectedIds) {
+        try { this.lifecycle.recordReference(id, 'prompt-inject'); } catch { /* non-blocking */ }
+      }
+    }
+
+    return sections.join('\n\n');
   }
 
-  /** Task-relevant search */
   async search(query: string, opts?: SearchOpts): Promise<SearchResult[]> {
-    return [];
+    try {
+      const limit = opts?.limit || 5;
+      const all = this.store.list({});
+      if (all.length === 0) return [];
+
+      const keywords = extractKeywords(query);
+      if (keywords.length === 0) return [];
+
+      const now = Date.now();
+      const scored = all
+        .filter((e: any) => e.maturity !== 'archived')
+        .filter((e: any) => !opts?.type || e.tags?.includes(opts.type))
+        .map((e: any) => {
+          const titleLower = (e.title || '').toLowerCase();
+          const contentLower = (e.content || '').toLowerCase();
+          let keywordScore = 0;
+          let bestMatchPos = -1;
+          for (const kw of keywords) {
+            if (titleLower.includes(kw)) keywordScore += 3;
+            const pos = contentLower.indexOf(kw);
+            if (pos !== -1) {
+              keywordScore += 1;
+              if (bestMatchPos === -1 || pos < bestMatchPos) bestMatchPos = pos;
+            }
+          }
+          if (keywordScore === 0) return null;
+
+          const typeWeight = TYPE_WEIGHT[e.tags?.[0] || ''] || 1;
+          const daysAgo = e.lastReferenced
+            ? (now - new Date(e.lastReferenced).getTime()) / 86400000
+            : 30;
+          const freshness = daysAgo < 7 ? 1.0 : Math.max(0.2, 1 - (daysAgo - 7) / 30);
+          const maturityWeight: Record<string, number> = { proven: 1.5, verified: 1.0, draft: 0.5 };
+          const mWeight = maturityWeight[e.maturity] || 0.5;
+          const qualityPenalty = e.tags?.includes('low_quality') ? 0.3 : 1.0;
+
+          const score = keywordScore * typeWeight * freshness * mWeight * qualityPenalty;
+          const matchContext = bestMatchPos >= 0
+            ? e.content.slice(Math.max(0, bestMatchPos - 40), bestMatchPos + 160)
+            : e.content.slice(0, 200);
+
+          return {
+            entry: e,
+            score,
+            highlights: [matchContext],
+          };
+        })
+        .filter((r: any): r is NonNullable<typeof r> => r !== null)
+        .sort((a: any, b: any) => b.score - a.score)
+        .slice(0, limit);
+
+      // Record references for returned entries
+      for (const r of scored) {
+        try { this.lifecycle.recordReference(r.entry.id, 'search'); } catch { /* non-blocking */ }
+      }
+
+      return scored;
+    } catch {
+      return [];
+    }
   }
 
-  /** Known solution matching */
   async matchResolutions(problem: string): Promise<KnowledgeEntry[]> {
-    return [];
+    try {
+      const candidates = await this.prisma.resolution.findMany({
+        where: { status: { in: ['verified', 'canonical'] } },
+        orderBy: { verifyCount: 'desc' },
+      });
+
+      const matched: any[] = [];
+      const lowerMsg = problem.toLowerCase();
+
+      for (const row of candidates) {
+        const pattern = row.pattern;
+        let isMatch = false;
+
+        // Try regex first
+        try {
+          const re = new RegExp(pattern, 'i');
+          if (re.test(problem)) isMatch = true;
+        } catch {
+          // Not valid regex, fall back to substring
+          if (lowerMsg.includes(pattern.toLowerCase())) isMatch = true;
+        }
+
+        if (isMatch) {
+          matched.push({
+            id: row.id,
+            title: row.title || pattern,
+            content: row.fix || '',
+            type: 'guideline',
+            maturity: row.status === 'canonical' ? 'proven' : 'verified',
+            tags: ['resolution', row.errorClass || ''].filter(Boolean),
+            layer: 'project',
+            created: row.createdAt?.toISOString?.() || '',
+            lastReferenced: row.updatedAt?.toISOString?.() || '',
+            contributors: [],
+            projects: [],
+            applicablePhases: [],
+            sourceReferences: [],
+            referencedBy: [],
+            executionResults: [],
+            consumptionMode: 'reference',
+            origin: 'system',
+          });
+        }
+      }
+
+      return matched;
+    } catch {
+      return [];
+    }
   }
 
-  /** Browse (Studio UI) */
   async list(filter?: QueryFilter): Promise<KnowledgeEntry[]> {
-    return [];
+    return this.query.listEntries(filter || {});
   }
 
   async get(id: string): Promise<KnowledgeEntry | null> {
-    return null;
+    return this.store.get(id);
   }
 
   // ═══════════ Track (consumption + outcome tracking) ════════════
 
-  /** Record consumption (auto-triggered by injectContext/search internally) */
-  recordConsumption(entryIds: string[], context: string): void {}
+  recordConsumption(entryIds: string[], context: string): void {
+    for (const id of entryIds) {
+      try { this.lifecycle.recordReference(id, context); } catch { /* non-blocking */ }
+    }
+  }
 
-  /** Record execution outcome (closes feedback loop) */
-  async recordOutcome(outcome: ExecutionOutcome): Promise<void> {}
+  async recordOutcome(_outcome: ExecutionOutcome): Promise<void> {
+    // Phase 4: close feedback loop
+  }
 
-  /** Human explicit feedback */
-  async recordFeedback(entryId: string, useful: boolean, reason?: string): Promise<void> {}
+  async recordFeedback(_entryId: string, _useful: boolean, _reason?: string): Promise<void> {
+    // Phase 5: human feedback
+  }
 
   // ═══════════ Lifecycle ════════════
 
-  /** Promote maturity: draft → verified → proven */
-  async promote(entryId: string): Promise<void> {}
+  async promote(_entryId: string): Promise<void> {
+    // Phase 1B
+  }
 
-  /** Decay: long-unreferenced entries downgrade */
-  async decay(entryId: string): Promise<void> {}
+  async decay(_entryId: string): Promise<void> {
+    // Phase 1B
+  }
 
-  /** Merge duplicate entries */
-  async merge(sourceId: string, targetId: string): Promise<void> {}
+  async merge(_sourceId: string, _targetId: string): Promise<void> {
+    // Phase 1B
+  }
 
-  /** Graduate constraint to knowledge */
-  async graduateConstraint(id: string): Promise<void> {}
+  async graduateConstraint(_id: string): Promise<void> {
+    // Phase 7: constraint → knowledge
+  }
 
   // ═══════════ Resolve (known solutions) ════════════
 
-  /** Create a known problem→fix resolution */
-  async createResolution(problem: string, fix: string): Promise<void> {}
+  async createResolution(_problem: string, _fix: string): Promise<void> {
+    // Phase 1B
+  }
 
   // ═══════════ Measure (metrics + audit) ════════════
 
-  /** Flywheel metrics: quality, hitRate, improvement, freshness */
   async getFlywheelMetrics(): Promise<FlywheelMetrics> {
     return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp: '' };
   }
 
-  /** KB health report */
   async getHealthReport(): Promise<HealthReport> {
     return { score: 0, totalEntries: 0, staleEntries: 0, orphanEntries: 0, duplicateEntries: 0, timestamp: '' };
   }
 
-  /** Audit report (daily audit trend) */
   async getAuditReport(): Promise<AuditReport> {
     return { findings: [], trend: '', timestamp: '' };
   }
 
-  /** Analyst accuracy report */
   async getAnalystAccuracy(): Promise<AccuracyReport> {
     return { overallAccuracy: 0, byAnalyst: {}, recentPredictions: [], timestamp: '' };
   }
+}
+
+// ── Utilities (absorbed from KnowledgeBus / prompt-builder) ──
+
+function extractKeywords(prompt: string): string[] {
+  return prompt
+    .toLowerCase()
+    .split(/[\s,，。！？、；：""''（）\(\)\[\]{}<>\/\\|@#$%^&*+=~`!\-_]+/)
+    .filter(w => w.length >= 2 && !STOP_WORDS.has(w))
+    .slice(0, 8);
+}
+
+function stripFormat(text: string): string {
+  return text
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/^>\s+/gm, '')
+    .replace(/^\s*[-*+]\s+/gm, '- ')
+    .trim();
 }
