@@ -115,6 +115,21 @@ class DeployAgent {
 
     eventBus.publish('deploy.completed', { executionId: params.executionId, result: deployResult });
 
+    // Persist deploy.completed to StudioEvent for OKR/monitoring
+    prisma.studioEvent.create({
+      data: {
+        type: 'deploy.completed',
+        source: 'deploy-agent',
+        executionId: params.executionId,
+        payload: JSON.stringify({
+          success: deployResult.success,
+          type: deployResult.type,
+          durationMs,
+          timings,
+        }),
+      },
+    }).catch((e: unknown) => { logger.warn('[DeployAgent] StudioEvent write failed', { error: String(e) }); });
+
     // Record deploy findings to KnowledgeBus
     const deployFindings = deployResult.findings?.map(f => `[${f.severity}] ${f.category}: ${f.message}`).join('\n') || 'No findings';
     knowledgeService.recordPattern({

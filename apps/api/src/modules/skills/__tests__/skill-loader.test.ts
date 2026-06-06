@@ -5,7 +5,14 @@
  * #75: load/unload lifecycle
  * #76: tier-based tool permission binding
  */
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+// Isolate from real skill files on disk
+const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-test-'));
+process.env.SKILLS_DIR = testSkillsDir;
 
 // Mock prisma
 const mockPrismaSkill = {
@@ -380,6 +387,80 @@ describe('SkillLoaderService', () => {
       expect(premiumTools).toContain('Read');
       expect(premiumTools).toContain('Edit');
       expect(premiumTools).toContain('WebFetch');
+    });
+  });
+
+  // ── .md file-based loading (S1-1) ──
+
+  describe('file-based loading (.md)', () => {
+    const mdContent = `---
+name: file-skill
+description: "Test skill from file"
+trigger: goal_start
+agentTypes: [executor]
+tier: fast
+status: published
+---
+## Test Skill
+This is a test skill loaded from a .md file.`;
+
+    beforeEach(() => {
+      fs.writeFileSync(path.join(testSkillsDir, 'file-skill.md'), mdContent);
+    });
+
+    afterEach(() => {
+      try { fs.unlinkSync(path.join(testSkillsDir, 'file-skill.md')); } catch {}
+    });
+
+    it('should load skill from .md file', async () => {
+      const freshService = new SkillLoaderService();
+      const loaded = await freshService.loadSkill({
+        sessionId: 'file-test',
+        skillName: 'file-skill',
+        agentType: 'executor',
+      });
+
+      expect(loaded).not.toBeNull();
+      expect(loaded!.name).toBe('file-skill');
+      expect(loaded!.prompt).toContain('## Test Skill');
+      expect(loaded!.tier).toBe('fast');
+      expect(loaded!.skillId).toBe('file:file-skill');
+    });
+
+    it('should prefer .md file over Prisma', async () => {
+      mockPrismaSkill.findFirst.mockResolvedValue({
+        id: 'db-skill',
+        name: 'file-skill',
+        prompt: 'from DB',
+        tools: null,
+        tier: 'standard',
+        required: null,
+        status: 'published',
+      });
+
+      const freshService = new SkillLoaderService();
+      const loaded = await freshService.loadSkill({
+        sessionId: 'precedence-test',
+        skillName: 'file-skill',
+      });
+
+      expect(loaded).not.toBeNull();
+      expect(loaded!.skillId).toBe('file:file-skill');
+      expect(loaded!.prompt).toContain('## Test Skill');
+      // Prisma should NOT be called since file was found
+      expect(mockPrismaSkill.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('should load from .md in loadForSession', async () => {
+      const freshService = new SkillLoaderService();
+      const loaded = await freshService.loadForSession({
+        sessionId: 'session-file',
+        trigger: 'goal_start',
+        agentType: 'executor',
+        tier: 'fast',
+      });
+
+      expect(loaded.some(s => s.name === 'file-skill')).toBe(true);
     });
   });
 
