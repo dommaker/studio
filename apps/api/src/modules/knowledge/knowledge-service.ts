@@ -206,8 +206,32 @@ export class KnowledgeService {
 
   // ═══════════ Produce (write knowledge) ════════════
 
-  async extractFromExecution(_result: ExtractionResult): Promise<void> {
-    // Phase 4: absorb from EvolutionService.microEvolution
+  async extractFromExecution(result: ExtractionResult): Promise<void> {
+    // Extract knowledge patterns from execution diff/task
+    if (!result.diff && !result.task) return;
+
+    const title = `[Exec] ${result.agentType}: ${result.task.slice(0, 80)}`;
+    const content = [
+      `Agent: ${result.agentType}`,
+      `Success: ${result.success}`,
+      `Duration: ${result.duration}ms`,
+      result.diff ? `Diff (${result.diff.length} chars): ${result.diff.slice(0, 500)}` : '',
+      result.consumedKnowledge.length > 0 ? `Consumed: ${result.consumedKnowledge.join(', ')}` : '',
+    ].filter(Boolean).join('\n');
+
+    await this.recordPattern({
+      type: result.success ? 'pattern' : 'failure',
+      title,
+      content,
+      tags: ['execution', result.agentType],
+    });
+
+    // Record outcome for consumed knowledge entries
+    if (result.consumedKnowledge.length > 0) {
+      this.recordConsumption(result.consumedKnowledge, `execution:${result.agentType}`);
+    }
+
+    this.eventEmitter.emit('knowledge', { type: 'extractFromExecution', data: { agentType: result.agentType, success: result.success } });
   }
 
   async extractFromConversation(_messages: { role: string; content: string }[]): Promise<void> {
@@ -485,12 +509,73 @@ export class KnowledgeService {
     }
   }
 
-  async recordOutcome(_outcome: ExecutionOutcome): Promise<void> {
-    // Phase 4: close feedback loop
+  async recordOutcome(outcome: ExecutionOutcome): Promise<void> {
+    // Close the feedback loop: record execution outcome as StudioEvent
+    try {
+      await this.prisma.studioEvent.create({
+        data: {
+          type: `knowledge:outcome:${outcome.success ? 'success' : 'failure'}`,
+          source: outcome.agentType,
+          payload: JSON.stringify({
+            executionId: outcome.executionId,
+            agentType: outcome.agentType,
+            success: outcome.success,
+            details: outcome.details?.slice(0, 500),
+            consumedKnowledge: outcome.consumedKnowledge,
+            mode: outcome.mode,
+          }),
+        },
+      });
+    } catch { /* non-blocking */ }
+
+    // Update referencedBy for consumed knowledge entries
+    for (const entryId of outcome.consumedKnowledge) {
+      try {
+        const entry = this.store.get(entryId);
+        if (entry) {
+          entry.referencedBy = entry.referencedBy || [];
+          if (!entry.referencedBy.includes(outcome.executionId)) {
+            entry.referencedBy.push(outcome.executionId);
+            this.store.save(entry);
+          }
+        }
+      } catch { /* non-blocking */ }
+    }
+
+    this.eventEmitter.emit('knowledge', { type: 'recordOutcome', data: { executionId: outcome.executionId, success: outcome.success } });
   }
 
   async recordFeedback(_entryId: string, _useful: boolean, _reason?: string): Promise<void> {
     // Phase 5: human feedback
+  }
+
+  /**
+   * Record per-step pipeline feedback as StudioEvent.
+   * Called after each pipeline phase (analyst/executor/review/deploy) completes.
+   */
+  async pipelineStepFeedback(params: {
+    goalId: string;
+    executionId: string;
+    phase: string;
+    success: boolean;
+    durationMs: number;
+    tokensUsed?: number;
+    error?: string;
+  }): Promise<void> {
+    try {
+      await this.prisma.studioEvent.create({
+        data: {
+          type: `knowledge:pipeline:${params.phase}:${params.success ? 'success' : 'failure'}`,
+          source: 'pipeline',
+          payload: JSON.stringify(params),
+        },
+      });
+    } catch { /* non-blocking */ }
+
+    this.eventEmitter.emit('knowledge', {
+      type: 'pipelineStepFeedback',
+      data: { goalId: params.goalId, phase: params.phase, success: params.success },
+    });
   }
 
   // ═══════════ Lifecycle ════════════
@@ -613,6 +698,51 @@ export class KnowledgeService {
   async getAnalystAccuracy(): Promise<AccuracyReport> {
     return { overallAccuracy: 0, byAnalyst: {}, recentPredictions: [], timestamp: new Date().toISOString() };
   }
+
+  // ═══════════ Additional methods (absorbed from KnowledgeBus / ResolutionService) ════════════
+
+  /**
+   * 知识统计概览 — absorbed from KnowledgeBus.getStats()
+   */
+  getStats(): Record<string, number> {
+    try {
+      const entries = this.store.list({});
+      const byType: Record<string, number> = {};
+      for (const e of entries) {
+        const cat = (e as any).tags?.[0] || 'other';
+        byType[cat] = (byType[cat] || 0) + 1;
+      }
+      byType.total = entries.length;
+      return byType;
+    } catch {
+      return { total: 0 };
+    }
+  }
+
+  /**
+   * 验证 Resolution — verifyCount++，累积 3 次 → canonical
+   * Absorbed from ResolutionService.verifyResolution()
+   */
+  async verifyResolution(id: string): Promise<void> {
+    try {
+      const row = await this.prisma.resolution.findUnique({ where: { id } });
+      if (!row) return;
+
+      const newCount = row.verifyCount + 1;
+      const newStatus = newCount >= 3 ? 'canonical' : (newCount >= 1 ? 'verified' : 'pending');
+
+      await this.prisma.resolution.update({
+        where: { id },
+        data: {
+          verifyCount: newCount,
+          status: newStatus,
+          lastVerifiedAt: new Date(),
+        },
+      });
+    } catch {
+      // best-effort
+    }
+  }
 }
 
 // ── Utilities (absorbed from KnowledgeBus / prompt-builder) ──
@@ -635,3 +765,25 @@ function stripFormat(text: string): string {
     .replace(/^\s*[-*+]\s+/gm, '- ')
     .trim();
 }
+
+// ── Singleton ────────────────────────────────────────────────
+
+import { EventEmitter } from 'events';
+import { prisma } from '@dommaker/studio-prisma';
+import {
+  sharedStore,
+  sharedLifecycle,
+  sharedIngest,
+  sharedQuery,
+  sharedLinter,
+} from './knowledge-bus.service';
+
+export const knowledgeService = new KnowledgeService({
+  store: sharedStore,
+  lifecycle: sharedLifecycle,
+  ingest: sharedIngest,
+  linter: sharedLinter,
+  prisma,
+  query: sharedQuery,
+  eventEmitter: new EventEmitter(),
+});

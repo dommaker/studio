@@ -178,7 +178,7 @@ class SessionSummaryAgent {
   private async extractFixPatterns(commits: Array<{ hash: string; type: string; message: string; files: string[] }>): Promise<number> {
     let count = 0;
     try {
-      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+      const { knowledgeService } = await import('../knowledge/knowledge-service.js');
 
       for (const c of commits) {
         if (c.type !== 'fix') continue;
@@ -188,13 +188,11 @@ class SessionSummaryAgent {
         const trigger = this.extractTrigger(c.message, c.files);
 
         try {
-          await knowledgeBus.recordPattern({
-            source: 'session-summary',
+          await knowledgeService.recordPattern({
             type: 'pattern',
             title: `[Session Fix] ${c.message.slice(0, 120)}`,
             content: `Commit: ${c.hash.slice(0, 8)}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}\nPattern: ${gap}\nTriggers: ${trigger}`,
-            severity: 'info',
-            timestamp: Date.now(),
+            tags: ['session-summary'],
           });
           count++;
         } catch (e) {
@@ -209,18 +207,16 @@ class SessionSummaryAgent {
 
   private async extractFeatSummaries(commits: Array<{ hash: string; type: string; message: string; files: string[] }>): Promise<void> {
     try {
-      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+      const { knowledgeService } = await import('../knowledge/knowledge-service.js');
 
       for (const c of commits) {
         if (c.type !== 'feat') continue;
 
-        await knowledgeBus.recordPattern({
-          source: 'session-summary',
+        await knowledgeService.recordPattern({
           type: 'pattern',
           title: `[Session Feature] ${c.message.slice(0, 120)}`,
           content: `Commit: ${c.hash.slice(0, 8)}\nMessage: ${c.message}\nFiles: ${c.files.join(', ')}`,
-          severity: 'info',
-          timestamp: Date.now(),
+          tags: ['session-summary'],
         });
       }
     } catch {

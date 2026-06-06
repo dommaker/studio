@@ -235,16 +235,14 @@ export class OpsAgent {
       // Critical: API not responding → check if daemon is busy before restart
       if (!status.apiResponding) {
         logger.error('[OpsAgent] CRITICAL: API not responding on port', { port: this.port });
-        // B13-009: Record incident to KnowledgeBus
+        // B13-009: Record incident to KnowledgeService
         try {
-          const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-          knowledgeBus.recordIncident({
-            source: 'ops',
-            type: 'incident',
+          const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+          knowledgeService.recordIncident({
             title: 'API not responding',
             content: `API on port ${this.port} is not responding. Time: ${new Date().toISOString()}`,
             severity: 'critical',
-            timestamp: Date.now(),
+            tags: ['ops'],
           }).catch(() => { /* non-blocking */ });
         } catch { /* non-blocking */ }
         // Don't auto-restart if daemon is running tasks — the load is likely from Claude
@@ -281,16 +279,14 @@ export class OpsAgent {
       const pct = parseInt(status.disk.usePercent);
       if (pct > this.rules.checks.disk_threshold_critical) {
         logger.error('[OpsAgent] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
-        // B13-009: Record incident to KnowledgeBus
+        // B13-009: Record incident to KnowledgeService
         try {
-          const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-          knowledgeBus.recordIncident({
-            source: 'ops',
-            type: 'incident',
+          const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+          knowledgeService.recordIncident({
             title: 'Disk nearly full',
             content: `Disk usage at ${status.disk.usePercent}% (threshold: ${this.rules.checks.disk_threshold_critical}%). Time: ${new Date().toISOString()}`,
             severity: 'critical',
-            timestamp: Date.now(),
+            tags: ['ops'],
           }).catch(() => { /* non-blocking */ });
         } catch { /* non-blocking */ }
       }

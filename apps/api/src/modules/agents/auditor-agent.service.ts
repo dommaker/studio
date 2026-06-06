@@ -10,7 +10,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
-import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { knowledgeService } from '../knowledge/knowledge-service.js';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 const SYSTEM_CHANNEL_NAME = '#系统';
@@ -205,14 +205,12 @@ export class AuditorAgent {
         summary.push('', '### 开发会话行为趋势', ...sessionTrends);
       }
 
-      // Record audit findings to KnowledgeBus
-      knowledgeBus.recordPattern({
-        source: 'auditor',
+      // Record audit findings to KnowledgeService
+      knowledgeService.recordPattern({
         type: 'trend',
         title: `[Auditor] Daily audit ${now.toISOString().slice(0, 10)}: ${total} execs, ${successRate}% success`,
         content: summary.filter(l => l.startsWith('-')).join('\n'),
-        severity: successRate < 80 ? 'warning' : 'info',
-        timestamp: Date.now(),
+        tags: ['auditor'],
       }).catch(() => { /* non-blocking */ });
 
       logger.info('[AuditorAgent] Daily audit completed', { total, failed, successRate });
@@ -591,8 +589,7 @@ export class AuditorAgent {
   private async analyzeCircuitHealth(): Promise<Suggestion[]> {
     const suggestions: Suggestion[] = [];
     try {
-      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-      const stats = knowledgeBus.getStats();
+      const stats = knowledgeService.getStats();
       const total = stats.total || 0;
 
       // Circuit 1: 冷电路 — 知识总线为空
@@ -1290,13 +1287,12 @@ export class AuditorAgent {
     } catch { /* non-blocking */ }
 
     try {
-      // KnowledgeBus patterns via getStats
-      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-      const stats = knowledgeBus.getStats();
+      // KnowledgeService patterns via getStats
+      const stats = knowledgeService.getStats();
       if (stats.total && stats.total > 0) {
         const entries = Object.entries(stats).filter(([k]) => k !== 'total')
           .map(([k, v]) => `${k}:${v}`).join(', ');
-        signals.push(`- KnowledgeBus 统计: ${entries || 'empty'} (total: ${stats.total})`);
+        signals.push(`- KnowledgeService 统计: ${entries || 'empty'} (total: ${stats.total})`);
       }
     } catch { /* non-blocking */ }
 

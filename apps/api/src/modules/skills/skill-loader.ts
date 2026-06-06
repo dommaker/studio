@@ -12,6 +12,9 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { skillLoader, type SkillDefinition, type SkillTrigger, type SkillTier } from '@dommaker/studio-skill';
 import { logger } from '@dommaker/studio-shared';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 // ── Types ──
 
@@ -57,6 +60,74 @@ const TIER_TOOL_ACCESS: Record<SkillTier, Set<string>> = {
   premium: new Set(['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch']),
 };
 
+// ── File-based skill loading (.md with frontmatter) ──
+
+const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'knowledge', 'skills');
+
+interface SkillFrontmatter {
+  name: string;
+  description?: string;
+  trigger?: SkillTrigger;
+  agentTypes?: string[];
+  tier?: SkillTier;
+  tools?: string[];
+  required?: string[];
+  status?: string;
+}
+
+function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: string } | null {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) return null;
+
+  const yaml = match[1];
+  const body = match[2].trim();
+  const meta: Record<string, unknown> = {};
+
+  for (const line of yaml.split('\n')) {
+    const kv = line.match(/^(\w+):\s*(.+)$/);
+    if (!kv) continue;
+    const [, key, val] = kv;
+    // Parse arrays: [a, b] or ["a", "b"]
+    if (val.startsWith('[') && val.endsWith(']')) {
+      meta[key] = val.slice(1, -1).split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+    } else {
+      meta[key] = val.replace(/^["']|["']$/g, '');
+    }
+  }
+
+  return { meta: meta as unknown as SkillFrontmatter, body };
+}
+
+function loadSkillFromDisk(skillName: string): { meta: SkillFrontmatter; prompt: string } | null {
+  try {
+    const filePath = path.join(SKILLS_DIR, `${skillName}.md`);
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = parseFrontmatter(raw);
+    if (!parsed || parsed.meta.name !== skillName) return null;
+    if (parsed.meta.status && parsed.meta.status !== 'published') return null;
+    return { meta: parsed.meta, prompt: parsed.body };
+  } catch {
+    return null;
+  }
+}
+
+function loadAllSkillFiles(): SkillFrontmatter[] {
+  try {
+    if (!fs.existsSync(SKILLS_DIR)) return [];
+    return fs.readdirSync(SKILLS_DIR)
+      .filter(f => f.endsWith('.md'))
+      .map(f => {
+        const raw = fs.readFileSync(path.join(SKILLS_DIR, f), 'utf-8');
+        const parsed = parseFrontmatter(raw);
+        return parsed?.meta;
+      })
+      .filter((m): m is SkillFrontmatter => !!m && (!m.status || m.status === 'published'));
+  } catch {
+    return [];
+  }
+}
+
 // ── Session state store ──
 
 const sessionStates = new Map<string, SessionSkillState>();
@@ -88,20 +159,38 @@ export class SkillLoaderService {
       return state.loaded.get(skillName)!;
     }
 
-    // Find skill in DB
-    const skill = await prisma.skill.findFirst({
-      where: { name: skillName, status: 'published' },
-    });
-    if (!skill) {
-      logger.warn('[SkillLoader] Skill not found or not published', { skillName });
-      return null;
+    // Try file-based loading first
+    const fileSkill = loadSkillFromDisk(skillName);
+
+    let skillId: string;
+    let prompt: string;
+    let tools: string[];
+    let tier: SkillTier;
+    let required: string[];
+
+    if (fileSkill) {
+      skillId = `file:${skillName}`;
+      prompt = fileSkill.prompt;
+      tools = fileSkill.meta.tools || [];
+      tier = (fileSkill.meta.tier || 'standard') as SkillTier;
+      required = fileSkill.meta.required || [];
+    } else {
+      // Fall back to Prisma
+      const skill = await prisma.skill.findFirst({
+        where: { name: skillName, status: 'published' },
+      });
+      if (!skill) {
+        logger.warn('[SkillLoader] Skill not found or not published', { skillName });
+        return null;
+      }
+      skillId = skill.id;
+      prompt = skill.prompt || '';
+      tools = skill.tools ? JSON.parse(skill.tools) : [];
+      tier = (skill.tier || 'standard') as SkillTier;
+      required = skill.required ? JSON.parse(skill.required) : [];
     }
 
-    // Parse tools
-    const tools: string[] = skill.tools ? JSON.parse(skill.tools) : [];
-
     // Load required skills recursively
-    const required: string[] = skill.required ? JSON.parse(skill.required) : [];
     for (const reqName of required) {
       if (!state.loaded.has(reqName)) {
         await this.loadSkill({ sessionId, skillName: reqName, agentType });
@@ -109,33 +198,22 @@ export class SkillLoaderService {
     }
 
     const loaded: LoadedSkill = {
-      skillId: skill.id,
-      name: skill.name,
-      prompt: skill.prompt || '',
+      skillId,
+      name: skillName,
+      prompt,
       tools,
-      tier: (skill.tier || 'standard') as SkillTier,
+      tier,
       loadedAt: new Date(),
     };
 
     state.loaded.set(skillName, loaded);
-
-    // Inject into package-level loader for prompt formatting
-    const definition: SkillDefinition = {
-      id: skill.name,
-      name: skill.name,
-      description: skill.description || '',
-      trigger: (skill.trigger || 'always') as SkillTrigger,
-      agentTypes: skill.agentTypes ? JSON.parse(skill.agentTypes) : [agentType],
-      tier: (skill.tier || 'standard') as SkillTier,
-      tools,
-      prompt: skill.prompt || '',
-    };
 
     logger.info('[SkillLoader] Loaded skill', {
       sessionId,
       skillName,
       tier: loaded.tier,
       toolCount: tools.length,
+      source: fileSkill ? 'file' : 'db',
     });
 
     return loaded;
@@ -176,25 +254,43 @@ export class SkillLoaderService {
   async loadForSession(options: LoadForSessionOptions): Promise<LoadedSkill[]> {
     const { sessionId, trigger, agentType, tier = 'standard', companyId } = options;
 
-    const where: Record<string, unknown> = { status: 'published' };
-    if (companyId) where.companyId = companyId;
-
-    const skills = await prisma.skill.findMany({ where });
-
     const tierRank: Record<string, number> = { fast: 1, standard: 2, premium: 3 };
     const targetRank = tierRank[tier] ?? 2;
 
     const matched: LoadedSkill[] = [];
-    for (const skill of skills) {
-      // Filter by trigger
+
+    // 1. Load from .md files
+    const fileSkills = loadAllSkillFiles();
+    for (const meta of fileSkills) {
+      const skillTrigger = meta.trigger || 'always';
+      if (skillTrigger !== 'always' && skillTrigger !== trigger) continue;
+
+      const agentTypes = meta.agentTypes || [];
+      if (agentTypes.length > 0 && !agentTypes.includes(agentType)) continue;
+
+      const skillTier = (meta.tier || 'standard') as SkillTier;
+      if (tierRank[skillTier] > targetRank) continue;
+
+      const loaded = await this.loadSkill({ sessionId, skillName: meta.name, agentType });
+      if (loaded) matched.push(loaded);
+    }
+
+    // 2. Fall back to Prisma for skills not found on disk
+    const fileNames = new Set(fileSkills.map(m => m.name));
+    const where: Record<string, unknown> = { status: 'published' };
+    if (companyId) where.companyId = companyId;
+
+    const dbSkills = await prisma.skill.findMany({ where });
+
+    for (const skill of dbSkills) {
+      if (fileNames.has(skill.name)) continue; // file takes precedence
+
       const skillTrigger = skill.trigger || 'always';
       if (skillTrigger !== 'always' && skillTrigger !== trigger) continue;
 
-      // Filter by agentType
       const agentTypes: string[] = skill.agentTypes ? JSON.parse(skill.agentTypes) : [];
       if (agentTypes.length > 0 && !agentTypes.includes(agentType)) continue;
 
-      // Filter by tier (skill tier must be <= session tier)
       const skillTier = (skill.tier || 'standard') as SkillTier;
       if (tierRank[skillTier] > targetRank) continue;
 

@@ -2,7 +2,8 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { classifySystemError } from '../triage/error-class.js';
-import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { knowledgeService } from '../knowledge/knowledge-service.js';
+import { resolutionService } from '../knowledge/resolution.service.js';
 import type { SystemTriageResult } from '../triage/error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from './types.js';
 
@@ -250,13 +251,12 @@ class TriageAgent {
     // B11-007: Resolution 查询 — 已知解法匹配
     let resolutionHint = '';
     try {
-      const { resolutionService } = await import('../knowledge/resolution.service.js');
       const matched = await resolutionService.matchResolutions({ errorMessage: input.message });
       if (matched.resolutions.length > 0) {
         resolutionHint = matched.resolutions[0].fix;
         logger.info('[TriageAgent] Resolution matched', { incidentType, title: matched.resolutions[0].title });
         // B13-001: Verify matched resolution (pending→verified→canonical)
-        try { await resolutionService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
+        try { await knowledgeService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
       }
     } catch { /* best-effort */ }
 
@@ -399,19 +399,16 @@ class TriageAgent {
 
     eventBus.publish('incident.resolved', { incidentId, resolution });
 
-    // H4: Record fix strategy to KnowledgeBus so KK can extract later
-    knowledgeBus.recordPattern({
-      source: 'triage',
+    // H4: Record fix strategy to KnowledgeService so KK can extract later
+    knowledgeService.recordPattern({
       type: 'fix',
       title: `[Triage Fix] ${resolution.slice(0, 80)}`,
       content: `${resolution}\nIncident: ${incidentId}`,
-      severity: 'info',
-      timestamp: Date.now(),
+      tags: ['triage'],
     }).catch(() => { /* non-blocking */ });
 
     // B13-002: Triage→Resolution 回写 — 将修复方案写入 Resolution KB
     try {
-      const { resolutionService } = await import('../knowledge/resolution.service.js');
       await resolutionService.createResolution({
         pattern: resolution.slice(0, 200),
         errorClass: 'triage_fix',

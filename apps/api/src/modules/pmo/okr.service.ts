@@ -358,16 +358,178 @@ export class OKRService {
    * metricType → 数据源映射
    */
   private getDataSourceForMetric(metricType: string): string {
-    const map: Record<string, string> = {
-      pipeline_duration_p90: 'goal_execution',
-      pipeline_duration_per_phase: 'pipeline_run',
-      cache_hit_rate: 'pipeline_run',
-      execution_success_rate: 'goal',
-      review_pass_rate: 'goal',
-      token_saving_ratio: 'studio_event',
-    };
-    return map[metricType] || 'unknown';
+    const entry = OKRService.METRIC_REGISTRY[metricType];
+    return entry?.dataSource || 'unknown';
   }
+
+  /**
+   * Metric type registry — single source of truth for all metric types.
+   * Each entry defines: dataSource, query function, description.
+   */
+  static readonly METRIC_REGISTRY: Record<string, {
+    dataSource: string;
+    query: (okr: OKRService, days: number, params?: Record<string, unknown>) => Promise<number | null>;
+    description: string;
+  }> = {
+    pipeline_duration_p90: {
+      dataSource: 'goal_execution',
+      query: (okr, days) => okr.queryPipelineDurationP90(days),
+      description: '管线 e2e 耗时 p90',
+    },
+    pipeline_duration_per_phase: {
+      dataSource: 'pipeline_run',
+      query: (okr, days, params) => okr.queryPipelineDurationPerPhase(params?.phase as string, days),
+      description: '单阶段耗时',
+    },
+    cache_hit_rate: {
+      dataSource: 'pipeline_run',
+      query: (okr, days) => okr.queryCacheHitRate(days),
+      description: '缓存命中率',
+    },
+    execution_success_rate: {
+      dataSource: 'goal',
+      query: (okr, days) => okr.queryExecutionSuccessRate(days),
+      description: '执行成功率',
+    },
+    review_pass_rate: {
+      dataSource: 'goal',
+      query: (okr, days) => okr.queryReviewPassRate(days),
+      description: '审查通过率',
+    },
+    token_saving_ratio: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryTokenSavingRatio(days),
+      description: 'Token 节省比',
+    },
+    knowledge_entry_count: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryKnowledgeEntryCount(days),
+      description: '知识条目总数',
+    },
+    knowledge_consumption_hit_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryKnowledgeConsumptionHitRate(days),
+      description: '知识消费命中率',
+    },
+    resolution_count: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryResolutionCount(days),
+      description: 'Resolution 总数',
+    },
+    resolution_verify_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryResolutionVerifyRate(days),
+      description: 'Resolution 验证率',
+    },
+    incident_count: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryIncidentCount(days),
+      description: '事件数',
+    },
+    deploy_success_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryDeploySuccessRate(days),
+      description: '部署成功率',
+    },
+    analyst_accuracy: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryAnalystAccuracy(days),
+      description: 'Analyst 预测准确率',
+    },
+    behavior_feedback_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryBehaviorFeedbackRate(days),
+      description: '行为反馈率',
+    },
+    pipeline_cost_tokens: {
+      dataSource: 'pipeline_run',
+      query: (okr, days) => okr.queryPipelineCostTokens(days),
+      description: '管线 Token 总消耗',
+    },
+    session_duration_avg: {
+      dataSource: 'goal_execution',
+      query: (okr, days) => okr.querySessionDurationAvg(days),
+      description: '平均会话时长',
+    },
+    // ── Batch A: OKR metricTypes (data source exists) ──
+    test_pass_rate: {
+      dataSource: 'pipeline_run',
+      query: (okr, days) => okr.queryTestPassRate(days),
+      description: '测试通过率 (PipelineRun.testPassed)',
+    },
+    pipeline_goal_cost: {
+      dataSource: 'pipeline_run',
+      query: (okr, days) => okr.queryPipelineGoalCost(days),
+      description: '单 Goal 平均 Token 成本',
+    },
+    queue_duration_avg: {
+      dataSource: 'goal',
+      query: (okr, days) => okr.queryQueueDurationAvg(days),
+      description: '平均排队时间 (Goal.createdAt → Execution.startedAt)',
+    },
+    knowledge_quality_gate_pass_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryKnowledgeQualityGatePassRate(days),
+      description: '知识质量门通过率 (extractFromExecution success)',
+    },
+    knowledge_quality_score: {
+      dataSource: 'knowledge_service',
+      query: (okr, days) => okr.queryKnowledgeQualityScore(days),
+      description: '知识内容质量分 (D2 audit score)',
+    },
+    knowledge_search_hit_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryKnowledgeSearchHitRate(days),
+      description: '知识搜索命中率',
+    },
+    knowledge_quality_trend: {
+      dataSource: 'knowledge_service',
+      query: (okr, days) => okr.queryKnowledgeQualityTrend(days),
+      description: '知识质量趋势 (D2 score point-in-time)',
+    },
+    // ── Batch B: OKR metricTypes (need data source wiring) ──
+    dedup_hit_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryDedupHitRate(days),
+      description: '去重命中率 (qualityGate skip)',
+    },
+    knowledge_skill_created: {
+      dataSource: 'file_system',
+      query: (okr, days) => okr.querySkillCreated(days),
+      description: 'Skill 生成数 (.studio/knowledge/skills/)',
+    },
+    knowledge_skill_usage_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.querySkillUsageRate(days),
+      description: 'Skill 使用率 (scanCapabilities hit)',
+    },
+    knowledge_growth_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryKnowledgeGrowthRate(days),
+      description: '知识增速 (new entries per period)',
+    },
+    execution_improvement: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryExecutionImprovement(days),
+      description: '执行改善度 (recordOutcome before/after)',
+    },
+    // ── Batch C: OKR metricTypes (need infrastructure) ──
+    rollback_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryRollbackRate(days),
+      description: '回滚率 (deploy rollback events)',
+    },
+    max_concurrent: {
+      dataSource: 'goal',
+      query: (okr, days) => okr.queryMaxConcurrent(days),
+      description: '最大并行数 (concurrent executing goals)',
+    },
+    conflict_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryConflictRate(days),
+      description: '冲突率 (scheduler conflict events)',
+    },
+  };
 
   /**
    * 同步 KR 进度 — 从数据源查询实值
@@ -435,24 +597,14 @@ export class OKRService {
    */
   private async queryKRActual(kr: OKRKeyResult): Promise<number | null> {
     const days = (kr.queryParams?.days as number) || 7;
+    const entry = kr.metricType ? OKRService.METRIC_REGISTRY[kr.metricType] : null;
 
-    switch (kr.metricType) {
-      case 'pipeline_duration_p90':
-        return this.queryPipelineDurationP90(days);
-      case 'pipeline_duration_per_phase':
-        return this.queryPipelineDurationPerPhase(kr.queryParams?.phase as string, days);
-      case 'cache_hit_rate':
-        return this.queryCacheHitRate(days);
-      case 'execution_success_rate':
-        return this.queryExecutionSuccessRate(days);
-      case 'review_pass_rate':
-        return this.queryReviewPassRate(days);
-      case 'token_saving_ratio':
-        return this.queryTokenSavingRatio(days);
-      default:
-        logger.warn({ metricType: kr.metricType }, 'Unknown metricType');
-        return null;
+    if (!entry) {
+      if (kr.metricType) logger.warn({ metricType: kr.metricType }, 'Unknown metricType');
+      return null;
     }
+
+    return entry.query(this, days, kr.queryParams);
   }
 
   // ── 具体 metric 查询 ──
@@ -587,6 +739,352 @@ export class OKRService {
     return Math.round((1 - pipelineTokens / windowTokens) * 100);
   }
 
+  // ── Extended metric queries (registry) ──
+
+  private async queryKnowledgeEntryCount(_days: number): Promise<number | null> {
+    try {
+      const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+      const stats = knowledgeService.getStats();
+      return stats.total || 0;
+    } catch { return null; }
+  }
+
+  private async queryKnowledgeConsumptionHitRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: { startsWith: 'knowledge:outcome' }, timestamp: { gte: since } },
+        select: { type: true },
+      });
+      if (events.length === 0) return null;
+      const success = events.filter(e => e.type.includes('success')).length;
+      return Math.round((success / events.length) * 100);
+    } catch { return null; }
+  }
+
+  private async queryResolutionCount(_days: number): Promise<number | null> {
+    try {
+      return await prisma.resolution.count();
+    } catch { return null; }
+  }
+
+  private async queryResolutionVerifyRate(_days: number): Promise<number | null> {
+    try {
+      const total = await prisma.resolution.count();
+      if (total === 0) return null;
+      const verified = await prisma.resolution.count({ where: { status: 'verified' } });
+      return Math.round((verified / total) * 100);
+    } catch { return null; }
+  }
+
+  private async queryIncidentCount(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      return await prisma.incident.count({ where: { detectedAt: { gte: since } } });
+    } catch { return null; }
+  }
+
+  private async queryDeploySuccessRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'deploy.completed', timestamp: { gte: since } },
+        select: { payload: true },
+      });
+      if (events.length === 0) return null;
+      const success = events.filter(e => {
+        try { return JSON.parse(e.payload).result?.success; } catch { return false; }
+      }).length;
+      return Math.round((success / events.length) * 100);
+    } catch { return null; }
+  }
+
+  private async queryAnalystAccuracy(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'knowledge:analyst_accuracy', timestamp: { gte: since } },
+        select: { payload: true },
+      });
+      if (events.length === 0) return null;
+      const accurate = events.filter(e => {
+        try { return JSON.parse(e.payload).accurate; } catch { return false; }
+      }).length;
+      return Math.round((accurate / events.length) * 100);
+    } catch { return null; }
+  }
+
+  private async queryBehaviorFeedbackRate(_days: number): Promise<number | null> {
+    try {
+      const total = await prisma.userBehaviorProfile.count();
+      if (total === 0) return null;
+      const feedback = await prisma.userBehaviorProfile.count({
+        where: { status: { in: ['confirmed', 'rejected', 'applied'] } },
+      });
+      return Math.round((feedback / total) * 100);
+    } catch { return null; }
+  }
+
+  private async queryPipelineCostTokens(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const agg = await prisma.pipelineRun.aggregate({
+        where: { createdAt: { gte: since }, source: 'pipeline' },
+        _sum: { inputTokens: true, outputTokens: true },
+      });
+      return (agg._sum.inputTokens || 0) + (agg._sum.outputTokens || 0);
+    } catch { return null; }
+  }
+
+  private async querySessionDurationAvg(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const execs = await prisma.goalExecution.findMany({
+        where: { startedAt: { gte: since }, completedAt: { not: null }, status: 'succeeded' },
+        select: { startedAt: true, completedAt: true },
+      });
+      if (execs.length === 0) return null;
+      const totalMs = execs.reduce((sum, e) =>
+        sum + (e.completedAt!.getTime() - e.startedAt!.getTime()), 0);
+      return Math.round(totalMs / execs.length / 1000 / 60); // minutes
+    } catch { return null; }
+  }
+
+  // ── Batch A: OKR metricType queries (data source exists) ──
+
+  /** Pipeline O3-KR1: 测试通过率 */
+  private async queryTestPassRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const [total, passed] = await Promise.all([
+        prisma.pipelineRun.count({ where: { createdAt: { gte: since }, testPassed: { not: null } } }),
+        prisma.pipelineRun.count({ where: { createdAt: { gte: since }, testPassed: true } }),
+      ]);
+      if (total === 0) return null;
+      return Math.round((passed / total) * 100);
+    } catch { return null; }
+  }
+
+  /** Pipeline O2-KR3: 单 Goal 成本 (tokens) */
+  private async queryPipelineGoalCost(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const runs = await prisma.pipelineRun.findMany({
+        where: { createdAt: { gte: since }, source: 'pipeline', phase: { not: 'full' } },
+        select: { goalId: true, inputTokens: true, outputTokens: true },
+      });
+      if (runs.length === 0) return null;
+      // Group by goalId manually
+      const byGoal = new Map<string, number>();
+      for (const r of runs) {
+        const key = r.goalId || 'unknown';
+        byGoal.set(key, (byGoal.get(key) || 0) + r.inputTokens + r.outputTokens);
+      }
+      const goalCount = byGoal.size;
+      if (goalCount === 0) return null;
+      const totalTokens = Array.from(byGoal.values()).reduce((s, v) => s + v, 0);
+      return Math.round(totalTokens / goalCount);
+    } catch { return null; }
+  }
+
+  /** Pipeline O4-KR3: 排队时间 (Goal.createdAt → GoalExecution.startedAt) */
+  private async queryQueueDurationAvg(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const goals = await prisma.goal.findMany({
+        where: { createdAt: { gte: since }, status: { not: 'draft' } },
+        select: { id: true, createdAt: true },
+      });
+      if (goals.length === 0) return null;
+      const execs = await prisma.goalExecution.findMany({
+        where: { goalId: { in: goals.map(g => g.id) }, startedAt: { not: null } },
+        select: { goalId: true, startedAt: true },
+      });
+      const byGoal = new Map<string, Date>();
+      for (const e of execs) {
+        const existing = byGoal.get(e.goalId);
+        if (!existing || e.startedAt! < existing) byGoal.set(e.goalId, e.startedAt!);
+      }
+      const waits: number[] = [];
+      for (const g of goals) {
+        const started = byGoal.get(g.id);
+        if (started) waits.push(started.getTime() - g.createdAt.getTime());
+      }
+      if (waits.length === 0) return null;
+      return Math.round(waits.reduce((s, w) => s + w, 0) / waits.length / 1000 / 60); // minutes
+    } catch { return null; }
+  }
+
+  /** Knowledge O1-KR1: 质量门通过率 (extractFromExecution success rate) */
+  private async queryKnowledgeQualityGatePassRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'extractFromExecution', timestamp: { gte: since } },
+        select: { payload: true },
+      });
+      if (events.length === 0) return null;
+      const success = events.filter(e => {
+        try { return JSON.parse(e.payload).success; } catch { return false; }
+      }).length;
+      return Math.round((success / events.length) * 100);
+    } catch { return null; }
+  }
+
+  /** Knowledge O1-KR3: 内容质量分 */
+  private async queryKnowledgeQualityScore(_days: number): Promise<number | null> {
+    try {
+      const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+      const metrics = await knowledgeService.getFlywheelMetrics();
+      return metrics.quality ?? null;
+    } catch { return null; }
+  }
+
+  /** Knowledge O2-KR3: 搜索命中率 */
+  private async queryKnowledgeSearchHitRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const [searches, hits] = await Promise.all([
+        prisma.studioEvent.count({ where: { type: 'knowledge:search', timestamp: { gte: since } } }),
+        prisma.studioEvent.count({ where: { type: 'knowledge:search_hit', timestamp: { gte: since } } }),
+      ]);
+      if (searches === 0) return null;
+      return Math.round((hits / searches) * 100);
+    } catch { return null; }
+  }
+
+  /** Knowledge O3-KR4: 质量趋势 (current D2 score, trend via KRHistory) */
+  private async queryKnowledgeQualityTrend(days: number): Promise<number | null> {
+    try {
+      const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+      const metrics = await knowledgeService.getFlywheelMetrics();
+      return metrics.quality ?? null;
+    } catch { return null; }
+  }
+
+  // ── Batch B: queries (data source needs wiring) ──
+
+  /** Knowledge O1-KR2: 去重命中率 */
+  private async queryDedupHitRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'knowledge:quality_gate', timestamp: { gte: since } },
+        select: { payload: true },
+      });
+      if (events.length === 0) return null;
+      const skipped = events.filter(e => {
+        try { return JSON.parse(e.payload).skipped; } catch { return false; }
+      }).length;
+      return Math.round((skipped / events.length) * 100);
+    } catch { return null; }
+  }
+
+  /** Knowledge O3-KR1: Skill 生成数 */
+  private async querySkillCreated(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.count({
+        where: { type: 'knowledge:skill_created', timestamp: { gte: since } },
+      });
+      return events || 0;
+    } catch { return null; }
+  }
+
+  /** Knowledge O3-KR2: Skill 使用率 */
+  private async querySkillUsageRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const [total, used] = await Promise.all([
+        prisma.studioEvent.count({ where: { type: 'knowledge:skill_registered', timestamp: { gte: since } } }),
+        prisma.studioEvent.count({ where: { type: 'knowledge:skill_used', timestamp: { gte: since } } }),
+      ]);
+      if (total === 0) return null;
+      return Math.round((used / total) * 100);
+    } catch { return null; }
+  }
+
+  /** Knowledge O3-KR3: 知识增速 */
+  private async queryKnowledgeGrowthRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const count = await prisma.studioEvent.count({
+        where: { type: 'knowledge:entry_created', timestamp: { gte: since } },
+      });
+      return count || 0;
+    } catch { return null; }
+  }
+
+  /** Knowledge O2-KR2: 执行改善度 */
+  private async queryExecutionImprovement(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: { startsWith: 'knowledge:outcome' }, timestamp: { gte: since } },
+        select: { type: true, payload: true },
+      });
+      if (events.length === 0) return null;
+      // Compare success rate of executions that consumed knowledge vs baseline
+      const withKnowledge = events.filter(e => {
+        try { return JSON.parse(e.payload).consumedKnowledge?.length > 0; } catch { return false; }
+      });
+      if (withKnowledge.length === 0) return null;
+      const successWithKnowledge = withKnowledge.filter(e => e.type.includes('success')).length;
+      return Math.round((successWithKnowledge / withKnowledge.length) * 100);
+    } catch { return null; }
+  }
+
+  // ── Batch C: queries (need infrastructure) ──
+
+  /** Pipeline O3-KR4: 回滚率 */
+  private async queryRollbackRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'deploy.completed', timestamp: { gte: since } },
+        select: { payload: true },
+      });
+      if (events.length === 0) return null;
+      const rollbacks = events.filter(e => {
+        try { return JSON.parse(e.payload).result?.rollback; } catch { return false; }
+      }).length;
+      return Math.round((rollbacks / events.length) * 100);
+    } catch { return null; }
+  }
+
+  /** Pipeline O4-KR1: 最大并行数 */
+  private async queryMaxConcurrent(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'scheduler:parallel', timestamp: { gte: since } },
+        select: { payload: true },
+      });
+      if (events.length === 0) return null;
+      let max = 0;
+      for (const e of events) {
+        try {
+          const p = JSON.parse(e.payload);
+          if (p.concurrent > max) max = p.concurrent;
+        } catch { /* skip */ }
+      }
+      return max || null;
+    } catch { return null; }
+  }
+
+  /** Pipeline O4-KR2: 冲突率 */
+  private async queryConflictRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const [total, conflicts] = await Promise.all([
+        prisma.goalExecution.count({ where: { createdAt: { gte: since } } }),
+        prisma.studioEvent.count({ where: { type: 'scheduler:conflict', timestamp: { gte: since } } }),
+      ]);
+      if (total === 0) return null;
+      return Math.round((conflicts / total) * 100);
+    } catch { return null; }
+  }
+
   // ── B8 Phase 1.5: KR 目标校验 ──
 
   /** 理论上限 */
@@ -597,6 +1095,31 @@ export class OKRService {
     execution_success_rate: 100,
     review_pass_rate: 100,
     token_saving_ratio: 90,
+    knowledge_entry_count: Infinity,
+    knowledge_consumption_hit_rate: 100,
+    resolution_count: Infinity,
+    resolution_verify_rate: 100,
+    incident_count: Infinity,
+    deploy_success_rate: 100,
+    analyst_accuracy: 100,
+    behavior_feedback_rate: 100,
+    pipeline_cost_tokens: Infinity,
+    session_duration_avg: Infinity,
+    test_pass_rate: 100,
+    pipeline_goal_cost: Infinity,
+    queue_duration_avg: Infinity,
+    knowledge_quality_gate_pass_rate: 100,
+    knowledge_quality_score: 100,
+    knowledge_search_hit_rate: 100,
+    knowledge_quality_trend: 100,
+    dedup_hit_rate: 100,
+    knowledge_skill_created: Infinity,
+    knowledge_skill_usage_rate: 100,
+    knowledge_growth_rate: Infinity,
+    execution_improvement: 100,
+    rollback_rate: 100,
+    max_concurrent: Infinity,
+    conflict_rate: 100,
   };
 
   /** 获取 metricType 的系统基线值 */

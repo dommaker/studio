@@ -17,6 +17,7 @@ export interface MetricEntry {
   diffLines?: number;
   error?: string;
   sessionId?: string;
+  goalId?: string;
 }
 
 /**

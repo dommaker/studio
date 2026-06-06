@@ -524,6 +524,223 @@ describe('KnowledgeService Phase 1C: Extract', () => {
   });
 });
 
+// ── Phase 3: Feedback loop behavior tests ──
+
+describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
+  describe('pipelineStepFeedback', () => {
+    it('creates StudioEvent with correct type pattern (success)', async () => {
+      const { ks, prisma } = createKS();
+      await ks.pipelineStepFeedback({
+        goalId: 'goal-1',
+        executionId: 'exec-1',
+        phase: 'executor',
+        success: true,
+        durationMs: 5000,
+        tokensUsed: 1000,
+      });
+      expect(prisma.studioEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'knowledge:pipeline:executor:success',
+            source: 'pipeline',
+          }),
+        }),
+      );
+    });
+
+    it('creates StudioEvent with correct type pattern (failure)', async () => {
+      const { ks, prisma } = createKS();
+      await ks.pipelineStepFeedback({
+        goalId: 'goal-1',
+        executionId: 'exec-1',
+        phase: 'executor',
+        success: false,
+        durationMs: 5000,
+        error: 'Agent failed',
+      });
+      expect(prisma.studioEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'knowledge:pipeline:executor:failure',
+          }),
+        }),
+      );
+    });
+
+    it('emits knowledge event on eventEmitter', async () => {
+      const { ks, eventEmitter } = createKS();
+      await ks.pipelineStepFeedback({
+        goalId: 'goal-1',
+        executionId: 'exec-1',
+        phase: 'executor',
+        success: true,
+        durationMs: 5000,
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith('knowledge',
+        expect.objectContaining({ type: 'pipelineStepFeedback' }),
+      );
+    });
+
+    it('non-blocking: does not throw when prisma fails', async () => {
+      const { ks, prisma } = createKS();
+      (prisma.studioEvent.create as any).mockRejectedValueOnce(new Error('DB down'));
+      await expect(ks.pipelineStepFeedback({
+        goalId: 'goal-1',
+        executionId: 'exec-1',
+        phase: 'executor',
+        success: true,
+        durationMs: 5000,
+      })).resolves.not.toThrow();
+    });
+  });
+
+  describe('extractFromExecution', () => {
+    it('calls recordPattern with execution data', async () => {
+      const { ks, ingest } = createKS();
+      await ks.extractFromExecution({
+        task: 'Fix auth bug',
+        diff: '+fixed auth',
+        success: true,
+        duration: 1000,
+        agentType: 'executor',
+        consumedKnowledge: [],
+      });
+      // recordPattern calls ingest.ingestEntry
+      expect(ingest.ingestEntry).toHaveBeenCalled();
+    });
+
+    it('emits knowledge event on success', async () => {
+      const { ks, eventEmitter } = createKS();
+      await ks.extractFromExecution({
+        task: 'Fix auth bug',
+        diff: '+fixed auth',
+        success: true,
+        duration: 1000,
+        agentType: 'executor',
+        consumedKnowledge: [],
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith('knowledge',
+        expect.objectContaining({ type: 'extractFromExecution' }),
+      );
+    });
+
+    it('skips when no diff and no task', async () => {
+      const { ks, prisma } = createKS();
+      await ks.extractFromExecution({
+        task: '',
+        diff: '',
+        success: true,
+        duration: 1000,
+        agentType: 'executor',
+        consumedKnowledge: [],
+      });
+      // Should not create any events
+      expect(prisma.studioEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('records consumption for consumed knowledge entries', async () => {
+      const { ks, lifecycle } = createKS();
+      await ks.extractFromExecution({
+        task: 'Fix auth bug',
+        diff: '+fixed auth',
+        success: true,
+        duration: 1000,
+        agentType: 'executor',
+        consumedKnowledge: ['entry-1', 'entry-2'],
+      });
+      expect(lifecycle.recordReference).toHaveBeenCalledTimes(2);
+      expect(lifecycle.recordReference).toHaveBeenCalledWith('entry-1', 'execution:executor');
+    });
+  });
+
+  describe('recordOutcome', () => {
+    it('creates StudioEvent with success type', async () => {
+      const { ks, prisma } = createKS();
+      await ks.recordOutcome({
+        executionId: 'exec-1',
+        agentType: 'executor',
+        consumedKnowledge: [],
+        success: true,
+        details: 'Goal succeeded',
+        timestamp: new Date().toISOString(),
+        mode: 'pipeline',
+      });
+      expect(prisma.studioEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'knowledge:outcome:success',
+            source: 'executor',
+          }),
+        }),
+      );
+    });
+
+    it('creates StudioEvent with failure type', async () => {
+      const { ks, prisma } = createKS();
+      await ks.recordOutcome({
+        executionId: 'exec-1',
+        agentType: 'executor',
+        consumedKnowledge: [],
+        success: false,
+        details: 'Goal failed',
+        timestamp: new Date().toISOString(),
+        mode: 'pipeline',
+      });
+      expect(prisma.studioEvent.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            type: 'knowledge:outcome:failure',
+          }),
+        }),
+      );
+    });
+
+    it('updates referencedBy for consumed entries', async () => {
+      const entry = { id: 'entry-1', referencedBy: [] };
+      const { ks, store } = createKS({ entries: [entry] });
+      await ks.recordOutcome({
+        executionId: 'exec-1',
+        agentType: 'executor',
+        consumedKnowledge: ['entry-1'],
+        success: true,
+        details: 'ok',
+        timestamp: new Date().toISOString(),
+      });
+      expect(store.get).toHaveBeenCalledWith('entry-1');
+      expect(entry.referencedBy).toContain('exec-1');
+      expect(store.save).toHaveBeenCalledWith(entry);
+    });
+
+    it('emits knowledge event', async () => {
+      const { ks, eventEmitter } = createKS();
+      await ks.recordOutcome({
+        executionId: 'exec-1',
+        agentType: 'executor',
+        consumedKnowledge: [],
+        success: true,
+        details: 'ok',
+        timestamp: new Date().toISOString(),
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith('knowledge',
+        expect.objectContaining({ type: 'recordOutcome' }),
+      );
+    });
+
+    it('non-blocking: does not throw when prisma fails', async () => {
+      const { ks, prisma } = createKS();
+      (prisma.studioEvent.create as any).mockRejectedValueOnce(new Error('DB down'));
+      await expect(ks.recordOutcome({
+        executionId: 'exec-1',
+        agentType: 'executor',
+        consumedKnowledge: [],
+        success: true,
+        details: 'ok',
+        timestamp: new Date().toISOString(),
+      })).resolves.not.toThrow();
+    });
+  });
+});
+
 // ── Phase 0: Contract verification ──
 
 describe('KnowledgeService Phase 0: contract', () => {
@@ -546,10 +763,11 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('get exists', () => expect(typeof ks.get).toBe('function'));
   });
 
-  describe('Track (3 methods)', () => {
+  describe('Track (4 methods)', () => {
     it('recordConsumption exists', () => expect(typeof ks.recordConsumption).toBe('function'));
     it('recordOutcome exists', () => expect(typeof ks.recordOutcome).toBe('function'));
     it('recordFeedback exists', () => expect(typeof ks.recordFeedback).toBe('function'));
+    it('pipelineStepFeedback exists', () => expect(typeof ks.pipelineStepFeedback).toBe('function'));
   });
 
   describe('Lifecycle (4 methods)', () => {
@@ -559,22 +777,24 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('graduateConstraint exists', () => expect(typeof ks.graduateConstraint).toBe('function'));
   });
 
-  describe('Resolve (1 method)', () => {
+  describe('Resolve (2 methods)', () => {
     it('createResolution exists', () => expect(typeof ks.createResolution).toBe('function'));
+    it('verifyResolution exists', () => expect(typeof ks.verifyResolution).toBe('function'));
   });
 
-  describe('Measure (4 methods)', () => {
+  describe('Measure (5 methods)', () => {
     it('getFlywheelMetrics exists', () => expect(typeof ks.getFlywheelMetrics).toBe('function'));
     it('getHealthReport exists', () => expect(typeof ks.getHealthReport).toBe('function'));
     it('getAuditReport exists', () => expect(typeof ks.getAuditReport).toBe('function'));
     it('getAnalystAccuracy exists', () => expect(typeof ks.getAnalystAccuracy).toBe('function'));
+    it('getStats exists', () => expect(typeof ks.getStats).toBe('function'));
   });
 
   describe('method count', () => {
-    it('has exactly 23 public methods', () => {
+    it('has exactly 26 public methods', () => {
       const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
         .filter(m => m !== 'constructor');
-      expect(methods).toHaveLength(23);
+      expect(methods).toHaveLength(26);
     });
   });
 });

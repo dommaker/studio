@@ -9,6 +9,7 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
+import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
@@ -123,14 +124,12 @@ class PostEvalAgent {
         }
       }
 
-      // Record gap findings to KnowledgeBus
-      knowledgeBus.recordPattern({
-        source: 'posteval',
+      // Record gap findings to KnowledgeService
+      knowledgeService.recordPattern({
         type: 'pattern',
         title: `PostEval gap: ${report.goalTitle}`,
         content: `Completeness: ${Math.round(report.completeness * 100)}%, Matched: ${report.matchedAcs.length}, Missed: ${report.missedAcs.length}. Missed ACs: ${report.missedAcs.join('; ')}`,
-        severity: report.completeness < 0.5 ? 'warning' : 'info',
-        timestamp: Date.now(),
+        tags: ['posteval'],
       }).catch(() => { /* non-blocking */ });
 
       return report;
@@ -220,8 +219,7 @@ class PostEvalAgent {
       });
 
       // 8. 写入知识库（知识积累闭环）
-      knowledgeBus.recordPattern({
-        source: 'posteval',
+      knowledgeService.recordPattern({
         type: 'pattern',
         title: `Plan coverage: ${path.basename(planPath)}`,
         content: [
@@ -233,8 +231,7 @@ class PostEvalAgent {
           `Tokens: ${report.tokensUsed ? `${report.tokensUsed.totalTokens} (${report.tokensUsed.model})` : 'N/A'}`,
           report.missedAcs.length > 0 ? `Missed: ${report.missedAcs.join('; ')}` : '',
         ].filter(Boolean).join('\n'),
-        severity: report.completeness < 0.5 ? 'warning' : 'info',
-        timestamp: Date.now(),
+        tags: ['posteval'],
       }).catch(() => { /* non-blocking */ });
 
       return report;

@@ -15,7 +15,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
-import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { knowledgeService } from '../knowledge/knowledge-service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
@@ -145,13 +145,11 @@ export class MonitorAgent {
         if (rootCause) {
           logger.warn('[MonitorAgent] LLM root cause analysis', { rootCause: rootCause.slice(0, 300) });
           // Record root cause as a pattern for future reference
-          knowledgeBus.recordPattern({
-            source: 'monitor',
+          knowledgeService.recordPattern({
             type: 'pattern',
             title: `[Monitor RCA] ${significantAlerts.length} alerts correlated`,
             content: `告警: ${alertSummary}\n根因分析: ${rootCause}`,
-            severity: 'warning',
-            timestamp: Date.now(),
+            tags: ['monitor'],
           }).catch(() => { /* non-blocking */ });
         }
       } catch { /* LLM unavailable — non-blocking */ }
@@ -163,13 +161,11 @@ export class MonitorAgent {
     // H3: Write patterns to KnowledgeBus (Monitor→Auditor/KK→Analyst)
     for (const alert of alerts) {
       if (alert.level === 'critical' || alert.level === 'warning') {
-        knowledgeBus.recordPattern({
-          source: 'monitor',
+        knowledgeService.recordPattern({
           type: alert.source.includes('tool') ? 'failure' : 'pattern',
           title: `[Monitor] ${alert.source}: ${alert.message.slice(0, 80)}`,
           content: alert.message,
-          severity: alert.level === 'critical' ? 'critical' : 'warning',
-          timestamp: Date.now(),
+          tags: ['monitor'],
         }).catch(() => { /* non-blocking */ });
       }
     }
@@ -1498,8 +1494,7 @@ export class MonitorAgent {
 
       // 4. KnowledgeBus
       try {
-        const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-        const stats = knowledgeBus.getStats();
+        const stats = knowledgeService.getStats();
         lines.push('', '### 知识积累');
         lines.push(`- KnowledgeBus: ${stats.total || 0} 条 (pattern:${stats.pattern || 0} fix:${stats.fix || 0})`);
       } catch { /* best-effort */ }
@@ -1829,13 +1824,11 @@ export class MonitorAgent {
 
       if (extraction.entries?.length) {
         for (const entry of extraction.entries) {
-          await knowledgeBus.recordPattern({
-            source: 'monitor',
+          await knowledgeService.recordPattern({
             type: entry.type as any,
             title: `[沉淀] ${entry.title}`,
             content: entry.content,
-            severity: entry.type === 'failure' ? 'warning' : 'info',
-            timestamp: Date.now(),
+            tags: ['monitor'],
           });
         }
         logger.info('[MonitorAgent] Precipitate StudioEvent: extracted', { count: extraction.entries.length });
@@ -1887,13 +1880,11 @@ export class MonitorAgent {
         `  降级: ${stats.degraded} (${Math.round(stats.degraded / stats.total * 100)}%)`,
       ].join('\n');
 
-      await knowledgeBus.recordTrend({
-        source: 'monitor',
-        type: 'trend',
+      await knowledgeService.recordTrend({
         title: `[沉淀] 路由分布 ${new Date().toISOString().split('T')[0]}`,
         content,
-        severity: stats.degraded / stats.total > 0.3 ? 'warning' : 'info',
-        timestamp: Date.now(),
+        metric: 'routing_distribution',
+        tags: ['monitor'],
       });
 
       logger.info('[MonitorAgent] Precipitate routing: done', { total: stats.total, degraded: stats.degraded });
@@ -1951,13 +1942,11 @@ export class MonitorAgent {
 
       if (extraction.entries?.length) {
         for (const entry of extraction.entries) {
-          await knowledgeBus.recordPattern({
-            source: 'monitor',
+          await knowledgeService.recordPattern({
             type: entry.type as any,
             title: `[沉淀] ${entry.title}`,
             content: entry.content,
-            severity: 'warning',
-            timestamp: Date.now(),
+            tags: ['monitor'],
           });
         }
         logger.info('[MonitorAgent] Precipitate sessions: extracted', { count: extraction.entries.length });

@@ -10,7 +10,7 @@ import { logger, getModelForTier } from '@dommaker/studio-shared';
 import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
-import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
+import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { buildKnowledgeContext } from '../knowledge/consumers/prompt-builder.js';
 import { discoveryExposure } from '../channels/discovery-exposure.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
@@ -226,13 +226,11 @@ export class ReviewAgent {
 
     // Record review pattern to KnowledgeBus
     const issueSummary = (report.issues ?? []).slice(0, 5).map(i => `[${i.severity}] ${i.message}`).join('\n');
-    knowledgeBus.recordPattern({
-      source: 'reviewer',
+    knowledgeService.recordPattern({
       type: 'pattern',
       title: `Review: ${report.overallApproved ? 'APPROVED' : 'REJECTED'} (cycle ${cycle}, score ${reviewScore})`,
       content: `Task: ${taskId}\nIssues: ${totalIssues}\nScore: ${reviewScore}\n\n${issueSummary}`,
-      severity: report.overallApproved ? 'info' : 'warning',
-      timestamp: Date.now(),
+      tags: ['reviewer'],
     }).catch(() => { /* non-blocking */ });
 
     // G33: 暴露非阻断发现到 #系统 channel
@@ -544,11 +542,11 @@ export class ReviewAgent {
         ...(report.acResults ?? []).filter(r => !r.passed).map(r => ({ severity: 'error' as const, message: `AC 未满足: ${r.ac}${r.gap ? ` — ${r.gap}` : ''}` })),
       ];
 
-      knowledgeBus.recordPattern({
-        source: 'reviewer', type: 'pattern',
+      knowledgeService.recordPattern({
+        type: 'pattern',
         title: `Branch diff (${baseRef}..${headRef}): ${report.overallApproved ? 'APPROVED' : 'REJECTED'}`,
         content: `Diff: ${baseRef}..${headRef}\nIssues: ${totalIssues}\nScore: ${reviewScore}`,
-        severity: report.overallApproved ? 'info' : 'warning', timestamp: Date.now(),
+        tags: ['reviewer'],
       }).catch(() => {});
 
       // G33: 暴露非阻断发现

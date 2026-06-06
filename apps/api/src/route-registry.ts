@@ -82,6 +82,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Knowledge Import routes (冷启动导入)
   const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };
 
+  // KnowledgeService HTTP API + SSE
+  const { knowledgeServiceRoutes } = await import('./modules/knowledge/knowledge-service.routes.js') as { knowledgeServiceRoutes: Router };
+
   // MCP routes (§12.9: 系统能力 MCP 化)
   const { default: mcpRoutes } = await import('./modules/mcp/routes.js') as { default: Router };
 
@@ -199,6 +202,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/notifications', router: notificationRoutes, middleware: auth },
     { path: '/api/v1/notify', router: notifyRoutes, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
+    { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
     { path: '/api/v1/knowledge/import', router: knowledgeImportRoutes, middleware: auth, comment: 'S2: 冷启动导入' },
     { path: '/api/knowledge', router: knowledgeInternalRoutes, comment: 'Internal knowledge extraction API (no auth, text→LLM→knowledge store)' },
     { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
