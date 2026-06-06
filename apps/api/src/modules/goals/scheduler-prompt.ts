@@ -9,12 +9,101 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
-import { skillLoader } from '@dommaker/studio-skill';
 import { parseJsonField } from './goal.service.js';
+
+// ─── Skill Template Loading ───
+
+const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'knowledge', 'skills');
+
+interface SkillTemplateMeta {
+  name: string;
+  description?: string;
+  trigger?: string;
+  agentTypes?: string[];
+  tier?: string;
+  status?: string;
+}
+
+interface SkillTemplate {
+  meta: SkillTemplateMeta;
+  template: string;
+}
+
+/**
+ * Load Skill .md template from disk.
+ * Returns {meta, template} or null if not found.
+ */
+export function loadSkillTemplate(skillName: string): SkillTemplate | null {
+  try {
+    const filePath = path.join(SKILLS_DIR, `${skillName}.md`);
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+    if (!match) return null;
+
+    const yaml = match[1];
+    const template = match[2].trim();
+    const meta: Record<string, unknown> = {};
+
+    for (const line of yaml.split('\n')) {
+      const kv = line.match(/^(\w+):\s*(.+)$/);
+      if (!kv) continue;
+      const [, key, val] = kv;
+      if (val.startsWith('[') && val.endsWith(']')) {
+        meta[key] = val.slice(1, -1).split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+      } else {
+        meta[key] = val.replace(/^["']|["']$/g, '');
+      }
+    }
+
+    if (meta.status && meta.status !== 'published') return null;
+    return { meta: meta as unknown as SkillTemplateMeta, template };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Build prompt from Skill .md template with placeholder replacement.
+ *
+ * Supported placeholders:
+ *   {{task}}             — task description / AC list
+ *   {{constraints}}      — behavior constraints
+ *   {{knowledgeContext}} — relevant knowledge
+ *   {{capabilities}}     — scanned capability skills
+ *
+ * Unfilled placeholders are replaced with empty string.
+ */
+export function buildSkillPrompt(
+  skillName: string,
+  vars: {
+    task?: string;
+    constraints?: string;
+    knowledgeContext?: string;
+    capabilities?: string;
+  },
+): string {
+  const tmpl = loadSkillTemplate(skillName);
+  if (!tmpl) return '';
+
+  let result = tmpl.template;
+  const replacements: Record<string, string> = {
+    '{{task}}': vars.task || '',
+    '{{constraints}}': vars.constraints || '',
+    '{{knowledgeContext}}': vars.knowledgeContext || '',
+    '{{capabilities}}': vars.capabilities || '',
+  };
+
+  for (const [placeholder, value] of Object.entries(replacements)) {
+    result = result.split(placeholder).join(value);
+  }
+
+  return result;
+}
 
 // ─── Prompt Builders ───
 
-/** Sub-agent prompt（文件桥模型 + sibling context + 公司知识） */
+/** Sub-agent prompt（Skill 模板化 + sibling context + 公司知识） */
 export function buildSubAgentPrompt(
   input: Record<string, any> | null,
   siblingContext?: string,
@@ -31,42 +120,45 @@ export function buildSubAgentPrompt(
     ? acs.map((ac: string, i: number) => `${i + 1}. ${ac}`).join('\n')
     : '（从任务描述中推断）';
 
-  return [
-    '## 你的任务',
-    '', // B11-015: 不再要求读完整 REQUIREMENTS.md，当前 step AC 已在下方注入
-    '## 验收标准',
-    acLines,
-    '',
+  // Build {{task}} variable
+  const taskParts = [
+    '## 验收标准', acLines, '',
     ...(notes ? ['## 实现指南', notes, ''] : []),
     ...(patterns.length ? ['## 参考模式', ...patterns.map(p => `- ${p}`), ''] : []),
     ...(gotchas.length ? ['## ⚠️ 注意事项', ...gotchas.map(g => `- ${g}`), ''] : []),
     ...(files.length > 0 ? ['## 预期改动文件', ...files.map((f: string) => `- ${f}`), ''] : []),
-    ...(siblingContext ? [siblingContext, ''] : []),
-    ...(companyKnowledge ? [companyKnowledge, ''] : []),
-    skillLoader.formatForPrompt(skillLoader.load({ trigger: 'sub_agent', agentType: 'executor', tier: 'fast' })),
-    '',
-    '## 验证',
+  ];
+
+  // Build {{constraints}} variable (verification rules)
+  const constraintsParts = [
     '声明完成前必须：',
     '1. 运行 npm test 确认所有测试通过（含你新增的测试）',
     '2. 运行 npm run typecheck（或 tsc --noEmit）确认无类型错误',
-    '3. 将测试证据写入 .progress.json 的 testResults 字段：',
-    '```json',
-    '{',
-    '  "testResults": {',
-    '    "passed": <是否全部通过: true|false>,',
-    '    "total": <通过的测试数>,',
-    '    "failed": <失败的测试数, 必须为 0>,',
-    '    "command": "npm test",',
-    '    "evidence": "<测试输出摘要>"',
-    '  }',
-    '}',
-    '```',
-    '',
-    '## 完成后',
-    '在 .progress.json 的 notes 字段简要记录：',
-    '- 你的关键设计决策（1-2 句）',
-    '- 是否影响其他 AC 组的方案（如需要提醒其他组调整，用 @sibling step-N: 你的建议 格式）',
-  ].join('\n');
+    '3. 将测试证据写入 .progress.json 的 testResults 字段',
+    '完成后在 .progress.json notes 中记录关键设计决策',
+  ];
+
+  // Assemble via Skill template
+  const skillPrompt = buildSkillPrompt('sub-agent-workflow', {
+    task: taskParts.join('\n'),
+    constraints: constraintsParts.join('\n'),
+    knowledgeContext: [siblingContext, companyKnowledge].filter(Boolean).join('\n\n'),
+  });
+
+  // Fallback to inline prompt if skill template not found
+  if (!skillPrompt) {
+    return [
+      '## 你的任务', '',
+      ...taskParts,
+      ...(siblingContext ? [siblingContext, ''] : []),
+      ...(companyKnowledge ? [companyKnowledge, ''] : []),
+      '',
+      '## 验证',
+      ...constraintsParts,
+    ].join('\n');
+  }
+
+  return skillPrompt;
 }
 
 /** 向后兼容：旧 prompt（Legacy task，无 acGroup） */
