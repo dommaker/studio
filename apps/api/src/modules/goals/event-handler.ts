@@ -5,6 +5,7 @@
  * 委托 review-orchestrator.ts 和 knowledge-promoter.ts 处理子流程。
  */
 import { eventStore } from '../../core/event-store.js';
+import { eventBus } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
@@ -96,6 +97,11 @@ export class AgentEventListener {
         status: isCompleted ? 'succeeded' : 'failed',
         hasOutput: !!completionOutput,
       });
+
+      // 事件驱动：通知 scheduler 有 step 完成，触发下一轮调度
+      if (isCompleted && goalId) {
+        eventBus.publish('goal.stepCompleted', { goalId, goalExecutionId });
+      }
 
       // 更新 Wiki 项目页执行结果
       if (goalId) {

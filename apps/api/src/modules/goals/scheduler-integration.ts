@@ -22,7 +22,7 @@ import {
 
 import { dispatchStep, type DispatchContext } from './scheduler-dispatch.js';
 
-const POLL_INTERVAL = 10_000; // 10s
+const POLL_INTERVAL = 30_000; // 30s — event-driven primary, poll as safety net
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
 export class GoalScheduler {
@@ -79,6 +79,11 @@ export class GoalScheduler {
 
     eventBus.subscribe('goal.created', () => {
       logger.debug('[GoalScheduler] Goal created event received, triggering immediate tick');
+      this.tick();
+    });
+
+    eventBus.subscribe('goal.stepCompleted', (data: { goalId?: string }) => {
+      logger.debug('[GoalScheduler] Step completed event received, triggering tick', { goalId: data?.goalId });
       this.tick();
     });
 
