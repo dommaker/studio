@@ -523,3 +523,58 @@ describe('KnowledgeService Phase 1C: Extract', () => {
     });
   });
 });
+
+// ── Phase 0: Contract verification ──
+
+describe('KnowledgeService Phase 0: contract', () => {
+  const { ks } = createKS();
+
+  describe('Produce (6 methods)', () => {
+    it('extractFromExecution exists', () => expect(typeof ks.extractFromExecution).toBe('function'));
+    it('extractFromConversation exists', () => expect(typeof ks.extractFromConversation).toBe('function'));
+    it('recordPattern exists', () => expect(typeof ks.recordPattern).toBe('function'));
+    it('recordIncident exists', () => expect(typeof ks.recordIncident).toBe('function'));
+    it('recordTrend exists', () => expect(typeof ks.recordTrend).toBe('function'));
+    it('recordAnalystAccuracy exists', () => expect(typeof ks.recordAnalystAccuracy).toBe('function'));
+  });
+
+  describe('Consume (5 methods)', () => {
+    it('injectContext exists', () => expect(typeof ks.injectContext).toBe('function'));
+    it('search exists', () => expect(typeof ks.search).toBe('function'));
+    it('matchResolutions exists', () => expect(typeof ks.matchResolutions).toBe('function'));
+    it('list exists', () => expect(typeof ks.list).toBe('function'));
+    it('get exists', () => expect(typeof ks.get).toBe('function'));
+  });
+
+  describe('Track (3 methods)', () => {
+    it('recordConsumption exists', () => expect(typeof ks.recordConsumption).toBe('function'));
+    it('recordOutcome exists', () => expect(typeof ks.recordOutcome).toBe('function'));
+    it('recordFeedback exists', () => expect(typeof ks.recordFeedback).toBe('function'));
+  });
+
+  describe('Lifecycle (4 methods)', () => {
+    it('promote exists', () => expect(typeof ks.promote).toBe('function'));
+    it('decay exists', () => expect(typeof ks.decay).toBe('function'));
+    it('merge exists', () => expect(typeof ks.merge).toBe('function'));
+    it('graduateConstraint exists', () => expect(typeof ks.graduateConstraint).toBe('function'));
+  });
+
+  describe('Resolve (1 method)', () => {
+    it('createResolution exists', () => expect(typeof ks.createResolution).toBe('function'));
+  });
+
+  describe('Measure (4 methods)', () => {
+    it('getFlywheelMetrics exists', () => expect(typeof ks.getFlywheelMetrics).toBe('function'));
+    it('getHealthReport exists', () => expect(typeof ks.getHealthReport).toBe('function'));
+    it('getAuditReport exists', () => expect(typeof ks.getAuditReport).toBe('function'));
+    it('getAnalystAccuracy exists', () => expect(typeof ks.getAnalystAccuracy).toBe('function'));
+  });
+
+  describe('method count', () => {
+    it('has exactly 23 public methods', () => {
+      const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
+        .filter(m => m !== 'constructor');
+      expect(methods).toHaveLength(23);
+    });
+  });
+});
