@@ -19,6 +19,8 @@ function createMockStore(initialEntries: any[] = []) {
     list: vi.fn(() => entries),
     get: vi.fn((id: string) => entries.find(e => e.id === id) || null),
     save: vi.fn((entry: any) => { entries.push(entry); return entry; }),
+    update: vi.fn(),
+    delete: vi.fn(),
     _entries: entries, // expose for test setup
   };
 }
@@ -308,6 +310,121 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       const result = await ks.matchResolutions('permission denied on file');
       expect(result.length).toBe(1);
       expect(prisma.resolution.findMany).toHaveBeenCalled();
+    });
+  });
+});
+
+// ── Phase 1B: Track + Lifecycle + Resolve ──
+
+describe('KnowledgeService Phase 1B: Track', () => {
+  describe('recordConsumption', () => {
+    it('calls lifecycle.recordReference for each entry', () => {
+      const { ks, lifecycle } = createKS();
+      ks.recordConsumption(['id1', 'id2', 'id3'], 'search');
+      expect(lifecycle.recordReference).toHaveBeenCalledTimes(3);
+      expect(lifecycle.recordReference).toHaveBeenCalledWith('id1', 'search');
+      expect(lifecycle.recordReference).toHaveBeenCalledWith('id2', 'search');
+      expect(lifecycle.recordReference).toHaveBeenCalledWith('id3', 'search');
+    });
+
+    it('continues on individual failures', () => {
+      const { ks, lifecycle } = createKS();
+      lifecycle.recordReference
+        .mockImplementationOnce(() => { throw new Error('fail'); })
+        .mockImplementationOnce(() => {});
+      expect(() => ks.recordConsumption(['id1', 'id2'], 'ctx')).not.toThrow();
+      expect(lifecycle.recordReference).toHaveBeenCalledTimes(2);
+    });
+  });
+});
+
+describe('KnowledgeService Phase 1B: Lifecycle', () => {
+  describe('promote', () => {
+    it('promotes draft → verified', async () => {
+      const entries = [
+        { id: 'e1', title: 'Test', content: 'A'.repeat(60), tags: ['pattern'], maturity: 'draft', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn().mockReturnValue(entries[0]);
+      await ks.promote('e1');
+      expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'verified' }));
+    });
+
+    it('promotes verified → proven', async () => {
+      const entries = [
+        { id: 'e1', title: 'Test', content: 'A'.repeat(120), tags: ['pattern'], maturity: 'verified', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn().mockReturnValue(entries[0]);
+      await ks.promote('e1');
+      expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'proven' }));
+    });
+
+    it('does not promote if entry not found', async () => {
+      const { ks, store } = createKS();
+      store.update = vi.fn();
+      await ks.promote('nonexistent');
+      expect(store.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('decay', () => {
+    it('decays proven → verified when stale', async () => {
+      const staleDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year ago
+      const entries = [
+        { id: 'e1', title: 'Old', content: 'content', tags: ['pattern'], maturity: 'proven', lastReferenced: staleDate },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn().mockReturnValue(entries[0]);
+      await ks.decay('e1');
+      expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'verified' }));
+    });
+
+    it('does not decay recent entries', async () => {
+      const entries = [
+        { id: 'e1', title: 'Fresh', content: 'content', tags: ['pattern'], maturity: 'proven', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn();
+      await ks.decay('e1');
+      expect(store.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('merge', () => {
+    it('merges source into target and deletes source', async () => {
+      const entries = [
+        { id: 'src', title: 'Source', content: 'source content', tags: ['pattern'], maturity: 'draft' },
+        { id: 'tgt', title: 'Target', content: 'target content', tags: ['pattern'], maturity: 'verified' },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.delete = vi.fn().mockResolvedValue(undefined);
+      await ks.merge('src', 'tgt');
+      expect(store.save).toHaveBeenCalled();
+      expect(store.delete).toHaveBeenCalledWith('src');
+    });
+  });
+});
+
+describe('KnowledgeService Phase 1B: Resolve', () => {
+  describe('createResolution', () => {
+    it('creates resolution via Prisma', async () => {
+      const { ks, prisma } = createKS();
+      await ks.createResolution('permission error', 'check file perms');
+      expect(prisma.resolution.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          pattern: 'permission error',
+          fix: 'check file perms',
+          status: 'pending',
+        }),
+      });
+    });
+
+    it('skips if duplicate pattern exists', async () => {
+      const { ks, prisma } = createKS();
+      prisma.resolution.findFirst.mockResolvedValueOnce({ id: 'existing' });
+      await ks.createResolution('permission error', 'check file perms');
+      expect(prisma.resolution.create).not.toHaveBeenCalled();
     });
   });
 });

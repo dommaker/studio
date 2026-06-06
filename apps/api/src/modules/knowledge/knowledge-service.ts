@@ -495,16 +495,42 @@ export class KnowledgeService {
 
   // ═══════════ Lifecycle ════════════
 
-  async promote(_entryId: string): Promise<void> {
-    // Phase 1B
+  async promote(entryId: string): Promise<void> {
+    const entry = this.store.get(entryId);
+    if (!entry) return;
+    const next: Record<string, MaturityLevel> = { draft: 'verified', verified: 'proven' };
+    const target = next[entry.maturity];
+    if (target) {
+      this.store.update(entryId, { maturity: target });
+    }
   }
 
-  async decay(_entryId: string): Promise<void> {
-    // Phase 1B
+  async decay(entryId: string): Promise<void> {
+    const entry = this.store.get(entryId);
+    if (!entry) return;
+    const prev: Record<string, MaturityLevel> = { proven: 'verified', verified: 'draft' };
+    const target = prev[entry.maturity];
+    if (!target) return;
+    // Only decay if stale (unreferenced for threshold)
+    const daysSinceRef = entry.lastReferenced
+      ? (Date.now() - new Date(entry.lastReferenced).getTime()) / 86400000
+      : 999;
+    const threshold: Record<string, number> = { proven: 365, verified: 180, draft: 90 };
+    if (daysSinceRef >= (threshold[entry.maturity] || 90)) {
+      this.store.update(entryId, { maturity: target });
+    }
   }
 
-  async merge(_sourceId: string, _targetId: string): Promise<void> {
-    // Phase 1B
+  async merge(sourceId: string, targetId: string): Promise<void> {
+    const source = this.store.get(sourceId);
+    const target = this.store.get(targetId);
+    if (!source || !target) return;
+    this.store.save({
+      ...target,
+      content: `${target.content}\n\n---\nMerged from ${sourceId}: ${source.content}`,
+      contributors: [...(target.contributors || []), ...(source.contributors || [])],
+    });
+    this.store.delete(sourceId);
   }
 
   async graduateConstraint(_id: string): Promise<void> {
@@ -513,8 +539,22 @@ export class KnowledgeService {
 
   // ═══════════ Resolve (known solutions) ════════════
 
-  async createResolution(_problem: string, _fix: string): Promise<void> {
-    // Phase 1B
+  async createResolution(problem: string, fix: string): Promise<void> {
+    try {
+      const existing = await this.prisma.resolution.findFirst({ where: { pattern: problem } });
+      if (existing) return;
+      await this.prisma.resolution.create({
+        data: {
+          pattern: problem,
+          fix,
+          status: 'pending',
+          title: problem.slice(0, 100),
+          errorClass: 'unknown',
+        },
+      });
+    } catch {
+      // best-effort
+    }
   }
 
   // ═══════════ Measure (metrics + audit) ════════════
