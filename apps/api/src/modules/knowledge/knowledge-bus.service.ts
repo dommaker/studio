@@ -16,7 +16,7 @@
  */
 
 import { KnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
-import type { KnowledgeType } from '@dommaker/harness';
+import type { KnowledgeType, DecisionRecord } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { exec } from 'child_process';
@@ -41,6 +41,7 @@ const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeType> = {
   trend: 'process',
   fix: 'guideline',
   analyst_accuracy: 'model',
+  decision: 'decision',
 };
 
 // Singleton store + lifecycle + ingest — shared by knowledgeBus and knowledgeQuery
@@ -108,7 +109,7 @@ export type KnowledgeSource =
 
 export interface BusEntry {
   source: KnowledgeSource;
-  type: 'pattern' | 'failure' | 'incident' | 'pitfall' | 'guideline' | 'trend' | 'fix' | 'analyst_accuracy';
+  type: 'pattern' | 'failure' | 'incident' | 'pitfall' | 'guideline' | 'trend' | 'fix' | 'analyst_accuracy' | 'decision';
   title: string;
   content: string;
   severity: 'info' | 'warning' | 'critical';
@@ -285,6 +286,31 @@ export class KnowledgeBus {
       }
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to record analyst accuracy', { error: String(e) });
+    }
+  }
+
+  /** KnowledgeAgent: 记录架构/工具/流程决策 */
+  async recordDecision(entry: DecisionRecord): Promise<void> {
+    try {
+      const title = `${entry.topic}: ${entry.decision}`;
+      const content = [
+        entry.context && `上下文: ${entry.context}`,
+        entry.decision && `决策: ${entry.decision}`,
+        entry.rationale && `理由: ${entry.rationale}`,
+        entry.consequences && `权衡: ${entry.consequences}`,
+        entry.alternatives?.length > 0 && `备选: ${entry.alternatives.join(' / ')}`,
+      ].filter(Boolean).join('\n');
+      const tags = ['decision', entry.category];
+      const result = this.ingest.ingestEntry(
+        { type: 'decision', title, content, tags },
+        { source: `decision:${entry.sourceType}:${entry.sourceId || 'unknown'}`, layer: 'project', maturity: 'active', tags, consumptionMode: 'reference' },
+      );
+      scheduleVectorDbSync();
+      if (result.lastReferenced && result.contributors.length > 1) {
+        logger.info('[KnowledgeBus] Dedup merged (decision)', { title, existingId: result.id });
+      }
+    } catch (e: any) {
+      logger.warn('[KnowledgeBus] Failed to record decision', { error: String(e) });
     }
   }
 

@@ -7,6 +7,7 @@
 
 import { modelGateway, logger } from '@dommaker/studio-shared';
 import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
+import type { DecisionRecord } from '@dommaker/harness';
 import { sharedStore, sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -558,6 +559,153 @@ ${deployResult.summary.slice(0, 2000)}
       } catch { /* non-blocking */ }
     } catch (err) {
       logger.warn('[KnowledgeAgent] extractFromText failed', { source: source.slice(-40), error: String(err) });
+    }
+  }
+
+  /** Infer decision category from topic keywords */
+  private inferDecisionCategory(topic: string): DecisionRecord['category'] {
+    const t = topic.toLowerCase();
+    if (t.match(/schema|架构|api|分层|模块|service|repository/i)) return 'architecture';
+    if (t.match(/tool|工具|db|database|sqlite|postgres|storage|orm/i)) return 'tooling';
+    if (t.match(/流程|部署|deploy|pipeline|ci|cd|nginx|docker/i)) return 'process';
+    return 'design';
+  }
+
+  /**
+   * Extract a decision record from text content using LLM.
+   *
+   * Returns null if no decision found or on any error.
+   */
+  async extractDecision(
+    content: string,
+    source: string,
+  ): Promise<DecisionRecord | null> {
+    try {
+      if (!content || content.trim().length === 0) {
+        return null;
+      }
+
+      const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
+      if (!apiKey) {
+        logger.warn('[KnowledgeAgent] No API key, skipping extractDecision', { source });
+        return null;
+      }
+
+      const truncatedContent = content.slice(0, 50_000);
+
+      const DECISION_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记录中提取决策。
+
+每个决策应包含：
+- topic: 决策主题（简洁）
+- context: 决策背景（当时面临什么问题，1-2 句话）
+- options: 候选方案列表 [{ name, pros: [...], cons: [...] }]
+- chosen: 最终选择的方案名称
+- rationale: 选择理由（为什么选这个而不是其他，1-2 句话）
+- tradeoffs: 已知权衡（放弃/妥协了什么）
+- revisable: 是否可以推翻 (true/false)
+- revisitCondition: 什么条件下应重新审视
+
+请严格以 JSON 格式返回：
+{
+  "decisions": [
+    {
+      "topic": "...",
+      "context": "...",
+      "options": [{"name": "...", "pros": ["..."], "cons": ["..."]}],
+      "chosen": "...",
+      "rationale": "...",
+      "tradeoffs": "...",
+      "revisable": true,
+      "revisitCondition": "..."
+    }
+  ]
+}
+
+提取规则：
+- 只提取有实质内容的决策，忽略 trivial 选择
+- 没有明确决策的讨论 → 返回空数组
+- 最多提取 1 个决策`;
+
+      const rawResponse = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: DECISION_SYSTEM_PROMPT },
+            { role: 'user', content: truncatedContent },
+          ],
+          temperature: 0.1,
+          max_tokens: 2000,
+        }),
+      });
+
+      if (!rawResponse.ok) {
+        const errorBody = await rawResponse.text().catch(() => '');
+        logger.warn('[KnowledgeAgent] extractDecision API error', {
+          status: rawResponse.status,
+          body: errorBody.slice(0, 300),
+        });
+        return null;
+      }
+
+      const data = await rawResponse.json() as any;
+      const llmContent = data.choices?.[0]?.message?.content || '';
+
+      if (!llmContent) {
+        return null;
+      }
+
+      // Parse JSON — same 3 strategies as extractFromText
+      let result: any;
+      try {
+        result = JSON.parse(llmContent);
+      } catch {
+        const codeMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+        if (codeMatch?.[1]) {
+          try { result = JSON.parse(codeMatch[1].trim()); } catch {}
+        }
+        if (!result) {
+          const jsonMatch = llmContent.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            try { result = JSON.parse(jsonMatch[0]); } catch {}
+          }
+        }
+        if (!result) {
+          logger.warn('[KnowledgeAgent] Failed to parse extractDecision JSON', { source: source.slice(-40) });
+          return null;
+        }
+      }
+
+      const decision = result.decisions?.[0];
+      if (!decision) {
+        return null;
+      }
+
+      // Map to DecisionRecord
+      const category = this.inferDecisionCategory(decision.topic || '');
+      const record: DecisionRecord = {
+        topic: decision.topic || '',
+        category,
+        context: decision.context || '',
+        decision: decision.chosen || '',
+        alternatives: Array.isArray(decision.options) ? decision.options.map((o: any) => o.name || String(o)) : [],
+        rationale: decision.rationale || '',
+        consequences: decision.tradeoffs || '',
+        participants: [],
+        sourceType: 'llm-extraction',
+        revisable: decision.revisable ?? true,
+        revisitCondition: decision.revisitCondition,
+      };
+
+      // Write to KnowledgeStore via KnowledgeBus
+      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
+      await knowledgeBus.recordDecision(record);
+
+      return record;
+    } catch (err) {
+      logger.warn('[KnowledgeAgent] extractDecision failed', { source: source.slice(-40), error: String(err) });
+      return null;
     }
   }
 

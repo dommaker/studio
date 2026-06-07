@@ -164,6 +164,21 @@ vi.mock('../knowledge-bus.service.js', async () => {
         { source: `incident:ops:${new Date(entry.timestamp).toISOString()}`, layer: 'tech', maturity: 'draft', tags: ['incident', entry.severity] },
       );
     },
+    async recordDecision(entry: any) {
+      const title = `${entry.topic}: ${entry.decision}`;
+      const content = [
+        entry.context && `上下文: ${entry.context}`,
+        entry.decision && `决策: ${entry.decision}`,
+        entry.rationale && `理由: ${entry.rationale}`,
+        entry.consequences && `权衡: ${entry.consequences}`,
+        entry.alternatives?.length > 0 && `备选: ${entry.alternatives.join(' / ')}`,
+      ].filter(Boolean).join('\n');
+      const tags = ['decision', entry.category];
+      ingest.ingestEntry(
+        { type: 'decision', title, content, tags },
+        { source: `decision:${entry.sourceType}:${entry.sourceId || 'unknown'}`, layer: 'project', maturity: 'active', tags, consumptionMode: 'reference' },
+      );
+    },
     search(query: string, opts?: { limit?: number; type?: string }) {
       const limit = opts?.limit || 5;
       const all = store.list({});
@@ -399,6 +414,42 @@ describe('KnowledgeBus', () => {
         severity: 'warning',
         timestamp: Date.now(),
       })).resolves.not.toThrow();
+    });
+  });
+
+  describe('recordDecision', () => {
+    it('records a decision entry without throwing', async () => {
+      await expect(knowledgeBus.recordDecision({
+        topic: 'Use SQLite for local storage',
+        category: 'tooling',
+        context: 'Need a lightweight DB for dev environment',
+        decision: 'SQLite',
+        alternatives: ['PostgreSQL', 'MySQL'],
+        rationale: 'Zero config, file-based, sufficient for dev',
+        consequences: 'No concurrent writes, limited scalability',
+        participants: ['alice'],
+        sourceType: 'llm-extraction',
+        revisable: true,
+        revisitCondition: 'When moving to production',
+      })).resolves.not.toThrow();
+    });
+
+    it('recorded decision is queryable by type', async () => {
+      await knowledgeBus.recordDecision({
+        topic: 'Test decision ' + Date.now(),
+        category: 'architecture',
+        context: 'Test context',
+        decision: 'Test decision',
+        alternatives: ['Alt A'],
+        rationale: 'Test rationale',
+        consequences: 'Test consequences',
+        participants: [],
+        sourceType: 'test',
+        revisable: false,
+      });
+      const entries = await knowledgeBus.queryByType('decision', 10);
+      expect(entries.length).toBeGreaterThan(0);
+      expect(entries.some((e: any) => e.title.includes('Test decision'))).toBe(true);
     });
   });
 });
