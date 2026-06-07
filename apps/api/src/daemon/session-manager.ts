@@ -225,7 +225,12 @@ export class SessionManager {
       try {
         const result = await execSh(cmd, {
           cwd: state.config.worktree,
-          env: { ...process.env, ANTHROPIC_MODEL: model, ...job.env },
+          env: {
+            ...process.env,
+            ANTHROPIC_MODEL: model,
+            ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+            ...job.env,
+          },
           timeoutMs: state.config.timeoutMs,
           maxBuffer: 10 * 1024 * 1024,
         });

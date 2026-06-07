@@ -252,6 +252,17 @@ export class OpsAgent {
           const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean } | null>;
           daemonBusy = (statuses || []).some((s: any) => s?.isBusy);
         } catch {}
+        // Also check executor sessions (agentExecutor bypasses daemon)
+        if (!daemonBusy) {
+          try {
+            const { prisma } = await import('@dommaker/studio-prisma');
+            const runningExecs = await prisma.goalExecution.count({ where: { status: 'running' } });
+            if (runningExecs > 0) {
+              daemonBusy = true;
+              logger.info('[OpsAgent] Executor sessions active', { runningExecs });
+            }
+          } catch {}
+        }
         if (this.stopped) return; // re-check after async gap
         if (daemonBusy) {
           logger.warn('[OpsAgent] Daemon busy — skipping auto-restart to avoid killing running tasks');

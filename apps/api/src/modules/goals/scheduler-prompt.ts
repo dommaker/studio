@@ -335,7 +335,7 @@ export async function findTaskBranch(executionId: string, repoDir: string): Prom
       execSync(`git rev-parse --verify "task/${executionId}"`, { cwd: repoDir, timeout: 5_000, stdio: 'pipe' });
       return `task/${executionId}`;
     } catch { /* not found */ }
-    const found = execSync(`git branch --list "task/*${executionId}*" | head -1 | sed "s/^[* ]*//"`, { cwd: repoDir, encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' }).trim();
+    const found = execSync(`git branch --list "task/*${executionId}*" | head -1 | sed "s/^[*+ ]*//"`, { cwd: repoDir, encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' }).trim();
     return found || null;
   } catch { return null; }
 }
