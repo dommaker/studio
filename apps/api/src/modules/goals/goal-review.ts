@@ -271,11 +271,15 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
     }
 
     if (project.status === 'active') {
-      await prisma.project.update({
-        where: { id: project.id },
-        data: { status: 'in_review' },
-      });
-      logger.info(`[Goal] Project ${project.pmoNumber} → in_review`);
+      try {
+        await prisma.project.update({
+          where: { id: project.id },
+          data: { status: 'in_review' },
+        });
+        logger.info(`[Goal] Project ${project.pmoNumber} → in_review`);
+      } catch (e) {
+        logger.warn('[Goal] Project update to in_review failed (non-blocking)', { projectId: project.id, error: String(e) });
+      }
     }
 
     if (project.okrId) {
@@ -310,11 +314,15 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
       });
 
       if (result.success && project) {
-        await prisma.project.update({
-          where: { id: project.id },
-          data: { status: 'completed' },
-        });
-        logger.info(`[Goal] Project ${project.pmoNumber} → completed`);
+        try {
+          await prisma.project.update({
+            where: { id: project.id },
+            data: { status: 'completed' },
+          });
+          logger.info(`[Goal] Project ${project.pmoNumber} → completed`);
+        } catch (e) {
+          logger.warn('[Goal] Project update to completed failed (non-blocking)', { projectId: project.id, error: String(e) });
+        }
       }
 
       knowledgeAgent.extractFromDeploy(result, goalId, projectId || goalId).catch(e => {

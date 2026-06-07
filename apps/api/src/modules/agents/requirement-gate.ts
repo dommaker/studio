@@ -49,11 +49,11 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
 
   // 1. AC 粒度: 每组 ≤6 AC
   for (const g of groups) {
-    if (g.acs.length > 6) {
+    if (g.acs.length > 5) {
       checks.push({
         name: 'ac-granularity',
         passed: false,
-        message: `组 "${g.id}" 有 ${g.acs.length} 个 AC，超过 6 个上限。flash 模型一次执行 ≤6 AC。请拆分为更小的组`,
+        message: `组 "${g.id}" 有 ${g.acs.length} 个 AC，超过 5 个上限。请拆分为更小的组`,
       });
     } else if (g.acs.length === 0) {
       checks.push({
@@ -93,7 +93,7 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
     // (packages/foo/...) or relative to a package dir (src/modules/...).
     // Try repoDir first, then common package subdirectories.
     const tryDirs = [repoDir];
-    for (const sub of ['apps/api', 'apps/web', 'packages/studio-shared', 'packages/studio-agent', 'packages/studio-skill', 'packages/studio-prisma']) {
+    for (const sub of ['apps/api', 'apps/web', 'packages/studio-shared', 'packages/studio-agent', 'packages/studio-skill', 'packages/studio-prisma', '..', '../harness']) {
       const candidate = path.join(repoDir, sub);
       if (fs.existsSync(candidate)) tryDirs.push(candidate);
     }
