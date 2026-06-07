@@ -12,7 +12,7 @@ import { channelMessageService } from './channel-message.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import { loadKnowledge, saveKnowledge, perInvocationOutputFile } from './analyst-knowledge.js';
 import { buildAnalystPrompt } from './analyst-prompt.js';
-import { runClaudeCode, validateAnalystOutput, type RequirementsDocJson } from './analyst-executor.js';
+import { runClaudeCode, validateAnalystOutput, preClassifyTier, type RequirementsDocJson } from './analyst-executor.js';
 
 export type { RequirementsDocJson } from './analyst-executor.js';
 
@@ -122,7 +122,9 @@ class AnalystTriggerService {
 
       const knowledge = [fileKnowledge, dbKnowledge].filter(Boolean).join('\n');
       const outputFile = perInvocationOutputFile();
-      const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile);
+      const preTier = preClassifyTier(content);
+      logger.info('[AnalystTrigger] Pre-classified tier', { tier: preTier, contentLength: content.length });
+      const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile, preTier);
 
       // 4. Run Claude Code agent (ad-hoc session, supports concurrent @Analyst)
       // O1d: Restrict tool access for Simple tasks (short content, no schema change keywords)
@@ -319,6 +321,9 @@ class AnalystTriggerService {
 
   private formatRequirementsDoc(doc: RequirementsDocJson): string {
     const sections = [`# ${doc.title}`, '', doc.summary, ''];
+    if (doc.tier) {
+      sections.push(`<!-- TASK_TIER ${JSON.stringify({ tier: doc.tier, reason: doc.tierReason || '' })} -->`, '');
+    }
     if (doc.interfaceVerification) {
       sections.push(
         '## Schema First Verification',

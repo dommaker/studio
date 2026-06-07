@@ -417,13 +417,45 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       }
 
       // G34: Read acGroups from JSON column (source of truth), fallback to Markdown parse
-      const acGroups = doc.acGroups
+      let acGroups = doc.acGroups
         ? JSON.parse(doc.acGroups as string)
         : parseAcGroupsFromMarkdown(doc.content);
       // TDD-07: Read contractTests from DB (Analyst 契约测试)
       const contractTests = doc.contractTests
         ? JSON.parse(doc.contractTests as string)
         : undefined;
+
+      // Extract tier from Analyst output (TASK_TIER comment in content)
+      const tierMatch = doc.content.match(/<!-- TASK_TIER (.+?) -->/);
+      let taskTier: string | undefined;
+      if (tierMatch) {
+        try {
+          const tierData = JSON.parse(tierMatch[1]);
+          taskTier = tierData.tier;
+        } catch { /* ignore parse error */ }
+      }
+
+      // Fast tier: merge all acGroups into 1 (single step, skip integration)
+      if (taskTier === 'fast' && acGroups.length > 1) {
+        const mergedGroup = {
+          id: acGroups.map(g => g.id).join('+'),
+          acs: acGroups.flatMap(g => g.acs),
+          files: [...new Set(acGroups.flatMap(g => g.files || []))],
+          dependencies: [],
+          implementationNotes: acGroups.map(g => `### ${g.id}\n${g.implementationNotes || ''}`).join('\n\n'),
+          codePatterns: acGroups.flatMap(g => g.codePatterns || []),
+          gotchas: acGroups.flatMap(g => g.gotchas || []),
+          modelTier: 'fast' as const,
+          modelTierReason: 'fast tier: merged all acGroups into single step',
+        };
+        logger.info('[Channel] Fast tier: merged acGroups', {
+          from: acGroups.length,
+          to: 1,
+          totalAcs: mergedGroup.acs.length,
+          totalFiles: mergedGroup.files.length,
+        });
+        acGroups = [mergedGroup];
+      }
 
       // Phase 3: 无契约测试的 RequirementsDoc 不允许进入 Scheduler
       if (!contractTests?.length) {

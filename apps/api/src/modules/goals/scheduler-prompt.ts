@@ -370,25 +370,42 @@ export async function runIntegrationInCode(
     where: { goalId, status: 'succeeded', stepIndex: { not: 999 } },
     orderBy: { stepIndex: 'asc' },
   });
+  const mergedBranches: string[] = [];
+  const missingBranches: string[] = [];
   for (const exec of succeededExecs) {
     let branch = `task/${exec.id}`;
+    let branchExists = false;
     try {
-      execSync(`git rev-parse --verify "${branch}"`, { cwd: worktree, timeout: 5_000 });
+      execSync(`git rev-parse --verify "${branch}"`, { cwd: worktree, timeout: 5_000, stdio: 'pipe' });
+      branchExists = true;
     } catch {
       try {
-        const found = execSync(`git branch --list "task/*${exec.id}*" | head -1 | sed "s/^[* ]*//"`, { cwd: worktree, encoding: 'utf-8', timeout: 5_000 }).trim();
-        if (found) branch = found;
-      } catch { /* fallback to exact name */ }
+        const found = execSync(`git branch --list "task/*${exec.id}*" | head -1 | sed "s/^[*+ ]*//"`, { cwd: worktree, encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' }).trim();
+        if (found) { branch = found; branchExists = true; }
+      } catch { /* not found */ }
+    }
+    if (!branchExists) {
+      missingBranches.push(`step ${exec.stepIndex} (${exec.id.slice(0, 8)})`);
+      continue;
     }
     try {
-      execSync(`git merge "${branch}" --no-edit`, { cwd: worktree, timeout: 15_000 });
+      execSync(`git merge "${branch}" --no-edit`, { cwd: worktree, timeout: 15_000, stdio: 'pipe' });
+      mergedBranches.push(branch);
       logger.info('[GoalScheduler] Integration merged', { branch, executionId });
     } catch (e: any) {
+      // Abort merge to leave worktree clean
+      try { execSync('git merge --abort', { cwd: worktree, timeout: 5_000, stdio: 'pipe' }); } catch {}
       const errMsg = e?.stderr?.toString() || e?.message || String(e);
       logger.warn('[GoalScheduler] Integration merge conflict', { branch, error: errMsg.slice(0, 200) });
       eventBus.publish('pipeline.merge_conflict', { branch, executionId, error: errMsg.slice(0, 500) });
       return { success: false, error: `Merge conflict on ${branch}: ${errMsg.slice(0, 200)}` };
     }
+  }
+  if (missingBranches.length > 0 && mergedBranches.length === 0) {
+    return { success: false, error: `No step branches found for merge. Missing: ${missingBranches.join(', ')}` };
+  }
+  if (missingBranches.length > 0) {
+    logger.warn('[GoalScheduler] Some step branches missing during integration', { missing: missingBranches, merged: mergedBranches });
   }
 
   try {

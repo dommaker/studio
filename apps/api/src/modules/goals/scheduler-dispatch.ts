@@ -232,10 +232,17 @@ export async function dispatchStep(
     }
   } catch { /* best-effort */ }
 
-  // Integration step — code execution
+  // Integration step — code execution (no Claude fallback: fail fast on merge issues)
   if (isIntegration) {
+    const integrationStart = Date.now();
+    const INTEGRATION_TIMEOUT_MS = 5 * 60 * 1000; // 5min max
     try {
-      const result = await runIntegrationInCode(goal.id, executionId, pmoNumber);
+      const result = await Promise.race([
+        runIntegrationInCode(goal.id, executionId, pmoNumber),
+        new Promise<{ success: false; error: string }>((_, reject) =>
+          setTimeout(() => reject(new Error('Integration timeout (5min)')), INTEGRATION_TIMEOUT_MS)
+        ),
+      ]);
       if (result.success) {
         await goalService.updateStepExecution(executionId, { status: 'succeeded' });
         const newState = updateDispatchOutcome({ failures: ctx.recentFailures, total: ctx.recentTotal }, true);
@@ -246,8 +253,22 @@ export async function dispatchStep(
         });
         return;
       }
+      // runIntegrationInCode returned failure — fail step immediately
+      const errorMs = Date.now() - integrationStart;
+      logger.error('[GoalScheduler] Integration (code) failed', {
+        goalId: goal.id, executionId, error: result.error, durationMs: errorMs,
+      });
+      await goalService.updateStepExecution(executionId, { status: 'failed', error: result.error });
+      return;
     } catch (err) {
-      logger.warn('[GoalScheduler] Integration (code) threw, falling back to Claude', { goalId: goal.id, error: String(err) });
+      // Timeout or exception — fail step immediately (no Claude fallback)
+      const errorMs = Date.now() - integrationStart;
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error('[GoalScheduler] Integration (code) error', {
+        goalId: goal.id, executionId, error: errMsg, durationMs: errorMs,
+      });
+      await goalService.updateStepExecution(executionId, { status: 'failed', error: errMsg });
+      return;
     }
   }
 

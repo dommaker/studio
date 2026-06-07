@@ -8,7 +8,7 @@ const getFormatConstraintsForPrompt = async (): Promise<(role: string) => string
 import { selectRelevantSections } from './analyst-knowledge.js';
 import { skillLoader } from '@dommaker/studio-skill';
 
-export async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection: string, outputFile: string): Promise<string> {
+export async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection: string, outputFile: string, preClassifiedTier?: string): Promise<string> {
   // Q7: 按段落分割知识，取与需求相关的前 N 段落（而非简单的 tail -8000chars）
   const relevantKnowledge = selectRelevantSections(knowledge, requirement, 6000);
   const knowledgeSection = knowledge
@@ -160,12 +160,36 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
     '    3. 函数是否有下游消费者？（grep 函数名）→ 有非本模块调用者 → 升级 standard',
     '    - 验证成本极低（几秒），但能过滤 80% 假 fast。未验证就标 fast = 赌博',
     '',
+    ...(preClassifiedTier ? [
+      '## 任务分级指令',
+      `系统预判此任务为 **${preClassifiedTier}** 级别。`,
+      '',
+      ...(preClassifiedTier === 'fast' ? [
+        '**fast 任务要求：将所有改动合并为 1 个 acGroup。**',
+        '- 此任务规模小，不需要拆分多个 AC 组',
+        '- 所有 AC 写在同一个 acGroup 中（总数 ≤ 5）',
+        '- 输出 "tier": "fast"（如你评估实际复杂度更高，可输出 "tier": "standard" 并说明原因）',
+        '- 管线会为 fast 任务跳过 integration 步骤，直接单 session 完成',
+      ] : preClassifiedTier === 'premium' ? [
+        '**premium 任务要求：完整分析，详细 architectureContext。**',
+        '- 按架构边界合理拆分 acGroup',
+        '- 每个 acGroup 必须有完整的 architectureContext',
+        '- 输出 "tier": "premium"',
+      ] : [
+        '**standard 任务：按常规流程分析。**',
+        '- 按架构边界拆分 acGroup，每组 ≤ 5 AC',
+        '- 输出 "tier": "standard"（如你评估可简化为 fast，可输出 "tier": "fast"）',
+      ]),
+      '',
+    ] : []),
     '## 输出格式',
     `将 RequirementsDoc JSON 写入 ${outputFile}：`,
     '```json',
     '{',
     '  "title": "需求标题",',
     '  "summary": "一句话总结",',
+    '  "tier": "fast|standard|premium",',
+    '  "tierReason": "分级理由（一句话）",',
     '  "interfaceVerification": {',
     '    "verified": ["已验证存在的接口: hook:PostToolUse - .claude/settings.json schema"],',
     '    "unverified": ["未找到但方案引用的接口: hook:afterTurn - 不在有效事件列表中"],',

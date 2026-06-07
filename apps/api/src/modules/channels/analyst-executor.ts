@@ -11,6 +11,9 @@ import * as fs from 'fs';
 export interface RequirementsDocJson {
   title: string;
   summary: string;
+  /** 任务复杂度分级：fast=单session单步, standard=当前管线, premium=详细上下文 */
+  tier?: 'fast' | 'standard' | 'premium';
+  tierReason?: string;
   interfaceVerification?: {
     verified: string[];
     unverified: string[];
@@ -53,6 +56,23 @@ export interface RequirementsDocJson {
     /** 测试代码内容（可执行的 vitest 代码） */
     content: string;
   }>;
+}
+
+/**
+ * 从需求文本预判任务分级（规则，0 成本）
+ * Analyst 可以覆盖此预判（输出自己的 tier 字段）
+ */
+export function preClassifyTier(requirement: string): 'fast' | 'standard' | 'premium' {
+  const lower = requirement.toLowerCase();
+  const hasSchema = /schema|migration|prisma|migrate|数据库/i.test(lower);
+  const hasMultiModule = /跨模块|多模块|架构重构|新模块|new module/i.test(lower);
+  const hasSecurity = /auth|login|password|token|oauth|jwt|security|加密|encrypt/i.test(lower);
+  const isShort = requirement.length < 300;
+  const hasSimpleKeywords = /修复|fix|改|replace|移除|remove|添加|add|升级|upgrade|更新|update/i.test(lower);
+
+  if (hasSchema || hasMultiModule || hasSecurity) return 'premium';
+  if (isShort && hasSimpleKeywords) return 'fast';
+  return 'standard';
 }
 
 // O1d: accept optional claudeArgs for tool restriction on Simple tasks
@@ -114,6 +134,7 @@ export async function runClaudeCode(prompt: string, outputFile: string, claudeAr
 
 interface AnalystOutput {
   title?: string;
+  tier?: string;
   acGroups?: Array<{
     id?: string;
     acs?: unknown[];
