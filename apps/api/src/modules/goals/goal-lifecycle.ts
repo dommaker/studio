@@ -247,10 +247,24 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
   const errorRaw: any = failedExec?.error;
   const errorMsg = typeof errorRaw === 'object' ? (errorRaw?.message || JSON.stringify(errorRaw)) : (String(errorRaw || 'Unknown failure'));
 
+  // Query FailureEvent to determine incident type (race-condition safe: fallback to 'zombie')
+  let incidentType: string = 'zombie';
+  let incidentSeverity: 'critical' | 'warning' = 'warning';
+  try {
+    const latestFailure = await prisma.failureEvent.findFirst({
+      where: { goalId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (latestFailure?.routeTarget === 'triage' && latestFailure.incidentType) {
+      incidentType = latestFailure.incidentType;
+      incidentSeverity = latestFailure.severity === 'critical' ? 'critical' : 'warning';
+    }
+  } catch { /* fallback to 'zombie' */ }
+
   try {
     await triageAgent.handleAlert({
-      type: 'zombie',
-      severity: 'warning',
+      type: incidentType as any,
+      severity: incidentSeverity,
       message: `Goal ${goalId.slice(0, 8)} failed: ${errorMsg.slice(0, 200)}`,
       details: { goalId, executionId: failedExec?.id, projectId },
     });

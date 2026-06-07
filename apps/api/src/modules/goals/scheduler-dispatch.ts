@@ -320,6 +320,28 @@ export async function dispatchStep(
     const errorMsg = error instanceof Error ? error.message : String(error);
     await goalService.updateStepExecution(executionId, { status: 'failed', error: errorMsg });
     logger.error('[GoalScheduler] Agent error', { executionId, error: errorMsg });
+    // Record FailureEvent only (no routing — error info incomplete in catch path)
+    try {
+      const { classifyFailure: classify } = await import('../triage/error-class.js');
+      const classification = classify(errorMsg);
+      await prisma.failureEvent.upsert({
+        where: { executionId_category: { executionId, category: classification.category } },
+        create: {
+          executionId,
+          goalId: goal.id,
+          category: classification.category,
+          severity: classification.severity,
+          errorMessage: errorMsg.slice(0, 1000),
+          routeTarget: 'human',
+          matchedPattern: classification.matchedPattern,
+        },
+        update: {
+          severity: classification.severity,
+          errorMessage: errorMsg.slice(0, 1000),
+          matchedPattern: classification.matchedPattern,
+        },
+      });
+    } catch { /* non-blocking */ }
     try {
       const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
       await knowledgeBus.recordPattern({
@@ -515,6 +537,80 @@ async function handleDispatchFailure(
     tier,
     strategy,
   });
+
+  // ── Failure classification + routing ──
+  try {
+    const { classifyFailure: classify, routeFailure: route } = await import('../triage/error-class.js');
+    const classification = classify(errDetail);
+    const routeResult = await route({
+      category: classification.category,
+      errorMessage: errDetail,
+      goalId: goal.id,
+      executionId,
+    });
+
+    // Persist FailureEvent (upsert for dedup with event-handler)
+    await prisma.failureEvent.upsert({
+      where: { executionId_category: { executionId, category: classification.category } },
+      create: {
+        executionId,
+        goalId: goal.id,
+        category: classification.category,
+        severity: classification.severity,
+        errorMessage: errDetail.slice(0, 1000),
+        routeTarget: routeResult.target,
+        incidentType: routeResult.incidentType,
+        matchedPattern: classification.matchedPattern,
+      },
+      update: {
+        severity: classification.severity,
+        errorMessage: errDetail.slice(0, 1000),
+        routeTarget: routeResult.target,
+        incidentType: routeResult.incidentType,
+        matchedPattern: classification.matchedPattern,
+      },
+    });
+
+    // Route based on target
+    if (routeResult.target === 'triage') {
+      try {
+        const { triageAgent } = await import('../agents/triage-agent.service.js');
+        await triageAgent.handleAlert({
+          type: (routeResult.incidentType as any) || 'zombie',
+          severity: classification.severity === 'critical' ? 'critical' : 'warning',
+          message: `[${classification.category}] ${errDetail.slice(0, 200)}`,
+          details: { goalId: goal.id, executionId, category: classification.category },
+        });
+      } catch (e) {
+        logger.warn('[GoalScheduler] triageAgent.handleAlert failed (non-blocking)', { error: String(e) });
+      }
+    } else if (routeResult.target === 'resolution_kb') {
+      logger.info('[GoalScheduler] Failure routed to resolution_kb', {
+        executionId, category: classification.category, matchedPattern: classification.matchedPattern,
+        errorMessage: errDetail.slice(0, 200),
+      });
+    } else {
+      logger.info('[GoalScheduler] Failure escalated to human', {
+        executionId, category: classification.category,
+      });
+      try {
+        await prisma.studioEvent.create({
+          data: {
+            type: 'failure:escalated',
+            source: 'goal-scheduler',
+            executionId,
+            payload: JSON.stringify({
+              goalId: goal.id,
+              category: classification.category,
+              errorMessage: errDetail.slice(0, 500),
+            }),
+          },
+        });
+      } catch { /* non-blocking */ }
+    }
+  } catch (e) {
+    logger.warn('[GoalScheduler] Failure classification/routing failed (non-blocking)', { error: String(e) });
+  }
 
   // ── Knowledge feedback loop: pipelineStepFeedback (failure) ──
   try {

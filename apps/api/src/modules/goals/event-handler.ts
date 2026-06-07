@@ -98,6 +98,32 @@ export class AgentEventListener {
         hasOutput: !!completionOutput,
       });
 
+      // Record FailureEvent for failed agent (upsert for dedup with scheduler-dispatch)
+      if (!isCompleted && goalId) {
+        try {
+          const { classifyFailure } = await import('../triage/error-class.js');
+          const errorMsg = (data.error as string) || 'Agent execution failed';
+          const classification = classifyFailure(errorMsg);
+          await prisma.failureEvent.upsert({
+            where: { executionId_category: { executionId: goalExecutionId, category: classification.category } },
+            create: {
+              executionId: goalExecutionId,
+              goalId,
+              category: classification.category,
+              severity: classification.severity,
+              errorMessage: errorMsg.slice(0, 1000),
+              routeTarget: 'human', // not routed here — routing only in scheduler-dispatch
+              matchedPattern: classification.matchedPattern,
+            },
+            update: {
+              severity: classification.severity,
+              errorMessage: errorMsg.slice(0, 1000),
+              matchedPattern: classification.matchedPattern,
+            },
+          });
+        } catch { /* non-blocking */ }
+      }
+
       // 事件驱动：通知 scheduler 有 step 完成，触发下一轮调度
       if (isCompleted && goalId) {
         eventBus.publish('goal.stepCompleted', { goalId, goalExecutionId });

@@ -73,7 +73,8 @@ describe('Pipeline feedback loop contract', () => {
     it('calls recordKnowledgeRefs on failure path', () => {
       const failIdx = dispatchSrc.indexOf('Agent failed');
       expect(failIdx).toBeGreaterThan(-1);
-      const failBlock = dispatchSrc.slice(failIdx, failIdx + 2000);
+      // Window expanded: failure classification/routing code added between Agent failed and knowledge loop
+      const failBlock = dispatchSrc.slice(failIdx, failIdx + 5000);
       expect(failBlock).toContain('recordKnowledgeRefs');
     });
 

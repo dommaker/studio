@@ -1423,3 +1423,19 @@ model WorkspaceEvent {
   metadata    String?
   createdAt   DateTime   @default(now())
 }
+
+model FailureEvent {
+  id           String   @id @default(cuid())
+  executionId  String
+  goalId       String
+  category     String   // infra | pipeline | agent | unknown
+  severity     String   // critical | warning
+  errorMessage String
+  routeTarget  String   // triage | resolution_kb | human
+  incidentType String?  // TriageIncidentType if routed to triage
+  matchedPattern String?
+  createdAt    DateTime @default(now())
+
+  @@unique([executionId, category])
+  @@index([goalId])
+}

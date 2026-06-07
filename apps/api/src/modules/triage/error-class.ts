@@ -120,6 +120,80 @@ export function classifySystemError(incidentType: string, details: string): Syst
   };
 }
 
+// ── Failure Classification + Routing (for pipeline failure events) ──
+
+export type FailureCategory = 'infra' | 'pipeline' | 'agent' | 'unknown';
+export type RouteTarget = 'triage' | 'resolution_kb' | 'human';
+
+export interface FailureClassification {
+  category: FailureCategory;
+  severity: 'critical' | 'warning';
+  matchedPattern: string;
+}
+
+export interface FailureRouteInput {
+  category: FailureCategory;
+  errorMessage: string;
+  goalId: string;
+  executionId: string;
+}
+
+export interface FailureRouteResult {
+  target: RouteTarget;
+  incidentType?: string;
+}
+
+const FAILURE_PATTERNS: Array<{
+  pattern: RegExp;
+  category: FailureCategory;
+  severity: 'critical' | 'warning';
+  label: string;
+}> = [
+  // infra: connection, timeout, resource exhaustion
+  { pattern: /ECONNREFUSED|ETIMEDOUT|ENOTFOUND|socket hang up|ECONNRESET/i, category: 'infra', severity: 'critical', label: 'connection_error' },
+  { pattern: /out of memory|OOM|heap.*limit|ENOMEM|disk.*full|ENOSPC/i, category: 'infra', severity: 'critical', label: 'resource_exhaustion' },
+  { pattern: /service.*down|unreachable|EHOSTUNREACH/i, category: 'infra', severity: 'critical', label: 'service_down' },
+  // pipeline: build, test, lint failures
+  { pattern: /build.*fail|compilation.*error|tsc.*error/i, category: 'pipeline', severity: 'warning', label: 'build_failure' },
+  { pattern: /test.*fail|assertion.*fail|vitest.*fail|jest.*fail/i, category: 'pipeline', severity: 'warning', label: 'test_failure' },
+  { pattern: /lint.*error|eslint.*error|prettier.*error/i, category: 'pipeline', severity: 'warning', label: 'lint_failure' },
+  // agent: LLM errors, token limits, rate limits
+  { pattern: /rate.*limit|429|too many requests|quota.*exceeded/i, category: 'agent', severity: 'warning', label: 'rate_limit' },
+  { pattern: /token.*limit|context.*length|maximum.*tokens/i, category: 'agent', severity: 'warning', label: 'token_limit' },
+  { pattern: /api.*key|unauthorized|401|authentication/i, category: 'agent', severity: 'critical', label: 'auth_failure' },
+  { pattern: /agent.*timeout|execution.*timeout|tmux.*timeout/i, category: 'agent', severity: 'critical', label: 'agent_timeout' },
+];
+
+const CATEGORY_TO_ROUTE: Record<FailureCategory, RouteTarget> = {
+  infra: 'triage',
+  pipeline: 'resolution_kb',
+  agent: 'triage',
+  unknown: 'human',
+};
+
+const CATEGORY_TO_INCIDENT: Record<FailureCategory, string> = {
+  infra: 'service_down',
+  pipeline: 'validation_failure',
+  agent: 'execution_repeated_failure',
+  unknown: 'zombie',
+};
+
+export function classifyFailure(errorMsg: string): FailureClassification {
+  for (const { pattern, category, severity, label } of FAILURE_PATTERNS) {
+    if (pattern.test(errorMsg)) {
+      return { category, severity, matchedPattern: label };
+    }
+  }
+  return { category: 'unknown', severity: 'warning', matchedPattern: 'unclassified' };
+}
+
+export async function routeFailure(input: FailureRouteInput): Promise<FailureRouteResult> {
+  const { category } = input;
+  const target = CATEGORY_TO_ROUTE[category];
+  const incidentType = CATEGORY_TO_INCIDENT[category];
+  return { target, incidentType };
+}
+
 export function formatTriageMessage(result: TriageResult): string {
   const emoji = { low: '🟢', medium: '🟡', high: '🔴' };
   const classLabel: Record<ErrorClass, string> = {
