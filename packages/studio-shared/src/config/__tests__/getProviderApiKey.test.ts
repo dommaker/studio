@@ -6,7 +6,7 @@ describe('getProviderApiKey', () => {
   const savedEnv: Record<string, string | undefined> = {};
 
   const envKeys = [
-    'CONVERSATION_API_KEY', 'PIPELINE_API_KEY',
+    'CONVERSATION_API_KEY', 'PIPELINE_API_KEY', 'STUDIO_API_KEY',
     'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY_1', 'ANTHROPIC_API_KEY',
     'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1',
   ];
@@ -47,6 +47,11 @@ describe('getProviderApiKey', () => {
       process.env.ANTHROPIC_AUTH_TOKEN = 'auth-token';
       process.env.ANTHROPIC_API_KEY = 'api-key';
       expect(getProviderApiKey('anthropic')).toBe('auth-token');
+    });
+
+    test('STUDIO_API_KEY is used as fallback for anthropic provider', () => {
+      process.env.STUDIO_API_KEY = 'fallback';
+      expect(getProviderApiKey('anthropic')).toBe('fallback');
     });
   });
 

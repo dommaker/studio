@@ -17,63 +17,46 @@ export function addProvider(providers: ProviderConfig[], config: ProviderConfig)
 }
 
 /**
- * 从环境变量自动注册 providers
+ * 从环境变量自动注册 providers（按用途：studio / pipeline / knowledge）
+ *
+ * config.env 格式：
+ *   STUDIO_BASE_URL=...    STUDIO_API_KEY=...
+ *   PIPELINE_BASE_URL=...  PIPELINE_API_KEY=...
+ *   KNOWLEDGE_BASE_URL=... KNOWLEDGE_API_KEY=...
+ *   MODEL_TIER_FAST=...    (gateway 默认模型)
  */
 export function loadFromEnv(addFn: (config: ProviderConfig) => void): void {
-  // Anthropic 协议 (Messages API) — 通过 ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN 检测
+  const purposes = [
+    { name: 'studio', priority: 0 },
+    { name: 'pipeline', priority: 1 },
+    { name: 'knowledge', priority: 2 },
+  ] as const;
+
+  const defaultModel = process.env.MODEL_TIER_FAST || 'deepseek-v4-flash';
+
+  for (const { name, priority } of purposes) {
+    const baseUrl = process.env[`${name.toUpperCase()}_BASE_URL`];
+    const apiKey = process.env[`${name.toUpperCase()}_API_KEY`];
+    if (baseUrl && apiKey) {
+      addFn({
+        name,
+        baseUrl,
+        apiKey,
+        model: defaultModel,
+        priority,
+      });
+    }
+  }
+
+  // 兼容：遗留 provider-specific 环境变量（逐步废弃）
   if (process.env.ANTHROPIC_AUTH_TOKEN && process.env.ANTHROPIC_BASE_URL) {
-    const url = new URL(process.env.ANTHROPIC_BASE_URL);
     addFn({
-      name: url.hostname,
+      name: 'anthropic-legacy',
       baseUrl: process.env.ANTHROPIC_BASE_URL,
       apiKey: process.env.ANTHROPIC_AUTH_TOKEN,
-      model: process.env.ANTHROPIC_MODEL || 'deepseek-v4-pro[1m]',
-      priority: 0,
+      model: process.env.ANTHROPIC_MODEL || defaultModel,
+      priority: 10,
       protocol: 'anthropic',
-    });
-  }
-
-  // OpenAI-compatible (DeepSeek 旧端点)
-  if (process.env.DEEPSEEK_API_KEY) {
-    addFn({
-      name: 'deepseek',
-      baseUrl: 'https://api.deepseek.com/v1',
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-      priority: 2,
-    });
-  }
-
-  // OpenAI
-  if (process.env.OPENAI_API_KEY || process.env.LLM_API_KEY) {
-    addFn({
-      name: 'openai',
-      baseUrl: process.env.LLM_BASE_URL || 'https://api.openai.com/v1',
-      apiKey: process.env.OPENAI_API_KEY || process.env.LLM_API_KEY!,
-      model: process.env.LLM_MODEL || 'gpt-3.5-turbo',
-      priority: 3,
-    });
-  }
-
-  // Tencent GLM
-  if (process.env.CODING_API_KEY_1) {
-    addFn({
-      name: 'tencent',
-      baseUrl: process.env.LLM_BASE_URL_TENCENT || 'https://api.lkeap.cloud.tencent.com/coding/v3',
-      apiKey: process.env.CODING_API_KEY_1,
-      model: process.env.LLM_MODEL_TENCENT || 'glm-5',
-      priority: 4,
-    });
-  }
-
-  // 用户配置（Settings 页面）
-  if (process.env.LLM_API_KEY_USER) {
-    addFn({
-      name: 'user-config',
-      baseUrl: process.env.LLM_BASE_URL_USER || 'https://api.openai.com/v1',
-      apiKey: process.env.LLM_API_KEY_USER,
-      model: process.env.LLM_MODEL_USER || 'gpt-3.5-turbo',
-      priority: 1,
     });
   }
 }

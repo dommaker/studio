@@ -149,10 +149,10 @@ export type LlmProvider = 'deepseek' | 'anthropic' | 'openai' | 'coding';
 export type WorkloadType = 'conversation' | 'pipeline';
 
 const PROVIDER_KEY_MAP: Record<LlmProvider, string[]> = {
-  deepseek: ['DEEPSEEK_API_KEY'],
-  anthropic: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY_1', 'ANTHROPIC_API_KEY'],
-  openai: ['OPENAI_API_KEY', 'LLM_API_KEY'],
-  coding: ['CODING_API_KEY_1'],
+  deepseek: ['DEEPSEEK_API_KEY', 'STUDIO_API_KEY'],
+  anthropic: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_API_KEY_1', 'ANTHROPIC_API_KEY', 'STUDIO_API_KEY'],
+  openai: ['OPENAI_API_KEY', 'LLM_API_KEY', 'STUDIO_API_KEY'],
+  coding: ['CODING_API_KEY_1', 'STUDIO_API_KEY'],
 };
 
 /**
