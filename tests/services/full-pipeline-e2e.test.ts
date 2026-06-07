@@ -133,12 +133,12 @@ describe('全链路端到端测试', () => {
       'no_completion_without_verification',
       'no_test_simplification',
       'incremental_progress',
-      'must_use_worktree',
+      'prefer_worktree',
       'no_performative_agreement',
     ];
     expect(constraints.length).toBeGreaterThan(3);
     expect(constraints).toContain('no_fuzzy_completion_claim');
-    expect(constraints).toContain('must_use_worktree');
+    expect(constraints).toContain('prefer_worktree');
   });
 
   // ═══════════════════════════════════════════════

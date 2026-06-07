@@ -379,7 +379,7 @@ export class RoleConfigService {
             'no_completion_without_verification',
             'no_test_simplification',
             'incremental_progress',
-            'must_use_worktree',
+            'prefer_worktree',
             'no_performative_agreement',
           ],
         };
