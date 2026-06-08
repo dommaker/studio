@@ -4,7 +4,8 @@
  * Consumer-facing API: buildKnowledgeContext, Studio UI, search.
  */
 import { prisma } from '@dommaker/studio-prisma';
-import { KnowledgeStore } from '@dommaker/harness';
+import { FileKnowledgeStore } from '@dommaker/harness';
+import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeEntry as HarnessEntry, QueryFilter as HarnessFilter } from '@dommaker/harness';
 import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge-bus.service.js';
 
@@ -49,7 +50,7 @@ export class UnifiedQuery {
   private store: KnowledgeStore;
 
   constructor(store?: KnowledgeStore) {
-    this.store = store ?? new KnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
+    this.store = store ?? new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
   }
 
   /**

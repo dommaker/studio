@@ -23,7 +23,7 @@ vi.mock('../knowledge-bus.service.js', () => ({
 
 // Use real KnowledgeStore (it's file-based, no external deps)
 const { UnifiedQuery } = await import('../unified-query.js');
-const { KnowledgeStore } = await import('@dommaker/harness');
+const { FileKnowledgeStore } = await import('@dommaker/harness');
 
 describe('UnifiedQuery', () => {
   let uq: InstanceType<typeof UnifiedQuery>;
@@ -33,7 +33,7 @@ describe('UnifiedQuery', () => {
     vi.clearAllMocks();
     // Fresh temp dir per test for isolation
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uq-case-'));
-    uq = new UnifiedQuery(new KnowledgeStore({ baseDir: testDir }));
+    uq = new UnifiedQuery(new FileKnowledgeStore({ baseDir: testDir }));
   });
 
   afterEach(() => {

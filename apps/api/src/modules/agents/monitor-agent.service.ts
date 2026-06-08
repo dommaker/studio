@@ -1584,9 +1584,9 @@ export class MonitorAgent {
 
       // 5b. Knowledge index snapshot (for KR4 30d survival rate)
       try {
-        const { KnowledgeStore } = await import('@dommaker/harness') as any;
+        const { FileKnowledgeStore } = await import('@dommaker/harness') as any;
         const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
-        const store = new KnowledgeStore({ baseDir: knowledgeDir });
+        const store = new FileKnowledgeStore({ baseDir: knowledgeDir });
         store.snapshot();
       } catch { /* best-effort */ }
 

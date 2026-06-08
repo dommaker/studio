@@ -15,7 +15,7 @@ import {
   TIPS,
   CheckpointValidator,
   // Phase 1-6 新增模块
-  KnowledgeStore,
+  FileKnowledgeStore,
   KnowledgeQuery,
   ReferenceTracker,
   KnowledgeLinter,

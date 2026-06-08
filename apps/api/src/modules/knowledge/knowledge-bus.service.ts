@@ -15,7 +15,8 @@
  * 底层存储：harness KnowledgeStore + DB (DecisionAudit, Incident, PipelineRun)
  */
 
-import { KnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
+import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
+import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeType, DecisionRecord } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
@@ -45,7 +46,7 @@ const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeType> = {
 };
 
 // Singleton store + lifecycle + ingest — shared by knowledgeBus and knowledgeQuery
-export const sharedStore = new KnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
+export const sharedStore = new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
 export const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
   autoPromoteSources: ['triage', 'auditor', 'evolution', 'posteval', 'analyst'],
 });

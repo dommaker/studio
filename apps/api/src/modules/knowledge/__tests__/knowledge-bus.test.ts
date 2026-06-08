@@ -29,10 +29,10 @@ if (!(globalThis as any).__kbTestTempDir) {
 
 vi.mock('../knowledge-bus.service.js', async () => {
   const harness = await vi.importActual<any>('@dommaker/harness');
-  const { KnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeInjector } = harness;
+  const { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeInjector } = harness;
 
   const dir = (globalThis as any).__kbTestTempDir;
-  const store = new KnowledgeStore({ baseDir: dir });
+  const store = new FileKnowledgeStore({ baseDir: dir });
   const lifecycle = new KnowledgeLifecycle(store, {
     autoPromoteSources: ['triage', 'auditor', 'evolution', 'posteval', 'analyst'],
   });

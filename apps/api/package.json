@@ -10,7 +10,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@dommaker/harness": "file:../../../harness/dommaker-harness-0.14.0.tgz",
+    "@dommaker/harness": "file:../../../harness/dommaker-harness-0.15.0.tgz",
     "@dommaker/studio-agent": "workspace:*",
     "@dommaker/studio-audit": "workspace:*",
     "@dommaker/studio-capability": "workspace:*",

@@ -669,7 +669,7 @@ async function getKnowledgeStore(): Promise<KnowledgeStoreType | null> {
   if (!knowledgeStore) {
     const loaded = await loadHarness();
     if (!loaded || !harnessModule) return null;
-    knowledgeStore = new harnessModule.KnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
+    knowledgeStore = new harnessModule.FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
     knowledgeQuery = new harnessModule.KnowledgeQuery(knowledgeStore);
   }
   return knowledgeStore;
