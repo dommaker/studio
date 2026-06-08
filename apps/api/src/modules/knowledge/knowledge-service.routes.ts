@@ -251,28 +251,36 @@ knowledgeServiceRoutes.post('/merge', async (req, res) => {
   }
 });
 
-// ── SSE: Knowledge event stream ──
+// ── SSE: Bridge KnowledgeService events to general EventStore ──
+// Knowledge events are now available at /api/v1/events/stream?topics=knowledge
+// This endpoint redirects to the general SSE stream.
 
-knowledgeServiceRoutes.get('/events', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.flushHeaders();
+knowledgeServiceRoutes.get('/events', (_req, res) => {
+  res.status(301).json({
+    message: 'Knowledge events are now available at /api/v1/events/stream?topics=knowledge',
+    url: '/api/v1/events/stream?topics=knowledge',
+  });
+});
+
+// One-time bridge: subscribe KnowledgeService EventEmitter → EventStore
+let bridgeInitialized = false;
+export function initKnowledgeEventBridge(eventStore: { publish: (ch: string, msg: string) => Promise<void> }) {
+  if (bridgeInitialized) return;
+  bridgeInitialized = true;
 
   const emitter = (knowledgeService as any).deps?.eventEmitter;
   if (!emitter) {
-    res.write('data: {"type":"error","message":"EventEmitter not available"}\n\n');
-    res.end();
+    logger.warn('[KnowledgeService] EventEmitter not available, bridge not started');
     return;
   }
 
-  const onEvent = (event: { type: string; data: unknown }) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  };
-
-  emitter.on('knowledge', onEvent);
-
-  req.on('close', () => {
-    emitter.off('knowledge', onEvent);
+  emitter.on('knowledge', (event: { type: string; data: unknown }) => {
+    eventStore.publish('events', JSON.stringify({
+      event_type: `knowledge.${event.type}`,
+      payload: event.data,
+      timestamp: new Date().toISOString(),
+    })).catch((err: unknown) => logger.warn('[KnowledgeService] EventBridge publish failed', { error: String(err) }));
   });
-});
+
+  logger.info('[KnowledgeService] Event bridge initialized → EventStore');
+}

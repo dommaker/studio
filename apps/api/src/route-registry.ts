@@ -83,7 +83,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };
 
   // KnowledgeService HTTP API + SSE
-  const { knowledgeServiceRoutes } = await import('./modules/knowledge/knowledge-service.routes.js') as { knowledgeServiceRoutes: Router };
+  const { knowledgeServiceRoutes, initKnowledgeEventBridge } = await import('./modules/knowledge/knowledge-service.routes.js') as { knowledgeServiceRoutes: Router; initKnowledgeEventBridge: (es: any) => void };
+  const { eventStore } = await import('./core/event-store.js');
+  initKnowledgeEventBridge(eventStore);
 
   // MCP routes (§12.9: 系统能力 MCP 化)
   const { default: mcpRoutes } = await import('./modules/mcp/routes.js') as { default: Router };
