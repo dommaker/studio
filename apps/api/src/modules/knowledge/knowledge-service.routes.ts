@@ -154,6 +154,103 @@ knowledgeServiceRoutes.get('/analyst-accuracy', async (_req, res) => {
   }
 });
 
+// ── Consume ──
+
+knowledgeServiceRoutes.post('/inject-context', async (req, res) => {
+  try {
+    const { agentType, tags, maxTokens, includeRules } = req.body;
+    if (!agentType) return res.status(400).json({ error: 'agentType required' });
+    const context = await knowledgeService.injectContext(agentType, { tags, maxTokens, includeRules });
+    res.json({ context });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+knowledgeServiceRoutes.post('/match-resolutions', async (req, res) => {
+  try {
+    const { problem } = req.body;
+    if (!problem) return res.status(400).json({ error: 'problem required' });
+    const result = await knowledgeService.matchResolutions(problem);
+    res.json(result);
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ── Track ──
+
+knowledgeServiceRoutes.post('/record-outcome', async (req, res) => {
+  try {
+    const { executionId, agentType, consumedKnowledge, success, details, timestamp, mode } = req.body;
+    if (!executionId || !agentType || success === undefined) {
+      return res.status(400).json({ error: 'executionId, agentType, success required' });
+    }
+    await knowledgeService.recordOutcome({
+      executionId, agentType, consumedKnowledge: consumedKnowledge || [],
+      success, details: details || '', timestamp: timestamp || new Date().toISOString(), mode,
+    });
+    res.status(201).json({ success: true });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+knowledgeServiceRoutes.post('/record-feedback', async (req, res) => {
+  try {
+    const { entryId, useful, reason } = req.body;
+    if (!entryId || useful === undefined) {
+      return res.status(400).json({ error: 'entryId, useful required' });
+    }
+    await knowledgeService.recordFeedback(entryId, useful, reason);
+    res.status(201).json({ success: true });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ── Lifecycle ──
+
+knowledgeServiceRoutes.post('/promote', async (req, res) => {
+  try {
+    const { entryId } = req.body;
+    if (!entryId) return res.status(400).json({ error: 'entryId required' });
+    await knowledgeService.promote(entryId);
+    res.json({ success: true });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+knowledgeServiceRoutes.post('/decay', async (req, res) => {
+  try {
+    const { entryId } = req.body;
+    if (!entryId) return res.status(400).json({ error: 'entryId required' });
+    await knowledgeService.decay(entryId);
+    res.json({ success: true });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+knowledgeServiceRoutes.post('/merge', async (req, res) => {
+  try {
+    const { sourceId, targetId } = req.body;
+    if (!sourceId || !targetId) return res.status(400).json({ error: 'sourceId, targetId required' });
+    await knowledgeService.merge(sourceId, targetId);
+    res.json({ success: true });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── SSE: Knowledge event stream ──
 
 knowledgeServiceRoutes.get('/events', (req, res) => {
