@@ -68,6 +68,53 @@ knowledgeServiceRoutes.get('/entries/:id', async (req, res) => {
   }
 });
 
+knowledgeServiceRoutes.post('/entries', async (req, res) => {
+  try {
+    const entry = req.body;
+    if (!entry.id || !entry.type || !entry.title || !entry.content) {
+      return res.status(400).json({ error: 'id, type, title, content required' });
+    }
+    await knowledgeService.create(entry);
+    res.status(201).json({ success: true, id: entry.id });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+knowledgeServiceRoutes.put('/entries/:id', async (req, res) => {
+  try {
+    const updated = await knowledgeService.update(req.params.id, req.body);
+    if (!updated) return res.status(404).json({ error: 'Not found' });
+    res.json(updated);
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+knowledgeServiceRoutes.delete('/entries/:id', async (req, res) => {
+  try {
+    const deleted = await knowledgeService.delete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Not found' });
+    res.json({ success: true });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+knowledgeServiceRoutes.get('/entries/stats', async (_req, res) => {
+  try {
+    const stats = knowledgeService.getStats();
+    const health = await knowledgeService.getHealthReport();
+    res.json({ ...stats, healthScore: (health as any).healthScore });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: '/entries/stats', error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── Produce ──
 
 knowledgeServiceRoutes.post('/pattern', async (req, res) => {

@@ -549,6 +549,18 @@ export class KnowledgeService {
     return this.store.get(id);
   }
 
+  async create(entry: KnowledgeEntry): Promise<void> {
+    this.store.save(entry);
+  }
+
+  async update(id: string, partial: Partial<KnowledgeEntry>): Promise<KnowledgeEntry | undefined> {
+    return this.store.update(id, partial);
+  }
+
+  async delete(id: string): Promise<boolean> {
+    return this.store.delete(id);
+  }
+
   // ═══════════ Track (consumption + outcome tracking) ════════════
 
   recordConsumption(entryIds: string[], context: string): void {
