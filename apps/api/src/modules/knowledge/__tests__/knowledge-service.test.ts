@@ -296,19 +296,20 @@ describe('KnowledgeService Phase 1A: Consume', () => {
   });
 
   describe('matchResolutions', () => {
-    it('returns empty array when no resolutions match', async () => {
+    it('returns empty resolutions when no match', async () => {
       const { ks } = createKS();
       const result = await ks.matchResolutions('unknown problem');
-      expect(result).toEqual([]);
+      expect(result.matched).toBe(false);
+      expect(result.resolutions).toEqual([]);
     });
 
     it('matches resolutions via Prisma', async () => {
       const { ks, prisma } = createKS();
       prisma.resolution.findMany.mockResolvedValueOnce([
-        { id: 'r1', problem: 'permission error', fix: 'check perms', status: 'verified', pattern: 'permission', verifyCount: 3 },
+        { id: 'r1', problem: 'permission error', fix: 'check perms', status: 'verified', pattern: 'permission', verifyCount: 3, errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix', tags: '[]', createdAt: new Date(), updatedAt: new Date() },
       ]);
       const result = await ks.matchResolutions('permission denied on file');
-      expect(result.length).toBe(1);
+      expect(result.resolutions.length).toBe(1);
       expect(prisma.resolution.findMany).toHaveBeenCalled();
     });
   });
@@ -410,7 +411,7 @@ describe('KnowledgeService Phase 1B: Resolve', () => {
   describe('createResolution', () => {
     it('creates resolution via Prisma', async () => {
       const { ks, prisma } = createKS();
-      await ks.createResolution('permission error', 'check file perms');
+      await ks.createResolution({ pattern: 'permission error', fix: 'check file perms', errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix' });
       expect(prisma.resolution.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           pattern: 'permission error',
@@ -423,7 +424,7 @@ describe('KnowledgeService Phase 1B: Resolve', () => {
     it('skips if duplicate pattern exists', async () => {
       const { ks, prisma } = createKS();
       prisma.resolution.findFirst.mockResolvedValueOnce({ id: 'existing' });
-      await ks.createResolution('permission error', 'check file perms');
+      await ks.createResolution({ pattern: 'permission error', fix: 'check file perms', errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix' });
       expect(prisma.resolution.create).not.toHaveBeenCalled();
     });
   });

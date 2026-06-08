@@ -576,6 +576,26 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         logger.info('[Channel] PMO project created', { pmoNumber: pmoProject.pmoNumber, projectId });
       }
 
+      // Dedup: same title + same company → skip if already succeeded/running, allow retry if failed
+      const normalizedTitle = doc.title.trim().toLowerCase();
+      const existingGoals = await prisma.goal.findMany({
+        where: { companyId: company.id },
+        select: { id: true, title: true, status: true },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+      });
+      const duplicate = existingGoals.find(g => g.title.trim().toLowerCase() === normalizedTitle && ['succeeded', 'running', 'pending', 'draft'].includes(g.status));
+      if (duplicate) {
+        const msg = duplicate.status === 'succeeded'
+          ? `⏭️ 跳过：相同需求已成功完成 (Goal \`${duplicate.id.slice(0, 8)}\`)`
+          : `⏭️ 跳过：相同需求正在执行中 (Goal \`${duplicate.id.slice(0, 8)}\`, status: ${duplicate.status})`;
+        await channelMessageService.createAgentMessage(req.params.channelId, 'Executor', msg, { meta: { goalId: duplicate.id, status: 'skipped_duplicate' } });
+        logger.info('[Channel] Duplicate Goal skipped', { existingGoalId: duplicate.id, status: duplicate.status, title: doc.title.slice(0, 80) });
+        meta.status = 'skipped';
+        meta.goalId = duplicate.id;
+        return; // early exit — no separate return needed inside if block
+      }
+
       // B1-002: Create Goal + GoalPlan(approved) + GoalExecutions(pending) via GoalService
       // This creates the GoalPlan that GoalScheduler.getExecutableSteps() requires
       const result = await goalService.createGoalFromChannelDoc({

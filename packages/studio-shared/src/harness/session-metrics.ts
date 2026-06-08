@@ -59,21 +59,31 @@ export function parseSessionMetrics(stdout: string): SessionMetrics {
 function extractMetrics(raw: Record<string, unknown>): SessionMetrics {
   const usage = (raw.usage || {}) as Record<string, unknown>;
   const modelUsage = (raw.modelUsage || {}) as Record<string, Record<string, unknown>>;
+  const modelNames = Object.keys(modelUsage);
 
-  // Get primary model name from modelUsage keys
-  const modelName = Object.keys(modelUsage)[0] || '';
+  // Primary model = first key (for modelName only)
+  const modelName = modelNames[0] || '';
 
-  // Get detailed metrics from modelUsage if available
-  const modelData = modelUsage[modelName] || {};
+  // Sum token counts across ALL models in modelUsage.
+  // usage.* only reflects the LAST API call in a multi-turn session,
+  // while modelUsage.* accumulates across all turns and all models.
+  let muInput = 0, muOutput = 0, muCacheRead = 0, muCacheWrite = 0;
+  for (const m of modelNames) {
+    const d = modelUsage[m] || {};
+    muInput += (d.inputTokens as number) || 0;
+    muOutput += (d.outputTokens as number) || 0;
+    muCacheRead += (d.cacheReadInputTokens as number) || 0;
+    muCacheWrite += (d.cacheCreationInputTokens as number) || 0;
+  }
 
   return {
-    tokenInput: (usage.input_tokens as number) || (modelData.inputTokens as number) || 0,
-    tokenOutput: (usage.output_tokens as number) || (modelData.outputTokens as number) || 0,
-    tokenCacheRead: (usage.cache_read_input_tokens as number) || (modelData.cacheReadInputTokens as number) || 0,
-    tokenCacheWrite: (usage.cache_creation_input_tokens as number) || (modelData.cacheCreationInputTokens as number) || 0,
+    tokenInput: muInput || (usage.input_tokens as number) || 0,
+    tokenOutput: muOutput || (usage.output_tokens as number) || 0,
+    tokenCacheRead: muCacheRead || (usage.cache_read_input_tokens as number) || 0,
+    tokenCacheWrite: muCacheWrite || (usage.cache_creation_input_tokens as number) || 0,
     durationMs: (raw.duration_ms as number) || 0,
     numTurns: (raw.num_turns as number) || 0,
-    costUsd: (raw.total_cost_usd as number) || (modelData.costUSD as number) || 0,
+    costUsd: (raw.total_cost_usd as number) || 0,
     serviceTier: (usage.service_tier as string) || '',
     modelName,
     sessionId: (raw.session_id as string) || '',

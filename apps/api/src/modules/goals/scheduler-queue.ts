@@ -337,14 +337,18 @@ export function parseAgentTokenUsage(worktreeDir: string): {
     const mu = parsed.modelUsage || {};
     const modelKeys = Object.keys(mu);
     const model = modelKeys.length > 0 ? modelKeys[0] : 'unknown';
-    const modelData = mu[model] || {};
 
-    return {
-      model,
-      inputTokens: modelData.inputTokens || 0,
-      outputTokens: modelData.outputTokens || 0,
-      cacheHitTokens: modelData.cacheReadInputTokens || 0,
-    };
+    // Sum across all models — multi-model sessions (e.g. primary + fallback)
+    // have separate entries in modelUsage, each with their own token counts.
+    let inputTokens = 0, outputTokens = 0, cacheHitTokens = 0;
+    for (const k of modelKeys) {
+      const d = mu[k] || {};
+      inputTokens += d.inputTokens || 0;
+      outputTokens += d.outputTokens || 0;
+      cacheHitTokens += d.cacheReadInputTokens || 0;
+    }
+
+    return { model, inputTokens, outputTokens, cacheHitTokens };
   } catch {
     return { model: 'unknown', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0 };
   }

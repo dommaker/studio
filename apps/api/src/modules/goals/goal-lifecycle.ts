@@ -15,6 +15,7 @@ import { handleGoalSucceeded, findReviewWorktree } from './goal-review.js';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import { execSync } from 'child_process';
 
 /**
  * 更新步骤执行状态
@@ -228,6 +229,41 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
   } else {
     await handleGoalFailed(goalId);
   }
+
+  // Cleanup executor worktrees and task branches (non-blocking)
+  cleanupGoalWorktrees(goalId).catch(err =>
+    logger.warn('[Goal] Worktree cleanup failed (non-blocking)', { goalId, error: String(err) })
+  );
+}
+
+/**
+ * 清理 Goal 关联的所有 executor worktree 和 task 分支
+ */
+async function cleanupGoalWorktrees(goalId: string): Promise<void> {
+  const executions = await prisma.goalExecution.findMany({
+    where: { goalId },
+    select: { id: true },
+  });
+  const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+  const repoDir = process.env.REPO_DIR || path.join(os.homedir(), 'projects', 'studio');
+
+  for (const exec of executions) {
+    const worktreePath = path.join(worktreesDir, exec.id);
+    // Remove worktree directory
+    try { fs.rmSync(worktreePath, { recursive: true, force: true }); } catch { /* may not exist */ }
+    // Remove worktree registration
+    try { execSync(`git worktree remove "${worktreePath}" --force 2>/dev/null`, { cwd: repoDir, timeout: 10_000, stdio: 'pipe' }); } catch { /* may not be registered */ }
+    // Delete task branches matching this execution ID
+    try {
+      const branches = execSync(`git branch --list "task/*${exec.id}*" 2>/dev/null`, { cwd: repoDir, encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' }).trim();
+      for (const branch of branches.split('\n').filter(Boolean)) {
+        const name = branch.replace(/^[*+ ]+/, '');
+        if (name) execSync(`git branch -D "${name}"`, { cwd: repoDir, timeout: 5_000, stdio: 'pipe' });
+      }
+    } catch { /* may not exist */ }
+  }
+
+  logger.info('[Goal] Worktree cleanup done', { goalId, cleaned: executions.length });
 }
 
 /**
