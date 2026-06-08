@@ -2,6 +2,9 @@
   "name": "@dommaker/studio-api",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "studio": "src/cli/studio-cli.ts"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
