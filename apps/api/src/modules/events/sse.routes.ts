@@ -37,6 +37,7 @@ function getTopicFromEventType(eventType: string): string {
   if (eventType.startsWith('meeting.')) return 'meetings';
   if (eventType.startsWith('goal.')) return 'goals';
   if (eventType.startsWith('runtime.')) return 'executions';
+  if (eventType.startsWith('knowledge.')) return 'knowledge';
   return 'all';
 }
 
