@@ -134,6 +134,27 @@ export function triggerPostCompletionKnowledge(
     });
   }
 
+  // P4: Decision Capture — 从 worktree 内容提取决策记录
+  if (worktree) {
+    try {
+      const contentParts: string[] = [];
+      const reviewPath = path.join(worktree, '.review-report.json');
+      if (fs.existsSync(reviewPath)) {
+        contentParts.push(fs.readFileSync(reviewPath, 'utf-8'));
+      }
+      const progressPath = path.join(worktree, '.progress.json');
+      if (fs.existsSync(progressPath)) {
+        contentParts.push(fs.readFileSync(progressPath, 'utf-8'));
+      }
+      if (contentParts.length > 0) {
+        const content = contentParts.join('\n');
+        knowledgeAgent.extractDecision(content, `task:${taskId}`).catch(e => {
+          logger.warn('[AgentEventListener] extractDecision failed', { error: String(e) });
+        });
+      }
+    } catch { /* non-blocking */ }
+  }
+
   // Phase 3: agent 完成 hook（TraceCollector, etc.）
   afterAgentComplete({
     executionId: goalExecutionId,
