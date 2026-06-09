@@ -5,7 +5,7 @@
  * waits for TCP readiness, then kills on teardown.
  */
 
-import { spawn, type ChildProcess } from 'child_process';
+import { spawn, execSync, type ChildProcess } from 'child_process';
 import { createConnection } from 'net';
 
 const API_PORT = 13001;
@@ -67,6 +67,20 @@ export async function setup() {
   if (await portInUse(API_PORT)) {
     console.log(`[globalSetup] API server already running on port ${API_PORT}`);
     return;
+  }
+
+  // Ensure test DB schema is up to date
+  const testDbUrl = process.env.DATABASE_URL || 'file:./packages/studio-prisma/prisma/test.db';
+  try {
+    console.log('[globalSetup] Running prisma migrate deploy...');
+    execSync(`npx prisma migrate deploy`, {
+      env: { ...process.env, DATABASE_URL: testDbUrl },
+      stdio: 'pipe',
+      timeout: 30000,
+    });
+    console.log('[globalSetup] Prisma migrate done');
+  } catch (e: any) {
+    console.warn('[globalSetup] Prisma migrate failed (non-fatal):', e.message?.slice(0, 200));
   }
 
   console.log(`\n[globalSetup] Starting API server on port ${API_PORT}...`);

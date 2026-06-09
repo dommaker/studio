@@ -88,16 +88,16 @@ describe('LLMConfigService', () => {
       lLMConfigMock.findFirst.mockResolvedValue(null);
       getProviderApiKeyMock.mockReturnValue(null);
 
-      const original = process.env.DEEPSEEK_API_KEY;
-      process.env.DEEPSEEK_API_KEY = 'test-key-ok';
+      const original = process.env.STUDIO_API_KEY;
+      process.env.STUDIO_API_KEY = 'test-key-ok';
 
       try {
         const result = await service.resolve('studio');
         expect(result.provider).toBe('deepseek');
-        expect(result.source).toBe('env:deepseek');
+        expect(result.source).toBe('env:studio');
       } finally {
-        if (original === undefined) delete process.env.DEEPSEEK_API_KEY;
-        else process.env.DEEPSEEK_API_KEY = original;
+        if (original === undefined) delete process.env.STUDIO_API_KEY;
+        else process.env.STUDIO_API_KEY = original;
       }
     });
 
@@ -106,7 +106,7 @@ describe('LLMConfigService', () => {
       getProviderApiKeyMock.mockReturnValue(null);
 
       // Clear all env vars that might provide fallback
-      const envKeys = ['LLM_API_KEY_USER', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'];
+      const envKeys = ['LLM_API_KEY_USER', 'STUDIO_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'];
       const originals: Record<string, string | undefined> = {};
       for (const key of envKeys) {
         originals[key] = process.env[key];
@@ -136,7 +136,7 @@ describe('LLMConfigService', () => {
       getProviderApiKeyMock.mockReturnValue(null);
 
       // Clear env fallbacks
-      const envKeys = ['LLM_API_KEY_USER', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'];
+      const envKeys = ['LLM_API_KEY_USER', 'STUDIO_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'];
       const originals: Record<string, string | undefined> = {};
       for (const key of envKeys) {
         originals[key] = process.env[key];

@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
+import cookieParser from 'cookie-parser';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';
 import { auditLogger } from './middleware/audit-logger.js';
@@ -29,6 +30,7 @@ app.use('/api/v1/discord/interactions', express.raw({ type: 'application/json', 
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 app.use(requestLogger);
 app.use(auditLogger());
 
@@ -77,11 +79,15 @@ export async function registerRoutes(): Promise<void> {
       '/auth/login',
       '/auth/session',
       '/auth/guest-session',
+      '/auth/refresh',
+      '/auth/google',
+      '/auth/callback/google',
       '/discord/interactions',
       '/cso/validate',
       '/events/stream',  // SSE
       // Public read-only endpoints (Lurk Wall bypass)
       '/channels',
+      '/requirements-docs',
       '/health',
       '/pipeline/status',
       '/mcp/tools',        // MCP tool listing + execution (auth via permission service)

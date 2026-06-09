@@ -12,9 +12,17 @@ const BASE = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '1
 const TEST_CHANNEL = `test-channel-${Date.now()}`;
 let channelId: string;
 let messageId: string;
+let authToken: string;
 
 describe('Channel API', () => {
   beforeAll(async () => {
+    // Get auth token for endpoints that require it
+    try {
+      const res = await fetch(`${BASE}/auth/guest-session`, { method: 'POST' });
+      const data = await res.json() as any;
+      authToken = data?.token || data?.data?.token || '';
+    } catch { /* best effort */ }
+
     // Clean stale test data from previous runs
     try {
       const stale = await prisma.channel.findMany({ where: { name: { startsWith: 'test-channel-' } } });
@@ -210,7 +218,7 @@ describe('Channel API', () => {
     it('rejects missing content', async () => {
       const res = await fetch(`${BASE}/requirements-docs/nonexistent`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({}),
       });
       expect(res.status).toBe(400);
@@ -219,7 +227,7 @@ describe('Channel API', () => {
     it('returns 404 for nonexistent doc', async () => {
       const res = await fetch(`${BASE}/requirements-docs/nonexistent`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ content: 'new content' }),
       });
       expect(res.status).toBe(404);

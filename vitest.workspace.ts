@@ -1,6 +1,6 @@
 import { defineWorkspace } from 'vitest/config';
 
-const baseExclude = ['**/node_modules/**'];
+const baseExclude = ['**/node_modules/**', '**/*.spec.ts'];
 
 export default defineWorkspace([
   // 根目录测试（含 E2E — globalSetup 启动 API server）
@@ -26,6 +26,7 @@ export default defineWorkspace([
       include: ['apps/web/src/**/*.test.{ts,tsx}'],
       exclude: baseExclude,
       environment: 'jsdom',
+      setupFiles: ['./apps/web/src/test/setup.ts'],
     },
   },
   // apps/api 测试（排除 daemon — 需 Claude CLI + git worktree）
