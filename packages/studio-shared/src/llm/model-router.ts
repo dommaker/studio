@@ -25,6 +25,7 @@ export interface ProviderConfig {
   enabled?: boolean;
   allowedRoles?: string[];
   protocol?: 'openai' | 'anthropic';
+  tierModels?: Record<string, string>;
 }
 
 export interface GatewayMessage {
@@ -41,6 +42,7 @@ export interface GatewayRequest {
   provider?: string;
   role?: string;
   cache?: boolean;
+  tier?: string;
 }
 
 export interface GatewayResponse {
