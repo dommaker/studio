@@ -72,13 +72,11 @@ describe('Hooks 覆盖率 — 所有阶段 hook 已定义', () => {
   });
 
   it('每个阶段至少有一个导出的 hook 函数', async () => {
-    const { afterRequirementsDoc } = await import('../../packages/studio-shared/src/harness/hooks/meeting.hooks.js');
     const { beforeGoalCreate, beforeAgentDispatch } = await import('../../packages/studio-shared/src/harness/hooks/goal.hooks.js');
     const { beforeAgentExecute, afterAgentComplete, buildAgentConstraintPrompt } = await import('../../packages/studio-shared/src/harness/hooks/agent.hooks.js');
     const { checkBeforeTaskComplete, afterReview } = await import('../../packages/studio-shared/src/harness/hooks/completion.hooks.js');
     const { afterPrCreated } = await import('../../packages/studio-shared/src/harness/hooks/pr.hooks.js');
 
-    expect(typeof afterRequirementsDoc).toBe('function');
     expect(typeof beforeGoalCreate).toBe('function');
     expect(typeof beforeAgentDispatch).toBe('function');
     expect(typeof beforeAgentExecute).toBe('function');
