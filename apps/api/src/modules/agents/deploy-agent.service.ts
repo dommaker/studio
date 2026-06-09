@@ -147,6 +147,7 @@ class DeployAgent {
       inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
       durationMs,
       success: deployResult.success,
+      error: deployResult.success ? undefined : deployResult.summary,
       sessionId: params.executionId,
     }).catch(() => { /* non-blocking */ });
 

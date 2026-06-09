@@ -6,15 +6,17 @@
 
 import * as os from 'os';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { recordPipelineRun } from '../../daemon/metrics.js';
-import { agentExecutor } from '@dommaker/studio-agent';
+import { agentRunner } from '@dommaker/studio-agent';
 import { goalService, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
 import { generateSessionSummary } from '../events/session-summary-generator.js';
 import { roleConfigService } from '../roles/role-config.service.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
+import { getDefaultBranch } from '../../utils/git.js';
 
 import {
   classifyTaskComplexity,
@@ -232,15 +234,14 @@ export async function dispatchStep(
     }
   } catch { /* best-effort */ }
 
-  // Integration step — code execution (no Claude fallback: fail fast on merge issues)
+  // Integration step — code execution (with 7min outer timeout)
   if (isIntegration) {
-    const integrationStart = Date.now();
-    const INTEGRATION_TIMEOUT_MS = 5 * 60 * 1000; // 5min max
+    const INTEGRATION_TIMEOUT_MS = 7 * 60 * 1000;
     try {
       const result = await Promise.race([
         runIntegrationInCode(goal.id, executionId, pmoNumber),
         new Promise<{ success: false; error: string }>((_, reject) =>
-          setTimeout(() => reject(new Error('Integration timeout (5min)')), INTEGRATION_TIMEOUT_MS)
+          setTimeout(() => reject(new Error('Integration timeout (7min)')), INTEGRATION_TIMEOUT_MS)
         ),
       ]);
       if (result.success) {
@@ -253,22 +254,12 @@ export async function dispatchStep(
         });
         return;
       }
-      // runIntegrationInCode returned failure — fail step immediately
-      const errorMs = Date.now() - integrationStart;
-      logger.error('[GoalScheduler] Integration (code) failed', {
-        goalId: goal.id, executionId, error: result.error, durationMs: errorMs,
+      // Non-throw failure — log context before falling through to Claude
+      logger.warn('[GoalScheduler] Integration (code) failed, falling back to Claude', {
+        goalId: goal.id, executionId, error: result.error,
       });
-      await goalService.updateStepExecution(executionId, { status: 'failed', error: result.error });
-      return;
     } catch (err) {
-      // Timeout or exception — fail step immediately (no Claude fallback)
-      const errorMs = Date.now() - integrationStart;
-      const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error('[GoalScheduler] Integration (code) error', {
-        goalId: goal.id, executionId, error: errMsg, durationMs: errorMs,
-      });
-      await goalService.updateStepExecution(executionId, { status: 'failed', error: errMsg });
-      return;
+      logger.warn('[GoalScheduler] Integration (code) threw, falling back to Claude', { goalId: goal.id, error: String(err) });
     }
   }
 
@@ -276,7 +267,7 @@ export async function dispatchStep(
   const projectRepoDir = await getProjectRepoPath(goal);
   try {
     const onProgress = buildOnProgress(sourceChannelId, goal.id, executionId);
-    const result = await agentExecutor.execute({
+    const result = await agentRunner.execute({
       id: executionId,
       executionId,
       agentType: 'claude',
@@ -290,7 +281,7 @@ export async function dispatchStep(
         analystContext: (input?.acGroup as any)?._analystContext || null,
         hasWorktree: true,
         repoDir: projectRepoDir,
-        ...(_baseBranchExecId ? { baseBranch: await findTaskBranch(_baseBranchExecId, projectRepoDir) || `task/${_baseBranchExecId}` } : {}),
+        ...(_baseBranchExecId ? { baseBranch: await findTaskBranch(_baseBranchExecId, projectRepoDir) || getDefaultBranch(projectRepoDir) } : {}),
         knowledgeContext,
         sourceChannelId,
         roleConstraints,
@@ -341,28 +332,6 @@ export async function dispatchStep(
     const errorMsg = error instanceof Error ? error.message : String(error);
     await goalService.updateStepExecution(executionId, { status: 'failed', error: errorMsg });
     logger.error('[GoalScheduler] Agent error', { executionId, error: errorMsg });
-    // Record FailureEvent only (no routing — error info incomplete in catch path)
-    try {
-      const { classifyFailure: classify } = await import('../triage/error-class.js');
-      const classification = classify(errorMsg);
-      await prisma.failureEvent.upsert({
-        where: { executionId_category: { executionId, category: classification.category } },
-        create: {
-          executionId,
-          goalId: goal.id,
-          category: classification.category,
-          severity: classification.severity,
-          errorMessage: errorMsg.slice(0, 1000),
-          routeTarget: 'human',
-          matchedPattern: classification.matchedPattern,
-        },
-        update: {
-          severity: classification.severity,
-          errorMessage: errorMsg.slice(0, 1000),
-          matchedPattern: classification.matchedPattern,
-        },
-      });
-    } catch { /* non-blocking */ }
     try {
       const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
       await knowledgeBus.recordPattern({
@@ -393,9 +362,29 @@ async function handleDispatchSuccess(
 ): Promise<void> {
   const worktreeDir = path.join(WORKTREES_DIR, executionId);
   const execOutput = (result as any).output || (result as any).stdout?.slice(0, 5000);
+
+  // Capture HEAD commit SHA for integration step to use
+  let headCommit: string | undefined;
+  try {
+    headCommit = execSync('git rev-parse HEAD', { cwd: worktreeDir, encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' }).trim();
+  } catch { /* worktree may be cleaned up */ }
+
+  const outputData: Record<string, unknown> = {};
+  if (execOutput) {
+    try {
+      const parsed = JSON.parse(execOutput);
+      if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
+        Object.assign(outputData, parsed);
+      } else {
+        outputData.raw = execOutput;
+      }
+    } catch { outputData.raw = execOutput; }
+  }
+  if (headCommit) outputData.headCommit = headCommit;
+
   await goalService.updateStepExecution(executionId, {
     status: 'succeeded',
-    ...(execOutput ? { output: execOutput } : {}),
+    ...(Object.keys(outputData).length > 0 ? { output: JSON.stringify(outputData) } : {}),
   });
   const tokenUsage = parseAgentTokenUsage(worktreeDir);
   recordPipelineRun({
@@ -558,80 +547,6 @@ async function handleDispatchFailure(
     tier,
     strategy,
   });
-
-  // ── Failure classification + routing ──
-  try {
-    const { classifyFailure: classify, routeFailure: route } = await import('../triage/error-class.js');
-    const classification = classify(errDetail);
-    const routeResult = await route({
-      category: classification.category,
-      errorMessage: errDetail,
-      goalId: goal.id,
-      executionId,
-    });
-
-    // Persist FailureEvent (upsert for dedup with event-handler)
-    await prisma.failureEvent.upsert({
-      where: { executionId_category: { executionId, category: classification.category } },
-      create: {
-        executionId,
-        goalId: goal.id,
-        category: classification.category,
-        severity: classification.severity,
-        errorMessage: errDetail.slice(0, 1000),
-        routeTarget: routeResult.target,
-        incidentType: routeResult.incidentType,
-        matchedPattern: classification.matchedPattern,
-      },
-      update: {
-        severity: classification.severity,
-        errorMessage: errDetail.slice(0, 1000),
-        routeTarget: routeResult.target,
-        incidentType: routeResult.incidentType,
-        matchedPattern: classification.matchedPattern,
-      },
-    });
-
-    // Route based on target
-    if (routeResult.target === 'triage') {
-      try {
-        const { triageAgent } = await import('../agents/triage-agent.service.js');
-        await triageAgent.handleAlert({
-          type: (routeResult.incidentType as any) || 'zombie',
-          severity: classification.severity === 'critical' ? 'critical' : 'warning',
-          message: `[${classification.category}] ${errDetail.slice(0, 200)}`,
-          details: { goalId: goal.id, executionId, category: classification.category },
-        });
-      } catch (e) {
-        logger.warn('[GoalScheduler] triageAgent.handleAlert failed (non-blocking)', { error: String(e) });
-      }
-    } else if (routeResult.target === 'resolution_kb') {
-      logger.info('[GoalScheduler] Failure routed to resolution_kb', {
-        executionId, category: classification.category, matchedPattern: classification.matchedPattern,
-        errorMessage: errDetail.slice(0, 200),
-      });
-    } else {
-      logger.info('[GoalScheduler] Failure escalated to human', {
-        executionId, category: classification.category,
-      });
-      try {
-        await prisma.studioEvent.create({
-          data: {
-            type: 'failure:escalated',
-            source: 'goal-scheduler',
-            executionId,
-            payload: JSON.stringify({
-              goalId: goal.id,
-              category: classification.category,
-              errorMessage: errDetail.slice(0, 500),
-            }),
-          },
-        });
-      } catch { /* non-blocking */ }
-    }
-  } catch (e) {
-    logger.warn('[GoalScheduler] Failure classification/routing failed (non-blocking)', { error: String(e) });
-  }
 
   // ── Knowledge feedback loop: pipelineStepFeedback (failure) ──
   try {

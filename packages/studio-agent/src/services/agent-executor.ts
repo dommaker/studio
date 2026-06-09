@@ -22,6 +22,10 @@ export type { ProgressReport } from './output-capture.js';
 // Re-export AgentExecutor class and singleton
 export { AgentExecutor, agentExecutor } from './session-manager.js';
 
+// Re-export AgentRunner (unified executor)
+export { AgentRunner, agentRunner } from './agent-runner.js';
+export type { IAgentRunner } from './agent-runner.js';
+
 // Re-export worktree-resolver functions
 export {
   createWorktree,
@@ -39,6 +43,8 @@ export {
   recordSessionMetrics,
   emitSessionStart,
   emitSessionEnd,
+  emitToolCall,
+  emitFileChange,
   recordExecutionError,
   getConstraintMeta,
 } from './output-capture.js';

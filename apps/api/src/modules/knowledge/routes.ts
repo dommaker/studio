@@ -14,6 +14,7 @@
 import { Router } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '../../utils/logger.js';
+import { getModelForTier } from '@dommaker/studio-shared';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { upsertKnowledge } from './knowledge-bus.service.js';
 import type { KnowledgeSource } from './knowledge-bus.service.js';
@@ -1267,11 +1268,12 @@ knowledgeInternalRoutes.post('/extract-text-sync', async (req, res) => {
 
     // Direct API call for knowledge extraction
     const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
-    const rawResponse = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    const knowledgeBaseUrl = process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1';
+    const rawResponse = await fetch(`${knowledgeBaseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
       body: JSON.stringify({
-        model: 'deepseek-chat',
+        model: getModelForTier('standard'),
         messages: [
           { role: 'system', content: `你是知识提取专家。从文本中提取结构化知识。输出格式：{ "entries": [{ "type": "pitfall|guideline|decision|architecture|process", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }。只提取有价值的可复用知识，最多5条。` },
           { role: 'user', content: content.slice(0, 50_000) },

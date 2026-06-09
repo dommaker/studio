@@ -3,12 +3,14 @@
  * SEC-001: 用户认证系统
  */
 
-import { User, Session } from '@prisma/client';
+import { User, Session, RefreshToken } from '@prisma/client';
 import { prisma } from '@dommaker/studio-prisma';
 import * as crypto from 'crypto';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 // JWT 配置
-const JWT_SECRET = process.env.JWT_SECRET || 'dev-jwt-secret-change-in-production';
+const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET required in production'); })() : 'dev-jwt-secret-change-in-production');
 const JWT_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60; // 7 天
 
 // Guest Session 过期时间
@@ -39,75 +41,46 @@ export interface AuthResult {
 }
 
 /**
- * 密码加密
+ * 密码加密 (bcrypt)
  */
 function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto
-    .pbkdf2Sync(password, salt, 1000, 64, 'sha256')
-    .toString('hex');
-  return `${salt}:${hash}`;
+  return bcrypt.hashSync(password, 12);
 }
 
 /**
  * 验证密码
+ * 支持两种格式：bcrypt 新格式和旧 PBKDF2 salt:hash 格式
+ * 旧格式验证成功返回 needsRehash: true，调用方可静默升级
  */
-function verifyPassword(password: string, storedHash: string): boolean {
-  const [salt, hash] = storedHash.split(':');
-  if (!salt || !hash) return false;
-  
-  const verifyHash = crypto
-    .pbkdf2Sync(password, salt, 1000, 64, 'sha256')
-    .toString('hex');
-  
-  return hash === verifyHash;
+function verifyPassword(password: string, storedHash: string): { valid: boolean; needsRehash: boolean } {
+  // 旧 PBKDF2 格式：salt:hash（恰好一个冒号）
+  const colonCount = (storedHash.match(/:/g) || []).length;
+  if (colonCount === 1) {
+    const [salt, hash] = storedHash.split(':');
+    if (!salt || !hash) return { valid: false, needsRehash: false };
+    const verifyHash = crypto
+      .pbkdf2Sync(password, salt, 1000, 64, 'sha256')
+      .toString('hex');
+    return { valid: hash === verifyHash, needsRehash: hash === verifyHash };
+  }
+
+  // bcrypt 格式
+  return { valid: bcrypt.compareSync(password, storedHash), needsRehash: false };
 }
 
 /**
- * 生成 Token（简化版）
+ * 生成 Token (JWT)
  */
 function generateToken(sessionId: string, userId?: string): string {
-  const payload = {
-    sid: sessionId,
-    uid: userId,
-    exp: Math.floor(Date.now() / 1000) + JWT_EXPIRES_IN_SECONDS,
-  };
-  const payloadStr = JSON.stringify(payload);
-  const signature = crypto
-    .createHmac('sha256', JWT_SECRET)
-    .update(payloadStr)
-    .digest('hex');
-  
-  // 格式: base64(payload):signature
-  const encoded = Buffer.from(payloadStr).toString('base64url');
-  return `${encoded}.${signature}`;
+  return jwt.sign({ sid: sessionId, uid: userId }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN_SECONDS });
 }
 
 /**
- * 验证 Token
+ * 验证 Token (JWT)
  */
 export function verifyToken(token: string): { sessionId: string; userId?: string } | null {
   try {
-    const [encoded, signature] = token.split('.');
-    if (!encoded || !signature) return null;
-    
-    // 验证签名
-    const payloadStr = Buffer.from(encoded, 'base64url').toString('utf8');
-    const expectedSig = crypto
-      .createHmac('sha256', JWT_SECRET)
-      .update(payloadStr)
-      .digest('hex');
-    
-    if (signature !== expectedSig) return null;
-    
-    // 解析 payload
-    const payload = JSON.parse(payloadStr);
-    
-    // 检查过期
-    if (payload.exp < Math.floor(Date.now() / 1000)) {
-      return null;
-    }
-    
+    const payload = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload;
     return {
       sessionId: payload.sid,
       userId: payload.uid,
@@ -189,8 +162,19 @@ export async function login(input: LoginInput): Promise<AuthResult> {
   }
   
   // 验证密码
-  if (!verifyPassword(input.password, user.passwordHash)) {
+  const pwResult = verifyPassword(input.password, user.passwordHash);
+  if (!pwResult.valid) {
     throw new Error('密码错误');
+  }
+
+  // 旧格式静默升级为 bcrypt
+  if (pwResult.needsRehash) {
+    try {
+      const newHash = hashPassword(input.password);
+      await prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+    } catch {
+      // 静默忽略，下次登录再试
+    }
   }
   
   // 创建 Session
@@ -309,6 +293,79 @@ export async function cleanupExpiredSessions(): Promise<number> {
   });
   
   return result.count;
+}
+
+const REFRESH_TOKEN_EXPIRY_DAYS = 30;
+
+/**
+ * 生成 Refresh Token
+ */
+export async function generateRefreshToken(userId: string): Promise<string> {
+  const token = crypto.randomBytes(64).toString('hex');
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
+
+  await prisma.refreshToken.create({
+    data: { token, userId, expiresAt },
+  });
+
+  return token;
+}
+
+/**
+ * 刷新 Token：验证旧 refresh token，吊销旧的，创建新的 access + refresh pair
+ */
+export async function exchangeRefreshToken(refreshToken: string): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> {
+  const record = await prisma.refreshToken.findUnique({
+    where: { token: refreshToken },
+  });
+
+  if (!record || record.revokedAt || record.expiresAt < new Date()) {
+    return null;
+  }
+
+  // 吊销旧 token
+  await prisma.refreshToken.update({
+    where: { id: record.id },
+    data: { revokedAt: new Date() },
+  });
+
+  // 创建新 session + access token
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+  const session = await prisma.session.create({
+    data: { userId: record.userId, expiresAt, token: '' },
+  });
+  const accessToken = generateToken(session.id, record.userId);
+  await prisma.session.update({
+    where: { id: session.id },
+    data: { token: accessToken },
+  });
+
+  // 创建新 refresh token
+  const newRefreshToken = await generateRefreshToken(record.userId);
+
+  return { accessToken, refreshToken: newRefreshToken, userId: record.userId };
+}
+
+/**
+ * 吊销 Refresh Token
+ */
+export async function revokeRefreshToken(refreshToken: string): Promise<boolean> {
+  const record = await prisma.refreshToken.findUnique({
+    where: { token: refreshToken },
+  });
+
+  if (!record || record.revokedAt) {
+    return false;
+  }
+
+  await prisma.refreshToken.update({
+    where: { id: record.id },
+    data: { revokedAt: new Date() },
+  });
+
+  return true;
 }
 
 // 导出工具函数（用于测试）

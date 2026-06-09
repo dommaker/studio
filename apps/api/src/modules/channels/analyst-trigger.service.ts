@@ -40,7 +40,7 @@ class AnalystTriggerService {
 
     // 1b. Pre-flight: verify API key + Claude availability before spending tokens
     try {
-      const token = process.env.STUDIO_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN;
+      const token = process.env.STUDIO_API_KEY;
       if (!token || token.length < 10) {
         logger.error('[AnalystTrigger] Pre-flight failed — STUDIO_API_KEY missing or invalid');
         return;
@@ -264,7 +264,9 @@ class AnalystTriggerService {
         durationMs,
         success: true,
         sessionId: doc.id,
-      }).catch(() => { /* non-blocking */ });
+      }).catch((e: any) => {
+        logger.error('[AnalystTrigger] PipelineRun record FAILED', { error: String(e), docId: doc.id });
+      });
 
       logger.info('[AnalystTrigger] RequirementsDoc generated', {
         channelId, docId: doc.id, acGroupCount: response.acGroups?.length || 0,

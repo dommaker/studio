@@ -332,7 +332,8 @@ export class AgentExecutor {
             cwd: worktree,
             env: {
               ANTHROPIC_MODEL: model,
-              ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+              ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY,
+              ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL,
               STUDIO_EXECUTION_ID: task.executionId,
               ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
             },

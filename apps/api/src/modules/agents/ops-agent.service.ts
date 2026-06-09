@@ -12,6 +12,7 @@ import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
 import { loadRules, type OpsRules } from './ops-rules.js';
+import { hashPassword } from '../auth/service.js';
 
 export interface PreflightResult {
   passed: boolean;
@@ -576,13 +577,12 @@ export class OpsAgent {
     // Ensure admin exists
     const admin = await prisma.user.findFirst({ where: { role: 'Admin' } });
     if (!admin) {
-      const crypto = require('crypto');
-      const salt = crypto.randomBytes(16).toString('hex');
-      const hash = crypto.pbkdf2Sync('admin', salt, 1000, 64, 'sha256').toString('hex');
+      const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
+      const adminEmail = process.env.ADMIN_EMAIL || 'admin@localhost';
       await prisma.user.create({
-        data: { email: 'admin@localhost', passwordHash: `${salt}:${hash}`, name: 'Admin', role: 'Admin' },
+        data: { email: adminEmail, passwordHash: hashPassword(adminPassword), name: 'Admin', role: 'Admin' },
       });
-      logger.info('[Ops] Created default admin user (admin@localhost / admin)');
+      logger.info(`[Ops] Created default admin user (${adminEmail})`);
     }
 
     return { channels: channelCount, admin: !!admin };

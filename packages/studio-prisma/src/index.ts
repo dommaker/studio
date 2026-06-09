@@ -11,7 +11,7 @@ const JSON_FIELDS: Record<string, string[]> = {
   Capability: ['metadata'],
   OKR: ['objectives', 'keyResults'],
   Execution: ['parameters', 'nodeExecutions', 'error'],
-  Project: ['requirement', 'spec', 'gitInfo'],
+  Project: ['spec', 'gitInfo'],
   Role: ['metadata'],
   Skill: ['metadata'],
   Environment: ['envVars', 'mounts', 'resourceLimits'],

@@ -423,9 +423,11 @@ model User {
   updatedAt    DateTime  @updatedAt
   
   // 关联
-  sessions     Session[]
-  auditLogs    AuditLog[] @relation("UserAuditLogs")
-  createdRoles Role[]    @relation("CreatedRoles")
+  sessions       Session[]
+  refreshTokens  RefreshToken[]
+  oauthAccounts  OAuthAccount[]
+  auditLogs      AuditLog[] @relation("UserAuditLogs")
+  createdRoles   Role[]    @relation("CreatedRoles")
 }
 
 model Session {
@@ -443,6 +445,38 @@ model Session {
   @@index([userId])
   @@index([token])
   @@index([expiresAt])
+}
+
+model RefreshToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
+}
+
+model OAuthAccount {
+  id               String    @id @default(cuid())
+  userId           String
+  provider         String
+  providerAccountId String
+  accessToken      String?
+  refreshToken     String?
+  expiresAt        DateTime?
+  profile          String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  User             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
 }
 
 model UserProfile {

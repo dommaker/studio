@@ -50,11 +50,11 @@ export function parseClaudeUsage(stdout: string): {
   }
 }
 
-export async function recordWindowRun(entry: Omit<MetricEntry, 'source' | 'sessionId'>): Promise<void> {
+export async function recordWindowRun(entry: Omit<MetricEntry, 'source' | 'sessionId'>): Promise<boolean> {
   return recordPipelineRun({ ...entry, source: 'window' });
 }
 
-export async function recordPipelineRun(entry: MetricEntry): Promise<void> {
+export async function recordPipelineRun(entry: MetricEntry): Promise<boolean> {
   try {
     await prisma.pipelineRun.create({ data: entry });
     logger.info('[Metrics] Recorded', {
@@ -64,9 +64,29 @@ export async function recordPipelineRun(entry: MetricEntry): Promise<void> {
       inputTokens: entry.inputTokens,
       cacheHitTokens: entry.cacheHitTokens,
       durationMs: entry.durationMs,
+      goalId: entry.goalId || '(none)',
     });
+    return true;
   } catch (e) {
-    logger.warn('[Metrics] Failed to record', { error: String(e) });
+    logger.error('[Metrics] FAILED to record PipelineRun', {
+      error: String(e),
+      phase: entry.phase,
+      taskName: entry.taskName,
+      goalId: entry.goalId,
+      inputTokens: entry.inputTokens,
+      durationMs: entry.durationMs,
+    });
+    // Dead letter: write to StudioEvent so we don't lose the data silently
+    try {
+      await prisma.studioEvent.create({
+        data: {
+          type: 'pipeline:metrics_write_failed',
+          source: entry.source,
+          payload: JSON.stringify({ ...entry, error: String(e) }),
+        },
+      });
+    } catch { /* last resort — log only */ }
+    return false;
   }
 }
 
@@ -94,6 +114,7 @@ export function recordAgentSessionFromLog(
     const m = mu[model] || {};
 
     const inputTokens = m.inputTokens || u.input_tokens || 0;
+    const outputTokens = m.outputTokens || u.output_tokens || 0;
     const cacheHitTokens = m.cacheReadInputTokens || u.cache_read_input_tokens || 0;
     const turns = log.num_turns || 0;
     const cost = log.total_cost_usd || 0;
@@ -106,7 +127,7 @@ export function recordAgentSessionFromLog(
         taskName,
         model,
         inputTokens,
-        outputTokens: m.outputTokens || u.output_tokens || 0,
+        outputTokens,
         cacheHitTokens,
         durationMs: log.duration_ms || 0,
         success: log.is_error !== true,
@@ -125,7 +146,17 @@ export function recordAgentSessionFromLog(
         costUSD: cost.toFixed(3),
       });
     }).catch(e => {
-      logger.warn('[Metrics] Session log record failed', { error: String(e) });
+      logger.error('[Metrics] Session log record FAILED', {
+        error: String(e), sessionId, phase, taskName, model,
+      });
+      // Dead letter
+      prisma.studioEvent.create({
+        data: {
+          type: 'pipeline:metrics_write_failed',
+          source: 'pipeline',
+          payload: JSON.stringify({ sessionId, phase, taskName, model, inputTokens, outputTokens, cacheHitTokens, error: String(e) }),
+        },
+      }).catch(() => {});
     });
   } catch {
     // non-blocking

@@ -584,7 +584,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         orderBy: { createdAt: 'desc' },
         take: 50,
       });
-      const duplicate = existingGoals.find(g => g.title.trim().toLowerCase() === normalizedTitle && ['succeeded', 'running', 'pending', 'draft'].includes(g.status));
+      const duplicate = existingGoals.find(g => g.title.trim().toLowerCase() === normalizedTitle && ['succeeded', 'running', 'executing', 'pending', 'draft'].includes(g.status));
       if (duplicate) {
         const msg = duplicate.status === 'succeeded'
           ? `⏭️ 跳过：相同需求已成功完成 (Goal \`${duplicate.id.slice(0, 8)}\`)`

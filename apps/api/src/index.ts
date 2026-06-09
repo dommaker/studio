@@ -95,11 +95,6 @@ async function start() {
       logger.warn('Failed to sync DB configs to gateway, using env only', { error: String(err) });
     }
 
-    // 管线独立 API key — 有独立 key 时隔离管线与开发会话的缓存池
-    if (process.env.PIPELINE_API_KEY) {
-      process.env.STUDIO_API_KEY = process.env.PIPELINE_API_KEY;
-    }
-
     // 初始化 harness 运行时（加载 .harness/config.yml 注入 ConstraintChecker）
     await bootstrapHarness();
 

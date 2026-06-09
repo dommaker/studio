@@ -27,7 +27,8 @@ try { unlinkSync(dbPath + '-wal'); } catch { /* ignore */ }
 
 // Use db push WITHOUT --force-reset to avoid file replacement race condition.
 // Since we deleted the file above, db push will create a fresh DB.
-execSync(`npx prisma db push --skip-generate --schema ${schemaPath}`, {
+const prismaBin = resolve(__dirname, '../node_modules/.bin/prisma');
+execSync(`${prismaBin} db push --skip-generate --schema ${schemaPath}`, {
   cwd: prismaDir,
   env: { ...process.env, DATABASE_URL: dbUrl },
   stdio: 'pipe',

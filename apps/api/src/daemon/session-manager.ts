@@ -223,12 +223,22 @@ export class SessionManager {
 
       let stdout: string;
       try {
+        // 按 session 类型选 API key：analyst → STUDIO_*，executor/reviewer → PIPELINE_*
+        const isAnalyst = sessionName === 'analyst';
+        const sessionApiKey = isAnalyst
+          ? process.env.STUDIO_API_KEY
+          : process.env.PIPELINE_API_KEY;
+        const sessionBaseUrl = isAnalyst
+          ? process.env.STUDIO_BASE_URL
+          : process.env.PIPELINE_BASE_URL;
+
         const result = await execSh(cmd, {
           cwd: state.config.worktree,
           env: {
             ...process.env,
             ANTHROPIC_MODEL: model,
-            ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN,
+            ANTHROPIC_AUTH_TOKEN: sessionApiKey,
+            ANTHROPIC_BASE_URL: sessionBaseUrl,
             ...job.env,
           },
           timeoutMs: state.config.timeoutMs,

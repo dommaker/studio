@@ -10,11 +10,15 @@
  *   session-manager.ts — AgentExecutor 类 + session loop + prompt 构建
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getConstraintMeta = exports.recordExecutionError = exports.emitSessionEnd = exports.emitSessionStart = exports.recordSessionMetrics = exports.parseJsonEnvelope = exports.collectOutputFiles = exports.readProgress = exports.writeContractTests = exports.writeRequirementsMd = exports.buildCachePrefix = exports.propagateHarnessConfig = exports.createWorktree = exports.agentExecutor = exports.AgentExecutor = void 0;
+exports.getConstraintMeta = exports.recordExecutionError = exports.emitFileChange = exports.emitToolCall = exports.emitSessionEnd = exports.emitSessionStart = exports.recordSessionMetrics = exports.parseJsonEnvelope = exports.collectOutputFiles = exports.readProgress = exports.writeContractTests = exports.writeRequirementsMd = exports.buildCachePrefix = exports.propagateHarnessConfig = exports.createWorktree = exports.agentRunner = exports.AgentRunner = exports.agentExecutor = exports.AgentExecutor = void 0;
 // Re-export AgentExecutor class and singleton
 var session_manager_js_1 = require("./session-manager.js");
 Object.defineProperty(exports, "AgentExecutor", { enumerable: true, get: function () { return session_manager_js_1.AgentExecutor; } });
 Object.defineProperty(exports, "agentExecutor", { enumerable: true, get: function () { return session_manager_js_1.agentExecutor; } });
+// Re-export AgentRunner (unified executor)
+var agent_runner_js_1 = require("./agent-runner.js");
+Object.defineProperty(exports, "AgentRunner", { enumerable: true, get: function () { return agent_runner_js_1.AgentRunner; } });
+Object.defineProperty(exports, "agentRunner", { enumerable: true, get: function () { return agent_runner_js_1.agentRunner; } });
 // Re-export worktree-resolver functions
 var worktree_resolver_js_1 = require("./worktree-resolver.js");
 Object.defineProperty(exports, "createWorktree", { enumerable: true, get: function () { return worktree_resolver_js_1.createWorktree; } });
@@ -30,5 +34,7 @@ Object.defineProperty(exports, "parseJsonEnvelope", { enumerable: true, get: fun
 Object.defineProperty(exports, "recordSessionMetrics", { enumerable: true, get: function () { return output_capture_js_1.recordSessionMetrics; } });
 Object.defineProperty(exports, "emitSessionStart", { enumerable: true, get: function () { return output_capture_js_1.emitSessionStart; } });
 Object.defineProperty(exports, "emitSessionEnd", { enumerable: true, get: function () { return output_capture_js_1.emitSessionEnd; } });
+Object.defineProperty(exports, "emitToolCall", { enumerable: true, get: function () { return output_capture_js_1.emitToolCall; } });
+Object.defineProperty(exports, "emitFileChange", { enumerable: true, get: function () { return output_capture_js_1.emitFileChange; } });
 Object.defineProperty(exports, "recordExecutionError", { enumerable: true, get: function () { return output_capture_js_1.recordExecutionError; } });
 Object.defineProperty(exports, "getConstraintMeta", { enumerable: true, get: function () { return output_capture_js_1.getConstraintMeta; } });

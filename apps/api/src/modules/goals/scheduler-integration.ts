@@ -69,10 +69,6 @@ export class GoalScheduler {
 
     this.recentClassifications = restoreRoutingStats();
 
-    this.abandonOrphanedRunning().catch(e => {
-      logger.error('[GoalScheduler] Abandon orphaned failed', { error: String(e) });
-    });
-
     this.startRuntimeConstraintSub();
 
     this.interval = setInterval(() => this.tick(), POLL_INTERVAL);
@@ -240,6 +236,15 @@ export class GoalScheduler {
               executionId: exec.id, conflicts,
               conflictingWith: currentlyRunning.filter(r => r.goalId !== goalId).map(r => r.id),
             });
+            // O4-KR2: Record conflict event for OKR metric
+            prisma.studioEvent.create({
+              data: {
+                type: 'scheduler:conflict',
+                source: 'goal-scheduler',
+                executionId: exec.id,
+                payload: JSON.stringify({ conflicts, goalId, executionId: exec.id }),
+              },
+            }).catch(() => {});
             continue;
           }
           filtered.push(exec);
@@ -255,6 +260,18 @@ export class GoalScheduler {
           logger.error('[GoalScheduler] Dispatch error', { executionId: exec.id, error: String(e) });
         })),
       );
+
+      // O4-KR1: Record parallel execution count for OKR metric
+      if (toDispatch.length > 0) {
+        const totalRunning = await prisma.goalExecution.count({ where: { status: 'running' } });
+        prisma.studioEvent.create({
+          data: {
+            type: 'scheduler:parallel',
+            source: 'goal-scheduler',
+            payload: JSON.stringify({ concurrent: totalRunning, dispatched: toDispatch.length, goalId }),
+          },
+        }).catch(() => {});
+      }
 
       // 同步 mutable state 回 class
       this.explorationCount = ctx.explorationCount;

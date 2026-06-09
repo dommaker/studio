@@ -231,9 +231,18 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
   }
 
   // Cleanup executor worktrees and task branches (non-blocking)
-  cleanupGoalWorktrees(goalId).catch(err =>
-    logger.warn('[Goal] Worktree cleanup failed (non-blocking)', { goalId, error: String(err) })
-  );
+  // Only on final success — after review approves (not during review-fix cycles)
+  // Defer cleanup: re-check goal status after handleGoalSucceeded may have dispatched review-fix
+  if (newStatus === 'succeeded') {
+    const currentGoal = await prisma.goal.findUnique({ where: { id: goalId }, select: { status: true } });
+    if (currentGoal?.status === 'succeeded') {
+      cleanupGoalWorktrees(goalId).catch(err =>
+        logger.warn('[Goal] Worktree cleanup failed (non-blocking)', { goalId, error: String(err) })
+      );
+    } else {
+      logger.info('[Goal] Skipping worktree cleanup — review cycle pending', { goalId, currentStatus: currentGoal?.status });
+    }
+  }
 }
 
 /**
@@ -348,20 +357,40 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
     const goal = await prisma.goal.findUnique({ where: { id: goalId } });
     if (!goal) return;
 
+    // Find all step-level PipelineRun records for this goal
+    const executions = await prisma.goalExecution.findMany({
+      where: { goalId },
+      select: { id: true, startedAt: true, completedAt: true, status: true },
+    });
+    const execIds = executions.map(e => e.id);
+
+    // Match by goalId (preferred) or sessionId (fallback for older records)
     const runs = await prisma.pipelineRun.findMany({
-      where: { sessionId: { in: (await prisma.goalExecution.findMany({
-        where: { goalId },
-        select: { id: true },
-      })).map(e => e.id) } },
+      where: {
+        OR: [
+          { goalId },
+          { sessionId: { in: execIds } },
+        ],
+      },
     });
 
     const totalInputTokens = runs.reduce((s, r) => s + r.inputTokens, 0);
     const totalOutputTokens = runs.reduce((s, r) => s + r.outputTokens, 0);
-    const totalDurationMs = runs.reduce((s, r) => s + r.durationMs, 0);
     const totalSessions = runs.length;
     const successCount = runs.filter(r => r.success).length;
 
-    await recordPipelineRun({
+    // Duration: prefer PipelineRun sum, fallback to GoalExecution wall clock
+    let totalDurationMs = runs.reduce((s, r) => s + r.durationMs, 0);
+    if (totalDurationMs === 0 && executions.length > 0) {
+      // Fallback: wall clock from earliest start to latest completion
+      const starts = executions.filter(e => e.startedAt).map(e => e.startedAt!.getTime());
+      const ends = executions.filter(e => e.completedAt).map(e => e.completedAt!.getTime());
+      if (starts.length > 0 && ends.length > 0) {
+        totalDurationMs = Math.max(...ends) - Math.min(...starts);
+      }
+    }
+
+    const written = await recordPipelineRun({
       source: 'pipeline', phase: 'full',
       taskName: goal.title,
       model: 'summary',
@@ -373,6 +402,26 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
       testPassed: successCount === totalSessions,
       goalId: goal.id,
     });
+
+    if (!written) {
+      logger.error('[GoalLifecycle] CRITICAL: PipelineRun summary write failed', { goalId, totalSessions, totalInputTokens });
+    }
+
+    // Health check: verify at least one PipelineRun exists for this goal
+    if (totalSessions === 0) {
+      logger.warn('[GoalLifecycle] No PipelineRun records found for goal — metrics gap', {
+        goalId, execIds: execIds.length, goalStatus: goal.status,
+      });
+      try {
+        await prisma.studioEvent.create({
+          data: {
+            type: 'pipeline:metrics_missing',
+            source: 'goal-lifecycle',
+            payload: JSON.stringify({ goalId, execCount: execIds.length, goalStatus: goal.status }),
+          },
+        });
+      } catch { /* last resort */ }
+    }
 
     try {
       const auditService = new AuditService(prisma);
@@ -447,7 +496,16 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
       logger.warn('[Goal] PostEval failed', { goalId, error: String(e) });
     }
   } catch (e) {
-    logger.warn('[Goal] Failed to record completion metrics', { goalId, error: String(e) });
+    logger.error('[Goal] CRITICAL: Failed to record completion metrics', { goalId, error: String(e) });
+    try {
+      await prisma.studioEvent.create({
+        data: {
+          type: 'pipeline:metrics_write_failed',
+          source: 'goal-lifecycle',
+          payload: JSON.stringify({ goalId, error: String(e) }),
+        },
+      });
+    } catch { /* last resort */ }
   }
 }
 

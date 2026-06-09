@@ -120,7 +120,7 @@ export class ReviewAgent {
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN },
+          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY, ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL },
           timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -393,7 +393,7 @@ export class ReviewAgent {
 
         const { stdout } = await execSh(cmd, {
           cwd: params.worktree,
-          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN },
+          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY, ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL },
           timeoutMs: 5 * 60 * 1000,
           maxBuffer: 5 * 1024 * 1024,
         });
@@ -507,7 +507,7 @@ export class ReviewAgent {
       try {
         await execSh(cmd, {
           cwd: repoPath,
-          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN },
+          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY, ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL },
           timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -633,7 +633,7 @@ export class ReviewAgent {
       try { fs.unlinkSync(reportPath); } catch {}
       const cmd = `cd "${worktree}" && cat '${promptFile}' | claude --print --output-format json --model "${model}" 2>&1`;
       await execSh(cmd, {
-        cwd: worktree, env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY || process.env.ANTHROPIC_AUTH_TOKEN },
+        cwd: worktree, env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY, ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL },
         timeoutMs: 5 * 60 * 1000, maxBuffer: 5 * 1024 * 1024,
       });
 

@@ -82,7 +82,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     logger.error('[Goal] No review worktree found — blocking goal for investigation', { goalId });
     await prisma.goal.update({
       where: { id: goalId },
-      data: { status: 'blocked', error: 'No review worktree found after execution completion. Possible causes: cleanupTaskBranches() ran prematurely, WORKTREES_DIR misconfiguration, or worktree creation failed.' } as any,
+      data: { status: 'blocked' },
     });
     try {
       const { triageAgent } = await import('../agents/triage-agent.service.js');

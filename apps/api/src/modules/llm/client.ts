@@ -25,11 +25,11 @@ export interface LLMResponse {
 
 // 检测可用的 LLM 配置（纯 env 驱动，无硬编码 key）
 function detectConfig(): LLMConfig {
-  if (process.env.DEEPSEEK_API_KEY) {
+  if (process.env.STUDIO_API_KEY) {
     return {
-      apiKey: process.env.DEEPSEEK_API_KEY,
-      baseUrl: 'https://api.deepseek.com/v1',
-      model: 'deepseek-chat',
+      apiKey: process.env.STUDIO_API_KEY,
+      baseUrl: process.env.STUDIO_BASE_URL || 'https://api.deepseek.com/v1',
+      model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
     };
   }
   if (process.env.LLM_API_KEY || process.env.OPENAI_API_KEY) {

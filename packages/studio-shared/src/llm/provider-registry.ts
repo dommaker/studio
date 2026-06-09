@@ -1,7 +1,7 @@
 /**
  * Provider Registry — LLM provider 注册/查询
  *
- * P11-06: Extracted from model-gateway.ts
+ * Gateway 只注册 studio provider。Pipeline/Knowledge 走 CLI spawn / direct fetch。
  */
 
 import { logger } from '../utils/logger.js';
@@ -17,46 +17,27 @@ export function addProvider(providers: ProviderConfig[], config: ProviderConfig)
 }
 
 /**
- * 从环境变量自动注册 providers（按用途：studio / pipeline / knowledge）
+ * 从环境变量自动注册 gateway provider
+ *
+ * Gateway 只注册 studio provider（priority=0），用于 14+ 个 Agent 的轻量 LLM 调用。
+ * Pipeline/Knowledge 的重度 LLM 调用走 CLI spawn 和 direct fetch，不经 gateway。
  *
  * config.env 格式：
  *   STUDIO_BASE_URL=...    STUDIO_API_KEY=...
- *   PIPELINE_BASE_URL=...  PIPELINE_API_KEY=...
- *   KNOWLEDGE_BASE_URL=... KNOWLEDGE_API_KEY=...
  *   MODEL_TIER_FAST=...    (gateway 默认模型)
  */
 export function loadFromEnv(addFn: (config: ProviderConfig) => void): void {
-  const purposes = [
-    { name: 'studio', priority: 0 },
-    { name: 'pipeline', priority: 1 },
-    { name: 'knowledge', priority: 2 },
-  ] as const;
-
+  const baseUrl = process.env.STUDIO_BASE_URL;
+  const apiKey = process.env.STUDIO_API_KEY;
   const defaultModel = process.env.MODEL_TIER_FAST || 'deepseek-v4-flash';
 
-  for (const { name, priority } of purposes) {
-    const baseUrl = process.env[`${name.toUpperCase()}_BASE_URL`];
-    const apiKey = process.env[`${name.toUpperCase()}_API_KEY`];
-    if (baseUrl && apiKey) {
-      addFn({
-        name,
-        baseUrl,
-        apiKey,
-        model: defaultModel,
-        priority,
-      });
-    }
-  }
-
-  // 兼容：遗留 provider-specific 环境变量（逐步废弃）
-  if (process.env.ANTHROPIC_AUTH_TOKEN && process.env.ANTHROPIC_BASE_URL) {
+  if (baseUrl && apiKey) {
     addFn({
-      name: 'anthropic-legacy',
-      baseUrl: process.env.ANTHROPIC_BASE_URL,
-      apiKey: process.env.ANTHROPIC_AUTH_TOKEN,
-      model: process.env.ANTHROPIC_MODEL || defaultModel,
-      priority: 10,
-      protocol: 'anthropic',
+      name: 'studio',
+      baseUrl,
+      apiKey,
+      model: defaultModel,
+      priority: 0,
     });
   }
 }

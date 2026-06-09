@@ -26,9 +26,9 @@ function getLLMConfig(): { apiKey: string; baseUrl: string; model: string; provi
   }
   
   // 2. 其次读取环境变量配置（管理员配置，适用于 runtime 用户）
-  const apiKey = process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
-  const baseUrl = process.env.LLM_BASE_URL || 'https://api.openai.com/v1';
-  const model = process.env.LLM_MODEL || 'gpt-3.5-turbo';
+  const apiKey = process.env.STUDIO_API_KEY || process.env.LLM_API_KEY || process.env.OPENAI_API_KEY;
+  const baseUrl = process.env.STUDIO_BASE_URL || process.env.LLM_BASE_URL || 'https://api.openai.com/v1';
+  const model = process.env.LLM_MODEL || 'deepseek-v4-flash';
   
   if (!apiKey) {
     return null;

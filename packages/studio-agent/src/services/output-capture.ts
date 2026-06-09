@@ -148,6 +148,38 @@ export async function emitSessionEnd(sessionId: string, executionId: string, ses
 }
 
 /**
+ * 发射 tool:call 事件 — 记录 agent 调用的工具及参数
+ */
+export async function emitToolCall(toolName: string, input: unknown, sessionId: string, executionId: string): Promise<void> {
+  try {
+    await prisma.studioEvent.create({
+      data: {
+        type: 'tool:call',
+        source: 'agent-executor',
+        executionId,
+        payload: JSON.stringify({ tool: toolName, input, sessionId }),
+      },
+    });
+  } catch { /* non-blocking */ }
+}
+
+/**
+ * 发射 file:change 事件 — 记录 agent 修改的文件路径
+ */
+export async function emitFileChange(filePath: string, sessionId: string, executionId: string): Promise<void> {
+  try {
+    await prisma.studioEvent.create({
+      data: {
+        type: 'file:change',
+        source: 'agent-executor',
+        executionId,
+        payload: JSON.stringify({ path: filePath, sessionId }),
+      },
+    });
+  } catch { /* non-blocking */ }
+}
+
+/**
  * 记录执行错误到 GoalExecution
  */
 export async function recordExecutionError(opts: {

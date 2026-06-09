@@ -54,7 +54,7 @@ const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
   anthropic: { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-20250514' },
   openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
   tencent: { baseUrl: 'https://api.lkeap.cloud.tencent.com/coding/v3', model: 'glm-5' },
-  deepseek: { baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  deepseek: { baseUrl: process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
 };
 
 // ─── Service ───
@@ -264,13 +264,13 @@ export class LLMConfigService {
     }
 
     // 系统配置
-    if (process.env.DEEPSEEK_API_KEY) {
+    if (process.env.STUDIO_API_KEY) {
       return {
         provider: 'deepseek',
-        baseUrl: 'https://api.deepseek.com/v1',
-        apiKey: process.env.DEEPSEEK_API_KEY,
+        baseUrl: process.env.STUDIO_BASE_URL || 'https://api.deepseek.com/v1',
+        apiKey: process.env.STUDIO_API_KEY,
         model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-        source: 'env:deepseek',
+        source: 'env:studio',
       };
     }
 

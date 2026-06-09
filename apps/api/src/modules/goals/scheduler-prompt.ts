@@ -384,6 +384,19 @@ export async function runIntegrationInCode(
         if (found) { branch = found; branchExists = true; }
       } catch { /* not found */ }
     }
+    // Fallback: use stored headCommit from execution output
+    if (!branchExists) {
+      try {
+        const output = typeof exec.output === 'string' ? JSON.parse(exec.output) : (exec.output || {});
+        const sha = output?.headCommit;
+        if (sha && /^[0-9a-f]{40}$/.test(sha)) {
+          execSync(`git cat-file -t "${sha}"`, { cwd: worktree, timeout: 5_000, stdio: 'pipe' });
+          branch = sha;
+          branchExists = true;
+          logger.info('[GoalScheduler] Using stored headCommit for merge', { executionId: exec.id, sha });
+        }
+      } catch { /* SHA not available or not valid */ }
+    }
     if (!branchExists) {
       missingBranches.push(`step ${exec.stepIndex} (${exec.id.slice(0, 8)})`);
       continue;
@@ -406,6 +419,36 @@ export async function runIntegrationInCode(
   }
   if (missingBranches.length > 0) {
     logger.warn('[GoalScheduler] Some step branches missing during integration', { missing: missingBranches, merged: mergedBranches });
+  }
+
+  // Copy built dist/ from main repo — worktree packages are gitignored, no dist/
+  try {
+    const mainPackagesDir = path.join(repoDir, 'packages');
+    const wtPackagesDir = path.join(worktree, 'packages');
+    if (fs.existsSync(mainPackagesDir) && fs.existsSync(wtPackagesDir)) {
+      for (const pkg of fs.readdirSync(mainPackagesDir)) {
+        const mainDist = path.join(mainPackagesDir, pkg, 'dist');
+        const wtDist = path.join(wtPackagesDir, pkg, 'dist');
+        if (fs.existsSync(mainDist) && !fs.existsSync(wtDist)) {
+          fs.cpSync(mainDist, wtDist, { recursive: true });
+        }
+      }
+    }
+    // Also copy harness dist/ (sibling repo, linked via pnpm overrides)
+    const mainHarnessDist = path.join(repoDir, '..', 'harness', 'dist');
+    const wtHarnessDist = path.join(worktree, 'harness', 'dist');
+    if (fs.existsSync(mainHarnessDist) && !fs.existsSync(wtHarnessDist)) {
+      fs.cpSync(mainHarnessDist, wtHarnessDist, { recursive: true });
+    }
+  } catch (e) {
+    logger.warn('[GoalScheduler] Failed to copy workspace dist/', { error: String(e) });
+  }
+
+  // Generate Prisma client — pnpm store may have stale types
+  try {
+    execSync('npx prisma generate 2>&1', { cwd: path.join(worktree, 'packages', 'studio-prisma'), timeout: 30_000 });
+  } catch (e) {
+    logger.warn('[GoalScheduler] prisma generate failed', { error: String(e) });
   }
 
   try {

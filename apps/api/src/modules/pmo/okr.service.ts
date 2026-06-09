@@ -609,9 +609,49 @@ export class OKRService {
 
   // ── 具体 metric 查询 ──
 
-  /** 管线 e2e 耗时 p90 (从 GoalExecution wall clock) */
+  /** 管线 e2e 耗时 p90 — 优先 PipelineRun phase='full', 回退 GoalExecution wall clock */
   private async queryPipelineDurationP90(days: number): Promise<number | null> {
     const since = new Date(Date.now() - days * 86400000);
+
+    // Source 1: PipelineRun phase='full' (goal-level summary, most reliable)
+    const fullRuns = await prisma.pipelineRun.findMany({
+      where: {
+        phase: 'full',
+        createdAt: { gte: since },
+        durationMs: { gt: 1000 },
+      },
+      select: { durationMs: true, goalId: true },
+    });
+
+    if (fullRuns.length > 0) {
+      const durations = fullRuns.map(r => r.durationMs).sort((a, b) => a - b);
+      const idx = Math.ceil(durations.length * 0.9) - 1;
+      return Math.round(durations[Math.min(idx, durations.length - 1)] / 1000 / 60);
+    }
+
+    // Source 2: PipelineRun step-level, aggregate by goalId
+    const stepRuns = await prisma.pipelineRun.findMany({
+      where: {
+        createdAt: { gte: since },
+        goalId: { not: null },
+        phase: { not: 'full' },
+      },
+      select: { goalId: true, durationMs: true },
+    });
+
+    if (stepRuns.length > 0) {
+      const byGoal = new Map<string, number>();
+      for (const r of stepRuns) {
+        byGoal.set(r.goalId!, (byGoal.get(r.goalId!) || 0) + r.durationMs);
+      }
+      const durations = Array.from(byGoal.values()).filter(d => d > 1000).sort((a, b) => a - b);
+      if (durations.length > 0) {
+        const idx = Math.ceil(durations.length * 0.9) - 1;
+        return Math.round(durations[Math.min(idx, durations.length - 1)] / 1000 / 60);
+      }
+    }
+
+    // Source 3: GoalExecution wall clock (legacy fallback)
     const executions = await prisma.goalExecution.findMany({
       where: {
         startedAt: { gte: since },
@@ -623,26 +663,24 @@ export class OKRService {
 
     if (executions.length === 0) return null;
 
-    // 按 goalId 分组，算每个 Goal 的 wall clock
-    const byGoal = new Map<string, { startedAt: Date; completedAt: Date }>();
+    const byGoalExec = new Map<string, { startedAt: Date; completedAt: Date }>();
     for (const e of executions) {
-      const existing = byGoal.get(e.goalId);
+      const existing = byGoalExec.get(e.goalId);
       if (!existing) {
-        byGoal.set(e.goalId, { startedAt: e.startedAt!, completedAt: e.completedAt! });
+        byGoalExec.set(e.goalId, { startedAt: e.startedAt!, completedAt: e.completedAt! });
       } else {
         if (e.startedAt! < existing.startedAt) existing.startedAt = e.startedAt!;
         if (e.completedAt! > existing.completedAt) existing.completedAt = e.completedAt!;
       }
     }
 
-    const durations = Array.from(byGoal.values())
+    const durations = Array.from(byGoalExec.values())
       .map(g => g.completedAt.getTime() - g.startedAt.getTime())
-      .filter(d => d > 1000)  // 排除 <1s 的异常值
+      .filter(d => d > 1000)
       .sort((a, b) => a - b);
 
     if (durations.length === 0) return null;
 
-    // p90
     const idx = Math.ceil(durations.length * 0.9) - 1;
     return Math.round(durations[Math.min(idx, durations.length - 1)] / 1000 / 60);
   }

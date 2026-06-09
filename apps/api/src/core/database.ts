@@ -4,9 +4,9 @@ import { resolve } from 'path';
 
 // 解析 DATABASE_URL 为绝对路径（必须在 Prisma Client 初始化前）
 // Prisma 运行时从 CWD 解析 file:./data.db，不同启动目录会读到不同 DB
-const prismaDir = resolve(__dirname, '../../../../packages/studio-prisma');
+const studioDir = process.env.HOME ? `${process.env.HOME}/.studio` : resolve(__dirname, '../../../../.studio');
 if (!process.env.DATABASE_URL || process.env.DATABASE_URL.startsWith('file:./')) {
-  process.env.DATABASE_URL = `file:${prismaDir}/prisma/data.db`;
+  process.env.DATABASE_URL = `file:${studioDir}/data/data.db`;
 }
 
 // CJS require: 不 hoist，确保上面的 env 设置先执行
@@ -33,7 +33,7 @@ function getSkillLoader() {
 
 async function autoMigrate(): Promise<void> {
   const prismaDir = resolve(__dirname, '../../../../packages/studio-prisma');
-  const dbUrl = process.env.DATABASE_URL || `file:${prismaDir}/prisma/data.db`;
+  const dbUrl = process.env.DATABASE_URL || `file:${studioDir}/data/data.db`;
   try {
     const out = execSync(`npx prisma migrate deploy`, {
       cwd: prismaDir,

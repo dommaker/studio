@@ -50,7 +50,7 @@ cp "$ENV_FILE" "$API_DIR/.env"
 # 数据库迁移（幂等，已应用的会跳过）
 echo "   Applying Prisma migrations..."
 cd "$PROJECT_ROOT/packages/studio-prisma"
-DATABASE_URL="file:$PROJECT_ROOT/packages/studio-prisma/prisma/data.db" npx prisma migrate deploy 2>&1 | sed 's/^/   /'
+DATABASE_URL="file:$HOME/.studio/data/data.db" npx prisma migrate deploy 2>&1 | sed 's/^/   /'
 
 # 启动后端 API
 cd "$API_DIR"
