@@ -5,28 +5,24 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import * as crypto from 'crypto';
+import { hashPassword } from '../apps/api/src/modules/auth/service.js';
 
 const prisma = new PrismaClient();
 
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@agent-studio.local';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+if (!ADMIN_PASSWORD) {
+  console.error('❌ ADMIN_PASSWORD 环境变量未设置。用法: ADMIN_PASSWORD=<密码> npx tsx scripts/seed-admin.ts');
+  process.exit(1);
+}
+
 const DEFAULT_ADMIN = {
-  email: 'admin@agent-studio.local',
-  password: 'admin123',
+  email: ADMIN_EMAIL,
+  password: ADMIN_PASSWORD,
   name: 'Admin',
   role: 'Admin',
 };
-
-/**
- * 使用 SHA-256 加密密码（简化版）
- * 生产环境应使用 bcrypt
- */
-function hashPassword(password: string): string {
-  const salt = crypto.randomBytes(16).toString('hex');
-  const hash = crypto
-    .pbkdf2Sync(password, salt, 1000, 64, 'sha256')
-    .toString('hex');
-  return `${salt}:${hash}`;
-}
 
 async function main() {
   console.log('🔍 检查管理员账号...');
@@ -56,7 +52,6 @@ async function main() {
   
   console.log('\n✅ 管理员账号创建成功！');
   console.log('   邮箱:', DEFAULT_ADMIN.email);
-  console.log('   密码:', DEFAULT_ADMIN.password);
   console.log('   ID:', admin.id);
   console.log('\n⚠️  生产环境请立即修改密码！');
 }

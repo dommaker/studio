@@ -99,7 +99,7 @@ main() {
   if check_port 3030; then
     echo -e "  状态:  ${GREEN}✓ 运行中${NC}"
     echo -e "  URL:   http://localhost:3030"
-    echo -e "  登录:  admin / admin123"
+    echo -e "  登录:  admin / (见 GRAFANA_ADMIN_PASSWORD 环境变量)"
     
     if check_health "http://localhost:3030/api/health"; then
       echo -e "  健康:  ${GREEN}✓ 正常${NC}"

@@ -577,12 +577,16 @@ export class OpsAgent {
     // Ensure admin exists
     const admin = await prisma.user.findFirst({ where: { role: 'Admin' } });
     if (!admin) {
-      const adminPassword = process.env.ADMIN_PASSWORD || 'admin';
-      const adminEmail = process.env.ADMIN_EMAIL || 'admin@localhost';
-      await prisma.user.create({
-        data: { email: adminEmail, passwordHash: hashPassword(adminPassword), name: 'Admin', role: 'Admin' },
-      });
-      logger.info(`[Ops] Created default admin user (${adminEmail})`);
+      const adminPassword = process.env.ADMIN_PASSWORD;
+      if (!adminPassword) {
+        logger.warn('[Ops] No admin user found and ADMIN_PASSWORD not set — skipping auto-creation. Run: ADMIN_PASSWORD=<pwd> npx tsx scripts/seed-admin.ts');
+      } else {
+        const adminEmail = process.env.ADMIN_EMAIL || 'admin@localhost';
+        await prisma.user.create({
+          data: { email: adminEmail, passwordHash: hashPassword(adminPassword), name: 'Admin', role: 'Admin' },
+        });
+        logger.info(`[Ops] Created default admin user (${adminEmail})`);
+      }
     }
 
     return { channels: channelCount, admin: !!admin };

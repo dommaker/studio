@@ -202,13 +202,15 @@ start_monitoring() {
     log_warn "Grafana 已在运行，跳过"
   else
     log_info "启动 Grafana..."
-    if [ "$(docker ps -aq -f name=agent-studio-grafana)" ]; then
+    if [ -z "$GRAFANA_ADMIN_PASSWORD" ]; then
+      log_error "GRAFANA_ADMIN_PASSWORD 环境变量未设置，跳过 Grafana 启动"
+    elif [ "$(docker ps -aq -f name=agent-studio-grafana)" ]; then
       docker start agent-studio-grafana
     else
       docker run -d --name agent-studio-grafana \
         -p 3030:3000 \
         -v "$PROJECTS_DIR/agent-studio/grafana/datasources:/etc/grafana/provisioning/datasources:ro" \
-        -e GF_SECURITY_ADMIN_PASSWORD=admin123 \
+        -e "GF_SECURITY_ADMIN_PASSWORD=$GRAFANA_ADMIN_PASSWORD" \
         -e GF_USERS_ALLOW_SIGN_UP=false \
         grafana/grafana:10.2.0
     fi
@@ -255,7 +257,7 @@ print_status() {
   fi
   
   if check_port 3030; then
-    echo -e "  ${GREEN}✓${NC} Grafana         http://localhost:3030 (admin/admin123)"
+    echo -e "  ${GREEN}✓${NC} Grafana         http://localhost:3030"
     echo -e "    └─ Dashboard: /d/agent-studio-overview"
   else
     echo -e "  ${YELLOW}○${NC} Grafana         未启动（或已跳过）"
