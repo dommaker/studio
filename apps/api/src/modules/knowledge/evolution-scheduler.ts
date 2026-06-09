@@ -19,6 +19,22 @@ let mesoTimer: NodeJS.Timeout | null = null;
 let patternTimer: NodeJS.Timeout | null = null;
 let evalCleanTimer: NodeJS.Timeout | null = null;
 
+async function runPatternMining(): Promise<void> {
+  try {
+    const { patternMiner } = await import('./pattern-miner.js');
+    const count = await patternMiner.analyzeDaily();
+    if (count > 0) {
+      logger.info('Interaction pattern mining completed', { patterns: count });
+      const suggested = await patternMiner.suggestSkillsFromPatterns();
+      if (suggested > 0) {
+        logger.info('Skill proposals from patterns', { suggested });
+      }
+    }
+  } catch (error) {
+    logger.error('Pattern mining failed', { error: String(error) });
+  }
+}
+
 /**
  * 启动知识进化定时任务
  */
@@ -58,23 +74,9 @@ export function startEvolutionScheduler(): void {
     }
   }, MESO_INTERVAL_MS);
 
-  // G-005: 每天执行交互模式挖掘
-  patternTimer = setInterval(async () => {
-    try {
-      const { patternMiner } = await import('./pattern-miner.js');
-      const count = await patternMiner.analyzeDaily();
-      if (count > 0) {
-        logger.info('Interaction pattern mining completed', { patterns: count });
-        // KE-001 Phase 5: auto-suggest Skills from high-confidence patterns
-        const suggested = await patternMiner.suggestSkillsFromPatterns();
-        if (suggested > 0) {
-          logger.info('Skill proposals from patterns', { suggested });
-        }
-      }
-    } catch (error) {
-      logger.error('Pattern mining failed', { error: String(error) });
-    }
-  }, PATTERN_INTERVAL_MS);
+  // G-005: 每天执行交互模式挖掘 + 启动时立即执行一次
+  runPatternMining();
+  patternTimer = setInterval(() => runPatternMining(), PATTERN_INTERVAL_MS);
 
   // Better-Harness: 每天 eval spring cleaning（标记饱和 eval cases）
   evalCleanTimer = setInterval(async () => {

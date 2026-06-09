@@ -13,6 +13,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { KnowledgeExtraction } from './types.js';
@@ -889,6 +890,7 @@ ${existingPatternsBlock}`;
 
       // Store profiles with dedup check
       let stored = 0;
+      const createdProfiles: Array<{ id: string; category: string; title: string; evidence: string; pattern: string; suggestedAction: string; confidence: number }> = [];
       for (const p of profiles) {
         if (!p.category || !p.title || !p.pattern) continue;
         if (typeof p.confidence === 'number' && p.confidence < threshold) continue;
@@ -899,7 +901,7 @@ ${existingPatternsBlock}`;
           t => t.toLowerCase().includes(titleNorm) || titleNorm.includes(t.toLowerCase()),
         );
 
-        await prisma.userBehaviorProfile.create({
+        const created = await prisma.userBehaviorProfile.create({
           data: {
             sessionId,
             category: p.category,
@@ -913,12 +915,84 @@ ${existingPatternsBlock}`;
           },
         });
         stored++;
+        if (!alreadyCovered) {
+          createdProfiles.push({ id: created.id, ...p, confidence: created.confidence });
+        }
+      }
+
+      // Immediate consumption: high-confidence profiles write to correct output paths
+      // - create_skill/create_automation → ~/.studio/knowledge/skills/<name>.md (SkillLoader reads)
+      // - create_rule → ~/.claude/projects/-root-projects/memory/feedback_<topic>.md (Claude Code reads)
+      const CONSUME_THRESHOLD = 0.85;
+      let consumed = 0;
+      const SKILLS_DIR = path.join(os.homedir(), '.studio', 'knowledge', 'skills');
+      const MEMORY_DIR = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'memory');
+
+      for (const cp of createdProfiles) {
+        if (cp.confidence < CONSUME_THRESHOLD || cp.suggestedAction === 'skip') continue;
+        try {
+          if (cp.suggestedAction === 'create_skill' || cp.suggestedAction === 'create_automation') {
+            const skillName = cp.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+            fs.mkdirSync(SKILLS_DIR, { recursive: true });
+            const skillContent = [
+              '---',
+              `name: ${skillName}`,
+              `description: "${cp.pattern.replace(/"/g, '\\"').slice(0, 200)}"`,
+              'trigger: always',
+              'status: published',
+              '---',
+              '',
+              `## ${cp.title}`,
+              '',
+              `来源: 用户行为分析 (${cp.category})`,
+              `证据: ${cp.evidence}`,
+              `置信度: ${Math.round(cp.confidence * 100)}%`,
+              '',
+              `### 指令`,
+              '',
+              cp.pattern,
+              '',
+            ].join('\n');
+            fs.writeFileSync(path.join(SKILLS_DIR, `${skillName}.md`), skillContent, 'utf-8');
+          } else if (cp.suggestedAction === 'create_rule') {
+            const topic = cp.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
+            fs.mkdirSync(MEMORY_DIR, { recursive: true });
+            const ruleContent = [
+              `# ${cp.title}`,
+              '',
+              `来源: 用户行为分析 (${cp.category})`,
+              `证据: ${cp.evidence}`,
+              `置信度: ${Math.round(cp.confidence * 100)}%`,
+              '',
+              `## 模式`,
+              '',
+              cp.pattern,
+              '',
+            ].join('\n');
+            fs.writeFileSync(path.join(MEMORY_DIR, `feedback_${topic}.md`), ruleContent, 'utf-8');
+          }
+
+          await prisma.userBehaviorProfile.update({
+            where: { id: cp.id },
+            data: { status: 'applied' },
+          });
+          consumed++;
+          logger.info('[KnowledgeAgent] Behavior profile consumed immediately', {
+            id: cp.id.slice(0, 8),
+            category: cp.category,
+            action: cp.suggestedAction,
+            confidence: cp.confidence,
+          });
+        } catch (e) {
+          logger.warn('[KnowledgeAgent] Immediate consume failed', { id: cp.id.slice(0, 8), error: String(e) });
+        }
       }
 
       logger.info('[KnowledgeAgent] Extracted behavior profiles', {
         source: source.slice(-40),
         total: profiles.length,
         stored,
+        consumed,
         skipped: profiles.length - stored,
       });
 
@@ -932,9 +1006,10 @@ ${existingPatternsBlock}`;
               .slice(0, 5)
               .map((p: any) => `- [${p.category}] ${p.title} (置信度: ${Math.round((p.confidence || 0) * 100)}%)`)
               .join('\n');
+            const consumeNote = consumed > 0 ? `\n即时消费: ${consumed} 条高置信度模式已写入文件(Skill/memory)` : '';
             await channelMessageService.createAgentMessage(sysChannel.id, 'KK',
-              `从会话 ${sessionId.slice(0, 8)} 提取了 ${stored} 条行为模式:\n${profileSummary}`,
-              { meta: { cardType: 'behavior_extracted', sessionId, stored, total: profiles.length } },
+              `从会话 ${sessionId.slice(0, 8)} 提取了 ${stored} 条行为模式:\n${profileSummary}${consumeNote}`,
+              { meta: { cardType: 'behavior_extracted', sessionId, stored, consumed, total: profiles.length } },
             );
           }
         } catch { /* non-blocking */ }

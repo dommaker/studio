@@ -419,6 +419,7 @@ export class AgentRunner implements IAgentRunner {
           `claude`,
           `--print`,
           `--output-format stream-json`,
+          `--verbose`,
           addDirArgs,
           sessionFlag,
           `<`,
