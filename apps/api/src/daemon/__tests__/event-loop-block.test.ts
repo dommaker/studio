@@ -1,20 +1,68 @@
 // execSync 事件循环阻塞测试
 // 验证：daemon.submitJob 使用 execSync 会冻结整个 Node.js 事件循环
-import { describe, it, expect } from 'vitest';
-import { daemon } from '../studio-daemon.js';
+import { describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
+// Mock dependencies — no real Claude CLI needed
+vi.mock('@dommaker/studio-shared/node', () => ({
+  execSh: vi.fn().mockResolvedValue({
+    stdout: '{"result": "DONE", "usage": {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0}}',
+  }),
+  resolveSessionId: vi.fn((worktree: string) => {
+    const sidFile = path.join(worktree, '.daemon', 'session-id');
+    try { return fs.readFileSync(sidFile, 'utf-8').trim(); } catch { return null; }
+  }),
+  readSessionIdFile: vi.fn((worktree: string) => {
+    const sidFile = path.join(worktree, '.daemon', 'session-id');
+    try {
+      const content = fs.readFileSync(sidFile, 'utf-8').trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(content) ? content : null;
+    } catch { return null; }
+  }),
+}));
+
+vi.mock('@dommaker/studio-shared', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  getModelForTier: vi.fn(() => 'claude-sonnet-4-6'),
+}));
+
+vi.mock('../metrics.js', () => ({
+  parseClaudeUsage: vi.fn(() => ({ inputTokens: 100, outputTokens: 50, cacheHitTokens: 0 })),
+  recordPipelineRun: vi.fn(() => Promise.resolve()),
+  recordAgentSessionFromLog: vi.fn(),
+}));
+
+vi.mock('../task-logger.js', () => ({
+  writeTaskLog: vi.fn(),
+  classifyTaskError: vi.fn(() => 'unknown'),
+}));
+
+import { daemon } from '../studio-daemon.js';
+
 const WORKTREES_DIR = path.join(os.tmpdir(), 'daemon-block-test');
+
+/** Register executor session in the daemon (daemon.start() only registers analyst+reviewer) */
+function registerExecutor(worktree: string) {
+  fs.mkdirSync(worktree, { recursive: true });
+  (daemon as any).manager.register({
+    name: 'executor',
+    worktree,
+    modelTier: 'fast',
+    timeoutMs: 5 * 60 * 1000,
+    persistent: false,
+  });
+}
 
 describe('execSync 事件循环阻塞验证', () => {
   it('setInterval 在 execSync 期间不会触发', async () => {
     process.env.WORKTREES_DIR = WORKTREES_DIR;
-    process.env.REPO_DIR = process.env.REPO_DIR || '/root/projects/agent-studio';
+    process.env.REPO_DIR = process.env.REPO_DIR || '/root/projects/studio';
     try { fs.rmSync(WORKTREES_DIR, { recursive: true, force: true }); } catch {}
 
     daemon.start();
+    registerExecutor(path.join(WORKTREES_DIR, 'executor'));
 
     let heartbeatCount = 0;
     const heartbeats: number[] = [];
@@ -60,7 +108,7 @@ describe('execSync 事件循环阻塞验证', () => {
 
   it('两个 session 无法并发 — execSync 串行化所有任务', async () => {
     process.env.WORKTREES_DIR = WORKTREES_DIR;
-    process.env.REPO_DIR = process.env.REPO_DIR || '/root/projects/agent-studio';
+    process.env.REPO_DIR = process.env.REPO_DIR || '/root/projects/studio';
     try { fs.rmSync(WORKTREES_DIR, { recursive: true, force: true }); } catch {}
 
     // 创建第二个 worktree 用于第二个 executor
@@ -70,6 +118,7 @@ describe('execSync 事件循环阻塞验证', () => {
     fs.writeFileSync(path.join(wt2, 'src', 'util.ts'), 'export const VERSION = "1.0";\n', 'utf-8');
 
     daemon.start();
+    registerExecutor(path.join(WORKTREES_DIR, 'executor'));
 
     // 手动注册第二个 executor session
     const { SessionManager } = await import('../session-manager.js');

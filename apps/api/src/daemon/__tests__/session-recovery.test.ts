@@ -1,11 +1,69 @@
 // Session 过期恢复 & daemon 崩溃恢复 实战测试
-import { describe, it, expect, beforeAll } from 'vitest';
-import { SessionManager } from '../session-manager.js';
+import { describe, it, expect, vi } from 'vitest';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
 const WORKTREES_DIR = path.join(os.tmpdir(), 'daemon-recovery-test');
+
+// Mock dependencies — no real Claude CLI needed
+// execSh simulates Claude file modifications based on prompt content
+vi.mock('@dommaker/studio-shared/node', () => ({
+  execSh: vi.fn(async (cmd: string) => {
+    const promptMatch = cmd.match(/< "(.+?)"/);
+    const cdMatch = cmd.match(/cd "(.+?)"/);
+    if (promptMatch && cdMatch) {
+      const prompt = fs.readFileSync(promptMatch[1], 'utf-8');
+      const wt = cdMatch[1];
+
+      // Simulate counter.ts modifications
+      if (prompt.includes('export let count = 1')) {
+        fs.writeFileSync(path.join(wt, 'src', 'counter.ts'), 'export let count = 1;\n');
+      } else if (prompt.includes('count = 2') || prompt.includes('\u6539\u6210 2')) {
+        fs.writeFileSync(path.join(wt, 'src', 'counter.ts'), 'export let count = 2;\n');
+      }
+
+      // Simulate version.ts modifications
+      if (prompt.includes('"1.1"')) {
+        fs.writeFileSync(path.join(wt, 'src', 'version.ts'), 'export const VERSION = "1.1";\n');
+      } else if (prompt.includes('"1.2"')) {
+        fs.writeFileSync(path.join(wt, 'src', 'version.ts'), 'export const VERSION = "1.2";\n');
+      }
+    }
+    return {
+      stdout: '{"result": "DONE", "usage": {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0}}',
+    };
+  }),
+  resolveSessionId: vi.fn((worktree: string) => {
+    const sidFile = path.join(worktree, '.daemon', 'session-id');
+    try { return fs.readFileSync(sidFile, 'utf-8').trim(); } catch { return null; }
+  }),
+  readSessionIdFile: vi.fn((worktree: string) => {
+    const sidFile = path.join(worktree, '.daemon', 'session-id');
+    try {
+      const content = fs.readFileSync(sidFile, 'utf-8').trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(content) ? content : null;
+    } catch { return null; }
+  }),
+}));
+
+vi.mock('@dommaker/studio-shared', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  getModelForTier: vi.fn(() => 'claude-sonnet-4-6'),
+}));
+
+vi.mock('../metrics.js', () => ({
+  parseClaudeUsage: vi.fn(() => ({ inputTokens: 100, outputTokens: 50, cacheHitTokens: 0 })),
+  recordPipelineRun: vi.fn(() => Promise.resolve()),
+  recordAgentSessionFromLog: vi.fn(),
+}));
+
+vi.mock('../task-logger.js', () => ({
+  writeTaskLog: vi.fn(),
+  classifyTaskError: vi.fn(() => 'unknown'),
+}));
+
+import { SessionManager } from '../session-manager.js';
 
 describe('Session 过期自动重建', () => {
   it('--continue 在 session 过期后自动重建并重试', async () => {
