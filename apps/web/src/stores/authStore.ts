@@ -26,6 +26,7 @@ interface AuthState {
   token: string | null;
   user: User | null;
   session: Session | null;
+  refreshToken: string | null;
   guestId: string | null;
   isLoading: boolean;
   error: string | null;
@@ -45,6 +46,7 @@ interface AuthState {
   logout: () => Promise<void>;
   fetchMe: () => Promise<void>;
   getAuthHeader: () => Record<string, string>;
+  setToken: (token: string, refreshToken?: string) => void;
   setError: (error: string | null) => void;
 }
 
@@ -59,6 +61,7 @@ export const useAuthStore = create<AuthState>()(
       token: null,
       user: null,
       session: null,
+      refreshToken: null,
       guestId: null,
       isLoading: false,
       error: null,
@@ -86,7 +89,7 @@ export const useAuthStore = create<AuthState>()(
 
           set({
             token: data.token,
-            session: { id: data.sessionId, expiresAt: data.expiresAt },
+            session: { id: data.session?.id, expiresAt: data.session?.expiresAt },
             user: data.user || { id: guestId, email: '', role: 'Guest' },
             guestId,
             isLoading: false,
@@ -104,8 +107,8 @@ export const useAuthStore = create<AuthState>()(
         try {
           const { data } = await authApi.checkAuth();
 
-          if (data.authenticated && data.user) {
-            set({ user: { ...data.user, role: data.role }, isLoading: false });
+          if (data.user) {
+            set({ user: { ...data.user, role: data.user.role }, isLoading: false });
           } else {
             set({ isLoading: false });
             await get().createGuestSession();
@@ -128,8 +131,9 @@ export const useAuthStore = create<AuthState>()(
 
           set({
             token: data.token,
+            refreshToken: data.refreshToken || null,
             user: data.user,
-            session: { id: data.sessionId, expiresAt: data.expiresAt },
+            session: { id: data.session?.id, expiresAt: data.session?.expiresAt },
             isLoading: false,
           });
           return true;
@@ -151,8 +155,9 @@ export const useAuthStore = create<AuthState>()(
 
           set({
             token: data.token,
+            refreshToken: data.refreshToken || null,
             user: data.user,
-            session: { id: data.sessionId, expiresAt: data.expiresAt },
+            session: { id: data.session?.id, expiresAt: data.session?.expiresAt },
             isLoading: false,
           });
           return true;
@@ -190,12 +195,16 @@ export const useAuthStore = create<AuthState>()(
         return { Authorization: `Bearer ${token}` };
       },
 
+      setToken: (token: string, refreshToken?: string) =>
+        set({ token, ...(refreshToken ? { refreshToken } : {}) }),
+
       setError: (error: string | null) => set({ error }),
     }),
     {
       name: 'auth-storage',
       partialize: (state) => ({
         token: state.token,
+        refreshToken: state.refreshToken,
         user: state.user,
         session: state.session,
         guestId: state.guestId,

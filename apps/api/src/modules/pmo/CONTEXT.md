@@ -8,8 +8,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts
 
-<!-- STALE_SINCE: 2026-05-27 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/project.service.ts
+
+<!-- STALE_SINCE: 2026-06-09 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts
 
 ## 职责
 
@@ -30,6 +32,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
 - ✅ `78c6856d`: Prisma SQLite auto-parses JSON String fields — handle both string and object
 - ✅ `403d82df`: B8 cacheHitRate 公式修正 — cacheHit/(cacheHit+input) 替代 cacheHit/input

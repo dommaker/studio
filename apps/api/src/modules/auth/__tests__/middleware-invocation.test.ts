@@ -1,0 +1,123 @@
+/**
+ * AC1.4: middleware-invocation test
+ *
+ * Verifies:
+ * - requireAuth() returns a function (middleware), not the factory itself
+ * - optionalAuth() returns a function (middleware), not the factory itself
+ * - Express mock: next() is called when middleware runs
+ */
+import { describe, it, expect, vi } from 'vitest';
+import { Request, Response, NextFunction } from 'express';
+
+// Mock dependencies that requireAuth/optionalAuth use internally
+vi.mock('../../../modules/auth/service.js', () => ({
+  verifyToken: vi.fn().mockReturnValue({ sessionId: 's1', userId: 'u1' }),
+}));
+
+vi.mock('@dommaker/studio-prisma', () => ({
+  prisma: {
+    session: {
+      findUnique: vi.fn().mockResolvedValue({
+        id: 's1',
+        userId: 'u1',
+        expiresAt: new Date(Date.now() + 86400000),
+        User: { id: 'u1', email: 'test@test.com', role: 'User' },
+      }),
+    },
+  },
+}));
+
+vi.mock('@dommaker/studio-shared', () => ({
+  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+}));
+
+vi.mock('../../../utils/logger.js', () => ({
+  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+}));
+
+import { requireAuth, optionalAuth } from '../../../middleware/auth.js';
+
+describe('middleware-invocation', () => {
+  describe('requireAuth', () => {
+    it('requireAuth() returns a function, not the factory', () => {
+      const middleware = requireAuth();
+      expect(typeof middleware).toBe('function');
+    });
+
+    it('returned middleware calls next() when valid token provided', async () => {
+      const middleware = requireAuth();
+      const req = {
+        headers: { authorization: 'Bearer test-token' },
+        socket: { remoteAddress: '127.0.0.1' },
+      } as unknown as Request;
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn() as NextFunction;
+
+      await middleware(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('returned middleware returns 401 when no token provided', async () => {
+      const middleware = requireAuth();
+      const req = {
+        headers: {},
+        socket: { remoteAddress: '127.0.0.1' },
+      } as unknown as Request;
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn() as NextFunction;
+
+      await middleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('optionalAuth', () => {
+    it('optionalAuth() returns a function, not the factory', () => {
+      const middleware = optionalAuth();
+      expect(typeof middleware).toBe('function');
+    });
+
+    it('returned middleware calls next() even without token', async () => {
+      const middleware = optionalAuth();
+      const req = {
+        headers: {},
+        socket: { remoteAddress: '127.0.0.1' },
+      } as unknown as Request;
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn() as NextFunction;
+
+      await middleware(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('returned middleware calls next() with valid token', async () => {
+      const middleware = optionalAuth();
+      const req = {
+        headers: { authorization: 'Bearer test-token' },
+        socket: { remoteAddress: '127.0.0.1' },
+      } as unknown as Request;
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn() as NextFunction;
+
+      await middleware(req, res, next);
+
+      expect(next).toHaveBeenCalled();
+    });
+  });
+});

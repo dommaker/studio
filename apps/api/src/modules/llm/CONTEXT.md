@@ -2,8 +2,10 @@
 
 > 此文件描述 apps/api/src/modules/llm 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-05-27 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/llm/config.service.ts, apps/api/src/modules/llm/intent-analyzer.ts
+
+<!-- STALE_SINCE: 2026-06-09 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/llm/client.ts, apps/api/src/modules/llm/config.service.ts, apps/api/src/modules/llm/proxy.ts
 
 ## 职责
 
@@ -24,4 +26,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

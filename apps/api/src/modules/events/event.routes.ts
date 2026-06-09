@@ -10,7 +10,6 @@
 
 import { Router, Request, Response } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
-import { requireAuth } from '../../middleware/auth.js';
 import { logger } from '@dommaker/studio-shared';
 import { generateSessionSummary } from './session-summary-generator.js';
 
@@ -31,7 +30,7 @@ interface AgentEvent {
  * Create a new StudioEvent.
  * Body: { type: string, source: string, payload: Record<string, unknown> }
  */
-router.post('/', requireAuth, async (req: Request, res: Response) => {
+router.post('/', async (req: Request, res: Response) => {
   try {
     const { type, source, payload } = req.body;
     if (!type || !source) {
@@ -61,7 +60,7 @@ router.post('/', requireAuth, async (req: Request, res: Response) => {
  *   since  — ISO date string, only events after this timestamp (optional)
  *   limit  — max results (number, default 50, max 200)
  */
-router.get('/', requireAuth, async (req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
     const { type, since, limit: limitStr } = req.query;
     const limit = Math.min(Math.max(parseInt(String(limitStr || '50'), 10) || 50, 1), 200);
@@ -93,7 +92,7 @@ router.get('/', requireAuth, async (req: Request, res: Response) => {
  * Body: AgentEvent[] — array of events with { sessionId, agentId, timestamp, type, payload? }
  * Validates required fields, stores each as a StudioEvent.
  */
-router.post('/agent-events', requireAuth, async (req: Request, res: Response) => {
+router.post('/agent-events', async (req: Request, res: Response) => {
   try {
     const events: AgentEvent[] = req.body;
 

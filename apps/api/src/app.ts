@@ -77,11 +77,14 @@ export async function registerRoutes(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     const PUBLIC_API = new Set([
       '/auth/login',
+      '/auth/register',
       '/auth/session',
       '/auth/guest-session',
       '/auth/refresh',
       '/auth/google',
+      '/auth/github',
       '/auth/callback/google',
+      '/auth/callback/github',
       '/discord/interactions',
       '/cso/validate',
       '/events/stream',  // SSE

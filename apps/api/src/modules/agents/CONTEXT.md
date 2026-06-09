@@ -24,8 +24,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts
 
-<!-- STALE_SINCE: 2026-06-07 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/requirement-gate.ts
+
+<!-- STALE_SINCE: 2026-06-09 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts
 
 ## 职责
 
@@ -46,6 +48,9 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `1c4bb9ae`: remove all hardcoded credentials — require env vars
+- ✅ `79f4a186`: knowledge quality gate + CPU monitoring + type fix
+- ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
 - ✅ `9dec006c`: 管线自举根因修复 — AC 质量 + Gate 加固 + OKR v3
 - ✅ `8d4bb203`: auditor): 知识库路径统一到 ~/.studio/knowledge/
 - ✅ `7ab11eb8`: knowledge sync pipeline — auto-sync to vector DB after ingest

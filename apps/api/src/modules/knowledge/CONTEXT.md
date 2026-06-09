@@ -3,6 +3,9 @@
 > 此文件描述 apps/api/src/modules/knowledge 目录的职责和上下文
 > Updated: 2026-06-04 (AS-022 unified refactoring)
 
+<!-- STALE_SINCE: 2026-06-09 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-bus.service.ts, apps/api/src/modules/knowledge/routes.ts
+
 ## 职责
 
 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。
@@ -62,3 +65,9 @@ knowledge/
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
 - `knowledgeBus` 的 `formatIndexSummary()` 仍被 review-agent 直接调用（index-only 场景）
 - `applicableAgents` 存储在 tags 中（`agent:executor` 格式），KnowledgeEntry 无此字段
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ `79f4a186`: knowledge quality gate + CPU monitoring + type fix
+- ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

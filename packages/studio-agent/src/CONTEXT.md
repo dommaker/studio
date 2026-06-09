@@ -2,6 +2,9 @@
 
 > 此文件描述 packages/studio-agent/src 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-06-09 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/src/index.ts
+
 ## 职责
 
 <!-- 本目录的核心职责是什么 -->
@@ -17,3 +20,8 @@
 ## 注意事项
 
 <!-- 开发时需要注意的约束或约定 -->
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

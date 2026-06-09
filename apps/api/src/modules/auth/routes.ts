@@ -118,7 +118,7 @@ router.post('/login', async (req, res) => {
  * 用户登出
  * 🆕 SEC-010: 记录审计日志
  */
-router.post('/logout', requireAuth, async (req, res) => {
+router.post('/logout', requireAuth(), async (req, res) => {
   try {
     const authInfo = getAuthInfo(req);
     await authService.logout(authInfo.sessionId);
@@ -143,7 +143,7 @@ router.post('/logout', requireAuth, async (req, res) => {
  * GET /api/v1/auth/me
  * 获取当前用户信息
  */
-router.get('/me', optionalAuth, async (req, res) => {
+router.get('/me', optionalAuth(), async (req, res) => {
   try {
     const authInfo = getAuthInfo(req);
     if (!authInfo?.sessionId) {
@@ -161,10 +161,36 @@ router.get('/me', optionalAuth, async (req, res) => {
  * POST /api/v1/auth/cleanup
  * 清理过期 Session（管理员）
  */
-router.post('/cleanup', requireAuth, async (req, res) => {
+router.post('/cleanup', requireAuth(), async (req, res) => {
   try {
     const count = await authService.cleanupExpiredSessions();
     res.json({ cleaned: count });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/v1/auth/refresh
+ * 刷新 Token（公开端点）
+ */
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refreshToken } = req.body;
+    if (!refreshToken) {
+      res.status(400).json({ error: 'Missing refreshToken' });
+      return;
+    }
+    const result = await authService.exchangeRefreshToken(refreshToken);
+    if (!result) {
+      res.status(401).json({ error: 'Invalid refresh token' });
+      return;
+    }
+    res.json({
+      accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
+      userId: result.userId,
+    });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

@@ -38,6 +38,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     notifyRoutes,
     runtimeConfigRoutes,
     authRoutes,
+    oauthRoutes,
     discordRoutes,
     larkRoutes,
     dingtalkRoutes,
@@ -59,6 +60,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/outbound-notify/routes.js').then(m => m.default),
     import('./modules/runtime-config/routes.js').then(m => m.default),
     import('./modules/auth/routes.js').then(m => m.default),
+    import('./modules/auth/oauth.routes.js').then(m => m.default),
     import('./modules/discord/routes.js').then(m => m.default),
     import('./modules/lark/routes.js').then(m => m.default),
     import('./modules/dingtalk/routes.js').then(m => m.default),
@@ -155,11 +157,12 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Pipeline dashboard routes
   const { default: pipelineDashboardRoutes } = await import('./modules/pipeline-dashboard/pipeline-dashboard.routes.js') as { default: Router };
 
-  const auth = [requireAuth];
+  const auth = [requireAuth()];
 
   return [
     // 认证
     { path: '/api/v1/auth', router: authRoutes, comment: 'SEC-001: 认证系统' },
+    { path: '/api/v1/auth', router: oauthRoutes, comment: 'SEC-001: OAuth' },
 
     // 核心业务
     { path: '/api/v1/agents', router: agentRoutes },

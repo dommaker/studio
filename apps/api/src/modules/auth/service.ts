@@ -10,7 +10,7 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 
 // JWT 配置
-const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET required in production'); })() : 'dev-jwt-secret-change-in-production');
+export const JWT_SECRET = process.env.JWT_SECRET || (process.env.NODE_ENV === 'production' ? (() => { throw new Error('JWT_SECRET required in production'); })() : 'dev-jwt-secret-change-in-production');
 const JWT_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60; // 7 天
 
 // Guest Session 过期时间
@@ -38,6 +38,7 @@ export interface AuthResult {
   session: Session;
   token: string;
   isNewUser?: boolean;
+  refreshToken?: string;
 }
 
 /**
@@ -200,6 +201,7 @@ export async function login(input: LoginInput): Promise<AuthResult> {
     user,
     session: { ...session, token },
     token,
+    refreshToken: await generateRefreshToken(user.id),
   };
 }
 
@@ -250,6 +252,7 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
     session: { ...session, token },
     token,
     isNewUser: true,
+    refreshToken: await generateRefreshToken(user.id),
   };
 }
 

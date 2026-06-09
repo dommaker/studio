@@ -12,8 +12,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel.routes.ts
 
-<!-- STALE_SINCE: 2026-06-07 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts
+
+<!-- STALE_SINCE: 2026-06-09 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
 
 ## 职责
 
@@ -34,6 +36,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
 - ✅ `9dec006c`: 管线自举根因修复 — AC 质量 + Gate 加固 + OKR v3
 - ✅ `7ab11eb8`: knowledge sync pipeline — auto-sync to vector DB after ingest
 - ✅ `4fbb26ac`: Analyst prompt 加 fast tier 验证性探索规则

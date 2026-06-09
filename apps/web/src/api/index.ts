@@ -144,14 +144,17 @@ export const capabilitiesStageApi = {
 // Auth API - 认证系统
 export const authApi = {
   createGuestSession: (guestId: string) =>
-    api.post('/auth/session', { guestId }),
-  checkAuth: () => api.get('/auth/check'),
+    api.post('/auth/guest-session', { guestId }),
+  checkAuth: () => api.get('/auth/me'),
   login: (email: string, password: string) =>
     api.post('/auth/login', { email, password }),
   register: (email: string, password: string, name?: string) =>
     api.post('/auth/register', { email, password, name }),
   logout: () => api.post('/auth/logout'),
   fetchMe: () => api.get('/auth/me'),
+  /** Returns the OAuth authorization URL for the given provider */
+  getOAuthUrl: (provider: 'google' | 'github'): string =>
+    `${API_BASE}/auth/${provider}`,
 };
 
 

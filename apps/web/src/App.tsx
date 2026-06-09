@@ -20,6 +20,7 @@ const ChannelDetailPage = lazy(() => import('./pages/ChannelDetailPage').then(m 
 const WikiPage = lazy(() => import('./pages/WikiPage').then(m => ({ default: m.WikiPage })));
 const WikiDocPage = lazy(() => import('./pages/WikiDocPage').then(m => ({ default: m.WikiDocPage })));
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })));
+const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => ({ default: m.OAuthCallback })));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
@@ -133,6 +134,17 @@ export default function App() {
       setIsAnalyzing(false);
     }
   };
+
+  // OAuth callback: bypass guest wall (user is returning from OAuth provider)
+  if (location.pathname === '/auth/callback') {
+    return (
+      <ThemeProvider>
+        <Suspense fallback={<PageLoader />}>
+          <OAuthCallback />
+        </Suspense>
+      </ThemeProvider>
+    );
+  }
 
   // Lurk Wall: guest sees LandingPage, admin sees full Studio
   if (isGuest) {
