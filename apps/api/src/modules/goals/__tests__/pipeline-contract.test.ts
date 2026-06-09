@@ -137,10 +137,10 @@ describe('Pipeline feedback loop contract', () => {
     });
 
     it('recordPipelineRun passes goalId', () => {
-      const recordCall = lifecycleSrc.slice(
-        lifecycleSrc.indexOf('recordPipelineRun'),
-        lifecycleSrc.indexOf('recordPipelineRun') + 500,
-      );
+      // Use lastIndexOf to find the call site, not the import statement
+      const callIdx = lifecycleSrc.lastIndexOf('recordPipelineRun({');
+      expect(callIdx).toBeGreaterThan(-1);
+      const recordCall = lifecycleSrc.slice(callIdx, callIdx + 500);
       expect(recordCall).toContain('goalId');
     });
   });

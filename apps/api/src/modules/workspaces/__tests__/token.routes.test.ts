@@ -35,11 +35,15 @@ vi.mock('@dommaker/studio-prisma', () => ({
   prisma: { workspaceToken: workspaceTokenMock },
 }));
 
-vi.mock('../../utils/logger.js', () => ({
+vi.mock('../../../core/database.js', () => ({
+  prisma: { workspaceToken: workspaceTokenMock },
+}));
+
+vi.mock('../../../utils/logger.js', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
-vi.mock('../../middleware/auth.js', () => ({
+vi.mock('../../../middleware/auth.js', () => ({
   requireAuth: () => (_req: unknown, _res: unknown, next: unknown) => (next as Function)(),
 }));
 

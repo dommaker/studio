@@ -4,10 +4,10 @@
  * 覆盖: CRUD、消息发送、SSE 事件发布、卡片 action、RequirementsDoc 编辑
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
+import { prisma } from '../src/core/database.js';
 import { channelMessageService } from '../src/modules/channels/channel-message.service.js';
 
-const BASE = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13101'}/api/v1`;
+const BASE = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13001'}/api/v1`;
 
 const TEST_CHANNEL = `test-channel-${Date.now()}`;
 let channelId: string;
@@ -165,16 +165,15 @@ describe('Channel API', () => {
 
     it('accepts auditor_apply_confirm and resolves card', async () => {
       const ts = Date.now();
-      // Create card via API (same DB as server)
-      const cRes = await fetch(`${BASE}/channels/${auditorChannelId}/messages`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: `## Audit Confirm ${ts}`, cardType: 'auditor_suggestion', cardMeta: { suggestions: [{ type: 'prompt_optimization', risk: 'high', agentType: 'analyst', detail: `optimize ${ts}` }], status: 'ready' } }),
-      });
-      const cData = await cRes.json() as any;
-      const cardId = cData.data?.id;
-      expect(cardId).toBeDefined();
+      // Create card via service (POST /messages only creates human messages)
+      const card = await channelMessageService.createCardMessage(
+        auditorChannelId, 'Auditor', `## Audit Confirm ${ts}`,
+        'auditor_suggestion',
+        { suggestions: [{ type: 'prompt_optimization', risk: 'high', agentType: 'analyst', detail: `optimize ${ts}` }], status: 'ready' },
+      );
+      expect(card.id).toBeDefined();
 
-      const res = await fetch(`${BASE}/channels/${auditorChannelId}/messages/${cardId}/actions`, {
+      const res = await fetch(`${BASE}/channels/${auditorChannelId}/messages/${card.id}/actions`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'auditor_apply_confirm' }),
       });
@@ -185,15 +184,14 @@ describe('Channel API', () => {
 
     it('accepts auditor_apply_reject and marks rejected', async () => {
       const ts = Date.now();
-      const cRes = await fetch(`${BASE}/channels/${auditorChannelId}/messages`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: `## Audit Reject ${ts}`, cardType: 'auditor_suggestion', cardMeta: { suggestions: [{ type: 'param_tuning', risk: 'high', agentType: 'executor', detail: `tuning ${ts}` }], status: 'ready' } }),
-      });
-      const cData = await cRes.json() as any;
-      const cardId = cData.data?.id;
-      expect(cardId).toBeDefined();
+      const card = await channelMessageService.createCardMessage(
+        auditorChannelId, 'Auditor', `## Audit Reject ${ts}`,
+        'auditor_suggestion',
+        { suggestions: [{ type: 'param_tuning', risk: 'high', agentType: 'executor', detail: `tuning ${ts}` }], status: 'ready' },
+      );
+      expect(card.id).toBeDefined();
 
-      const res = await fetch(`${BASE}/channels/${auditorChannelId}/messages/${cardId}/actions`, {
+      const res = await fetch(`${BASE}/channels/${auditorChannelId}/messages/${card.id}/actions`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'auditor_apply_reject' }),
       });

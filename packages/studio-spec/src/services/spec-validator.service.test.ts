@@ -28,7 +28,7 @@ describe('SpecValidatorService', () => {
   it('AC-001: should return complete validation result', async () => {
     const input: ValidateSpecInput = {
       specId: 'SP-001',
-      specPath: '/root/projects/agent-studio/specs/SP-001-spec-validator.md',
+      specPath: '/root/projects/studio/docs/specs/SP-001-spec-validator.md',
     };
 
     const result = await validator.validateSpec(input);

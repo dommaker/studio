@@ -13,7 +13,7 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { createServer, type Server as HttpServer } from 'http';
 import WebSocket from 'ws';
 import crypto from 'crypto';
-import { prisma } from '@dommaker/studio-prisma';
+import { prisma } from '../../../core/database.js';
 import {
   attachWsGateway,
   isWorkspaceConnected,
@@ -191,7 +191,7 @@ describe('WS Gateway Auth', () => {
 
     const msg = await waitForMessage(ws, 'auth_error') as { type: string; error: string };
     expect(msg.type).toBe('auth_error');
-    expect(msg.error).toContain('Workspace not found');
+    expect(msg.error).toContain('Workspace not found for this token');
 
     await new Promise(r => setTimeout(r, 200));
     expect(ws.readyState).toBe(WebSocket.CLOSED);

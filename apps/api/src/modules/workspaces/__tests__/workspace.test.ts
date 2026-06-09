@@ -61,6 +61,13 @@ describe('WorkspaceToken', () => {
 
   it('enforces unique tokenHash', async () => {
     const hash = hashToken('duplicate-hash-test');
+    // Clean up any stale tokens from previous runs
+    const stale = await prisma.workspaceToken.findUnique({ where: { tokenHash: hash } });
+    if (stale) {
+      await prisma.workspace.deleteMany({ where: { tokenId: stale.id } });
+      await prisma.workspaceToken.delete({ where: { id: stale.id } });
+    }
+
     await prisma.workspaceToken.create({
       data: { name: 'unique-test-1', tokenHash: hash, permissions: '["execute"]' },
     });
@@ -70,6 +77,9 @@ describe('WorkspaceToken', () => {
         data: { name: 'unique-test-2', tokenHash: hash, permissions: '["execute"]' },
       })
     ).rejects.toThrow();
+
+    // Cleanup
+    await prisma.workspaceToken.deleteMany({ where: { tokenHash: hash } });
   });
 
   it('revokes token by setting revokedAt', async () => {

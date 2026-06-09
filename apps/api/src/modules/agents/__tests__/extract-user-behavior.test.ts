@@ -22,6 +22,7 @@ vi.mock('@dommaker/studio-prisma', () => ({
 
 vi.mock('@dommaker/studio-shared', () => ({
   modelGateway: {},
+  getModelForTier: () => 'deepseek-v4-flash',
   logger: {
     info: vi.fn(),
     warn: vi.fn(),
