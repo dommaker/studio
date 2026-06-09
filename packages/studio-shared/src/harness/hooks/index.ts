@@ -11,6 +11,5 @@ export * from './goal.hooks';
 export * from './agent.hooks';
 export * from './completion.hooks';
 export * from './pr.hooks';
-export * from './meeting.hooks';
 export * from './audit';
 export { registerAllHooks } from './register';
