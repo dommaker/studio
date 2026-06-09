@@ -38,12 +38,6 @@ describe('MCP Permission: default-deny (BP3)', () => {
     await mcpPermissionService.setPermission('test_role', 'test_tool_allow', true);
     const result = await mcpPermissionService.isAllowed('test_role', 'test_tool_allow');
     expect(result).toBe(true);
-
-    // 清理
-    const { PrismaClient } = await import('@prisma/client');
-    const p = new PrismaClient();
-    await p.mCPPermission.deleteMany({ where: { roleId: 'test_role' } }).catch(() => {});
-    await p.$disconnect();
   });
 
   it('显式 allowed:false → 拒绝', async () => {
@@ -54,12 +48,6 @@ describe('MCP Permission: default-deny (BP3)', () => {
     await mcpPermissionService.setPermission('test_role', 'test_tool_deny', false);
     const result = await mcpPermissionService.isAllowed('test_role', 'test_tool_deny');
     expect(result).toBe(false);
-
-    // 清理
-    const { PrismaClient } = await import('@prisma/client');
-    const p = new PrismaClient();
-    await p.mCPPermission.deleteMany({ where: { roleId: 'test_role' } }).catch(() => {});
-    await p.$disconnect();
   });
 
   it('缓存过期后重新查询数据库', async () => {
@@ -79,12 +67,6 @@ describe('MCP Permission: default-deny (BP3)', () => {
     // 第二次查询 → 缓存已失效，应该返回 false
     const result2 = await mcpPermissionService.isAllowed('cache_test_role', 'cache_tool');
     expect(result2).toBe(false);
-
-    // 清理
-    const { PrismaClient } = await import('@prisma/client');
-    const p = new PrismaClient();
-    await p.mCPPermission.deleteMany({ where: { roleId: 'cache_test_role' } }).catch(() => {});
-    await p.$disconnect();
   });
 });
 
