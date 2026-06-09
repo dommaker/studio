@@ -330,12 +330,13 @@ export async function prompt(
   text: string,
   systemPrompt: string | undefined,
   chatFn: (req: GatewayRequest) => Promise<GatewayResponse>,
+  options?: Partial<GatewayRequest>,
 ): Promise<string> {
   const messages: GatewayMessage[] = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
   messages.push({ role: 'user', content: text });
 
-  const response = await chatFn({ messages });
+  const response = await chatFn({ ...options, messages });
   return response.content;
 }
 
@@ -346,9 +347,10 @@ export async function promptJson<T = any>(
   text: string,
   systemPrompt: string | undefined,
   chatFn: (req: GatewayRequest) => Promise<GatewayResponse>,
+  options?: Partial<GatewayRequest>,
 ): Promise<T> {
   const enhanced = `${text}\n\n请以 JSON 格式返回结果，不要包含其他文字。`;
-  const response = await prompt(enhanced, systemPrompt, chatFn);
+  const response = await prompt(enhanced, systemPrompt, chatFn, options);
 
   const parsed = extractJson<T>(response);
   if (parsed !== undefined) return parsed;

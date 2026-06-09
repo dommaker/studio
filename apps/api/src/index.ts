@@ -83,6 +83,20 @@ async function start() {
 
     // 初始化模型网关
     modelGateway.loadFromEnv();
+    // R1: 注册 knowledge provider（KnowledgeAgent 统一走 gateway）
+    if (process.env.KNOWLEDGE_API_KEY) {
+      modelGateway.addProvider({
+        name: 'knowledge',
+        baseUrl: process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1',
+        apiKey: process.env.KNOWLEDGE_API_KEY,
+        model: process.env.MODEL_TIER_STANDARD || 'deepseek-v4-pro',
+        priority: 1,
+        tierModels: {
+          fast: process.env.MODEL_TIER_FAST || 'deepseek-v4-flash',
+          standard: process.env.MODEL_TIER_STANDARD || 'deepseek-v4-pro',
+        },
+      });
+    }
     // 从 DB 加载加密配置（优先级高于 env）
     try {
       const dbCount = await llmConfigService.syncToGateway();

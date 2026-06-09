@@ -69,12 +69,12 @@ export class ModelGateway {
     return chatFn(request, this.providers, { log: this.usageLog }, this.promptCache);
   }
 
-  async prompt(text: string, systemPrompt?: string): Promise<string> {
-    return promptFn(text, systemPrompt, (req) => this.chat(req));
+  async prompt(text: string, systemPrompt?: string, options?: Partial<GatewayRequest>): Promise<string> {
+    return promptFn(text, systemPrompt, (req) => this.chat(req), options);
   }
 
-  async promptJson<T = any>(text: string, systemPrompt?: string): Promise<T> {
-    return promptJsonFn<T>(text, systemPrompt, (req) => this.chat(req));
+  async promptJson<T = any>(text: string, systemPrompt?: string, options?: Partial<GatewayRequest>): Promise<T> {
+    return promptJsonFn<T>(text, systemPrompt, (req) => this.chat(req), options);
   }
 
   getProviders(): Array<{ name: string; model: string; priority: number; enabled: boolean }> {

@@ -1,13 +1,13 @@
 /**
- * Model Router — tier-based model selection tests
+ * Model Router — tests
  *
- * R3: Gateway per-tier model
- * - resolveProviders 根据 request.tier 选择 provider.tierModels[tier] 作为 model
- * - 无 tier 时用 provider.model（默认行为不变）
+ * R3: Gateway per-tier model selection
+ * R1: prompt/promptJson options passthrough (provider/tier)
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { resolveProviders } from '../provider-registry.js';
-import type { ProviderConfig, GatewayRequest } from '../model-router.js';
+import { prompt, promptJson } from '../model-router.js';
+import type { ProviderConfig, GatewayRequest, GatewayResponse } from '../model-router.js';
 
 function makeRequest(tier?: string): GatewayRequest {
   return {
@@ -90,5 +90,56 @@ describe('resolveProviders — tier model selection', () => {
     expect(resolved).toHaveLength(2);
     expect(resolved[0].model).toBe('deepseek-v4-pro');
     expect(resolved[1].model).toBe('knowledge-standard');
+  });
+});
+
+describe('prompt/promptJson — options passthrough', () => {
+  const mockResponse: GatewayResponse = {
+    content: '{"result":"ok"}',
+    model: 'test-model',
+    provider: 'test',
+    latencyMs: 10,
+  };
+
+  it('prompt passes options to chatFn request', async () => {
+    const chatFn = vi.fn().mockResolvedValue(mockResponse);
+    await prompt('hello', 'sys', chatFn, { provider: 'knowledge', tier: 'standard' });
+    expect(chatFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'knowledge',
+        tier: 'standard',
+        messages: expect.arrayContaining([
+          { role: 'system', content: 'sys' },
+          { role: 'user', content: 'hello' },
+        ]),
+      }),
+    );
+  });
+
+  it('prompt without options sends minimal request', async () => {
+    const chatFn = vi.fn().mockResolvedValue(mockResponse);
+    await prompt('hello', undefined, chatFn);
+    expect(chatFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        messages: [{ role: 'user', content: 'hello' }],
+      }),
+    );
+    expect(chatFn.mock.calls[0][0]).not.toHaveProperty('provider');
+    expect(chatFn.mock.calls[0][0]).not.toHaveProperty('tier');
+  });
+
+  it('promptJson passes options to chatFn request', async () => {
+    const jsonResponse: GatewayResponse = {
+      ...mockResponse,
+      content: '{"entries":[]}',
+    };
+    const chatFn = vi.fn().mockResolvedValue(jsonResponse);
+    await promptJson('extract', 'sys', chatFn, { provider: 'knowledge', tier: 'standard' });
+    expect(chatFn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: 'knowledge',
+        tier: 'standard',
+      }),
+    );
   });
 });

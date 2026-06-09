@@ -5,7 +5,7 @@
  * 使用 harness KnowledgeStore + KnowledgeIngest 存储。
  */
 
-import { modelGateway, logger, getModelForTier } from '@dommaker/studio-shared';
+import { modelGateway, logger } from '@dommaker/studio-shared';
 import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { DecisionRecord } from '@dommaker/harness';
 import { sharedStore, sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
@@ -429,13 +429,6 @@ ${deployResult.summary.slice(0, 2000)}
         return;
       }
 
-      // Direct API call for knowledge extraction
-      const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
-      if (!apiKey) {
-        logger.warn('[KnowledgeAgent] No API key (KNOWLEDGE_API_KEY or STUDIO_API_KEY), skipping extraction', { source });
-        return;
-      }
-
       const truncatedContent = content.slice(0, 50_000);
       logger.info('[KnowledgeAgent] extractFromText starting', {
         source: source.slice(-40),
@@ -443,75 +436,23 @@ ${deployResult.summary.slice(0, 2000)}
         originalLength: content.length,
       });
 
-      const knowledgeBaseUrl = process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1';
-      const rawResponse = await fetch(`${knowledgeBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: getModelForTier('standard'),
-          messages: [
-            { role: 'system', content: `你是知识提取专家。从文本中提取结构化知识。对每条记录必须做三层分析：1) 根因（不描述表面现象），2) 责任归属（哪个 Agent/流程该预防），3) 预防措施（具体可操作）。\n\n关注类型：\n- 架构决策 (architecture) - 关于系统设计的讨论和决定\n- 设计决策 (decision) - 关于实现方式的取舍\n- 踩坑记录 (pitfall) - 遇到的问题，重点是根因而非现象\n- 流程经验 (process) - 流程中哪个环节该改进\n- 最佳实践 (guideline) - 可复用的经验和模式\n\n输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }\n只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。` },
-            { role: 'user', content: truncatedContent },
-          ],
-          temperature: 0.3,
-          max_tokens: 1024,
-        }),
-      });
+      const EXTRACT_SYSTEM_PROMPT = `你是知识提取专家。从文本中提取结构化知识。对每条记录必须做三层分析：1) 根因（不描述表面现象），2) 责任归属（哪个 Agent/流程该预防），3) 预防措施（具体可操作）。\n\n关注类型：\n- 架构决策 (architecture) - 关于系统设计的讨论和决定\n- 设计决策 (decision) - 关于实现方式的取舍\n- 踩坑记录 (pitfall) - 遇到的问题，重点是根因而非现象\n- 流程经验 (process) - 流程中哪个环节该改进\n- 最佳实践 (guideline) - 可复用的经验和模式\n\n输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }\n只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。`;
 
-      if (!rawResponse.ok) {
-        const errorBody = await rawResponse.text().catch(() => 'unreadable');
-        logger.warn('[KnowledgeAgent] DeepSeek API error', {
-          source: source.slice(-40),
-          status: rawResponse.status,
-          body: errorBody.slice(0, 300),
-        });
-        return;
-      }
-
-      const data = await rawResponse.json() as any;
-      const llmContent = data.choices?.[0]?.message?.content || '';
-      const finishReason = data.choices?.[0]?.finish_reason;
-
-      logger.info('[KnowledgeAgent] DeepSeek response received', {
-        source: source.slice(-40),
-        responseLength: llmContent.length,
-        finishReason,
-        preview: llmContent.slice(0, 200),
-      });
-
-      if (!llmContent) {
-        logger.info('[KnowledgeAgent] Empty LLM response for extraction', { source: source.slice(-40) });
-        return;
-      }
-
-      // Parse JSON from LLM response — try 3 strategies:
-      // 1. Direct parse (fast path)
-      // 2. Markdown code block extraction
-      // 3. First {...} object in response (handles tool_calls wrapping, preamble, etc.)
       let result: any;
       try {
-        result = JSON.parse(llmContent);
-      } catch {
-        const codeMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (codeMatch?.[1]) {
-          try { result = JSON.parse(codeMatch[1].trim()); } catch {}
-        }
-        if (!result) {
-          const jsonMatch = llmContent.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            try { result = JSON.parse(jsonMatch[0]); } catch {}
-          }
-        }
-        if (!result) {
-          logger.warn('[KnowledgeAgent] Failed to parse extraction JSON', { source: source.slice(-40), preview: llmContent.slice(0, 200) });
-          return;
-        }
+        result = await modelGateway.promptJson(
+          truncatedContent,
+          EXTRACT_SYSTEM_PROMPT,
+          { provider: 'knowledge', tier: 'standard' },
+        );
+      } catch (e) {
+        logger.warn('[KnowledgeAgent] Extraction failed', { source: source.slice(-40), error: String(e) });
+        return;
       }
 
       if (!result.entries?.length) {
         logger.info('[KnowledgeAgent] No knowledge extracted from text', {
           source: source.slice(-40),
-          llmResponsePreview: llmContent.slice(0, 300),
           parsedKeys: Object.keys(result),
         });
         return;
@@ -587,12 +528,6 @@ ${deployResult.summary.slice(0, 2000)}
         return null;
       }
 
-      const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
-      if (!apiKey) {
-        logger.warn('[KnowledgeAgent] No API key, skipping extractDecision', { source });
-        return null;
-      }
-
       const truncatedContent = content.slice(0, 50_000);
 
       const DECISION_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记录中提取决策。
@@ -628,56 +563,16 @@ ${deployResult.summary.slice(0, 2000)}
 - 没有明确决策的讨论 → 返回空数组
 - 最多提取 1 个决策`;
 
-      const knowledgeBaseUrl = process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1';
-      const rawResponse = await fetch(`${knowledgeBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: getModelForTier('standard'),
-          messages: [
-            { role: 'system', content: DECISION_SYSTEM_PROMPT },
-            { role: 'user', content: truncatedContent },
-          ],
-          temperature: 0.1,
-          max_tokens: 2000,
-        }),
-      });
-
-      if (!rawResponse.ok) {
-        const errorBody = await rawResponse.text().catch(() => '');
-        logger.warn('[KnowledgeAgent] extractDecision API error', {
-          status: rawResponse.status,
-          body: errorBody.slice(0, 300),
-        });
-        return null;
-      }
-
-      const data = await rawResponse.json() as any;
-      const llmContent = data.choices?.[0]?.message?.content || '';
-
-      if (!llmContent) {
-        return null;
-      }
-
-      // Parse JSON — same 3 strategies as extractFromText
       let result: any;
       try {
-        result = JSON.parse(llmContent);
-      } catch {
-        const codeMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (codeMatch?.[1]) {
-          try { result = JSON.parse(codeMatch[1].trim()); } catch {}
-        }
-        if (!result) {
-          const jsonMatch = llmContent.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            try { result = JSON.parse(jsonMatch[0]); } catch {}
-          }
-        }
-        if (!result) {
-          logger.warn('[KnowledgeAgent] Failed to parse extractDecision JSON', { source: source.slice(-40) });
-          return null;
-        }
+        result = await modelGateway.promptJson(
+          truncatedContent,
+          DECISION_SYSTEM_PROMPT,
+          { provider: 'knowledge', tier: 'standard' },
+        );
+      } catch (e) {
+        logger.warn('[KnowledgeAgent] extractDecision failed', { source: source.slice(-40), error: String(e) });
+        return null;
       }
 
       const decision = result.decisions?.[0];
@@ -732,12 +627,6 @@ ${deployResult.summary.slice(0, 2000)}
     try {
       if (!content || content.trim().length === 0) {
         logger.info('[KnowledgeAgent] Empty transcript, skipping behavior extraction', { source });
-        return;
-      }
-
-      const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
-      if (!apiKey) {
-        logger.warn('[KnowledgeAgent] No API key, skipping behavior extraction', { source });
         return;
       }
 
@@ -824,63 +713,25 @@ ${deployResult.summary.slice(0, 2000)}
 
 ${existingPatternsBlock}`;
 
-      const knowledgeBaseUrl = process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1';
-      const rawResponse = await fetch(`${knowledgeBaseUrl}/chat/completions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: getModelForTier('standard'),
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: content.slice(0, 40_000) },
-          ],
-          temperature: 0.3,
-          max_tokens: 2048,
-        }),
-      });
-      const data = await rawResponse.json() as any;
-      const llmContent = data.choices?.[0]?.message?.content || '';
-
-      if (!llmContent) {
-        logger.info('[KnowledgeAgent] Empty LLM response for behavior extraction', { source: source.slice(-40) });
+      let parsed: any;
+      try {
+        parsed = await modelGateway.promptJson(
+          content.slice(0, 40_000),
+          systemPrompt,
+          { provider: 'knowledge', tier: 'standard' },
+        );
+      } catch (e) {
+        logger.warn('[KnowledgeAgent] Behavior extraction failed', { source: source.slice(-40), error: String(e) });
         return;
       }
 
-      // Parse JSON — 4 strategies: direct → codeblock → {...} → [...]
-      let profiles: any[] | undefined;
-      try {
-        const parsed = JSON.parse(llmContent);
-        profiles = Array.isArray(parsed) ? parsed : parsed.profiles || parsed.entries;
-      } catch {
-        const codeMatch = llmContent.match(/```(?:json)?\s*([\s\S]*?)```/);
-        if (codeMatch?.[1]) {
-          try {
-            const parsed = JSON.parse(codeMatch[1].trim());
-            profiles = Array.isArray(parsed) ? parsed : parsed.profiles || parsed.entries;
-          } catch {}
-        }
-        if (!profiles) {
-          const arrMatch = llmContent.match(/\[[\s\S]*\]/);
-          if (arrMatch) {
-            try { profiles = JSON.parse(arrMatch[0]); } catch {}
-          }
-        }
-        if (!profiles) {
-          const objMatch = llmContent.match(/\{[\s\S]*\}/);
-          if (objMatch) {
-            try {
-              const parsed = JSON.parse(objMatch[0]);
-              profiles = Array.isArray(parsed) ? parsed : parsed.profiles || parsed.entries;
-            } catch {}
-          }
-        }
-        if (!profiles) {
-          logger.warn('[KnowledgeAgent] Failed to parse behavior extraction JSON', {
-            source: source.slice(-40),
-            preview: llmContent.slice(0, 200),
-          });
-          return;
-        }
+      const profiles: any[] | undefined = Array.isArray(parsed) ? parsed : parsed?.profiles || parsed?.entries;
+      if (!profiles) {
+        logger.warn('[KnowledgeAgent] Unexpected behavior extraction format', {
+          source: source.slice(-40),
+          keys: parsed ? Object.keys(parsed) : [],
+        });
+        return;
       }
 
       if (!profiles?.length) {
