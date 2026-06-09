@@ -203,7 +203,8 @@ export class SessionManager {
         `&&`,
         `claude`,
         `--print`,
-        `--output-format json`,
+        `--output-format stream-json`,
+        `--verbose`,
         sessionFlag,
         ...claudeFlags,
         `<`,
@@ -278,15 +279,23 @@ export class SessionManager {
       // After first successful task, session is established — future starts use --continue
       state.isNewSession = false;
 
-      // Parse JSON envelope: { result, usage, is_error }
-      let text = stdout;
+      // Parse stream-json output: each line is a JSON event
+      let text = '';
       let isError = false;
-      try {
-        const envelope = JSON.parse(stdout);
-        if (envelope.is_error) { isError = true; text = ''; }
-        if (envelope.result) text = envelope.result;
-      } catch (e) {
-        logger.error('[SessionManager] Failed to parse JSON envelope', { error: String(e) });
+      for (const line of stdout.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || !trimmed.startsWith('{')) continue;
+        try {
+          const event = JSON.parse(trimmed);
+          if (event.type === 'result') {
+            if (event.is_error) isError = true;
+            if (event.result) text = event.result;
+          }
+        } catch { /* skip non-JSON lines */ }
+      }
+      if (!text && !isError) {
+        // Fallback: treat entire stdout as text (e.g. if stream-json parsing fails)
+        text = stdout;
       }
 
       if (isError) {

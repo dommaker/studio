@@ -40,6 +40,12 @@ vi.mock('@dommaker/studio-shared/node', () => ({
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   getModelForTier: () => 'claude-sonnet-4-6',
+  buildSpawnEnv: (opts: any) => ({
+    ANTHROPIC_MODEL: 'claude-sonnet-4-6',
+    ANTHROPIC_AUTH_TOKEN: 'test-key',
+    ANTHROPIC_BASE_URL: 'https://test.example.com',
+    ...opts?.extra,
+  }),
 }));
 
 // Mock metrics and task-logger — must return Promises for .catch() chaining
@@ -61,8 +67,8 @@ describe('SessionManager', () => {
   beforeEach(() => {
     fs.mkdirSync(TEST_DIR, { recursive: true });
     execShSpy.mockReset();
-    // Default: execSh resolves with valid envelope JSON
-    execShSpy.mockResolvedValue({ stdout: '{"result": "ok"}', stderr: '' });
+    // Default: execSh resolves with stream-json result event
+    execShSpy.mockResolvedValue({ stdout: '{"type":"result","result":"ok","is_error":false,"usage":{"input_tokens":100,"output_tokens":50}}', stderr: '' });
     manager = new SessionManager();
   });
 

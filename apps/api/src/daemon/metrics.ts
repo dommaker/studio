@@ -28,26 +28,31 @@ export function parseClaudeUsage(stdout: string): {
   outputTokens: number;
   cacheHitTokens: number;
 } {
-  try {
-    // Claude Code JSON output: { result, usage: { input_tokens, output_tokens, cache_read_input_tokens } }
-    const parsed = JSON.parse(stdout);
-    const u = parsed.usage || {};
-    return {
-      inputTokens: u.input_tokens || 0,
-      outputTokens: u.output_tokens || 0,
-      cacheHitTokens: u.cache_read_input_tokens || u.cache_creation_input_tokens || 0,
-    };
-  } catch {
-    // Fallback: try to find usage in non-JSON output
-    const inputMatch = stdout.match(/input_tokens[:\s]+(\d+)/i);
-    const outputMatch = stdout.match(/output_tokens[:\s]+(\d+)/i);
-    const cacheMatch = stdout.match(/cache_read_input_tokens[:\s]+(\d+)/i);
-    return {
-      inputTokens: inputMatch ? parseInt(inputMatch[1]) : 0,
-      outputTokens: outputMatch ? parseInt(outputMatch[1]) : 0,
-      cacheHitTokens: cacheMatch ? parseInt(cacheMatch[1]) : 0,
-    };
+  // Stream-json: scan lines for result event with usage
+  for (const line of stdout.split('\n').reverse()) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(trimmed);
+      const u = parsed.usage || {};
+      if (u.input_tokens || u.output_tokens) {
+        return {
+          inputTokens: u.input_tokens || 0,
+          outputTokens: u.output_tokens || 0,
+          cacheHitTokens: u.cache_read_input_tokens || u.cache_creation_input_tokens || 0,
+        };
+      }
+    } catch { /* skip */ }
   }
+  // Fallback: regex
+  const inputMatch = stdout.match(/input_tokens[:\s]+(\d+)/i);
+  const outputMatch = stdout.match(/output_tokens[:\s]+(\d+)/i);
+  const cacheMatch = stdout.match(/cache_read_input_tokens[:\s]+(\d+)/i);
+  return {
+    inputTokens: inputMatch ? parseInt(inputMatch[1]) : 0,
+    outputTokens: outputMatch ? parseInt(outputMatch[1]) : 0,
+    cacheHitTokens: cacheMatch ? parseInt(cacheMatch[1]) : 0,
+  };
 }
 
 export async function recordWindowRun(entry: Omit<MetricEntry, 'source' | 'sessionId'>): Promise<boolean> {
