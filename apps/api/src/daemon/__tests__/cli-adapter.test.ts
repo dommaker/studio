@@ -4,11 +4,12 @@ import type { AgentCliParams } from '../cli-adapter';
 
 describe('cli-adapter', () => {
   describe('buildSpawnArgs for claude', () => {
-    test('includes --print and --output-format json', () => {
+    test('defaults to stream-json output format', () => {
       const result = buildSpawnArgs('claude', {});
       expect(result.args).toContain('--print');
       expect(result.args).toContain('--output-format');
-      expect(result.args).toContain('json');
+      expect(result.args).toContain('stream-json');
+      expect(result.args).toContain('--verbose');
       expect(result.promptViaStdin).toBe(true);
     });
 
