@@ -11,6 +11,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { logger, getModelForTier, type ModelTier } from '@dommaker/studio-shared';
+import { prisma } from '@dommaker/studio-prisma';
 import { buildSpawnArgs, type AgentCliParams } from './cli-adapter.js';
 import type { ProviderName } from './cli-scanner.js';
 import type { ClaimedTask } from './claim-loop.js';
@@ -101,6 +102,9 @@ export class TaskExecutor {
         const parsed = this.parseStreamLine(trimmed, ++seq);
         if (parsed) {
           events.push(parsed);
+          if (parsed.type === 'tool_use') {
+            this.emitToolEvent(task, parsed);
+          }
         }
 
         // Batch flush
@@ -222,6 +226,41 @@ export class TaskExecutor {
     });
 
     return child;
+  }
+
+  /**
+   * Fire-and-forget: write tool:call + optional file:change StudioEvent.
+   * Uses .catch() — never awaits, never blocks stdout processing.
+   */
+  private emitToolEvent(task: ClaimedTask, parsed: OutputEvent): void {
+    const sessionId = task.sessionId ?? task.id;
+    const tool = parsed.tool ?? 'unknown';
+    const input = (parsed.input ?? {}) as Record<string, unknown>;
+
+    prisma.studioEvent.create({
+      data: {
+        type: 'tool:call',
+        source: 'executor',
+        payload: JSON.stringify({ tool, input, sessionId }),
+        timestamp: new Date(),
+      },
+    }).catch((err: unknown) => {
+      logger.warn('[TaskExecutor] tool:call event write failed', { taskId: task.id, error: String(err) });
+    });
+
+    const filePathTools = ['Write', 'Edit', 'NotebookEdit'];
+    if (filePathTools.includes(tool) && input.file_path) {
+      prisma.studioEvent.create({
+        data: {
+          type: 'file:change',
+          source: 'executor',
+          payload: JSON.stringify({ tool, path: input.file_path, sessionId }),
+          timestamp: new Date(),
+        },
+      }).catch((err: unknown) => {
+        logger.warn('[TaskExecutor] file:change event write failed', { taskId: task.id, error: String(err) });
+      });
+    }
   }
 
   /**

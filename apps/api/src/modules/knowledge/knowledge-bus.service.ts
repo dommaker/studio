@@ -144,14 +144,13 @@ export class KnowledgeBus {
         }
       }
 
-      // GAP-01: Validate entry quality before ingest
-      // Mark low_quality tag instead of rejecting (don't block producers)
+      // Quality gate: reject entries with high severity issues
       const tags: string[] = [entry.type];
       const issues = sharedLinter.validateEntry({ title: entry.title || '', content: entry.content || '', tags, type: BUS_ENTRY_TO_KNOWLEDGE_TYPE[entry.type] || 'guideline' });
       const blockers = issues.filter(i => i.severity === 'high');
       if (blockers.length > 0) {
-        tags.push('low_quality');
-        logger.warn('[KnowledgeBus] Entry marked low_quality', { title: entry.title, issues: blockers.map(i => i.description) });
+        logger.warn('[KnowledgeBus] Entry rejected by quality gate', { title: entry.title, issues: blockers.map(i => i.description) });
+        return;
       }
 
       const result = this.ingest.ingestEntry(
@@ -620,7 +619,7 @@ export function scheduleVectorDbSync(): void {
       return;
     }
     syncInProgress = true;
-    const cmd = `mcp-local-rag --db-path ${LANCE_DB_PATH} --cache-dir ${MODEL_CACHE_DIR} --model-name ${MODEL_NAME} ingest "${UNIFIED_KNOWLEDGE_DIR}" --base-dir "${UNIFIED_KNOWLEDGE_DIR}"`;
+    const cmd = `nice -n 10 mcp-local-rag --db-path ${LANCE_DB_PATH} --cache-dir ${MODEL_CACHE_DIR} --model-name ${MODEL_NAME} ingest "${UNIFIED_KNOWLEDGE_DIR}" --base-dir "${UNIFIED_KNOWLEDGE_DIR}"`;
     exec(cmd, { timeout: 300_000 }, (err, stdout, stderr) => {
       syncInProgress = false;
       // #2: log resume after deferral

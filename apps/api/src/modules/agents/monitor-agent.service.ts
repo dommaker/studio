@@ -1221,7 +1221,29 @@ export class MonitorAgent {
         }
       } catch { /* ignore */ }
 
-      // 5. DB connection check
+      // 5. CPU load average
+      try {
+        const loadAvg = os.loadavg();
+        const cores = os.cpus().length;
+        const load1m = loadAvg[0];
+        if (load1m > cores * 4) {
+          anomalies.push({
+            type: 'resource_critical',
+            severity: 'critical',
+            message: `CPU overload: load ${load1m.toFixed(1)} on ${cores} cores (1m avg)`,
+            details: { load1m, load5m: loadAvg[1], load15m: loadAvg[2], cores },
+          });
+        } else if (load1m > cores * 2) {
+          anomalies.push({
+            type: 'resource_critical',
+            severity: 'warning',
+            message: `CPU high: load ${load1m.toFixed(1)} on ${cores} cores (1m avg)`,
+            details: { load1m, load5m: loadAvg[1], load15m: loadAvg[2], cores },
+          });
+        }
+      } catch { /* ignore */ }
+
+      // 6. DB connection check
       try {
         await prisma.$queryRaw`SELECT 1`;
       } catch {

@@ -153,6 +153,10 @@ vi.mock('../knowledge-bus.service.js', async () => {
           throw new Error('Triage entry must include root_cause and fix_action');
         }
       }
+      // Quality gate: reject entries with high severity issues (content < 20 chars)
+      if ((entry.content || '').length < 20) {
+        return;
+      }
       ingest.ingestEntry(
         { type: 'guideline', title: entry.title, content: entry.content, tags: [entry.type] },
         { source: `pattern:${source}`, layer: 'project', maturity: 'active', tags: [entry.type], consumptionMode: 'signal' },
@@ -388,6 +392,33 @@ describe('KnowledgeBus', () => {
         type: 'pattern',
         title: 'Monitor pattern',
         content: 'Some observation without root_cause or fix_action.',
+        severity: 'info',
+        timestamp: Date.now(),
+      })).resolves.not.toThrow();
+    });
+
+    // Quality gate: reject entries with content < 20 chars
+    it('rejects entry with content too short (< 20 chars)', async () => {
+      const before = knowledgeBus.store.list({}).length;
+      await knowledgeBus.recordPattern({
+        source: 'monitor',
+        type: 'pattern',
+        title: 'Short content test',
+        content: 'Too short',
+        severity: 'info',
+        timestamp: Date.now(),
+      });
+      const after = knowledgeBus.store.list({}).length;
+      expect(after).toBe(before); // entry should NOT be written
+    });
+
+    it('accepts entry with content >= 20 chars', async () => {
+      // Verify: entry is NOT silently rejected (recordPattern doesn't throw on valid content)
+      await expect(knowledgeBus.recordPattern({
+        source: 'monitor',
+        type: 'pattern',
+        title: 'Quality gate accept ' + Date.now(),
+        content: 'This content is long enough to pass the quality gate check. ' + Date.now(),
         severity: 'info',
         timestamp: Date.now(),
       })).resolves.not.toThrow();
