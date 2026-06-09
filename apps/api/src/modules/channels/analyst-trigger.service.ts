@@ -130,7 +130,7 @@ class AnalystTriggerService {
       // O1d: Restrict tool access for Simple tasks (short content, no schema change keywords)
       const isSimpleTask = content.length < 500 && !/(schema|migration|migrate|auth|new\s+module|架构重构)/i.test(content);
       const claudeArgs = isSimpleTask ? ['--allowedTools', 'Bash,Edit,Read,Grep'] : undefined;
-      const { doc: response, usage } = await runClaudeCode(prompt, outputFile, claudeArgs);
+      const { doc: response, usage } = await runClaudeCode(prompt, outputFile, claudeArgs, preTier);
       const durationMs = Date.now() - startTime;
       clearInterval(progressInterval);
 

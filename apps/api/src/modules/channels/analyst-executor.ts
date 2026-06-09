@@ -76,7 +76,7 @@ export function preClassifyTier(requirement: string): 'fast' | 'standard' | 'pre
 }
 
 // O1d: accept optional claudeArgs for tool restriction on Simple tasks
-export async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: string[]): Promise<{ doc: RequirementsDocJson; usage?: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
+export async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: string[], modelTier?: 'fast' | 'standard' | 'premium'): Promise<{ doc: RequirementsDocJson; usage?: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
   ensureWorktree();
 
   // Use ad-hoc session for concurrent @Analyst support
@@ -86,7 +86,7 @@ export async function runClaudeCode(prompt: string, outputFile: string, claudeAr
     ...(claudeArgs ? { claudeArgs } : {}),
   }, {
     worktree: process.env.REPO_DIR || process.cwd(), // needs access to project source, not .analyst/
-    modelTier: 'premium',
+    modelTier: modelTier || 'premium',
   });
 
   if (!result.success) {
