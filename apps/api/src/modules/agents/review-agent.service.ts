@@ -38,6 +38,12 @@ export class ReviewAgent {
     acceptanceCriteria?: string[];
     cycle?: number;
     stances?: { id: string; name: string; prompt: string; reviewerFocus?: string }[];
+    acGroupContext?: {
+      files?: string[];
+      gotchas?: string[];
+      architectureContext?: Record<string, unknown>;
+      implementationNotes?: string;
+    };
   }): Promise<ReviewResult> {
     const { taskId, worktree, taskDescription, acceptanceCriteria, cycle = 1 } = params;
     const startTime = Date.now();
@@ -83,6 +89,7 @@ export class ReviewAgent {
         cycle,
         previousReportPath: cycle > 1 ? path.join(worktree, '.review-report.json') : undefined,
         stances: params.stances,
+        acGroupContext: params.acGroupContext,
       });
       const promptFile = path.join(worktree, '.review-prompt.md');
       fs.writeFileSync(promptFile, reviewPrompt, 'utf-8');
@@ -333,6 +340,12 @@ export class ReviewAgent {
     acceptanceCriteria?: string[];
     cycle?: number;
     complexity?: 'simple' | 'medium' | 'complex';
+    acGroupContext?: {
+      files?: string[];
+      gotchas?: string[];
+      architectureContext?: Record<string, unknown>;
+      implementationNotes?: string;
+    };
   }): Promise<ReviewResult> {
     const tier = params.complexity || 'medium';
 

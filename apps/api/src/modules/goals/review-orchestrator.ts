@@ -212,6 +212,21 @@ export async function handleReviewCycle(
       logger.warn('[AgentEventListener] Reviewer stance loading failed, using defaults', { error: String(e) });
     }
 
+    // D7: Extract acGroup context for Reviewer (files, gotchas, architectureContext)
+    let acGroupContext: { files?: string[]; gotchas?: string[]; architectureContext?: Record<string, unknown>; implementationNotes?: string } | undefined;
+    try {
+      const input = goalExec.input as Record<string, unknown> | undefined;
+      const acGroup = input?.acGroup as Record<string, unknown> | undefined;
+      if (acGroup) {
+        acGroupContext = {
+          files: acGroup.files as string[] | undefined,
+          gotchas: acGroup.gotchas as string[] | undefined,
+          architectureContext: acGroup.architectureContext as Record<string, unknown> | undefined,
+          implementationNotes: acGroup.implementationNotes as string | undefined,
+        };
+      }
+    } catch { /* non-blocking */ }
+
     const review = await reviewAgent.review({
       taskId,
       projectId: task.projectId,
@@ -220,6 +235,7 @@ export async function handleReviewCycle(
       acceptanceCriteria: (task.acceptanceCriteria || []) as string[],
       cycle: previousCycle + 1,
       stances: reviewerStances,
+      acGroupContext,
     });
 
     // 审计: Review 完成

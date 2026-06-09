@@ -53,18 +53,23 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
 
   const goalContext = (goal.context as unknown as Record<string, unknown>) || {};
 
-  // 提取 ACs
+  // 提取 ACs + D7: acGroup context
   const plan = await prisma.goalPlan.findFirst({
     where: { goalId, status: 'approved' },
     orderBy: { version: 'desc' },
   });
   let allAcs: string[] = [];
   let steps: GoalStep[] = [];
+  const mergedContext: { files: string[]; gotchas: string[]; implementationNotes: string[] } = { files: [], gotchas: [], implementationNotes: [] };
   if (plan) {
     steps = (plan.steps as unknown as GoalStep[]) || [];
     allAcs = steps.flatMap(s => {
       const inp = s.input as Record<string, any> | null;
-      return inp?.acGroup?.acs || [];
+      const ag = inp?.acGroup;
+      if (ag?.files) mergedContext.files.push(...ag.files);
+      if (ag?.gotchas) mergedContext.gotchas.push(...ag.gotchas);
+      if (ag?.implementationNotes) mergedContext.implementationNotes.push(ag.implementationNotes);
+      return ag?.acs || [];
     });
   } else {
     const execs = await prisma.goalExecution.findMany({
@@ -73,9 +78,18 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     });
     for (const e of execs) {
       const inp = parseJsonField<Record<string, any>>(e.input, {});
-      allAcs.push(...(inp?.acGroup?.acs || []));
+      const ag = inp?.acGroup;
+      if (ag?.files) mergedContext.files.push(...ag.files);
+      if (ag?.gotchas) mergedContext.gotchas.push(...ag.gotchas);
+      if (ag?.implementationNotes) mergedContext.implementationNotes.push(ag.implementationNotes);
+      allAcs.push(...(ag?.acs || []));
     }
   }
+  const acGroupContext = mergedContext.files.length > 0 || mergedContext.gotchas.length > 0 ? {
+    files: [...new Set(mergedContext.files)],
+    gotchas: [...new Set(mergedContext.gotchas)],
+    implementationNotes: mergedContext.implementationNotes.join('\n') || undefined,
+  } : undefined;
 
   const worktree = await findReviewWorktree(goalId);
   if (!worktree) {
@@ -117,6 +131,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
       acceptanceCriteria: allAcs.length > 0 ? allAcs : undefined,
       cycle: reviewCycle + 1,
       complexity,
+      acGroupContext,
     });
   } catch (err) {
     logger.error('[Goal] Reviewer crashed — blocking deploy', { goalId, error: String(err) });

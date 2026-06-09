@@ -72,8 +72,15 @@ export function buildReviewPrompt(params: {
   previousReportPath?: string;
   /** 🆕 外部立场配置（从 RoleConfig 加载，回退硬编码） */
   stances?: { id: string; name: string; prompt: string; reviewerFocus?: string }[];
+  /** D7: Analyst 产物上下文（files, gotchas, architectureContext） */
+  acGroupContext?: {
+    files?: string[];
+    gotchas?: string[];
+    architectureContext?: Record<string, unknown>;
+    implementationNotes?: string;
+  };
 }): string {
-  const { taskDescription, acceptanceCriteria, cycle, previousReportPath, stances } = params;
+  const { taskDescription, acceptanceCriteria, cycle, previousReportPath, stances, acGroupContext } = params;
 
   const acList = acceptanceCriteria?.length
     ? acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')
@@ -115,7 +122,15 @@ ${taskDescription}
 
 ### 验收标准
 ${acList}
+${acGroupContext ? `
+### Analyst 探索结果（重点审查范围）
+**相关文件**: ${acGroupContext.files?.join(', ') || '未指定'}
+**已知风险**: ${acGroupContext.gotchas?.join('; ') || '无'}
+${acGroupContext.implementationNotes ? `**实现指南**: ${acGroupContext.implementationNotes}` : ''}
+${acGroupContext.architectureContext?.dangerZones ? `**危险区域**: ${(acGroupContext.architectureContext.dangerZones as string[]).join('; ')}` : ''}
 
+优先审查上述文件，特别关注已知风险和危险区域。
+` : ''}
 ### Executor 设计笔记
 读 \`.progress.json\` 的 \`designNotes\` 字段（如果存在）。它包含 Executor 在实现过程中的关键决策:
 - \`decisions\`: 为什么选这个方案而不是别的
