@@ -66,17 +66,15 @@ export function buildSpawnArgs(
 }
 
 function buildClaudeArgs(command: string, params: AgentCliParams): SpawnArgs {
-  const args: string[] = ['--print', '--output-format', 'json'];
+  // Default to stream-json for tool:call/file:change event capture
+  const format = params.outputFormat || 'stream-json';
+  const args: string[] = ['--print', '--output-format', format, '--verbose'];
 
   if (params.sessionId) {
     args.push('--session-id', params.sessionId);
   }
   if (params.maxTurns) {
     args.push('--max-turns', String(params.maxTurns));
-  }
-  if (params.outputFormat === 'stream-json') {
-    // --print already outputs JSON; stream-json enables streaming
-    args.push('--verbose');
   }
   if (params.extraArgs) {
     args.push(...params.extraArgs);

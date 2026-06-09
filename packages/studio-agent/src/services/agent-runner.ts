@@ -13,7 +13,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, type StreamEvent } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
@@ -47,14 +47,8 @@ import type { ExecutorConfig, AgentTask, ExecutionResult, PrerequisiteCheck } fr
 
 // ─── Stream-json output event ───
 
-export interface OutputEvent {
-  type: string;
-  subtype?: string;
-  content?: Array<{ type: string; name?: string; input?: unknown; text?: string }>;
-  message?: { content?: Array<{ type: string; name?: string; input?: unknown }> };
-  result?: string;
-  is_error?: boolean;
-}
+/** @deprecated Use StreamEvent from @dommaker/studio-shared */
+export type OutputEvent = StreamEvent;
 
 // ─── Strategy hints (unicode-escaped to avoid linter issues) ───
 
@@ -148,103 +142,18 @@ export class AgentRunner implements IAgentRunner {
 
   /**
    * Parse stream-json stdout into structured events.
-   * Each line is a JSON object with { type, subtype?, content?, ... }
+   * Delegates to shared parseStreamEvents from @dommaker/studio-shared.
    */
-  parseStreamOutput(stdout: string): OutputEvent[] {
-    const events: OutputEvent[] = [];
-    for (const line of stdout.split('\n')) {
-      const trimmed = line.trim();
-      if (!trimmed) continue;
-      try {
-        const parsed = JSON.parse(trimmed) as OutputEvent;
-        events.push(parsed);
-      } catch {
-        // skip non-JSON lines
-      }
-    }
-    return events;
-  }
-
-  /**
-   * Parse a single stream-json line and extract tool_use blocks.
-   * Returns tool calls found in this line.
-   */
-  parseStreamLine(line: string): Array<{ name: string; input: unknown }> {
-    const trimmed = line.trim();
-    if (!trimmed) return [];
-    try {
-      const event = JSON.parse(trimmed) as OutputEvent;
-      return this.extractToolUse(event);
-    } catch {
-      return [];
-    }
-  }
-
-  /**
-   * Extract tool_use blocks from a stream-json event.
-   * Handles both direct content and message.content formats.
-   */
-  private extractToolUse(event: OutputEvent): Array<{ name: string; input: unknown }> {
-    const tools: Array<{ name: string; input: unknown }> = [];
-
-    // Direct content array
-    if (event.content && Array.isArray(event.content)) {
-      for (const block of event.content) {
-        if (block.type === 'tool_use' && block.name) {
-          tools.push({ name: block.name, input: block.input });
-        }
-      }
-    }
-
-    // message.content format (assistant messages)
-    if (event.message?.content && Array.isArray(event.message.content)) {
-      for (const block of event.message.content) {
-        if (block.type === 'tool_use' && block.name) {
-          tools.push({ name: block.name, input: block.input });
-        }
-      }
-    }
-
-    return tools;
-  }
-
-  /**
-   * Extract file path from tool input for file:change events.
-   */
-  extractFilePath(toolName: string, input: unknown): string | null {
-    if (!input || typeof input !== 'object') return null;
-    const inp = input as Record<string, unknown>;
-    // Write/Edit tools use "file_path" or "path"
-    if (toolName === 'Write' || toolName === 'Edit' || toolName === 'write' || toolName === 'edit') {
-      return (inp.file_path as string) || (inp.path as string) || null;
-    }
-    return null;
+  parseStreamOutput(stdout: string): StreamEvent[] {
+    return parseStreamEvents(stdout);
   }
 
   /**
    * Extract the final text result from stream-json events.
+   * Delegates to shared extractResult from @dommaker/studio-shared.
    */
-  extractResult(events: OutputEvent[]): { text: string; isError: boolean } {
-    let text = '';
-    let isError = false;
-
-    for (const event of events) {
-      // result type events
-      if (event.type === 'result') {
-        if (event.is_error) isError = true;
-        if (event.result) text = event.result;
-      }
-      // assistant text content
-      if (event.type === 'assistant' && event.content) {
-        for (const block of event.content) {
-          if (block.type === 'text' && block.text) {
-            text += block.text;
-          }
-        }
-      }
-    }
-
-    return { text, isError };
+  extractResult(events: StreamEvent[]): { text: string; isError: boolean } {
+    return extractResult(events);
   }
 
   // ========================================
@@ -447,14 +356,17 @@ export class AgentRunner implements IAgentRunner {
         try {
           const { stdout } = await execSh(cmd, {
             cwd: worktree,
-            env: buildSpawnEnv({
-              tier: model,
-              role: 'executor',
-              extra: {
-                STUDIO_EXECUTION_ID: task.executionId,
-                ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
-              },
-            }),
+            env: {
+              ...process.env,
+              ...buildSpawnEnv({
+                tier: model,
+                role: 'executor',
+                extra: {
+                  STUDIO_EXECUTION_ID: task.executionId,
+                  ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
+                },
+              }),
+            },
             timeoutMs: this.config.sessionTimeoutMinutes * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
             childRef,
@@ -467,14 +379,12 @@ export class AgentRunner implements IAgentRunner {
           const { text, isError } = this.extractResult(events);
 
           // AC1.3: Emit tool:call and file:change events
-          for (const event of events) {
-            const tools = this.extractToolUse(event);
-            for (const tool of tools) {
-              await emitToolCall(tool.name, tool.input, sessionId, task.executionId);
-              const filePath = this.extractFilePath(tool.name, tool.input);
-              if (filePath) {
-                await emitFileChange(filePath, sessionId, task.executionId);
-              }
+          const tools = extractToolCalls(events);
+          for (const tool of tools) {
+            await emitToolCall(tool.name, tool.input, sessionId, task.executionId);
+            const filePath = extractFilePathShared(tool.name, tool.input);
+            if (filePath) {
+              await emitFileChange(filePath, sessionId, task.executionId);
             }
           }
 

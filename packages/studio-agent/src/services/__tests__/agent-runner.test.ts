@@ -110,22 +110,22 @@ describe('AC1.1: AgentRunner class + stream-json parsing', () => {
     }
   });
 
-  test('AC1.1-6: parseStreamLine method exists', () => {
-    expect(agentRunnerSrc).toContain('parseStreamLine(');
+  test('AC1.1-6: imports parseStreamEvents from shared', () => {
+    expect(agentRunnerSrc).toContain('parseStreamEvents');
   });
 
-  test('AC1.1-7: parses assistant content blocks', () => {
-    expect(agentRunnerSrc).toContain("'assistant'");
-    expect(agentRunnerSrc).toContain('Array.isArray(');
+  test('AC1.1-7: delegates to shared stream parser', () => {
+    // Shared parser handles assistant content blocks internally
+    expect(agentRunnerSrc).toMatch(/parseStreamEvents\(/);
   });
 
-  test('AC1.1-8: extracts tool_use blocks', () => {
-    expect(agentRunnerSrc).toContain("block.type === 'tool_use'");
+  test('AC1.1-8: uses extractToolCalls from shared', () => {
+    expect(agentRunnerSrc).toContain('extractToolCalls');
   });
 
-  test('AC1.1-9: parseStreamOutput calls parseStreamLine', () => {
+  test('AC1.1-9: parseStreamOutput delegates to shared parser', () => {
     expect(agentRunnerSrc).toContain('parseStreamOutput(');
-    expect(agentRunnerSrc).toContain('parseStreamLine(');
+    expect(agentRunnerSrc).toContain('parseStreamEvents(');
   });
 
   test('AC1.1-10: ExecutionResult return type preserved', () => {
@@ -177,13 +177,14 @@ describe('AC1.3: Tool call and file change event emission', () => {
     expect(agentRunnerSrc).toContain('emitToolCall(tool.name, tool.input, sessionId, task.executionId)');
   });
 
-  test('AC1.3-3: emits file:change for Write/Edit', () => {
-    expect(agentRunnerSrc).toContain("toolName === 'Write'");
+  test('AC1.3-3: uses shared extractFilePath for file:change', () => {
+    expect(agentRunnerSrc).toContain('extractFilePath');
     expect(agentRunnerSrc).toContain('emitFileChange(filePath, sessionId, task.executionId)');
   });
 
-  test('AC1.3-4: extractFilePath checks file_path and path', () => {
-    expect(agentRunnerSrc).toMatch(/file_path|\.path/);
+  test('AC1.3-4: delegates file path extraction to shared', () => {
+    // file_path/.path checks are now in shared extractFilePath
+    expect(agentRunnerSrc).toContain('extractFilePathShared');
   });
 
   test('AC1.3-5: output-capture exports emitToolCall with tool field', () => {
@@ -286,8 +287,8 @@ describe('Cross-AC integrity', () => {
     expect(redirectIdx).toBeGreaterThan(claudeIdx);
   });
 
-  test('uses parseStreamLine for main parsing', () => {
-    const count = (agentRunnerSrc.match(/parseStreamLine/g) || []).length;
-    expect(count).toBeGreaterThanOrEqual(1);
+  test('uses shared stream parser for main parsing', () => {
+    expect(agentRunnerSrc).toContain('parseStreamEvents');
+    expect(agentRunnerSrc).toContain('extractToolCalls');
   });
 });
