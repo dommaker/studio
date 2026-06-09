@@ -3,9 +3,11 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath, extractResult } from '@dommaker/studio-shared';
+import type { StreamEvent } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
+import { prisma } from '@dommaker/studio-prisma';
 import { parseClaudeUsage, recordPipelineRun } from './metrics.js';
 import { writeTaskLog, classifyTaskError } from './task-logger.js';
 import type { TaskLog } from './task-logger.js';
@@ -279,23 +281,38 @@ export class SessionManager {
       // After first successful task, session is established — future starts use --continue
       state.isNewSession = false;
 
-      // Parse stream-json output: each line is a JSON event
-      let text = '';
-      let isError = false;
-      for (const line of stdout.split('\n')) {
-        const trimmed = line.trim();
-        if (!trimmed || !trimmed.startsWith('{')) continue;
-        try {
-          const event = JSON.parse(trimmed);
-          if (event.type === 'result') {
-            if (event.is_error) isError = true;
-            if (event.result) text = event.result;
-          }
-        } catch { /* skip non-JSON lines */ }
-      }
+      // Parse stream-json output
+      const events = parseStreamEvents(stdout);
+      const { text: resultText, isError } = extractResult(events);
+      let text = resultText;
       if (!text && !isError) {
-        // Fallback: treat entire stdout as text (e.g. if stream-json parsing fails)
         text = stdout;
+      }
+
+      // D2: Emit tool:call and file:change events
+      const toolCalls = extractToolCalls(events);
+      for (const tool of toolCalls) {
+        try {
+          await prisma.studioEvent.create({
+            data: {
+              type: 'tool:call',
+              source: `daemon-${sessionName}`,
+              executionId: state.sessionId,
+              payload: JSON.stringify({ tool: tool.name, input: tool.input }),
+            },
+          });
+          const filePath = extractFilePath(tool.name, tool.input);
+          if (filePath) {
+            await prisma.studioEvent.create({
+              data: {
+                type: 'file:change',
+                source: `daemon-${sessionName}`,
+                executionId: state.sessionId,
+                payload: JSON.stringify({ path: filePath, action: 'write' }),
+              },
+            });
+          }
+        } catch { /* non-blocking */ }
       }
 
       if (isError) {
