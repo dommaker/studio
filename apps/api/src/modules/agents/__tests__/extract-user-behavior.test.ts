@@ -34,6 +34,7 @@ vi.mock('@dommaker/harness', () => ({
   KnowledgeLinter: class { lint() { return { issues: [] }; } },
   ReferenceTracker: class {},
   KnowledgeStore: class { list() { return []; } readEntriesFromDisk() { return []; } },
+  FileKnowledgeStore: class { list() { return []; } readEntriesFromDisk() { return []; } },
   KnowledgeIngest: class {},
   KnowledgeLifecycle: class {},
   KnowledgeQuery: class {},

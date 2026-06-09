@@ -8,7 +8,7 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { createConnection } from 'net';
 
-const API_PORT = 13101;
+const API_PORT = 13001;
 const STARTUP_TIMEOUT = 60000;
 
 let serverProcess: ChildProcess | null = null;

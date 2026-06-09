@@ -3,7 +3,7 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 
-const API = `http://localhost:${process.env.TEST_PORT || '13001'}/api/v1`;
+const API = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13101'}/api/v1`;
 
 async function api(method: string, path: string, body?: any) {
   const ctrl = new AbortController();

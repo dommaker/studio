@@ -7,7 +7,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../src/modules/channels/channel-message.service.js';
 
-const BASE = `http://localhost:${process.env.TEST_PORT || '13001'}/api/v1`;
+const BASE = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13101'}/api/v1`;
 
 const TEST_CHANNEL = `test-channel-${Date.now()}`;
 let channelId: string;

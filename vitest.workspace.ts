@@ -20,10 +20,18 @@ export default defineWorkspace([
       environment: 'node',
     },
   },
-  // apps 测试（排除 daemon — 需 Claude CLI + git worktree）
+  // apps/web 组件测试（jsdom）
   {
     test: {
-      include: ['apps/**/src/**/*.test.ts'],
+      include: ['apps/web/src/**/*.test.{ts,tsx}'],
+      exclude: baseExclude,
+      environment: 'jsdom',
+    },
+  },
+  // apps/api 测试（排除 daemon — 需 Claude CLI + git worktree）
+  {
+    test: {
+      include: ['apps/api/src/**/*.test.ts'],
       exclude: ['apps/api/src/daemon/**', ...baseExclude],
       environment: 'node',
       globalSetup: ['./tests/globalSetup.ts'],
