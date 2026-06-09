@@ -137,8 +137,6 @@ export class AgentRunner implements IAgentRunner {
   // ========================================
 
   async execute(task: AgentTask): Promise<ExecutionResult> {
-    const logFile = path.join(this.config.worktreesDir, task.executionId, '.agent.log');
-
     logger.info('[AgentRunner] Starting session loop', { taskId: task.id, executionId: task.executionId });
 
     let worktree: string;
@@ -146,8 +144,12 @@ export class AgentRunner implements IAgentRunner {
       worktree = await this.resolveWorktree(task);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return { success: false, worktree: '', outputFiles: [], error: errorMessage, logFile, sessionCount: 0 };
+      const fallbackLog = path.join(this.config.worktreesDir, task.executionId, '.agent.log');
+      return { success: false, worktree: '', outputFiles: [], error: errorMessage, logFile: fallbackLog, sessionCount: 0 };
     }
+
+    // Derive logFile from resolved worktree path (not config.worktreesDir)
+    const logFile = path.join(worktree, '.agent.log');
 
     try {
       // Step 1: prerequisite checks
