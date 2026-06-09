@@ -105,7 +105,7 @@ describe('TaskCard', () => {
       />
     );
     
-    const cancelButton = screen.getByText('❌ 取消');
+    const cancelButton = screen.getByText('取消');
     fireEvent.click(cancelButton);
     expect(mockCallbacks.onCancel).toHaveBeenCalledWith('exec-12345678');
   });
