@@ -23,6 +23,7 @@ import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
 
 import {
   createWorktree,
+  resolveWorkspace,
   propagateHarnessConfig,
   buildCachePrefix,
   writeRequirementsMd,
@@ -132,8 +133,8 @@ export class AgentExecutor {
    * 静默退出 / 超时 / 崩溃 → 自动 re-spawn。
    */
   async execute(task: AgentTask): Promise<ExecutionResult> {
-    const worktree = path.join(this.config.worktreesDir, task.executionId);
-    const logFile = path.join(worktree, '.agent.log');
+    let worktree = path.join(this.config.worktreesDir, task.executionId);
+    let logFile = path.join(worktree, '.agent.log');
 
     logger.info('[AgentExecutor] Starting session loop', { taskId: task.id, executionId: task.executionId });
 
@@ -145,10 +146,13 @@ export class AgentExecutor {
         throw new Error(`前置检查失败: ${errors.map(e => e.message).join(', ')}`);
       }
 
-      // Step 2: 创建 worktree（git worktree add）
-      const projectRepo = (task.parameters?.repoDir as string) || this.config.repoDir;
-      const baseBranch = (task.parameters?.baseBranch as string) || 'main';
-      await createWorktree(worktree, baseBranch, projectRepo, task);
+      // Step 2: resolve workspace (DB query → worktree fallback)
+      worktree = await resolveWorkspace({
+        task,
+        worktreesDir: this.config.worktreesDir,
+        repoDir: this.config.repoDir,
+      });
+      logFile = path.join(worktree, '.agent.log');
 
       // Step 2.1: 传播 harness 约束 + Claude 权限配置
       await propagateHarnessConfig(worktree, task.id, task.executionId);

@@ -47,6 +47,9 @@ const agentRunnerSrc = fs.readFileSync(agentRunnerPath, 'utf-8');
 const agentExecutorPath = resolveRoot('../agent-executor.ts', 'AgentRunner');
 const agentExecutorSrc = fs.readFileSync(agentExecutorPath, 'utf-8');
 
+const worktreeResolverPath = resolveRoot('../worktree-resolver.ts', 'resolveWorkspace');
+const worktreeResolverSrc = fs.readFileSync(worktreeResolverPath, 'utf-8');
+
 const outputCapturePath = resolveRoot('../output-capture.ts', 'emitToolCall');
 const outputCaptureSrc = fs.readFileSync(outputCapturePath, 'utf-8');
 
@@ -149,17 +152,17 @@ describe('AC1.2: Workspace fallback chain', () => {
     expect(agentRunnerSrc).toContain('resolveWorktree(');
   });
 
-  test('AC1.2-2: reads task.parameters.workspaceRoot', () => {
-    expect(agentRunnerSrc).toContain('task.parameters?.workspaceRoot');
+  test('AC1.2-2: shared resolveWorkspace reads task.parameters.workspaceRoot', () => {
+    expect(worktreeResolverSrc).toContain('task.parameters?.workspaceRoot');
   });
 
-  test('AC1.2-3: queries prisma.workspace.findFirst for VPS', () => {
-    expect(agentRunnerSrc).toContain('prisma.workspace.findFirst');
-    expect(agentRunnerSrc).toMatch(/name:\s*['"]VPS['"]|type:\s*['"]vps['"]/);
+  test('AC1.2-3: shared resolveWorkspace queries prisma.workspace.findFirst for VPS', () => {
+    expect(worktreeResolverSrc).toContain('prisma.workspace.findFirst');
+    expect(worktreeResolverSrc).toMatch(/name:\s*['"]VPS['"]/);
   });
 
-  test('AC1.2-4: falls back to config.worktreesDir', () => {
-    expect(agentRunnerSrc).toContain('this.config.worktreesDir');
+  test('AC1.2-4: AgentRunner delegates to shared resolveWorkspace', () => {
+    expect(agentRunnerSrc).toContain('resolveWorkspace(');
   });
 
   test('AC1.2-5: execute() calls resolveWorktree', () => {
