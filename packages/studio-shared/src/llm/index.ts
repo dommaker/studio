@@ -5,3 +5,6 @@ export type { LLMConfig, ChatMessage, ChatCompletionRequest, ChatCompletionRespo
 
 export { ModelGateway, modelGateway } from './model-gateway.js';
 export type { ProviderConfig, GatewayMessage, GatewayRequest, GatewayResponse, UsageRecord, GatewayStats } from './model-gateway.js';
+
+export { buildSpawnEnv } from './spawn-claude-cli.js';
+export type { SpawnEnvOptions } from './spawn-claude-cli.js';

@@ -6,7 +6,7 @@
  *   审查结果写入 .review-report.json，供修复循环使用。
  */
 
-import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv } from '@dommaker/studio-shared';
 import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
@@ -120,7 +120,7 @@ export class ReviewAgent {
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY, ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL },
+          env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
           timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -393,7 +393,7 @@ export class ReviewAgent {
 
         const { stdout } = await execSh(cmd, {
           cwd: params.worktree,
-          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY, ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL },
+          env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
           timeoutMs: 5 * 60 * 1000,
           maxBuffer: 5 * 1024 * 1024,
         });
@@ -507,7 +507,7 @@ export class ReviewAgent {
       try {
         await execSh(cmd, {
           cwd: repoPath,
-          env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY, ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL },
+          env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
           timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -633,7 +633,7 @@ export class ReviewAgent {
       try { fs.unlinkSync(reportPath); } catch {}
       const cmd = `cd "${worktree}" && cat '${promptFile}' | claude --print --output-format json --model "${model}" 2>&1`;
       await execSh(cmd, {
-        cwd: worktree, env: { ANTHROPIC_MODEL: model, ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY, ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL },
+        cwd: worktree, env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
         timeoutMs: 5 * 60 * 1000, maxBuffer: 5 * 1024 * 1024,
       });
 

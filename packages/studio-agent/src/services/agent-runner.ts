@@ -13,7 +13,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
@@ -445,16 +445,16 @@ export class AgentRunner implements IAgentRunner {
         await emitSessionStart(sessionId, task.executionId, sessionCount);
 
         try {
-          const resolvedModel = getModelForTier(model as any);
           const { stdout } = await execSh(cmd, {
             cwd: worktree,
-            env: {
-              ANTHROPIC_MODEL: resolvedModel,
-              ANTHROPIC_AUTH_TOKEN: process.env.PIPELINE_API_KEY,
-              ANTHROPIC_BASE_URL: process.env.PIPELINE_BASE_URL,
-              STUDIO_EXECUTION_ID: task.executionId,
-              ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
-            },
+            env: buildSpawnEnv({
+              tier: model,
+              role: 'executor',
+              extra: {
+                STUDIO_EXECUTION_ID: task.executionId,
+                ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
+              },
+            }),
             timeoutMs: this.config.sessionTimeoutMinutes * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
             childRef,

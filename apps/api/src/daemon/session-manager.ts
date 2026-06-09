@@ -3,7 +3,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
 import { parseClaudeUsage, recordPipelineRun } from './metrics.js';
@@ -225,21 +225,12 @@ export class SessionManager {
       try {
         // 按 session 类型选 API key：analyst → STUDIO_*，executor/reviewer → PIPELINE_*
         const isAnalyst = sessionName === 'analyst';
-        const sessionApiKey = isAnalyst
-          ? process.env.STUDIO_API_KEY
-          : process.env.PIPELINE_API_KEY;
-        const sessionBaseUrl = isAnalyst
-          ? process.env.STUDIO_BASE_URL
-          : process.env.PIPELINE_BASE_URL;
 
         const result = await execSh(cmd, {
           cwd: state.config.worktree,
           env: {
             ...process.env,
-            ANTHROPIC_MODEL: model,
-            ANTHROPIC_AUTH_TOKEN: sessionApiKey,
-            ANTHROPIC_BASE_URL: sessionBaseUrl,
-            ...job.env,
+            ...buildSpawnEnv({ tier: model, role: isAnalyst ? 'analyst' : 'executor', extra: job.env }),
           },
           timeoutMs: state.config.timeoutMs,
           maxBuffer: 10 * 1024 * 1024,
