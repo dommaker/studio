@@ -491,16 +491,16 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       if (/payment|billing|transaction|balance|money/i.test(allAcs)) risks.push('financial');
 
       // RequirementGate: 验证 AC 组质量（粒度/文件/依赖/独立性）
+      // Resolve monorepo root (Analyst writes paths relative to monorepo root, not api package dir)
+      const repoDir = process.env.REPO_DIR || (() => {
+        let dir = process.cwd();
+        while (dir !== '/' && !fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
+          dir = path.dirname(dir);
+        }
+        return dir;
+      })();
       try {
         const { validateRequirementsDoc } = await import('../agents/requirement-gate.js');
-        // Resolve monorepo root (Analyst writes paths relative to monorepo root, not api package dir)
-        const repoDir = process.env.REPO_DIR || (() => {
-          let dir = process.cwd();
-          while (dir !== '/' && !fs.existsSync(path.join(dir, 'pnpm-workspace.yaml'))) {
-            dir = path.dirname(dir);
-          }
-          return dir;
-        })();
         // Extract Schema First verification from doc content
         const ivMatch = doc.content.match(/<!-- INTERFACE_VERIFICATION (.+?) -->/);
         const interfaceVerification = ivMatch ? JSON.parse(ivMatch[1]) : undefined;
@@ -544,6 +544,27 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
           );
         } catch { /* best-effort */ }
         return res.status(500).json({ success: false, error: 'RequirementGate failed' });
+      }
+
+      // D6: Fact verification — check architectureContext claims against codebase
+      try {
+        const { verifyAnalystFacts } = await import('./analyst-fact-verification.js');
+        const factResults = verifyAnalystFacts(acGroups, repoDir);
+        const factFailures = factResults.filter(r => !r.passed);
+        if (factFailures.length > 0) {
+          logger.warn('[Channel] D6 fact verification: issues found', {
+            docId,
+            issues: factFailures.map(r => r.message),
+          });
+          // Soft warning — don't block, but record for downstream awareness
+          for (const group of acGroups) {
+            (group as any)._factWarnings = factFailures.map(r => r.message);
+          }
+        } else {
+          logger.info('[Channel] D6 fact verification: passed', { docId });
+        }
+      } catch (e: any) {
+        logger.warn('[Channel] D6 fact verification failed (non-blocking)', { error: String(e) });
       }
 
       // A6: Check for duplicate PMO project
