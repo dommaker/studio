@@ -140,6 +140,13 @@ export class KnowledgeBus {
         if (!content.includes('root_cause') || !content.includes('fix_action')) {
           const msg = 'Triage entry must include root_cause and fix_action';
           logger.warn(`[KnowledgeBus] ${msg}`, { title: entry.title });
+          prisma.studioEvent.create({
+            data: {
+              type: 'knowledge:quality_gate',
+              source: 'knowledge-bus',
+              payload: JSON.stringify({ skipped: true, reason: msg, entryType: entry.type }),
+            },
+          }).catch(() => {});
           throw new Error(msg);
         }
       }
@@ -150,6 +157,13 @@ export class KnowledgeBus {
       const blockers = issues.filter(i => i.severity === 'high');
       if (blockers.length > 0) {
         logger.warn('[KnowledgeBus] Entry rejected by quality gate', { title: entry.title, issues: blockers.map(i => i.description) });
+        prisma.studioEvent.create({
+          data: {
+            type: 'knowledge:quality_gate',
+            source: 'knowledge-bus',
+            payload: JSON.stringify({ skipped: true, reason: blockers.map(i => i.description).join('; '), entryType: entry.type }),
+          },
+        }).catch(() => {});
         return;
       }
 
@@ -173,6 +187,15 @@ export class KnowledgeBus {
       if (result.lastReferenced && result.contributors.length > 1) {
         logger.info('[KnowledgeBus] Dedup merged', { title: entry.title, existingId: result.id });
       }
+
+      // S3 Gap 3d: emit entry_created for knowledge_growth_rate metric
+      prisma.studioEvent.create({
+        data: {
+          type: 'knowledge:entry_created',
+          source: 'knowledge-bus',
+          payload: JSON.stringify({ entryType: entry.type, title: entry.title }),
+        },
+      }).catch(() => {});
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to record pattern', { error: String(e) });
     }

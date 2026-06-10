@@ -208,6 +208,15 @@ export class SkillLoaderService {
 
     state.loaded.set(skillName, loaded);
 
+    // S3 Gap 3c: emit skill_used for knowledge_skill_usage_rate metric
+    prisma.studioEvent.create({
+      data: {
+        type: 'knowledge:skill_used',
+        source: 'skill-loader',
+        payload: JSON.stringify({ skillName, skillId }),
+      },
+    }).catch(() => {});
+
     logger.info('[SkillLoader] Loaded skill', {
       sessionId,
       skillName,

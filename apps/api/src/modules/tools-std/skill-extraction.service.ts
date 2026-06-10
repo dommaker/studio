@@ -116,6 +116,15 @@ export class SkillExtractionService {
       data: { skillId: skill.id, status: spStatus, proposedBy: 'system', summary: spSummary },
     });
 
+    // S3 Gap 3c: emit skill_created for knowledge_skill_created metric
+    prisma.studioEvent.create({
+      data: {
+        type: 'knowledge:skill_created',
+        source: 'skill-extraction',
+        payload: JSON.stringify({ skillName: proposal.name, skillId: skill.id }),
+      },
+    }).catch(() => {});
+
     if (autoPublish) {
       logger.info('[SkillExtraction] Auto-published skill', {
         name: proposal.name,

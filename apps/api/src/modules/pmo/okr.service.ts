@@ -1084,7 +1084,7 @@ export class OKRService {
       });
       if (events.length === 0) return null;
       const rollbacks = events.filter(e => {
-        try { return JSON.parse(e.payload).result?.rollback; } catch { return false; }
+        try { return JSON.parse(e.payload).success === false; } catch { return false; }
       }).length;
       return Math.round((rollbacks / events.length) * 100);
     } catch { return null; }
