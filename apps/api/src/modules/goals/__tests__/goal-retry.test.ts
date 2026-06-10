@@ -111,4 +111,30 @@ describe('maybeRetryExecution()', () => {
     expect(updateData.startedAt).toBeNull();
     expect(updateData.completedAt).toBeNull();
   });
+
+  test('does not retry when failure is not-retryable (approach infeasible)', async () => {
+    mockExecFindUnique.mockResolvedValue({ retryCount: 0 });
+
+    const result = await maybeRetryExecution('exec-1', 'The approach is infeasible');
+
+    expect(result).toBe(false);
+    expect(mockExecUpdate).not.toHaveBeenCalled();
+  });
+
+  test('does not retry when failure is not-retryable (API does not exist)', async () => {
+    mockExecFindUnique.mockResolvedValue({ retryCount: 0 });
+
+    const result = await maybeRetryExecution('exec-1', 'Error: API endpoint does not exist');
+
+    expect(result).toBe(false);
+    expect(mockExecUpdate).not.toHaveBeenCalled();
+  });
+
+  test('retries when failure is unknown (allows retry for diagnosis)', async () => {
+    mockExecFindUnique.mockResolvedValue({ retryCount: 0 });
+
+    const result = await maybeRetryExecution('exec-1', 'Something weird happened');
+
+    expect(result).toBe(true);
+  });
 });

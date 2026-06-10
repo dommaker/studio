@@ -41,6 +41,7 @@ import {
   findTaskBranch,
   runIntegrationInCode,
 } from './scheduler-prompt.js';
+import { classifyFailure } from './failure-classifier.js';
 
 const MAX_CONCURRENT = 5;
 const MAX_RETRIES = 3;
@@ -501,6 +502,13 @@ export async function maybeRetryExecution(
   error: string,
   maxRetries: number = MAX_RETRIES,
 ): Promise<boolean> {
+  // Not-retryable failures skip retry entirely
+  const failureClass = classifyFailure(error);
+  if (failureClass === 'not-retryable') {
+    logger.info('[GoalScheduler] Failure not retryable, skipping retry', { executionId, failureClass });
+    return false;
+  }
+
   const exec = await prisma.goalExecution.findUnique({
     where: { id: executionId },
     select: { retryCount: true },
