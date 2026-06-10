@@ -178,10 +178,21 @@ export async function login(input: LoginInput): Promise<AuthResult> {
     }
   }
   
+  // 清理旧 guest session（用户登录后不再需要）
+  const guestSessions = await prisma.session.findMany({
+    where: { userId: user.id, guestId: { not: null }, expiresAt: { gt: new Date() } },
+    select: { id: true },
+  });
+  if (guestSessions.length > 0) {
+    await prisma.session.deleteMany({
+      where: { id: { in: guestSessions.map(s => s.id) } },
+    });
+  }
+
   // 创建 Session
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7); // 7 天
-  
+
   const session = await prisma.session.create({
     data: {
       userId: user.id,
@@ -258,12 +269,21 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
 
 /**
  * 登出
+ * @param sessionId - 要过期的 session ID
+ * @param userId - 可选，提供时同时吊销该用户所有 refresh token
  */
-export async function logout(sessionId: string): Promise<void> {
+export async function logout(sessionId: string, userId?: string): Promise<void> {
   await prisma.session.update({
     where: { id: sessionId },
     data: { expiresAt: new Date() }, // 立即过期
   });
+
+  if (userId) {
+    await prisma.refreshToken.updateMany({
+      where: { userId },
+      data: { revokedAt: new Date() },
+    });
+  }
 }
 
 /**

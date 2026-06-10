@@ -35,7 +35,7 @@ vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-import { requireAuth, optionalAuth } from '../../../middleware/auth.js';
+import { requireAuth, optionalAuth, requireRole } from '../../../middleware/auth.js';
 
 describe('middleware-invocation', () => {
   describe('requireAuth', () => {
@@ -77,6 +77,47 @@ describe('middleware-invocation', () => {
 
       expect(res.status).toHaveBeenCalledWith(401);
       expect(next).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('requireRole', () => {
+    it('returns 403 when user role does not match', async () => {
+      const middleware = requireRole('Admin');
+      const req = {
+        headers: { authorization: 'Bearer test-token' },
+        socket: { remoteAddress: '127.0.0.1' },
+        session: { id: 's1', userId: 'u1' },
+        user: { id: 'u1', role: 'User' },
+      } as unknown as Request;
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn() as NextFunction;
+
+      await middleware(req, res, next);
+
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('calls next() when user role matches', async () => {
+      const middleware = requireRole('Admin');
+      const req = {
+        headers: { authorization: 'Bearer test-token' },
+        socket: { remoteAddress: '127.0.0.1' },
+        session: { id: 's1', userId: 'u1' },
+        user: { id: 'u1', role: 'Admin' },
+      } as unknown as Request;
+      const res = {
+        status: vi.fn().mockReturnThis(),
+        json: vi.fn(),
+      } as unknown as Response;
+      const next = vi.fn() as NextFunction;
+
+      await middleware(req, res, next);
+
+      expect(next).toHaveBeenCalled();
     });
   });
 

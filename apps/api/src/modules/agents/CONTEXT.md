@@ -26,8 +26,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/requirement-gate.ts
 
-<!-- STALE_SINCE: 2026-06-09 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts
+
+<!-- STALE_SINCE: 2026-06-09 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
 
 ## 职责
 
@@ -48,6 +50,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `556051f2`: B34 behavior distillation output path + PatternMiner startup + agent-runner --verbose
 - ✅ `1c4bb9ae`: remove all hardcoded credentials — require env vars
 - ✅ `79f4a186`: knowledge quality gate + CPU monitoring + type fix
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

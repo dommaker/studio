@@ -78,7 +78,6 @@ export async function registerRoutes(): Promise<void> {
     const PUBLIC_API = new Set([
       '/auth/login',
       '/auth/register',
-      '/auth/session',
       '/auth/guest-session',
       '/auth/refresh',
       '/auth/google',

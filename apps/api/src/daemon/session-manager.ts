@@ -246,7 +246,9 @@ export class SessionManager {
         const errCode = (execErr as any)?.code;
 
         const durationMs = Date.now() - startTime;
-        const userMsg = stderr.slice(0, 300) || errMsg.slice(0, 300);
+        // 2>&1 合并 stderr→stdout，stderr 为空时从 stdout 尾部提取错误信息
+        const tailStdout = stdout_fail.slice(-500);
+        const userMsg = stderr.slice(0, 300) || tailStdout.slice(0, 300) || errMsg.slice(0, 300);
         logger.error('[SessionManager] Task failed', {
           session: sessionName,
           error: userMsg.slice(0, 200),

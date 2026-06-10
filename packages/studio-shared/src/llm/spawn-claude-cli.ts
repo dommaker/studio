@@ -7,19 +7,19 @@
  * 角色映射：
  *   analyst → STUDIO_* key
  *   executor / reviewer / default → PIPELINE_* key（fallback STUDIO_*）
+ *
+ * 模型：不设置 ANTHROPIC_MODEL，CLI 继承 process.env 中已配置的值。
+ * （getModelForTier 返回 deepseek 模型名，与 Claude CLI 不兼容）
  */
 
-import { getModelForTier } from '../config/model-tier.js';
-import type { ModelTier } from '../config/model-tier.js';
-
 export interface SpawnEnvOptions {
-  tier: ModelTier | string;
+  tier?: string;
   role?: 'analyst' | 'executor' | 'reviewer';
   extra?: Record<string, string>;
 }
 
-export function buildSpawnEnv(options: SpawnEnvOptions): Record<string, string> {
-  const { tier, role = 'executor', extra } = options;
+export function buildSpawnEnv(options: SpawnEnvOptions = {}): Record<string, string> {
+  const { role = 'executor', extra } = options;
 
   const isAnalyst = role === 'analyst';
   const apiKey = isAnalyst
@@ -29,10 +29,9 @@ export function buildSpawnEnv(options: SpawnEnvOptions): Record<string, string> 
     ? (process.env.STUDIO_BASE_URL || '')
     : (process.env.PIPELINE_BASE_URL || process.env.STUDIO_BASE_URL || '');
 
-  return {
-    ANTHROPIC_MODEL: getModelForTier(tier as ModelTier),
-    ANTHROPIC_AUTH_TOKEN: apiKey,
-    ANTHROPIC_BASE_URL: baseUrl,
-    ...extra,
-  };
+  const env: Record<string, string> = { ...extra };
+  // 只在显式配置了 key 时覆盖，避免空字符串覆盖 process.env 中的有效值
+  if (apiKey) env.ANTHROPIC_AUTH_TOKEN = apiKey;
+  if (baseUrl) env.ANTHROPIC_BASE_URL = baseUrl;
+  return env;
 }

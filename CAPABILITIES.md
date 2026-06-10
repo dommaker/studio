@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-06-02
+> 最后更新: 2026-06-10
 
 ---
 
@@ -18,8 +18,6 @@
 | types | packages/studio-audit/src/types.ts | types |
 | capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
 | company-mcp-pool | packages/studio-capability/src/services/company-mcp-pool.ts | 公司 MCP 资源池管理 |
-| company-skill.service.test | packages/studio-capability/src/services/company-skill.service.test.ts | CompanySkillService 单元测试 |
-| company-skill.service | packages/studio-capability/src/services/company-skill.service.ts | ⚠️ DEPRECATED: 公司技能库服务 |
 | health-monitor | packages/studio-monitor/src/services/health-monitor.ts | 启动健康监控 |
 | list | packages/studio-notification/src/cli/list.ts | Mock 数据 |
 | mark | packages/studio-notification/src/cli/mark.ts | Mock 数据 |
@@ -48,9 +46,6 @@
 | bootstrap | packages/studio-shared/src/harness/runtime/bootstrap.ts | Harness Runtime Bootstrap — Phase 2 迁移 |
 | cache | packages/studio-shared/src/harness/runtime/cache.ts | Constraint Check Cache（S7 修复） |
 | session-metrics | packages/studio-shared/src/harness/session-metrics.ts | Session Metrics — parse claude --output-format json output into structured metrics. |
-| knowledge-keeper | packages/studio-shared/src/harness/wiki/knowledge-keeper.ts | Knowledge Keeper — 知识库守护者（统一角色入口） |
-| knowledge-query | packages/studio-shared/src/harness/wiki/knowledge-query.ts | Knowledge Keeper 查询 — 搜索公司 Wiki 知识库 |
-| wiki-service | packages/studio-shared/src/harness/wiki/wiki-service.ts | Wiki Service — 公司知识库的 Markdown 页面读写 |
 | llm-client | packages/studio-shared/src/llm/llm-client.ts | LLM 客户端 |
 | model-gateway | packages/studio-shared/src/llm/model-gateway.ts | Model Gateway - 统一 LLM 调用网关 |
 | memory-store | packages/studio-shared/src/memory-store.ts | MemoryStore — 内存替代 Redis (B0-011) |
@@ -94,7 +89,6 @@
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
 | agent-context | apps/api/src/modules/agents/agent-context.ts | buildAgentContext — 统一 Agent 上下文构建器 |
-| agent-router | apps/api/src/modules/agents/agent-router.ts | AgentRouter - Layer 2 of three-layer Agent architecture (§12.10) |
 | auditor-agent.service | apps/api/src/modules/agents/auditor-agent.service.ts | Auditor Agent — 跨任务审计 + 周期洞察 |
 | deploy-agent.service | apps/api/src/modules/agents/deploy-agent.service.ts | Deploy Agent — merge to master, push, deploy, cleanup |
 | knowledge-agent.service | apps/api/src/modules/agents/knowledge-agent.service.ts | Knowledge Agent - 从执行结果中异步提取知识 |
@@ -151,7 +145,6 @@
 | routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理 |
 | rule-scanner | apps/api/src/modules/knowledge/rule-scanner.ts | RuleScanner (G-002) — 从源码/harness 约束/配置中提取业务规则 |
 | routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
-| client | apps/api/src/modules/llm/client.ts | LLM 客户端 - 支持 OpenAI 兼容 API |
 | config.routes | apps/api/src/modules/llm/config.routes.ts | LLM Config API 路由 |
 | config.service | apps/api/src/modules/llm/config.service.ts | LLM Config Service - 加密存储 + 分层配置解析 |
 | creation-analyzer | apps/api/src/modules/llm/creation-analyzer.ts | 创建意图分析器 - 从自然语言生成 Skill/Workflow 配置 |
@@ -248,3 +241,16 @@
 | token.routes | apps/api/src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
 | workspace.routes | apps/api/src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
 | ws-gateway | apps/api/src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
+| agent-runner | packages/studio-agent/src/services/agent-runner.ts | Agent Runner — unified executor merging AgentExecutor + TaskExecutor |
+| spawn-claude-cli | packages/studio-shared/src/llm/spawn-claude-cli.ts | CLI Spawn 环境变量构造 |
+| stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
+| data-analyst-agent.service | apps/api/src/modules/agents/data-analyst-agent.service.ts | DataAnalyst Agent — 每日数据分析 (LLM) |
+| oauth.routes | apps/api/src/modules/auth/oauth.routes.ts | GET /auth/:provider |
+| oauth.service | apps/api/src/modules/auth/oauth.service.ts | OAuth 2.0 service for Google and GitHub providers. |
+| analyst-fact-verification | apps/api/src/modules/channels/analyst-fact-verification.ts | Analyst Fact Verification — 事实验证层 (D6) |
+| failure-classifier | apps/api/src/modules/goals/failure-classifier.ts | Failure classifier — pattern matching on error messages |
+| prompt-builder | apps/api/src/modules/knowledge/consumers/prompt-builder.ts | Unified knowledge injection entry point. |
+| unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
+| knowledge-service.routes | apps/api/src/modules/knowledge/knowledge-service.routes.ts | KnowledgeService HTTP API + SSE |
+| knowledge-service | apps/api/src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |
+| external-fetcher | apps/api/src/modules/knowledge/producers/external-fetcher.ts | ExternalFetcher — fetch external docs and ingest as reference knowledge. |

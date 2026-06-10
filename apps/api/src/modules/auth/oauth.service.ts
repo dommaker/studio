@@ -37,7 +37,7 @@ export function getAuthorizationUrl(provider: OAuthProvider, state: string): str
       if (!clientId) throw new Error('GOOGLE_CLIENT_ID not configured');
       const params = new URLSearchParams({
         client_id: clientId,
-        redirect_uri: `${redirectBase}/google/callback`,
+        redirect_uri: `${redirectBase}/callback/google`,
         response_type: 'code',
         scope: 'openid email profile',
         state,
@@ -51,7 +51,7 @@ export function getAuthorizationUrl(provider: OAuthProvider, state: string): str
       if (!clientId) throw new Error('GITHUB_CLIENT_ID not configured');
       const params = new URLSearchParams({
         client_id: clientId,
-        redirect_uri: `${redirectBase}/github/callback`,
+        redirect_uri: `${redirectBase}/callback/github`,
         scope: 'user:email',
         state,
       });
@@ -93,7 +93,7 @@ async function exchangeGoogleCode(code: string): Promise<{ profile: OAuthProfile
       code,
       client_id: clientId,
       client_secret: clientSecret,
-      redirect_uri: `${redirectBase}/google/callback`,
+      redirect_uri: `${redirectBase}/callback/google`,
       grant_type: 'authorization_code',
     }),
   });

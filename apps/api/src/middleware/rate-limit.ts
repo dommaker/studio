@@ -36,3 +36,33 @@ export const apiRateLimit = rateLimit({
     error: 'Too many requests, please try again later',
   },
 });
+
+/**
+ * 认证端点速率限制
+ * 每个 IP 每分钟最多 10 次登录/注册尝试
+ * 防止暴力破解密码
+ */
+export const authRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Too many login attempts, please try again later',
+  },
+});
+
+/**
+ * Token 刷新速率限制
+ * 每个 IP 每分钟最多 20 次刷新
+ * 比登录宽松，合法用户刷新频率更高
+ */
+export const refreshRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    error: 'Too many refresh attempts, please try again later',
+  },
+});

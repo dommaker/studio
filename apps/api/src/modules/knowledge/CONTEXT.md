@@ -3,8 +3,10 @@
 > 此文件描述 apps/api/src/modules/knowledge 目录的职责和上下文
 > Updated: 2026-06-04 (AS-022 unified refactoring)
 
-<!-- STALE_SINCE: 2026-06-09 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-bus.service.ts, apps/api/src/modules/knowledge/routes.ts
+
+<!-- STALE_SINCE: 2026-06-09 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/evolution-scheduler.ts
 
 ## 职责
 
@@ -69,5 +71,6 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `556051f2`: B34 behavior distillation output path + PatternMiner startup + agent-runner --verbose
 - ✅ `79f4a186`: knowledge quality gate + CPU monitoring + type fix
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

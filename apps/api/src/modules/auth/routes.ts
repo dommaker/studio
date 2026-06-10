@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { requireAuth, getAuthInfo, optionalAuth } from '../../middleware/auth.js';
+import { requireAuth, getAuthInfo, optionalAuth, requireRole } from '../../middleware/auth.js';
+import { authRateLimit, refreshRateLimit } from '../../middleware/rate-limit.js';
 import * as authService from './service.js';
 import { AuditService } from '@dommaker/studio-audit';  // 🆕 SEC-010
 import { prisma } from '../../core/database.js';
@@ -30,7 +31,7 @@ router.post('/guest-session', async (req, res) => {
  * 用户注册
  * 🆕 SEC-010: 记录审计日志
  */
-router.post('/register', async (req, res) => {
+router.post('/register', authRateLimit, async (req, res) => {
   try {
     const result = await authService.register(req.body);
     
@@ -70,7 +71,7 @@ router.post('/register', async (req, res) => {
  * 用户登录
  * 🆕 SEC-010: 记录审计日志
  */
-router.post('/login', async (req, res) => {
+router.post('/login', authRateLimit, async (req, res) => {
   const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
   const ua = req.headers['user-agent'] || 'unknown';
   
@@ -121,7 +122,7 @@ router.post('/login', async (req, res) => {
 router.post('/logout', requireAuth(), async (req, res) => {
   try {
     const authInfo = getAuthInfo(req);
-    await authService.logout(authInfo.sessionId);
+    await authService.logout(authInfo.sessionId, authInfo.userId);
     
     // SEC-010: 记录登出
     await auditService.log({
@@ -161,7 +162,7 @@ router.get('/me', optionalAuth(), async (req, res) => {
  * POST /api/v1/auth/cleanup
  * 清理过期 Session（管理员）
  */
-router.post('/cleanup', requireAuth(), async (req, res) => {
+router.post('/cleanup', requireAuth(), requireRole('Admin'), async (req, res) => {
   try {
     const count = await authService.cleanupExpiredSessions();
     res.json({ cleaned: count });
@@ -174,7 +175,7 @@ router.post('/cleanup', requireAuth(), async (req, res) => {
  * POST /api/v1/auth/refresh
  * 刷新 Token（公开端点）
  */
-router.post('/refresh', async (req, res) => {
+router.post('/refresh', refreshRateLimit, async (req, res) => {
   try {
     const { refreshToken } = req.body;
     if (!refreshToken) {

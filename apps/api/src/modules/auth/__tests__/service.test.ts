@@ -24,12 +24,14 @@ vi.mock('@dommaker/studio-prisma', () => ({
       update: vi.fn(),
       findUnique: vi.fn(),
       findFirst: vi.fn(),
+      findMany: vi.fn(),
       deleteMany: vi.fn(),
     },
     refreshToken: {
       create: vi.fn(),
       findUnique: vi.fn(),
       update: vi.fn(),
+      updateMany: vi.fn(),
     },
   },
 }));
@@ -142,6 +144,7 @@ describe('auth service', () => {
         passwordHash: hash,
         role: 'User',
       } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
       vi.mocked(prisma.session.create).mockResolvedValue({
         id: 's1',
         token: '',
@@ -155,6 +158,62 @@ describe('auth service', () => {
       expect(result.user?.id).toBe('u1');
       expect(result.token).toBeDefined();
       expect(result.refreshToken).toBeDefined();
+    });
+
+    it('cleans up old guest sessions on login', async () => {
+      const bcrypt = await import('bcryptjs');
+      const hash = bcrypt.hashSync(TEST_PW, 4);
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        id: 'u1',
+        email: 'test@test.com',
+        passwordHash: hash,
+        role: 'User',
+      } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([
+        { id: 'guest-s1' },
+        { id: 'guest-s2' },
+      ] as any);
+      vi.mocked(prisma.session.deleteMany).mockResolvedValue({ count: 2 } as any);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 's1',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      await login({ email: 'test@test.com', password: TEST_PW });
+
+      expect(prisma.session.findMany).toHaveBeenCalledWith({
+        where: { userId: 'u1', guestId: { not: null }, expiresAt: { gt: expect.any(Date) } },
+        select: { id: true },
+      });
+      expect(prisma.session.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['guest-s1', 'guest-s2'] } },
+      });
+    });
+
+    it('skips guest cleanup when no guest sessions exist', async () => {
+      const bcrypt = await import('bcryptjs');
+      const hash = bcrypt.hashSync(TEST_PW, 4);
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        id: 'u1',
+        email: 'test@test.com',
+        passwordHash: hash,
+        role: 'User',
+      } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 's1',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      await login({ email: 'test@test.com', password: TEST_PW });
+
+      expect(prisma.session.deleteMany).not.toHaveBeenCalled();
     });
   });
 
@@ -238,6 +297,27 @@ describe('auth service', () => {
         })
       );
     });
+
+    it('revokes all refresh tokens when userId provided', async () => {
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.updateMany).mockResolvedValue({ count: 3 } as any);
+
+      await logout('s1', 'u1');
+
+      expect(prisma.session.update).toHaveBeenCalled();
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'u1' },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('does not revoke refresh tokens when userId not provided', async () => {
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+
+      await logout('s1');
+
+      expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
   });
 
   describe('refresh tokens', () => {
@@ -281,6 +361,73 @@ describe('auth service', () => {
 
       const result = await revokeRefreshToken('already-revoked');
       expect(result).toBe(false);
+    });
+
+    it('exchangeRefreshToken returns null for non-existent token', async () => {
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValue(null);
+
+      const result = await exchangeRefreshToken('nonexistent');
+      expect(result).toBeNull();
+    });
+
+    it('exchangeRefreshToken revokes old token and returns new pair on valid token', async () => {
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValue({
+        id: 'rt1',
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 86400000),
+      } as any);
+      vi.mocked(prisma.refreshToken.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 'new-s1',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      const result = await exchangeRefreshToken('valid-refresh');
+
+      expect(result).not.toBeNull();
+      expect(result!.accessToken).toBeDefined();
+      expect(result!.refreshToken).toBeDefined();
+      expect(result!.userId).toBe('u1');
+      // Old token revoked
+      expect(prisma.refreshToken.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'rt1' },
+          data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+        })
+      );
+      // New session created
+      expect(prisma.session.create).toHaveBeenCalled();
+    });
+
+    it('revokeRefreshToken returns true for valid unredeemed token', async () => {
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValue({
+        id: 'rt1',
+        revokedAt: null,
+      } as any);
+      vi.mocked(prisma.refreshToken.update).mockResolvedValue({} as any);
+
+      const result = await revokeRefreshToken('valid-token');
+      expect(result).toBe(true);
+      expect(prisma.refreshToken.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'rt1' },
+          data: expect.objectContaining({ revokedAt: expect.any(Date) }),
+        })
+      );
+    });
+  });
+
+  describe('verifyToken round-trip', () => {
+    it('verifyToken returns null for non-JWT string', () => {
+      expect(verifyToken('not-a-jwt')).toBeNull();
+    });
+
+    it('verifyToken returns null for empty string', () => {
+      expect(verifyToken('')).toBeNull();
     });
   });
 });

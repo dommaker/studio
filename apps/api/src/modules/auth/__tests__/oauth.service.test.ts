@@ -87,6 +87,20 @@ describe('oauth.service', () => {
       const url = getAuthorizationUrl('google', 'test-state');
       expect(url).toContain('redirect_uri=');
     });
+
+    it('AC1.1: Google redirect_uri uses /callback/google path order', () => {
+      const url = getAuthorizationUrl('google', 'test-state');
+      const redirectUri = new URL(url).searchParams.get('redirect_uri')!;
+      expect(redirectUri).toMatch(/\/callback\/google$/);
+      expect(redirectUri).not.toMatch(/\/google\/callback/);
+    });
+
+    it('AC1.2: GitHub redirect_uri uses /callback/github path order', () => {
+      const url = getAuthorizationUrl('github', 'test-state');
+      const redirectUri = new URL(url).searchParams.get('redirect_uri')!;
+      expect(redirectUri).toMatch(/\/callback\/github$/);
+      expect(redirectUri).not.toMatch(/\/github\/callback/);
+    });
   });
 
   describe('exchangeCodeForTokens', () => {
