@@ -62,10 +62,11 @@ describe('AC2: agent-executor.ts cmd construction', () => {
       expect(cmdBlock).toContain('promptFile');
     });
 
-    test('AC2.1-5: cmd should contain "claude" and "--print" (preserved flags)', () => {
+    test('AC2.1-5: cmd should contain "claude", "--print", and stream-json format', () => {
       expect(cmdBlock).toContain('claude');
       expect(cmdBlock).toContain('--print');
-      expect(cmdBlock).toContain('--output-format json');
+      expect(cmdBlock).toContain('--output-format stream-json');
+      expect(cmdBlock).toContain('--verbose');
     });
   });
 

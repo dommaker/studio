@@ -15,7 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractResult, extractToolCalls, extractFilePath } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
@@ -32,7 +32,6 @@ import {
 import {
   readProgress,
   collectOutputFiles,
-  parseJsonEnvelope,
   recordSessionMetrics,
   emitSessionStart,
   emitSessionEnd,
@@ -304,7 +303,8 @@ export class AgentExecutor {
           `&&`,
           `claude`,
           `--print`,
-          `--output-format json`,
+          `--output-format stream-json`,
+          `--verbose`,
           addDirArgs,
           sessionFlag,
           `<`,
@@ -349,11 +349,42 @@ export class AgentExecutor {
           // OBS-3: Persist raw stdout to .agent.log (replaces shell pipe | tee)
           fsSync.writeFileSync(logFile, stdout, 'utf-8');
 
-          // Parse JSON envelope
-          const { text, isError } = parseJsonEnvelope(stdout, task.id, task.executionId);
+          // D4: Parse stream-json output (replaces JSON envelope)
+          const events = parseStreamEvents(stdout);
+          const { text: resultText, isError } = extractResult(events);
+          let text = resultText;
+          if (!text && !isError) {
+            text = stdout;
+          }
 
           if (isError) {
             logger.warn('[AgentExecutor] Claude Code returned error', { taskId: task.id, executionId: task.executionId, session: sessionCount, text: text.slice(0, 200) });
+          }
+
+          // D4: Emit tool:call and file:change events
+          const toolCalls = extractToolCalls(events);
+          for (const tool of toolCalls) {
+            try {
+              await prisma.studioEvent.create({
+                data: {
+                  type: 'tool:call',
+                  source: 'agent-executor',
+                  executionId: task.executionId,
+                  payload: JSON.stringify({ tool: tool.name, input: tool.input }),
+                },
+              });
+              const filePath = extractFilePath(tool.name, tool.input);
+              if (filePath) {
+                await prisma.studioEvent.create({
+                  data: {
+                    type: 'file:change',
+                    source: 'agent-executor',
+                    executionId: task.executionId,
+                    payload: JSON.stringify({ path: filePath, action: 'write' }),
+                  },
+                });
+              }
+            } catch { /* non-blocking */ }
           }
 
           // Record session metrics as StudioEvent (observability)
