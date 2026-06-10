@@ -157,6 +157,7 @@ class AnalystTriggerService {
           content: this.formatRequirementsDoc(response),
           acGroups: JSON.stringify(response.acGroups || []),
           contractTests: response.contractTests?.length ? JSON.stringify(response.contractTests) : null,
+          contractTestsSkipReason: response.contractTestsSkipReason || null,
           tags: JSON.stringify(response.tags || []),
           sourceChannelId: channelId,
           projectId: null,

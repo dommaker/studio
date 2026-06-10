@@ -356,4 +356,29 @@ router.get('/tasks/:id/status', workspaceAuth(), async (req: Request, res: Respo
   }
 });
 
+// ─── GET /api/v1/daemon/status ───
+// Daemon session status (for CLI and monitoring)
+
+router.get('/status', async (_req: Request, res: Response) => {
+  try {
+    const { daemon } = await import('../../daemon/studio-daemon.js');
+    if (!daemon.isStarted()) {
+      return res.json({ started: false, sessions: [] });
+    }
+    const statuses = daemon.getStatus() as Array<{
+      name: string; isBusy: boolean; lastUsed: number; taskCount: number; worktree: string; persistent: boolean;
+    } | null>;
+    return res.json({
+      started: true,
+      sessions: (statuses || []).filter(Boolean),
+    });
+  } catch (error) {
+    logger.error({ error }, '[Daemon] Status query failed');
+    return res.status(500).json({
+      error: 'Failed to get daemon status',
+      code: 'DAEMON_STATUS_ERROR',
+    });
+  }
+});
+
 export default router;

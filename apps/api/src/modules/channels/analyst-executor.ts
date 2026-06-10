@@ -56,6 +56,8 @@ export interface RequirementsDocJson {
     /** 测试代码内容（可执行的 vitest 代码） */
     content: string;
   }>;
+  /** Analyst 主动跳过契约测试时必须填写原因（如：纯文件创建、无代码行为可测） */
+  contractTestsSkipReason?: string;
 }
 
 /**
@@ -146,6 +148,7 @@ interface AnalystOutput {
   constraints?: unknown[];
   discoveries?: unknown[];
   contractTests?: unknown[];
+  contractTestsSkipReason?: unknown;
 }
 
 /** 验证 Analyst 输出结构，返回错误列表（空 = 通过） */
@@ -194,6 +197,14 @@ export function validateAnalystOutput(doc: unknown): string[] {
         if (typeof t.content !== 'string') errors.push(`contractTests[${i}].content must be a string`);
       }
     }
+  }
+  // contractTests 为空时，必须提供 skipReason
+  const hasTests = Array.isArray(d.contractTests) && d.contractTests.length > 0;
+  if (!hasTests && (d.contractTestsSkipReason === undefined || d.contractTestsSkipReason === null)) {
+    errors.push('contractTests empty requires contractTestsSkipReason explaining why');
+  }
+  if (d.contractTestsSkipReason !== undefined && typeof d.contractTestsSkipReason !== 'string') {
+    errors.push('contractTestsSkipReason must be a string');
   }
 
   return errors;

@@ -169,6 +169,90 @@ async function studioUp(configPath?: string) {
   await import('../index.js');
 }
 
+/**
+ * SSE listener: 等待 goal.created 事件
+ * 连接 /api/v1/events/stream?topics=goals，解析 SSE 事件流
+ * 超时返回 null
+ */
+async function waitForGoalCreated(baseUrl: string, timeoutMs: number): Promise<string | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const resp = await fetch(`${baseUrl}/events/stream?topics=goals`, {
+      signal: controller.signal,
+      headers: { 'Accept': 'text/event-stream' },
+    });
+
+    if (!resp.ok) {
+      // SSE 端点不可用，降级为轮询
+      console.log('  SSE unavailable, falling back to polling...');
+      return pollForGoalCreated(baseUrl, timeoutMs);
+    }
+
+    const reader = resp.body?.getReader();
+    if (!reader) return pollForGoalCreated(baseUrl, timeoutMs);
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let currentEvent = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEvent = line.slice(7).trim();
+        } else if (line.startsWith('data: ') && currentEvent === 'goal.created') {
+          try {
+            const data = JSON.parse(line.slice(6));
+            if (data.goalId) {
+              reader.cancel();
+              clearTimeout(timer);
+              return data.goalId;
+            }
+          } catch { /* ignore parse error */ }
+        }
+      }
+    }
+  } catch (err: any) {
+    if (err.name !== 'AbortError') {
+      console.log('  SSE error, falling back to polling...');
+      return pollForGoalCreated(baseUrl, timeoutMs);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+  return null;
+}
+
+/**
+ * Fallback: 轮询 RequirementsDoc.goalId（当 SSE 不可用时）
+ */
+async function pollForGoalCreated(baseUrl: string, timeoutMs: number): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, 5_000));
+    try {
+      // 检查最新的 RequirementsDoc 是否已关联 Goal
+      const resp = await fetch(`${baseUrl}/pipeline/status`);
+      if (resp.ok) {
+        const data = await resp.json() as any;
+        const recent = data?.executions?.recent?.[0];
+        if (recent?.goalId && recent.status !== 'failed') {
+          return recent.goalId;
+        }
+      }
+    } catch { /* retry */ }
+  }
+  return null;
+}
+
 async function studioRun() {
   const args = process.argv.slice(3);
   const waitIndex = args.indexOf('--wait');
@@ -236,36 +320,39 @@ async function studioRun() {
     let traceChecked = false;
     let reviewMsgs: Array<{ content: string; meta: any }> = [];
 
+    // Stage 1: 先检查是否已有 Goal（autoStartExecution 可能已完成），再 SSE 监听
+    if (!goalId) {
+      // 快速检查：最新的 RequirementsDoc 是否已关联 Goal
+      try {
+        const statusResp = await fetch(`${baseUrl}/pipeline/status`);
+        if (statusResp.ok) {
+          const statusData = await statusResp.json() as any;
+          const recent = statusData?.executions?.recent?.[0];
+          if (recent?.goalId && recent.status !== 'failed') {
+            goalId = recent.goalId;
+            console.log(`  Goal already exists: ${goalId.slice(0, 8)}`);
+            pipelineStage = 'executing';
+          }
+        }
+      } catch { /* ignore */ }
+
+      if (!goalId) {
+        console.log('  Phase 1/6: Listening for Goal creation (SSE)...');
+        goalId = await waitForGoalCreated(baseUrl, maxRounds * 10_000);
+        if (goalId) {
+          console.log(`  Goal created: ${goalId.slice(0, 8)}`);
+          pipelineStage = 'executing';
+        } else {
+          console.log('  Timeout: No Goal created');
+          process.exit(1);
+        }
+      }
+    }
+
     for (let i = 0; i < maxRounds; i++) {
       await new Promise(r => setTimeout(r, 10_000));
 
       try {
-        if (!goalId) {
-          // Stage 1: poll for RequirementsDoc card, click start_execution
-          const msgsResp = await fetch(`${baseUrl}/channels/${rndChannel.id}/messages?limit=5`);
-          const { data: msgs } = await msgsResp.json() as { data: Array<{ id: string; meta: any }> };
-          const card = msgs.find((m: any) => {
-            let meta = m.meta; if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { console.error('Failed to parse message meta:', String(e)); }
-            return meta?.status === 'ready' && meta?.cardType === 'requirements_doc';
-          });
-          if (card) {
-            console.log('  Phase 1/6: RequirementsDoc ready, starting execution...');
-            const actResp = await fetch(`${baseUrl}/channels/${rndChannel.id}/messages/${card.id}/actions`, {
-              method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'start_execution' }),
-            });
-            const actResult = await actResp.json() as { success: boolean; data?: { meta: any } };
-            if (actResult.success) {
-              let meta = actResult.data?.meta; if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch (e) { console.error('Failed to parse action result meta:', String(e)); }
-              goalId = meta?.goalId;
-              if (goalId) console.log(`  Goal created: ${goalId.slice(0, 8)}`);
-              pipelineStage = 'executing';
-            }
-          } else {
-            if (i % 3 === 0) console.log('  Phase 1/6: Waiting for RequirementsDoc...');
-          }
-          if (!goalId) continue;
-        }
 
         // Stage 2: check Goal + execution status
         const goalResp = await fetch(`${baseUrl}/goals/${goalId}`);
@@ -1296,16 +1383,25 @@ async function main() {
       if (args[1] === 'start') {
         await studioDaemonStart();
       } else if (args[1] === 'status') {
-        const { daemon } = await import('../daemon/studio-daemon.js');
-        if (!daemon.isStarted()) {
-          console.log('Daemon: not running');
-        } else {
-          const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean; lastUsed: number; taskCount: number; worktree: string; persistent: boolean; } | null>;
-          console.log('Daemon sessions:');
-          for (const s of statuses) {
-            if (!s) continue;
-            console.log(`  ${s.name}: ${s.isBusy ? 'busy' : 'idle'} | tasks: ${s.taskCount} | last: ${s.lastUsed ? new Date(s.lastUsed).toISOString() : 'never'}`);
+        const port = process.env.PORT || '3001';
+        try {
+          const resp = await fetch(`http://localhost:${port}/api/v1/daemon/status`);
+          if (!resp.ok) {
+            console.log('Daemon: API unreachable');
+            process.exit(1);
           }
+          const data = await resp.json() as { started: boolean; sessions: Array<{ name: string; isBusy: boolean; lastUsed: number; taskCount: number }> };
+          if (!data.started) {
+            console.log('Daemon: not running');
+          } else {
+            console.log('Daemon sessions:');
+            for (const s of data.sessions) {
+              console.log(`  ${s.name}: ${s.isBusy ? 'busy' : 'idle'} | tasks: ${s.taskCount} | last: ${s.lastUsed ? new Date(s.lastUsed).toISOString() : 'never'}`);
+            }
+          }
+        } catch (err: any) {
+          console.log('Daemon: API unreachable —', err.message);
+          process.exit(1);
         }
       } else {
         console.log('Studio Daemon');

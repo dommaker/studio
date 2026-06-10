@@ -424,6 +424,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       const contractTests = doc.contractTests
         ? JSON.parse(doc.contractTests as string)
         : undefined;
+      const contractTestsSkipReason = (doc as any).contractTestsSkipReason || null;
 
       // Extract tier from Analyst output (TASK_TIER comment in content)
       const tierMatch = doc.content.match(/<!-- TASK_TIER (.+?) -->/);
@@ -457,15 +458,19 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         acGroups = [mergedGroup];
       }
 
-      // Phase 3: 无契约测试的 RequirementsDoc 不允许进入 Scheduler
-      if (!contractTests?.length) {
-        logger.warn('[Channel] RequirementsDoc missing contractTests — blocking execution', { docId });
+      // Phase 3: 无契约测试且无 skipReason → 阻断
+      if (!contractTests?.length && !contractTestsSkipReason) {
+        logger.warn('[Channel] RequirementsDoc missing contractTests and skipReason — blocking execution', { docId });
+        // 更新 card status 为 blocked，阻止 CLI 无限重试
+        await channelMessageService.updateMessage(req.params.messageId, {
+          meta: { ...meta, status: 'blocked' },
+        }).catch(() => {});
         try {
           await channelMessageService.createAgentMessage(req.params.channelId, 'System',
-            `## ⚠️ 缺少契约测试\n\nRequirementsDoc 没有包含契约测试（contractTests）。管线要求 Analyst 输出可执行的契约测试后才能进入执行阶段。\n\n请重新触发 @Analyst 分析需求。`
+            `## ⚠️ 缺少契约测试\n\nRequirementsDoc 没有包含契约测试（contractTests）且未说明跳过原因。管线要求 Analyst 输出可执行的契约测试，或填写 contractTestsSkipReason 说明为何不需要。\n\n请重新触发 @Analyst 分析需求。`
           );
         } catch { /* best-effort */ }
-        return res.status(400).json({ success: false, error: 'Missing contractTests in RequirementsDoc' });
+        return res.status(400).json({ success: false, error: 'Missing contractTests and skipReason in RequirementsDoc' });
       }
 
       const groupIdToIndex = new Map(acGroups.map((g, i) => [g.id, i]));

@@ -124,6 +124,7 @@ export async function retryGoalExecution(executionId: string): Promise<any> {
  */
 /**
  * Cascade failure to pending steps whose dependencies have failed.
+ * Uses 'blocked_by_dependency' status (retryable) instead of permanent 'failed'.
  * Returns true if any steps were cascaded.
  */
 async function cascadeBlockedFailures(goalId: string, executions: any[]): Promise<boolean> {
@@ -140,7 +141,7 @@ async function cascadeBlockedFailures(goalId: string, executions: any[]): Promis
   const execMap = new Map(executions.map(e => [e.stepIndex, e]));
   let cascaded = false;
 
-  // Iteratively cascade: a step is blocked if any dependency is failed
+  // Iteratively cascade: a step is blocked if any dependency is failed/blocked_by_dependency
   // Repeat until no more cascading (handles chain dependencies)
   let changed = true;
   while (changed) {
@@ -151,21 +152,21 @@ async function cascadeBlockedFailures(goalId: string, executions: any[]): Promis
 
       const blockedByFailedDep = step.dependencies.some(depIndex => {
         const depExec = execMap.get(depIndex);
-        return depExec?.status === 'failed';
+        return depExec?.status === 'failed' || depExec?.status === 'blocked_by_dependency';
       });
 
       if (blockedByFailedDep) {
         await prisma.goalExecution.update({
           where: { id: exec.id },
           data: {
-            status: 'failed',
+            status: 'blocked_by_dependency',
             error: JSON.stringify({
-              message: `Blocked by failed dependency (step ${step.dependencies.filter(d => execMap.get(d)?.status === 'failed').join(', ')})`,
+              message: `Blocked by failed dependency (step ${step.dependencies.filter(d => ['failed', 'blocked_by_dependency'].includes(execMap.get(d)?.status)).join(', ')})`,
               timestamp: Date.now(),
             }),
           },
         });
-        exec.status = 'failed'; // update local map for chain cascading
+        exec.status = 'blocked_by_dependency'; // update local map for chain cascading
         cascaded = true;
         changed = true;
       }
@@ -173,9 +174,29 @@ async function cascadeBlockedFailures(goalId: string, executions: any[]): Promis
   }
 
   if (cascaded) {
-    logger.warn('[Goal] Cascaded failure to blocked dependents', { goalId });
+    logger.warn('[Goal] Cascaded failure to blocked dependents (blocked_by_dependency)', { goalId });
   }
   return cascaded;
+}
+
+/**
+ * Reset blocked_by_dependency steps back to pending for retry.
+ * Called when a previously failed step is retried.
+ */
+export async function resetBlockedByDependency(goalId: string): Promise<number> {
+  const blocked = await prisma.goalExecution.findMany({
+    where: { goalId, status: 'blocked_by_dependency' },
+  });
+
+  if (blocked.length === 0) return 0;
+
+  await prisma.goalExecution.updateMany({
+    where: { id: { in: blocked.map(e => e.id) } },
+    data: { status: 'pending', error: null },
+  });
+
+  logger.info(`[Goal] Reset ${blocked.length} blocked_by_dependency steps to pending`, { goalId });
+  return blocked.length;
 }
 
 export async function checkGoalCompletion(goalId: string): Promise<void> {
@@ -200,10 +221,11 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
 
   const regularSteps = executions.filter(e => e.stepIndex !== 999);
   const integrationStep = executions.find(e => e.stepIndex === 999);
-  const allRegularDone = regularSteps.every(e => e.status === 'succeeded' || e.status === 'failed');
+  const terminalStatuses = ['succeeded', 'failed', 'blocked_by_dependency'];
+  const allRegularDone = regularSteps.every(e => terminalStatuses.includes(e.status));
 
   if (allRegularDone && !integrationStep && regularSteps.length > 1) {
-    const anyRegularFailed = regularSteps.some(e => e.status === 'failed');
+    const anyRegularFailed = regularSteps.some(e => e.status === 'failed' || e.status === 'blocked_by_dependency');
     if (!anyRegularFailed) {
       logger.info('[Goal] All sub-agent steps succeeded, creating integration step', { goalId });
       try {
@@ -232,10 +254,10 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
     }
   }
 
-  const allDone = executions.every(e => e.status === 'succeeded' || e.status === 'failed');
+  const allDone = executions.every(e => terminalStatuses.includes(e.status));
   if (!allDone) return;
 
-  const anyFailed = executions.some(e => e.status === 'failed');
+  const anyFailed = executions.some(e => e.status === 'failed' || e.status === 'blocked_by_dependency');
   const newStatus = anyFailed ? 'failed' : 'succeeded';
 
   await prisma.goal.update({
@@ -670,4 +692,44 @@ async function trackSkillOutcomes(goalId: string, goalStatus: string): Promise<v
   } catch (err) {
     logger.warn('[SkillOutcome] Failed', { goalId, error: String(err) });
   }
+}
+
+/**
+ * Validate worktree paths for running executions on startup.
+ * If a worktree directory is missing (e.g. after server restart with cleaned /tmp),
+ * mark the execution as failed with a clear ENOENT-specific message.
+ */
+export async function validateWorktreePaths(): Promise<number> {
+  const runningExecutions = await prisma.goalExecution.findMany({
+    where: { status: 'running' },
+  });
+
+  if (runningExecutions.length === 0) return 0;
+
+  const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+  let failedCount = 0;
+
+  for (const exec of runningExecutions) {
+    const worktreePath = path.join(worktreesDir, exec.id);
+    if (!fs.existsSync(worktreePath)) {
+      await prisma.goalExecution.update({
+        where: { id: exec.id },
+        data: {
+          status: 'failed',
+          error: JSON.stringify({
+            message: `Worktree directory missing after restart: ${worktreePath}`,
+            timestamp: Date.now(),
+          }),
+          completedAt: new Date(),
+        },
+      });
+      logger.warn(`[Goal] Worktree lost for execution ${exec.id}, marked failed`);
+      failedCount++;
+    }
+  }
+
+  if (failedCount > 0) {
+    logger.warn(`[Goal] validateWorktreePaths: ${failedCount}/${runningExecutions.length} executions had missing worktrees`);
+  }
+  return failedCount;
 }

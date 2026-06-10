@@ -6,6 +6,8 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway, eventBus, type ModelTier } from '@dommaker/studio-shared';
 import { beforeGoalCreate } from '@dommaker/studio-shared/harness/hooks';
+import { eventStore } from '../../core/event-store.js';
+import { v4 as uuidv4 } from 'uuid';
 
 // ─── 类型定义 ───
 
@@ -324,6 +326,13 @@ export async function createGoalFromChannelDoc(input: {
   });
 
   eventBus.publish('goal.created', { goalId: goal.id });
+  // SSE push: 通知 CLI / 前端 Goal 已创建
+  eventStore.publish('events', JSON.stringify({
+    event_type: 'goal.created',
+    event_id: uuidv4(),
+    timestamp: new Date().toISOString(),
+    data: { goalId: goal.id, title: goal.title },
+  })).catch(() => {});
 
   return { goalId: goal.id, stepCount: steps.length };
 }

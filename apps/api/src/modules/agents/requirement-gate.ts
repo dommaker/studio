@@ -100,8 +100,11 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
 
     for (const clean of realFiles) {
       let found = false;
-      for (const base of tryDirs) {
-        const fullPath = path.join(base, clean);
+      // Absolute paths: check directly, don't join with base
+      const isAbsolute = path.isAbsolute(clean);
+      const bases = isAbsolute ? [''] : tryDirs;
+      for (const base of bases) {
+        const fullPath = isAbsolute ? clean : path.join(base, clean);
         if (fs.existsSync(fullPath)) { found = true; break; }
         // New file: check if any ancestor directory exists (up to 3 levels)
         let ancestor = path.dirname(fullPath);
