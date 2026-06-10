@@ -21,7 +21,10 @@ const mockPrismaSkill = {
 };
 
 vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: { skill: mockPrismaSkill },
+  prisma: {
+    skill: mockPrismaSkill,
+    studioEvent: { create: vi.fn().mockResolvedValue({ id: 'mock-evt' }) },
+  },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
