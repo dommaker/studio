@@ -122,8 +122,64 @@ export async function retryGoalExecution(executionId: string): Promise<any> {
 /**
  * 检查目标是否完成
  */
+/**
+ * Cascade failure to pending steps whose dependencies have failed.
+ * Returns true if any steps were cascaded.
+ */
+async function cascadeBlockedFailures(goalId: string, executions: any[]): Promise<boolean> {
+  // Read plan to get dependency info
+  const plan = await prisma.goalPlan.findFirst({
+    where: { goalId, status: 'approved' },
+    orderBy: { version: 'desc' },
+  });
+  if (!plan) return false;
+
+  const steps = parseJsonField<GoalStep[]>(plan.steps, []);
+  if (steps.length === 0) return false;
+
+  const execMap = new Map(executions.map(e => [e.stepIndex, e]));
+  let cascaded = false;
+
+  // Iteratively cascade: a step is blocked if any dependency is failed
+  // Repeat until no more cascading (handles chain dependencies)
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const step of steps) {
+      const exec = execMap.get(step.index);
+      if (!exec || exec.status !== 'pending') continue;
+
+      const blockedByFailedDep = step.dependencies.some(depIndex => {
+        const depExec = execMap.get(depIndex);
+        return depExec?.status === 'failed';
+      });
+
+      if (blockedByFailedDep) {
+        await prisma.goalExecution.update({
+          where: { id: exec.id },
+          data: {
+            status: 'failed',
+            error: JSON.stringify({
+              message: `Blocked by failed dependency (step ${step.dependencies.filter(d => execMap.get(d)?.status === 'failed').join(', ')})`,
+              timestamp: Date.now(),
+            }),
+          },
+        });
+        exec.status = 'failed'; // update local map for chain cascading
+        cascaded = true;
+        changed = true;
+      }
+    }
+  }
+
+  if (cascaded) {
+    logger.warn('[Goal] Cascaded failure to blocked dependents', { goalId });
+  }
+  return cascaded;
+}
+
 export async function checkGoalCompletion(goalId: string): Promise<void> {
-  const executions = await prisma.goalExecution.findMany({
+  let executions = await prisma.goalExecution.findMany({
     where: { goalId },
   });
 
@@ -133,6 +189,13 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
       where: { id: goalId }, data: { status: 'failed', completedAt: new Date() },
     });
     return;
+  }
+
+  // Cascade failure to steps blocked by failed dependencies
+  const cascaded = await cascadeBlockedFailures(goalId, executions);
+  if (cascaded) {
+    // Re-fetch executions with updated statuses
+    executions = await prisma.goalExecution.findMany({ where: { goalId } });
   }
 
   const regularSteps = executions.filter(e => e.stepIndex !== 999);
