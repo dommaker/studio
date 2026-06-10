@@ -4,6 +4,12 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+catalogs:
+  default:
+    prisma:
+      specifier: ^5.22.0
+      version: 5.22.0
+
 overrides:
   '@dommaker/harness': link:../harness
 
@@ -169,6 +175,9 @@ importers:
       '@types/ws':
         specifier: ^8.5.10
         version: 8.18.1
+      prisma:
+        specifier: 'catalog:'
+        version: 5.22.0
       tsx:
         specifier: ^4.7.1
         version: 4.22.3
