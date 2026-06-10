@@ -13,7 +13,7 @@ import { parseJsonField } from './goal.service.js';
 
 // ─── Skill Template Loading ───
 
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'knowledge', 'skills');
+const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
 
 interface SkillTemplateMeta {
   name: string;
@@ -30,34 +30,42 @@ interface SkillTemplate {
 }
 
 /**
- * Load Skill .md template from disk.
+ * Load Skill .md template from trigger subdirectories on disk.
+ * Searches <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md structure.
  * Returns {meta, template} or null if not found.
  */
 export function loadSkillTemplate(skillName: string): SkillTemplate | null {
   try {
-    const filePath = path.join(SKILLS_DIR, `${skillName}.md`);
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-    if (!match) return null;
+    if (!fs.existsSync(SKILLS_DIR)) return null;
+    const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    for (const trigger of triggers) {
+      const filePath = path.join(SKILLS_DIR, trigger, skillName, 'SKILL.md');
+      if (!fs.existsSync(filePath)) continue;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+      if (!match) continue;
 
-    const yaml = match[1];
-    const template = match[2].trim();
-    const meta: Record<string, unknown> = {};
+      const yaml = match[1];
+      const template = match[2].trim();
+      const meta: Record<string, unknown> = {};
 
-    for (const line of yaml.split('\n')) {
-      const kv = line.match(/^(\w+):\s*(.+)$/);
-      if (!kv) continue;
-      const [, key, val] = kv;
-      if (val.startsWith('[') && val.endsWith(']')) {
-        meta[key] = val.slice(1, -1).split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
-      } else {
-        meta[key] = val.replace(/^["']|["']$/g, '');
+      for (const line of yaml.split('\n')) {
+        const kv = line.match(/^(\w+):\s*(.+)$/);
+        if (!kv) continue;
+        const [, key, val] = kv;
+        if (val.startsWith('[') && val.endsWith(']')) {
+          meta[key] = val.slice(1, -1).split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+        } else {
+          meta[key] = val.replace(/^["']|["']$/g, '');
+        }
       }
-    }
 
-    if (meta.status && meta.status !== 'published') return null;
-    return { meta: meta as unknown as SkillTemplateMeta, template };
+      if (meta.status && meta.status !== 'published') continue;
+      return { meta: meta as unknown as SkillTemplateMeta, template };
+    }
+    return null;
   } catch {
     return null;
   }

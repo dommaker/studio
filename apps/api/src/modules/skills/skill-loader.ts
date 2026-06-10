@@ -49,7 +49,6 @@ export interface LoadForSessionOptions {
   trigger: SkillTrigger;
   agentType: string;
   tier?: SkillTier;
-  companyId?: string;
 }
 
 // ── Tier → tool access mapping ──
@@ -62,7 +61,7 @@ const TIER_TOOL_ACCESS: Record<SkillTier, Set<string>> = {
 
 // ── File-based skill loading (.md with frontmatter) ──
 
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'knowledge', 'skills');
+const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
 
 interface SkillFrontmatter {
   name: string;
@@ -100,13 +99,20 @@ function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: stri
 
 function loadSkillFromDisk(skillName: string): { meta: SkillFrontmatter; prompt: string } | null {
   try {
-    const filePath = path.join(SKILLS_DIR, `${skillName}.md`);
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, 'utf-8');
-    const parsed = parseFrontmatter(raw);
-    if (!parsed || parsed.meta.name !== skillName) return null;
-    if (parsed.meta.status && parsed.meta.status !== 'published') return null;
-    return { meta: parsed.meta, prompt: parsed.body };
+    if (!fs.existsSync(SKILLS_DIR)) return null;
+    const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    for (const trigger of triggers) {
+      const filePath = path.join(SKILLS_DIR, trigger, skillName, 'SKILL.md');
+      if (!fs.existsSync(filePath)) continue;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const parsed = parseFrontmatter(raw);
+      if (!parsed) continue;
+      if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+      return { meta: parsed.meta, prompt: parsed.body };
+    }
+    return null;
   } catch {
     return null;
   }
@@ -115,14 +121,57 @@ function loadSkillFromDisk(skillName: string): { meta: SkillFrontmatter; prompt:
 function loadAllSkillFiles(): SkillFrontmatter[] {
   try {
     if (!fs.existsSync(SKILLS_DIR)) return [];
-    return fs.readdirSync(SKILLS_DIR)
-      .filter(f => f.endsWith('.md'))
-      .map(f => {
-        const raw = fs.readFileSync(path.join(SKILLS_DIR, f), 'utf-8');
+    const results: SkillFrontmatter[] = [];
+    const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    for (const trigger of triggers) {
+      const triggerDir = path.join(SKILLS_DIR, trigger);
+      const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name);
+      for (const skillName of skills) {
+        const filePath = path.join(triggerDir, skillName, 'SKILL.md');
+        if (!fs.existsSync(filePath)) continue;
+        const raw = fs.readFileSync(filePath, 'utf-8');
         const parsed = parseFrontmatter(raw);
-        return parsed?.meta;
-      })
-      .filter((m): m is SkillFrontmatter => !!m && (!m.status || m.status === 'published'));
+        if (!parsed) continue;
+        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+        results.push(parsed.meta);
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Load skill metadata from specific trigger subdirectories.
+ * Scans the given trigger + 'always/' directories only.
+ */
+function loadSkillFilesForTrigger(trigger: string): SkillFrontmatter[] {
+  try {
+    if (!fs.existsSync(SKILLS_DIR)) return [];
+    const results: SkillFrontmatter[] = [];
+    const dirsToScan = [trigger, 'always'];
+    for (const dir of dirsToScan) {
+      const triggerDir = path.join(SKILLS_DIR, dir);
+      if (!fs.existsSync(triggerDir)) continue;
+      const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name);
+      for (const skillName of skills) {
+        const filePath = path.join(triggerDir, skillName, 'SKILL.md');
+        if (!fs.existsSync(filePath)) continue;
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const parsed = parseFrontmatter(raw);
+        if (!parsed) continue;
+        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+        results.push(parsed.meta);
+      }
+    }
+    return results;
   } catch {
     return [];
   }
@@ -168,27 +217,16 @@ export class SkillLoaderService {
     let tier: SkillTier;
     let required: string[];
 
-    if (fileSkill) {
-      skillId = `file:${skillName}`;
-      prompt = fileSkill.prompt;
-      tools = fileSkill.meta.tools || [];
-      tier = (fileSkill.meta.tier || 'standard') as SkillTier;
-      required = fileSkill.meta.required || [];
-    } else {
-      // Fall back to Prisma
-      const skill = await prisma.skill.findFirst({
-        where: { name: skillName, status: 'published' },
-      });
-      if (!skill) {
-        logger.warn('[SkillLoader] Skill not found or not published', { skillName });
-        return null;
-      }
-      skillId = skill.id;
-      prompt = skill.prompt || '';
-      tools = skill.tools ? JSON.parse(skill.tools) : [];
-      tier = (skill.tier || 'standard') as SkillTier;
-      required = skill.required ? JSON.parse(skill.required) : [];
+    if (!fileSkill) {
+      logger.warn('[SkillLoader] Skill not found on disk', { skillName });
+      return null;
     }
+
+    skillId = `file:${skillName}`;
+    prompt = fileSkill.prompt;
+    tools = fileSkill.meta.tools || [];
+    tier = (fileSkill.meta.tier || 'standard') as SkillTier;
+    required = fileSkill.meta.required || [];
 
     // Load required skills recursively
     for (const reqName of required) {
@@ -222,7 +260,7 @@ export class SkillLoaderService {
       skillName,
       tier: loaded.tier,
       toolCount: tools.length,
-      source: fileSkill ? 'file' : 'db',
+      source: 'file',
     });
 
     return loaded;
@@ -261,19 +299,16 @@ export class SkillLoaderService {
    * #73: DB-driven loading
    */
   async loadForSession(options: LoadForSessionOptions): Promise<LoadedSkill[]> {
-    const { sessionId, trigger, agentType, tier = 'standard', companyId } = options;
+    const { sessionId, trigger, agentType, tier = 'standard' } = options;
 
     const tierRank: Record<string, number> = { fast: 1, standard: 2, premium: 3 };
     const targetRank = tierRank[tier] ?? 2;
 
     const matched: LoadedSkill[] = [];
 
-    // 1. Load from .md files
-    const fileSkills = loadAllSkillFiles();
+    // Load from trigger subdirectory + always/ subdirectory
+    const fileSkills = loadSkillFilesForTrigger(trigger);
     for (const meta of fileSkills) {
-      const skillTrigger = meta.trigger || 'always';
-      if (skillTrigger !== 'always' && skillTrigger !== trigger) continue;
-
       const agentTypes = meta.agentTypes || [];
       if (agentTypes.length > 0 && !agentTypes.includes(agentType)) continue;
 
@@ -281,29 +316,6 @@ export class SkillLoaderService {
       if (tierRank[skillTier] > targetRank) continue;
 
       const loaded = await this.loadSkill({ sessionId, skillName: meta.name, agentType });
-      if (loaded) matched.push(loaded);
-    }
-
-    // 2. Fall back to Prisma for skills not found on disk
-    const fileNames = new Set(fileSkills.map(m => m.name));
-    const where: Record<string, unknown> = { status: 'published' };
-    if (companyId) where.companyId = companyId;
-
-    const dbSkills = await prisma.skill.findMany({ where });
-
-    for (const skill of dbSkills) {
-      if (fileNames.has(skill.name)) continue; // file takes precedence
-
-      const skillTrigger = skill.trigger || 'always';
-      if (skillTrigger !== 'always' && skillTrigger !== trigger) continue;
-
-      const agentTypes: string[] = skill.agentTypes ? JSON.parse(skill.agentTypes) : [];
-      if (agentTypes.length > 0 && !agentTypes.includes(agentType)) continue;
-
-      const skillTier = (skill.tier || 'standard') as SkillTier;
-      if (tierRank[skillTier] > targetRank) continue;
-
-      const loaded = await this.loadSkill({ sessionId, skillName: skill.name, agentType });
       if (loaded) matched.push(loaded);
     }
 
