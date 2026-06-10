@@ -11,7 +11,6 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import type { SkillDefinition, SkillTrigger, SkillTier } from './types.js';
-import { allSkillDefinitions } from './definitions/index.js';
 
 export interface LoadOptions {
   trigger: SkillTrigger;
@@ -21,7 +20,7 @@ export interface LoadOptions {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'knowledge', 'skills');
+const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
 
 interface SkillFrontmatter {
   name: string;
@@ -72,13 +71,13 @@ function frontmatterToSkillDefinition(meta: SkillFrontmatter, prompt: string): S
 export class SkillLoader {
   private skills: Map<string, SkillDefinition>;
   private prisma: any = null;
-  private cache: SkillDefinition[] = allSkillDefinitions;
+  private cache: SkillDefinition[] = [];
   private cacheTime = 0;
   private refreshing = false;
   private customSkillsProvided = false;
 
   constructor(customSkills?: SkillDefinition[]) {
-    const skills = customSkills || allSkillDefinitions;
+    const skills = customSkills || [];
     this.skills = new Map(skills.map(s => [s.id, s]));
     this.cache = skills;
     this.customSkillsProvided = !!customSkills;
@@ -152,38 +151,61 @@ export class SkillLoader {
   }
 
   /**
-   * Load a single skill from disk by name.
-   * Returns null if file missing, frontmatter invalid, or status not published.
+   * Load a single skill from trigger subdirectories by name.
+   * Searches all trigger subdirs for <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md
+   * Returns null if not found, frontmatter invalid, or status not published.
    */
   private loadFromDisk(skillName: string): SkillDefinition | null {
     try {
-      const filePath = path.join(SKILLS_DIR, `${skillName}.md`);
-      if (!fs.existsSync(filePath)) return null;
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      const parsed = parseFrontmatter(raw);
-      if (!parsed) return null;
-      if (!parsed.meta.name || parsed.meta.name.trim() === '') return null;
-      if (parsed.meta.status && parsed.meta.status !== 'published') return null;
-      return frontmatterToSkillDefinition(parsed.meta, parsed.body);
+      if (!fs.existsSync(SKILLS_DIR)) return null;
+      const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name);
+      for (const trigger of triggers) {
+        const filePath = path.join(SKILLS_DIR, trigger, skillName, 'SKILL.md');
+        if (!fs.existsSync(filePath)) continue;
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const parsed = parseFrontmatter(raw);
+        if (!parsed) continue;
+        if (!parsed.meta.name || parsed.meta.name.trim() === '') continue;
+        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+        return frontmatterToSkillDefinition(parsed.meta, parsed.body);
+      }
+      return null;
     } catch {
       return null;
     }
   }
 
   /**
-   * Load all published skills from disk.
+   * Load all published skills from trigger subdirectories on disk.
+   * Scans <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md structure.
    * Returns empty array if SKILLS_DIR doesn't exist.
    */
   private loadAllFromDisk(): SkillDefinition[] {
     try {
       if (!fs.existsSync(SKILLS_DIR)) return [];
-      return fs.readdirSync(SKILLS_DIR)
-        .filter(f => f.endsWith('.md'))
-        .map(f => {
-          const skillName = f.replace(/\.md$/, '');
-          return this.loadFromDisk(skillName);
-        })
-        .filter((s): s is SkillDefinition => s !== null);
+      const results: SkillDefinition[] = [];
+      const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name);
+      for (const trigger of triggers) {
+        const triggerDir = path.join(SKILLS_DIR, trigger);
+        const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
+          .filter(d => d.isDirectory())
+          .map(d => d.name);
+        for (const skillName of skills) {
+          const filePath = path.join(triggerDir, skillName, 'SKILL.md');
+          if (!fs.existsSync(filePath)) continue;
+          const raw = fs.readFileSync(filePath, 'utf-8');
+          const parsed = parseFrontmatter(raw);
+          if (!parsed) continue;
+          if (!parsed.meta.name || parsed.meta.name.trim() === '') continue;
+          if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+          results.push(frontmatterToSkillDefinition(parsed.meta, parsed.body));
+        }
+      }
+      return results;
     } catch {
       return [];
     }
@@ -199,7 +221,7 @@ export class SkillLoader {
   }
 
   /**
-   * Refresh cache: merge disk > DB > hardcoded.
+   * Refresh cache: merge disk > DB.
    * Disk loading is synchronous; DB loading is async (fire-and-forget).
    */
   private refreshCache(): void {
@@ -212,10 +234,6 @@ export class SkillLoader {
     // Step 2: Merge — start with existing cache (preserves constructor customSkills), then overlay
     const merged = new Map<string, SkillDefinition>();
     for (const s of this.cache) merged.set(s.id, s);
-    // Hardcoded fills gaps not in existing cache
-    for (const s of allSkillDefinitions) {
-      if (!merged.has(s.id)) merged.set(s.id, s);
-    }
 
     const applyDisk = (dbRows: SkillDefinition[]) => {
       // DB overrides hardcoded

@@ -1,7 +1,7 @@
 /**
  * SkillLoaderService tests
  *
- * #73: DB-driven loading
+ * #73: File-driven loading
  * #75: load/unload lifecycle
  * #76: tier-based tool permission binding
  */
@@ -13,6 +13,20 @@ import * as os from 'os';
 // Isolate from real skill files on disk
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
+
+// Create trigger subdirectory structure
+function createSkillFile(trigger: string, skillName: string, content: string) {
+  const dir = path.join(testSkillsDir, trigger, skillName);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'SKILL.md'), content);
+}
+
+function removeSkillFile(trigger: string, skillName: string) {
+  try {
+    const dir = path.join(testSkillsDir, trigger, skillName);
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch {}
+}
 
 // Mock prisma
 const mockPrismaSkill = {
@@ -34,34 +48,55 @@ vi.mock('@dommaker/studio-shared', () => ({
 // Import after mocks
 const { SkillLoaderService, skillLoaderService } = await import('../skill-loader.js');
 
+const TDD_SKILL_MD = `---
+name: tdd-workflow
+description: "TDD workflow"
+trigger: goal_start
+agentTypes: [executor]
+tier: fast
+status: published
+---
+## TDD
+Write tests first`;
+
+const CONSTRAINTS_SKILL_MD = `---
+name: behaviour-constraints
+description: "Always-on constraints"
+trigger: always
+agentTypes: [executor]
+tier: fast
+status: published
+---
+## Constraints
+- No any type`;
+
+const REVIEW_SKILL_MD = `---
+name: review-skill
+description: "Review skill"
+trigger: review
+agentTypes: [reviewer]
+tier: standard
+status: published
+---
+## Review
+Read code`;
+
 describe('SkillLoaderService', () => {
   let service: SkillLoaderService;
 
   beforeEach(() => {
     vi.clearAllMocks();
     service = new SkillLoaderService();
-    // Clear all sessions
     service.clearSession('test-session');
     service.clearSession('session-1');
     service.clearSession('session-2');
   });
 
-  // ── #73: DB-driven loading ──
+  // ── #73: File-driven loading ──
 
   describe('loadSkill (#73)', () => {
-    it('should load a skill from DB', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue({
-        id: 'skill-1',
-        name: 'tdd-workflow',
-        description: 'TDD workflow',
-        prompt: '## TDD\nWrite tests first',
-        trigger: 'goal_start',
-        agentTypes: '["executor"]',
-        tier: 'fast',
-        tools: '["Read", "Bash"]',
-        required: null,
-        status: 'published',
-      });
+    it('should load a skill from disk file', async () => {
+      createSkillFile('goal-start', 'tdd-workflow', TDD_SKILL_MD);
 
       const loaded = await service.loadSkill({
         sessionId: 'test-session',
@@ -71,17 +106,14 @@ describe('SkillLoaderService', () => {
 
       expect(loaded).not.toBeNull();
       expect(loaded!.name).toBe('tdd-workflow');
-      expect(loaded!.prompt).toBe('## TDD\nWrite tests first');
-      expect(loaded!.tools).toEqual(['Read', 'Bash']);
+      expect(loaded!.prompt).toContain('## TDD');
       expect(loaded!.tier).toBe('fast');
-      expect(mockPrismaSkill.findFirst).toHaveBeenCalledWith({
-        where: { name: 'tdd-workflow', status: 'published' },
-      });
+      expect(loaded!.skillId).toBe('file:tdd-workflow');
+
+      removeSkillFile('goal-start', 'tdd-workflow');
     });
 
-    it('should return null if skill not found', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue(null);
-
+    it('should return null if skill not found on disk', async () => {
       const loaded = await service.loadSkill({
         sessionId: 'test-session',
         skillName: 'nonexistent',
@@ -91,44 +123,40 @@ describe('SkillLoaderService', () => {
     });
 
     it('should return cached skill if already loaded', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue({
-        id: 'skill-1',
-        name: 'tdd-workflow',
-        prompt: 'test',
-        tools: null,
-        tier: 'fast',
-        required: null,
-        status: 'published',
-      });
+      createSkillFile('goal-start', 'tdd-workflow', TDD_SKILL_MD);
 
       await service.loadSkill({ sessionId: 'test-session', skillName: 'tdd-workflow' });
       const second = await service.loadSkill({ sessionId: 'test-session', skillName: 'tdd-workflow' });
 
       expect(second).not.toBeNull();
-      // findFirst called only once (cached on second call)
-      expect(mockPrismaSkill.findFirst).toHaveBeenCalledTimes(1);
+
+      removeSkillFile('goal-start', 'tdd-workflow');
     });
 
     it('should load required skills recursively', async () => {
-      mockPrismaSkill.findFirst
-        .mockResolvedValueOnce({
-          id: 'skill-main',
-          name: 'main-skill',
-          prompt: 'main',
-          tools: '["Edit"]',
-          tier: 'standard',
-          required: '["base-skill"]',
-          status: 'published',
-        })
-        .mockResolvedValueOnce({
-          id: 'skill-base',
-          name: 'base-skill',
-          prompt: 'base',
-          tools: '["Read"]',
-          tier: 'fast',
-          required: null,
-          status: 'published',
-        });
+      const mainSkillMd = `---
+name: main-skill
+description: "Main skill"
+trigger: goal_start
+agentTypes: [executor]
+tier: standard
+required: [base-skill]
+status: published
+---
+## Main`;
+
+      const baseSkillMd = `---
+name: base-skill
+description: "Base skill"
+trigger: always
+agentTypes: [executor]
+tier: fast
+status: published
+---
+## Base`;
+
+      createSkillFile('goal-start', 'main-skill', mainSkillMd);
+      createSkillFile('always', 'base-skill', baseSkillMd);
 
       const loaded = await service.loadSkill({
         sessionId: 'test-session',
@@ -136,13 +164,15 @@ describe('SkillLoaderService', () => {
       });
 
       expect(loaded).not.toBeNull();
-      expect(mockPrismaSkill.findFirst).toHaveBeenCalledTimes(2);
 
       // Both should be in session
       const sessionSkills = service.getSessionSkills('test-session');
       expect(sessionSkills).toHaveLength(2);
       expect(sessionSkills.map(s => s.name)).toContain('base-skill');
       expect(sessionSkills.map(s => s.name)).toContain('main-skill');
+
+      removeSkillFile('goal-start', 'main-skill');
+      removeSkillFile('always', 'base-skill');
     });
   });
 
@@ -150,15 +180,14 @@ describe('SkillLoaderService', () => {
 
   describe('unloadSkill (#75)', () => {
     it('should unload a skill from session', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue({
-        id: 'skill-1',
-        name: 'test-skill',
-        prompt: 'test prompt',
-        tools: '["Read"]',
-        tier: 'fast',
-        required: null,
-        status: 'published',
-      });
+      createSkillFile('always', 'test-skill', `---
+name: test-skill
+description: "Test"
+trigger: always
+tier: fast
+status: published
+---
+## Test`);
 
       await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
       expect(service.getSessionSkills('test-session')).toHaveLength(1);
@@ -166,6 +195,8 @@ describe('SkillLoaderService', () => {
       const removed = service.unloadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
       expect(removed).toBe(true);
       expect(service.getSessionSkills('test-session')).toHaveLength(0);
+
+      removeSkillFile('always', 'test-skill');
     });
 
     it('should return false when unloading non-loaded skill', () => {
@@ -180,46 +211,10 @@ describe('SkillLoaderService', () => {
   });
 
   describe('loadForSession (#73 + #75)', () => {
-    it('should load matching skills from DB', async () => {
-      const tddSkill = {
-        id: 's1',
-        name: 'tdd-workflow',
-        prompt: 'tdd',
-        trigger: 'goal_start',
-        agentTypes: '["executor"]',
-        tier: 'fast',
-        tools: '["Read"]',
-        required: null,
-        status: 'published',
-      };
-      const constraintsSkill = {
-        id: 's2',
-        name: 'behaviour-constraints',
-        prompt: 'constraints',
-        trigger: 'always',
-        agentTypes: '["executor"]',
-        tier: 'fast',
-        tools: null,
-        required: null,
-        status: 'published',
-      };
-      const reviewSkill = {
-        id: 's3',
-        name: 'review-skill',
-        prompt: 'review',
-        trigger: 'review',
-        agentTypes: '["reviewer"]',
-        tier: 'standard',
-        tools: null,
-        required: null,
-        status: 'published',
-      };
-
-      mockPrismaSkill.findMany.mockResolvedValue([tddSkill, constraintsSkill, reviewSkill]);
-      // loadSkill calls findFirst for each matched skill
-      mockPrismaSkill.findFirst
-        .mockResolvedValueOnce(tddSkill)
-        .mockResolvedValueOnce(constraintsSkill);
+    it('should load matching skills from disk', async () => {
+      createSkillFile('goal-start', 'tdd-workflow', TDD_SKILL_MD);
+      createSkillFile('always', 'behaviour-constraints', CONSTRAINTS_SKILL_MD);
+      createSkillFile('review', 'review-skill', REVIEW_SKILL_MD);
 
       const loaded = await service.loadForSession({
         sessionId: 'session-1',
@@ -233,22 +228,24 @@ describe('SkillLoaderService', () => {
       expect(loaded).toHaveLength(2);
       expect(loaded.map(s => s.name)).toContain('tdd-workflow');
       expect(loaded.map(s => s.name)).toContain('behaviour-constraints');
+
+      removeSkillFile('goal-start', 'tdd-workflow');
+      removeSkillFile('always', 'behaviour-constraints');
+      removeSkillFile('review', 'review-skill');
     });
 
     it('should filter by tier threshold', async () => {
-      const premiumSkill = {
-        id: 's1',
-        name: 'premium-skill',
-        prompt: 'premium',
-        trigger: 'always',
-        agentTypes: '[]',
-        tier: 'premium',
-        tools: null,
-        required: null,
-        status: 'published',
-      };
+      const premiumMd = `---
+name: premium-skill
+description: "Premium"
+trigger: always
+agentTypes: []
+tier: premium
+status: published
+---
+## Premium`;
 
-      mockPrismaSkill.findMany.mockResolvedValue([premiumSkill]);
+      createSkillFile('always', 'premium-skill', premiumMd);
 
       const fastLoaded = await service.loadForSession({
         sessionId: 'session-1',
@@ -258,8 +255,6 @@ describe('SkillLoaderService', () => {
       });
       expect(fastLoaded).toHaveLength(0);
 
-      // For premium tier, loadSkill will be called
-      mockPrismaSkill.findFirst.mockResolvedValueOnce(premiumSkill);
       const premiumLoaded = await service.loadForSession({
         sessionId: 'session-2',
         trigger: 'goal_start',
@@ -267,24 +262,27 @@ describe('SkillLoaderService', () => {
         tier: 'premium',
       });
       expect(premiumLoaded).toHaveLength(1);
+
+      removeSkillFile('always', 'premium-skill');
     });
   });
 
   describe('session management', () => {
     it('should get combined prompt from loaded skills', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue({
-        id: 's1',
-        name: 'test-skill',
-        prompt: '## Section 1',
-        tools: null,
-        tier: 'fast',
-        required: null,
-        status: 'published',
-      });
+      createSkillFile('always', 'test-skill', `---
+name: test-skill
+description: "Test"
+trigger: always
+tier: fast
+status: published
+---
+## Section 1`);
 
       await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
       const prompt = service.getSessionPrompt('test-session');
       expect(prompt).toContain('## Section 1');
+
+      removeSkillFile('always', 'test-skill');
     });
 
     it('should return empty string for empty session', () => {
@@ -292,38 +290,39 @@ describe('SkillLoaderService', () => {
     });
 
     it('should clear session on unload of last skill', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue({
-        id: 's1',
-        name: 'test-skill',
-        prompt: 'test',
-        tools: null,
-        tier: 'fast',
-        required: null,
-        status: 'published',
-      });
+      createSkillFile('always', 'test-skill', `---
+name: test-skill
+description: "Test"
+trigger: always
+tier: fast
+status: published
+---
+## Test`);
 
       await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
       expect(service.getActiveSessionCount()).toBeGreaterThan(0);
 
       service.unloadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      // Session should be cleaned up
       expect(service.getSessionSkills('test-session')).toHaveLength(0);
+
+      removeSkillFile('always', 'test-skill');
     });
 
     it('should clear entire session', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue({
-        id: 's1',
-        name: 'skill-a',
-        prompt: 'a',
-        tools: null,
-        tier: 'fast',
-        required: null,
-        status: 'published',
-      });
+      createSkillFile('always', 'skill-a', `---
+name: skill-a
+description: "A"
+trigger: always
+tier: fast
+status: published
+---
+## A`);
 
       await service.loadSkill({ sessionId: 'test-session', skillName: 'skill-a' });
       service.clearSession('test-session');
       expect(service.getSessionSkills('test-session')).toHaveLength(0);
+
+      removeSkillFile('always', 'skill-a');
     });
   });
 
@@ -363,37 +362,36 @@ describe('SkillLoaderService', () => {
     });
 
     it('should get session tools filtered by tier', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue({
-        id: 's1',
-        name: 'tool-skill',
-        prompt: 'test',
-        tools: '["Read", "Edit", "WebFetch"]',
-        tier: 'premium',
-        required: null,
-        status: 'published',
-      });
+      createSkillFile('always', 'tool-skill', `---
+name: tool-skill
+description: "Tools"
+trigger: always
+tier: premium
+tools: [Read, Edit, WebFetch]
+status: published
+---
+## Tools`);
 
       await service.loadSkill({ sessionId: 'test-session', skillName: 'tool-skill' });
 
-      // At fast tier, only Read should be allowed
       const fastTools = service.getSessionTools('test-session', 'fast');
       expect(fastTools).toEqual(['Read']);
 
-      // At standard tier, Read + Edit
       const standardTools = service.getSessionTools('test-session', 'standard');
       expect(standardTools).toContain('Read');
       expect(standardTools).toContain('Edit');
       expect(standardTools).not.toContain('WebFetch');
 
-      // At premium tier, all three
       const premiumTools = service.getSessionTools('test-session', 'premium');
       expect(premiumTools).toContain('Read');
       expect(premiumTools).toContain('Edit');
       expect(premiumTools).toContain('WebFetch');
+
+      removeSkillFile('always', 'tool-skill');
     });
   });
 
-  // ── .md file-based loading (S1-1) ──
+  // ── .md file-based loading (trigger subdirectories) ──
 
   describe('file-based loading (.md)', () => {
     const mdContent = `---
@@ -408,14 +406,14 @@ status: published
 This is a test skill loaded from a .md file.`;
 
     beforeEach(() => {
-      fs.writeFileSync(path.join(testSkillsDir, 'file-skill.md'), mdContent);
+      createSkillFile('goal-start', 'file-skill', mdContent);
     });
 
     afterEach(() => {
-      try { fs.unlinkSync(path.join(testSkillsDir, 'file-skill.md')); } catch {}
+      removeSkillFile('goal-start', 'file-skill');
     });
 
-    it('should load skill from .md file', async () => {
+    it('should load skill from .md file in trigger subdirectory', async () => {
       const freshService = new SkillLoaderService();
       const loaded = await freshService.loadSkill({
         sessionId: 'file-test',
@@ -428,30 +426,6 @@ This is a test skill loaded from a .md file.`;
       expect(loaded!.prompt).toContain('## Test Skill');
       expect(loaded!.tier).toBe('fast');
       expect(loaded!.skillId).toBe('file:file-skill');
-    });
-
-    it('should prefer .md file over Prisma', async () => {
-      mockPrismaSkill.findFirst.mockResolvedValue({
-        id: 'db-skill',
-        name: 'file-skill',
-        prompt: 'from DB',
-        tools: null,
-        tier: 'standard',
-        required: null,
-        status: 'published',
-      });
-
-      const freshService = new SkillLoaderService();
-      const loaded = await freshService.loadSkill({
-        sessionId: 'precedence-test',
-        skillName: 'file-skill',
-      });
-
-      expect(loaded).not.toBeNull();
-      expect(loaded!.skillId).toBe('file:file-skill');
-      expect(loaded!.prompt).toContain('## Test Skill');
-      // Prisma should NOT be called since file was found
-      expect(mockPrismaSkill.findFirst).not.toHaveBeenCalled();
     });
 
     it('should load from .md in loadForSession', async () => {
