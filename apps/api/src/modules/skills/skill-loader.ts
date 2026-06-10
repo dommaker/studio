@@ -154,7 +154,9 @@ function loadSkillFilesForTrigger(trigger: string): SkillFrontmatter[] {
   try {
     if (!fs.existsSync(SKILLS_DIR)) return [];
     const results: SkillFrontmatter[] = [];
-    const dirsToScan = [trigger, 'always'];
+    // Normalize: directory names use hyphens, frontmatter uses underscores
+    const normalizedTrigger = trigger.replace(/_/g, '-');
+    const dirsToScan = [normalizedTrigger, 'always'];
     for (const dir of dirsToScan) {
       const triggerDir = path.join(SKILLS_DIR, dir);
       if (!fs.existsSync(triggerDir)) continue;
