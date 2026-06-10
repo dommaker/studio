@@ -7,6 +7,11 @@
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
+import * as os from 'os';
+import * as path from 'path';
+
+// Set SKILLS_DIR before skill-loader module loads
+process.env.SKILLS_DIR = path.join(os.tmpdir(), 'skill-events-test');
 
 const { mockStudioEventCreate, mockSkillCreate, mockSkillProposalCreate, mockSkillFindFirst } = vi.hoisted(() => ({
   mockStudioEventCreate: vi.fn().mockResolvedValue({ id: 'evt-1' }),
@@ -35,13 +40,38 @@ vi.mock('@dommaker/studio-shared', () => ({
 }));
 
 // Mock fs for skill-loader file-based loading
+const SKILL_MD_CONTENT = `---
+name: test-skill
+description: "Test"
+trigger: always
+tier: standard
+status: published
+---
+## Test skill body`;
+
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
+  const skillsDir = process.env.SKILLS_DIR || '';
   return {
     ...actual,
-    existsSync: vi.fn().mockReturnValue(false),
-    readFileSync: vi.fn().mockReturnValue(''),
-    readdirSync: vi.fn().mockReturnValue([]),
+    existsSync: vi.fn((p: string) => {
+      const ps = String(p);
+      if (ps.includes('SKILL.md')) return true;
+      if (skillsDir && ps.startsWith(skillsDir)) return true;
+      return false;
+    }),
+    readFileSync: vi.fn((p: string) => {
+      if (String(p).includes('SKILL.md')) return SKILL_MD_CONTENT;
+      return '';
+    }),
+    readdirSync: vi.fn((p: string, opts?: { withFileTypes?: boolean }) => {
+      const asDirent = (name: string) => ({ name, isDirectory: () => true });
+      // Return trigger subdirectories for skills dir scan
+      if (skillsDir && String(p) === skillsDir) return [asDirent('always')];
+      // Return skill name dirs inside trigger dir
+      if (String(p).includes('always')) return [asDirent('test-skill')];
+      return [];
+    }),
   };
 });
 

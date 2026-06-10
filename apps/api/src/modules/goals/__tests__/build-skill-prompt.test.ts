@@ -21,7 +21,10 @@ vi.resetModules();
 const { buildSkillPrompt, loadSkillTemplate } = await import('../scheduler-prompt.js');
 
 beforeAll(() => {
-  fs.writeFileSync(path.join(testSkillsDir, 'test-skill.md'), `---
+  // AC2: skills now live in <SKILLS_DIR>/<trigger>/<name>/SKILL.md
+  const testSkillDir = path.join(testSkillsDir, 'goal-start', 'test-skill');
+  fs.mkdirSync(testSkillDir, { recursive: true });
+  fs.writeFileSync(path.join(testSkillDir, 'SKILL.md'), `---
 name: test-skill
 description: "Test skill with placeholders"
 trigger: goal_start
@@ -42,7 +45,9 @@ status: published
 {{task}}
 `);
 
-  fs.writeFileSync(path.join(testSkillsDir, 'static-skill.md'), `---
+  const staticSkillDir = path.join(testSkillsDir, 'always', 'static-skill');
+  fs.mkdirSync(staticSkillDir, { recursive: true });
+  fs.writeFileSync(path.join(staticSkillDir, 'SKILL.md'), `---
 name: static-skill
 description: "Static skill, no placeholders"
 trigger: always
@@ -56,8 +61,8 @@ status: published
 });
 
 afterAll(() => {
-  try { fs.unlinkSync(path.join(testSkillsDir, 'test-skill.md')); } catch {}
-  try { fs.unlinkSync(path.join(testSkillsDir, 'static-skill.md')); } catch {}
+  try { fs.rmSync(path.join(testSkillsDir, 'goal-start'), { recursive: true, force: true }); } catch {}
+  try { fs.rmSync(path.join(testSkillsDir, 'always'), { recursive: true, force: true }); } catch {}
   try { fs.rmdirSync(testSkillsDir); } catch {}
 });
 
