@@ -106,9 +106,9 @@ describe('checkGoalCompletion()', () => {
 
     await checkGoalCompletion('goal-1');
 
-    // Blocked steps should be marked as failed
+    // Blocked steps should be marked as blocked_by_dependency
     const blockedUpdates = mockUpdate.mock.calls.filter(
-      (c: any) => c[0]?.where?.id?.startsWith('exec-') && c[0]?.data?.status === 'failed'
+      (c: any) => c[0]?.where?.id?.startsWith('exec-') && c[0]?.data?.status === 'blocked_by_dependency'
     );
     expect(blockedUpdates.length).toBe(4); // steps 1-4
 
@@ -186,9 +186,9 @@ describe('checkGoalCompletion()', () => {
 
     await checkGoalCompletion('goal-1');
 
-    // Both step 1 and step 2 should be cascaded
+    // Both step 1 and step 2 should be cascaded as blocked_by_dependency
     const blockedUpdates = mockUpdate.mock.calls.filter(
-      (c: any) => c[0]?.data?.status === 'failed'
+      (c: any) => c[0]?.data?.status === 'blocked_by_dependency'
     );
     expect(blockedUpdates.length).toBe(2); // steps 1 and 2
 

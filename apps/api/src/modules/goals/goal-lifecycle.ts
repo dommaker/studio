@@ -8,6 +8,7 @@ import { logger } from '@dommaker/studio-shared';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
 import { checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { triageAgent } from '../agents/triage-agent.service.js';
+import { classifyFailureAction } from './failure-classifier.js';
 import { AuditService } from '@dommaker/studio-audit';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import { parseJsonField, type GoalStep } from './goal-crud.js';
@@ -391,17 +392,39 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
     }
   } catch { /* fallback to 'zombie' */ }
 
-  try {
-    await triageAgent.handleAlert({
-      type: incidentType as any,
-      severity: incidentSeverity,
-      message: `Goal ${goalId.slice(0, 8)} failed: ${errorMsg.slice(0, 200)}`,
-      details: { goalId, executionId: failedExec?.id, projectId },
-    });
-    logger.info('[Goal] TriageAgent alerted for goal failure', { goalId });
-  } catch (e) {
-    logger.warn('[Goal] TriageAgent alert failed (non-blocking)', { error: String(e) });
+  // Deterministic failure routing — code decides, not LLM
+  const { action, failureClass } = classifyFailureAction(errorMsg);
+  let routed = false;
+
+  if (action === 'retry-execution' && failedExec) {
+    logger.info(`[Goal] Failure classified as ${failureClass}, auto-retrying execution`, { goalId, executionId: failedExec.id });
+    try {
+      await retryGoalExecution(failedExec.id);
+      // Reset goal status so GoalScheduler picks up the retried execution
+      await prisma.goal.update({
+        where: { id: goalId },
+        data: { status: 'executing', completedAt: null },
+      });
+      routed = true;
+    } catch (e) {
+      logger.warn('[Goal] Auto-retry failed, falling back to triage', { goalId, error: String(e) });
+    }
   }
+
+  if (!routed && action === 'triage-agent') {
+    try {
+      await triageAgent.handleAlert({
+        type: incidentType as any,
+        severity: incidentSeverity,
+        message: `Goal ${goalId.slice(0, 8)} failed: ${errorMsg.slice(0, 200)}`,
+        details: { goalId, executionId: failedExec?.id, projectId },
+      });
+      logger.info('[Goal] TriageAgent alerted for goal failure', { goalId });
+    } catch (e) {
+      logger.warn('[Goal] TriageAgent alert failed (non-blocking)', { error: String(e) });
+    }
+  }
+  // mark-blocked: skip triageAgent, notification below is sufficient
 
   try {
     const ctx = (goal.context as unknown as Record<string, unknown>) || {};

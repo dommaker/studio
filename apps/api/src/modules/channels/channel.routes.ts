@@ -522,7 +522,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
             await channelMessageService.createAgentMessage(
               req.params.channelId,
               'System',
-              `## ⚠️ RequirementsDoc 质量检查未通过\n\n${
+              `## ⚠️ RequirementGate 检查未通过\n\nRequirementsDoc 格式验证已通过，但 AC 结构需要修正：\n\n${
                 gateResult.suggestions.map(s => `- ${s}`).join('\n')
               }\n\n**建议**: ${
                 gateResult.tierRecommendation === 'needs-human'
@@ -536,8 +536,50 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
           if (gateResult.tierRecommendation === 'needs-human') {
             return res.status(400).json({ success: false, error: 'RequirementsDoc quality check failed', gateResult });
           }
-          // upgrade-to-premium: 非阻塞，允许继续但标记警告
-          logger.warn('[Channel] RequirementGate: soft-fail, proceeding with warning');
+
+          // upgrade-to-premium: trigger Analyst revision with gate feedback
+          if (gateResult.tierRecommendation === 'upgrade-to-premium') {
+            const revMatch = doc.content.match(/<!-- GATE_REVISION_ATTEMPT (\d+) -->/);
+            const revisionAttempt = revMatch ? parseInt(revMatch[1], 10) : 0;
+
+            if (revisionAttempt >= 2) {
+              // Max revision attempts reached — block
+              logger.warn('[Channel] RequirementGate: max revision attempts reached', { docId, revisionAttempt });
+              try {
+                await channelMessageService.createAgentMessage(
+                  req.params.channelId, 'System',
+                  `## ⚠️ 自动修正已达上限\n\nRequirementsDoc 经过 ${revisionAttempt} 次自动修正仍未通过质量检查。请 @Analyst 手动修正后重新 /plan。`,
+                  { meta: { cardType: 'gate_rejected' } }
+                );
+              } catch { /* best-effort */ }
+              return res.status(400).json({ success: false, error: 'Max gate revision attempts reached', gateResult });
+            }
+
+            // Trigger Analyst revision (fire-and-forget)
+            logger.info('[Channel] RequirementGate: triggering Analyst revision', { docId, revisionAttempt });
+            const { buildRevisionPrompt: buildRevPrompt } = await import('./analyst-prompt.js');
+            const revisionPrompt = buildRevPrompt(
+              doc.title,
+              gateResult.suggestions,
+              doc.content,
+              revisionAttempt,
+            );
+
+            // Update doc content with revision marker for next gate check
+            await prisma.requirementsDoc.update({
+              where: { id: docId },
+              data: { content: doc.content.replace(/<!-- GATE_REVISION_ATTEMPT \d+ -->\n?/, '') + `\n<!-- GATE_REVISION_ATTEMPT ${revisionAttempt + 1} -->` },
+            }).catch((e: unknown) => logger.error('[Channel] Failed to update doc revision marker', { error: String(e) }));
+
+            import('./analyst-trigger.service.js')
+              .then(({ analystTriggerService }) =>
+                analystTriggerService.trigger(req.params.channelId, null, revisionPrompt)
+              )
+              .catch((err: unknown) =>
+                logger.error('[Channel] Analyst revision trigger failed', { error: String(err) })
+              );
+            return; // Analyst revision will re-trigger start_execution via autoStartExecution
+          }
         } else {
           logger.info('[Channel] RequirementGate: passed', { docId, groups: acGroups.length });
         }

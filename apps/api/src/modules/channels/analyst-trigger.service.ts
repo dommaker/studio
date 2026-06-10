@@ -301,6 +301,7 @@ class AnalystTriggerService {
       `## 📋 ${doc.title}`,
       '', doc.summary, '',
       `📊 ${doc.acGroups.length} 模块 · ${acCount} 验收标准 · ${guideCount} 实现指南`,
+      `✅ 结构验证通过`,
       tags,
       unverifiedWarn,
     ].join('\n');

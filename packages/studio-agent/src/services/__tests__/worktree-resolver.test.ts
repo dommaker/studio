@@ -156,4 +156,25 @@ describe('resolveWorkspace()', () => {
 
     expect(result).toBe('/worktrees/exec-1');
   });
+
+  test('hasWorktree=true skips priority 2 (VPS workspace) and creates worktree', async () => {
+    const task = makeTask({ hasWorktree: true });
+    // VPS workspace exists in DB — but should be skipped
+    mockFindFirst.mockResolvedValue({
+      id: 'ws-1',
+      workspaceRoot: '/vps/root',
+    });
+    mockExistsSync.mockImplementation((p: string) => p === '/vps/root');
+
+    const result = await resolveWorkspace({ task, ...baseOpts });
+
+    // Should NOT use VPS workspace
+    expect(result).toBe('/worktrees/exec-1');
+    expect(mockFindFirst).not.toHaveBeenCalled();
+    // Should create worktree
+    expect(mockExecSh).toHaveBeenCalledWith(
+      expect.stringContaining('git worktree add'),
+      expect.anything(),
+    );
+  });
 });

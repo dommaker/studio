@@ -58,8 +58,10 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
 /**
  * 3-priority workspace resolution:
  *   1. task.parameters.workspaceRoot (direct path)
- *   2. VPS workspace DB query (prisma.workspace.findFirst)
+ *   2. VPS workspace DB query (prisma.workspace.findFirst) — skipped when hasWorktree=true
  *   3. createWorktree() fallback
+ *
+ * hasWorktree=true: caller explicitly wants isolated git worktree, skip VPS workspace.
  */
 export async function resolveWorkspace(opts: {
   task: AgentTask;
@@ -75,18 +77,23 @@ export async function resolveWorkspace(opts: {
     return directRoot;
   }
 
-  // Priority 2: DB query for VPS workspace
-  try {
-    const workspace = await prisma.workspace.findFirst({
-      where: { name: 'VPS', tokenId: null },
-      orderBy: { updatedAt: 'desc' },
-    });
-    if (workspace?.workspaceRoot && fsSync.existsSync(workspace.workspaceRoot)) {
-      logger.info('[WorktreeResolver] Using workspace from DB', { workspaceId: workspace.id, workspaceRoot: workspace.workspaceRoot });
-      return workspace.workspaceRoot;
+  // Priority 2: DB query for VPS workspace (skip when hasWorktree=true)
+  const needsWorktree = task.parameters?.hasWorktree === true;
+  if (needsWorktree) {
+    logger.info('[WorktreeResolver] hasWorktree=true, skipping VPS workspace, creating git worktree');
+  } else {
+    try {
+      const workspace = await prisma.workspace.findFirst({
+        where: { name: 'VPS', tokenId: null },
+        orderBy: { updatedAt: 'desc' },
+      });
+      if (workspace?.workspaceRoot && fsSync.existsSync(workspace.workspaceRoot)) {
+        logger.info('[WorktreeResolver] Using workspace from DB', { workspaceId: workspace.id, workspaceRoot: workspace.workspaceRoot });
+        return workspace.workspaceRoot;
+      }
+    } catch (e) {
+      logger.warn('[WorktreeResolver] DB workspace query failed, falling back to createWorktree', { error: String(e) });
     }
-  } catch (e) {
-    logger.warn('[WorktreeResolver] DB workspace query failed, falling back to createWorktree', { error: String(e) });
   }
 
   // Priority 3: create git worktree

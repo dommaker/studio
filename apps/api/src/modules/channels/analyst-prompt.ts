@@ -247,3 +247,42 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
     requirement,
   ].join('\n');
 }
+
+/**
+ * Build a revision prompt for Analyst when RequirementGate fails with upgrade-to-premium.
+ * Passes gate feedback as targeted fix instructions instead of re-exploring from scratch.
+ */
+export function buildRevisionPrompt(
+  originalRequirement: string,
+  gateIssues: string[],
+  originalDoc: string,
+  revisionAttempt?: number,
+): string {
+  const issuesList = gateIssues.length > 0
+    ? gateIssues.map(s => `- ${s}`).join('\n')
+    : '- （无具体问题描述）';
+
+  const attempt = revisionAttempt ?? 1;
+
+  return [
+    '## 修正任务（RequirementGate 反馈）',
+    '',
+    '你之前生成的 RequirementsDoc 未通过质量检查。请**针对以下问题修正**，不要重新探索代码库。',
+    '',
+    '### 检查发现的问题',
+    issuesList,
+    '',
+    '### 原始 RequirementsDoc',
+    originalDoc,
+    '',
+    '### 原始需求',
+    originalRequirement,
+    '',
+    '### 修正要求',
+    '- 只修正上述问题，不要重新分析整个需求',
+    '- 保持已有正确的部分不变',
+    `- 在输出的 RequirementsDoc markdown 开头包含修正标记: \`<!-- GATE_REVISION_ATTEMPT ${attempt + 1} -->\``,
+    '- 修正后重新输出完整的 RequirementsDoc JSON',
+    '- 写完 JSON 后，在 stdout 输出 "DONE"',
+  ].join('\n');
+}
