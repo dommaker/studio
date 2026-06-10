@@ -7,6 +7,28 @@
  */
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway, recordDecision } from '@dommaker/studio-shared';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+
+export function workflowTypeToTriggerDir(workflowType: string): string {
+  const map: Record<string, string> = {
+    ci_fix: 'goal-start',
+    test_triage: 'goal-start',
+    config_change: 'goal-start',
+    pr_review: 'review',
+    doc_update: 'always',
+    knowledge_curation: 'always',
+    architecture: 'goal-start',
+    refactor: 'goal-start',
+    skill_creation: 'always',
+    release_prep: 'integration',
+    changelog: 'integration',
+  };
+  return map[workflowType] || 'always';
+}
 
 export interface ExtractedSkillProposal {
   id: string;
@@ -183,6 +205,33 @@ export class SkillExtractionService {
     await prisma.skillProposal.update({ where: { id: proposalId }, data: { status: approved ? 'approved' : 'rejected', reviewedAt: new Date() } });
     if (approved) {
       await prisma.skill.update({ where: { id: p.skillId }, data: { status: 'draft' } });
+
+      // Generate SKILL.md file
+      try {
+        const meta = p.skill?.metadata ? JSON.parse(p.skill.metadata as string) : {};
+        const trigger = workflowTypeToTriggerDir(meta.workflowType || 'unknown');
+        const skillName = p.skill?.name || p.skillId;
+        const skillDir = path.join(SKILLS_DIR, trigger, skillName);
+        const skillFile = path.join(skillDir, 'SKILL.md');
+
+        if (!fs.existsSync(skillFile)) {
+          fs.mkdirSync(skillDir, { recursive: true });
+          const body = meta.pattern || `## ${skillName}\n\nSkill generated from proposal.\n\n### Usage\nApply this pattern when handling similar tasks.`;
+          const content = `---
+name: '${skillName}'
+version: 1
+description: '${(p.skill?.description || '').replace(/'/g, "''")}'
+agentTypes: ['executor']
+tier: 'standard'
+status: 'draft'
+---
+${body}`;
+          fs.writeFileSync(skillFile, content, 'utf-8');
+          logger.info('[SkillExtraction] SKILL.md generated', { path: skillFile });
+        }
+      } catch (e) {
+        logger.warn('[SkillExtraction] SKILL.md generation failed (non-blocking)', { error: String(e) });
+      }
 
       // ⑧: knowledge→role 回流 — 已批准 skill 自动添加为角色能力
       try {

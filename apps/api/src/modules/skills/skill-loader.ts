@@ -150,11 +150,15 @@ function loadAllSkillFiles(): SkillFrontmatter[] {
  * Load skill metadata from specific trigger subdirectories.
  * Scans the given trigger + 'always/' directories only.
  */
+function normalizeTriggerDir(trigger: string): string {
+  return trigger.replace(/_/g, '-');
+}
+
 function loadSkillFilesForTrigger(trigger: string): SkillFrontmatter[] {
   try {
     if (!fs.existsSync(SKILLS_DIR)) return [];
     const results: SkillFrontmatter[] = [];
-    const dirsToScan = [trigger, 'always'];
+    const dirsToScan = [normalizeTriggerDir(trigger), 'always'];
     for (const dir of dirsToScan) {
       const triggerDir = path.join(SKILLS_DIR, dir);
       if (!fs.existsSync(triggerDir)) continue;
