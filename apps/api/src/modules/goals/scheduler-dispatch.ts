@@ -43,6 +43,7 @@ import {
 } from './scheduler-prompt.js';
 
 const MAX_CONCURRENT = 5;
+const MAX_RETRIES = 3;
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
 // ─── Dispatch Context ───
@@ -491,6 +492,49 @@ async function handleDispatchSuccess(
   } catch { /* non-blocking */ }
 }
 
+/**
+ * 检查执行是否可以重试。retryCount < MAX_RETRIES → 重置为 pending，返回 true。
+ * 已达上限 → 返回 false，由调用方走正常失败流程。
+ */
+export async function maybeRetryExecution(
+  executionId: string,
+  error: string,
+  maxRetries: number = MAX_RETRIES,
+): Promise<boolean> {
+  const exec = await prisma.goalExecution.findUnique({
+    where: { id: executionId },
+    select: { retryCount: true },
+  });
+  if (!exec) return false;
+
+  if (exec.retryCount >= maxRetries) {
+    logger.info('[GoalScheduler] Retry exhausted', { executionId, retryCount: exec.retryCount, maxRetries });
+    return false;
+  }
+
+  await prisma.goalExecution.update({
+    where: { id: executionId },
+    data: {
+      status: 'pending',
+      retryCount: exec.retryCount + 1,
+      error: JSON.stringify({
+        message: error,
+        retryAttempt: exec.retryCount + 1,
+        timestamp: Date.now(),
+      }),
+      startedAt: null,
+      completedAt: null,
+    },
+  });
+
+  logger.warn('[GoalScheduler] Retrying execution', {
+    executionId,
+    retryCount: exec.retryCount + 1,
+    maxRetries,
+  });
+  return true;
+}
+
 /** dispatch 失败后的处理：记录 metrics、feedback loop */
 async function handleDispatchFailure(
   executionId: string,
@@ -502,10 +546,15 @@ async function handleDispatchFailure(
   dispatchDuration: number,
   ctx: DispatchContext,
 ): Promise<void> {
+  // Retry check: if retryable, reset to pending and skip failure flow
+  const errorStr = result.error || 'Agent execution failed';
+  const retried = await maybeRetryExecution(executionId, errorStr);
+  if (retried) return;
+
   const worktreeDir = path.join(WORKTREES_DIR, executionId);
   await goalService.updateStepExecution(executionId, {
     status: 'failed',
-    error: result.error || 'Agent execution failed',
+    error: errorStr,
   });
   const failTokens = parseAgentTokenUsage(worktreeDir);
   recordPipelineRun({
