@@ -197,4 +197,51 @@ describe('checkGoalCompletion()', () => {
       data: { status: 'failed', completedAt: expect.any(Date) },
     });
   });
+
+  test('cascades failure without GoalPlan (createGoalFromChannelDoc path)', async () => {
+    // No GoalPlan — dependencies encoded in acGroup.dependencies (string IDs)
+    const executions = [
+      { ...makeExec(0, 'failed'), input: JSON.stringify({ acGroup: { id: 'schema-migration' } }) },
+      { ...makeExec(1, 'pending'), input: JSON.stringify({ acGroup: { id: 'lifecycle-persist', dependencies: ['schema-migration'] } }) },
+      { ...makeExec(2, 'pending'), input: JSON.stringify({ acGroup: { id: 'crud-route', dependencies: ['schema-migration'] } }) },
+    ];
+    mockFindMany.mockResolvedValue(executions);
+    mockFindFirst.mockResolvedValue(null); // No GoalPlan
+
+    await checkGoalCompletion('goal-1');
+
+    // Steps 1 and 2 should be cascaded as blocked_by_dependency
+    const blockedUpdates = mockUpdate.mock.calls.filter(
+      (c: any) => c[0]?.data?.status === 'blocked_by_dependency'
+    );
+    expect(blockedUpdates.length).toBe(2);
+
+    // Goal should be marked as failed
+    expect(mockGoalUpdate).toHaveBeenCalledWith({
+      where: { id: 'goal-1' },
+      data: { status: 'failed', completedAt: expect.any(Date) },
+    });
+  });
+
+  test('resets blocked_by_dependency steps when dependencies succeed (retry recovery)', async () => {
+    // Step 0 succeeded after retry, steps 1-2 were blocked_by_dependency
+    const executions = [
+      { ...makeExec(0, 'succeeded'), input: JSON.stringify({ acGroup: { id: 'schema-migration' } }) },
+      { ...makeExec(1, 'blocked_by_dependency'), input: JSON.stringify({ acGroup: { id: 'lifecycle-persist', dependencies: ['schema-migration'] } }) },
+      { ...makeExec(2, 'blocked_by_dependency'), input: JSON.stringify({ acGroup: { id: 'crud-route', dependencies: ['schema-migration'] } }) },
+    ];
+    mockFindMany.mockResolvedValue(executions);
+    mockFindFirst.mockResolvedValue(null); // No GoalPlan
+
+    await checkGoalCompletion('goal-1');
+
+    // Steps 1 and 2 should be reset to pending
+    const resetUpdates = mockUpdate.mock.calls.filter(
+      (c: any) => c[0]?.data?.status === 'pending'
+    );
+    expect(resetUpdates.length).toBe(2);
+
+    // Goal should NOT be marked as failed (steps are now pending)
+    expect(mockGoalUpdate).not.toHaveBeenCalled();
+  });
 });

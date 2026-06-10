@@ -179,7 +179,10 @@ export class GoalScheduler {
         if (allExecs.length === 0) {
           logger.warn('[GoalScheduler] Goal has no executions, marking failed', { goalId });
           await goalService.checkGoalCompletion(goalId);
-        } else if (allExecs.every(e => e.status === 'succeeded' || e.status === 'failed')) {
+        } else if (allExecs.every(e => ['succeeded', 'failed', 'blocked_by_dependency'].includes(e.status))) {
+          await goalService.checkGoalCompletion(goalId);
+        } else if (allExecs.some(e => e.status === 'failed')) {
+          // Has failed steps + pending dependents — trigger cascade
           await goalService.checkGoalCompletion(goalId);
         }
         return;

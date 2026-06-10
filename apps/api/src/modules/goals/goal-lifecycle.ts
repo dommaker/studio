@@ -134,9 +134,32 @@ async function cascadeBlockedFailures(goalId: string, executions: any[]): Promis
     where: { goalId, status: 'approved' },
     orderBy: { version: 'desc' },
   });
-  if (!plan) return false;
 
-  const steps = parseJsonField<GoalStep[]>(plan.steps, []);
+  let steps: GoalStep[];
+  if (plan) {
+    steps = parseJsonField<GoalStep[]>(plan.steps, []);
+  } else {
+    // No plan — reconstruct steps from executions (createGoalFromChannelDoc path)
+    steps = executions.map(e => {
+      const input = parseJsonField<Record<string, any>>(e.input, {});
+      const acGroup = input?.acGroup || {};
+      return {
+        index: e.stepIndex,
+        title: acGroup.id || `step-${e.stepIndex}`,
+        description: '',
+        agentType: e.agentType || 'claude',
+        input,
+        dependencies: (acGroup.dependencies || []).map((depId: string) => {
+          const depExec = executions.find(ex => {
+            const depInput = parseJsonField<Record<string, any>>(ex.input, {});
+            return depInput?.acGroup?.id === depId;
+          });
+          return depExec?.stepIndex ?? -1;
+        }).filter((i: number) => i >= 0),
+        estimatedDuration: '30m',
+      };
+    });
+  }
   if (steps.length === 0) return false;
 
   const execMap = new Map(executions.map(e => [e.stepIndex, e]));
@@ -200,6 +223,73 @@ export async function resetBlockedByDependency(goalId: string): Promise<number> 
   return blocked.length;
 }
 
+/**
+ * Reset blocked_by_dependency steps whose dependencies are now all satisfied.
+ * Called after a retry succeeds and dependencies change.
+ */
+async function resetUnblockedSteps(goalId: string, executions: any[]): Promise<boolean> {
+  const blockedExecs = executions.filter(e => e.status === 'blocked_by_dependency');
+  if (blockedExecs.length === 0) return false;
+
+  // Reconstruct steps to get dependency info
+  const plan = await prisma.goalPlan.findFirst({
+    where: { goalId, status: 'approved' },
+    orderBy: { version: 'desc' },
+  });
+
+  let steps: GoalStep[];
+  if (plan) {
+    steps = parseJsonField<GoalStep[]>(plan.steps, []);
+  } else {
+    steps = executions.map(e => {
+      const input = parseJsonField<Record<string, any>>(e.input, {});
+      const acGroup = input?.acGroup || {};
+      return {
+        index: e.stepIndex,
+        title: acGroup.id || `step-${e.stepIndex}`,
+        description: '',
+        agentType: e.agentType || 'claude',
+        input,
+        dependencies: (acGroup.dependencies || []).map((depId: string) => {
+          const depExec = executions.find(ex => {
+            const depInput = parseJsonField<Record<string, any>>(ex.input, {});
+            return depInput?.acGroup?.id === depId;
+          });
+          return depExec?.stepIndex ?? -1;
+        }).filter((i: number) => i >= 0),
+        estimatedDuration: '30m',
+      };
+    });
+  }
+
+  const execMap = new Map(executions.map(e => [e.stepIndex, e]));
+  let resetCount = 0;
+
+  for (const step of steps) {
+    const exec = execMap.get(step.index);
+    if (!exec || exec.status !== 'blocked_by_dependency') continue;
+
+    const allDepsSatisfied = step.dependencies.every(depIndex => {
+      const depExec = execMap.get(depIndex);
+      return depExec?.status === 'succeeded';
+    });
+
+    if (allDepsSatisfied) {
+      await prisma.goalExecution.update({
+        where: { id: exec.id },
+        data: { status: 'pending', error: null },
+      });
+      exec.status = 'pending'; // update local map
+      resetCount++;
+    }
+  }
+
+  if (resetCount > 0) {
+    logger.info(`[Goal] Reset ${resetCount} unblocked steps to pending`, { goalId });
+  }
+  return resetCount > 0;
+}
+
 export async function checkGoalCompletion(goalId: string): Promise<void> {
   let executions = await prisma.goalExecution.findMany({
     where: { goalId },
@@ -217,6 +307,13 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
   const cascaded = await cascadeBlockedFailures(goalId, executions);
   if (cascaded) {
     // Re-fetch executions with updated statuses
+    executions = await prisma.goalExecution.findMany({ where: { goalId } });
+  }
+
+  // Reset blocked_by_dependency steps whose dependencies are now satisfied
+  // (e.g., after a retry succeeded)
+  const unblocked = await resetUnblockedSteps(goalId, executions);
+  if (unblocked) {
     executions = await prisma.goalExecution.findMany({ where: { goalId } });
   }
 
