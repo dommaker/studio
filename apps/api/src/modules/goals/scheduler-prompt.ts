@@ -311,20 +311,70 @@ export async function getCompanyKnowledge(goalId: string, input: Record<string, 
 
 // ─── Repo Helpers ───
 
-/** 从 Goal 的 projectId 反查 project.gitRepo，找不到则回退到 REPO_DIR */
+/** 从 Goal context 获取仓库路径。优先级：workspaceRepoId → projectId → WorkspaceRepo → fallback */
 export async function getProjectRepoPath(goal: any): Promise<string> {
-  try {
-    const ctx = typeof goal.context === 'string' ? JSON.parse(goal.context) : (goal.context || {});
-    const projectId = ctx?.projectId as string;
-    if (projectId) {
+  const ctx = typeof goal.context === 'string' ? JSON.parse(goal.context) : (goal.context || {});
+
+  // Priority 1: Goal 直接绑定 workspaceRepoId
+  const workspaceRepoId = ctx?.workspaceRepoId as string;
+  if (workspaceRepoId) {
+    try {
+      const repo = await prisma.workspaceRepo.findUnique({
+        where: { id: workspaceRepoId },
+        include: { workspace: { select: { workspaceRoot: true } } },
+      });
+      if (repo?.status === 'active' && repo.workspace) {
+        const fullPath = path.join(repo.workspace.workspaceRoot, repo.path);
+        if (fs.existsSync(path.join(fullPath, '.git'))) return fullPath;
+      }
+    } catch { /* fallback */ }
+  }
+
+  // Priority 2: Project 关联的 workspaceRepoId 或 gitRepo
+  const projectId = ctx?.projectId as string;
+  if (projectId) {
+    try {
       const project = await prisma.project.findUnique({
         where: { id: projectId },
-        select: { gitRepo: true },
+        select: { gitRepo: true, workspaceRepoId: true },
       });
-      if (project?.gitRepo) return project.gitRepo;
+      if (project?.workspaceRepoId) {
+        const repo = await prisma.workspaceRepo.findUnique({
+          where: { id: project.workspaceRepoId },
+          include: { workspace: { select: { workspaceRoot: true } } },
+        });
+        if (repo?.status === 'active' && repo.workspace) {
+          const fullPath = path.join(repo.workspace.workspaceRoot, repo.path);
+          if (fs.existsSync(path.join(fullPath, '.git'))) return fullPath;
+        }
+      }
+      if (project?.gitRepo && fs.existsSync(path.join(project.gitRepo, '.git'))) {
+        return project.gitRepo;
+      }
+    } catch { /* fallback */ }
+  }
+
+  // Priority 3: First active WorkspaceRepo
+  try {
+    const repo = await prisma.workspaceRepo.findFirst({
+      where: { status: 'active' },
+      include: { workspace: { select: { workspaceRoot: true, status: true } } },
+      orderBy: { lastSyncedAt: 'desc' },
+    });
+    if (repo?.workspace) {
+      const fullPath = path.join(repo.workspace.workspaceRoot, repo.path);
+      if (fs.existsSync(path.join(fullPath, '.git'))) {
+        logger.info('[SchedulerPrompt] Using first active WorkspaceRepo', { repoPath: fullPath });
+        return fullPath;
+      }
     }
   } catch { /* fallback */ }
-  return process.env.REPO_DIR || path.join(os.homedir(), 'projects');
+
+  // Priority 4: Legacy fallback
+  const fallbackDir = process.env.REPO_DIR || path.join(os.homedir(), 'projects');
+  if (fs.existsSync(path.join(fallbackDir, '.git'))) return fallbackDir;
+  logger.error('[SchedulerPrompt] No git repo found', { fallbackDir });
+  return fallbackDir;
 }
 
 /** B5-P03: 按 execution ID 查找 task/* 分支（分支名可能包含 PMO 号） */
@@ -355,7 +405,7 @@ export async function runIntegrationInCode(
 
   try { fs.rmSync(worktree, { recursive: true, force: true }); } catch {}
   const branchSuffix = pmoNumber
-    ? `${pmoNumber}-integration-${executionId.slice(0, 20)}`
+    ? `${pmoNumber}-integration-${executionId}`
     : executionId;
   const branchName = `task/${branchSuffix}`;
   try {
@@ -402,7 +452,7 @@ export async function runIntegrationInCode(
       continue;
     }
     try {
-      execSync(`git merge "${branch}" --no-edit`, { cwd: worktree, timeout: 15_000, stdio: 'pipe' });
+      execSync(`git merge "${branch}" --no-ff --no-edit`, { cwd: worktree, timeout: 15_000, stdio: 'pipe' });
       mergedBranches.push(branch);
       logger.info('[GoalScheduler] Integration merged', { branch, executionId });
     } catch (e: any) {

@@ -12,11 +12,36 @@ import { execSh } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 
 import type { AgentTask } from './session-manager.js';
+import { execSync } from 'child_process';
+
+/** 检测仓库默认分支名（不猜 main/master） */
+function getDefaultBranch(cwd: string): string {
+  try {
+    const remoteHead = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
+      cwd, encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+    }).trim();
+    return remoteHead.replace('refs/remotes/origin/', '');
+  } catch { /* no remote HEAD */ }
+  for (const branch of ['main', 'master']) {
+    try {
+      execSync(`git rev-parse --verify ${branch}`, {
+        cwd, timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      return branch;
+    } catch { /* branch doesn't exist */ }
+  }
+  return 'master';
+}
 
 /**
  * 创建 worktree（真 git worktree add）
  */
 export async function createWorktree(worktree: string, baseBranch: string, repoDir: string, task?: AgentTask): Promise<void> {
+  // Validate repoDir is a git repository
+  if (!fsSync.existsSync(path.join(repoDir, '.git'))) {
+    throw new Error(`repoDir is not a git repository: ${repoDir}`);
+  }
+
   // 清理已存在的目录
   try {
     await execSh(`git worktree remove --force "${worktree}" 2>/dev/null || true`, {
@@ -33,12 +58,8 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
     logger.warn('[WorktreeResolver] Failed to clean worktree dir, continuing', { error: String(e) });
   }
 
-  // 创建 git worktree（A3: 使用 PMO number 命名分支）
-  const pmoNumber = (task?.parameters?.pmoNumber as string) || '';
-  const branchSuffix = pmoNumber
-    ? `${pmoNumber}-${path.basename(worktree).slice(0, 30)}`
-    : path.basename(worktree).substring(0, 50);
-  const branchName = `task/${branchSuffix}`;
+  // 创建 git worktree — 分支名必须包含完整 executionId，确保 findTaskBranch 能找到
+  const branchName = `task/${path.basename(worktree)}`;
   try {
     await execSh(
       `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
@@ -99,7 +120,7 @@ export async function resolveWorkspace(opts: {
   // Priority 3: create git worktree
   const worktree = path.join(worktreesDir, task.executionId);
   const projectRepo = (task.parameters?.repoDir as string) || repoDir;
-  const baseBranch = (task.parameters?.baseBranch as string) || 'main';
+  const baseBranch = (task.parameters?.baseBranch as string) || getDefaultBranch(projectRepo);
   await createWorktree(worktree, baseBranch, projectRepo, task);
   return worktree;
 }

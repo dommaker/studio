@@ -5,6 +5,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
+import { splitAcGroupsByRepo } from './multi-repo-split.js';
 import { goalService } from '../goals/goal.service.js';
 import { sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { projectService } from '../pmo/project.service.js';
@@ -664,42 +665,105 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         return; // early exit — no separate return needed inside if block
       }
 
-      // B1-002: Create Goal + GoalPlan(approved) + GoalExecutions(pending) via GoalService
-      // This creates the GoalPlan that GoalScheduler.getExecutableSteps() requires
-      const result = await goalService.createGoalFromChannelDoc({
-        title: doc.title,
-        summary: doc.content.slice(0, 200),
-        acGroups,
-        companyId: company.id,
-        sourceChannelId: req.params.channelId,
-        requirementsDocId: docId,
-        projectId,
-        risks,
-        ...(contractTests?.length ? { contractTests } : {}),
-      });
+      // AS-023: Resolve targetRepo from acGroups → WorkspaceRepo
+      let workspaceRepoId: string | undefined;
+      const targetRepos = [...new Set(acGroups.map((g: any) => g.targetRepo).filter(Boolean))];
+      if (targetRepos.length === 1) {
+        // All acGroups target the same repo — bind to project
+        try {
+          const repo = await prisma.workspaceRepo.findFirst({
+            where: { name: targetRepos[0], status: 'active' },
+            select: { id: true, workspaceId: true },
+          });
+          if (repo) {
+            workspaceRepoId = repo.id;
+            // Update project with workspaceRepoId
+            if (projectId) {
+              await prisma.project.update({
+                where: { id: projectId },
+                data: { workspaceRepoId },
+              });
+            }
+            logger.info('[Channel] WorkspaceRepo bound', { repoName: targetRepos[0], workspaceRepoId });
+          }
+        } catch { /* fallback: no workspaceRepoId */ }
+      } else if (targetRepos.length > 1) {
+        logger.info('[Channel] Multiple targetRepos detected — splitting into separate Goals', { targetRepos });
+      }
 
-      // Update RequirementsDoc
+      // P3: Split acGroups by targetRepo → create separate Goals per repo
+      const repoGroups = targetRepos.length > 1
+        ? splitAcGroupsByRepo(acGroups as any)
+        : [{ targetRepo: targetRepos[0] || '__default__', acGroups: acGroups as any }];
+
+      const results: Array<{ goalId: string; stepCount: number }> = [];
+
+      for (const group of repoGroups) {
+        // Resolve workspaceRepoId for this group
+        let groupRepoId: string | undefined;
+        if (group.targetRepo !== '__default__') {
+          try {
+            const repo = await prisma.workspaceRepo.findFirst({
+              where: { name: group.targetRepo, status: 'active' },
+              select: { id: true },
+            });
+            if (repo) groupRepoId = repo.id;
+          } catch { /* fallback */ }
+        }
+        // Fall back to the single-repo workspaceRepoId resolved earlier
+        groupRepoId = groupRepoId || workspaceRepoId;
+
+        const result = await goalService.createGoalFromChannelDoc({
+          title: repoGroups.length > 1 ? `${doc.title} [${group.targetRepo}]` : doc.title,
+          summary: doc.content.slice(0, 200),
+          acGroups: group.acGroups,
+          companyId: company.id,
+          sourceChannelId: req.params.channelId,
+          requirementsDocId: docId,
+          projectId,
+          risks,
+          ...(groupRepoId ? { workspaceRepoId: groupRepoId } : {}),
+          ...(contractTests?.length ? { contractTests } : {}),
+        });
+        results.push(result);
+      }
+
+      const primaryResult = results[0];
+
+      // Update RequirementsDoc with primary Goal ID
       await prisma.requirementsDoc.update({
         where: { id: docId },
-        data: { status: 'confirmed', goalId: result.goalId },
+        data: { status: 'confirmed', goalId: primaryResult.goalId },
       });
 
       meta.status = 'executing';
-      meta.goalId = result.goalId;
+      meta.goalId = primaryResult.goalId;
 
       // Post progress message
       const riskNote = risks.length > 0
         ? `\n⚠️ 风险标注: ${risks.join(', ')}`
         : '';
-      await channelMessageService.createAgentMessage(
-        req.params.channelId,
-        'Executor',
-        `✅ 已创建 Goal \`${result.goalId.slice(0, 8)}\`，${result.stepCount} 个执行组排队中。${riskNote}`,
-        { meta: { goalId: result.goalId, status: 'queued', risks } },
-      );
+      if (results.length === 1) {
+        await channelMessageService.createAgentMessage(
+          req.params.channelId,
+          'Executor',
+          `✅ 已创建 Goal \`${primaryResult.goalId.slice(0, 8)}\`，${primaryResult.stepCount} 个执行组排队中。${riskNote}`,
+          { meta: { goalId: primaryResult.goalId, status: 'queued', risks } },
+        );
+      } else {
+        const goalLines = results.map(r =>
+          `- \`${r.goalId.slice(0, 8)}\` (${r.stepCount} 步)`
+        ).join('\n');
+        await channelMessageService.createAgentMessage(
+          req.params.channelId,
+          'Executor',
+          `✅ 跨仓需求拆分为 ${results.length} 个 Goal：\n${goalLines}${riskNote}`,
+          { meta: { goalIds: results.map(r => r.goalId), status: 'queued', risks } },
+        );
+      }
 
-      logger.info('[Channel] Goal created from RequirementsDoc', {
-        docId, goalId: result.goalId, stepCount: result.stepCount, risks,
+      logger.info('[Channel] Goal(s) created from RequirementsDoc', {
+        docId, goalCount: results.length, goalIds: results.map(r => r.goalId), risks,
       });
     }
   } else if (action === 'modify') {

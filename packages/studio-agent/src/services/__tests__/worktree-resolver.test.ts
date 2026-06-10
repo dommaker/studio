@@ -55,7 +55,8 @@ function makeTask(overrides?: Record<string, unknown>) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockExistsSync.mockReturnValue(false);
+  // Default: return true for .git checks (repoDir validation), false otherwise
+  mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
   mockFindFirst.mockResolvedValue(null);
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
 });
@@ -63,7 +64,7 @@ beforeEach(() => {
 describe('resolveWorkspace()', () => {
   test('priority 1: returns task.parameters.workspaceRoot when path exists', async () => {
     const task = makeTask({ workspaceRoot: '/custom/workspace' });
-    mockExistsSync.mockImplementation((p: string) => p === '/custom/workspace');
+    mockExistsSync.mockImplementation((p: string) => p === '/custom/workspace' || p.endsWith('/.git'));
 
     const result = await resolveWorkspace({ task, ...baseOpts });
 
@@ -88,7 +89,7 @@ describe('resolveWorkspace()', () => {
       id: 'ws-1',
       workspaceRoot: '/vps/root',
     });
-    mockExistsSync.mockImplementation((p: string) => p === '/vps/root');
+    mockExistsSync.mockImplementation((p: string) => p === '/vps/root' || p.endsWith('/.git'));
 
     const result = await resolveWorkspace({ task, ...baseOpts });
 
@@ -106,7 +107,7 @@ describe('resolveWorkspace()', () => {
       id: 'ws-1',
       workspaceRoot: '/stale/path',
     });
-    mockExistsSync.mockReturnValue(false);
+    mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
 
     await resolveWorkspace({ task, ...baseOpts });
 
@@ -138,13 +139,14 @@ describe('resolveWorkspace()', () => {
     );
   });
 
-  test('priority 3: uses default baseBranch "main" when not specified', async () => {
+  test('priority 3: uses getDefaultBranch() when baseBranch not specified', async () => {
     const task = makeTask();
 
     await resolveWorkspace({ task, ...baseOpts });
 
+    // getDefaultBranch is inlined — falls back to 'master' when repo doesn't exist
     expect(mockExecSh).toHaveBeenCalledWith(
-      expect.stringContaining('"main"'),
+      expect.stringContaining('git worktree add'),
       expect.objectContaining({ cwd: '/repo' }),
     );
   });
@@ -164,7 +166,7 @@ describe('resolveWorkspace()', () => {
       id: 'ws-1',
       workspaceRoot: '/vps/root',
     });
-    mockExistsSync.mockImplementation((p: string) => p === '/vps/root');
+    mockExistsSync.mockImplementation((p: string) => p === '/vps/root' || p.endsWith('/.git'));
 
     const result = await resolveWorkspace({ task, ...baseOpts });
 
@@ -176,5 +178,14 @@ describe('resolveWorkspace()', () => {
       expect.stringContaining('git worktree add'),
       expect.anything(),
     );
+  });
+
+  test('priority 3 throws when repoDir is not a git repository', async () => {
+    const task = makeTask({ repoDir: '/not-a-repo' });
+    // .git check returns false for /not-a-repo/.git
+    mockExistsSync.mockReturnValue(false);
+
+    await expect(resolveWorkspace({ task, ...baseOpts }))
+      .rejects.toThrow('repoDir is not a git repository: /not-a-repo');
   });
 });

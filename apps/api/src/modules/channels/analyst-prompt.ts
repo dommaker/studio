@@ -8,7 +8,14 @@ const getFormatConstraintsForPrompt = async (): Promise<(role: string) => string
 import { selectRelevantSections } from './analyst-knowledge.js';
 import { skillLoader } from '@dommaker/studio-skill';
 
-export async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection: string, outputFile: string, preClassifiedTier?: string): Promise<string> {
+export interface RepoInfo {
+  name: string;
+  path: string;
+  category?: string;
+  description?: string;
+}
+
+export async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection: string, outputFile: string, preClassifiedTier?: string, availableRepos?: RepoInfo[]): Promise<string> {
   // Q7: 按段落分割知识，取与需求相关的前 N 段落（而非简单的 tail -8000chars）
   const relevantKnowledge = selectRelevantSections(knowledge, requirement, 6000);
   const knowledgeSection = knowledge
@@ -59,6 +66,15 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
     '**自检**：任务描述中有 "修复"/"改"/"替换"/"移除" 关键字 + 指定了具体文件路径 → Simple',
     '',
     accuracyReflection,
+    ...(availableRepos && availableRepos.length > 0 ? [
+      '## 可用仓库',
+      '以下是当前算力上可用的 git 仓库。根据需求内容选择目标仓库。',
+      '- **每个 acGroup 必须指定 targetRepo**（仓库 name）',
+      '- **同一 Goal 的所有 acGroup 必须属于同一仓库**。涉及多个仓库时，将不同仓库的 acGroup 分为独立的 "仓库组"',
+      '',
+      ...availableRepos.map(r => `- **${r.name}**${r.category ? ` (${r.category})` : ''}: ${r.description || r.path}`),
+      '',
+    ] : []),
     '## 工作流',
     '### 0. 修改点溯源（每个拟改动的文件/函数/命令，先追问三段）',
     '   **a. 为什么存在** — 查 git blame / commit message / 注释，理解原始设计意图',
@@ -192,6 +208,7 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
     '  },',
     '  "acGroups": [{',
     '    "id": "组名（架构边界）",',
+    '    "targetRepo": "目标仓库 name（必填，从可用仓库列表中选择）",',
     '    "acs": ["可验证的验收标准"],',
     '    "files": ["具体文件路径"],',
     '    "dependencies": ["依赖的组 id"],',

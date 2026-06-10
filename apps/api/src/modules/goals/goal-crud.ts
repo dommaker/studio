@@ -88,11 +88,12 @@ export async function getGoal(goalId: string): Promise<any> {
 /**
  * 获取公司的目标列表
  */
-export async function listGoals(companyId: string, status?: string): Promise<any[]> {
+export async function listGoals(companyId: string, status?: string, failureType?: string): Promise<any[]> {
   return prisma.goal.findMany({
     where: {
       companyId,
       ...(status ? { status } : {}),
+      ...(failureType ? { GoalExecution: { some: { failureType } } } : {}),
     },
     include: {
       GoalPlan: { orderBy: { version: 'desc' }, take: 1 },
@@ -256,12 +257,13 @@ export async function createGoalFromChannelDoc(input: {
   sourceChannelId: string;
   requirementsDocId: string;
   projectId?: string;
+  workspaceRepoId?: string;
   risks?: string[];
   priority?: 'low' | 'normal' | 'high' | 'critical';
   /** TDD-07: Analyst 的契约测试（写入每个 worktree） */
   contractTests?: Array<{ file: string; content: string }>;
 }) {
-  const { title, summary, acGroups, constraints = [], companyId, sourceChannelId, requirementsDocId, projectId, risks = [], contractTests } = input;
+  const { title, summary, acGroups, constraints = [], companyId, sourceChannelId, requirementsDocId, projectId, workspaceRepoId, risks = [], contractTests } = input;
 
   beforeGoalCreate({
     operation: 'goal_creation',
@@ -301,7 +303,7 @@ export async function createGoalFromChannelDoc(input: {
       title: summary || title,
       description: `Auto-generated from RequirementsDoc (${acGroups.length} AC groups)`,
       priority,
-      context: JSON.stringify({ sourceChannelId, requirementsDocId, projectId, risks }) as any,
+      context: JSON.stringify({ sourceChannelId, requirementsDocId, projectId, workspaceRepoId, risks }) as any,
       companyId,
       status: 'executing',
     },

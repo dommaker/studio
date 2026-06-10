@@ -39,6 +39,7 @@ router.post('/register', workspaceAuth(), async (req: Request, res: Response) =>
       hasDocker = false,
       os,
       arch,
+      repos = [],
     } = req.body;
 
     if (!workspaceRoot || typeof workspaceRoot !== 'string') {
@@ -101,7 +102,58 @@ router.post('/register', workspaceAuth(), async (req: Request, res: Response) =>
       }
     }
 
-    logger.info({ workspaceId: workspace.id, name: workspace.name, runtimeCount: runtimes.length }, '[Workspace] Registered');
+    // Create/update WorkspaceRepo records (AS-023)
+    let repoCount = 0;
+    if (Array.isArray(repos) && repos.length > 0) {
+      for (const repo of repos) {
+        if (!repo.path || !repo.name) continue;
+        await prisma.workspaceRepo.upsert({
+          where: {
+            workspaceId_path: {
+              workspaceId: workspace.id,
+              path: repo.path,
+            },
+          },
+          update: {
+            name: repo.name,
+            category: repo.category || null,
+            description: repo.description || null,
+            defaultBranch: repo.defaultBranch || 'main',
+            remoteUrl: repo.remoteUrl || null,
+            status: 'active',
+            lastSyncedAt: new Date(),
+          },
+          create: {
+            workspaceId: workspace.id,
+            path: repo.path,
+            name: repo.name,
+            category: repo.category || null,
+            description: repo.description || null,
+            defaultBranch: repo.defaultBranch || 'main',
+            remoteUrl: repo.remoteUrl || null,
+            status: 'active',
+            lastSyncedAt: new Date(),
+          },
+        });
+        repoCount++;
+      }
+
+      // Mark repos that no longer exist as unavailable
+      const reportedPaths = new Set(repos.map((r: any) => r.path));
+      const existingRepos = await prisma.workspaceRepo.findMany({
+        where: { workspaceId: workspace.id, status: 'active' },
+      });
+      for (const existing of existingRepos) {
+        if (!reportedPaths.has(existing.path)) {
+          await prisma.workspaceRepo.update({
+            where: { id: existing.id },
+            data: { status: 'unavailable' },
+          });
+        }
+      }
+    }
+
+    logger.info({ workspaceId: workspace.id, name: workspace.name, runtimeCount: runtimes.length, repoCount }, '[Workspace] Registered');
 
     return res.json({
       success: true,

@@ -1287,7 +1287,25 @@ async function studioDaemonStart() {
     name,
   });
 
-  // 3. Write workspace.json
+  // 3. Scan for git repos in workspaceRoot
+  const { handleDiscoverRecursive } = await import('../daemon/discover-handler.js');
+  let repos: Array<{ path: string; name: string; category?: string; defaultBranch: string; remoteUrl?: string }> = [];
+  try {
+    const discovered = await handleDiscoverRecursive(config.workspaceRoot, 3);
+    repos = discovered.map(r => ({
+      path: r.path,
+      name: r.name,
+      category: r.category,
+      defaultBranch: 'main', // Will be enriched server-side if needed
+    }));
+    if (repos.length > 0) {
+      console.log(`  Repos: ${repos.length} git repos found`);
+    }
+  } catch (err) {
+    console.warn(`  Warning: Repo scan failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // 4. Write workspace.json
   writeWorkspaceConfig(config);
   console.log(`Workspace config written to ~/.studio/workspace.json`);
   console.log(`  Name: ${config.name}`);
@@ -1297,9 +1315,9 @@ async function studioDaemonStart() {
   console.log(`  Docker: ${config.hasDocker}`);
   console.log(`  OS/Arch: ${config.os}/${config.arch}`);
 
-  // 4. Register with server
+  // 5. Register with server
   console.log('Registering workspace with server...');
-  const result = await registerWorkspace(config, runtimes.map(r => ({ provider: r.provider, version: r.version })));
+  const result = await registerWorkspace(config, runtimes.map(r => ({ provider: r.provider, version: r.version })), repos);
 
   if (result.success) {
     console.log(`Registered successfully. Workspace ID: ${result.workspaceId || '(pending)'}`);

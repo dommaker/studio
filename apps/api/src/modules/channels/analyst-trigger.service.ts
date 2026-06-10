@@ -124,7 +124,19 @@ class AnalystTriggerService {
       const outputFile = perInvocationOutputFile();
       const preTier = preClassifyTier(content);
       logger.info('[AnalystTrigger] Pre-classified tier', { tier: preTier, contentLength: content.length });
-      const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile, preTier);
+
+      // AS-023: Query available repos for Analyst prompt injection
+      let availableRepos: Array<{ name: string; path: string; category?: string; description?: string }> | undefined;
+      try {
+        const repos = await prisma.workspaceRepo.findMany({
+          where: { status: 'active' },
+          select: { name: true, path: true, category: true, description: true },
+          orderBy: { name: 'asc' },
+        });
+        if (repos.length > 0) availableRepos = repos;
+      } catch { /* fallback: no repo list injected */ }
+
+      const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile, preTier, availableRepos);
 
       // 4. Run Claude Code agent (ad-hoc session, supports concurrent @Analyst)
       // O1d: Restrict tool access for Simple tasks (short content, no schema change keywords)

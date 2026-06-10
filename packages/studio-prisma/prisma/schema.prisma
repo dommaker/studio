@@ -268,6 +268,7 @@ model GoalExecution {
   input       String?                                  // 步骤输入
   output      String?                                  // 步骤输出
   error       String?
+  failureType String?                                  // 失败分类: retryable|not-retryable|infrastructure|unknown
   retryCount  Int        @default(0)                    // 失败重试次数
   startedAt   DateTime?
   completedAt DateTime?
@@ -278,6 +279,7 @@ model GoalExecution {
   @@index([goalId])
   @@index([planId])
   @@index([status])
+  @@index([failureType])
 }
 
 // ─── LLM 配置体系 ───
@@ -621,6 +623,8 @@ model Project {
   priority       String    @default("medium")
   gitBranch      String?
   gitRepo        String?
+  workspaceRepoId String?
+  workspaceRepo  WorkspaceRepo? @relation(fields: [workspaceRepoId], references: [id])
   progress       Int       @default(0)
   specFilePath   String?   // 🆕 FL-022: Spec 文档路径
   specVersion    Int?      @default(1)  // 🆕 FL-022: Spec 版本号
@@ -1399,6 +1403,30 @@ model Workspace {
   runtimes      WorkspaceRuntime[]
   tasks         WorkspaceTask[]
   events        WorkspaceEvent[]
+  repos         WorkspaceRepo[]
+}
+
+model WorkspaceRepo {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  path          String    // 相对于 workspaceRoot
+  name          String    // 目录名
+  category      String?   // 分类目录（如 backend/fe）
+  description   String?   // 仓库描述
+  defaultBranch String    @default("main")
+  remoteUrl     String?   // git remote origin URL
+  status        String    @default("active") // active | unavailable
+  lastSyncedAt  DateTime
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  projects      Project[]
+
+  @@unique([workspaceId, path])
+  @@index([workspaceId])
+  @@index([remoteUrl])
+  @@index([status])
 }
 
 model WorkspaceToken {

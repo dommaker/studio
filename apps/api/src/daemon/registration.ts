@@ -7,6 +7,15 @@
 
 import type { WorkspaceConfig } from './workspace-config.js';
 
+export interface RepoInfo {
+  path: string;
+  name: string;
+  category?: string;
+  description?: string;
+  defaultBranch: string;
+  remoteUrl?: string;
+}
+
 export interface RegistrationPayload {
   name: string;
   workspaceRoot: string;
@@ -14,6 +23,7 @@ export interface RegistrationPayload {
   hasDocker: boolean;
   os: string;
   arch: string;
+  repos?: RepoInfo[];
 }
 
 export interface RegistrationResponse {
@@ -28,10 +38,12 @@ export interface RegistrationResponse {
  *
  * @param config - Workspace configuration
  * @param detectedRuntimes - Runtime details with version info
+ * @param repos - Discovered git repositories (optional)
  */
 export async function registerWorkspace(
   config: WorkspaceConfig,
   detectedRuntimes: Array<{ provider: string; version: string }>,
+  repos?: RepoInfo[],
 ): Promise<RegistrationResponse> {
   const url = `${config.serverUrl.replace(/\/$/, '')}/api/v1/workspaces/register`;
 
@@ -42,6 +54,7 @@ export async function registerWorkspace(
     hasDocker: config.hasDocker,
     os: config.os,
     arch: config.arch,
+    ...(repos && repos.length > 0 ? { repos } : {}),
   };
 
   try {

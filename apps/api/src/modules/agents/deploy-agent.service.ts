@@ -42,10 +42,19 @@ class DeployAgent {
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
 
-    // Wait for our turn (busy-wait polling, acceptable for deploy which is already I/O bound)
+    // Wait for our turn with timeout (5 min max to prevent deadlock)
+    const queueStart = Date.now();
+    const QUEUE_TIMEOUT_MS = 5 * 60 * 1000;
     while (true) {
       const first = DeployAgent.mergeQueue[0];
       if (first?.executionId === params.executionId && !DeployAgent.mergeInProgress) break;
+      if (Date.now() - queueStart > QUEUE_TIMEOUT_MS) {
+        // Force-release stuck queue
+        DeployAgent.mergeQueue = DeployAgent.mergeQueue.filter(e => e.executionId !== params.executionId);
+        DeployAgent.mergeInProgress = false;
+        logger.error('[DeployAgent] Merge queue timeout — force releasing', { executionId: params.executionId });
+        break;
+      }
       await new Promise(r => setTimeout(r, 2000));
     }
 
@@ -473,10 +482,16 @@ class DeployAgent {
       const branches = stdout.trim().split('\n').filter(Boolean);
 
       for (const branch of branches) {
-        // B5-C01: Only delete task/* branches belonging to this execution
-        if (branch.startsWith('task/') && params.executionIds?.length) {
-          const branchExecId = branch.slice('task/'.length);
-          if (!params.executionIds.includes(branchExecId)) continue;
+        // B5-C01: Only delete branches belonging to this execution
+        if (params.executionIds?.length) {
+          if (branch.startsWith('task/')) {
+            const branchExecId = branch.slice('task/'.length);
+            if (!params.executionIds.includes(branchExecId)) continue;
+          } else {
+            // daemon/* and worktree-*: skip unless branch name contains an executionId
+            const belongsToThis = params.executionIds.some(id => branch.includes(id));
+            if (!belongsToThis) continue;
+          }
         }
         await this.deleteBranch(branch, repoDir);
         cleanedBranches++;

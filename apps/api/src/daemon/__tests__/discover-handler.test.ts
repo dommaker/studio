@@ -10,7 +10,7 @@ vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { handleDiscover } from '../discover-handler.js';
+import { handleDiscover, handleDiscoverRecursive } from '../discover-handler.js';
 
 describe('handleDiscover', () => {
   let tmpDir: string;
@@ -91,5 +91,92 @@ describe('handleDiscover', () => {
 
   it('throws on path traversal', async () => {
     await expect(handleDiscover(tmpDir, '../../etc')).rejects.toThrow('Path traversal blocked');
+  });
+});
+
+describe('handleDiscoverRecursive', () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-recursive-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('finds git repos in nested directories (company structure)', async () => {
+    // qunar/backend/repo-a(.git), qunar/backend/repo-b(.git)
+    fs.mkdirSync(path.join(tmpDir, 'backend', 'repo-a', '.git'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'backend', 'repo-b', '.git'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'fekit', 'repo-c', '.git'), { recursive: true });
+
+    const result = await handleDiscoverRecursive(tmpDir, 3);
+
+    expect(result).toHaveLength(3);
+    const paths = result.map(e => e.path);
+    expect(paths).toContain('backend/repo-a');
+    expect(paths).toContain('backend/repo-b');
+    expect(paths).toContain('fekit/repo-c');
+  });
+
+  it('extracts category from parent directory', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'backend', 'repo-a', '.git'), { recursive: true });
+
+    const result = await handleDiscoverRecursive(tmpDir, 3);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].category).toBe('backend');
+    expect(result[0].name).toBe('repo-a');
+  });
+
+  it('respects maxDepth limit', async () => {
+    // depth 4: workspace/category/sub/repo(.git)
+    fs.mkdirSync(path.join(tmpDir, 'a', 'b', 'repo', '.git'), { recursive: true });
+
+    // maxDepth=2 should NOT find it (needs depth 3)
+    const shallow = await handleDiscoverRecursive(tmpDir, 2);
+    expect(shallow).toHaveLength(0);
+
+    // maxDepth=3 should find it
+    const deep = await handleDiscoverRecursive(tmpDir, 3);
+    expect(deep).toHaveLength(1);
+  });
+
+  it('detects .git file (submodule) as git-repo', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'submod'));
+    fs.writeFileSync(path.join(tmpDir, 'submod', '.git'), 'gitdir: ../.git/modules/submod');
+
+    const result = await handleDiscoverRecursive(tmpDir, 3);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].type).toBe('git-repo');
+  });
+
+  it('skips non-git directories', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'backend', 'not-a-repo'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'backend', 'real-repo', '.git'), { recursive: true });
+
+    const result = await handleDiscoverRecursive(tmpDir, 3);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe('backend/real-repo');
+  });
+
+  it('finds repos at workspaceRoot level (2-level structure)', async () => {
+    fs.mkdirSync(path.join(tmpDir, 'studio', '.git'), { recursive: true });
+    fs.mkdirSync(path.join(tmpDir, 'harness', '.git'), { recursive: true });
+
+    const result = await handleDiscoverRecursive(tmpDir, 3);
+
+    expect(result).toHaveLength(2);
+    const paths = result.map(e => e.path);
+    expect(paths).toContain('studio');
+    expect(paths).toContain('harness');
+  });
+
+  it('returns empty for empty directory', async () => {
+    const result = await handleDiscoverRecursive(tmpDir, 3);
+    expect(result).toEqual([]);
   });
 });
