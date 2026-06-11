@@ -111,7 +111,12 @@ export async function buildKnowledgeContext(
   }
 
   // 3. signal — index injection (informational)
-  const signals = uq.getIndexes({ consumptionModes: ['signal'], limit: 5 });
+  // 优先注入聚合趋势摘要，无趋势时回退原始信号
+  const TREND_TAG = 'trend-aggregated';
+  let signals = uq.getIndexes({ consumptionModes: ['signal'], tags: [TREND_TAG], limit: 5 });
+  if (signals.length === 0) {
+    signals = uq.getIndexes({ consumptionModes: ['signal'], limit: 5 });
+  }
   if (signals.length) {
     const lines = signals.map(s => `- [${s.id}] ${s.summary}`);
     sections.push(`## 近期信号\n${lines.join('\n')}`);

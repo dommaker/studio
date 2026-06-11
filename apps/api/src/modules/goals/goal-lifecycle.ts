@@ -700,6 +700,17 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
     } catch (e) {
       logger.warn('[Goal] PostEval failed', { goalId, error: String(e) });
     }
+
+    // Signal Aggregator: 聚合原始 signal → 趋势摘要
+    try {
+      const { signalAggregator } = await import('../knowledge/signal-aggregator.js');
+      const trendsCreated = await signalAggregator.run();
+      if (trendsCreated > 0) {
+        logger.info('[Goal] Signal trends aggregated', { goalId, trendsCreated });
+      }
+    } catch (e) {
+      logger.warn('[Goal] SignalAggregator failed (non-blocking)', { goalId, error: String(e) });
+    }
   } catch (e) {
     logger.error('[Goal] CRITICAL: Failed to record completion metrics', { goalId, error: String(e) });
     try {

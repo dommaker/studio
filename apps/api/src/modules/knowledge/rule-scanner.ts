@@ -22,7 +22,7 @@ interface ScannedRule {
   affects: string[];
 }
 
-const PROJECT_ROOT = process.env.PROJECT_ROOT || path.join(os.homedir(), 'projects', 'agent-studio');
+const PROJECT_ROOT = process.env.PROJECT_ROOT || path.join(os.homedir(), 'projects', 'studio');
 
 export class RuleScanner {
   /**
