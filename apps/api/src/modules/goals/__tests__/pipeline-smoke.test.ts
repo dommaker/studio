@@ -21,8 +21,10 @@ function log(stage: string, data: unknown) {
 }
 
 beforeAll(() => {
-  // Create skill templates
-  fs.writeFileSync(path.join(smokeSkillsDir, 'sub-agent-workflow.md'), `---
+  // Create skill templates in <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md structure
+  const subAgentDir = path.join(smokeSkillsDir, 'sub_agent', 'sub-agent-workflow');
+  fs.mkdirSync(subAgentDir, { recursive: true });
+  fs.writeFileSync(path.join(subAgentDir, 'SKILL.md'), `---
 name: Sub-Agent Workflow
 description: "子 Agent TDD 工作流"
 trigger: sub_agent
@@ -43,7 +45,9 @@ status: published
 {{task}}
 `);
 
-  fs.writeFileSync(path.join(smokeSkillsDir, 'green-only-tdd.md'), `---
+  const greenOnlyDir = path.join(smokeSkillsDir, 'goal_start', 'green-only-tdd');
+  fs.mkdirSync(greenOnlyDir, { recursive: true });
+  fs.writeFileSync(path.join(greenOnlyDir, 'SKILL.md'), `---
 name: GREEN-Only TDD
 description: "GREEN-only TDD 工作流"
 trigger: goal_start
