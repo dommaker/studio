@@ -174,7 +174,7 @@ async function studioUp(configPath?: string) {
  * 连接 /api/v1/events/stream?topics=goals，解析 SSE 事件流
  * 超时返回 null
  */
-async function waitForGoalCreated(baseUrl: string, timeoutMs: number): Promise<string | null> {
+async function waitForGoalCreated(baseUrl: string, timeoutMs: number, sinceMs: number): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -187,11 +187,11 @@ async function waitForGoalCreated(baseUrl: string, timeoutMs: number): Promise<s
     if (!resp.ok) {
       // SSE 端点不可用，降级为轮询
       console.log('  SSE unavailable, falling back to polling...');
-      return pollForGoalCreated(baseUrl, timeoutMs);
+      return pollForGoalCreated(baseUrl, timeoutMs, sinceMs);
     }
 
     const reader = resp.body?.getReader();
-    if (!reader) return pollForGoalCreated(baseUrl, timeoutMs);
+    if (!reader) return pollForGoalCreated(baseUrl, timeoutMs, sinceMs);
 
     const decoder = new TextDecoder();
     let buffer = '';
@@ -223,7 +223,7 @@ async function waitForGoalCreated(baseUrl: string, timeoutMs: number): Promise<s
   } catch (err: any) {
     if (err.name !== 'AbortError') {
       console.log('  SSE error, falling back to polling...');
-      return pollForGoalCreated(baseUrl, timeoutMs);
+      return pollForGoalCreated(baseUrl, timeoutMs, sinceMs);
     }
   } finally {
     clearTimeout(timer);
@@ -234,17 +234,22 @@ async function waitForGoalCreated(baseUrl: string, timeoutMs: number): Promise<s
 /**
  * Fallback: 轮询 RequirementsDoc.goalId（当 SSE 不可用时）
  */
-async function pollForGoalCreated(baseUrl: string, timeoutMs: number): Promise<string | null> {
+async function pollForGoalCreated(baseUrl: string, timeoutMs: number, sinceMs: number): Promise<string | null> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 5_000));
     try {
-      // 检查最新的 RequirementsDoc 是否已关联 Goal
       const resp = await fetch(`${baseUrl}/pipeline/status`);
       if (resp.ok) {
         const data = await resp.json() as any;
+        // 优先匹配正在执行的 goals（刚创建）
+        const running = data?.goals?.executing?.[0];
+        if (running?.id && new Date(running.createdAt).getTime() >= sinceMs) {
+          return running.id;
+        }
+        // fallback: 匹配最近执行，但必须是 CLI 启动后创建的
         const recent = data?.executions?.recent?.[0];
-        if (recent?.goalId && recent.status !== 'failed') {
+        if (recent?.goalId && recent.status !== 'failed' && new Date(recent.completedAt).getTime() >= sinceMs) {
           return recent.goalId;
         }
       }
@@ -321,9 +326,10 @@ async function studioRun() {
     let reviewMsgs: Array<{ content: string; meta: any }> = [];
 
     // Stage 1: SSE 监听等待新 Goal 创建（不使用全局最近执行，避免匹配旧 Goal）
+    const sinceMs = Date.now();
     if (!goalId) {
       console.log('  Phase 1/6: Listening for Goal creation (SSE)...');
-      goalId = await waitForGoalCreated(baseUrl, maxRounds * 10_000);
+      goalId = await waitForGoalCreated(baseUrl, maxRounds * 10_000, sinceMs);
       if (goalId) {
         console.log(`  Goal created: ${goalId.slice(0, 8)}`);
         pipelineStage = 'executing';
