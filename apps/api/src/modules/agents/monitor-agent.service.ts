@@ -1468,7 +1468,9 @@ export class MonitorAgent {
             },
           }).catch((e: any) => { logger.warn('[MonitorAgent] workflow_report event failed', { error: String(e) }); });
 
-          preferenceObserver.updateFromWorkflowReport(distribution, recurringData).catch(() => {});
+          preferenceObserver.updateFromWorkflowReport(distribution, recurringData).catch((e) => {
+            logger.warn('[MonitorAgent] updateFromWorkflowReport failed', { error: String(e) });
+          });
         }
       } catch { /* best-effort */ }
 

@@ -1,12 +1,14 @@
 # knowledge
 
 > 此文件描述 apps/api/src/modules/knowledge 目录的职责和上下文
-> Updated: 2026-06-11 (signal aggregator + rule-scanner fix)
+> Updated: 2026-06-11 (GAP-7 元数据驱动注入 + error logging 修复)
 
 ⚠️ 以下文件已变更，本节可能过期: knowledge-bus.service.ts, routes.ts
 
-<!-- STALE_SINCE: 2026-06-09 -->
 ⚠️ 以下文件已变更，本节可能过期: evolution-scheduler.ts
+
+<!-- STALE_SINCE: 2026-06-11 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-service.ts
 
 ## 职责
 
@@ -75,6 +77,8 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `36a91ee2`: O2-KR1 注入命中率接线 — consumption 事件 + metric query
 - ✅ `556051f2`: B34 behavior distillation output path + PatternMiner startup + agent-runner --verbose
 - ✅ `79f4a186`: knowledge quality gate + CPU monitoring + type fix
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
+- ✅ GAP-7: 元数据驱动注入 — context/signal 层传 agentType 过滤 applicableAgents

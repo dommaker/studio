@@ -434,7 +434,11 @@ export class GoalScheduler {
           await goalService.updateStepExecution(exec.id, {
             status: 'failed',
             error: `Recovery error: ${String(e)}`,
-          }).catch(() => {});
+          }).catch((dbErr) => {
+            logger.error('[Recovery] Failed to persist failed status — execution stuck', {
+              executionId: exec.id, dbError: String(dbErr),
+            });
+          });
         }
       }
     } catch (e) {

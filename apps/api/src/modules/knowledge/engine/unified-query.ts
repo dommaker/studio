@@ -156,6 +156,14 @@ export class UnifiedQuery {
       entries = entries.filter(e => !e.tags.includes('low_quality'));
     }
 
+    // Agent filtering — applicableAgents 为空则对所有 agent 可见
+    if (filter.agentType) {
+      entries = entries.filter(e => {
+        const agents = (e as any).applicableAgents as string[] | undefined;
+        return !agents?.length || agents.includes(filter.agentType!);
+      });
+    }
+
     // Limit
     if (filter.limit) {
       entries = entries.slice(0, filter.limit);

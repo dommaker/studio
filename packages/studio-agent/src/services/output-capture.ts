@@ -187,6 +187,7 @@ export async function recordExecutionError(opts: {
   errMsg: string;
   errStack?: string;
   stderrText: string;
+  stdoutText?: string;
   sessionCount: number;
   cumulativeSessionMs: number;
   signal?: string;
@@ -201,6 +202,7 @@ export async function recordExecutionError(opts: {
           message: opts.errMsg,
           stack: opts.errStack,
           stderr: opts.stderrText,
+          stdout: opts.stdoutText,
           sessionCount: opts.sessionCount,
           cumulativeSessionMs: opts.cumulativeSessionMs,
           signal: opts.signal,

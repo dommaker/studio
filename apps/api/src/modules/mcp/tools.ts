@@ -1122,7 +1122,9 @@ toolRegistry.registerAll(allTools);
 
 // BP3: 种子 default-deny 权限 — 系统角色默认允许所有工具
 import('./permission.service.js').then(({ seedDefaultPermissions }) => {
-  seedDefaultPermissions(allTools.map(t => t.name)).catch(() => {});
+  seedDefaultPermissions(allTools.map(t => t.name)).catch((e) => {
+    logger.warn('[MCP] seedDefaultPermissions failed — tools may lack default permissions', { error: String(e) });
+  });
 });
 
 /**

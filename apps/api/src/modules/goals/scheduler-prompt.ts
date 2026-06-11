@@ -505,8 +505,9 @@ export async function runIntegrationInCode(
   // Generate Prisma client — pnpm store may have stale types
   try {
     execSync('npx prisma generate 2>&1', { cwd: path.join(worktree, 'packages', 'studio-prisma'), timeout: 30_000 });
-  } catch (e) {
-    logger.warn('[GoalScheduler] prisma generate failed', { error: String(e) });
+  } catch (e: any) {
+    const detail = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
+    logger.warn('[GoalScheduler] prisma generate failed', { error: detail.slice(0, 500) });
   }
 
   try {

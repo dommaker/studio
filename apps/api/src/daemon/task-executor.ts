@@ -164,7 +164,9 @@ export class TaskExecutor {
         await this.reportSession(task.id, task.sessionId, workDir);
       }
     } else {
-      const error = stderrOutput.slice(0, 500) || `Exit code: ${exitCode}`;
+      // stderr 优先，stdout buffer 尾部兜底（agent 可能把错误输出到 stdout）
+      const tail = stdoutBuffer.slice(-500).trim();
+      const error = stderrOutput.slice(0, 500) || tail || `Exit code: ${exitCode}`;
       await this.reportFail(task.id, error, elapsedMs);
     }
 

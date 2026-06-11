@@ -391,6 +391,8 @@ export class AgentRunner implements IAgentRunner {
         } catch (execErr: any) {
           const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
           const errStack = execErr instanceof Error ? execErr.stack?.slice(0, 2000) : undefined;
+          // 2>&1 重定向 stderr→stdout，stderr 为空；实际错误信息在 stdout
+          const stdoutText = execErr?.stdout?.toString().slice(0, 2000) || '';
           const stderrText = execErr?.stderr?.toString().slice(0, 500) || '';
 
           cumulativeSessionMs += Date.now() - sessionStart;
@@ -399,6 +401,7 @@ export class AgentRunner implements IAgentRunner {
             errMsg,
             errStack,
             stderrText,
+            stdoutText,
             sessionCount,
             cumulativeSessionMs,
             signal: execErr?.signal,
@@ -413,6 +416,7 @@ export class AgentRunner implements IAgentRunner {
             session: sessionCount, sessionMs: Date.now() - sessionStart,
             cumulativeSessionMs,
             error: errMsg.slice(0, 200),
+            stdout: stdoutText.slice(0, 500),
           });
 
           // RKB: query known resolutions
@@ -440,9 +444,11 @@ export class AgentRunner implements IAgentRunner {
           } catch { /* non-blocking */ }
 
           if (sessionCount >= this.config.maxSessions) {
+            // stdout 包含 claude 实际输出（含错误详情），errMsg 可能因 2>&1 为空
+            const detail = stdoutText ? stdoutText.slice(-500) : errMsg.slice(0, 200);
             return {
               success: false, worktree, outputFiles: [],
-              error: `Max sessions (${this.config.maxSessions}) exhausted. Last error: ${errMsg.slice(0, 200)}`,
+              error: `Max sessions (${this.config.maxSessions}) exhausted. Last error: ${detail}`,
               logFile, sessionCount,
             };
           }
