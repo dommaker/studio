@@ -285,7 +285,7 @@ router.post('/proposals/:id/review', async (req: Request, res: Response) => {
       let executionResult = null;
       if (approved) {
         try {
-          const harness = await import('@dommaker/harness');
+          await loadHarness();
           const runner = new harnessModule!.ConstraintLifecycleRunner();
           executionResult = runner.execute(proposal);
           proposal.status = executionResult.success ? 'implemented' : 'accepted';
@@ -314,8 +314,8 @@ router.post('/proposals/:id/review', async (req: Request, res: Response) => {
  */
 router.post('/evolve', async (req: Request, res: Response) => {
   try {
-    const harness = await import('@dommaker/harness');
-    const { autoEvolve } = harness;
+    await loadHarness();
+    const { autoEvolve } = harnessModule!;
 
     const { hours, autoApproveLowRisk } = req.body;
     const h = hours || 24;
@@ -389,7 +389,7 @@ router.post('/proposals/:id/execute', async (req: Request, res: Response) => {
         return res.status(400).json({ error: `Cannot execute proposal with status: ${proposal.status}` });
       }
 
-      const harness = await import('@dommaker/harness');
+      await loadHarness();
       const runner = new harnessModule!.ConstraintLifecycleRunner();
       const executionResult = runner.execute(proposal);
 
@@ -416,7 +416,7 @@ router.post('/proposals/:id/execute', async (req: Request, res: Response) => {
  */
 router.get('/constraints', async (_req: Request, res: Response) => {
   try {
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const registry = new harnessModule!.ConstraintRegistry();
     const constraints = registry.getAll().map(c => ({
       id: c.id,
@@ -441,7 +441,7 @@ router.get('/constraints', async (_req: Request, res: Response) => {
  */
 router.get('/constraints/stats', async (_req: Request, res: Response) => {
   try {
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const registry = new harnessModule!.ConstraintRegistry();
     const stats = registry.getLayerStats();
     return res.json({ data: stats });
@@ -457,7 +457,7 @@ router.get('/constraints/stats', async (_req: Request, res: Response) => {
  */
 router.get('/constraints/:id', async (req: Request, res: Response) => {
   try {
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const registry = new harnessModule!.ConstraintRegistry();
     const constraint = registry.get(req.params.id);
     if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
@@ -474,7 +474,7 @@ router.get('/constraints/:id', async (req: Request, res: Response) => {
  */
 router.post('/constraints/:id/degrade', async (req: Request, res: Response) => {
   try {
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const registry = new harnessModule!.ConstraintRegistry();
     const constraint = registry.get(req.params.id);
     if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
@@ -500,7 +500,7 @@ router.post('/constraints/:id/degrade', async (req: Request, res: Response) => {
  */
 router.post('/constraints/:id/rollback', async (req: Request, res: Response) => {
   try {
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const registry = new harnessModule!.ConstraintRegistry();
     const constraint = registry.get(req.params.id);
     if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
@@ -525,7 +525,7 @@ router.post('/constraints/:id/rollback', async (req: Request, res: Response) => 
  */
 router.post('/constraints/:id/schedule', async (req: Request, res: Response) => {
   try {
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const registry = new harnessModule!.ConstraintRegistry();
     const constraint = registry.get(req.params.id);
     if (!constraint) return res.status(404).json({ error: 'Constraint not found' });
@@ -601,7 +601,7 @@ router.post('/check-input', async (req: Request, res: Response) => {
     const { input } = req.body;
     if (!input) return res.status(400).json({ error: 'input is required' });
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const guardrail = new harnessModule!.InputGuardrail();
     const result = guardrail.check(input);
 
@@ -624,7 +624,7 @@ router.post('/check-output', async (req: Request, res: Response) => {
     const { output } = req.body;
     if (!output) return res.status(400).json({ error: 'output is required' });
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const guardrail = new harnessModule!.OutputGuardrail();
     const result = guardrail.check(output);
 
@@ -644,7 +644,7 @@ router.get('/sandbox', async (_req: Request, res: Response) => {
     const loaded = await loadHarness();
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const sandbox = new harnessModule!.Sandbox();
 
     return res.json({
@@ -800,7 +800,7 @@ router.post('/knowledge/lint', async (_req: Request, res: Response) => {
     const store = await getKnowledgeStore();
     if (!store) return res.status(503).json({ error: 'Harness not available' });
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const tracker = new harnessModule!.ReferenceTracker(store);
     const linter = new harnessModule!.KnowledgeLinter(store, tracker);
     const report = linter.run();
@@ -825,8 +825,8 @@ router.post('/estimate-tokens', async (req: Request, res: Response) => {
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
 
     const { text, object } = req.body;
-    const harness = await import('@dommaker/harness');
-    const TokenEstimator = harness.TokenEstimator;
+    await loadHarness();
+    const TokenEstimator = harnessModule!.TokenEstimator;
 
     let tokens: number;
     if (text) {
@@ -859,7 +859,7 @@ router.post('/sessions', async (req: Request, res: Response) => {
     const { id } = req.body;
     if (!id) return res.status(400).json({ error: 'id is required' });
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const manager = new harnessModule!.SessionManager();
     const session = manager.createSession(id);
     sessions.set(id, { manager, session });
@@ -1115,7 +1115,7 @@ router.post('/failures', async (req: Request, res: Response) => {
     const { type, level, message, context } = req.body;
     if (!message) return res.status(400).json({ error: 'message is required' });
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     // S3 修复：传必需 logFile 参数 + 传 FailureRecord 而非 Error
     const recorder = new harnessModule!.FailureRecorder({
       logFile: '.harness/logs/failures.log',
@@ -1151,15 +1151,15 @@ router.post('/check-spec', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'filePath or dirPath is required' });
     }
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
 
     if (filePath) {
-      const result = harness.checkFile(filePath);
+      const result = harnessModule!.checkFile(filePath);
       return res.json({ data: result });
     }
 
-    const results = harness.checkDirectory(dirPath || process.cwd());
-    const report = harness.generateReport(results);
+    const results = harnessModule!.checkDirectory(dirPath || process.cwd());
+    const report = harnessModule!.generateReport(results);
     const totalErrors = results.reduce((sum: number, r: { errors: unknown[]; warnings: unknown[] }) => sum + r.errors.length, 0);
     const totalWarnings = results.reduce((sum: number, r: { errors: unknown[]; warnings: unknown[] }) => sum + r.warnings.length, 0);
 
@@ -1192,7 +1192,7 @@ router.post('/verify', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'rules array is required' });
     }
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const verifier = new harnessModule!.RulesBasedVerification(rules);
 
     const context = {
@@ -1245,7 +1245,7 @@ router.get('/dashboard', async (_req: Request, res: Response) => {
     const loaded = await loadHarness();
     if (!loaded) return res.status(503).json({ error: 'Harness not available' });
 
-    const harness = await import('@dommaker/harness');
+    await loadHarness();
     const provider = new harnessModule!.DashboardDataProvider();
 
     // Get knowledge entries from store
@@ -1289,8 +1289,8 @@ router.get('/health', async (_req: Request, res: Response) => {
 // Decision #5: CSO 验证 — 直接挂主 router（/api/v1/cso/validate）
 router.get('/validate', async (_req: Request, res: Response) => {
   try {
-    const harness = await import('@dommaker/harness');
-    const validator = harness.CSOValidator?.getInstance?.();
+    await loadHarness();
+    const validator = harnessModule!.CSOValidator?.getInstance?.();
     if (!validator) return res.json({ valid: true, issues: [], note: 'CSOValidator not available' });
     res.json({ valid: true, issues: [] });
   } catch {
