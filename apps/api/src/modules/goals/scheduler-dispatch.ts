@@ -201,21 +201,27 @@ export async function dispatchStep(
 
   // Knowledge context injection — unified via buildKnowledgeContext
   let knowledgeContext = '';
-  try {
-    const { buildKnowledgeContext } = await import('../knowledge/consumers/prompt-builder.js');
-    knowledgeContext = await buildKnowledgeContext('executor');
-  } catch { /* best-effort */ }
+
+  // FIX #6: fast-tier 跳过全量 DB knowledge，只用 task-relevant search
+  if (tier !== 'fast') {
+    try {
+      const { buildKnowledgeContext } = await import('../knowledge/consumers/prompt-builder.js');
+      knowledgeContext = await buildKnowledgeContext('executor');
+    } catch { /* best-effort */ }
+  }
 
   // AS-019: task-relevant knowledge search (replaces generic getRecentContext)
   try {
     const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-    const searchResults = knowledgeBus.search(prompt || goal.title, { limit: 5 });
+    const searchLimit = tier === 'fast' ? 3 : 5;
+    const searchResults = knowledgeBus.search(prompt || goal.title, { limit: searchLimit });
     if (searchResults.length > 0) {
       const searchContext = knowledgeBus.formatSearchForPrompt(searchResults);
       if (searchContext) knowledgeContext += searchContext;
     }
   } catch { /* best-effort */ }
 
+  // Resolution KB 保留（安全网，不跳过）
   try {
     const { resolutionMatcher } = await import('../knowledge/resolution.service.js');
     const rkbContext = await resolutionMatcher.formatForPrompt();

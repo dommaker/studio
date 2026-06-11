@@ -28,6 +28,7 @@ import {
   buildCachePrefix,
   writeRequirementsMd,
   writeContractTests,
+  ensureDeps,
 } from './worktree-resolver.js';
 import {
   readProgress,
@@ -154,7 +155,16 @@ export class AgentExecutor {
       logFile = path.join(worktree, '.agent.log');
 
       // Step 2.1: 传播 harness 约束 + Claude 权限配置
-      await propagateHarnessConfig(worktree, task.id, task.executionId);
+      await propagateHarnessConfig(worktree, task.id, task.executionId, this.config.repoDir);
+
+      // Step 2.2: 预填充 node_modules（依赖缓存，避免每次 pnpm install）
+      try {
+        await ensureDeps(worktree, this.config.repoDir);
+      } catch (e) {
+        logger.warn('[AgentExecutor] ensureDeps failed (non-blocking, agent will install)', {
+          taskId: task.id, executionId: task.executionId, error: String(e),
+        });
+      }
 
       // Write shared cache prefix file
       try {
@@ -245,6 +255,13 @@ export class AgentExecutor {
 
         // 读进度（session 2+ 用于续接 prompt）
         const progress = readProgress(worktree);
+
+        // FIX #1: 上一轮已标记完成 → 不再调度新 session
+        if (sessionCount > 1 && progress?.allComplete && (progress.testResults?.failed === 0 || progress.testResults?.failed == null)) {
+          const outputFiles = await collectOutputFiles(worktree);
+          logger.info('[AgentExecutor] Task already complete from previous session, skipping', { taskId: task.id, executionId: task.executionId, sessionCount: sessionCount - 1 });
+          return { success: true, worktree, outputFiles, logFile, sessionCount: sessionCount - 1, totalDurationMs: cumulativeSessionMs, sessionIds: collectedSessionIds };
+        }
 
         // 实时进度回调 → Channel
         if (task.onProgress && progress) {
@@ -665,7 +682,14 @@ ${task.prompt}
 
 
 读 REQUIREMENTS.md 了解你要完成的任务和验收标准。${verifyStep}
-${skillPrompt}`;
+${skillPrompt}
+
+## 完成后必须提交
+所有 AC 满足且测试通过后，执行 git 操作：
+1. \`git add\` 你修改的所有文件
+2. \`git commit -m "feat: <简要描述改动>"\` 提交代码
+3. 然后设置 allComplete: true
+不要跳过 commit —— 代码未提交视为未完成。`;
       return resolutionHint ? `${base}\n\n${resolutionHint}` : base;
     }
 
@@ -687,7 +711,7 @@ ${skillPrompt}`;
     if (strategyHint) parts.push('', strategyHint);
     if (resolutionHint) parts.push('', resolutionHint);
     parts.push('', '继续工作，从上次中断的地方开始。每完成一步后更新 .progress.json。');
-    parts.push('全部完成后设置 allComplete: true。');
+    parts.push('全部完成后 git add 你修改的文件 && git commit，然后设置 allComplete: true。');
     return parts.join('\n');
   }
 

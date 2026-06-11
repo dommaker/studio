@@ -1,5 +1,5 @@
 /**
- * Worktree Resolver — git worktree 创建 + harness 配置传播 + 文件桥
+ * Worktree Resolver — git worktree 创建 + harness 配置传播 + 文件桥 + 依赖缓存
  *
  * P11-02: Extracted from agent-executor.ts
  */
@@ -7,6 +7,8 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
+import * as crypto from 'crypto';
+import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
@@ -128,8 +130,19 @@ export async function resolveWorkspace(opts: {
 /**
  * 传播 harness 约束 + Claude 权限配置到 worktree
  */
-export async function propagateHarnessConfig(worktree: string, taskId: string, executionId: string): Promise<void> {
+export async function propagateHarnessConfig(worktree: string, taskId: string, executionId: string, repoDir?: string): Promise<void> {
   try {
+    // FIX #3: 复制 CLAUDE.md 到 worktree，使 buildAgentConstraintPrompt 去重逻辑生效
+    // 主 repo CLAUDE.md 含 <!-- HARNESS_CONSTRAINTS_START --> 标记，
+    // buildAgentConstraintPrompt 检测到后只注入短引用，避免全量规则重复
+    if (repoDir) {
+      const claudeMdSrc = path.join(repoDir, 'CLAUDE.md');
+      const claudeMdDst = path.join(worktree, 'CLAUDE.md');
+      if (!fsSync.existsSync(claudeMdDst) && fsSync.existsSync(claudeMdSrc)) {
+        fsSync.copyFileSync(claudeMdSrc, claudeMdDst);
+      }
+    }
+
     const harnessDir = path.join(worktree, '.harness');
     if (!fsSync.existsSync(harnessDir)) {
       const templateDir = path.resolve(process.cwd(), '.harness');
@@ -160,13 +173,15 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
       fsSync.writeFileSync(settingsPath, JSON.stringify({
         permissions: { defaultMode: 'bypassPermissions' },
         mcpServers: {
-          'local-rag': {
-            command: 'mcp-local-rag',
-            args: [
-              '--db-path', process.env.LOCAL_RAG_DB_PATH || '/root/.cache/mcp-local-rag/lancedb',
-              '--model-name', process.env.LOCAL_RAG_MODEL || '/root/.cache/huggingface/hub/models--onnx-community--bge-small-zh-v1.5-ONNX/snapshots/main',
-            ],
-          },
+          'local-rag': process.env.LOCAL_RAG_BRIDGE_URL
+            ? { type: 'sse', url: process.env.LOCAL_RAG_BRIDGE_URL }
+            : {
+                command: 'mcp-local-rag',
+                args: [
+                  '--db-path', process.env.LOCAL_RAG_DB_PATH || '/root/.cache/mcp-local-rag/lancedb',
+                  '--model-name', process.env.LOCAL_RAG_MODEL || '/root/.cache/huggingface/hub/models--onnx-community--bge-small-zh-v1.5-ONNX/snapshots/main',
+                ],
+              },
         },
       }, null, 2), 'utf-8');
     }
@@ -270,5 +285,131 @@ export async function writeContractTests(
     await fs.mkdir(testDir, { recursive: true });
     await fs.writeFile(testPath, test.content, 'utf-8');
     logger.info('[WorktreeResolver] Contract test written', { file: test.file, size: test.content.length });
+  }
+}
+
+// ─── Dependency Cache ───
+
+const DEPS_CACHE_DIR = path.join(os.homedir(), '.cache', 'studio-deps');
+const INSTALL_TIMEOUT_MS = 300_000; // 5min
+const COPY_TIMEOUT_MS = 60_000; // 1min
+
+/**
+ * Compute short hash of lockfile content for cache key.
+ * Uses first 16 hex chars of sha256.
+ */
+function computeLockfileHash(lockfilePath: string): string {
+  const content = fsSync.readFileSync(lockfilePath);
+  return crypto.createHash('sha256').update(content).digest('hex').slice(0, 16);
+}
+
+/**
+ * Find lockfile in directory (pnpm-lock.yaml, package-lock.json, yarn.lock).
+ */
+function findLockfile(dir: string): string | null {
+  for (const name of ['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock']) {
+    const p = path.join(dir, name);
+    if (fsSync.existsSync(p)) return p;
+  }
+  return null;
+}
+
+/**
+ * Detect package manager from lockfile name.
+ */
+function detectPackageManager(lockfilePath: string): 'pnpm' | 'npm' | 'yarn' {
+  const base = path.basename(lockfilePath);
+  if (base.startsWith('pnpm')) return 'pnpm';
+  if (base.startsWith('yarn')) return 'yarn';
+  return 'npm';
+}
+
+/**
+ * Ensure node_modules exists in worktree, using dependency cache.
+ *
+ * Flow:
+ *   1. node_modules/.modules.yaml exists → skip (already installed)
+ *   2. Compute sha256(lockfile) as cache key
+ *   3. Cache hit: cp -al (hardlink copy, <1s for 375MB)
+ *   4. Cache miss: pnpm install --frozen-lockfile, then cache result
+ *
+ * Expected savings: 30-60s per worktree creation (install time).
+ * Disk savings: hardlinks share inodes, no extra disk for cached copies.
+ */
+export async function ensureDeps(worktree: string, repoDir: string): Promise<void> {
+  const nodeModulesPath = path.join(worktree, 'node_modules');
+  const modulesYaml = path.join(nodeModulesPath, '.modules.yaml');
+
+  // Already installed — skip
+  if (fsSync.existsSync(modulesYaml)) {
+    logger.info('[WorktreeResolver] Deps cache: node_modules exists, skipping', { worktree });
+    return;
+  }
+
+  // Find lockfile (prefer worktree, fall back to repoDir)
+  const lockfile = findLockfile(worktree) || findLockfile(repoDir);
+  if (!lockfile) {
+    logger.warn('[WorktreeResolver] Deps cache: no lockfile found, running bare install', { worktree });
+    const pkgManager = fsSync.existsSync(path.join(worktree, 'package.json')) ? 'npm' : 'npm';
+    await execSh(`${pkgManager} install`, { cwd: worktree, timeoutMs: INSTALL_TIMEOUT_MS });
+    return;
+  }
+
+  const hash = computeLockfileHash(lockfile);
+  const cacheDir = path.join(DEPS_CACHE_DIR, hash);
+  const cachedModules = path.join(cacheDir, 'node_modules');
+  const pkgManager = detectPackageManager(lockfile);
+  const installCmd = pkgManager === 'pnpm' ? 'pnpm install --frozen-lockfile'
+    : pkgManager === 'yarn' ? 'yarn install --frozen-lockfile'
+    : 'npm ci';
+
+  // Cache hit — hardlink copy
+  if (fsSync.existsSync(cachedModules)) {
+    const startMs = Date.now();
+    logger.info('[WorktreeResolver] Deps cache: HIT', { worktree, hash, cacheDir });
+    try {
+      // cp -al creates hardlinks: <1s for 375MB, zero extra disk
+      await execSh(`cp -al "${cachedModules}" "${nodeModulesPath}"`, {
+        cwd: worktree, timeoutMs: COPY_TIMEOUT_MS,
+      });
+      logger.info('[WorktreeResolver] Deps cache: restored from cache', {
+        worktree, hash, durationMs: Date.now() - startMs,
+      });
+      return;
+    } catch (e) {
+      // Hardlink copy failed (cross-filesystem?) — fall through to install
+      logger.warn('[WorktreeResolver] Deps cache: hardlink copy failed, falling back to install', {
+        worktree, hash, error: String(e),
+      });
+    }
+  } else {
+    logger.info('[WorktreeResolver] Deps cache: MISS', { worktree, hash });
+  }
+
+  // Cache miss — install from scratch
+  const installStart = Date.now();
+  logger.info('[WorktreeResolver] Deps cache: installing', { worktree, command: installCmd });
+  try {
+    await execSh(installCmd, { cwd: worktree, timeoutMs: INSTALL_TIMEOUT_MS });
+    logger.info('[WorktreeResolver] Deps cache: install complete', {
+      worktree, durationMs: Date.now() - installStart,
+    });
+  } catch (e) {
+    logger.error('[WorktreeResolver] Deps cache: install failed', { worktree, error: String(e) });
+    throw e;
+  }
+
+  // Populate cache for future worktrees
+  try {
+    await fs.mkdir(cacheDir, { recursive: true });
+    await execSh(`cp -al "${nodeModulesPath}" "${cachedModules}"`, {
+      cwd: worktree, timeoutMs: COPY_TIMEOUT_MS,
+    });
+    logger.info('[WorktreeResolver] Deps cache: populated cache', { worktree, hash, cacheDir });
+  } catch (e) {
+    // Non-blocking — cache population failure doesn't break the build
+    logger.warn('[WorktreeResolver] Deps cache: failed to populate cache', {
+      worktree, hash, error: String(e),
+    });
   }
 }

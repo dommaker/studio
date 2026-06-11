@@ -33,6 +33,7 @@ export {
   buildCachePrefix,
   writeRequirementsMd,
   writeContractTests,
+  ensureDeps,
 } from './worktree-resolver.js';
 
 // Re-export output-capture functions

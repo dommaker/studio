@@ -1,6 +1,7 @@
 // Pipeline Metrics — 管线 vs 窗口对比
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { formatTable } from '@dommaker/studio-shared/cli';
 
 export interface MetricEntry {
   source: 'pipeline' | 'window';
@@ -226,6 +227,129 @@ export function printComparison(pipeline?: MetricEntry, window?: MetricEntry): s
   compare('改动行数', pipeline?.diffLines, window?.diffLines);
 
   lines.push('═══════════════════════════════════════');
+  return lines.join('\n');
+}
+
+/**
+ * 将毫秒转为人类可读格式
+ * <60s → Xs, >=60s → XmYs, >=3600s → XhYm
+ */
+export function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '0s';
+  if (ms === 0) return '0s';
+  const totalSeconds = Math.floor(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return minutes > 0 ? `${hours}h${minutes}m` : `${hours}h`;
+  }
+  return seconds > 0 ? `${minutes}m${seconds}s` : `${minutes}m`;
+}
+
+/** 单 phase 汇总行 */
+export interface PhaseSummaryRow {
+  phase: string;
+  count: number;
+  successRate: number;
+  avgDurationMs: number;
+  totalTokens: number;
+  cacheHitRate: number;
+}
+
+/** 总览 */
+export interface SummaryOverview {
+  totalExecutions: number;
+  totalTokens: number;
+  avgGoalDurationMs: number;
+}
+
+/**
+ * 按 phase 聚合最近 24h 的 PipelineRun 数据
+ */
+export async function getPhaseSummary(): Promise<{ phases: PhaseSummaryRow[]; overview: SummaryOverview }> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  const grouped = await prisma.pipelineRun.groupBy({
+    by: ['phase'],
+    where: { createdAt: { gte: since } },
+    _count: { _all: true },
+    _avg: { durationMs: true },
+    _sum: { inputTokens: true, outputTokens: true, cacheHitTokens: true },
+  });
+
+  if (grouped.length === 0) {
+    return { phases: [], overview: { totalExecutions: 0, totalTokens: 0, avgGoalDurationMs: 0 } };
+  }
+
+  // 成功率 — 额外 groupBy success=true
+  const successCounts = await prisma.pipelineRun.groupBy({
+    by: ['phase'],
+    where: { createdAt: { gte: since }, success: true },
+    _count: { _all: true },
+  });
+  const successMap = new Map(successCounts.map(s => [s.phase, s._count._all]));
+
+  const phases: PhaseSummaryRow[] = grouped.map(g => {
+    const inputTokens = g._sum.inputTokens ?? 0;
+    const cacheHitTokens = g._sum.cacheHitTokens ?? 0;
+    const totalTokensForPhase = inputTokens + (g._sum.outputTokens ?? 0);
+    const hitDenom = inputTokens + cacheHitTokens;
+    return {
+      phase: g.phase,
+      count: g._count._all,
+      successRate: g._count._all > 0 ? (successMap.get(g.phase) ?? 0) / g._count._all : 0,
+      avgDurationMs: g._avg.durationMs ?? 0,
+      totalTokens: totalTokensForPhase,
+      cacheHitRate: hitDenom > 0 ? cacheHitTokens / hitDenom : 0,
+    };
+  });
+
+  const totalExecutions = phases.reduce((s, p) => s + p.count, 0);
+  const totalTokens = phases.reduce((s, p) => s + p.totalTokens, 0);
+
+  // 平均 goal 耗时: findMany → JS Map group by goalId → 求平均
+  const runsWithGoal = await prisma.pipelineRun.findMany({
+    where: { createdAt: { gte: since }, goalId: { not: null } },
+    select: { goalId: true, durationMs: true },
+  });
+  const goalDurations = new Map<string, number[]>();
+  for (const r of runsWithGoal) {
+    if (!r.goalId) continue;
+    const arr = goalDurations.get(r.goalId) ?? [];
+    arr.push(r.durationMs);
+    goalDurations.set(r.goalId, arr);
+  }
+  const avgGoalDurationMs = goalDurations.size > 0
+    ? [...goalDurations.values()].reduce((s, durs) => s + durs.reduce((a, b) => a + b, 0) / durs.length, 0) / goalDurations.size
+    : 0;
+
+  return {
+    phases,
+    overview: { totalExecutions, totalTokens, avgGoalDurationMs },
+  };
+}
+
+/**
+ * 格式化 phase 汇总为表格字符串
+ */
+export function printSummary(phases: PhaseSummaryRow[], overview: SummaryOverview): string {
+  if (phases.length === 0) return 'No pipeline runs in the last 24h';
+
+  const rows = phases.map(p => ({
+    'Phase': p.phase,
+    'Executions': p.count,
+    'Success Rate': `${(p.successRate * 100).toFixed(1)}%`,
+    'Avg Duration': formatDuration(p.avgDurationMs),
+    'Total Tokens': `${(p.totalTokens / 1000).toFixed(1)}K`,
+    'Cache Hit Rate': `${(p.cacheHitRate * 100).toFixed(1)}%`,
+  }));
+
+  const table = formatTable(rows);
+  const lines = [table, ''];
+  lines.push(`Total: ${overview.totalExecutions} executions, ${(overview.totalTokens / 1000).toFixed(1)}K tokens, avg goal ${formatDuration(overview.avgGoalDurationMs)}`);
+
   return lines.join('\n');
 }
 

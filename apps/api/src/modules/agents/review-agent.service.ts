@@ -204,6 +204,14 @@ export class ReviewAgent {
         });
       }
 
+      // FIX #8: error issues 存在时强制 rejected（防止 LLM 误 approve）
+      if (errorIssues > 0 && report.overallApproved) {
+        report.overallApproved = false;
+        logger.warn('[ReviewAgent] Override: error issues present, forcing rejection', {
+          taskId, errorIssues, score: reviewScore,
+        });
+      }
+
       logger.info('[ReviewAgent] Review completed', {
         taskId,
         cycle,
@@ -590,7 +598,16 @@ export class ReviewAgent {
         }))).catch(() => {});
       }
 
-      return { approved: report.overallApproved, score: reviewScore, issues: allIssues, suggestions: report.suggestions ?? [] };
+      // FIX #8: error issues 存在时强制 rejected（reviewDiff 路径）
+      const totalErrorIssues = allIssues.filter(i => i.severity === 'error').length;
+      const finalApproved = totalErrorIssues > 0 ? false : report.overallApproved;
+      if (totalErrorIssues > 0 && report.overallApproved) {
+        logger.warn('[ReviewAgent] reviewDiff override: error issues present, forcing rejection', {
+          baseRef, headRef, totalErrorIssues,
+        });
+      }
+
+      return { approved: finalApproved, score: reviewScore, issues: allIssues, suggestions: report.suggestions ?? [] };
     } catch (error) {
       logger.error('[ReviewAgent] reviewDiff failed', { baseRef, headRef, error: String(error) });
       return { approved: false, score: 0, issues: [{ severity: 'error', message: `审查异常: ${String(error).slice(0, 200)}` }], suggestions: [] };

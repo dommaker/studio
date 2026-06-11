@@ -26,6 +26,7 @@ import {
   buildCachePrefix,
   writeRequirementsMd,
   writeContractTests,
+  ensureDeps,
 } from './worktree-resolver.js';
 import {
   readProgress,
@@ -160,7 +161,16 @@ export class AgentRunner implements IAgentRunner {
       }
 
       // Step 2: propagate harness config
-      await propagateHarnessConfig(worktree, task.id, task.executionId);
+      await propagateHarnessConfig(worktree, task.id, task.executionId, this.config.repoDir);
+
+      // Step 2.5: pre-populate node_modules (dependency cache)
+      try {
+        await ensureDeps(worktree, this.config.repoDir);
+      } catch (e) {
+        logger.warn('[AgentRunner] ensureDeps failed (non-blocking, agent will install)', {
+          taskId: task.id, executionId: task.executionId, error: String(e),
+        });
+      }
 
       // Write cache prefix
       try {

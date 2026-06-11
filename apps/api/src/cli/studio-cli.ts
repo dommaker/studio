@@ -1430,9 +1430,14 @@ async function main() {
         } else {
           console.log(`No metrics found for task: ${taskName}`);
         }
+      } else if (args[1] === 'summary') {
+        const { getPhaseSummary, printSummary } = await import('../daemon/metrics.js');
+        const { phases, overview } = await getPhaseSummary();
+        console.log(printSummary(phases, overview));
       } else {
         console.log('Studio Metrics');
         console.log('  studio metrics compare <task>  Compare pipeline vs window');
+        console.log('  studio metrics summary         Phase summary (last 24h)');
       }
       break;
     case 'status':
@@ -1533,6 +1538,7 @@ async function main() {
       console.log('    studio daemon start       Register workspace with server');
       console.log('    studio daemon status      Daemon session status');
       console.log('    studio metrics compare <t> Metrics');
+      console.log('    studio metrics summary       Phase summary (last 24h)');
       break;
   }
 }

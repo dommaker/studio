@@ -49,6 +49,7 @@ vi.mock('../worktree-resolver.js', () => ({
   buildCachePrefix: vi.fn().mockResolvedValue(''),
   writeRequirementsMd: vi.fn(),
   writeContractTests: vi.fn(),
+  ensureDeps: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock('../output-capture.js', () => ({

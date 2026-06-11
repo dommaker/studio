@@ -6,6 +6,7 @@
 import { logger } from '@dommaker/studio-shared';
 import { daemon } from '../../daemon/studio-daemon.js';
 import { ensureWorktree } from './analyst-knowledge.js';
+import { parseClaudeUsage } from '../../daemon/metrics.js';
 import * as fs from 'fs';
 
 export interface RequirementsDocJson {
@@ -78,7 +79,7 @@ export function preClassifyTier(requirement: string): 'fast' | 'standard' | 'pre
 }
 
 // O1d: accept optional claudeArgs for tool restriction on Simple tasks
-export async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: string[], modelTier?: 'fast' | 'standard' | 'premium'): Promise<{ doc: RequirementsDocJson; usage?: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
+export async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: string[], modelTier?: 'fast' | 'standard' | 'premium'): Promise<{ doc: RequirementsDocJson; usage: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
   ensureWorktree();
 
   // Use ad-hoc session for concurrent @Analyst support
@@ -99,20 +100,14 @@ export async function runClaudeCode(prompt: string, outputFile: string, claudeAr
 
   // --output-format json → Claude Code 返回 JSON envelope: { result, usage }
   let text = raw;
-  let usage: { inputTokens: number; outputTokens: number; cacheHitTokens: number } | undefined;
   try {
     const envelope = JSON.parse(raw);
     if (envelope.result) text = envelope.result;
-    if (envelope.usage) {
-      usage = {
-        inputTokens: envelope.usage.input_tokens || 0,
-        outputTokens: envelope.usage.output_tokens || 0,
-        cacheHitTokens: envelope.usage.cache_read_input_tokens || envelope.usage.cache_creation_input_tokens || 0,
-      };
-    }
   } catch (e) {
     logger.error('[AnalystTrigger] Failed to parse JSON envelope', { error: String(e) });
   }
+  // Reuse parseClaudeUsage for robust parsing (JSON + regex fallback)
+  const usage = parseClaudeUsage(raw);
 
   // Read the output JSON file (Claude Code writes structured output here)
   if (fs.existsSync(outputFile)) {

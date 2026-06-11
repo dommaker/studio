@@ -70,59 +70,66 @@ class AnalystTriggerService {
 
     try {
       // 3. Load accumulated knowledge + build prompt
+      const preAnalystStart = Date.now();
       const fileKnowledge = loadKnowledge();
+      const preTier = preClassifyTier(content);
 
-      // G-001~005: 加载 DB 知识（unified via buildKnowledgeContext）
+      // FIX #2: fast-tier 跳过 DB knowledge + accuracy reflection（节省 ~30% token）
       let dbKnowledge = '';
-      try {
-        const { buildKnowledgeContext } = await import('../knowledge/consumers/prompt-builder.js');
-        dbKnowledge = await buildKnowledgeContext('analyst', { mode: 'full' });
-      } catch (e) {
-        logger.warn('[AnalystTrigger] Failed to load DB knowledge, continuing with file only', { error: String(e) });
-      }
-
-      // Analyst accuracy 闭环: 加载上次预测准确率 → 定向纠正
       let accuracyReflection = '';
-      try {
-        const { sharedStore } = await import('../knowledge/knowledge-bus.service.js');
-        const accuracyEntries = sharedStore.list({ tags: ['analyst_accuracy'] })
-          .filter(e => e.maturity !== 'archived')
-          .sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))
-          .slice(0, 3);
-        if (accuracyEntries.length > 0) {
-          const lines = [
-            '## 预测反思（自动分析）',
-            '以下是你在之前分析中的预测准确率记录，请针对性改进：',
-          ];
-          for (const e of accuracyEntries) {
-            const eContent = e.content || '';
-            const fileMatch = eContent.match(/AC匹配率:\s*(\d+)%/);
-            const missed = eContent.match(/漏预测文件:\s*([^\]]+)/);
-            const extra = eContent.match(/多预测文件:\s*([^\]]+)/);
-            const missedDeps = eContent.match(/漏预测依赖:\s*([^\]]+)/);
-            const suggestions: string[] = [];
-            if (missed) suggestions.push(`文件遗漏: ${missed[1].trim()}`);
-            if (extra) suggestions.push(`文件多报: ${extra[1].trim()}`);
-            if (missedDeps) suggestions.push(`依赖遗漏: ${missedDeps[1].trim()}`);
-            if (!missed && !extra && !missedDeps && fileMatch) {
-              suggestions.push('预测准确，继续保持');
-            }
-            const matchRate = fileMatch ? `${fileMatch[1]}%` : 'N/A';
-            lines.push(`- ⚠️ [准确率:${matchRate}] ${e.title}: ${suggestions.join('; ') || eContent.slice(0, 200)}`);
-          }
-          lines.push(
-            '',
-            '**改进提示**: 以上述模式为鉴，重点检查是否漏报了文件、是否漏声明了依赖关系。',
-          );
-          accuracyReflection = lines.join('\n') + '\n';
+
+      if (preTier !== 'fast') {
+        // G-001~005: 加载 DB 知识（unified via buildKnowledgeContext）
+        try {
+          const { buildKnowledgeContext } = await import('../knowledge/consumers/prompt-builder.js');
+          dbKnowledge = await buildKnowledgeContext('analyst', { mode: 'full' });
+        } catch (e) {
+          logger.warn('[AnalystTrigger] Failed to load DB knowledge, continuing with file only', { error: String(e) });
         }
-      } catch (e) {
-        logger.warn('[AnalystTrigger] Failed to load analyst accuracy', { error: String(e) });
+
+        // Analyst accuracy 闭环: 加载上次预测准确率 → 定向纠正
+        try {
+          const { sharedStore } = await import('../knowledge/knowledge-bus.service.js');
+          const accuracyEntries = sharedStore.list({ tags: ['analyst_accuracy'] })
+            .filter(e => e.maturity !== 'archived')
+            .sort((a, b) => b.lastReferenced.localeCompare(a.lastReferenced))
+            .slice(0, 3);
+          if (accuracyEntries.length > 0) {
+            const lines = [
+              '## 预测反思（自动分析）',
+              '以下是你在之前分析中的预测准确率记录，请针对性改进：',
+            ];
+            for (const e of accuracyEntries) {
+              const eContent = e.content || '';
+              const fileMatch = eContent.match(/AC匹配率:\s*(\d+)%/);
+              const missed = eContent.match(/漏预测文件:\s*([^\]]+)/);
+              const extra = eContent.match(/多预测文件:\s*([^\]]+)/);
+              const missedDeps = eContent.match(/漏预测依赖:\s*([^\]]+)/);
+              const suggestions: string[] = [];
+              if (missed) suggestions.push(`文件遗漏: ${missed[1].trim()}`);
+              if (extra) suggestions.push(`文件多报: ${extra[1].trim()}`);
+              if (missedDeps) suggestions.push(`依赖遗漏: ${missedDeps[1].trim()}`);
+              if (!missed && !extra && !missedDeps && fileMatch) {
+                suggestions.push('预测准确，继续保持');
+              }
+              const matchRate = fileMatch ? `${fileMatch[1]}%` : 'N/A';
+              lines.push(`- ⚠️ [准确率:${matchRate}] ${e.title}: ${suggestions.join('; ') || eContent.slice(0, 200)}`);
+            }
+            lines.push(
+              '',
+              '**改进提示**: 以上述模式为鉴，重点检查是否漏报了文件、是否漏声明了依赖关系。',
+            );
+            accuracyReflection = lines.join('\n') + '\n';
+          }
+        } catch (e) {
+          logger.warn('[AnalystTrigger] Failed to load analyst accuracy', { error: String(e) });
+        }
+      } else {
+        logger.info('[AnalystTrigger] Fast-tier: skipping DB knowledge + accuracy reflection');
       }
 
       const knowledge = [fileKnowledge, dbKnowledge].filter(Boolean).join('\n');
       const outputFile = perInvocationOutputFile();
-      const preTier = preClassifyTier(content);
       logger.info('[AnalystTrigger] Pre-classified tier', { tier: preTier, contentLength: content.length });
 
       // AS-023: Query available repos for Analyst prompt injection
@@ -137,6 +144,7 @@ class AnalystTriggerService {
       } catch { /* fallback: no repo list injected */ }
 
       const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile, preTier, availableRepos);
+      const preAnalystDurationMs = Date.now() - preAnalystStart;
 
       // 4. Run Claude Code agent (ad-hoc session, supports concurrent @Analyst)
       // O1d: Restrict tool access for Simple tasks (short content, no schema change keywords)
@@ -266,15 +274,28 @@ class AnalystTriggerService {
       }
 
       // 9. Record Analyst phase metrics
-      const acCount = response.acGroups?.reduce((sum, g) => sum + g.acs.length, 0) || 0;
+      // 9a. Pre-analyst knowledge search (0 tokens, duration only)
+      recordPipelineRun({
+        source: 'pipeline', phase: 'analyst',
+        taskName: `pre-analyst:${response.title || '需求分析'}`,
+        model: 'knowledge-search',
+        inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
+        durationMs: preAnalystDurationMs,
+        success: true,
+        sessionId: doc.id,
+      }).catch((e: any) => {
+        logger.error('[AnalystTrigger] Pre-analyst metrics FAILED', { error: String(e) });
+      });
+
+      // 9b. Analyst Claude session
       recordPipelineRun({
         source: 'pipeline', phase: 'analyst',
         taskName: response.title || '需求分析',
-        model: usage ? 'claude' : 'claude',
-        inputTokens: usage?.inputTokens || 0,
-        outputTokens: usage?.outputTokens || 0,
-        cacheHitTokens: usage?.cacheHitTokens || 0,
-        durationMs,
+        model: `claude-${preTier}`,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheHitTokens: usage.cacheHitTokens,
+        durationMs: durationMs - preAnalystDurationMs,
         success: true,
         sessionId: doc.id,
       }).catch((e: any) => {

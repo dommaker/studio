@@ -13,10 +13,12 @@
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockFindFirst, mockExistsSync, mockExecSh } = vi.hoisted(() => ({
+const { mockFindFirst, mockExistsSync, mockExecSh, mockReadFileSync, mockMkdirSync } = vi.hoisted(() => ({
   mockFindFirst: vi.fn(),
   mockExistsSync: vi.fn(),
   mockExecSh: vi.fn(),
+  mockReadFileSync: vi.fn(),
+  mockMkdirSync: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
@@ -25,7 +27,12 @@ vi.mock('@dommaker/studio-prisma', () => ({
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof import('fs')>();
-  return { ...actual, existsSync: mockExistsSync };
+  return {
+    ...actual,
+    existsSync: mockExistsSync,
+    readFileSync: mockReadFileSync,
+    mkdirSync: mockMkdirSync,
+  };
 });
 
 vi.mock('@dommaker/studio-shared/node', () => ({
@@ -37,7 +44,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
 });
 
-import { resolveWorkspace } from '../worktree-resolver.js';
+import { resolveWorkspace, ensureDeps } from '../worktree-resolver.js';
 
 const baseOpts = {
   worktreesDir: '/worktrees',
@@ -187,5 +194,140 @@ describe('resolveWorkspace()', () => {
 
     await expect(resolveWorkspace({ task, ...baseOpts }))
       .rejects.toThrow('repoDir is not a git repository: /not-a-repo');
+  });
+});
+
+describe('ensureDeps()', () => {
+  beforeEach(() => {
+    // Default: readFileSync returns a fixed buffer for lockfile hashing
+    mockReadFileSync.mockReturnValue(Buffer.from('mock-lockfile-content'));
+  });
+
+  test('skips when node_modules/.modules.yaml already exists', async () => {
+    mockExistsSync.mockImplementation((p: string) =>
+      p.endsWith('/node_modules/.modules.yaml'),
+    );
+
+    await ensureDeps('/worktree', '/repo');
+
+    // Should not call execSh (no install, no cp)
+    expect(mockExecSh).not.toHaveBeenCalled();
+  });
+
+  test('cache HIT: cp -al from cache when lockfile hash matches', async () => {
+    // node_modules/.modules.yaml does NOT exist (no deps installed)
+    // pnpm-lock.yaml exists in worktree
+    // Cache entry exists for the hash
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('/node_modules/.modules.yaml')) return false;
+      if (p.endsWith('/pnpm-lock.yaml')) return true;
+      if (p.includes('.cache/studio-deps/') && p.endsWith('/node_modules')) return true;
+      return false;
+    });
+
+    await ensureDeps('/worktree', '/repo');
+
+    // Should call cp -al (hardlink copy from cache)
+    expect(mockExecSh).toHaveBeenCalledWith(
+      expect.stringContaining('cp -al'),
+      expect.objectContaining({ cwd: '/worktree' }),
+    );
+    // Should NOT run pnpm install
+    expect(mockExecSh).not.toHaveBeenCalledWith(
+      expect.stringContaining('pnpm install'),
+      expect.anything(),
+    );
+  });
+
+  test('cache MISS: runs pnpm install --frozen-lockfile then caches result', async () => {
+    // node_modules/.modules.yaml does NOT exist
+    // pnpm-lock.yaml exists in worktree
+    // Cache entry does NOT exist
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('/node_modules/.modules.yaml')) return false;
+      if (p.endsWith('/pnpm-lock.yaml')) return true;
+      // Cache dir does not exist
+      if (p.includes('.cache/studio-deps/')) return false;
+      return false;
+    });
+
+    await ensureDeps('/worktree', '/repo');
+
+    // Should run pnpm install --frozen-lockfile
+    expect(mockExecSh).toHaveBeenCalledWith(
+      'pnpm install --frozen-lockfile',
+      expect.objectContaining({ cwd: '/worktree' }),
+    );
+    // Should cache result via cp -al
+    expect(mockExecSh).toHaveBeenCalledWith(
+      expect.stringContaining('cp -al'),
+      expect.objectContaining({ cwd: '/worktree' }),
+    );
+  });
+
+  test('detects npm (package-lock.json) and uses npm ci', async () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('/node_modules/.modules.yaml')) return false;
+      if (p.endsWith('/pnpm-lock.yaml')) return false;
+      if (p.endsWith('/package-lock.json')) return true;
+      if (p.includes('.cache/studio-deps/')) return false;
+      return false;
+    });
+
+    await ensureDeps('/worktree', '/repo');
+
+    expect(mockExecSh).toHaveBeenCalledWith(
+      'npm ci',
+      expect.objectContaining({ cwd: '/worktree' }),
+    );
+  });
+
+  test('falls back to npm install when no lockfile found', async () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('/node_modules/.modules.yaml')) return false;
+      // No lockfile anywhere
+      return false;
+    });
+
+    await ensureDeps('/worktree', '/repo');
+
+    expect(mockExecSh).toHaveBeenCalledWith(
+      expect.stringContaining('install'),
+      expect.objectContaining({ cwd: '/worktree' }),
+    );
+  });
+
+  test('hardlink copy failure falls back to pnpm install', async () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('/node_modules/.modules.yaml')) return false;
+      if (p.endsWith('/pnpm-lock.yaml')) return true;
+      if (p.includes('.cache/studio-deps/') && p.endsWith('/node_modules')) return true;
+      return false;
+    });
+    // First call (cp -al) fails, second call (pnpm install) succeeds
+    mockExecSh
+      .mockRejectedValueOnce(new Error('Cross-device link'))
+      .mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
+
+    await ensureDeps('/worktree', '/repo');
+
+    // Should have attempted cp -al, then fallen back to pnpm install
+    expect(mockExecSh).toHaveBeenCalledWith(
+      'pnpm install --frozen-lockfile',
+      expect.objectContaining({ cwd: '/worktree' }),
+    );
+  });
+
+  test('install failure propagates error', async () => {
+    mockExistsSync.mockImplementation((p: string) => {
+      if (p.endsWith('/node_modules/.modules.yaml')) return false;
+      if (p.endsWith('/pnpm-lock.yaml')) return true;
+      if (p.includes('.cache/studio-deps/')) return false;
+      return false;
+    });
+    mockExecSh.mockRejectedValue(new Error('pnpm install failed'));
+
+    await expect(ensureDeps('/worktree', '/repo'))
+      .rejects.toThrow('pnpm install failed');
   });
 });
