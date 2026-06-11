@@ -105,11 +105,15 @@ class DeployAgent {
 
     // 3. Environment-specific deployment (skip if push failed — no reason to deploy what isn't pushed)
     const deployStart = Date.now();
-    const deployResult = pushResult.success
-      ? (params.environment === 'vps'
-        ? await this.deployVps(params)
-        : await this.generateCompanyChecklist(params))
-      : pushResult;
+    let deployResult: DeployResult;
+    if (!pushResult.success) {
+      deployResult = pushResult;
+    } else if (params.environment === 'vps') {
+      // VPS: systemd + tsx 自动重编译，merge+push 即完成部署
+      deployResult = { success: true, type: 'vps', findings: [], summary: 'Pushed to master — systemd auto-restarts with tsx recompilation' };
+    } else {
+      deployResult = await this.generateCompanyChecklist(params);
+    }
     timings.deployMs = Date.now() - deployStart;
 
     // O3f: Release merge slot so next in queue can proceed
@@ -366,42 +370,6 @@ class DeployAgent {
     return {
       success: false, type: params.environment, findings: [],
       summary: `Push failed after ${maxRetries} attempts: ${lastError.slice(0, 200)}${resolutionHint}`,
-    };
-  }
-
-  // ── VPS Deploy ─────────────────────────────────────────
-
-  private async deployVps(params: DeployParams): Promise<DeployResult> {
-    const repoDir = await this.getRepoDir();
-    const tag = `studio-api:${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${params.executionId.slice(0, 8)}`;
-
-    const steps = [
-      { desc: 'docker build', cmd: `docker build -t ${tag} .` },
-      { desc: 'docker push', cmd: `docker push ${tag}` },
-      { desc: 'docker-compose up', cmd: 'docker-compose up -d' },
-      { desc: 'health check', cmd: 'curl -f http://localhost:3001/health' },
-    ];
-
-    const results: string[] = [];
-    for (const step of steps) {
-      try {
-        logger.info('[DeployAgent] VPS deploy step', { step: step.desc });
-        const { stdout } = await execSh(step.cmd, { cwd: repoDir, timeoutMs: 120_000 });
-        results.push(`✓ ${step.desc}`);
-      } catch (e) {
-        logger.error('[DeployAgent] VPS deploy step failed', { step: step.desc, error: String(e) });
-        return {
-          success: false, type: 'vps', findings: [],
-          artifact: tag,
-          summary: `VPS deploy failed at "${step.desc}": ${String(e).slice(0, 200)}\n\nCompleted:\n${results.join('\n')}`,
-        };
-      }
-    }
-
-    return {
-      success: true, type: 'vps', findings: [],
-      artifact: tag,
-      summary: `VPS Deploy complete:\n${results.join('\n')}\n\nTag: ${tag}`,
     };
   }
 
