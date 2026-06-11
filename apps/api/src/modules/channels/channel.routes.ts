@@ -5,6 +5,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
+import { skillStore } from '../skills/skill-store.js';
 import { splitAcGroupsByRepo } from './multi-repo-split.js';
 import { goalService } from '../goals/goal.service.js';
 import { sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
@@ -349,16 +350,14 @@ router.post('/:id/messages', async (req, res) => {
     // Fire-and-forget: find skill by name and trigger retract
     (async () => {
       try {
-        const skill = await prisma.skill.findFirst({
-          where: { name: { contains: skillName }, status: 'published' },
+        const skill = skillStore.findFirst({
+          name: { contains: skillName },
+          status: 'published',
         });
         if (skill) {
           // Call retract via the skill-proposal-routes logic
           const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
-          await prisma.skill.update({
-            where: { id: skill.id },
-            data: { status: 'under_review' },
-          });
+          skillStore.update(skill.id, { status: 'under_review' });
           if (sysChannel) {
             await channelMessageService.createCardMessage(
               sysChannel.id,
@@ -854,10 +853,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
     const skillName = cardData.skillName as string | undefined;
 
     if (skillId) {
-      await prisma.skill.update({
-        where: { id: skillId },
-        data: { status: 'deprecated' },
-      });
+      skillStore.update(skillId, { status: 'deprecated' });
 
       meta.status = 'deprecated';
       logger.info('[Channel] Skill retract confirmed', { skillId, skillName });

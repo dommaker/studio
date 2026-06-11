@@ -28,8 +28,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts
 
-<!-- STALE_SINCE: 2026-06-09 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
+
+<!-- STALE_SINCE: 2026-06-11 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/monitor-agent.service.ts
 
 ## 职责
 
@@ -50,6 +54,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
+- ✅ `309f6061`: review pipeline — diff scope + discoveredIssues exposure
 - ✅ `556051f2`: B34 behavior distillation output path + PatternMiner startup + agent-runner --verbose
 - ✅ `1c4bb9ae`: remove all hardcoded credentials — require env vars
 - ✅ `79f4a186`: knowledge quality gate + CPU monitoring + type fix

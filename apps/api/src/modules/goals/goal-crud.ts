@@ -5,6 +5,7 @@
  */
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway, eventBus, type ModelTier } from '@dommaker/studio-shared';
+import { skillStore } from '../skills/skill-store.js';
 import { beforeGoalCreate } from '@dommaker/studio-shared/harness/hooks';
 import { eventStore } from '../../core/event-store.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -128,10 +129,7 @@ export async function generatePlan(goalId: string): Promise<GoalPlanDraft> {
   });
   const roleTypes = [...new Set(roles.map(r => r.type))];
 
-  const skills = await prisma.skill.findMany({
-    where: { companyId: goal.companyId, status: 'published' },
-    select: { name: true, category: true },
-  });
+  const skills = skillStore.list({ companyId: goal.companyId, status: 'published' });
 
   const prompt = `你是一个项目规划专家。请为以下目标生成详细的执行计划。
 

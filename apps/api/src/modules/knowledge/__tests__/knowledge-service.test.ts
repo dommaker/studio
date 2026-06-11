@@ -259,6 +259,55 @@ describe('KnowledgeService Phase 1A: Consume', () => {
     });
   });
 
+  describe('search mode parameter', () => {
+    it('defaults to keyword mode', async () => {
+      const entries = [
+        { id: '1', title: 'deploy', content: 'deploy info', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks } = createKS({ entries });
+      const results = await ks.search('deploy');
+      expect(results.length).toBeGreaterThan(0);
+    });
+
+    it('semantic mode returns results when vector DB available', async () => {
+      const { ks } = createKS();
+      const results = await ks.search('deploy', { mode: 'semantic' });
+      expect(Array.isArray(results)).toBe(true);
+    }, 30_000);
+
+    it('hybrid mode returns keyword results when semantic unavailable', async () => {
+      const entries = [
+        { id: '1', title: 'deploy', content: 'deploy info', tags: ['pattern'], maturity: 'active', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks } = createKS({ entries });
+      const results = await ks.search('deploy', { mode: 'hybrid' });
+      expect(results.length).toBeGreaterThan(0);
+    }, 30_000);
+  });
+
+  describe('semanticSearch', () => {
+    it('returns results from vector DB when available', async () => {
+      const { ks } = createKS();
+      const results = await ks.semanticSearch('deploy timeout');
+      expect(Array.isArray(results)).toBe(true);
+      if (results.length > 0) {
+        expect(results[0]).toHaveProperty('filePath');
+        expect(results[0]).toHaveProperty('score');
+        expect(results[0]).toHaveProperty('text');
+      }
+    }, 30_000);
+
+    it('returns results with entryId mapped from filePath', async () => {
+      const { ks } = createKS();
+      const results = await ks.semanticSearch('test query');
+      expect(Array.isArray(results)).toBe(true);
+      if (results.length > 0) {
+        expect(results[0]).toHaveProperty('entryId');
+        expect(typeof results[0].entryId).toBe('string');
+      }
+    }, 30_000);
+  });
+
   describe('injectContext', () => {
     it('returns empty string when no knowledge exists', async () => {
       const { ks } = createKS();
@@ -756,9 +805,10 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('recordAnalystAccuracy exists', () => expect(typeof ks.recordAnalystAccuracy).toBe('function'));
   });
 
-  describe('Consume (5 methods)', () => {
+  describe('Consume (6 methods)', () => {
     it('injectContext exists', () => expect(typeof ks.injectContext).toBe('function'));
     it('search exists', () => expect(typeof ks.search).toBe('function'));
+    it('semanticSearch exists', () => expect(typeof ks.semanticSearch).toBe('function'));
     it('matchResolutions exists', () => expect(typeof ks.matchResolutions).toBe('function'));
     it('list exists', () => expect(typeof ks.list).toBe('function'));
     it('get exists', () => expect(typeof ks.get).toBe('function'));
@@ -792,10 +842,10 @@ describe('KnowledgeService Phase 0: contract', () => {
   });
 
   describe('method count', () => {
-    it('has exactly 29 public methods', () => {
+    it('has exactly 36 public methods', () => {
       const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
         .filter(m => m !== 'constructor');
-      expect(methods).toHaveLength(29);
+      expect(methods).toHaveLength(36);
     });
   });
 });

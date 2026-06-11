@@ -13,7 +13,6 @@ const JSON_FIELDS: Record<string, string[]> = {
   Execution: ['parameters', 'nodeExecutions', 'error'],
   Project: ['spec', 'gitInfo'],
   Role: ['metadata'],
-  Skill: ['metadata'],
   Environment: ['envVars', 'mounts', 'resourceLimits'],
   AgentConfig: ['systemPrompt'],
   AgentConfigVersion: ['snapshot'],
@@ -36,7 +35,6 @@ const JSON_FIELDS: Record<string, string[]> = {
   Incident: ['triageLog'],
   ChannelMessage: ['meta'],
   RequirementsDoc: ['tags', 'linkedDocIds'],
-  KnowledgeEntry: ['triggerCondition'],
   Channel: ['discordChannelId', 'discordWebhookUrl'],
 };
 

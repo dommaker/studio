@@ -1,12 +1,14 @@
 /**
  * SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计
+ *
+ * Migrated from Prisma to file-based SkillStore (D-005).
  */
 
 import { Router, Request, Response } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { logger } from '../../utils/logger.js';
+import { skillStore } from './skill-store.js';
+import { proposalStore } from './proposal-store.js';
 
-const prisma = new PrismaClient();
 const router = Router();
 
 // ─── CRUD ───
@@ -18,25 +20,27 @@ const router = Router();
 router.get('/', async (req: Request, res: Response) => {
   try {
     const { companyId, status, category, roleId, page = '1', limit = '20' } = req.query;
-    const where: any = {};
-    if (companyId) where.companyId = companyId;
-    if (status) where.status = status;
-    if (category) where.category = category;
-    if (roleId) where.roleId = roleId;
+    const filter: Record<string, string> = {};
+    if (companyId) filter.companyId = companyId as string;
+    if (status) filter.status = status as string;
+    if (category) filter.category = category as string;
+    if (roleId) filter.roleId = roleId as string;
 
     const skip = (Number(page) - 1) * Number(limit);
-    const [skills, total] = await Promise.all([
-      prisma.skill.findMany({
-        where,
-        orderBy: { updatedAt: 'desc' },
-        skip,
-        take: Number(limit),
-        include: { proposals: { where: { status: 'pending' }, select: { id: true } } },
-      }),
-      prisma.skill.count({ where }),
-    ]);
+    const total = skillStore.count(filter);
+    const skills = skillStore.list(filter, {
+      skip,
+      take: Number(limit),
+      orderBy: { field: 'updatedAt', dir: 'desc' },
+    });
 
-    res.json({ data: skills, total, page: Number(page), limit: Number(limit) });
+    // Attach pending proposals
+    const withProposals = skills.map(s => ({
+      ...s,
+      proposals: proposalStore.list({ skillId: s.id, status: 'pending' }, { take: 1 }).map(p => ({ id: p.id })),
+    }));
+
+    res.json({ data: withProposals, total, page: Number(page), limit: Number(limit) });
   } catch (error) {
     logger.error({ error }, 'Failed to list skills');
     res.status(500).json({ error: 'Failed to list skills' });
@@ -50,16 +54,15 @@ router.get('/', async (req: Request, res: Response) => {
 router.get('/discover', async (req: Request, res: Response) => {
   try {
     const { companyId, category, roleId, q, limit = '20' } = req.query;
-    const where: any = { status: 'published' };
-    if (companyId) where.companyId = companyId;
-    if (category) where.category = category;
-    if (roleId) where.roleId = roleId;
-    if (q) where.name = { contains: String(q), mode: 'insensitive' };
+    const filter: Record<string, unknown> = { status: 'published' };
+    if (companyId) filter.companyId = companyId;
+    if (category) filter.category = category;
+    if (roleId) filter.roleId = roleId;
+    if (q) filter.name = { contains: String(q), mode: 'insensitive' };
 
-    const skills = await prisma.skill.findMany({
-      where,
-      orderBy: { usageCount: 'desc' },
+    const skills = skillStore.list(filter, {
       take: Number(limit),
+      orderBy: { field: 'usageCount', dir: 'desc' },
     });
 
     res.json({ data: skills });
@@ -74,12 +77,15 @@ router.get('/discover', async (req: Request, res: Response) => {
  */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const skill = await prisma.skill.findUnique({
-      where: { id: req.params.id },
-      include: { proposals: { orderBy: { proposedAt: 'desc' }, take: 10 } },
-    });
+    const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
-    res.json({ data: skill });
+
+    const proposals = proposalStore.list(
+      { skillId: skill.id },
+      { orderBy: { field: 'proposedAt', dir: 'desc' }, take: 10 },
+    );
+
+    res.json({ data: { ...skill, proposals } });
   } catch (error) {
     logger.error({ error }, 'Failed to get skill');
     res.status(500).json({ error: 'Failed to get skill' });
@@ -94,8 +100,10 @@ router.post('/', async (req: Request, res: Response) => {
     const { companyId, roleId, name, category, description, metadata, source } = req.body;
     if (!companyId || !name) return res.status(400).json({ error: 'companyId and name are required' });
 
-    const skill = await prisma.skill.create({
-      data: { companyId, roleId, name, category, description, metadata, source: source || 'manual' },
+    const skill = skillStore.create({
+      companyId, roleId, name, category, description,
+      metadata: metadata ? JSON.stringify(metadata) : undefined,
+      source: source || 'manual',
     });
 
     res.status(201).json({ data: skill });
@@ -111,10 +119,11 @@ router.post('/', async (req: Request, res: Response) => {
 router.patch('/:id', async (req: Request, res: Response) => {
   try {
     const { name, category, description, metadata, roleId } = req.body;
-    const skill = await prisma.skill.update({
-      where: { id: req.params.id },
-      data: { name, category, description, metadata, roleId },
+    const skill = skillStore.update(req.params.id, {
+      name, category, description, roleId,
+      metadata: metadata ? JSON.stringify(metadata) : undefined,
     });
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
     res.json({ data: skill });
   } catch (error) {
     logger.error({ error }, 'Failed to update skill');
@@ -127,7 +136,8 @@ router.patch('/:id', async (req: Request, res: Response) => {
  */
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    await prisma.skill.delete({ where: { id: req.params.id } });
+    const deleted = skillStore.delete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Skill not found' });
     res.json({ success: true });
   } catch (error) {
     logger.error({ error }, 'Failed to delete skill');
@@ -143,17 +153,13 @@ router.delete('/:id', async (req: Request, res: Response) => {
  */
 router.post('/:id/publish', async (req: Request, res: Response) => {
   try {
-    const skill = await prisma.skill.findUnique({ where: { id: req.params.id } });
+    const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
     if (skill.status !== 'draft' && skill.status !== 'testing') {
       return res.status(400).json({ error: `Cannot publish skill with status '${skill.status}'` });
     }
 
-    const updated = await prisma.skill.update({
-      where: { id: req.params.id },
-      data: { status: 'published' },
-    });
-
+    const updated = skillStore.update(req.params.id, { status: 'published' });
     res.json({ data: updated });
   } catch (error) {
     logger.error({ error }, 'Failed to publish skill');
@@ -167,17 +173,13 @@ router.post('/:id/publish', async (req: Request, res: Response) => {
  */
 router.post('/:id/deprecate', async (req: Request, res: Response) => {
   try {
-    const skill = await prisma.skill.findUnique({ where: { id: req.params.id } });
+    const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
     if (skill.status !== 'published') {
       return res.status(400).json({ error: `Cannot deprecate skill with status '${skill.status}'` });
     }
 
-    const updated = await prisma.skill.update({
-      where: { id: req.params.id },
-      data: { status: 'deprecated' },
-    });
-
+    const updated = skillStore.update(req.params.id, { status: 'deprecated' });
     res.json({ data: updated });
   } catch (error) {
     logger.error({ error }, 'Failed to deprecate skill');
@@ -191,17 +193,16 @@ router.post('/:id/deprecate', async (req: Request, res: Response) => {
  */
 router.post('/:id/restore', async (req: Request, res: Response) => {
   try {
-    const skill = await prisma.skill.findUnique({ where: { id: req.params.id } });
+    const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
     if (skill.status !== 'deprecated') {
       return res.status(400).json({ error: `Cannot restore skill with status '${skill.status}'` });
     }
 
-    const updated = await prisma.skill.update({
-      where: { id: req.params.id },
-      data: { status: 'draft', version: { increment: 1 } },
+    const updated = skillStore.update(req.params.id, {
+      status: 'draft',
+      version: { increment: 1 },
     });
-
     res.json({ data: updated });
   } catch (error) {
     logger.error({ error }, 'Failed to restore skill');
@@ -218,7 +219,7 @@ router.post('/:id/restore', async (req: Request, res: Response) => {
 router.post('/:id/usage', async (req: Request, res: Response) => {
   try {
     const { success, durationMs } = req.body;
-    const skill = await prisma.skill.findUnique({ where: { id: req.params.id } });
+    const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
 
     const newCount = skill.usageCount + 1;
@@ -229,13 +230,10 @@ router.post('/:id/usage', async (req: Request, res: Response) => {
       ? ((skill.avgDuration * skill.usageCount) + durationMs) / newCount
       : skill.avgDuration;
 
-    const updated = await prisma.skill.update({
-      where: { id: req.params.id },
-      data: {
-        usageCount: newCount,
-        successRate: Math.round(newSuccessRate * 100) / 100,
-        avgDuration: Math.round(newAvgDuration),
-      },
+    const updated = skillStore.update(req.params.id, {
+      usageCount: newCount,
+      successRate: Math.round(newSuccessRate * 100) / 100,
+      avgDuration: Math.round(newAvgDuration),
     });
 
     res.json({ data: updated });
@@ -247,17 +245,14 @@ router.post('/:id/usage', async (req: Request, res: Response) => {
 
 /**
  * GET /api/v1/skills/stats
- * 技能统计（从 DB 聚合，替代 runtime proxy）
+ * 技能统计（从 SkillStore 聚合）
  */
 router.get('/stats', async (req: Request, res: Response) => {
   try {
     const companyId = req.query.company_id as string | undefined;
-    const where = companyId ? { companyId } : {};
+    const filter = companyId ? { companyId } : {};
 
-    const skills = await prisma.skill.findMany({
-      where,
-      select: { id: true, name: true, status: true, usageCount: true, successRate: true, avgDuration: true, category: true },
-    });
+    const skills = skillStore.list(filter);
 
     const totalSkills = skills.length;
     const publishedSkills = skills.filter(s => s.status === 'published').length;

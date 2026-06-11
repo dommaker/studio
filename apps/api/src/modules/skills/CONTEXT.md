@@ -2,8 +2,10 @@
 
 > 此文件描述 apps/api/src/modules/skills 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-06-11 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/skills/skill-loader.ts
+
+<!-- STALE_SINCE: 2026-06-11 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/skills/CONTEXT.md
 
 ## 职责
 
@@ -24,4 +26,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `309f6061`: review pipeline — diff scope + discoveredIssues exposure
 - ✅ `adb7a9c2`: skill-loader trigger normalization + SKILL.md generation

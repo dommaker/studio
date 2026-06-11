@@ -17,7 +17,7 @@
 
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { KnowledgeStore } from '@dommaker/harness';
-import type { KnowledgeType, DecisionRecord } from '@dommaker/harness';
+import type { KnowledgeSubsystem, DecisionRecord } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { exec } from 'child_process';
@@ -33,7 +33,7 @@ const MODEL_CACHE_DIR = path.join(os.homedir(), '.cache', 'huggingface', 'hub');
 const MODEL_NAME = path.join(MODEL_CACHE_DIR, 'models--onnx-community--bge-small-zh-v1.5-ONNX', 'snapshots', 'main');
 
 // BusEntry type → KnowledgeType 保真映射 (KE-002 P1)
-const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeType> = {
+const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeSubsystem> = {
   pattern: 'guideline',
   failure: 'pitfall',
   incident: 'pitfall',

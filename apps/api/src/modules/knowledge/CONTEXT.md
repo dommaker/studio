@@ -7,8 +7,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: evolution-scheduler.ts
 
-<!-- STALE_SINCE: 2026-06-11 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-service.ts
+
+<!-- STALE_SINCE: 2026-06-11 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/CONTEXT.md
 
 ## 职责
 
@@ -77,6 +79,7 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
 - ✅ `36a91ee2`: O2-KR1 注入命中率接线 — consumption 事件 + metric query
 - ✅ `556051f2`: B34 behavior distillation output path + PatternMiner startup + agent-runner --verbose
 - ✅ `79f4a186`: knowledge quality gate + CPU monitoring + type fix

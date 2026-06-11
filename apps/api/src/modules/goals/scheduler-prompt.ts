@@ -10,6 +10,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { parseJsonField } from './goal.service.js';
+import { skillStore } from '../skills/skill-store.js';
 
 // ─── Skill Template Loading ───
 
@@ -288,11 +289,10 @@ export async function getCompanyKnowledge(goalId: string, input: Record<string, 
     const companyId = goal?.companyId || ((goal?.context as any)?.companyId as string);
     if (!companyId) return '';
 
-    const skills = await prisma.skill.findMany({
-      where: { companyId, status: 'published' },
-      select: { name: true, description: true, category: true, metadata: true },
-      take: 5, orderBy: { usageCount: 'desc' },
-    });
+    const skills = skillStore.list(
+      { companyId, status: 'published' },
+      { take: 5, orderBy: { field: 'usageCount', dir: 'desc' } },
+    );
     if (!skills.length) return '';
 
     const acText = (input?.acGroup?.acs || []).join(' ').toLowerCase();

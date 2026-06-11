@@ -128,7 +128,6 @@ model Company {
   Documents    Document[]
   projects     Project[]
   Goal         Goal[]
-  Skill        Skill[]
 }
 
 model OKR {
@@ -377,7 +376,6 @@ model Role {
   ClaimedTasks       Task[]
   CreatedDocuments   Document[]           @relation("DocumentCreator")
   Creator            User?                @relation("CreatedRoles", fields: [creatorId], references: [id])
-  Skills             Skill[]
   MemoryEntries      RoleMemoryEntry[]
 
   @@index([companyId])
@@ -717,59 +715,6 @@ model Task {
   @@index([projectId, status])
 }
 
-model Skill {
-  id           String   @id @default(cuid())
-  companyId    String
-  roleId       String?
-  name         String
-  source       String   @default("extraction") // extraction, manual, proposal
-  status       String   @default("draft") // draft, testing, published, under_review, deprecated
-  version      Int      @default(1)
-  category     String?
-  description  String?
-  prompt       String?   // 注入 Agent 的 prompt 内容
-  trigger      String?   // goal_start | goal_continue | review | ...
-  agentTypes   String?   // JSON array: ["executor", "reviewer"]
-  tier         String?   // fast | standard | premium
-  tools        String?   // JSON array: ["tool-name-1", "tool-name-2"]
-  required     String?   // JSON array: ["skill-id-1"] — 依赖的其他 skill
-  autoLoad     Boolean   @default(false) // 条件匹配时自动加载
-  isBuiltin    Boolean   @default(false)
-  usageCount   Int      @default(0)
-  successRate  Float    @default(0)
-  avgDuration  Float    @default(0)
-  metadata     String?
-  extractedAt  DateTime @default(now())
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  company      Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  role         Role?    @relation(fields: [roleId], references: [id], onDelete: SetNull)
-  proposals    SkillProposal[]
-
-  @@unique([companyId, name])
-  @@index([companyId])
-  @@index([roleId])
-  @@index([category])
-  @@index([status])
-}
-
-model SkillProposal {
-  id         String   @id @default(cuid())
-  skillId    String
-  status     String   @default("pending") // pending, approved, rejected
-  proposedBy String
-  summary    String?
-  proposedAt DateTime @default(now())
-  reviewedAt DateTime?
-
-  skill      Skill    @relation(fields: [skillId], references: [id], onDelete: Cascade)
-
-  @@index([skillId])
-  @@index([status])
-  @@index([proposedBy])
-}
-
 model Environment {
   id               String   @id @default(cuid())
   name             String   @unique
@@ -1047,26 +992,6 @@ model Incident {
 
   @@index([status])
   @@index([detectedAt])
-}
-
-model KnowledgeEntry {
-  id        String   @id @default(cuid())
-  type      String   // skill | pitfall | pattern | decision
-  level     String   @default("skill") // agent_knowledge | skill | tool
-  content   String   // 可复用的判断规则
-  triggerCondition String? // 什么时候加载此知识
-  sourceGoalId String
-  projectId String?
-  status    String   @default("active") // active | deprecated | under_review
-  promotedAt  DateTime?
-  downgradedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([type, status])
-  @@index([sourceGoalId])
-  @@index([level])
-  @@index([projectId])
 }
 
 // ── 知识库五大缺口 (G-001~005, 2026-05-19) ──

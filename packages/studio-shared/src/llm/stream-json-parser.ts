@@ -74,6 +74,21 @@ export function extractFilePath(toolName: string, input: unknown): string | null
 }
 
 /**
+ * Parse a single stream-json line into a StreamEvent.
+ * Returns null for non-JSON or empty lines.
+ * Used by streaming consumers that process lines as they arrive.
+ */
+export function parseStreamLine(line: string): StreamEvent | null {
+  const trimmed = line.trim();
+  if (!trimmed || !trimmed.startsWith('{')) return null;
+  try {
+    return JSON.parse(trimmed) as StreamEvent;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Extract the final text result from stream events.
  */
 export function extractResult(events: StreamEvent[]): { text: string; isError: boolean } {

@@ -13,6 +13,7 @@ import { skillExtractionService } from './skill-extraction.service.js';
 import { logger } from '@dommaker/studio-shared';
 import { prisma } from '../../core/database.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
+import { skillStore } from '../skills/skill-store.js';
 
 const router = Router();
 
@@ -130,7 +131,7 @@ router.post('/:id/reject', async (req: Request, res: Response) => {
 router.post('/:id/retract', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const skill = await prisma.skill.findUnique({ where: { id } });
+    const skill = skillStore.get(id);
     if (!skill) {
       return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Skill not found' } });
     }
@@ -139,10 +140,7 @@ router.post('/:id/retract', async (req: Request, res: Response) => {
     }
 
     // Mark as under_review
-    await prisma.skill.update({
-      where: { id },
-      data: { status: 'under_review' },
-    });
+    skillStore.update(id, { status: 'under_review' });
 
     // Push confirmation card to #系统
     const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });

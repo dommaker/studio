@@ -4,8 +4,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/tools-std/skill-extraction.service.ts, apps/api/src/modules/tools-std/skill-proposal-routes.ts
 
-<!-- STALE_SINCE: 2026-06-11 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/tools-std/skill-extraction.service.ts
+
+<!-- STALE_SINCE: 2026-06-11 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/tools-std/CONTEXT.md
 
 ## 职责
 
@@ -26,5 +28,6 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `309f6061`: review pipeline — diff scope + discoveredIssues exposure
 - ✅ `adb7a9c2`: skill-loader trigger normalization + SKILL.md generation
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

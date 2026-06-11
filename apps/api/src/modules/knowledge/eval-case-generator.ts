@@ -1,13 +1,14 @@
 /**
  * EvalCaseGenerator — Better-Harness hill-climbing 吸收
  *
- * 从生产失败中自动生成 eval case，打标签，存入 KnowledgeEntry。
+ * 从生产失败中自动生成 eval case，打标签，存入 EvalCaseStore。
  * 飞轮：失败 → eval case → harness 改进 → 回归验证 → 标记饱和。
  */
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
+import { listEvalCases, createEvalCase, updateEvalCase } from './eval-case-store.js';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
 
@@ -89,10 +90,7 @@ export class EvalCaseGenerator {
     let created = 0;
 
     // 获取已有 eval cases 用于去重
-    const existing = await prisma.knowledgeEntry.findMany({
-      where: { type: 'eval_case' },
-      select: { sourceGoalId: true, content: true },
-    });
+    const existing = listEvalCases().map(e => ({ sourceGoalId: e.sourceGoalId, content: e.content }));
 
     for (const f of failures) {
       if (!f.error) continue;
@@ -118,15 +116,11 @@ export class EvalCaseGenerator {
       const triggerCondition = this.buildTriggerCondition(f, tag);
 
       try {
-        await prisma.knowledgeEntry.create({
-          data: {
-            type: 'eval_case',
-            level: 'agent_knowledge',
-            content,
-            triggerCondition,
-            sourceGoalId: f.goalId,
-            status: 'active',
-          },
+        createEvalCase({
+          content,
+          triggerCondition,
+          sourceGoalId: f.goalId,
+          status: 'active',
         });
 
         existing.push({ sourceGoalId: f.goalId, content });
@@ -152,19 +146,14 @@ export class EvalCaseGenerator {
    * Spring cleaning: 标记饱和 eval cases
    */
   async markSaturatedEvals(passThreshold = 10): Promise<number> {
-    const evalCases = await prisma.knowledgeEntry.findMany({
-      where: { type: 'eval_case', status: 'active' },
-    });
+    const evalCases = listEvalCases({ status: 'active' });
 
     let marked = 0;
     for (const ec of evalCases) {
       // 通过连续通过次数判断（这里简化：createdAt 超过 30 天且仍在 active）
-      const age = Date.now() - ec.createdAt.getTime();
+      const age = Date.now() - new Date(ec.createdAt).getTime();
       if (age > 30 * 24 * 60 * 60 * 1000) {
-        await prisma.knowledgeEntry.update({
-          where: { id: ec.id },
-          data: { status: 'deprecated' },
-        });
+        updateEvalCase(ec.id, { status: 'deprecated' });
         marked++;
       }
     }
@@ -180,20 +169,15 @@ export class EvalCaseGenerator {
    * 获取活跃 eval cases（供 harness 加载）
    */
   async getActiveEvals(): Promise<Record<string, any>[]> {
-    return prisma.knowledgeEntry.findMany({
-      where: { type: 'eval_case', status: 'active' },
-      orderBy: { createdAt: 'desc' },
-    });
+    return listEvalCases({ status: 'active' })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
 
   /**
    * 按标签分组统计
    */
   async getEvalStats(): Promise<Record<string, number>> {
-    const cases = await prisma.knowledgeEntry.findMany({
-      where: { type: 'eval_case' },
-      select: { content: true, status: true },
-    });
+    const cases = listEvalCases();
 
     const stats: Record<string, { active: number; deprecated: number }> = {};
     for (const c of cases) {

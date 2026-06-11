@@ -70,7 +70,6 @@ function frontmatterToSkillDefinition(meta: SkillFrontmatter, prompt: string): S
 
 export class SkillLoader {
   private skills: Map<string, SkillDefinition>;
-  private prisma: any = null;
   private cache: SkillDefinition[] = [];
   private cacheTime = 0;
   private refreshing = false;
@@ -84,11 +83,10 @@ export class SkillLoader {
   }
 
   /**
-   * Initialize with Prisma instance for DB-backed loading.
-   * Call once at startup.
+   * Initialize — no-op, kept for backward compatibility.
+   * Skills are loaded from disk only.
    */
-  init(prisma: any): void {
-    this.prisma = prisma;
+  init(_prisma?: any): void {
     this.cacheTime = 0; // trigger refresh on next load()
     this.refreshCache(); // eager first load
   }
@@ -221,57 +219,25 @@ export class SkillLoader {
   }
 
   /**
-   * Refresh cache: merge disk > DB.
-   * Disk loading is synchronous; DB loading is async (fire-and-forget).
+   * Refresh cache: load from disk, merge with existing cache.
+   * Disk loading is synchronous.
    */
   private refreshCache(): void {
     if (this.refreshing) return;
     this.refreshing = true;
 
-    // Step 1: Load disk skills (synchronous)
+    // Load disk skills (synchronous)
     const diskSkills = this.loadAllFromDisk();
 
-    // Step 2: Merge — start with existing cache (preserves constructor customSkills), then overlay
+    // Merge — start with existing cache (preserves constructor customSkills), then overlay disk
     const merged = new Map<string, SkillDefinition>();
     for (const s of this.cache) merged.set(s.id, s);
+    for (const s of diskSkills) merged.set(s.id, s);
 
-    const applyDisk = (dbRows: SkillDefinition[]) => {
-      // DB overrides hardcoded
-      for (const s of dbRows) merged.set(s.id, s);
-      // Disk overrides DB
-      for (const s of diskSkills) merged.set(s.id, s);
-
-      this.cache = [...merged.values()];
-      this.skills = merged;
-      this.cacheTime = Date.now();
-    };
-
-    // Step 3: Query DB if prisma available
-    if (this.prisma) {
-      this.prisma.skill.findMany({ where: { status: 'published' } })
-        .then((rows: any[]) => {
-          const dbSkills: SkillDefinition[] = rows.map(r => ({
-            id: r.name,
-            name: r.name,
-            description: r.description || '',
-            trigger: (r.trigger || 'always') as SkillTrigger,
-            agentTypes: r.agentTypes ? JSON.parse(r.agentTypes) : [],
-            tier: (r.tier || 'standard') as SkillTier,
-            tools: r.tools ? JSON.parse(r.tools) : undefined,
-            prompt: r.prompt || '',
-          }));
-          applyDisk(dbSkills);
-        })
-        .catch(() => {
-          // DB failed — merge disk with hardcoded only
-          applyDisk([]);
-        })
-        .finally(() => { this.refreshing = false; });
-    } else {
-      // No prisma — merge disk with hardcoded
-      applyDisk([]);
-      this.refreshing = false;
-    }
+    this.cache = [...merged.values()];
+    this.skills = merged;
+    this.cacheTime = Date.now();
+    this.refreshing = false;
   }
 }
 

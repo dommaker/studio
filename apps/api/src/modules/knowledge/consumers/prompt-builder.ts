@@ -5,6 +5,7 @@
  * - context: full content injection (preferences/environment)
  * - signal: index injection (informational, agent searches on demand)
  * - reference: not injected, hint only
+ * - skill: evolved Skill prompts (AC-8d)
  *
  * Also handles:
  * - Knowledge stats summary (how many entries available)
@@ -12,6 +13,7 @@
  */
 import { UnifiedQuery, type IndexEntry } from '../engine/unified-query.js';
 import { sharedStore, sharedLifecycle } from '../knowledge-bus.service.js';
+import { skillLoader } from '@dommaker/studio-skill';
 
 interface BuildOptions {
   /** 'compact' = rules + context (default), 'full' = all knowledge types */
@@ -84,6 +86,37 @@ function buildStatsSummary(): string {
 }
 
 /**
+ * AC-8d: Build Skill prompts for injection.
+ * Loads evolved skills and formats them for prompt injection.
+ * Independent token budget: max 500 tokens per skill, 2000 total.
+ */
+function buildSkillPrompts(agentType: string): string {
+  const skills = skillLoader.load({ trigger: 'always', agentType });
+  if (!skills.length) return '';
+
+  const MAX_TOKENS_PER_SKILL = 500;
+  const MAX_TOTAL_TOKENS = 2000;
+  let totalTokens = 0;
+
+  const lines = ['## 已激活 Skills'];
+  for (const skill of skills) {
+    const prompt = skill.prompt || skill.description || '';
+    // Rough token estimate: 1 token ≈ 4 chars for mixed CJK/English
+    const estimatedTokens = Math.ceil(prompt.length / 4);
+    if (totalTokens + estimatedTokens > MAX_TOTAL_TOKENS) break;
+
+    const truncated = estimatedTokens > MAX_TOKENS_PER_SKILL
+      ? prompt.slice(0, MAX_TOKENS_PER_SKILL * 4) + '...'
+      : prompt;
+
+    lines.push(`### ${skill.name}\n${truncated}`);
+    totalTokens += Math.min(estimatedTokens, MAX_TOKENS_PER_SKILL);
+  }
+
+  return lines.length > 1 ? lines.join('\n') : '';
+}
+
+/**
  * Build knowledge context for an agent's prompt.
  */
 export async function buildKnowledgeContext(
@@ -129,13 +162,19 @@ export async function buildKnowledgeContext(
     sections.push(`[知识库: ${refCount} 条参考，遇到问题时用 search()]`);
   }
 
-  // 5. knowledge stats summary
+  // 5. AC-8d: Skill prompts — evolved skills from knowledge pipeline
+  try {
+    const skillSection = buildSkillPrompts(agentType);
+    if (skillSection) sections.push(skillSection);
+  } catch { /* non-blocking */ }
+
+  // 6. knowledge stats summary
   const stats = buildStatsSummary();
   if (stats) {
     sections.push(stats);
   }
 
-  // 6. recordReference — close maturity loop
+  // 7. recordReference — close maturity loop
   if (injectedIds.length > 0) {
     recordReferences(injectedIds);
   }

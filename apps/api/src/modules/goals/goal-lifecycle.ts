@@ -5,6 +5,8 @@
  */
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { skillStore } from '../skills/skill-store.js';
+import { proposalStore } from '../skills/proposal-store.js';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
 import { checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { triageAgent } from '../agents/triage-agent.service.js';
@@ -775,16 +777,15 @@ async function createGoalDocument(goalId: string): Promise<void> {
  */
 async function trackSkillOutcomes(goalId: string, goalStatus: string): Promise<void> {
   try {
-    const proposals = await prisma.skillProposal.findMany({
-      where: {
-        status: { in: ['approved', 'pending'] },
-      },
-      include: { skill: true },
+    const proposals = proposalStore.list({
+      status: { in: ['approved', 'pending'] },
     });
 
     const related = proposals.filter(p => {
       try {
-        const meta = p.skill?.metadata as any;
+        const skill = skillStore.get(p.skillId);
+        if (!skill) return false;
+        const meta = skill.metadata ? JSON.parse(skill.metadata) : {};
         const goalIds: string[] = meta?.sourceGoalIds || [];
         return goalIds.includes(goalId);
       } catch { return false; }
@@ -794,29 +795,14 @@ async function trackSkillOutcomes(goalId: string, goalStatus: string): Promise<v
 
     const outcome = goalStatus === 'succeeded' ? 'passed' : 'failed';
     for (const p of related) {
-      await prisma.skillProposal.update({
-        where: { id: p.id },
-        data: {
-          metadata: {
-            ...((p.skill?.metadata as any) || {}),
-            lastReviewOutcome: outcome,
-            lastReviewGoalId: goalId,
-            lastReviewAt: new Date().toISOString(),
-          },
-        } as any,
-      });
+      const skill = skillStore.get(p.skillId);
+      if (!skill) continue;
 
-      if (p.skill) {
-        const currentMeta = (p.skill.metadata as any) || {};
-        const reviewHistory = [...(currentMeta.reviewOutcomes || []), { goalId, outcome, at: new Date().toISOString() }];
-        await prisma.skill.update({
-          where: { id: p.skill.id },
-          data: {
-            metadata: { ...currentMeta, reviewOutcomes: reviewHistory.slice(-20) },
-            status: currentMeta.status || p.skill.status,
-          } as any,
-        });
-      }
+      const currentMeta = skill.metadata ? JSON.parse(skill.metadata) : {};
+      const reviewHistory = [...(currentMeta.reviewOutcomes || []), { goalId, outcome, at: new Date().toISOString() }];
+      skillStore.update(p.skillId, {
+        metadata: JSON.stringify({ ...currentMeta, reviewOutcomes: reviewHistory.slice(-20) }),
+      });
     }
 
     logger.info(`[SkillOutcome] Tracked ${related.length} skills for goal ${goalId} (${outcome})`);

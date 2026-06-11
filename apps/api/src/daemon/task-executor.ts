@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger, getModelForTier, type ModelTier } from '@dommaker/studio-shared';
+import { logger, getModelForTier, type ModelTier, parseStreamLine as parseStreamLineShared, extractFilePath, type StreamEvent } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
 import { buildSpawnArgs, type AgentCliParams } from './cli-adapter.js';
 import type { ProviderName } from './cli-scanner.js';
@@ -233,6 +233,7 @@ export class TaskExecutor {
   /**
    * Fire-and-forget: write tool:call + optional file:change StudioEvent.
    * Uses .catch() — never awaits, never blocks stdout processing.
+   * Uses shared extractFilePath from @dommaker/studio-shared for file path detection.
    */
   private emitToolEvent(task: ClaimedTask, parsed: OutputEvent): void {
     const sessionId = task.sessionId ?? task.id;
@@ -250,13 +251,14 @@ export class TaskExecutor {
       logger.warn('[TaskExecutor] tool:call event write failed', { taskId: task.id, error: String(err) });
     });
 
-    const filePathTools = ['Write', 'Edit', 'NotebookEdit'];
-    if (filePathTools.includes(tool) && input.file_path) {
+    // Use shared extractFilePath (replaces hardcoded tool name list)
+    const filePath = extractFilePath(tool, input);
+    if (filePath) {
       prisma.studioEvent.create({
         data: {
           type: 'file:change',
           source: 'executor',
-          payload: JSON.stringify({ tool, path: input.file_path, sessionId }),
+          payload: JSON.stringify({ path: filePath, sessionId }),
           timestamp: new Date(),
         },
       }).catch((err: unknown) => {
@@ -267,35 +269,32 @@ export class TaskExecutor {
 
   /**
    * Parse a single stream-json line into an OutputEvent.
+   * Uses shared parseStreamLine from @dommaker/studio-shared for JSON parsing,
+   * then converts to the OutputEvent format expected by the server.
    */
   private parseStreamLine(line: string, seq: number): OutputEvent | null {
-    try {
-      const data = JSON.parse(line);
+    const event = parseStreamLineShared(line);
+    if (!event) {
+      // Non-JSON line — treat as text
+      const trimmed = line.trim();
+      return trimmed ? { seq, type: 'text', content: trimmed } : null;
+    }
 
-      // Claude Code format: { type: "assistant", content: [...] }
-      if (data.type === 'assistant' && Array.isArray(data.content)) {
-        for (const block of data.content) {
-          if (block.type === 'text' && block.text) {
-            return { seq, type: 'text', content: block.text };
-          }
-          if (block.type === 'tool_use') {
-            return { seq, type: 'tool_use', tool: block.name, input: block.input };
-          }
+    // Claude Code format: { type: "assistant", content: [...] }
+    if (event.type === 'assistant' && Array.isArray(event.content)) {
+      for (const block of event.content) {
+        if (block.type === 'text' && block.text) {
+          return { seq, type: 'text', content: block.text };
+        }
+        if (block.type === 'tool_use' && block.name) {
+          return { seq, type: 'tool_use', tool: block.name, input: block.input };
         }
       }
+    }
 
-      // Result format: { type: "result", result: "..." }
-      if (data.type === 'result' && data.result) {
-        return { seq, type: 'result', content: String(data.result) };
-      }
-
-      // Generic: pass through as text if it has content
-      if (data.content || data.text) {
-        return { seq, type: 'text', content: data.content || data.text };
-      }
-    } catch {
-      // Non-JSON line — treat as text
-      return { seq, type: 'text', content: line };
+    // Result format: { type: "result", result: "..." }
+    if (event.type === 'result' && event.result) {
+      return { seq, type: 'result', content: String(event.result) };
     }
 
     return null;

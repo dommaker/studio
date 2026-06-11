@@ -224,6 +224,17 @@ export class SessionManager {
         sessionId: state.sessionId,
       });
 
+      // Emit session:start event for session-summary correlation
+      try {
+        await prisma.studioEvent.create({
+          data: {
+            type: 'session:start',
+            source: `daemon-${sessionName}`,
+            payload: JSON.stringify({ sessionId: state.sessionId, agentId: `daemon-${sessionName}`, sessionCount: state.taskCount + 1 }),
+          },
+        });
+      } catch { /* non-blocking */ }
+
       let stdout: string;
       try {
         // 按 session 类型选 API key：analyst → STUDIO_*，executor/reviewer → PIPELINE_*
@@ -256,6 +267,17 @@ export class SessionManager {
           stdoutPreview: stdout_fail.slice(0, 200),
           stderrPreview: stderr.slice(0, 200),
         });
+
+        // Emit session:end on failure path for session-summary correlation
+        try {
+          await prisma.studioEvent.create({
+            data: {
+              type: 'session:end',
+              source: `daemon-${sessionName}`,
+              payload: JSON.stringify({ sessionId: state.sessionId, agentId: `daemon-${sessionName}`, sessionCount: state.taskCount + 1 }),
+            },
+          });
+        } catch { /* non-blocking */ }
 
         // P0.3 fix: 第一次任务失败后删除 session-id 文件，避免下次重启时
         // 误用 --continue 续接已损坏的 session
@@ -300,7 +322,7 @@ export class SessionManager {
               type: 'tool:call',
               source: `daemon-${sessionName}`,
               executionId: state.sessionId,
-              payload: JSON.stringify({ tool: tool.name, input: tool.input }),
+              payload: JSON.stringify({ tool: tool.name, input: tool.input, sessionId: state.sessionId }),
             },
           });
           const filePath = extractFilePath(tool.name, tool.input);
@@ -310,7 +332,7 @@ export class SessionManager {
                 type: 'file:change',
                 source: `daemon-${sessionName}`,
                 executionId: state.sessionId,
-                payload: JSON.stringify({ path: filePath, action: 'write' }),
+                payload: JSON.stringify({ path: filePath, action: 'write', sessionId: state.sessionId }),
               },
             });
           }
@@ -319,6 +341,18 @@ export class SessionManager {
 
       if (isError) {
         logger.warn('[SessionManager] Claude Code returned error', { session: sessionName, text: text.slice(0, 200) });
+
+        // Emit session:end on LLM error path for session-summary correlation
+        try {
+          await prisma.studioEvent.create({
+            data: {
+              type: 'session:end',
+              source: `daemon-${sessionName}`,
+              payload: JSON.stringify({ sessionId: state.sessionId, agentId: `daemon-${sessionName}`, sessionCount: state.taskCount }),
+            },
+          });
+        } catch { /* non-blocking */ }
+
         recordPipelineRun({
           source: 'pipeline', phase: sessionName === 'analyst' ? 'analyst' : 'executor',
           taskName: `daemon-${sessionName}-${state.taskCount}`, model,
@@ -413,6 +447,23 @@ export class SessionManager {
         outputFile: job.outputFile,
         outputSize: output?.length,
       }));
+
+      // Emit session:end event for session-summary correlation
+      try {
+        await prisma.studioEvent.create({
+          data: {
+            type: 'session:end',
+            source: `daemon-${sessionName}`,
+            payload: JSON.stringify({ sessionId: state.sessionId, agentId: `daemon-${sessionName}`, sessionCount: state.taskCount }),
+          },
+        });
+      } catch { /* non-blocking */ }
+
+      // Trigger session:summary generation (fire-and-forget)
+      const { generateSessionSummary } = await import('../modules/events/session-summary-generator.js');
+      generateSessionSummary(state.sessionId).catch((err: unknown) => {
+        logger.warn('[SessionManager] SessionSummary generation failed', { sessionId: state.sessionId, error: String(err) });
+      });
 
       return {
         success: true,

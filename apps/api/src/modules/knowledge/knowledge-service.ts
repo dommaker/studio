@@ -24,15 +24,18 @@ import type {
   KnowledgeLinter,
   QueryFilter,
   MaturityLevel,
-  KnowledgeType,
+  KnowledgeSubsystem,
 } from '@dommaker/harness';
 import { logger } from '@dommaker/studio-shared';
 import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-bus.service.js';
+import { execFile } from 'child_process';
+import { readFile } from 'fs/promises';
+import { join, basename } from 'path';
 
 // ── Type mapping (absorbed from KnowledgeBus) ──
 
-const ENTRY_TYPE_MAP: Record<string, KnowledgeType> = {
+const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
   pattern: 'guideline',
   failure: 'pitfall',
   incident: 'pitfall',
@@ -141,6 +144,16 @@ export interface SearchOpts {
   limit?: number;
   tags?: string[];
   type?: string;
+  mode?: 'keyword' | 'semantic' | 'hybrid';
+}
+
+export interface SemanticSearchResult {
+  entryId: string;
+  filePath: string;
+  chunkIndex: number;
+  text: string;
+  score: number;
+  fileTitle: string;
 }
 
 export interface SearchResult {
@@ -294,6 +307,7 @@ export class KnowledgeService {
           consumptionMode: 'signal',
         },
       );
+      scheduleVectorDbSync();
     } catch {
       // best-effort — don't block producers
     }
@@ -316,6 +330,7 @@ export class KnowledgeService {
           consumptionMode: 'signal',
         },
       );
+      scheduleVectorDbSync();
     } catch {
       // best-effort
     }
@@ -325,7 +340,7 @@ export class KnowledgeService {
     try {
       this.ingest.ingestEntry(
         {
-          type: 'process' as KnowledgeType,
+          type: 'process' as KnowledgeSubsystem,
           title: entry.title,
           content: entry.content,
           tags: ['trend'],
@@ -338,6 +353,7 @@ export class KnowledgeService {
           consumptionMode: 'signal',
         },
       );
+      scheduleVectorDbSync();
     } catch {
       // best-effort
     }
@@ -428,7 +444,98 @@ export class KnowledgeService {
     return sections.join('\n\n');
   }
 
+  /**
+   * Semantic search via mcp-local-rag CLI.
+   * Calls `mcp-local-rag query <text>` and parses JSON output.
+   * Maps filePath back to knowledge entry ID via YAML frontmatter.
+   */
+  async semanticSearch(query: string, opts?: { limit?: number }): Promise<SemanticSearchResult[]> {
+    try {
+      const limit = opts?.limit || 5;
+      const raw = await this.execMcpQuery(query);
+      const results: SemanticSearchResult[] = JSON.parse(raw);
+
+      // Map filePath → entry ID
+      const mapped: SemanticSearchResult[] = [];
+      for (const r of results.slice(0, limit)) {
+        const entryId = await this.resolveEntryId(r.filePath);
+        mapped.push({ ...r, entryId });
+      }
+
+      // Record references for matched entries
+      for (const r of mapped) {
+        if (r.entryId) {
+          try { this.lifecycle.recordReference(r.entryId, 'semantic-search'); } catch { /* non-blocking */ }
+        }
+      }
+
+      return mapped;
+    } catch (e) {
+      logger.warn('[KnowledgeService] semanticSearch failed', { error: String(e) });
+      return [];
+    }
+  }
+
+  /**
+   * Execute mcp-local-rag query CLI and return stdout JSON.
+   */
+  private execMcpQuery(query: string): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const args = [
+        '--db-path', join(process.env.HOME || '/root', '.cache', 'mcp-local-rag', 'lancedb'),
+        '--cache-dir', join(process.env.HOME || '/root', '.cache', 'huggingface', 'hub'),
+        '--model-name', join(process.env.HOME || '/root', '.cache', 'huggingface', 'hub', 'models--onnx-community--bge-small-zh-v1.5-ONNX', 'snapshots', 'main'),
+        'query', query,
+      ];
+      execFile('mcp-local-rag', args, { timeout: 30_000 }, (err, stdout, stderr) => {
+        if (err) {
+          // mcp-local-rag logs to stderr, stdout has JSON result even on partial error
+          if (stdout && stdout.trim().startsWith('[')) {
+            resolve(stdout);
+          } else {
+            reject(err);
+          }
+        } else {
+          resolve(stdout);
+        }
+      });
+    });
+  }
+
+  /**
+   * Resolve knowledge entry ID from a filePath.
+   * Reads YAML frontmatter `id:` field; falls back to filename parsing.
+   */
+  private async resolveEntryId(filePath: string): Promise<string> {
+    try {
+      const content = await readFile(filePath, 'utf-8');
+      const match = content.match(/^---[\s\S]*?^id:\s*(.+)$/m);
+      if (match) return match[1].trim();
+    } catch { /* file not readable */ }
+
+    // Fallback: parse filename pattern "{type}-{id}.md"
+    const name = basename(filePath, '.md');
+    const dashIdx = name.indexOf('-');
+    return dashIdx > 0 ? name.slice(dashIdx + 1) : name;
+  }
+
   async search(query: string, opts?: SearchOpts): Promise<SearchResult[]> {
+    const mode = opts?.mode || 'keyword';
+    const limit = opts?.limit || 5;
+
+    if (mode === 'semantic') {
+      return this.searchSemantic(query, limit);
+    }
+    if (mode === 'hybrid') {
+      return this.searchHybrid(query, limit);
+    }
+    return this.searchKeyword(query, opts);
+  }
+
+  /**
+   * Keyword search (original behavior).
+   */
+  private searchKeyword(query: string, opts?: SearchOpts): SearchResult[] {
     try {
       const limit = opts?.limit || 5;
       const all = this.store.list({});
@@ -489,6 +596,51 @@ export class KnowledgeService {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Semantic-only search via mcp-local-rag.
+   */
+  private async searchSemantic(query: string, limit: number): Promise<SearchResult[]> {
+    const semanticResults = await this.semanticSearch(query, { limit });
+    const results: SearchResult[] = [];
+    for (const sr of semanticResults) {
+      if (!sr.entryId) continue;
+      const entry = this.store.get(sr.entryId);
+      if (!entry) continue;
+      results.push({
+        entry,
+        score: sr.score,
+        highlights: [sr.text.slice(0, 200)],
+      });
+    }
+    return results;
+  }
+
+  /**
+   * Hybrid search: keyword + semantic, merged and deduplicated.
+   * Keyword results take priority; semantic supplements.
+   */
+  private async searchHybrid(query: string, limit: number): Promise<SearchResult[]> {
+    const keywordResults = this.searchKeyword(query, { limit });
+    const seenIds = new Set(keywordResults.map(r => r.entry.id));
+
+    const semanticResults = await this.semanticSearch(query, { limit });
+    for (const sr of semanticResults) {
+      if (!sr.entryId || seenIds.has(sr.entryId)) continue;
+      seenIds.add(sr.entryId);
+      const entry = this.store.get(sr.entryId);
+      if (!entry) continue;
+      keywordResults.push({
+        entry,
+        score: sr.score,
+        highlights: [sr.text.slice(0, 200)],
+      });
+    }
+
+    return keywordResults
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
   }
 
   async matchResolutions(problem: string): Promise<MatchResolutionResult> {
@@ -618,6 +770,28 @@ export class KnowledgeService {
 
   async recordFeedback(_entryId: string, _useful: boolean, _reason?: string): Promise<void> {
     // Phase 5: human feedback
+  }
+
+  /**
+   * AC-8c: Record Skill execution outcome back to source KnowledgeEntry.
+   * Finds the KnowledgeEntry that produced the Skill, records execution result.
+   * If successRate drops below 50%, revokes skillCandidate tag.
+   */
+  async recordSkillExecution(skillId: string, success: boolean, agentType: string): Promise<void> {
+    try {
+      // Find KnowledgeEntry by skillId
+      const entries = this.store.list({});
+      const sourceEntry = entries.find(e => e.skillId === skillId);
+      if (!sourceEntry) return;
+
+      // Record reference with execution result
+      this.lifecycle.recordReference(sourceEntry.id, `skill:${agentType}`, success, 'auto');
+
+      // Check if skillCandidate tag should be revoked
+      if (this.lifecycle.checkSkillCandidateRevocation) {
+        this.lifecycle.checkSkillCandidateRevocation(sourceEntry.id);
+      }
+    } catch { /* non-blocking */ }
   }
 
   /**

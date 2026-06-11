@@ -1,0 +1,100 @@
+name: Doc Freshness Check
+
+on:
+  push:
+    branches: [master, main]
+
+jobs:
+  doc-freshness:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install pnpm
+        run: npm install -g pnpm@latest
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Install harness CLI
+        run: npm install -g @dommaker/harness 2>/dev/null || npx harness --version
+
+      - name: Get changed files
+        id: changed
+        run: |
+          CHANGED=$(git diff --name-only HEAD~1 HEAD | tr '\n' ',')
+          CHANGED="${CHANGED%,}"
+          echo "files=$CHANGED" >> "$GITHUB_OUTPUT"
+
+      - name: Run doc-freshness check
+        id: freshness
+        if: steps.changed.outputs.files != ''
+        run: |
+          REPORT=$(bash scripts/ci-doc-freshness-check.sh \
+            --changed-files "${{ steps.changed.outputs.files }}" \
+            --project-path "$GITHUB_WORKSPACE" \
+            --date "$(date +%Y-%m-%d)" 2>&1) || true
+
+          echo "$REPORT" > /tmp/doc-freshness-report.json
+
+          TOTAL=$(echo "$REPORT" | jq -r '.summary.totalDiffs // 0')
+          echo "total=$TOTAL" >> "$GITHUB_OUTPUT"
+
+          # Write report body for issue
+          if [ "$TOTAL" -gt 0 ]; then
+            {
+              echo "body<<REPORT_EOF"
+              echo "## 文档新鲜度差异报告"
+              echo ""
+              echo "**检测时间**: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+              echo "**变更文件数**: $(echo "${{ steps.changed.outputs.files }}" | tr ',' '\n' | wc -l)"
+              echo "**受影响文档数**: $(echo "$REPORT" | jq -r '.scannedDocs | length')"
+              echo ""
+              echo "### 差异摘要"
+              echo ""
+              echo "| 类型 | 数量 |"
+              echo "|------|------|"
+              echo "| numeric | $(echo "$REPORT" | jq -r '.summary.numeric // 0') |"
+              echo "| status | $(echo "$REPORT" | jq -r '.summary.status // 0') |"
+              echo "| narrative | $(echo "$REPORT" | jq -r '.summary.narrative // 0') |"
+              echo ""
+              echo "### 差异详情"
+              echo ""
+              echo "$REPORT" | jq -r '.diffs[] | "- **\(.doc)** (L\(.line // "?")): \(.type) — \(.claim) → actual: \(.actual // "N/A")"' 2>/dev/null || true
+              echo ""
+              echo "### Baseline 检查"
+              echo ""
+              echo "$REPORT" | jq -r '.baselineChecks[] | "- \(.spec): \(if .passed then "PASS" else "FAIL: \(.failures | join(", "))" end)"' 2>/dev/null || echo "无 baseline 检查"
+              echo ""
+              echo "---"
+              echo "*由 doc-freshness CI 自动生成。Auditor Agent 将处理 numeric/status 类差异。*"
+              echo "REPORT_EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create issue if diffs found
+        if: steps.freshness.outputs.total != '0' && steps.freshness.outputs.total != ''
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = `${{ steps.freshness.outputs.body }}`;
+            const date = new Date().toISOString().slice(0, 10);
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `[doc-freshness] 文档差异检测 - ${date}`,
+              body: body,
+              labels: ['doc-freshness'],
+            });
+            console.log('Issue created for doc-freshness diffs');

@@ -10,6 +10,17 @@ import { EventEmitter } from 'events';
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   getModelForTier: vi.fn(() => 'claude-sonnet-4-20250514'),
+  parseStreamLine: vi.fn((line: string) => {
+    try { return JSON.parse(line); } catch { return null; }
+  }),
+  extractFilePath: vi.fn((toolName: string, input: unknown) => {
+    if (!input || typeof input !== 'object') return null;
+    const inp = input as Record<string, unknown>;
+    if (toolName === 'Write' || toolName === 'Edit') {
+      return (inp.file_path as string) || (inp.path as string) || null;
+    }
+    return null;
+  }),
 }));
 
 vi.mock('../cli-adapter.js', () => ({

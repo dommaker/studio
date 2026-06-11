@@ -362,6 +362,7 @@ export class AgentExecutor {
           }
 
           // D4: Emit tool:call and file:change events
+          // AS-021 #2: Include sessionId so session-summary-generator can correlate events
           const toolCalls = extractToolCalls(events);
           for (const tool of toolCalls) {
             try {
@@ -370,7 +371,7 @@ export class AgentExecutor {
                   type: 'tool:call',
                   source: 'agent-executor',
                   executionId: task.executionId,
-                  payload: JSON.stringify({ tool: tool.name, input: tool.input }),
+                  payload: JSON.stringify({ tool: tool.name, input: tool.input, sessionId }),
                 },
               });
               const filePath = extractFilePath(tool.name, tool.input);
@@ -380,7 +381,7 @@ export class AgentExecutor {
                     type: 'file:change',
                     source: 'agent-executor',
                     executionId: task.executionId,
-                    payload: JSON.stringify({ path: filePath, action: 'write' }),
+                    payload: JSON.stringify({ path: filePath, action: 'write', sessionId }),
                   },
                 });
               }

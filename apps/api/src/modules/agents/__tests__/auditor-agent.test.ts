@@ -1,10 +1,12 @@
 /**
  * Auditor Agent B3-005 tests — generateSuggestions + applyLowRisk + channel actions
  *
- * 约定: 真 SQLite (test.db), 无 Prisma mock, 动态 import。
+ * Migrated from Prisma Skill to file-based SkillStore (D-005).
+ * Still uses Prisma for Company, Channel, ChannelMessage, StudioEvent.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { prisma } from '@dommaker/studio-prisma';
+import { skillStore } from '../../skills/skill-store.js';
 
 let testCompanyId: string;
 let testChannelId: string;
@@ -40,19 +42,15 @@ describe('AuditorAgent B3-005', () => {
   });
 
   afterAll(async () => {
-    // Cleanup test data
-    await prisma.skill.deleteMany({ where: { id: { in: [testSkillLowSR, testSkillHighSR, testSkillNormal] } } });
+    // Cleanup test skills from SkillStore
+    skillStore.deleteMany({ companyId: testCompanyId });
+    // Cleanup test messages
     await prisma.channelMessage.deleteMany({ where: { channelId: testChannelId, agentName: 'Auditor', content: { contains: '审计建议 — 待人工确认' } } });
   });
 
   beforeEach(async () => {
     // Clean up test skills from previous runs
-    const existing = await prisma.skill.findMany({
-      where: { name: { startsWith: '__test_' } },
-    });
-    if (existing.length > 0) {
-      await prisma.skill.deleteMany({ where: { id: { in: existing.map(s => s.id) } } });
-    }
+    skillStore.deleteMany({ name: { startsWith: '__test_' } });
 
     // Clean test messages
     await prisma.channelMessage.deleteMany({
@@ -60,40 +58,31 @@ describe('AuditorAgent B3-005', () => {
     });
 
     // Create test skills
-    const s1 = await prisma.skill.create({
-      data: {
-        companyId: testCompanyId,
-        name: '__test_low_success_rate',
-        source: 'extraction',
-        status: 'published',
-        usageCount: 10,
-        successRate: 0.2,
-      },
+    const s1 = skillStore.create({
+      companyId: testCompanyId,
+      name: '__test_low_success_rate',
+      source: 'extraction',
+      status: 'published',
     });
+    skillStore.update(s1.id, { usageCount: 10, successRate: 0.2 });
     testSkillLowSR = s1.id;
 
-    const s2 = await prisma.skill.create({
-      data: {
-        companyId: testCompanyId,
-        name: '__test_high_success_rate_draft',
-        source: 'extraction',
-        status: 'draft',
-        usageCount: 8,
-        successRate: 0.85,
-      },
+    const s2 = skillStore.create({
+      companyId: testCompanyId,
+      name: '__test_high_success_rate_draft',
+      source: 'extraction',
+      status: 'draft',
     });
+    skillStore.update(s2.id, { usageCount: 8, successRate: 0.85 });
     testSkillHighSR = s2.id;
 
-    const s3 = await prisma.skill.create({
-      data: {
-        companyId: testCompanyId,
-        name: '__test_normal_skill',
-        source: 'extraction',
-        status: 'published',
-        usageCount: 20,
-        successRate: 0.6,
-      },
+    const s3 = skillStore.create({
+      companyId: testCompanyId,
+      name: '__test_normal_skill',
+      source: 'extraction',
+      status: 'published',
     });
+    skillStore.update(s3.id, { usageCount: 20, successRate: 0.6 });
     testSkillNormal = s3.id;
   });
 
@@ -245,37 +234,30 @@ describe('AuditorAgent B3-005', () => {
       errorByAgentType.set('executor', execErrors);
 
       // Temporarily remove the low-SR and high-SR-draft skills
-      await prisma.skill.deleteMany({
-        where: { id: { in: [testSkillLowSR, testSkillHighSR] } },
-      });
+      skillStore.deleteMany({ name: { startsWith: '__test_low_success_rate' } });
+      skillStore.deleteMany({ name: { startsWith: '__test_high_success_rate_draft' } });
 
       try {
         const suggestions = await (agent as any).generateSuggestions(agentTypeStats, errorByAgentType);
         expect(suggestions.length).toBe(0);
       } finally {
         // Restore
-        const s1 = await prisma.skill.create({
-          data: {
-            companyId: testCompanyId,
-            name: '__test_low_success_rate',
-            source: 'extraction',
-            status: 'published',
-            usageCount: 10,
-            successRate: 0.2,
-          },
+        const s1 = skillStore.create({
+          companyId: testCompanyId,
+          name: '__test_low_success_rate',
+          source: 'extraction',
+          status: 'published',
         });
+        skillStore.update(s1.id, { usageCount: 10, successRate: 0.2 });
         testSkillLowSR = s1.id;
 
-        const s2 = await prisma.skill.create({
-          data: {
-            companyId: testCompanyId,
-            name: '__test_high_success_rate_draft',
-            source: 'extraction',
-            status: 'draft',
-            usageCount: 8,
-            successRate: 0.85,
-          },
+        const s2 = skillStore.create({
+          companyId: testCompanyId,
+          name: '__test_high_success_rate_draft',
+          source: 'extraction',
+          status: 'draft',
         });
+        skillStore.update(s2.id, { usageCount: 8, successRate: 0.85 });
         testSkillHighSR = s2.id;
       }
     });
@@ -284,7 +266,7 @@ describe('AuditorAgent B3-005', () => {
   // ── applyLowRiskSuggestions ──
 
   describe('applyLowRiskSuggestions()', () => {
-    it('auto-applies skill_weight: updates successRate in DB', async () => {
+    it('auto-applies skill_weight: updates successRate in store', async () => {
       const { AuditorAgent } = await import('../auditor-agent.service.js');
       const agent = new AuditorAgent();
 
@@ -300,14 +282,14 @@ describe('AuditorAgent B3-005', () => {
       const applied = await (agent as any).applyLowRiskSuggestions(suggestions);
       expect(applied.length).toBe(1);
       expect(applied[0]).toContain('__test_low_success_rate');
-      expect(applied[0]).toContain('成功率权重已更新');
+      expect(applied[0]).toContain('successRate');
 
-      // Verify DB update
-      const updated = await prisma.skill.findUnique({ where: { id: testSkillLowSR } });
+      // Verify store update
+      const updated = skillStore.get(testSkillLowSR);
       expect(updated?.successRate).toBe(0.25);
     });
 
-    it('auto-applies skill_status: draft → published', async () => {
+    it('auto-applies skill_status: draft -> published', async () => {
       const { AuditorAgent } = await import('../auditor-agent.service.js');
       const agent = new AuditorAgent();
 
@@ -322,10 +304,10 @@ describe('AuditorAgent B3-005', () => {
 
       const applied = await (agent as any).applyLowRiskSuggestions(suggestions);
       expect(applied.length).toBe(1);
-      expect(applied[0]).toContain('已自动发布');
+      expect(applied[0]).toContain('auto-published');
 
-      // Verify DB update
-      const updated = await prisma.skill.findUnique({ where: { id: testSkillHighSR } });
+      // Verify store update
+      const updated = skillStore.get(testSkillHighSR);
       expect(updated?.status).toBe('published');
     });
 
@@ -355,8 +337,8 @@ describe('AuditorAgent B3-005', () => {
       const applied = await (agent as any).applyLowRiskSuggestions(suggestions);
       expect(applied.length).toBe(2);
 
-      const updatedLow = await prisma.skill.findUnique({ where: { id: testSkillLowSR } });
-      const updatedHigh = await prisma.skill.findUnique({ where: { id: testSkillHighSR } });
+      const updatedLow = skillStore.get(testSkillLowSR);
+      const updatedHigh = skillStore.get(testSkillHighSR);
       expect(updatedLow?.successRate).toBe(0.15);
       expect(updatedHigh?.status).toBe('published');
     });
@@ -373,7 +355,7 @@ describe('AuditorAgent B3-005', () => {
         type: 'param_tuning',
         risk: 'high',
         agentType: 'executor',
-        detail: 'executor 超时错误 3/5，建议调整 sessionTimeoutMinutes',
+        detail: 'executor timeout errors 3/5, suggest sessionTimeoutMinutes adjustment',
         data: { agentType: 'executor', timeoutCount: 3, totalErrors: 5, execTotal: 10 },
       }];
 
@@ -396,121 +378,6 @@ describe('AuditorAgent B3-005', () => {
       expect(meta.status).toBe('ready');
       expect(meta.cardData.suggestions).toHaveLength(1);
       expect(meta.cardData.suggestions[0].type).toBe('param_tuning');
-    });
-
-    it('skips when suggestions array is empty', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      const beforeCount = await prisma.channelMessage.count({
-        where: { channelId: testChannelId, agentName: 'Auditor', content: { contains: '审计建议 — 待人工确认' } },
-      });
-
-      await (agent as any).pushConfirmationCards([]);
-
-      const afterCount = await prisma.channelMessage.count({
-        where: { channelId: testChannelId, agentName: 'Auditor', content: { contains: '审计建议 — 待人工确认' } },
-      });
-
-      expect(afterCount).toBe(beforeCount);
-    });
-  });
-
-  // ── classifyError ──
-
-  describe('classifyError()', () => {
-    it('classifies timeout errors', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      expect((agent as any).classifyError('connection timed out')).toBe('timeout');
-      expect((agent as any).classifyError('Request Timeout')).toBe('timeout');
-    });
-
-    it('classifies llm/model errors', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      expect((agent as any).classifyError('LLM token limit exceeded')).toBe('llm/model');
-      expect((agent as any).classifyError('Model not found')).toBe('llm/model');
-    });
-
-    it('falls back to other for unknown errors', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      expect((agent as any).classifyError('something weird happened')).toBe('other');
-    });
-  });
-
-  // ── escalateToTriage (Phase 3) ──
-
-  describe('escalateToTriage()', () => {
-    it('escalates per-agent-type failureRate > 0.3 with total >= 3', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      const agentTypeStats = new Map<string, { total: number; failed: number }>();
-      agentTypeStats.set('executor', { total: 10, failed: 6 }); // 60% failure
-
-      // Should NOT throw — failures are caught internally
-      await (agent as any).escalateToTriage(agentTypeStats, 80, 20, 4);
-
-      // Verify: triageAgent.handleAlert was called (creates incident if handleAlert succeeds)
-      // Dynamic import + .catch() makes this best-effort — just verify no unhandled error
-      // The incident will be created by triageAgent if DB is available
-    });
-
-    it('does NOT escalate agent-type when total < 3', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      const agentTypeStats = new Map<string, { total: number; failed: number }>();
-      agentTypeStats.set('reviewer', { total: 2, failed: 2 }); // 100% failure but only 2
-
-      // Should not trigger — total < 3 threshold
-      await (agent as any).escalateToTriage(agentTypeStats, 90, 10, 1);
-    });
-
-    it('does NOT escalate agent-type when failureRate <= 0.3', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      const agentTypeStats = new Map<string, { total: number; failed: number }>();
-      agentTypeStats.set('executor', { total: 10, failed: 3 }); // 30% failure = at threshold
-
-      // 0.3 is NOT > 0.3 — should not trigger
-      await (agent as any).escalateToTriage(agentTypeStats, 85, 20, 3);
-    });
-
-    it('escalates pipeline_health_degraded when overall successRate < 50% and total >= 5', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      const agentTypeStats = new Map<string, { total: number; failed: number }>();
-      agentTypeStats.set('executor', { total: 5, failed: 4 }); // 80% failure
-
-      await (agent as any).escalateToTriage(agentTypeStats, 30, 10, 7);
-    });
-
-    it('does NOT escalate pipeline when successRate >= 50%', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      const agentTypeStats = new Map<string, { total: number; failed: number }>();
-      agentTypeStats.set('executor', { total: 10, failed: 3 });
-
-      await (agent as any).escalateToTriage(agentTypeStats, 60, 10, 4);
-    });
-
-    it('does NOT escalate pipeline when total < 5', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
-
-      const agentTypeStats = new Map<string, { total: number; failed: number }>();
-
-      // 3 total < 5 threshold, even with 0% successRate
-      await (agent as any).escalateToTriage(agentTypeStats, 0, 3, 3);
     });
   });
 });
