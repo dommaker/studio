@@ -253,4 +253,5 @@
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | knowledge-service.routes | apps/api/src/modules/knowledge/knowledge-service.routes.ts | KnowledgeService HTTP API + SSE |
 | knowledge-service | apps/api/src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |
+| signal-aggregator | apps/api/src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | external-fetcher | apps/api/src/modules/knowledge/producers/external-fetcher.ts | ExternalFetcher — fetch external docs and ingest as reference knowledge. |

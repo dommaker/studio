@@ -1,12 +1,12 @@
 # knowledge
 
 > 此文件描述 apps/api/src/modules/knowledge 目录的职责和上下文
-> Updated: 2026-06-04 (AS-022 unified refactoring)
+> Updated: 2026-06-11 (signal aggregator + rule-scanner fix)
 
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-bus.service.ts, apps/api/src/modules/knowledge/routes.ts
+⚠️ 以下文件已变更，本节可能过期: knowledge-bus.service.ts, routes.ts
 
 <!-- STALE_SINCE: 2026-06-09 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/evolution-scheduler.ts
+⚠️ 以下文件已变更，本节可能过期: evolution-scheduler.ts
 
 ## 职责
 
@@ -24,6 +24,7 @@
 | `knowledgeBus` | `knowledge-bus.service.ts` | Agent 间共享知识总线（write + search + formatIndexSummary） |
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore） |
 | `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder） |
+| `signalAggregator` | `signal-aggregator.ts` | 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | `fetchExternal` | `producers/external-fetcher.ts` | 外部文档抓取 + 摄入 |
 | `knowledgeRoutes` | `routes.ts` | REST API（含 /unified 统一浏览） |
 
@@ -38,8 +39,11 @@ knowledge/
 ├── producers/                 # 生产层
 │   └── external-fetcher.ts    # 外部文档抓取
 ├── knowledge-bus.service.ts   # 知识总线（write/search/index）
+├── knowledge-service.ts       # 统一知识能力层（injectContext + CRUD）
+├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
 ├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测
+├── signal-aggregator.ts       # Signal 趋势聚合（PostEval 触发）
 ├── resolution.service.ts      # 解法库（独立子系统）
 ├── evolution.service.ts       # 知识演化
 ├── evolution-scheduler.ts     # 演化调度
