@@ -5,7 +5,9 @@
  */
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { execSh } from '@dommaker/studio-shared/node';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
+import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { reviewAgent } from '../agents/review-agent.service.js';
 import { deployAgent } from '../agents/deploy-agent.service.js';
@@ -169,16 +171,94 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     // best-effort
   }
 
-  const blockingErrors = (review.issues || []).filter(
+  const allErrors = (review.issues || []).filter(
     (i: any) => i.severity === 'error'
   );
-  const effectiveApproved = review.approved && blockingErrors.length === 0;
-  if (blockingErrors.length > 0) {
-    logger.warn('[Goal] Review approved but has blocking errors — overriding to rejected', {
+
+  // 区分 diff 中的 error（blocking）vs 已有代码的 error（discoveredIssues）
+  let diffBlockingErrors: typeof allErrors = allErrors;
+  let discoveredIssues: typeof allErrors = [];
+
+  if (allErrors.length > 0 && worktree) {
+    try {
+      const baseRef = process.env.REVIEW_BASE_REF || 'HEAD~1';
+      const { stdout: changedFilesRaw } = await execSh(
+        `git diff ${baseRef} --name-only 2>/dev/null || git diff --name-only 2>/dev/null || echo ""`,
+        { cwd: worktree, timeoutMs: 10_000 },
+      );
+      const changedFiles = new Set(
+        changedFilesRaw.split('\n').map(f => f.trim()).filter(Boolean)
+      );
+
+      if (changedFiles.size > 0) {
+        diffBlockingErrors = allErrors.filter(
+          (i: any) => !i.file || changedFiles.has(i.file)
+        );
+        discoveredIssues = allErrors.filter(
+          (i: any) => i.file && !changedFiles.has(i.file)
+        );
+      }
+    } catch {
+      // git diff 失败 → 保守处理：全部当 blocking
+    }
+  }
+
+  const effectiveApproved = review.approved && diffBlockingErrors.length === 0;
+
+  if (diffBlockingErrors.length > 0) {
+    logger.warn('[Goal] Review: diff has blocking errors — overriding to rejected', {
       goalId,
-      errorCount: blockingErrors.length,
-      errors: blockingErrors.map((i: any) => i.message).slice(0, 5),
+      errorCount: diffBlockingErrors.length,
+      errors: diffBlockingErrors.map((i: any) => i.message).slice(0, 5),
     });
+  }
+
+  // 方案 4: discoveredIssues → KnowledgeStore + Channel 通知（不阻断 merge）
+  if (discoveredIssues.length > 0) {
+    logger.info('[Goal] Review discovered pre-existing issues (non-blocking)', {
+      goalId,
+      count: discoveredIssues.length,
+      files: discoveredIssues.map((i: any) => i.file).filter(Boolean),
+    });
+
+    // 写入 KnowledgeStore 供 KnowledgeKeeper 后续消费
+    for (const issue of discoveredIssues) {
+      try {
+        await knowledgeBus.recordPattern({
+          type: 'pitfall',
+          title: `Review 发现已有代码问题: ${issue.file || 'unknown'}`,
+          content: [
+            `source_goal: ${goalId}`,
+            `file: ${issue.file || 'unknown'}`,
+            `severity: ${issue.severity}`,
+            `issue: ${issue.message}`,
+            `root_cause: review 期间发现的已有代码问题，非本次变更引入`,
+            `fix_action: 创建 tech_debt goal 修复`,
+          ].join('\n'),
+          severity: 'warning',
+          timestamp: Date.now(),
+          source: 'reviewer',
+          context: { goalId, file: issue.file, discoveredDuringReview: true },
+        });
+      } catch (kbErr) {
+        logger.warn('[Goal] Failed to write discoveredIssue to KnowledgeStore (non-blocking)', { error: String(kbErr) });
+      }
+    }
+
+    // 通知 source channel
+    const goalCtx = goal.context as unknown as Record<string, unknown> || {};
+    const channelId = goalCtx.sourceChannelId as string;
+    if (channelId) {
+      try {
+        const { channelMessageService } = await import('../channels/channel-message.service.js');
+        const issueList = discoveredIssues
+          .map((i: any) => `- **${i.file || 'unknown'}**: ${i.message}`)
+          .join('\n');
+        await channelMessageService.createAgentMessage(channelId, 'System',
+          `## 审查发现已有代码问题（non-blocking）\n\n${issueList}\n\n已记录到知识库，不阻断本次 merge。`,
+        );
+      } catch { /* best-effort */ }
+    }
   }
 
   if (effectiveApproved) {

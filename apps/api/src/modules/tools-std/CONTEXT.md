@@ -2,8 +2,10 @@
 
 > 此文件描述 apps/api/src/modules/tools-std 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-05-27 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/tools-std/skill-extraction.service.ts, apps/api/src/modules/tools-std/skill-proposal-routes.ts
+
+<!-- STALE_SINCE: 2026-06-11 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/tools-std/skill-extraction.service.ts
 
 ## 职责
 
@@ -24,4 +26,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `adb7a9c2`: skill-loader trigger normalization + SKILL.md generation
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
