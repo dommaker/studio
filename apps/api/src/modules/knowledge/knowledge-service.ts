@@ -567,6 +567,17 @@ export class KnowledgeService {
     for (const id of entryIds) {
       try { this.lifecycle.recordReference(id, context); } catch { /* non-blocking */ }
     }
+
+    // O2-KR1: 发射 consumption 事件供 OKR metric 采集
+    if (entryIds.length > 0) {
+      this.prisma.studioEvent.create({
+        data: {
+          type: 'knowledge:consumption',
+          source: context,
+          payload: JSON.stringify({ entryIds, count: entryIds.length }),
+        },
+      }).catch(() => {});
+    }
   }
 
   async recordOutcome(outcome: ExecutionOutcome): Promise<void> {

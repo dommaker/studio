@@ -476,13 +476,14 @@ async function handleDispatchSuccess(
   try {
     const { knowledgeService } = await import('../knowledge/knowledge-service.js');
     const execOutput = (result as any).output || (result as any).stdout || '';
+    const { getLastInjectedIds } = await import('../knowledge/consumers/prompt-builder.js');
     await knowledgeService.extractFromExecution({
       task: goal.title || executionId,
       diff: execOutput.slice(0, 5000),
       success: true,
       duration: result.totalDurationMs || dispatchDuration,
       agentType: 'executor',
-      consumedKnowledge: [],
+      consumedKnowledge: getLastInjectedIds(),
     });
   } catch { /* non-blocking */ }
   try {

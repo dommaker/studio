@@ -790,13 +790,12 @@ export class OKRService {
   private async queryKnowledgeConsumptionHitRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: { startsWith: 'knowledge:outcome' }, timestamp: { gte: since } },
-        select: { type: true },
-      });
-      if (events.length === 0) return null;
-      const success = events.filter(e => e.type.includes('success')).length;
-      return Math.round((success / events.length) * 100);
+      const [injected, consumed] = await Promise.all([
+        prisma.studioEvent.count({ where: { type: 'knowledge:injected', timestamp: { gte: since } } }),
+        prisma.studioEvent.count({ where: { type: 'knowledge:consumption', timestamp: { gte: since } } }),
+      ]);
+      if (injected === 0) return null;
+      return Math.round((consumed / injected) * 100);
     } catch { return null; }
   }
 

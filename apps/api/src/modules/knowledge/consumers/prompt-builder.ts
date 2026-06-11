@@ -140,5 +140,14 @@ export async function buildKnowledgeContext(
     recordReferences(injectedIds);
   }
 
+  // 缓存本次注入的 ID，供调用方通过 getLastInjectedIds() 获取
+  _lastInjectedIds = injectedIds;
+
   return sections.join('\n\n');
+}
+
+/** 获取最近一次 buildKnowledgeContext 注入的条目 ID */
+let _lastInjectedIds: string[] = [];
+export function getLastInjectedIds(): string[] {
+  return _lastInjectedIds;
 }
