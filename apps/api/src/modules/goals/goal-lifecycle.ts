@@ -698,7 +698,30 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
       const ctx2 = (goal.context as unknown as Record<string, unknown>) || {};
       const sourceChannelId = ctx2.sourceChannelId as string | undefined;
       const { postEvalAgent } = await import('../agents/post-eval-agent.service.js');
-      await postEvalAgent.evaluate(goalId, sourceChannelId);
+      const gapReport = await postEvalAgent.evaluate(goalId, sourceChannelId);
+
+      // PostEval remediation: completeness < 50% → flag goal as incomplete
+      if (gapReport && gapReport.completeness < 0.5 && goal.status === 'succeeded') {
+        logger.error('[Goal] PostEval: completeness critically low — flagging goal', {
+          goalId,
+          completeness: Math.round(gapReport.completeness * 100) + '%',
+          matched: gapReport.matchedAcs.length,
+          missed: gapReport.missedAcs.length,
+        });
+        // Roll back status so the goal can be retried
+        await prisma.goal.update({
+          where: { id: goalId },
+          data: { status: 'failed', completedAt: new Date() },
+        });
+        if (sourceChannelId) {
+          try {
+            const { channelMessageService } = await import('../channels/channel-message.service.js');
+            await channelMessageService.createAgentMessage(sourceChannelId, 'System',
+              `## ⚠️ PostEval 检测到完成度不足\n\nGoal \`${goalId.slice(0, 8)}\` 完成度 ${Math.round(gapReport.completeness * 100)}%，已标记为失败。\n\n缺失 AC: ${gapReport.missedAcs.slice(0, 5).join(', ')}`
+            );
+          } catch { /* best-effort */ }
+        }
+      }
     } catch (e) {
       logger.warn('[Goal] PostEval failed', { goalId, error: String(e) });
     }
