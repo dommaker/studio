@@ -84,7 +84,94 @@ function formatCodeStructurePrompt(dir: string, structure: CodeStructure): strin
   return lines.join('\n');
 }
 
+/** docs/architecture/ 模块定义 */
+const ARCH_MODULES = [
+  { name: 'pipeline', title: '管线', sourceDirs: ['apps/api/src/modules/goals', 'apps/api/src/modules/agents'] },
+  { name: 'knowledge', title: '知识引擎', sourceDirs: ['apps/api/src/modules/knowledge', 'harness/src/knowledge'] },
+  { name: 'constraints', title: '约束系统', sourceDirs: ['harness/src/core/constraints', 'harness/src/constraints'] },
+  { name: 'agents', title: 'Agent 系统', sourceDirs: ['apps/api/src/modules/agents'] },
+  { name: 'skills', title: 'Skill 系统', sourceDirs: ['apps/api/src/modules/skills', 'apps/api/src/modules/tools-std'] },
+  { name: 'infra', title: '基础设施', sourceDirs: ['apps/api/src/daemon', 'packages/studio-shared'] },
+  { name: 'index', title: '总索引', sourceDirs: [] },
+];
+
 export class ImproverScheduler {
+  /**
+   * P5b: 生成 7 个 docs/architecture/*.md 架构文档
+   *
+   * 对每个模块：提取代码结构 → LLM 生成文档 → 写入文件
+   */
+  async runArchDocs(): Promise<void> {
+    const extractFn = await tryImportExtractCodeStructure();
+    const archDir = path.resolve('docs/architecture');
+
+    for (const mod of ARCH_MODULES) {
+      try {
+        // 合并所有 sourceDirs 的代码结构
+        let allStructure: CodeStructure = { files: [], functions: [], classes: [], interfaces: [], types: [] };
+        for (const dir of mod.sourceDirs) {
+          const absDir = path.resolve(dir);
+          const structure = extractFn
+            ? extractFn(absDir)
+            : fallbackExtractCodeStructure(absDir);
+          allStructure.files.push(...structure.files);
+          allStructure.functions.push(...structure.functions);
+          allStructure.classes.push(...structure.classes);
+          allStructure.interfaces.push(...structure.interfaces);
+          allStructure.types.push(...structure.types);
+        }
+
+        const structurePrompt = formatCodeStructurePrompt(mod.title, allStructure);
+
+        const systemPrompt = `You are a technical architecture document writer for the "${mod.title}" module.
+
+Generate a concise architecture document (≤3KB) in this EXACT format:
+
+# ${mod.title}
+
+> 自动生成: ${new Date().toISOString()} | 代码来源: ${mod.sourceDirs.join(', ') || '全局'}
+
+## 职责
+(2-3 sentences: what this module does)
+
+## 架构
+(how it works internally, key patterns)
+
+## 子模块索引
+(list key files/submodules with one-line descriptions)
+
+## 关键接口
+(main exported functions/classes)
+
+## 依赖
+(what this module depends on)
+
+Be terse. Chinese preferred. Focus on facts from the code structure, not design intent.`;
+
+        const doc = await modelGateway.prompt(systemPrompt, structurePrompt);
+
+        // 写入文件系统
+        fs.mkdirSync(archDir, { recursive: true });
+        const filePath = path.join(archDir, `${mod.name}.md`);
+        fs.writeFileSync(filePath, doc, 'utf-8');
+
+        // 写入 KnowledgeStore
+        await knowledgeBus.recordPattern({
+          source: 'evolution',
+          type: 'guideline',
+          title: `Architecture: ${mod.title}`,
+          content: doc,
+          severity: 'info',
+          timestamp: Date.now(),
+        });
+
+        logger.info('SelfDoc arch doc generated', { module: mod.name, filePath });
+      } catch (error) {
+        logger.error('SelfDoc arch doc failed for module', { module: mod.name, error: String(error) });
+      }
+    }
+  }
+
   /**
    * AC1: 遍历 dirs，对每个目录提取代码结构 → LLM 生成文档 → 写入 KnowledgeStore + CONTEXT.md
    */
@@ -129,13 +216,16 @@ export class ImproverScheduler {
   }
 
   /**
-   * AC2: 启动调度器，每小时执行一次 runSelfDoc
+   * AC2: 启动调度器，每小时执行一次 runSelfDoc + runArchDocs
    */
   startScheduler(): void {
     const dirs = this.getScanDirs();
     selfDocTimer = setInterval(() => {
       this.runSelfDoc(dirs).catch(err => {
         logger.error('SelfDoc scheduler tick failed', { error: String(err) });
+      });
+      this.runArchDocs().catch(err => {
+        logger.error('ArchDocs scheduler tick failed', { error: String(err) });
       });
     }, SELFDOD_INTERVAL_MS);
     logger.info('ImproverScheduler started', { intervalMs: SELFDOD_INTERVAL_MS, dirs });
