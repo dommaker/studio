@@ -89,6 +89,38 @@ export function parseStreamLine(line: string): StreamEvent | null {
 }
 
 /**
+ * Extract aggregated token usage from stream events.
+ *
+ * Stream-json events may carry `usage` on assistant/result events.
+ * This function sums across all events to get total token counts.
+ */
+export function extractUsage(events: StreamEvent[]): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  model: string;
+} {
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheCreationTokens = 0;
+  let model = '';
+
+  for (const event of events) {
+    const u = event.usage as Record<string, unknown> | undefined;
+    if (!u) continue;
+    inputTokens += (u.input_tokens as number) || 0;
+    outputTokens += (u.output_tokens as number) || 0;
+    cacheReadTokens += (u.cache_read_input_tokens as number) || 0;
+    cacheCreationTokens += (u.cache_creation_input_tokens as number) || 0;
+    if (!model && u.model) model = u.model as string;
+  }
+
+  return { inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, model };
+}
+
+/**
  * Extract the final text result from stream events.
  */
 export function extractResult(events: StreamEvent[]): { text: string; isError: boolean } {

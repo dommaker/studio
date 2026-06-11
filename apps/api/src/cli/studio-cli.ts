@@ -320,32 +320,16 @@ async function studioRun() {
     let traceChecked = false;
     let reviewMsgs: Array<{ content: string; meta: any }> = [];
 
-    // Stage 1: 先检查是否已有 Goal（autoStartExecution 可能已完成），再 SSE 监听
+    // Stage 1: SSE 监听等待新 Goal 创建（不使用全局最近执行，避免匹配旧 Goal）
     if (!goalId) {
-      // 快速检查：最新的 RequirementsDoc 是否已关联 Goal
-      try {
-        const statusResp = await fetch(`${baseUrl}/pipeline/status`);
-        if (statusResp.ok) {
-          const statusData = await statusResp.json() as any;
-          const recent = statusData?.executions?.recent?.[0];
-          if (recent?.goalId && recent.status !== 'failed') {
-            goalId = recent.goalId;
-            console.log(`  Goal already exists: ${goalId.slice(0, 8)}`);
-            pipelineStage = 'executing';
-          }
-        }
-      } catch { /* ignore */ }
-
-      if (!goalId) {
-        console.log('  Phase 1/6: Listening for Goal creation (SSE)...');
-        goalId = await waitForGoalCreated(baseUrl, maxRounds * 10_000);
-        if (goalId) {
-          console.log(`  Goal created: ${goalId.slice(0, 8)}`);
-          pipelineStage = 'executing';
-        } else {
-          console.log('  Timeout: No Goal created');
-          process.exit(1);
-        }
+      console.log('  Phase 1/6: Listening for Goal creation (SSE)...');
+      goalId = await waitForGoalCreated(baseUrl, maxRounds * 10_000);
+      if (goalId) {
+        console.log(`  Goal created: ${goalId.slice(0, 8)}`);
+        pipelineStage = 'executing';
+      } else {
+        console.log('  Timeout: No Goal created');
+        process.exit(1);
       }
     }
 

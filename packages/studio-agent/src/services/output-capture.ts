@@ -84,9 +84,22 @@ export async function recordSessionMetrics(opts: {
   promptSize: number;
   constraintHash: string;
   constraintSize: number;
+  /** Stream-json usage override — when using --output-format stream-json, parseSessionMetrics can't extract tokens from the multi-line format. Pass pre-extracted usage here. */
+  streamUsage?: { inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; model: string };
 }): Promise<void> {
   try {
-    const metrics = parseSessionMetrics(opts.stdout);
+    const parsed = parseSessionMetrics(opts.stdout);
+    // Stream-json usage takes precedence when available (non-zero)
+    const metrics = opts.streamUsage && opts.streamUsage.inputTokens > 0
+      ? {
+          ...parsed,
+          tokenInput: opts.streamUsage.inputTokens,
+          tokenOutput: opts.streamUsage.outputTokens,
+          tokenCacheRead: opts.streamUsage.cacheReadTokens,
+          tokenCacheWrite: opts.streamUsage.cacheCreationTokens,
+          modelName: opts.streamUsage.model || parsed.modelName,
+        }
+      : parsed;
     await prisma.studioEvent.create({
       data: {
         type: 'agent_session',

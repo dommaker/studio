@@ -4,7 +4,7 @@
  * D2: 解析 Claude CLI --output-format stream-json 输出
  */
 import { describe, it, expect } from 'vitest';
-import { parseStreamEvents, extractToolCalls, extractFilePath, extractResult } from '../stream-json-parser.js';
+import { parseStreamEvents, extractToolCalls, extractFilePath, extractResult, extractUsage } from '../stream-json-parser.js';
 
 describe('parseStreamEvents', () => {
   it('parses multiple JSON lines', () => {
@@ -108,5 +108,41 @@ describe('extractResult', () => {
 
   it('returns empty for no events', () => {
     expect(extractResult([])).toEqual({ text: '', isError: false });
+  });
+});
+
+describe('extractUsage', () => {
+  it('extracts token counts from usage fields', () => {
+    const stdout = [
+      JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: 'hi' }], usage: { input_tokens: 100, output_tokens: 50, cache_read_input_tokens: 20 } }),
+      JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: 'more' }], usage: { input_tokens: 200, output_tokens: 80 } }),
+      JSON.stringify({ type: 'result', result: 'done' }),
+    ].join('\n');
+    const events = parseStreamEvents(stdout);
+    const usage = extractUsage(events);
+    expect(usage.inputTokens).toBe(300);
+    expect(usage.outputTokens).toBe(130);
+    expect(usage.cacheReadTokens).toBe(20);
+  });
+
+  it('returns zeros for events without usage', () => {
+    const events = parseStreamEvents('{"type":"result","result":"ok"}');
+    const usage = extractUsage(events);
+    expect(usage.inputTokens).toBe(0);
+    expect(usage.outputTokens).toBe(0);
+  });
+
+  it('extracts model from usage', () => {
+    const events = parseStreamEvents(JSON.stringify({
+      type: 'assistant', content: [], usage: { input_tokens: 10, output_tokens: 5, model: 'claude-sonnet-4-20250514' },
+    }));
+    const usage = extractUsage(events);
+    expect(usage.model).toBe('claude-sonnet-4-20250514');
+  });
+
+  it('returns empty for no events', () => {
+    const usage = extractUsage([]);
+    expect(usage.inputTokens).toBe(0);
+    expect(usage.model).toBe('');
   });
 });

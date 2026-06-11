@@ -165,13 +165,13 @@ export class ReviewAgent {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
         const durationMs = Date.now() - startTime;
         logger.error('[ReviewAgent] Claude Code failed', { taskId, cycle, durationMs, error: errMsg.slice(0, 200) });
-        // 审查失败不阻塞流程，默认放行
+        // 审查失败 → 拒绝，不放行
         return {
-          approved: true,
+          approved: false,
           score: 0,
           issues: [{
-            severity: 'warning',
-            message: `审查系统异常（第 ${cycle} 轮）: ${errMsg.slice(0, 200)}，已默认放行，建议人工审查`,
+            severity: 'error',
+            message: `审查系统异常（第 ${cycle} 轮）: ${errMsg.slice(0, 200)}`,
           }],
           suggestions: [],
         };
@@ -180,8 +180,8 @@ export class ReviewAgent {
       // 读取审查报告
       const reportPath = path.join(worktree, '.review-report.json');
       if (!fs.existsSync(reportPath)) {
-        logger.warn('[ReviewAgent] Review report not found, defaulting to approved', { taskId });
-        return { approved: true, score: 0, issues: [], suggestions: [] };
+        logger.warn('[ReviewAgent] Review report not found, rejecting', { taskId });
+        return { approved: false, score: 0, issues: [{ severity: 'error', message: '审查报告未生成' }], suggestions: [] };
       }
 
       const reportJson = fs.readFileSync(reportPath, 'utf-8');
@@ -545,13 +545,13 @@ export class ReviewAgent {
       } catch (execErr: any) {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
         logger.error('[ReviewAgent] reviewDiff Claude Code failed', { baseRef, headRef, error: errMsg.slice(0, 200) });
-        return { approved: true, score: 0, issues: [{ severity: 'warning', message: `审查异常: ${errMsg.slice(0, 200)}，已默认放行` }], suggestions: [] };
+        return { approved: false, score: 0, issues: [{ severity: 'error', message: `审查异常: ${errMsg.slice(0, 200)}` }], suggestions: [] };
       }
 
       const reportPath = path.join(repoPath, '.review-report.json');
       if (!fs.existsSync(reportPath)) {
-        logger.warn('[ReviewAgent] reviewDiff report not found, defaulting to approved', { baseRef, headRef });
-        return { approved: true, score: 0, issues: [], suggestions: [] };
+        logger.warn('[ReviewAgent] reviewDiff report not found, rejecting', { baseRef, headRef });
+        return { approved: false, score: 0, issues: [{ severity: 'error', message: '审查报告未生成' }], suggestions: [] };
       }
 
       const reportJson = fs.readFileSync(reportPath, 'utf-8');
@@ -593,7 +593,7 @@ export class ReviewAgent {
       return { approved: report.overallApproved, score: reviewScore, issues: allIssues, suggestions: report.suggestions ?? [] };
     } catch (error) {
       logger.error('[ReviewAgent] reviewDiff failed', { baseRef, headRef, error: String(error) });
-      return { approved: true, score: 0, issues: [{ severity: 'warning', message: `审查异常: ${String(error).slice(0, 200)}，已默认放行` }], suggestions: [] };
+      return { approved: false, score: 0, issues: [{ severity: 'error', message: `审查异常: ${String(error).slice(0, 200)}` }], suggestions: [] };
     }
   }
 

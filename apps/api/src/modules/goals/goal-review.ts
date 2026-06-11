@@ -203,7 +203,16 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     }
   }
 
-  const effectiveApproved = review.approved && diffBlockingErrors.length === 0;
+  // Score gate: approved but score too low → override to rejected
+  const MIN_REVIEW_SCORE = 50;
+  const scoreTooLow = review.approved && review.score < MIN_REVIEW_SCORE;
+  const effectiveApproved = review.approved && !scoreTooLow && diffBlockingErrors.length === 0;
+
+  if (scoreTooLow) {
+    logger.warn('[Goal] Review: score too low — overriding to rejected', {
+      goalId, score: review.score, minScore: MIN_REVIEW_SCORE,
+    });
+  }
 
   if (diffBlockingErrors.length > 0) {
     logger.warn('[Goal] Review: diff has blocking errors — overriding to rejected', {
@@ -391,6 +400,7 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
   }
 
   // Deploy
+  let deploySuccess = true;
   try {
     const worktree = await findReviewWorktree(goalId);
     if (worktree) {
@@ -407,6 +417,8 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
         success: result.success,
         findings: result.findings.length,
       });
+
+      deploySuccess = result.success;
 
       if (result.success && project) {
         try {
@@ -425,7 +437,18 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
       });
     }
   } catch (e) {
-    logger.warn('[Goal] Deploy check failed (non-blocking)', { error: String(e) });
+    deploySuccess = false;
+    logger.warn('[Goal] Deploy check failed', { error: String(e) });
+  }
+
+  // Deploy failure → roll back goal status
+  if (!deploySuccess) {
+    logger.warn('[Goal] Deploy failed — rolling back goal status to failed', { goalId });
+    await prisma.goal.update({
+      where: { id: goalId },
+      data: { status: 'failed', completedAt: new Date() },
+    });
+    return;
   }
 
   await recordGoalCompletion(goalId);

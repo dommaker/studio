@@ -13,7 +13,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, type StreamEvent } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
@@ -355,6 +355,7 @@ export class AgentRunner implements IAgentRunner {
           // AC1.1 + AC1.3: Parse stream-json line by line
           const events = this.parseStreamOutput(stdout);
           const { text, isError } = this.extractResult(events);
+          const streamUsage = extractUsage(events);
 
           // AC1.3: Emit tool:call and file:change events
           const tools = extractToolCalls(events);
@@ -385,6 +386,7 @@ export class AgentRunner implements IAgentRunner {
             promptSize: prompt.length,
             constraintHash: hash,
             constraintSize: size,
+            streamUsage,
           });
 
           await emitSessionEnd(sessionId, task.executionId, sessionCount);

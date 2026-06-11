@@ -6,7 +6,7 @@
 import * as os from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger } from '@dommaker/studio-shared';
+import { logger, extractUsage, parseStreamEvents } from '@dommaker/studio-shared';
 
 // ─── Types ───
 
@@ -346,6 +346,15 @@ export function parseAgentTokenUsage(worktreeDir: string): {
       inputTokens += d.inputTokens || 0;
       outputTokens += d.outputTokens || 0;
       cacheHitTokens += d.cacheReadInputTokens || 0;
+    }
+
+    // Fallback: stream-json format has no modelUsage — extract from usage fields
+    if (model === 'unknown' && inputTokens === 0) {
+      const events = parseStreamEvents(content);
+      const usage = extractUsage(events);
+      if (usage.inputTokens > 0) {
+        return { model: usage.model || 'unknown', inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, cacheHitTokens: usage.cacheReadTokens };
+      }
     }
 
     return { model, inputTokens, outputTokens, cacheHitTokens };
