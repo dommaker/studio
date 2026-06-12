@@ -72,6 +72,7 @@ export interface ExecutionResult {
   worktree: string;
   outputFiles: string[];
   error?: string;
+  failureLog?: string; // 完整失败上下文（stdout+stderr），用于根因诊断
   logFile: string;
   sessionCount: number;
   totalDurationMs?: number;

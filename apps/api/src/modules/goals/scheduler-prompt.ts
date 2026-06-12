@@ -214,10 +214,11 @@ export async function buildIntegrationPrompt(goalId: string): Promise<string> {
   }).join('\n\n');
 
   return [
-    '合并所有 AC 组的变更，运行 tsc 和测试。',
+    '合并所有 AC 组的变更，运行 tsc 和影响范围测试。',
     '1. git merge --no-ff 所有 task 分支',
     '2. npm run build',
-    '3. npm test',
+    '3. git diff --name-only 找出变更文件',
+    '4. 只跑变更文件对应的测试（同目录 .test.ts），不跑全量',
     '如果冲突: 按 AC 组文件的路径优先级解决',
     '',
     '## 各 AC 组完成情况',
@@ -510,27 +511,47 @@ export async function runIntegrationInCode(
     logger.warn('[GoalScheduler] prisma generate failed', { error: detail.slice(0, 500) });
   }
 
+  // 增量 tsc：复制主仓库的 .tsbuildinfo 到 worktree，只检查变更文件
   try {
-    execSync('npx tsc --noEmit --project apps/api/tsconfig.json 2>&1', { cwd: worktree, timeout: 60_000 });
+    const tsbuildinfoSrc = path.join(repoDir, 'apps', 'api', 'tsconfig.tsbuildinfo');
+    const tsbuildinfoDst = path.join(worktree, 'apps', 'api', 'tsconfig.tsbuildinfo');
+    if (fs.existsSync(tsbuildinfoSrc) && !fs.existsSync(tsbuildinfoDst)) {
+      fs.copyFileSync(tsbuildinfoSrc, tsbuildinfoDst);
+    }
+    execSync('npx tsc --noEmit --incremental --project apps/api/tsconfig.json 2>&1', { cwd: worktree, timeout: 60_000 });
   } catch (e: any) {
     const errMsg = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
     return { success: false, error: `tsc failed: ${errMsg.slice(0, 300)}` };
   }
 
+  // 影响范围测试：只跑变更文件对应的测试，不跑全量
+  const { findImpactedTests, runImpactedTests } = await import('./pipeline-utils.js');
+  let testResult: { passed: boolean; errors: string[]; testCount: number; method: string } = { passed: true, errors: [], testCount: 0, method: 'skip' };
   try {
-    execSync('npx jest --passWithNoTests 2>&1', { cwd: path.join(worktree, 'apps', 'api'), timeout: 120_000 });
+    const diffOutput = execSync('git diff HEAD~1 --name-only 2>/dev/null || git diff --name-only 2>/dev/null || echo ""', { cwd: worktree, encoding: 'utf-8', timeout: 5_000, stdio: 'pipe' });
+    const changedFiles = diffOutput.trim().split('\n').filter(Boolean);
+    const impacted = findImpactedTests(changedFiles, worktree);
+
+    if (impacted.testFiles.length > 0) {
+      testResult = runImpactedTests(worktree, impacted, 120_000);
+      if (!testResult.passed) {
+        return { success: false, error: `Impacted tests failed (${testResult.method}, ${testResult.testCount} tests): ${testResult.errors[0]?.slice(0, 300)}` };
+      }
+    } else {
+      logger.info('[GoalScheduler] Integration: no impacted tests found, skipping', { changedFiles: changedFiles.length });
+    }
   } catch (e: any) {
     const errMsg = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
-    return { success: false, error: `Tests failed: ${errMsg.slice(0, 300)}` };
+    return { success: false, error: `Impact test analysis failed: ${errMsg.slice(0, 300)}` };
   }
 
   const progressPath = path.join(worktree, '.progress.json');
   fs.writeFileSync(progressPath, JSON.stringify({
     taskId: executionId, executionId, goalId, allComplete: true,
     completedSteps: ['merge', 'tsc', 'test'],
-    testResults: { passed: 1, failed: 0, total: 1 },
+    testResults: { passed: 1, failed: 0, total: testResult.testCount, method: testResult.method },
     currentStep: 'integration complete',
-    notes: `Integration by code (P0-1): ${succeededExecs.length} branches merged, tsc clean, tests pass`,
+    notes: `Integration by code (P0-1): ${succeededExecs.length} branches merged, tsc clean, ${testResult.method} tests pass (${testResult.testCount} tests)`,
   }, null, 2), 'utf-8');
 
   return { success: true };

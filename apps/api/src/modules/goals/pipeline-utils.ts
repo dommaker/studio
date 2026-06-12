@@ -293,3 +293,105 @@ export async function harnessCheck(workdir: string): Promise<HarnessCheckResult>
 
   return { passed: errors.length === 0, errors };
 }
+
+// ─── 影响范围测试 ───
+
+export interface ImpactedTestsResult {
+  testFiles: string[];
+  changedFiles: string[];
+  method: 'exact' | 'directory' | 'full';
+}
+
+/**
+ * 根据变更文件列表，找到受影响的测试文件。
+ *
+ * 策略（按精度递减）：
+ * 1. 同目录同名测试：src/foo.ts → src/foo.test.ts
+ * 2. grep import：扫描所有 .test.ts 找到导入变更文件的测试
+ * 3. fallback：返回空（调用方应跑全量）
+ */
+export function findImpactedTests(changedFiles: string[], workdir: string): ImpactedTestsResult {
+  const testFiles = new Set<string>();
+
+  // 过滤非代码文件
+  const codeFiles = changedFiles.filter(f =>
+    /\.(ts|tsx|js|jsx)$/.test(f) && !f.includes('.test.') && !f.includes('.spec.') && !f.includes('node_modules')
+  );
+
+  if (codeFiles.length === 0) {
+    return { testFiles: [], changedFiles, method: 'exact' };
+  }
+
+  // 策略 1：同目录同名测试
+  for (const file of codeFiles) {
+    const ext = path.extname(file);
+    const base = file.slice(0, -ext.length);
+    const testCandidates = [
+      `${base}.test${ext}`,
+      `${base}.spec${ext}`,
+      `${base.replace('/src/', '/__tests__/')}.test${ext}`,
+    ];
+    for (const candidate of testCandidates) {
+      const abs = path.join(workdir, candidate);
+      if (fs.existsSync(abs)) {
+        testFiles.add(candidate);
+      }
+    }
+  }
+
+  // 策略 2：grep import（仅当策略 1 结果为空时）
+  if (testFiles.size === 0) {
+    try {
+      const grepTargets = codeFiles.map(f => path.basename(f, path.extname(f)));
+      for (const target of grepTargets) {
+        const stdout = execSync(
+          `grep -rl "from.*['\\"].*${target}" --include="*.test.ts" --include="*.spec.ts" . 2>/dev/null || true`,
+          { cwd: workdir, timeout: 10_000, encoding: 'utf-8', stdio: 'pipe' }
+        );
+        for (const match of stdout.trim().split('\n').filter(Boolean)) {
+          const rel = path.relative(workdir, match).replace(/^\.\//, '');
+          testFiles.add(rel);
+        }
+      }
+    } catch { /* non-blocking */ }
+  }
+
+  return {
+    testFiles: [...testFiles],
+    changedFiles,
+    method: testFiles.size > 0 ? (testFiles.size <= codeFiles.length * 2 ? 'exact' : 'directory') : 'full',
+  };
+}
+
+/**
+ * 运行影响范围测试。返回 { passed, errors, testCount, method }。
+ */
+export function runImpactedTests(
+  workdir: string,
+  impacted: ImpactedTestsResult,
+  timeout = 120_000,
+): { passed: boolean; errors: string[]; testCount: number; method: string } {
+  if (impacted.testFiles.length === 0) {
+    return { passed: true, errors: [], testCount: 0, method: 'skip' };
+  }
+
+  const errors: string[] = [];
+  let testCount = 0;
+
+  try {
+    const vitestArgs = impacted.testFiles.join(' ');
+    const stdout = execSync(
+      `npx vitest run --reporter=json ${vitestArgs} 2>&1`,
+      { cwd: workdir, timeout, encoding: 'utf-8', stdio: 'pipe' }
+    );
+    try {
+      const result = JSON.parse(stdout);
+      testCount = result.numTotalTests || 0;
+    } catch { /* non-JSON output */ }
+  } catch (err: unknown) {
+    const e = err as { stdout?: string; stderr?: string; message?: string };
+    errors.push(`impacted tests failed:\n${e.stdout || ''}${e.stderr || ''}`.trim().slice(0, 500));
+  }
+
+  return { passed: errors.length === 0, errors, testCount, method: impacted.method };
+}

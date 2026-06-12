@@ -570,6 +570,7 @@ async function handleDispatchFailure(
   await goalService.updateStepExecution(executionId, {
     status: 'failed',
     error: errorStr,
+    ...(result.failureLog ? { output: JSON.stringify({ failureLog: result.failureLog }) } : {}),
   });
   const failTokens = parseAgentTokenUsage(worktreeDir);
   recordPipelineRun({

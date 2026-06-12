@@ -21,7 +21,10 @@ vi.resetModules();
 const { buildSkillPrompt, loadSkillTemplate } = await import('../scheduler-prompt.js');
 
 beforeAll(() => {
-  fs.writeFileSync(path.join(testSkillsDir, 'test-skill.md'), `---
+  // 创建 goal_start/test-skill/SKILL.md 目录结构
+  const goalStartDir = path.join(testSkillsDir, 'goal_start', 'test-skill');
+  fs.mkdirSync(goalStartDir, { recursive: true });
+  fs.writeFileSync(path.join(goalStartDir, 'SKILL.md'), `---
 name: test-skill
 description: "Test skill with placeholders"
 trigger: goal_start
@@ -42,7 +45,10 @@ status: published
 {{task}}
 `);
 
-  fs.writeFileSync(path.join(testSkillsDir, 'static-skill.md'), `---
+  // 创建 always/static-skill/SKILL.md 目录结构
+  const alwaysDir = path.join(testSkillsDir, 'always', 'static-skill');
+  fs.mkdirSync(alwaysDir, { recursive: true });
+  fs.writeFileSync(path.join(alwaysDir, 'SKILL.md'), `---
 name: static-skill
 description: "Static skill, no placeholders"
 trigger: always
@@ -56,8 +62,8 @@ status: published
 });
 
 afterAll(() => {
-  try { fs.unlinkSync(path.join(testSkillsDir, 'test-skill.md')); } catch {}
-  try { fs.unlinkSync(path.join(testSkillsDir, 'static-skill.md')); } catch {}
+  try { fs.rmSync(path.join(testSkillsDir, 'goal_start'), { recursive: true }); } catch {}
+  try { fs.rmSync(path.join(testSkillsDir, 'always'), { recursive: true }); } catch {}
   try { fs.rmdirSync(testSkillsDir); } catch {}
 });
 

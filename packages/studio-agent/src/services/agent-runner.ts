@@ -458,9 +458,17 @@ export class AgentRunner implements IAgentRunner {
           if (sessionCount >= this.config.maxSessions) {
             // stdout 包含 claude 实际输出（含错误详情），errMsg 可能因 2>&1 为空
             const detail = stdoutText ? stdoutText.slice(-500) : errMsg.slice(0, 200);
+            const failureLog = [
+              `## Session ${sessionCount} Failure`,
+              `### Error: ${errMsg}`,
+              errStack ? `### Stack:\n${errStack}` : '',
+              stdoutText ? `### Stdout:\n${stdoutText}` : '',
+              stderrText ? `### Stderr:\n${stderrText}` : '',
+            ].filter(Boolean).join('\n');
             return {
               success: false, worktree, outputFiles: [],
               error: `Max sessions (${this.config.maxSessions}) exhausted. Last error: ${detail}`,
+              failureLog,
               logFile, sessionCount,
             };
           }
@@ -480,9 +488,16 @@ export class AgentRunner implements IAgentRunner {
         }
 
         if (sessionCount >= this.config.maxSessions) {
+          const failureLog = [
+            `## Session ${sessionCount} Incomplete`,
+            `### Progress: ${JSON.stringify(latest, null, 2)}`,
+            `### Stuck count: ${stuckCount}`,
+            `### Current step: ${latest?.currentStep || 'unknown'}`,
+          ].join('\n');
           return {
             success: false, worktree, outputFiles: [],
             error: `Max sessions (${this.config.maxSessions}) exhausted without completion`,
+            failureLog,
             logFile, sessionCount, totalDurationMs: cumulativeSessionMs,
           };
         }

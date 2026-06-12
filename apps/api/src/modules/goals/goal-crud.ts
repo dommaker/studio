@@ -56,6 +56,20 @@ export interface CreateGoalInput {
  * 创建目标
  */
 export async function createGoal(input: CreateGoalInput): Promise<any> {
+  // 去重防护：同标题 Goal 24h 内失败过 → 拒绝
+  const recentFailures = await prisma.goal.count({
+    where: {
+      title: input.title,
+      status: 'failed',
+      updatedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+  });
+  if (recentFailures > 0) {
+    throw new Error(
+      `同标题 Goal 24h 内已失败 ${recentFailures} 次。请先审查失败原因再重新提交。标题: ${input.title.slice(0, 80)}`
+    );
+  }
+
   const goal = await prisma.goal.create({
     data: {
       title: input.title,
@@ -262,6 +276,20 @@ export async function createGoalFromChannelDoc(input: {
   contractTests?: Array<{ file: string; content: string }>;
 }) {
   const { title, summary, acGroups, constraints = [], companyId, sourceChannelId, requirementsDocId, projectId, workspaceRepoId, risks = [], contractTests } = input;
+
+  // 去重防护：同标题 Goal 24h 内失败过 → 拒绝
+  const recentFailures = await prisma.goal.count({
+    where: {
+      title,
+      status: 'failed',
+      updatedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+  });
+  if (recentFailures > 0) {
+    throw new Error(
+      `同标题 Goal 24h 内已失败 ${recentFailures} 次。请先审查失败原因再重新提交。标题: ${title.slice(0, 80)}`
+    );
+  }
 
   beforeGoalCreate({
     operation: 'goal_creation',
