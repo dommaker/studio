@@ -239,6 +239,7 @@ export async function writeRequirementsMd(
   worktree: string,
   task: AgentTask,
   acGroup?: Record<string, any>,
+  testFiles?: string[],
 ): Promise<void> {
   const acs: string[] = acGroup?.acs || [];
   const files: string[] = acGroup?.files || [];
@@ -275,6 +276,14 @@ export async function writeRequirementsMd(
     ...(patterns.length ? ['## 参考模式', ...patterns.map(p => `- ${p}`), ''] : []),
     ...(gotchas.length ? ['## ⚠️ 注意事项', ...gotchas.map(g => `- ${g}`), ''] : []),
     ...(files.length > 0 ? ['## 预期改动文件', ...files.map(f => `- ${f}`), ''] : []),
+    // SP-004 Step 5: testFiles from SDD task layer (GREEN phase verification)
+    ...(testFiles && testFiles.length > 0 ? [
+      '## 验证测试文件（GREEN 阶段必须全部通过）',
+      ...testFiles.map(f => `- \`${f}\``),
+      '',
+      `运行命令: \`npx vitest run ${testFiles.join(' ')}\``,
+      '',
+    ] : []),
     '## 行为约束',
     '- 完成前必须运行 npm test + type check + lint',
     '- 禁止模糊声明完成',

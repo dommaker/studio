@@ -13,7 +13,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent, readSddDoc, findSddDocByGoalId, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
@@ -192,12 +192,16 @@ export class AgentRunner implements IAgentRunner {
         hasFailingTest: true,
       });
 
-      // Write REQUIREMENTS.md
-      const acGroup = task.parameters?.acGroup as Record<string, any> | undefined;
-      await writeRequirementsMd(worktree, task, acGroup);
+      // SP-004 Step 5: resolve contractTests + testFiles from SDD task layer (fallback DB)
+      const sddTaskData = this.resolveSddTaskData(task);
+      const contractTests = sddTaskData.contractTests;
+      const testFiles = sddTaskData.testFiles;
 
-      // Contract tests
-      const contractTests = task.parameters?.contractTests as Array<{ file: string; content: string }> | undefined;
+      // Write REQUIREMENTS.md (with testFiles for GREEN phase verification)
+      const acGroup = task.parameters?.acGroup as Record<string, any> | undefined;
+      await writeRequirementsMd(worktree, task, acGroup, testFiles);
+
+      // Write contract tests (RED phase)
       if (contractTests?.length) {
         await writeContractTests(worktree, contractTests);
       }
@@ -243,7 +247,7 @@ export class AgentRunner implements IAgentRunner {
         if (!fsSync.existsSync(reqPath)) {
           fsSync.mkdirSync(worktree, { recursive: true });
           logger.warn('[AgentRunner] REQUIREMENTS.md missing, re-writing', { taskId: task.id, executionId: task.executionId, session: sessionCount });
-          await writeRequirementsMd(worktree, task, acGroup);
+          await writeRequirementsMd(worktree, task, acGroup, testFiles);
           if (contractTests?.length) {
             await writeContractTests(worktree, contractTests);
           }
@@ -513,6 +517,67 @@ export class AgentRunner implements IAgentRunner {
     }
 
     return { success: false, worktree, outputFiles: [], error: 'Unreachable', logFile, sessionCount: 0 };
+  }
+
+  // ========================================
+  // SP-004 Step 5: SDD task layer resolution
+  // ========================================
+
+  /**
+   * Resolve contractTests + testFiles from SDD task layer.
+   * Tries `docs/sdd/<slug>/task.md` first, falls back to DB values in task.parameters.
+   *
+   * SDD task.md format:
+   *   ## Contract Tests
+   *   ### <file-path>
+   *   ```typescript ... ```
+   *   ## Test Files
+   *   - <path>
+   */
+  private resolveSddTaskData(task: AgentTask): {
+    contractTests: Array<{ file: string; content: string }> | undefined;
+    testFiles: string[];
+  } {
+    // DB fallback values
+    const dbContractTests = task.parameters?.contractTests as Array<{ file: string; content: string }> | undefined;
+    const dbTestFiles: string[] = [];
+
+    // Resolve slug
+    const slug = (task.parameters?.sddSlug as string)
+      || findSddDocByGoalId((task.parameters?.goalId as string) || '');
+
+    if (!slug) {
+      return { contractTests: dbContractTests, testFiles: dbTestFiles };
+    }
+
+    try {
+      const taskDoc = readSddDoc(slug, 'task');
+      if (!taskDoc) {
+        return { contractTests: dbContractTests, testFiles: dbTestFiles };
+      }
+
+      const sddContractTests = parseTaskDocContractTests(taskDoc.body);
+      const sddTestFiles = parseTaskDocTestFiles(taskDoc.body);
+
+      const contractTests = sddContractTests.length > 0 ? sddContractTests : dbContractTests;
+      const testFiles = sddTestFiles.length > 0 ? sddTestFiles : dbTestFiles;
+
+      logger.info('[AgentRunner] SDD task layer resolved', {
+        slug,
+        contractTestsSource: sddContractTests.length > 0 ? 'sdd' : 'db',
+        contractTestsCount: contractTests?.length || 0,
+        testFilesSource: sddTestFiles.length > 0 ? 'sdd' : 'db',
+        testFilesCount: testFiles.length,
+      });
+
+      return { contractTests, testFiles };
+    } catch (err) {
+      logger.warn('[AgentRunner] SDD task layer read failed, falling back to DB', {
+        slug,
+        error: String(err),
+      });
+      return { contractTests: dbContractTests, testFiles: dbTestFiles };
+    }
   }
 
   // ========================================

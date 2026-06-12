@@ -4,7 +4,7 @@
  * 从 goal.service.ts 提取。
  */
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, appendChangelog, findSddDocByGoalId } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
 import { proposalStore } from '../skills/proposal-store.js';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
@@ -369,6 +369,14 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
   });
 
   logger.info(`[Goal] ${goalId} completed with status: ${newStatus}`);
+
+  // SP-004 Step 6: CHANGELOG entry for goal completion
+  try {
+    const slug = findSddDocByGoalId(goalId);
+    if (slug) {
+      appendChangelog(slug, `Goal ${newStatus} (${goalId.slice(0, 8)})`);
+    }
+  } catch { /* non-blocking */ }
 
   try {
     const { appendFileSync } = await import('fs');

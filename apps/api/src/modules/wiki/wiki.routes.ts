@@ -1,7 +1,7 @@
 // B2-008: LLM Wiki — RequirementsDoc 档案馆
 import { Router } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, appendChangelog, findSddDocById } from '@dommaker/studio-shared';
 import { listWikiDocs, buildWikiGraph, getWikiDocById } from './wiki.service.js';
 
 export const wikiRoutes = Router();
@@ -103,6 +103,15 @@ wikiRoutes.put('/:id', async (req, res) => {
     });
 
     logger.info('[Wiki] Updated', { id: req.params.id });
+
+    // SP-004 Step 6: CHANGELOG entry for wiki update
+    try {
+      const slug = findSddDocById(req.params.id);
+      if (slug) {
+        const fields = Object.keys(updateData).join(', ');
+        appendChangelog(slug, `Wiki doc updated (${fields})`);
+      }
+    } catch { /* non-blocking */ }
 
     res.json({ success: true, data: updated });
   } catch (error) {

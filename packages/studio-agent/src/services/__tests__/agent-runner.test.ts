@@ -295,3 +295,54 @@ describe('Cross-AC integrity', () => {
     expect(agentRunnerSrc).toContain('extractToolCalls');
   });
 });
+
+describe('SP-004 Step 5: SDD task layer integration', () => {
+  test('imports readSddDoc from shared', () => {
+    expect(agentRunnerSrc).toContain('readSddDoc');
+  });
+
+  test('imports findSddDocByGoalId from shared', () => {
+    expect(agentRunnerSrc).toContain('findSddDocByGoalId');
+  });
+
+  test('imports parseTaskDocContractTests from shared', () => {
+    expect(agentRunnerSrc).toContain('parseTaskDocContractTests');
+  });
+
+  test('imports parseTaskDocTestFiles from shared', () => {
+    expect(agentRunnerSrc).toContain('parseTaskDocTestFiles');
+  });
+
+  test('has resolveSddTaskData method', () => {
+    expect(agentRunnerSrc).toContain('resolveSddTaskData(');
+  });
+
+  test('resolveSddTaskData reads SDD task layer', () => {
+    expect(agentRunnerSrc).toMatch(/readSddDoc\(slug,\s*['"]task['"]\)/);
+  });
+
+  test('resolveSddTaskData falls back to DB when SDD not found', () => {
+    expect(agentRunnerSrc).toContain('sddTaskData.contractTests');
+    expect(agentRunnerSrc).toContain('sddTaskData.testFiles');
+  });
+
+  test('execute() calls resolveSddTaskData', () => {
+    expect(agentRunnerSrc).toContain('this.resolveSddTaskData(task)');
+  });
+
+  test('testFiles passed to writeRequirementsMd', () => {
+    expect(agentRunnerSrc).toMatch(/writeRequirementsMd\(worktree,\s*task,\s*acGroup,\s*testFiles\)/);
+  });
+
+  test('writeRequirementsMd accepts testFiles parameter', () => {
+    expect(worktreeResolverSrc).toMatch(/writeRequirementsMd\([\s\S]*testFiles\??/);
+  });
+
+  test('REQUIREMENTS.md includes testFiles section', () => {
+    expect(worktreeResolverSrc).toContain('验证测试文件');
+  });
+
+  test('sddSlug used for SDD resolution', () => {
+    expect(agentRunnerSrc).toContain('task.parameters?.sddSlug');
+  });
+});

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeAll, afterAll } from 'vitest';
-import { writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
   findSddDocById,
@@ -11,6 +11,9 @@ import {
   stringifySddFrontmatter,
   listSddDocs,
   readSddDoc,
+  appendChangelog,
+  parseTaskDocContractTests,
+  parseTaskDocTestFiles,
 } from '../sdd-utils';
 
 const TEST_SDD_DIR = join('/tmp', `sdd-utils-test-${Date.now()}`);
@@ -165,5 +168,251 @@ describe('readSddDoc', () => {
 
   test('returns null for non-existent doc', () => {
     expect(readSddDoc('nonexistent', 'requirement')).toBeNull();
+  });
+});
+
+describe('appendChangelog', () => {
+  const CL_SLUG = `changelog-test-${Date.now()}`;
+  const CL_DIR = join(TEST_SDD_DIR, CL_SLUG);
+
+  afterAll(() => {
+    rmSync(CL_DIR, { recursive: true, force: true });
+  });
+
+  test('creates new CHANGELOG.md with header when file does not exist', () => {
+    appendChangelog(CL_SLUG, 'First entry');
+    const content = readFileSync(join(CL_DIR, 'CHANGELOG.md'), 'utf-8');
+    expect(content).toContain('# CHANGELOG');
+    expect(content).toContain('## ');
+    expect(content).toContain('First entry');
+  });
+
+  test('entry format: ## <timestamp>\n\n<entry>\n', () => {
+    const content = readFileSync(join(CL_DIR, 'CHANGELOG.md'), 'utf-8');
+    // Match: ## <ISO timestamp>\n\n<entry text>\n
+    expect(content).toMatch(/## \d{4}-\d{2}-\d{2}T[\d:.]+Z\n\nFirst entry\n/);
+  });
+
+  test('multiple entries append (not overwrite)', () => {
+    appendChangelog(CL_SLUG, 'Second entry');
+    const content = readFileSync(join(CL_DIR, 'CHANGELOG.md'), 'utf-8');
+    expect(content).toContain('First entry');
+    expect(content).toContain('Second entry');
+    // Count ## headers with ISO timestamps (not # CHANGELOG)
+    const headerCount = (content.match(/^## \d{4}/gm) || []).length;
+    expect(headerCount).toBe(2);
+  });
+
+  test('creates directory if it does not exist', () => {
+    const newSlug = `changelog-mkdir-${Date.now()}`;
+    appendChangelog(newSlug, 'Dir created');
+    expect(existsSync(join(TEST_SDD_DIR, newSlug, 'CHANGELOG.md'))).toBe(true);
+    rmSync(join(TEST_SDD_DIR, newSlug), { recursive: true, force: true });
+  });
+});
+
+describe('parseTaskDocContractTests', () => {
+  test('parses single contract test', () => {
+    const body = [
+      '## Contract Tests',
+      '',
+      '### __tests__/auth-verify.test.ts',
+      '```typescript',
+      "import { describe, it, expect } from 'vitest';",
+      "describe('auth', () => {",
+      "  it('verifies token', () => { expect(true).toBe(true); });",
+      '});',
+      '```',
+    ].join('\n');
+
+    const result = parseTaskDocContractTests(body);
+    expect(result).toHaveLength(1);
+    expect(result[0].file).toBe('__tests__/auth-verify.test.ts');
+    expect(result[0].content).toContain("import { describe, it, expect }");
+    expect(result[0].content).toContain('verifies token');
+  });
+
+  test('parses multiple contract tests', () => {
+    const body = [
+      '## Contract Tests',
+      '',
+      '### src/__tests__/auth.test.ts',
+      '```typescript',
+      "import { describe, it, expect } from 'vitest';",
+      "it('auth test', () => {});",
+      '```',
+      '',
+      '### src/__tests__/middleware.test.ts',
+      '```typescript',
+      "import { describe, it, expect } from 'vitest';",
+      "it('middleware test', () => {});",
+      '```',
+    ].join('\n');
+
+    const result = parseTaskDocContractTests(body);
+    expect(result).toHaveLength(2);
+    expect(result[0].file).toBe('src/__tests__/auth.test.ts');
+    expect(result[1].file).toBe('src/__tests__/middleware.test.ts');
+    expect(result[1].content).toContain('middleware test');
+  });
+
+  test('returns empty array when no Contract Tests section', () => {
+    const body = '## Other Section\n\nSome content';
+    expect(parseTaskDocContractTests(body)).toEqual([]);
+  });
+
+  test('returns empty array for empty body', () => {
+    expect(parseTaskDocContractTests('')).toEqual([]);
+  });
+
+  test('ignores content outside code blocks', () => {
+    const body = [
+      '## Contract Tests',
+      '',
+      '### __tests__/test.ts',
+      'This text outside code block should be ignored',
+      '```typescript',
+      'const x = 1;',
+      '```',
+      'This trailing text should also be ignored',
+    ].join('\n');
+
+    const result = parseTaskDocContractTests(body);
+    expect(result).toHaveLength(1);
+    expect(result[0].content).toBe('const x = 1;');
+    expect(result[0].content).not.toContain('outside code block');
+  });
+
+  test('handles Chinese section header', () => {
+    const body = [
+      '## 契约测试',
+      '',
+      '### __tests__/test.ts',
+      '```typescript',
+      'const x = 1;',
+      '```',
+    ].join('\n');
+
+    const result = parseTaskDocContractTests(body);
+    expect(result).toHaveLength(1);
+    expect(result[0].file).toBe('__tests__/test.ts');
+  });
+
+  test('stops parsing at next H2 section', () => {
+    const body = [
+      '## Contract Tests',
+      '',
+      '### __tests__/first.test.ts',
+      '```typescript',
+      "it('first', () => {});",
+      '```',
+      '',
+      '## Test Files',
+      '',
+      '### __tests__/not-a-test.ts',
+      '```typescript',
+      "it('should not be parsed', () => {});",
+      '```',
+    ].join('\n');
+
+    const result = parseTaskDocContractTests(body);
+    expect(result).toHaveLength(1);
+    expect(result[0].file).toBe('__tests__/first.test.ts');
+  });
+});
+
+describe('parseTaskDocTestFiles', () => {
+  test('parses test file list', () => {
+    const body = [
+      '## Test Files',
+      '',
+      '- src/__tests__/auth.test.ts',
+      '- src/__tests__/middleware.test.ts',
+      '- src/__tests__/session.test.ts',
+    ].join('\n');
+
+    const result = parseTaskDocTestFiles(body);
+    expect(result).toEqual([
+      'src/__tests__/auth.test.ts',
+      'src/__tests__/middleware.test.ts',
+      'src/__tests__/session.test.ts',
+    ]);
+  });
+
+  test('returns empty array when no Test Files section', () => {
+    const body = '## Other Section\n\nSome content';
+    expect(parseTaskDocTestFiles(body)).toEqual([]);
+  });
+
+  test('returns empty array for empty body', () => {
+    expect(parseTaskDocTestFiles('')).toEqual([]);
+  });
+
+  test('handles inline code backticks', () => {
+    const body = [
+      '## Test Files',
+      '',
+      '- `src/__tests__/auth.test.ts`',
+      '- `src/__tests__/middleware.test.ts`',
+    ].join('\n');
+
+    const result = parseTaskDocTestFiles(body);
+    expect(result).toEqual([
+      'src/__tests__/auth.test.ts',
+      'src/__tests__/middleware.test.ts',
+    ]);
+  });
+
+  test('handles Chinese section header', () => {
+    const body = [
+      '## 测试文件',
+      '',
+      '- src/__tests__/auth.test.ts',
+    ].join('\n');
+
+    const result = parseTaskDocTestFiles(body);
+    expect(result).toEqual(['src/__tests__/auth.test.ts']);
+  });
+
+  test('stops at next H2 section', () => {
+    const body = [
+      '## Test Files',
+      '',
+      '- src/__tests__/auth.test.ts',
+      '',
+      '## Other Section',
+      '',
+      '- not-a-test-file.ts',
+    ].join('\n');
+
+    const result = parseTaskDocTestFiles(body);
+    expect(result).toEqual(['src/__tests__/auth.test.ts']);
+  });
+
+  test('full task.md body with both sections', () => {
+    const body = [
+      '## Contract Tests',
+      '',
+      '### __tests__/auth-verify.test.ts',
+      '```typescript',
+      "it('verifies token', () => {});",
+      '```',
+      '',
+      '## Test Files',
+      '',
+      '- __tests__/auth.test.ts',
+      '- __tests__/middleware.test.ts',
+      '',
+      '## Implementation Notes',
+      '',
+      'Some notes here.',
+    ].join('\n');
+
+    const tests = parseTaskDocContractTests(body);
+    expect(tests).toHaveLength(1);
+    expect(tests[0].file).toBe('__tests__/auth-verify.test.ts');
+
+    const files = parseTaskDocTestFiles(body);
+    expect(files).toEqual(['__tests__/auth.test.ts', '__tests__/middleware.test.ts']);
   });
 });

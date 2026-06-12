@@ -172,7 +172,9 @@ export function stringifySddFrontmatter(fm: Partial<SddFrontmatter>): string {
 
 // ── 文件读写 ──
 
-const SDD_BASE_DIR = process.env.SDD_DIR || 'docs/sdd';
+function getSddBaseDir(): string {
+  return process.env.SDD_DIR || 'docs/sdd';
+}
 
 /**
  * 读取 SDD 文档（requirement/design/task）。
@@ -181,7 +183,7 @@ const SDD_BASE_DIR = process.env.SDD_DIR || 'docs/sdd';
  * @returns 解析后的 frontmatter + body，文件不存在返回 null
  */
 export function readSddDoc(slug: string, layer: 'requirement' | 'design' | 'task'): { meta: Partial<SddFrontmatter>; body: string } | null {
-  const filePath = join(SDD_BASE_DIR, slug, `${layer}.md`);
+  const filePath = join(getSddBaseDir(), slug, `${layer}.md`);
   if (!existsSync(filePath)) return null;
   const content = readFileSync(filePath, 'utf-8');
   return parseSddFrontmatter(content);
@@ -191,7 +193,7 @@ export function readSddDoc(slug: string, layer: 'requirement' | 'design' | 'task
  * 写入 SDD 文档。
  */
 export function writeSddDoc(slug: string, layer: 'requirement' | 'design' | 'task', frontmatter: Partial<SddFrontmatter>, body: string): void {
-  const dir = join(SDD_BASE_DIR, slug);
+  const dir = join(getSddBaseDir(), slug);
   mkdirSync(dir, { recursive: true });
 
   const filePath = join(dir, `${layer}.md`);
@@ -203,8 +205,9 @@ export function writeSddDoc(slug: string, layer: 'requirement' | 'design' | 'tas
  * 列出所有 SDD 文档目录。
  */
 export function listSddDocs(): string[] {
-  if (!existsSync(SDD_BASE_DIR)) return [];
-  return readdirSync(SDD_BASE_DIR, { withFileTypes: true })
+  const base = getSddBaseDir();
+  if (!existsSync(base)) return [];
+  return readdirSync(base, { withFileTypes: true })
     .filter(d => d.isDirectory())
     .map(d => d.name);
 }
@@ -247,11 +250,143 @@ export function readSddDocByGoalId(goalId: string, layer: 'requirement' | 'desig
   return readSddDoc(slug, layer);
 }
 
+// ── Task.md 内容解析（SP-004 Step 5） ──
+
+/**
+ * 从 SDD task.md body 中解析 contractTests。
+ *
+ * 期望格式：
+ * ```
+ * ## Contract Tests
+ *
+ * ### <file-path-1>
+ * ```typescript
+ * // test code
+ * ```
+ *
+ * ### <file-path-2>
+ * ```typescript
+ * // test code
+ * ```
+ * ```
+ *
+ * 解析逻辑：每个 H3 标题是文件路径，后续代码块是文件内容。
+ */
+export function parseTaskDocContractTests(body: string): Array<{ file: string; content: string }> {
+  const results: Array<{ file: string; content: string }> = [];
+  const lines = body.split('\n');
+
+  let inContractSection = false;
+  let currentFile: string | null = null;
+  let currentContent: string[] = [];
+  let inCodeBlock = false;
+
+  for (const line of lines) {
+    // H2: section boundary
+    const h2 = line.match(/^##\s+(.+)/);
+    if (h2) {
+      // Flush previous file
+      if (currentFile && currentContent.length > 0) {
+        results.push({ file: currentFile, content: currentContent.join('\n') });
+      }
+      currentFile = null;
+      currentContent = [];
+      inCodeBlock = false;
+
+      inContractSection = h2[1].trim().includes('Contract Tests') || h2[1].trim().includes('契约测试');
+      continue;
+    }
+
+    if (!inContractSection) continue;
+
+    // H3: file path
+    const h3 = line.match(/^###\s+(.+)/);
+    if (h3) {
+      // Flush previous file
+      if (currentFile && currentContent.length > 0) {
+        results.push({ file: currentFile, content: currentContent.join('\n') });
+      }
+      currentFile = h3[1].trim();
+      currentContent = [];
+      inCodeBlock = false;
+      continue;
+    }
+
+    // Code fence tracking
+    if (/^```/.test(line)) {
+      if (inCodeBlock) {
+        // End of code block — content already captured
+        inCodeBlock = false;
+      } else {
+        // Start of code block — begin capturing
+        inCodeBlock = true;
+      }
+      continue;
+    }
+
+    // Capture code content
+    if (currentFile && inCodeBlock) {
+      currentContent.push(line);
+    }
+  }
+
+  // Flush last file
+  if (currentFile && currentContent.length > 0) {
+    results.push({ file: currentFile, content: currentContent.join('\n') });
+  }
+
+  return results;
+}
+
+/**
+ * 从 SDD task.md body 中解析 testFiles。
+ *
+ * 期望格式：
+ * ```
+ * ## Test Files
+ *
+ * - path/to/test1.test.ts
+ * - path/to/test2.test.ts
+ * ```
+ */
+export function parseTaskDocTestFiles(body: string): string[] {
+  const lines = body.split('\n');
+  const results: string[] = [];
+
+  let inTestFilesSection = false;
+
+  for (const line of lines) {
+    // H2: section boundary
+    const h2 = line.match(/^##\s+(.+)/);
+    if (h2) {
+      if (inTestFilesSection) {
+        // Exiting Test Files section
+        inTestFilesSection = false;
+      }
+      inTestFilesSection = h2[1].trim().includes('Test Files') || h2[1].trim().includes('测试文件');
+      continue;
+    }
+
+    if (!inTestFilesSection) continue;
+
+    // Parse "- path" list items
+    const item = line.match(/^-\s+(.+)/);
+    if (item) {
+      const path = item[1].trim();
+      // Strip inline code backticks
+      const cleanPath = path.replace(/^`|`$/g, '');
+      if (cleanPath) results.push(cleanPath);
+    }
+  }
+
+  return results;
+}
+
 /**
  * 追加 CHANGELOG 条目。
  */
 export function appendChangelog(slug: string, entry: string): void {
-  const dir = join(SDD_BASE_DIR, slug);
+  const dir = join(getSddBaseDir(), slug);
   mkdirSync(dir, { recursive: true });
 
   const filePath = join(dir, 'CHANGELOG.md');

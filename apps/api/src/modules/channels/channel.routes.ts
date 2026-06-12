@@ -3,7 +3,7 @@ import { Router } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, appendChangelog, findSddDocById } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { verifySddFile } from './sdd-verification.js';
 import { skillStore } from '../skills/skill-store.js';
@@ -583,6 +583,13 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
               .catch((err: unknown) =>
                 logger.error('[Channel] Analyst revision trigger failed', { error: String(err) })
               );
+
+            // SP-004 Step 6: CHANGELOG entry for revision
+            try {
+              const slug = sddSlug || findSddDocById(docId);
+              if (slug) appendChangelog(slug, `Analyst revision triggered (attempt ${revisionAttempt + 1})`);
+            } catch { /* non-blocking */ }
+
             return; // Analyst revision will re-trigger start_execution via autoStartExecution
           }
         } else {
