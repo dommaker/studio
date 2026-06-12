@@ -212,7 +212,8 @@ export function buildCachePrefix(repoDir: string): string {
     `- 安装依赖: \`${installCmd}\``,
     `- 运行测试: \`${testCmd}\``,
     '- 类型检查: `npx tsc --noEmit`',
-    '- 依赖已预装（node_modules 通过 hardlink 缓存）。除非 import 报错，否则不需要 install。',
+    '- 依赖已预装（node_modules 通过 hardlink 缓存）。',
+    '- **禁止自己跑 install**：node_modules 已存在。如果 import 报错，忽略它，继续写代码。',
     '',
   ];
   try {
