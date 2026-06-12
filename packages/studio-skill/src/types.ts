@@ -35,4 +35,5 @@ export interface SkillDefinition {
   tools?: string[];
   /** 注入到 Agent prompt 的内容 */
   prompt: string;
+  intentKeywords?: string[];
 }
