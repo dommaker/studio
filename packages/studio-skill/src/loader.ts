@@ -31,6 +31,7 @@ interface SkillFrontmatter {
   tools?: string[];
   status?: string;
   version?: number;
+  intentKeywords?: string[];
 }
 
 function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: string } | null {
@@ -65,6 +66,7 @@ function frontmatterToSkillDefinition(meta: SkillFrontmatter, prompt: string): S
     tier: (meta.tier || 'standard') as SkillTier,
     tools: meta.tools,
     prompt,
+    intentKeywords: meta.intentKeywords,
   };
 }
 
