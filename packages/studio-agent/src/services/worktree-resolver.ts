@@ -198,6 +198,10 @@ export function buildCachePrefix(repoDir: string): string {
     '',
     '# Project Context (shared)',
     '',
+    '## 环境',
+    '- 包管理器: pnpm（不是 npm）。安装依赖用 `pnpm install`，不用 `npm install`。',
+    '- 依赖已预装（node_modules 通过 hardlink 缓存）。除非 import 报错，否则不需要 install。',
+    '',
   ];
   try {
     const claudeMd = fsSync.readFileSync(path.join(repoDir, 'CLAUDE.md'), 'utf-8');
@@ -350,7 +354,8 @@ export async function ensureDeps(worktree: string, repoDir: string): Promise<voi
   const lockfile = findLockfile(worktree) || findLockfile(repoDir);
   if (!lockfile) {
     logger.warn('[WorktreeResolver] Deps cache: no lockfile found, running bare install', { worktree });
-    const pkgManager = fsSync.existsSync(path.join(worktree, 'package.json')) ? 'npm' : 'npm';
+    const pkgManager = fsSync.existsSync(path.join(worktree, 'pnpm-lock.yaml')) ? 'pnpm'
+      : fsSync.existsSync(path.join(worktree, 'yarn.lock')) ? 'yarn' : 'npm';
     await execSh(`${pkgManager} install`, { cwd: worktree, timeoutMs: INSTALL_TIMEOUT_MS });
     return;
   }
