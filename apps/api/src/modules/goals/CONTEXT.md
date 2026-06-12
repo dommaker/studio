@@ -19,8 +19,10 @@ Goal 生命周期核心模块。CRUD → Plan → Scheduler → Executor → Rev
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/scheduler-integration.ts, apps/api/src/modules/goals/scheduler-prompt.ts
 
-<!-- STALE_SINCE: 2026-06-11 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/goal-review.ts, apps/api/src/modules/goals/scheduler-queue.ts
+
+<!-- STALE_SINCE: 2026-06-12 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/scheduler-prompt.ts
 
 ## 核心导出
 - `goal.service.ts` → GoalService (Goal CRUD + 审查 + 完成判定)
@@ -43,6 +45,8 @@ verifiedAt: 61f2ab3006736b235471b06ade93f1292584940f
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `dd0ddbcb`: 包管理器探测替代硬编码 pnpm
+- ✅ `95778b5e`: 统一 pnpm test 替代 npm test
 - ✅ `df0cb4aa`: Fix #5: PostEval completeness < 50% → 回滚 goal 为 failed
 - ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
 - ✅ `36a91ee2`: O2-KR1 注入命中率接线 — consumption 事件 + metric query

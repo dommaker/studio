@@ -94,6 +94,8 @@ export async function registerRoutes(): Promise<void> {
       '/pipeline/status',
       '/mcp/tools',        // MCP tool listing + execution (auth via permission service)
       '/mcp/health',       // MCP health check
+      '/mcp/sse',          // MCP SSE transport endpoint
+      '/mcp/messages',     // MCP SSE message endpoint
     ]);
     const optAuth = optionalAuth();
     app.use('/api/v1', async (req: any, res: any, next: any) => {

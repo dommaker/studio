@@ -10,7 +10,7 @@ import { logger, eventBus } from '@dommaker/studio-shared';
 import { classifyError, formatTriageMessage } from '../triage/error-class.js';
 import { channelMessageService } from './channel-message.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
-import { loadKnowledge, saveKnowledge, perInvocationOutputFile } from './analyst-knowledge.js';
+import { saveKnowledge, perInvocationOutputFile } from './analyst-knowledge.js';
 import { buildAnalystPrompt } from './analyst-prompt.js';
 import { runClaudeCode, validateAnalystOutput, preClassifyTier, type RequirementsDocJson } from './analyst-executor.js';
 
@@ -69,9 +69,8 @@ class AnalystTriggerService {
     }, 30000);
 
     try {
-      // 3. Load accumulated knowledge + build prompt
+      // 3. Build prompt (fileKnowledge removed — Analyst explores fresh each time)
       const preAnalystStart = Date.now();
-      const fileKnowledge = loadKnowledge();
       const preTier = preClassifyTier(content);
 
       // FIX #2: fast-tier 跳过 DB knowledge + accuracy reflection（节省 ~30% token）
@@ -128,7 +127,7 @@ class AnalystTriggerService {
         logger.info('[AnalystTrigger] Fast-tier: skipping DB knowledge + accuracy reflection');
       }
 
-      const knowledge = [fileKnowledge, dbKnowledge].filter(Boolean).join('\n');
+      const knowledge = dbKnowledge;
       const outputFile = perInvocationOutputFile();
       logger.info('[AnalystTrigger] Pre-classified tier', { tier: preTier, contentLength: content.length });
 
@@ -304,7 +303,7 @@ class AnalystTriggerService {
 
       logger.info('[AnalystTrigger] RequirementsDoc generated', {
         channelId, docId: doc.id, acGroupCount: response.acGroups?.length || 0,
-        durationMs, fileKnowledgeSize: fileKnowledge.length, dbKnowledgeSize: dbKnowledge.length,
+        durationMs, dbKnowledgeSize: dbKnowledge.length,
         tokens: usage,
       });
     } catch (err) {

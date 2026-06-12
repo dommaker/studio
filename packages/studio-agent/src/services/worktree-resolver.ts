@@ -170,9 +170,17 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
     const settingsPath = path.join(claudeDir, 'settings.json');
     if (!fsSync.existsSync(settingsPath)) {
       fsSync.mkdirSync(claudeDir, { recursive: true });
+
+      // Studio MCP server URL (provides loadSkill, searchKnowledge, etc.)
+      const studioMcpUrl = process.env.STUDIO_MCP_URL || 'http://localhost:13101/api/v1/mcp/sse';
+
       fsSync.writeFileSync(settingsPath, JSON.stringify({
         permissions: { defaultMode: 'bypassPermissions' },
         mcpServers: {
+          'studio': {
+            type: 'sse',
+            url: studioMcpUrl,
+          },
           'local-rag': process.env.LOCAL_RAG_BRIDGE_URL
             ? { type: 'sse', url: process.env.LOCAL_RAG_BRIDGE_URL }
             : {

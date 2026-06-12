@@ -1157,13 +1157,14 @@ export async function executeTool(
     throw new Error(`Rate limit exceeded for tool "${name}". Retry after ${rateCheck.retryAfterMs}ms`);
   }
 
-  // Permission check
-  const allowed = await mcpPermissionService.isAllowed(roleId, name);
+  // Permission check — default to 'executor' for local agents (Claude CLI)
+  const effectiveRoleId = roleId || 'executor';
+  const allowed = await mcpPermissionService.isAllowed(effectiveRoleId, name);
   if (!allowed) {
-    throw new Error(`Permission denied: role ${roleId} is not allowed to call tool "${name}"`);
+    throw new Error(`Permission denied: role ${effectiveRoleId} is not allowed to call tool "${name}"`);
   }
 
-  logger.info('MCP tool execution', { tool: name, roleId, ...traceCtx, input });
+  logger.info('MCP tool execution', { tool: name, roleId: effectiveRoleId, ...traceCtx, input });
   const start = Date.now();
   let success = false;
   let result: any;
@@ -1178,12 +1179,12 @@ export async function executeTool(
     throw e;
   } finally {
     const duration = Date.now() - start;
-    const caller = traceCtx?.executionId || roleId;
+    const caller = traceCtx?.executionId || effectiveRoleId;
     toolRegistry.recordCall(name, success, duration, caller);
     // Async audit logging (don't block response)
     mcpPermissionService.logAudit({
       toolName: name,
-      roleId,
+      roleId: effectiveRoleId,
       input,
       output: success ? result : undefined,
       duration,

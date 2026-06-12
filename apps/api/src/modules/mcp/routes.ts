@@ -4,6 +4,8 @@
  * FL-026: Added health check, admin routes integration.
  *
  * POST /api/v1/mcp          — JSON-RPC 请求（完整 MCP 协议）
+ * GET  /api/v1/mcp/sse      — SSE transport endpoint
+ * POST /api/v1/mcp/messages — SSE message endpoint
  * GET  /api/v1/mcp/tools    — 列出所有可用 tools
  * POST /api/v1/mcp/tools/:name — 直接调用 tool（简化接口）
  * GET  /api/v1/mcp/health   — 健康检查
@@ -17,6 +19,70 @@ import { logger } from '@dommaker/studio-shared';
 import adminRoutes from './admin.routes.js';
 
 const router = Router();
+
+// ─── SSE Transport ───
+
+const sseClients = new Map<string, Response>();
+
+/**
+ * GET /api/v1/mcp/sse
+ * SSE transport endpoint — Claude CLI connects here
+ */
+router.get('/sse', (req: Request, res: Response) => {
+  const clientId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+
+  // Send endpoint event with the message URL
+  const messageUrl = `/api/v1/mcp/messages?clientId=${clientId}`;
+  res.write(`event: endpoint\ndata: ${messageUrl}\n\n`);
+
+  sseClients.set(clientId, res);
+  logger.info('[MCP SSE] Client connected', { clientId });
+
+  req.on('close', () => {
+    sseClients.delete(clientId);
+    logger.info('[MCP SSE] Client disconnected', { clientId });
+  });
+});
+
+/**
+ * POST /api/v1/mcp/messages
+ * SSE message endpoint — Claude CLI sends requests here
+ */
+router.post('/messages', async (req: Request, res: Response) => {
+  const clientId = req.query.clientId as string;
+  const client = clientId ? sseClients.get(clientId) : null;
+
+  try {
+    const response = await mcpServer.handleRequest(req.body);
+
+    // Send response via SSE if client connected
+    if (client) {
+      client.write(`event: message\ndata: ${JSON.stringify(response)}\n\n`);
+    }
+
+    // Also return in HTTP response
+    res.json(response);
+  } catch (error) {
+    logger.error('MCP SSE message failed', { error: String(error) });
+    const errorResponse = {
+      jsonrpc: '2.0',
+      id: req.body?.id || 0,
+      error: { code: -32603, message: String(error) },
+    };
+
+    if (client) {
+      client.write(`event: message\ndata: ${JSON.stringify(errorResponse)}\n\n`);
+    }
+
+    res.status(500).json(errorResponse);
+  }
+});
 
 /**
  * POST /api/v1/mcp

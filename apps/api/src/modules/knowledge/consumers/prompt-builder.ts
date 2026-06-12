@@ -86,34 +86,22 @@ function buildStatsSummary(): string {
 }
 
 /**
- * AC-8d: Build Skill prompts for injection.
- * Loads evolved skills and formats them for prompt injection.
- * Independent token budget: max 500 tokens per skill, 2000 total.
+ * AC-8d: Build Skill index for injection.
+ * AS-021: 只注入元数据（name + description），Agent 按需通过 loadSkill MCP tool 加载完整内容。
  */
 function buildSkillPrompts(agentType: string): string {
   const skills = skillLoader.load({ trigger: 'always', agentType });
   if (!skills.length) return '';
 
-  const MAX_TOKENS_PER_SKILL = 500;
-  const MAX_TOTAL_TOKENS = 2000;
-  let totalTokens = 0;
+  const skillIndex = skillLoader.formatForPrompt(skills);
+  if (!skillIndex) return '';
 
-  const lines = ['## 已激活 Skills'];
-  for (const skill of skills) {
-    const prompt = skill.prompt || skill.description || '';
-    // Rough token estimate: 1 token ≈ 4 chars for mixed CJK/English
-    const estimatedTokens = Math.ceil(prompt.length / 4);
-    if (totalTokens + estimatedTokens > MAX_TOTAL_TOKENS) break;
-
-    const truncated = estimatedTokens > MAX_TOKENS_PER_SKILL
-      ? prompt.slice(0, MAX_TOKENS_PER_SKILL * 4) + '...'
-      : prompt;
-
-    lines.push(`### ${skill.name}\n${truncated}`);
-    totalTokens += Math.min(estimatedTokens, MAX_TOKENS_PER_SKILL);
-  }
-
-  return lines.length > 1 ? lines.join('\n') : '';
+  return [
+    '## 已激活 Skills',
+    '以下 skill 可用。需要时使用 `loadSkill` MCP tool 加载完整内容。',
+    '',
+    skillIndex,
+  ].join('\n');
 }
 
 /**

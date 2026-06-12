@@ -5,7 +5,6 @@
  */
 import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 const getFormatConstraintsForPrompt = async (): Promise<(role: string) => string> => formatConstraintsForPrompt;
-import { selectRelevantSections } from './analyst-knowledge.js';
 import { skillLoader } from '@dommaker/studio-skill';
 
 export interface RepoInfo {
@@ -16,12 +15,6 @@ export interface RepoInfo {
 }
 
 export async function buildAnalystPrompt(requirement: string, knowledge: string, accuracyReflection: string, outputFile: string, preClassifiedTier?: string, availableRepos?: RepoInfo[]): Promise<string> {
-  // Q7: 按段落分割知识，取与需求相关的前 N 段落（而非简单的 tail -8000chars）
-  const relevantKnowledge = selectRelevantSections(knowledge, requirement, 6000);
-  const knowledgeSection = knowledge
-    ? `\n## 历史分析积累\n以下是你之前分析这个代码库时积累的知识（按相关性筛选），可以直接复用：\n\n${relevantKnowledge}\n`
-    : '\n这是首次分析这个代码库。请先探索项目结构（CLAUDE.md、package.json、关键模块），将发现记录到 .analyst/knowledge.md 以便后续复用。\n';
-
   const fmtFn = await getFormatConstraintsForPrompt();
   const constraintSection = fmtFn('analyst');
 
@@ -41,7 +34,6 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
   // skillSection 放在知识之后（skills 是 agent-specific，放在共享前缀中会破坏缓存）
   return [
     constraintSection,
-    knowledgeSection,
     skillSection,
     '',
     '你是一个需求分析专家，在 Agent Studio 项目中工作。',
