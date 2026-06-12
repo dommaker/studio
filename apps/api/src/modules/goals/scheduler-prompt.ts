@@ -141,8 +141,8 @@ export function buildSubAgentPrompt(
   // Build {{constraints}} variable (verification rules)
   const constraintsParts = [
     '声明完成前必须：',
-    '1. 运行 npm test 确认所有测试通过（含你新增的测试）',
-    '2. 运行 npm run typecheck（或 tsc --noEmit）确认无类型错误',
+    '1. 运行 pnpm test（或 npx vitest run）确认所有测试通过（含你新增的测试）',
+    '2. 运行 npx tsc --noEmit 确认无类型错误',
     '3. 将测试证据写入 .progress.json 的 testResults 字段',
     '完成后在 .progress.json notes 中记录关键设计决策',
   ];
@@ -185,9 +185,9 @@ export function buildLegacyPrompt(input: Record<string, any> | null): string {
     acText,
     '\n## 要求\n请完成以上任务，确保代码质量、测试覆盖和安全合规。',
     '\n## 完成后',
-    '- 运行 npm test，确认全部测试通过',
+    '- 运行 pnpm test（或 npx vitest run），确认全部测试通过',
     '- 将测试证据写入 .progress.json:',
-    '  { "testResults": { "passed": true, "total": N, "failed": 0, "command": "npm test", "evidence": "<摘要>" } }',
+    '  { "testResults": { "passed": true, "total": N, "failed": 0, "command": "pnpm test", "evidence": "<摘要>" } }',
     '- 在 notes 中简要记录关键设计决策',
   ].filter(Boolean).join('\n');
 }
@@ -216,7 +216,7 @@ export async function buildIntegrationPrompt(goalId: string): Promise<string> {
   return [
     '合并所有 AC 组的变更，运行 tsc 和影响范围测试。',
     '1. git merge --no-ff 所有 task 分支',
-    '2. npm run build',
+    '2. npx tsc --noEmit',
     '3. git diff --name-only 找出变更文件',
     '4. 只跑变更文件对应的测试（同目录 .test.ts），不跑全量',
     '如果冲突: 按 AC 组文件的路径优先级解决',

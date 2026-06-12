@@ -199,7 +199,10 @@ export function buildCachePrefix(repoDir: string): string {
     '# Project Context (shared)',
     '',
     '## 环境',
-    '- 包管理器: pnpm（不是 npm）。安装依赖用 `pnpm install`，不用 `npm install`。',
+    '- 包管理器: pnpm（不是 npm）。',
+    '- 安装依赖: `pnpm install`（不用 npm install）',
+    '- 运行测试: `pnpm test` 或 `npx vitest run`（不用 npm test）',
+    '- 类型检查: `npx tsc --noEmit`',
     '- 依赖已预装（node_modules 通过 hardlink 缓存）。除非 import 报错，否则不需要 install。',
     '',
   ];
