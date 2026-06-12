@@ -164,13 +164,7 @@ export class AgentRunner implements IAgentRunner {
       await propagateHarnessConfig(worktree, task.id, task.executionId, this.config.repoDir);
 
       // Step 2.5: pre-populate node_modules (dependency cache)
-      try {
-        await ensureDeps(worktree, this.config.repoDir);
-      } catch (e) {
-        logger.warn('[AgentRunner] ensureDeps failed (non-blocking, agent will install)', {
-          taskId: task.id, executionId: task.executionId, error: String(e),
-        });
-      }
+      await ensureDeps(worktree, this.config.repoDir);
 
       // Write cache prefix
       try {
