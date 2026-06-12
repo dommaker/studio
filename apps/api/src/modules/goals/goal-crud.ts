@@ -268,6 +268,8 @@ export async function createGoalFromChannelDoc(input: {
   companyId: string;
   sourceChannelId: string;
   requirementsDocId: string;
+  /** SP-004: SDD 文件 slug（用于文件系统查找） */
+  sddSlug?: string;
   projectId?: string;
   workspaceRepoId?: string;
   risks?: string[];
@@ -275,7 +277,7 @@ export async function createGoalFromChannelDoc(input: {
   /** TDD-07: Analyst 的契约测试（写入每个 worktree） */
   contractTests?: Array<{ file: string; content: string }>;
 }) {
-  const { title, summary, acGroups, constraints = [], companyId, sourceChannelId, requirementsDocId, projectId, workspaceRepoId, risks = [], contractTests } = input;
+  const { title, summary, acGroups, constraints = [], companyId, sourceChannelId, requirementsDocId, sddSlug, projectId, workspaceRepoId, risks = [], contractTests } = input;
 
   // 去重防护：同标题 Goal 24h 内失败过 → 拒绝
   const recentFailures = await prisma.goal.count({
@@ -329,7 +331,7 @@ export async function createGoalFromChannelDoc(input: {
       title: summary || title,
       description: `Auto-generated from RequirementsDoc (${acGroups.length} AC groups)`,
       priority,
-      context: JSON.stringify({ sourceChannelId, requirementsDocId, projectId, workspaceRepoId, risks }) as any,
+      context: JSON.stringify({ sourceChannelId, requirementsDocId, sddSlug, projectId, workspaceRepoId, risks }) as any,
       companyId,
       status: 'executing',
     },

@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway } from '@dommaker/studio-shared';
+import { logger, modelGateway, readSddDocByGoalId } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { execSync } from 'child_process';
@@ -48,6 +48,34 @@ export interface AnalystAccuracy {
   tierStats?: Record<string, { total: number; succeeded: number; failed: number; avgDurationMs: number }>;
 }
 
+/**
+ * 从 RequirementsDoc Markdown 提取 AC 列表。
+ * 支持 Checkbox（DB content）和 Bullet（SDD requirement layer）两种格式。
+ */
+export function extractAcs(content: string): string[] {
+  const acs: string[] = [];
+  const lines = content.split('\n');
+  let inAcSection = false;
+  for (const line of lines) {
+    if (/^## AC Groups/i.test(line)) { inAcSection = true; continue; }
+    if (inAcSection && /^## (?!AC)/i.test(line)) { inAcSection = false; continue; }
+
+    // Checkbox: - [ ] ac / - [x] ac
+    const checkboxMatch = line.match(/^-\s*\[[ x]\]\s+(.+)/);
+    if (checkboxMatch) { acs.push(checkboxMatch[1].trim()); continue; }
+
+    // Bullet (SDD): - ac (only in AC Groups section, skip metadata lines)
+    if (inAcSection) {
+      const bulletMatch = line.match(/^-\s+(?!\*\*)[^-*][^\n]/);
+      if (bulletMatch) {
+        const text = line.replace(/^-\s+/, '').trim();
+        if (text && !text.startsWith('**')) acs.push(text);
+      }
+    }
+  }
+  return acs;
+}
+
 class PostEvalAgent {
   /**
    * Goal 完成后触发 — 比对 RequirementsDoc AC 和实际 git diff
@@ -64,16 +92,31 @@ class PostEvalAgent {
 
       const ctx = (goal.context as unknown as Record<string, unknown>) || {};
       const docId = ctx.requirementsDocId as string | undefined;
+      const sddSlug = ctx.sddSlug as string | undefined;
       if (!docId) {
         logger.info('[PostEval] No requirementsDocId in goal context, skipping');
         return null;
       }
 
-      const doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
-      if (!doc) return null;
-
-      // 2. 解析 AC
-      const acs = this.extractAcs(doc.content);
+      // SP-004: Try SDD file first, fall back to DB
+      let acs: string[];
+      if (sddSlug) {
+        const sddDoc = readSddDocByGoalId(goalId, 'requirement');
+        if (sddDoc) {
+          acs = this.extractAcs(sddDoc.body);
+          logger.info('[PostEval] ACs extracted from SDD file', { sddSlug, acCount: acs.length });
+        } else {
+          // Fallback: SDD slug exists but file not found (e.g. deleted)
+          const doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
+          if (!doc) return null;
+          acs = this.extractAcs(doc.content);
+        }
+      } else {
+        // Legacy path: no sddSlug in context (goal created before SP-004)
+        const doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
+        if (!doc) return null;
+        acs = this.extractAcs(doc.content);
+      }
       if (acs.length === 0) return null;
 
       // 3. 获取 git diff (从 GoalExecution 的 worktree 或 REPO_DIR)
@@ -248,16 +291,11 @@ class PostEvalAgent {
   }
 
   /**
-   * 从 RequirementsDoc Markdown 提取 AC 列表
+   * 从 RequirementsDoc Markdown 提取 AC 列表。
+   * 支持 Checkbox（DB）和 Bullet（SDD）两种格式。
    */
   private extractAcs(content: string): string[] {
-    const acs: string[] = [];
-    const lines = content.split('\n');
-    for (const line of lines) {
-      const match = line.match(/^-\s*\[[ x]\]\s+(.+)/);
-      if (match) acs.push(match[1].trim());
-    }
-    return acs;
+    return extractAcs(content);
   }
 
   /**

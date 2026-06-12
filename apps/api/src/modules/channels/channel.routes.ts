@@ -5,6 +5,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
+import { verifySddFile } from './sdd-verification.js';
 import { skillStore } from '../skills/skill-store.js';
 import { splitAcGroupsByRepo } from './multi-repo-split.js';
 import { goalService } from '../goals/goal.service.js';
@@ -400,6 +401,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
 
   if (action === 'start_execution') {
     const docId = meta.requirementsDocId || meta.cardData?.requirementsDocId;
+    const sddSlug = meta.sddSlug || meta.cardData?.sddSlug;
     if (docId) {
       const doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
       if (!doc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
@@ -409,6 +411,9 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         logger.info('[Channel] start_execution skipped — doc already has goal', { docId, goalId: doc.goalId });
         return res.json({ success: true, data: { skipped: true, goalId: doc.goalId || 'already_confirmed' } });
       }
+
+      // SP-004: Verify SDD file exists (enrichment, non-blocking)
+      verifySddFile({ docId, sddSlug });
 
       // Find or create default company
       let company = await prisma.company.findFirst();
@@ -719,6 +724,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
           companyId: company.id,
           sourceChannelId: req.params.channelId,
           requirementsDocId: docId,
+          sddSlug: sddSlug || undefined,
           projectId,
           risks,
           ...(groupRepoId ? { workspaceRepoId: groupRepoId } : {}),

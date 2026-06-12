@@ -6,7 +6,7 @@
 //   analyst-prompt.ts — prompt construction
 //   analyst-executor.ts — Claude Code execution + output validation
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, eventBus } from '@dommaker/studio-shared';
+import { logger, eventBus, toKebab, writeSddDoc, appendChangelog } from '@dommaker/studio-shared';
 import { classifyError, formatTriageMessage } from '../triage/error-class.js';
 import { channelMessageService } from './channel-message.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
@@ -184,13 +184,107 @@ class AnalystTriggerService {
         },
       });
 
+      // 6b. Write SDD files to disk (SP-004)
+      const slug = toKebab(response.title || 'analysis');
+      try {
+        const now = new Date().toISOString();
+        const version = 1;
+
+        // Requirement layer: What
+        writeSddDoc(slug, 'requirement', {
+          id: doc.id,
+          goalId: doc.goalId || undefined,
+          slug,
+          title: response.title || '需求分析',
+          status: 'draft',
+          tier: (response.tier as any) || 'standard',
+          version,
+          requirementVersion: version,
+          designVersion: version,
+          taskVersion: version,
+          sourceChannelId: channelId,
+          tags: response.tags || [],
+          createdAt: now,
+          updatedAt: now,
+        }, [
+          `## ${response.title}`,
+          '',
+          response.summary || '',
+          '',
+          '## AC Groups',
+          '',
+          ...response.acGroups.map((g: any) => [
+            `### ${g.id}`,
+            '',
+            ...g.acs.map((ac: string) => `- ${ac}`),
+            '',
+            `**Files**: ${g.files?.join(', ') || 'N/A'}`,
+            `**Dependencies**: ${g.dependencies?.join(', ') || 'N/A'}`,
+            g.targetRepo ? `**Target Repo**: ${g.targetRepo}` : '',
+          ].join('\n')),
+        ].join('\n'));
+
+        // Design layer: How
+        writeSddDoc(slug, 'design', {
+          id: doc.id, slug, title: response.title || '',
+          status: 'draft', tier: (response.tier as any) || 'standard',
+          version, requirementVersion: version, designVersion: version, taskVersion: version,
+          createdAt: now, updatedAt: now,
+        }, [
+          '## Design',
+          '',
+          ...response.acGroups.map((g: any) => [
+            `### ${g.id}`,
+            '',
+            '**Implementation Notes**',
+            g.implementationNotes || 'N/A',
+            '',
+            ...(g.architectureContext ? [
+              '**Architecture Context**',
+              `- Functions: ${g.architectureContext.functions?.join(', ') || 'N/A'}`,
+              `- Call Chain: ${g.architectureContext.callChain || 'N/A'}`,
+              `- Imports: ${g.architectureContext.imports?.join(', ') || 'N/A'}`,
+              `- Danger Zones: ${g.architectureContext.dangerZones?.join(', ') || 'N/A'}`,
+              `- Verified At: ${g.architectureContext.verifiedAt || 'N/A'}`,
+              '',
+            ] : []),
+            ...(g.codePatterns?.length ? ['**Code Patterns**', ...g.codePatterns.map((p: string) => `- ${p}`), ''] : []),
+            ...(g.gotchas?.length ? ['**Gotchas**', ...g.gotchas.map((h: string) => `- ${h}`), ''] : []),
+          ].join('\n')),
+        ].join('\n'));
+
+        // Task layer: Verify
+        writeSddDoc(slug, 'task', {
+          id: doc.id, slug, title: response.title || '',
+          status: 'draft', tier: (response.tier as any) || 'standard',
+          version, requirementVersion: version, designVersion: version, taskVersion: version,
+          createdAt: now, updatedAt: now,
+        }, [
+          '## Contract Tests',
+          '',
+          ...(response.contractTests?.length
+            ? response.contractTests.map((t: any) => [
+                `### ${t.file}`,
+                '```typescript',
+                t.content,
+                '```',
+              ].join('\n'))
+            : [response.contractTestsSkipReason || 'No contract tests']),
+        ].join('\n'));
+
+        appendChangelog(slug, `Created from Analyst output (channel: ${channelId}, doc: ${doc.id})`);
+        logger.info('[AnalystTrigger] SDD files written', { slug, docId: doc.id });
+      } catch (sddErr) {
+        logger.warn('[AnalystTrigger] SDD file write failed (non-blocking)', { error: String(sddErr) });
+      }
+
       // 7. Post card
       const cardMsg = await channelMessageService.createCardMessage(
         channelId,
         'Analyst',
         this.formatCardContent(response),
         'requirements_doc',
-        { requirementsDocId: doc.id },
+        { requirementsDocId: doc.id, sddSlug: slug },
         triggerMessageId ?? undefined,
       );
 
