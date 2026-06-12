@@ -57,6 +57,8 @@ export interface RequirementsDocJson {
     /** 测试代码内容（可执行的 vitest 代码） */
     content: string;
   }>;
+  /** SP-004: Executor 需运行的已有测试文件路径（回归验证） */
+  testFiles?: string[];
   /** Analyst 主动跳过契约测试时必须填写原因（如：纯文件创建、无代码行为可测） */
   contractTestsSkipReason?: string;
 }

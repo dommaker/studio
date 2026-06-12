@@ -158,6 +158,18 @@ export class SkillLoader {
   private loadFromDisk(skillName: string): SkillDefinition | null {
     try {
       if (!fs.existsSync(SKILLS_DIR)) return null;
+
+      // Flat structure: <SKILLS_DIR>/<skillName>/SKILL.md
+      const flatPath = path.join(SKILLS_DIR, skillName, 'SKILL.md');
+      if (fs.existsSync(flatPath)) {
+        const raw = fs.readFileSync(flatPath, 'utf-8');
+        const parsed = parseFrontmatter(raw);
+        if (parsed && parsed.meta.name && parsed.meta.name.trim() !== '' && (!parsed.meta.status || parsed.meta.status === 'published')) {
+          return frontmatterToSkillDefinition(parsed.meta, parsed.body);
+        }
+      }
+
+      // Fallback: trigger-based <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md
       const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
         .filter(d => d.isDirectory())
         .map(d => d.name);
@@ -186,15 +198,33 @@ export class SkillLoader {
     try {
       if (!fs.existsSync(SKILLS_DIR)) return [];
       const results: SkillDefinition[] = [];
-      const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => d.name);
-      for (const trigger of triggers) {
-        const triggerDir = path.join(SKILLS_DIR, trigger);
+      const seen = new Set<string>();
+
+      const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
+
+      // Flat structure: <SKILLS_DIR>/<skillName>/SKILL.md
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const filePath = path.join(SKILLS_DIR, entry.name, 'SKILL.md');
+        if (!fs.existsSync(filePath)) continue;
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const parsed = parseFrontmatter(raw);
+        if (!parsed) continue;
+        if (!parsed.meta.name || parsed.meta.name.trim() === '') continue;
+        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+        seen.add(entry.name);
+        results.push(frontmatterToSkillDefinition(parsed.meta, parsed.body));
+      }
+
+      // Fallback: trigger-based <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const triggerDir = path.join(SKILLS_DIR, entry.name);
         const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
           .filter(d => d.isDirectory())
           .map(d => d.name);
         for (const skillName of skills) {
+          if (seen.has(skillName)) continue; // flat structure takes priority
           const filePath = path.join(triggerDir, skillName, 'SKILL.md');
           if (!fs.existsSync(filePath)) continue;
           const raw = fs.readFileSync(filePath, 'utf-8');
@@ -202,6 +232,7 @@ export class SkillLoader {
           if (!parsed) continue;
           if (!parsed.meta.name || parsed.meta.name.trim() === '') continue;
           if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+          seen.add(skillName);
           results.push(frontmatterToSkillDefinition(parsed.meta, parsed.body));
         }
       }

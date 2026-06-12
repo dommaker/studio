@@ -100,6 +100,18 @@ function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: stri
 function loadSkillFromDisk(skillName: string): { meta: SkillFrontmatter; prompt: string } | null {
   try {
     if (!fs.existsSync(SKILLS_DIR)) return null;
+
+    // Flat structure: <SKILLS_DIR>/<skillName>/SKILL.md
+    const flatPath = path.join(SKILLS_DIR, skillName, 'SKILL.md');
+    if (fs.existsSync(flatPath)) {
+      const raw = fs.readFileSync(flatPath, 'utf-8');
+      const parsed = parseFrontmatter(raw);
+      if (parsed && (!parsed.meta.status || parsed.meta.status === 'published')) {
+        return { meta: parsed.meta, prompt: parsed.body };
+      }
+    }
+
+    // Fallback: trigger-based <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md
     const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
       .filter(d => d.isDirectory())
       .map(d => d.name);
@@ -122,21 +134,39 @@ function loadAllSkillFiles(): SkillFrontmatter[] {
   try {
     if (!fs.existsSync(SKILLS_DIR)) return [];
     const results: SkillFrontmatter[] = [];
-    const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name);
-    for (const trigger of triggers) {
-      const triggerDir = path.join(SKILLS_DIR, trigger);
+    const seen = new Set<string>();
+
+    const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
+
+    // Flat structure: <SKILLS_DIR>/<skillName>/SKILL.md
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const filePath = path.join(SKILLS_DIR, entry.name, 'SKILL.md');
+      if (!fs.existsSync(filePath)) continue;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const parsed = parseFrontmatter(raw);
+      if (!parsed) continue;
+      if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+      seen.add(entry.name);
+      results.push(parsed.meta);
+    }
+
+    // Fallback: trigger-based <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const triggerDir = path.join(SKILLS_DIR, entry.name);
       const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
         .filter(d => d.isDirectory())
         .map(d => d.name);
       for (const skillName of skills) {
+        if (seen.has(skillName)) continue;
         const filePath = path.join(triggerDir, skillName, 'SKILL.md');
         if (!fs.existsSync(filePath)) continue;
         const raw = fs.readFileSync(filePath, 'utf-8');
         const parsed = parseFrontmatter(raw);
         if (!parsed) continue;
         if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+        seen.add(skillName);
         results.push(parsed.meta);
       }
     }
