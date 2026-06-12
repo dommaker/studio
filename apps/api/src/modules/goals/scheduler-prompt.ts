@@ -141,8 +141,8 @@ export function buildSubAgentPrompt(
   // Build {{constraints}} variable (verification rules)
   const constraintsParts = [
     '声明完成前必须：',
-    '1. 运行 pnpm test（或 npx vitest run）确认所有测试通过（含你新增的测试）',
-    '2. 运行 npx tsc --noEmit 确认无类型错误',
+    '1. 运行测试确认所有测试通过（含你新增的测试）。命令见"环境"章节。',
+    '2. 运行类型检查（npx tsc --noEmit）确认无类型错误',
     '3. 将测试证据写入 .progress.json 的 testResults 字段',
     '完成后在 .progress.json notes 中记录关键设计决策',
   ];
@@ -185,9 +185,9 @@ export function buildLegacyPrompt(input: Record<string, any> | null): string {
     acText,
     '\n## 要求\n请完成以上任务，确保代码质量、测试覆盖和安全合规。',
     '\n## 完成后',
-    '- 运行 pnpm test（或 npx vitest run），确认全部测试通过',
+    '- 运行测试，确认全部测试通过（命令见"环境"章节）',
     '- 将测试证据写入 .progress.json:',
-    '  { "testResults": { "passed": true, "total": N, "failed": 0, "command": "pnpm test", "evidence": "<摘要>" } }',
+    '  { "testResults": { "passed": true, "total": N, "failed": 0, "evidence": "<摘要>" } }',
     '- 在 notes 中简要记录关键设计决策',
   ].filter(Boolean).join('\n');
 }

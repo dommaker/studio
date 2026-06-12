@@ -193,15 +193,24 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
  * so DeepSeek's prefix cache matches across pipeline agent sessions.
  */
 export function buildCachePrefix(repoDir: string): string {
+  // 探测包管理器
+  const pkgManager = fsSync.existsSync(path.join(repoDir, 'pnpm-lock.yaml')) ? 'pnpm'
+    : fsSync.existsSync(path.join(repoDir, 'yarn.lock')) ? 'yarn' : 'npm';
+
+  const installCmd = pkgManager === 'pnpm' ? 'pnpm install'
+    : pkgManager === 'yarn' ? 'yarn install' : 'npm install';
+  const testCmd = pkgManager === 'pnpm' ? 'pnpm test'
+    : pkgManager === 'yarn' ? 'yarn test' : 'npm test';
+
   const lines = [
     '<!-- SHARED_CACHE_PREFIX — DO NOT EDIT — identical across all worktrees -->',
     '',
     '# Project Context (shared)',
     '',
     '## 环境',
-    '- 包管理器: pnpm（不是 npm）。',
-    '- 安装依赖: `pnpm install`（不用 npm install）',
-    '- 运行测试: `pnpm test` 或 `npx vitest run`（不用 npm test）',
+    `- 包管理器: ${pkgManager}`,
+    `- 安装依赖: \`${installCmd}\``,
+    `- 运行测试: \`${testCmd}\``,
     '- 类型检查: `npx tsc --noEmit`',
     '- 依赖已预装（node_modules 通过 hardlink 缓存）。除非 import 报错，否则不需要 install。',
     '',
