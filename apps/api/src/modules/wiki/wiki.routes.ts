@@ -1,7 +1,7 @@
 // B2-008: LLM Wiki — RequirementsDoc 档案馆
 import { Router } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, appendChangelog, findSddDocById } from '@dommaker/studio-shared';
+import { logger, appendChangelog, findSddDocById, readSddDoc, updateSddFrontmatter } from '@dommaker/studio-shared';
 import { listWikiDocs, buildWikiGraph, getWikiDocById } from './wiki.service.js';
 
 export const wikiRoutes = Router();
@@ -102,16 +102,22 @@ wikiRoutes.put('/:id', async (req, res) => {
       data: updateData,
     });
 
-    logger.info('[Wiki] Updated', { id: req.params.id });
-
-    // SP-004 Step 6: CHANGELOG entry for wiki update
+    // SP-004: Dual-write SDD frontmatter for metadata updates
     try {
       const slug = findSddDocById(req.params.id);
       if (slug) {
+        const sddPatch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+        if (title !== undefined) sddPatch.title = title.trim();
+        if (linkedDocIds !== undefined) sddPatch.linkedDocIds = linkedDocIds;
+        updateSddFrontmatter(slug, sddPatch);
         const fields = Object.keys(updateData).join(', ');
         appendChangelog(slug, `Wiki doc updated (${fields})`);
       }
-    } catch { /* non-blocking */ }
+    } catch (e) {
+      logger.warn('[Wiki] SDD frontmatter update failed (non-blocking)', { error: String(e) });
+    }
+
+    logger.info('[Wiki] Updated', { id: req.params.id });
 
     res.json({ success: true, data: updated });
   } catch (error) {

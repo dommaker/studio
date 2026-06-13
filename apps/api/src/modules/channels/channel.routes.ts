@@ -3,7 +3,7 @@ import { Router } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, appendChangelog, findSddDocById } from '@dommaker/studio-shared';
+import { logger, appendChangelog, findSddDocById, readSddDoc, readSddDocByGoalId, updateSddFrontmatter, parseTaskDocContractTests } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { verifySddFile } from './sdd-verification.js';
 import { skillStore } from '../skills/skill-store.js';
@@ -219,6 +219,14 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
   return groups;
 }
 
+// ─── SDD Body Parsers (SP-004) ──────────────────────────────────────
+
+/** Parse contract tests from SDD task.md body using sdd-utils parser */
+function parseContractTestsFromSddBody(body: string): Array<{ file: string; content: string }> | undefined {
+  const tests = parseTaskDocContractTests(body);
+  return tests.length > 0 ? tests : undefined;
+}
+
 // GET /api/v1/channels — list all channels
 router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
   const channels = await prisma.channel.findMany({
@@ -403,7 +411,36 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
     const docId = meta.requirementsDocId || meta.cardData?.requirementsDocId;
     const sddSlug = meta.sddSlug || meta.cardData?.sddSlug;
     if (docId) {
-      const doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
+      // SP-004: SDD-first read, DB fallback for RequirementsDoc
+      const resolvedSlug = sddSlug || findSddDocById(docId);
+      let doc: Awaited<ReturnType<typeof prisma.requirementsDoc.findUnique>>;
+      let sddBody: string | undefined;
+
+      if (resolvedSlug) {
+        const sddReq = readSddDoc(resolvedSlug, 'requirement');
+        if (sddReq) {
+          // Merge SDD frontmatter + DB (DB needed for content, projectId, contractTests)
+          const dbDoc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
+          if (!dbDoc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
+          doc = {
+            ...dbDoc,
+            id: (sddReq.meta.id as string) || dbDoc.id,
+            goalId: (sddReq.meta.goalId as string) || dbDoc.goalId,
+            title: (sddReq.meta.title as string) || dbDoc.title,
+            status: (sddReq.meta.status as string) || dbDoc.status,
+            tags: sddReq.meta.tags ? JSON.stringify(sddReq.meta.tags) : dbDoc.tags,
+          };
+          sddBody = sddReq.body;
+          logger.info('[Channel] SDD-first read', { slug: resolvedSlug, docId });
+        } else {
+          // SDD slug exists but file not found — full DB fallback
+          doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
+        }
+      } else {
+        // No SDD slug — full DB fallback (legacy path)
+        doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
+      }
+
       if (!doc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
 
       // Idempotency guard: prevent duplicate Goals from race between autoStartExecution + CLI polling
@@ -413,7 +450,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       }
 
       // SP-004: Verify SDD file exists (enrichment, non-blocking)
-      verifySddFile({ docId, sddSlug });
+      verifySddFile({ docId, sddSlug: resolvedSlug });
 
       // Find or create default company
       let company = await prisma.company.findFirst();
@@ -421,14 +458,23 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         company = await prisma.company.create({ data: { name: 'Default' } });
       }
 
-      // G34: Read acGroups from JSON column (source of truth), fallback to Markdown parse
-      let acGroups = doc.acGroups
-        ? JSON.parse(doc.acGroups as string)
-        : parseAcGroupsFromMarkdown(doc.content);
-      // TDD-07: Read contractTests from DB (Analyst 契约测试)
-      const contractTests = doc.contractTests
-        ? JSON.parse(doc.contractTests as string)
-        : undefined;
+      // G34: Read acGroups — SDD body parse preferred, fallback to DB JSON column
+      let acGroups = sddBody
+        ? parseAcGroupsFromMarkdown(sddBody)
+        : doc.acGroups
+          ? JSON.parse(doc.acGroups as string)
+          : parseAcGroupsFromMarkdown(doc.content);
+      // TDD-07: Read contractTests — SDD task layer first, fallback to DB
+      let contractTests: Array<{ file: string; content: string }> | undefined;
+      if (resolvedSlug) {
+        const sddTask = readSddDoc(resolvedSlug, 'task');
+        if (sddTask) {
+          contractTests = parseContractTestsFromSddBody(sddTask.body);
+        }
+      }
+      if (!contractTests && doc.contractTests) {
+        contractTests = JSON.parse(doc.contractTests as string);
+      }
       const contractTestsSkipReason = (doc as any).contractTestsSkipReason || null;
 
       // Extract tier from Analyst output (TASK_TIER comment in content)
@@ -575,6 +621,10 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
               where: { id: docId },
               data: { content: doc.content.replace(/<!-- GATE_REVISION_ATTEMPT \d+ -->\n?/, '') + `\n<!-- GATE_REVISION_ATTEMPT ${revisionAttempt + 1} -->` },
             }).catch((e: unknown) => logger.error('[Channel] Failed to update doc revision marker', { error: String(e) }));
+            // SP-004: Dual-write SDD frontmatter
+            if (resolvedSlug) {
+              try { updateSddFrontmatter(resolvedSlug, { changeDesc: `revision attempt ${revisionAttempt + 1}`, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
+            }
 
             import('./analyst-trigger.service.js')
               .then(({ analystTriggerService }) =>
@@ -653,6 +703,10 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         projectId = pmoProject.id;
         // Update RequirementsDoc with projectId
         await prisma.requirementsDoc.update({ where: { id: docId }, data: { projectId } });
+        // SP-004: Dual-write SDD frontmatter
+        if (resolvedSlug) {
+          try { updateSddFrontmatter(resolvedSlug, { updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
+        }
         logger.info('[Channel] PMO project created', { pmoNumber: pmoProject.pmoNumber, projectId });
       }
 
@@ -747,6 +801,10 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         where: { id: docId },
         data: { status: 'confirmed', goalId: primaryResult.goalId },
       });
+      // SP-004: Dual-write SDD frontmatter
+      if (resolvedSlug) {
+        try { updateSddFrontmatter(resolvedSlug, { status: 'confirmed', goalId: primaryResult.goalId, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
+      }
 
       meta.status = 'executing';
       meta.goalId = primaryResult.goalId;
@@ -997,6 +1055,16 @@ router.delete('/:id', async (req, res) => {
     where: { sourceChannelId: channel.id },
     data: { sourceChannelId: rndChannel.id },
   });
+  // SP-004: Dual-write SDD frontmatters for migrated docs
+  try {
+    const { listSddDocs } = await import('@dommaker/studio-shared');
+    for (const slug of listSddDocs()) {
+      const sdd = readSddDoc(slug, 'requirement');
+      if (sdd?.meta.sourceChannelId === channel.id) {
+        try { updateSddFrontmatter(slug, { sourceChannelId: rndChannel.id, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
+      }
+    }
+  } catch { /* non-blocking */ }
 
   // Migrate Goals (via context.sourceChannelId) — update context JSON
   const goals = await prisma.goal.findMany({

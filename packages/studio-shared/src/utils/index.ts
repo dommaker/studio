@@ -10,5 +10,5 @@ export { parseSpecMarkdown, loadSpecFile } from './spec-parser';
 export type { SpecContent, ApiEndpoint, SchemaDefinition, AcceptanceCriterion } from './spec-parser';
 export { execSh, resolveSessionId, readSessionIdFile, readProgress, writeProgress, readPhaseBridge } from './process-io';
 export type { ExecShOptions, SessionIdOptions, ProgressReport, PhaseBridge } from './process-io';
-export { toKebab, parseSddFrontmatter, stringifySddFrontmatter, readSddDoc, writeSddDoc, listSddDocs, appendChangelog, findSddDocById, findSddDocByGoalId, readSddDocByGoalId, parseTaskDocContractTests, parseTaskDocTestFiles } from './sdd-utils';
+export { toKebab, parseSddFrontmatter, stringifySddFrontmatter, readSddDoc, writeSddDoc, listSddDocs, findSddDocs, updateSddFrontmatter, appendChangelog, findSddDocById, findSddDocByGoalId, readSddDocByGoalId, parseTaskDocContractTests, parseTaskDocTestFiles } from './sdd-utils';
 export type { SddFrontmatter } from './sdd-utils';

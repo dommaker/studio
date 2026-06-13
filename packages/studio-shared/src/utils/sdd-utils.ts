@@ -400,3 +400,55 @@ export function appendChangelog(slug: string, entry: string): void {
     writeFileSync(filePath, `# CHANGELOG\n${newEntry}`, 'utf-8');
   }
 }
+
+// ── SddRepository 查询/更新 ──
+
+/**
+ * 查找 SDD 文档列表，支持按 status 和 goalId 过滤。
+ *
+ * @param filter - 可选过滤条件
+ * @param filter.status - 按文档状态过滤
+ * @param filter.goalId - 按关联 Goal ID 过滤
+ * @returns 匹配的 frontmatter 数组
+ */
+export function findSddDocs(filter?: { status?: string; goalId?: string }): Array<Partial<SddFrontmatter>> {
+  const slugs = listSddDocs();
+  const results: Array<Partial<SddFrontmatter>> = [];
+
+  for (const slug of slugs) {
+    const doc = readSddDoc(slug, 'requirement');
+    if (!doc) continue;
+
+    if (filter?.status && doc.meta.status !== filter.status) continue;
+    if (filter?.goalId && doc.meta.goalId !== filter.goalId) continue;
+
+    results.push(doc.meta);
+  }
+
+  return results;
+}
+
+/**
+ * 更新 SDD requirement.md 的 frontmatter（合并 patch）。
+ *
+ * @param slug - 目录名
+ * @param patch - 要合并的 frontmatter 字段
+ */
+export function updateSddFrontmatter(slug: string, patch: Partial<SddFrontmatter>): void {
+  const baseDir = process.env.SDD_DIR || 'docs/sdd';
+  const filePath = join(baseDir, slug, 'requirement.md');
+
+  if (!existsSync(filePath)) {
+    throw new Error(`SDD doc not found: ${filePath}`);
+  }
+
+  const content = readFileSync(filePath, 'utf-8');
+  const parsed = parseSddFrontmatter(content);
+  if (!parsed) {
+    throw new Error(`Invalid frontmatter in: ${filePath}`);
+  }
+
+  const merged = { ...parsed.meta, ...patch };
+  const newContent = `${stringifySddFrontmatter(merged)}\n\n${parsed.body}`;
+  writeFileSync(filePath, newContent, 'utf-8');
+}

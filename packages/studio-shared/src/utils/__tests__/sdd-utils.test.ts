@@ -14,6 +14,8 @@ import {
   appendChangelog,
   parseTaskDocContractTests,
   parseTaskDocTestFiles,
+  findSddDocs,
+  updateSddFrontmatter,
 } from '../sdd-utils';
 
 const TEST_SDD_DIR = join('/tmp', `sdd-utils-test-${Date.now()}`);
@@ -414,5 +416,122 @@ describe('parseTaskDocTestFiles', () => {
 
     const files = parseTaskDocTestFiles(body);
     expect(files).toEqual(['__tests__/auth.test.ts', '__tests__/middleware.test.ts']);
+  });
+});
+
+describe('findSddDocs', () => {
+  test('returns all docs when no filter', () => {
+    const results = findSddDocs();
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    const ids = results.map(r => r.id);
+    expect(ids).toContain('doc-aaa-111');
+    expect(ids).toContain('doc-bbb-222');
+  });
+
+  test('filters by status', () => {
+    const results = findSddDocs({ status: 'draft' });
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    for (const r of results) {
+      expect(r.status).toBe('draft');
+    }
+  });
+
+  test('returns empty for non-matching status', () => {
+    const results = findSddDocs({ status: 'done' });
+    expect(results).toEqual([]);
+  });
+
+  test('filters by goalId', () => {
+    const results = findSddDocs({ goalId: 'goal-xxx-001' });
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe('doc-aaa-111');
+    expect(results[0].goalId).toBe('goal-xxx-001');
+  });
+
+  test('returns empty for non-matching goalId', () => {
+    const results = findSddDocs({ goalId: 'goal-nonexistent' });
+    expect(results).toEqual([]);
+  });
+
+  test('filters by both status and goalId', () => {
+    const results = findSddDocs({ status: 'draft', goalId: 'goal-xxx-001' });
+    expect(results).toHaveLength(1);
+    expect(results[0].id).toBe('doc-aaa-111');
+  });
+
+  test('returns empty when status+goalId combo does not match', () => {
+    const results = findSddDocs({ status: 'done', goalId: 'goal-xxx-001' });
+    expect(results).toEqual([]);
+  });
+});
+
+describe('updateSddFrontmatter', () => {
+  const UPDATE_SLUG = `update-test-${Date.now()}`;
+
+  beforeAll(() => {
+    writeSddDoc(UPDATE_SLUG, 'requirement', {
+      id: 'doc-update-001',
+      slug: UPDATE_SLUG,
+      title: 'Update Test Doc',
+      status: 'draft',
+      tier: 'standard',
+      version: 1,
+      requirementVersion: 1,
+      designVersion: 1,
+      taskVersion: 1,
+      tags: ['test'],
+      createdAt: '2026-06-13T00:00:00Z',
+      updatedAt: '2026-06-13T00:00:00Z',
+    }, '## Requirement\n\nOriginal body content');
+  });
+
+  afterAll(() => {
+    const dir = join(TEST_SDD_DIR, UPDATE_SLUG);
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('merges patch into existing frontmatter', () => {
+    updateSddFrontmatter(UPDATE_SLUG, { status: 'confirmed', title: 'Updated Title' });
+
+    const doc = readSddDoc(UPDATE_SLUG, 'requirement');
+    expect(doc).not.toBeNull();
+    expect(doc!.meta.status).toBe('confirmed');
+    expect(doc!.meta.title).toBe('Updated Title');
+    // Unchanged fields preserved
+    expect(doc!.meta.id).toBe('doc-update-001');
+    expect(doc!.meta.tier).toBe('standard');
+  });
+
+  test('preserves body content after update', () => {
+    const doc = readSddDoc(UPDATE_SLUG, 'requirement');
+    expect(doc).not.toBeNull();
+    expect(doc!.body).toContain('Original body content');
+  });
+
+  test('updates numeric fields', () => {
+    updateSddFrontmatter(UPDATE_SLUG, { version: 2, requirementVersion: 2 });
+
+    const doc = readSddDoc(UPDATE_SLUG, 'requirement');
+    expect(doc!.meta.version).toBe(2);
+    expect(doc!.meta.requirementVersion).toBe(2);
+    // Other fields unchanged
+    expect(doc!.meta.status).toBe('confirmed');
+  });
+
+  test('throws for non-existent slug', () => {
+    expect(() => updateSddFrontmatter('nonexistent-slug', { status: 'done' }))
+      .toThrow('SDD doc not found');
+  });
+
+  test('throws for file without frontmatter', () => {
+    const badSlug = `bad-frontmatter-${Date.now()}`;
+    const dir = join(TEST_SDD_DIR, badSlug);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, 'requirement.md'), 'No frontmatter here', 'utf-8');
+
+    expect(() => updateSddFrontmatter(badSlug, { status: 'done' }))
+      .toThrow('Invalid frontmatter');
+
+    rmSync(dir, { recursive: true, force: true });
   });
 });
