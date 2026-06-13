@@ -97,12 +97,7 @@ wikiRoutes.put('/:id', async (req, res) => {
       updateData.linkedDocIds = JSON.stringify(linkedDocIds);
     }
 
-    const updated = await prisma.requirementsDoc.update({
-      where: { id: req.params.id },
-      data: updateData,
-    });
-
-    // SP-004: Dual-write SDD frontmatter for metadata updates
+    // SP-004: SDD primary, DB fire-and-forget
     try {
       const slug = findSddDocById(req.params.id);
       if (slug) {
@@ -114,12 +109,17 @@ wikiRoutes.put('/:id', async (req, res) => {
         appendChangelog(slug, `Wiki doc updated (${fields})`);
       }
     } catch (e) {
-      logger.warn('[Wiki] SDD frontmatter update failed (non-blocking)', { error: String(e) });
+      logger.warn('[Wiki] SDD frontmatter update failed', { error: String(e) });
     }
+    // DB async sync (non-blocking)
+    prisma.requirementsDoc.update({
+      where: { id: req.params.id },
+      data: updateData,
+    }).catch((e: unknown) => logger.warn('[Wiki] DB sync failed (non-blocking)', { error: String(e) }));
 
     logger.info('[Wiki] Updated', { id: req.params.id });
 
-    res.json({ success: true, data: updated });
+    res.json({ success: true, data: { id: req.params.id, ...updateData } });
   } catch (error) {
     logger.error('[Wiki] Update failed', { error, id: req.params.id });
     res.status(500).json({ success: false, error: 'Failed to update document' });

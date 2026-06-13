@@ -616,15 +616,15 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
               revisionAttempt,
             );
 
-            // Update doc content with revision marker for next gate check
-            await prisma.requirementsDoc.update({
-              where: { id: docId },
-              data: { content: doc.content.replace(/<!-- GATE_REVISION_ATTEMPT \d+ -->\n?/, '') + `\n<!-- GATE_REVISION_ATTEMPT ${revisionAttempt + 1} -->` },
-            }).catch((e: unknown) => logger.error('[Channel] Failed to update doc revision marker', { error: String(e) }));
-            // SP-004: Dual-write SDD frontmatter
+            // SP-004: SDD primary, DB fire-and-forget
             if (resolvedSlug) {
               try { updateSddFrontmatter(resolvedSlug, { changeDesc: `revision attempt ${revisionAttempt + 1}`, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
             }
+            // DB async sync (non-blocking)
+            prisma.requirementsDoc.update({
+              where: { id: docId },
+              data: { content: doc.content.replace(/<!-- GATE_REVISION_ATTEMPT \d+ -->\n?/, '') + `\n<!-- GATE_REVISION_ATTEMPT ${revisionAttempt + 1} -->` },
+            }).catch((e: unknown) => logger.error('[Channel] Failed to update doc revision marker', { error: String(e) }));
 
             import('./analyst-trigger.service.js')
               .then(({ analystTriggerService }) =>
@@ -701,12 +701,13 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
           requirementsDocId: docId,
         });
         projectId = pmoProject.id;
-        // Update RequirementsDoc with projectId
-        await prisma.requirementsDoc.update({ where: { id: docId }, data: { projectId } });
-        // SP-004: Dual-write SDD frontmatter
+        // SP-004: SDD primary, DB fire-and-forget
         if (resolvedSlug) {
           try { updateSddFrontmatter(resolvedSlug, { updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
         }
+        // DB async sync (non-blocking)
+        prisma.requirementsDoc.update({ where: { id: docId }, data: { projectId } })
+          .catch((e: unknown) => logger.warn('[Channel] DB projectId sync failed (non-blocking)', { error: String(e) }));
         logger.info('[Channel] PMO project created', { pmoNumber: pmoProject.pmoNumber, projectId });
       }
 
@@ -796,15 +797,15 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
 
       const primaryResult = results[0];
 
-      // Update RequirementsDoc with primary Goal ID
-      await prisma.requirementsDoc.update({
-        where: { id: docId },
-        data: { status: 'confirmed', goalId: primaryResult.goalId },
-      });
-      // SP-004: Dual-write SDD frontmatter
+      // SP-004: SDD primary, DB fire-and-forget
       if (resolvedSlug) {
         try { updateSddFrontmatter(resolvedSlug, { status: 'confirmed', goalId: primaryResult.goalId, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
       }
+      // DB async sync (non-blocking)
+      prisma.requirementsDoc.update({
+        where: { id: docId },
+        data: { status: 'confirmed', goalId: primaryResult.goalId },
+      }).catch((e: unknown) => logger.warn('[Channel] DB status sync failed (non-blocking)', { error: String(e) }));
 
       meta.status = 'executing';
       meta.goalId = primaryResult.goalId;
@@ -1050,12 +1051,13 @@ router.delete('/:id', async (req, res) => {
     rndChannel = await prisma.channel.create({ data: { name: '#研发', type: 'rnd' } });
   }
 
-  // Migrate RequirementsDocs to #研发
-  await prisma.requirementsDoc.updateMany({
+  // SP-004: SDD primary for channel migration
+  // DB async sync (non-blocking)
+  prisma.requirementsDoc.updateMany({
     where: { sourceChannelId: channel.id },
     data: { sourceChannelId: rndChannel.id },
-  });
-  // SP-004: Dual-write SDD frontmatters for migrated docs
+  }).catch((e: unknown) => logger.warn('[Channel] DB migration sync failed (non-blocking)', { error: String(e) }));
+  // SDD frontmatters for migrated docs
   try {
     const { listSddDocs } = await import('@dommaker/studio-shared');
     for (const slug of listSddDocs()) {

@@ -28,18 +28,19 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Cannot edit confirmed/done RequirementsDoc' });
   }
 
-  // Dual-write: DB + SDD
-  await prisma.requirementsDoc.update({
-    where: { id: req.params.id },
-    data: { content, status: 'draft' },
-  });
+  // SP-004: SDD primary, DB fire-and-forget
   if (slug) {
     try {
       updateSddFrontmatter(slug, { status: 'draft', updatedAt: new Date().toISOString() });
     } catch (e) {
-      logger.warn('[RequirementsDoc] SDD frontmatter update failed (non-blocking)', { error: String(e) });
+      logger.warn('[RequirementsDoc] SDD frontmatter update failed', { error: String(e) });
     }
   }
+  // DB async sync (non-blocking)
+  prisma.requirementsDoc.update({
+    where: { id: req.params.id },
+    data: { content, status: 'draft' },
+  }).catch((e: unknown) => logger.warn('[RequirementsDoc] DB sync failed (non-blocking)', { error: String(e) }));
   logger.info('[RequirementsDoc] Updated', { id: req.params.id });
   res.json({ success: true, data: { updated: true } });
 });
