@@ -242,7 +242,6 @@ class ConversationHandler {
     try {
       const agentCtx = buildAgentContext({
         agentType: channel.agentName?.toLowerCase() || 'analyst',
-        trigger: 'goal_start',
         compact: true,
       });
       if (agentCtx.prompt) {

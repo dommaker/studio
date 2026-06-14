@@ -79,7 +79,7 @@ export class ReviewAgent {
         if (knowledgeContext) indexSection = '\n## 知识检索\n' + knowledgeContext + '\n';
       } catch { /* best-effort */ }
       // TDD-04: Load reviewer skills via SkillLoader
-      const reviewerSkills = skillLoader.load({ trigger: 'review', agentType: 'reviewer' });
+      const reviewerSkills = skillLoader.load({ agentType: 'reviewer' });
       const skillSection = reviewerSkills.length > 0
         ? '\n' + skillLoader.formatForPrompt(reviewerSkills) + '\n'
         : '';
@@ -497,7 +497,7 @@ export class ReviewAgent {
         if (knowledgeContext) indexSection = '\n## 知识检索\n' + knowledgeContext + '\n';
       } catch { /* best-effort */ }
       // TDD-04: Load reviewer skills for branch diff review too
-      const reviewerSkills = skillLoader.load({ trigger: 'review', agentType: 'reviewer' });
+      const reviewerSkills = skillLoader.load({ agentType: 'reviewer' });
       const skillSection = reviewerSkills.length > 0
         ? '\n' + skillLoader.formatForPrompt(reviewerSkills) + '\n'
         : '';

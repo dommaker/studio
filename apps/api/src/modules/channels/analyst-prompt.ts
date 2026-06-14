@@ -19,7 +19,7 @@ export async function buildAnalystPrompt(requirement: string, knowledge: string,
   const constraintSection = fmtFn('analyst');
 
   // TDD-03: Load analyst skills via SkillLoader
-  const analystSkills = skillLoader.load({ trigger: 'goal_start', agentType: 'analyst' });
+  const analystSkills = skillLoader.load({ agentType: 'analyst' });
   const skillSection = analystSkills.length > 0
     ? '\n' + skillLoader.formatForPrompt(analystSkills) + '\n'
     : '';

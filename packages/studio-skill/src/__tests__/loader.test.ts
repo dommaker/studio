@@ -20,21 +20,14 @@ function makeDirent(name: string, isDir: boolean) {
   return { name, isDirectory: () => isDir, isFile: () => !isDir } as fs.Dirent;
 }
 
-/** Mock readdirSync to return trigger subdirectory structure */
-function mockTriggerDirs(triggers: Record<string, string[]>) {
-  const triggerEntries = Object.keys(triggers).map(t => makeDirent(t, true));
+/** Mock readdirSync to return flat skill directory structure */
+function mockSkillDirs(skills: string[]) {
+  const entries = skills.map(s => makeDirent(s, true));
   (fs.readdirSync as unknown as { mockImplementation: (fn: any) => void }).mockImplementation(
     (dirPath: string, opts?: any) => {
       const dir = String(dirPath);
-      // Top-level: return trigger directories
       if (dir.endsWith('.studio/skills')) {
-        return opts?.withFileTypes ? triggerEntries : Object.keys(triggers);
-      }
-      // Trigger level: return skill directories
-      for (const [trigger, skills] of Object.entries(triggers)) {
-        if (dir.endsWith(`/${trigger}`)) {
-          return opts?.withFileTypes ? skills.map(s => makeDirent(s, true)) : skills;
-        }
+        return opts?.withFileTypes ? entries : skills;
       }
       return [];
     },
@@ -47,7 +40,6 @@ const MOCK_SKILL_MD = [
   '---',
   'name: disk-skill',
   'description: from disk',
-  'trigger: always',
   'agentTypes: [executor]',
   'tier: fast',
   'status: published',
@@ -67,7 +59,7 @@ describe('SkillLoader', () => {
   describe('public API', () => {
     it('load() returns empty when no skills loaded', () => {
       const loader = new SkillLoader();
-      const skills = loader.load({ trigger: 'goal_start', agentType: 'executor', tier: 'fast' });
+      const skills = loader.load({ agentType: 'executor', tier: 'fast' });
       expect(skills).toEqual([]);
     });
 
@@ -85,7 +77,7 @@ describe('SkillLoader', () => {
       const loader = new SkillLoader();
       const prompt = loader.formatForPrompt([{
         id: 'test', name: 'Test Skill', description: 'A test',
-        trigger: 'always', agentTypes: [], tier: 'fast', prompt: '',
+        agentTypes: [], tier: 'fast', prompt: '',
       }]);
       expect(prompt).toContain('Test Skill');
       expect(prompt).toContain('A test');
@@ -97,11 +89,11 @@ describe('SkillLoader', () => {
     });
   });
 
-  describe('disk loading with trigger subdirectories', () => {
-    it('should load skill from trigger subdirectory', async () => {
+  describe('disk loading with skill directories', () => {
+    it('should load skill from disk directory', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue(MOCK_SKILL_MD);
-      mockTriggerDirs({ always: ['disk-skill'] });
+      mockSkillDirs(['disk-skill']);
 
       const loader = new SkillLoader();
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
@@ -110,30 +102,29 @@ describe('SkillLoader', () => {
       const skill = loader.get('disk-skill');
       expect(skill).toBeDefined();
       expect(skill!.description).toBe('from disk');
-      expect(skill!.trigger).toBe('always');
       expect(skill!.agentTypes).toEqual(['executor']);
       expect(skill!.tier).toBe('fast');
       expect(skill!.prompt).toBe('## Disk prompt content');
     });
 
-    it('should load multiple skills from multiple trigger directories', async () => {
+    it('should load multiple skills from disk directories', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockImplementation((p: any) => {
         if (String(p).includes('skill-a')) {
           return [
-            '---', 'name: skill-a', 'description: A', 'trigger: goal_start',
+            '---', 'name: skill-a', 'description: A',
             'agentTypes: [executor]', 'tier: fast', 'status: published', '---', '## A',
           ].join('\n');
         }
         if (String(p).includes('skill-b')) {
           return [
-            '---', 'name: skill-b', 'description: B', 'trigger: review',
+            '---', 'name: skill-b', 'description: B',
             'agentTypes: [reviewer]', 'tier: standard', 'status: published', '---', '## B',
           ].join('\n');
         }
         return '';
       });
-      mockTriggerDirs({ 'goal-start': ['skill-a'], review: ['skill-b'] });
+      mockSkillDirs(['skill-a', 'skill-b']);
 
       const loader = new SkillLoader();
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
@@ -145,13 +136,13 @@ describe('SkillLoader', () => {
 
     it('should skip non-published disk skills', async () => {
       const draftContent = [
-        '---', 'name: draft-skill', 'description: draft', 'trigger: always',
+        '---', 'name: draft-skill', 'description: draft',
         'status: draft', '---', '## Draft',
       ].join('\n');
 
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue(draftContent);
-      mockTriggerDirs({ always: ['draft-skill'] });
+      mockSkillDirs(['draft-skill']);
 
       const loader = new SkillLoader();
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
@@ -162,13 +153,13 @@ describe('SkillLoader', () => {
 
     it('should skip file with empty name', async () => {
       const emptyNameContent = [
-        '---', 'name: ', 'description: empty', 'trigger: always',
+        '---', 'name: ', 'description: empty',
         'status: published', '---', '## Content',
       ].join('\n');
 
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue(emptyNameContent);
-      mockTriggerDirs({ always: ['empty-skill'] });
+      mockSkillDirs(['empty-skill']);
 
       const loader = new SkillLoader();
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
@@ -180,7 +171,7 @@ describe('SkillLoader', () => {
     it('should handle missing frontmatter gracefully', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue('No frontmatter here');
-      mockTriggerDirs({ always: ['no-front'] });
+      mockSkillDirs(['no-front']);
 
       const loader = new SkillLoader();
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
@@ -196,18 +187,18 @@ describe('SkillLoader', () => {
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
       await new Promise(r => setTimeout(r, 10));
 
-      const skills = loader.load({ trigger: 'goal_start', agentType: 'executor', tier: 'fast' });
+      const skills = loader.load({ agentType: 'executor', tier: 'fast' });
       expect(skills).toEqual([]);
     });
 
     it('should load disk skills even without prisma', async () => {
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue(MOCK_SKILL_MD);
-      mockTriggerDirs({ always: ['disk-skill'] });
+      mockSkillDirs(['disk-skill']);
 
       const loader = new SkillLoader();
       // No init() — prisma is null, but disk loading should still work via refreshCache
-      loader.load({ trigger: 'always', agentType: 'executor' });
+      loader.load({ agentType: 'executor' });
 
       const skill = loader.get('disk-skill');
       expect(skill).toBeDefined();
@@ -221,46 +212,31 @@ describe('SkillLoader', () => {
         const path = String(p);
         if (path.includes('green-only-tdd')) {
           return [
-            '---', 'name: green-only-tdd', 'description: TDD', 'trigger: goal_start',
+            '---', 'name: green-only-tdd', 'description: TDD',
             'agentTypes: [executor]', 'tier: fast', 'status: published', '---', '## TDD',
           ].join('\n');
         }
         if (path.includes('multi-stance-review')) {
           return [
-            '---', 'name: multi-stance-review', 'description: Review', 'trigger: review',
+            '---', 'name: multi-stance-review', 'description: Review',
             'agentTypes: [reviewer]', 'tier: standard', 'status: published', '---', '## Review',
           ].join('\n');
         }
         if (path.includes('tool-risk')) {
           return [
-            '---', 'name: tool-risk', 'description: Risk', 'trigger: always',
+            '---', 'name: tool-risk', 'description: Risk',
             'agentTypes: [executor]', 'tier: fast', 'status: published', '---', '## Risk',
           ].join('\n');
         }
         if (path.includes('contract-test-writing')) {
           return [
-            '---', 'name: contract-test-writing', 'description: Contract', 'trigger: goal_start',
+            '---', 'name: contract-test-writing', 'description: Contract',
             'agentTypes: [analyst]', 'tier: premium', 'status: published', '---', '## Contract',
           ].join('\n');
         }
         return '';
       });
-      mockTriggerDirs({
-        'goal-start': ['green-only-tdd', 'contract-test-writing'],
-        review: ['multi-stance-review'],
-        always: ['tool-risk'],
-      });
-    });
-
-    it('should filter by trigger', async () => {
-      const loader = new SkillLoader();
-      loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
-      await new Promise(r => setTimeout(r, 10));
-
-      const skills = loader.load({ trigger: 'goal_start', agentType: 'executor', tier: 'fast' });
-      expect(skills.some(s => s.id === 'green-only-tdd')).toBe(true);
-      // tool-risk is 'always' trigger, should also be included
-      expect(skills.some(s => s.id === 'tool-risk')).toBe(true);
+      mockSkillDirs(['green-only-tdd', 'multi-stance-review', 'tool-risk', 'contract-test-writing']);
     });
 
     it('should filter by agentType', async () => {
@@ -268,7 +244,7 @@ describe('SkillLoader', () => {
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
       await new Promise(r => setTimeout(r, 10));
 
-      const execSkills = loader.load({ trigger: 'goal_start', agentType: 'executor' });
+      const execSkills = loader.load({ agentType: 'executor' });
       expect(execSkills.every(s => s.agentTypes.includes('executor'))).toBe(true);
     });
 
@@ -277,10 +253,10 @@ describe('SkillLoader', () => {
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
       await new Promise(r => setTimeout(r, 10));
 
-      const fastSkills = loader.load({ trigger: 'review', agentType: 'reviewer', tier: 'fast' });
+      const fastSkills = loader.load({ agentType: 'reviewer', tier: 'fast' });
       expect(fastSkills.some(s => s.id === 'multi-stance-review')).toBe(false);
 
-      const standardSkills = loader.load({ trigger: 'review', agentType: 'reviewer', tier: 'standard' });
+      const standardSkills = loader.load({ agentType: 'reviewer', tier: 'standard' });
       expect(standardSkills.some(s => s.id === 'multi-stance-review')).toBe(true);
     });
 
@@ -289,88 +265,24 @@ describe('SkillLoader', () => {
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
       await new Promise(r => setTimeout(r, 10));
 
-      const skills = loader.load({ trigger: 'goal_start', agentType: 'executor', exclude: ['green-only-tdd'] });
+      const skills = loader.load({ agentType: 'executor', exclude: ['green-only-tdd'] });
       expect(skills.some(s => s.id === 'green-only-tdd')).toBe(false);
     });
   });
 
-  describe('refreshCache merge priority', () => {
-    it('disk skill should override DB skill with same name', async () => {
+  describe('refreshCache', () => {
+    it('disk-only skill should be available', async () => {
       const diskContent = [
-        '---', 'name: green-only-tdd', 'description: DISK VERSION', 'trigger: goal_start',
-        'agentTypes: [executor]', 'tier: fast', 'status: published', '---', '## Disk prompt',
-      ].join('\n');
-
-      vi.mocked(fs.existsSync).mockReturnValue(true);
-      vi.mocked(fs.readFileSync).mockReturnValue(diskContent);
-      mockTriggerDirs({ 'goal-start': ['green-only-tdd'] });
-
-      const mockPrisma = {
-        skill: {
-          findMany: vi.fn().mockResolvedValue([{
-            name: 'green-only-tdd',
-            description: 'DB VERSION',
-            trigger: 'goal_start',
-            agentTypes: JSON.stringify(['executor']),
-            tier: 'fast',
-            tools: null,
-            prompt: 'DB prompt',
-          }]),
-        },
-      };
-
-      const loader = new SkillLoader();
-      loader.init(mockPrisma as any);
-      await new Promise(r => setTimeout(r, 10));
-
-      const skill = loader.get('green-only-tdd');
-      expect(skill).toBeDefined();
-      expect(skill!.description).toBe('DISK VERSION');
-      expect(skill!.prompt).toBe('## Disk prompt');
-    });
-
-    it('DB skill should be available when no disk file', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false);
-
-      const mockPrisma = {
-        skill: {
-          findMany: vi.fn().mockResolvedValue([{
-            name: 'db-skill',
-            description: 'DB ONLY',
-            trigger: 'always',
-            agentTypes: JSON.stringify(['executor']),
-            tier: 'fast',
-            tools: null,
-            prompt: 'DB prompt',
-          }]),
-        },
-      };
-
-      const loader = new SkillLoader();
-      loader.init(mockPrisma as any);
-      await new Promise(r => setTimeout(r, 10));
-
-      const skill = loader.get('db-skill');
-      expect(skill).toBeDefined();
-      expect(skill!.description).toBe('DB ONLY');
-    });
-
-    it('disk-only skill (not in DB) should be available', async () => {
-      const diskContent = [
-        '---', 'name: extra-skill', 'description: extra', 'trigger: always',
+        '---', 'name: extra-skill', 'description: extra',
         'status: published', '---', '## Extra content',
       ].join('\n');
 
       vi.mocked(fs.existsSync).mockReturnValue(true);
       vi.mocked(fs.readFileSync).mockReturnValue(diskContent);
-      mockTriggerDirs({ always: ['extra-skill'] });
-
-      const mockPrisma = {
-        skill: { findMany: vi.fn().mockResolvedValue([]) },
-      };
+      mockSkillDirs(['extra-skill']);
 
       const loader = new SkillLoader();
-      loader.init(mockPrisma as any);
+      loader.init();
       await new Promise(r => setTimeout(r, 10));
 
       const skill = loader.get('extra-skill');
@@ -378,20 +290,5 @@ describe('SkillLoader', () => {
       expect(skill!.description).toBe('extra');
     });
 
-    it('should handle prisma DB error gracefully', async () => {
-      vi.mocked(fs.existsSync).mockReturnValue(false);
-
-      const mockPrisma = {
-        skill: { findMany: vi.fn().mockRejectedValue(new Error('DB error')) },
-      };
-
-      const loader = new SkillLoader();
-      loader.init(mockPrisma as any);
-      await new Promise(r => setTimeout(r, 10));
-
-      // Should not crash, cache should be empty
-      const skills = loader.load({ trigger: 'goal_start', agentType: 'executor' });
-      expect(skills).toEqual([]);
-    });
   });
 });

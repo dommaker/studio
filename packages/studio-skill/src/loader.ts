@@ -1,19 +1,16 @@
 /**
- * SkillLoader — 按 trigger 加载 Skill，注入 Agent prompt
+ * SkillLoader — 从磁盘加载 Skill，注入 Agent prompt
  *
- * DB-backed with 5-minute TTL cache. Falls back to hardcoded definitions
- * when Prisma is not initialized (e.g., tests, CLI) or DB query fails.
- *
- * load() is synchronous — cache refreshes lazily in background.
+ * 文件结构: ~/.studio/skills/<skillName>/SKILL.md
+ * load() 同步返回——缓存 5 分钟自动刷新。
  */
 
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type { SkillDefinition, SkillTrigger, SkillTier } from './types.js';
+import type { SkillDefinition, SkillTier } from './types.js';
 
 export interface LoadOptions {
-  trigger: SkillTrigger;
   agentType?: string;
   tier?: SkillTier;
   exclude?: string[];
@@ -25,13 +22,11 @@ const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 
 interface SkillFrontmatter {
   name: string;
   description?: string;
-  trigger?: SkillTrigger;
   agentTypes?: string[];
   tier?: SkillTier;
   tools?: string[];
   status?: string;
   version?: number;
-  intentKeywords?: string[];
 }
 
 function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: string } | null {
@@ -61,12 +56,10 @@ function frontmatterToSkillDefinition(meta: SkillFrontmatter, prompt: string): S
     id: meta.name,
     name: meta.name,
     description: meta.description || '',
-    trigger: (meta.trigger || 'always') as SkillTrigger,
     agentTypes: meta.agentTypes || [],
     tier: (meta.tier || 'standard') as SkillTier,
     tools: meta.tools,
     prompt,
-    intentKeywords: meta.intentKeywords,
   };
 }
 
@@ -94,16 +87,15 @@ export class SkillLoader {
   }
 
   /**
-   * 按触发条件加载 Skill (synchronous)
+   * 加载 Skill (synchronous)
    */
   load(options: LoadOptions): SkillDefinition[] {
     this.maybeRefreshCache();
 
-    const { trigger, agentType, tier, exclude = [] } = options;
+    const { agentType, tier, exclude = [] } = options;
 
     return this.cache.filter(s => {
       if (exclude.includes(s.id)) return false;
-      if (s.trigger !== 'always' && s.trigger !== trigger) return false;
       if (agentType && !s.agentTypes.includes(agentType)) return false;
       if (tier) {
         const tierRank: Record<string, number> = { fast: 1, standard: 2, premium: 3 };
@@ -124,7 +116,6 @@ export class SkillLoader {
    * 格式化 Skill 列表为元数据索引（name + description）
    *
    * 元数据+索引模式：只注入轻量索引，Agent 按需通过 loadSkill MCP tool 加载完整内容。
-   * 相比旧版全量注入，token 节省 50%+。
    */
   formatForPrompt(skills: SkillDefinition[]): string {
     if (skills.length === 0) return '';
@@ -151,58 +142,34 @@ export class SkillLoader {
   }
 
   /**
-   * Load a single skill from trigger subdirectories by name.
-   * Searches all trigger subdirs for <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md
+   * Load a single skill from disk by name.
+   * Searches <SKILLS_DIR>/<skillName>/SKILL.md
    * Returns null if not found, frontmatter invalid, or status not published.
    */
   private loadFromDisk(skillName: string): SkillDefinition | null {
     try {
-      if (!fs.existsSync(SKILLS_DIR)) return null;
-
-      // Flat structure: <SKILLS_DIR>/<skillName>/SKILL.md
-      const flatPath = path.join(SKILLS_DIR, skillName, 'SKILL.md');
-      if (fs.existsSync(flatPath)) {
-        const raw = fs.readFileSync(flatPath, 'utf-8');
-        const parsed = parseFrontmatter(raw);
-        if (parsed && parsed.meta.name && parsed.meta.name.trim() !== '' && (!parsed.meta.status || parsed.meta.status === 'published')) {
-          return frontmatterToSkillDefinition(parsed.meta, parsed.body);
-        }
-      }
-
-      // Fallback: trigger-based <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md
-      const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => d.name);
-      for (const trigger of triggers) {
-        const filePath = path.join(SKILLS_DIR, trigger, skillName, 'SKILL.md');
-        if (!fs.existsSync(filePath)) continue;
-        const raw = fs.readFileSync(filePath, 'utf-8');
-        const parsed = parseFrontmatter(raw);
-        if (!parsed) continue;
-        if (!parsed.meta.name || parsed.meta.name.trim() === '') continue;
-        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
-        return frontmatterToSkillDefinition(parsed.meta, parsed.body);
-      }
-      return null;
+      const filePath = path.join(SKILLS_DIR, skillName, 'SKILL.md');
+      if (!fs.existsSync(filePath)) return null;
+      const raw = fs.readFileSync(filePath, 'utf-8');
+      const parsed = parseFrontmatter(raw);
+      if (!parsed) return null;
+      if (!parsed.meta.name || parsed.meta.name.trim() === '') return null;
+      if (parsed.meta.status && parsed.meta.status !== 'published') return null;
+      return frontmatterToSkillDefinition(parsed.meta, parsed.body);
     } catch {
       return null;
     }
   }
 
   /**
-   * Load all published skills from trigger subdirectories on disk.
-   * Scans <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md structure.
-   * Returns empty array if SKILLS_DIR doesn't exist.
+   * Load all published skills from disk.
+   * Scans <SKILLS_DIR>/<skillName>/SKILL.md structure.
    */
   private loadAllFromDisk(): SkillDefinition[] {
     try {
       if (!fs.existsSync(SKILLS_DIR)) return [];
       const results: SkillDefinition[] = [];
-      const seen = new Set<string>();
-
       const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
-
-      // Flat structure: <SKILLS_DIR>/<skillName>/SKILL.md
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
         const filePath = path.join(SKILLS_DIR, entry.name, 'SKILL.md');
@@ -212,29 +179,7 @@ export class SkillLoader {
         if (!parsed) continue;
         if (!parsed.meta.name || parsed.meta.name.trim() === '') continue;
         if (parsed.meta.status && parsed.meta.status !== 'published') continue;
-        seen.add(entry.name);
         results.push(frontmatterToSkillDefinition(parsed.meta, parsed.body));
-      }
-
-      // Fallback: trigger-based <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const triggerDir = path.join(SKILLS_DIR, entry.name);
-        const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
-          .filter(d => d.isDirectory())
-          .map(d => d.name);
-        for (const skillName of skills) {
-          if (seen.has(skillName)) continue; // flat structure takes priority
-          const filePath = path.join(triggerDir, skillName, 'SKILL.md');
-          if (!fs.existsSync(filePath)) continue;
-          const raw = fs.readFileSync(filePath, 'utf-8');
-          const parsed = parseFrontmatter(raw);
-          if (!parsed) continue;
-          if (!parsed.meta.name || parsed.meta.name.trim() === '') continue;
-          if (parsed.meta.status && parsed.meta.status !== 'published') continue;
-          seen.add(skillName);
-          results.push(frontmatterToSkillDefinition(parsed.meta, parsed.body));
-        }
       }
       return results;
     } catch {
@@ -253,16 +198,13 @@ export class SkillLoader {
 
   /**
    * Refresh cache: load from disk, merge with existing cache.
-   * Disk loading is synchronous.
    */
   private refreshCache(): void {
     if (this.refreshing) return;
     this.refreshing = true;
 
-    // Load disk skills (synchronous)
     const diskSkills = this.loadAllFromDisk();
 
-    // Merge — start with existing cache (preserves constructor customSkills), then overlay disk
     const merged = new Map<string, SkillDefinition>();
     for (const s of this.cache) merged.set(s.id, s);
     for (const s of diskSkills) merged.set(s.id, s);

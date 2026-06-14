@@ -87,13 +87,15 @@ export async function dispatchStep(
     logger.warn('[GoalScheduler] beforeAgentDispatch failed, continuing', { executionId, error: String(err) });
   }
 
-  // ROLE-001: 加载 Executor 的角色约束
+  // ROLE-001: 加载 Executor 的角色约束 + boundSkills
   let roleConstraints: string[] = [];
+  let boundSkillNames: string[] = [];
   try {
     const companyId = goal.companyId || (goal.context as any)?.companyId;
     if (companyId) {
       const execConfig = await roleConfigService.getOrCreate('executor', companyId);
       roleConstraints = parseJsonField<string[]>(execConfig.boundConstraints, []);
+      boundSkillNames = execConfig.boundSkills || [];
     }
   } catch (e) {
     logger.warn('[GoalScheduler] Failed to load role config, using defaults', { executionId, error: String(e) });
@@ -165,6 +167,23 @@ export async function dispatchStep(
     prompt = buildSubAgentPrompt(input, siblingContext, companyKnowledge);
   } else {
     prompt = buildLegacyPrompt(input);
+  }
+
+  // P6.5: boundSkills metadata injection
+  if (boundSkillNames.length > 0) {
+    try {
+      const { skillLoaderService } = await import('../skills/skill-loader.js');
+      const skillPrompts: string[] = [];
+      for (const skillName of boundSkillNames) {
+        const loaded = await skillLoaderService.loadSkill({ sessionId: executionId, skillName, agentType: 'executor' });
+        if (loaded?.prompt) skillPrompts.push(loaded.prompt);
+      }
+      if (skillPrompts.length > 0) {
+        prompt += '\n\n## Bound Skills\n' + skillPrompts.join('\n\n');
+      }
+    } catch (e) {
+      logger.warn('[GoalScheduler] Failed to load boundSkills', { executionId, error: String(e) });
+    }
   }
 
   const strategy = getDispatchStrategy(ctx.recentFailures, ctx.recentTotal);

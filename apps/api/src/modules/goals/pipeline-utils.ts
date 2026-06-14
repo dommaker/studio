@@ -183,33 +183,21 @@ export function routeModel(acGroup: AcGroup): { tier: string; reason: string } {
 
 /**
  * 从 SKILL.md 模板构建 prompt。
- * 目录结构: SKILLS_DIR/<trigger>/<skillName>/SKILL.md
+ * 目录结构: SKILLS_DIR/<skillName>/SKILL.md
  * 支持占位符: {{task}}, {{constraints}}, {{knowledgeContext}}, {{capabilities}}
  */
 export function buildSkillPrompt(
   skillName: string,
   vars: Record<string, string>,
 ): string {
-  // 搜索所有 trigger 子目录
-  if (!fs.existsSync(SKILLS_DIR)) return '';
+  const candidate = path.join(SKILLS_DIR, skillName, 'SKILL.md');
+  if (!fs.existsSync(candidate)) return '';
 
-  let template: string | null = null;
-  for (const entry of fs.readdirSync(SKILLS_DIR, { withFileTypes: true })) {
-    if (!entry.isDirectory()) continue;
-    const candidate = path.join(SKILLS_DIR, entry.name, skillName, 'SKILL.md');
-    if (fs.existsSync(candidate)) {
-      const raw = fs.readFileSync(candidate, 'utf-8');
-      const match = raw.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/);
-      if (match) {
-        template = match[1].trim();
-        break;
-      }
-    }
-  }
+  const raw = fs.readFileSync(candidate, 'utf-8');
+  const match = raw.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/);
+  if (!match) return '';
 
-  if (!template) return '';
-
-  let result = template;
+  let result = match[1].trim();
   for (const [key, value] of Object.entries(vars)) {
     result = result.split(`{{${key}}}`).join(value);
   }

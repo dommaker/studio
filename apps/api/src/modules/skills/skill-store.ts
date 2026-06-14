@@ -323,9 +323,8 @@ export class SkillStore {
   // ── SKILL.md file management ──
 
   private getSkillDir(record: SkillRecord): string {
-    const trigger = record.trigger || 'always';
     const skillsDir = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
-    return path.join(skillsDir, trigger, record.name);
+    return path.join(skillsDir, record.name);
   }
 
   private writeSkillMd(record: SkillRecord, prompt: string): void {
@@ -334,7 +333,6 @@ export class SkillStore {
       fs.mkdirSync(dir, { recursive: true });
 
       const agentTypes = record.agentTypes ? JSON.parse(record.agentTypes) : ['executor'];
-      const trigger = record.trigger || 'always';
 
       const frontmatter = [
         '---',
@@ -343,7 +341,6 @@ export class SkillStore {
         `agentTypes: [${agentTypes.map((a: string) => `'${a}'`).join(', ')}]`,
         `tier: '${record.tier || 'standard'}'`,
         `status: '${record.status || 'draft'}'`,
-        `trigger: ${trigger}`,
         '---',
       ].join('\n');
 

@@ -90,7 +90,7 @@ function buildStatsSummary(): string {
  * AS-021: 只注入元数据（name + description），Agent 按需通过 loadSkill MCP tool 加载完整内容。
  */
 function buildSkillPrompts(agentType: string): string {
-  const skills = skillLoader.load({ trigger: 'always', agentType });
+  const skills = skillLoader.load({ agentType });
   if (!skills.length) return '';
 
   const skillIndex = skillLoader.formatForPrompt(skills);

@@ -4,14 +4,12 @@
  * 将 Skill、Knowledge、Harness 约束、角色约束 组装为单一 prompt 注入块。
  * 所有 Agent 类型（Analyst/Executor/Reviewer/KK/PostEval 等）共用此入口。
  */
-import { skillLoader, type SkillTrigger, type SkillTier } from '@dommaker/studio-skill';
+import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
 import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 
 export interface AgentContextOptions {
   /** Agent 角色类型（影响 skill/knowledge 过滤） */
   agentType?: string;
-  /** 触发场景（goal_start | goal_continue | review | triage | post_eval | 等） */
-  trigger?: string;
   /** 模型 tier（影响 skill 选择） */
   tier?: SkillTier;
   /** 具体操作类型（用于 harness 约束） */
@@ -46,7 +44,6 @@ export interface AgentContext {
 export function buildAgentContext(options: AgentContextOptions = {}): AgentContext {
   const {
     agentType = 'executor',
-    trigger = 'goal_start',
     tier = 'standard',
     operation = 'code_implementation',
     taskDescription = '',
@@ -67,7 +64,6 @@ export function buildAgentContext(options: AgentContextOptions = {}): AgentConte
   let skillCount = 0;
   try {
     const skills = skillLoader.load({
-      trigger: trigger as SkillTrigger,
       agentType,
       tier,
     });

@@ -26,24 +26,6 @@ export interface ExtractedSkillProposal {
   createdAt: Date;
 }
 
-/** Map workflowType to SKILL.md trigger subdirectory */
-export function workflowTypeToTriggerDir(workflowType: string): string {
-  const map: Record<string, string> = {
-    ci_fix: 'goal-start',
-    test_triage: 'goal-start',
-    config_change: 'goal-start',
-    architecture: 'goal-start',
-    refactor: 'goal-start',
-    pr_review: 'review',
-    release_prep: 'integration',
-    changelog: 'integration',
-    doc_update: 'always',
-    knowledge_curation: 'always',
-    skill_creation: 'always',
-  };
-  return map[workflowType] || 'always';
-}
-
 export class SkillExtractionService {
   /** 从 GoalExecution 提取可复用模式 */
   async extractFromGoalExecution(goalExecutionId: string): Promise<ExtractedSkillProposal | null> {
@@ -223,9 +205,8 @@ export class SkillExtractionService {
         const os = await import('os');
         const skillName = skill?.name || p.skillId;
         const metadata = skill?.metadata ? JSON.parse(skill.metadata) : {};
-        const trigger = workflowTypeToTriggerDir(metadata.workflowType || '');
         const skillsDir = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
-        const skillDir = path.join(skillsDir, trigger, skillName);
+        const skillDir = path.join(skillsDir, skillName);
         const skillFile = path.join(skillDir, 'SKILL.md');
         if (fs.existsSync(skillFile)) {
           logger.info('[SkillExtraction] SKILL.md already exists, skipping', { skillName, path: skillFile });
@@ -241,12 +222,11 @@ export class SkillExtractionService {
           `agentTypes: ['executor']`,
           `tier: 'standard'`,
           `status: 'draft'`,
-          `trigger: ${trigger}`,
           '---',
         ].join('\n');
         const content = `${frontmatter}\n\n${pattern}`;
         fs.writeFileSync(path.join(skillDir, 'SKILL.md'), content, 'utf-8');
-        logger.info('[SkillExtraction] SKILL.md generated', { skillName, trigger, path: skillDir });
+        logger.info('[SkillExtraction] SKILL.md generated', { skillName, path: skillDir });
       } catch (e) {
         logger.warn('[SkillExtraction] SKILL.md generation failed (non-blocking)', { error: String(e) });
       }

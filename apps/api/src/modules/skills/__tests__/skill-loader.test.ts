@@ -14,16 +14,16 @@ import * as os from 'os';
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
 
-// Create trigger subdirectory structure
-function createSkillFile(trigger: string, skillName: string, content: string) {
-  const dir = path.join(testSkillsDir, trigger, skillName);
+// Create flat skill file: <SKILLS_DIR>/<skillName>/SKILL.md
+function createSkillFile(skillName: string, content: string) {
+  const dir = path.join(testSkillsDir, skillName);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'SKILL.md'), content);
 }
 
-function removeSkillFile(trigger: string, skillName: string) {
+function removeSkillFile(skillName: string) {
   try {
-    const dir = path.join(testSkillsDir, trigger, skillName);
+    const dir = path.join(testSkillsDir, skillName);
     fs.rmSync(dir, { recursive: true, force: true });
   } catch {}
 }
@@ -51,7 +51,6 @@ const { SkillLoaderService, skillLoaderService } = await import('../skill-loader
 const TDD_SKILL_MD = `---
 name: tdd-workflow
 description: "TDD workflow"
-trigger: goal_start
 agentTypes: [executor]
 tier: fast
 status: published
@@ -62,7 +61,6 @@ Write tests first`;
 const CONSTRAINTS_SKILL_MD = `---
 name: behaviour-constraints
 description: "Always-on constraints"
-trigger: always
 agentTypes: [executor]
 tier: fast
 status: published
@@ -73,7 +71,6 @@ status: published
 const REVIEW_SKILL_MD = `---
 name: review-skill
 description: "Review skill"
-trigger: review
 agentTypes: [reviewer]
 tier: standard
 status: published
@@ -96,7 +93,7 @@ describe('SkillLoaderService', () => {
 
   describe('loadSkill (#73)', () => {
     it('should load a skill from disk file', async () => {
-      createSkillFile('goal-start', 'tdd-workflow', TDD_SKILL_MD);
+      createSkillFile('tdd-workflow', TDD_SKILL_MD);
 
       const loaded = await service.loadSkill({
         sessionId: 'test-session',
@@ -110,7 +107,7 @@ describe('SkillLoaderService', () => {
       expect(loaded!.tier).toBe('fast');
       expect(loaded!.skillId).toBe('file:tdd-workflow');
 
-      removeSkillFile('goal-start', 'tdd-workflow');
+      removeSkillFile('tdd-workflow');
     });
 
     it('should return null if skill not found on disk', async () => {
@@ -123,21 +120,20 @@ describe('SkillLoaderService', () => {
     });
 
     it('should return cached skill if already loaded', async () => {
-      createSkillFile('goal-start', 'tdd-workflow', TDD_SKILL_MD);
+      createSkillFile('tdd-workflow', TDD_SKILL_MD);
 
       await service.loadSkill({ sessionId: 'test-session', skillName: 'tdd-workflow' });
       const second = await service.loadSkill({ sessionId: 'test-session', skillName: 'tdd-workflow' });
 
       expect(second).not.toBeNull();
 
-      removeSkillFile('goal-start', 'tdd-workflow');
+      removeSkillFile('tdd-workflow');
     });
 
     it('should load required skills recursively', async () => {
       const mainSkillMd = `---
 name: main-skill
 description: "Main skill"
-trigger: goal_start
 agentTypes: [executor]
 tier: standard
 required: [base-skill]
@@ -148,15 +144,14 @@ status: published
       const baseSkillMd = `---
 name: base-skill
 description: "Base skill"
-trigger: always
 agentTypes: [executor]
 tier: fast
 status: published
 ---
 ## Base`;
 
-      createSkillFile('goal-start', 'main-skill', mainSkillMd);
-      createSkillFile('always', 'base-skill', baseSkillMd);
+      createSkillFile('main-skill', mainSkillMd);
+      createSkillFile('base-skill', baseSkillMd);
 
       const loaded = await service.loadSkill({
         sessionId: 'test-session',
@@ -165,14 +160,13 @@ status: published
 
       expect(loaded).not.toBeNull();
 
-      // Both should be in session
       const sessionSkills = service.getSessionSkills('test-session');
       expect(sessionSkills).toHaveLength(2);
       expect(sessionSkills.map(s => s.name)).toContain('base-skill');
       expect(sessionSkills.map(s => s.name)).toContain('main-skill');
 
-      removeSkillFile('goal-start', 'main-skill');
-      removeSkillFile('always', 'base-skill');
+      removeSkillFile('main-skill');
+      removeSkillFile('base-skill');
     });
   });
 
@@ -180,10 +174,9 @@ status: published
 
   describe('unloadSkill (#75)', () => {
     it('should unload a skill from session', async () => {
-      createSkillFile('always', 'test-skill', `---
+      createSkillFile('test-skill', `---
 name: test-skill
 description: "Test"
-trigger: always
 tier: fast
 status: published
 ---
@@ -196,7 +189,7 @@ status: published
       expect(removed).toBe(true);
       expect(service.getSessionSkills('test-session')).toHaveLength(0);
 
-      removeSkillFile('always', 'test-skill');
+      removeSkillFile('test-skill');
     });
 
     it('should return false when unloading non-loaded skill', () => {
@@ -212,44 +205,41 @@ status: published
 
   describe('loadForSession (#73 + #75)', () => {
     it('should load matching skills from disk', async () => {
-      createSkillFile('goal-start', 'tdd-workflow', TDD_SKILL_MD);
-      createSkillFile('always', 'behaviour-constraints', CONSTRAINTS_SKILL_MD);
-      createSkillFile('review', 'review-skill', REVIEW_SKILL_MD);
+      createSkillFile('tdd-workflow', TDD_SKILL_MD);
+      createSkillFile('behaviour-constraints', CONSTRAINTS_SKILL_MD);
+      createSkillFile('review-skill', REVIEW_SKILL_MD);
 
       const loaded = await service.loadForSession({
         sessionId: 'session-1',
-        trigger: 'goal_start',
         agentType: 'executor',
         tier: 'fast',
       });
 
-      // Should match tdd-workflow (goal_start) + behaviour-constraints (always)
-      // Should NOT match review-skill (review trigger, reviewer agentType)
+      // Should match tdd-workflow + behaviour-constraints (both executor + fast tier)
+      // Should NOT match review-skill (reviewer agentType, standard tier)
       expect(loaded).toHaveLength(2);
       expect(loaded.map(s => s.name)).toContain('tdd-workflow');
       expect(loaded.map(s => s.name)).toContain('behaviour-constraints');
 
-      removeSkillFile('goal-start', 'tdd-workflow');
-      removeSkillFile('always', 'behaviour-constraints');
-      removeSkillFile('review', 'review-skill');
+      removeSkillFile('tdd-workflow');
+      removeSkillFile('behaviour-constraints');
+      removeSkillFile('review-skill');
     });
 
     it('should filter by tier threshold', async () => {
       const premiumMd = `---
 name: premium-skill
 description: "Premium"
-trigger: always
 agentTypes: []
 tier: premium
 status: published
 ---
 ## Premium`;
 
-      createSkillFile('always', 'premium-skill', premiumMd);
+      createSkillFile('premium-skill', premiumMd);
 
       const fastLoaded = await service.loadForSession({
         sessionId: 'session-1',
-        trigger: 'goal_start',
         agentType: 'executor',
         tier: 'fast',
       });
@@ -257,22 +247,20 @@ status: published
 
       const premiumLoaded = await service.loadForSession({
         sessionId: 'session-2',
-        trigger: 'goal_start',
         agentType: 'executor',
         tier: 'premium',
       });
       expect(premiumLoaded).toHaveLength(1);
 
-      removeSkillFile('always', 'premium-skill');
+      removeSkillFile('premium-skill');
     });
   });
 
   describe('session management', () => {
     it('should get combined prompt from loaded skills', async () => {
-      createSkillFile('always', 'test-skill', `---
+      createSkillFile('test-skill', `---
 name: test-skill
 description: "Test"
-trigger: always
 tier: fast
 status: published
 ---
@@ -282,7 +270,7 @@ status: published
       const prompt = service.getSessionPrompt('test-session');
       expect(prompt).toContain('## Section 1');
 
-      removeSkillFile('always', 'test-skill');
+      removeSkillFile('test-skill');
     });
 
     it('should return empty string for empty session', () => {
@@ -290,10 +278,9 @@ status: published
     });
 
     it('should clear session on unload of last skill', async () => {
-      createSkillFile('always', 'test-skill', `---
+      createSkillFile('test-skill', `---
 name: test-skill
 description: "Test"
-trigger: always
 tier: fast
 status: published
 ---
@@ -305,14 +292,13 @@ status: published
       service.unloadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
       expect(service.getSessionSkills('test-session')).toHaveLength(0);
 
-      removeSkillFile('always', 'test-skill');
+      removeSkillFile('test-skill');
     });
 
     it('should clear entire session', async () => {
-      createSkillFile('always', 'skill-a', `---
+      createSkillFile('skill-a', `---
 name: skill-a
 description: "A"
-trigger: always
 tier: fast
 status: published
 ---
@@ -322,7 +308,7 @@ status: published
       service.clearSession('test-session');
       expect(service.getSessionSkills('test-session')).toHaveLength(0);
 
-      removeSkillFile('always', 'skill-a');
+      removeSkillFile('skill-a');
     });
   });
 
@@ -362,10 +348,9 @@ status: published
     });
 
     it('should get session tools filtered by tier', async () => {
-      createSkillFile('always', 'tool-skill', `---
+      createSkillFile('tool-skill', `---
 name: tool-skill
 description: "Tools"
-trigger: always
 tier: premium
 tools: [Read, Edit, WebFetch]
 status: published
@@ -387,17 +372,16 @@ status: published
       expect(premiumTools).toContain('Edit');
       expect(premiumTools).toContain('WebFetch');
 
-      removeSkillFile('always', 'tool-skill');
+      removeSkillFile('tool-skill');
     });
   });
 
-  // ── .md file-based loading (trigger subdirectories) ──
+  // ── .md file-based loading (flat structure) ──
 
   describe('file-based loading (.md)', () => {
     const mdContent = `---
 name: file-skill
 description: "Test skill from file"
-trigger: goal_start
 agentTypes: [executor]
 tier: fast
 status: published
@@ -406,14 +390,14 @@ status: published
 This is a test skill loaded from a .md file.`;
 
     beforeEach(() => {
-      createSkillFile('goal-start', 'file-skill', mdContent);
+      createSkillFile('file-skill', mdContent);
     });
 
     afterEach(() => {
-      removeSkillFile('goal-start', 'file-skill');
+      removeSkillFile('file-skill');
     });
 
-    it('should load skill from .md file in trigger subdirectory', async () => {
+    it('should load skill from flat .md file', async () => {
       const freshService = new SkillLoaderService();
       const loaded = await freshService.loadSkill({
         sessionId: 'file-test',
@@ -432,7 +416,6 @@ This is a test skill loaded from a .md file.`;
       const freshService = new SkillLoaderService();
       const loaded = await freshService.loadForSession({
         sessionId: 'session-file',
-        trigger: 'goal_start',
         agentType: 'executor',
         tier: 'fast',
       });
