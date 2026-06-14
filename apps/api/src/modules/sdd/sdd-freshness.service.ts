@@ -8,6 +8,7 @@
  *   → 匹配 SDD requirement.md body 中的 Files 段
  *   → classifySddChange (L1-L4)
  *   → L1: skip / L2: patch task / L3: patch design+task / L4: patch requirement+design+task
+ *   → LLM patch (保留未改动 section)
  *   → version++, parentId = old version
  *   → append CHANGELOG
  */
@@ -20,6 +21,30 @@ import {
 } from '@dommaker/studio-shared';
 import type { SddFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '@dommaker/studio-shared';
+
+// ── LLM 调用 ──
+
+const LLM_API_URL = process.env.LLM_API_URL || `http://localhost:${process.env.PORT || 3001}/api/v1/llm/chat`;
+
+async function callLLM(messages: Array<{ role: string; content: string }>): Promise<string | null> {
+  try {
+    const res = await fetch(LLM_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages, temperature: 0.3 }),
+    });
+    if (!res.ok) {
+      logger.error('[SddFreshness] LLM error', { status: res.status });
+      return null;
+    }
+    const data = await res.json() as Record<string, unknown>;
+    const choices = data.choices as Array<{ message?: { content?: string } }> | undefined;
+    return (data.content as string) || choices?.[0]?.message?.content || null;
+  } catch (error) {
+    logger.error('[SddFreshness] LLM call failed', { error: String(error) });
+    return null;
+  }
+}
 
 // ── ChangeLevel (aligned with SP-002 change.types.ts) ──
 export type ChangeLevel = 'L1' | 'L2' | 'L3' | 'L4';
@@ -356,10 +381,10 @@ export class SddFreshnessService {
   }
 
   /**
-   * Generate patched content for a layer.
+   * Generate patched content for a layer using LLM.
    *
-   * TODO: Replace with actual LLM call. For now, appends a
-   * "Code Changes Detected" section to preserve existing content.
+   * Sends current doc + git diff to LLM, which outputs full updated doc
+   * preserving unmodified sections.
    */
   private async generatePatch(
     currentBody: string,
@@ -367,8 +392,44 @@ export class SddFreshnessService {
     gitDiff: string,
     plan: SddChangePlan,
   ): Promise<string> {
-    // TODO: Call LLM to generate intelligent patch that preserves unmodified sections
-    // For now, append a structured change note
+    // Truncate diff to fit context window
+    const truncatedDiff = gitDiff.length > 4000
+      ? gitDiff.slice(0, 4000) + '\n... (truncated)'
+      : gitDiff;
+
+    const prompt = `你是一个 SDD 文档维护器。
+
+## 当前 ${layer}.md
+${currentBody}
+
+## 代码变更
+${truncatedDiff}
+
+## 变更分级
+${plan.level}（L1-L4）
+
+## 受影响文件
+${plan.matchedFiles.join(', ')}
+
+## 规则
+- 只修改受变更影响的 section
+- 保留未改动的内容原样
+- 输出完整的更新后文档（不是 diff）
+- 不要添加 "Code Changes Detected" 之类的临时标记
+- 如果变更不影响文档内容，原样输出当前文档`;
+
+    const result = await callLLM([
+      { role: 'system', content: '你是 SDD 文档维护专家。只输出文档内容，不要解释。' },
+      { role: 'user', content: prompt },
+    ]);
+
+    if (result) {
+      logger.info(`[SddFreshness] LLM patch generated for ${layer}, ${result.length} chars`);
+      return result;
+    }
+
+    // Fallback: append structured change note if LLM unavailable
+    logger.warn('[SddFreshness] LLM unavailable, falling back to append mode');
     const changeNote = [
       '',
       `## Code Changes Detected (${plan.level})`,
@@ -377,10 +438,7 @@ export class SddFreshnessService {
       '',
       '**Diff summary**:',
       '```diff',
-      // Truncate diff to avoid huge docs
-      gitDiff.length > 2000
-        ? gitDiff.slice(0, 2000) + '\n... (truncated)'
-        : gitDiff,
+      truncatedDiff,
       '```',
       '',
       `> Auto-detected by SddFreshnessService. Layer: ${layer}. Review and integrate manually.`,

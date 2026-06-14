@@ -436,7 +436,7 @@ describe('SddFreshnessService', () => {
       vi.mocked(writeSddDoc).mockImplementation(() => {});
       vi.mocked(appendChangelog).mockImplementation(() => {});
 
-      const largeDiff = 'x'.repeat(3000);
+      const largeDiff = 'x'.repeat(5000);
       await service.applyPatches(
         [{ slug: 's', level: 'L2', matchedFiles: ['f.ts'] }],
         largeDiff,
