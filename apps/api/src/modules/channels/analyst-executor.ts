@@ -10,57 +10,71 @@ import { parseClaudeUsage } from '../../daemon/metrics.js';
 import * as fs from 'fs';
 
 export interface RequirementsDocJson {
-  title: string;
-  summary: string;
-  /** 任务复杂度分级：fast=单session单步, standard=当前管线, premium=详细上下文 */
-  tier?: 'fast' | 'standard' | 'premium';
-  tierReason?: string;
-  interfaceVerification?: {
-    verified: string[];
-    unverified: string[];
-    newRequired: string[];
-  };
-  acGroups: Array<{
-    id: string;
-    acs: string[];
-    files: string[];
-    dependencies: string[];
-    implementationNotes: string;
-    architectureContext?: {
-      functions: string[];
-      callChain: string;
-      imports: string[];
-      typesInScope: string[];
-      testMock: string[];
-      dangerZones: string[];
-      verifiedAt: string;
-    };
-    codePatterns: string[];
-    gotchas: string[];
-    modelTier?: 'fast' | 'standard' | 'premium';
-    modelTierReason?: string;
-  }>;
-  constraints: string[];
-  tags: string[];
-  discoveries?: Array<{
-    type: string;
-    severity: string;
-    file: string;
+  requirement: {
     title: string;
-    description?: string;
-    category?: string;
-  }>;
-  /** TDD-05: Analyst 写的契约测试（按 AC 组组织，RED 状态） */
-  contractTests?: Array<{
-    /** 测试文件名，如 ac-group-1.test.ts */
-    file: string;
-    /** 测试代码内容（可执行的 vitest 代码） */
-    content: string;
-  }>;
-  /** SP-004: Executor 需运行的已有测试文件路径（回归验证） */
-  testFiles?: string[];
-  /** Analyst 主动跳过契约测试时必须填写原因（如：纯文件创建、无代码行为可测） */
-  contractTestsSkipReason?: string;
+    summary: string;
+    /** 任务复杂度分级：fast=单session单步, standard=当前管线, premium=详细上下文 */
+    tier?: 'fast' | 'standard' | 'premium';
+    tierReason?: string;
+    interfaceVerification?: {
+      verified: string[];
+      unverified: string[];
+      newRequired: string[];
+    };
+    acGroups: Array<{
+      id: string;
+      targetRepo?: string;
+      acs: string[];
+      files: string[];
+      dependencies: string[];
+    }>;
+    constraints: string[];
+    tags: string[];
+    discoveries?: Array<{
+      type: 'tech_debt' | 'bug' | 'improvement' | 'security' | 'deprecation' | 'observation';
+      severity: 'low' | 'medium' | 'high' | 'critical';
+      file: string;
+      title: string;
+      description?: string;
+      category?: string;
+      effort?: string;
+    }>;
+  };
+  design: {
+    acGroups: Array<{
+      id: string;
+      implementationNotes: string;
+      architectureContext?: {
+        functions: string[];
+        callChain: string;
+        imports: string[];
+        typesInScope: string[];
+        testMock: string[];
+        dangerZones: string[];
+        verifiedAt: string;
+      };
+      codePatterns: string[];
+      gotchas: string[];
+      modelTier?: 'fast' | 'standard' | 'premium';
+      modelTierReason?: string;
+    }>;
+  };
+  task: {
+    acGroups: Array<{
+      id: string;
+      /** TDD-05: Analyst 写的契约测试（按 AC 组组织，RED 状态） */
+      contractTests?: Array<{
+        /** 测试文件名，如 ac-group-1.test.ts */
+        file: string;
+        /** 测试代码内容（可执行的 vitest 代码） */
+        content: string;
+      }>;
+      /** SP-004: Executor 需运行的已有测试文件路径（回归验证） */
+      testFiles?: string[];
+      /** Analyst 主动跳过契约测试时必须填写原因（如：纯文件创建、无代码行为可测） */
+      contractTestsSkipReason?: string;
+    }>;
+  };
 }
 
 /**
@@ -123,7 +137,7 @@ export async function runClaudeCode(prompt: string, outputFile: string, claudeAr
   }
 
   // Fallback: try to parse RequirementsDoc from result text
-  const jsonMatch = text.match(/\{[\s\S]*"acGroups"[\s\S]*\}/);
+  const jsonMatch = text.match(/\{[\s\S]*"requirement"[\s\S]*\}/);
   if (jsonMatch) return { doc: JSON.parse(jsonMatch[0]), usage };
 
   throw new Error(`Analyst did not produce valid output. text: ${text.slice(0, 500)}`);
@@ -132,20 +146,33 @@ export async function runClaudeCode(prompt: string, outputFile: string, claudeAr
 // ── B5-H01: Analyst 输出 JSON Schema 验证 ──
 
 interface AnalystOutput {
-  title?: string;
-  tier?: string;
-  acGroups?: Array<{
-    id?: string;
-    acs?: unknown[];
-    files?: unknown[];
-    dependencies?: unknown[];
-    implementationNotes?: string;
-  }>;
-  tags?: unknown[];
-  constraints?: unknown[];
-  discoveries?: unknown[];
-  contractTests?: unknown[];
-  contractTestsSkipReason?: unknown;
+  requirement?: {
+    title?: string;
+    tier?: string;
+    acGroups?: Array<{
+      id?: string;
+      acs?: unknown[];
+      files?: unknown[];
+      dependencies?: unknown[];
+    }>;
+    tags?: unknown[];
+    constraints?: unknown[];
+    discoveries?: unknown[];
+  };
+  design?: {
+    acGroups?: Array<{
+      id?: string;
+      implementationNotes?: string;
+    }>;
+  };
+  task?: {
+    acGroups?: Array<{
+      id?: string;
+      contractTests?: unknown[];
+      testFiles?: unknown[];
+      contractTestsSkipReason?: unknown;
+    }>;
+  };
 }
 
 /** 验证 Analyst 输出结构，返回错误列表（空 = 通过） */
@@ -156,52 +183,71 @@ export function validateAnalystOutput(doc: unknown): string[] {
   }
   const d = doc as AnalystOutput;
 
-  // title: optional but if present must be string
-  if (d.title !== undefined && typeof d.title !== 'string') {
-    errors.push('title must be a string');
+  // requirement: required top-level key
+  if (!d.requirement || typeof d.requirement !== 'object') {
+    errors.push('requirement must be an object');
+    return errors;
   }
 
-  // acGroups: required, must be non-empty array
-  if (!Array.isArray(d.acGroups) || d.acGroups.length === 0) {
-    errors.push('acGroups must be a non-empty array');
+  // requirement.title: optional but if present must be string
+  if (d.requirement.title !== undefined && typeof d.requirement.title !== 'string') {
+    errors.push('requirement.title must be a string');
+  }
+
+  // requirement.acGroups: required, must be non-empty array
+  if (!Array.isArray(d.requirement.acGroups) || d.requirement.acGroups.length === 0) {
+    errors.push('requirement.acGroups must be a non-empty array');
   } else {
-    for (let i = 0; i < d.acGroups.length; i++) {
-      const g = d.acGroups[i];
-      if (!g || typeof g !== 'object') { errors.push(`acGroups[${i}] must be an object`); continue; }
-      if (typeof g.id !== 'string' || !g.id.trim()) errors.push(`acGroups[${i}].id must be a non-empty string`);
-      if (!Array.isArray(g.acs) || g.acs.length === 0) errors.push(`acGroups[${i}].acs must be a non-empty array`);
-      if (g.files !== undefined && !Array.isArray(g.files)) errors.push(`acGroups[${i}].files must be an array`);
-      if (g.dependencies !== undefined && !Array.isArray(g.dependencies)) errors.push(`acGroups[${i}].dependencies must be an array`);
+    for (let i = 0; i < d.requirement.acGroups.length; i++) {
+      const g = d.requirement.acGroups[i];
+      if (!g || typeof g !== 'object') { errors.push(`requirement.acGroups[${i}] must be an object`); continue; }
+      if (typeof g.id !== 'string' || !g.id.trim()) errors.push(`requirement.acGroups[${i}].id must be a non-empty string`);
+      if (!Array.isArray(g.acs) || g.acs.length === 0) errors.push(`requirement.acGroups[${i}].acs must be a non-empty array`);
+      if (g.files !== undefined && !Array.isArray(g.files)) errors.push(`requirement.acGroups[${i}].files must be an array`);
+      if (g.dependencies !== undefined && !Array.isArray(g.dependencies)) errors.push(`requirement.acGroups[${i}].dependencies must be an array`);
     }
   }
 
-  // tags/constraints/discoveries: optional, if present must be arrays
+  // requirement.tags/constraints/discoveries: optional, if present must be arrays
   for (const field of ['tags', 'constraints', 'discoveries'] as const) {
-    if (d[field] !== undefined && !Array.isArray(d[field])) {
-      errors.push(`${field} must be an array`);
+    if (d.requirement[field] !== undefined && !Array.isArray(d.requirement[field])) {
+      errors.push(`requirement.${field} must be an array`);
     }
   }
 
-  // TDD-07: contractTests validation (optional but if present must be valid)
-  if (d.contractTests !== undefined) {
-    if (!Array.isArray(d.contractTests)) {
-      errors.push('contractTests must be an array');
-    } else {
-      for (let i = 0; i < d.contractTests.length; i++) {
-        const t = d.contractTests[i] as Record<string, unknown> | undefined;
-        if (!t || typeof t !== 'object') { errors.push(`contractTests[${i}] must be an object`); continue; }
-        if (typeof t.file !== 'string' || !t.file.trim()) errors.push(`contractTests[${i}].file must be a non-empty string`);
-        if (typeof t.content !== 'string') errors.push(`contractTests[${i}].content must be a string`);
+  // design: required top-level key
+  if (!d.design || typeof d.design !== 'object') {
+    errors.push('design must be an object');
+  } else if (Array.isArray(d.design.acGroups)) {
+    for (let i = 0; i < d.design.acGroups.length; i++) {
+      const g = d.design.acGroups[i];
+      if (!g || typeof g !== 'object') { errors.push(`design.acGroups[${i}] must be an object`); continue; }
+      if (typeof g.id !== 'string' || !g.id.trim()) errors.push(`design.acGroups[${i}].id must be a non-empty string`);
+    }
+  }
+
+  // task: required top-level key
+  if (!d.task || typeof d.task !== 'object') {
+    errors.push('task must be an object');
+  } else if (Array.isArray(d.task.acGroups)) {
+    for (let i = 0; i < d.task.acGroups.length; i++) {
+      const g = d.task.acGroups[i];
+      if (!g || typeof g !== 'object') { errors.push(`task.acGroups[${i}] must be an object`); continue; }
+      if (typeof g.id !== 'string' || !g.id.trim()) errors.push(`task.acGroups[${i}].id must be a non-empty string`);
+      // contractTests validation per AC group
+      if (g.contractTests !== undefined) {
+        if (!Array.isArray(g.contractTests)) {
+          errors.push(`task.acGroups[${i}].contractTests must be an array`);
+        } else {
+          for (let j = 0; j < g.contractTests.length; j++) {
+            const t = g.contractTests[j] as Record<string, unknown> | undefined;
+            if (!t || typeof t !== 'object') { errors.push(`task.acGroups[${i}].contractTests[${j}] must be an object`); continue; }
+            if (typeof t.file !== 'string' || !t.file.trim()) errors.push(`task.acGroups[${i}].contractTests[${j}].file must be a non-empty string`);
+            if (typeof t.content !== 'string') errors.push(`task.acGroups[${i}].contractTests[${j}].content must be a string`);
+          }
+        }
       }
     }
-  }
-  // contractTests 为空时，必须提供 skipReason
-  const hasTests = Array.isArray(d.contractTests) && d.contractTests.length > 0;
-  if (!hasTests && (d.contractTestsSkipReason === undefined || d.contractTestsSkipReason === null)) {
-    errors.push('contractTests empty requires contractTestsSkipReason explaining why');
-  }
-  if (d.contractTestsSkipReason !== undefined && typeof d.contractTestsSkipReason !== 'string') {
-    errors.push('contractTestsSkipReason must be a string');
   }
 
   return errors;

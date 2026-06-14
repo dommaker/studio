@@ -381,10 +381,40 @@ export class SddFreshnessService {
   }
 
   /**
+   * Layer-specific guidance for LLM prompt.
+   * Each layer only touches its own sections.
+   */
+  private getLayerGuidance(layer: 'requirement' | 'design' | 'task'): string {
+    switch (layer) {
+      case 'requirement':
+        return `你负责 requirement.md（What 层）。
+只关注以下 section：
+- Acceptance Criteria / AC / 验收标准
+- Constraints / 约束
+- Files / 相关文件
+不要修改属于 design 或 task 层的内容（implementationNotes, architectureContext, codePatterns, gotchas, contractTests, testFiles）。`;
+      case 'design':
+        return `你负责 design.md（How 层）。
+只关注以下 section：
+- Implementation Notes / 实现说明
+- Architecture Context / 架构上下文
+- Code Patterns / 代码模式
+- Gotchas / 陷阱
+不要修改属于 requirement 或 task 层的内容（ACs, constraints, files, contractTests, testFiles）。`;
+      case 'task':
+        return `你负责 task.md（Verify 层）。
+只关注以下 section：
+- Contract Tests / 契约测试
+- Test Files / 测试文件
+不要修改属于 requirement 或 design 层的内容（ACs, constraints, files, implementationNotes, architectureContext, codePatterns, gotchas）。`;
+    }
+  }
+
+  /**
    * Generate patched content for a layer using LLM.
    *
    * Sends current doc + git diff to LLM, which outputs full updated doc
-   * preserving unmodified sections.
+   * preserving unmodified sections. Each layer only patches its own sections.
    */
   private async generatePatch(
     currentBody: string,
@@ -397,7 +427,12 @@ export class SddFreshnessService {
       ? gitDiff.slice(0, 4000) + '\n... (truncated)'
       : gitDiff;
 
+    const layerGuidance = this.getLayerGuidance(layer);
+
     const prompt = `你是一个 SDD 文档维护器。
+
+## 你的职责
+${layerGuidance}
 
 ## 当前 ${layer}.md
 ${currentBody}
@@ -412,11 +447,11 @@ ${plan.level}（L1-L4）
 ${plan.matchedFiles.join(', ')}
 
 ## 规则
-- 只修改受变更影响的 section
+- 只修改受变更影响的 section（见上方职责范围）
 - 保留未改动的内容原样
 - 输出完整的更新后文档（不是 diff）
 - 不要添加 "Code Changes Detected" 之类的临时标记
-- 如果变更不影响文档内容，原样输出当前文档`;
+- 如果变更不影响该层文档内容，原样输出当前文档`;
 
     const result = await callLLM([
       { role: 'system', content: '你是 SDD 文档维护专家。只输出文档内容，不要解释。' },

@@ -164,20 +164,24 @@ class AnalystTriggerService {
       }
 
       // 5. Save new knowledge for next analysis
-      const findings = response.acGroups
+      const findings = response.design.acGroups
         .map(g => `- **${g.id}**: ${g.implementationNotes?.slice(0, 200) || ''}`)
         .join('\n');
-      saveKnowledge(response.title || '需求分析', findings);
+      saveKnowledge(response.requirement.title || '需求分析', findings);
 
       // 6. Save RequirementsDoc to DB
+      const allContractTests = response.task.acGroups.flatMap(g => g.contractTests || []);
+      const allContractTestsSkipReasons = response.task.acGroups
+        .map(g => g.contractTestsSkipReason)
+        .filter(Boolean);
       const doc = await prisma.requirementsDoc.create({
         data: {
-          title: response.title || '需求分析',
+          title: response.requirement.title || '需求分析',
           content: this.formatRequirementsDoc(response),
-          acGroups: JSON.stringify(response.acGroups || []),
-          contractTests: response.contractTests?.length ? JSON.stringify(response.contractTests) : null,
-          contractTestsSkipReason: response.contractTestsSkipReason || null,
-          tags: JSON.stringify(response.tags || []),
+          acGroups: JSON.stringify(response.requirement.acGroups || []),
+          contractTests: allContractTests.length ? JSON.stringify(allContractTests) : null,
+          contractTestsSkipReason: allContractTestsSkipReasons[0] || null,
+          tags: JSON.stringify(response.requirement.tags || []),
           sourceChannelId: channelId,
           projectId: null,
           status: 'draft',
@@ -185,7 +189,7 @@ class AnalystTriggerService {
       });
 
       // 6b. Write SDD files to disk (SP-004)
-      const slug = toKebab(response.title || 'analysis');
+      const slug = toKebab(response.requirement.title || 'analysis');
       try {
         const now = new Date().toISOString();
         const version = 1;
@@ -193,35 +197,35 @@ class AnalystTriggerService {
         // Requirement layer: What
         // Collect unique file paths from all AC groups, stripping line ranges
         const allFiles = [...new Set(
-          response.acGroups
-            .flatMap((g: any) => g.files || [])
+          response.requirement.acGroups
+            .flatMap((g) => g.files || [])
             .filter(Boolean)
-            .map((f: string) => f.replace(/:L?\d+(-L?\d+)?$/, '')),
+            .map((f) => f.replace(/:L?\d+(-L?\d+)?$/, '')),
         )];
 
         writeSddDoc(slug, 'requirement', {
           id: doc.id,
           goalId: doc.goalId || undefined,
           slug,
-          title: response.title || '需求分析',
+          title: response.requirement.title || '需求分析',
           status: 'draft',
-          tier: (response.tier as any) || 'standard',
+          tier: (response.requirement.tier as any) || 'standard',
           version,
           requirementVersion: version,
           designVersion: version,
           taskVersion: version,
           sourceChannelId: channelId,
-          tags: response.tags || [],
+          tags: response.requirement.tags || [],
           createdAt: now,
           updatedAt: now,
         }, [
-          `## ${response.title}`,
+          `## ${response.requirement.title}`,
           '',
-          response.summary || '',
+          response.requirement.summary || '',
           '',
           '## AC Groups',
           '',
-          ...response.acGroups.map((g: any) => [
+          ...response.requirement.acGroups.map((g) => [
             `### ${g.id}`,
             '',
             ...g.acs.map((ac: string) => `- ${ac}`),
@@ -233,19 +237,19 @@ class AnalystTriggerService {
           '',
           '## Files',
           '',
-          ...allFiles.map((f: string) => `- ${f}`),
+          ...allFiles.map((f) => `- ${f}`),
         ].join('\n'));
 
         // Design layer: How
         writeSddDoc(slug, 'design', {
-          id: doc.id, slug, title: response.title || '',
-          status: 'draft', tier: (response.tier as any) || 'standard',
+          id: doc.id, slug, title: response.requirement.title || '',
+          status: 'draft', tier: (response.requirement.tier as any) || 'standard',
           version, requirementVersion: version, designVersion: version, taskVersion: version,
           createdAt: now, updatedAt: now,
         }, [
           '## Design',
           '',
-          ...response.acGroups.map((g: any) => [
+          ...response.design.acGroups.map((g) => [
             `### ${g.id}`,
             '',
             '**Implementation Notes**',
@@ -266,22 +270,24 @@ class AnalystTriggerService {
         ].join('\n'));
 
         // Task layer: Verify
+        const allTaskContractTests = response.task.acGroups.flatMap(g => g.contractTests || []);
+        const taskSkipReason = response.task.acGroups.map(g => g.contractTestsSkipReason).filter(Boolean)[0];
         writeSddDoc(slug, 'task', {
-          id: doc.id, slug, title: response.title || '',
-          status: 'draft', tier: (response.tier as any) || 'standard',
+          id: doc.id, slug, title: response.requirement.title || '',
+          status: 'draft', tier: (response.requirement.tier as any) || 'standard',
           version, requirementVersion: version, designVersion: version, taskVersion: version,
           createdAt: now, updatedAt: now,
         }, [
           '## Contract Tests',
           '',
-          ...(response.contractTests?.length
-            ? response.contractTests.map((t: any) => [
+          ...(allTaskContractTests.length
+            ? allTaskContractTests.map((t) => [
                 `### ${t.file}`,
                 '```typescript',
                 t.content,
                 '```',
               ].join('\n'))
-            : [response.contractTestsSkipReason || 'No contract tests']),
+            : [taskSkipReason || 'No contract tests']),
         ].join('\n'));
 
         appendChangelog(slug, `Created from Analyst output (channel: ${channelId}, doc: ${doc.id})`);
@@ -311,23 +317,23 @@ class AnalystTriggerService {
       // 8. Auto-capture architectural knowledge (KnowledgeSync Cycle 1)
       try {
         const { knowledgeSync } = await import('../knowledge/knowledge-sync.service.js');
-        const discoveredFiles = response.acGroups?.flatMap((g: any) => g.files || []) || [];
-        const scopeName = response.title ? response.title.toLowerCase().replace(/\s+/g, '-').slice(0, 40) : 'analysis';
+        const discoveredFiles = response.requirement.acGroups?.flatMap((g) => g.files || []) || [];
+        const scopeName = response.requirement.title ? response.requirement.title.toLowerCase().replace(/\s+/g, '-').slice(0, 40) : 'analysis';
         if (discoveredFiles.length > 0) {
           await knowledgeSync.capture({
             scope: scopeName,
             content: [
-              `## ${response.title}`,
-              response.summary || '',
+              `## ${response.requirement.title}`,
+              response.requirement.summary || '',
               '',
               '### Modules Analyzed',
-              ...response.acGroups.map((g: any) => `- **${g.id}**: ${g.files?.join(', ') || 'N/A'}`),
+              ...response.requirement.acGroups.map((g) => `- **${g.id}**: ${g.files?.join(', ') || 'N/A'}`),
               '',
               '### Key Patterns',
-              ...(response.acGroups?.flatMap((g: any) => g.codePatterns || []).slice(0, 5) || []).map((p: string) => `- ${p}`),
+              ...(response.design.acGroups?.flatMap((g) => g.codePatterns || []).slice(0, 5) || []).map((p: string) => `- ${p}`),
               '',
               '### Gotchas',
-              ...(response.acGroups?.flatMap((g: any) => g.gotchas || []).slice(0, 5) || []).map((g: string) => `- ⚠️ ${g}`),
+              ...(response.design.acGroups?.flatMap((g) => g.gotchas || []).slice(0, 5) || []).map((g: string) => `- ⚠️ ${g}`),
             ].join('\n'),
             source: 'analyst',
           });
@@ -337,13 +343,13 @@ class AnalystTriggerService {
         // Subsequent Analyst runs pick these up via knowledgeBus.getRecentContext()
         try {
           const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-          const allGotchas = response.acGroups?.flatMap((g: any) => g.gotchas || []) || [];
-          const allPatterns = response.acGroups?.flatMap((g: any) => g.codePatterns || []) || [];
+          const allGotchas = response.design.acGroups?.flatMap((g) => g.gotchas || []) || [];
+          const allPatterns = response.design.acGroups?.flatMap((g) => g.codePatterns || []) || [];
           for (const gotcha of allGotchas.slice(0, 5)) {
             await knowledgeBus.recordPattern({
               source: 'analyst',
               type: 'pitfall',
-              title: `[Analyst] ${response.title}: ${gotcha.slice(0, 80)}`,
+              title: `[Analyst] ${response.requirement.title}: ${gotcha.slice(0, 80)}`,
               content: gotcha,
               severity: 'warning',
               timestamp: Date.now(),
@@ -353,7 +359,7 @@ class AnalystTriggerService {
             await knowledgeBus.recordPattern({
               source: 'analyst',
               type: 'pattern',
-              title: `[Analyst] ${response.title}: ${pattern.slice(0, 80)}`,
+              title: `[Analyst] ${response.requirement.title}: ${pattern.slice(0, 80)}`,
               content: pattern,
               severity: 'info',
               timestamp: Date.now(),
@@ -362,9 +368,9 @@ class AnalystTriggerService {
         } catch { /* KnowledgeBus write-back is best-effort, don't block pipeline */ }
 
         // G33: Expose discoveries to channel (non-blocking)
-        if (response.discoveries?.length) {
+        if (response.requirement.discoveries?.length) {
           const { discoveryExposure } = await import('./discovery-exposure.service.js');
-          discoveryExposure.expose(response.discoveries.map((d: any) => ({
+          discoveryExposure.expose(response.requirement.discoveries.map((d) => ({
             source: 'analyst' as const,
             type: d.type || 'observation',
             severity: d.severity || 'medium',
@@ -382,7 +388,7 @@ class AnalystTriggerService {
       // 9a. Pre-analyst knowledge search (0 tokens, duration only)
       recordPipelineRun({
         source: 'pipeline', phase: 'analyst',
-        taskName: `pre-analyst:${response.title || '需求分析'}`,
+        taskName: `pre-analyst:${response.requirement.title || '需求分析'}`,
         model: 'knowledge-search',
         inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
         durationMs: preAnalystDurationMs,
@@ -395,7 +401,7 @@ class AnalystTriggerService {
       // 9b. Analyst Claude session
       recordPipelineRun({
         source: 'pipeline', phase: 'analyst',
-        taskName: response.title || '需求分析',
+        taskName: response.requirement.title || '需求分析',
         model: `claude-${preTier}`,
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
@@ -408,7 +414,7 @@ class AnalystTriggerService {
       });
 
       logger.info('[AnalystTrigger] RequirementsDoc generated', {
-        channelId, docId: doc.id, acGroupCount: response.acGroups?.length || 0,
+        channelId, docId: doc.id, acGroupCount: response.requirement.acGroups?.length || 0,
         durationMs, dbKnowledgeSize: dbKnowledge.length,
         tokens: usage,
       });
@@ -428,17 +434,17 @@ class AnalystTriggerService {
   // ── Formatting ──
 
   private formatCardContent(doc: RequirementsDocJson): string {
-    const acCount = doc.acGroups.reduce((sum, g) => sum + g.acs.length, 0);
-    const tags = doc.tags?.length ? `\n🏷️ ${doc.tags.join(' · ')}` : '';
-    const guideCount = doc.acGroups.filter(g => g.implementationNotes).length;
-    const iv = doc.interfaceVerification;
+    const acCount = doc.requirement.acGroups.reduce((sum, g) => sum + g.acs.length, 0);
+    const tags = doc.requirement.tags?.length ? `\n🏷️ ${doc.requirement.tags.join(' · ')}` : '';
+    const guideCount = doc.design.acGroups.filter(g => g.implementationNotes).length;
+    const iv = doc.requirement.interfaceVerification;
     const unverifiedWarn = iv?.unverified?.length
       ? `\n⚠️ ${iv.unverified.length} 个接口假设未验证: ${iv.unverified.join(', ')}`
       : '';
     return [
-      `## 📋 ${doc.title}`,
-      '', doc.summary, '',
-      `📊 ${doc.acGroups.length} 模块 · ${acCount} 验收标准 · ${guideCount} 实现指南`,
+      `## 📋 ${doc.requirement.title}`,
+      '', doc.requirement.summary, '',
+      `📊 ${doc.requirement.acGroups.length} 模块 · ${acCount} 验收标准 · ${guideCount} 实现指南`,
       `✅ 结构验证通过`,
       tags,
       unverifiedWarn,
@@ -462,38 +468,27 @@ class AnalystTriggerService {
   }
 
   private formatRequirementsDoc(doc: RequirementsDocJson): string {
-    const sections = [`# ${doc.title}`, '', doc.summary, ''];
-    if (doc.tier) {
-      sections.push(`<!-- TASK_TIER ${JSON.stringify({ tier: doc.tier, reason: doc.tierReason || '' })} -->`, '');
+    const req = doc.requirement;
+    const sections = [`# ${req.title}`, '', req.summary, ''];
+    if (req.tier) {
+      sections.push(`<!-- TASK_TIER ${JSON.stringify({ tier: req.tier, reason: req.tierReason || '' })} -->`, '');
     }
-    if (doc.interfaceVerification) {
+    if (req.interfaceVerification) {
       sections.push(
         '## Schema First Verification',
         '',
-        `<!-- INTERFACE_VERIFICATION ${JSON.stringify(doc.interfaceVerification)} -->`,
+        `<!-- INTERFACE_VERIFICATION ${JSON.stringify(req.interfaceVerification)} -->`,
         '',
-        ...(doc.interfaceVerification.verified.length ? ['### Verified', ...doc.interfaceVerification.verified.map(v => `- ✅ ${v}`), ''] : []),
-        ...(doc.interfaceVerification.unverified.length ? ['### ⚠️ Unverified', ...doc.interfaceVerification.unverified.map(v => `- ❌ ${v}`), ''] : []),
-        ...(doc.interfaceVerification.newRequired.length ? ['### 🆕 New Required', ...doc.interfaceVerification.newRequired.map(v => `- 📝 ${v}`), ''] : []),
+        ...(req.interfaceVerification.verified.length ? ['### Verified', ...req.interfaceVerification.verified.map(v => `- ✅ ${v}`), ''] : []),
+        ...(req.interfaceVerification.unverified.length ? ['### ⚠️ Unverified', ...req.interfaceVerification.unverified.map(v => `- ❌ ${v}`), ''] : []),
+        ...(req.interfaceVerification.newRequired.length ? ['### 🆕 New Required', ...req.interfaceVerification.newRequired.map(v => `- 📝 ${v}`), ''] : []),
       );
     }
     sections.push('', '## AC Groups');
-    for (const g of doc.acGroups) {
+    for (const g of req.acGroups) {
       sections.push('', `### ${g.id}`);
-      if (g.modelTier) {
-        sections.push(`<!-- MODEL_TIER ${JSON.stringify({ tier: g.modelTier, reason: g.modelTierReason || '' })} -->`);
-      }
       sections.push('', '#### 验收标准');
       for (const ac of g.acs) sections.push(`- [ ] ${ac}`);
-      if (g.implementationNotes) {
-        sections.push('', '#### 实现指南', g.implementationNotes);
-      }
-      if (g.codePatterns.length) {
-        sections.push('', '#### 参考模式', ...g.codePatterns.map(p => `- ${p}`));
-      }
-      if (g.gotchas.length) {
-        sections.push('', '#### ⚠️ 注意事项', ...g.gotchas.map(gc => `- ${gc}`));
-      }
       if (g.files.length) {
         sections.push('', '#### 涉及文件', ...g.files.map(f => `- ${f}`));
       }
@@ -501,8 +496,8 @@ class AnalystTriggerService {
         sections.push('', `#### 依赖: ${g.dependencies.join(', ')}`);
       }
     }
-    if (doc.constraints.length) {
-      sections.push('', '## 约束', ...doc.constraints.map(c => `- ${c}`));
+    if (req.constraints.length) {
+      sections.push('', '## 约束', ...req.constraints.map(c => `- ${c}`));
     }
     return sections.join('\n');
   }

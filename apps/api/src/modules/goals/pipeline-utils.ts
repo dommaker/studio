@@ -26,6 +26,9 @@ export interface AcGroup {
   gotchas?: string[];
   modelTier?: string;
   modelTierReason?: string;
+  contractTests?: Array<{ file: string; content: string }>;
+  testFiles?: string[];
+  contractTestsSkipReason?: string;
 }
 
 // ─── SKILLS_DIR ───
@@ -37,26 +40,39 @@ export const SKILLS_DIR = process.env.SKILLS_DIR || path.join(
 // ─── parseAcGroups ───
 
 /**
- * 从 RequirementsDocJson 提取并验证 AcGroup[]。
+ * 从 RequirementsDocJson 三层结构提取并合并 AcGroup[]。
+ * requirement/design/task 三层按 id 对应合并。
  * 过滤无效条目（缺少 id 或 acs 为空）。
  */
 export function parseAcGroups(spec: RequirementsDocJson): AcGroup[] {
-  if (!spec.acGroups || !Array.isArray(spec.acGroups)) return [];
-  return spec.acGroups.filter(
+  const reqGroups = spec.requirement?.acGroups;
+  if (!reqGroups || !Array.isArray(reqGroups)) return [];
+
+  const designMap = new Map((spec.design?.acGroups || []).map(g => [g.id, g]));
+  const taskMap = new Map((spec.task?.acGroups || []).map(g => [g.id, g]));
+
+  return reqGroups.filter(
     (g): g is typeof g & { id: string; acs: string[] } =>
       typeof g.id === 'string' && g.id.length > 0
       && Array.isArray(g.acs) && g.acs.length > 0,
-  ).map(g => ({
-    id: g.id,
-    acs: g.acs,
-    files: g.files || [],
-    dependencies: g.dependencies || [],
-    implementationNotes: g.implementationNotes,
-    codePatterns: g.codePatterns,
-    gotchas: g.gotchas,
-    modelTier: g.modelTier,
-    modelTierReason: g.modelTierReason,
-  }));
+  ).map(g => {
+    const design = designMap.get(g.id);
+    const task = taskMap.get(g.id);
+    return {
+      id: g.id,
+      acs: g.acs,
+      files: g.files || [],
+      dependencies: g.dependencies || [],
+      implementationNotes: design?.implementationNotes,
+      codePatterns: design?.codePatterns,
+      gotchas: design?.gotchas,
+      modelTier: design?.modelTier,
+      modelTierReason: design?.modelTierReason,
+      contractTests: task?.contractTests,
+      testFiles: task?.testFiles,
+      contractTestsSkipReason: task?.contractTestsSkipReason,
+    };
+  });
 }
 
 // ─── resolveDependencies ───

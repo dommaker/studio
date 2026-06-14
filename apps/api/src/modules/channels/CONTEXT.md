@@ -16,8 +16,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
 
-<!-- STALE_SINCE: 2026-06-12 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-trigger.service.ts
+
+<!-- STALE_SINCE: 2026-06-14 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/requirements-doc.routes.ts
 
 ## 职责
 
@@ -38,6 +40,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `1c4ac168`: SP-004): 补齐 SDD 三个缺口 — Files section + Analyst 输出 + 去 DB 读
 - ✅ `3281bd80`: P6.5): Skill 元数据注入合规 + MCP SSE transport + fileKnowledge 移除
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
 - ✅ `9dec006c`: 管线自举根因修复 — AC 质量 + Gate 加固 + OKR v3

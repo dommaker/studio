@@ -32,8 +32,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
 
-<!-- STALE_SINCE: 2026-06-11 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/monitor-agent.service.ts
+
+<!-- STALE_SINCE: 2026-06-14 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/post-eval-agent.service.ts
 
 ## 职责
 
@@ -54,6 +56,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `1c4ac168`: SP-004): 补齐 SDD 三个缺口 — Files section + Analyst 输出 + 去 DB 读
 - ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
 - ✅ `309f6061`: review pipeline — diff scope + discoveredIssues exposure
 - ✅ `556051f2`: B34 behavior distillation output path + PatternMiner startup + agent-runner --verbose

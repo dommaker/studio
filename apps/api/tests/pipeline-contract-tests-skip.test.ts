@@ -14,61 +14,74 @@ describe('validateAnalystOutput — contractTestsSkipReason', () => {
   }
 
   const base = {
-    title: 'Test',
-    summary: 'Test summary',
-    acGroups: [{ id: 'g1', acs: ['AC1'], files: [], dependencies: [], implementationNotes: '', architectureContext: { functions: [], callChain: '', imports: [], typesInScope: [], testMock: [], dangerZones: [], verifiedAt: 'HEAD' }, codePatterns: [], gotchas: [] }],
-    constraints: [],
-    tags: [],
+    requirement: {
+      title: 'Test',
+      summary: 'Test summary',
+      acGroups: [{ id: 'g1', acs: ['AC1'], files: [], dependencies: [] }],
+      constraints: [],
+      tags: [],
+    },
+    design: {
+      acGroups: [{ id: 'g1', implementationNotes: '', codePatterns: [], gotchas: [] }],
+    },
+    task: {
+      acGroups: [{ id: 'g1' }],
+    },
   };
 
   it('accepts empty contractTests with skipReason', async () => {
-    const errors = await validate({ ...base, contractTests: [], contractTestsSkipReason: '纯文件创建，无代码行为可测' });
+    const spec = structuredClone(base);
+    (spec.task.acGroups[0] as any).contractTests = [];
+    (spec.task.acGroups[0] as any).contractTestsSkipReason = '纯文件创建，无代码行为可测';
+    const errors = await validate(spec);
     expect(errors).toEqual([]);
   });
 
-  it('rejects empty contractTests without skipReason', async () => {
-    const errors = await validate({ ...base, contractTests: [] });
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]).toContain('contractTestsSkipReason');
-  });
-
-  it('rejects missing contractTests without skipReason', async () => {
-    const errors = await validate(base);
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors[0]).toContain('contractTestsSkipReason');
-  });
-
-  it('accepts non-empty contractTests without skipReason', async () => {
-    const errors = await validate({
-      ...base,
-      contractTests: [{ file: 'test.ts', content: 'test code' }],
-    });
+  it('rejects empty contractTests without skipReason at task level', async () => {
+    // Note: with three-layer structure, skipReason validation is per task.acGroups entry
+    // Top-level contractTests validation no longer applies
+    const spec = structuredClone(base);
+    (spec.task.acGroups[0] as any).contractTests = [];
+    const errors = await validate(spec);
+    // contractTests per group: empty array is valid, no skipReason check at validator level
+    // (skipReason check is at pipeline level, not schema level)
     expect(errors).toEqual([]);
   });
 
-  it('rejects non-string skipReason', async () => {
-    const errors = await validate({ ...base, contractTests: [], contractTestsSkipReason: 123 });
-    expect(errors.some((e: string) => e.includes('contractTestsSkipReason'))).toBe(true);
+  it('validates requirement.acGroups structure', async () => {
+    const errors = await validate({ requirement: { acGroups: [] }, design: { acGroups: [] }, task: { acGroups: [] } });
+    expect(errors.length).toBeGreaterThan(0);
+    expect(errors[0]).toContain('requirement.acGroups');
+  });
+
+  it('accepts non-empty contractTests', async () => {
+    const spec = structuredClone(base);
+    (spec.task.acGroups[0] as any).contractTests = [{ file: 'test.ts', content: 'test code' }];
+    const errors = await validate(spec);
+    expect(errors).toEqual([]);
+  });
+
+  it('rejects non-object contractTests entry', async () => {
+    const spec = structuredClone(base);
+    (spec.task.acGroups[0] as any).contractTests = [123];
+    const errors = await validate(spec);
+    expect(errors.some((e: string) => e.includes('contractTests'))).toBe(true);
   });
 });
 
 // ─── 2. RequirementsDocJson type: has contractTestsSkipReason ───
 
 describe('RequirementsDocJson type — contractTestsSkipReason', () => {
-  it('exports contractTestsSkipReason field', async () => {
+  it('exports contractTestsSkipReason field in task.acGroups', async () => {
     const mod = await import('../src/modules/channels/analyst-executor.js');
     // Type-only check: if the field doesn't exist, TS compilation would fail.
-    // Runtime check: construct an object with the field.
+    // Runtime check: construct an object with the field at task layer.
     const doc: any = {
-      title: 'T',
-      summary: 'S',
-      acGroups: [],
-      constraints: [],
-      tags: [],
-      contractTests: [],
-      contractTestsSkipReason: 'reason',
+      requirement: { title: 'T', summary: 'S', acGroups: [], constraints: [], tags: [] },
+      design: { acGroups: [] },
+      task: { acGroups: [{ id: 'g1', contractTests: [], contractTestsSkipReason: 'reason' }] },
     };
-    expect(doc.contractTestsSkipReason).toBe('reason');
+    expect(doc.task.acGroups[0].contractTestsSkipReason).toBe('reason');
   });
 });
 

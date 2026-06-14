@@ -46,8 +46,17 @@ function makeGroup(overrides: Partial<{
 // ─── parseAcGroups ───
 
 describe('parseAcGroups', () => {
+  /** Wrap requirement-layer group into three-layer spec */
+  function makeSpec(reqGroups: any[], designGroups?: any[], taskGroups?: any[]) {
+    return {
+      requirement: { acGroups: reqGroups },
+      design: { acGroups: designGroups || [] },
+      task: { acGroups: taskGroups || [] },
+    };
+  }
+
   it('extracts valid AcGroup array from RequirementsDocJson', () => {
-    const spec = { acGroups: [makeGroup()] };
+    const spec = makeSpec([makeGroup()]);
     const result = parseAcGroups(spec as any);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('g1');
@@ -55,38 +64,47 @@ describe('parseAcGroups', () => {
   });
 
   it('filters out entries missing id', () => {
-    const spec = { acGroups: [makeGroup(), { acs: ['AC2'], files: [], dependencies: [], implementationNotes: '' }] };
+    const spec = makeSpec([makeGroup(), { acs: ['AC2'], files: [], dependencies: [] }]);
     const result = parseAcGroups(spec as any);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('g1');
   });
 
   it('filters out entries with empty acs', () => {
-    const spec = { acGroups: [makeGroup({ id: 'valid', acs: ['AC1'] }), makeGroup({ id: 'empty', acs: [] })] };
+    const spec = makeSpec([makeGroup({ id: 'valid', acs: ['AC1'] }), makeGroup({ id: 'empty', acs: [] })]);
     const result = parseAcGroups(spec as any);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('valid');
   });
 
   it('returns empty array for empty acGroups', () => {
-    expect(parseAcGroups({ acGroups: [] } as any)).toEqual([]);
+    expect(parseAcGroups(makeSpec([]) as any)).toEqual([]);
   });
 
-  it('returns empty array for missing acGroups', () => {
+  it('returns empty array for missing requirement', () => {
+    expect(parseAcGroups({ requirement: {}, design: { acGroups: [] }, task: { acGroups: [] } } as any)).toEqual([]);
+  });
+
+  it('returns empty array for missing requirement key', () => {
     expect(parseAcGroups({} as any)).toEqual([]);
   });
 
-  it('preserves optional fields', () => {
-    const group = makeGroup({
-      modelTier: 'premium',
-      modelTierReason: 'complex',
-      codePatterns: ['pattern1'],
-      gotchas: ['gotcha1'],
-    });
-    const result = parseAcGroups({ acGroups: [group] } as any);
+  it('preserves optional design fields via id merge', () => {
+    const reqGroup = makeGroup({ id: 'g1' });
+    const designGroup = { id: 'g1', implementationNotes: 'notes', modelTier: 'premium', modelTierReason: 'complex', codePatterns: ['pattern1'], gotchas: ['gotcha1'] };
+    const result = parseAcGroups(makeSpec([reqGroup], [designGroup]) as any);
     expect(result[0].modelTier).toBe('premium');
     expect(result[0].codePatterns).toEqual(['pattern1']);
     expect(result[0].gotchas).toEqual(['gotcha1']);
+    expect(result[0].implementationNotes).toBe('notes');
+  });
+
+  it('merges task fields via id', () => {
+    const reqGroup = makeGroup({ id: 'g1' });
+    const taskGroup = { id: 'g1', contractTests: [{ file: 't.ts', content: 'code' }], testFiles: ['t.test.ts'] };
+    const result = parseAcGroups(makeSpec([reqGroup], [], [taskGroup]) as any);
+    expect(result[0].contractTests).toEqual([{ file: 't.ts', content: 'code' }]);
+    expect(result[0].testFiles).toEqual(['t.test.ts']);
   });
 });
 

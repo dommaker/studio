@@ -411,28 +411,25 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
     const docId = meta.requirementsDocId || meta.cardData?.requirementsDocId;
     const sddSlug = meta.sddSlug || meta.cardData?.sddSlug;
     if (docId) {
-      // SP-004: Read DB for business fields (content, acGroups, contractTests), merge SDD metadata
+      // F-07: SDD-only — no DB read dependency
       const resolvedSlug = sddSlug || findSddDocById(docId);
-      const dbDoc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
-      if (!dbDoc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
-
-      let doc: typeof dbDoc;
-      let sddBody: string | undefined;
       const sddReq = resolvedSlug ? readSddDoc(resolvedSlug, 'requirement') : null;
-      if (sddReq) {
-        doc = {
-          ...dbDoc,
-          id: (sddReq.meta.id as string) || dbDoc.id,
-          goalId: (sddReq.meta.goalId as string) || dbDoc.goalId,
-          title: (sddReq.meta.title as string) || dbDoc.title,
-          status: (sddReq.meta.status as string) || dbDoc.status,
-          tags: sddReq.meta.tags ? JSON.stringify(sddReq.meta.tags) : dbDoc.tags,
-        };
-        sddBody = sddReq.body;
-        logger.info('[Channel] SDD metadata merged', { slug: resolvedSlug, docId });
-      } else {
-        doc = dbDoc;
+      if (!sddReq) {
+        logger.warn('[Channel] SDD requirement doc not found', { docId, resolvedSlug });
+        return res.status(404).json({ success: false, error: 'SDD requirement doc not found' });
       }
+      const sddBody = sddReq.body;
+      logger.info('[Channel] SDD metadata loaded', { slug: resolvedSlug, docId });
+
+      // Build doc from SDD frontmatter (replaces DB read)
+      const doc = {
+        id: (sddReq.meta.id as string) || docId,
+        goalId: (sddReq.meta.goalId as string) || null,
+        title: (sddReq.meta.title as string) || '需求',
+        status: (sddReq.meta.status as string) || 'draft',
+        tags: sddReq.meta.tags ? JSON.stringify(sddReq.meta.tags) : '[]',
+        projectId: null as string | null,
+      };
 
       // Idempotency guard: prevent duplicate Goals from race between autoStartExecution + CLI polling
       if (doc.goalId || doc.status === 'confirmed') {
@@ -449,34 +446,24 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         company = await prisma.company.create({ data: { name: 'Default' } });
       }
 
-      // G34: Read acGroups — SDD body parse preferred, fallback to DB JSON column
-      let acGroups = sddBody
-        ? parseAcGroupsFromMarkdown(sddBody)
-        : doc.acGroups
-          ? JSON.parse(doc.acGroups as string)
-          : parseAcGroupsFromMarkdown(doc.content);
-      // TDD-07: Read contractTests — SDD task layer first, fallback to DB
+      // acGroups from SDD requirement.md body (F-07: no DB fallback)
+      let acGroups = parseAcGroupsFromMarkdown(sddBody);
+
+      // contractTests from SDD task.md (F-07: no DB fallback)
       let contractTests: Array<{ file: string; content: string }> | undefined;
-      if (resolvedSlug) {
-        const sddTask = readSddDoc(resolvedSlug, 'task');
-        if (sddTask) {
-          contractTests = parseContractTestsFromSddBody(sddTask.body);
+      let contractTestsSkipReason: string | null = null;
+      const sddTask = readSddDoc(resolvedSlug, 'task');
+      if (sddTask) {
+        contractTests = parseContractTestsFromSddBody(sddTask.body);
+        if (!contractTests?.length) {
+          // Extract skip reason from task.md Contract Tests section
+          const skipMatch = sddTask.body.match(/## (?:Contract Tests|契约测试)\s*\n([\s\S]*?)(?=\n## |\n*$)/);
+          contractTestsSkipReason = skipMatch?.[1]?.trim() || null;
         }
       }
-      if (!contractTests && doc.contractTests) {
-        contractTests = JSON.parse(doc.contractTests as string);
-      }
-      const contractTestsSkipReason = (doc as any).contractTestsSkipReason || null;
 
-      // Extract tier from Analyst output (TASK_TIER comment in content)
-      const tierMatch = doc.content.match(/<!-- TASK_TIER (.+?) -->/);
-      let taskTier: string | undefined;
-      if (tierMatch) {
-        try {
-          const tierData = JSON.parse(tierMatch[1]);
-          taskTier = tierData.tier;
-        } catch { /* ignore parse error */ }
-      }
+      // F-07: Tier from SDD frontmatter (replaces TASK_TIER HTML comment extraction)
+      let taskTier: string | undefined = sddReq.meta.tier;
 
       // Fast tier: merge all acGroups into 1 (single step, skip integration)
       if (taskTier === 'fast' && acGroups.length > 1) {
@@ -518,7 +505,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       const groupIdToIndex = new Map(acGroups.map((g, i) => [g.id, i]));
 
       // O1c: Extract Analyst context for each AC group (prevents Executor from re-exploring verified files)
-      const ivMatchO1c = doc.content.match(/<!-- INTERFACE_VERIFICATION (.+?) -->/);
+      const ivMatchO1c = sddBody.match(/<!-- INTERFACE_VERIFICATION (.+?) -->/);
       const interfaceVerificationStr = ivMatchO1c ? ivMatchO1c[1] : null;
       for (const group of acGroups) {
         (group as any)._analystContext = {
@@ -549,7 +536,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       try {
         const { validateRequirementsDoc } = await import('../agents/requirement-gate.js');
         // Extract Schema First verification from doc content
-        const ivMatch = doc.content.match(/<!-- INTERFACE_VERIFICATION (.+?) -->/);
+        const ivMatch = sddBody.match(/<!-- INTERFACE_VERIFICATION (.+?) -->/);
         const interfaceVerification = ivMatch ? JSON.parse(ivMatch[1]) : undefined;
         const gateResult = await validateRequirementsDoc(acGroups, doc.title, repoDir, interfaceVerification);
 
@@ -581,7 +568,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
 
           // upgrade-to-premium: trigger Analyst revision with gate feedback
           if (gateResult.tierRecommendation === 'upgrade-to-premium') {
-            const revMatch = doc.content.match(/<!-- GATE_REVISION_ATTEMPT (\d+) -->/);
+            const revMatch = sddBody.match(/<!-- GATE_REVISION_ATTEMPT (\d+) -->/);
             const revisionAttempt = revMatch ? parseInt(revMatch[1], 10) : 0;
 
             if (revisionAttempt >= 2) {
@@ -603,7 +590,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
             const revisionPrompt = buildRevPrompt(
               doc.title,
               gateResult.suggestions,
-              doc.content,
+              sddBody,
               revisionAttempt,
             );
 
@@ -614,7 +601,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
             // DB async sync (non-blocking)
             prisma.requirementsDoc.update({
               where: { id: docId },
-              data: { content: doc.content.replace(/<!-- GATE_REVISION_ATTEMPT \d+ -->\n?/, '') + `\n<!-- GATE_REVISION_ATTEMPT ${revisionAttempt + 1} -->` },
+              data: { content: sddBody.replace(/<!-- GATE_REVISION_ATTEMPT \d+ -->\n?/, '') + `\n<!-- GATE_REVISION_ATTEMPT ${revisionAttempt + 1} -->` },
             }).catch((e: unknown) => logger.error('[Channel] Failed to update doc revision marker', { error: String(e) }));
 
             import('./analyst-trigger.service.js')
@@ -686,7 +673,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         const pmoProject = await projectService.create({
           companyId: company.id,
           title: doc.title,
-          requirement: doc.content.slice(0, 500),
+          requirement: sddBody.slice(0, 500),
           okrId: okr?.id || undefined,
           priority: risks.length > 0 ? 'high' : 'medium',
           requirementsDocId: docId,
@@ -772,7 +759,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
 
         const result = await goalService.createGoalFromChannelDoc({
           title: repoGroups.length > 1 ? `${doc.title} [${group.targetRepo}]` : doc.title,
-          summary: doc.content.slice(0, 200),
+          summary: sddBody.slice(0, 200),
           acGroups: group.acGroups,
           companyId: company.id,
           sourceChannelId: req.params.channelId,
