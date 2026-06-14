@@ -6,7 +6,7 @@
  *   - buildWikiGraph: SDD-based graph nodes/edges
  *   - getWikiDocById: findSddDocById + read 3 layers
  *
- * DB fallback tested: when SDD returns empty, prisma is used.
+ * All reads are SDD-only (no DB fallback).
  */
 
 import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
@@ -148,17 +148,13 @@ describe('listWikiDocs', () => {
     expect(result[1].id).toBe('a1');
   });
 
-  it('falls back to DB when SDD returns empty', async () => {
+  it('returns empty when SDD returns empty', async () => {
     mockListSddDocs.mockReturnValue([]);
-    mockPrismaFindMany.mockResolvedValue([
-      { id: 'db-1', title: 'DB Doc', tags: '[]', status: 'confirmed', goalId: null, projectId: null, sourceChannelId: null, updatedAt: new Date('2026-06-01'), createdAt: new Date('2026-01-01') },
-    ]);
 
-    const result = await listWikiDocs({});
+    const result = listWikiDocs({});
 
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('db-1');
-    expect(mockPrismaFindMany).toHaveBeenCalled();
+    expect(result).toHaveLength(0);
+    expect(mockPrismaFindMany).not.toHaveBeenCalled();
   });
 
   it('skips null results from readSddDoc', async () => {
@@ -227,17 +223,14 @@ describe('buildWikiGraph', () => {
     expect(result.edges).toHaveLength(0);
   });
 
-  it('falls back to DB when SDD returns empty', async () => {
+  it('returns empty graph when SDD returns empty', async () => {
     mockListSddDocs.mockReturnValue([]);
-    mockPrismaFindMany.mockResolvedValue([
-      { id: 'db-1', title: 'DB Doc', status: 'confirmed', linkedDocIds: '[]' },
-    ]);
 
-    const result = await buildWikiGraph();
+    const result = buildWikiGraph();
 
-    expect(result.nodes).toHaveLength(1);
-    expect(result.nodes[0]).toEqual({ id: 'db-1', name: 'DB Doc', status: 'confirmed' });
-    expect(mockPrismaFindMany).toHaveBeenCalled();
+    expect(result.nodes).toHaveLength(0);
+    expect(result.edges).toHaveLength(0);
+    expect(mockPrismaFindMany).not.toHaveBeenCalled();
   });
 
   it('produces correct node shape', async () => {
@@ -285,28 +278,13 @@ describe('getWikiDocById', () => {
     expect(result).toBeNull();
   });
 
-  it('falls back to DB when SDD not found', async () => {
+  it('returns null when SDD not found (no DB fallback)', async () => {
     mockFindSddDocById.mockReturnValue(null);
-    mockPrismaFindUnique.mockResolvedValue({
-      id: 'db-1',
-      title: 'DB Doc',
-      content: 'DB content',
-      linkedDocIds: '[]',
-      tags: '[]',
-      status: 'confirmed',
-      goalId: null,
-      projectId: null,
-      sourceChannelId: null,
-      createdAt: new Date('2026-01-01'),
-      updatedAt: new Date('2026-06-01'),
-    });
-    mockPrismaFindMany.mockResolvedValue([]);
 
-    const result = await getWikiDocById('db-1');
+    const result = getWikiDocById('db-1');
 
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe('db-1');
-    expect(mockPrismaFindUnique).toHaveBeenCalled();
+    expect(result).toBeNull();
+    expect(mockPrismaFindUnique).not.toHaveBeenCalled();
   });
 
   it('returns metadata from requirement frontmatter', async () => {

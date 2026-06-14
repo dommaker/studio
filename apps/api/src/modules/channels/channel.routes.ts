@@ -411,37 +411,28 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
     const docId = meta.requirementsDocId || meta.cardData?.requirementsDocId;
     const sddSlug = meta.sddSlug || meta.cardData?.sddSlug;
     if (docId) {
-      // SP-004: SDD-first read, DB fallback for RequirementsDoc
+      // SP-004: Read DB for business fields (content, acGroups, contractTests), merge SDD metadata
       const resolvedSlug = sddSlug || findSddDocById(docId);
-      let doc: Awaited<ReturnType<typeof prisma.requirementsDoc.findUnique>>;
+      const dbDoc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
+      if (!dbDoc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
+
+      let doc: typeof dbDoc;
       let sddBody: string | undefined;
-
-      if (resolvedSlug) {
-        const sddReq = readSddDoc(resolvedSlug, 'requirement');
-        if (sddReq) {
-          // Merge SDD frontmatter + DB (DB needed for content, projectId, contractTests)
-          const dbDoc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
-          if (!dbDoc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
-          doc = {
-            ...dbDoc,
-            id: (sddReq.meta.id as string) || dbDoc.id,
-            goalId: (sddReq.meta.goalId as string) || dbDoc.goalId,
-            title: (sddReq.meta.title as string) || dbDoc.title,
-            status: (sddReq.meta.status as string) || dbDoc.status,
-            tags: sddReq.meta.tags ? JSON.stringify(sddReq.meta.tags) : dbDoc.tags,
-          };
-          sddBody = sddReq.body;
-          logger.info('[Channel] SDD-first read', { slug: resolvedSlug, docId });
-        } else {
-          // SDD slug exists but file not found — full DB fallback
-          doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
-        }
+      const sddReq = resolvedSlug ? readSddDoc(resolvedSlug, 'requirement') : null;
+      if (sddReq) {
+        doc = {
+          ...dbDoc,
+          id: (sddReq.meta.id as string) || dbDoc.id,
+          goalId: (sddReq.meta.goalId as string) || dbDoc.goalId,
+          title: (sddReq.meta.title as string) || dbDoc.title,
+          status: (sddReq.meta.status as string) || dbDoc.status,
+          tags: sddReq.meta.tags ? JSON.stringify(sddReq.meta.tags) : dbDoc.tags,
+        };
+        sddBody = sddReq.body;
+        logger.info('[Channel] SDD metadata merged', { slug: resolvedSlug, docId });
       } else {
-        // No SDD slug — full DB fallback (legacy path)
-        doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
+        doc = dbDoc;
       }
-
-      if (!doc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
 
       // Idempotency guard: prevent duplicate Goals from race between autoStartExecution + CLI polling
       if (doc.goalId || doc.status === 'confirmed') {

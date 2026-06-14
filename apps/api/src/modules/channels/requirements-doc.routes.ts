@@ -12,17 +12,11 @@ router.put('/:id', async (req, res) => {
     return res.status(400).json({ success: false, error: 'content is required' });
   }
 
-  // SP-004: SDD-first read, DB fallback
+  // SP-004: SDD-only read
   const slug = findSddDocById(req.params.id);
-  let status = 'draft';
-  if (slug) {
-    const sddDoc = readSddDoc(slug, 'requirement');
-    if (sddDoc?.meta.status) status = sddDoc.meta.status;
-  } else {
-    const doc = await prisma.requirementsDoc.findUnique({ where: { id: req.params.id }, select: { status: true } });
-    if (!doc) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
-    status = doc.status;
-  }
+  if (!slug) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
+  const sddDoc = readSddDoc(slug, 'requirement');
+  const status = sddDoc?.meta.status ?? 'draft';
 
   if (status === 'confirmed' || status === 'done') {
     return res.status(400).json({ success: false, error: 'Cannot edit confirmed/done RequirementsDoc' });

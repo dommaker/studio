@@ -98,25 +98,14 @@ class PostEvalAgent {
         return null;
       }
 
-      // SP-004: Try SDD file first, fall back to DB
-      let acs: string[];
-      if (sddSlug) {
-        const sddDoc = readSddDocByGoalId(goalId, 'requirement');
-        if (sddDoc) {
-          acs = this.extractAcs(sddDoc.body);
-          logger.info('[PostEval] ACs extracted from SDD file', { sddSlug, acCount: acs.length });
-        } else {
-          // Fallback: SDD slug exists but file not found (e.g. deleted)
-          const doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
-          if (!doc) return null;
-          acs = this.extractAcs(doc.content);
-        }
-      } else {
-        // Legacy path: no sddSlug in context (goal created before SP-004)
-        const doc = await prisma.requirementsDoc.findUnique({ where: { id: docId } });
-        if (!doc) return null;
-        acs = this.extractAcs(doc.content);
+      // SP-004: SDD-only read for AC extraction
+      const sddDoc = readSddDocByGoalId(goalId, 'requirement');
+      if (!sddDoc) {
+        logger.info('[PostEval] SDD not found for goal, skipping', { goalId, docId });
+        return null;
       }
+      const acs = this.extractAcs(sddDoc.body);
+      logger.info('[PostEval] ACs extracted from SDD file', { goalId, acCount: acs.length });
       if (acs.length === 0) return null;
 
       // 3. 获取 git diff (从 GoalExecution 的 worktree 或 REPO_DIR)

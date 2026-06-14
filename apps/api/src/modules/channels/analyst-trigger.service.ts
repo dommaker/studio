@@ -191,6 +191,14 @@ class AnalystTriggerService {
         const version = 1;
 
         // Requirement layer: What
+        // Collect unique file paths from all AC groups, stripping line ranges
+        const allFiles = [...new Set(
+          response.acGroups
+            .flatMap((g: any) => g.files || [])
+            .filter(Boolean)
+            .map((f: string) => f.replace(/:L?\d+(-L?\d+)?$/, '')),
+        )];
+
         writeSddDoc(slug, 'requirement', {
           id: doc.id,
           goalId: doc.goalId || undefined,
@@ -222,6 +230,10 @@ class AnalystTriggerService {
             `**Dependencies**: ${g.dependencies?.join(', ') || 'N/A'}`,
             g.targetRepo ? `**Target Repo**: ${g.targetRepo}` : '',
           ].join('\n')),
+          '',
+          '## Files',
+          '',
+          ...allFiles.map((f: string) => `- ${f}`),
         ].join('\n'));
 
         // Design layer: How

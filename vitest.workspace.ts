@@ -55,4 +55,12 @@ export default defineWorkspace([
       globalSetup: ['./tests/globalSetup.ts'],
     },
   },
+  // scripts 测试
+  {
+    test: {
+      include: ['scripts/__tests__/**/*.test.ts'],
+      exclude: baseExclude,
+      environment: 'node',
+    },
+  },
 ]);

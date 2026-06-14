@@ -1,7 +1,7 @@
 // B2-008: LLM Wiki — RequirementsDoc 档案馆
 import { Router } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, appendChangelog, findSddDocById, readSddDoc, updateSddFrontmatter } from '@dommaker/studio-shared';
+import { logger, appendChangelog, findSddDocById, updateSddFrontmatter } from '@dommaker/studio-shared';
 import { listWikiDocs, buildWikiGraph, getWikiDocById } from './wiki.service.js';
 
 export const wikiRoutes = Router();
@@ -9,7 +9,7 @@ export const wikiRoutes = Router();
 /**
  * GET /api/v1/wiki
  * 列表搜索：?search= 全文匹配 title/content，?status=confirmed,done
- * SDD-first, DB fallback.
+ * SDD-only reads.
  */
 wikiRoutes.get('/', async (req, res) => {
   try {
@@ -28,7 +28,7 @@ wikiRoutes.get('/', async (req, res) => {
 /**
  * GET /api/v1/wiki/graph
  * 图谱数据：所有 doc 节点 + linkedDocIds 边
- * SDD-first, DB fallback.
+ * SDD-only reads.
  */
 wikiRoutes.get('/graph', async (req, res) => {
   try {
@@ -43,7 +43,7 @@ wikiRoutes.get('/graph', async (req, res) => {
 /**
  * GET /api/v1/wiki/:id
  * 文档详情：内容 + 3 层（requirement/design/task）+ 链接解析
- * SDD-first, DB fallback.
+ * SDD-only reads.
  */
 wikiRoutes.get('/:id', async (req, res) => {
   try {
@@ -66,11 +66,9 @@ wikiRoutes.put('/:id', async (req, res) => {
   try {
     const { content, title, linkedDocIds } = req.body;
 
-    const doc = await prisma.requirementsDoc.findUnique({
-      where: { id: req.params.id },
-    });
-
-    if (!doc) {
+    // SP-004: SDD-only read for existence check
+    const slug = findSddDocById(req.params.id);
+    if (!slug) {
       return res.status(404).json({ success: false, error: 'Document not found' });
     }
 
@@ -99,15 +97,12 @@ wikiRoutes.put('/:id', async (req, res) => {
 
     // SP-004: SDD primary, DB fire-and-forget
     try {
-      const slug = findSddDocById(req.params.id);
-      if (slug) {
-        const sddPatch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
-        if (title !== undefined) sddPatch.title = title.trim();
-        if (linkedDocIds !== undefined) sddPatch.linkedDocIds = linkedDocIds;
-        updateSddFrontmatter(slug, sddPatch);
-        const fields = Object.keys(updateData).join(', ');
-        appendChangelog(slug, `Wiki doc updated (${fields})`);
-      }
+      const sddPatch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
+      if (title !== undefined) sddPatch.title = title.trim();
+      if (linkedDocIds !== undefined) sddPatch.linkedDocIds = linkedDocIds;
+      updateSddFrontmatter(slug, sddPatch);
+      const fields = Object.keys(updateData).join(', ');
+      appendChangelog(slug, `Wiki doc updated (${fields})`);
     } catch (e) {
       logger.warn('[Wiki] SDD frontmatter update failed', { error: String(e) });
     }
