@@ -10,7 +10,7 @@
  *   session-manager.ts — AgentExecutor 类 + session loop + prompt 构建
  */
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getConstraintMeta = exports.recordExecutionError = exports.emitFileChange = exports.emitToolCall = exports.emitSessionEnd = exports.emitSessionStart = exports.recordSessionMetrics = exports.parseJsonEnvelope = exports.collectOutputFiles = exports.readProgress = exports.writeContractTests = exports.writeRequirementsMd = exports.buildCachePrefix = exports.propagateHarnessConfig = exports.createWorktree = exports.agentRunner = exports.AgentRunner = exports.agentExecutor = exports.AgentExecutor = void 0;
+exports.getConstraintMeta = exports.recordExecutionError = exports.emitFileChange = exports.emitToolCall = exports.emitSessionEnd = exports.emitSessionStart = exports.recordSessionMetrics = exports.parseJsonEnvelope = exports.collectOutputFiles = exports.readProgress = exports.ensureDeps = exports.writeContractTests = exports.writeRequirementsMd = exports.buildCachePrefix = exports.propagateHarnessConfig = exports.createWorktree = exports.agentRunner = exports.AgentRunner = exports.agentExecutor = exports.AgentExecutor = void 0;
 // Re-export AgentExecutor class and singleton
 var session_manager_js_1 = require("./session-manager.js");
 Object.defineProperty(exports, "AgentExecutor", { enumerable: true, get: function () { return session_manager_js_1.AgentExecutor; } });
@@ -26,6 +26,7 @@ Object.defineProperty(exports, "propagateHarnessConfig", { enumerable: true, get
 Object.defineProperty(exports, "buildCachePrefix", { enumerable: true, get: function () { return worktree_resolver_js_1.buildCachePrefix; } });
 Object.defineProperty(exports, "writeRequirementsMd", { enumerable: true, get: function () { return worktree_resolver_js_1.writeRequirementsMd; } });
 Object.defineProperty(exports, "writeContractTests", { enumerable: true, get: function () { return worktree_resolver_js_1.writeContractTests; } });
+Object.defineProperty(exports, "ensureDeps", { enumerable: true, get: function () { return worktree_resolver_js_1.ensureDeps; } });
 // Re-export output-capture functions
 var output_capture_js_1 = require("./output-capture.js");
 Object.defineProperty(exports, "readProgress", { enumerable: true, get: function () { return output_capture_js_1.readProgress; } });
