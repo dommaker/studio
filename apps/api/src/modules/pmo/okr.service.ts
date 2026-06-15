@@ -522,7 +522,7 @@ export class OKRService {
     rollback_rate: {
       dataSource: 'studio_event',
       query: (okr, days) => okr.queryRollbackRate(days),
-      description: '回滚率 (deploy rollback events)',
+      description: '回滚率 (N/A — 系统无 rollback 机制)',
     },
     max_concurrent: {
       dataSource: 'goal',
@@ -931,25 +931,40 @@ export class OKRService {
     } catch { return null; }
   }
 
-  /** Pipeline O2-KR3: 单 Goal 成本 (tokens) */
+  /** Pipeline O2-KR3: 单 Goal 成本 (USD from StudioEvent, fallback to tokens) */
   private async queryPipelineGoalCost(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
+      // Try StudioEvent costUsd first
+      const costEvents = await prisma.studioEvent.findMany({
+        where: { timestamp: { gte: since }, type: 'pipeline_run', costUsd: { gt: 0 } },
+        select: { executionId: true, costUsd: true },
+      });
+      if (costEvents.length > 0) {
+        const byGoal = new Map<string, number>();
+        for (const e of costEvents) {
+          const key = e.executionId || 'unknown';
+          byGoal.set(key, (byGoal.get(key) || 0) + (e.costUsd || 0));
+        }
+        if (byGoal.size > 0) {
+          const total = Array.from(byGoal.values()).reduce((s, v) => s + v, 0);
+          return Math.round((total / byGoal.size) * 1000) / 1000;
+        }
+      }
+      // Fallback: token-based proxy
       const runs = await prisma.pipelineRun.findMany({
         where: { createdAt: { gte: since }, source: 'pipeline', phase: { not: 'full' } },
         select: { goalId: true, inputTokens: true, outputTokens: true },
       });
       if (runs.length === 0) return null;
-      // Group by goalId manually
       const byGoal = new Map<string, number>();
       for (const r of runs) {
         const key = r.goalId || 'unknown';
         byGoal.set(key, (byGoal.get(key) || 0) + r.inputTokens + r.outputTokens);
       }
-      const goalCount = byGoal.size;
-      if (goalCount === 0) return null;
+      if (byGoal.size === 0) return null;
       const totalTokens = Array.from(byGoal.values()).reduce((s, v) => s + v, 0);
-      return Math.round(totalTokens / goalCount);
+      return Math.round(totalTokens / byGoal.size);
     } catch { return null; }
   }
 
@@ -1102,20 +1117,9 @@ export class OKRService {
 
   // ── Batch C: queries (need infrastructure) ──
 
-  /** Pipeline O3-KR4: 回滚率 */
-  private async queryRollbackRate(days: number): Promise<number | null> {
-    try {
-      const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'deploy.completed', timestamp: { gte: since } },
-        select: { payload: true },
-      });
-      if (events.length === 0) return null;
-      const rollbacks = events.filter(e => {
-        try { return JSON.parse(e.payload).success === false; } catch { return false; }
-      }).length;
-      return Math.round((rollbacks / events.length) * 100);
-    } catch { return null; }
+  /** Pipeline O3-KR4: 回滚率 — N/A (系统无 deploy rollback 机制，始终返回 0) */
+  private async queryRollbackRate(_days: number): Promise<number | null> {
+    return 0;
   }
 
   /** Pipeline O4-KR1: 最大并行数 */
