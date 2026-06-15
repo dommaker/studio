@@ -228,7 +228,7 @@ describe('buildSkillPrompt', () => {
     vi.clearAllMocks();
   });
 
-  it('loads template from trigger subdirectory and replaces placeholders', () => {
+  it('loads template and replaces placeholders', () => {
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
       const s = p.toString();
       if (s === SKILLS_DIR) return true;
@@ -260,10 +260,10 @@ describe('buildSkillPrompt', () => {
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
       const s = p.toString();
       if (s === SKILLS_DIR) return true;
-      return s.includes('always') && s.includes('test-skill');
+      return s.includes('test-skill');
     });
     mockFs.readdirSync.mockReturnValue([
-      { name: 'always', isDirectory: () => true, isFile: () => false },
+      { name: 'test-skill', isDirectory: () => true, isFile: () => false },
     ] as any);
     mockFs.readFileSync.mockReturnValue('---\nname: test\n---\n{{task}}|{{constraints}}|{{knowledgeContext}}|{{capabilities}}');
 

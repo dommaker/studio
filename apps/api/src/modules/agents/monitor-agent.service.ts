@@ -488,14 +488,21 @@ export class MonitorAgent {
     }
   }
 
-  // ── Zombie running 自动放弃（2.5h 无活跃 agent session）──
+  // ── Orphan execution 自动放弃（2.5h, 父 goal 已终态）──
 
   private async autoAbandonStaleRunning(): Promise<void> {
     const cutoff = new Date(Date.now() - TIME_CRITICAL_MS);
 
     const stale = await prisma.goalExecution.findMany({
-      where: { status: 'running', startedAt: { lt: cutoff } },
-      select: { id: true },
+      where: {
+        status: { in: ['running', 'pending'] },
+        OR: [
+          { startedAt: { lt: cutoff } },
+          { createdAt: { lt: cutoff } },
+        ],
+        Goal: { status: { in: ['succeeded', 'failed'] } },
+      },
+      select: { id: true, status: true },
       take: 20,
     });
 
@@ -519,16 +526,16 @@ export class MonitorAgent {
       try {
         await prisma.goalExecution.update({
           where: { id: exec.id },
-          data: { status: 'failed', error: `Auto-abandoned after 2.5h running — no active agent session` },
+          data: { status: 'failed', error: `Auto-abandoned: orphan execution after 2.5h — parent goal terminal, no active agent session` },
         });
         abandoned.push(exec.id);
       } catch (e) {
-        logger.error('[MonitorAgent] Failed to auto-abandon stale running', { executionId: exec.id, error: String(e) });
+        logger.error('[MonitorAgent] Failed to auto-abandon stale execution', { executionId: exec.id, error: String(e) });
       }
     }
 
     if (abandoned.length > 0) {
-      logger.info('[MonitorAgent] Auto-abandoned stale running', { count: abandoned.length, ids: abandoned.map(id => id.slice(0, 8)) });
+      logger.info('[MonitorAgent] Auto-abandoned stale executions', { count: abandoned.length, ids: abandoned.map(id => id.slice(0, 8)) });
     }
   }
 
@@ -626,7 +633,7 @@ export class MonitorAgent {
         const reviewScore = ctx.reviewScore as number | undefined;
         const reviewCycle = (ctx.reviewCycle as number) || 1;
 
-        if (reviewScore !== undefined && reviewScore < REVIEW_QUALITY_THRESHOLD) {
+        if (reviewScore !== undefined && reviewScore > 0 && reviewScore < REVIEW_QUALITY_THRESHOLD) {
           alerts.push({
             projectId: goal.id.slice(0, 8),
             message: `Goal ${goal.id.slice(0, 8)} review score ${reviewScore} < ${REVIEW_QUALITY_THRESHOLD} but approved. ${reviewCycle > 1 ? `(after ${reviewCycle} cycles)` : '(first cycle)'}. Review may be letting sub-par code through.`,

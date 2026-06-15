@@ -22,7 +22,7 @@ function log(stage: string, data: unknown) {
 
 beforeAll(() => {
   // Create skill templates in <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md structure
-  const subAgentDir = path.join(smokeSkillsDir, 'sub_agent', 'sub-agent-workflow');
+  const subAgentDir = path.join(smokeSkillsDir, 'sub-agent-workflow');
   fs.mkdirSync(subAgentDir, { recursive: true });
   fs.writeFileSync(path.join(subAgentDir, 'SKILL.md'), `---
 name: Sub-Agent Workflow
@@ -45,7 +45,7 @@ status: published
 {{task}}
 `);
 
-  const greenOnlyDir = path.join(smokeSkillsDir, 'goal_start', 'green-only-tdd');
+  const greenOnlyDir = path.join(smokeSkillsDir, 'green-only-tdd');
   fs.mkdirSync(greenOnlyDir, { recursive: true });
   fs.writeFileSync(path.join(greenOnlyDir, 'SKILL.md'), `---
 name: GREEN-Only TDD

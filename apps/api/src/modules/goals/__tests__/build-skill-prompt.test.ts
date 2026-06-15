@@ -22,7 +22,7 @@ const { buildSkillPrompt, loadSkillTemplate } = await import('../scheduler-promp
 
 beforeAll(() => {
   // 创建 goal_start/test-skill/SKILL.md 目录结构
-  const goalStartDir = path.join(testSkillsDir, 'goal_start', 'test-skill');
+  const goalStartDir = path.join(testSkillsDir, 'test-skill');
   fs.mkdirSync(goalStartDir, { recursive: true });
   fs.writeFileSync(path.join(goalStartDir, 'SKILL.md'), `---
 name: test-skill
@@ -46,7 +46,7 @@ status: published
 `);
 
   // 创建 always/static-skill/SKILL.md 目录结构
-  const alwaysDir = path.join(testSkillsDir, 'always', 'static-skill');
+  const alwaysDir = path.join(testSkillsDir, 'static-skill');
   fs.mkdirSync(alwaysDir, { recursive: true });
   fs.writeFileSync(path.join(alwaysDir, 'SKILL.md'), `---
 name: static-skill
@@ -62,8 +62,8 @@ status: published
 });
 
 afterAll(() => {
-  try { fs.rmSync(path.join(testSkillsDir, 'goal_start'), { recursive: true }); } catch {}
-  try { fs.rmSync(path.join(testSkillsDir, 'always'), { recursive: true }); } catch {}
+  try { fs.rmSync(path.join(testSkillsDir, 'test-skill'), { recursive: true }); } catch {}
+  try { fs.rmSync(path.join(testSkillsDir, 'static-skill'), { recursive: true }); } catch {}
   try { fs.rmdirSync(testSkillsDir); } catch {}
 });
 

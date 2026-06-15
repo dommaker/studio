@@ -4,7 +4,58 @@
  * AC-3: Monitor reads deploy_push_failed + proxy_restart_exhausted StudioEvents
  * and emits critical MonitorAlerts that escalate to Triage → Discord.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+// ── Mocks (hoisted by vitest) ──────────────────────────────────────────────
+const {
+  mockGoalFindMany,
+  mockExecFindMany,
+  mockExecUpdate,
+  mockDaemonGetStatus,
+} = vi.hoisted(() => ({
+  mockGoalFindMany: vi.fn(() => Promise.resolve([])),
+  mockExecFindMany: vi.fn(() => Promise.resolve([])),
+  mockExecUpdate: vi.fn(() => Promise.resolve({})),
+  mockDaemonGetStatus: vi.fn(() => []),
+}));
+
+vi.mock('@dommaker/studio-prisma', () => ({
+  prisma: {
+    goal: { findMany: mockGoalFindMany },
+    goalExecution: { findMany: mockExecFindMany, update: mockExecUpdate },
+    $queryRaw: vi.fn(() => Promise.resolve([])),
+  },
+}));
+
+vi.mock('@dommaker/studio-shared', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  modelGateway: { prompt: vi.fn(), promptJson: vi.fn() },
+}));
+
+vi.mock('@dommaker/harness', () => ({
+  KnowledgeLinter: class { validateEntry() { return []; } },
+  KnowledgeHealthScorer: class {},
+  ReferenceTracker: class {},
+}));
+
+vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
+  sharedStore: { list: vi.fn(() => []), save: vi.fn(), update: vi.fn(), delete: vi.fn() },
+  sharedLifecycle: { recordReference: vi.fn() },
+  sharedIngest: { ingestEntry: vi.fn() },
+  sharedLinter: { validateEntry: vi.fn(() => []) },
+  UNIFIED_KNOWLEDGE_DIR: '/tmp/test-knowledge',
+  knowledgeBus: { search: vi.fn(() => []) },
+}));
+
+vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} }));
+vi.mock('../../knowledge/knowledge-sync.service.js', () => ({ knowledgeSync: {} }));
+vi.mock('../../knowledge/preference-observer.js', () => ({ preferenceObserver: { record: vi.fn() } }));
+vi.mock('../triage-agent.service.js', () => ({ triageAgent: { handleAlert: vi.fn() } }));
+
+vi.mock('../../daemon/studio-daemon.js', () => ({
+  daemon: { getStatus: mockDaemonGetStatus },
+}));
+
 import { monitorAgent } from '../monitor-agent.service.js';
 
 describe('MonitorAgent deploy + proxy alerts (AC-3)', () => {
@@ -116,3 +167,63 @@ describe('MonitorAgent WorkflowObserver (B9-025)', () => {
     expect(validEventTypes).toContain('workflow_report');
   });
 });
+
+// ── B48-1A: reviewScore=0 + orphan pending ─────────────────────────────────
+
+describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
+  beforeEach(() => {
+    mockGoalFindMany.mockReset();
+    mockExecFindMany.mockReset();
+    mockExecUpdate.mockReset();
+    mockDaemonGetStatus.mockReset();
+    mockDaemonGetStatus.mockReturnValue([]); // no active sessions
+  });
+
+  // 1. reviewScore=0 means never scored — must NOT produce alert
+  it('checkReviewQuality: reviewScore=0 (never scored) produces no alert', async () => {
+    mockGoalFindMany.mockResolvedValue([
+      { id: 'goal_never_scored', title: 'T1', context: JSON.stringify({ reviewScore: 0 }) },
+    ]);
+
+    const alerts = await (monitorAgent as any).checkReviewQuality();
+    expect(alerts).toHaveLength(0);
+  });
+
+  // 2. reviewScore=40 < 75 threshold AND > 0 — must produce critical alert
+  it('checkReviewQuality: reviewScore=40 produces critical alert', async () => {
+    mockGoalFindMany.mockResolvedValue([
+      { id: 'goal_low_score', title: 'T2', context: JSON.stringify({ reviewScore: 40, reviewCycle: 1 }) },
+    ]);
+
+    const alerts = await (monitorAgent as any).checkReviewQuality();
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0].level).toBe('critical');
+    expect(alerts[0].source).toBe('review_quality');
+    expect(alerts[0].message).toContain('40');
+  });
+
+  // 3. orphan pending execution (createdAt > 2.5h, parent goal failed) → auto-abandoned
+  it('autoAbandonStaleRunning: orphan pending execution with terminal parent goal is abandoned', async () => {
+    const orphanId = 'orphan_pending_exec_1';
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000);
+
+    mockExecFindMany.mockResolvedValue([
+      { id: orphanId, status: 'pending' },
+    ]);
+    mockExecUpdate.mockResolvedValue({ id: orphanId, status: 'failed' });
+
+    await (monitorAgent as any).autoAbandonStaleRunning();
+
+    expect(mockExecFindMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        status: { in: ['running', 'pending'] },
+        Goal: { status: { in: ['succeeded', 'failed'] } },
+      }),
+    }));
+    expect(mockExecUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: orphanId },
+      data: expect.objectContaining({ status: 'failed' }),
+    }));
+  });
+});
+
