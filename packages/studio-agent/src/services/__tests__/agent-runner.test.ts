@@ -281,6 +281,35 @@ describe('AC1.5: Comprehensive coverage', () => {
   });
 });
 
+describe('T2: Stuck detection threshold optimization', () => {
+  test('session 1 zero-progress triggers fast fail (no retry)', () => {
+    // After session 1: if completedCount=0 AND testResults empty AND !allComplete
+    // → immediate fail. Detects "completely stuck" sessions without wasting 4 more.
+    expect(agentRunnerSrc).toMatch(/completedCount\s*===?\s*0/);
+  });
+
+  test('stuck detection triggers fast-fail after 1 consecutive stuck session', () => {
+    // stuckCount >= 1 (not >= 3 or higher) → fail immediately.
+    // Max wasted sessions = 2 (down from 5).
+    expect(agentRunnerSrc).toContain('stuckCount >= 1');
+  });
+
+  test('strategy hint injection removed from stuck path', () => {
+    // No more "if (stuckCount > 0 && stuckCount <= 3)" hint injection.
+    // stuckCount >= 1 → immediate fail makes hints unreachable.
+    expect(agentRunnerSrc).not.toMatch(/if\s*\(\s*stuckCount\s*>\s*0\s*&&\s*stuckCount\s*<=\s*3\s*\)/);
+  });
+
+  test('maxSessions still caps at 5', () => {
+    expect(agentRunnerSrc).toMatch(/DEFAULT_MAX_SESSIONS\s*=\s*5/);
+  });
+
+  test('strategy hints still defined for backward compat', () => {
+    // STRATEGY_HINTS still referenced by buildPrompt (hintLevel)
+    expect(agentRunnerSrc).toContain('STRATEGY_HINTS');
+  });
+});
+
 describe('Cross-AC integrity', () => {
   test('cmd: cd -> claude -> flags -> input redirect', () => {
     expect(cmdBlock).toMatch(/cd\s+"\$\{worktree\}"/);
