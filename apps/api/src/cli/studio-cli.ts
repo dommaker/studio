@@ -80,10 +80,11 @@ async function studioUp(configPath?: string) {
       for (const line of envContent.split('\n')) {
         const trimmed = line.trim();
         if (!trimmed || trimmed.startsWith('#')) continue;
-        const eqIdx = trimmed.indexOf('=');
+        const raw = trimmed.startsWith('export ') ? trimmed.slice(7) : trimmed;
+        const eqIdx = raw.indexOf('=');
         if (eqIdx === -1) continue;
-        const key = trimmed.slice(0, eqIdx).trim();
-        const val = trimmed.slice(eqIdx + 1).trim();
+        const key = raw.slice(0, eqIdx).trim();
+        const val = raw.slice(eqIdx + 1).trim();
         if (!process.env[key]) process.env[key] = val;
       }
     } else {
