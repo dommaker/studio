@@ -17,11 +17,11 @@ const goalReviewSrc = fs.readFileSync(GOAL_REVIEW_PATH, 'utf-8');
 const reviewAgentSrc = fs.readFileSync(REVIEW_AGENT_PATH, 'utf-8');
 
 describe('review persistence', () => {
-  it('goal-review.ts calls prisma.pipelineReview.create after reviewParallel', () => {
+  it('goal-review.ts calls prisma.pipelineReview.upsert after reviewParallel', () => {
     // reviewParallel 调用存在
     expect(goalReviewSrc).toContain('reviewParallel');
-    // PipelineReview 持久化存在
-    expect(goalReviewSrc).toContain('prisma.pipelineReview.create');
+    // PipelineReview 持久化存在（upsert 支持多 cycle 覆盖）
+    expect(goalReviewSrc).toContain('prisma.pipelineReview.upsert');
     // 写入关键字段
     expect(goalReviewSrc).toContain('overallApproved');
     expect(goalReviewSrc).toContain('issuesJson');

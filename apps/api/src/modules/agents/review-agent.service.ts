@@ -134,7 +134,6 @@ export class ReviewAgent {
         `claude`,
         `--print`,
         `--output-format json`,
-        `--model "${model}"`,
         `2>&1`,
       ].join(' ');
 
@@ -241,9 +240,18 @@ export class ReviewAgent {
       // OBS-2: Persist review to DB (before worktree cleanup deletes .review-report.json)
     try {
       const { prisma } = await import('../../core/database.js');
-      await prisma.pipelineReview.create({
-        data: {
+      await prisma.pipelineReview.upsert({
+        where: { executionId: taskId },
+        create: {
           executionId: taskId,
+          overallApproved: report.overallApproved,
+          score: reviewScore,
+          stanceCount: report.stanceReports ? Object.keys(report.stanceReports).length : 0,
+          stancesJson: JSON.stringify(report.stanceReports || {}),
+          issuesJson: JSON.stringify(report.issues || []),
+          summary: `Review ${report.overallApproved ? 'APPROVED' : 'REJECTED'} cycle ${cycle}: ${totalIssues} issues, score ${reviewScore}`,
+        },
+        update: {
           overallApproved: report.overallApproved,
           score: reviewScore,
           stanceCount: report.stanceReports ? Object.keys(report.stanceReports).length : 0,
@@ -425,7 +433,6 @@ export class ReviewAgent {
           `claude`,
           `--print`,
           `--output-format json`,
-          `--model "${model}"`,
           `--allowedTools "Read,Grep"`,
           `2>&1`,
         ].join(' ');
@@ -536,7 +543,6 @@ export class ReviewAgent {
         `claude`,
         `--print`,
         `--output-format json`,
-        `--model "${model}"`,
         `--allowedTools "Bash(git diff ${baseRef}..${headRef} --stat),Bash(git diff ${baseRef}..${headRef}),Bash(git log ${baseRef}..${headRef} --oneline),Read,Grep,Glob"`,
         `2>&1`,
       ].join(' ');
@@ -679,7 +685,7 @@ export class ReviewAgent {
       const reportPath = path.join(worktree, '.review-report.json');
       // Clean old report so Claude writes fresh one
       try { fs.unlinkSync(reportPath); } catch {}
-      const cmd = `cd "${worktree}" && cat '${promptFile}' | claude --print --output-format json --model "${model}" 2>&1`;
+      const cmd = `cd "${worktree}" && cat '${promptFile}' | claude --print --output-format json 2>&1`;
       await execSh(cmd, {
         cwd: worktree, env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
         timeoutMs: 5 * 60 * 1000, maxBuffer: 5 * 1024 * 1024,

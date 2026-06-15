@@ -173,14 +173,23 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
 
   // Persist review result to PipelineReview table
   try {
-    await prisma.pipelineReview.create({
-      data: {
+    await prisma.pipelineReview.upsert({
+      where: { executionId: goalId },
+      create: {
         executionId: goalId,
         goalId,
         overallApproved: review.approved,
         score: review.score,
         stanceCount: 0,
         stancesJson: JSON.stringify({}),
+        issuesJson: JSON.stringify(review.issues || []),
+        summary: review.approved
+          ? `Review APPROVED cycle ${reviewCycle + 1}, score ${review.score}`
+          : `Review REJECTED cycle ${reviewCycle + 1}, score ${review.score}, ${review.issues?.length || 0} issues`,
+      },
+      update: {
+        overallApproved: review.approved,
+        score: review.score,
         issuesJson: JSON.stringify(review.issues || []),
         summary: review.approved
           ? `Review APPROVED cycle ${reviewCycle + 1}, score ${review.score}`
