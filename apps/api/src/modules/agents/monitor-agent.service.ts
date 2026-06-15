@@ -2022,6 +2022,16 @@ export class MonitorAgent {
         logger.warn('[MonitorAgent] TTL: ChannelMessage cleanup failed', { error: String(e) });
       }
 
+      // 1b. Delete expired Session records
+      try {
+        const deleted = await prisma.session.deleteMany({
+          where: { expiresAt: { lt: new Date() } },
+        });
+        logger.info('[MonitorAgent] TTL: Session cleaned', { deleted: deleted.count });
+      } catch (e) {
+        logger.warn('[MonitorAgent] TTL: Session cleanup failed', { error: String(e) });
+      }
+
       // 2. Delete GoalExecution older than 90 days
       try {
         const execCutoff = new Date(Date.now() - 90 * 24 * 3600_000);

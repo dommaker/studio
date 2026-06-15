@@ -23,8 +23,10 @@ Goal 生命周期核心模块。CRUD → Plan → Scheduler → Executor → Rev
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/scheduler-prompt.ts
 
-<!-- STALE_SINCE: 2026-06-12 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/CONTEXT.md
+
+<!-- STALE_SINCE: 2026-06-15 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/goal.service.ts, apps/api/src/modules/goals/scheduler-dispatch.ts
 
 ## 核心导出
 - `goal.service.ts` → GoalService (Goal CRUD + 审查 + 完成判定)
@@ -47,6 +49,7 @@ verifiedAt: 61f2ab3006736b235471b06ade93f1292584940f
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `5e3b3726`: wire failureType into scheduler-dispatch failure paths
 - ✅ `3281bd80`: P6.5): Skill 元数据注入合规 + MCP SSE transport + fileKnowledge 移除
 - ✅ `dd0ddbcb`: 包管理器探测替代硬编码 pnpm
 - ✅ `95778b5e`: 统一 pnpm test 替代 npm test

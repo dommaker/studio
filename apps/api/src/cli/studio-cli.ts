@@ -824,6 +824,55 @@ async function studioStatus() {
   } catch { /* optional */ }
 }
 
+/**
+ * Get admin token for authenticated API calls.
+ * 1. Try reading from ~/.studio/.daemon/admin-token
+ * 2. Fallback: login via POST /api/v1/auth/login and cache the token
+ */
+let _cachedAdminToken: string | null = null;
+async function getAdminToken(baseUrl: string): Promise<string> {
+  if (_cachedAdminToken) return _cachedAdminToken;
+
+  const tokenFile = path.join(STUDIO_DIR, '.daemon', 'admin-token');
+  if (fs.existsSync(tokenFile)) {
+    _cachedAdminToken = fs.readFileSync(tokenFile, 'utf-8').trim();
+    return _cachedAdminToken;
+  }
+
+  // Fallback: login with admin credentials
+  const email = process.env.ADMIN_EMAIL || 'admin@agent-studio.local';
+  const password = process.env.ADMIN_PASSWORD;
+  if (!password) {
+    console.error('  Warning: ADMIN_PASSWORD not set, harness tests may fail auth');
+    return '';
+  }
+
+  try {
+    const resp = await fetch(`${baseUrl}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!resp.ok) {
+      console.error(`  Warning: Admin login failed (${resp.status}), harness tests may fail auth`);
+      return '';
+    }
+    const data = await resp.json() as { token?: string };
+    if (data.token) {
+      _cachedAdminToken = data.token;
+      // Persist for next run
+      try {
+        ensureDir(path.join(STUDIO_DIR, '.daemon'));
+        fs.writeFileSync(tokenFile, data.token, 'utf-8');
+      } catch { /* ignore write errors */ }
+      return _cachedAdminToken;
+    }
+  } catch (e: any) {
+    console.error(`  Warning: Admin login error: ${e.message?.slice(0, 60)}`);
+  }
+  return '';
+}
+
 async function studioTest() {
   const port = parseInt(process.env.PORT || '3001');
   const baseUrl = `http://localhost:${port}/api/v1`;
@@ -879,9 +928,12 @@ async function studioTest() {
 
   // Quality gate endpoint
   await check('Quality gate endpoint (M2)', async () => {
+    const token = await getAdminToken(baseUrl);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const r = await fetch(`${baseUrl}/harness/check-constraints`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ operation: 'goal_creation', hasRequirement: true, hasRequirementReview: true }),
     });
     return r.ok;
@@ -889,7 +941,10 @@ async function studioTest() {
 
   // Knowledge endpoint
   await check('Knowledge endpoint', async () => {
-    const r = await fetch(`${baseUrl}/harness/knowledge?limit=1`);
+    const token = await getAdminToken(baseUrl);
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const r = await fetch(`${baseUrl}/harness/knowledge?limit=1`, { headers });
     return r.ok;
   });
 

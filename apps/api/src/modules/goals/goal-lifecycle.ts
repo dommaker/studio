@@ -881,3 +881,43 @@ export async function validateWorktreePaths(): Promise<number> {
   }
   return failedCount;
 }
+
+/**
+ * Auto-fail goals that have been in 'blocked' status for > 7 days.
+ * Called periodically by GoalScheduler tick and on server startup.
+ */
+const BLOCKED_GOAL_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+export async function expireStaleBlockedGoals(): Promise<number> {
+  const cutoff = new Date(Date.now() - BLOCKED_GOAL_TTL_MS);
+
+  const stale = await prisma.goal.findMany({
+    where: { status: 'blocked', createdAt: { lt: cutoff } },
+    select: { id: true, title: true, createdAt: true },
+  });
+
+  if (stale.length === 0) return 0;
+
+  for (const goal of stale) {
+    const ageDays = Math.round((Date.now() - goal.createdAt.getTime()) / (24 * 60 * 60 * 1000));
+    await prisma.goal.update({
+      where: { id: goal.id },
+      data: {
+        status: 'failed',
+        completedAt: new Date(),
+        context: JSON.stringify({
+          failureReason: `auto-fail: blocked > 7 days TTL (age: ${ageDays}d)`,
+          autoFailedAt: new Date().toISOString(),
+        }),
+      },
+    });
+    logger.warn('[Goal] Auto-failed stale blocked goal (TTL)', {
+      goalId: goal.id,
+      title: goal.title?.slice(0, 60),
+      ageDays,
+    });
+  }
+
+  logger.info(`[Goal] expireStaleBlockedGoals: ${stale.length} goals auto-failed`);
+  return stale.length;
+}

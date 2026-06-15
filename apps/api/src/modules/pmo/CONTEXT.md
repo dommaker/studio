@@ -12,7 +12,9 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts
 
-<!-- STALE_SINCE: 2026-06-11 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts
+
+<!-- STALE_SINCE: 2026-06-15 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts
 
 ## 职责
@@ -34,6 +36,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `13cf6b7e`: deploy failure event enrichment + metricType registration
 - ✅ `36a91ee2`: O2-KR1 注入命中率接线 — consumption 事件 + metric query
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

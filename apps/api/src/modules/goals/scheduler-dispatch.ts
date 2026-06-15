@@ -8,7 +8,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, getModelForTier, type ModelTier } from '@dommaker/studio-shared';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import { agentRunner } from '@dommaker/studio-agent';
 import { goalService, parseJsonField } from './goal.service.js';
@@ -418,7 +418,7 @@ async function handleDispatchSuccess(
   recordPipelineRun({
     source: 'pipeline', phase: 'executor',
     taskName: goal.title,
-    model: tokenUsage.model || (typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard'),
+    model: (tokenUsage.model && tokenUsage.model !== 'unknown') ? tokenUsage.model : (getModelForTier(tier as ModelTier) || 'default'),
     inputTokens: tokenUsage.inputTokens,
     outputTokens: tokenUsage.outputTokens,
     cacheHitTokens: tokenUsage.cacheHitTokens,

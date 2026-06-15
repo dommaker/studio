@@ -33,6 +33,18 @@ describe('buildSpawnEnv', () => {
     expect(env.ANTHROPIC_MODEL).toBe('standard-model');
   });
 
+  it('base URL /v1 → /anthropic for Claude CLI', () => {
+    process.env.PIPELINE_BASE_URL = 'https://api.deepseek.com/v1';
+    const env = buildSpawnEnv({ tier: 'standard', role: 'executor' });
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://api.deepseek.com/anthropic');
+  });
+
+  it('base URL without /v1 → unchanged', () => {
+    process.env.PIPELINE_BASE_URL = 'https://custom.example.com';
+    const env = buildSpawnEnv({ tier: 'standard', role: 'executor' });
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://custom.example.com');
+  });
+
   it('analyst role → uses STUDIO_* keys', () => {
     const env = buildSpawnEnv({ tier: 'premium', role: 'analyst' });
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe('studio-key');
@@ -75,5 +87,20 @@ describe('buildSpawnEnv', () => {
     delete process.env.PIPELINE_API_KEY;
     const env = buildSpawnEnv({ tier: 'standard', role: 'executor' });
     expect(env.ANTHROPIC_AUTH_TOKEN).toBe('studio-key');
+  });
+
+  it('premium tier → CLAUDE_CODE_EFFORT_LEVEL=max', () => {
+    const env = buildSpawnEnv({ tier: 'premium', role: 'executor' });
+    expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBe('max');
+  });
+
+  it('standard tier → no CLAUDE_CODE_EFFORT_LEVEL', () => {
+    const env = buildSpawnEnv({ tier: 'standard', role: 'executor' });
+    expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
+  });
+
+  it('fast tier → no CLAUDE_CODE_EFFORT_LEVEL', () => {
+    const env = buildSpawnEnv({ tier: 'fast', role: 'executor' });
+    expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
   });
 });

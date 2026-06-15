@@ -10,6 +10,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { goalService, parseJsonField } from './goal.service.js';
+import { expireStaleBlockedGoals } from './goal-lifecycle.js';
 import { eventStore } from '../../core/event-store.js';
 
 import {
@@ -148,6 +149,11 @@ export class GoalScheduler {
           logger.warn('[GoalScheduler] Periodic recovery failed', { error: String(e) });
         });
         this.lastRecoveryTime = Date.now();
+
+        // Auto-fail stale blocked goals (> 7 days)
+        await expireStaleBlockedGoals().catch(e => {
+          logger.warn('[GoalScheduler] expireStaleBlockedGoals failed', { error: String(e) });
+        });
       }
     } catch (e) {
       logger.error('[GoalScheduler] Tick error', { error: String(e) });
