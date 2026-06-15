@@ -617,7 +617,7 @@ async function handleDispatchFailure(
   recordPipelineRun({
     source: 'pipeline', phase: 'executor',
     taskName: goal.title,
-    model: failTokens.model || (typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard'),
+    model: (failTokens.model && failTokens.model !== 'unknown') ? failTokens.model : (typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard'),
     inputTokens: failTokens.inputTokens,
     outputTokens: failTokens.outputTokens,
     cacheHitTokens: failTokens.cacheHitTokens,
