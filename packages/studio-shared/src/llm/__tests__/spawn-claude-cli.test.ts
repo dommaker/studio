@@ -28,7 +28,7 @@ describe('buildSpawnEnv', () => {
 
   it('executor role → uses PIPELINE_* keys', () => {
     const env = buildSpawnEnv({ tier: 'standard', role: 'executor' });
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('pipeline-key');
+    expect(env.ANTHROPIC_API_KEY).toBe('pipeline-key');
     expect(env.ANTHROPIC_BASE_URL).toBe('https://pipeline.example.com');
     expect(env.ANTHROPIC_MODEL).toBe('standard-model');
   });
@@ -47,20 +47,20 @@ describe('buildSpawnEnv', () => {
 
   it('analyst role → uses STUDIO_* keys', () => {
     const env = buildSpawnEnv({ tier: 'premium', role: 'analyst' });
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('studio-key');
+    expect(env.ANTHROPIC_API_KEY).toBe('studio-key');
     expect(env.ANTHROPIC_BASE_URL).toBe('https://studio.example.com');
     expect(env.ANTHROPIC_MODEL).toBe('premium-model');
   });
 
   it('reviewer role → uses PIPELINE_* keys', () => {
     const env = buildSpawnEnv({ tier: 'standard', role: 'reviewer' });
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('pipeline-key');
+    expect(env.ANTHROPIC_API_KEY).toBe('pipeline-key');
     expect(env.ANTHROPIC_BASE_URL).toBe('https://pipeline.example.com');
   });
 
   it('default role (no role) → uses PIPELINE_* keys', () => {
     const env = buildSpawnEnv({ tier: 'fast' });
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('pipeline-key');
+    expect(env.ANTHROPIC_API_KEY).toBe('pipeline-key');
     expect(env.ANTHROPIC_BASE_URL).toBe('https://pipeline.example.com');
     expect(env.ANTHROPIC_MODEL).toBe('fast-model');
   });
@@ -73,20 +73,20 @@ describe('buildSpawnEnv', () => {
     });
     expect(env.STUDIO_EXECUTION_ID).toBe('exec-123');
     expect(env.STUDIO_GOAL_ID).toBe('goal-456');
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('pipeline-key');
+    expect(env.ANTHROPIC_API_KEY).toBe('pipeline-key');
   });
 
   it('unknown tier → model from getModelForTier (may be undefined)', () => {
     const env = buildSpawnEnv({ tier: 'unknown' });
     // getModelForTier returns undefined for unknown tier; Claude CLI uses its own default
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('pipeline-key');
+    expect(env.ANTHROPIC_API_KEY).toBe('pipeline-key');
     expect(env.ANTHROPIC_BASE_URL).toBe('https://pipeline.example.com');
   });
 
   it('PIPELINE_API_KEY not set → falls back to STUDIO_API_KEY', () => {
     delete process.env.PIPELINE_API_KEY;
     const env = buildSpawnEnv({ tier: 'standard', role: 'executor' });
-    expect(env.ANTHROPIC_AUTH_TOKEN).toBe('studio-key');
+    expect(env.ANTHROPIC_API_KEY).toBe('studio-key');
   });
 
   it('premium tier → CLAUDE_CODE_EFFORT_LEVEL=max', () => {

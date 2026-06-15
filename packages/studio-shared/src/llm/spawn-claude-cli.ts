@@ -37,7 +37,7 @@ export function buildSpawnEnv(options: SpawnEnvOptions = {}): Record<string, str
 
   const env: Record<string, string> = { ...extra };
   // 只在显式配置了 key 时覆盖，避免空字符串覆盖 process.env 中的有效值
-  if (apiKey) env.ANTHROPIC_AUTH_TOKEN = apiKey;
+  if (apiKey) env.ANTHROPIC_API_KEY = apiKey;
   if (baseUrl) env.ANTHROPIC_BASE_URL = baseUrl;
 
   // 显式设置 ANTHROPIC_MODEL，防止进程环境中的值（如 mimo-v2.5-pro）覆盖
