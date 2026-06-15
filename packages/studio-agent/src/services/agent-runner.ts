@@ -63,6 +63,7 @@ const STRATEGY_HINTS: Record<number, string> = {
 };
 
 const TIER_TIMEOUTS: Record<ModelTier, number> = { fast: 15, standard: 30, premium: 45 };
+const TIER_MAX_TURNS: Record<ModelTier, number> = { fast: 8, standard: 15, premium: 25 };
 
 /** Returns session timeout in minutes based on model tier. Unknown/missing tier → 30min default. */
 export function getSessionTimeout(tier?: string): number {
@@ -715,6 +716,7 @@ export class AgentRunner implements IAgentRunner {
         `--print`,
         `--output-format stream-json`,
         `--verbose`,
+        `--max-turns ${TIER_MAX_TURNS[taskTier as ModelTier] || 15}`,
         sessionFlags,
         `<`,
         `"${promptFile}"`,
