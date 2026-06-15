@@ -41,7 +41,7 @@ import {
   findTaskBranch,
   runIntegrationInCode,
 } from './scheduler-prompt.js';
-import { classifyFailure } from './failure-classifier.js';
+import { classifyFailure, classifyFailureAction } from './failure-classifier.js';
 
 const MAX_CONCURRENT = 5;
 const MAX_RETRIES = 3;
@@ -357,7 +357,8 @@ export async function dispatchStep(
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    await goalService.updateStepExecution(executionId, { status: 'failed', error: errorMsg });
+    const classification = classifyFailureAction(errorMsg);
+    await goalService.updateStepExecution(executionId, { status: 'failed', error: errorMsg, failureType: classification.failureClass });
     logger.error('[GoalScheduler] Agent error', { executionId, error: errorMsg });
     try {
       const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
@@ -586,9 +587,11 @@ async function handleDispatchFailure(
   if (retried) return;
 
   const worktreeDir = path.join(WORKTREES_DIR, executionId);
+  const classification = classifyFailureAction(errorStr);
   await goalService.updateStepExecution(executionId, {
     status: 'failed',
     error: errorStr,
+    failureType: classification.failureClass,
     ...(result.failureLog ? { output: JSON.stringify({ failureLog: result.failureLog }) } : {}),
   });
   const failTokens = parseAgentTokenUsage(worktreeDir);

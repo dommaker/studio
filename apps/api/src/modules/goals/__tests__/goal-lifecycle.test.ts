@@ -47,7 +47,7 @@ vi.mock('../goal-review.js', () => ({
   findReviewWorktree: vi.fn(),
 }));
 
-import { checkGoalCompletion } from '../goal-lifecycle.js';
+import { checkGoalCompletion, updateStepExecution } from '../goal-lifecycle.js';
 
 function makeExec(stepIndex: number, status: string, overrides?: Record<string, any>) {
   return {
@@ -243,5 +243,66 @@ describe('checkGoalCompletion()', () => {
 
     // Goal should NOT be marked as failed (steps are now pending)
     expect(mockGoalUpdate).not.toHaveBeenCalled();
+  });
+});
+
+describe('updateStepExecution()', () => {
+  test('passes failureType through to Prisma when provided', async () => {
+    mockUpdate.mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed', failureType: 'retryable' });
+    const checkFn = vi.fn().mockResolvedValue(undefined);
+
+    await updateStepExecution('exec-1', { status: 'failed', error: 'exit code 1', failureType: 'retryable' }, checkFn);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'exec-1' },
+        data: expect.objectContaining({
+          status: 'failed',
+          failureType: 'retryable',
+        }),
+      })
+    );
+  });
+
+  test('passes failureType=infrastructure to Prisma', async () => {
+    mockUpdate.mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed', failureType: 'infrastructure' });
+    const checkFn = vi.fn().mockResolvedValue(undefined);
+
+    await updateStepExecution('exec-1', { status: 'failed', error: 'worktree lost', failureType: 'infrastructure' }, checkFn);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ failureType: 'infrastructure' }),
+      })
+    );
+  });
+
+  test('passes failureType=not-retryable to Prisma', async () => {
+    mockUpdate.mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed', failureType: 'not-retryable' });
+    const checkFn = vi.fn().mockResolvedValue(undefined);
+
+    await updateStepExecution('exec-1', { status: 'failed', error: 'approach infeasible', failureType: 'not-retryable' }, checkFn);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ failureType: 'not-retryable' }),
+      })
+    );
+  });
+
+  test('works without failureType (backward compatible)', async () => {
+    mockUpdate.mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed' });
+    const checkFn = vi.fn().mockResolvedValue(undefined);
+
+    await updateStepExecution('exec-1', { status: 'failed', error: 'some error' }, checkFn);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'failed' }),
+      })
+    );
+    // Ensure failureType is NOT in the data when not provided
+    const callData = mockUpdate.mock.calls[0][0].data;
+    expect(callData).not.toHaveProperty('failureType');
   });
 });

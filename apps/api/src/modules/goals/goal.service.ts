@@ -40,6 +40,7 @@ import {
   retryGoalExecution as retryGoalExecutionImpl,
   checkGoalCompletion as checkGoalCompletionImpl,
 } from './goal-lifecycle.js';
+import type { FailureClass } from './failure-classifier.js';
 
 // ─── Goal Service Class (thin wrapper) ───
 
@@ -74,7 +75,7 @@ export class GoalService {
 
   async updateStepExecution(
     executionId: string,
-    updates: { status?: string; output?: any; error?: string; input?: any },
+    updates: { status?: string; output?: any; error?: string; input?: any; failureType?: FailureClass },
   ): Promise<any> {
     return updateStepExecutionImpl(executionId, updates, (goalId) => this.checkGoalCompletion(goalId));
   }
