@@ -171,6 +171,46 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     // best-effort
   }
 
+  // Persist review result to PipelineReview table
+  try {
+    await prisma.pipelineReview.create({
+      data: {
+        executionId: goalId,
+        goalId,
+        overallApproved: review.approved,
+        score: review.score,
+        stanceCount: 0,
+        stancesJson: JSON.stringify({}),
+        issuesJson: JSON.stringify(review.issues || []),
+        summary: review.approved
+          ? `Review APPROVED cycle ${reviewCycle + 1}, score ${review.score}`
+          : `Review REJECTED cycle ${reviewCycle + 1}, score ${review.score}, ${review.issues?.length || 0} issues`,
+      },
+    });
+  } catch (e) {
+    logger.warn('[Goal] PipelineReview persist failed', { goalId, error: String(e) });
+  }
+
+  // Emit StudioEvent for Monitor/OKR
+  try {
+    await prisma.studioEvent.create({
+      data: {
+        type: 'review.completed',
+        source: 'goal-review',
+        executionId: goalId,
+        payload: JSON.stringify({
+          goalId,
+          approved: review.approved,
+          score: review.score,
+          issueCount: review.issues?.length || 0,
+          cycle: reviewCycle + 1,
+        }),
+      },
+    });
+  } catch (e) {
+    logger.warn('[Goal] review StudioEvent write failed', { goalId, error: String(e) });
+  }
+
   const allErrors = (review.issues || []).filter(
     (i: any) => i.severity === 'error'
   );

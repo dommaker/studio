@@ -338,11 +338,11 @@ export class ReviewAgent {
     } catch (error) {
       logger.error('[ReviewAgent] Review failed', { taskId, cycle, error: String(error) });
       return {
-        approved: true,
+        approved: false,
         score: 0,
         issues: [{
-          severity: 'warning',
-          message: `审查系统异常（第 ${cycle} 轮）: ${String(error).substring(0, 200)}，已默认放行，建议人工审查`,
+          severity: 'error',
+          message: `审查系统异常（第 ${cycle} 轮）: ${String(error).substring(0, 200)}，已阻断以防放行低质量代码`,
         }],
         suggestions: [],
       };
