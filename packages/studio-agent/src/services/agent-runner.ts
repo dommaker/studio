@@ -261,18 +261,11 @@ export class AgentRunner implements IAgentRunner {
           task.onProgress(progress, sessionCount).catch(() => {});
         }
 
-        // Stuck detection
+        // Stuck detection — baseline tracking only.
+        // Actual stuck detection is done post-session (after spawn) to avoid
+        // comparing stale progress data. See T2 post-session stuck check.
         const currentStep = progress?.currentStep || '';
         const completedCount = progress?.completedSteps?.length || 0;
-
-        if (sessionCount > 1) {
-          if (currentStep === lastStep && completedCount <= lastCompletedCount) {
-            stuckCount++;
-            logger.warn('[AgentRunner] Stuck detected', { taskId: task.id, executionId: task.executionId, session: sessionCount, stuckCount, currentStep, completedCount });
-          } else {
-            stuckCount = Math.max(0, stuckCount - 1);
-          }
-        }
         lastStep = currentStep;
         lastCompletedCount = completedCount;
 
@@ -479,10 +472,60 @@ export class AgentRunner implements IAgentRunner {
 
         const latest = readProgress(worktree);
 
+        // T2: Session 1 zero-progress fast-fail — if first session produced nothing,
+        // don't burn 4 more sessions. Bail immediately.
+        if (sessionCount === 1) {
+          const completedCount = latest?.completedSteps?.length || 0;
+          const hasTestResults = !!(latest?.testResults && (latest.testResults.total > 0 || latest.testResults.passed > 0));
+          if (completedCount === 0 && !hasTestResults && !latest?.allComplete) {
+            logger.warn('[AgentRunner] Session 1 produced zero progress — fast failing', {
+              taskId: task.id, executionId: task.executionId,
+              currentStep: latest?.currentStep || 'unknown',
+            });
+            const failureLog = [
+              `## Session 1 Zero Progress`,
+              `### Progress: ${JSON.stringify(latest, null, 2)}`,
+              `### No file changes, no test results, not complete.`,
+            ].join('\n');
+            return {
+              success: false, worktree, outputFiles: [],
+              error: `Session 1 produced zero progress — aborting to save tokens`,
+              failureLog,
+              logFile, sessionCount, totalDurationMs: cumulativeSessionMs,
+            };
+          }
+        }
+
         if (latest?.allComplete && (latest.testResults?.failed === 0 || latest.testResults?.failed == null)) {
           const outputFiles = await collectOutputFiles(worktree);
           logger.info('[AgentRunner] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount, cumulativeSessionMs });
           return { success: true, worktree, outputFiles, logFile, sessionCount, totalDurationMs: cumulativeSessionMs, sessionIds: collectedSessionIds };
+        }
+
+        // T2: Post-session stuck check — if progress hasn't changed, fail fast
+        // instead of injecting strategy hints and wasting more sessions.
+        const postCompletedCount = latest?.completedSteps?.length || 0;
+        if (postCompletedCount <= completedCount && !latest?.allComplete) {
+          stuckCount++;
+          if (stuckCount >= 1) {
+            logger.warn('[AgentRunner] Stuck: no progress after session — fast failing', {
+              taskId: task.id, executionId: task.executionId,
+              session: sessionCount, stuckCount,
+              currentStep: latest?.currentStep || 'unknown',
+            });
+            const failureLog = [
+              `## Session ${sessionCount} Stuck`,
+              `### Progress: ${JSON.stringify(latest, null, 2)}`,
+              `### Stuck count: ${stuckCount}`,
+              `### Current step: ${latest?.currentStep || 'unknown'}`,
+            ].join('\n');
+            return {
+              success: false, worktree, outputFiles: [],
+              error: `Max sessions (${this.config.maxSessions}) exhausted without completion`,
+              failureLog,
+              logFile, sessionCount, totalDurationMs: cumulativeSessionMs,
+            };
+          }
         }
 
         if (sessionCount >= this.config.maxSessions) {
