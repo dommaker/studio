@@ -195,7 +195,7 @@ describe('B8 OKR Service', () => {
   });
 
   describe('OKR metricType coverage', () => {
-    // Pipeline OKR: 13 KRs
+    // Pipeline OKR: 14 KRs
     const PIPELINE_KRS = [
       'pipeline_duration_p90',       // O1-KR1 p90 总耗时
       'pipeline_duration_per_phase', // O1-KR2 各阶段耗时
@@ -206,6 +206,7 @@ describe('B8 OKR Service', () => {
       'test_pass_rate',              // O3-KR1 测试通过率
       'review_pass_rate',            // O3-KR2 Review 通过率
       'deploy_success_rate',         // O3-KR3 部署成功率
+      'deploy_failure_rate',         // O3-KR3b 部署失败率
       'rollback_rate',               // O3-KR4 回滚率
       'max_concurrent',              // O4-KR1 最大并行数
       'conflict_rate',               // O4-KR2 冲突率
@@ -232,7 +233,7 @@ describe('B8 OKR Service', () => {
       expect(OKRService.METRIC_REGISTRY).toHaveProperty(metricType);
     });
 
-    it('Pipeline OKR: all 13 KRs have metricTypes', () => {
+    it('Pipeline OKR: all 14 KRs have metricTypes', () => {
       for (const kr of PIPELINE_KRS) {
         expect(OKRService.METRIC_REGISTRY).toHaveProperty(kr);
       }
@@ -244,8 +245,8 @@ describe('B8 OKR Service', () => {
       }
     });
 
-    it('total metricTypes >= 23 (OKR coverage)', () => {
-      expect(Object.keys(OKRService.METRIC_REGISTRY).length).toBeGreaterThanOrEqual(23);
+    it('total metricTypes >= 24 (OKR coverage)', () => {
+      expect(Object.keys(OKRService.METRIC_REGISTRY).length).toBeGreaterThanOrEqual(24);
     });
 
     it('UPPER_BOUNDS covers all registered metricTypes', () => {

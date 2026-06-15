@@ -431,6 +431,11 @@ export class OKRService {
       query: (okr, days) => okr.queryDeploySuccessRate(days),
       description: '部署成功率',
     },
+    deploy_failure_rate: {
+      dataSource: 'studio_event',
+      query: (okr, days) => okr.queryDeployFailureRate(days),
+      description: '部署失败率',
+    },
     analyst_accuracy: {
       dataSource: 'studio_event',
       query: (okr, days) => okr.queryAnalystAccuracy(days),
@@ -830,9 +835,33 @@ export class OKRService {
       });
       if (events.length === 0) return null;
       const success = events.filter(e => {
-        try { return JSON.parse(e.payload).result?.success; } catch { return false; }
+        try {
+          const p = JSON.parse(e.payload);
+          // T3: top-level success (current format) with backward compat for result.success
+          return typeof p.success === 'boolean' ? p.success : p.result?.success;
+        } catch { return false; }
       }).length;
       return Math.round((success / events.length) * 100);
+    } catch { return null; }
+  }
+
+  /** T3: deploy_failure_rate — count of deploy.completed where success=false / total */
+  private async queryDeployFailureRate(days: number): Promise<number | null> {
+    try {
+      const since = new Date(Date.now() - days * 86400000);
+      const events = await prisma.studioEvent.findMany({
+        where: { type: 'deploy.completed', timestamp: { gte: since } },
+        select: { payload: true },
+      });
+      if (events.length === 0) return null;
+      const failures = events.filter(e => {
+        try {
+          const p = JSON.parse(e.payload);
+          const success = typeof p.success === 'boolean' ? p.success : p.result?.success;
+          return success === false;
+        } catch { return false; }
+      }).length;
+      return Math.round((failures / events.length) * 100);
     } catch { return null; }
   }
 
@@ -1138,6 +1167,7 @@ export class OKRService {
     resolution_verify_rate: 100,
     incident_count: Infinity,
     deploy_success_rate: 100,
+    deploy_failure_rate: 100,
     analyst_accuracy: 100,
     behavior_feedback_rate: 100,
     pipeline_cost_tokens: Infinity,

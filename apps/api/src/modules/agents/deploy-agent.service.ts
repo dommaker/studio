@@ -13,6 +13,7 @@ import { logger, eventBus } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
+import { classifyFailureAction } from '../goals/failure-classifier.js';
 import type { DeployParams, DeployResult, DeployFinding, MergeBranchesParams, MergeBranchesResult } from './types.js';
 
 class DeployAgent {
@@ -128,6 +129,11 @@ class DeployAgent {
 
     eventBus.publish('deploy.completed', { executionId: params.executionId, result: deployResult });
 
+    // T3: Enrich failure event with failureClass for OKR/monitoring
+    const failureClass = !deployResult.success
+      ? classifyFailureAction(deployResult.summary || '').failureClass
+      : undefined;
+
     // Persist deploy.completed to StudioEvent for OKR/monitoring
     prisma.studioEvent.create({
       data: {
@@ -139,6 +145,7 @@ class DeployAgent {
           type: deployResult.type,
           durationMs,
           timings,
+          ...(failureClass ? { failureClass } : {}),
         }),
       },
     }).catch((e: unknown) => { logger.warn('[DeployAgent] StudioEvent write failed', { error: String(e) }); });
