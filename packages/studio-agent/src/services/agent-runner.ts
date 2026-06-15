@@ -13,7 +13,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent, readSddDoc, findSddDocByGoalId, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent, type ModelTier, readSddDoc, findSddDocByGoalId, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
@@ -62,7 +62,14 @@ const STRATEGY_HINTS: Record<number, string> = {
   4: '\ud83d\udd34 \u6700\u540e\u4e00\u6b21\u673a\u4f1a \u2014 \u653e\u5f03\u5f53\u524d\u65b9\u5411\uff0c\u4ece\u7b2c 0 \u884c\u91cd\u65b0\u5f00\u59cb\uff0c\u7528\u6700\u7b80\u5355\u3001\u6700\u6734\u7d20\u7684\u65b9\u5f0f\u5b9e\u73b0\uff08\u54ea\u6015\u4ee3\u7801\u4e11\uff09\uff0c\u5148\u8ba9\u6d4b\u8bd5\u901a\u8fc7\u3002',
 };
 
-const DEFAULT_SESSION_TIMEOUT = 30;
+const TIER_TIMEOUTS: Record<ModelTier, number> = { fast: 15, standard: 30, premium: 45 };
+
+/** Returns session timeout in minutes based on model tier. Unknown/missing tier → 30min default. */
+export function getSessionTimeout(tier?: string): number {
+  if (tier && tier in TIER_TIMEOUTS) return TIER_TIMEOUTS[tier as ModelTier];
+  return 30;
+}
+
 const DEFAULT_MAX_SESSIONS = 5;
 
 /** Files excluded from mtime check (agent writes these regardless of real progress) */
@@ -170,7 +177,7 @@ export class AgentRunner implements IAgentRunner {
         return fsSync.existsSync(path.join(dir, 'package.json')) ? dir : path.join(homeDir, 'projects');
       })(),
       taskTimeoutMinutes: config?.taskTimeoutMinutes || 60,
-      sessionTimeoutMinutes: config?.sessionTimeoutMinutes || DEFAULT_SESSION_TIMEOUT,
+      sessionTimeoutMinutes: config?.sessionTimeoutMinutes || 30,
       maxSessions: config?.maxSessions || DEFAULT_MAX_SESSIONS,
       ...config,
     };
@@ -364,7 +371,8 @@ export class AgentRunner implements IAgentRunner {
               : '--continue')
           : '--continue';
 
-        const model = getModelForTier((task.model as 'fast' | 'standard' | 'premium') || 'standard');
+        const taskTier = (task.model as ModelTier) || 'standard';
+        const model = getModelForTier(taskTier);
 
         // Write prompt file
         const promptFile = path.join(worktree, '.daemon', 'prompt.md');
@@ -427,7 +435,7 @@ export class AgentRunner implements IAgentRunner {
                 },
               }),
             },
-            timeoutMs: this.config.sessionTimeoutMinutes * 60 * 1000,
+            timeoutMs: getSessionTimeout(taskTier) * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
             childRef,
           });
@@ -695,7 +703,8 @@ export class AgentRunner implements IAgentRunner {
 
       // Session management — caller provides flags via parameters
       const sessionFlags = (task.parameters?.sessionFlags as string) || '';
-      const model = getModelForTier((task.model as 'fast' | 'standard' | 'premium') || 'standard');
+      const taskTier = (task.model as ModelTier) || 'standard';
+      const model = getModelForTier(taskTier);
       const agentRole = (task.parameters?.agentRole as string) || 'executor';
       const sessionId = task.executionId;
 
@@ -737,7 +746,7 @@ export class AgentRunner implements IAgentRunner {
               },
             }),
           },
-          timeoutMs: this.config.sessionTimeoutMinutes * 60 * 1000,
+          timeoutMs: getSessionTimeout(taskTier) * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
           childRef,
         });
