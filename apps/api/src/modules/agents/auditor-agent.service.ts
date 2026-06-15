@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
+import { NotificationService } from '@dommaker/studio-notification';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { skillStore } from '../skills/skill-store.js';
 
@@ -1053,7 +1054,6 @@ export class AuditorAgent {
       }
 
       const { channelMessageService } = await import('../channels/channel-message.service.js');
-      const { NotificationService } = await import('@dommaker/studio-notification');
 
       // 1. Push cards to #系统 channel
       const content = [

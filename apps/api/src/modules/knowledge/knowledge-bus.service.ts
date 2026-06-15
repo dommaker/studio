@@ -20,7 +20,7 @@ import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeSubsystem, DecisionRecord } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
-import { execFile } from 'child_process';
+import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -31,6 +31,12 @@ export const UNIFIED_KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowled
 const LANCE_DB_PATH = path.join(os.homedir(), '.cache', 'mcp-local-rag', 'lancedb');
 const MODEL_CACHE_DIR = path.join(os.homedir(), '.cache', 'huggingface', 'hub');
 const MODEL_NAME = path.join(MODEL_CACHE_DIR, 'models--onnx-community--bge-small-zh-v1.5-ONNX', 'snapshots', 'main');
+
+// Startup: kill orphan mcp-local-rag ingest processes from previous crashes
+try {
+  execFileSync('pkill', ['-f', 'mcp-local-rag.*ingest'], { stdio: 'ignore' });
+  logger.info('[KnowledgeBus] Cleaned orphan mcp-local-rag ingest processes');
+} catch { /* no orphans — good */ }
 
 // BusEntry type → KnowledgeType 保真映射 (KE-002 P1)
 const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeSubsystem> = {
@@ -667,11 +673,18 @@ export function scheduleVectorDbSync(): void {
           failCount = 0;
           return;
         }
-        // #3: re-schedule with exponential backoff on real failure (no upper limit, cap 120s)
+        // #3: re-schedule with exponential backoff on real failure (cap 10 attempts, 120s backoff)
         failCount++;
+        if (failCount > 10) {
+          logger.error('[KnowledgeBus] vector-db sync gave up after 10 attempts', {
+            totalAttempts: failCount, lastError: msg.slice(0, 500),
+          });
+          failCount = 0;
+          return;
+        }
         const backoffSec = Math.min(10 * Math.pow(2, failCount - 1), 120);
         logger.warn('[KnowledgeBus] vector-db sync failed, retrying', {
-          attempt: failCount, backoffSec, error: msg.slice(0, 200),
+          attempt: failCount, backoffSec, error: msg.slice(0, 500),
         });
         setTimeout(() => scheduleVectorDbSync(), backoffSec * 1000);
         return;
