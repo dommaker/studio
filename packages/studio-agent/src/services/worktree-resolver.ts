@@ -285,12 +285,14 @@ export async function writeRequirementsMd(
       '',
     ] : []),
     '## 行为约束',
-    '- 完成前必须运行 npm test + type check + lint',
+    ...(testFiles && testFiles.length > 0
+      ? ['- 完成前必须运行上述指定测试文件 + type check + lint']
+      : ['- 完成前必须运行 npm test + type check + lint']),
     '- 禁止模糊声明完成',
     '- 每完成一个步骤后立即更新 .progress.json',
     '- 全部 AC 测试通过后才设置 .progress.json allComplete: true',
     '- **Phase 3: 禁止创建新的 .test.ts / .spec.ts 文件**（测试由 Analyst + Reviewer 提供，你只实现代码让测试通过）',
-    '- 将测试证据写入 .progress.json.testResults: { passed, total, failed: 0, command: "npm test", evidence: "<测试输出>" }',
+    `- 将测试证据写入 .progress.json.testResults: { passed, total, failed: 0, command: "${testFiles && testFiles.length > 0 ? `npx vitest run ${testFiles.join(' ')}` : 'npm test'}", evidence: "<测试输出>" }`,
     '- 将设计决策写入 .progress.json.designNotes: { decisions: ["选X不选Y因为Z"], failedAttempts: ["试过A遇到B问题"], uncertainties: ["C部分需要特别关注"], constraintsDiscovered: ["实现中发现AC未覆盖的限制D"] }',
     '- designNotes 只记录对 Review 有意义的决策信息，不写琐碎细节',
   ];
