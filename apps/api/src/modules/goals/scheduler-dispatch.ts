@@ -186,6 +186,25 @@ export async function dispatchStep(
     }
   }
 
+  // Retry: inject previous error so the new session doesn't repeat the same approach
+  const retryCount = (execWithStep as Record<string, unknown>).retryCount as number | undefined;
+  if (retryCount && retryCount > 0) {
+    const rawError = (execWithStep as Record<string, unknown>).error as string | null;
+    if (rawError) {
+      let errorMsg: string;
+      try {
+        const parsed = JSON.parse(rawError) as { message?: string };
+        errorMsg = parsed.message || rawError;
+      } catch {
+        errorMsg = rawError;
+      }
+      prompt += `\n\n## ⚠️ Previous Attempt Failed\nError: ${errorMsg}\nDo NOT repeat the same approach. Try a different strategy.\n`;
+      logger.info('[GoalScheduler] Injected previous error into retry prompt', {
+        executionId, retryCount, errorLength: errorMsg.length,
+      });
+    }
+  }
+
   const strategy = getDispatchStrategy(ctx.recentFailures, ctx.recentTotal);
   const effectiveConcurrency = strategy === 'conservative' ? 2 : MAX_CONCURRENT;
 
