@@ -65,6 +65,87 @@ const STRATEGY_HINTS: Record<number, string> = {
 const DEFAULT_SESSION_TIMEOUT = 30;
 const DEFAULT_MAX_SESSIONS = 5;
 
+/** Files excluded from mtime check (agent writes these regardless of real progress) */
+const MTIME_EXCLUDED_FILES = new Set(['.progress.json', '.agent.log']);
+
+/**
+ * Check if any file in the worktree was modified within the threshold.
+ * Used to defer stuck detection during I/O waits (npm install, tsc, vitest).
+ *
+ * Scans top-level files + src/ directory (recursive). Excludes node_modules,
+ * .progress.json, .agent.log, and all dot-prefixed entries.
+ * Caps at 200 stat calls to keep check under 100ms.
+ */
+export function hasRecentActivity(worktreePath: string, thresholdMs = 3 * 60 * 1000): boolean {
+  const cutoff = Date.now() - thresholdMs;
+  let statCalls = 0;
+  const MAX_STATS = 200;
+
+  if (!fsSync.existsSync(worktreePath)) {
+    return false;
+  }
+
+  let entries: fsSync.Dirent[];
+  try {
+    entries = fsSync.readdirSync(worktreePath, { withFileTypes: true });
+  } catch {
+    return false;
+  }
+
+  /** Check a single file's mtime. Returns true if recent. */
+  function isRecent(filePath: string): boolean {
+    if (statCalls >= MAX_STATS) return false;
+    statCalls++;
+    try {
+      return fsSync.statSync(filePath).mtimeMs > cutoff;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Recursively check directory entries (skips excluded dirs). */
+  function checkDir(dirPath: string): boolean {
+    if (statCalls >= MAX_STATS) return false;
+    let dirEntries: fsSync.Dirent[];
+    try {
+      dirEntries = fsSync.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return false;
+    }
+    for (const entry of dirEntries) {
+      if (statCalls >= MAX_STATS) return false;
+      const fullPath = path.join(dirPath, entry.name);
+      if (entry.isFile()) {
+        if (isRecent(fullPath)) return true;
+      } else if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+        if (checkDir(fullPath)) return true;
+      }
+    }
+    return false;
+  }
+
+  for (const entry of entries) {
+    if (statCalls >= MAX_STATS) break;
+    const name = entry.name;
+
+    // Skip excluded: dotfiles, node_modules
+    if (name.startsWith('.') || name === 'node_modules') continue;
+
+    const fullPath = path.join(worktreePath, name);
+
+    if (entry.isFile() && !MTIME_EXCLUDED_FILES.has(name)) {
+      if (isRecent(fullPath)) return true;
+    }
+
+    // Recurse into src/
+    if (entry.isDirectory() && name === 'src') {
+      if (checkDir(fullPath)) return true;
+    }
+  }
+
+  return false;
+}
+
 // ─── Interface ───
 
 export interface IAgentRunner {
@@ -506,7 +587,14 @@ export class AgentRunner implements IAgentRunner {
         // instead of injecting strategy hints and wasting more sessions.
         const postCompletedCount = latest?.completedSteps?.length || 0;
         if (postCompletedCount <= completedCount && !latest?.allComplete) {
-          stuckCount++;
+          // P1-2: Defer stuck if worktree has recent file activity (npm install, tsc, etc)
+          if (hasRecentActivity(worktree)) {
+            logger.info('[AgentRunner] Stuck deferred — recent file activity detected', {
+              taskId: task.id, executionId: task.executionId, session: sessionCount, worktree,
+            });
+          } else {
+            stuckCount++;
+          }
           if (stuckCount >= 1) {
             logger.warn('[AgentRunner] Stuck: no progress after session — fast failing', {
               taskId: task.id, executionId: task.executionId,
