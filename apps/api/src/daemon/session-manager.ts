@@ -2,12 +2,10 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath, extractResult } from '@dommaker/studio-shared';
-import type { StreamEvent } from '@dommaker/studio-shared';
-import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
+import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
-import { prisma } from '@dommaker/studio-prisma';
+import { agentRunner } from '@dommaker/studio-agent';
 import { parseClaudeUsage, recordPipelineRun } from './metrics.js';
 import { writeTaskLog, classifyTaskError } from './task-logger.js';
 import type { TaskLog } from './task-logger.js';
@@ -158,17 +156,19 @@ export class SessionManager {
     state.isBusy = true;
 
     const startTime = Date.now();
-    const daemonDir = path.join(state.config.worktree, '.daemon');
-    fs.mkdirSync(daemonDir, { recursive: true });
-
-    const promptFile = path.join(daemonDir, 'prompt.md');
-    fs.writeFileSync(promptFile, job.prompt, 'utf-8');
-
     const isFirstTask = state.taskCount === 0;
     const model = getModelForTier(state.config.modelTier);
     const phase = sessionName === 'analyst' ? 'analyst' : 'executor';
+    const isAnalyst = sessionName === 'analyst';
 
-    // Build base log entry (taskIndex 在 taskCount++ 前捕获，避免偏1)
+    // Build session flags (session-id / --continue)
+    const sessionFlag = isFirstTask
+      ? (state.isNewSession
+          ? `--session-id ${state.sessionId} --name "${sessionName}"`
+          : '--continue')
+      : '--continue';
+
+    // Build base log entry
     const taskIndex = state.taskCount + 1;
     const buildLog = (overrides: Partial<TaskLog>): TaskLog => ({
       timestamp: new Date().toISOString(),
@@ -177,7 +177,7 @@ export class SessionManager {
       taskIndex,
       model,
       phase,
-      command: '',  // filled by caller
+      command: '',
       durationMs: Date.now() - startTime,
       success: false,
       inputTokens: 0,
@@ -186,101 +186,40 @@ export class SessionManager {
       ...overrides,
     });
 
-    try {
-      // Build claude command
-      // Brand-new session: --session-id <UUID> --name <name> creates it
-      // Resumed (daemon restart): --continue resumes existing Claude session
-      // Subsequent tasks in same session: --continue
-      const sessionFlag = isFirstTask
-        ? (state.isNewSession
-            ? `--session-id ${state.sessionId} --name "${sessionName}"`
-            : '--continue')
-        : '--continue';
-      // Use stdin file redirect instead of pipe — more reliable under Node spawn
-      const stdinFile = promptFile; // written to disk at line 95
-      // O1d: Inject extra claude args (e.g. --allowedTools restriction)
-      const claudeFlags = job.claudeArgs || [];
-      const cmd = [
-        `cd "${state.config.worktree}"`,
-        `&&`,
-        `claude`,
-        `--print`,
-        `--output-format stream-json`,
-        `--verbose`,
-        sessionFlag,
-        ...claudeFlags,
-        `<`,
-        `"${stdinFile}"`,
-        `2>&1`,  // merge stderr → stdout — execSh captures stdout, downstream consumers need error output
-      ].join(' ');
+    logger.info('[SessionManager] Running task (via AgentRunner)', {
+      session: sessionName,
+      task: taskIndex,
+      isFirstTask,
+      model,
+      isNewSession: state.isNewSession,
+      sessionFlag,
+      sessionId: state.sessionId,
+    });
 
-      logger.info('[SessionManager] Running task', {
-        session: sessionName,
-        task: state.taskCount + 1,
-        isFirstTask,
-        model,
-        isNewSession: state.isNewSession,
-        sessionFlag,
-        sessionId: state.sessionId,
+    try {
+      // P9: Delegate to AgentRunner lightweight mode
+      const execId = `daemon-${sessionName}-${taskIndex}`;
+      const result = await agentRunner.executeLightweight({
+        id: execId,
+        executionId: state.sessionId,
+        agentType: 'claude',
+        model: state.config.modelTier,
+        prompt: job.prompt,
+        parameters: {
+          sessionFlags: sessionFlag,
+          agentRole: isAnalyst ? 'analyst' : 'executor',
+          worktree: state.config.worktree,
+          extraEnv: job.env,
+        },
       });
 
-      // Emit session:start event for session-summary correlation
-      try {
-        await prisma.studioEvent.create({
-          data: {
-            type: 'session:start',
-            source: `daemon-${sessionName}`,
-            payload: JSON.stringify({ sessionId: state.sessionId, agentId: `daemon-${sessionName}`, sessionCount: state.taskCount + 1 }),
-          },
-        });
-      } catch { /* non-blocking */ }
+      const durationMs = result.totalDurationMs || (Date.now() - startTime);
 
-      let stdout: string;
-      try {
-        // 按 session 类型选 API key：analyst → STUDIO_*，executor/reviewer → PIPELINE_*
-        const isAnalyst = sessionName === 'analyst';
+      if (!result.success) {
+        const errorMsg = result.error || 'Agent execution failed';
+        const stdoutTail = result.failureLog || '';
 
-        const result = await execSh(cmd, {
-          cwd: state.config.worktree,
-          env: {
-            ...process.env,
-            ...buildSpawnEnv({ tier: model, role: isAnalyst ? 'analyst' : 'executor', extra: job.env }),
-          },
-          timeoutMs: state.config.timeoutMs,
-          maxBuffer: 10 * 1024 * 1024,
-        });
-        stdout = result.stdout;
-      } catch (execErr) {
-        const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
-        const stderr = (execErr as any)?.stderr?.toString() || '';
-        const stdout_fail = (execErr as any)?.stdout?.toString() || '';
-        const errCode = (execErr as any)?.code;
-
-        const durationMs = Date.now() - startTime;
-        // 2>&1 合并 stderr→stdout，stderr 为空时从 stdout 尾部提取错误信息
-        const tailStdout = stdout_fail.slice(-500);
-        const userMsg = stderr.slice(0, 300) || tailStdout.slice(0, 300) || errMsg.slice(0, 300);
-        logger.error('[SessionManager] Task failed', {
-          session: sessionName,
-          error: userMsg.slice(0, 200),
-          exitCode: errCode,
-          stdoutPreview: stdout_fail.slice(0, 200),
-          stderrPreview: stderr.slice(0, 200),
-        });
-
-        // Emit session:end on failure path for session-summary correlation
-        try {
-          await prisma.studioEvent.create({
-            data: {
-              type: 'session:end',
-              source: `daemon-${sessionName}`,
-              payload: JSON.stringify({ sessionId: state.sessionId, agentId: `daemon-${sessionName}`, sessionCount: state.taskCount + 1 }),
-            },
-          });
-        } catch { /* non-blocking */ }
-
-        // P0.3 fix: 第一次任务失败后删除 session-id 文件，避免下次重启时
-        // 误用 --continue 续接已损坏的 session
+        // P0.3 fix: first task failure — regenerate session-id
         if (isFirstTask && state.isNewSession) {
           const sessionIdFile = path.join(state.config.worktree, '.daemon', 'session-id');
           try { fs.unlinkSync(sessionIdFile); } catch {}
@@ -288,93 +227,37 @@ export class SessionManager {
         }
 
         recordPipelineRun({
-          source: 'pipeline', phase: sessionName === 'analyst' ? 'analyst' : 'executor',
-          taskName: `daemon-${sessionName}-${state.taskCount + 1}`, model,
+          source: 'pipeline', phase,
+          taskName: `daemon-${sessionName}-${taskIndex}`, model,
           inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs,
-          success: false, error: userMsg, sessionId: state.sessionId,
+          success: false, error: errorMsg, sessionId: state.sessionId,
         }).catch(e => logger.warn('[SessionManager] Metrics record failed', { error: String(e) }));
 
-        writeTaskLog(buildLog({ command: cmd, success: false, errorType: classifyTaskError(errMsg + stderr), errorDetail: userMsg, stdoutPreview: '', stderrPreview: stderr.slice(0, 500), durationMs }));
-        return { success: false, error: userMsg, sessionId: sessionName, durationMs };
+        writeTaskLog(buildLog({
+          command: '', success: false,
+          errorType: classifyTaskError(errorMsg + stdoutTail),
+          errorDetail: errorMsg.slice(0, 300),
+          stdoutPreview: stdoutTail.slice(0, 500), durationMs,
+        }));
+
+        return { success: false, error: errorMsg.slice(0, 300), sessionId: sessionName, durationMs };
       }
 
-      const durationMs = Date.now() - startTime;
+      // Success path
       state.lastUsed = Date.now();
       state.taskCount++;
       const wasNewSession = state.isNewSession;
-      // After first successful task, session is established — future starts use --continue
       state.isNewSession = false;
 
-      // Parse stream-json output
-      const events = parseStreamEvents(stdout);
-      const { text: resultText, isError } = extractResult(events);
-      let text = resultText;
-      if (!text && !isError) {
-        text = stdout;
-      }
+      // Parse usage from agent.log
+      const usage = parseClaudeUsage(result.outputText || '');
 
-      // D2: Emit tool:call and file:change events
-      const toolCalls = extractToolCalls(events);
-      for (const tool of toolCalls) {
-        try {
-          await prisma.studioEvent.create({
-            data: {
-              type: 'tool:call',
-              source: `daemon-${sessionName}`,
-              executionId: state.sessionId,
-              payload: JSON.stringify({ tool: tool.name, input: tool.input, sessionId: state.sessionId }),
-            },
-          });
-          const filePath = extractFilePath(tool.name, tool.input);
-          if (filePath) {
-            await prisma.studioEvent.create({
-              data: {
-                type: 'file:change',
-                source: `daemon-${sessionName}`,
-                executionId: state.sessionId,
-                payload: JSON.stringify({ path: filePath, action: 'write', sessionId: state.sessionId }),
-              },
-            });
-          }
-        } catch { /* non-blocking */ }
-      }
-
-      if (isError) {
-        logger.warn('[SessionManager] Claude Code returned error', { session: sessionName, text: text.slice(0, 200) });
-
-        // Emit session:end on LLM error path for session-summary correlation
-        try {
-          await prisma.studioEvent.create({
-            data: {
-              type: 'session:end',
-              source: `daemon-${sessionName}`,
-              payload: JSON.stringify({ sessionId: state.sessionId, agentId: `daemon-${sessionName}`, sessionCount: state.taskCount }),
-            },
-          });
-        } catch { /* non-blocking */ }
-
-        recordPipelineRun({
-          source: 'pipeline', phase: sessionName === 'analyst' ? 'analyst' : 'executor',
-          taskName: `daemon-${sessionName}-${state.taskCount}`, model,
-          inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs,
-          success: false, error: text.slice(0, 200), sessionId: state.sessionId,
-        }).catch(e => logger.warn('[SessionManager] Metrics record failed'));
-        writeTaskLog(buildLog({ command: cmd, success: false, errorType: 'llm_error', errorDetail: text.slice(0, 300), stdoutPreview: stdout.slice(0, 500), durationMs }));
-        return { success: false, error: text.slice(0, 300), sessionId: sessionName, durationMs };
-      }
-
-      const usage = parseClaudeUsage(stdout);
-
-      // Session 丢失检测：daemon 重启后用 --continue 续接，但 Claude session 已删除
-      // --continue 会静默创建新 session（~25K input tokens），而不是复用旧 session（~200-500）
-      // 此时更新 session-id 文件，确保下次 daemon 重启用 --session-id --name 建命名 session
+      // Session cache loss detection
       if (isFirstTask && !wasNewSession && usage.inputTokens > 10_000) {
         this.cacheMisses++;
-        logger.warn('[SessionManager] Session cache lost — --continue created fresh session, regenerating session-id', {
-          session: sessionName,
-          oldSessionId: state.sessionId,
-          inputTokens: usage.inputTokens,
-          cacheHitRate: this.getCacheHitRate(),
+        logger.warn('[SessionManager] Session cache lost — regenerating session-id', {
+          session: sessionName, oldSessionId: state.sessionId,
+          inputTokens: usage.inputTokens, cacheHitRate: this.getCacheHitRate(),
         });
         state.sessionId = crypto.randomUUID();
         const sidFile = path.join(state.config.worktree, '.daemon', 'session-id');
@@ -388,9 +271,10 @@ export class SessionManager {
       if (job.outputFile && fs.existsSync(job.outputFile)) {
         output = fs.readFileSync(job.outputFile, 'utf-8');
       } else {
-        output = text || stdout;
+        output = result.outputText || '';
       }
-      // Extract turns from .agent.log for logging
+
+      // Extract turns from .agent.log
       let numTurns = 0;
       let sessionCost = 0;
       try {
@@ -403,98 +287,59 @@ export class SessionManager {
       } catch {}
 
       logger.info('[SessionManager] Task completed', {
-        session: sessionName,
-        task: state.taskCount,
-        durationMs,
-        turns: numTurns,
-        outputLen: output?.length || 0,
-        inputTokens: usage.inputTokens,
-        cacheHitTokens: usage.cacheHitTokens,
+        session: sessionName, task: state.taskCount, durationMs,
+        turns: numTurns, outputLen: output?.length || 0,
+        inputTokens: usage.inputTokens, cacheHitTokens: usage.cacheHitTokens,
         costUSD: Math.round(sessionCost * 1000) / 1000,
       });
 
-      // B1-016: 记录管线指标
+      // Pipeline metrics
       recordPipelineRun({
-        source: 'pipeline',
-        phase: sessionName === 'analyst' ? 'analyst' : 'executor',
-        taskName: `daemon-${sessionName}-${state.taskCount}`,
-        model,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheHitTokens: usage.cacheHitTokens,
-        durationMs,
-        success: true,
+        source: 'pipeline', phase,
+        taskName: `daemon-${sessionName}-${state.taskCount}`, model,
+        inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
+        cacheHitTokens: usage.cacheHitTokens, durationMs, success: true,
         sessionId: state.sessionId,
       }).catch(e => logger.warn('[SessionManager] Metrics record failed', { error: String(e) }));
 
-      // 从 .agent.log 记录会话级缓存指标（num_turns, cache ratio, cost）
+      // Session-level cache metrics from .agent.log
       import('../daemon/metrics.js').then(({ recordAgentSessionFromLog }) => {
         recordAgentSessionFromLog(
-          state.config.worktree,
-          state.sessionId,
-          sessionName === 'analyst' ? 'analyst' as const : 'executor' as const,
+          state.config.worktree, state.sessionId,
+          isAnalyst ? 'analyst' as const : 'executor' as const,
           `daemon-${sessionName}-${state.taskCount}`,
         );
       }).catch(() => {});
 
       writeTaskLog(buildLog({
-        command: cmd.replace(/sk-[a-zA-Z0-9]+/g, 'sk-***'),
+        command: `agentRunner.executeLightweight (${sessionFlag})`,
         success: true,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheHitTokens: usage.cacheHitTokens,
-        durationMs,
-        outputFile: job.outputFile,
-        outputSize: output?.length,
+        inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
+        cacheHitTokens: usage.cacheHitTokens, durationMs,
+        outputFile: job.outputFile, outputSize: output?.length,
       }));
 
-      // Emit session:end event for session-summary correlation
-      try {
-        await prisma.studioEvent.create({
-          data: {
-            type: 'session:end',
-            source: `daemon-${sessionName}`,
-            payload: JSON.stringify({ sessionId: state.sessionId, agentId: `daemon-${sessionName}`, sessionCount: state.taskCount }),
-          },
-        });
-      } catch { /* non-blocking */ }
-
-      // Trigger session:summary generation (fire-and-forget)
+      // Trigger session:summary generation
       const { generateSessionSummary } = await import('../modules/events/session-summary-generator.js');
       generateSessionSummary(state.sessionId).catch((err: unknown) => {
         logger.warn('[SessionManager] SessionSummary generation failed', { sessionId: state.sessionId, error: String(err) });
       });
 
-      return {
-        success: true,
-        output,
-        sessionId: sessionName,
-        durationMs,
-      };
+      return { success: true, output, sessionId: sessionName, durationMs };
     } catch (err) {
-      // Unexpected error (JSON parsing, file I/O, etc.)
       const durationMs = Date.now() - startTime;
       const errorMsg = err instanceof Error ? err.message : String(err);
 
       logger.error('[SessionManager] Unexpected error', {
-        session: sessionName,
-        task: state.taskCount + 1,
-        durationMs,
+        session: sessionName, task: taskIndex, durationMs,
         error: errorMsg.slice(0, 200),
       });
 
       recordPipelineRun({
-        source: 'pipeline',
-        phase: sessionName === 'analyst' ? 'analyst' : 'executor',
-        taskName: `daemon-${sessionName}-${state.taskCount + 1}`,
-        model,
-        inputTokens: 0,
-        outputTokens: 0,
-        cacheHitTokens: 0,
-        durationMs,
-        success: false,
-        error: errorMsg.slice(0, 300),
-        sessionId: state.sessionId,
+        source: 'pipeline', phase,
+        taskName: `daemon-${sessionName}-${taskIndex}`, model,
+        inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs,
+        success: false, error: errorMsg.slice(0, 300), sessionId: state.sessionId,
       }).catch(e => logger.warn('[SessionManager] Metrics record failed', { error: String(e) }));
 
       writeTaskLog(buildLog({
@@ -502,12 +347,7 @@ export class SessionManager {
         errorDetail: errorMsg.slice(0, 300), durationMs,
       }));
 
-      return {
-        success: false,
-        error: errorMsg.slice(0, 300),
-        sessionId: sessionName,
-        durationMs,
-      };
+      return { success: false, error: errorMsg.slice(0, 300), sessionId: sessionName, durationMs };
     } finally {
       state.isBusy = false;
     }

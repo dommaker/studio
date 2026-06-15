@@ -520,6 +520,181 @@ export class AgentRunner implements IAgentRunner {
   }
 
   // ========================================
+  // Lightweight mode (P9: Daemon→AgentRunner)
+  // ========================================
+
+  /**
+   * Lightweight execution: worktree + harness + single session.
+   * Skips: SDD resolution, REQUIREMENTS.md, contract tests, Iron Laws,
+   *        dependency cache, stuck detection, multi-session loop.
+   * Keeps: resolveWorktree, propagateHarnessConfig, session-id/continue,
+   *        stream-json parsing, event emission, metrics.
+   *
+   * Caller provides the full prompt — no buildPrompt enrichment.
+   * Session flags (session-id/continue) come from task.parameters.sessionFlags.
+   */
+  async executeLightweight(task: AgentTask): Promise<ExecutionResult> {
+    logger.info('[AgentRunner] Lightweight execution', { taskId: task.id, executionId: task.executionId });
+
+    let worktree: string;
+    try {
+      worktree = await this.resolveWorktree(task);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { success: false, worktree: '', outputFiles: [], error: errorMessage, logFile: '', sessionCount: 0 };
+    }
+
+    const logFile = path.join(worktree, '.agent.log');
+
+    try {
+      // Prerequisite checks (keep — fast validation)
+      const checks = await this.checkPrerequisites();
+      const errors = checks.filter(c => !c.passed && !c.isWarning);
+      if (errors.length > 0) {
+        throw new Error(`前置检查失败: ${errors.map(e => e.message).join(', ')}`);
+      }
+
+      // Propagate harness config (keep — gives daemon access to harness rules)
+      await propagateHarnessConfig(worktree, task.id, task.executionId, this.config.repoDir);
+
+      // Write prompt
+      const promptFile = path.join(worktree, '.daemon', 'prompt.md');
+      fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
+      fsSync.writeFileSync(promptFile, task.prompt, 'utf-8');
+
+      // Session management — caller provides flags via parameters
+      const sessionFlags = (task.parameters?.sessionFlags as string) || '';
+      const model = getModelForTier((task.model as 'fast' | 'standard' | 'premium') || 'standard');
+      const agentRole = (task.parameters?.agentRole as string) || 'executor';
+      const sessionId = task.executionId;
+
+      const cmd = [
+        `cd "${worktree}"`,
+        `&&`,
+        `claude`,
+        `--print`,
+        `--output-format stream-json`,
+        `--verbose`,
+        sessionFlags,
+        `<`,
+        `"${promptFile}"`,
+        `2>&1`,
+      ].filter(Boolean).join(' ');
+
+      logger.info('[AgentRunner] Lightweight session spawning', {
+        taskId: task.id, executionId: task.executionId, model, sessionFlags,
+      });
+
+      const childRef: { current: ChildProcess | null } = { current: null };
+      this.runningProcesses.set(task.executionId, childRef);
+
+      const sessionStart = Date.now();
+      await emitSessionStart(sessionId, task.executionId, 1);
+
+      try {
+        const { stdout } = await execSh(cmd, {
+          cwd: worktree,
+          env: {
+            ...process.env,
+            ...buildSpawnEnv({
+              tier: model,
+              role: agentRole as 'analyst' | 'executor',
+              extra: {
+                STUDIO_EXECUTION_ID: task.executionId,
+                ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
+                ...(task.parameters?.extraEnv as Record<string, string> || {}),
+              },
+            }),
+          },
+          timeoutMs: this.config.sessionTimeoutMinutes * 60 * 1000,
+          maxBuffer: 10 * 1024 * 1024,
+          childRef,
+        });
+
+        fsSync.writeFileSync(logFile, stdout, 'utf-8');
+
+        const events = this.parseStreamOutput(stdout);
+        const { text, isError } = this.extractResult(events);
+
+        // Emit tool:call + file:change events
+        const tools = extractToolCalls(events);
+        for (const tool of tools) {
+          await emitToolCall(tool.name, tool.input, sessionId, task.executionId);
+          const filePath = extractFilePathShared(tool.name, tool.input);
+          if (filePath) {
+            await emitFileChange(filePath, sessionId, task.executionId);
+          }
+        }
+
+        // Record session metrics
+        const sessionMs = Date.now() - sessionStart;
+        const streamUsage = extractUsage(events);
+        const { hash: cHash, size: cSize } = await getConstraintMeta();
+        await recordSessionMetrics({
+          stdout,
+          executionId: task.executionId,
+          agentRole,
+          modelTier: (task.model as string) || 'standard',
+          sessionCount: 1,
+          isFirstSession: true,
+          sessionMs,
+          promptSize: task.prompt.length,
+          constraintHash: cHash,
+          constraintSize: cSize,
+          streamUsage,
+        });
+
+        await emitSessionEnd(sessionId, task.executionId, 1);
+
+        if (isError) {
+          logger.warn('[AgentRunner] Lightweight session returned error', {
+            taskId: task.id, text: text.slice(0, 200),
+          });
+          return {
+            success: false, worktree, outputFiles: [], error: text.slice(0, 500),
+            logFile, sessionCount: 1, totalDurationMs: sessionMs, sessionIds: [sessionId],
+          };
+        }
+
+        logger.info('[AgentRunner] Lightweight session completed', {
+          taskId: task.id, executionId: task.executionId, sessionMs,
+        });
+
+        return {
+          success: true, worktree, outputFiles: [], logFile,
+          sessionCount: 1, totalDurationMs: sessionMs, sessionIds: [sessionId],
+          outputText: text || undefined,
+        };
+      } catch (execErr: any) {
+        const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
+        const stdoutText = execErr?.stdout?.toString().slice(0, 2000) || '';
+        const stderrText = execErr?.stderr?.toString().slice(0, 500) || '';
+
+        await recordExecutionError({
+          executionId: task.executionId, errMsg, errStack: execErr?.stack?.slice(0, 2000),
+          stderrText, stdoutText, sessionCount: 1, cumulativeSessionMs: Date.now() - sessionStart,
+          signal: execErr?.signal, code: execErr?.code,
+        });
+
+        await emitSessionEnd(sessionId, task.executionId, 1);
+
+        return {
+          success: false, worktree, outputFiles: [],
+          error: errMsg.slice(0, 500),
+          failureLog: stdoutText ? stdoutText.slice(-1000) : undefined,
+          logFile, sessionCount: 1, totalDurationMs: Date.now() - sessionStart,
+          sessionIds: [sessionId],
+        };
+      } finally {
+        this.runningProcesses.delete(task.executionId);
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return { success: false, worktree, outputFiles: [], error: errorMessage, logFile, sessionCount: 0 };
+    }
+  }
+
+  // ========================================
   // SP-004 Step 5: SDD task layer resolution
   // ========================================
 
@@ -687,9 +862,7 @@ export class AgentRunner implements IAgentRunner {
     const outputStyleSection = `## \u8f93\u51fa\u98ce\u683c\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
 
     const skillTier = (task.model as SkillTier) || 'standard';
-    const skillsToInject = session === 1
-      ? skillLoader.load({ trigger: 'goal_start', agentType: 'executor', tier: skillTier })
-      : skillLoader.load({ trigger: 'goal_continue', agentType: 'executor', tier: skillTier, exclude: ['stuck-recovery'] });
+    const skillsToInject = skillLoader.load({ agentType: 'executor', tier: skillTier });
     const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
     if (session === 1 || !progress) {

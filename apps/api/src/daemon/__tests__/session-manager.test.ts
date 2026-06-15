@@ -1,4 +1,4 @@
-// SessionManager 边界测试 (B0-007) + AC1 cmd/settings verification
+// SessionManager 边界测试 (B0-007) + P9 delegation to AgentRunner
 import { describe, it, expect, beforeEach, afterEach, beforeAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,26 +7,10 @@ import * as crypto from 'crypto';
 
 const TEST_DIR = path.join(os.tmpdir(), 'daemon-test-' + Date.now());
 
-// Capture execSh calls
-const execShSpy = vi.fn();
-
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Mock @dommaker/studio-shared/node — provide all exports session-manager.ts imports
 vi.mock('@dommaker/studio-shared/node', () => ({
-  execSh: (...args: any[]) => execShSpy(...args),
-  resolveSessionId: (worktree: string) => {
-    const sidDir = path.join(worktree, '.daemon');
-    if (!fs.existsSync(sidDir)) fs.mkdirSync(sidDir, { recursive: true });
-    const sidFile = path.join(sidDir, 'session-id');
-    // Reuse valid UUID, regenerate invalid ones
-    let existing = '';
-    try { existing = fs.readFileSync(sidFile, 'utf-8').trim(); } catch {}
-    if (existing && UUID_PATTERN.test(existing)) return existing;
-    const newUuid = crypto.randomUUID();
-    fs.writeFileSync(sidFile, newUuid, 'utf-8');
-    return newUuid;
-  },
   readSessionIdFile: (worktree: string) => {
     const sidFile = path.join(worktree, '.daemon', 'session-id');
     try {
@@ -40,12 +24,6 @@ vi.mock('@dommaker/studio-shared/node', () => ({
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   getModelForTier: () => 'claude-sonnet-4-6',
-  buildSpawnEnv: (opts: any) => ({
-    ANTHROPIC_MODEL: 'claude-sonnet-4-6',
-    ANTHROPIC_AUTH_TOKEN: 'test-key',
-    ANTHROPIC_BASE_URL: 'https://test.example.com',
-    ...opts?.extra,
-  }),
 }));
 
 // Mock metrics and task-logger — must return Promises for .catch() chaining
@@ -59,6 +37,15 @@ vi.mock('../task-logger.js', () => ({
   classifyTaskError: () => 'unknown',
 }));
 
+// P9: Mock agentRunner.executeLightweight
+const mockExecuteLightweight = vi.fn();
+
+vi.mock('@dommaker/studio-agent', () => ({
+  agentRunner: {
+    executeLightweight: (...args: any[]) => mockExecuteLightweight(...args),
+  },
+}));
+
 import { SessionManager } from '../session-manager.js';
 
 describe('SessionManager', () => {
@@ -66,9 +53,18 @@ describe('SessionManager', () => {
 
   beforeEach(() => {
     fs.mkdirSync(TEST_DIR, { recursive: true });
-    execShSpy.mockReset();
-    // Default: execSh resolves with stream-json result event
-    execShSpy.mockResolvedValue({ stdout: '{"type":"result","result":"ok","is_error":false,"usage":{"input_tokens":100,"output_tokens":50}}', stderr: '' });
+    mockExecuteLightweight.mockReset();
+    // Default: executeLightweight resolves with success
+    mockExecuteLightweight.mockResolvedValue({
+      success: true,
+      worktree: TEST_DIR,
+      outputFiles: [],
+      logFile: path.join(TEST_DIR, '.agent.log'),
+      sessionCount: 1,
+      totalDurationMs: 100,
+      sessionIds: ['test-session-id'],
+      outputText: '{"type":"result","result":"ok","is_error":false}',
+    });
     manager = new SessionManager();
   });
 
@@ -128,7 +124,7 @@ describe('SessionManager', () => {
 
     const sidFile = path.join(worktree, '.daemon', 'session-id');
     const uuid = fs.readFileSync(sidFile, 'utf-8').trim();
-    expect(uuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(uuid).toMatch(UUID_PATTERN);
     expect(uuid).not.toBe('not-a-uuid');
   });
 
@@ -175,47 +171,110 @@ describe('SessionManager', () => {
   });
 
   // ═══════════════════════════════════════════════════════════
-  // AC1: cmd construction & ensureWorktree verification
+  // P9: Delegation to AgentRunner
   // ═══════════════════════════════════════════════════════════
 
-  describe('AC1: cmd construction and ensureWorktree', () => {
-    it('AC1.1: cmd uses < file redirect, not cat | pipe', async () => {
-      const worktree = path.join(TEST_DIR, 'ac1');
+  describe('P9: AgentRunner delegation', () => {
+    it('delegates to agentRunner.executeLightweight with correct task', async () => {
+      const worktree = path.join(TEST_DIR, 'p9-1');
       manager.register({
-        name: 'ac1', worktree, modelTier: 'standard',
+        name: 'p9-1', worktree, modelTier: 'standard',
         timeoutMs: 5000, persistent: false,
       });
 
-      await manager.runTask('ac1', { prompt: 'hello', outputFile: '/tmp/out.json' });
+      await manager.runTask('p9-1', { prompt: 'hello world', outputFile: '/tmp/out.json' });
 
-      const cmd = execShSpy.mock.calls[0]?.[0] as string;
-      expect(cmd).toBeDefined();
-      // Must use file redirect
-      expect(cmd).toContain('<');
-      // Must NOT use cat pipe
-      expect(cmd).not.toMatch(/\bcat\b/);
-      // promptFile reference should exist inside redirect
-      expect(cmd).toMatch(/< "/);
-      expect(cmd).toMatch(/prompt\.md"/);
+      expect(mockExecuteLightweight).toHaveBeenCalledTimes(1);
+      const task = mockExecuteLightweight.mock.calls[0][0];
+      expect(task.prompt).toBe('hello world');
+      expect(task.parameters.worktree).toBe(worktree);
+      expect(task.parameters.agentRole).toBe('executor');
+      expect(task.parameters.sessionFlags).toContain('--session-id');
+      expect(task.model).toBe('standard');
     });
 
-    it('AC1.2: cmd does not contain --dangerously-skip-permissions', async () => {
-      const worktree = path.join(TEST_DIR, 'ac2');
+    it('analyst session passes agentRole=analyst', async () => {
+      const worktree = path.join(TEST_DIR, 'p9-analyst');
       manager.register({
-        name: 'ac2', worktree, modelTier: 'standard',
+        name: 'analyst', worktree, modelTier: 'premium',
         timeoutMs: 5000, persistent: false,
       });
 
-      await manager.runTask('ac2', { prompt: 'hello', outputFile: '/tmp/out.json' });
+      await manager.runTask('analyst', { prompt: 'analyze', outputFile: '' });
 
-      const cmd = execShSpy.mock.calls[0]?.[0] as string;
-      expect(cmd).not.toContain('--dangerously-skip-permissions');
+      const task = mockExecuteLightweight.mock.calls[0][0];
+      expect(task.parameters.agentRole).toBe('analyst');
+      expect(task.model).toBe('premium');
     });
 
-    it('AC1.3: ensureWorktree writes bypassPermissions to .claude/settings.json', () => {
-      const worktree = path.join(TEST_DIR, 'ac3');
+    it('subsequent task uses --continue flag', async () => {
+      const worktree = path.join(TEST_DIR, 'p9-cont');
       manager.register({
-        name: 'ac3', worktree, modelTier: 'standard',
+        name: 'p9-cont', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      await manager.runTask('p9-cont', { prompt: 'first', outputFile: '' });
+      await manager.runTask('p9-cont', { prompt: 'second', outputFile: '' });
+
+      expect(mockExecuteLightweight).toHaveBeenCalledTimes(2);
+      const flags1 = mockExecuteLightweight.mock.calls[0][0].parameters.sessionFlags;
+      const flags2 = mockExecuteLightweight.mock.calls[1][0].parameters.sessionFlags;
+      expect(flags1).toContain('--session-id');
+      expect(flags2).toBe('--continue');
+    });
+
+    it('success returns TaskResult with output', async () => {
+      const worktree = path.join(TEST_DIR, 'p9-ok');
+      manager.register({
+        name: 'p9-ok', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      const result = await manager.runTask('p9-ok', { prompt: 'test', outputFile: '' });
+      expect(result.success).toBe(true);
+      expect(result.output).toContain('ok');
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('failure returns TaskResult with error', async () => {
+      mockExecuteLightweight.mockResolvedValue({
+        success: false,
+        worktree: TEST_DIR,
+        outputFiles: [],
+        error: 'agent failed',
+        logFile: '',
+        sessionCount: 1,
+        totalDurationMs: 50,
+      });
+
+      const worktree = path.join(TEST_DIR, 'p9-fail');
+      manager.register({
+        name: 'p9-fail', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      const result = await manager.runTask('p9-fail', { prompt: 'test', outputFile: '' });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('agent failed');
+    });
+
+    it('taskCount increments on success', async () => {
+      const worktree = path.join(TEST_DIR, 'p9-count');
+      manager.register({
+        name: 'p9-count', worktree, modelTier: 'standard',
+        timeoutMs: 5000, persistent: false,
+      });
+
+      expect(manager.getStatus('p9-count')!.taskCount).toBe(0);
+      await manager.runTask('p9-count', { prompt: 'test', outputFile: '' });
+      expect(manager.getStatus('p9-count')!.taskCount).toBe(1);
+    });
+
+    it('ensureWorktree writes bypassPermissions to .claude/settings.json', () => {
+      const worktree = path.join(TEST_DIR, 'p9-settings');
+      manager.register({
+        name: 'p9-settings', worktree, modelTier: 'standard',
         timeoutMs: 5000, persistent: false,
       });
 
@@ -224,36 +283,6 @@ describe('SessionManager', () => {
 
       const content = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
       expect(content.permissions?.defaultMode).toBe('bypassPermissions');
-    });
-
-    it('AC1.4: cmd contains 2>&1 — stderr merged into stdout for execSh capture', async () => {
-      const worktree = path.join(TEST_DIR, 'ac4');
-      manager.register({
-        name: 'ac4', worktree, modelTier: 'standard',
-        timeoutMs: 5000, persistent: false,
-      });
-
-      await manager.runTask('ac4', { prompt: 'hello', outputFile: '/tmp/out.json' });
-
-      const cmd = execShSpy.mock.calls[0]?.[0] as string;
-      // 2>&1 merges stderr → stdout so execSh captures error output
-      expect(cmd).toContain('2>&1');
-    });
-
-    it('AC1.5: execSh called without opts.stdin', async () => {
-      const worktree = path.join(TEST_DIR, 'ac5');
-      manager.register({
-        name: 'ac5', worktree, modelTier: 'standard',
-        timeoutMs: 5000, persistent: false,
-      });
-
-      await manager.runTask('ac5', { prompt: 'hello', outputFile: '/tmp/out.json' });
-
-      const opts = execShSpy.mock.calls[0]?.[1] as Record<string, unknown> | undefined;
-      expect(opts).toBeDefined();
-      // execSh should NOT receive opts.stdin — stdin stays 'ignore',
-      // shell's < redirect handles input
-      expect(opts?.stdin).toBeUndefined();
     });
   });
 

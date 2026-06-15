@@ -77,6 +77,8 @@ export interface ExecutionResult {
   sessionCount: number;
   totalDurationMs?: number;
   sessionIds?: string[]; // B9-014: collected session IDs for summary generation
+  /** P9: 原始 stdout 文本（lightweight 模式产出，供调用方解析） */
+  outputText?: string;
 }
 
 // ─── 前置检查结果 ───
@@ -656,9 +658,7 @@ export class AgentExecutor {
 
     // O2i: Skill on-demand injection
     const skillTier = (task.model as SkillTier) || 'standard';
-    const skillsToInject = session === 1
-      ? skillLoader.load({ trigger: 'goal_start', agentType: 'executor', tier: skillTier })
-      : skillLoader.load({ trigger: 'goal_continue', agentType: 'executor', tier: skillTier, exclude: ['stuck-recovery'] });
+    const skillsToInject = skillLoader.load({ agentType: 'executor', tier: skillTier });
     const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
     if (session === 1 || !progress) {
