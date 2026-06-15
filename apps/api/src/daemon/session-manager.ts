@@ -2,11 +2,11 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { logger, getModelForTier, parseStreamEvents, extractUsage } from '@dommaker/studio-shared';
 import { readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
-import { parseClaudeUsage, recordPipelineRun } from './metrics.js';
+import { recordPipelineRun } from './metrics.js';
 import { writeTaskLog, classifyTaskError } from './task-logger.js';
 import type { TaskLog } from './task-logger.js';
 
@@ -249,8 +249,23 @@ export class SessionManager {
       const wasNewSession = state.isNewSession;
       state.isNewSession = false;
 
-      // Parse usage from agent.log
-      const usage = parseClaudeUsage(result.outputText || '');
+      // Parse usage from .agent.log (stream-json format)
+      let usage = { inputTokens: 0, outputTokens: 0, cacheHitTokens: 0 };
+      try {
+        const agentLogPath = path.join(state.config.worktree, '.agent.log');
+        if (fs.existsSync(agentLogPath)) {
+          const logContent = fs.readFileSync(agentLogPath, 'utf-8');
+          const events = parseStreamEvents(logContent);
+          const extracted = extractUsage(events);
+          usage = {
+            inputTokens: extracted.inputTokens,
+            outputTokens: extracted.outputTokens,
+            cacheHitTokens: extracted.cacheReadTokens + extracted.cacheCreationTokens,
+          };
+        }
+      } catch (e) {
+        logger.warn('[SessionManager] Failed to parse .agent.log for usage', { error: String(e) });
+      }
 
       // Session cache loss detection
       if (isFirstTask && !wasNewSession && usage.inputTokens > 10_000) {
@@ -280,9 +295,14 @@ export class SessionManager {
       try {
         const agentLogPath = path.join(state.config.worktree, '.agent.log');
         if (fs.existsSync(agentLogPath)) {
-          const agentLog = JSON.parse(fs.readFileSync(agentLogPath, 'utf-8'));
-          numTurns = agentLog.num_turns || 0;
-          sessionCost = agentLog.total_cost_usd || 0;
+          const logEvents = parseStreamEvents(fs.readFileSync(agentLogPath, 'utf-8'));
+          for (const ev of logEvents) {
+            if (ev.type === 'result') {
+              const r = ev as unknown as Record<string, unknown>;
+              numTurns = (r.num_turns as number) || numTurns;
+              sessionCost = (r.total_cost_usd as number) || sessionCost;
+            }
+          }
         }
       } catch {}
 

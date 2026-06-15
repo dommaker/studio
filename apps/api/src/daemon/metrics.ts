@@ -1,6 +1,6 @@
 // Pipeline Metrics — 管线 vs 窗口对比
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractUsage } from '@dommaker/studio-shared';
 import { formatTable } from '@dommaker/studio-shared/cli';
 
 export interface MetricEntry {
@@ -113,17 +113,26 @@ export function recordAgentSessionFromLog(
     if (!fs.existsSync(logPath)) return;
 
     const raw = fs.readFileSync(logPath, 'utf-8');
-    const log = JSON.parse(raw);
-    const u = log.usage || {};
-    const mu = log.modelUsage || {};
-    const model = Object.keys(mu)[0] || 'unknown';
-    const m = mu[model] || {};
+    const events = parseStreamEvents(raw);
+    const extracted = extractUsage(events);
 
-    const inputTokens = m.inputTokens || u.input_tokens || 0;
-    const outputTokens = m.outputTokens || u.output_tokens || 0;
-    const cacheHitTokens = m.cacheReadInputTokens || u.cache_read_input_tokens || 0;
-    const turns = log.num_turns || 0;
-    const cost = log.total_cost_usd || 0;
+    const inputTokens = extracted.inputTokens;
+    const outputTokens = extracted.outputTokens;
+    const cacheHitTokens = extracted.cacheReadTokens + extracted.cacheCreationTokens;
+    const model = extracted.model || 'unknown';
+
+    // Extract result-level fields from last result event
+    let turns = 0;
+    let cost = 0;
+    let isError = false;
+    for (const event of events) {
+      if (event.type === 'result') {
+        const r = event as unknown as Record<string, unknown>;
+        turns = (r.num_turns as number) || turns;
+        cost = (r.total_cost_usd as number) || cost;
+        if (r.is_error) isError = true;
+      }
+    }
 
     // 同步写 Prisma（fire-and-forget，不阻塞）
     prisma.pipelineRun.create({
@@ -135,8 +144,8 @@ export function recordAgentSessionFromLog(
         inputTokens,
         outputTokens,
         cacheHitTokens,
-        durationMs: log.duration_ms || 0,
-        success: log.is_error !== true,
+        durationMs: 0,
+        success: !isError,
         sessionId,
         // 复用 diffLines 存 turns（语义复用，避免 schema 变更）
         diffLines: turns,

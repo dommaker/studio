@@ -95,6 +95,24 @@ class DeployAgent {
     if (!mergeResult.success) {
       this.releaseMergeSlot(params.executionId);
       recordPipelineRun({ source: 'pipeline', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: mergeResult.summary, sessionId: params.executionId }).catch(() => {});
+
+      // Emit deploy.completed event so Monitor/OKR can track merge failures
+      eventBus.publish('deploy.completed', { executionId: params.executionId, result: mergeResult });
+      prisma.studioEvent.create({
+        data: {
+          type: 'deploy.completed',
+          source: 'deploy-agent',
+          executionId: params.executionId,
+          payload: JSON.stringify({
+            success: false,
+            type: 'merge-failed',
+            durationMs: Date.now() - startTime,
+            timings,
+            failureClass: classifyFailureAction(mergeResult.summary || '').failureClass,
+          }),
+        },
+      }).catch((e: unknown) => { logger.warn('[DeployAgent] StudioEvent write failed', { error: String(e) }); });
+
       await this.cleanupTaskBranches(params); // cleanup: merge failed, nothing to keep
       return mergeResult;
     }
@@ -314,25 +332,13 @@ class DeployAgent {
   private async pushToOrigin(params: DeployParams): Promise<DeployResult> {
     const repoDir = await this.getRepoDir();
     const defaultBranch = getDefaultBranch(repoDir);
-
-    // Pre-flight: lightweight connectivity probe before retry loop
-    try {
-      await execSh(`git ls-remote --heads origin 2>&1`, { cwd: repoDir, timeoutMs: 15_000 });
-    } catch (e) {
-      const err = String(e).slice(0, 200);
-      logger.error('[DeployAgent] Pre-flight connectivity check failed — cannot reach origin');
-      await this.emitPushFailedAlert(defaultBranch, `Cannot reach origin: ${err}`);
-      return {
-        success: false, type: params.environment, findings: [],
-        summary: `Push aborted — cannot reach origin: ${err}`,
-      };
-    }
-
     const maxRetries = 3;
     let lastError = '';
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
+        // Pre-flight INSIDE retry loop — connectivity may recover
+        await execSh(`git ls-remote --heads origin 2>&1`, { cwd: repoDir, timeoutMs: 15_000 });
         logger.info(`[DeployAgent] Pushing to origin (attempt ${attempt + 1}/${maxRetries})`);
         await execSh(`git push origin ${defaultBranch}`, {
           cwd: repoDir,
