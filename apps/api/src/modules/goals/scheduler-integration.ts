@@ -15,6 +15,7 @@ import { eventStore } from '../../core/event-store.js';
 
 import {
   getAvailableSlots,
+  getDispatchStrategy,
   analyzeRoutingFeedback,
   restoreRoutingStats,
   type ClassificationRecord,
@@ -174,7 +175,9 @@ export class GoalScheduler {
       const runningCount = await prisma.goalExecution.count({
         where: { goalId, status: 'running' },
       });
-      const availableSlots = getAvailableSlots() - runningCount;
+      const strategy = getDispatchStrategy(this.recentFailures, this.recentTotal);
+      const maxCap = strategy === 'conservative' ? 2 : undefined;
+      const availableSlots = getAvailableSlots(maxCap) - runningCount;
       if (availableSlots <= 0) return;
 
       const executableSteps = await goalService.getExecutableSteps(goalId);

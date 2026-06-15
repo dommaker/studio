@@ -39,8 +39,11 @@ export const DEFAULT_TIER_ROUTING: TierRoutingConfig = {
 
 // ─── Routing / Classification ───
 
-/** 资源感知并发槽位 */
-export function getAvailableSlots(): number {
+/**
+ * 资源感知并发槽位
+ * @param maxCap 可选上限，conservative 模式下传入 2 以限制并发
+ */
+export function getAvailableSlots(maxCap?: number): number {
   const freeMemPct = os.freemem() / os.totalmem();
   const load = os.loadavg()[0] / os.cpus().length;
   const totalMemGB = Math.round(os.totalmem() / (1024 * 1024 * 1024));
@@ -52,10 +55,14 @@ export function getAvailableSlots(): number {
   else if (load > 0.90) slots = 2;
   else slots = 5; // MAX_CONCURRENT
 
+  if (maxCap !== undefined) {
+    slots = Math.min(slots, maxCap);
+  }
+
   logger.info('[GoalScheduler] Resource check', {
     freeMemGB, totalMemGB, freeMemPct: Math.round(freeMemPct * 100) + '%',
     loadAvg: os.loadavg()[0].toFixed(2), cpuCores: os.cpus().length,
-    slots, maxConcurrent: 5,
+    slots, maxConcurrent: 5, ...(maxCap !== undefined ? { maxCap } : {}),
   });
   return slots;
 }

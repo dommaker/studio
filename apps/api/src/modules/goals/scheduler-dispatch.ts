@@ -607,8 +607,9 @@ async function handleDispatchFailure(
 
   const worktreeDir = path.join(WORKTREES_DIR, executionId);
   const classification = classifyFailureAction(errorStr);
+  const status = classification.action === 'mark-blocked' ? 'blocked_by_dependency' : 'failed';
   await goalService.updateStepExecution(executionId, {
-    status: 'failed',
+    status,
     error: errorStr,
     failureType: classification.failureClass,
     ...(result.failureLog ? { output: JSON.stringify({ failureLog: result.failureLog }) } : {}),

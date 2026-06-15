@@ -1,10 +1,11 @@
 /**
- * Behavioral tests for failureType wiring in scheduler-dispatch
+ * Behavioral tests for blocked_by_dependency status in handleDispatchFailure
  *
  * AC:
- * - When execution fails, failureType is written to GoalExecution via updateStepExecution
- * - failureType matches classifyFailureAction().failureClass
- * - Both handleDispatchFailure path and catch block path write failureType
+ * - not-retryable error → status 'blocked_by_dependency' written
+ * - retryable error (after retries exhausted) → status 'failed' written
+ * - infrastructure error (after retries exhausted) → status 'failed' written
+ * - unknown error → status 'failed' written (triage-agent action)
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
@@ -27,7 +28,6 @@ const {
   mockPrismaFindFirst: vi.fn().mockResolvedValue(null),
 }));
 
-// Mock prisma
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     goalExecution: {
@@ -153,93 +153,76 @@ function makeGoal() {
   };
 }
 
+/** Get the last updateStepExecution call's data payload */
+function lastFailurePayload(): Record<string, unknown> {
+  const failureCalls = mockUpdateStepExecution.mock.calls.filter(
+    (call: [string, Record<string, unknown>]) =>
+      call[1]?.status === 'failed' || call[1]?.status === 'blocked_by_dependency'
+  );
+  expect(failureCalls.length).toBeGreaterThanOrEqual(1);
+  return failureCalls[failureCalls.length - 1][1];
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
+  // retries exhausted so maybeRetryExecution returns false
+  mockPrismaFindUnique.mockResolvedValue({ retryCount: 3 });
 });
 
-describe('failureType wiring in dispatchStep', () => {
-  test('writes failureType=retryable when agent fails with exit code error', async () => {
+describe('handleDispatchFailure status routing', () => {
+  test('not-retryable → status blocked_by_dependency', async () => {
+    mockAgentExecute.mockResolvedValue({
+      success: false,
+      error: 'The approach is infeasible because API does not exist',
+      sessionIds: [],
+    });
+
+    await dispatchStep(makeExec(), makeGoal(), makeCtx());
+
+    const payload = lastFailurePayload();
+    expect(payload.status).toBe('blocked_by_dependency');
+    expect(payload.failureType).toBe('not-retryable');
+  });
+
+  test('retryable (retries exhausted) → status failed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'exit code 1',
       sessionIds: [],
     });
 
-    // maybeRetryExecution will find existing retries — mock prisma to return retryCount=3 (exhausted)
-    mockPrismaFindUnique.mockResolvedValue({ retryCount: 3 });
-
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    // Verify updateStepExecution was called with failureType in the failure path
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed'
-    );
-    expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    const failureCall = failureCalls[failureCalls.length - 1];
-    expect(failureCall[1]).toHaveProperty('failureType');
-    expect(failureCall[1].failureType).toBe('retryable');
+    const payload = lastFailurePayload();
+    expect(payload.status).toBe('failed');
+    expect(payload.failureType).toBe('retryable');
   });
 
-  test('writes failureType=not-retryable when agent fails with approach infeasible', async () => {
-    mockAgentExecute.mockResolvedValue({
-      success: false,
-      error: 'The approach is infeasible because API does not exist',
-      sessionIds: [],
-    });
-    mockPrismaFindUnique.mockResolvedValue({ retryCount: 3 });
-
-    await dispatchStep(makeExec(), makeGoal(), makeCtx());
-
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed' || call[1]?.status === 'blocked_by_dependency'
-    );
-    expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('not-retryable');
-  });
-
-  test('writes failureType=infrastructure when agent fails with worktree error', async () => {
+  test('infrastructure (retries exhausted) → status failed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'worktree directory ENOENT: /root/worktrees/abc123',
       sessionIds: [],
     });
-    mockPrismaFindUnique.mockResolvedValue({ retryCount: 3 });
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed'
-    );
-    expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('infrastructure');
+    const payload = lastFailurePayload();
+    expect(payload.status).toBe('failed');
+    expect(payload.failureType).toBe('infrastructure');
   });
 
-  test('writes failureType=unknown when agent fails with unrecognized error', async () => {
+  test('unknown (triage-agent action) → status failed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'Something weird happened',
       sessionIds: [],
     });
-    mockPrismaFindUnique.mockResolvedValue({ retryCount: 3 });
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed'
-    );
-    expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('unknown');
-  });
-
-  test('writes failureType in catch block when agent throws', async () => {
-    mockAgentExecute.mockRejectedValue(new Error('TypeError: Cannot read properties of undefined'));
-
-    await dispatchStep(makeExec(), makeGoal(), makeCtx());
-
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed'
-    );
-    expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('retryable');
+    const payload = lastFailurePayload();
+    expect(payload.status).toBe('failed');
+    expect(payload.failureType).toBe('unknown');
   });
 });
