@@ -116,7 +116,7 @@ export function execSh(
         resolve({ stdout, stderr });
       } else {
         const reason = signal ? `signal ${signal}` : `code ${code}`;
-        const err = new Error(`Command exited with ${reason}: ${stderr.slice(0, 200)}`) as any;
+        const err = new Error(`Command exited with ${reason}: ${(stderr || stdout).slice(0, 200)}`) as any;
         err.stdout = stdout;
         err.stderr = stderr;
         err.code = code;

@@ -326,6 +326,18 @@ export async function writeContractTests(
 
 // ─── Dependency Cache ───
 
+/** Extract combined error output from execSh rejection (attaches stdout/stderr to Error). */
+function extractExecError(e: unknown): string {
+  if (e && typeof e === 'object') {
+    const rec = e as Record<string, unknown>;
+    const stderr = typeof rec.stderr === 'string' ? rec.stderr : '';
+    const stdout = typeof rec.stdout === 'string' ? rec.stdout : '';
+    const msg = typeof rec.message === 'string' ? rec.message : '';
+    return stderr || stdout || msg;
+  }
+  return String(e);
+}
+
 const DEPS_CACHE_DIR = path.join(os.homedir(), '.cache', 'studio-deps');
 const INSTALL_TIMEOUT_MS = 300_000; // 5min
 const COPY_TIMEOUT_MS = 60_000; // 1min
@@ -431,9 +443,19 @@ export async function ensureDeps(worktree: string, repoDir: string): Promise<voi
     logger.info('[WorktreeResolver] Deps cache: install complete', {
       worktree, durationMs: Date.now() - installStart,
     });
-  } catch (e) {
-    logger.error('[WorktreeResolver] Deps cache: install failed', { worktree, error: String(e) });
-    throw e;
+  } catch (e: unknown) {
+    // Lockfile incompatible — fallback to --force (rewrites lockfile)
+    const errMsg = extractExecError(e);
+    if (pkgManager === 'pnpm' && errMsg.includes('ERR_PNPM_LOCKFILE_BREAKING_CHANGE')) {
+      logger.warn('[WorktreeResolver] Lockfile incompatible, retrying with --force', { worktree });
+      await execSh('pnpm install --force', { cwd: worktree, timeoutMs: INSTALL_TIMEOUT_MS });
+      logger.info('[WorktreeResolver] Deps cache: --force install complete', {
+        worktree, durationMs: Date.now() - installStart,
+      });
+    } else {
+      logger.error('[WorktreeResolver] Deps cache: install failed', { worktree, error: String(e) });
+      throw e;
+    }
   }
 
   // Populate cache for future worktrees

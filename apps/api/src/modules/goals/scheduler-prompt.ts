@@ -365,7 +365,7 @@ export async function getProjectRepoPath(goal: any): Promise<string> {
     });
     if (repo?.workspace) {
       const fullPath = path.join(repo.workspace.workspaceRoot, repo.path);
-      if (fs.existsSync(path.join(fullPath, '.git'))) {
+      if (fs.existsSync(path.join(fullPath, '.git')) && fs.existsSync(path.join(fullPath, 'package.json'))) {
         logger.info('[SchedulerPrompt] Using first active WorkspaceRepo', { repoPath: fullPath });
         return fullPath;
       }

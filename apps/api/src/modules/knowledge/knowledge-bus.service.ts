@@ -20,7 +20,7 @@ import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeSubsystem, DecisionRecord } from '@dommaker/harness';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
-import { exec } from 'child_process';
+import { execFile } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
 
@@ -622,7 +622,7 @@ let failCount = 0;  // #3: consecutive failure count for backoff
  * 使用 mcp-local-rag CLI 增量 ingest（已 ingest 的文件自动跳过）。
  * 5s 防抖：批量 ingest 15 条 → 只触发 1 次 sync。
  * 互斥锁：防止并发写入 LanceDB 导致 commit conflict。
- * 失败重试：指数退避（10s, 20s, 40s... 最多 5 次）。
+ * 失败重试：指数退避（10s, 20s, 40s... cap 120s，不设上限）。
  */
 export function isVectorDbSyncing(): boolean {
   return syncInProgress;
@@ -642,8 +642,15 @@ export function scheduleVectorDbSync(): void {
       return;
     }
     syncInProgress = true;
-    const cmd = `nice -n 10 mcp-local-rag --db-path ${LANCE_DB_PATH} --cache-dir ${MODEL_CACHE_DIR} --model-name ${MODEL_NAME} ingest "${UNIFIED_KNOWLEDGE_DIR}" --base-dir "${UNIFIED_KNOWLEDGE_DIR}"`;
-    exec(cmd, { timeout: 300_000 }, (err, stdout, stderr) => {
+    const args = [
+      '-n', '10', 'mcp-local-rag',
+      '--db-path', LANCE_DB_PATH,
+      '--cache-dir', MODEL_CACHE_DIR,
+      '--model-name', MODEL_NAME,
+      'ingest', UNIFIED_KNOWLEDGE_DIR,
+      '--base-dir', UNIFIED_KNOWLEDGE_DIR,
+    ];
+    execFile('nice', args, { timeout: 300_000 }, (err, stdout, stderr) => {
       syncInProgress = false;
       // #2: log resume after deferral
       if (deferredSince) {
@@ -660,20 +667,13 @@ export function scheduleVectorDbSync(): void {
           failCount = 0;
           return;
         }
-        // #3: re-schedule with exponential backoff on real failure
+        // #3: re-schedule with exponential backoff on real failure (no upper limit, cap 120s)
         failCount++;
-        if (failCount <= 5) {
-          const backoffSec = Math.min(10 * Math.pow(2, failCount - 1), 120);
-          logger.warn('[KnowledgeBus] vector-db sync failed, retrying', {
-            attempt: failCount, backoffSec, error: msg.slice(0, 200),
-          });
-          setTimeout(() => scheduleVectorDbSync(), backoffSec * 1000);
-        } else {
-          logger.warn('[KnowledgeBus] vector-db sync failed permanently (giving up)', {
-            attempts: failCount, error: msg.slice(0, 200), stderr: stderr?.slice(0, 200),
-          });
-          failCount = 0;  // reset for next trigger
-        }
+        const backoffSec = Math.min(10 * Math.pow(2, failCount - 1), 120);
+        logger.warn('[KnowledgeBus] vector-db sync failed, retrying', {
+          attempt: failCount, backoffSec, error: msg.slice(0, 200),
+        });
+        setTimeout(() => scheduleVectorDbSync(), backoffSec * 1000);
         return;
       }
       failCount = 0;
