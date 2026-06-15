@@ -10,7 +10,7 @@ import { proposalStore } from '../skills/proposal-store.js';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
 import { checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { triageAgent } from '../agents/triage-agent.service.js';
-import { classifyFailureAction } from './failure-classifier.js';
+import { classifyFailureAction, type FailureClass } from './failure-classifier.js';
 import { AuditService } from '@dommaker/studio-audit';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import { parseJsonField, type GoalStep } from './goal-crud.js';
@@ -25,7 +25,7 @@ import { execSync } from 'child_process';
  */
 export async function updateStepExecution(
   executionId: string,
-  updates: { status?: string; output?: any; error?: string; input?: any },
+  updates: { status?: string; output?: any; error?: string; input?: any; failureType?: FailureClass },
   checkCompletionFn: (goalId: string) => Promise<void>,
 ): Promise<any> {
   const data: Record<string, any> = { ...updates };
