@@ -21,6 +21,15 @@ export interface AcGroup {
   implementationNotes?: string;
   codePatterns?: string[];
   gotchas?: string[];
+  architectureContext?: {
+    functions: string[];
+    callChain: string;
+    imports: string[];
+    typesInScope: string[];
+    testMock: string[];
+    dangerZones: string[];
+    verifiedAt: string;
+  };
 }
 
 export type TierRecommendation = 'flash-ok' | 'upgrade-to-standard' | 'upgrade-to-premium' | 'needs-human';
@@ -47,13 +56,13 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
   const checks: GateCheck[] = [];
   const validFilePathRe = /^[\w\-\/]+\.[a-z]{1,6}$/i; // eg: src/modules/foo/bar.ts
 
-  // 1. AC 粒度: 每组 ≤6 AC
+  // 1. AC 粒度: 每组 ≤10 AC
   for (const g of groups) {
-    if (g.acs.length > 5) {
+    if (g.acs.length > 10) {
       checks.push({
         name: 'ac-granularity',
         passed: false,
-        message: `组 "${g.id}" 有 ${g.acs.length} 个 AC，超过 5 个上限。请拆分为更小的组`,
+        message: `组 "${g.id}" 有 ${g.acs.length} 个 AC，超过 10 个上限。请拆分为更小的组`,
       });
     } else if (g.acs.length === 0) {
       checks.push({
@@ -152,31 +161,14 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
     if (owners.length > 1) {
       checks.push({
         name: 'file-conflict',
-        passed: false,
+        passed: true, // warning — 依赖排序系统处理执行顺序，不阻断
         message: `文件 "${file}" 被 ${owners.join(', ')} 共同操作。需要建立依赖关系避免并行冲突`,
       });
     }
   }
 
-  // 5. B11-013: AC 结构化质量校验 — 每个 AC 必须含文件路径、位置、改动描述
-  const locationPattern = /L\d+|行\s*\d+|在.{2,30}(后|前|中|内|处)/;
-  const verbPattern = /^(添加|移除|修改|更新|重写|重构|创建|删除|修复|调整|升级|降级|替换|拆分|合并|注入|接入|配置|清理|Add|Remove|Update|Modify|Refactor|Create|Delete|Fix)/;
-  const filePathInAc = /[\w\-\/]+\.(ts|js|tsx|jsx|json|prisma|md|yaml|yml)/;
-  for (const g of groups) {
-    for (const ac of g.acs) {
-      const issues: string[] = [];
-      if (!filePathInAc.test(ac)) issues.push('缺少文件路径');
-      if (!locationPattern.test(ac)) issues.push('缺少位置（行号或锚点）');
-      if (!verbPattern.test(ac)) issues.push('改动描述应以动词开头');
-      if (issues.length > 0) {
-        checks.push({
-          name: 'ac-structure',
-          passed: false, // hard gate — force Analyst to improve AC quality
-          message: `组 "${g.id}" AC 质量不足: ${issues.join('、')}。AC: "${ac.slice(0, 80)}..."`,
-        });
-      }
-    }
-  }
+  // 5. AC 结构化质量校验已移至 Stage 2（LLM 语义验证）
+  //    regex 无法可靠校验自然语言格式，由 LLM 判断 AC 是否包含足够上下文
 
   // 如果以上检查都没问题，pass
   if (checks.length === 0) {
@@ -199,6 +191,7 @@ async function stage2LlmCheck(groups: AcGroup[], title: string): Promise<GateChe
     acs: g.acs,
     files: g.files,
     dependencies: g.dependencies,
+    architectureContext: g.architectureContext || null,
   })), null, 2);
 
   const prompt = `你是需求评审专家。检查以下 AC 组是否适合 flash 模型并行执行。
@@ -214,7 +207,12 @@ ${groupsJson}
 1. **AC 独立性**: 这组能独立完成吗？还是需要其他组先完成？
 2. **隐式依赖**: 有没有没声明的依赖？（例如：B 组需要调用 A 组新建的函数）
 3. **文件冲突**: 文件列表是否准确？有没有遗漏会和其他组冲突的文件？
-4. **描述具体性**: AC 描述够具体吗？flash 模型能根据描述直接写代码吗？
+4. **architectureContext 完整性**: Executor 是 fast 模型，不探索代码库。检查 architectureContext 是否包含足够信息让 Executor 定位并实施改动：
+   - functions: 函数签名+行号（必须有，至少 1 条）
+   - callChain: 调用链说明
+   - imports: 需要的 import 语句
+   - dangerZones: 文件中的禁区
+   - 注意：AC 文本描述行为意图（what），architectureContext 提供实现定位（how）。不要在 AC 文本里检查文件路径/行号——那些在 architectureContext 里
 
 输出 JSON:
 {
@@ -223,6 +221,7 @@ ${groupsJson}
     "independent": true,
     "missingDeps": ["应依赖但未声明的组名"],
     "missingFiles": ["应该列但没列的文件"],
+    "architectureContextIncomplete": ["缺少的字段名，如 functions/callChain/imports/dangerZones"],
     "acsTooVague": ["描述不够具体的 AC 索引"]
   }],
   "overallOK": true
@@ -230,7 +229,14 @@ ${groupsJson}
 
   try {
     const result = await modelGateway.promptJson<{
-      groups: Array<{ id: string; independent: boolean; missingDeps: string[]; missingFiles: string[]; acsTooVague: number[] }>;
+      groups: Array<{
+        id: string;
+        independent: boolean;
+        missingDeps: string[];
+        missingFiles: string[];
+        acsTooVague: number[];
+        architectureContextIncomplete: string[];
+      }>;
       overallOK: boolean;
     }>(prompt, '你是需求评审专家。严格检查 AC 组质量。');
 
@@ -246,8 +252,15 @@ ${groupsJson}
       for (const f of g.missingFiles || []) {
         checks.push({ name: 'missing-file', passed: false, message: `组 "${g.id}" 缺少文件 "${f}"` });
       }
+      for (const field of g.architectureContextIncomplete || []) {
+        checks.push({
+          name: 'arch-ctx-incomplete',
+          passed: false,
+          message: `组 "${g.id}" architectureContext 缺少 "${field}" — Executor 是 fast 模型，需要完整实现上下文`,
+        });
+      }
       for (const acIdx of g.acsTooVague || []) {
-        checks.push({ name: 'vague-ac', passed: false, message: `组 "${g.id}" 第 ${acIdx + 1} 个 AC 描述不够具体` });
+        checks.push({ name: 'vague-ac', passed: true, message: `组 "${g.id}" 第 ${acIdx + 1} 个 AC 行为描述不够具体（warning）` });
       }
     }
 
@@ -305,16 +318,17 @@ export async function validateRequirementsDoc(
   let tierRecommendation: TierRecommendation = 'flash-ok';
   const hasCodeIssues = stage1.some(c => !c.passed && ['file-not-found', 'dep-not-found'].includes(c.name));
   const hasAcGranularityIssue = stage1.some(c => !c.passed && c.name === 'ac-granularity');
-  const hasFileConflictIssue = stage1.some(c => !c.passed && c.name === 'file-conflict');
   const hasLlmIssues = stage2.some(c => !c.passed);
 
   if (hasCodeIssues) {
     tierRecommendation = 'needs-human'; // 文件不存在/依赖组不存在 → LLM 改不了
   } else if (hasAcGranularityIssue) {
     tierRecommendation = 'needs-human'; // AC 太多 → 需要人工拆
-  } else if (hasFileConflictIssue || hasLlmIssues) {
-    tierRecommendation = 'upgrade-to-premium'; // 隐式依赖/文件缺失 → premium 可修正
+  } else if (hasLlmIssues) {
+    tierRecommendation = 'upgrade-to-premium'; // LLM 语义问题 → premium 可修正
   }
+  // file-conflict 不触发 tier 升级 — 依赖排序系统已处理执行顺序
+  // 修改现有代码的功能天然有多组共享文件，revision 无法解决
 
   // P0.2: Query KK for historical pitfalls related to the files being modified
   let kkSuggestions: string[] = [];
