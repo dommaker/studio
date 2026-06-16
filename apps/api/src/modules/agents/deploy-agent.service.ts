@@ -292,7 +292,8 @@ class DeployAgent {
         return this.okResult(params);
       }
 
-      logger.info(`[DeployAgent] Merging to ${defaultBranch}`, { branch, repoDir });
+      logger.info(`[DeployAgent] Merging to ${defaultBranch}`, { branch, repoDir, worktree: params.worktree });
+      // Fix #1 (repo selection) ensures task branch exists in repoDir's git DB
       await execSh(`git checkout ${defaultBranch} && git merge "${branch}" --no-edit`, { cwd: repoDir, timeoutMs: 60_000 });
 
       return this.okResult(params);

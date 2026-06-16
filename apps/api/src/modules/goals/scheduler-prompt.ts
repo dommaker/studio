@@ -356,7 +356,14 @@ export async function getProjectRepoPath(goal: any): Promise<string> {
     } catch { /* fallback */ }
   }
 
-  // Priority 3: First active WorkspaceRepo
+  // Priority 3: REPO_DIR env (production default, avoids picking wrong repo from DB)
+  const envRepoDir = process.env.REPO_DIR;
+  if (envRepoDir && fs.existsSync(path.join(envRepoDir, '.git')) && fs.existsSync(path.join(envRepoDir, 'package.json'))) {
+    logger.info('[SchedulerPrompt] Using REPO_DIR from env', { repoPath: envRepoDir });
+    return envRepoDir;
+  }
+
+  // Priority 4: First active WorkspaceRepo
   try {
     const repo = await prisma.workspaceRepo.findFirst({
       where: { status: 'active' },
@@ -372,8 +379,8 @@ export async function getProjectRepoPath(goal: any): Promise<string> {
     }
   } catch { /* fallback */ }
 
-  // Priority 4: Legacy fallback
-  const fallbackDir = process.env.REPO_DIR || path.join(os.homedir(), 'projects');
+  // Priority 5: Legacy fallback
+  const fallbackDir = envRepoDir || path.join(os.homedir(), 'projects');
   if (fs.existsSync(path.join(fallbackDir, '.git'))) return fallbackDir;
   logger.error('[SchedulerPrompt] No git repo found', { fallbackDir });
   return fallbackDir;
