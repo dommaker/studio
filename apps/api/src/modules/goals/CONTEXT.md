@@ -57,6 +57,7 @@ verifiedAt: 61f2ab3006736b235471b06ade93f1292584940f
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `61f347f2`: goalexecution-failuretype 补完 — handleGoalFailed failureType 路由(B.1/B.2/B.3/B.4) + routes/service 传递(C.2/C.3), 11/11 AC
 - ✅ `e8dd9df7`: B52 监控点 11-12 — scheduler dispatch + B52 attribution
 - ✅ `732e6396`: 补全 12 监控点数据缺口 — 支撑 O2-KR2 缓存优化决策
 - ✅ `fe88e333`: Deploy 仓库选择 #19 — REPO_DIR env 优先于 DB WorkspaceRepo
