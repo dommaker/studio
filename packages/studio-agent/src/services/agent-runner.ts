@@ -305,6 +305,8 @@ export class AgentRunner implements IAgentRunner {
       let cumulativeInputTokens = 0;
       let cumulativeOutputTokens = 0;
       let cumulativeCacheHitTokens = 0;
+      let cumulativeCacheCreationTokens = 0;
+      const perSessionBreakdown: Array<{ session: number; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; durationMs: number }> = [];
 
       const goalId = (task.parameters?.goalId as string) || task.executionId;
 
@@ -334,6 +336,7 @@ export class AgentRunner implements IAgentRunner {
         isNewSession,
         sessionScope: 'per-execution',
         goalId,
+        worktree,
       });
 
       while (sessionCount < this.config.maxSessions) {
@@ -460,6 +463,15 @@ export class AgentRunner implements IAgentRunner {
           cumulativeInputTokens += streamUsage?.inputTokens || 0;
           cumulativeOutputTokens += streamUsage?.outputTokens || 0;
           cumulativeCacheHitTokens += streamUsage?.cacheReadTokens || 0;
+          cumulativeCacheCreationTokens += streamUsage?.cacheCreationTokens || 0;
+          perSessionBreakdown.push({
+            session: sessionCount,
+            inputTokens: streamUsage?.inputTokens || 0,
+            outputTokens: streamUsage?.outputTokens || 0,
+            cacheReadTokens: streamUsage?.cacheReadTokens || 0,
+            cacheCreationTokens: streamUsage?.cacheCreationTokens || 0,
+            durationMs: Date.now() - sessionStart,
+          });
 
           // AC1.3: Emit tool:call and file:change events
           const tools = extractToolCalls(events);
@@ -563,13 +575,17 @@ export class AgentRunner implements IAgentRunner {
               executionId: task.executionId,
               sessionId: sessionId.slice(0, 8),
               sessionScope: 'per-execution',
+              goalId,
+              model: (task.model as string) || 'standard',
               totalInputTokens: cumulativeInputTokens,
-              cacheHitTokens: cumulativeCacheHitTokens,
+              cacheReadTokens: cumulativeCacheHitTokens,
+              cacheCreationTokens: cumulativeCacheCreationTokens,
               cacheHitRate: cumulativeInputTokens > 0
                 ? Math.round(cumulativeCacheHitTokens / cumulativeInputTokens * 100) : 0,
               outputTokens: cumulativeOutputTokens,
               sessionCount,
               durationMs: cumulativeSessionMs,
+              perSessionBreakdown,
             });
             return {
               success: false, worktree, outputFiles: [],
@@ -617,13 +633,17 @@ export class AgentRunner implements IAgentRunner {
             executionId: task.executionId,
             sessionId: sessionId.slice(0, 8),
             sessionScope: 'per-execution',
+            goalId,
+            model: (task.model as string) || 'standard',
             totalInputTokens: cumulativeInputTokens,
-            cacheHitTokens: cumulativeCacheHitTokens,
+            cacheReadTokens: cumulativeCacheHitTokens,
+            cacheCreationTokens: cumulativeCacheCreationTokens,
             cacheHitRate: cumulativeInputTokens > 0
               ? Math.round(cumulativeCacheHitTokens / cumulativeInputTokens * 100) : 0,
             outputTokens: cumulativeOutputTokens,
             sessionCount,
             durationMs: cumulativeSessionMs,
+            perSessionBreakdown,
           });
           logger.info('[AgentRunner] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount, cumulativeSessionMs });
           return { success: true, worktree, outputFiles, logFile, sessionCount, totalDurationMs: cumulativeSessionMs, sessionIds: collectedSessionIds };
@@ -657,13 +677,17 @@ export class AgentRunner implements IAgentRunner {
               executionId: task.executionId,
               sessionId: sessionId.slice(0, 8),
               sessionScope: 'per-execution',
+              goalId,
+              model: (task.model as string) || 'standard',
               totalInputTokens: cumulativeInputTokens,
-              cacheHitTokens: cumulativeCacheHitTokens,
+              cacheReadTokens: cumulativeCacheHitTokens,
+              cacheCreationTokens: cumulativeCacheCreationTokens,
               cacheHitRate: cumulativeInputTokens > 0
                 ? Math.round(cumulativeCacheHitTokens / cumulativeInputTokens * 100) : 0,
               outputTokens: cumulativeOutputTokens,
               sessionCount,
               durationMs: cumulativeSessionMs,
+              perSessionBreakdown,
             });
             return {
               success: false, worktree, outputFiles: [],
@@ -685,13 +709,17 @@ export class AgentRunner implements IAgentRunner {
             executionId: task.executionId,
             sessionId: sessionId.slice(0, 8),
             sessionScope: 'per-execution',
+            goalId,
+            model: (task.model as string) || 'standard',
             totalInputTokens: cumulativeInputTokens,
-            cacheHitTokens: cumulativeCacheHitTokens,
+            cacheReadTokens: cumulativeCacheHitTokens,
+            cacheCreationTokens: cumulativeCacheCreationTokens,
             cacheHitRate: cumulativeInputTokens > 0
               ? Math.round(cumulativeCacheHitTokens / cumulativeInputTokens * 100) : 0,
             outputTokens: cumulativeOutputTokens,
             sessionCount,
             durationMs: cumulativeSessionMs,
+            perSessionBreakdown,
           });
           return {
             success: false, worktree, outputFiles: [],

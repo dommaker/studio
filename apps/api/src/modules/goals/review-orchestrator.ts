@@ -234,6 +234,8 @@ export async function handleReviewCycle(
       taskDescription: task.description || task.name,
       acceptanceCriteria: (task.acceptanceCriteria || []) as string[],
       cycle: previousCycle + 1,
+      goalId,
+      executionId: goalExecutionId,
       stances: reviewerStances,
       acGroupContext,
     });

@@ -62,13 +62,19 @@ export async function recordWindowRun(entry: Omit<MetricEntry, 'source' | 'sessi
 
 export async function recordPipelineRun(entry: MetricEntry): Promise<boolean> {
   try {
-    // Point 12: B52 change attribution — tag every PipelineRun with active fixes
+    // Point 12: B52 change attribution — tag every PipelineRun with active fixes + dynamic data
     logger.info('[Pipeline] B52 attribution', {
       phase: entry.phase,
       goalId: entry.goalId || '(none)',
       perExecutionSession: true,   // Fix 1
       emptyDiffReject: true,       // Fix 2
       noAcGroupMerge: true,        // Fix 3
+      actualInputTokens: entry.inputTokens,
+      actualOutputTokens: entry.outputTokens,
+      actualCacheHitTokens: entry.cacheHitTokens,
+      actualDurationMs: entry.durationMs,
+      success: entry.success,
+      model: entry.model,
     });
 
     await prisma.pipelineRun.create({ data: entry });

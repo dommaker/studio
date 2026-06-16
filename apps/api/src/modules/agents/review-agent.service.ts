@@ -37,6 +37,8 @@ export class ReviewAgent {
     taskDescription: string;
     acceptanceCriteria?: string[];
     cycle?: number;
+    goalId?: string;
+    executionId?: string;
     stances?: { id: string; name: string; prompt: string; reviewerFocus?: string }[];
     acGroupContext?: {
       files?: string[];
@@ -45,7 +47,7 @@ export class ReviewAgent {
       implementationNotes?: string;
     };
   }): Promise<ReviewResult> {
-    const { taskId, worktree, taskDescription, acceptanceCriteria, cycle = 1 } = params;
+    const { taskId, worktree, taskDescription, acceptanceCriteria, cycle = 1, goalId, executionId } = params;
     const startTime = Date.now();
 
     try {
@@ -112,6 +114,8 @@ export class ReviewAgent {
         diffStatLines: diffStat.trim() ? diffStat.trim().split('\n').length : 0,
         isEmpty: !diffStat.trim(),
         baseRef,
+        goalId,
+        executionId,
       });
 
       // Empty diff pre-check: reject without LLM when no code changes
@@ -119,6 +123,8 @@ export class ReviewAgent {
         logger.warn('[ReviewAgent] Empty diff — rejecting without LLM', {
           worktree,
           baseRef,
+          goalId,
+          executionId,
         });
         return {
           approved: false,

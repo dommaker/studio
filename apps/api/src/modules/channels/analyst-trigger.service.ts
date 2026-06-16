@@ -130,6 +130,7 @@ class AnalystTriggerService {
       const knowledge = dbKnowledge;
       const outputFile = perInvocationOutputFile();
       logger.info('[AnalystTrigger] Route decision', {
+        channelId,
         tier: preTier,
         route: preTier === 'fast' ? 'direct' : 'scout+synth',
         contentLength: content.length,
@@ -156,6 +157,15 @@ class AnalystTriggerService {
 
           const scoutPrompts = buildScoutPrompts(scope, content);
           const scoutStart = Date.now();
+
+          // Point 7: Scouts dispatched
+          logger.info('[AnalystScout] Scouts dispatched', {
+            channelId,
+            scoutCount: scoutPrompts.length,
+            types: scoutPrompts.map(s => s.type),
+            scopeModules: scope.modules.length,
+            scopeFiles: scope.keyFiles.length,
+          });
 
           const scoutResults = await Promise.allSettled(
             scoutPrompts.map(async (s) => {
@@ -184,10 +194,12 @@ class AnalystTriggerService {
           });
 
           logger.info('[AnalystScout] Scouts completed', {
+            channelId,
             total: scoutReports.length,
             success: scoutReports.filter(r => r.success).length,
             failed: scoutReports.filter(r => !r.success).length,
             types: scoutReports.map(r => r.type),
+            perScout: scoutReports.map(r => ({ type: r.type, success: r.success, durationMs: r.durationMs, error: r.error })),
           });
 
           const allFailed = scoutReports.every(r => !r.success);
@@ -205,6 +217,18 @@ class AnalystTriggerService {
           response = synthDoc;
           usage = synthUsage;
           route = 'scout+synth';
+
+          // Point 9: Synthesis completed
+          logger.info('[AnalystSynth] Synthesis completed', {
+            channelId,
+            synthMs: Date.now() - synthStart,
+            synthInputTokens: synthUsage.inputTokens,
+            synthOutputTokens: synthUsage.outputTokens,
+            synthCacheHitTokens: synthUsage.cacheHitTokens,
+            scoutInputCount: scoutReports.filter(r => r.success).length,
+            acGroupCount: synthDoc.requirement.acGroups?.length || 0,
+          });
+
           scoutMetrics = {
             prescanMs, scoutParallelMs: Date.now() - scoutStart,
             scoutTotalMs: scoutReports.reduce((sum, r) => sum + r.durationMs, 0),
@@ -509,16 +533,21 @@ class AnalystTriggerService {
       // Point 12 (analyst-specific): B52 attribution with scoutRoute flag
       logger.info('[Pipeline] B52 attribution', {
         phase: 'analyst',
+        channelId,
         goalId: doc.id,
         perExecutionSession: true,
         emptyDiffReject: true,
         noAcGroupMerge: true,
         scoutRoute: route === 'scout+synth',
+        actualTokens: usage.inputTokens + usage.outputTokens,
+        actualDurationMs: durationMs,
       });
 
       logger.info('[AnalystTrigger] Phase complete', {
+        channelId,
         route,
         totalMs: durationMs,
+        tokens: usage,
         ...(route === 'scout+synth' ? scoutMetrics : {}),
       });
 

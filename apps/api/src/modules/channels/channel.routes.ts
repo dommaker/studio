@@ -470,6 +470,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       if (taskTier && acGroups.length > 0) {
         const tierSummary = ensureModelTierInheritance(acGroups, taskTier);
         logger.info('[Channel] Goal splitting', {
+          channelId: req.params.channelId,
           tier: tierSummary.tier,
           acGroupCount: tierSummary.acGroupCount,
           totalAcs: tierSummary.totalAcs,

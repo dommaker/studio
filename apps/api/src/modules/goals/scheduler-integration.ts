@@ -273,6 +273,8 @@ export class GoalScheduler {
         dispatched: toDispatch.length,
         deferredByConflict: executableSteps.length - toDispatch.length,
         runningAfterDispatch: runningCount + toDispatch.length,
+        concurrencyLimit: getAvailableSlots(maxCap),
+        strategy,
       });
 
       const ctx = this.getDispatchContext();

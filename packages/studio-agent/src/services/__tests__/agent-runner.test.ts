@@ -409,12 +409,26 @@ describe('B51: Per-execution session isolation', () => {
     expect(agentRunnerSrc).toContain('let cumulativeInputTokens = 0');
     expect(agentRunnerSrc).toContain('let cumulativeOutputTokens = 0');
     expect(agentRunnerSrc).toContain('let cumulativeCacheHitTokens = 0');
+    expect(agentRunnerSrc).toContain('let cumulativeCacheCreationTokens = 0');
+    expect(agentRunnerSrc).toContain('perSessionBreakdown');
   });
 
   test('tokens accumulated from streamUsage per session', () => {
     expect(agentRunnerSrc).toContain('cumulativeInputTokens += streamUsage?.inputTokens');
     expect(agentRunnerSrc).toContain('cumulativeOutputTokens += streamUsage?.outputTokens');
     expect(agentRunnerSrc).toContain('cumulativeCacheHitTokens += streamUsage?.cacheReadTokens');
+    expect(agentRunnerSrc).toContain('cumulativeCacheCreationTokens += streamUsage?.cacheCreationTokens');
+  });
+
+  test('session token summary includes goalId, model, cacheCreationTokens, perSessionBreakdown', () => {
+    expect(agentRunnerSrc).toContain('cacheReadTokens: cumulativeCacheHitTokens');
+    expect(agentRunnerSrc).toContain('cacheCreationTokens: cumulativeCacheCreationTokens');
+    expect(agentRunnerSrc).toContain('perSessionBreakdown,');
+    expect(agentRunnerSrc).toMatch(/goalId,\s*\n\s*model:/);
+  });
+
+  test('session resolved log includes worktree', () => {
+    expect(agentRunnerSrc).toMatch(/\[AgentRunner\] Session resolved[\s\S]*?worktree,/);
   });
 
   test('agentRole no longer used for session directory path', () => {
