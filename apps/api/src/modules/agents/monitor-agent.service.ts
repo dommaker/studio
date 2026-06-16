@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
+import { agentRunner } from '@dommaker/studio-agent';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
@@ -377,7 +378,7 @@ export class MonitorAgent {
     return alerts;
   }
 
-  // ── NA Step 7: 总执行时间告警 ──
+  // ── NA Step 7: 总执行时间告警 + 主动终止 ──
 
   private async checkTotalExecutionTime(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
@@ -395,9 +396,38 @@ export class MonitorAgent {
         alerts.push({
           source: 'total_time',
           level: 'critical',
-          message: `Execution ${exec.id} 执行超过 2.5h — 需要人工介入（Level 3）`,
+          message: `Execution ${exec.id} 执行超过 2.5h — 主动终止`,
           relatedTaskIds: [exec.id],
         });
+
+        // Active intervention: kill process + fail execution
+        const elapsedMin = Math.round(elapsed / 60_000);
+        try {
+          await agentRunner.stop(exec.id);
+          logger.info('[MonitorAgent] Stopped timed-out execution', { executionId: exec.id.slice(0, 8), elapsedMin });
+        } catch (stopErr) {
+          logger.warn('[MonitorAgent] Failed to stop execution process', { executionId: exec.id.slice(0, 8), error: String(stopErr) });
+        }
+        // Kill tmux session as fallback
+        try {
+          const { execSync } = await import('child_process');
+          const tmuxSession = exec.id.replace(/-/g, '');
+          execSync(`tmux kill-session -t ${tmuxSession} 2>/dev/null || true`);
+        } catch { /* ignore */ }
+        // Update DB status
+        try {
+          await prisma.goalExecution.update({
+            where: { id: exec.id },
+            data: {
+              status: 'failed',
+              error: JSON.stringify({ message: `Auto-failed: execution exceeded 2.5h (${elapsedMin}min)`, failedAt: new Date().toISOString() }),
+              completedAt: new Date(),
+            },
+          });
+          logger.info('[MonitorAgent] Auto-failed timed-out execution', { executionId: exec.id.slice(0, 8), elapsedMin });
+        } catch (dbErr) {
+          logger.error('[MonitorAgent] Failed to update execution status', { executionId: exec.id.slice(0, 8), error: String(dbErr) });
+        }
       } else if (elapsed > TIME_ESCALATE_MS) {
         alerts.push({
           source: 'total_time',

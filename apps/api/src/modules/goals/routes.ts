@@ -20,6 +20,7 @@ import { Router, Request, Response } from 'express';
 import { goalService } from './goal.service.js';
 import { logger } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
+import { agentRunner } from '@dommaker/studio-agent';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 
 const router = Router();
@@ -192,10 +193,18 @@ router.get('/:id/executions', async (req: Request, res: Response) => {
 
 /**
  * POST /api/v1/goals/:id/executions/:executionId/cancel — 取消执行
+ * 同时终止 agent 子进程（SIGTERM → SIGKILL）
  */
 router.post('/:id/executions/:executionId/cancel', async (req: Request, res: Response) => {
   try {
     const execution = await goalService.cancelGoalExecution(req.params.executionId);
+    // Kill the actual agent process — cancelGoalExecution only updates DB status
+    try {
+      await agentRunner.stop(req.params.executionId);
+      logger.info('[Goal API] Agent process stopped', { executionId: req.params.executionId });
+    } catch (stopErr) {
+      logger.warn('[Goal API] Failed to stop agent process (non-fatal)', { executionId: req.params.executionId, error: String(stopErr) });
+    }
     return res.json({ data: execution });
   } catch (error) {
     logger.error('[Goal API] Cancel execution failed', { error: String(error) });

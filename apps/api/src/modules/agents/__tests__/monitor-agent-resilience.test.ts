@@ -32,10 +32,15 @@ vi.mock('@dommaker/studio-shared', () => ({
   modelGateway: { prompt: vi.fn(), promptJson: vi.fn() },
 }));
 
+vi.mock('@dommaker/studio-agent', () => ({
+  agentRunner: { stop: vi.fn(), execute: vi.fn() },
+}));
+
 vi.mock('@dommaker/harness', () => ({
   KnowledgeLinter: class { validateEntry() { return []; } },
   KnowledgeHealthScorer: class {},
   ReferenceTracker: class {},
+  CheckpointValidator: { getInstance: () => ({ validate: () => [] }) },
 }));
 
 vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
@@ -57,6 +62,7 @@ vi.mock('../../daemon/studio-daemon.js', () => ({
 }));
 
 import { monitorAgent } from '../monitor-agent.service.js';
+import { agentRunner } from '@dommaker/studio-agent';
 
 describe('MonitorAgent deploy + proxy alerts (AC-3)', () => {
   // ============================================================
@@ -224,6 +230,67 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
       where: { id: orphanId },
       data: expect.objectContaining({ status: 'failed' }),
     }));
+  });
+});
+
+// ── Auto-fail time-critical executions (>2.5h) ──
+
+describe('MonitorAgent auto-fail time-critical executions', () => {
+  beforeEach(() => {
+    mockExecFindMany.mockReset();
+    mockExecUpdate.mockReset();
+    vi.mocked(agentRunner.stop).mockReset();
+  });
+
+  it('auto-fails execution exceeding 2.5h and calls agentRunner.stop', async () => {
+    const execId = 'exec-timeout-test';
+    // Simulate execution started 3h ago (> TIME_CRITICAL_MS = 2.5h)
+    mockExecFindMany.mockResolvedValue([{
+      id: execId,
+      startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+    }]);
+    vi.mocked(agentRunner.stop).mockResolvedValue(undefined);
+
+    const alerts = await (monitorAgent as any).checkTotalExecutionTime();
+
+    // Should generate a critical alert
+    expect(alerts).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'total_time',
+        level: 'critical',
+      }),
+    ]));
+
+    // Should call agentRunner.stop to kill the process
+    expect(agentRunner.stop).toHaveBeenCalledWith(execId);
+
+    // Should update DB status to 'failed'
+    expect(mockExecUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: execId },
+      data: expect.objectContaining({ status: 'failed' }),
+    }));
+  });
+
+  it('does not auto-fail execution under 2.5h', async () => {
+    // Simulate execution started 1h ago (< TIME_CRITICAL_MS)
+    mockExecFindMany.mockResolvedValue([{
+      id: 'exec-ok',
+      startedAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
+      createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
+    }]);
+
+    const alerts = await (monitorAgent as any).checkTotalExecutionTime();
+
+    // Should NOT call agentRunner.stop
+    expect(agentRunner.stop).not.toHaveBeenCalled();
+
+    // Should NOT update DB status
+    expect(mockExecUpdate).not.toHaveBeenCalled();
+
+    // Should generate info alert (1h < TIME_WARN_MS would be info level)
+    const criticalAlerts = alerts.filter((a: any) => a.level === 'critical');
+    expect(criticalAlerts.length).toBe(0);
   });
 });
 

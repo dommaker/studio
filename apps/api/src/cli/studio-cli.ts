@@ -319,12 +319,58 @@ async function studioRun() {
     const maxRounds = pipelineIndex >= 0 ? 360 : 120; // --pipeline: 60min, --wait: 20min
     console.log(`Waiting for ${pipelineIndex >= 0 ? 'full pipeline' : 'Goal completion'} (--wait)...`);
 
+    // Phase-level stall detection — 各阶段超时（ms）
+    const PHASE_TIMEOUTS: Record<string, { warn: number; cancel: number }> = {
+      executing: { warn: 35 * 60_000, cancel: 45 * 60_000 },
+      review:    { warn: 10 * 60_000, cancel: 15 * 60_000 },
+      deploy:    { warn: 15 * 60_000, cancel: 20 * 60_000 },
+      knowledge: { warn: 10 * 60_000, cancel: 15 * 60_000 },
+      trace:     { warn: 5 * 60_000,  cancel: 10 * 60_000 },
+    };
+
     let goalId: string | null = null;
     let pipelineStage = 'plan'; // plan → executing → review → deploy → knowledge → trace → done
     let deployChecked = false;
     let knowledgeChecked = false;
     let traceChecked = false;
     let reviewMsgs: Array<{ content: string; meta: any }> = [];
+    let phaseStartedAt = Date.now();
+    let lastProgressLog = 0;
+
+    // Phase stall check — returns true if should abort
+    function checkPhaseStall(stage: string, baseUrl: string, gid: string): boolean {
+      const elapsed = Date.now() - phaseStartedAt;
+      const limits = PHASE_TIMEOUTS[stage];
+      if (!limits) return false;
+
+      if (elapsed > limits.cancel) {
+        const mins = Math.round(elapsed / 60_000);
+        console.error(`\n⚠️ Phase stall detected: '${stage}' exceeded ${mins}min (limit: ${Math.round(limits.cancel / 60_000)}min)`);
+        console.error(`  Cancelling running executions and aborting...`);
+        // Fire-and-forget cancel API call
+        cancelRunningExecutions(baseUrl, gid).catch(() => {});
+        return true;
+      }
+      if (elapsed > limits.warn && Date.now() - lastProgressLog > 60_000) {
+        const mins = Math.round(elapsed / 60_000);
+        console.log(`  ⏳ Phase '${stage}' running ${mins}min (warn at ${Math.round(limits.warn / 60_000)}min, cancel at ${Math.round(limits.cancel / 60_000)}min)`);
+        lastProgressLog = Date.now();
+      }
+      return false;
+    }
+
+    // Cancel all running executions for a goal via API
+    async function cancelRunningExecutions(baseUrl: string, gid: string): Promise<void> {
+      try {
+        const resp = await fetch(`${baseUrl}/goals/${gid}`);
+        const { data: goal } = await resp.json() as { data: { GoalExecution?: Array<{ id: string; status: string }> } };
+        const running = (goal?.GoalExecution || []).filter((e: { status: string }) => e.status === 'running');
+        for (const exec of running) {
+          console.log(`  Cancelling execution ${exec.id.slice(0, 8)}...`);
+          await fetch(`${baseUrl}/goals/${gid}/executions/${exec.id}/cancel`, { method: 'POST' });
+        }
+      } catch { /* best effort */ }
+    }
 
     // Stage 1: SSE 监听等待新 Goal 创建（不使用全局最近执行，避免匹配旧 Goal）
     const sinceMs = Date.now();
@@ -334,6 +380,7 @@ async function studioRun() {
       if (goalId) {
         console.log(`  Goal created: ${goalId.slice(0, 8)}`);
         pipelineStage = 'executing';
+        phaseStartedAt = Date.now();
       } else {
         console.log('  Timeout: No Goal created');
         process.exit(1);
@@ -342,6 +389,11 @@ async function studioRun() {
 
     for (let i = 0; i < maxRounds; i++) {
       await new Promise(r => setTimeout(r, 10_000));
+
+      // Phase stall detection — check before doing anything else
+      if (goalId && checkPhaseStall(pipelineStage, baseUrl, goalId)) {
+        process.exit(1);
+      }
 
       try {
 
@@ -359,9 +411,11 @@ async function studioRun() {
           if (goal.status === 'succeeded') {
             console.log(`  Phase 2/6: Goal completed ✅`);
             pipelineStage = 'review';
+            phaseStartedAt = Date.now();
           } else if (goal.status === 'blocked') {
             console.log(`  Phase 2/6: Goal blocked — needs human review ⚠️`);
             pipelineStage = 'review';
+            phaseStartedAt = Date.now();
           } else {
             if (i % 3 === 0) console.log(`  Phase 2/6: Executing (${goal.status})...`);
             continue;
@@ -381,6 +435,7 @@ async function studioRun() {
           if (reviewDone || i > 60) { // 10 min max for review
             console.log(`  Phase 3/6: Review complete ✅`);
             pipelineStage = deployChecked ? 'knowledge' : 'deploy';
+            phaseStartedAt = Date.now();
           } else if (i % 3 === 0) {
             console.log('  Phase 3/6: Waiting for Review...');
           }
@@ -399,6 +454,7 @@ async function studioRun() {
             console.log(`  Phase 4/6: Deploy/PR check complete ✅`);
             pipelineStage = 'knowledge';
             deployChecked = true;
+            phaseStartedAt = Date.now();
           } else if (i % 3 === 0) {
             console.log('  Phase 4/6: Waiting for Deploy/PR...');
           }
@@ -417,11 +473,13 @@ async function studioRun() {
               console.log(`  Phase 5/6: Knowledge extraction/approval detected ✅`);
               pipelineStage = 'trace';
               knowledgeChecked = true;
+              phaseStartedAt = Date.now();
             } else if (i % 3 === 0) {
               console.log('  Phase 5/6: Waiting for Knowledge extraction...');
             }
           } else {
             pipelineStage = 'trace';
+            phaseStartedAt = Date.now();
           }
         }
 
@@ -448,7 +506,9 @@ async function studioRun() {
       }
     }
 
-    console.log(`Timeout: Pipeline did not complete within ${maxRounds / 6} minutes`);
+    const phaseElapsed = Math.round((Date.now() - phaseStartedAt) / 60_000);
+    console.log(`\nTimeout: Pipeline did not complete within ${maxRounds / 6} minutes`);
+    console.log(`  Stuck in phase: '${pipelineStage}' (${phaseElapsed}min)`);
     process.exit(1);
   } catch (err: any) {
     console.error('Failed to connect to studio server:', err.message);

@@ -22,11 +22,16 @@ vi.mock('@dommaker/harness', () => ({
   KnowledgeLinter: class { validateEntry() { return []; } },
   KnowledgeHealthScorer: class {},
   ReferenceTracker: class {},
+  CheckpointValidator: { getInstance: () => ({ validate: () => [] }) },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   modelGateway: { prompt: vi.fn(), promptJson: vi.fn() },
+}));
+
+vi.mock('@dommaker/studio-agent', () => ({
+  agentRunner: { stop: vi.fn(), execute: vi.fn() },
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
