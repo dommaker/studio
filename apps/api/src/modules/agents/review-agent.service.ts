@@ -86,20 +86,47 @@ export class ReviewAgent {
 
       // 获取 diff — 只审查变更文件，不审查已有代码
       let diffSection = '';
+      let diffStat = '';
+      let diffContent = '';
+      const baseRef = process.env.REVIEW_BASE_REF || 'HEAD~1';
       try {
-        const baseRef = process.env.REVIEW_BASE_REF || 'HEAD~1';
-        const { stdout: diffStat } = await execSh(
+        const statResult = await execSh(
           `git diff ${baseRef} --stat 2>/dev/null || git diff --stat 2>/dev/null || echo ""`,
           { cwd: worktree, timeoutMs: 10_000 },
         );
-        const { stdout: diffContent } = await execSh(
+        diffStat = statResult.stdout;
+        const contentResult = await execSh(
           `git diff ${baseRef} 2>/dev/null || git diff 2>/dev/null || echo ""`,
           { cwd: worktree, timeoutMs: 10_000 },
         );
+        diffContent = contentResult.stdout;
         if (diffStat.trim()) {
           diffSection = `\n## 变更范围\n\n### git diff --stat\n\`\`\`\n${diffStat.trim()}\n\`\`\`\n\n### git diff\n\`\`\`diff\n${diffContent.slice(0, 30000)}\n\`\`\`\n\n**审查规则**：\n- approve/reject 决策只基于上述 diff 中的变更代码\n- diff 中新增/修改代码的问题 → severity: error（blocking）\n- 已有代码（不在 diff 中）的问题 → severity: warning 或 info（non-blocking），不得作为 reject 理由\n- 变更调用已有接口时发现集成风险 → severity: warning，记录但不阻断\n`;
         }
       } catch { /* best-effort */ }
+
+      // Monitoring point: diff stats
+      logger.info('[ReviewAgent] Diff stats', {
+        worktree,
+        diffSize: diffContent.length,
+        diffStatLines: diffStat.trim() ? diffStat.trim().split('\n').length : 0,
+        isEmpty: !diffStat.trim(),
+        baseRef,
+      });
+
+      // Empty diff pre-check: reject without LLM when no code changes
+      if (!diffStat.trim()) {
+        logger.warn('[ReviewAgent] Empty diff — rejecting without LLM', {
+          worktree,
+          baseRef,
+        });
+        return {
+          approved: false,
+          score: 0,
+          issues: [{ severity: 'error', message: 'Empty diff: no code changes detected. Executor produced no file modifications.' }],
+          suggestions: [],
+        };
+      }
 
       const reviewPrompt = constraintSection + indexSection + skillSection + diffSection + buildReviewPrompt({
         taskDescription,

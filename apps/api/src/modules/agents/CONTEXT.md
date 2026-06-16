@@ -42,8 +42,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
 
-<!-- STALE_SINCE: 2026-06-15 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts
+
+<!-- STALE_SINCE: 2026-06-16 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts
 
 ## 职责
 
@@ -64,6 +66,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `fe88e333`: Deploy 仓库选择 #19 — REPO_DIR env 优先于 DB WorkspaceRepo
 - ✅ `c386e578`: AuditorAgent logger + KnowledgeBus orphan cleanup + retry cap
 - ✅ `4a70a2e6`: reviewer 400 — remove --model flag + pipelineReview upsert
 - ✅ `e59e6f4f`: review persistence — PipelineReview write + StudioEvent + catch approved:false

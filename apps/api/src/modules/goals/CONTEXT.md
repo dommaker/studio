@@ -29,8 +29,10 @@ Goal 生命周期核心模块。CRUD → Plan → Scheduler → Executor → Rev
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/goal-review.ts
 
-<!-- STALE_SINCE: 2026-06-15 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/goal-review.ts
+
+<!-- STALE_SINCE: 2026-06-16 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/scheduler-prompt.ts
 
 ## 核心导出
 - `goal.service.ts` → GoalService (Goal CRUD + 审查 + 完成判定)
@@ -53,6 +55,7 @@ verifiedAt: 61f2ab3006736b235471b06ade93f1292584940f
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `fe88e333`: Deploy 仓库选择 #19 — REPO_DIR env 优先于 DB WorkspaceRepo
 - ✅ `4a70a2e6`: reviewer 400 — remove --model flag + pipelineReview upsert
 - ✅ `e59e6f4f`: review persistence — PipelineReview write + StudioEvent + catch approved:false
 - ✅ `5e3b3726`: wire failureType into scheduler-dispatch failure paths

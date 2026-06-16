@@ -129,27 +129,118 @@ class AnalystTriggerService {
 
       const knowledge = dbKnowledge;
       const outputFile = perInvocationOutputFile();
-      logger.info('[AnalystTrigger] Pre-classified tier', { tier: preTier, contentLength: content.length });
+      logger.info('[AnalystTrigger] Route decision', {
+        tier: preTier,
+        route: preTier === 'fast' ? 'direct' : 'scout+synth',
+        contentLength: content.length,
+      });
 
-      // AS-023: Query available repos for Analyst prompt injection
-      let availableRepos: Array<{ name: string; path: string; category?: string; description?: string }> | undefined;
-      try {
-        const repos = await prisma.workspaceRepo.findMany({
-          where: { status: 'active' },
-          select: { name: true, path: true, category: true, description: true },
-          orderBy: { name: 'asc' },
-        });
-        if (repos.length > 0) availableRepos = repos;
-      } catch { /* fallback: no repo list injected */ }
+      let route = 'direct';
+      let scoutMetrics = { prescanMs: 0, scoutParallelMs: 0, scoutTotalMs: 0, synthMs: 0, scoutCount: 0 };
+      let response!: RequirementsDocJson;
+      let usage = { inputTokens: 0, outputTokens: 0, cacheHitTokens: 0 };
+      let preAnalystDurationMs = 0;
 
-      const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile, preTier, availableRepos);
-      const preAnalystDurationMs = Date.now() - preAnalystStart;
+      if (preTier !== 'fast') {
+        // ── Scout+Synth path (non-fast tiers) ──
+        try {
+          const { preScan } = await import('./analyst-prescan.js');
+          const scoutModule = await import('./analyst-scout.js');
+          const buildScoutPrompts = scoutModule.buildScoutPrompts;
+          const { buildSynthesizerPrompt } = await import('./analyst-synthesizer.js');
 
-      // 4. Run Claude Code agent (ad-hoc session, supports concurrent @Analyst)
-      // O1d: Restrict tool access for Simple tasks (short content, no schema change keywords)
-      const isSimpleTask = content.length < 500 && !/(schema|migration|migrate|auth|new\s+module|架构重构)/i.test(content);
-      const claudeArgs = isSimpleTask ? ['--allowedTools', 'Bash,Edit,Read,Grep'] : undefined;
-      const { doc: response, usage } = await runClaudeCode(prompt, outputFile, claudeArgs, preTier);
+          const repoDir = process.env.REPO_DIR || process.cwd();
+          const prescanStart = Date.now();
+          const scope = preScan(content, repoDir);
+          const prescanMs = Date.now() - prescanStart;
+
+          const scoutPrompts = buildScoutPrompts(scope, content);
+          const scoutStart = Date.now();
+
+          const scoutResults = await Promise.allSettled(
+            scoutPrompts.map(async (s) => {
+              const scoutOutputFile = `.analyst/scout-${s.type}-${Date.now()}.json`;
+              const result = await daemon.submitAdhocJob({
+                prompt: s.prompt,
+                outputFile: scoutOutputFile,
+              }, { worktree: repoDir, modelTier: 'fast' });
+              return { type: s.type, ...result };
+            })
+          );
+
+          const scoutReports = scoutPrompts.map((s, i) => {
+            const settled = scoutResults[i];
+            if (settled.status === 'fulfilled') {
+              return {
+                type: s.type, success: settled.value.success,
+                content: settled.value.output || '', durationMs: Date.now() - scoutStart,
+                error: settled.value.error,
+              };
+            }
+            return {
+              type: s.type, success: false, content: '',
+              durationMs: Date.now() - scoutStart, error: String(settled.reason),
+            };
+          });
+
+          logger.info('[AnalystScout] Scouts completed', {
+            total: scoutReports.length,
+            success: scoutReports.filter(r => r.success).length,
+            failed: scoutReports.filter(r => !r.success).length,
+            types: scoutReports.map(r => r.type),
+          });
+
+          const allFailed = scoutReports.every(r => !r.success);
+          if (allFailed) {
+            logger.warn('[AnalystTrigger] All scouts failed — falling back to direct path');
+            throw new Error('All scouts failed');
+          }
+
+          // Synthesizer session
+          const synthPrompt = buildSynthesizerPrompt(
+            content, scope, scoutReports.filter(r => r.success), outputFile,
+          );
+          const synthStart = Date.now();
+          const { doc: synthDoc, usage: synthUsage } = await runClaudeCode(synthPrompt, outputFile, undefined, preTier);
+          response = synthDoc;
+          usage = synthUsage;
+          route = 'scout+synth';
+          scoutMetrics = {
+            prescanMs, scoutParallelMs: Date.now() - scoutStart,
+            scoutTotalMs: scoutReports.reduce((sum, r) => sum + r.durationMs, 0),
+            synthMs: Date.now() - synthStart, scoutCount: scoutReports.length,
+          };
+        } catch (scoutErr) {
+          logger.warn('[AnalystTrigger] Scout path failed, falling back to direct', { error: String(scoutErr) });
+          route = 'direct';
+          scoutMetrics = { prescanMs: 0, scoutParallelMs: 0, scoutTotalMs: 0, synthMs: 0, scoutCount: 0 };
+          // Fall through to direct path below
+        }
+      }
+
+      if (route === 'direct') {
+        // ── Fast tier direct path (existing single-session) ──
+        // AS-023: Query available repos for Analyst prompt injection
+        let availableRepos: Array<{ name: string; path: string; category?: string; description?: string }> | undefined;
+        try {
+          const repos = await prisma.workspaceRepo.findMany({
+            where: { status: 'active' },
+            select: { name: true, path: true, category: true, description: true },
+            orderBy: { name: 'asc' },
+          });
+          if (repos.length > 0) availableRepos = repos;
+        } catch { /* fallback: no repo list injected */ }
+
+        const prompt = await buildAnalystPrompt(content, knowledge, accuracyReflection, outputFile, preTier, availableRepos);
+        preAnalystDurationMs = Date.now() - preAnalystStart;
+
+        const isSimpleTask = content.length < 500 && !/(schema|migration|migrate|auth|new\s+module|架构重构)/i.test(content);
+        const claudeArgs = isSimpleTask ? ['--allowedTools', 'Bash,Edit,Read,Grep'] : undefined;
+        const result = await runClaudeCode(prompt, outputFile, claudeArgs, preTier);
+        response = result.doc;
+        usage = result.usage;
+      }
+
       const durationMs = Date.now() - startTime;
       clearInterval(progressInterval);
 
@@ -385,20 +476,22 @@ class AnalystTriggerService {
       }
 
       // 9. Record Analyst phase metrics
-      // 9a. Pre-analyst knowledge search (0 tokens, duration only)
-      recordPipelineRun({
-        source: 'pipeline', phase: 'analyst',
-        taskName: `pre-analyst:${response.requirement.title || '需求分析'}`,
-        model: 'knowledge-search',
-        inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
-        durationMs: preAnalystDurationMs,
-        success: true,
-        sessionId: doc.id,
-      }).catch((e: any) => {
-        logger.error('[AnalystTrigger] Pre-analyst metrics FAILED', { error: String(e) });
-      });
+      if (route === 'direct') {
+        // 9a. Pre-analyst knowledge search (0 tokens, duration only)
+        recordPipelineRun({
+          source: 'pipeline', phase: 'analyst',
+          taskName: `pre-analyst:${response.requirement.title || '需求分析'}`,
+          model: 'knowledge-search',
+          inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
+          durationMs: preAnalystDurationMs,
+          success: true,
+          sessionId: doc.id,
+        }).catch((e: unknown) => {
+          logger.error('[AnalystTrigger] Pre-analyst metrics FAILED', { error: String(e) });
+        });
+      }
 
-      // 9b. Analyst Claude session
+      // 9b. Analyst Claude session (direct: full session; scout+synth: synthesizer only)
       recordPipelineRun({
         source: 'pipeline', phase: 'analyst',
         taskName: response.requirement.title || '需求分析',
@@ -406,16 +499,32 @@ class AnalystTriggerService {
         inputTokens: usage.inputTokens,
         outputTokens: usage.outputTokens,
         cacheHitTokens: usage.cacheHitTokens,
-        durationMs: durationMs - preAnalystDurationMs,
+        durationMs: route === 'scout+synth' ? scoutMetrics.synthMs : durationMs - preAnalystDurationMs,
         success: true,
         sessionId: doc.id,
-      }).catch((e: any) => {
+      }).catch((e: unknown) => {
         logger.error('[AnalystTrigger] PipelineRun record FAILED', { error: String(e), docId: doc.id });
+      });
+
+      // Point 12 (analyst-specific): B52 attribution with scoutRoute flag
+      logger.info('[Pipeline] B52 attribution', {
+        phase: 'analyst',
+        goalId: doc.id,
+        perExecutionSession: true,
+        emptyDiffReject: true,
+        noAcGroupMerge: true,
+        scoutRoute: route === 'scout+synth',
+      });
+
+      logger.info('[AnalystTrigger] Phase complete', {
+        route,
+        totalMs: durationMs,
+        ...(route === 'scout+synth' ? scoutMetrics : {}),
       });
 
       logger.info('[AnalystTrigger] RequirementsDoc generated', {
         channelId, docId: doc.id, acGroupCount: response.requirement.acGroups?.length || 0,
-        durationMs, dbKnowledgeSize: dbKnowledge.length,
+        durationMs, route, dbKnowledgeSize: dbKnowledge.length,
         tokens: usage,
       });
     } catch (err) {

@@ -302,31 +302,39 @@ export class AgentRunner implements IAgentRunner {
       let lastCompletedCount = 0;
       let cumulativeSessionMs = 0;
       let resolutionHint = '';
+      let cumulativeInputTokens = 0;
+      let cumulativeOutputTokens = 0;
+      let cumulativeCacheHitTokens = 0;
 
       const goalId = (task.parameters?.goalId as string) || task.executionId;
-      const agentRole = (task.parameters?.agentRole as string) || 'executor';
-      const sessionDir = path.join(this.config.worktreesDir, '.shared-sessions', agentRole);
-      const sessionFile = path.join(sessionDir, 'session-id');
-      const goalSessionDir = path.join(this.config.worktreesDir, '.goal-sessions', goalId.slice(0, 16));
-      const goalSessionFile = path.join(goalSessionDir, 'session-id');
+
+      // Per-execution session isolation — each executionId gets its own session.
+      // Retry loops within same execution reuse via --continue.
+      const execSessionDir = path.join(this.config.worktreesDir, '.execution-sessions', task.executionId);
+      const execSessionFile = path.join(execSessionDir, 'session-id');
+
       let sessionId: string;
       let isNewSession: boolean;
       const collectedSessionIds: string[] = [];
 
-      const sharedId = fsSync.existsSync(sessionFile) ? readSessionIdFile(worktree, { sessionIdFile: sessionFile }) : null;
-      if (sharedId) {
-        sessionId = sharedId;
+      const existingId = fsSync.existsSync(execSessionFile)
+        ? readSessionIdFile(worktree, { sessionIdFile: execSessionFile })
+        : null;
+      if (existingId) {
+        sessionId = existingId;
         isNewSession = false;
       } else {
-        const existingGoalId = readSessionIdFile(worktree, { sessionIdFile: goalSessionFile });
-        if (existingGoalId) {
-          sessionId = existingGoalId;
-          isNewSession = false;
-        } else {
-          sessionId = resolveSessionId(worktree, { sessionIdFile: sessionFile });
-          isNewSession = true;
-        }
+        sessionId = resolveSessionId(worktree, { sessionIdFile: execSessionFile });
+        isNewSession = true;
       }
+
+      logger.info('[AgentRunner] Session resolved', {
+        executionId: task.executionId,
+        sessionId: sessionId.slice(0, 8),
+        isNewSession,
+        sessionScope: 'per-execution',
+        goalId,
+      });
 
       while (sessionCount < this.config.maxSessions) {
         sessionCount++;
@@ -448,6 +456,11 @@ export class AgentRunner implements IAgentRunner {
           const { text, isError } = this.extractResult(events);
           const streamUsage = extractUsage(events);
 
+          // Accumulate tokens across sessions for summary
+          cumulativeInputTokens += streamUsage?.inputTokens || 0;
+          cumulativeOutputTokens += streamUsage?.outputTokens || 0;
+          cumulativeCacheHitTokens += streamUsage?.cacheReadTokens || 0;
+
           // AC1.3: Emit tool:call and file:change events
           const tools = extractToolCalls(events);
           for (const tool of tools) {
@@ -546,6 +559,18 @@ export class AgentRunner implements IAgentRunner {
               stdoutText ? `### Stdout:\n${stdoutText}` : '',
               stderrText ? `### Stderr:\n${stderrText}` : '',
             ].filter(Boolean).join('\n');
+            logger.info('[AgentRunner] Session token summary', {
+              executionId: task.executionId,
+              sessionId: sessionId.slice(0, 8),
+              sessionScope: 'per-execution',
+              totalInputTokens: cumulativeInputTokens,
+              cacheHitTokens: cumulativeCacheHitTokens,
+              cacheHitRate: cumulativeInputTokens > 0
+                ? Math.round(cumulativeCacheHitTokens / cumulativeInputTokens * 100) : 0,
+              outputTokens: cumulativeOutputTokens,
+              sessionCount,
+              durationMs: cumulativeSessionMs,
+            });
             return {
               success: false, worktree, outputFiles: [],
               error: `Max sessions (${this.config.maxSessions}) exhausted. Last error: ${detail}`,
@@ -588,6 +613,18 @@ export class AgentRunner implements IAgentRunner {
 
         if (latest?.allComplete && (latest.testResults?.failed === 0 || latest.testResults?.failed == null)) {
           const outputFiles = await collectOutputFiles(worktree);
+          logger.info('[AgentRunner] Session token summary', {
+            executionId: task.executionId,
+            sessionId: sessionId.slice(0, 8),
+            sessionScope: 'per-execution',
+            totalInputTokens: cumulativeInputTokens,
+            cacheHitTokens: cumulativeCacheHitTokens,
+            cacheHitRate: cumulativeInputTokens > 0
+              ? Math.round(cumulativeCacheHitTokens / cumulativeInputTokens * 100) : 0,
+            outputTokens: cumulativeOutputTokens,
+            sessionCount,
+            durationMs: cumulativeSessionMs,
+          });
           logger.info('[AgentRunner] Task completed', { taskId: task.id, executionId: task.executionId, sessionCount, cumulativeSessionMs });
           return { success: true, worktree, outputFiles, logFile, sessionCount, totalDurationMs: cumulativeSessionMs, sessionIds: collectedSessionIds };
         }
@@ -616,6 +653,18 @@ export class AgentRunner implements IAgentRunner {
               `### Stuck count: ${stuckCount}`,
               `### Current step: ${latest?.currentStep || 'unknown'}`,
             ].join('\n');
+            logger.info('[AgentRunner] Session token summary', {
+              executionId: task.executionId,
+              sessionId: sessionId.slice(0, 8),
+              sessionScope: 'per-execution',
+              totalInputTokens: cumulativeInputTokens,
+              cacheHitTokens: cumulativeCacheHitTokens,
+              cacheHitRate: cumulativeInputTokens > 0
+                ? Math.round(cumulativeCacheHitTokens / cumulativeInputTokens * 100) : 0,
+              outputTokens: cumulativeOutputTokens,
+              sessionCount,
+              durationMs: cumulativeSessionMs,
+            });
             return {
               success: false, worktree, outputFiles: [],
               error: `Max sessions (${this.config.maxSessions}) exhausted without completion`,
@@ -632,6 +681,18 @@ export class AgentRunner implements IAgentRunner {
             `### Stuck count: ${stuckCount}`,
             `### Current step: ${latest?.currentStep || 'unknown'}`,
           ].join('\n');
+          logger.info('[AgentRunner] Session token summary', {
+            executionId: task.executionId,
+            sessionId: sessionId.slice(0, 8),
+            sessionScope: 'per-execution',
+            totalInputTokens: cumulativeInputTokens,
+            cacheHitTokens: cumulativeCacheHitTokens,
+            cacheHitRate: cumulativeInputTokens > 0
+              ? Math.round(cumulativeCacheHitTokens / cumulativeInputTokens * 100) : 0,
+            outputTokens: cumulativeOutputTokens,
+            sessionCount,
+            durationMs: cumulativeSessionMs,
+          });
           return {
             success: false, worktree, outputFiles: [],
             error: `Max sessions (${this.config.maxSessions}) exhausted without completion`,

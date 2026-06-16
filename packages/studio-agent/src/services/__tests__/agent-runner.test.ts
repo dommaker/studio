@@ -375,3 +375,57 @@ describe('SP-004 Step 5: SDD task layer integration', () => {
     expect(agentRunnerSrc).toContain('task.parameters?.sddSlug');
   });
 });
+
+describe('B51: Per-execution session isolation', () => {
+  test('uses execution-sessions directory scoped by executionId', () => {
+    expect(agentRunnerSrc).toContain('.execution-sessions');
+    expect(agentRunnerSrc).toContain("'.execution-sessions', task.executionId");
+  });
+
+  test('no longer references shared-sessions directory', () => {
+    expect(agentRunnerSrc).not.toContain('.shared-sessions');
+  });
+
+  test('no longer references goal-sessions directory', () => {
+    expect(agentRunnerSrc).not.toContain('.goal-sessions');
+  });
+
+  test('session scope logged as per-execution', () => {
+    expect(agentRunnerSrc).toContain("sessionScope: 'per-execution'");
+  });
+
+  test('session resolved log includes executionId and isNewSession', () => {
+    expect(agentRunnerSrc).toContain('[AgentRunner] Session resolved');
+    expect(agentRunnerSrc).toMatch(/executionId:\s*task\.executionId/);
+  });
+
+  test('session token summary log emitted at completion', () => {
+    expect(agentRunnerSrc).toContain('[AgentRunner] Session token summary');
+    expect(agentRunnerSrc).toContain('totalInputTokens: cumulativeInputTokens');
+    expect(agentRunnerSrc).toContain('cacheHitRate');
+  });
+
+  test('token accumulators initialized before session loop', () => {
+    expect(agentRunnerSrc).toContain('let cumulativeInputTokens = 0');
+    expect(agentRunnerSrc).toContain('let cumulativeOutputTokens = 0');
+    expect(agentRunnerSrc).toContain('let cumulativeCacheHitTokens = 0');
+  });
+
+  test('tokens accumulated from streamUsage per session', () => {
+    expect(agentRunnerSrc).toContain('cumulativeInputTokens += streamUsage?.inputTokens');
+    expect(agentRunnerSrc).toContain('cumulativeOutputTokens += streamUsage?.outputTokens');
+    expect(agentRunnerSrc).toContain('cumulativeCacheHitTokens += streamUsage?.cacheReadTokens');
+  });
+
+  test('agentRole no longer used for session directory path', () => {
+    // agentRole was used to build shared-sessions/<role>/session-id path
+    // After B51, session path is execution-sessions/<executionId>/session-id
+    expect(agentRunnerSrc).not.toMatch(/\.shared-sessions.*agentRole/);
+  });
+
+  test('session flag logic unchanged (continue vs session-id)', () => {
+    // Verify we did not break the --continue / --session-id logic
+    expect(agentRunnerSrc).toContain('--continue');
+    expect(agentRunnerSrc).toContain('--session-id ${sessionId}');
+  });
+});

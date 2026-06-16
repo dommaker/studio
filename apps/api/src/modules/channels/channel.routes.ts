@@ -8,6 +8,7 @@ import { channelMessageService } from './channel-message.service.js';
 import { verifySddFile } from './sdd-verification.js';
 import { skillStore } from '../skills/skill-store.js';
 import { splitAcGroupsByRepo } from './multi-repo-split.js';
+import { ensureModelTierInheritance } from './acgroup-tier.js';
 import { goalService } from '../goals/goal.service.js';
 import { sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { projectService } from '../pmo/project.service.js';
@@ -465,26 +466,17 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       // F-07: Tier from SDD frontmatter (replaces TASK_TIER HTML comment extraction)
       let taskTier: string | undefined = sddReq.meta.tier;
 
-      // Fast tier: merge all acGroups into 1 (single step, skip integration)
-      if (taskTier === 'fast' && acGroups.length > 1) {
-        const mergedGroup = {
-          id: acGroups.map(g => g.id).join('+'),
-          acs: acGroups.flatMap(g => g.acs),
-          files: [...new Set(acGroups.flatMap(g => g.files || []))],
-          dependencies: [],
-          implementationNotes: acGroups.map(g => `### ${g.id}\n${g.implementationNotes || ''}`).join('\n\n'),
-          codePatterns: acGroups.flatMap(g => g.codePatterns || []),
-          gotchas: acGroups.flatMap(g => g.gotchas || []),
-          modelTier: 'fast' as const,
-          modelTierReason: 'fast tier: merged all acGroups into single step',
-        };
-        logger.info('[Channel] Fast tier: merged acGroups', {
-          from: acGroups.length,
-          to: 1,
-          totalAcs: mergedGroup.acs.length,
-          totalFiles: mergedGroup.files.length,
+      // Ensure each acGroup has modelTier set (inherit from task tier)
+      if (taskTier && acGroups.length > 0) {
+        const tierSummary = ensureModelTierInheritance(acGroups, taskTier);
+        logger.info('[Channel] Goal splitting', {
+          tier: tierSummary.tier,
+          acGroupCount: tierSummary.acGroupCount,
+          totalAcs: tierSummary.totalAcs,
+          parallelizable: tierSummary.parallelizable,
+          withDependencies: tierSummary.withDependencies,
+          modelTiers: tierSummary.modelTiers,
         });
-        acGroups = [mergedGroup];
       }
 
       // Phase 3: 无契约测试且无 skipReason → 阻断

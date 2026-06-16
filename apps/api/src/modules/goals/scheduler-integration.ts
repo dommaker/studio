@@ -266,6 +266,15 @@ export class GoalScheduler {
         logger.warn('[GoalScheduler] File conflict check error, continuing with all steps', { error: String(e) });
       }
 
+      // Point 11: Actual dispatch logging (O4-KR1 parallelism measurement)
+      logger.info('[GoalScheduler] Actual dispatch', {
+        goalId,
+        executableSteps: executableSteps.length,
+        dispatched: toDispatch.length,
+        deferredByConflict: executableSteps.length - toDispatch.length,
+        runningAfterDispatch: runningCount + toDispatch.length,
+      });
+
       const ctx = this.getDispatchContext();
       const results = await Promise.allSettled(
         toDispatch.map(exec => dispatchStep(exec, goal, ctx).catch(e => {
