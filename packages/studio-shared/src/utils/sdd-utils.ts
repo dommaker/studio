@@ -173,7 +173,10 @@ export function stringifySddFrontmatter(fm: Partial<SddFrontmatter>): string {
 // ── 文件读写 ──
 
 function getSddBaseDir(): string {
-  return process.env.SDD_DIR || 'docs/sdd';
+  if (process.env.SDD_DIR) return process.env.SDD_DIR;
+  // 绝对路径：防止 worktree CWD 导致解析到错误位置
+  const repoDir = process.env.REPO_DIR || '/root/projects/studio';
+  return join(repoDir, 'docs/sdd');
 }
 
 /**
