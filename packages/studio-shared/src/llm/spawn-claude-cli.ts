@@ -50,5 +50,10 @@ export function buildSpawnEnv(options: SpawnEnvOptions = {}): Record<string, str
     env.CLAUDE_CODE_EFFORT_LEVEL = 'max';
   }
 
+  // DB 隔离：Agent 进程不可写生产数据库。
+  // 空字符串让 Prisma 立即报错，阻止 migrate dev / db push 等破坏性操作。
+  // Migration 应用由 server 在 integration merge 后统一执行。
+  env.DATABASE_URL = '';
+
   return env;
 }

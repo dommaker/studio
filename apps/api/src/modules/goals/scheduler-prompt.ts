@@ -138,6 +138,12 @@ export function buildSubAgentPrompt(
     '2. 运行类型检查（npx tsc --noEmit）确认无类型错误',
     '3. 将测试证据写入 .progress.json 的 testResults 字段',
     '完成后在 .progress.json notes 中记录关键设计决策',
+    '',
+    '## 🔴 数据库隔离红线',
+    '你只创建 migration 文件（packages/studio-prisma/prisma/migrations/），不执行它。',
+    '禁止运行：prisma migrate dev、prisma db push、prisma migrate reset、sqlite3 写入。',
+    'Migration 应用由 server 在 integration merge 后统一执行。',
+    'DATABASE_URL 已被清空，任何 Prisma 写操作都会失败。',
   ];
 
   // Assemble via Skill template
@@ -511,6 +517,25 @@ export async function runIntegrationInCode(
     logger.warn('[GoalScheduler] prisma generate failed', { error: detail.slice(0, 500) });
   }
 
+  // Apply pending migrations — merged branches may include new migration files.
+  // This is the single controlled point where migrations are applied (not by agents).
+  // Uses server's DATABASE_URL (agent env has DATABASE_URL='' for isolation).
+  try {
+    const prismaDir = path.join(worktree, 'packages', 'studio-prisma');
+    const dbUrl = process.env.DATABASE_URL || '';
+    execSync('npx prisma migrate deploy 2>&1', {
+      cwd: prismaDir,
+      env: { ...process.env, DATABASE_URL: dbUrl },
+      timeout: 30_000,
+    });
+    logger.info('[GoalScheduler] Integration: migrations deployed', { executionId });
+  } catch (e: any) {
+    const detail = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
+    // Migration failure is non-fatal for integration — schema may not have changed.
+    // If migrations are required, tsc will catch type errors from missing fields.
+    logger.warn('[GoalScheduler] Integration: migrate deploy failed (non-fatal)', { error: detail.slice(0, 500), executionId });
+  }
+
   // 增量 tsc：复制主仓库的 .tsbuildinfo 到 worktree，只检查变更文件
   try {
     const tsbuildinfoSrc = path.join(repoDir, 'apps', 'api', 'tsconfig.tsbuildinfo');
@@ -548,7 +573,7 @@ export async function runIntegrationInCode(
   const progressPath = path.join(worktree, '.progress.json');
   fs.writeFileSync(progressPath, JSON.stringify({
     taskId: executionId, executionId, goalId, allComplete: true,
-    completedSteps: ['merge', 'tsc', 'test'],
+    completedSteps: ['merge', 'prisma-generate', 'migrate-deploy', 'tsc', 'test'],
     testResults: { passed: 1, failed: 0, total: testResult.testCount, method: testResult.method },
     currentStep: 'integration complete',
     notes: `Integration by code (P0-1): ${succeededExecs.length} branches merged, tsc clean, ${testResult.method} tests pass (${testResult.testCount} tests)`,

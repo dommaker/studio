@@ -103,4 +103,30 @@ describe('buildSpawnEnv', () => {
     const env = buildSpawnEnv({ tier: 'fast', role: 'executor' });
     expect(env.CLAUDE_CODE_EFFORT_LEVEL).toBeUndefined();
   });
+
+  // ── DB isolation: agents must not access production database ──
+
+  it('always sets DATABASE_URL to empty string — prevents agent DB writes', () => {
+    process.env.DATABASE_URL = 'file:/root/.studio/data/data.db';
+    const env = buildSpawnEnv({ tier: 'standard', role: 'executor' });
+    expect(env.DATABASE_URL).toBe('');
+  });
+
+  it('DATABASE_URL empty for analyst role too', () => {
+    process.env.DATABASE_URL = 'file:/prod/data.db';
+    const env = buildSpawnEnv({ tier: 'standard', role: 'analyst' });
+    expect(env.DATABASE_URL).toBe('');
+  });
+
+  it('DATABASE_URL empty for reviewer role too', () => {
+    process.env.DATABASE_URL = 'file:/prod/data.db';
+    const env = buildSpawnEnv({ tier: 'standard', role: 'reviewer' });
+    expect(env.DATABASE_URL).toBe('');
+  });
+
+  it('does not modify parent process.env.DATABASE_URL', () => {
+    process.env.DATABASE_URL = 'file:/prod/data.db';
+    buildSpawnEnv({ tier: 'standard', role: 'executor' });
+    expect(process.env.DATABASE_URL).toBe('file:/prod/data.db');
+  });
 });
