@@ -18,8 +18,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-trigger.service.ts
 
-<!-- STALE_SINCE: 2026-06-14 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/requirements-doc.routes.ts
+
+<!-- STALE_SINCE: 2026-06-16 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
 
 ## 职责
 
@@ -40,6 +42,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `a15515d6`: ContractTest 质量保障 — 4层验证(AC Coverage/TS Syntax/Import Path/RED) + Revision闭环 + 5 CT监控点
+- ✅ `732e6396`: 补全 12 监控点数据缺口 — 支撑 O2-KR2 缓存优化决策
 - ✅ `1c4ac168`: SP-004): 补齐 SDD 三个缺口 — Files section + Analyst 输出 + 去 DB 读
 - ✅ `3281bd80`: P6.5): Skill 元数据注入合规 + MCP SSE transport + fileKnowledge 移除
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

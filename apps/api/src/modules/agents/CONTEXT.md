@@ -44,8 +44,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts
 
-<!-- STALE_SINCE: 2026-06-16 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts
+
+<!-- STALE_SINCE: 2026-06-16 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
 
 ## 职责
 
@@ -66,6 +68,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `e8dd9df7`: B52 per-execution session + 空 diff 预检 + 监控点 1-4
+- ✅ `732e6396`: 补全 12 监控点数据缺口 — 支撑 O2-KR2 缓存优化决策
 - ✅ `fe88e333`: Deploy 仓库选择 #19 — REPO_DIR env 优先于 DB WorkspaceRepo
 - ✅ `c386e578`: AuditorAgent logger + KnowledgeBus orphan cleanup + retry cap
 - ✅ `4a70a2e6`: reviewer 400 — remove --model flag + pipelineReview upsert
