@@ -72,6 +72,9 @@ CLAUDE.md
 !docs/
 DESIGN_REFACTOR.md
 
+# Pipeline-generated SDD docs in wrong location (canonical: docs/sdd/)
+apps/api/docs/
+
 # Development artifacts
 1
 .gitignore.bak

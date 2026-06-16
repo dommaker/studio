@@ -46,8 +46,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts
 
-<!-- STALE_SINCE: 2026-06-16 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
+
+<!-- STALE_SINCE: 2026-06-16 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/requirement-gate.ts
 
 ## 职责
 
@@ -68,6 +70,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `0fbbc2ef`: B55 管线 Session 隔离 + Analyst 健壮性 + SDD 清理
+- ✅ `66228b3f`: architectureContext 质量闭环 — 统一 Analyst 产出 + 修正 Gate 检查层
 - ✅ `e8dd9df7`: B52 per-execution session + 空 diff 预检 + 监控点 1-4
 - ✅ `732e6396`: 补全 12 监控点数据缺口 — 支撑 O2-KR2 缓存优化决策
 - ✅ `fe88e333`: Deploy 仓库选择 #19 — REPO_DIR env 优先于 DB WorkspaceRepo
