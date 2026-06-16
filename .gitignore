@@ -80,3 +80,6 @@ DESIGN_REFACTOR.md
 
 # Unified config (contains API keys)
 config.env
+
+# TypeScript build cache
+*.tsbuildinfo

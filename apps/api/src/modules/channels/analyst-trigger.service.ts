@@ -131,7 +131,7 @@ class AnalystTriggerService {
       }
 
       const knowledge = dbKnowledge;
-      const outputFile = perInvocationOutputFile();
+      let outputFile = perInvocationOutputFile();
       logger.info('[AnalystTrigger] Route decision', {
         channelId,
         tier: preTier,
@@ -216,20 +216,26 @@ class AnalystTriggerService {
             content, scope, scoutReports.filter(r => r.success), outputFile,
           );
           const synthStart = Date.now();
-          const { doc: synthDoc, usage: synthUsage } = await runClaudeCode(synthPrompt, outputFile, undefined, preTier);
-          response = synthDoc;
-          usage = synthUsage;
+          let synthResult = await runClaudeCode(synthPrompt, outputFile, undefined, 'premium');
+          // outputLen=0 guard: model may complete turns without producing text
+          if (!synthResult.doc) {
+            logger.warn('[AnalystSynth] Empty output, retrying once', { channelId });
+            outputFile = perInvocationOutputFile();
+            synthResult = await runClaudeCode(synthPrompt, outputFile, undefined, 'premium');
+          }
+          response = synthResult.doc;
+          usage = synthResult.usage;
           route = 'scout+synth';
 
           // Point 9: Synthesis completed
           logger.info('[AnalystSynth] Synthesis completed', {
             channelId,
             synthMs: Date.now() - synthStart,
-            synthInputTokens: synthUsage.inputTokens,
-            synthOutputTokens: synthUsage.outputTokens,
-            synthCacheHitTokens: synthUsage.cacheHitTokens,
+            synthInputTokens: synthResult.usage.inputTokens,
+            synthOutputTokens: synthResult.usage.outputTokens,
+            synthCacheHitTokens: synthResult.usage.cacheHitTokens,
             scoutInputCount: scoutReports.filter(r => r.success).length,
-            acGroupCount: synthDoc.requirement.acGroups?.length || 0,
+            acGroupCount: synthResult.doc.requirement.acGroups?.length || 0,
           });
 
           scoutMetrics = {
@@ -263,7 +269,13 @@ class AnalystTriggerService {
 
         const isSimpleTask = content.length < 500 && !/(schema|migration|migrate|auth|new\s+module|架构重构)/i.test(content);
         const claudeArgs = isSimpleTask ? ['--allowedTools', 'Bash,Edit,Read,Grep'] : undefined;
-        const result = await runClaudeCode(prompt, outputFile, claudeArgs, preTier);
+        let result = await runClaudeCode(prompt, outputFile, claudeArgs, 'premium');
+        // outputLen=0 guard: model may complete turns without producing text
+        if (!result.doc) {
+          logger.warn('[AnalystTrigger] Empty output, retrying once', { channelId });
+          outputFile = perInvocationOutputFile();
+          result = await runClaudeCode(prompt, outputFile, claudeArgs, 'premium');
+        }
         response = result.doc;
         usage = result.usage;
       }
@@ -372,24 +384,33 @@ class AnalystTriggerService {
               revisionPrompt,
               perInvocationOutputFile(),
               undefined,
-              response.requirement.tier,
+              'premium',
             );
 
-            // Merge revision output
-            response = revisionResult.doc;
-            usage = {
-              inputTokens: usage.inputTokens + revisionResult.usage.inputTokens,
-              outputTokens: usage.outputTokens + revisionResult.usage.outputTokens,
-              cacheHitTokens: usage.cacheHitTokens + revisionResult.usage.cacheHitTokens,
-            };
+            // Guard: only overwrite response if revision produced valid output
+            if (revisionResult.doc) {
+              response = revisionResult.doc;
+              usage = {
+                inputTokens: usage.inputTokens + revisionResult.usage.inputTokens,
+                outputTokens: usage.outputTokens + revisionResult.usage.outputTokens,
+                cacheHitTokens: usage.cacheHitTokens + revisionResult.usage.cacheHitTokens,
+              };
 
-            // Re-validate structure
-            const newErrors = validateAnalystOutput(response);
-            if (newErrors.length > 0) {
-              logger.error('[ContractTest] Revision output validation failed', {
+              // Re-validate structure
+              const newErrors = validateAnalystOutput(response);
+              if (newErrors.length > 0) {
+                logger.error('[ContractTest] Revision output validation failed', {
+                  channelId,
+                  round: revisionRound,
+                  errors: newErrors,
+                });
+                break;
+              }
+            } else {
+              // Revision produced no output — stop revision loop, keep synth's original data
+              logger.warn('[AnalystTrigger] Revision produced no output, stopping revision loop', {
                 channelId,
                 round: revisionRound,
-                errors: newErrors,
               });
               break;
             }
@@ -465,22 +486,30 @@ class AnalystTriggerService {
               revisionPrompt,
               perInvocationOutputFile(),
               undefined,
-              response.requirement.tier,
+              'premium',
             );
 
-            response = revisionResult.doc;
-            usage = {
-              inputTokens: usage.inputTokens + revisionResult.usage.inputTokens,
-              outputTokens: usage.outputTokens + revisionResult.usage.outputTokens,
-              cacheHitTokens: usage.cacheHitTokens + revisionResult.usage.cacheHitTokens,
-            };
+            if (revisionResult.doc) {
+              response = revisionResult.doc;
+              usage = {
+                inputTokens: usage.inputTokens + revisionResult.usage.inputTokens,
+                outputTokens: usage.outputTokens + revisionResult.usage.outputTokens,
+                cacheHitTokens: usage.cacheHitTokens + revisionResult.usage.cacheHitTokens,
+              };
 
-            const newErrors = validateAnalystOutput(response);
-            if (newErrors.length > 0) {
-              logger.error('[ContractTest] Revision output validation failed', {
+              const newErrors = validateAnalystOutput(response);
+              if (newErrors.length > 0) {
+                logger.error('[ContractTest] Revision output validation failed', {
+                  channelId,
+                  round: revisionRound,
+                  errors: newErrors,
+                });
+                break;
+              }
+            } else {
+              logger.warn('[AnalystTrigger] Revision produced no output, stopping revision loop', {
                 channelId,
                 round: revisionRound,
-                errors: newErrors,
               });
               break;
             }
@@ -585,11 +614,14 @@ class AnalystTriggerService {
           ...response.requirement.acGroups.map((g) => [
             `### ${g.id}`,
             '',
-            ...g.acs.map((ac: string) => `- ${ac}`),
+            '#### 验收标准',
+            ...g.acs.map((ac: string) => `- [ ] ${ac}`),
             '',
-            `**Files**: ${g.files?.join(', ') || 'N/A'}`,
-            `**Dependencies**: ${g.dependencies?.join(', ') || 'N/A'}`,
-            g.targetRepo ? `**Target Repo**: ${g.targetRepo}` : '',
+            '#### 涉及文件',
+            ...(g.files?.length ? g.files.map((f: string) => `- ${f}`) : ['- N/A']),
+            '',
+            `#### 依赖${g.dependencies?.length ? ': ' + g.dependencies.join(', ') : ''}`,
+            '',
           ].join('\n')),
           '',
           '## Files',

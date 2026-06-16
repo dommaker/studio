@@ -346,10 +346,16 @@ export function validateImportPaths(
         resolved: true,
       });
     } else {
+      // Check if parent directory exists — if yes, this is a new file
+      // that will be created by Executor (forward reference), not a broken import
+      const targetFullPath = path.resolve(testFileDir, importPath);
+      const parentDirExists = fs.existsSync(path.dirname(targetFullPath));
       importPaths.push({
         path: importPath,
-        resolved: false,
-        reason: resolved.reason,
+        resolved: parentDirExists, // new file in existing dir = forward reference
+        reason: parentDirExists
+          ? 'forward reference: target file will be created by Executor'
+          : resolved.reason,
       });
     }
   }

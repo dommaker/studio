@@ -33,8 +33,10 @@ Goal 生命周期核心模块。CRUD → Plan → Scheduler → Executor → Rev
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/scheduler-prompt.ts
 
-<!-- STALE_SINCE: 2026-06-16 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/review-orchestrator.ts, apps/api/src/modules/goals/scheduler-integration.ts
+
+<!-- STALE_SINCE: 2026-06-16 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/CONTEXT.md, apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/goal.service.ts, apps/api/src/modules/goals/routes.ts
 
 ## 核心导出
 - `goal.service.ts` → GoalService (Goal CRUD + 审查 + 完成判定)

@@ -439,13 +439,15 @@ export class AgentRunner implements IAgentRunner {
             env: {
               ...process.env,
               ...buildSpawnEnv({
-                tier: model,
+                tier: taskTier,
                 role: 'executor',
                 extra: {
                   STUDIO_EXECUTION_ID: task.executionId,
                   ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
                 },
               }),
+              // HOME isolation: prevent user-level settings.json env override
+              HOME: `/tmp/pipeline-${task.executionId}`,
             },
             timeoutMs: getSessionTimeout(taskTier) * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
@@ -828,7 +830,7 @@ export class AgentRunner implements IAgentRunner {
           env: {
             ...process.env,
             ...buildSpawnEnv({
-              tier: model,
+              tier: taskTier,
               role: agentRole as 'analyst' | 'executor',
               extra: {
                 STUDIO_EXECUTION_ID: task.executionId,
@@ -836,6 +838,11 @@ export class AgentRunner implements IAgentRunner {
                 ...(task.parameters?.extraEnv as Record<string, string> || {}),
               },
             }),
+            // HOME isolation: prevent user-level settings.json env block
+            // from overriding pipeline config (DeepSeek API keys/models).
+            // Claude Code CLI reads $HOME/.claude/settings.json on startup.
+            // Project-level settings (permissions/hooks) use absolute paths, unaffected.
+            HOME: `/tmp/pipeline-${task.executionId}`,
           },
           timeoutMs: getSessionTimeout(taskTier) * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,

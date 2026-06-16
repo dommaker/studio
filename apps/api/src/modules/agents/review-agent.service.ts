@@ -177,7 +177,7 @@ export class ReviewAgent {
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
+          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
           timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -472,7 +472,7 @@ export class ReviewAgent {
 
         const { stdout } = await execSh(cmd, {
           cwd: params.worktree,
-          env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
+          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
           timeoutMs: 5 * 60 * 1000,
           maxBuffer: 5 * 1024 * 1024,
         });
@@ -585,7 +585,7 @@ export class ReviewAgent {
       try {
         await execSh(cmd, {
           cwd: repoPath,
-          env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
+          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
           timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -720,7 +720,7 @@ export class ReviewAgent {
       try { fs.unlinkSync(reportPath); } catch {}
       const cmd = `cd "${worktree}" && cat '${promptFile}' | claude --print --output-format json 2>&1`;
       await execSh(cmd, {
-        cwd: worktree, env: buildSpawnEnv({ tier: model, role: 'reviewer' }),
+        cwd: worktree, env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
         timeoutMs: 5 * 60 * 1000, maxBuffer: 5 * 1024 * 1024,
       });
 

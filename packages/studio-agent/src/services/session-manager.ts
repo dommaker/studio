@@ -354,14 +354,17 @@ export class AgentExecutor {
         try {
           const { stdout } = await execSh(cmd, {
             cwd: worktree,
-            env: buildSpawnEnv({
-              tier: model,
-              role: 'executor',
-              extra: {
-                STUDIO_EXECUTION_ID: task.executionId,
-                ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
-              },
-            }),
+            env: {
+              ...buildSpawnEnv({
+                tier: (task.model as 'fast' | 'standard' | 'premium') || 'standard',
+                role: 'executor',
+                extra: {
+                  STUDIO_EXECUTION_ID: task.executionId,
+                  ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
+                },
+              }),
+              HOME: `/tmp/pipeline-${task.executionId}`,
+            },
             timeoutMs: this.config.sessionTimeoutMinutes * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
             childRef,
