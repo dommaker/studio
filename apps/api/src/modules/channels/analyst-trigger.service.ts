@@ -13,6 +13,9 @@ import { recordPipelineRun } from '../../daemon/metrics.js';
 import { saveKnowledge, perInvocationOutputFile } from './analyst-knowledge.js';
 import { buildAnalystPrompt } from './analyst-prompt.js';
 import { runClaudeCode, validateAnalystOutput, preClassifyTier, type RequirementsDocJson } from './analyst-executor.js';
+import { validateContractTests, type ValidationReport } from './contract-test-validator.js';
+import { verifyRedState, cleanupRedCheckFiles, type RedCheckResult } from './contract-test-red-check.js';
+import { buildRevisionPrompt } from './analyst-prompt.js';
 
 export type { RequirementsDocJson } from './analyst-executor.js';
 
@@ -277,6 +280,245 @@ class AnalystTriggerService {
         );
         return;
       }
+
+      // ContractTest quality validation (Layer 1-4) with revision loop
+      const MAX_REVISION_ROUNDS = 2;
+      const worktree = process.env.REPO_DIR || process.cwd();
+      let contractTestValidationPassed = false;
+      let revisionRound = 0;
+      let lastValidationReport: ValidationReport | null = null;
+      let lastRedCheckResult: RedCheckResult | null = null;
+
+      while (!contractTestValidationPassed && revisionRound <= MAX_REVISION_ROUNDS) {
+        // Layer 1-3: Deterministic checks
+        const validationReport = validateContractTests(
+          response.requirement.acGroups,
+          response.task.acGroups,
+          worktree,
+        );
+        lastValidationReport = validationReport;
+
+        // CT-4 monitoring: Revision loop start
+        if (revisionRound > 0) {
+          logger.info('[ContractTest] Revision', {
+            channelId,
+            round: revisionRound,
+            triggerLayers: [
+              !validationReport.layer1.every(l => l.pass) ? '1' : null,
+              !validationReport.layer2.every(l => l.pass) ? '2' : null,
+              !validationReport.layer3.every(l => l.pass) ? '3' : null,
+            ].filter(Boolean),
+            previousFailures: lastValidationReport ? [
+              ...lastValidationReport.layer1.filter(l => !l.pass).map(l => `L1:${l.acGroupId}`),
+              ...lastValidationReport.layer2.filter(l => !l.pass).map(l => `L2:${l.testFile}`),
+              ...lastValidationReport.layer3.filter(l => !l.pass).map(l => `L3:${l.testFile}`),
+            ] : [],
+          });
+        }
+
+        // Check if Layer 1-3 passed
+        const layer123Pass = validationReport.layer1.every(l => l.pass)
+          && validationReport.layer2.every(l => l.pass)
+          && validationReport.layer3.every(l => l.pass);
+
+        if (!layer123Pass) {
+          // Build gate issues for revision
+          const gateIssues: string[] = [];
+          for (const l of validationReport.layer1.filter(l => !l.pass)) {
+            gateIssues.push(`acGroup ${l.acGroupId}: AC coverage ${(l.coverageRate * 100).toFixed(0)}% < 60%, uncovered ACs: ${l.uncoveredAcs.join(', ')}`);
+          }
+          for (const l of validationReport.layer2.filter(l => !l.pass)) {
+            gateIssues.push(`test file ${l.testFile}: TypeScript syntax errors: ${l.syntaxErrors.map(e => e.message).join('; ')}`);
+          }
+          for (const l of validationReport.layer3.filter(l => !l.pass)) {
+            const unresolved = l.importPaths.filter(p => !p.resolved);
+            gateIssues.push(`test file ${l.testFile}: unresolved imports: ${unresolved.map(p => p.path).join(', ')}`);
+          }
+
+          if (revisionRound >= MAX_REVISION_ROUNDS) {
+            logger.warn('[ContractTest] Revision limit reached, proceeding with warnings', {
+              channelId,
+              revisionRound,
+              gateIssues,
+            });
+            // CT-4 monitoring: Revision failed
+            logger.info('[ContractTest] Revision', {
+              channelId,
+              round: revisionRound,
+              status: 'max_rounds_reached',
+              gateIssues,
+            });
+            break;
+          }
+
+          // Trigger revision
+          revisionRound++;
+          logger.info('[ContractTest] Revision', {
+            channelId,
+            round: revisionRound,
+            triggerLayer: '1-3',
+            gateIssues,
+          });
+
+          try {
+            const revisionPrompt = buildRevisionPrompt(
+              content,
+              gateIssues,
+              JSON.stringify(response, null, 2),
+              revisionRound,
+            );
+
+            const revisionResult = await runClaudeCode(
+              revisionPrompt,
+              perInvocationOutputFile(),
+              undefined,
+              response.requirement.tier,
+            );
+
+            // Merge revision output
+            response = revisionResult.doc;
+            usage = {
+              inputTokens: usage.inputTokens + revisionResult.usage.inputTokens,
+              outputTokens: usage.outputTokens + revisionResult.usage.outputTokens,
+              cacheHitTokens: usage.cacheHitTokens + revisionResult.usage.cacheHitTokens,
+            };
+
+            // Re-validate structure
+            const newErrors = validateAnalystOutput(response);
+            if (newErrors.length > 0) {
+              logger.error('[ContractTest] Revision output validation failed', {
+                channelId,
+                round: revisionRound,
+                errors: newErrors,
+              });
+              break;
+            }
+          } catch (e) {
+            logger.error('[ContractTest] Revision failed', {
+              channelId,
+              round: revisionRound,
+              error: String(e),
+            });
+            break;
+          }
+          continue;
+        }
+
+        // Layer 4: RED verification (only if there are contractTests to verify)
+        const allContractTests = response.task.acGroups.flatMap(g => g.contractTests || []);
+        if (allContractTests.length === 0) {
+          // No contractTests, skip RED check
+          contractTestValidationPassed = true;
+          break;
+        }
+
+        const redCheckResult = verifyRedState({
+          acGroupId: 'all',
+          contractTests: allContractTests,
+          worktree,
+          timeout: 60_000,
+        });
+        lastRedCheckResult = redCheckResult;
+
+        if (!redCheckResult.overallRed) {
+          // Tests passed when they should fail — not RED state
+          const gateIssues: string[] = [];
+          for (const f of redCheckResult.files.filter(f => !f.isRed)) {
+            gateIssues.push(`test file ${f.file}: expected RED (failure) but got ${f.failureType} (exitCode=${f.exitCode})`);
+          }
+
+          if (revisionRound >= MAX_REVISION_ROUNDS) {
+            logger.warn('[ContractTest] RED verification failed, revision limit reached', {
+              channelId,
+              revisionRound,
+              gateIssues,
+            });
+            // CT-4 monitoring
+            logger.info('[ContractTest] Revision', {
+              channelId,
+              round: revisionRound,
+              status: 'red_check_failed_max_rounds',
+              gateIssues,
+            });
+            break;
+          }
+
+          // Trigger revision for RED failure
+          revisionRound++;
+          logger.info('[ContractTest] Revision', {
+            channelId,
+            round: revisionRound,
+            triggerLayer: '4',
+            reason: 'RED verification failed',
+            gateIssues,
+          });
+
+          try {
+            const revisionPrompt = buildRevisionPrompt(
+              content,
+              gateIssues,
+              JSON.stringify(response, null, 2),
+              revisionRound,
+            );
+
+            const revisionResult = await runClaudeCode(
+              revisionPrompt,
+              perInvocationOutputFile(),
+              undefined,
+              response.requirement.tier,
+            );
+
+            response = revisionResult.doc;
+            usage = {
+              inputTokens: usage.inputTokens + revisionResult.usage.inputTokens,
+              outputTokens: usage.outputTokens + revisionResult.usage.outputTokens,
+              cacheHitTokens: usage.cacheHitTokens + revisionResult.usage.cacheHitTokens,
+            };
+
+            const newErrors = validateAnalystOutput(response);
+            if (newErrors.length > 0) {
+              logger.error('[ContractTest] Revision output validation failed', {
+                channelId,
+                round: revisionRound,
+                errors: newErrors,
+              });
+              break;
+            }
+          } catch (e) {
+            logger.error('[ContractTest] Revision failed', {
+              channelId,
+              round: revisionRound,
+              error: String(e),
+            });
+            break;
+          }
+          continue;
+        }
+
+        // All checks passed
+        contractTestValidationPassed = true;
+
+        // Cleanup RED check files
+        cleanupRedCheckFiles(worktree, allContractTests);
+      }
+
+      // CT-5 monitoring: Final quality summary
+      const totalAcs = response.requirement.acGroups.reduce((sum, g) => sum + g.acs.length, 0);
+      const finalCoverageRate = lastValidationReport
+        ? lastValidationReport.layer1.reduce((sum, l) => sum + l.coveredAcs, 0) / Math.max(totalAcs, 1)
+        : 0;
+
+      logger.info('[ContractTest] Final Quality', {
+        channelId,
+        totalAcs,
+        finalCoverageRate: `${(finalCoverageRate * 100).toFixed(1)}%`,
+        revisionRounds: revisionRound,
+        allPassed: contractTestValidationPassed,
+        layer1Pass: lastValidationReport?.layer1.every(l => l.pass) ?? false,
+        layer2Pass: lastValidationReport?.layer2.every(l => l.pass) ?? false,
+        layer3Pass: lastValidationReport?.layer3.every(l => l.pass) ?? false,
+        layer4Red: lastRedCheckResult?.overallRed ?? false,
+      });
 
       // 5. Save new knowledge for next analysis
       const findings = response.design.acGroups
