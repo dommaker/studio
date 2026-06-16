@@ -479,7 +479,7 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
 
   const failedExec = await prisma.goalExecution.findFirst({
     where: { goalId, status: 'failed' },
-    select: { id: true, error: true, stepIndex: true },
+    select: { id: true, error: true, stepIndex: true, failureType: true },
     orderBy: { stepIndex: 'desc' },
   });
   const errorRaw: any = failedExec?.error;
@@ -499,8 +499,34 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
     }
   } catch { /* fallback to 'zombie' */ }
 
-  // Deterministic failure routing — code decides, not LLM
-  const { action, failureClass } = classifyFailureAction(errorMsg);
+  // Deterministic failure routing — prefer persisted failureType, fallback to classifyFailureAction
+  let action: string;
+  let failureClass: string;
+  if (failedExec?.failureType) {
+    // Use already-classified failureType from execution
+    failureClass = failedExec.failureType;
+    if (failureClass === 'infrastructure' || failureClass === 'retryable') {
+      action = 'retry-execution';
+    } else if (failureClass === 'not-retryable') {
+      action = 'mark-blocked';
+    } else {
+      action = 'triage-agent';
+    }
+  } else {
+    // Fallback: classify from error message and persist
+    const result = classifyFailureAction(errorMsg);
+    action = result.action;
+    failureClass = result.failureClass;
+    // B.1: Persist failureType if not already set
+    if (failedExec && failureClass && failureClass !== 'unknown') {
+      try {
+        await prisma.goalExecution.update({
+          where: { id: failedExec.id },
+          data: { failureType: failureClass },
+        });
+      } catch { /* non-blocking */ }
+    }
+  }
   let routed = false;
 
   if (action === 'retry-execution' && failedExec) {

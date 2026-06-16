@@ -55,14 +55,14 @@ router.post('/', async (req: Request, res: Response) => {
  */
 router.get('/', apiCache(CACHE_CONFIG.short), async (req: Request, res: Response) => {
   try {
-    const { companyId, status } = req.query;
+    const { companyId, status, failureType } = req.query;
     if (!companyId) {
       return res.status(400).json({
         error: { code: 'VALIDATION', message: 'companyId is required' },
       });
     }
 
-    const goals = await goalService.listGoals(companyId as string, status as string);
+    const goals = await goalService.listGoals(companyId as string, status as string, failureType as string);
     return res.json({ data: goals });
   } catch (error) {
     logger.error('[Goal API] List failed', { error: String(error) });

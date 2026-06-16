@@ -53,8 +53,8 @@ export class GoalService {
     return getGoalImpl(goalId);
   }
 
-  async listGoals(companyId: string, status?: string): Promise<any[]> {
-    return listGoalsImpl(companyId, status);
+  async listGoals(companyId: string, status?: string, failureType?: string): Promise<any[]> {
+    return listGoalsImpl(companyId, status, failureType);
   }
 
   async generatePlan(goalId: string): Promise<GoalPlanDraft> {
