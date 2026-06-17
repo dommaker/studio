@@ -271,6 +271,7 @@ model GoalExecution {
   retryCount  Int        @default(0)                    // 失败重试次数
   startedAt   DateTime?
   completedAt DateTime?
+  timeoutAt   DateTime?                                    // B57-P1: per-phase 超时标记
   createdAt   DateTime   @default(now())
   Goal        Goal       @relation(fields: [goalId], references: [id], onDelete: Cascade)
   GoalPlan    GoalPlan?  @relation(fields: [planId], references: [id], onDelete: Cascade)

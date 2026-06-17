@@ -40,6 +40,23 @@ const MAX_CONCURRENT = 5;
 const MAX_RETRIES = 3;
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
+// ─── B57-P2: Per-phase timeout configuration ───
+
+/**
+ * 返回指定 phase 的超时毫秒数。
+ * 所有 execution phase 统一 15min (fast tier)。
+ * Review/Deploy/Knowledge 不走 GoalExecution，无需覆盖。
+ */
+export function getTimeoutForPhase(phase: string): number {
+  switch (phase) {
+    case 'analyst': return 15 * 60_000;
+    case 'executing': return 15 * 60_000;
+    case 'integration': return 15 * 60_000;
+    case 'review-fix': return 15 * 60_000;
+    default: return 15 * 60_000;
+  }
+}
+
 // ─── Dispatch Context ───
 
 export interface DispatchContext {
@@ -102,7 +119,13 @@ export async function dispatchStep(
     await goalService.updateStepExecution(executionId, { input }).catch(() => {});
   }
 
-  await goalService.updateStepExecution(executionId, { status: 'running' });
+  // B57-P1: Set timeoutAt when execution starts running
+  const taskType = input?.taskType as string | undefined;
+  const phase = taskType === 'integration' ? 'integration'
+    : taskType === 'review-fix' ? 'review-fix'
+    : 'executing';
+  const timeoutAt = new Date(Date.now() + getTimeoutForPhase(phase));
+  await goalService.updateStepExecution(executionId, { status: 'running', timeoutAt });
 
   // 构建 prompt
   const isSubAgent = input?.taskType === 'sub-agent';

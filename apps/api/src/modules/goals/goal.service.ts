@@ -75,7 +75,7 @@ export class GoalService {
 
   async updateStepExecution(
     executionId: string,
-    updates: { status?: string; output?: any; error?: string; input?: any; failureType?: FailureClass },
+    updates: { status?: string; output?: any; error?: string; input?: any; failureType?: FailureClass; timeoutAt?: Date },
   ): Promise<any> {
     return updateStepExecutionImpl(executionId, updates, (goalId) => this.checkGoalCompletion(goalId));
   }

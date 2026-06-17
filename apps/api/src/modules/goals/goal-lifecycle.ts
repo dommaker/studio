@@ -25,7 +25,7 @@ import { execSync } from 'child_process';
  */
 export async function updateStepExecution(
   executionId: string,
-  updates: { status?: string; output?: any; error?: string; input?: any; failureType?: FailureClass },
+  updates: { status?: string; output?: any; error?: string; input?: any; failureType?: FailureClass; timeoutAt?: Date },
   checkCompletionFn: (goalId: string) => Promise<void>,
 ): Promise<any> {
   const data: Record<string, any> = { ...updates };

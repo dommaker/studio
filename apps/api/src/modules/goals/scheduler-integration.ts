@@ -11,6 +11,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { goalService, parseJsonField } from './goal.service.js';
 import { expireStaleBlockedGoals } from './goal-lifecycle.js';
+import { onPhaseFailure } from './pipeline-alarm.js';
 import { eventStore } from '../../core/event-store.js';
 
 import {
@@ -150,6 +151,11 @@ export class GoalScheduler {
           logger.warn('[GoalScheduler] expireStaleBlockedGoals failed', { error: String(e) });
         });
       }
+
+      // B57-P2: Check for timed-out executions
+      await this.checkTimedOutExecutions().catch(e => {
+        logger.warn('[GoalScheduler] checkTimedOutExecutions failed', { error: String(e) });
+      });
     } catch (e) {
       logger.error('[GoalScheduler] Tick error', { error: String(e) });
     } finally {
@@ -453,6 +459,46 @@ export class GoalScheduler {
       }
     } catch (e) {
       logger.error('[Recovery] Error in recoverStaleExecutions', { error: String(e) });
+    }
+  }
+
+  // ─── B57-P2: Timeout detection ───
+
+  /**
+   * 扫描超时 execution：timeoutAt < now 或 fallback (null + startedAt > 15min)
+   * 超时后：标记 failed + 触发 onPhaseFailure 告警
+   */
+  private async checkTimedOutExecutions(): Promise<void> {
+    const now = new Date();
+    const fallbackThreshold = new Date(Date.now() - 15 * 60_000);
+
+    const timedOut = await prisma.goalExecution.findMany({
+      where: {
+        status: 'running',
+        OR: [
+          { timeoutAt: { lt: now } },
+          { timeoutAt: null, startedAt: { lt: fallbackThreshold } },
+        ],
+      },
+      select: { id: true, goalId: true, stepIndex: true, startedAt: true, timeoutAt: true },
+    });
+
+    for (const exec of timedOut) {
+      logger.warn('[GoalScheduler] Execution timed out', {
+        executionId: exec.id,
+        goalId: exec.goalId,
+        stepIndex: exec.stepIndex,
+        startedAt: exec.startedAt,
+        timeoutAt: exec.timeoutAt,
+      });
+
+      await onPhaseFailure({
+        executionId: exec.id,
+        goalId: exec.goalId,
+        phase: exec.stepIndex === 999 ? 'integration' : 'executing',
+        error: `Execution timed out (startedAt: ${exec.startedAt?.toISOString() || 'unknown'})`,
+        severity: 'timeout',
+      });
     }
   }
 
