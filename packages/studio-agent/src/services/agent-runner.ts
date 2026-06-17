@@ -449,7 +449,7 @@ export class AgentRunner implements IAgentRunner {
               // HOME isolation: prevent user-level settings.json env override
               HOME: `/tmp/pipeline-${task.executionId}`,
             },
-            timeoutMs: getSessionTimeout(taskTier) * 60 * 1000,
+            timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
             childRef,
           });
@@ -844,7 +844,7 @@ export class AgentRunner implements IAgentRunner {
             // Project-level settings (permissions/hooks) use absolute paths, unaffected.
             HOME: `/tmp/pipeline-${task.executionId}`,
           },
-          timeoutMs: getSessionTimeout(taskTier) * 60 * 1000,
+          timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
           childRef,
         });

@@ -205,6 +205,7 @@ export class SessionManager {
         agentType: 'claude',
         model: state.config.modelTier,
         prompt: job.prompt,
+        timeoutMs: state.config.timeoutMs,
         parameters: {
           sessionFlags: sessionFlag,
           agentRole: isAnalyst ? 'analyst' : 'executor',

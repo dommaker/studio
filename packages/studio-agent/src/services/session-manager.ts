@@ -60,9 +60,11 @@ export interface AgentTask {
   model?: string;
   prompt: string;
   notifyTarget?: string;
-  parameters?: Record<string, any>;
+  parameters?: Record<string, unknown>;
   /** 实时进度回调 — 每轮 session 后调用，用于推送到 Channel */
   onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
+  /** P3: 覆盖 tier 默认超时 (ms)。提供时替代 getSessionTimeout(tier)。 */
+  timeoutMs?: number;
 }
 
 // ─── 执行结果 ───

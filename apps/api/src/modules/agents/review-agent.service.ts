@@ -20,8 +20,14 @@ import type { ReviewResult, ReviewDiffParams } from './types.js';
 import type { ReviewReport } from './review-report.js';
 import { buildReviewPrompt } from './review-report.js';
 
-/** 审查超时（分钟） */
+/** 审查超时（分钟）— 环境变量覆盖默认值 */
 const REVIEW_TIMEOUT_MINUTES = parseInt(process.env.REVIEW_TIMEOUT_MINUTES || '15', 10);
+
+/** P3: 按复杂度动态计算审查超时 (ms) */
+function getReviewTimeoutMs(complexity?: 'simple' | 'medium' | 'complex'): number {
+  const minutes = { simple: 10, medium: 15, complex: 25 }[complexity || 'medium'] || REVIEW_TIMEOUT_MINUTES;
+  return minutes * 60 * 1000;
+}
 
 export class ReviewAgent {
   /**
@@ -178,7 +184,7 @@ export class ReviewAgent {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
           env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
-          timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
+          timeoutMs: getReviewTimeoutMs(),
           maxBuffer: 10 * 1024 * 1024,
         });
         reviewOutput = stdout;
@@ -473,7 +479,7 @@ export class ReviewAgent {
         const { stdout } = await execSh(cmd, {
           cwd: params.worktree,
           env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
-          timeoutMs: 5 * 60 * 1000,
+          timeoutMs: getReviewTimeoutMs(params.complexity),
           maxBuffer: 5 * 1024 * 1024,
         });
 
@@ -586,7 +592,7 @@ export class ReviewAgent {
         await execSh(cmd, {
           cwd: repoPath,
           env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
-          timeoutMs: REVIEW_TIMEOUT_MINUTES * 60 * 1000,
+          timeoutMs: getReviewTimeoutMs(),
           maxBuffer: 10 * 1024 * 1024,
         });
       } catch (execErr: any) {
