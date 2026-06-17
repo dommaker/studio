@@ -2,7 +2,7 @@
  * Event Handler — Agent 事件核心处理逻辑
  *
  * 从 agent-event-listener.ts 提取。
- * 委托 review-orchestrator.ts 和 knowledge-promoter.ts 处理子流程。
+ * 委托 knowledge-promoter.ts 处理子流程。
  */
 import { eventStore } from '../../core/event-store.js';
 import { eventBus } from '@dommaker/studio-shared';
@@ -15,39 +15,7 @@ import { goalService } from './goal.service.js';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { recordDecision } from '@dommaker/studio-shared/harness/hooks';
 import { recordFailure, recordSuccess, runEvolution } from '../harness/evolution.service.js';
-import { readReviewCycle, handleReviewCycle, MAX_REVIEW_CYCLES } from './review-orchestrator.js';
 import { triggerPostCompletionKnowledge, triggerFailureKnowledge } from './knowledge-promoter.js';
-
-/** Metadata file patterns that should not trigger review */
-const METADATA_PREFIXES = ['.', '.claude/'];
-
-/**
- * 检查 worktree 是否有实际代码变更（排除 metadata 文件）
- *
- * 使用与 review-agent 相同的 base ref（REVIEW_BASE_REF 或 HEAD~1）。
- * 过滤 .progress.json、.review-report.json、.agent.log、.prompt.md、.claude/ 等管线文件。
- *
- * @param worktree - git worktree 路径
- * @returns true 表示有代码变更，应触发 review
- */
-export function hasCodeChanges(worktree: string): boolean {
-  try {
-    const baseRef = process.env.REVIEW_BASE_REF || 'HEAD~1';
-    const diffOut = execSync(
-      `git diff ${baseRef} --name-only 2>/dev/null || git diff --cached --name-only 2>/dev/null || git diff --name-only 2>/dev/null || echo ""`,
-      { cwd: worktree, encoding: 'utf-8', timeout: 5000 },
-    );
-    const files = diffOut.trim().split('\n').filter(f => f.length > 0);
-    if (files.length === 0) return false;
-
-    // 过滤 metadata 文件：以 . 开头的根目录文件/目录
-    const codeFiles = files.filter(f => !METADATA_PREFIXES.some(p => f.startsWith(p)));
-    return codeFiles.length > 0;
-  } catch {
-    // git 命令失败 → 安全默认值：触发 review（不阻断）
-    return true;
-  }
-}
 
 export class AgentEventListener {
   private started = false;
@@ -245,20 +213,8 @@ export class AgentEventListener {
             status: isCompleted ? 'completed' : 'failed',
           });
 
-          // 成功 → Review + Knowledge
+          // 成功 → Knowledge
           if (isCompleted && worktree && task) {
-            // 条件触发：仅 worktree 有代码变更时执行审查
-            if (hasCodeChanges(worktree)) {
-              const previousCycle = readReviewCycle(worktree);
-
-              await handleReviewCycle(
-                task, taskId, goalExecutionId, goalId, worktree,
-                previousCycle, completionOutput, goalExec, isCompleted, data,
-              );
-            } else {
-              logger.info('[Review] Skipped — no code changes in worktree', { taskId, worktree });
-            }
-
             triggerPostCompletionKnowledge(
               taskId, task, worktree, completionOutput,
               goalExecutionId, goalId, data,

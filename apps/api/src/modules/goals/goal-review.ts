@@ -172,6 +172,11 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     // best-effort
   }
 
+  // Extract knowledge from review (fire-and-forget, transplanted from Path A)
+  knowledgeAgent.extractFromReview(review, goalId, projectId).catch(e => {
+    logger.warn('[Goal] extractFromReview failed (non-blocking)', { error: String(e) });
+  });
+
   // Persist review result to PipelineReview table
   try {
     await prisma.pipelineReview.upsert({
