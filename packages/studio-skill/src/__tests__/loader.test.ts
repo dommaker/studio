@@ -87,6 +87,67 @@ describe('SkillLoader', () => {
       const loader = new SkillLoader();
       expect(loader.getFullPrompt('nonexistent')).toBeNull();
     });
+
+    it('loadSingle() loads a skill from disk and registers it', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(MOCK_SKILL_MD);
+
+      const loader = new SkillLoader();
+      const skill = loader.loadSingle('disk-skill');
+
+      expect(skill).not.toBeNull();
+      expect(skill!.id).toBe('disk-skill');
+      expect(skill!.name).toBe('disk-skill');
+      expect(skill!.prompt).toContain('Disk prompt content');
+
+      // Verify it's registered in the internal map
+      expect(loader.get('disk-skill')).toBeDefined();
+      expect(loader.getFullPrompt('disk-skill')).toContain('Disk prompt content');
+    });
+
+    it('loadSingle() returns null for non-existent skill', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+
+      const loader = new SkillLoader();
+      const skill = loader.loadSingle('nonexistent');
+
+      expect(skill).toBeNull();
+      expect(loader.get('nonexistent')).toBeUndefined();
+    });
+
+    it('loadSingle() returns null for invalid frontmatter', () => {
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue('no frontmatter here');
+
+      const loader = new SkillLoader();
+      const skill = loader.loadSingle('bad-skill');
+
+      expect(skill).toBeNull();
+    });
+
+    it('refresh() forces cache reload from disk', () => {
+      const loader = new SkillLoader();
+
+      // Initially no skills on disk
+      vi.mocked(fs.existsSync).mockReturnValue(false);
+      mockSkillDirs([]);
+      loader.refresh();
+      expect(loader.load({})).toEqual([]);
+
+      // Now add a skill to disk
+      vi.mocked(fs.existsSync).mockReturnValue(true);
+      vi.mocked(fs.readFileSync).mockReturnValue(MOCK_SKILL_MD);
+      mockSkillDirs(['disk-skill']);
+
+      // Without refresh, cache is stale
+      expect(loader.load({})).toEqual([]);
+
+      // Refresh loads from disk
+      loader.refresh();
+      const skills = loader.load({});
+      expect(skills).toHaveLength(1);
+      expect(skills[0].name).toBe('disk-skill');
+    });
   });
 
   describe('disk loading with skill directories', () => {

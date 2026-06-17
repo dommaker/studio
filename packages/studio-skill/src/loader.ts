@@ -17,7 +17,13 @@ export interface LoadOptions {
 }
 
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+
+/**
+ * Get skills directory. Reads env var at runtime to support test isolation.
+ */
+function getSkillsDir(): string {
+  return process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+}
 
 interface SkillFrontmatter {
   name: string;
@@ -25,6 +31,7 @@ interface SkillFrontmatter {
   agentTypes?: string[];
   tier?: SkillTier;
   tools?: string[];
+  required?: string[];
   status?: string;
   version?: number;
 }
@@ -59,6 +66,7 @@ function frontmatterToSkillDefinition(meta: SkillFrontmatter, prompt: string): S
     agentTypes: meta.agentTypes || [],
     tier: (meta.tier || 'standard') as SkillTier,
     tools: meta.tools,
+    requires: meta.required,
     prompt,
   };
 }
@@ -84,6 +92,15 @@ export class SkillLoader {
   init(_prisma?: any): void {
     this.cacheTime = 0; // trigger refresh on next load()
     this.refreshCache(); // eager first load
+  }
+
+  /**
+   * Force refresh cache from disk.
+   * Public API for scenarios where skills may have changed (e.g., test setup, admin reload).
+   */
+  refresh(): void {
+    this.cacheTime = 0;
+    this.refreshCache();
   }
 
   /**
@@ -148,7 +165,8 @@ export class SkillLoader {
    */
   private loadFromDisk(skillName: string): SkillDefinition | null {
     try {
-      const filePath = path.join(SKILLS_DIR, skillName, 'SKILL.md');
+      const skillsDir = getSkillsDir();
+      const filePath = path.join(skillsDir, skillName, 'SKILL.md');
       if (!fs.existsSync(filePath)) return null;
       const raw = fs.readFileSync(filePath, 'utf-8');
       const parsed = parseFrontmatter(raw);
@@ -162,17 +180,33 @@ export class SkillLoader {
   }
 
   /**
+   * Load a single skill from disk and register it in the internal map.
+   * Public API for loading individual skills on demand (e.g., via MCP loadSkill tool).
+   *
+   * @param skillName - The skill directory name (e.g., "tdd-workflow")
+   * @returns The loaded SkillDefinition, or null if not found/invalid
+   */
+  loadSingle(skillName: string): SkillDefinition | null {
+    const skill = this.loadFromDisk(skillName);
+    if (skill) {
+      this.skills.set(skill.id, skill);
+    }
+    return skill;
+  }
+
+  /**
    * Load all published skills from disk.
    * Scans <SKILLS_DIR>/<skillName>/SKILL.md structure.
    */
   private loadAllFromDisk(): SkillDefinition[] {
     try {
-      if (!fs.existsSync(SKILLS_DIR)) return [];
+      const skillsDir = getSkillsDir();
+      if (!fs.existsSync(skillsDir)) return [];
       const results: SkillDefinition[] = [];
-      const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
+      const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
       for (const entry of entries) {
         if (!entry.isDirectory()) continue;
-        const filePath = path.join(SKILLS_DIR, entry.name, 'SKILL.md');
+        const filePath = path.join(skillsDir, entry.name, 'SKILL.md');
         if (!fs.existsSync(filePath)) continue;
         const raw = fs.readFileSync(filePath, 'utf-8');
         const parsed = parseFrontmatter(raw);
