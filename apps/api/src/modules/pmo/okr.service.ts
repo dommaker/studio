@@ -1,6 +1,9 @@
 // OKR Service - PMO 模块核心服务
 import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 export interface OKRObjective {
   id: string;
@@ -506,7 +509,7 @@ export class OKRService {
     knowledge_skill_usage_rate: {
       dataSource: 'studio_event',
       query: (okr, days) => okr.querySkillUsageRate(days),
-      description: 'Skill 使用率 (scanCapabilities hit)',
+      description: 'Skill 使用率 (skill_used events / published skill count on disk)',
     },
     knowledge_growth_rate: {
       dataSource: 'studio_event',
@@ -1072,15 +1075,24 @@ export class OKRService {
     } catch { return null; }
   }
 
-  /** Knowledge O3-KR2: Skill 使用率 */
+  /** Knowledge O3-KR2: Skill 使用率 (used / total published on disk) */
   private async querySkillUsageRate(days: number): Promise<number | null> {
     try {
-      const since = new Date(Date.now() - days * 86400000);
-      const [total, used] = await Promise.all([
-        prisma.studioEvent.count({ where: { type: 'knowledge:skill_registered', timestamp: { gte: since } } }),
-        prisma.studioEvent.count({ where: { type: 'knowledge:skill_used', timestamp: { gte: since } } }),
-      ]);
+      // B59-003: count published skills from disk (no StudioEvent needed)
+      const skillsDir = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
+      let total = 0;
+      try {
+        const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+        for (const entry of entries) {
+          if (entry.isDirectory() && fs.existsSync(path.join(skillsDir, entry.name, 'SKILL.md'))) {
+            total++;
+          }
+        }
+      } catch { /* skills dir may not exist */ }
       if (total === 0) return null;
+
+      const since = new Date(Date.now() - days * 86400000);
+      const used = await prisma.studioEvent.count({ where: { type: 'knowledge:skill_used', timestamp: { gte: since } } });
       return Math.round((used / total) * 100);
     } catch { return null; }
   }
