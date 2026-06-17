@@ -3,7 +3,7 @@
  *
  * 从 analyst-trigger.service.ts 提取。
  */
-import { logger } from '@dommaker/studio-shared';
+import { logger, modelGateway } from '@dommaker/studio-shared';
 import { daemon } from '../../daemon/studio-daemon.js';
 import { ensureWorktree } from './analyst-knowledge.js';
 import { parseClaudeUsage } from '../../daemon/metrics.js';
@@ -94,6 +94,47 @@ export function preClassifyTier(requirement: string): 'fast' | 'standard' | 'pre
   return 'standard';
 }
 
+/**
+ * Sanitize LLM-generated JSON text — fix common escape/format issues before JSON.parse.
+ * LLMs frequently produce invalid JSON: markdown escapes (\: \. \*),
+ * unescaped control chars, trailing commas, BOM, etc.
+ */
+export function sanitizeJson(raw: string): string {
+  let s = raw;
+  // Strip BOM
+  s = s.replace(/^\uFEFF/, '');
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  s = s.replace(/^```(?:json)?\s*\n?/gm, '').replace(/\n?```\s*$/gm, '');
+  // Fix invalid JSON escape sequences: \: \. \* \( \) \# \- \> → literal char
+  // Valid JSON escapes: \" \\ \/ \b \f \n \r \t \uXXXX
+  s = s.replace(/\\([:.*()#>\-])/g, '$1');
+  // Remove unescaped control characters (keep \n \r \t)
+  s = s.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+  // Fix trailing commas before } or ]: ,} → } ,] → ]
+  s = s.replace(/,(\s*[}\]])/g, '$1');
+  return s;
+}
+
+/**
+ * LLM-based JSON repair — last resort when sanitize+parse all fail.
+ * Sends raw text to LLM with explicit repair instruction.
+ */
+async function repairJsonWithLLM(rawText: string): Promise<Record<string, unknown> | null> {
+  if (!modelGateway.isAvailable()) return null;
+  try {
+    const result = await modelGateway.promptJson<Record<string, unknown>>(
+      `Repair this malformed JSON into valid JSON. Keep all content, fix only syntax errors (bad escapes, trailing commas, missing quotes, etc). Return ONLY the repaired JSON, no commentary.\n\nRaw text:\n${rawText.slice(0, 4000)}`,
+      'You are a JSON repair tool. Fix syntax errors and return valid JSON only.',
+    );
+    if (result && typeof result === 'object' && (result as Record<string, unknown>).requirement) {
+      return result;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 // O1d: accept optional claudeArgs for tool restriction on Simple tasks
 export async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: string[], modelTier?: 'fast' | 'standard' | 'premium'): Promise<{ doc: RequirementsDocJson; usage: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
   ensureWorktree();
@@ -126,19 +167,54 @@ export async function runClaudeCode(prompt: string, outputFile: string, claudeAr
   const usage = parseClaudeUsage(raw);
 
   // Read the output JSON file (Claude Code writes structured output here)
+  // Parse chain: sanitize→parse → code-fence extract → regex match → LLM repair
   if (fs.existsSync(outputFile)) {
-    const json = fs.readFileSync(outputFile, 'utf-8');
+    const raw = fs.readFileSync(outputFile, 'utf-8');
+    const sanitized = sanitizeJson(raw);
+
+    // Layer 1: direct parse (after sanitize)
     try {
-      return { doc: JSON.parse(json), usage };
-    } catch {
-      const match = json.match(/```(?:json)?\s*([\s\S]*?)```/);
-      if (match?.[1]) return { doc: JSON.parse(match[1].trim()), usage };
+      return { doc: JSON.parse(sanitized), usage };
+    } catch { /* continue */ }
+
+    // Layer 2: extract from code fence (after sanitize)
+    const match = sanitized.match(/```(?:json)?\s*([\s\S]*?)```/);
+    if (match?.[1]) {
+      try {
+        return { doc: JSON.parse(sanitizeJson(match[1].trim())), usage };
+      } catch { /* continue */ }
+    }
+
+    // Layer 3: parse the envelope's result field (text may be cleaner than file)
+    if (text && text !== raw) {
+      const sanitizedText = sanitizeJson(text);
+      const jsonMatch = sanitizedText.match(/\{[\s\S]*"requirement"[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          return { doc: JSON.parse(sanitizeJson(jsonMatch[0])), usage };
+        } catch { /* continue */ }
+      }
+    }
+
+    // Layer 4: LLM repair — last resort
+    logger.warn('[AnalystTrigger] All parse layers failed, attempting LLM JSON repair', { outputFile });
+    const repaired = await repairJsonWithLLM(sanitized);
+    if (repaired) {
+      logger.info('[AnalystTrigger] LLM JSON repair succeeded', { outputFile });
+      return { doc: repaired as unknown as RequirementsDocJson, usage };
     }
   }
 
-  // Fallback: try to parse RequirementsDoc from result text
-  const jsonMatch = text.match(/\{[\s\S]*"requirement"[\s\S]*\}/);
-  if (jsonMatch) return { doc: JSON.parse(jsonMatch[0]), usage };
+  // Final fallback: try text result (without file)
+  if (text) {
+    const sanitizedText = sanitizeJson(text);
+    const jsonMatch = sanitizedText.match(/\{[\s\S]*"requirement"[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return { doc: JSON.parse(sanitizeJson(jsonMatch[0])), usage };
+      } catch { /* fall through to error */ }
+    }
+  }
 
   throw new Error(`Analyst did not produce valid output. text: ${text.slice(0, 500)}`);
 }

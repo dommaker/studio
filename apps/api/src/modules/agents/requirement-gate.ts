@@ -8,7 +8,7 @@
  * 不通过 → 退回 Channel 反馈 → Analyst 修正
  */
 
-import { modelGateway, logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { sharedStore } from '../knowledge/knowledge-bus.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -179,100 +179,85 @@ function stage1CodeCheck(groups: AcGroup[], repoDir: string): GateCheck[] {
 }
 
 /**
- * Stage 2: flash LLM 语义验证
+ * Stage 2: 确定性语义检查（替代原 LLM 验证）
+ *
+ * 原则：LLM 判断不阻断流程。用确定性规则检查可检查的部分，
+ * LLM 判断降级为 soft warning（注入 Executor prompt 供参考）。
  */
-async function stage2LlmCheck(groups: AcGroup[], title: string): Promise<GateCheck[]> {
-  if (!modelGateway.isAvailable()) {
-    return [{ name: 'stage2-skip', passed: true, message: 'LLM 不可用，跳过语义验证' }];
+function stage2DeterministicCheck(groups: AcGroup[], title: string): GateCheck[] {
+  const checks: GateCheck[] = [];
+
+  // 1. AC 独立性 — 文件重叠检测（确定性）
+  //    如果两组操作同一文件但无依赖声明 → warning（不阻断）
+  const fileToGroups = new Map<string, string[]>();
+  for (const g of groups) {
+    for (const f of g.files) {
+      const clean = f.replace(/`/g, '').trim();
+      if (!clean) continue;
+      if (!fileToGroups.has(clean)) fileToGroups.set(clean, []);
+      fileToGroups.get(clean)!.push(g.id);
+    }
+  }
+  const groupIds = new Set(groups.map(g => g.id));
+  const depsMap = new Map(groups.map(g => [g.id, new Set(g.dependencies)]));
+
+  for (const [file, owners] of fileToGroups) {
+    if (owners.length <= 1) continue;
+    for (let i = 0; i < owners.length; i++) {
+      for (let j = i + 1; j < owners.length; j++) {
+        const a = owners[i], b = owners[j];
+        const aDeps = depsMap.get(a) || new Set();
+        const bDeps = depsMap.get(b) || new Set();
+        if (!aDeps.has(b) && !bDeps.has(a)) {
+          checks.push({
+            name: 'independence-warning',
+            passed: true, // soft warning — 不阻断
+            message: `[warning] 组 "${a}" 和 "${b}" 操作同一文件 "${file}" 但无依赖声明 — Executor 应避免并行执行`,
+          });
+        }
+      }
+    }
   }
 
-  const groupsJson = JSON.stringify(groups.map(g => ({
-    id: g.id,
-    acs: g.acs,
-    files: g.files,
-    dependencies: g.dependencies,
-    architectureContext: g.architectureContext || null,
-  })), null, 2);
-
-  const prompt = `你是需求评审专家。检查以下 AC 组是否适合 flash 模型并行执行。
-
-## 任务
-${title}
-
-## AC 组
-${groupsJson}
-
-请逐组检查：
-
-1. **AC 独立性**: 这组能独立完成吗？还是需要其他组先完成？
-2. **隐式依赖**: 有没有没声明的依赖？（例如：B 组需要调用 A 组新建的函数）
-3. **文件冲突**: 文件列表是否准确？有没有遗漏会和其他组冲突的文件？
-4. **architectureContext 完整性**: Executor 是 fast 模型，不探索代码库。检查 architectureContext 是否包含足够信息让 Executor 定位并实施改动：
-   - functions: 函数签名+行号（必须有，至少 1 条）
-   - callChain: 调用链说明
-   - imports: 需要的 import 语句
-   - dangerZones: 文件中的禁区
-   - 注意：AC 文本描述行为意图（what），architectureContext 提供实现定位（how）。不要在 AC 文本里检查文件路径/行号——那些在 architectureContext 里
-
-输出 JSON:
-{
-  "groups": [{
-    "id": "组名",
-    "independent": true,
-    "missingDeps": ["应依赖但未声明的组名"],
-    "missingFiles": ["应该列但没列的文件"],
-    "architectureContextIncomplete": ["缺少的字段名，如 functions/callChain/imports/dangerZones"],
-    "acsTooVague": ["描述不够具体的 AC 索引"]
-  }],
-  "overallOK": true
-}`;
-
-  try {
-    const result = await modelGateway.promptJson<{
-      groups: Array<{
-        id: string;
-        independent: boolean;
-        missingDeps: string[];
-        missingFiles: string[];
-        acsTooVague: number[];
-        architectureContextIncomplete: string[];
-      }>;
-      overallOK: boolean;
-    }>(prompt, '你是需求评审专家。严格检查 AC 组质量。');
-
-    const checks: GateCheck[] = [];
-
-    for (const g of result.groups) {
-      if (!g.independent) {
-        checks.push({ name: 'not-independent', passed: false, message: `组 "${g.id}" 不能独立执行` });
-      }
-      for (const dep of g.missingDeps || []) {
-        checks.push({ name: 'missing-dep', passed: false, message: `组 "${g.id}" 缺少对 "${dep}" 的依赖声明` });
-      }
-      for (const f of g.missingFiles || []) {
-        checks.push({ name: 'missing-file', passed: false, message: `组 "${g.id}" 缺少文件 "${f}"` });
-      }
-      for (const field of g.architectureContextIncomplete || []) {
+  // 2. 隐式依赖 — 声明完整性（确定性）
+  //    已在 Stage 1 check #3 覆盖（dep-not-found）
+  //    补充：检查被依赖的组是否声明了反向依赖
+  for (const g of groups) {
+    for (const dep of g.dependencies) {
+      if (!groupIds.has(dep)) continue; // Stage 1 已报 dep-not-found
+      const reverseDeps = depsMap.get(dep) || new Set();
+      if (!reverseDeps.has(g.id)) {
         checks.push({
-          name: 'arch-ctx-incomplete',
-          passed: false,
-          message: `组 "${g.id}" architectureContext 缺少 "${field}" — Executor 是 fast 模型，需要完整实现上下文`,
+          name: 'one-way-dep-warning',
+          passed: true, // soft warning
+          message: `[warning] 组 "${g.id}" 依赖 "${dep}" 但反向未声明 — 单向依赖可能导致并行冲突`,
         });
       }
-      for (const acIdx of g.acsTooVague || []) {
-        checks.push({ name: 'vague-ac', passed: true, message: `组 "${g.id}" 第 ${acIdx + 1} 个 AC 行为描述不够具体（warning）` });
+    }
+  }
+
+  // 3. architectureContext 完整性（确定性 — 字段存在性检查）
+  for (const g of groups) {
+    if (!g.architectureContext) continue; // 可选字段，缺失不报
+    const ctx = g.architectureContext;
+    const required = ['functions', 'imports'] as const;
+    for (const field of required) {
+      const val = ctx[field as keyof typeof ctx];
+      if (!val || (Array.isArray(val) && val.length === 0)) {
+        checks.push({
+          name: 'arch-ctx-warning',
+          passed: true, // soft warning — 不阻断
+          message: `[warning] 组 "${g.id}" architectureContext.${field} 为空 — Executor 可能需要额外探索代码`,
+        });
       }
     }
-
-    if (result.overallOK && checks.length === 0) {
-      checks.push({ name: 'stage2-summary', passed: true, message: 'LLM 语义验证通过 — AC 组适合并行执行' });
-    }
-
-    return checks;
-  } catch (e: any) {
-    logger.warn('[RequirementGate] LLM check failed, passing', { error: String(e) });
-    return [{ name: 'stage2-error', passed: true, message: 'LLM 语义验证失败（非阻塞），手动审核建议' }];
   }
+
+  if (checks.length === 0) {
+    checks.push({ name: 'stage2-summary', passed: true, message: '确定性语义检查通过' });
+  }
+
+  return checks;
 }
 
 /**
@@ -307,9 +292,10 @@ export async function validateRequirementsDoc(
   const stage1 = stage1CodeCheck(groups, repoDir);
   const stage1Passed = stage1.every(c => c.passed);
 
-  // Stage 2
-  const stage2 = stage1Passed ? await stage2LlmCheck(groups, title) : [];
-  const stage2Passed = stage2.length === 0 || stage2.every(c => c.passed);
+  // Stage 2: 确定性检查（全部 soft warning，不阻断）
+  const stage2 = stage1Passed ? stage2DeterministicCheck(groups, title) : [];
+  // Stage 2 不阻断流程 — 所有检查结果为 warning，passed 始终为 true
+  const stage2Passed = true;
 
   const stage0Passed = stage0.length === 0 || stage0.every(c => c.passed);
   const passed = stage0Passed && stage1Passed && stage2Passed;
@@ -318,14 +304,11 @@ export async function validateRequirementsDoc(
   let tierRecommendation: TierRecommendation = 'flash-ok';
   const hasCodeIssues = stage1.some(c => !c.passed && ['file-not-found', 'dep-not-found'].includes(c.name));
   const hasAcGranularityIssue = stage1.some(c => !c.passed && c.name === 'ac-granularity');
-  const hasLlmIssues = stage2.some(c => !c.passed);
 
   if (hasCodeIssues) {
     tierRecommendation = 'needs-human'; // 文件不存在/依赖组不存在 → LLM 改不了
   } else if (hasAcGranularityIssue) {
     tierRecommendation = 'needs-human'; // AC 太多 → 需要人工拆
-  } else if (hasLlmIssues) {
-    tierRecommendation = 'upgrade-to-premium'; // LLM 语义问题 → premium 可修正
   }
   // file-conflict 不触发 tier 升级 — 依赖排序系统已处理执行顺序
   // 修改现有代码的功能天然有多组共享文件，revision 无法解决
@@ -365,9 +348,7 @@ export async function validateRequirementsDoc(
   }
 
   // Add tier recommendation
-  if (tierRecommendation === 'upgrade-to-premium') {
-    suggestions.push('💡 建议升级为 premium 模型重新分析此 RequirementsDoc');
-  } else if (tierRecommendation === 'needs-human') {
+  if (tierRecommendation === 'needs-human') {
     suggestions.push('⚠️ 自动修正无法解决，请在 Channel 中 @Analyst 提出修正，或将任务拆分更细');
   }
 
