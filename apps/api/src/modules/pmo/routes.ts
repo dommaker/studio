@@ -1,6 +1,6 @@
 // PMO API Routes - 项目管理办公室
 import { Router, Request, Response } from 'express';
-import { okrService } from './okr.service.js';
+import { okrService, OKRService } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand } from './project.service.js';
 import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
@@ -277,6 +277,81 @@ router.post('/okr', async (req: Request, res: Response) => {
     logger.error({ error }, 'Failed to create OKR');
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: (error as Error).message },
+    });
+  }
+});
+
+/**
+ * GET /api/v1/pmo/okr/metrics
+ * B59-001: 返回所有注册 metricType 的实时基线值
+ */
+router.get('/okr/metrics', async (req: Request, res: Response) => {
+  try {
+    const days = parseInt(req.query.days as string) || 7;
+    const metrics: Record<string, { value: number | null; status: string; dataSource: string; description: string }> = {};
+
+    for (const [metricType, entry] of Object.entries(OKRService.METRIC_REGISTRY)) {
+      try {
+        const value = await okrService.getMetricBaseline(metricType, days);
+        metrics[metricType] = {
+          value,
+          status: value !== null ? 'ok' : 'no_data',
+          dataSource: entry.dataSource,
+          description: entry.description,
+        };
+      } catch {
+        metrics[metricType] = {
+          value: null,
+          status: 'error',
+          dataSource: entry.dataSource,
+          description: entry.description,
+        };
+      }
+    }
+
+    res.json({ metrics, days });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get OKR metrics');
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to get OKR metrics' },
+    });
+  }
+});
+
+/**
+ * GET /api/v1/pmo/okr/data-health
+ * B59-001: 返回数据源健康状态 + metricType 覆盖度
+ */
+router.get('/okr/data-health', async (_req: Request, res: Response) => {
+  try {
+    const health = await okrService.checkDataSourceHealth();
+    const registrySize = Object.keys(OKRService.METRIC_REGISTRY).length;
+
+    // Count how many metrics have data available
+    let metricsWithData = 0;
+    let metricsWithoutData = 0;
+    for (const metricType of Object.keys(OKRService.METRIC_REGISTRY)) {
+      try {
+        const value = await okrService.getMetricBaseline(metricType);
+        if (value !== null) metricsWithData++;
+        else metricsWithoutData++;
+      } catch {
+        metricsWithoutData++;
+      }
+    }
+
+    res.json({
+      dataSources: health,
+      metricRegistry: {
+        total: registrySize,
+        withData: metricsWithData,
+        withoutData: metricsWithoutData,
+      },
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to get data health');
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to get data health' },
     });
   }
 });

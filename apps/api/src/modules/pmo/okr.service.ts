@@ -1194,10 +1194,10 @@ export class OKRService {
   };
 
   /** 获取 metricType 的系统基线值 */
-  async getMetricBaseline(metricType: string): Promise<number | null> {
+  async getMetricBaseline(metricType: string, days = 7): Promise<number | null> {
     const kr: OKRKeyResult = {
       id: '_baseline_', objectiveId: '', title: '', target: 0, current: 0, unit: '',
-      metricType, queryParams: { days: 7 },
+      metricType, queryParams: { days },
     };
     return this.queryKRActual(kr);
   }
