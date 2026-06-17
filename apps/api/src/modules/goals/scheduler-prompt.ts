@@ -10,6 +10,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { parseJsonField } from './goal.service.js';
+import { parseIntegrationFailureType, extractAffectedFiles, type IntegrationResult } from './integration-rollback.js';
 import { skillStore } from '../skills/skill-store.js';
 
 // ─── Skill Template Loading ───
@@ -412,7 +413,7 @@ export async function runIntegrationInCode(
   goalId: string,
   executionId: string,
   pmoNumber?: string,
-): Promise<{ success: boolean; error?: string }> {
+): Promise<IntegrationResult> {
   const execSync = (await import('child_process')).execSync;
   const repoDir = process.env.REPO_DIR || '/root/projects/studio';
   const worktreesDir = process.env.WORKTREES_DIR || '/root/worktrees';
@@ -476,11 +477,11 @@ export async function runIntegrationInCode(
       const errMsg = e?.stderr?.toString() || e?.message || String(e);
       logger.warn('[GoalScheduler] Integration merge conflict', { branch, error: errMsg.slice(0, 200) });
       eventBus.publish('pipeline.merge_conflict', { branch, executionId, error: errMsg.slice(0, 500) });
-      return { success: false, error: `Merge conflict on ${branch}: ${errMsg.slice(0, 200)}` };
+      return { success: false, failureType: 'merge_conflict', error: `Merge conflict on ${branch}: ${errMsg.slice(0, 200)}`, failedBranch: branch };
     }
   }
   if (missingBranches.length > 0 && mergedBranches.length === 0) {
-    return { success: false, error: `No step branches found for merge. Missing: ${missingBranches.join(', ')}` };
+    return { success: false, failureType: 'missing_branch', error: `No step branches found for merge. Missing: ${missingBranches.join(', ')}` };
   }
   if (missingBranches.length > 0) {
     logger.warn('[GoalScheduler] Some step branches missing during integration', { missing: missingBranches, merged: mergedBranches });
@@ -546,7 +547,7 @@ export async function runIntegrationInCode(
     execSync('npx tsc --noEmit --incremental --project apps/api/tsconfig.json 2>&1', { cwd: worktree, timeout: 60_000 });
   } catch (e: any) {
     const errMsg = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
-    return { success: false, error: `tsc failed: ${errMsg.slice(0, 300)}` };
+    return { success: false, failureType: 'tsc_error', error: `tsc failed: ${errMsg.slice(0, 300)}`, affectedFiles: extractAffectedFiles(errMsg) };
   }
 
   // 影响范围测试：只跑变更文件对应的测试，不跑全量
@@ -560,14 +561,14 @@ export async function runIntegrationInCode(
     if (impacted.testFiles.length > 0) {
       testResult = runImpactedTests(worktree, impacted, 120_000);
       if (!testResult.passed) {
-        return { success: false, error: `Impacted tests failed (${testResult.method}, ${testResult.testCount} tests): ${testResult.errors[0]?.slice(0, 300)}` };
+        return { success: false, failureType: 'test_failure', error: `Impacted tests failed (${testResult.method}, ${testResult.testCount} tests): ${testResult.errors[0]?.slice(0, 300)}`, affectedFiles: extractAffectedFiles(testResult.errors.join('\n')) };
       }
     } else {
       logger.info('[GoalScheduler] Integration: no impacted tests found, skipping', { changedFiles: changedFiles.length });
     }
   } catch (e: any) {
     const errMsg = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
-    return { success: false, error: `Impact test analysis failed: ${errMsg.slice(0, 300)}` };
+    return { success: false, failureType: 'test_failure', error: `Impact test analysis failed: ${errMsg.slice(0, 300)}`, affectedFiles: extractAffectedFiles(errMsg) };
   }
 
   const progressPath = path.join(worktree, '.progress.json');

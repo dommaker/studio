@@ -35,6 +35,7 @@ import {
 } from './scheduler-prompt.js';
 import { classifyFailure, classifyFailureAction } from './failure-classifier.js';
 import { onPhaseFailure } from './pipeline-alarm.js';
+import { rollbackToIntegrationStep, parseIntegrationFailureType, type IntegrationResult } from './integration-rollback.js';
 
 const MAX_CONCURRENT = 5;
 const MAX_RETRIES = 3;
@@ -256,10 +257,48 @@ export async function dispatchStep(
         });
         return;
       }
-      // Non-throw failure — log context before falling through to Claude
-      logger.warn('[GoalScheduler] Integration (code) failed, falling back to Claude', {
-        goalId: goal.id, executionId, error: result.error,
-      });
+      // B58: structured routing based on failure type
+      const integrationResult = result as import('./integration-rollback.js').IntegrationResult;
+      switch (integrationResult.failureType) {
+        case 'merge_conflict':
+        case 'unknown':
+        case undefined:
+          // Fall through to Claude Agent (existing behavior)
+          logger.warn('[GoalScheduler] Integration failed, falling back to Claude', {
+            goalId: goal.id, executionId, failureType: integrationResult.failureType,
+          });
+          break;
+        case 'tsc_error':
+        case 'test_failure': {
+          const worktree = path.join(WORKTREES_DIR, executionId);
+          const rollbackResult = await rollbackToIntegrationStep({
+            goalId: goal.id,
+            integrationExecutionId: executionId,
+            failureType: integrationResult.failureType,
+            error: integrationResult.error || 'unknown error',
+            affectedFiles: integrationResult.affectedFiles || [],
+            worktree,
+          });
+          if (rollbackResult.blocked) {
+            logger.warn('[GoalScheduler] Rollback blocked, goal marked blocked', {
+              goalId: goal.id, reason: rollbackResult.reason,
+            });
+            return;
+          }
+          logger.info('[GoalScheduler] Rollback complete, steps will be retried', {
+            goalId: goal.id, rolledBackSteps: rollbackResult.rolledBackSteps,
+          });
+          return;
+        }
+        case 'missing_branch': {
+          // Mark integration step as failed, don't retry
+          await goalService.updateStepExecution(executionId, {
+            status: 'failed',
+            error: integrationResult.error || 'missing step branches',
+          });
+          return;
+        }
+      }
     } catch (err) {
       logger.warn('[GoalScheduler] Integration (code) threw, falling back to Claude', { goalId: goal.id, error: String(err) });
     }
