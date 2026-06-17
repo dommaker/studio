@@ -34,6 +34,7 @@ import {
   runIntegrationInCode,
 } from './scheduler-prompt.js';
 import { classifyFailure, classifyFailureAction } from './failure-classifier.js';
+import { onPhaseFailure } from './pipeline-alarm.js';
 
 const MAX_CONCURRENT = 5;
 const MAX_RETRIES = 3;
@@ -291,17 +292,14 @@ export async function dispatchStep(
     const classification = classifyFailureAction(errorMsg);
     await goalService.updateStepExecution(executionId, { status: 'failed', error: errorMsg, failureType: classification.failureClass });
     logger.error('[GoalScheduler] Agent error', { executionId, error: errorMsg });
-    try {
-      const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-      await knowledgeBus.recordPattern({
-        source: 'executor',
-        type: 'failure',
-        title: `[Executor] dispatch error: ${errorMsg.slice(0, 80)}`,
-        content: `ExecutionId: ${executionId}\nError: ${errorMsg}`,
-        severity: 'warning',
-        timestamp: Date.now(),
-      });
-    } catch { /* non-blocking */ }
+    // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
+    await onPhaseFailure({
+      executionId,
+      goalId: goal.id,
+      phase: 'executing',
+      error: errorMsg,
+      severity: 'error',
+    });
   }
 }
 

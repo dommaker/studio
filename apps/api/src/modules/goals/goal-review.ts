@@ -13,6 +13,7 @@ import { reviewAgent } from '../agents/review-agent.service.js';
 import { deployAgent } from '../agents/deploy-agent.service.js';
 import { knowledgeAgent } from '../agents/knowledge-agent.service.js';
 import { recordGoalCompletion, handleGoalFailed } from './goal-lifecycle.js';
+import { onPhaseFailure } from './pipeline-alarm.js';
 import { parseJsonField, type GoalStep } from './goal-crud.js';
 import * as path from 'path';
 import * as os from 'os';
@@ -334,6 +335,13 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
         status: 'blocked',
         context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } as any,
       },
+    });
+    // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
+    await onPhaseFailure({
+      goalId,
+      phase: 'review',
+      error: `审查循环耗尽 (${reviewCycle + 1}/3 轮未通过, score: ${review.score}): ${review.issues.slice(0, 3).map((i: any) => i.message).join('; ')}`,
+      severity: 'exhausted',
     });
   } else {
     logger.info('[Goal] Review not approved, re-queuing for fixes', { goalId, cycle: reviewCycle + 1, score: review.score });
