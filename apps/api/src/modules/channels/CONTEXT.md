@@ -2,6 +2,31 @@
 
 > 此文件描述 apps/api/src/modules/channels 目录的职责和上下文
 
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel.routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-trigger.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/requirements-doc.routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/analyst-prompt.ts
+
+<!-- STALE_SINCE: 2026-06-17 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-executor.ts
+
 ## 职责
 
 <!-- 本目录的核心职责是什么 -->
