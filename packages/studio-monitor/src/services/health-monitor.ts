@@ -3,7 +3,7 @@ import { taskQueue } from '@dommaker/studio-task';
 import { logger, memoryStore, eventBus } from '@dommaker/studio-shared';
 
 export interface HealthMonitorConfig {
-  taskTimeout?: number;      // 任务超时时间（毫秒），默认 60 分钟
+  taskTimeout?: number;      // 任务超时时间（毫秒），默认 30 分钟 (B57-P6: 从 60min 缩短)
   heartbeatTimeout?: number; // 心跳超时时间（毫秒），默认 10 分钟
   checkInterval?: number;    // 检查间隔（毫秒），默认 1 分钟
   zombieCheckInterval?: number; // 僵尸任务检查间隔，默认 5 分钟
@@ -24,7 +24,7 @@ export class HealthMonitor {
 
   constructor(config: HealthMonitorConfig = {}) {
     this.config = {
-      taskTimeout: config.taskTimeout || 60 * 60 * 1000,      // 60 分钟
+      taskTimeout: config.taskTimeout || 30 * 60 * 1000,      // 30 分钟 (B57-P6: timeoutAt 15min × 2 倍缓冲)
       heartbeatTimeout: config.heartbeatTimeout || 10 * 60 * 1000, // 10 分钟
       checkInterval: config.checkInterval || 60 * 1000,       // 1 分钟
       zombieCheckInterval: config.zombieCheckInterval || 5 * 60 * 1000, // 5 分钟
