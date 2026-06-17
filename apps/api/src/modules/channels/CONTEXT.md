@@ -2,31 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/channels 目录的职责和上下文
 
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel.routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-trigger.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/requirements-doc.routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/analyst-prompt.ts
-
-<!-- STALE_SINCE: 2026-06-17 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-executor.ts
-
 ## 职责
 
 <!-- 本目录的核心职责是什么 -->
@@ -46,6 +21,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `e0685c3d`: pipeline output resilience + DB dedup (0 token reuse) — worktree fallback + path resolution + quality-gated dedup
 - ✅ `f7ddf542`: pipeline LLM output resilience — JSON sanitize + deterministic gate
 - ✅ `0fbbc2ef`: B55 管线 Session 隔离 + Analyst 健壮性 + SDD 清理
 - ✅ `66228b3f`: architectureContext 质量闭环 — 统一 Analyst 产出 + 修正 Gate 检查层
