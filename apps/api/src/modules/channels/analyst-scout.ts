@@ -130,7 +130,7 @@ function buildKnowledgeScoutPrompt(scope: ScoutScope, requirement: string): stri
     '}',
     '```',
     '',
-    '搜索 .analyst/knowledge.md、docs/sdd/、docs/decisions.md（Read/Grep），输出上述 JSON。不修改任何文件。',
+    '搜索 docs/sdd/、docs/decisions.md（Read/Grep）。需要历史模式/坑点时用 mcp__local-rag__query_documents 检索。输出上述 JSON。不修改任何文件。',
   ].join('\n');
 }
 

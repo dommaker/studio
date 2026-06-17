@@ -2129,24 +2129,7 @@ export class MonitorAgent {
         logger.warn('[MonitorAgent] TTL: studio.jsonl truncation failed', { error: String(e) });
       }
 
-      // 6. Truncate .analyst/knowledge.md keeping last 50 entries
-      try {
-        const analystDir = process.env.ANALYST_DIR || path.join(process.env.REPO_DIR || path.join(os.homedir(), 'projects'), '.analyst');
-        const knowledgeFile = path.join(analystDir, 'knowledge.md');
-        if (fs.existsSync(knowledgeFile)) {
-          const raw = fs.readFileSync(knowledgeFile, 'utf-8');
-          const sections = raw.split(/(?=^## )/m).filter(Boolean);
-          if (sections.length > 50) {
-            const kept = sections.slice(-50);
-            fs.writeFileSync(knowledgeFile, kept.join(''), 'utf-8');
-            logger.info('[MonitorAgent] TTL: knowledge.md truncated', { original: sections.length, kept: kept.length });
-          } else {
-            logger.info('[MonitorAgent] TTL: knowledge.md under limit, skipped', { sections: sections.length });
-          }
-        }
-      } catch (e) {
-        logger.warn('[MonitorAgent] TTL: knowledge.md truncation failed', { error: String(e) });
-      }
+      // 6. (removed: knowledge.md truncation — dead chain, KnowledgeStore replaces)
 
       // 7. StudioEvent TTL: 删除已沉淀且 >30d 的事件
       if (gate.studioEvent !== false) {

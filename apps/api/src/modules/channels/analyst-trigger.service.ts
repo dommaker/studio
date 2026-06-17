@@ -10,7 +10,7 @@ import { logger, eventBus, toKebab, writeSddDoc, appendChangelog } from '@dommak
 import { classifyError, formatTriageMessage } from '../triage/error-class.js';
 import { channelMessageService } from './channel-message.service.js';
 import { recordPipelineRun } from '../../daemon/metrics.js';
-import { saveKnowledge, perInvocationOutputFile } from './analyst-knowledge.js';
+import { perInvocationOutputFile } from './analyst-knowledge.js';
 import { buildAnalystPrompt } from './analyst-prompt.js';
 import { runClaudeCode, validateAnalystOutput, preClassifyTier, type RequirementsDocJson } from './analyst-executor.js';
 import { validateContractTests, type ValidationReport } from './contract-test-validator.js';
@@ -627,13 +627,7 @@ class AnalystTriggerService {
         layer4Red: lastRedCheckResult?.overallRed ?? false,
       });
 
-      // 5. Save new knowledge for next analysis
-      const findings = response.design.acGroups
-        .map(g => `- **${g.id}**: ${g.implementationNotes?.slice(0, 200) || ''}`)
-        .join('\n');
-      saveKnowledge(response.requirement.title || '需求分析', findings);
-
-      // 6. Save RequirementsDoc to DB
+      // 5. Save RequirementsDoc to DB
       const allContractTests = response.task.acGroups.flatMap(g => g.contractTests || []);
       const allContractTestsSkipReasons = response.task.acGroups
         .map(g => g.contractTestsSkipReason)

@@ -24,8 +24,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/analyst-prompt.ts
 
-<!-- STALE_SINCE: 2026-06-17 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-executor.ts
+
+<!-- STALE_SINCE: 2026-06-17 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/CONTEXT.md, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-trigger.service.ts
 
 ## 职责
 
@@ -72,6 +74,8 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ B56: 清理 knowledge.md 死链路 — 删 loadKnowledge/saveKnowledge/selectRelevantSections/KNOWLEDGE_FILE（零调用方），trigger 不再写文件，scout/analyst prompt 指向 KnowledgeStore/MCP search
+- ✅ `5797f5f5`: restore CONTEXT.md stale warnings, only append fix entry
 - ✅ `e0685c3d`: pipeline output resilience + DB dedup (0 token reuse) — worktree fallback + path resolution + quality-gated dedup
 - ✅ `f7ddf542`: pipeline LLM output resilience — JSON sanitize + deterministic gate
 - ✅ `0fbbc2ef`: B55 管线 Session 隔离 + Analyst 健壮性 + SDD 清理

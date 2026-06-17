@@ -77,12 +77,13 @@ knowledge/
 
 - Prisma Producer（preference-observer 等）直接写 Prisma，不迁移到 KnowledgeStore
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
-- `knowledgeBus` 的 `formatIndexSummary()` 仍被 review-agent 直接调用（index-only 场景）
+- `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方，被 `buildKnowledgeContext` 替代）
 - `applicableAgents` 存储在 tags 中（`agent:executor` 格式），KnowledgeEntry 无此字段
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ B56: 删 formatIndexSummary() + analyst-knowledge 死链路（loadKnowledge/saveKnowledge/selectRelevantSections）— KnowledgeStore 闭环已覆盖
 - ✅ B56: refreshStaleContext — 自动刷新 stale CONTEXT.md（扫描 ⚠️ 标记 → 提取代码结构 → LLM 填充空章节 → 保留修复历史）+ startScheduler 替换 runSelfDoc
 - ✅ `c386e578`: AuditorAgent logger + KnowledgeBus orphan cleanup + retry cap
 - ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
