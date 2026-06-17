@@ -9,5 +9,5 @@ export type { ProviderConfig, GatewayMessage, GatewayRequest, GatewayResponse, U
 export { buildSpawnEnv } from './spawn-claude-cli.js';
 export type { SpawnEnvOptions } from './spawn-claude-cli.js';
 
-export { parseStreamEvents, parseStreamLine, extractToolCalls, extractFilePath, extractResult, extractUsage } from './stream-json-parser.js';
+export { parseStreamEvents, parseStreamLine, extractToolCalls, extractFilePath, extractResult, extractUsage, extractWriteContent } from './stream-json-parser.js';
 export type { StreamEvent, ToolCall } from './stream-json-parser.js';

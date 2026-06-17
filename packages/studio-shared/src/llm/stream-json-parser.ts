@@ -4,6 +4,8 @@
  * D2: 提取 stream-json 解析逻辑到共享模块，供 agent-runner 和 daemon session-manager 使用。
  */
 
+import * as path from 'path';
+
 export interface StreamEvent {
   type: string;
   subtype?: string;
@@ -140,4 +142,30 @@ export function extractResult(events: StreamEvent[]): { text: string; isError: b
     }
   }
   return { text, isError };
+}
+
+/**
+ * Extract the last Write tool_use content for a specific file path.
+ * Used for output file recovery when the file is missing from disk.
+ * Returns null if no matching Write event found.
+ */
+export function extractWriteContent(events: StreamEvent[], targetPath: string): string | null {
+  const normalized = path.resolve(targetPath);
+  let lastContent: string | null = null;
+
+  for (const event of events) {
+    const calls = extractToolCalls([event]);
+    for (const call of calls) {
+      if (call.name !== 'Write' && call.name !== 'write') continue;
+      const fp = extractFilePath(call.name, call.input);
+      if (!fp) continue;
+      if (path.resolve(fp) !== normalized) continue;
+      const inp = call.input as Record<string, unknown>;
+      if (typeof inp.content === 'string') {
+        lastContent = inp.content;
+      }
+    }
+  }
+
+  return lastContent;
 }

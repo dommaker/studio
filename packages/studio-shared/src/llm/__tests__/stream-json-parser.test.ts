@@ -4,7 +4,7 @@
  * D2: 解析 Claude CLI --output-format stream-json 输出
  */
 import { describe, it, expect } from 'vitest';
-import { parseStreamEvents, extractToolCalls, extractFilePath, extractResult, extractUsage } from '../stream-json-parser.js';
+import { parseStreamEvents, extractToolCalls, extractFilePath, extractResult, extractUsage, extractWriteContent } from '../stream-json-parser.js';
 
 describe('parseStreamEvents', () => {
   it('parses multiple JSON lines', () => {
@@ -144,5 +144,85 @@ describe('extractUsage', () => {
     const usage = extractUsage([]);
     expect(usage.inputTokens).toBe(0);
     expect(usage.model).toBe('');
+  });
+});
+
+describe('extractWriteContent', () => {
+  it('extracts content from Write tool_use (message.content format)', () => {
+    const events = parseStreamEvents(JSON.stringify({
+      type: 'assistant',
+      message: {
+        content: [{
+          type: 'tool_use',
+          name: 'Write',
+          input: { file_path: '/tmp/output.json', content: '{"title":"test"}' },
+        }],
+      },
+    }));
+    expect(extractWriteContent(events, '/tmp/output.json')).toBe('{"title":"test"}');
+  });
+
+  it('extracts content from Write tool_use (direct content format)', () => {
+    const events = parseStreamEvents(JSON.stringify({
+      type: 'assistant',
+      content: [{
+        type: 'tool_use',
+        name: 'Write',
+        input: { file_path: '/tmp/output.json', content: '{"data":true}' },
+      }],
+    }));
+    expect(extractWriteContent(events, '/tmp/output.json')).toBe('{"data":true}');
+  });
+
+  it('returns null when no Write matches target path', () => {
+    const events = parseStreamEvents(JSON.stringify({
+      type: 'assistant',
+      content: [{
+        type: 'tool_use',
+        name: 'Write',
+        input: { file_path: '/tmp/other.json', content: 'data' },
+      }],
+    }));
+    expect(extractWriteContent(events, '/tmp/output.json')).toBeNull();
+  });
+
+  it('returns null when no Write events exist', () => {
+    const events = parseStreamEvents(JSON.stringify({
+      type: 'assistant',
+      content: [{ type: 'text', text: 'hello' }],
+    }));
+    expect(extractWriteContent(events, '/tmp/output.json')).toBeNull();
+  });
+
+  it('returns the LAST Write content when multiple writes to same file', () => {
+    const stdout = [
+      JSON.stringify({
+        type: 'assistant',
+        content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/tmp/out.json', content: 'v1' } }],
+      }),
+      JSON.stringify({
+        type: 'assistant',
+        content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/tmp/out.json', content: 'v2' } }],
+      }),
+    ].join('\n');
+    const events = parseStreamEvents(stdout);
+    expect(extractWriteContent(events, '/tmp/out.json')).toBe('v2');
+  });
+
+  it('ignores non-Write tools (Edit/Read)', () => {
+    const events = parseStreamEvents(JSON.stringify({
+      type: 'assistant',
+      content: [{ type: 'tool_use', name: 'Edit', input: { file_path: '/tmp/out.json', old_string: 'a', new_string: 'b' } }],
+    }));
+    expect(extractWriteContent(events, '/tmp/out.json')).toBeNull();
+  });
+
+  it('handles path normalization (relative vs absolute)', () => {
+    const events = parseStreamEvents(JSON.stringify({
+      type: 'assistant',
+      content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/tmp/out.json', content: 'data' } }],
+    }));
+    // Same path, different string representation
+    expect(extractWriteContent(events, '/tmp/./out.json')).toBe('data');
   });
 });

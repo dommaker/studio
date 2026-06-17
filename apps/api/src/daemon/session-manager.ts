@@ -2,7 +2,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger, getModelForTier, parseStreamEvents, extractUsage } from '@dommaker/studio-shared';
+import { logger, getModelForTier, parseStreamEvents, extractUsage, extractWriteContent } from '@dommaker/studio-shared';
 import { readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
@@ -291,10 +291,31 @@ export class SessionManager {
         if (fs.existsSync(worktreeOutputFile)) {
           output = fs.readFileSync(worktreeOutputFile, 'utf-8');
           logger.info('[SessionManager] Output file found via worktree fallback', { original: job.outputFile, resolved: worktreeOutputFile });
-        } else {
-          output = result.outputText || '';
         }
-      } else {
+      }
+
+      // P0.5: Output file recovery from .agent.log Write events
+      if (!output && job.outputFile) {
+        try {
+          const agentLogPath = path.join(state.config.worktree, '.agent.log');
+          if (fs.existsSync(agentLogPath)) {
+            const logContent = fs.readFileSync(agentLogPath, 'utf-8');
+            const logEvents = parseStreamEvents(logContent);
+            const recovered = extractWriteContent(logEvents, job.outputFile);
+            if (recovered !== null) {
+              output = recovered;
+              logger.info('[SessionManager] Output file recovered from .agent.log Write event', {
+                path: job.outputFile, contentLength: recovered.length,
+              });
+            }
+          }
+        } catch (e) {
+          logger.warn('[SessionManager] Output recovery from .agent.log failed', { error: String(e) });
+        }
+      }
+
+      // Final fallback: outputText
+      if (!output) {
         output = result.outputText || '';
       }
 
