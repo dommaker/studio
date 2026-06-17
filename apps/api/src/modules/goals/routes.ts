@@ -83,7 +83,7 @@ router.get('/stats', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Re
     const [totalGoals, activeGoals, completedGoals] = await Promise.all([
       prisma.goal.count({ where }),
       prisma.goal.count({ where: { ...where, status: 'executing' } }),
-      prisma.goal.count({ where: { ...where, status: 'completed' } }),
+      prisma.goal.count({ where: { ...where, status: 'succeeded' } }),
     ]);
 
     const runningExecutions = await prisma.goalExecution.count({ where: { status: 'running' } });
