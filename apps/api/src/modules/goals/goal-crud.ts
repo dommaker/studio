@@ -293,6 +293,16 @@ export async function createGoalFromChannelDoc(input: {
     );
   }
 
+  // B57-P5: AC 粒度质量门 — 每个 acGroup 文件数 ≤ 5
+  const MAX_FILES_PER_AC_GROUP = 5;
+  for (const group of acGroups) {
+    if ((group.files?.length || 0) > MAX_FILES_PER_AC_GROUP) {
+      throw new Error(
+        `AC group "${group.id}" 涉及 ${group.files.length} 个文件（上限 ${MAX_FILES_PER_AC_GROUP}）。Analyst 必须拆分为更小的 AC 组。`
+      );
+    }
+  }
+
   beforeGoalCreate({
     operation: 'goal_creation',
     taskDescription: summary || title,
