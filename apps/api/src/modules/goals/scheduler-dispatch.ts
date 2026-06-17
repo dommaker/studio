@@ -6,6 +6,7 @@
 
 import * as os from 'os';
 import * as path from 'path';
+import * as fs from 'node:fs';
 import { execSync } from 'child_process';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, getModelForTier, type ModelTier } from '@dommaker/studio-shared';
@@ -406,6 +407,16 @@ async function handleDispatchSuccess(
     ...(Object.keys(outputData).length > 0 ? { output: JSON.stringify(outputData) } : {}),
   });
   const tokenUsage = parseAgentTokenUsage(worktreeDir);
+  // B59-004: read real test results from .progress.json
+  let testPassed: boolean | undefined;
+  try {
+    const progressPath = path.join(worktreeDir, '.progress.json');
+    if (fs.existsSync(progressPath)) {
+      const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+      const tr = progress.testResults;
+      if (tr) testPassed = (tr.failed ?? 0) === 0 && (tr.passed ?? 0) > 0;
+    }
+  } catch { /* progress file may not exist or be invalid */ }
   recordPipelineRun({
     source: 'pipeline', phase: 'executor',
     taskName: goal.title,
@@ -417,6 +428,7 @@ async function handleDispatchSuccess(
     success: true,
     sessionId: executionId,
     goalId: goal.id,
+    ...(testPassed !== undefined ? { testPassed } : {}),
   }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun failed', { error: String(e) }); });
   try {
     await prisma.studioEvent.create({
@@ -587,6 +599,16 @@ async function handleDispatchFailure(
     ...(result.failureLog ? { output: JSON.stringify({ failureLog: result.failureLog }) } : {}),
   });
   const failTokens = parseAgentTokenUsage(worktreeDir);
+  // B59-004: read real test results from .progress.json (agent may have written before crash)
+  let failTestPassed: boolean | undefined;
+  try {
+    const progressPath = path.join(worktreeDir, '.progress.json');
+    if (fs.existsSync(progressPath)) {
+      const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
+      const tr = progress.testResults;
+      if (tr) failTestPassed = (tr.failed ?? 0) === 0 && (tr.passed ?? 0) > 0;
+    }
+  } catch { /* progress file may not exist */ }
   recordPipelineRun({
     source: 'pipeline', phase: 'executor',
     taskName: goal.title,
@@ -599,6 +621,7 @@ async function handleDispatchFailure(
     error: result.error || 'Agent execution failed',
     sessionId: executionId,
     goalId: goal.id,
+    ...(failTestPassed !== undefined ? { testPassed: failTestPassed } : {}),
   }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun (failure) failed', { error: String(e) }); });
   const errDetail = result.error || 'Agent execution failed';
   try {

@@ -631,6 +631,13 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
       }
     }
 
+    // B59-004: derive testPassed from child runs' real test results (not session success rate)
+    const stepRuns = runs.filter(r => r.phase !== 'full');
+    const runsWithTestResult = stepRuns.filter(r => r.testPassed !== null && r.testPassed !== undefined);
+    const summaryTestPassed = runsWithTestResult.length > 0
+      ? runsWithTestResult.every(r => r.testPassed === true)
+      : undefined;
+
     const written = await recordPipelineRun({
       source: 'pipeline', phase: 'full',
       taskName: goal.title,
@@ -640,7 +647,7 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
       cacheHitTokens: runs.reduce((s, r) => s + r.cacheHitTokens, 0),
       durationMs: totalDurationMs,
       success: goal.status === 'succeeded',
-      testPassed: successCount === totalSessions,
+      ...(summaryTestPassed !== undefined ? { testPassed: summaryTestPassed } : {}),
       goalId: goal.id,
     });
 
