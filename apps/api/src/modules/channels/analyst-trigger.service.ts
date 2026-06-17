@@ -50,6 +50,84 @@ class AnalystTriggerService {
       }
     } catch { /* best-effort */ }
 
+    // 1c. DB dedup: reuse recent valid analysis for same channel (0 token cost)
+    try {
+      const REUSE_WINDOW_MS = 24 * 60 * 60 * 1000;
+      const existingDoc = await prisma.requirementsDoc.findFirst({
+        where: {
+          sourceChannelId: channelId,
+          createdAt: { gte: new Date(Date.now() - REUSE_WINDOW_MS) },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      if (existingDoc) {
+        const acGroups = JSON.parse(existingDoc.acGroups || '[]');
+        const hasQuality =
+          Array.isArray(acGroups) && acGroups.length > 0 &&
+          acGroups.every((g: Record<string, unknown>) =>
+            typeof g?.id === 'string' &&
+            Array.isArray(g?.acs) && (g.acs as unknown[]).length > 0
+          );
+        if (hasQuality) {
+          const response: RequirementsDocJson = {
+            requirement: {
+              title: existingDoc.title, summary: '',
+              acGroups, tags: JSON.parse(existingDoc.tags || '[]'), constraints: [],
+            },
+            design: { acGroups: [] },
+            task: { acGroups: acGroups.map((g: Record<string, unknown>) => ({ id: g.id as string })) },
+          };
+          logger.info('[AnalystTrigger] Reusing existing valid analysis (0 token)', {
+            channelId, docId: existingDoc.id,
+            ageMin: Math.round((Date.now() - existingDoc.createdAt.getTime()) / 60000),
+          });
+
+          // Post reuse notice
+          await channelMessageService.createAgentMessage(channelId, 'Analyst',
+            `♻️ 复用已有分析（0 token 消耗）: ${existingDoc.title}`,
+            { meta: { requirementsDocId: existingDoc.id } });
+
+          // Write SDD files from cached doc
+          const slug = toKebab(existingDoc.title || 'analysis');
+          try {
+            const now = new Date().toISOString();
+            const allFiles = [...new Set(acGroups.flatMap((g: any) => g.files || []).filter(Boolean)
+              .map((f: string) => f.replace(/:L?\d+(-L?\d+)?$/, '')))];
+            writeSddDoc(slug, 'requirement', {
+              id: existingDoc.id, goalId: existingDoc.goalId || undefined, slug,
+              title: existingDoc.title, status: 'draft',
+              tier: (response.requirement.tier as any) || 'standard',
+              version: 1, requirementVersion: 1, designVersion: 1, taskVersion: 1,
+              sourceChannelId: channelId, tags: response.requirement.tags || [],
+              createdAt: now, updatedAt: now,
+            }, [
+              `## ${existingDoc.title}`, '',
+              ...response.requirement.acGroups.flatMap((g: any) => [
+                `### ${g.id}`, '', '#### 验收标准',
+                ...g.acs.map((ac: string) => `- [ ] ${ac}`), '',
+                '#### 涉及文件', ...(g.files?.length ? g.files.map((f: string) => `- ${f}`) : ['- N/A']), '',
+              ]),
+              '', '## Files', '', ...allFiles.map((f: string) => `- ${f}`),
+            ].join('\n'));
+            appendChangelog(slug, `Reused from cached analysis (channel: ${channelId}, doc: ${existingDoc.id})`);
+          } catch (e) { logger.warn('[AnalystTrigger] SDD write failed on reuse (non-blocking)', { error: String(e) }); }
+
+          // Post card + auto-start
+          const cardMsg = await channelMessageService.createCardMessage(
+            channelId, 'Analyst', this.formatCardContent(response), 'requirements_doc',
+            { requirementsDocId: existingDoc.id, sddSlug: slug },
+          );
+          eventBus.publish('channel.requirements_ready', { channelId, requirementsDocId: existingDoc.id });
+          this.autoStartExecution(channelId, cardMsg.id).catch((e: any) => {
+            logger.warn('[AnalystTrigger] Auto-start on reused doc failed', { error: String(e) });
+          });
+          return; // exit trigger — skip LLM entirely
+        }
+      }
+    } catch (e) {
+      logger.warn('[AnalystTrigger] DB dedup check failed, proceeding with LLM', { error: String(e) });
+    }
+
     // 2. Post "thinking" message
     const thinkingMsg = await channelMessageService.createAgentMessage(
       channelId,

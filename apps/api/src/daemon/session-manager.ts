@@ -285,6 +285,15 @@ export class SessionManager {
       let output: string | undefined;
       if (job.outputFile && fs.existsSync(job.outputFile)) {
         output = fs.readFileSync(job.outputFile, 'utf-8');
+      } else if (job.outputFile && !path.isAbsolute(job.outputFile)) {
+        // P0: Resolve relative outputFile against worktree — API CWD may differ
+        const worktreeOutputFile = path.join(state.config.worktree, job.outputFile);
+        if (fs.existsSync(worktreeOutputFile)) {
+          output = fs.readFileSync(worktreeOutputFile, 'utf-8');
+          logger.info('[SessionManager] Output file found via worktree fallback', { original: job.outputFile, resolved: worktreeOutputFile });
+        } else {
+          output = result.outputText || '';
+        }
       } else {
         output = result.outputText || '';
       }

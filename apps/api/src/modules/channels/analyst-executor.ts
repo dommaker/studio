@@ -8,6 +8,7 @@ import { daemon } from '../../daemon/studio-daemon.js';
 import { ensureWorktree } from './analyst-knowledge.js';
 import { parseClaudeUsage } from '../../daemon/metrics.js';
 import * as fs from 'fs';
+import * as path from 'path';
 
 export interface RequirementsDocJson {
   requirement: {
@@ -136,16 +137,23 @@ async function repairJsonWithLLM(rawText: string): Promise<Record<string, unknow
 }
 
 // O1d: accept optional claudeArgs for tool restriction on Simple tasks
-export async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: string[], modelTier?: 'fast' | 'standard' | 'premium'): Promise<{ doc: RequirementsDocJson; usage: { inputTokens: number; outputTokens: number; cacheHitTokens: number } }> {
+export async function runClaudeCode(prompt: string, outputFile: string, claudeArgs?: string[], modelTier?: 'fast' | 'standard' | 'premium'): Promise<{ doc: RequirementsDocJson; usage: { inputTokens: number; outputTokens: number; cacheHitTokens: number }; rawOutput: string }> {
   ensureWorktree();
+
+  // Resolve to absolute path — API process CWD may differ from worktree,
+  // causing session-manager to look for the file in the wrong directory.
+  const worktree = process.env.REPO_DIR || process.cwd();
+  const resolvedOutputFile = path.isAbsolute(outputFile)
+    ? outputFile
+    : path.join(worktree, outputFile);
 
   // Use ad-hoc session for concurrent @Analyst support
   const result = await daemon.submitAdhocJob({
     prompt,
-    outputFile,
+    outputFile: resolvedOutputFile,
     ...(claudeArgs ? { claudeArgs } : {}),
   }, {
-    worktree: process.env.REPO_DIR || process.cwd(), // needs access to project source, not .analyst/
+    worktree, // needs access to project source, not .analyst/
     modelTier: modelTier || 'premium',
   });
 
@@ -168,40 +176,40 @@ export async function runClaudeCode(prompt: string, outputFile: string, claudeAr
 
   // Read the output JSON file (Claude Code writes structured output here)
   // Parse chain: sanitize→parse → code-fence extract → regex match → LLM repair
-  if (fs.existsSync(outputFile)) {
-    const raw = fs.readFileSync(outputFile, 'utf-8');
-    const sanitized = sanitizeJson(raw);
+  if (fs.existsSync(resolvedOutputFile)) {
+    const fileRaw = fs.readFileSync(resolvedOutputFile, 'utf-8');
+    const sanitized = sanitizeJson(fileRaw);
 
     // Layer 1: direct parse (after sanitize)
     try {
-      return { doc: JSON.parse(sanitized), usage };
+      return { doc: JSON.parse(sanitized), usage, rawOutput: raw };
     } catch { /* continue */ }
 
     // Layer 2: extract from code fence (after sanitize)
     const match = sanitized.match(/```(?:json)?\s*([\s\S]*?)```/);
     if (match?.[1]) {
       try {
-        return { doc: JSON.parse(sanitizeJson(match[1].trim())), usage };
+        return { doc: JSON.parse(sanitizeJson(match[1].trim())), usage, rawOutput: raw };
       } catch { /* continue */ }
     }
 
     // Layer 3: parse the envelope's result field (text may be cleaner than file)
-    if (text && text !== raw) {
+    if (text && text !== fileRaw) {
       const sanitizedText = sanitizeJson(text);
       const jsonMatch = sanitizedText.match(/\{[\s\S]*"requirement"[\s\S]*\}/);
       if (jsonMatch) {
         try {
-          return { doc: JSON.parse(sanitizeJson(jsonMatch[0])), usage };
+          return { doc: JSON.parse(sanitizeJson(jsonMatch[0])), usage, rawOutput: raw };
         } catch { /* continue */ }
       }
     }
 
     // Layer 4: LLM repair — last resort
-    logger.warn('[AnalystTrigger] All parse layers failed, attempting LLM JSON repair', { outputFile });
+    logger.warn('[AnalystTrigger] All parse layers failed, attempting LLM JSON repair', { outputFile: resolvedOutputFile });
     const repaired = await repairJsonWithLLM(sanitized);
     if (repaired) {
-      logger.info('[AnalystTrigger] LLM JSON repair succeeded', { outputFile });
-      return { doc: repaired as unknown as RequirementsDocJson, usage };
+      logger.info('[AnalystTrigger] LLM JSON repair succeeded', { outputFile: resolvedOutputFile });
+      return { doc: repaired as unknown as RequirementsDocJson, usage, rawOutput: raw };
     }
   }
 
@@ -211,7 +219,7 @@ export async function runClaudeCode(prompt: string, outputFile: string, claudeAr
     const jsonMatch = sanitizedText.match(/\{[\s\S]*"requirement"[\s\S]*\}/);
     if (jsonMatch) {
       try {
-        return { doc: JSON.parse(sanitizeJson(jsonMatch[0])), usage };
+        return { doc: JSON.parse(sanitizeJson(jsonMatch[0])), usage, rawOutput: raw };
       } catch { /* fall through to error */ }
     }
   }
