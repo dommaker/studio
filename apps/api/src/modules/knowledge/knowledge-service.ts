@@ -260,6 +260,18 @@ export class KnowledgeService {
     }
 
     this.eventEmitter.emit('knowledge', { type: 'extractFromExecution', data: { agentType: result.agentType, success: result.success } });
+
+    // B59-002: persist to StudioEvent for OKR queryKnowledgeQualityGatePassRate
+    try {
+      await this.prisma.studioEvent.create({
+        data: {
+          type: 'extractFromExecution',
+          payload: JSON.stringify({ agentType: result.agentType, success: result.success }),
+        },
+      });
+    } catch (e) {
+      logger.warn('[KnowledgeService] Failed to persist extractFromExecution event', { error: String(e) });
+    }
   }
 
   async extractFromConversation(_messages: { role: string; content: string }[]): Promise<void> {
