@@ -156,22 +156,8 @@ function makeExec(overrides: Record<string, unknown> = {}) {
 function makeCtx() {
   return {
     runtimeConstraints: new Map(),
-    routingOverrides: new Map(),
-    tokenGatedGoals: new Set(),
-    recentClassifications: [],
-    explorationCount: 0,
-    explorationSuccess: 0,
     recentFailures: 0,
     recentTotal: 0,
-    tierRoutingConfig: {
-      highRiskKeywords: /test/,
-      lowRiskKeywords: /test/,
-      premiumAcThreshold: 6,
-      premiumFileThreshold: 7,
-      fastAcThreshold: 2,
-      fastFileThreshold: 3,
-      explorationRate: 0.1,
-    },
   };
 }
 

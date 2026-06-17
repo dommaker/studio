@@ -114,22 +114,8 @@ import { dispatchStep, type DispatchContext } from '../scheduler-dispatch.js';
 function makeCtx(): DispatchContext {
   return {
     runtimeConstraints: new Map(),
-    routingOverrides: new Map(),
-    tokenGatedGoals: new Set(),
-    recentClassifications: [],
-    explorationCount: 0,
-    explorationSuccess: 0,
     recentFailures: 0,
     recentTotal: 0,
-    tierRoutingConfig: {
-      highRiskKeywords: /migration|migrate|auth|security/,
-      lowRiskKeywords: /style|typo|rename|format/,
-      premiumAcThreshold: 30,
-      premiumFileThreshold: 20,
-      fastAcThreshold: 2,
-      fastFileThreshold: 3,
-      explorationRate: 0.1,
-    },
   };
 }
 

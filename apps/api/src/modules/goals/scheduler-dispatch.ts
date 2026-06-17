@@ -15,20 +15,12 @@ import { goalService, parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
 import { generateSessionSummary } from '../events/session-summary-generator.js';
 import { roleConfigService } from '../roles/role-config.service.js';
-import { preferenceObserver } from '../knowledge/preference-observer.js';
 import { getDefaultBranch } from '../../utils/git.js';
 
 import {
-  classifyTaskComplexity,
-  inferTaskCategory,
-  getHistoricalBestTier,
-  maybeExploreDowngrade,
   getDispatchStrategy,
   updateDispatchOutcome,
   parseAgentTokenUsage,
-  persistRoutingStats,
-  type ClassificationRecord,
-  type TierRoutingConfig,
 } from './scheduler-queue.js';
 
 import {
@@ -51,14 +43,8 @@ const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'work
 
 export interface DispatchContext {
   runtimeConstraints: Map<string, string[]>;
-  routingOverrides: Map<string, string>;
-  tokenGatedGoals: Set<string>;
-  recentClassifications: ClassificationRecord[];
-  explorationCount: number;
-  explorationSuccess: number;
   recentFailures: number;
   recentTotal: number;
-  tierRoutingConfig: TierRoutingConfig;
 }
 
 // ─── Main Dispatch Function ───
@@ -108,43 +94,10 @@ export async function dispatchStep(
     logger.info('[BP-018] Injected runtime constraints', { executionId, count: runtimeConstraints.length });
   }
 
-  // G5/Q4: 动态模型路由
-  const autoTier = classifyTaskComplexity(input, '', ctx.tierRoutingConfig);
-  const taskCategory = inferTaskCategory('', input);
-  const historicalTier = getHistoricalBestTier(taskCategory, ctx.recentClassifications);
-  const baseTier = historicalTier || autoTier;
-  const { tier: exploredTier, exploring } = maybeExploreDowngrade(baseTier, taskCategory, ctx.tierRoutingConfig.explorationRate);
-  if (exploring) ctx.explorationCount++;
-  let tier: string = exploredTier;
-  if (ctx.routingOverrides.has(taskCategory) && tier === 'premium') {
-    tier = ctx.routingOverrides.get(taskCategory)!;
-  }
-  if (ctx.tokenGatedGoals.has(goal.id) && tier === 'premium') tier = 'standard';
-
-  // O2c: Adaptive routing
-  try {
-    const recentSessions = await prisma.studioEvent.findMany({
-      where: { agentRole: 'executor', tokenInput: { gt: 0 } },
-      orderBy: { timestamp: 'desc' },
-      take: 10,
-    });
-    if (recentSessions.length >= 5) {
-      const avgCacheHitRate = recentSessions.reduce((sum, e) =>
-        sum + (e.tokenCacheRead || 0) / Math.max(e.tokenInput || 1, 1), 0) / recentSessions.length;
-      if (avgCacheHitRate < 0.3 && tier === 'premium') {
-        tier = 'standard';
-        logger.info('[GoalScheduler] Adaptive routing: downgraded to standard due to low cache hit rate', { avgCacheHitRate: avgCacheHitRate.toFixed(3) });
-      }
-    }
-  } catch { /* best-effort */ }
-
-  // OBS-6: 注入分类上下文到 input
+  // B57-P0: Executor is always fast-only — no tier classification
+  const tier = 'fast';
   if (input) {
-    input.model = tier;
-    (input as any).classifyReason = classifyTaskComplexity(input, '', ctx.tierRoutingConfig);
-    (input as any).taskCategory = taskCategory;
-    (input as any).riskHits = (input?.acGroup?.acs ? JSON.stringify(input.acGroup.acs).toLowerCase().match(/(migration|migrate|auth|authentication|security|financial|payment|encrypt|crypto)/gi)?.length || 0 : 0);
-    (input as any).estimatedLines = (input?.acGroup?.acs?.length || 1) * 15;
+    input.model = 'fast';
     await goalService.updateStepExecution(executionId, { input }).catch(() => {});
   }
 
@@ -208,19 +161,6 @@ export async function dispatchStep(
   const strategy = getDispatchStrategy(ctx.recentFailures, ctx.recentTotal);
   const effectiveConcurrency = strategy === 'conservative' ? 2 : MAX_CONCURRENT;
 
-  // Track classification
-  ctx.recentClassifications.push({
-    time: new Date().toISOString(),
-    executionId,
-    taskType: input?.taskType || 'sub-agent',
-    acCount: input?.acGroup?.acs?.length || 1,
-    fileCount: (input?.acGroup?.files || []).length,
-    classified: autoTier,
-    final: tier,
-    taskCategory,
-  });
-  if (ctx.recentClassifications.length > 200) ctx.recentClassifications.shift();
-  persistRoutingStats(ctx.recentClassifications);
   const dispatchStart = Date.now();
   logger.info('[GoalScheduler] Dispatching', {
     strategy,
@@ -229,7 +169,7 @@ export async function dispatchStep(
     goalId: goal.id,
     stepIndex,
     taskType: input?.taskType || 'sub-agent',
-    tier: autoTier === tier ? tier : `${tier} (auto-classified: ${autoTier})`,
+    tier,
     hasRoleConstraints: roleConstraints.length > 0,
     hasSiblingContext: !!siblingContext,
     siblingContextSize: siblingContext?.length || 0,
@@ -237,21 +177,13 @@ export async function dispatchStep(
     companyKnowledgeSize: companyKnowledge?.length || 0,
   });
 
-  // Knowledge context injection — unified via buildKnowledgeContext
+  // Knowledge context injection — task-relevant search only (fast tier skips full DB knowledge)
   let knowledgeContext = '';
-
-  // FIX #6: fast-tier 跳过全量 DB knowledge，只用 task-relevant search
-  if (tier !== 'fast') {
-    try {
-      const { buildKnowledgeContext } = await import('../knowledge/consumers/prompt-builder.js');
-      knowledgeContext = await buildKnowledgeContext('executor');
-    } catch { /* best-effort */ }
-  }
 
   // AS-019: task-relevant knowledge search (replaces generic getRecentContext)
   try {
     const { knowledgeBus } = await import('../knowledge/knowledge-bus.service.js');
-    const searchLimit = tier === 'fast' ? 3 : 5;
+    const searchLimit = 3;
     const searchResults = knowledgeBus.search(prompt || goal.title, { limit: searchLimit });
     if (searchResults.length > 0) {
       const searchContext = knowledgeBus.formatSearchForPrompt(searchResults);
@@ -317,7 +249,7 @@ export async function dispatchStep(
       id: executionId,
       executionId,
       agentType: 'claude',
-      model: (input?.model as string) || autoTier,
+      model: 'fast',
       prompt,
       onProgress,
       parameters: {
@@ -348,26 +280,6 @@ export async function dispatchStep(
     const newState = updateDispatchOutcome({ failures: ctx.recentFailures, total: ctx.recentTotal }, result.success);
     ctx.recentFailures = newState.failures;
     ctx.recentTotal = newState.total;
-    const cls = ctx.recentClassifications.find(c => c.executionId === executionId);
-    if (cls) {
-      cls.outcome = result.success ? 'success' : 'failure';
-      cls.durationMs = dispatchDuration;
-      if (cls.final !== cls.classified) {
-        if (result.success) ctx.explorationSuccess++;
-        logger.info('[GoalScheduler] ε-greedy result', {
-          classified: cls.classified, used: cls.final,
-          success: result.success, explorationTotal: ctx.explorationCount,
-          explorationSuccess: ctx.explorationSuccess,
-        });
-      }
-    }
-    preferenceObserver.updateFromRoutingFeedback(ctx.recentClassifications.map(c => ({
-      taskId: c.executionId,
-      tier: c.final as 'premium' | 'standard' | 'fast',
-      result: c.outcome as 'success' | 'failure',
-      duration: c.durationMs || 0,
-      timestamp: Date.now(),
-    }))).catch((e: any) => { logger.warn('[GoalScheduler] preferenceObserver failed', { error: String(e) }); });
 
     if (result.success) {
       await handleDispatchSuccess(executionId, goal, input, tier, strategy, result, dispatchStart, dispatchDuration, ctx);

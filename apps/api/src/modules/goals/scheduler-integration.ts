@@ -46,14 +46,8 @@ export class GoalScheduler {
   private getDispatchContext(): DispatchContext {
     return {
       runtimeConstraints: this.runtimeConstraints,
-      routingOverrides: this.routingOverrides,
-      tokenGatedGoals: this.tokenGatedGoals,
-      recentClassifications: this.recentClassifications,
-      explorationCount: this.explorationCount,
-      explorationSuccess: this.explorationSuccess,
       recentFailures: this.recentFailures,
       recentTotal: this.recentTotal,
-      tierRoutingConfig: DEFAULT_TIER_ROUTING,
     };
   }
 
@@ -297,8 +291,6 @@ export class GoalScheduler {
       }
 
       // 同步 mutable state 回 class
-      this.explorationCount = ctx.explorationCount;
-      this.explorationSuccess = ctx.explorationSuccess;
       this.recentFailures = ctx.recentFailures;
       this.recentTotal = ctx.recentTotal;
 
@@ -313,8 +305,6 @@ export class GoalScheduler {
     const ctx = this.getDispatchContext();
     await dispatchStep(execWithStep, goal, ctx);
     // 同步 mutable state 回 class
-    this.explorationCount = ctx.explorationCount;
-    this.explorationSuccess = ctx.explorationSuccess;
     this.recentFailures = ctx.recentFailures;
     this.recentTotal = ctx.recentTotal;
   }
