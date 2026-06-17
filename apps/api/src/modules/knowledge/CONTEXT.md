@@ -33,6 +33,7 @@
 | `signalAggregator` | `signal-aggregator.ts` | 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | `fetchExternal` | `producers/external-fetcher.ts` | 外部文档抓取 + 摄入 |
 | `knowledgeRoutes` | `routes.ts` | REST API（含 /unified 统一浏览） |
+| `ImproverScheduler` | `improver-scheduler.service.ts` | 自文档化调度器（每小时刷新 stale CONTEXT.md + 生成架构文档） |
 
 ## 目录结构
 
@@ -53,6 +54,7 @@ knowledge/
 ├── resolution.service.ts      # 解法库（独立子系统）
 ├── evolution.service.ts       # 知识演化
 ├── evolution-scheduler.ts     # 演化调度
+├── improver-scheduler.service.ts # 自文档化调度器（refreshStaleContext + runArchDocs）
 ├── preference-observer.ts     # Producer: 用户偏好
 ├── rule-scanner.ts            # Producer: 业务规则
 ├── env-snapper.ts             # Producer: 环境快照
@@ -81,6 +83,7 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ B56: refreshStaleContext — 自动刷新 stale CONTEXT.md（扫描 ⚠️ 标记 → 提取代码结构 → LLM 填充空章节 → 保留修复历史）+ startScheduler 替换 runSelfDoc
 - ✅ `c386e578`: AuditorAgent logger + KnowledgeBus orphan cleanup + retry cap
 - ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
 - ✅ `36a91ee2`: O2-KR1 注入命中率接线 — consumption 事件 + metric query

@@ -216,19 +216,99 @@ Be terse. Chinese preferred. Focus on facts from the code structure, not design 
   }
 
   /**
-   * AC2: 启动调度器，每小时执行一次 runSelfDoc + runArchDocs
+   * Scan subdirectories for stale CONTEXT.md files (containing ⚠️ markers).
+   * For each stale file: extract code structure → LLM refresh empty sections → clear markers.
+   * Preserves 修复历史 section. Cost: zero when no stale files exist.
+   */
+  async refreshStaleContext(): Promise<{ scanned: number; refreshed: number; errors: number }> {
+    const scanDirs = this.getScanDirs();
+    let scanned = 0;
+    let refreshed = 0;
+    let errors = 0;
+
+    for (const baseDir of scanDirs) {
+      const absBase = path.resolve(baseDir);
+      let subdirs: string[] = [];
+      try {
+        subdirs = fs.readdirSync(absBase, { withFileTypes: true })
+          .filter(d => d.isDirectory())
+          .map(d => path.join(absBase, d.name));
+      } catch { continue; }
+
+      for (const dir of subdirs) {
+        const ctxPath = path.join(dir, 'CONTEXT.md');
+        if (!fs.existsSync(ctxPath)) continue;
+        scanned++;
+
+        let content: string;
+        try { content = fs.readFileSync(ctxPath, 'utf-8'); } catch { continue; }
+
+        // Skip if no stale markers
+        if (!content.includes('⚠️') && !content.includes('STALE_SINCE')) continue;
+
+        try {
+          const extractFn = await tryImportExtractCodeStructure();
+          const structure = extractFn ? extractFn(dir) : fallbackExtractCodeStructure(dir);
+          const structurePrompt = formatCodeStructurePrompt(path.basename(dir), structure);
+
+          // Preserve 修复历史 section
+          const fixHistoryMatch = content.match(/## 修复历史\n[\s\S]*?(?=\n## |$)/);
+          const fixHistory = fixHistoryMatch ? fixHistoryMatch[0] : '';
+
+          // Preserve 注意事项 section if it has real content (not just placeholder)
+          const notesMatch = content.match(/## 注意事项\n([\s\S]*?)(?=\n## |$)/);
+          const hasRealNotes = notesMatch && !notesMatch[1].includes('<!-- ');
+          const preserveNotes = hasRealNotes ? notesMatch![0] : '';
+
+          const systemPrompt = `You are updating a stale CONTEXT.md file for a code directory.
+Fill in ONLY the empty sections (marked with <!-- placeholder comments -->).
+Keep sections that already have real content unchanged.
+Output the COMPLETE file content including the header line and all sections.
+Do NOT include any ⚠️ stale warnings or <!-- STALE_SINCE --> markers.
+Preserve the 修复历史 section exactly as provided below.
+Be terse. Chinese preferred. ≤2KB total.`;
+
+          const userPrompt = `${structurePrompt}
+
+${fixHistory ? `\nExisting section to preserve verbatim:\n${fixHistory}` : ''}
+${preserveNotes ? `\nExisting section to preserve verbatim:\n${preserveNotes}` : ''}`;
+
+          const doc = await modelGateway.prompt(userPrompt, systemPrompt, { tier: 'fast' } as any);
+
+          // Safety: ensure 修复历史 survived
+          const finalContent = fixHistory && !doc.includes('## 修复历史')
+            ? `${doc.trimEnd()}\n\n${fixHistory}\n`
+            : doc;
+
+          fs.writeFileSync(ctxPath, finalContent, 'utf-8');
+          refreshed++;
+          logger.info('[ImproverScheduler] CONTEXT.md refreshed', { dir: path.basename(dir) });
+        } catch (err) {
+          errors++;
+          logger.error('[ImproverScheduler] CONTEXT refresh failed', { dir: path.basename(dir), error: String(err) });
+        }
+      }
+    }
+
+    if (refreshed > 0 || errors > 0) {
+      logger.info('[ImproverScheduler] refreshStaleContext complete', { scanned, refreshed, errors });
+    }
+    return { scanned, refreshed, errors };
+  }
+
+  /**
+   * AC2: 启动调度器，每小时执行一次 refreshStaleContext + runArchDocs
    */
   startScheduler(): void {
-    const dirs = this.getScanDirs();
     selfDocTimer = setInterval(() => {
-      this.runSelfDoc(dirs).catch(err => {
-        logger.error('SelfDoc scheduler tick failed', { error: String(err) });
+      this.refreshStaleContext().catch(err => {
+        logger.error('refreshStaleContext scheduler tick failed', { error: String(err) });
       });
       this.runArchDocs().catch(err => {
         logger.error('ArchDocs scheduler tick failed', { error: String(err) });
       });
     }, SELFDOD_INTERVAL_MS);
-    logger.info('ImproverScheduler started', { intervalMs: SELFDOD_INTERVAL_MS, dirs });
+    logger.info('ImproverScheduler started', { intervalMs: SELFDOD_INTERVAL_MS });
   }
 
   stopScheduler(): void {

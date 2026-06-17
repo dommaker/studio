@@ -30,6 +30,7 @@ vi.mock('fs', async () => {
   return {
     ...actual,
     readdirSync: vi.fn().mockReturnValue([]),
+    readFileSync: vi.fn().mockReturnValue(''),
     writeFileSync: vi.fn(),
     mkdirSync: vi.fn(),
     existsSync: vi.fn().mockReturnValue(true),
@@ -62,6 +63,7 @@ describe('ImproverScheduler', () => {
     });
     mockPrompt.mockResolvedValue('# Generated Doc');
     (fs.readdirSync as any).mockReturnValue([]);
+    (fs.readFileSync as any).mockReturnValue('');
     (fs.writeFileSync as any).mockClear();
   });
 
@@ -163,5 +165,157 @@ describe('ImproverScheduler', () => {
     expect(() => scheduler.stopScheduler()).not.toThrow();
 
     vi.useRealTimers();
+  });
+
+  describe('refreshStaleContext', () => {
+    it('no stale CONTEXT.md → zero LLM calls', async () => {
+      // readdirSync(baseDir) returns one subdir
+      (fs.readdirSync as any).mockImplementation((dir: string) => {
+        if (dir.endsWith('modules')) {
+          return [{ name: 'channels', isDirectory: () => true }];
+        }
+        return []; // fallback for extractCodeStructure
+      });
+      (fs.existsSync as any).mockReturnValue(true);
+      (fs.readFileSync as any).mockReturnValue('# channels\n\n## 职责\nSome content\n');
+
+      process.env.SELFDOC_DIRS = '/fake/modules';
+      const { ImproverScheduler } = await import('../improver-scheduler.service.js');
+      const scheduler = new ImproverScheduler();
+
+      const result = await scheduler.refreshStaleContext();
+
+      expect(result.scanned).toBe(1);
+      expect(result.refreshed).toBe(0);
+      expect(result.errors).toBe(0);
+      expect(mockPrompt).not.toHaveBeenCalled();
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+      delete process.env.SELFDOC_DIRS;
+    });
+
+    it('stale CONTEXT.md found → LLM called, file rewritten, markers cleared', async () => {
+      const staleContent = `# channels
+
+⚠️ 以下文件已变更: foo.ts
+
+<!-- STALE_SINCE: 2026-06-17 -->
+
+## 职责
+
+## 核心导出
+
+## 修复历史
+- ✅ abc123: some fix
+`;
+
+      (fs.readdirSync as any).mockImplementation((dir: string) => {
+        if (dir.endsWith('modules')) {
+          return [{ name: 'channels', isDirectory: () => true }];
+        }
+        return [{ name: 'foo.ts', isDirectory: () => false }];
+      });
+      (fs.existsSync as any).mockReturnValue(true);
+      (fs.readFileSync as any).mockReturnValue(staleContent);
+      mockPrompt.mockResolvedValue('# channels\n\n## 职责\nUpdated content\n\n## 核心导出\nUpdated exports\n\n## 修复历史\n- ✅ abc123: some fix\n');
+
+      process.env.SELFDOC_DIRS = '/fake/modules';
+      const { ImproverScheduler } = await import('../improver-scheduler.service.js');
+      const scheduler = new ImproverScheduler();
+
+      const result = await scheduler.refreshStaleContext();
+
+      expect(result.scanned).toBe(1);
+      expect(result.refreshed).toBe(1);
+      expect(result.errors).toBe(0);
+      expect(mockPrompt).toHaveBeenCalledTimes(1);
+      expect(fs.writeFileSync).toHaveBeenCalledTimes(1);
+
+      // Verify written content has no stale markers
+      const written = (fs.writeFileSync as any).mock.calls[0][1] as string;
+      expect(written).not.toContain('⚠️');
+      expect(written).not.toContain('STALE_SINCE');
+
+      // Verify 修复历史 preserved
+      expect(written).toContain('## 修复历史');
+      expect(written).toContain('abc123');
+      delete process.env.SELFDOC_DIRS;
+    });
+
+    it('preserves 修复历史 even if LLM drops it', async () => {
+      const staleContent = `# channels
+
+⚠️ stale
+
+## 修复历史
+- ✅ xyz: critical fix
+`;
+
+      (fs.readdirSync as any).mockImplementation((dir: string) => {
+        if (dir.endsWith('modules')) {
+          return [{ name: 'channels', isDirectory: () => true }];
+        }
+        return [];
+      });
+      (fs.existsSync as any).mockReturnValue(true);
+      (fs.readFileSync as any).mockReturnValue(staleContent);
+      // LLM returns content WITHOUT 修复历史 section
+      mockPrompt.mockResolvedValue('# channels\n\n## 职责\nNew content\n');
+
+      process.env.SELFDOC_DIRS = '/fake/modules';
+      const { ImproverScheduler } = await import('../improver-scheduler.service.js');
+      const scheduler = new ImproverScheduler();
+
+      await scheduler.refreshStaleContext();
+
+      const written = (fs.writeFileSync as any).mock.calls[0][1] as string;
+      expect(written).toContain('## 修复历史');
+      expect(written).toContain('xyz: critical fix');
+      delete process.env.SELFDOC_DIRS;
+    });
+
+    it('LLM failure → errors incremented, no throw', async () => {
+      const staleContent = '# channels\n\n⚠️ stale\n\n## 职责\n';
+
+      (fs.readdirSync as any).mockImplementation((dir: string) => {
+        if (dir.endsWith('modules')) {
+          return [{ name: 'channels', isDirectory: () => true }];
+        }
+        return [];
+      });
+      (fs.existsSync as any).mockReturnValue(true);
+      (fs.readFileSync as any).mockReturnValue(staleContent);
+      mockPrompt.mockRejectedValue(new Error('LLM down'));
+
+      process.env.SELFDOC_DIRS = '/fake/modules';
+      const { ImproverScheduler } = await import('../improver-scheduler.service.js');
+      const scheduler = new ImproverScheduler();
+
+      const result = await scheduler.refreshStaleContext();
+
+      expect(result.errors).toBe(1);
+      expect(result.refreshed).toBe(0);
+      expect(fs.writeFileSync).not.toHaveBeenCalled();
+      delete process.env.SELFDOC_DIRS;
+    });
+
+    it('no CONTEXT.md in subdir → skipped', async () => {
+      (fs.readdirSync as any).mockImplementation((dir: string) => {
+        if (dir.endsWith('modules')) {
+          return [{ name: 'channels', isDirectory: () => true }];
+        }
+        return [];
+      });
+      (fs.existsSync as any).mockReturnValue(false);
+
+      process.env.SELFDOC_DIRS = '/fake/modules';
+      const { ImproverScheduler } = await import('../improver-scheduler.service.js');
+      const scheduler = new ImproverScheduler();
+
+      const result = await scheduler.refreshStaleContext();
+
+      expect(result.scanned).toBe(0);
+      expect(mockPrompt).not.toHaveBeenCalled();
+      delete process.env.SELFDOC_DIRS;
+    });
   });
 });
