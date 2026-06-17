@@ -354,7 +354,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
       where: { id: goalId },
       data: {
         status: 'executing',
-        context: { ...goalContext, reviewCycle: reviewCycle + 1 } as any,
+        context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } as any,
       },
     });
 
