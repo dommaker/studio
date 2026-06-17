@@ -22,8 +22,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
 
-<!-- STALE_SINCE: 2026-06-16 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/analyst-prompt.ts
+
+<!-- STALE_SINCE: 2026-06-17 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-executor.ts
 
 ## 职责
 
@@ -44,6 +46,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `f7ddf542`: pipeline LLM output resilience — JSON sanitize + deterministic gate
 - ✅ `0fbbc2ef`: B55 管线 Session 隔离 + Analyst 健壮性 + SDD 清理
 - ✅ `66228b3f`: architectureContext 质量闭环 — 统一 Analyst 产出 + 修正 Gate 检查层
 - ✅ `a15515d6`: ContractTest 质量保障 — 4层验证(AC Coverage/TS Syntax/Import Path/RED) + Revision闭环 + 5 CT监控点
