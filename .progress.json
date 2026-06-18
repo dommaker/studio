@@ -1,30 +1,55 @@
 {
-  "taskId": "create-test-sse3",
+  "taskId": "rate-limit-unit-tests",
   "allComplete": true,
   "blocked": null,
   "implementation": {
-    "test-sse3.txt": {
-      "changes": ["AC1: Created file with content 'SSE Test 3'"],
+    "rate-limit.test.ts": {
+      "changes": [
+        "Created __tests__/rate-limit.test.ts with 12 tests",
+        "AC1: authRateLimit — windowMs=60s, max=10, IP-level",
+        "AC2: refreshRateLimit — windowMs=60s, max=20, IP-level",
+        "AC3: Consistency checks across all 4 rate limiters"
+      ],
       "status": "COMPLETE"
     }
   },
   "testResults": {
-    "fileVerification": {
-      "command": "cat /root/projects/studio/test-sse3.txt",
-      "output": "SSE Test 3",
-      "verifiedAt": "2026-06-10T12:00:00Z"
-    }
+    "passed": 12,
+    "total": 12,
+    "failed": 0,
+    "command": "npx vitest run --config vitest.rate-limit.config.ts",
+    "evidence": "Tests: 12 passed, 0 failed. Test file: src/middleware/__tests__/rate-limit.test.ts"
+  },
+  "typeCheck": {
+    "command": "npx tsc --noEmit",
+    "result": "PASS (no new errors from rate-limit files)",
+    "note": "All type errors are pre-existing (@dommaker/* missing declarations, prisma module resolution)"
   },
   "designNotes": {
-    "decisions": ["Pure file creation, no code or tests needed"],
+    "decisions": [
+      "Mock express-rate-limit via vi.mock + vi.hoisted to verify config objects passed to rateLimit()",
+      "Use call order index (mcp=0, api=1, auth=2, refresh=3) since exports are evaluated in source order",
+      "IP-level limiting verified by checking keyGenerator is undefined (default express-rate-limit behavior)"
+    ],
     "failedAttempts": [],
     "uncertainties": [],
-    "constraintsDiscovered": []
+    "constraintsDiscovered": [
+      "express-rate-limit v8 does not expose .config property on the handler — must mock to verify config",
+      "vitest setup-db.ts requires prisma binary in apps/api/node_modules/.bin, which is not present — used custom vitest config without setupFiles"
+    ]
   },
   "acCompliance": {
     "AC1": {
       "status": "PASS",
-      "evidence": "test-sse3.txt exists with content 'SSE Test 3', verified via cat"
+      "evidence": "authConfig.windowMs=60000, authConfig.max=10, authConfig.keyGenerator=undefined"
+    },
+    "AC2": {
+      "status": "PASS",
+      "evidence": "refreshConfig.windowMs=60000, refreshConfig.max=20, refreshConfig.keyGenerator=undefined"
+    },
+    "AC3": {
+      "status": "PASS",
+      "evidence": "All 4 rate limiters: standardHeaders=true, legacyHeaders=false, windowMs=60000, no custom keyGenerator, message.error defined"
     }
   }
 }
