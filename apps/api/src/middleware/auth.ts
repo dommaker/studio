@@ -242,6 +242,33 @@ export function requireRole(...roles: string[]) {
 }
 
 /**
+ * 类型安全地查询资源创建者
+ * 各模型使用对应的 creatorId / createdBy 字段
+ */
+async function findResourceCreator(model: string, resourceId: string): Promise<string | null | undefined> {
+  switch (model) {
+    case 'role': {
+      const r = await prisma.role.findUnique({ where: { id: resourceId }, select: { creatorId: true } });
+      return r?.creatorId ?? undefined;
+    }
+    case 'goal': {
+      const r = await prisma.goal.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
+      return r?.createdBy ?? undefined;
+    }
+    case 'signedDocument': {
+      const r = await prisma.signedDocument.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
+      return r?.createdBy ?? undefined;
+    }
+    case 'document': {
+      const r = await prisma.document.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
+      return r?.createdBy ?? undefined;
+    }
+    default:
+      return undefined;
+  }
+}
+
+/**
  * 所有权检查 - 要求是资源创建者或管理员
  */
 export function checkOwnership(model: string, paramKey: string = 'id') {
@@ -270,20 +297,16 @@ export function checkOwnership(model: string, paramKey: string = 'id') {
     }
     
     try {
-      // 查询资源的创建者
-      const resource = await (prisma as any)[model].findUnique({
-        where: { id: resourceId },
-        select: { creatorId: true, createdBy: true },
-      });
-      
-      if (!resource) {
+      // 查询资源的创建者 — 类型安全的分发
+      const creatorId = await findResourceCreator(model, resourceId);
+
+      if (creatorId === undefined) {
         return res.status(404).json({
           error: '资源不存在',
           code: 'RESOURCE_NOT_FOUND',
         });
       }
-      
-      const creatorId = resource.creatorId || resource.createdBy;
+
       if (creatorId !== authReq.user.id) {
         return res.status(403).json({
           error: '无权操作他人创建的资源',
