@@ -1,30 +1,66 @@
 {
-  "taskId": "create-test-sse3",
+  "taskId": "auth-concurrency-tests",
   "allComplete": true,
   "blocked": null,
   "implementation": {
-    "test-sse3.txt": {
-      "changes": ["AC1: Created file with content 'SSE Test 3'"],
+    "service.ts": {
+      "changes": ["exchangeRefreshToken: changed prisma.refreshToken.update → updateMany with revokedAt:null where clause for atomic revocation + concurrency safety"],
+      "status": "COMPLETE"
+    },
+    "service.test.ts": {
+      "changes": ["Updated existing test assertion (update→updateMany)", "Added concurrency safety test: two concurrent calls with same token, only first succeeds", "Added idempotent revocation test: calling exchangeRefreshToken twice with same token does not throw"],
       "status": "COMPLETE"
     }
   },
   "testResults": {
-    "fileVerification": {
-      "command": "cat /root/projects/studio/test-sse3.txt",
-      "output": "SSE Test 3",
-      "verifiedAt": "2026-06-10T12:00:00Z"
+    "authService": {
+      "command": "vitest run src/modules/auth/__tests__/service.test.ts",
+      "passed": 27,
+      "total": 27,
+      "failed": 0,
+      "evidence": "27 passed (1 file) — includes existing 25 tests + 2 new: concurrency test + idempotent test"
+    },
+    "interceptor": {
+      "command": "vitest run src/api/__tests__/interceptor.test.ts src/api/__tests__/api-interceptor.test.ts",
+      "passed": 21,
+      "total": 21,
+      "failed": 0,
+      "evidence": "21 passed (2 files) — interceptor.test.ts 9 tests, api-interceptor.test.ts 12 tests"
+    },
+    "typeCheckWeb": {
+      "command": "npx tsc --noEmit (web)",
+      "passed": true,
+      "evidence": "No type errors in web app"
+    },
+    "typeCheckApi": {
+      "command": "npx tsc --noEmit (api)",
+      "passed": false,
+      "evidence": "Pre-existing errors: missing packages (@dommaker/harness, @dommaker/studio-agent, etc.) — none related to changes"
     }
   },
   "designNotes": {
-    "decisions": ["Pure file creation, no code or tests needed"],
+    "decisions": [
+      "exchangeRefreshToken: used updateMany with { revokedAt: null } where clause instead of $transaction for atomicity — Prisma updateMany with count check is simpler and avoids the need for a transaction wrapper while maintaining concurrency safety",
+      "AC3: No code changes needed — existing interceptor test suite already covers concurrent 401 queuing (isRefreshing flag + failedQueue pattern) across 2 test files with 21 tests"
+    ],
     "failedAttempts": [],
     "uncertainties": [],
-    "constraintsDiscovered": []
+    "constraintsDiscovered": [
+      "api vitest config has global setupFiles referencing prisma db push — can't run without building studio-prisma package first (prisma generate + tsc)"
+    ]
   },
   "acCompliance": {
     "AC1": {
       "status": "PASS",
-      "evidence": "test-sse3.txt exists with content 'SSE Test 3', verified via cat"
+      "evidence": "exchangeRefreshToken concurrency test: mockSimulated race via mockResolvedValueOnce(count:1) + mockResolvedValueOnce(count:0) with Promise.all — first returns token pair, second returns null"
+    },
+    "AC2": {
+      "status": "PASS",
+      "evidence": "exchangeRefreshToken idempotent test: first call succeeds, second call on revoked token returns null (no throw). Also covered by existing 'returns null for revoked token' test"
+    },
+    "AC3": {
+      "status": "PASS",
+      "evidence": "interceptor.test.ts 'queues concurrent 401s and retries all after single refresh' + api-interceptor.test.ts 'queues second 401 while first refresh is in progress' — both verify isRefreshing flag, failedQueue, and single refresh call for concurrent 401s"
     }
   }
 }

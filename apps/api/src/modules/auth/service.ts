@@ -347,11 +347,16 @@ export async function exchangeRefreshToken(refreshToken: string): Promise<{ acce
     return null;
   }
 
-  // 吊销旧 token
-  await prisma.refreshToken.update({
-    where: { id: record.id },
+  // 原子性吊销旧 token — only succeeds if not already revoked (并发安全)
+  const revoke = await prisma.refreshToken.updateMany({
+    where: { id: record.id, revokedAt: null },
     data: { revokedAt: new Date() },
   });
+
+  if (revoke.count === 0) {
+    // 已被并发请求吊销
+    return null;
+  }
 
   // 创建新 session + access token
   const expiresAt = new Date();

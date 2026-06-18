@@ -377,7 +377,7 @@ describe('auth service', () => {
         revokedAt: null,
         expiresAt: new Date(Date.now() + 86400000),
       } as any);
-      vi.mocked(prisma.refreshToken.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.updateMany).mockResolvedValue({ count: 1 } as any);
       vi.mocked(prisma.session.create).mockResolvedValue({
         id: 'new-s1',
         token: '',
@@ -392,15 +392,80 @@ describe('auth service', () => {
       expect(result!.accessToken).toBeDefined();
       expect(result!.refreshToken).toBeDefined();
       expect(result!.userId).toBe('u1');
-      // Old token revoked
-      expect(prisma.refreshToken.update).toHaveBeenCalledWith(
+      // Old token revoked atomically
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'rt1' },
+          where: { id: 'rt1', revokedAt: null },
           data: expect.objectContaining({ revokedAt: expect.any(Date) }),
         })
       );
       // New session created
       expect(prisma.session.create).toHaveBeenCalled();
+    });
+
+    it('exchangeRefreshToken concurrency: only first succeeds when two use same token', async () => {
+      // Both concurrent calls see the same valid token
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValue({
+        id: 'rt-con',
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 86400000),
+      } as any);
+      // First updateMany succeeds, second fails (race condition simulated)
+      vi.mocked(prisma.refreshToken.updateMany)
+        .mockResolvedValueOnce({ count: 1 } as any)
+        .mockResolvedValueOnce({ count: 0 } as any);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 'new-con-s1',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      const [result1, result2] = await Promise.all([
+        exchangeRefreshToken('same-token'),
+        exchangeRefreshToken('same-token'),
+      ]);
+
+      expect(result1).not.toBeNull();
+      expect(result1!.accessToken).toBeDefined();
+      expect(result1!.refreshToken).toBeDefined();
+      expect(result1!.userId).toBe('u1');
+      // Second concurrent call got null because updateMany count was 0
+      expect(result2).toBeNull();
+    });
+
+    it('exchangeRefreshToken idempotent: calling twice with same token does not throw', async () => {
+      // First call: valid token → success
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValueOnce({
+        id: 'rt-idem',
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 86400000),
+      } as any);
+      vi.mocked(prisma.refreshToken.updateMany).mockResolvedValueOnce({ count: 1 } as any);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 'idem-s1',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      const first = await exchangeRefreshToken('idem-token');
+      expect(first).not.toBeNull();
+
+      // Second call: same token now revoked → return null, no throw
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValueOnce({
+        id: 'rt-idem',
+        userId: 'u1',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86400000),
+      } as any);
+
+      const second = await exchangeRefreshToken('idem-token');
+      expect(second).toBeNull();
     });
 
     it('revokeRefreshToken returns true for valid unredeemed token', async () => {
