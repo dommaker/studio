@@ -1,30 +1,49 @@
 {
-  "taskId": "create-test-sse3",
+  "taskId": "auth-route-tests",
   "allComplete": true,
-  "blocked": null,
-  "implementation": {
-    "test-sse3.txt": {
-      "changes": ["AC1: Created file with content 'SSE Test 3'"],
-      "status": "COMPLETE"
-    }
-  },
-  "testResults": {
-    "fileVerification": {
-      "command": "cat /root/projects/studio/test-sse3.txt",
-      "output": "SSE Test 3",
-      "verifiedAt": "2026-06-10T12:00:00Z"
-    }
-  },
-  "designNotes": {
-    "decisions": ["Pure file creation, no code or tests needed"],
-    "failedAttempts": [],
-    "uncertainties": [],
-    "constraintsDiscovered": []
-  },
   "acCompliance": {
     "AC1": {
       "status": "PASS",
-      "evidence": "test-sse3.txt exists with content 'SSE Test 3', verified via cat"
+      "evidence": "28 route-level tests in routes.test.ts covering register/login/logout/me/guest-session/refresh — request validation, status codes, error response mapping (incl. 401/409/400/500)"
+    },
+    "AC2": {
+      "status": "PASS",
+      "evidence": "Audit log verification tests: register success/failure, login success/failure, logout — all verify AuditService.log() called with correct action/resource/status/errorMessage"
+    },
+    "AC3": {
+      "status": "PASS",
+      "evidence": "15 oauth route tests in oauth.routes.test.ts covering CSRF state cookie validation (valid/invalid/missing), callback error redirects (missing_code, invalid_state, oauth_failed query params), success redirect (URL fragment with tokens)"
+    },
+    "AC4": {
+      "status": "PASS",
+      "evidence": "Rate limit middleware attachment verified via router stack inspection: authRateLimit on register/login, refreshRateLimit on refresh; guest-session has no middleware, /me has optionalAuth only"
     }
+  },
+  "testResults": {
+    "passed": 43,
+    "total": 43,
+    "failed": 0,
+    "command": "npx vitest run --config vitest.unit.config.ts src/modules/auth/__tests__/routes.test.ts src/modules/auth/__tests__/oauth.routes.test.ts",
+    "evidence": "✓ routes.test.ts (28 tests), ✓ oauth.routes.test.ts (15 tests). All 43 passed. Type check: 851 pre-existing errors (missing generated Prisma types, harness packages — none from new tests).",
+    "verifiedAt": "2026-06-18T17:04:13Z"
+  },
+  "designNotes": {
+    "decisions": [
+      "Direct handler invocation from router.stack instead of app.handle() — Express app.handle requires real IncomingMessage/ServerResponse objects, mock req/res don't route properly",
+      "getHandlers() extracts middleware+handler chain from route layers by matching method+path in router.stack — works with parameterized routes using Express raw path patterns",
+      "vi.hoisted for shared mock functions needing per-test configurability (mockGetAuthInfo, mockAuditLog) — vitest.mocks factory is scope-isolated so hoisted vars bridge the gap",
+      "vi.mock paths must match routes.ts perspective, not test file perspective — ../.. from src/modules/auth/__tests__/ != ../.. from src/modules/auth/"
+    ],
+    "failedAttempts": [
+      "app.handle(req, res) with mock req/res — Express doesn't route requests through mock objects; handlers never execute",
+      "vi.hoisted with destructured variables in mock factory — worked after fixing relative paths (need ../../../ from __tests__/, not ../../)"
+    ],
+    "uncertainties": [
+      "studio-prisma/dist stub may affect tsc type check — needed for vitest module resolution but causes prisma:{} cascade errors"
+    ],
+    "constraintsDiscovered": [
+      "express-rate-limit requires req.get() — mock req must provide this or rate-limit middleware crashes with 'Cannot read properties of undefined'",
+      "Success handler paths call res.json() without res.status() (Express defaults to 200) — tests must check json() not status() for success cases"
+    ]
   }
 }
