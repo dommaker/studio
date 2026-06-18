@@ -8,6 +8,8 @@
  * - verifyToken decodes JWT
  * - generateRefreshToken / exchangeRefreshToken / revokeRefreshToken
  */
+import crypto from 'crypto';
+import type { Session, User, RefreshToken } from '@prisma/client';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const TEST_PW = `test-pw-${Date.now()}`;
@@ -55,6 +57,7 @@ import {
   revokeRefreshToken,
   getCurrentUser,
   logout,
+  verifyPassword,
 } from '../service.js';
 
 describe('auth service', () => {
@@ -69,8 +72,8 @@ describe('auth service', () => {
         token: '',
         guestId: 'guest-1',
         expiresAt: new Date(Date.now() + 86400000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      } as unknown as Session);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
 
       const result = await createGuestSession({ guestId: 'guest-1' });
 
@@ -84,8 +87,8 @@ describe('auth service', () => {
         id: 'session-2',
         token: '',
         expiresAt: new Date(Date.now() + 86400000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      } as unknown as Session);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
 
       const result = await createGuestSession({});
 
@@ -114,7 +117,7 @@ describe('auth service', () => {
         id: 'u1',
         email: 'test@test.com',
         passwordHash: null,
-      } as any);
+      } as unknown as User);
 
       await expect(login({ email: 'test@test.com', password: TEST_PW })).rejects.toThrow(
         '未设置密码'
@@ -128,7 +131,7 @@ describe('auth service', () => {
         id: 'u1',
         email: 'test@test.com',
         passwordHash: hash,
-      } as any);
+      } as unknown as User);
 
       await expect(login({ email: 'test@test.com', password: `wrong-${Date.now()}` })).rejects.toThrow(
         '密码错误'
@@ -143,15 +146,15 @@ describe('auth service', () => {
         email: 'test@test.com',
         passwordHash: hash,
         role: 'User',
-      } as any);
+      } as unknown as User);
       vi.mocked(prisma.session.findMany).mockResolvedValue([]);
       vi.mocked(prisma.session.create).mockResolvedValue({
         id: 's1',
         token: '',
         expiresAt: new Date(Date.now() + 604800000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      } as unknown as Session);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as unknown as RefreshToken);
 
       const result = await login({ email: 'test@test.com', password: TEST_PW });
 
@@ -168,19 +171,19 @@ describe('auth service', () => {
         email: 'test@test.com',
         passwordHash: hash,
         role: 'User',
-      } as any);
+      } as unknown as User);
       vi.mocked(prisma.session.findMany).mockResolvedValue([
         { id: 'guest-s1' },
         { id: 'guest-s2' },
-      ] as any);
-      vi.mocked(prisma.session.deleteMany).mockResolvedValue({ count: 2 } as any);
+      ] as unknown as Session[]);
+      vi.mocked(prisma.session.deleteMany).mockResolvedValue({ count: 2 });
       vi.mocked(prisma.session.create).mockResolvedValue({
         id: 's1',
         token: '',
         expiresAt: new Date(Date.now() + 604800000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      } as unknown as Session);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as unknown as RefreshToken);
 
       await login({ email: 'test@test.com', password: TEST_PW });
 
@@ -201,15 +204,15 @@ describe('auth service', () => {
         email: 'test@test.com',
         passwordHash: hash,
         role: 'User',
-      } as any);
+      } as unknown as User);
       vi.mocked(prisma.session.findMany).mockResolvedValue([]);
       vi.mocked(prisma.session.create).mockResolvedValue({
         id: 's1',
         token: '',
         expiresAt: new Date(Date.now() + 604800000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      } as unknown as Session);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as unknown as RefreshToken);
 
       await login({ email: 'test@test.com', password: TEST_PW });
 
@@ -222,7 +225,7 @@ describe('auth service', () => {
       vi.mocked(prisma.user.findUnique).mockResolvedValue({
         id: 'existing',
         email: 'taken@test.com',
-      } as any);
+      } as unknown as User);
 
       await expect(register({ email: 'taken@test.com', password: TEST_PW })).rejects.toThrow(
         '邮箱已被注册'
@@ -235,14 +238,14 @@ describe('auth service', () => {
         id: 'new-u1',
         email: 'new@test.com',
         role: 'User',
-      } as any);
+      } as unknown as User);
       vi.mocked(prisma.session.create).mockResolvedValue({
         id: 's-new',
         token: '',
         expiresAt: new Date(Date.now() + 604800000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      } as unknown as Session);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as unknown as RefreshToken);
 
       const result = await register({ email: 'new@test.com', password: TEST_PW, name: 'New' });
 
@@ -264,7 +267,7 @@ describe('auth service', () => {
       vi.mocked(prisma.session.findUnique).mockResolvedValue({
         id: 's1',
         expiresAt: new Date(Date.now() - 1000),
-      } as any);
+      } as unknown as Session);
 
       const result = await getCurrentUser('s1');
       expect(result.user).toBeNull();
@@ -275,7 +278,7 @@ describe('auth service', () => {
         id: 's1',
         expiresAt: new Date(Date.now() + 86400000),
         User: { id: 'u1', email: 'test@test.com', role: 'User' },
-      } as any);
+      } as unknown as Session);
 
       const result = await getCurrentUser('s1');
       expect(result.user?.id).toBe('u1');
@@ -284,7 +287,7 @@ describe('auth service', () => {
 
   describe('logout', () => {
     it('expires the session', async () => {
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
 
       await logout('s1');
 
@@ -299,8 +302,8 @@ describe('auth service', () => {
     });
 
     it('revokes all refresh tokens when userId provided', async () => {
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.refreshToken.updateMany).mockResolvedValue({ count: 3 } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
+      vi.mocked(prisma.refreshToken.updateMany).mockResolvedValue({ count: 3 });
 
       await logout('s1', 'u1');
 
@@ -312,7 +315,7 @@ describe('auth service', () => {
     });
 
     it('does not revoke refresh tokens when userId not provided', async () => {
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
 
       await logout('s1');
 
@@ -322,7 +325,7 @@ describe('auth service', () => {
 
   describe('refresh tokens', () => {
     it('generateRefreshToken creates a token', async () => {
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as unknown as RefreshToken);
 
       const token = await generateRefreshToken('u1');
 
@@ -336,7 +339,7 @@ describe('auth service', () => {
         id: 'rt1',
         revokedAt: new Date(),
         expiresAt: new Date(Date.now() + 86400000),
-      } as any);
+      } as unknown as RefreshToken);
 
       const result = await exchangeRefreshToken('revoked-token');
       expect(result).toBeNull();
@@ -347,7 +350,7 @@ describe('auth service', () => {
         id: 'rt1',
         revokedAt: null,
         expiresAt: new Date(Date.now() - 1000),
-      } as any);
+      } as unknown as RefreshToken);
 
       const result = await exchangeRefreshToken('expired-token');
       expect(result).toBeNull();
@@ -357,7 +360,7 @@ describe('auth service', () => {
       vi.mocked(prisma.refreshToken.findUnique).mockResolvedValue({
         id: 'rt1',
         revokedAt: new Date(),
-      } as any);
+      } as unknown as RefreshToken);
 
       const result = await revokeRefreshToken('already-revoked');
       expect(result).toBe(false);
@@ -376,15 +379,15 @@ describe('auth service', () => {
         userId: 'u1',
         revokedAt: null,
         expiresAt: new Date(Date.now() + 86400000),
-      } as any);
-      vi.mocked(prisma.refreshToken.update).mockResolvedValue({} as any);
+      } as unknown as RefreshToken);
+      vi.mocked(prisma.refreshToken.updateMany).mockResolvedValue({ count: 1 } as any);
       vi.mocked(prisma.session.create).mockResolvedValue({
         id: 'new-s1',
         token: '',
         expiresAt: new Date(Date.now() + 604800000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      } as unknown as Session);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as unknown as Session);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as unknown as RefreshToken);
 
       const result = await exchangeRefreshToken('valid-refresh');
 
@@ -392,10 +395,10 @@ describe('auth service', () => {
       expect(result!.accessToken).toBeDefined();
       expect(result!.refreshToken).toBeDefined();
       expect(result!.userId).toBe('u1');
-      // Old token revoked
-      expect(prisma.refreshToken.update).toHaveBeenCalledWith(
+      // Old token revoked atomically
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'rt1' },
+          where: { id: 'rt1', revokedAt: null },
           data: expect.objectContaining({ revokedAt: expect.any(Date) }),
         })
       );
@@ -403,12 +406,77 @@ describe('auth service', () => {
       expect(prisma.session.create).toHaveBeenCalled();
     });
 
+    it('exchangeRefreshToken concurrency: only first succeeds when two use same token', async () => {
+      // Both concurrent calls see the same valid token
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValue({
+        id: 'rt-con',
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 86400000),
+      } as any);
+      // First updateMany succeeds, second fails (race condition simulated)
+      vi.mocked(prisma.refreshToken.updateMany)
+        .mockResolvedValueOnce({ count: 1 } as any)
+        .mockResolvedValueOnce({ count: 0 } as any);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 'new-con-s1',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      const [result1, result2] = await Promise.all([
+        exchangeRefreshToken('same-token'),
+        exchangeRefreshToken('same-token'),
+      ]);
+
+      expect(result1).not.toBeNull();
+      expect(result1!.accessToken).toBeDefined();
+      expect(result1!.refreshToken).toBeDefined();
+      expect(result1!.userId).toBe('u1');
+      // Second concurrent call got null because updateMany count was 0
+      expect(result2).toBeNull();
+    });
+
+    it('exchangeRefreshToken idempotent: calling twice with same token does not throw', async () => {
+      // First call: valid token → success
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValueOnce({
+        id: 'rt-idem',
+        userId: 'u1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 86400000),
+      } as any);
+      vi.mocked(prisma.refreshToken.updateMany).mockResolvedValueOnce({ count: 1 } as any);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 'idem-s1',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      const first = await exchangeRefreshToken('idem-token');
+      expect(first).not.toBeNull();
+
+      // Second call: same token now revoked → return null, no throw
+      vi.mocked(prisma.refreshToken.findUnique).mockResolvedValueOnce({
+        id: 'rt-idem',
+        userId: 'u1',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 86400000),
+      } as any);
+
+      const second = await exchangeRefreshToken('idem-token');
+      expect(second).toBeNull();
+    });
+
     it('revokeRefreshToken returns true for valid unredeemed token', async () => {
       vi.mocked(prisma.refreshToken.findUnique).mockResolvedValue({
         id: 'rt1',
         revokedAt: null,
-      } as any);
-      vi.mocked(prisma.refreshToken.update).mockResolvedValue({} as any);
+      } as unknown as RefreshToken);
+      vi.mocked(prisma.refreshToken.update).mockResolvedValue({} as unknown as RefreshToken);
 
       const result = await revokeRefreshToken('valid-token');
       expect(result).toBe(true);
@@ -428,6 +496,107 @@ describe('auth service', () => {
 
     it('verifyToken returns null for empty string', () => {
       expect(verifyToken('')).toBeNull();
+    });
+  });
+
+  describe('verifyPassword (PBKDF2 compatibility)', () => {
+    const testPassword = 'legacy-password-123';
+    const testSalt = 'test-salt-value';
+    const pbkdf2Digest = crypto.pbkdf2Sync(testPassword, testSalt, 1000, 64, 'sha256').toString('hex');
+    const legacyHash = `${testSalt}:${pbkdf2Digest}`;
+
+    it('recognizes legacy PBKDF2 format and returns needsRehash=true on valid password', () => {
+      const result = verifyPassword(testPassword, legacyHash);
+      expect(result.valid).toBe(true);
+      expect(result.needsRehash).toBe(true);
+    });
+
+    it('returns valid=false and needsRehash=false for wrong PBKDF2 password', () => {
+      const result = verifyPassword('wrong-password', legacyHash);
+      expect(result.valid).toBe(false);
+      expect(result.needsRehash).toBe(false);
+    });
+
+    it('returns valid=false and needsRehash=false for malformed hash (no colon)', () => {
+      const result = verifyPassword(testPassword, 'malformedhash');
+      // bcrypt.compareSync fails → false
+      expect(result.valid).toBe(false);
+      expect(result.needsRehash).toBe(false);
+    });
+
+    it('returns needsRehash=false for bcrypt format hash', async () => {
+      const bcrypt = await import('bcryptjs');
+      const bcryptHash = bcrypt.hashSync(testPassword, 4);
+      const result = verifyPassword(testPassword, bcryptHash);
+      expect(result.valid).toBe(true);
+      expect(result.needsRehash).toBe(false);
+    });
+
+    it('handles PBKDF2 with empty salt or hash gracefully', () => {
+      expect(verifyPassword(testPassword, ':hashonly').valid).toBe(false);
+      expect(verifyPassword(testPassword, 'saltonly:').valid).toBe(false);
+    });
+  });
+
+  describe('login with PBKDF2 legacy hash', () => {
+    const testPassword = 'legacy-pw';
+    const testSalt = 'legacy-salt';
+    const pbkdf2Digest = crypto.pbkdf2Sync(testPassword, testSalt, 1000, 64, 'sha256').toString('hex');
+    const legacyHash = `${testSalt}:${pbkdf2Digest}`;
+
+    it('silently upgrades PBKDF2 hash to bcrypt on successful login (AC2)', async () => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        id: 'u-legacy',
+        email: 'legacy@test.com',
+        passwordHash: legacyHash,
+        role: 'User',
+      } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 's-legacy',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      vi.mocked(prisma.user.update).mockResolvedValue({} as any);
+
+      await login({ email: 'legacy@test.com', password: testPassword });
+
+      // Verify silent upgrade: user.update called with bcrypt hash
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'u-legacy' },
+          data: expect.objectContaining({
+            passwordHash: expect.stringMatching(/^\$2[aby]\$\d+\$/),
+          }),
+        })
+      );
+    });
+
+    it('uses bcrypt path after PBKDF2 upgrade (no rehash on subsequent login) (AC3)', async () => {
+      const bcrypt = await import('bcryptjs');
+      const bcryptHash = bcrypt.hashSync(testPassword, 4);
+
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        id: 'u-upgraded',
+        email: 'upgraded@test.com',
+        passwordHash: bcryptHash,
+        role: 'User',
+      } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 's-upgraded',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      await login({ email: 'upgraded@test.com', password: testPassword });
+
+      // bcrypt path: no rehash needed, user.update should not be called
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 });

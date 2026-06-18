@@ -14,7 +14,7 @@ const auditService = new AuditService(prisma as any);
 /**
  * 获取客户端 IP
  */
-function getClientIP(req: Request): string {
+export function getClientIP(req: Request): string {
   const forwarded = req.headers['x-forwarded-for'];
   if (forwarded) {
     const ips = Array.isArray(forwarded) ? forwarded : forwarded.split(',');
@@ -26,7 +26,7 @@ function getClientIP(req: Request): string {
 /**
  * 判断是否为关键操作（需要审计）
  */
-function isCriticalOperation(req: Request): boolean {
+export function isCriticalOperation(req: Request): boolean {
   // DELETE 方法始终记录
   if (req.method === 'DELETE') {
     return true;
@@ -81,7 +81,7 @@ export function auditLogger() {
 /**
  * 记录审计日志
  */
-async function recordAuditLog(
+export async function recordAuditLog(
   req: Request,
   res: Response,
   authInfo: { sessionId: string; userId?: string; anonymousId?: string },
@@ -122,7 +122,7 @@ async function recordAuditLog(
 /**
  * 从路径提取资源类型
  */
-function getResourceType(path: string): string {
+export function getResourceType(path: string): string {
   const parts = path.split('/').filter(Boolean);
   // /api/v1/roles/:id -> roles
   if (parts.length >= 3) {
@@ -134,7 +134,7 @@ function getResourceType(path: string): string {
 /**
  * 从路径提取资源 ID
  */
-function getResourceId(path: string): string | undefined {
+export function getResourceId(path: string): string | undefined {
   const parts = path.split('/').filter(Boolean);
   // /api/v1/roles/:id -> :id
   if (parts.length >= 4) {
