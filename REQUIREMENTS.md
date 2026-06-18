@@ -3,61 +3,44 @@
 > 步骤：读目标文件 → 按实现指南改 → tsc → npm test → .progress.json
 
 ## 任务
-## TDD 工作流
+## 你的任务
 
-1. 读 AC → 写失败的测试
-2. 运行测试确认失败
-3. 最小实现让测试通过
-4. 重构优化
-5. 对所有 AC 重复
-6. 运行 npm test + type check + lint
-7. 更新 .progress.json（设置 allComplete: true 当且仅当所有 AC 满足）
+## 验收标准
+1. 为 exchangeGoogleCode 编写集成测试：mock fetch 模拟 Google token endpoint 成功/失败响应、profile endpoint 成功/失败响应
+2. 为 exchangeGitHubCode 编写集成测试：mock fetch 模拟 GitHub token endpoint + /user/emails endpoint（含 primary email null 的 fallback 路径）
+3. 验证 OAuth token exchange 错误分类：network error → 503、invalid code → 400、profile fetch fail → 502
 
-完成后在 .progress.json 中记录：
-- 做出的关键设计决策
-- 需要跨步骤协调的事项
+## 预期改动文件
+- apps/api/src/modules/auth/oauth.service.ts
 
+## 已完成的相关工作
+以下并行步骤已先完成，参考其输出可避免重复劳动或冲突：
+
+### ac-route-coverage
+
+### ac-middleware-ext-coverage
+
+
+## 验证
 声明完成前必须：
-1. 运行 npm test 确认所有测试通过（含你新增的测试）
-2. 运行 npm run typecheck（或 tsc --noEmit）确认无类型错误
+1. 运行测试确认所有测试通过（含你新增的测试）。命令见"环境"章节。
+2. 运行类型检查（npx tsc --noEmit）确认无类型错误
 3. 将测试证据写入 .progress.json 的 testResults 字段
 完成后在 .progress.json notes 中记录关键设计决策
 
-
-
-## 验收标准
-1. 在 /root/projects/studio/test-sse3.txt 创建文件，内容为 'SSE Test 3'（无边界情况，纯文件写入）
-
-## 实现指南
-直接用 Write 工具创建文件，内容为 'SSE Test 3'。无函数、无导入、无测试需求。
-
-## 参考模式
-- 参考 test-sse.txt 和 test-sse2.txt 的创建方式
-
-## 预期改动文件
-- test-sse3.txt
-
+## 🔴 数据库隔离红线
+你只创建 migration 文件（packages/studio-prisma/prisma/migrations/），不执行它。
+禁止运行：prisma migrate dev、prisma db push、prisma migrate reset、sqlite3 写入。
+Migration 应用由 server 在 integration merge 后统一执行。
+DATABASE_URL 已被清空，任何 Prisma 写操作都会失败。
 
 ## 你负责的验收标准
-1. 在 /root/projects/studio/test-sse3.txt 创建文件，内容为 'SSE Test 3'（无边界情况，纯文件写入）
-
-## 架构上下文（Analyst 已探索并验证）
-
-**下面的信息已经过 Analyst 代码探索验证。直接使用，不需要自己重新读文件。** 只在出现矛盾时才验证。
-
-### 调用链
-N/A
-
-*以上信息验证于 commit 4775b14*
-
-## 实现指南
-直接用 Write 工具创建文件，内容为 'SSE Test 3'。无函数、无导入、无测试需求。
-
-## 参考模式
-- 参考 test-sse.txt 和 test-sse2.txt 的创建方式
+1. 为 exchangeGoogleCode 编写集成测试：mock fetch 模拟 Google token endpoint 成功/失败响应、profile endpoint 成功/失败响应
+2. 为 exchangeGitHubCode 编写集成测试：mock fetch 模拟 GitHub token endpoint + /user/emails endpoint（含 primary email null 的 fallback 路径）
+3. 验证 OAuth token exchange 错误分类：network error → 503、invalid code → 400、profile fetch fail → 502
 
 ## 预期改动文件
-- test-sse3.txt
+- apps/api/src/modules/auth/oauth.service.ts
 
 ## 行为约束
 - 完成前必须运行 npm test + type check + lint

@@ -1,30 +1,67 @@
 {
-  "taskId": "create-test-sse3",
+  "taskId": "oauth-tests-error-classification",
   "allComplete": true,
   "blocked": null,
   "implementation": {
-    "test-sse3.txt": {
-      "changes": ["AC1: Created file with content 'SSE Test 3'"],
+    "oauth.service.ts": {
+      "changes": [
+        "AC1: Added OAuthError class extending Error with statusCode property",
+        "AC1: Added try-catch around fetch calls in exchangeGoogleCode → OAuthError(503)",
+        "AC1/AC3: Token exchange failure → OAuthError(400)",
+        "AC1/AC3: Profile fetch failure → OAuthError(502)",
+        "AC2: Added error classification (400/502/503) to exchangeGitHubCode",
+        "AC2: Added try-catch around fetch calls in exchangeGitHubCode"
+      ],
+      "status": "COMPLETE"
+    },
+    "oauth.service.test.ts": {
+      "changes": [
+        "AC1: Added Google exchange tests: success, invalid code (400), profile fail (502), network error (503)",
+        "AC2: Added GitHub exchange tests: success, email fallback, no primary email, invalid code (400), OAuth error field (400), profile fail (502), network error (503)"
+      ],
       "status": "COMPLETE"
     }
   },
   "testResults": {
-    "fileVerification": {
-      "command": "cat /root/projects/studio/test-sse3.txt",
-      "output": "SSE Test 3",
-      "verifiedAt": "2026-06-10T12:00:00Z"
-    }
+    "auth-tests": {
+      "command": "npx vitest run src/modules/auth",
+      "passed": 59,
+      "total": 59,
+      "failed": 0,
+      "evidence": "Test Files 3 passed (3), Tests 59 passed (59)"
+    },
+    "typeCheck": {
+      "command": "npx tsc --noEmit | grep oauth.service",
+      "evidence": "No type errors in oauth.service.ts or test file"
+    },
+    "verifiedAt": "2026-06-18T17:29:00Z"
   },
   "designNotes": {
-    "decisions": ["Pure file creation, no code or tests needed"],
+    "decisions": [
+      "Added OAuthError class instead of using generic Error to carry HTTP status codes",
+      "Used try-catch around each fetch call to distinguish network errors from HTTP errors",
+      "Error mapping: network error → 503, invalid/4xx response → 400, profile fetch fail → 502",
+      "Tests mock globalThis.fetch via vi.stubGlobal in beforeEach/afterEach for isolation",
+      "Modified existing test file (oauth.service.test.ts) instead of creating new file (Phase 3 constraint)"
+    ],
     "failedAttempts": [],
     "uncertainties": [],
-    "constraintsDiscovered": []
+    "constraintsDiscovered": [
+      "setup-db.ts requires prisma binary in apps/api/node_modules which is hoisted to root — worked around with symlinks"
+    ]
   },
   "acCompliance": {
     "AC1": {
       "status": "PASS",
-      "evidence": "test-sse3.txt exists with content 'SSE Test 3', verified via cat"
+      "evidence": "exchangeGoogleCode has integration tests: success path (mock token + profile), invalid code → OAuthError(400), profile fail → OAuthError(502), network error → OAuthError(503)"
+    },
+    "AC2": {
+      "status": "PASS",
+      "evidence": "exchangeGitHubCode has integration tests: success path, profile email null → /user/emails fallback, no primary email → emails[0] fallback, invalid code → OAuthError(400), OAuth error field → OAuthError(400), profile fail → OAuthError(502), network error → OAuthError(503)"
+    },
+    "AC3": {
+      "status": "PASS",
+      "evidence": "Network error during fetch → 503 (tested for both providers), invalid code (4xx) → 400 (tested for both providers), profile fetch fails → 502 (tested for both providers)"
     }
   }
 }

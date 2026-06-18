@@ -50,6 +50,7 @@ import {
   exchangeCodeForTokens,
   getOrCreateOAuthUser,
   createOAuthSession,
+  OAuthError,
 } from '../oauth.service.js';
 
 describe('oauth.service', () => {
@@ -104,10 +105,249 @@ describe('oauth.service', () => {
   });
 
   describe('exchangeCodeForTokens', () => {
+    beforeEach(() => {
+      process.env.GOOGLE_CLIENT_ID = 'test-google-id';
+      process.env.GOOGLE_CLIENT_SECRET = 'test-google-secret';
+      process.env.GITHUB_CLIENT_ID = 'test-github-id';
+      process.env.GITHUB_CLIENT_SECRET = 'test-github-secret';
+    });
+
     it('throws for unsupported provider', async () => {
       await expect(
         exchangeCodeForTokens('unsupported' as any, 'code')
       ).rejects.toThrow(/not supported/i);
+    });
+
+    describe('Google exchange', () => {
+      function mockGoogleTokenResponse(status: number, body: unknown): void {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(JSON.stringify(body), { status })
+        );
+      }
+
+      function mockGoogleProfileResponse(status: number, body: unknown): void {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(JSON.stringify(body), { status })
+        );
+      }
+
+      beforeEach(() => {
+        vi.stubGlobal('fetch', vi.fn());
+      });
+
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      it('exchanges code and returns profile + tokens on success', async () => {
+        mockGoogleTokenResponse(200, {
+          access_token: 'google-at-123',
+          refresh_token: 'google-rt-456',
+          expires_in: 3600,
+        });
+        mockGoogleProfileResponse(200, {
+          id: 'guser-1',
+          email: 'google@example.com',
+          name: 'Google User',
+          picture: 'https://example.com/pic.jpg',
+        });
+
+        const result = await exchangeCodeForTokens('google', 'valid-code');
+
+        expect(result.profile.provider).toBe('google');
+        expect(result.profile.providerAccountId).toBe('guser-1');
+        expect(result.profile.email).toBe('google@example.com');
+        expect(result.tokens.accessToken).toBe('google-at-123');
+        expect(result.tokens.refreshToken).toBe('google-rt-456');
+        expect(result.tokens.expiresAt).toBeInstanceOf(Date);
+      });
+
+      it('throws OAuthError(400) for invalid code', async () => {
+        mockGoogleTokenResponse(400, { error: 'invalid_grant' });
+        // Second call hits same mock again since there's no further fetch
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: 'invalid_grant' }), { status: 400 })
+        );
+
+        const promise = exchangeCodeForTokens('google', 'bad-code');
+        await expect(promise).rejects.toThrow(OAuthError);
+        await expect(promise).rejects.toMatchObject({
+          statusCode: 400,
+          message: 'Google token exchange failed',
+        });
+      });
+
+      it('throws OAuthError(502) when profile fetch fails', async () => {
+        mockGoogleTokenResponse(200, {
+          access_token: 'google-at-123',
+          expires_in: 3600,
+        });
+        mockGoogleProfileResponse(500, {});
+
+        await expect(exchangeCodeForTokens('google', 'valid-code')).rejects.toMatchObject({
+          statusCode: 502,
+          message: 'Failed to fetch Google user profile',
+        });
+      });
+
+      it('throws OAuthError(503) on network error during token exchange', async () => {
+        vi.mocked(globalThis.fetch).mockRejectedValueOnce(new TypeError('fetch failed'));
+
+        await expect(exchangeCodeForTokens('google', 'code')).rejects.toMatchObject({
+          statusCode: 503,
+          message: 'Network error during Google token exchange',
+        });
+      });
+
+      it('throws OAuthError(503) on network error during profile fetch', async () => {
+        mockGoogleTokenResponse(200, {
+          access_token: 'google-at-123',
+          expires_in: 3600,
+        });
+        vi.mocked(globalThis.fetch).mockRejectedValueOnce(new TypeError('network error'));
+
+        await expect(exchangeCodeForTokens('google', 'code')).rejects.toMatchObject({
+          statusCode: 503,
+          message: 'Network error during Google profile fetch',
+        });
+      });
+    });
+
+    describe('GitHub exchange', () => {
+      function mockGitHubTokenResponse(status: number, body: unknown): void {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(JSON.stringify(body), { status })
+        );
+      }
+
+      function mockGitHubProfileResponse(status: number, body: unknown): void {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(JSON.stringify(body), { status })
+        );
+      }
+
+      function mockGitHubEmailsResponse(status: number, body: unknown): void {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(JSON.stringify(body), { status })
+        );
+      }
+
+      beforeEach(() => {
+        vi.stubGlobal('fetch', vi.fn());
+      });
+
+      afterEach(() => {
+        vi.unstubAllGlobals();
+      });
+
+      it('exchanges code and returns profile + tokens on success', async () => {
+        mockGitHubTokenResponse(200, {
+          access_token: 'gh-at-123',
+          refresh_token: 'gh-rt-456',
+          expires_in: 7200,
+        });
+        mockGitHubProfileResponse(200, {
+          id: 42,
+          email: 'github@example.com',
+          name: 'GitHub User',
+          avatar_url: 'https://avatars.example.com/u/42',
+          login: 'ghuser',
+        });
+
+        const result = await exchangeCodeForTokens('github', 'valid-code');
+
+        expect(result.profile.provider).toBe('github');
+        expect(result.profile.providerAccountId).toBe('42');
+        expect(result.profile.email).toBe('github@example.com');
+        expect(result.tokens.accessToken).toBe('gh-at-123');
+        expect(result.tokens.refreshToken).toBe('gh-rt-456');
+        expect(result.tokens.expiresAt).toBeInstanceOf(Date);
+      });
+
+      it('falls back to /user/emails when profile email is null', async () => {
+        mockGitHubTokenResponse(200, {
+          access_token: 'gh-at-123',
+          expires_in: 3600,
+        });
+        mockGitHubProfileResponse(200, {
+          id: 43,
+          email: null,
+          name: null,
+          avatar_url: 'https://avatars.example.com/u/43',
+          login: 'email-fallback',
+        });
+        mockGitHubEmailsResponse(200, [
+          { email: 'primary@example.com', primary: true, verified: true },
+        ]);
+
+        const result = await exchangeCodeForTokens('github', 'code');
+
+        expect(result.profile.email).toBe('primary@example.com');
+        expect(result.profile.name).toBe('email-fallback');
+      });
+
+      it('uses first email from /user/emails when no primary verified email exists', async () => {
+        mockGitHubTokenResponse(200, {
+          access_token: 'gh-at-123',
+          expires_in: 3600,
+        });
+        mockGitHubProfileResponse(200, {
+          id: 44,
+          email: null,
+          name: 'Named User',
+          avatar_url: '',
+          login: 'named',
+        });
+        mockGitHubEmailsResponse(200, [
+          { email: 'unverified@example.com', primary: false, verified: false },
+          { email: 'secondary@example.com', primary: false, verified: true },
+        ]);
+
+        const result = await exchangeCodeForTokens('github', 'code');
+
+        // Falls back to emails[0] when no primary+verified email found
+        expect(result.profile.email).toBe('unverified@example.com');
+      });
+
+      it('throws OAuthError(400) for invalid code', async () => {
+        mockGitHubTokenResponse(400, { error: 'bad_verification_code' });
+
+        await expect(exchangeCodeForTokens('github', 'bad-code')).rejects.toMatchObject({
+          statusCode: 400,
+          message: 'GitHub token exchange failed',
+        });
+      });
+
+      it('throws OAuthError(400) when token response contains error field', async () => {
+        mockGitHubTokenResponse(200, { error: 'invalid_client' });
+
+        await expect(exchangeCodeForTokens('github', 'code')).rejects.toMatchObject({
+          statusCode: 400,
+          message: 'GitHub OAuth error: invalid_client',
+        });
+      });
+
+      it('throws OAuthError(502) when profile fetch fails', async () => {
+        mockGitHubTokenResponse(200, {
+          access_token: 'gh-at-123',
+          expires_in: 3600,
+        });
+        mockGitHubProfileResponse(500, {});
+
+        await expect(exchangeCodeForTokens('github', 'code')).rejects.toMatchObject({
+          statusCode: 502,
+          message: 'Failed to fetch GitHub user profile',
+        });
+      });
+
+      it('throws OAuthError(503) on network error during token exchange', async () => {
+        vi.mocked(globalThis.fetch).mockRejectedValueOnce(new TypeError('fetch failed'));
+
+        await expect(exchangeCodeForTokens('github', 'code')).rejects.toMatchObject({
+          statusCode: 503,
+          message: 'Network error during GitHub token exchange',
+        });
+      });
     });
   });
 
