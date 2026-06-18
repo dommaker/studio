@@ -1,30 +1,56 @@
 {
-  "taskId": "create-test-sse3",
+  "taskId": "auth-middleware-unit-tests",
   "allComplete": true,
   "blocked": null,
   "implementation": {
-    "test-sse3.txt": {
-      "changes": ["AC1: Created file with content 'SSE Test 3'"],
+    "src/middleware/__tests__/auth.test.ts": {
+      "changes": [
+        "AC1: workspaceAuth() — 8 test cases covering token extraction, sha256 hash, DB query, workspace injection, error paths",
+        "AC2: checkOwnership() — 9 test cases covering unauthenticated, Admin bypass, missing param, resource not found, creatorId/createdBy ownership match/mismatch, custom paramKey, invalid model",
+        "AC3: requireNotGuest() — 4 test cases covering no user, Guest role, User role, Admin role",
+        "AC4: generateAnonymousId() — 4 test cases covering format, IP+UA+date consistency, IP variance, UA variance"
+      ],
       "status": "COMPLETE"
     }
   },
   "testResults": {
-    "fileVerification": {
-      "command": "cat /root/projects/studio/test-sse3.txt",
-      "output": "SSE Test 3",
-      "verifiedAt": "2026-06-10T12:00:00Z"
-    }
+    "passed": 26,
+    "total": 26,
+    "failed": 0,
+    "command": "npx vitest run src/middleware/__tests__/auth.test.ts",
+    "evidence": "✓ src/middleware/__tests__/auth.test.ts (26 tests) 26ms\nTest Files 1 passed (1)\nTests 26 passed (26)"
   },
   "designNotes": {
-    "decisions": ["Pure file creation, no code or tests needed"],
+    "decisions": [
+      "Created middleware/__tests__/auth.test.ts (new file) following existing convention of __tests__/<module>.test.ts",
+      "Mocked @dommaker/studio-prisma with workspaceToken, workspace, goal models for static and dynamic model access in checkOwnership",
+      "Used as any casts for mock return values since Prisma delegate types include complex generic params not worth mirroring in test mocks",
+      "Dynamic model access via (prisma as any)[model] validated with 'nonexistentModel' test that exercises the try-catch → 500 path"
+    ],
     "failedAttempts": [],
-    "uncertainties": [],
-    "constraintsDiscovered": []
+    "uncertainties": [
+      "setup-db.ts requires prisma binary at apps/api/node_modules/.bin/prisma which isn't present in pnpm workspace setup — needed symlink from root node_modules"
+    ],
+    "constraintsDiscovered": [
+      "vitest with vi.mock('@dommaker/studio-prisma') requires the package to be resolvable (not just mocked) — studio-prisma must be built first (prisma generate + tsc)"
+    ]
   },
   "acCompliance": {
     "AC1": {
       "status": "PASS",
-      "evidence": "test-sse3.txt exists with content 'SSE Test 3', verified via cat"
+      "evidence": "workspaceAuth: 8 tests covering factory pattern, missing token 401, sha256 hash query, invalid token, revoked token, no workspace, success injection, DB error 500"
+    },
+    "AC2": {
+      "status": "PASS",
+      "evidence": "checkOwnership: 9 tests covering unauthenticated 401, Admin bypass, missing param 400, not found 404, non-owner 403 (creatorId), non-owner 403 (createdBy), owner match (creatorId), owner match (createdBy), custom paramKey, invalid model 500"
+    },
+    "AC3": {
+      "status": "PASS",
+      "evidence": "requireNotGuest: 4 tests covering no user 403, Guest role 403, User role pass, Admin role pass"
+    },
+    "AC4": {
+      "status": "PASS",
+      "evidence": "generateAnonymousId: 4 tests covering anon_ format, IP+UA+date consistency, IP variance, UA variance"
     }
   }
 }
