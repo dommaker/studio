@@ -11,8 +11,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/CONTEXT.md
 
-<!-- STALE_SINCE: 2026-06-15 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-bus.service.ts
+
+<!-- STALE_SINCE: 2026-06-17 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-service.ts
 
 ## 职责
 
@@ -83,6 +85,7 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `ea7b91c9`: knowledge): persist extractFromExecution to StudioEvent (B59-002)
 - ✅ B56: 删 formatIndexSummary() + analyst-knowledge 死链路（loadKnowledge/saveKnowledge/selectRelevantSections）— KnowledgeStore 闭环已覆盖
 - ✅ B56: refreshStaleContext — 自动刷新 stale CONTEXT.md（扫描 ⚠️ 标记 → 提取代码结构 → LLM 填充空章节 → 保留修复历史）+ startScheduler 替换 runSelfDoc
 - ✅ `c386e578`: AuditorAgent logger + KnowledgeBus orphan cleanup + retry cap

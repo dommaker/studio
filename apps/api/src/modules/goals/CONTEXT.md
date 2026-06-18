@@ -39,8 +39,10 @@ Goal 生命周期核心模块。CRUD → Plan → Scheduler → Executor → Rev
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/CONTEXT.md
 
-<!-- STALE_SINCE: 2026-06-16 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/CONTEXT.md, apps/api/src/modules/goals/scheduler-prompt.ts
+
+<!-- STALE_SINCE: 2026-06-17 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/routes.ts, apps/api/src/modules/goals/goal-review.ts, apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/scheduler-dispatch.ts
 
 ## 核心导出
 - `goal.service.ts` → GoalService (Goal CRUD + 审查 + 完成判定)
@@ -63,6 +65,9 @@ verifiedAt: 61f2ab3006736b235471b06ade93f1292584940f
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `857ee9f4`: goals): stats endpoint uses 'succeeded' not 'completed' (B59-006)
+- ✅ `067ce06f`: review): write reviewScore in re-queue path (B59-005)
+- ✅ `b5363a27`: executor): testPassed reads real test results from .progress.json (B59-004)
 - ✅ `c2c21625`: Agent DB 隔离 — 阻止 agent 写生产数据库
 - ✅ `0fbbc2ef`: B55 管线 Session 隔离 + Analyst 健壮性 + SDD 清理
 - ✅ `61f347f2`: goalexecution-failuretype 补完 — handleGoalFailed failureType 路由(B.1/B.2/B.3/B.4) + routes/service 传递(C.2/C.3), 11/11 AC
