@@ -37,7 +37,7 @@ router.get('/', async (_req: Request, res: Response) => {
     // T-059: run harness checkDocsFreshness (checks CAPABILITIES.md sync)
     try {
       const harnessResult = await checkConstraints(
-        { operation: 'file_modification', projectPath: PROJECT_ROOT },
+        { operation: 'module_modification', projectPath: PROJECT_ROOT },
       );
       const relevantIds = ['docs_freshness', 'capability_sync'];
       const relevantResults = [
