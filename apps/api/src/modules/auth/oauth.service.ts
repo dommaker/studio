@@ -24,6 +24,15 @@ interface OAuthTokens {
   expiresAt: Date | null;
 }
 
+export class OAuthError extends Error {
+  constructor(
+    public statusCode: number,
+    message: string
+  ) {
+    super(message);
+    this.name = 'OAuthError';
+  }
+}
 
 /**
  * Get OAuth authorization URL for a provider.
@@ -86,22 +95,27 @@ async function exchangeGoogleCode(code: string): Promise<{ profile: OAuthProfile
   if (!clientId || !clientSecret) throw new Error('Google OAuth not configured');
 
   // Exchange code for tokens
-  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-      redirect_uri: `${redirectBase}/callback/google`,
-      grant_type: 'authorization_code',
-    }),
-  });
+  let tokenRes: Response;
+  try {
+    tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: `${redirectBase}/callback/google`,
+        grant_type: 'authorization_code',
+      }),
+    });
+  } catch {
+    throw new OAuthError(503, 'Network error during Google token exchange');
+  }
 
   if (!tokenRes.ok) {
     const err = await tokenRes.text();
     logger.error('[OAuth] Google token exchange failed', { error: err });
-    throw new Error('Google token exchange failed');
+    throw new OAuthError(400, 'Google token exchange failed');
   }
 
   const tokenData = await tokenRes.json() as {
@@ -111,11 +125,16 @@ async function exchangeGoogleCode(code: string): Promise<{ profile: OAuthProfile
   };
 
   // Fetch user profile
-  const profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
-    headers: { Authorization: `Bearer ${tokenData.access_token}` },
-  });
+  let profileRes: Response;
+  try {
+    profileRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+  } catch {
+    throw new OAuthError(503, 'Network error during Google profile fetch');
+  }
 
-  if (!profileRes.ok) throw new Error('Failed to fetch Google user profile');
+  if (!profileRes.ok) throw new OAuthError(502, 'Failed to fetch Google user profile');
 
   const profileData = await profileRes.json() as {
     id: string;
@@ -146,23 +165,28 @@ async function exchangeGitHubCode(code: string): Promise<{ profile: OAuthProfile
   if (!clientId || !clientSecret) throw new Error('GitHub OAuth not configured');
 
   // Exchange code for tokens
-  const tokenRes = await fetch('https://github.com/login/oauth/access_token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      code,
-      client_id: clientId,
-      client_secret: clientSecret,
-    }),
-  });
+  let tokenRes: Response;
+  try {
+    tokenRes = await fetch('https://github.com/login/oauth/access_token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        code,
+        client_id: clientId,
+        client_secret: clientSecret,
+      }),
+    });
+  } catch {
+    throw new OAuthError(503, 'Network error during GitHub token exchange');
+  }
 
   if (!tokenRes.ok) {
     const err = await tokenRes.text();
     logger.error('[OAuth] GitHub token exchange failed', { error: err });
-    throw new Error('GitHub token exchange failed');
+    throw new OAuthError(400, 'GitHub token exchange failed');
   }
 
   const tokenData = await tokenRes.json() as {
@@ -172,17 +196,22 @@ async function exchangeGitHubCode(code: string): Promise<{ profile: OAuthProfile
     error?: string;
   };
 
-  if (tokenData.error) throw new Error(`GitHub OAuth error: ${tokenData.error}`);
+  if (tokenData.error) throw new OAuthError(400, `GitHub OAuth error: ${tokenData.error}`);
 
   // Fetch user profile
-  const profileRes = await fetch('https://api.github.com/user', {
-    headers: {
-      Authorization: `Bearer ${tokenData.access_token}`,
-      'User-Agent': 'Studio-App',
-    },
-  });
+  let profileRes: Response;
+  try {
+    profileRes = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${tokenData.access_token}`,
+        'User-Agent': 'Studio-App',
+      },
+    });
+  } catch {
+    throw new OAuthError(503, 'Network error during GitHub profile fetch');
+  }
 
-  if (!profileRes.ok) throw new Error('Failed to fetch GitHub user profile');
+  if (!profileRes.ok) throw new OAuthError(502, 'Failed to fetch GitHub user profile');
 
   const profileData = await profileRes.json() as {
     id: number;
@@ -195,12 +224,17 @@ async function exchangeGitHubCode(code: string): Promise<{ profile: OAuthProfile
   // GitHub may not expose email — fetch from /user/emails
   let email = profileData.email;
   if (!email) {
-    const emailsRes = await fetch('https://api.github.com/user/emails', {
-      headers: {
-        Authorization: `Bearer ${tokenData.access_token}`,
-        'User-Agent': 'Studio-App',
-      },
-    });
+    let emailsRes: Response;
+    try {
+      emailsRes = await fetch('https://api.github.com/user/emails', {
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          'User-Agent': 'Studio-App',
+        },
+      });
+    } catch {
+      throw new OAuthError(503, 'Network error during GitHub emails fetch');
+    }
     if (emailsRes.ok) {
       const emails = await emailsRes.json() as Array<{ email: string; primary: boolean; verified: boolean }>;
       const primary = emails.find(e => e.primary && e.verified);
@@ -208,7 +242,7 @@ async function exchangeGitHubCode(code: string): Promise<{ profile: OAuthProfile
     }
   }
 
-  if (!email) throw new Error('Could not retrieve email from GitHub');
+  if (!email) throw new OAuthError(502, 'Could not retrieve email from GitHub');
 
   return {
     profile: {
