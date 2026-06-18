@@ -148,7 +148,7 @@ export function buildSubAgentPrompt(
   ];
 
   // Assemble via Skill template
-  const skillPrompt = buildSkillPrompt('sub-agent-workflow', {
+  const skillPrompt = buildSkillPrompt('green-only-tdd', {
     task: taskParts.join('\n'),
     constraints: constraintsParts.join('\n'),
     knowledgeContext: [siblingContext, companyKnowledge].filter(Boolean).join('\n\n'),
@@ -469,6 +469,25 @@ export async function runIntegrationInCode(
     }
     try {
       execSync(`git merge "${branch}" --no-ff --no-edit`, { cwd: worktree, timeout: 15_000, stdio: 'pipe' });
+
+      // AC-11: 空 merge 检查 — merge 后 diff 必须有实际变更（解决 P5 假成功）
+      try {
+        const diffStat = execSync('git diff HEAD@{1} --stat', { cwd: worktree, timeout: 5_000, stdio: 'pipe' }).toString();
+        if (!diffStat.trim()) {
+          logger.warn('[GoalScheduler] Integration merge empty — branch has no actual changes', { branch, executionId });
+          return { success: false, failureType: 'empty_merge', error: `Merge of ${branch} produced no code changes (empty branch). Executor may have skipped commit (P4).`, failedBranch: branch };
+        }
+      } catch (diffErr) {
+        // HEAD@{1} may not exist on first merge; check diff against first parent instead
+        try {
+          const parentDiff = execSync('git diff HEAD^1 HEAD --stat', { cwd: worktree, timeout: 5_000, stdio: 'pipe' }).toString();
+          if (!parentDiff.trim()) {
+            logger.warn('[GoalScheduler] Integration merge empty (parent diff)', { branch, executionId });
+            return { success: false, failureType: 'empty_merge', error: `Merge of ${branch} produced no code changes (empty branch). Executor may have skipped commit (P4).`, failedBranch: branch };
+          }
+        } catch { /* best-effort: skip empty check if diff fails */ }
+      }
+
       mergedBranches.push(branch);
       logger.info('[GoalScheduler] Integration merged', { branch, executionId });
     } catch (e: any) {
@@ -582,3 +601,99 @@ export async function runIntegrationInCode(
 
   return { success: true };
 }
+
+/**
+ * AC 组内波次分析 — 将同 group 内文件无重叠的 AC 分到同一波次并行执行。
+ *
+ * 判据（三层过滤，与 req/SKILL.md §Step 4 对齐）：
+ * 1. 文件有重叠 → 不同波次
+ * 2. 有语义依赖（dependencies 字段）→ 排到依赖波次之后
+ * 3. 文件无重叠 + 无依赖 → 同一波次并行
+ *
+ * 循环依赖 → 抛出 Error（上层标记 group 失败）
+ */
+export interface WaveAC {
+  id: string;
+  files: string[];
+  dependencies?: string[];
+}
+
+export function analyzeWaves(acs: WaveAC[]): WaveAC[][] {
+  if (!acs || acs.length === 0) return [];
+
+  const acIds = new Set(acs.map(a => a.id));
+
+  // 循环依赖检测（DFS 三色标记）
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = new Map(acs.map(a => [a.id, WHITE]));
+  function dfs(id: string): boolean {
+    color.set(id, GRAY);
+    const ac = acs.find(a => a.id === id);
+    for (const dep of (ac?.dependencies ?? [])) {
+      if (!acIds.has(dep)) continue;
+      const c = color.get(dep);
+      if (c === GRAY) return true;  // 回边 → 循环
+      if (c === WHITE && dfs(dep)) return true;
+    }
+    color.set(id, BLACK);
+    return false;
+  }
+  for (const ac of acs) {
+    if (color.get(ac.id) === WHITE && dfs(ac.id)) {
+      throw new Error(`analyzeWaves: 检测到循环依赖，涉及 AC "${ac.id}"`);
+    }
+  }
+
+  // Step 1: 按依赖拓扑分层（Kahn 算法）
+  const remaining = new Set(acs.map(a => a.id));
+  const topoWaves: string[][] = [];
+  while (remaining.size > 0) {
+    const wave: string[] = [];
+    for (const id of remaining) {
+      const ac = acs.find(a => a.id === id)!;
+      const internalDeps = (ac.dependencies ?? []).filter(d => acIds.has(d));
+      if (internalDeps.every(d => !remaining.has(d))) {
+        wave.push(id);
+      }
+    }
+    if (wave.length === 0) {
+      const left = [...remaining].join(', ');
+      throw new Error(`analyzeWaves: 无法调度（可能循环依赖）: ${left}`);
+    }
+    topoWaves.push(wave);
+    wave.forEach(id => remaining.delete(id));
+  }
+
+  // Step 2: 每个拓扑层内按文件重叠拆子波次
+  const result: WaveAC[][] = [];
+  for (const topoWaveIds of topoWaves) {
+    const acsInLayer = topoWaveIds.map(id => acs.find(a => a.id === id)!);
+    const placed = new Set<string>();
+    for (const ac of acsInLayer) {
+      if (placed.has(ac.id)) continue;
+      const subWave: WaveAC[] = [ac];
+      const files = new Set(ac.files);
+      for (const other of acsInLayer) {
+        if (placed.has(other.id) || other.id === ac.id) continue;
+        if (other.files.some(f => files.has(f))) continue;
+        subWave.push(other);
+        other.files.forEach(f => files.add(f));
+      }
+      result.push(subWave);
+      subWave.forEach(a => placed.add(a.id));
+    }
+  }
+
+  return result;
+}
+
+/** 全局 sub-agent 并发计数器（parent spawn 前检查） */
+let _activeSubAgents = 0;
+const MAX_SUB_AGENTS = 10;
+
+export function getActiveSubAgentCount(): number { return _activeSubAgents; }
+export function canSpawnSubAgents(count: number): boolean {
+  return _activeSubAgents + count <= MAX_SUB_AGENTS;
+}
+export function reserveSubAgentSlots(count: number): void { _activeSubAgents += count; }
+export function releaseSubAgentSlots(count: number): void { _activeSubAgents = Math.max(0, _activeSubAgents - count); }

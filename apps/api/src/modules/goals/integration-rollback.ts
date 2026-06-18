@@ -22,6 +22,7 @@ export type IntegrationFailureType =
   | 'tsc_error'
   | 'test_failure'
   | 'missing_branch'
+  | 'empty_merge'
   | 'unknown';
 
 /** Structured return from runIntegrationInCode (P1) */

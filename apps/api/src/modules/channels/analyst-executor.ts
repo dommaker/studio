@@ -290,6 +290,37 @@ export function validateAnalystOutput(doc: unknown): string[] {
       if (g.files !== undefined && !Array.isArray(g.files)) errors.push(`requirement.acGroups[${i}].files must be an array`);
       if (g.dependencies !== undefined && !Array.isArray(g.dependencies)) errors.push(`requirement.acGroups[${i}].dependencies must be an array`);
     }
+
+    // AC-3: contractTests 非空时，AC 不得含"写测试"类指令
+    const hasContractTests = d.task?.acGroups?.some(g => Array.isArray(g.contractTests) && g.contractTests.length > 0);
+    const testKeywords = ['写测试', '创建测试', '新增测试', 'write test', 'create test', 'add test'];
+    if (hasContractTests) {
+      for (let i = 0; i < d.requirement.acGroups.length; i++) {
+        const g = d.requirement.acGroups[i];
+        if (!g || !Array.isArray(g.acs)) continue;
+        for (const ac of g.acs) {
+          if (typeof ac !== 'string') continue;
+          const lower = ac.toLowerCase();
+          if (testKeywords.some(k => lower.includes(k))) {
+            errors.push(`requirement.acGroups[${i}]: AC 不得包含"写测试"指令（contractTests 已提供契约测试）: "${ac.slice(0, 60)}"`);
+          }
+        }
+      }
+    }
+
+    // AC-4: AC 不得是纯验证步骤（无 files 时）
+    const verifyOnlyPattern = /^(跑|运行|执行|run|execute|验证)\s*(测试|test|tsc|vitest)/;
+    for (let i = 0; i < d.requirement.acGroups.length; i++) {
+      const g = d.requirement.acGroups[i];
+      if (!g || !Array.isArray(g.acs)) continue;
+      const hasFiles = Array.isArray(g.files) && g.files.length > 0;
+      for (const ac of g.acs) {
+        if (typeof ac !== 'string') continue;
+        if (verifyOnlyPattern.test(ac) && !hasFiles) {
+          errors.push(`requirement.acGroups[${i}]: AC 不得是纯验证步骤（无 files）: "${ac.slice(0, 60)}"`);
+        }
+      }
+    }
   }
 
   // requirement.tags/constraints/discoveries: optional, if present must be arrays

@@ -232,15 +232,12 @@ describe('buildSkillPrompt', () => {
     mockFs.existsSync.mockImplementation((p: fs.PathLike) => {
       const s = p.toString();
       if (s === SKILLS_DIR) return true;
-      if (s.includes('sub-agent') && s.includes('sub-agent-workflow')) return true;
+      if (s.includes('green-only-tdd')) return true;
       return false;
     });
-    mockFs.readdirSync.mockReturnValue([
-      { name: 'sub-agent', isDirectory: () => true, isFile: () => false },
-    ] as any);
-    mockFs.readFileSync.mockReturnValue('---\nname: sub-agent-workflow\nversion: 1\n---\n## Task\n{{task}}\n\n## Constraints\n{{constraints}}');
+    mockFs.readFileSync.mockReturnValue('---\nname: green-only-tdd\nversion: 1\n---\n## Task\n{{task}}\n\n## Constraints\n{{constraints}}');
 
-    const result = buildSkillPrompt('sub-agent-workflow', { task: 'implement feature', constraints: 'no any' });
+    const result = buildSkillPrompt('green-only-tdd', { task: 'implement feature', constraints: 'no any' });
     expect(result).toContain('implement feature');
     expect(result).toContain('no any');
     expect(result).not.toContain('{{task}}');

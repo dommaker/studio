@@ -22,29 +22,6 @@ function log(stage: string, data: unknown) {
 
 beforeAll(() => {
   // Create skill templates in <SKILLS_DIR>/<trigger>/<skillName>/SKILL.md structure
-  const subAgentDir = path.join(smokeSkillsDir, 'sub-agent-workflow');
-  fs.mkdirSync(subAgentDir, { recursive: true });
-  fs.writeFileSync(path.join(subAgentDir, 'SKILL.md'), `---
-name: Sub-Agent Workflow
-description: "子 Agent TDD 工作流"
-trigger: sub_agent
-agentTypes: [executor]
-tier: fast
-status: published
----
-## TDD 工作流
-1. 读 AC → 写失败测试
-2. 最小实现让测试通过
-3. 重构优化
-4. 运行 npm test + type check
-
-{{constraints}}
-
-{{knowledgeContext}}
-
-{{task}}
-`);
-
   const greenOnlyDir = path.join(smokeSkillsDir, 'green-only-tdd');
   fs.mkdirSync(greenOnlyDir, { recursive: true });
   fs.writeFileSync(path.join(greenOnlyDir, 'SKILL.md'), `---
@@ -55,8 +32,8 @@ agentTypes: [executor]
 tier: fast
 status: published
 ---
-## GREEN-Only TDD
-只负责实现代码，测试由 Analyst 预先写好。
+## GREEN-Only TDD 工作流
+读契约测试 → 最小实现 → 重构 → 报告 changedFiles。
 
 {{constraints}}
 
@@ -73,16 +50,16 @@ afterAll(() => {
 describe('Pipeline Smoke: skill loading → prompt assembly', () => {
 
   it('stage 1: loadSkillTemplate returns valid template', () => {
-    const tmpl = loadSkillTemplate('sub-agent-workflow');
+    const tmpl = loadSkillTemplate('green-only-tdd');
     log('1-loadTemplate', { found: !!tmpl, name: tmpl?.meta.name });
 
     expect(tmpl).not.toBeNull();
-    expect(tmpl!.meta.name).toBe('Sub-Agent Workflow');
+    expect(tmpl!.meta.name).toBe('GREEN-Only TDD');
     expect(tmpl!.template).toContain('{{task}}');
   });
 
   it('stage 2: buildSkillPrompt assembles with variables', () => {
-    const prompt = buildSkillPrompt('sub-agent-workflow', {
+    const prompt = buildSkillPrompt('green-only-tdd', {
       task: 'AC-1: CSV 解析\nAC-2: JSON 导入',
       constraints: '- 禁止 any type\n- TDD',
       knowledgeContext: '知识: Prisma 批量写入优化',
@@ -95,7 +72,7 @@ describe('Pipeline Smoke: skill loading → prompt assembly', () => {
       hasPlaceholders: prompt.includes('{{'),
     });
 
-    expect(prompt).toContain('## TDD 工作流');
+    expect(prompt).toContain('GREEN-Only TDD');
     expect(prompt).toContain('AC-1: CSV 解析');
     expect(prompt).toContain('禁止 any type');
     expect(prompt).toContain('Prisma 批量写入');
@@ -122,7 +99,7 @@ describe('Pipeline Smoke: skill loading → prompt assembly', () => {
       hasFiles: prompt.includes('src/import.ts'),
       hasSibling: prompt.includes('兄弟上下文'),
       hasCompany: prompt.includes('公司知识'),
-      hasSkillInstructions: prompt.includes('TDD 工作流'),
+      hasSkillInstructions: prompt.includes('GREEN-Only TDD'),
     });
 
     expect(prompt).toContain('批量导入 CSV');
@@ -151,7 +128,7 @@ describe('Pipeline Smoke: skill loading → prompt assembly', () => {
 
   it('stage 5: token efficiency — template vs full injection', () => {
     // Measure: template-based prompt should be smaller than full injection
-    const templatePrompt = buildSkillPrompt('sub-agent-workflow', {
+    const templatePrompt = buildSkillPrompt('green-only-tdd', {
       task: 'AC-1: 简单任务',
       constraints: '',
       knowledgeContext: '',
@@ -159,7 +136,7 @@ describe('Pipeline Smoke: skill loading → prompt assembly', () => {
 
     // Simulate full injection: skill prompt + task + constraints + verification
     const fullInjection = [
-      loadSkillTemplate('sub-agent-workflow')?.template || '',
+      loadSkillTemplate('green-only-tdd')?.template || '',
       '## 你的任务', '', '## 验收标准', 'AC-1: 简单任务',
       '## 验证', '声明完成前必须：', '1. 运行 npm test',
     ].join('\n');
