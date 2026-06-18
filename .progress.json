@@ -1,30 +1,52 @@
 {
-  "taskId": "create-test-sse3",
+  "taskId": "ac-pbkdf2-legacy-compat",
   "allComplete": true,
   "blocked": null,
   "implementation": {
-    "test-sse3.txt": {
-      "changes": ["AC1: Created file with content 'SSE Test 3'"],
+    "service.test.ts": {
+      "changes": [
+        "AC1: Added verifyPassword PBKDF2 legacy format tests (5 cases: valid, invalid, malformed, bcrypt format, empty salt/hash)",
+        "AC2: Added login silent upgrade test — verifies PBKDF2 hash triggers user.update with bcrypt hash",
+        "AC3: Added subsequent login test — verifies upgraded bcrypt hash does NOT trigger rehash"
+      ],
       "status": "COMPLETE"
     }
   },
   "testResults": {
-    "fileVerification": {
-      "command": "cat /root/projects/studio/test-sse3.txt",
-      "output": "SSE Test 3",
-      "verifiedAt": "2026-06-10T12:00:00Z"
-    }
+    "passed": 32,
+    "total": 32,
+    "failed": 0,
+    "command": "cd apps/api && npx vitest run --config vitest.config.ts src/modules/auth/__tests__/service.test.ts",
+    "evidence": "✓ src/modules/auth/__tests__/service.test.ts (32 tests) 797ms\nTest Files 1 passed (1)\nTests 32 passed (32)",
+    "verifiedAt": "2026-06-18T18:15:35Z"
   },
   "designNotes": {
-    "decisions": ["Pure file creation, no code or tests needed"],
+    "decisions": [
+      "Added PBKDF2 tests to existing service.test.ts — Phase 3 constraint prohibits creating new .test.ts files",
+      "Used crypto.pbkdf2Sync to compute known PBKDF2 hashes in tests, avoiding external test fixtures",
+      "login silent upgrade test validates that user.update is called with bcrypt-formatted hash ($2[aby]$)",
+      "Subsequent login test verifies bcrypt path: user.update NOT called when stored hash is already bcrypt"
+    ],
     "failedAttempts": [],
     "uncertainties": [],
-    "constraintsDiscovered": []
+    "constraintsDiscovered": [
+      "setup-db.ts requires prisma binary at apps/api/node_modules/.bin/prisma — needed pnpm install first",
+      "studio-prisma package must be built (prisma generate + tsc) before tests can resolve @dommaker/studio-prisma",
+      "tsc --noEmit has pre-existing errors from unbuilt workspace packages, unrelated to auth changes"
+    ]
   },
   "acCompliance": {
     "AC1": {
       "status": "PASS",
-      "evidence": "test-sse3.txt exists with content 'SSE Test 3', verified via cat"
+      "evidence": "5 tests added for verifyPassword PBKDF2: valid+needsRehash, invalid, malformed->bcrypt fallback, bcrypt format, empty salt/hash edge cases"
+    },
+    "AC2": {
+      "status": "PASS",
+      "evidence": "login test verifies PBKDF2 hash triggers silent upgrade — user.update called with bcrypt hash on successful login"
+    },
+    "AC3": {
+      "status": "PASS",
+      "evidence": "login test verifies bcrypt-stored hash after upgrade does NOT trigger user.update (no rehash)"
     }
   }
 }

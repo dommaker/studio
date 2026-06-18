@@ -8,6 +8,7 @@
  * - verifyToken decodes JWT
  * - generateRefreshToken / exchangeRefreshToken / revokeRefreshToken
  */
+import crypto from 'crypto';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const TEST_PW = `test-pw-${Date.now()}`;
@@ -55,6 +56,7 @@ import {
   revokeRefreshToken,
   getCurrentUser,
   logout,
+  verifyPassword,
 } from '../service.js';
 
 describe('auth service', () => {
@@ -428,6 +430,107 @@ describe('auth service', () => {
 
     it('verifyToken returns null for empty string', () => {
       expect(verifyToken('')).toBeNull();
+    });
+  });
+
+  describe('verifyPassword (PBKDF2 compatibility)', () => {
+    const testPassword = 'legacy-password-123';
+    const testSalt = 'test-salt-value';
+    const pbkdf2Digest = crypto.pbkdf2Sync(testPassword, testSalt, 1000, 64, 'sha256').toString('hex');
+    const legacyHash = `${testSalt}:${pbkdf2Digest}`;
+
+    it('recognizes legacy PBKDF2 format and returns needsRehash=true on valid password', () => {
+      const result = verifyPassword(testPassword, legacyHash);
+      expect(result.valid).toBe(true);
+      expect(result.needsRehash).toBe(true);
+    });
+
+    it('returns valid=false and needsRehash=false for wrong PBKDF2 password', () => {
+      const result = verifyPassword('wrong-password', legacyHash);
+      expect(result.valid).toBe(false);
+      expect(result.needsRehash).toBe(false);
+    });
+
+    it('returns valid=false and needsRehash=false for malformed hash (no colon)', () => {
+      const result = verifyPassword(testPassword, 'malformedhash');
+      // bcrypt.compareSync fails → false
+      expect(result.valid).toBe(false);
+      expect(result.needsRehash).toBe(false);
+    });
+
+    it('returns needsRehash=false for bcrypt format hash', async () => {
+      const bcrypt = await import('bcryptjs');
+      const bcryptHash = bcrypt.hashSync(testPassword, 4);
+      const result = verifyPassword(testPassword, bcryptHash);
+      expect(result.valid).toBe(true);
+      expect(result.needsRehash).toBe(false);
+    });
+
+    it('handles PBKDF2 with empty salt or hash gracefully', () => {
+      expect(verifyPassword(testPassword, ':hashonly').valid).toBe(false);
+      expect(verifyPassword(testPassword, 'saltonly:').valid).toBe(false);
+    });
+  });
+
+  describe('login with PBKDF2 legacy hash', () => {
+    const testPassword = 'legacy-pw';
+    const testSalt = 'legacy-salt';
+    const pbkdf2Digest = crypto.pbkdf2Sync(testPassword, testSalt, 1000, 64, 'sha256').toString('hex');
+    const legacyHash = `${testSalt}:${pbkdf2Digest}`;
+
+    it('silently upgrades PBKDF2 hash to bcrypt on successful login (AC2)', async () => {
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        id: 'u-legacy',
+        email: 'legacy@test.com',
+        passwordHash: legacyHash,
+        role: 'User',
+      } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 's-legacy',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      vi.mocked(prisma.user.update).mockResolvedValue({} as any);
+
+      await login({ email: 'legacy@test.com', password: testPassword });
+
+      // Verify silent upgrade: user.update called with bcrypt hash
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'u-legacy' },
+          data: expect.objectContaining({
+            passwordHash: expect.stringMatching(/^\$2[aby]\$\d+\$/),
+          }),
+        })
+      );
+    });
+
+    it('uses bcrypt path after PBKDF2 upgrade (no rehash on subsequent login) (AC3)', async () => {
+      const bcrypt = await import('bcryptjs');
+      const bcryptHash = bcrypt.hashSync(testPassword, 4);
+
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        id: 'u-upgraded',
+        email: 'upgraded@test.com',
+        passwordHash: bcryptHash,
+        role: 'User',
+      } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 's-upgraded',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      await login({ email: 'upgraded@test.com', password: testPassword });
+
+      // bcrypt path: no rehash needed, user.update should not be called
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 });
