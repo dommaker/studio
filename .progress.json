@@ -1,30 +1,63 @@
 {
-  "taskId": "create-test-sse3",
+  "taskId": "eliminate-auth-as-any",
   "allComplete": true,
   "blocked": null,
   "implementation": {
-    "test-sse3.txt": {
-      "changes": ["AC1: Created file with content 'SSE Test 3'"],
+    "middleware/auth.ts": {
+      "changes": ["AC2: Replaced (prisma as any)[model].findUnique with typed findResourceCreator() using switch on known models (role, goal, signedDocument, document)"],
+      "status": "COMPLETE"
+    },
+    "service.test.ts": {
+      "changes": ["AC1: Replaced ~40 as any with typed as unknown as Session/User/RefreshToken"],
+      "status": "COMPLETE"
+    },
+    "oauth.service.test.ts": {
+      "changes": ["AC1: Replaced ~14 as any with typed as unknown as Session/User/RefreshToken/OAuthAccount + local OAuthProvider type"],
+      "status": "COMPLETE"
+    },
+    "middleware-invocation.test.ts": {
+      "changes": ["No as any existed in this file — no changes needed"],
       "status": "COMPLETE"
     }
   },
   "testResults": {
-    "fileVerification": {
-      "command": "cat /root/projects/studio/test-sse3.txt",
-      "output": "SSE Test 3",
-      "verifiedAt": "2026-06-10T12:00:00Z"
+    "authTests": {
+      "passed": 47,
+      "total": 47,
+      "failed": 0,
+      "command": "npx vitest run --config vitest.auth.config.ts src/modules/auth/__tests__/",
+      "evidence": "Test Files 3 passed (3), Tests 47 passed (47)",
+      "verifiedAt": "2026-06-18T18:29:17Z"
+    },
+    "typeCheck": {
+      "command": "npx tsc --noEmit",
+      "evidence": "No type errors in changed files (service.test.ts, oauth.service.test.ts, middleware-invocation.test.ts). Pre-existing @prisma/client module resolution errors in middleware/auth.ts unchanged.",
+      "verifiedAt": "2026-06-18T18:27:00Z"
     }
-  },
-  "designNotes": {
-    "decisions": ["Pure file creation, no code or tests needed"],
-    "failedAttempts": [],
-    "uncertainties": [],
-    "constraintsDiscovered": []
   },
   "acCompliance": {
     "AC1": {
       "status": "PASS",
-      "evidence": "test-sse3.txt exists with content 'SSE Test 3', verified via cat"
+      "evidence": "Zero as any remaining in all 3 test files. service.test.ts: 0 (was ~40), oauth.service.test.ts: 0 (was ~14), middleware-invocation.test.ts: 0 (was 0). All replaced with typed as unknown as PrismaType."
+    },
+    "AC2": {
+      "status": "PASS",
+      "evidence": "middleware/auth.ts no longer uses (prisma as any)[model]. Replaced with findResourceCreator() — a type-safe switch over known models (role, goal, signedDocument, document) using each model's specific Prisma delegate with correct field selection."
     }
+  },
+  "designNotes": {
+    "decisions": [
+      "Used 'as unknown as PrismaType' pattern (not direct 'as PrismaType') because test mocks provide partial objects missing required fields — direct 'as Session' would fail TS compile",
+      "Used switch-based typed dispatch (not generic Record<string,any> map) for middleware/auth.ts because different models have different ownership fields (creatorId vs createdBy) and Prisma delegates have incompatible select types",
+      "Added 'import type' for Prisma types to ensure they're erased at runtime — avoids vitest module resolution failures since @prisma/client may not be fully built in CI/dev environments"
+    ],
+    "failedAttempts": [],
+    "uncertainties": [
+      "findResourceCreator only handles 4 models (role, goal, signedDocument, document) — these are the only models with creatorId/createdBy in the current schema. If new ownership-tracked models are added, the switch must be extended."
+    ],
+    "constraintsDiscovered": [
+      "Original (prisma as any)[model] would silently accept any model name at runtime — the typed switch will return undefined (→ 404) for unknown models, which is safer",
+      "Prisma types have all non-nullable fields as required — partial mock objects cannot use direct 'as Type' assertion, requiring 'as unknown as Type' bridge"
+    ]
   }
 }

@@ -7,7 +7,10 @@
  * - getOrCreateOAuthUser(provider, profile, tokens) upserts user
  * - createOAuthSession(userId, req) creates session with tokens
  */
+import type { Session, User, RefreshToken, OAuthAccount } from '@prisma/client';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+type OAuthProvider = 'google' | 'github';
 
 // Mock dependencies before importing service
 vi.mock('@dommaker/studio-prisma', () => ({
@@ -78,7 +81,7 @@ describe('oauth.service', () => {
     });
 
     it('throws for unsupported provider', () => {
-      expect(() => getAuthorizationUrl('unsupported' as any, 'state')).toThrow(
+      expect(() => getAuthorizationUrl('unsupported' as unknown as OAuthProvider, 'state')).toThrow(
         /not supported/i
       );
     });
@@ -106,7 +109,7 @@ describe('oauth.service', () => {
   describe('exchangeCodeForTokens', () => {
     it('throws for unsupported provider', async () => {
       await expect(
-        exchangeCodeForTokens('unsupported' as any, 'code')
+        exchangeCodeForTokens('unsupported' as unknown as OAuthProvider, 'code')
       ).rejects.toThrow(/not supported/i);
     });
   });
@@ -134,7 +137,7 @@ describe('oauth.service', () => {
         provider: 'google',
         providerAccountId: 'google-123',
         User: existingUser,
-      } as any);
+      } as unknown as OAuthAccount);
 
       const result = await getOrCreateOAuthUser('google', mockProfile, mockTokens);
 
@@ -147,13 +150,13 @@ describe('oauth.service', () => {
       // First call: email check → null; second call: fetch created user → user object
       vi.mocked(prisma.user.findUnique)
         .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce({ id: 'new-user-1', email: 'test@example.com', role: 'User' } as any);
+        .mockResolvedValueOnce({ id: 'new-user-1', email: 'test@example.com', role: 'User' } as unknown as User);
       vi.mocked(prisma.user.create).mockResolvedValue({
         id: 'new-user-1',
         email: 'test@example.com',
         role: 'User',
-      } as any);
-      vi.mocked(prisma.oAuthAccount.upsert).mockResolvedValue({} as any);
+      } as unknown as User);
+      vi.mocked(prisma.oAuthAccount.upsert).mockResolvedValue({} as unknown as OAuthAccount);
 
       const result = await getOrCreateOAuthUser('google', mockProfile, mockTokens);
 
@@ -167,9 +170,9 @@ describe('oauth.service', () => {
         id: 'existing-user-1',
         email: 'test@example.com',
         role: 'User',
-      } as any);
-      vi.mocked(prisma.user.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.oAuthAccount.upsert).mockResolvedValue({} as any);
+      } as unknown as User);
+      vi.mocked(prisma.user.update).mockResolvedValue({} as unknown as User);
+      vi.mocked(prisma.oAuthAccount.upsert).mockResolvedValue({} as unknown as OAuthAccount);
 
       const result = await getOrCreateOAuthUser('google', mockProfile, mockTokens);
 
@@ -184,8 +187,8 @@ describe('oauth.service', () => {
         provider: 'google',
         providerAccountId: 'google-123',
         User: { id: 'user-1', email: 'test@example.com', role: 'User' },
-      } as any);
-      vi.mocked(prisma.oAuthAccount.upsert).mockResolvedValue({} as any);
+      } as unknown as OAuthAccount);
+      vi.mocked(prisma.oAuthAccount.upsert).mockResolvedValue({} as unknown as OAuthAccount);
 
       await getOrCreateOAuthUser('google', mockProfile, mockTokens);
 
@@ -211,13 +214,13 @@ describe('oauth.service', () => {
         id: 'session-1',
         token: 'mock-jwt-token',
         expiresAt: new Date(Date.now() + 86400000),
-      } as any);
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+      } as unknown as Session);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as unknown as RefreshToken);
 
-      const mockReq = {
+      const mockReq: { ip?: string; headers: Record<string, string | undefined> } = {
         ip: '127.0.0.1',
         headers: { 'user-agent': 'test-agent' },
-      } as any;
+      };
 
       const result = await createOAuthSession('user-1', mockReq);
 
