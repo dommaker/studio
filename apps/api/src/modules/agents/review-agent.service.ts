@@ -183,7 +183,7 @@ export class ReviewAgent {
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
+          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/execution-review-${Date.now()}` },
           timeoutMs: getReviewTimeoutMs(),
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -478,7 +478,7 @@ export class ReviewAgent {
 
         const { stdout } = await execSh(cmd, {
           cwd: params.worktree,
-          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
+          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/execution-review-${Date.now()}` },
           timeoutMs: getReviewTimeoutMs(params.complexity),
           maxBuffer: 5 * 1024 * 1024,
         });
@@ -591,7 +591,7 @@ export class ReviewAgent {
       try {
         await execSh(cmd, {
           cwd: repoPath,
-          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
+          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/execution-review-${Date.now()}` },
           timeoutMs: getReviewTimeoutMs(),
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -726,7 +726,7 @@ export class ReviewAgent {
       try { fs.unlinkSync(reportPath); } catch {}
       const cmd = `cd "${worktree}" && cat '${promptFile}' | claude --print --output-format json 2>&1`;
       await execSh(cmd, {
-        cwd: worktree, env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/pipeline-review-${Date.now()}` },
+        cwd: worktree, env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/execution-review-${Date.now()}` },
         timeoutMs: 5 * 60 * 1000, maxBuffer: 5 * 1024 * 1024,
       });
 

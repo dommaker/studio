@@ -115,7 +115,7 @@ async function spawnSingleSubAgent(
       cwd: opts.worktree,
       env: {
         ...buildSpawnEnv({ tier: model, role: 'executor' }),
-        HOME: `/tmp/pipeline-subagent-${ac.id}-${Date.now()}`,
+        HOME: `/tmp/execution-subagent-${ac.id}-${Date.now()}`,
       },
       timeoutMs: opts.timeoutMs || 10 * 60 * 1000,
       maxBuffer: 5 * 1024 * 1024,

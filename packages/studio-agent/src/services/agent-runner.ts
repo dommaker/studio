@@ -447,7 +447,7 @@ export class AgentRunner implements IAgentRunner {
                 },
               }),
               // HOME isolation: prevent user-level settings.json env override
-              HOME: `/tmp/pipeline-${task.executionId}`,
+              HOME: `/tmp/execution-${task.executionId}`,
             },
             timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
@@ -842,7 +842,7 @@ export class AgentRunner implements IAgentRunner {
             // from overriding pipeline config (DeepSeek API keys/models).
             // Claude Code CLI reads $HOME/.claude/settings.json on startup.
             // Project-level settings (permissions/hooks) use absolute paths, unaffected.
-            HOME: `/tmp/pipeline-${task.executionId}`,
+            HOME: `/tmp/execution-${task.executionId}`,
           },
           timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,

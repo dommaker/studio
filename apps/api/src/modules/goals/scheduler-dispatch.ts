@@ -37,7 +37,7 @@ import {
   runIntegrationInCode,
 } from './scheduler-prompt.js';
 import { classifyFailure, classifyFailureAction } from './failure-classifier.js';
-import { onPhaseFailure } from './pipeline-alarm.js';
+import { onPhaseFailure } from './execution-alarm.js';
 import { rollbackToIntegrationStep, parseIntegrationFailureType, type IntegrationResult } from './integration-rollback.js';
 
 const workUnitService = new WorkUnitService(prisma);

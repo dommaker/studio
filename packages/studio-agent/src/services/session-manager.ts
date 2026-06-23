@@ -365,7 +365,7 @@ export class AgentExecutor {
                   ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
                 },
               }),
-              HOME: `/tmp/pipeline-${task.executionId}`,
+              HOME: `/tmp/execution-${task.executionId}`,
             },
             timeoutMs: this.config.sessionTimeoutMinutes * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,

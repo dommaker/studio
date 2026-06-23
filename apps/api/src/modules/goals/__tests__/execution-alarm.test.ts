@@ -42,7 +42,7 @@ vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-import { onPhaseFailure, type AlarmContext } from '../pipeline-alarm.js';
+import { onPhaseFailure, type AlarmContext } from '../execution-alarm.js';
 
 beforeEach(() => {
   vi.clearAllMocks();

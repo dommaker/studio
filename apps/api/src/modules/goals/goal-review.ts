@@ -13,7 +13,7 @@ import { reviewAgent } from '../agents/review-agent.service.js';
 import { deployAgent } from '../agents/deploy-agent.service.js';
 import { knowledgeAgent } from '../agents/knowledge-agent.service.js';
 import { recordGoalCompletion, handleGoalFailed } from './goal-lifecycle.js';
-import { onPhaseFailure } from './pipeline-alarm.js';
+import { onPhaseFailure } from './execution-alarm.js';
 import { parseJsonField, type GoalStep } from './goal-crud.js';
 import * as path from 'path';
 import * as os from 'os';

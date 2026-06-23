@@ -11,7 +11,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { goalService, parseJsonField } from './goal.service.js';
 import { expireStaleBlockedGoals } from './goal-lifecycle.js';
-import { onPhaseFailure } from './pipeline-alarm.js';
+import { onPhaseFailure } from './execution-alarm.js';
 import { eventStore } from '../../core/event-store.js';
 
 import {

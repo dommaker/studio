@@ -23,7 +23,7 @@ import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@domma
 import { sharedStore, sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
 import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
-import { onPhaseFailure } from '../goals/pipeline-alarm.js';
+import { onPhaseFailure } from '../goals/execution-alarm.js';
 import { mapGoalStatuses, mapExecutionStatuses } from '../workunit/status-mapping.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min

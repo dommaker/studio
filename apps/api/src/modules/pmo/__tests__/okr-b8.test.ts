@@ -7,8 +7,8 @@ import type { OKRKeyResult } from '../okr.service.js';
 const service = new OKRService();
 let testCompanyId: string;
 let seededOkrId: string;
-const seededIds: { pipelineRuns: string[]; goals: string[] } = {
-  pipelineRuns: [], goals: [],
+const seededIds: { pipelineRuns: string[]; workUnits: string[] } = {
+  pipelineRuns: [], workUnits: [],
 };
 
 describe('B8 OKR Service', () => {
@@ -27,18 +27,18 @@ describe('B8 OKR Service', () => {
     });
     seededIds.pipelineRuns.push(pr.id);
 
-    // 3. Goals — for execution_success_rate, review_pass_rate queries
-    const g1 = await prisma.goal.create({
-      data: { title: 'test-goal-ok', description: 'seed', status: 'succeeded', companyId: testCompanyId },
+    // 3. WorkUnits (parent) — for execution_success_rate, review_pass_rate queries
+    const g1 = await prisma.workUnit.create({
+      data: { scope: 'test-goal-ok', metadata: JSON.stringify({ description: 'seed' }), status: 'done', type: 'task' },
     });
-    const g2 = await prisma.goal.create({
-      data: { title: 'test-goal-fail', description: 'seed', status: 'failed', companyId: testCompanyId },
+    const g2 = await prisma.workUnit.create({
+      data: { scope: 'test-goal-fail', metadata: JSON.stringify({ description: 'seed' }), status: 'closed', type: 'task' },
     });
-    seededIds.goals.push(g1.id, g2.id);
+    seededIds.workUnits.push(g1.id, g2.id);
 
-    // 4. GoalExecution — for goal_execution health check
-    await prisma.goalExecution.create({
-      data: { goalId: g1.id, stepIndex: 0, status: 'succeeded', agentType: 'executor' },
+    // 4. WorkUnit (child) — for goal_execution health check
+    await prisma.workUnit.create({
+      data: { parentId: g1.id, scope: 'step-0', status: 'done', type: 'task' },
     });
 
     // 5. OKR fixture — for syncKRProgress + recalibration
@@ -66,8 +66,8 @@ describe('B8 OKR Service', () => {
     // Cleanup seeded data (order matters for FK constraints)
     await prisma.kRHistory.deleteMany({ where: { okrId: seededOkrId } });
     await prisma.oKR.deleteMany({ where: { id: seededOkrId } });
-    await prisma.goalExecution.deleteMany({ where: { goalId: { in: seededIds.goals } } });
-    await prisma.goal.deleteMany({ where: { id: { in: seededIds.goals } } });
+    await prisma.workUnit.deleteMany({ where: { parentId: { in: seededIds.workUnits } } });
+    await prisma.workUnit.deleteMany({ where: { id: { in: seededIds.workUnits } } });
     await prisma.pipelineRun.deleteMany({ where: { id: { in: seededIds.pipelineRuns } } });
   });
 
