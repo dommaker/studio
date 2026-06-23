@@ -33,7 +33,7 @@ vi.mock('../../channels/discovery-exposure.service.js', () => ({
 }));
 
 vi.mock('../../../daemon/metrics.js', () => ({
-  recordPipelineRun: vi.fn(() => Promise.resolve()),
+  recordExecution: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('@dommaker/studio-skill', () => ({

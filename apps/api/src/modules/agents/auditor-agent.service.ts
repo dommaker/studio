@@ -52,23 +52,24 @@ export class AuditorAgent {
       const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
       // 1. 过去 24h 的执行统计（含 agentType 用于 3D 分析）
-      const recentExecs = await prisma.goalExecution.findMany({
-        where: { completedAt: { gte: yesterday } },
-        select: { status: true, error: true, agentType: true, input: true },
+      const recentExecs = await prisma.workUnit.findMany({
+        where: { completedAt: { gte: yesterday }, parentId: { not: null } },
+        select: { id: true, parentId: true, status: true, metadata: true },
       });
       const total = recentExecs.length;
-      const failed = recentExecs.filter(e => e.status === 'failed').length;
+      const failed = recentExecs.filter(e => e.status === 'closed').length;
       const successRate = total > 0 ? Math.round((1 - failed / total) * 100) : 100;
 
       // 2. 失败归类（全局 + 按 agent-type）
       const errorCounts = new Map<string, number>();
       const errorByAgentType = new Map<string, Map<string, number>>();
       for (const e of recentExecs) {
-        if (e.status !== 'failed' || !e.error) continue;
-        const errorType = this.classifyError(e.error as string);
+        const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
+        if (e.status !== 'closed' || !eMeta.error) continue;
+        const errorType = this.classifyError(eMeta.error as string);
         errorCounts.set(errorType, (errorCounts.get(errorType) || 0) + 1);
 
-        const agentType = e.agentType || 'unknown';
+        const agentType = eMeta.agentType || 'unknown';
         if (!errorByAgentType.has(agentType)) {
           errorByAgentType.set(agentType, new Map());
         }
@@ -86,30 +87,31 @@ export class AuditorAgent {
       const tierStats = new Map<string, { total: number; failed: number }>();
 
       for (const e of recentExecs) {
-        const agentType = e.agentType || 'unknown';
+        const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
+        const agentType = eMeta.agentType || 'unknown';
         const ag = agentTypeStats.get(agentType) || { total: 0, failed: 0 };
         ag.total++;
-        if (e.status === 'failed') ag.failed++;
+        if (e.status === 'closed') ag.failed++;
         agentTypeStats.set(agentType, ag);
 
         // Extract modelTier from input JSON or default to 'standard'
         let tier = 'standard';
         try {
-          if (e.input) {
-            const parsed = typeof e.input === 'string' ? JSON.parse(e.input) : e.input;
+          if (eMeta.input) {
+            const parsed = typeof eMeta.input === 'string' ? JSON.parse(eMeta.input) : eMeta.input;
             tier = (parsed as any)?.modelTier || 'standard';
           }
         } catch { /* use default */ }
         const tr = tierStats.get(tier) || { total: 0, failed: 0 };
         tr.total++;
-        if (e.status === 'failed') tr.failed++;
+        if (e.status === 'closed') tr.failed++;
         tierStats.set(tier, tr);
       }
 
       // 5. Goal 状态分布
-      const goalStats = await prisma.goal.groupBy({
+      const goalStats = await prisma.workUnit.groupBy({
         by: ['status'],
-        where: { updatedAt: { gte: yesterday } },
+        where: { updatedAt: { gte: yesterday }, type: 'task', parentId: null },
         _count: true,
       });
 
@@ -196,10 +198,18 @@ export class AuditorAgent {
       await this.saveTierStats(tierStats);
 
       // 10. Better-Harness: 失败 → eval case 生成
-      await this.generateEvalCases(recentExecs);
+      const execsForEval = recentExecs.map(e => {
+        const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
+        return { id: e.id, goalId: e.parentId ?? undefined, status: e.status, error: eMeta.error ?? null, agentType: eMeta.agentType ?? null, input: eMeta.input ?? null };
+      });
+      await this.generateEvalCases(execsForEval);
 
       // RKB: 对新 error pattern 自动创建 pending Resolution
-      await this.autoCreateResolutions(recentExecs);
+      const execsForRes = recentExecs.map(e => {
+        const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
+        return { status: e.status, error: eMeta.error ?? null, agentType: eMeta.agentType ?? null };
+      });
+      await this.autoCreateResolutions(execsForRes);
 
       // Doc Freshness: 处理 CI 创建的 doc-freshness issues
       await this.handleDocFreshnessIssues();
@@ -439,8 +449,8 @@ export class AuditorAgent {
       const { resolutionService } = await import('../knowledge/resolution.service.js');
 
       for (const e of recentExecs) {
-        if (e.status !== 'failed' || !e.error) continue;
-        const errorClass = this.classifyError(e.error);
+        if (e.status !== 'closed' || !e.error) continue;
+        const errorClass = this.classifyError(e.error as string);
         if (!opsErrorClasses.has(errorClass)) continue;
 
         // Extract key pattern from error message (first 120 chars, trim noise)
@@ -754,22 +764,25 @@ export class AuditorAgent {
                     confidence: diagnosis.confidence,
                   });
                   if (preCheck.status !== 'blocked') {
-                    const goal = await prisma.goal.create({
+                    const goal = await prisma.workUnit.create({
                       data: {
-                        title: `[OKR优化] ${kr.title}: ${diagnosis.suggestedFix.substring(0, 80)}`,
-                        description: JSON.stringify({
-                          rootCause: diagnosis.rootCause,
-                          suggestedFix: diagnosis.suggestedFix,
-                          expectedImprovement: diagnosis.expectedImprovement,
-                          confidence: diagnosis.confidence,
-                          preCheck,
-                          okrId: okr.id,
-                          krId: kr.id,
+                        scope: `[OKR优化] ${kr.title}: ${diagnosis.suggestedFix.substring(0, 80)}`,
+                        type: 'task',
+                        status: 'unassigned',
+                        metadata: JSON.stringify({
+                          description: JSON.stringify({
+                            rootCause: diagnosis.rootCause,
+                            suggestedFix: diagnosis.suggestedFix,
+                            expectedImprovement: diagnosis.expectedImprovement,
+                            confidence: diagnosis.confidence,
+                            preCheck,
+                            okrId: okr.id,
+                            krId: kr.id,
+                          }),
+                          priority: 'high',
+                          companyId: okr.companyId,
+                          context: { source: 'okr-optimization', okrId: okr.id },
                         }),
-                        priority: 'high',
-                        companyId: okr.companyId,
-                        status: 'draft',
-                        context: JSON.stringify({ source: 'okr-optimization', okrId: okr.id }),
                       },
                     });
 
@@ -1144,7 +1157,7 @@ export class AuditorAgent {
     goalId?: string;
   }>): Promise<void> {
     const failures = recentExecs
-      .filter(e => e.status === 'failed' && e.error)
+      .filter(e => e.status === 'closed' && e.error)
       .map(e => ({
         goalId: (e as any).goalId || 'unknown',
         executionId: (e as any).id || 'unknown',
@@ -1611,9 +1624,10 @@ export class AuditorAgent {
 
     // 3. 检查重复提案
     try {
-      const recentGoals = await prisma.goal.findMany({
+      const recentGoals = await prisma.workUnit.findMany({
         where: {
-          title: { contains: proposal.suggestedFix.substring(0, 30) },
+          scope: { contains: proposal.suggestedFix.substring(0, 30) },
+          type: 'task',
           createdAt: { gte: new Date(Date.now() - 14 * 86400000) },
         },
       });

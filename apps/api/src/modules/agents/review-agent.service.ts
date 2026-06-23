@@ -12,7 +12,7 @@ import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { discoveryExposure } from '../channels/discovery-exposure.service.js';
-import { recordPipelineRun } from '../../daemon/metrics.js';
+import { recordExecution } from '../../daemon/metrics.js';
 import { skillLoader } from '@dommaker/studio-skill';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -264,8 +264,8 @@ export class ReviewAgent {
       });
 
       // Record review phase metrics
-      recordPipelineRun({
-        source: 'pipeline', phase: 'review',
+      recordExecution({
+        source: 'execution', phase: 'review',
         taskName: `review-${taskId}`,
         model,
         inputTokens: reviewTokens?.inputTokens || 0,

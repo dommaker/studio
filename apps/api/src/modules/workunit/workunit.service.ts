@@ -65,8 +65,8 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   active: ['in_review', 'closed', 'blocked'],
   in_review: ['done', 'active', 'closed'],
   done: ['closed'],
-  blocked: ['active', 'closed'],
-  closed: [],
+  blocked: ['active', 'closed', 'unassigned'],
+  closed: ['unassigned'],
 };
 
 export class WorkUnitService {

@@ -43,7 +43,7 @@ vi.mock('@dommaker/studio-shared/node', () => ({
 }));
 
 vi.mock('./metrics.js', () => ({
-  recordPipelineRun: vi.fn(),
+  recordExecution: vi.fn(),
 }));
 
 vi.mock('./task-logger.js', () => ({

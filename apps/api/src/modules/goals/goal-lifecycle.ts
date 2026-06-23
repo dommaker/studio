@@ -14,7 +14,7 @@ import { checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { triageAgent } from '../agents/triage-agent.service.js';
 import { classifyFailureAction, type FailureClass } from './failure-classifier.js';
 import { AuditService } from '@dommaker/studio-audit';
-import { recordPipelineRun } from '../../daemon/metrics.js';
+import { recordExecution } from '../../daemon/metrics.js';
 import { parseJsonField, type GoalStep } from './goal-crud.js';
 import { handleGoalSucceeded, findReviewWorktree } from './goal-review.js';
 import * as path from 'path';
@@ -127,16 +127,13 @@ export async function retryGoalExecution(executionId: string): Promise<any> {
     };
   }
 
-  // Reset to unassigned for retry (closed → unassigned not in valid transitions, use direct update)
+  // Reset to unassigned for retry
   await workUnitService.update(executionId, {
     retryCount: retryCount + 1,
     completedAt: null,
     metadata: { ...meta, _retryCount: retryCount + 1, error: null },
   });
-  await prisma.workUnit.update({
-    where: { id: executionId },
-    data: { status: 'unassigned', claimedAt: null },
-  });
+  await workUnitService.transitionStatus(executionId, 'unassigned');
 
   logger.info(`[Goal] Execution retried: ${executionId} (attempt ${retryCount + 1}/${MAX_RETRIES})`);
   return { id: executionId, status: 'unassigned' };
@@ -237,10 +234,9 @@ export async function resetBlockedByDependency(goalId: string): Promise<number> 
 
   if (goalBlocked.length === 0) return 0;
 
-  await prisma.workUnit.updateMany({
-    where: { id: { in: goalBlocked.map(wu => wu.id) } },
-    data: { status: 'unassigned', claimedAt: null },
-  });
+  for (const wu of goalBlocked) {
+    await workUnitService.transitionStatus(wu.id, 'unassigned');
+  }
 
   logger.info(`[Goal] Reset ${goalBlocked.length} blocked steps to unassigned`, { goalId });
   return goalBlocked.length;
@@ -287,10 +283,7 @@ async function resetUnblockedSteps(goalId: string, workUnits: any[]): Promise<bo
     });
 
     if (allDepsSatisfied) {
-      await prisma.workUnit.update({
-        where: { id: wu.id },
-        data: { status: 'unassigned', claimedAt: null },
-      });
+      await workUnitService.transitionStatus(wu.id, 'unassigned');
       wu.status = 'unassigned'; // update local map
       resetCount++;
     }
@@ -574,10 +567,9 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
     try {
       await retryGoalExecution(failedExec.id);
       // Reset goal status so GoalScheduler picks up the retried execution
-      await prisma.workUnit.update({
-        where: { id: goalId },
-        data: { status: 'active', completedAt: null },
-      });
+      await workUnitService.transitionStatus(goalId, 'unassigned');
+      await workUnitService.update(goalId, { completedAt: null });
+      await workUnitService.transitionStatus(goalId, 'active');
       routed = true;
     } catch (e) {
       logger.warn('[Goal] Auto-retry failed, falling back to triage', { goalId, error: String(e) });
@@ -685,8 +677,8 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
       ? runsWithTestResult.every(r => r.testPassed === true)
       : undefined;
 
-    const written = await recordPipelineRun({
-      source: 'pipeline', phase: 'full',
+    const written = await recordExecution({
+      source: 'execution', phase: 'full',
       taskName: goalTitle,
       model: 'summary',
       inputTokens: totalInputTokens,

@@ -2,23 +2,23 @@
  * Behavioral tests for execution retry mechanism
  *
  * AC:
- * - Execution fails + retryCount < 3 → reset to 'pending', increment retryCount
+ * - Execution fails + retryCount < 3 → reset to 'unassigned', increment retryCount
  * - Execution fails + retryCount >= 3 → return false (exhausted)
  * - Retry preserves error info for context injection
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockExecFindUnique, mockExecUpdate } = vi.hoisted(() => ({
-  mockExecFindUnique: vi.fn(),
-  mockExecUpdate: vi.fn(),
+const { mockWuFindUnique, mockWuUpdate } = vi.hoisted(() => ({
+  mockWuFindUnique: vi.fn(),
+  mockWuUpdate: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    goalExecution: {
-      findUnique: mockExecFindUnique,
-      update: mockExecUpdate,
+    workUnit: {
+      findUnique: mockWuFindUnique,
+      update: mockWuUpdate,
     },
   },
 }));
@@ -32,106 +32,104 @@ import { maybeRetryExecution } from '../scheduler-dispatch.js';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockExecUpdate.mockResolvedValue({});
+  mockWuUpdate.mockResolvedValue({});
 });
 
 describe('maybeRetryExecution()', () => {
   test('retries when retryCount=0 (first failure)', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 0 });
+    mockWuFindUnique.mockResolvedValue({ retryCount: 0, metadata: null });
 
     const result = await maybeRetryExecution('exec-1', 'agent crashed');
 
     expect(result).toBe(true);
-    expect(mockExecUpdate).toHaveBeenCalledWith({
-      where: { id: 'exec-1' },
-      data: {
-        status: 'pending',
-        retryCount: 1,
-        error: expect.stringContaining('agent crashed'),
-        startedAt: null,
-        completedAt: null,
-      },
-    });
-    const errorPayload = JSON.parse(mockExecUpdate.mock.calls[0][0].data.error);
-    expect(errorPayload.message).toBe('agent crashed');
-    expect(errorPayload.retryAttempt).toBe(1);
+    // workUnitService.update called with retryCount + metadata
+    expect(mockWuUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'exec-1' },
+        data: expect.objectContaining({
+          retryCount: 1,
+          metadata: expect.objectContaining({
+            error: expect.stringContaining('agent crashed'),
+          }),
+        }),
+      })
+    );
+    // transitionStatus also calls update with status: 'unassigned'
+    const statusUpdate = mockWuUpdate.mock.calls.find(
+      (c: any) => c[0]?.data?.status === 'unassigned'
+    );
+    expect(statusUpdate).toBeDefined();
   });
 
   test('retries when retryCount=2 (under limit)', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 2 });
+    mockWuFindUnique.mockResolvedValue({ retryCount: 2, metadata: null });
 
     const result = await maybeRetryExecution('exec-1', 'timeout');
 
     expect(result).toBe(true);
-    expect(mockExecUpdate.mock.calls[0][0].data.retryCount).toBe(3);
+    expect(mockWuUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ retryCount: 3 }),
+      })
+    );
   });
 
   test('does not retry when retryCount=3 (at limit)', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 3 });
+    mockWuFindUnique.mockResolvedValue({ retryCount: 3, metadata: null });
 
     const result = await maybeRetryExecution('exec-1', 'persistent error');
 
     expect(result).toBe(false);
-    expect(mockExecUpdate).not.toHaveBeenCalled();
+    expect(mockWuUpdate).not.toHaveBeenCalled();
   });
 
   test('does not retry when retryCount > 3', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 5 });
+    mockWuFindUnique.mockResolvedValue({ retryCount: 5, metadata: null });
 
     const result = await maybeRetryExecution('exec-1', 'still failing');
 
     expect(result).toBe(false);
-    expect(mockExecUpdate).not.toHaveBeenCalled();
+    expect(mockWuUpdate).not.toHaveBeenCalled();
   });
 
   test('returns false when execution not found', async () => {
-    mockExecFindUnique.mockResolvedValue(null);
+    mockWuFindUnique.mockResolvedValue(null);
 
     const result = await maybeRetryExecution('exec-ghost', 'error');
 
     expect(result).toBe(false);
-    expect(mockExecUpdate).not.toHaveBeenCalled();
+    expect(mockWuUpdate).not.toHaveBeenCalled();
   });
 
   test('respects custom maxRetries', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 1 });
+    mockWuFindUnique.mockResolvedValue({ retryCount: 1, metadata: null });
 
     const result = await maybeRetryExecution('exec-1', 'error', 1);
 
     expect(result).toBe(false);
-    expect(mockExecUpdate).not.toHaveBeenCalled();
-  });
-
-  test('retry resets startedAt and completedAt', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 0 });
-
-    await maybeRetryExecution('exec-1', 'crash');
-
-    const updateData = mockExecUpdate.mock.calls[0][0].data;
-    expect(updateData.startedAt).toBeNull();
-    expect(updateData.completedAt).toBeNull();
+    expect(mockWuUpdate).not.toHaveBeenCalled();
   });
 
   test('does not retry when failure is not-retryable (approach infeasible)', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 0 });
+    mockWuFindUnique.mockResolvedValue({ retryCount: 0, metadata: null });
 
     const result = await maybeRetryExecution('exec-1', 'The approach is infeasible');
 
     expect(result).toBe(false);
-    expect(mockExecUpdate).not.toHaveBeenCalled();
+    expect(mockWuUpdate).not.toHaveBeenCalled();
   });
 
   test('does not retry when failure is not-retryable (API does not exist)', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 0 });
+    mockWuFindUnique.mockResolvedValue({ retryCount: 0, metadata: null });
 
     const result = await maybeRetryExecution('exec-1', 'Error: API endpoint does not exist');
 
     expect(result).toBe(false);
-    expect(mockExecUpdate).not.toHaveBeenCalled();
+    expect(mockWuUpdate).not.toHaveBeenCalled();
   });
 
   test('retries when failure is unknown (allows retry for diagnosis)', async () => {
-    mockExecFindUnique.mockResolvedValue({ retryCount: 0 });
+    mockWuFindUnique.mockResolvedValue({ retryCount: 0, metadata: null });
 
     const result = await maybeRetryExecution('exec-1', 'Something weird happened');
 

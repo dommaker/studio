@@ -283,9 +283,8 @@ describe('checkOwnership', () => {
   it('uses custom paramKey to extract resource ID', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { goalId: 'g1' };
-    vi.mocked(prisma.goal.findUnique).mockResolvedValue({
-      creatorId: 'u1',
-      createdBy: null,
+    vi.mocked(prisma.workUnit.findUnique).mockResolvedValue({
+      metadata: JSON.stringify({ createdBy: 'u1' }),
     } as any);
 
     const middleware = checkOwnership('goal', 'goalId');

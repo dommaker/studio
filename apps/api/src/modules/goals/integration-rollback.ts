@@ -119,15 +119,22 @@ export async function mapAffectedFilesToSteps(
 ): Promise<number[]> {
   if (affectedFiles.length === 0) return [];
 
-  const succeededExecs = await prisma.goalExecution.findMany({
-    where: { goalId, status: 'succeeded', stepIndex: { not: 999 } },
-    select: { id: true, stepIndex: true },
+  const allDoneChildren = await prisma.workUnit.findMany({
+    where: { parentId: goalId, status: 'done' },
+    select: { id: true, metadata: true },
+  });
+  const succeededExecs = allDoneChildren.filter(c => {
+    const m = c.metadata ? JSON.parse(c.metadata) : {};
+    return m.stepIndex !== 999;
   });
 
   if (succeededExecs.length === 0) return [];
 
   // Build execId → stepIndex map
-  const execToStep = new Map(succeededExecs.map(e => [e.id, e.stepIndex]));
+  const execToStep = new Map(succeededExecs.map(e => {
+    const m = e.metadata ? JSON.parse(e.metadata) : {};
+    return [e.id, m.stepIndex ?? 0];
+  }));
   const matchedSteps = new Set<number>();
 
   for (const file of affectedFiles) {
@@ -203,16 +210,13 @@ async function cascadeDownstreamSteps(
   goalId: string,
   initialSteps: number[],
 ): Promise<number[]> {
-  const plan = await prisma.goalPlan.findFirst({
-    where: { goalId, status: 'approved' },
-    orderBy: { version: 'desc' },
-  });
+  const goal = await prisma.workUnit.findUnique({ where: { id: goalId }, select: { metadata: true } });
+  const goalMeta = goal?.metadata ? JSON.parse(goal.metadata) : {};
+  const plan = goalMeta.plan;
 
-  if (!plan) return initialSteps;
+  if (!plan || plan.status !== 'approved') return initialSteps;
 
-  const steps = parseJsonField<Array<{ index: number; dependencies: number[] }>>(
-    (plan as any).steps, [],
-  );
+  const steps = plan.steps || [];
 
   if (steps.length === 0) return initialSteps;
 
@@ -263,12 +267,19 @@ export async function rollbackToIntegrationStep(
   const { goalId, integrationExecutionId, failureType, error, affectedFiles, worktree } = params;
 
   // Step 1: Query ALL succeeded executions + identify affected steps
-  const allSucceeded = await prisma.goalExecution.findMany({
-    where: { goalId, status: 'succeeded', stepIndex: { not: 999 } },
-    select: { id: true, stepIndex: true, retryCount: true, input: true },
+  const allDoneChildren = await prisma.workUnit.findMany({
+    where: { parentId: goalId, status: 'done' },
+    select: { id: true, metadata: true, retryCount: true },
+  });
+  const allSucceeded = allDoneChildren.filter(c => {
+    const m = c.metadata ? JSON.parse(c.metadata) : {};
+    return m.stepIndex !== 999;
   });
 
-  const execToStep = new Map(allSucceeded.map(e => [e.id, e.stepIndex]));
+  const execToStep = new Map(allSucceeded.map(e => {
+    const m = e.metadata ? JSON.parse(e.metadata) : {};
+    return [e.id, m.stepIndex ?? 0];
+  }));
   const targetSteps = await mapAffectedFilesToStepsFromExecs(affectedFiles, worktree, execToStep);
 
   if (targetSteps.length === 0) {
@@ -276,9 +287,9 @@ export async function rollbackToIntegrationStep(
       goalId, affectedFiles,
     });
     await safeDeleteIntegrationStep(integrationExecutionId);
-    await prisma.goal.update({
+    await prisma.workUnit.update({
       where: { id: goalId },
-      data: { status: 'executing', completedAt: null },
+      data: { status: 'active', completedAt: null },
     });
     return { rolledBackSteps: [], blocked: false, reason: 'no_steps_identified' };
   }
@@ -287,52 +298,61 @@ export async function rollbackToIntegrationStep(
   const allSteps = await cascadeDownstreamSteps(goalId, targetSteps);
 
   // Step 3: Filter executions to all steps (direct + cascaded)
-  const executions = allSucceeded.filter(e => allSteps.includes(e.stepIndex));
+  const executions = allSucceeded.filter(e => {
+    const m = e.metadata ? JSON.parse(e.metadata) : {};
+    return allSteps.includes(m.stepIndex ?? 0);
+  });
 
   // Step 4: Check retryCount — if any exceeds MAX_RETRIES → blocked
   const overLimit = executions.find(e => e.retryCount >= MAX_RETRIES);
   if (overLimit) {
+    const overMeta = overLimit.metadata ? JSON.parse(overLimit.metadata) : {};
     logger.warn('[IntegrationRollback] Rollback blocked — retry limit reached', {
-      goalId, stepIndex: overLimit.stepIndex, retryCount: overLimit.retryCount,
+      goalId, stepIndex: overMeta.stepIndex, retryCount: overLimit.retryCount,
     });
-    await prisma.goal.update({
+    await prisma.workUnit.update({
       where: { id: goalId },
       data: { status: 'blocked' },
     });
     return {
       rolledBackSteps: [],
       blocked: true,
-      reason: `Step ${overLimit.stepIndex} retryCount ${overLimit.retryCount} >= MAX_RETRIES ${MAX_RETRIES}`,
+      reason: `Step ${overMeta.stepIndex} retryCount ${overLimit.retryCount} >= MAX_RETRIES ${MAX_RETRIES}`,
     };
   }
 
-  // Step 5: Reset each step to pending
+  // Step 5: Reset each step to unassigned
   const diagnosis = buildDiagnosisMessage(failureType, error, affectedFiles);
 
   for (const exec of executions) {
-    const input = parseJsonField<Record<string, unknown>>(exec.input, {});
-    await prisma.goalExecution.update({
+    const eMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
+    const input = eMeta.input || {};
+    await prisma.workUnit.update({
       where: { id: exec.id },
       data: {
-        status: 'pending',
+        status: 'unassigned',
         retryCount: exec.retryCount + 1,
-        error: JSON.stringify({ message: diagnosis, timestamp: Date.now() }),
-        input: JSON.stringify({
-          ...input,
-          _integrationDiagnosis: {
-            failureType,
-            error: error.slice(0, 500),
-            affectedFiles,
-            rollbackRound: exec.retryCount + 1,
+        metadata: JSON.stringify({
+          ...eMeta,
+          error: JSON.stringify({ message: diagnosis, timestamp: Date.now() }),
+          input: {
+            ...input,
+            _integrationDiagnosis: {
+              failureType,
+              error: error.slice(0, 500),
+              affectedFiles,
+              rollbackRound: exec.retryCount + 1,
+            },
           },
         }),
-        startedAt: null,
+        claimedAt: null,
         completedAt: null,
         timeoutAt: null,
       },
     });
-    logger.info('[IntegrationRollback] Step reset to pending', {
-      executionId: exec.id, stepIndex: exec.stepIndex, newRetryCount: exec.retryCount + 1,
+    const stepMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
+    logger.info('[IntegrationRollback] Step reset to unassigned', {
+      executionId: exec.id, stepIndex: stepMeta.stepIndex, newRetryCount: exec.retryCount + 1,
     });
   }
 
@@ -340,9 +360,9 @@ export async function rollbackToIntegrationStep(
   await safeDeleteIntegrationStep(integrationExecutionId);
 
   // Step 7: Reset goal status
-  await prisma.goal.update({
+  await prisma.workUnit.update({
     where: { id: goalId },
-    data: { status: 'executing', completedAt: null },
+    data: { status: 'active', completedAt: null },
   });
 
   // Step 8: Record gate failure → knowledgeBus
@@ -399,14 +419,14 @@ function buildDiagnosisMessage(
 
 async function safeDeleteIntegrationStep(integrationExecutionId: string): Promise<void> {
   try {
-    await prisma.goalExecution.delete({ where: { id: integrationExecutionId } });
+    await prisma.workUnit.delete({ where: { id: integrationExecutionId } });
     logger.info('[IntegrationRollback] Integration step (999) deleted', { integrationExecutionId });
   } catch {
     // May already be deleted or not exist
     try {
-      await prisma.goalExecution.update({
+      await prisma.workUnit.update({
         where: { id: integrationExecutionId },
-        data: { status: 'pending', error: null, completedAt: null },
+        data: { status: 'unassigned', metadata: JSON.stringify({}), completedAt: null },
       });
     } catch { /* ignore */ }
   }

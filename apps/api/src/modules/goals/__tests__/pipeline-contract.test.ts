@@ -2,7 +2,7 @@
  * Pipeline Contract Test
  *
  * 验证 Knowledge feedback loop 三个方法已正确接线到管线：
- * - pipelineStepFeedback → scheduler-dispatch.ts (成功+失败路径)
+ * - workUnitFeedback → scheduler-dispatch.ts (成功+失败路径)
  * - extractFromExecution → scheduler-dispatch.ts (成功+失败路径)
  * - recordOutcome → goal-lifecycle.ts recordGoalCompletion
  * - recordKnowledgeRefs → scheduler-dispatch.ts (成功+失败路径)
@@ -24,23 +24,23 @@ describe('Pipeline feedback loop contract', () => {
   const lifecycleSrc = readSource('goal-lifecycle.ts');
 
   describe('scheduler-dispatch.ts wiring', () => {
-    it('calls pipelineStepFeedback on success path', () => {
-      expect(dispatchSrc).toContain('knowledgeService.pipelineStepFeedback');
+    it('calls workUnitFeedback on success path', () => {
+      expect(dispatchSrc).toContain('knowledgeService.workUnitFeedback');
       // success path: after "Agent succeeded" log
       const successBlock = dispatchSrc.slice(
         dispatchSrc.indexOf('Agent succeeded'),
         dispatchSrc.indexOf('Agent failed') || dispatchSrc.length,
       );
-      expect(successBlock).toContain('pipelineStepFeedback');
+      expect(successBlock).toContain('workUnitFeedback');
       expect(successBlock).toContain('success: true');
     });
 
-    it('calls pipelineStepFeedback on failure path', () => {
+    it('calls workUnitFeedback on failure path', () => {
       // failure path: after "Agent failed" log
-      const failIdx = dispatchSrc.indexOf('// ── Knowledge feedback loop: pipelineStepFeedback (failure)');
+      const failIdx = dispatchSrc.indexOf('// ── Knowledge feedback loop: workUnitFeedback (failure)');
       expect(failIdx).toBeGreaterThan(-1);
       const failBlock = dispatchSrc.slice(failIdx, failIdx + 500);
-      expect(failBlock).toContain('pipelineStepFeedback');
+      expect(failBlock).toContain('workUnitFeedback');
       expect(failBlock).toContain('success: false');
     });
 
@@ -54,7 +54,7 @@ describe('Pipeline feedback loop contract', () => {
 
     it('calls extractFromExecution on failure path', () => {
       // Verify extractFromExecution also called on failure path (success: false)
-      const failFeedbackIdx = dispatchSrc.indexOf('Knowledge feedback loop: pipelineStepFeedback (failure)');
+      const failFeedbackIdx = dispatchSrc.indexOf('Knowledge feedback loop: workUnitFeedback (failure)');
       expect(failFeedbackIdx).toBeGreaterThan(-1);
       const failBlock = dispatchSrc.slice(failFeedbackIdx, dispatchSrc.indexOf('handleDispatchFailure', failFeedbackIdx + 1) || dispatchSrc.length);
       expect(failBlock).toContain('extractFromExecution');
@@ -78,27 +78,27 @@ describe('Pipeline feedback loop contract', () => {
       expect(failBlock).toContain('recordKnowledgeRefs');
     });
 
-    it('passes goalId to pipelineStepFeedback', () => {
+    it('passes goalId to workUnitFeedback', () => {
       // Both success and failure paths must pass goalId
-      const matches = dispatchSrc.match(/pipelineStepFeedback\(\{[\s\S]*?\}\)/g);
+      const matches = dispatchSrc.match(/workUnitFeedback\(\{[\s\S]*?\}\)/g);
       expect(matches).not.toBeNull();
       for (const m of matches!) {
         expect(m).toContain('goalId');
       }
     });
 
-    it('passes phase to pipelineStepFeedback', () => {
-      const matches = dispatchSrc.match(/pipelineStepFeedback\(\{[\s\S]*?\}\)/g);
+    it('passes phase to workUnitFeedback', () => {
+      const matches = dispatchSrc.match(/workUnitFeedback\(\{[\s\S]*?\}\)/g);
       expect(matches).not.toBeNull();
       for (const m of matches!) {
         expect(m).toContain("phase: 'executor'");
       }
     });
 
-    it('non-blocking: pipelineStepFeedback calls are wrapped in try/catch', () => {
+    it('non-blocking: workUnitFeedback calls are wrapped in try/catch', () => {
       // Each call site should have try/catch with /* non-blocking */
       const nonBlockingCount = (dispatchSrc.match(/\/\* non-blocking \*\//g) || []).length;
-      // At least 2 for pipelineStepFeedback + 1 for extractFromExecution
+      // At least 2 for workUnitFeedback + 1 for extractFromExecution
       expect(nonBlockingCount).toBeGreaterThanOrEqual(3);
     });
   });
@@ -136,9 +136,9 @@ describe('Pipeline feedback loop contract', () => {
       expect(afterRecord).toContain('catch');
     });
 
-    it('recordPipelineRun passes goalId', () => {
+    it('recordExecution passes goalId', () => {
       // Use lastIndexOf to find the call site, not the import statement
-      const callIdx = lifecycleSrc.lastIndexOf('recordPipelineRun({');
+      const callIdx = lifecycleSrc.lastIndexOf('recordExecution({');
       expect(callIdx).toBeGreaterThan(-1);
       const recordCall = lifecycleSrc.slice(callIdx, callIdx + 500);
       expect(recordCall).toContain('goalId');

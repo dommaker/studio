@@ -252,8 +252,10 @@ async function findResourceCreator(model: string, resourceId: string): Promise<s
       return r?.creatorId ?? undefined;
     }
     case 'goal': {
-      const r = await prisma.goal.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
-      return r?.createdBy ?? undefined;
+      const r = await prisma.workUnit.findUnique({ where: { id: resourceId }, select: { metadata: true } });
+      if (!r?.metadata) return undefined;
+      const meta = JSON.parse(r.metadata);
+      return meta.createdBy ?? undefined;
     }
     case 'signedDocument': {
       const r = await prisma.signedDocument.findUnique({ where: { id: resourceId }, select: { createdBy: true } });

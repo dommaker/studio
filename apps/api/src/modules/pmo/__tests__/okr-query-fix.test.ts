@@ -47,7 +47,7 @@ describe('queryPipelineGoalCost fix', () => {
     const body = methodMatch![0];
 
     expect(body).toContain('costUsd');
-    expect(body).toContain('pipeline_run');
+    expect(body).toContain('execution_run');
   });
 
   it('has token-based fallback when costUsd unavailable', () => {

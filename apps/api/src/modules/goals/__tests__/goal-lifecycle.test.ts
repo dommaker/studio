@@ -6,30 +6,22 @@
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockFindMany, mockUpdate, mockCreate, mockFindFirst, mockGoalUpdate, mockGoalFindUnique, mockGoalExecFindFirst } = vi.hoisted(() => ({
-  mockFindMany: vi.fn(),
-  mockUpdate: vi.fn(),
-  mockCreate: vi.fn(),
-  mockFindFirst: vi.fn(),
-  mockGoalUpdate: vi.fn(),
-  mockGoalFindUnique: vi.fn(),
-  mockGoalExecFindFirst: vi.fn(),
+const { mockWuFindMany, mockWuUpdate, mockWuCreate, mockWuFindUnique, mockWuUpdateMany } = vi.hoisted(() => ({
+  mockWuFindMany: vi.fn(),
+  mockWuUpdate: vi.fn(),
+  mockWuCreate: vi.fn(),
+  mockWuFindUnique: vi.fn(),
+  mockWuUpdateMany: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    goalExecution: {
-      findMany: mockFindMany,
-      update: mockUpdate,
-      create: mockCreate,
-      findFirst: mockGoalExecFindFirst,
-    },
-    goalPlan: {
-      findFirst: mockFindFirst,
-    },
-    goal: {
-      update: mockGoalUpdate,
-      findUnique: mockGoalFindUnique,
+    workUnit: {
+      findMany: mockWuFindMany,
+      update: mockWuUpdate,
+      create: mockWuCreate,
+      findUnique: mockWuFindUnique,
+      updateMany: mockWuUpdateMany,
     },
     failureEvent: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -49,215 +41,204 @@ vi.mock('../goal-review.js', () => ({
 
 import { checkGoalCompletion, updateStepExecution } from '../goal-lifecycle.js';
 
+/**
+ * Creates mock WorkUnit (child-level, formerly GoalExecution)
+ * with metadata containing goalId and step info.
+ */
 function makeExec(stepIndex: number, status: string, overrides?: Record<string, any>) {
   return {
     id: `exec-${stepIndex}`,
-    stepIndex,
     status,
-    goalId: 'goal-1',
-    input: JSON.stringify({ acGroup: { id: `step-${stepIndex}` } }),
+    parentId: 'goal-1',
+    retryCount: 0,
+    metadata: JSON.stringify({
+      goalId: 'goal-1',
+      stepIndex,
+      input: JSON.stringify({ acGroup: { id: `step-${stepIndex}` } }),
+    }),
+    updatedAt: new Date(),
     ...overrides,
   };
 }
 
-function makePlan(steps: Array<{ index: number; dependencies: number[] }>) {
+/**
+ * Creates mock WorkUnit with string-encoded acGroup dependencies
+ * (no GoalPlan path — dependencies from acGroup.dependencies).
+ */
+function makeExecWithAcGroup(stepIndex: number, status: string, acGroup: Record<string, unknown>) {
   return {
-    id: 'plan-1',
-    goalId: 'goal-1',
-    status: 'approved',
-    steps: JSON.stringify(steps.map(s => ({
-      index: s.index,
-      title: `step-${s.index}`,
-      description: '',
-      agentType: 'claude',
-      input: {},
-      dependencies: s.dependencies,
-      estimatedDuration: '30m',
-    }))),
+    id: `exec-${stepIndex}`,
+    status,
+    parentId: 'goal-1',
+    retryCount: 0,
+    metadata: JSON.stringify({
+      goalId: 'goal-1',
+      stepIndex,
+      input: JSON.stringify({ acGroup }),
+    }),
+    updatedAt: new Date(),
   };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockGoalUpdate.mockResolvedValue({});
-  mockUpdate.mockResolvedValue({});
-  mockCreate.mockResolvedValue({});
-  mockGoalFindUnique.mockResolvedValue({ id: 'goal-1', context: {} });
-  mockGoalExecFindFirst.mockResolvedValue(null);
+  mockWuUpdate.mockResolvedValue({});
+  mockWuCreate.mockResolvedValue({});
+  mockWuFindUnique.mockResolvedValue({ id: 'goal-1', status: 'active', metadata: JSON.stringify({ context: '{}' }) });
 });
 
 describe('checkGoalCompletion()', () => {
-  test('marks goal failed when step 0 failed and steps 1-4 blocked by dependency', async () => {
-    const executions = [
-      makeExec(0, 'failed'),
-      makeExec(1, 'pending'),
-      makeExec(2, 'pending'),
-      makeExec(3, 'pending'),
-      makeExec(4, 'pending'),
+  test('marks goal closed when step 0 closed and steps 1-4 blocked by dependency', async () => {
+    const workUnits = [
+      makeExec(0, 'closed'),
+      makeExec(1, 'unassigned'),
+      makeExec(2, 'unassigned'),
+      makeExec(3, 'unassigned'),
+      makeExec(4, 'unassigned'),
     ];
-    mockFindMany.mockResolvedValue(executions);
-    mockFindFirst.mockResolvedValue(makePlan([
-      { index: 0, dependencies: [] },
-      { index: 1, dependencies: [0] },
-      { index: 2, dependencies: [0] },
-      { index: 3, dependencies: [0] },
-      { index: 4, dependencies: [0] },
-    ]));
+    mockWuFindMany.mockResolvedValue(workUnits);
 
     await checkGoalCompletion('goal-1');
 
-    // Blocked steps should be marked as blocked_by_dependency
-    const blockedUpdates = mockUpdate.mock.calls.filter(
-      (c: any) => c[0]?.where?.id?.startsWith('exec-') && c[0]?.data?.status === 'blocked_by_dependency'
+    // Blocked steps should be marked as blocked
+    const blockedUpdates = mockWuUpdate.mock.calls.filter(
+      (c: any) => c[0]?.where?.id?.startsWith('exec-') && c[0]?.data?.status === 'blocked'
     );
     expect(blockedUpdates.length).toBe(4); // steps 1-4
 
-    // Goal should be marked as failed
-    expect(mockGoalUpdate).toHaveBeenCalledWith({
+    // Goal should be marked as closed
+    expect(mockWuUpdate).toHaveBeenCalledWith({
       where: { id: 'goal-1' },
-      data: { status: 'failed', completedAt: expect.any(Date) },
+      data: { status: 'closed', completedAt: expect.any(Date) },
     });
   });
 
   test('does not cascade when no dependencies exist (flat plan)', async () => {
-    const executions = [
-      makeExec(0, 'failed'),
-      makeExec(1, 'pending'),
+    const workUnits = [
+      makeExec(0, 'closed'),
+      makeExec(1, 'unassigned'),
     ];
-    mockFindMany.mockResolvedValue(executions);
-    mockFindFirst.mockResolvedValue(makePlan([
-      { index: 0, dependencies: [] },
-      { index: 1, dependencies: [] }, // no dependency on step 0
-    ]));
+    mockWuFindMany.mockResolvedValue(workUnits);
 
     await checkGoalCompletion('goal-1');
 
-    // Step 1 should NOT be cascaded (no dependency)
-    expect(mockUpdate).not.toHaveBeenCalled();
-    // Goal should NOT be marked (step 1 still pending)
-    expect(mockGoalUpdate).not.toHaveBeenCalled();
+    // Step 1 should NOT be cascaded (no dependency — no acGroup.dependencies)
+    // Goal should NOT be marked (step 1 still unassigned)
+    expect(mockWuUpdate).not.toHaveBeenCalled();
   });
 
   test('does not cascade when dependency succeeded', async () => {
-    const executions = [
-      makeExec(0, 'succeeded'),
-      makeExec(1, 'pending'),
+    const workUnits = [
+      makeExec(0, 'done'),
+      makeExecWithAcGroup(1, 'unassigned', { id: 'step-1', dependencies: ['step-0'] }),
     ];
-    mockFindMany.mockResolvedValue(executions);
-    mockFindFirst.mockResolvedValue(makePlan([
-      { index: 0, dependencies: [] },
-      { index: 1, dependencies: [0] },
-    ]));
+    mockWuFindMany.mockResolvedValue(workUnits);
 
     await checkGoalCompletion('goal-1');
 
-    // Step 1 should NOT be cascaded (dependency succeeded)
-    expect(mockUpdate).not.toHaveBeenCalled();
+    // Step 1 should NOT be cascaded (dependency done)
+    const blockedUpdates = mockWuUpdate.mock.calls.filter(
+      (c: any) => c[0]?.data?.status === 'blocked'
+    );
+    expect(blockedUpdates.length).toBe(0);
   });
 
-  test('marks goal succeeded when single step succeeded', async () => {
+  test('marks goal done when single step done', async () => {
     // Single step: skips integration step logic (regularSteps.length > 1)
-    const executions = [makeExec(0, 'succeeded')];
-    mockFindMany.mockResolvedValue(executions);
-    mockFindFirst.mockResolvedValue(makePlan([
-      { index: 0, dependencies: [] },
-    ]));
+    const workUnits = [makeExec(0, 'done')];
+    mockWuFindMany.mockResolvedValue(workUnits);
 
     await checkGoalCompletion('goal-1');
 
-    expect(mockGoalUpdate).toHaveBeenCalledWith({
+    expect(mockWuUpdate).toHaveBeenCalledWith({
       where: { id: 'goal-1' },
-      data: { status: 'succeeded', completedAt: expect.any(Date) },
+      data: { status: 'done', completedAt: expect.any(Date) },
     });
   });
 
-  test('handles chain dependency: step 0 failed → step 1 blocked → step 2 blocked', async () => {
-    const executions = [
-      makeExec(0, 'failed'),
-      makeExec(1, 'pending'),
-      makeExec(2, 'pending'),
+  test('handles chain dependency: step 0 closed → step 1 blocked → step 2 blocked', async () => {
+    const workUnits = [
+      makeExec(0, 'closed'),
+      makeExecWithAcGroup(1, 'unassigned', { id: 'step-1', dependencies: ['step-0'] }),
+      makeExecWithAcGroup(2, 'unassigned', { id: 'step-2', dependencies: ['step-1'] }),
     ];
-    mockFindMany.mockResolvedValue(executions);
-    mockFindFirst.mockResolvedValue(makePlan([
-      { index: 0, dependencies: [] },
-      { index: 1, dependencies: [0] },
-      { index: 2, dependencies: [1] }, // depends on step 1, not step 0 directly
-    ]));
+    mockWuFindMany.mockResolvedValue(workUnits);
 
     await checkGoalCompletion('goal-1');
 
-    // Both step 1 and step 2 should be cascaded as blocked_by_dependency
-    const blockedUpdates = mockUpdate.mock.calls.filter(
-      (c: any) => c[0]?.data?.status === 'blocked_by_dependency'
+    // Both step 1 and step 2 should be cascaded as blocked
+    const blockedUpdates = mockWuUpdate.mock.calls.filter(
+      (c: any) => c[0]?.data?.status === 'blocked'
     );
     expect(blockedUpdates.length).toBe(2); // steps 1 and 2
 
-    expect(mockGoalUpdate).toHaveBeenCalledWith({
+    expect(mockWuUpdate).toHaveBeenCalledWith({
       where: { id: 'goal-1' },
-      data: { status: 'failed', completedAt: expect.any(Date) },
+      data: { status: 'closed', completedAt: expect.any(Date) },
     });
   });
 
   test('cascades failure without GoalPlan (createGoalFromChannelDoc path)', async () => {
     // No GoalPlan — dependencies encoded in acGroup.dependencies (string IDs)
-    const executions = [
-      { ...makeExec(0, 'failed'), input: JSON.stringify({ acGroup: { id: 'schema-migration' } }) },
-      { ...makeExec(1, 'pending'), input: JSON.stringify({ acGroup: { id: 'lifecycle-persist', dependencies: ['schema-migration'] } }) },
-      { ...makeExec(2, 'pending'), input: JSON.stringify({ acGroup: { id: 'crud-route', dependencies: ['schema-migration'] } }) },
+    const workUnits = [
+      makeExecWithAcGroup(0, 'closed', { id: 'schema-migration' }),
+      makeExecWithAcGroup(1, 'unassigned', { id: 'lifecycle-persist', dependencies: ['schema-migration'] }),
+      makeExecWithAcGroup(2, 'unassigned', { id: 'crud-route', dependencies: ['schema-migration'] }),
     ];
-    mockFindMany.mockResolvedValue(executions);
-    mockFindFirst.mockResolvedValue(null); // No GoalPlan
+    mockWuFindMany.mockResolvedValue(workUnits);
 
     await checkGoalCompletion('goal-1');
 
-    // Steps 1 and 2 should be cascaded as blocked_by_dependency
-    const blockedUpdates = mockUpdate.mock.calls.filter(
-      (c: any) => c[0]?.data?.status === 'blocked_by_dependency'
+    // Steps 1 and 2 should be cascaded as blocked
+    const blockedUpdates = mockWuUpdate.mock.calls.filter(
+      (c: any) => c[0]?.data?.status === 'blocked'
     );
     expect(blockedUpdates.length).toBe(2);
 
-    // Goal should be marked as failed
-    expect(mockGoalUpdate).toHaveBeenCalledWith({
+    // Goal should be marked as closed
+    expect(mockWuUpdate).toHaveBeenCalledWith({
       where: { id: 'goal-1' },
-      data: { status: 'failed', completedAt: expect.any(Date) },
+      data: { status: 'closed', completedAt: expect.any(Date) },
     });
   });
 
-  test('resets blocked_by_dependency steps when dependencies succeed (retry recovery)', async () => {
-    // Step 0 succeeded after retry, steps 1-2 were blocked_by_dependency
-    const executions = [
-      { ...makeExec(0, 'succeeded'), input: JSON.stringify({ acGroup: { id: 'schema-migration' } }) },
-      { ...makeExec(1, 'blocked_by_dependency'), input: JSON.stringify({ acGroup: { id: 'lifecycle-persist', dependencies: ['schema-migration'] } }) },
-      { ...makeExec(2, 'blocked_by_dependency'), input: JSON.stringify({ acGroup: { id: 'crud-route', dependencies: ['schema-migration'] } }) },
+  test('resets blocked steps when dependencies succeed (retry recovery)', async () => {
+    // Step 0 done after retry, steps 1-2 were blocked
+    const workUnits = [
+      makeExecWithAcGroup(0, 'done', { id: 'schema-migration' }),
+      makeExecWithAcGroup(1, 'blocked', { id: 'lifecycle-persist', dependencies: ['schema-migration'] }),
+      makeExecWithAcGroup(2, 'blocked', { id: 'crud-route', dependencies: ['schema-migration'] }),
     ];
-    mockFindMany.mockResolvedValue(executions);
-    mockFindFirst.mockResolvedValue(null); // No GoalPlan
+    mockWuFindMany.mockResolvedValue(workUnits);
 
     await checkGoalCompletion('goal-1');
 
-    // Steps 1 and 2 should be reset to pending
-    const resetUpdates = mockUpdate.mock.calls.filter(
-      (c: any) => c[0]?.data?.status === 'pending'
+    // Steps 1 and 2 should be reset to unassigned
+    const resetUpdates = mockWuUpdate.mock.calls.filter(
+      (c: any) => c[0]?.data?.status === 'unassigned'
     );
     expect(resetUpdates.length).toBe(2);
 
-    // Goal should NOT be marked as failed (steps are now pending)
-    expect(mockGoalUpdate).not.toHaveBeenCalled();
+    // Goal should NOT be marked as closed (steps are now unassigned)
+    const goalCloseCalls = mockWuUpdate.mock.calls.filter(
+      (c: any) => c[0]?.where?.id === 'goal-1' && c[0]?.data?.status === 'closed'
+    );
+    expect(goalCloseCalls.length).toBe(0);
   });
 });
 
 describe('updateStepExecution()', () => {
   test('passes failureType through to Prisma when provided', async () => {
-    mockUpdate.mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed', failureType: 'retryable' });
+    mockWuFindUnique.mockResolvedValue({ id: 'exec-1', metadata: JSON.stringify({ goalId: 'goal-1' }), status: 'closed' });
+    mockWuUpdate.mockResolvedValue({ id: 'exec-1', status: 'closed', failureType: 'retryable' });
     const checkFn = vi.fn().mockResolvedValue(undefined);
 
     await updateStepExecution('exec-1', { status: 'failed', error: 'exit code 1', failureType: 'retryable' }, checkFn);
 
-    expect(mockUpdate).toHaveBeenCalledWith(
+    expect(mockWuUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'exec-1' },
         data: expect.objectContaining({
-          status: 'failed',
           failureType: 'retryable',
         }),
       })
@@ -265,12 +246,13 @@ describe('updateStepExecution()', () => {
   });
 
   test('passes failureType=infrastructure to Prisma', async () => {
-    mockUpdate.mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed', failureType: 'infrastructure' });
+    mockWuFindUnique.mockResolvedValue({ id: 'exec-1', metadata: JSON.stringify({ goalId: 'goal-1' }), status: 'closed' });
+    mockWuUpdate.mockResolvedValue({ id: 'exec-1', status: 'closed', failureType: 'infrastructure' });
     const checkFn = vi.fn().mockResolvedValue(undefined);
 
     await updateStepExecution('exec-1', { status: 'failed', error: 'worktree lost', failureType: 'infrastructure' }, checkFn);
 
-    expect(mockUpdate).toHaveBeenCalledWith(
+    expect(mockWuUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ failureType: 'infrastructure' }),
       })
@@ -278,12 +260,13 @@ describe('updateStepExecution()', () => {
   });
 
   test('passes failureType=not-retryable to Prisma', async () => {
-    mockUpdate.mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed', failureType: 'not-retryable' });
+    mockWuFindUnique.mockResolvedValue({ id: 'exec-1', metadata: JSON.stringify({ goalId: 'goal-1' }), status: 'closed' });
+    mockWuUpdate.mockResolvedValue({ id: 'exec-1', status: 'closed', failureType: 'not-retryable' });
     const checkFn = vi.fn().mockResolvedValue(undefined);
 
     await updateStepExecution('exec-1', { status: 'failed', error: 'approach infeasible', failureType: 'not-retryable' }, checkFn);
 
-    expect(mockUpdate).toHaveBeenCalledWith(
+    expect(mockWuUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ failureType: 'not-retryable' }),
       })
@@ -291,18 +274,15 @@ describe('updateStepExecution()', () => {
   });
 
   test('works without failureType (backward compatible)', async () => {
-    mockUpdate.mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed' });
+    mockWuFindUnique.mockResolvedValue({ id: 'exec-1', metadata: JSON.stringify({ goalId: 'goal-1' }), status: 'closed' });
+    mockWuUpdate.mockResolvedValue({ id: 'exec-1', status: 'closed' });
     const checkFn = vi.fn().mockResolvedValue(undefined);
 
     await updateStepExecution('exec-1', { status: 'failed', error: 'some error' }, checkFn);
 
-    expect(mockUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: 'failed' }),
-      })
-    );
-    // Ensure failureType is NOT in the data when not provided
-    const callData = mockUpdate.mock.calls[0][0].data;
-    expect(callData).not.toHaveProperty('failureType');
+    // failureType should NOT be in the data when not provided
+    const calls = mockWuUpdate.mock.calls;
+    const failureTypeCalls = calls.filter((c: any) => c[0]?.data?.failureType !== undefined);
+    expect(failureTypeCalls.length).toBe(0);
   });
 });

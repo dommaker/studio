@@ -37,11 +37,11 @@ export async function onPhaseFailure(ctx: AlarmContext): Promise<void> {
   // 1. 终止：标记 DB（executionId 存在时）
   if (ctx.executionId) {
     try {
-      await prisma.goalExecution.update({
+      await prisma.workUnit.update({
         where: { id: ctx.executionId },
         data: {
-          status: 'failed',
-          error: JSON.stringify({ message: ctx.error, phase: ctx.phase }),
+          status: 'closed',
+          metadata: JSON.stringify({ error: JSON.stringify({ message: ctx.error, phase: ctx.phase }) }),
         },
       });
     } catch { /* execution may not exist */ }

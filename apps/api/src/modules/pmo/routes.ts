@@ -617,8 +617,8 @@ router.post('/init-admin', async (req: Request, res: Response) => {
 router.get('/health', async (_req: Request, res: Response) => {
   try {
     const [activeGoals, pendingGoals, recentEvents] = await Promise.all([
-      prisma.goal.count({ where: { status: 'executing' } }),
-      prisma.goalExecution.count({ where: { status: 'pending' } }),
+      prisma.workUnit.count({ where: { status: 'active', type: 'task', parentId: null } }),
+      prisma.workUnit.count({ where: { status: 'unassigned', parentId: { not: null } } }),
       prisma.studioEvent.findMany({ orderBy: { timestamp: 'desc' }, take: 20 }),
     ]);
     res.json({

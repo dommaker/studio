@@ -194,17 +194,19 @@ export function buildLegacyPrompt(input: Record<string, any> | null): string {
 
 /** O1f: Lightweight integration prompt */
 export async function buildIntegrationPrompt(goalId: string): Promise<string> {
-  const execs = await prisma.goalExecution.findMany({
-    where: { goalId, status: 'succeeded' },
-    select: { id: true, stepIndex: true, input: true, output: true },
-    orderBy: { stepIndex: 'asc' },
+  const execs = await prisma.workUnit.findMany({
+    where: { parentId: goalId, status: 'done' },
+    select: { id: true, metadata: true },
+    orderBy: { createdAt: 'asc' },
   });
 
   const groupList = execs.map(e => {
-    const input = e.input as unknown as Record<string, any> | null;
-    const output = e.output as unknown as Record<string, any> | null;
+    const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
+    const input = eMeta.input || {};
+    const output = eMeta.output || {};
+    const stepIndex = eMeta.stepIndex ?? 0;
     return [
-      `### AC 组 ${e.stepIndex + 1}`,
+      `### AC 组 ${stepIndex + 1}`,
       `  - 执行 ID: ${e.id}`,
       `  - ACs: ${(input?.acGroup?.acs || []).join('; ') || '未知'}`,
       `  - AC 范围文件: ${(input?.acGroup?.files || []).join(', ') || '未知'}`,
@@ -234,13 +236,13 @@ export async function getSiblingContext(
   currentExecutionId: string,
   currentStepIndex: number,
 ): Promise<string> {
-  const allExecs = await prisma.goalExecution.findMany({
-    where: { goalId },
-    select: { id: true, stepIndex: true, status: true, output: true, input: true },
+  const allExecs = await prisma.workUnit.findMany({
+    where: { parentId: goalId },
+    select: { id: true, status: true, metadata: true },
   });
 
   const completed = allExecs.filter(
-    e => e.status === 'succeeded' && e.id !== currentExecutionId,
+    e => e.status === 'done' && e.id !== currentExecutionId,
   );
   if (completed.length === 0) return '';
 
@@ -250,9 +252,11 @@ export async function getSiblingContext(
   ];
 
   for (const sibling of completed) {
-    const siblingInput = parseJsonField<Record<string, any>>(sibling.input, {});
-    const stepTitle = siblingInput?.acGroup?.id || 'AC 组 ' + (sibling.stepIndex + 1);
-    const output = sibling.output as unknown as Record<string, any> | null;
+    const sMeta = sibling.metadata ? JSON.parse(sibling.metadata) : {};
+    const siblingInput = sMeta.input || {};
+    const stepIndex = sMeta.stepIndex ?? 0;
+    const stepTitle = siblingInput?.acGroup?.id || 'AC 组 ' + (stepIndex + 1);
+    const output = sMeta.output || null;
     if (!output) continue;
 
     lines.push('');
@@ -286,8 +290,9 @@ export async function getSiblingContext(
 /** 获取公司级知识注入（已沉淀的 Pattern/Skill） */
 export async function getCompanyKnowledge(goalId: string, input: Record<string, any> | null): Promise<string> {
   try {
-    const goal = await prisma.goal.findUnique({ where: { id: goalId }, select: { companyId: true, context: true } });
-    const companyId = goal?.companyId || ((goal?.context as any)?.companyId as string);
+    const goal = await prisma.workUnit.findUnique({ where: { id: goalId }, select: { metadata: true } });
+    const goalMeta = goal?.metadata ? JSON.parse(goal.metadata) : {};
+    const companyId = goalMeta.companyId || goalMeta.context?.companyId;
     if (!companyId) return '';
 
     const skills = skillStore.list(
@@ -313,7 +318,7 @@ export async function getCompanyKnowledge(goalId: string, input: Record<string, 
       }),
     ].join('\n');
   } catch (e) {
-    logger.warn('[GoalScheduler] Company knowledge injection failed', { error: String(e) });
+    logger.warn('[Scheduler] Company knowledge injection failed', { error: String(e) });
     return '';
   }
 }
@@ -430,11 +435,15 @@ export async function runIntegrationInCode(
     try { execSync(`git branch -D "${branchName}"`, { cwd: repoDir, timeout: 5_000 }); } catch {}
     execSync(`git worktree add -b "${branchName}" "${worktree}" HEAD`, { cwd: repoDir, timeout: 30_000 });
   }
-  logger.info('[GoalScheduler] Integration worktree created', { worktree, executionId });
+  logger.info('[Scheduler] Integration worktree created', { worktree, executionId });
 
-  const succeededExecs = await prisma.goalExecution.findMany({
-    where: { goalId, status: 'succeeded', stepIndex: { not: 999 } },
-    orderBy: { stepIndex: 'asc' },
+  const allDoneChildren = await prisma.workUnit.findMany({
+    where: { parentId: goalId, status: 'done' },
+    orderBy: { createdAt: 'asc' },
+  });
+  const succeededExecs = allDoneChildren.filter(c => {
+    const m = c.metadata ? JSON.parse(c.metadata) : {};
+    return m.stepIndex !== 999;
   });
   const mergedBranches: string[] = [];
   const missingBranches: string[] = [];
@@ -453,18 +462,20 @@ export async function runIntegrationInCode(
     // Fallback: use stored headCommit from execution output
     if (!branchExists) {
       try {
-        const output = typeof exec.output === 'string' ? JSON.parse(exec.output) : (exec.output || {});
+        const execMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
+        const output = execMeta.output || {};
         const sha = output?.headCommit;
         if (sha && /^[0-9a-f]{40}$/.test(sha)) {
           execSync(`git cat-file -t "${sha}"`, { cwd: worktree, timeout: 5_000, stdio: 'pipe' });
           branch = sha;
           branchExists = true;
-          logger.info('[GoalScheduler] Using stored headCommit for merge', { executionId: exec.id, sha });
+          logger.info('[Scheduler] Using stored headCommit for merge', { executionId: exec.id, sha });
         }
       } catch { /* SHA not available or not valid */ }
     }
     if (!branchExists) {
-      missingBranches.push(`step ${exec.stepIndex} (${exec.id.slice(0, 8)})`);
+      const execMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
+      missingBranches.push(`step ${execMeta.stepIndex ?? '?'} (${exec.id.slice(0, 8)})`);
       continue;
     }
     try {
@@ -474,7 +485,7 @@ export async function runIntegrationInCode(
       try {
         const diffStat = execSync('git diff HEAD@{1} --stat', { cwd: worktree, timeout: 5_000, stdio: 'pipe' }).toString();
         if (!diffStat.trim()) {
-          logger.warn('[GoalScheduler] Integration merge empty — branch has no actual changes', { branch, executionId });
+          logger.warn('[Scheduler] Integration merge empty — branch has no actual changes', { branch, executionId });
           return { success: false, failureType: 'empty_merge', error: `Merge of ${branch} produced no code changes (empty branch). Executor may have skipped commit (P4).`, failedBranch: branch };
         }
       } catch (diffErr) {
@@ -482,20 +493,20 @@ export async function runIntegrationInCode(
         try {
           const parentDiff = execSync('git diff HEAD^1 HEAD --stat', { cwd: worktree, timeout: 5_000, stdio: 'pipe' }).toString();
           if (!parentDiff.trim()) {
-            logger.warn('[GoalScheduler] Integration merge empty (parent diff)', { branch, executionId });
+            logger.warn('[Scheduler] Integration merge empty (parent diff)', { branch, executionId });
             return { success: false, failureType: 'empty_merge', error: `Merge of ${branch} produced no code changes (empty branch). Executor may have skipped commit (P4).`, failedBranch: branch };
           }
         } catch { /* best-effort: skip empty check if diff fails */ }
       }
 
       mergedBranches.push(branch);
-      logger.info('[GoalScheduler] Integration merged', { branch, executionId });
+      logger.info('[Scheduler] Integration merged', { branch, executionId });
     } catch (e: any) {
       // Abort merge to leave worktree clean
       try { execSync('git merge --abort', { cwd: worktree, timeout: 5_000, stdio: 'pipe' }); } catch {}
       const errMsg = e?.stderr?.toString() || e?.message || String(e);
-      logger.warn('[GoalScheduler] Integration merge conflict', { branch, error: errMsg.slice(0, 200) });
-      eventBus.publish('pipeline.merge_conflict', { branch, executionId, error: errMsg.slice(0, 500) });
+      logger.warn('[Scheduler] Integration merge conflict', { branch, error: errMsg.slice(0, 200) });
+      eventBus.publish('execution.merge_conflict', { branch, executionId, error: errMsg.slice(0, 500) });
       return { success: false, failureType: 'merge_conflict', error: `Merge conflict on ${branch}: ${errMsg.slice(0, 200)}`, failedBranch: branch };
     }
   }
@@ -503,7 +514,7 @@ export async function runIntegrationInCode(
     return { success: false, failureType: 'missing_branch', error: `No step branches found for merge. Missing: ${missingBranches.join(', ')}` };
   }
   if (missingBranches.length > 0) {
-    logger.warn('[GoalScheduler] Some step branches missing during integration', { missing: missingBranches, merged: mergedBranches });
+    logger.warn('[Scheduler] Some step branches missing during integration', { missing: missingBranches, merged: mergedBranches });
   }
 
   // Copy built dist/ from main repo — worktree packages are gitignored, no dist/
@@ -526,7 +537,7 @@ export async function runIntegrationInCode(
       fs.cpSync(mainHarnessDist, wtHarnessDist, { recursive: true });
     }
   } catch (e) {
-    logger.warn('[GoalScheduler] Failed to copy workspace dist/', { error: String(e) });
+    logger.warn('[Scheduler] Failed to copy workspace dist/', { error: String(e) });
   }
 
   // Generate Prisma client — pnpm store may have stale types
@@ -534,7 +545,7 @@ export async function runIntegrationInCode(
     execSync('npx prisma generate 2>&1', { cwd: path.join(worktree, 'packages', 'studio-prisma'), timeout: 30_000 });
   } catch (e: any) {
     const detail = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
-    logger.warn('[GoalScheduler] prisma generate failed', { error: detail.slice(0, 500) });
+    logger.warn('[Scheduler] prisma generate failed', { error: detail.slice(0, 500) });
   }
 
   // Apply pending migrations — merged branches may include new migration files.
@@ -548,12 +559,12 @@ export async function runIntegrationInCode(
       env: { ...process.env, DATABASE_URL: dbUrl },
       timeout: 30_000,
     });
-    logger.info('[GoalScheduler] Integration: migrations deployed', { executionId });
+    logger.info('[Scheduler] Integration: migrations deployed', { executionId });
   } catch (e: any) {
     const detail = e?.stderr?.toString() || e?.stdout?.toString() || String(e);
     // Migration failure is non-fatal for integration — schema may not have changed.
     // If migrations are required, tsc will catch type errors from missing fields.
-    logger.warn('[GoalScheduler] Integration: migrate deploy failed (non-fatal)', { error: detail.slice(0, 500), executionId });
+    logger.warn('[Scheduler] Integration: migrate deploy failed (non-fatal)', { error: detail.slice(0, 500), executionId });
   }
 
   // 增量 tsc：复制主仓库的 .tsbuildinfo 到 worktree，只检查变更文件
@@ -583,7 +594,7 @@ export async function runIntegrationInCode(
         return { success: false, failureType: 'test_failure', error: `Impacted tests failed (${testResult.method}, ${testResult.testCount} tests): ${testResult.errors[0]?.slice(0, 300)}`, affectedFiles: extractAffectedFiles(testResult.errors.join('\n')) };
       }
     } else {
-      logger.info('[GoalScheduler] Integration: no impacted tests found, skipping', { changedFiles: changedFiles.length });
+      logger.info('[Scheduler] Integration: no impacted tests found, skipping', { changedFiles: changedFiles.length });
     }
   } catch (e: any) {
     const errMsg = e?.stderr?.toString() || e?.stdout?.toString() || String(e);

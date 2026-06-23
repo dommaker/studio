@@ -21,7 +21,7 @@ describe('token tracking bug fixes', () => {
   test('scheduler-dispatch.ts failure path model guard excludes "unknown"', () => {
     const src = readSource('apps/api/src/modules/goals/scheduler-dispatch.ts');
 
-    // Find the line that uses failTokens.model for the failure-path recordPipelineRun
+    // Find the line that uses failTokens.model for the failure-path recordExecution
     const lines = src.split('\n');
     const failModelLine = lines.find(l => l.includes('model:') && l.includes('failTokens.model')) || '';
     expect(failModelLine).toBeTruthy();

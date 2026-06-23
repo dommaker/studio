@@ -59,7 +59,7 @@ export function getAvailableSlots(maxCap?: number): number {
     slots = Math.min(slots, maxCap);
   }
 
-  logger.info('[GoalScheduler] Resource check', {
+  logger.info('[Scheduler] Resource check', {
     freeMemGB, totalMemGB, freeMemPct: Math.round(freeMemPct * 100) + '%',
     loadAvg: os.loadavg()[0].toFixed(2), cpuCores: os.cpus().length,
     slots, maxConcurrent: 5, ...(maxCap !== undefined ? { maxCap } : {}),
@@ -113,7 +113,7 @@ export function classifyTaskComplexity(input: Record<string, any> | null, prompt
   const analystTier = input?.acGroup?.modelTier as string | undefined;
   if (analystTier && ['fast', 'standard', 'premium'].includes(analystTier)) {
     const reason = input?.acGroup?.modelTierReason || 'analyst-classified';
-    logger.info('[GoalScheduler] Analyst modelTier adopted', { tier: analystTier, reason });
+    logger.info('[Scheduler] Analyst modelTier adopted', { tier: analystTier, reason });
     return analystTier;
   }
 
@@ -172,7 +172,7 @@ export function classifyTaskComplexity(input: Record<string, any> | null, prompt
     }
   }
 
-  logger.info('[GoalScheduler] Complexity classified', { tier, reason, acCount, fileCount });
+  logger.info('[Scheduler] Complexity classified', { tier, reason, acCount, fileCount });
   return tier;
 }
 
@@ -213,7 +213,7 @@ export function getHistoricalBestTier(taskCategory: string, classifications: Cla
   }
 
   if (bestTier) {
-    logger.info('[GoalScheduler] Historical routing feedback', {
+    logger.info('[Scheduler] Historical routing feedback', {
       taskCategory, bestTier, bestRate: bestRate.toFixed(2),
       samples: Object.fromEntries(Object.entries(stats).map(([t, s]) => [t, `${s.success}/${s.total}`])),
     });
@@ -242,7 +242,7 @@ export function restoreRoutingStats(): ClassificationRecord[] {
     for (const line of lines) {
       try { result.push(JSON.parse(line)); } catch {}
     }
-    logger.info('[GoalScheduler] Restored routing stats', { count: result.length });
+    logger.info('[Scheduler] Restored routing stats', { count: result.length });
   } catch {}
   return result;
 }
@@ -253,7 +253,7 @@ export function maybeExploreDowngrade(tier: string, taskCategory: string, explor
   if (taskCategory === 'auth' || taskCategory === 'schema') return { tier, exploring: false };
   if (Math.random() > explorationRate) return { tier, exploring: false };
 
-  logger.info('[GoalScheduler] ε-greedy: exploring standard for premium task', { taskCategory });
+  logger.info('[Scheduler] ε-greedy: exploring standard for premium task', { taskCategory });
   return { tier: 'standard', exploring: true };
 }
 

@@ -29,33 +29,45 @@ export interface ExtractedSkillProposal {
 export class SkillExtractionService {
   /** 从 GoalExecution 提取可复用模式 */
   async extractFromGoalExecution(goalExecutionId: string): Promise<ExtractedSkillProposal | null> {
-    const ge = await prisma.goalExecution.findUnique({
+    const ge = await prisma.workUnit.findUnique({
       where: { id: goalExecutionId },
-      select: { id: true, goalId: true, status: true, input: true, output: true },
+      select: { id: true, parentId: true, status: true, metadata: true },
     });
-    if (!ge || ge.status !== 'succeeded') return null;
+    if (!ge || ge.status !== 'done') return null;
 
-    const goal = await prisma.goal.findUnique({ where: { id: ge.goalId }, select: { companyId: true } });
-    if (!goal?.companyId) return null;
+    const geMeta = ge.metadata ? JSON.parse(ge.metadata) : {};
+    const goal = ge.parentId ? await prisma.workUnit.findUnique({ where: { id: ge.parentId }, select: { metadata: true } }) : null;
+    const goalMeta = goal?.metadata ? JSON.parse(goal.metadata) : {};
+    const companyId = goalMeta.companyId;
+    if (!companyId) return null;
 
-    const acGroup = (ge.input as any)?.acGroup;
+    const acGroup = geMeta.input?.acGroup;
     const acs = acGroup?.acs?.join(' ') || '';
     const files = acGroup?.files?.join(' ') || '';
 
-    // 找同公司其他成功 GoalExecution（两步查询：goal→executions）
-    const companyGoalIds = (await prisma.goal.findMany({ where: { companyId: goal.companyId, status: 'succeeded' }, select: { id: true }, take: 20 })).map(g => g.id);
-    const similar = await prisma.goalExecution.findMany({
-      where: { goalId: { in: companyGoalIds }, status: 'succeeded', id: { not: goalExecutionId } },
+    // 找同公司其他成功 WorkUnit children
+    const companyGoals = await prisma.workUnit.findMany({
+      where: { type: 'task', parentId: null, status: 'done', metadata: { contains: companyId } },
+      select: { id: true },
+      take: 20,
+    });
+    const companyGoalIds = companyGoals.map(g => g.id);
+    const similar = await prisma.workUnit.findMany({
+      where: { parentId: { in: companyGoalIds }, status: 'done', id: { not: goalExecutionId } },
       take: 10, orderBy: { completedAt: 'desc' },
-      select: { id: true, input: true, output: true },
+      select: { id: true, metadata: true },
     });
     if (similar.length < 1) return null;
 
     try {
+      const similarParsed = similar.map(s => {
+        const m = s.metadata ? JSON.parse(s.metadata) : {};
+        return { acs: m.input?.acGroup?.acs?.join(' ') || '', output: m.output };
+      });
       return await this.analyzeWithLLM(
-        { acs, files, output: ge.output },
-        similar.map(s => ({ acs: (s.input as any)?.acGroup?.acs?.join(' ') || '', output: s.output })),
-        goal.companyId,
+        { acs, files, output: geMeta.output },
+        similarParsed,
+        companyId,
       );
     } catch (error) {
       logger.error('[SkillExtraction] Failed', { error: String(error) });
@@ -65,28 +77,38 @@ export class SkillExtractionService {
 
   /** 跨项目扫描 Pattern */
   async scanForPatterns(companyId: string): Promise<ExtractedSkillProposal[]> {
-    const goals = await prisma.goal.findMany({
-      where: { companyId, status: 'succeeded' },
-      select: { id: true, GoalExecution: { where: { status: 'succeeded' }, select: { id: true, input: true, output: true }, take: 3 } },
+    const goals = await prisma.workUnit.findMany({
+      where: { status: 'done', type: 'task', parentId: null, metadata: { contains: companyId } },
+      select: { id: true, children: { where: { status: 'done' }, select: { id: true, metadata: true }, take: 3 } },
       take: 30, orderBy: { completedAt: 'desc' },
     });
 
+    // Parse metadata for each child to extract input/output
+    type GoalWithParsedChildren = { id: string; children: Array<{ id: string; input: any; output: any }> };
+    const goalsParsed: GoalWithParsedChildren[] = goals.map(g => ({
+      id: g.id,
+      children: g.children.map(c => {
+        const meta = c.metadata ? JSON.parse(c.metadata) : {};
+        return { id: c.id, input: meta.input, output: meta.output };
+      }),
+    }));
+
     const proposals: ExtractedSkillProposal[] = [];
-    const grouped = new Map<string, typeof goals>();
-    for (const g of goals) {
-      if (g.GoalExecution.length < 2) continue;
-      const key = (g.GoalExecution[0].input as any)?.acGroup?.acs?.[0]?.slice(0, 30) || 'unknown';
+    const grouped = new Map<string, GoalWithParsedChildren[]>();
+    for (const g of goalsParsed) {
+      if (g.children.length < 2) continue;
+      const key = g.children[0].input?.acGroup?.acs?.[0]?.slice(0, 30) || 'unknown';
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key)!.push(g);
     }
 
     for (const [, group] of grouped) {
       if (group.length < 2) continue;
-      const main = group[0].GoalExecution[0];
+      const main = group[0].children[0];
       try {
         const p = await this.analyzeWithLLM(
-          { acs: (main.input as any)?.acGroup?.acs?.join('; ') || '', output: main.output },
-          group.slice(1).map(g => ({ acs: (g.GoalExecution[0].input as any)?.acGroup?.acs?.join('; ') || '', output: g.GoalExecution[0].output })),
+          { acs: main.input?.acGroup?.acs?.join('; ') || '', output: main.output },
+          group.slice(1).map(g => ({ acs: g.children[0].input?.acGroup?.acs?.join('; ') || '', output: g.children[0].output })),
           companyId,
         );
         if (p && p.confidence >= 0.6) proposals.push(p);

@@ -29,7 +29,7 @@ vi.mock('@dommaker/studio-shared', () => ({
 // Mock metrics and task-logger — must return Promises for .catch() chaining
 vi.mock('../metrics.js', () => ({
   parseClaudeUsage: () => ({ inputTokens: 100, outputTokens: 50, cacheHitTokens: 0 }),
-  recordPipelineRun: vi.fn(() => Promise.resolve()),
+  recordExecution: vi.fn(() => Promise.resolve()),
 }));
 
 vi.mock('../task-logger.js', () => ({

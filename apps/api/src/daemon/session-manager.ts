@@ -6,7 +6,7 @@ import { logger, getModelForTier, parseStreamEvents, extractUsage, extractWriteC
 import { readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
-import { recordPipelineRun } from './metrics.js';
+import { recordExecution } from './metrics.js';
 import { writeTaskLog, classifyTaskError } from './task-logger.js';
 import type { TaskLog } from './task-logger.js';
 
@@ -227,8 +227,8 @@ export class SessionManager {
           state.sessionId = crypto.randomUUID();
         }
 
-        recordPipelineRun({
-          source: 'pipeline', phase,
+        recordExecution({
+          source: 'execution', phase,
           taskName: `daemon-${sessionName}-${taskIndex}`, model,
           inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs,
           success: false, error: errorMsg, sessionId: state.sessionId,
@@ -345,8 +345,8 @@ export class SessionManager {
       });
 
       // Pipeline metrics
-      recordPipelineRun({
-        source: 'pipeline', phase,
+      recordExecution({
+        source: 'execution', phase,
         taskName: `daemon-${sessionName}-${state.taskCount}`, model,
         inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
         cacheHitTokens: usage.cacheHitTokens, durationMs, success: true,
@@ -386,8 +386,8 @@ export class SessionManager {
         error: errorMsg.slice(0, 200),
       });
 
-      recordPipelineRun({
-        source: 'pipeline', phase,
+      recordExecution({
+        source: 'execution', phase,
         taskName: `daemon-${sessionName}-${taskIndex}`, model,
         inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs,
         success: false, error: errorMsg.slice(0, 300), sessionId: state.sessionId,

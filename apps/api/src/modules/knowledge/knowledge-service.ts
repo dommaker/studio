@@ -810,7 +810,7 @@ export class KnowledgeService {
    * Record per-step pipeline feedback as StudioEvent.
    * Called after each pipeline phase (analyst/executor/review/deploy) completes.
    */
-  async pipelineStepFeedback(params: {
+  async workUnitFeedback(params: {
     goalId: string;
     executionId: string;
     phase: string;
@@ -823,14 +823,14 @@ export class KnowledgeService {
       await this.prisma.studioEvent.create({
         data: {
           type: `knowledge:pipeline:${params.phase}:${params.success ? 'success' : 'failure'}`,
-          source: 'pipeline',
+          source: 'execution',
           payload: JSON.stringify(params),
         },
       });
-    } catch (e) { logger.warn('[KnowledgeService] pipelineStepFeedback failed', { error: String(e) }); }
+    } catch (e) { logger.warn('[KnowledgeService] workUnitFeedback failed', { error: String(e) }); }
 
     this.eventEmitter.emit('knowledge', {
-      type: 'pipelineStepFeedback',
+      type: 'workUnitFeedback',
       data: { goalId: params.goalId, phase: params.phase, success: params.success },
     });
   }

@@ -9,7 +9,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus, toKebab, writeSddDoc, appendChangelog } from '@dommaker/studio-shared';
 import { classifyError, formatTriageMessage } from '../triage/error-class.js';
 import { channelMessageService } from './channel-message.service.js';
-import { recordPipelineRun } from '../../daemon/metrics.js';
+import { recordExecution } from '../../daemon/metrics.js';
 import { perInvocationOutputFile } from './analyst-knowledge.js';
 import { buildAnalystPrompt } from './analyst-prompt.js';
 import { runClaudeCode, validateAnalystOutput, preClassifyTier, type RequirementsDocJson } from './analyst-executor.js';
@@ -848,8 +848,8 @@ class AnalystTriggerService {
       // 9. Record Analyst phase metrics
       if (route === 'direct') {
         // 9a. Pre-analyst knowledge search (0 tokens, duration only)
-        recordPipelineRun({
-          source: 'pipeline', phase: 'analyst',
+        recordExecution({
+          source: 'execution', phase: 'analyst',
           taskName: `pre-analyst:${response.requirement.title || '需求分析'}`,
           model: 'knowledge-search',
           inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
@@ -862,8 +862,8 @@ class AnalystTriggerService {
       }
 
       // 9b. Analyst Claude session (direct: full session; scout+synth: synthesizer only)
-      recordPipelineRun({
-        source: 'pipeline', phase: 'analyst',
+      recordExecution({
+        source: 'execution', phase: 'analyst',
         taskName: response.requirement.title || '需求分析',
         model: `claude-${preTier}`,
         inputTokens: usage.inputTokens,

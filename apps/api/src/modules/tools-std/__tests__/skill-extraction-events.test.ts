@@ -23,8 +23,7 @@ vi.mock('@dommaker/studio-prisma', () => ({
       findFirst: mockSkillFindFirst,
     },
     skillProposal: { create: mockSkillProposalCreate },
-    goalExecution: { findUnique: vi.fn() },
-    goal: { findUnique: vi.fn(), findMany: vi.fn() },
+    workUnit: { findUnique: vi.fn(), findMany: vi.fn() },
   },
 }));
 

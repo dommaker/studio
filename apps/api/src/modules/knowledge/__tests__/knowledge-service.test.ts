@@ -577,10 +577,10 @@ describe('KnowledgeService Phase 1C: Extract', () => {
 // ── Phase 3: Feedback loop behavior tests ──
 
 describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
-  describe('pipelineStepFeedback', () => {
+  describe('workUnitFeedback', () => {
     it('creates StudioEvent with correct type pattern (success)', async () => {
       const { ks, prisma } = createKS();
-      await ks.pipelineStepFeedback({
+      await ks.workUnitFeedback({
         goalId: 'goal-1',
         executionId: 'exec-1',
         phase: 'executor',
@@ -592,7 +592,7 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
         expect.objectContaining({
           data: expect.objectContaining({
             type: 'knowledge:pipeline:executor:success',
-            source: 'pipeline',
+            source: 'execution',
           }),
         }),
       );
@@ -600,7 +600,7 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
 
     it('creates StudioEvent with correct type pattern (failure)', async () => {
       const { ks, prisma } = createKS();
-      await ks.pipelineStepFeedback({
+      await ks.workUnitFeedback({
         goalId: 'goal-1',
         executionId: 'exec-1',
         phase: 'executor',
@@ -619,7 +619,7 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
 
     it('emits knowledge event on eventEmitter', async () => {
       const { ks, eventEmitter } = createKS();
-      await ks.pipelineStepFeedback({
+      await ks.workUnitFeedback({
         goalId: 'goal-1',
         executionId: 'exec-1',
         phase: 'executor',
@@ -627,14 +627,14 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
         durationMs: 5000,
       });
       expect(eventEmitter.emit).toHaveBeenCalledWith('knowledge',
-        expect.objectContaining({ type: 'pipelineStepFeedback' }),
+        expect.objectContaining({ type: 'workUnitFeedback' }),
       );
     });
 
     it('non-blocking: does not throw when prisma fails', async () => {
       const { ks, prisma } = createKS();
       (prisma.studioEvent.create as any).mockRejectedValueOnce(new Error('DB down'));
-      await expect(ks.pipelineStepFeedback({
+      await expect(ks.workUnitFeedback({
         goalId: 'goal-1',
         executionId: 'exec-1',
         phase: 'executor',
@@ -818,7 +818,7 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('recordConsumption exists', () => expect(typeof ks.recordConsumption).toBe('function'));
     it('recordOutcome exists', () => expect(typeof ks.recordOutcome).toBe('function'));
     it('recordFeedback exists', () => expect(typeof ks.recordFeedback).toBe('function'));
-    it('pipelineStepFeedback exists', () => expect(typeof ks.pipelineStepFeedback).toBe('function'));
+    it('workUnitFeedback exists', () => expect(typeof ks.workUnitFeedback).toBe('function'));
   });
 
   describe('Lifecycle (4 methods)', () => {

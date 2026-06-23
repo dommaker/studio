@@ -10,7 +10,7 @@ import * as fs from 'node:fs';
 import { execSync } from 'child_process';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, getModelForTier, type ModelTier } from '@dommaker/studio-shared';
-import { recordPipelineRun } from '../../daemon/metrics.js';
+import { recordExecution } from '../../daemon/metrics.js';
 import { agentRunner } from '@dommaker/studio-agent';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { EXECUTION_TO_WORKUNIT_STATUS, mapExecutionStatuses } from '../workunit/status-mapping.js';
@@ -94,7 +94,7 @@ export async function dispatchStep(
       hasVerificationEvidence: true,
     });
   } catch (err) {
-    logger.warn('[GoalScheduler] beforeAgentDispatch failed, continuing', { executionId, error: String(err) });
+    logger.warn('[Scheduler] beforeAgentDispatch failed, continuing', { executionId, error: String(err) });
   }
 
   // ROLE-001: 加载 Executor 的角色约束 + boundSkills
@@ -108,7 +108,7 @@ export async function dispatchStep(
       boundSkillNames = execConfig.boundSkills || [];
     }
   } catch (e) {
-    logger.warn('[GoalScheduler] Failed to load role config, using defaults', { executionId, error: String(e) });
+    logger.warn('[Scheduler] Failed to load role config, using defaults', { executionId, error: String(e) });
   }
 
   // BP-018: 注入运行时约束
@@ -166,7 +166,7 @@ export async function dispatchStep(
         prompt += '\n\n## Bound Skills\n' + skillPrompts.join('\n\n');
       }
     } catch (e) {
-      logger.warn('[GoalScheduler] Failed to load boundSkills', { executionId, error: String(e) });
+      logger.warn('[Scheduler] Failed to load boundSkills', { executionId, error: String(e) });
     }
   }
 
@@ -183,7 +183,7 @@ export async function dispatchStep(
         errorMsg = rawError;
       }
       prompt += `\n\n## ⚠️ Previous Attempt Failed\nError: ${errorMsg}\nDo NOT repeat the same approach. Try a different strategy.\n`;
-      logger.info('[GoalScheduler] Injected previous error into retry prompt', {
+      logger.info('[Scheduler] Injected previous error into retry prompt', {
         executionId, retryCount, errorLength: errorMsg.length,
       });
     }
@@ -193,7 +193,7 @@ export async function dispatchStep(
   const effectiveConcurrency = strategy === 'conservative' ? 2 : MAX_CONCURRENT;
 
   const dispatchStart = Date.now();
-  logger.info('[GoalScheduler] Dispatching', {
+  logger.info('[Scheduler] Dispatching', {
     strategy,
     effectiveConcurrency,
     executionId,
@@ -258,7 +258,7 @@ export async function dispatchStep(
         const newState = updateDispatchOutcome({ failures: ctx.recentFailures, total: ctx.recentTotal }, true);
         ctx.recentFailures = newState.failures;
         ctx.recentTotal = newState.total;
-        logger.info('[GoalScheduler] Integration (code) succeeded', {
+        logger.info('[Scheduler] Integration (code) succeeded', {
           goalId: goal.id, executionId, durationMs: Date.now() - dispatchStart,
         });
         return;
@@ -270,7 +270,7 @@ export async function dispatchStep(
         case 'unknown':
         case undefined:
           // Fall through to Claude Agent (existing behavior)
-          logger.warn('[GoalScheduler] Integration failed, falling back to Claude', {
+          logger.warn('[Scheduler] Integration failed, falling back to Claude', {
             goalId: goal.id, executionId, failureType: integrationResult.failureType,
           });
           break;
@@ -286,12 +286,12 @@ export async function dispatchStep(
             worktree,
           });
           if (rollbackResult.blocked) {
-            logger.warn('[GoalScheduler] Rollback blocked, goal marked blocked', {
+            logger.warn('[Scheduler] Rollback blocked, goal marked blocked', {
               goalId: goal.id, reason: rollbackResult.reason,
             });
             return;
           }
-          logger.info('[GoalScheduler] Rollback complete, steps will be retried', {
+          logger.info('[Scheduler] Rollback complete, steps will be retried', {
             goalId: goal.id, rolledBackSteps: rollbackResult.rolledBackSteps,
           });
           return;
@@ -307,7 +307,7 @@ export async function dispatchStep(
         }
       }
     } catch (err) {
-      logger.warn('[GoalScheduler] Integration (code) threw, falling back to Claude', { goalId: goal.id, error: String(err) });
+      logger.warn('[Scheduler] Integration (code) threw, falling back to Claude', { goalId: goal.id, error: String(err) });
     }
   }
 
@@ -342,7 +342,7 @@ export async function dispatchStep(
     if (result.sessionIds?.length) {
       for (const sid of result.sessionIds) {
         generateSessionSummary(sid).catch((err: unknown) => {
-          logger.warn('[GoalScheduler] SessionSummary generation failed', { sessionId: sid, error: String(err) });
+          logger.warn('[Scheduler] SessionSummary generation failed', { sessionId: sid, error: String(err) });
         });
       }
     }
@@ -364,7 +364,7 @@ export async function dispatchStep(
       failureType: classification.failureClass,
     });
     await workUnitService.transitionStatus(executionId, 'closed');
-    logger.error('[GoalScheduler] Agent error', { executionId, error: errorMsg });
+    logger.error('[Scheduler] Agent error', { executionId, error: errorMsg });
     // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
     await onPhaseFailure({
       executionId,
@@ -429,8 +429,8 @@ async function handleDispatchSuccess(
       if (tr) testPassed = (tr.failed ?? 0) === 0 && (tr.passed ?? 0) > 0;
     }
   } catch { /* progress file may not exist or be invalid */ }
-  recordPipelineRun({
-    source: 'pipeline', phase: 'executor',
+  recordExecution({
+    source: 'execution', phase: 'executor',
     taskName: goal.title,
     model: (tokenUsage.model && tokenUsage.model !== 'unknown') ? tokenUsage.model : (getModelForTier(tier as ModelTier) || 'default'),
     inputTokens: tokenUsage.inputTokens,
@@ -441,11 +441,11 @@ async function handleDispatchSuccess(
     sessionId: executionId,
     goalId: goal.id,
     ...(testPassed !== undefined ? { testPassed } : {}),
-  }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun failed', { error: String(e) }); });
+  }).catch((e: any) => { logger.warn('[Scheduler] recordExecution failed', { error: String(e) }); });
   try {
     await prisma.studioEvent.create({
       data: {
-        type: 'pipeline_run',
+        type: 'execution_run',
         source: 'goal-scheduler',
         executionId,
         payload: JSON.stringify({
@@ -457,7 +457,7 @@ async function handleDispatchSuccess(
       },
     });
   } catch (e) {
-    logger.warn('[GoalScheduler] StudioEvent write failed', { error: String(e), executionId });
+    logger.warn('[Scheduler] StudioEvent write failed', { error: String(e), executionId });
   }
   try {
     const execInput = (input as Record<string, any> | null) || {};
@@ -478,7 +478,7 @@ async function handleDispatchSuccess(
       },
     });
   } catch (e) {
-    logger.warn('[GoalScheduler] PipelineDecision write failed', { error: String(e) });
+    logger.warn('[Scheduler] SchedulingDecision write failed', { error: String(e) });
   }
   try {
     const wuForTokens = await workUnitService.getById(goal.id);
@@ -488,7 +488,7 @@ async function handleDispatchSuccess(
     await workUnitService.update(goal.id, { metadata: { _cumulativeTokens: prevTokens + thisTokens } });
   } catch { /* best-effort */ }
 
-  logger.info('[GoalScheduler] Agent succeeded', {
+  logger.info('[Scheduler] Agent succeeded', {
     executionId,
     goalId: goal.id,
     sessionCount: result.sessionCount,
@@ -498,10 +498,10 @@ async function handleDispatchSuccess(
     strategy,
   });
 
-  // ── Knowledge feedback loop: pipelineStepFeedback + extractFromExecution + recordKnowledgeRefs ──
+  // ── Knowledge feedback loop: workUnitFeedback + extractFromExecution + recordKnowledgeRefs ──
   try {
     const { knowledgeService } = await import('../knowledge/knowledge-service.js');
-    await knowledgeService.pipelineStepFeedback({
+    await knowledgeService.workUnitFeedback({
       goalId: goal.id,
       executionId,
       phase: 'executor',
@@ -543,7 +543,7 @@ export async function maybeRetryExecution(
   // Not-retryable failures skip retry entirely
   const failureClass = classifyFailure(error);
   if (failureClass === 'not-retryable') {
-    logger.info('[GoalScheduler] Failure not retryable, skipping retry', { executionId, failureClass });
+    logger.info('[Scheduler] Failure not retryable, skipping retry', { executionId, failureClass });
     return false;
   }
 
@@ -554,7 +554,7 @@ export async function maybeRetryExecution(
   const currentRetryCount = (wu.retryCount as number) || 0;
 
   if (currentRetryCount >= maxRetries) {
-    logger.info('[GoalScheduler] Retry exhausted', { executionId, retryCount: currentRetryCount, maxRetries });
+    logger.info('[Scheduler] Retry exhausted', { executionId, retryCount: currentRetryCount, maxRetries });
     return false;
   }
 
@@ -571,12 +571,9 @@ export async function maybeRetryExecution(
     },
   });
   // Reset to unassigned so scheduler picks it up again
-  await prisma.workUnit.update({
-    where: { id: executionId },
-    data: { status: 'unassigned', claimedAt: null },
-  });
+  await workUnitService.transitionStatus(executionId, 'unassigned');
 
-  logger.warn('[GoalScheduler] Retrying execution', {
+  logger.warn('[Scheduler] Retrying execution', {
     executionId,
     retryCount: currentRetryCount + 1,
     maxRetries,
@@ -626,8 +623,8 @@ async function handleDispatchFailure(
       if (tr) failTestPassed = (tr.failed ?? 0) === 0 && (tr.passed ?? 0) > 0;
     }
   } catch { /* progress file may not exist */ }
-  recordPipelineRun({
-    source: 'pipeline', phase: 'executor',
+  recordExecution({
+    source: 'execution', phase: 'executor',
     taskName: goal.title,
     model: (failTokens.model && failTokens.model !== 'unknown') ? failTokens.model : (typeof input === 'object' ? (input?.model as string) || 'standard' : 'standard'),
     inputTokens: failTokens.inputTokens,
@@ -639,12 +636,12 @@ async function handleDispatchFailure(
     sessionId: executionId,
     goalId: goal.id,
     ...(failTestPassed !== undefined ? { testPassed: failTestPassed } : {}),
-  }).catch((e: any) => { logger.warn('[GoalScheduler] recordPipelineRun (failure) failed', { error: String(e) }); });
+  }).catch((e: any) => { logger.warn('[Scheduler] recordExecution (failure) failed', { error: String(e) }); });
   const errDetail = result.error || 'Agent execution failed';
   try {
     await prisma.studioEvent.create({
       data: {
-        type: 'pipeline_run',
+        type: 'execution_run',
         source: 'goal-scheduler',
         executionId,
         payload: JSON.stringify({
@@ -656,9 +653,9 @@ async function handleDispatchFailure(
       },
     });
   } catch (e) {
-    logger.warn('[GoalScheduler] StudioEvent (failure) write failed', { error: String(e) });
+    logger.warn('[Scheduler] StudioEvent (failure) write failed', { error: String(e) });
   }
-  logger.warn('[GoalScheduler] Agent failed', {
+  logger.warn('[Scheduler] Agent failed', {
     executionId,
     goalId: goal.id,
     error: result.error,
@@ -667,10 +664,10 @@ async function handleDispatchFailure(
     strategy,
   });
 
-  // ── Knowledge feedback loop: pipelineStepFeedback (failure) ──
+  // ── Knowledge feedback loop: workUnitFeedback (failure) ──
   try {
     const { knowledgeService } = await import('../knowledge/knowledge-service.js');
-    await knowledgeService.pipelineStepFeedback({
+    await knowledgeService.workUnitFeedback({
       goalId: goal.id,
       executionId,
       phase: 'executor',

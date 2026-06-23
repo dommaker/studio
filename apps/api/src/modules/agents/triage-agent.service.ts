@@ -150,7 +150,7 @@ class TriageAgent {
       // Cross-execution pattern diagnosis (Phase 3: Auditor)
       if (input.type === 'agent_type_failure_trend') {
         try {
-          const runningCount = await prisma.goalExecution.count({ where: { status: { in: ['running', 'pending'] } } });
+          const runningCount = await prisma.workUnit.count({ where: { status: { in: ['active', 'unassigned'] }, parentId: { not: null } } });
           findings.push(`Running/pending executions: ${runningCount}`);
         } catch {
           findings.push('Unable to query execution counts');

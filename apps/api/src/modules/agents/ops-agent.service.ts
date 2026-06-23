@@ -257,7 +257,7 @@ export class OpsAgent {
         if (!daemonBusy) {
           try {
             const { prisma } = await import('@dommaker/studio-prisma');
-            const runningExecs = await prisma.goalExecution.count({ where: { status: 'running' } });
+            const runningExecs = await prisma.workUnit.count({ where: { status: 'active', parentId: { not: null } } });
             if (runningExecs > 0) {
               daemonBusy = true;
               logger.info('[OpsAgent] Executor sessions active', { runningExecs });

@@ -684,15 +684,18 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
 
       // Dedup: same title + same company → skip if already succeeded/running, allow retry if failed
       const normalizedTitle = doc.title.trim().toLowerCase();
-      const existingGoals = await prisma.goal.findMany({
-        where: { companyId: company.id },
-        select: { id: true, title: true, status: true },
+      const existingGoals = await prisma.workUnit.findMany({
+        where: { type: 'task', parentId: null },
+        select: { id: true, scope: true, status: true, metadata: true },
         orderBy: { createdAt: 'desc' },
         take: 50,
       });
-      const duplicate = existingGoals.find(g => g.title.trim().toLowerCase() === normalizedTitle && ['succeeded', 'running', 'executing', 'pending', 'draft'].includes(g.status));
+      const duplicate = existingGoals.find(g => {
+        const m = g.metadata ? JSON.parse(g.metadata) : {};
+        return m.companyId === company.id && g.scope.trim().toLowerCase() === normalizedTitle && ['done', 'active', 'unassigned'].includes(g.status);
+      });
       if (duplicate) {
-        const msg = duplicate.status === 'succeeded'
+        const msg = duplicate.status === 'done'
           ? `⏭️ 跳过：相同需求已成功完成 (Goal \`${duplicate.id.slice(0, 8)}\`)`
           : `⏭️ 跳过：相同需求正在执行中 (Goal \`${duplicate.id.slice(0, 8)}\`, status: ${duplicate.status})`;
         await channelMessageService.createAgentMessage(req.params.channelId, 'Executor', msg, { meta: { goalId: duplicate.id, status: 'skipped_duplicate' } });
@@ -1040,16 +1043,18 @@ router.delete('/:id', async (req, res) => {
   } catch { /* non-blocking */ }
 
   // Migrate Goals (via context.sourceChannelId) — update context JSON
-  const goals = await prisma.goal.findMany({
-    where: { context: { contains: channel.id } },
+  const goals = await prisma.workUnit.findMany({
+    where: { metadata: { contains: channel.id }, type: 'task', parentId: null },
   });
   for (const goal of goals) {
-    const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) as Record<string, unknown>;
+    const meta = goal.metadata ? JSON.parse(goal.metadata) : {};
+    const ctx = meta.context || {};
     if (ctx.sourceChannelId === channel.id) {
       ctx.sourceChannelId = rndChannel.id;
-      await prisma.goal.update({
+      meta.context = ctx;
+      await prisma.workUnit.update({
         where: { id: goal.id },
-        data: { context: ctx as any },
+        data: { metadata: JSON.stringify(meta) },
       });
     }
   }

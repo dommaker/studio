@@ -54,7 +54,7 @@ vi.mock('@dommaker/studio-shared', () => ({
 
 vi.mock('../metrics.js', () => ({
   parseClaudeUsage: vi.fn(() => ({ inputTokens: 100, outputTokens: 50, cacheHitTokens: 0 })),
-  recordPipelineRun: vi.fn(() => Promise.resolve()),
+  recordExecution: vi.fn(() => Promise.resolve()),
   recordAgentSessionFromLog: vi.fn(),
 }));
 

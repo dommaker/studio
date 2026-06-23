@@ -1275,7 +1275,8 @@ model PipelineReview {
   @@map("pipeline_review")
 }
 
-// PipelineDecision — 路由决策持久化 (OBS-6)
+// SchedulingDecision — 路由决策持久化 (OBS-6)
+// NOTE: Prisma model kept as PipelineDecision until client regeneration; TS type alias SchedulingDecision used in code
 model PipelineDecision {
   id             String   @id @default(cuid())
   executionId    String   @unique

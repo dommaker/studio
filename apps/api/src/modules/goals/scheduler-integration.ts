@@ -54,7 +54,7 @@ export class GoalScheduler {
 
   addRoutingOverride(category: string, tier: string): void {
     this.routingOverrides.set(category, tier);
-    logger.info('[GoalScheduler] Routing override added', { category, tier });
+    logger.info('[Scheduler] Routing override added', { category, tier });
   }
 
   addTokenGate(goalId: string): void {
@@ -70,17 +70,17 @@ export class GoalScheduler {
 
     this.interval = setInterval(() => this.tick(), POLL_INTERVAL);
 
-    eventBus.subscribe('goal.created', () => {
-      logger.debug('[GoalScheduler] Goal created event received, triggering immediate tick');
+    eventBus.subscribe('workunit.created', () => {
+      logger.debug('[Scheduler] WorkUnit created event received, triggering immediate tick');
       this.tick();
     });
 
-    eventBus.subscribe('goal.stepCompleted', (data: { goalId?: string }) => {
-      logger.debug('[GoalScheduler] Step completed event received, triggering tick', { goalId: data?.goalId });
+    eventBus.subscribe('workunit.done', (data: { workUnitId?: string }) => {
+      logger.debug('[Scheduler] WorkUnit done event received, triggering tick', { workUnitId: data?.workUnitId });
       this.tick();
     });
 
-    logger.info('[GoalScheduler] Started', { pollInterval: POLL_INTERVAL, maxConcurrent: 5 });
+    logger.info('[Scheduler] Started', { pollInterval: POLL_INTERVAL, maxConcurrent: 5 });
   }
 
   stop(): void {
@@ -92,7 +92,7 @@ export class GoalScheduler {
       this.runtimeConstraintSub.disconnect();
       this.runtimeConstraintSub = null;
     }
-    logger.info('[GoalScheduler] Stopped');
+    logger.info('[Scheduler] Stopped');
   }
 
   private startRuntimeConstraintSub(): void {
@@ -113,7 +113,7 @@ export class GoalScheduler {
           }
         }
       } catch (e) {
-        logger.warn('[GoalScheduler] Ignoring malformed event', { error: String(e) });
+        logger.warn('[Scheduler] Ignoring malformed event', { error: String(e) });
       }
     });
     (this.runtimeConstraintSub as any).on = () => {};
@@ -129,35 +129,35 @@ export class GoalScheduler {
     this.processing = true;
 
     try {
-      const executingGoals = await prisma.goal.findMany({
-        where: { status: 'executing' },
+      const executingGoals = await prisma.workUnit.findMany({
+        where: { status: 'active', type: 'task', parentId: null },
         select: { id: true },
       });
 
       for (const goal of executingGoals) {
         await this.processGoal(goal.id).catch(e => {
-          logger.error('[GoalScheduler] Error processing goal', { goalId: goal.id, error: String(e) });
+          logger.error('[Scheduler] Error processing goal', { goalId: goal.id, error: String(e) });
         });
       }
 
       if (!this.lastRecoveryTime || Date.now() - this.lastRecoveryTime > 5 * 60_000) {
         await this.recoverStaleExecutions().catch(e => {
-          logger.warn('[GoalScheduler] Periodic recovery failed', { error: String(e) });
+          logger.warn('[Scheduler] Periodic recovery failed', { error: String(e) });
         });
         this.lastRecoveryTime = Date.now();
 
         // Auto-fail stale blocked goals (> 7 days)
         await expireStaleBlockedGoals().catch(e => {
-          logger.warn('[GoalScheduler] expireStaleBlockedGoals failed', { error: String(e) });
+          logger.warn('[Scheduler] expireStaleBlockedGoals failed', { error: String(e) });
         });
       }
 
       // B57-P2: Check for timed-out executions
       await this.checkTimedOutExecutions().catch(e => {
-        logger.warn('[GoalScheduler] checkTimedOutExecutions failed', { error: String(e) });
+        logger.warn('[Scheduler] checkTimedOutExecutions failed', { error: String(e) });
       });
     } catch (e) {
-      logger.error('[GoalScheduler] Tick error', { error: String(e) });
+      logger.error('[Scheduler] Tick error', { error: String(e) });
     } finally {
       this.processing = false;
     }
@@ -172,8 +172,8 @@ export class GoalScheduler {
     this.processingGoals.add(goalId);
 
     try {
-      const runningCount = await prisma.goalExecution.count({
-        where: { goalId, status: 'running' },
+      const runningCount = await prisma.workUnit.count({
+        where: { parentId: goalId, status: 'active' },
       });
       const strategy = getDispatchStrategy(this.recentFailures, this.recentTotal);
       const maxCap = strategy === 'conservative' ? 2 : undefined;
@@ -182,36 +182,39 @@ export class GoalScheduler {
 
       const executableSteps = await goalService.getExecutableSteps(goalId);
       if (executableSteps.length === 0) {
-        const allExecs = await prisma.goalExecution.findMany({
-          where: { goalId }, select: { status: true },
+        const allExecs = await prisma.workUnit.findMany({
+          where: { parentId: goalId }, select: { status: true },
         });
         if (allExecs.length === 0) {
-          logger.warn('[GoalScheduler] Goal has no executions, marking failed', { goalId });
+          logger.warn('[Scheduler] Goal has no executions, marking failed', { goalId });
           await goalService.checkGoalCompletion(goalId);
-        } else if (allExecs.every(e => ['succeeded', 'failed', 'blocked_by_dependency'].includes(e.status))) {
+        } else if (allExecs.every(e => ['done', 'closed', 'blocked'].includes(e.status))) {
           await goalService.checkGoalCompletion(goalId);
-        } else if (allExecs.some(e => e.status === 'failed')) {
+        } else if (allExecs.some(e => e.status === 'closed')) {
           // Has failed steps + pending dependents — trigger cascade
           await goalService.checkGoalCompletion(goalId);
         }
         return;
       }
 
-      const goal = await prisma.goal.findUnique({ where: { id: goalId } });
+      const goal = await prisma.workUnit.findUnique({ where: { id: goalId } });
       if (!goal) return;
+
+      const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
+      const goalContext = goalMeta.context || {};
 
       // O3e: PMO dependency check
       try {
-        const ctx = typeof goal.context === 'string' ? JSON.parse(goal.context) : (goal.context || {});
+        const ctx = goalContext;
         const projectId = ctx?.projectId as string | undefined;
         if (projectId) {
           const project = await prisma.project.findUnique({ where: { id: projectId } });
           if (project?.dependsOnPmoId) {
             const depProject = await prisma.project.findFirst({
-              where: { pmoNumber: project.dependsOnPmoId, companyId: goal.companyId },
+              where: { pmoNumber: project.dependsOnPmoId, companyId: goalMeta.companyId },
             });
             if (depProject && depProject.status !== 'completed') {
-              logger.info('[GoalScheduler] PMO dependency not met, deferring Goal', {
+              logger.info('[Scheduler] PMO dependency not met, deferring Goal', {
                 goalId, projectId, dependsOn: project.dependsOnPmoId,
                 depStatus: depProject.status,
               });
@@ -220,22 +223,23 @@ export class GoalScheduler {
           }
         }
       } catch (e) {
-        logger.warn('[GoalScheduler] PMO dependency check error, continuing', { error: String(e) });
+        logger.warn('[Scheduler] PMO dependency check error, continuing', { error: String(e) });
       }
 
       let toDispatch: any[] = executableSteps.slice(0, availableSlots);
 
       // O3c: File conflict detection
       try {
-        const currentlyRunning = await prisma.goalExecution.findMany({
-          where: { status: 'running' },
-          select: { id: true, goalId: true },
+        const currentlyRunning = await prisma.workUnit.findMany({
+          where: { status: 'active' },
+          select: { id: true, parentId: true },
         });
         const activeFiles = new Set<string>();
         for (const running of currentlyRunning) {
-          const exec = await prisma.goalExecution.findUnique({ where: { id: running.id } });
-          const input = parseJsonField<Record<string, any> | null>(exec?.input, null);
-          const files = (input?.acGroup?.files as string[]) || [];
+          const exec = await prisma.workUnit.findUnique({ where: { id: running.id } });
+          const execMeta = exec?.metadata ? JSON.parse(exec.metadata) : {};
+          const execInput = execMeta?.input ? (typeof execMeta.input === 'string' ? JSON.parse(execMeta.input) : execMeta.input) : null;
+          const files = (execInput?.acGroup?.files as string[]) || [];
           files.forEach(f => activeFiles.add(f));
         }
         const filtered: typeof toDispatch = [];
@@ -244,9 +248,9 @@ export class GoalScheduler {
           const stepFiles = (stepInput?.acGroup?.files as string[]) || [];
           const conflicts = stepFiles.filter(f => activeFiles.has(f));
           if (conflicts.length > 0) {
-            logger.warn('[GoalScheduler] File conflict detected, deferring step', {
+            logger.warn('[Scheduler] File conflict detected, deferring step', {
               executionId: exec.id, conflicts,
-              conflictingWith: currentlyRunning.filter(r => r.goalId !== goalId).map(r => r.id),
+              conflictingWith: currentlyRunning.filter(r => r.parentId !== goalId).map(r => r.id),
             });
             // O4-KR2: Record conflict event for OKR metric
             prisma.studioEvent.create({
@@ -263,11 +267,11 @@ export class GoalScheduler {
         }
         toDispatch = filtered;
       } catch (e) {
-        logger.warn('[GoalScheduler] File conflict check error, continuing with all steps', { error: String(e) });
+        logger.warn('[Scheduler] File conflict check error, continuing with all steps', { error: String(e) });
       }
 
       // Point 11: Actual dispatch logging (O4-KR1 parallelism measurement)
-      logger.info('[GoalScheduler] Actual dispatch', {
+      logger.info('[Scheduler] Actual dispatch', {
         goalId,
         executableSteps: executableSteps.length,
         dispatched: toDispatch.length,
@@ -280,13 +284,13 @@ export class GoalScheduler {
       const ctx = this.getDispatchContext();
       const results = await Promise.allSettled(
         toDispatch.map(exec => dispatchStep(exec, goal, ctx).catch(e => {
-          logger.error('[GoalScheduler] Dispatch error', { executionId: exec.id, error: String(e) });
+          logger.error('[Scheduler] Dispatch error', { executionId: exec.id, error: String(e) });
         })),
       );
 
       // O4-KR1: Record parallel execution count for OKR metric
       if (toDispatch.length > 0) {
-        const totalRunning = await prisma.goalExecution.count({ where: { status: 'running' } });
+        const totalRunning = await prisma.workUnit.count({ where: { status: 'active' } });
         prisma.studioEvent.create({
           data: {
             type: 'scheduler:parallel',
@@ -320,53 +324,63 @@ export class GoalScheduler {
   // ========================================
 
   private async checkAllStepsCompleted(goalId: string): Promise<void> {
-    const all = await prisma.goalExecution.findMany({
-      where: { goalId },
-      select: { status: true, id: true, stepIndex: true },
+    const all = await prisma.workUnit.findMany({
+      where: { parentId: goalId },
+      select: { status: true, id: true, metadata: true },
     });
 
     if (all.length === 0) return;
-    const allDone = all.every(e => e.status === 'succeeded' || e.status === 'failed');
+    const allDone = all.every(e => e.status === 'done' || e.status === 'closed');
 
     if (!allDone) return;
 
-    const hasIntegration = all.some(e => e.stepIndex === 999);
+    const getStepIndex = (wu: { metadata: string | null }) => {
+      const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+      const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+      return input?.stepIndex;
+    };
+
+    const hasIntegration = all.some(e => getStepIndex(e) === 999);
     if (hasIntegration) return;
 
-    const anyFailed = all.some(e => e.status === 'failed');
+    const anyFailed = all.some(e => e.status === 'closed');
     if (anyFailed) {
-      logger.warn('[GoalScheduler] Some steps failed, skipping integration', { goalId });
+      logger.warn('[Scheduler] Some steps failed, skipping integration', { goalId });
       return;
     }
 
-    const regularSteps = all.filter(e => e.stepIndex !== 999);
+    const regularSteps = all.filter(e => getStepIndex(e) !== 999);
     if (regularSteps.length === 1) {
-      logger.info('[GoalScheduler] Single AC group, skipping integration step', {
+      logger.info('[Scheduler] Single AC group, skipping integration step', {
         goalId,
-        stepIndex: regularSteps[0].stepIndex,
+        stepIndex: getStepIndex(regularSteps[0]),
       });
       return;
     }
 
-    logger.info('[GoalScheduler] Creating integration step', { goalId });
+    logger.info('[Scheduler] Creating integration step', { goalId });
 
     try {
-      await prisma.goalExecution.create({
+      await prisma.workUnit.create({
         data: {
-          goalId,
-          stepIndex: 999,
-          status: 'pending',
-          agentType: 'claude',
-          input: JSON.stringify({
-            taskType: 'integration',
+          parentId: goalId,
+          scope: `integration-${goalId}`,
+          type: 'task',
+          status: 'unassigned',
+          metadata: JSON.stringify({
             goalId,
-            totalSteps: all.length,
-            model: 'standard',
+            input: JSON.stringify({
+              taskType: 'integration',
+              goalId,
+              totalSteps: all.length,
+              stepIndex: 999,
+              model: 'standard',
+            }),
           }),
         },
       });
     } catch (err) {
-      logger.error('[GoalScheduler] Failed to create integration step', { goalId, error: String(err) });
+      logger.error('[Scheduler] Failed to create integration step', { goalId, error: String(err) });
     }
   }
 
@@ -376,13 +390,13 @@ export class GoalScheduler {
 
   private async abandonOrphanedRunning(): Promise<void> {
     try {
-      const orphaned = await prisma.goalExecution.findMany({
-        where: { status: { in: ['running', 'pending'] } },
+      const orphaned = await prisma.workUnit.findMany({
+        where: { status: { in: ['active', 'unassigned'] } },
         select: { id: true },
       });
       if (orphaned.length === 0) return;
 
-      logger.info('[GoalScheduler] Abandoning orphaned executions after restart', { count: orphaned.length });
+      logger.info('[Scheduler] Abandoning orphaned executions after restart', { count: orphaned.length });
       for (const exec of orphaned) {
         try {
           await goalService.updateStepExecution(exec.id, {
@@ -390,23 +404,23 @@ export class GoalScheduler {
             error: 'Daemon restarted — active Claude session lost',
           });
         } catch (e) {
-          logger.error('[GoalScheduler] Failed to abandon orphaned', { executionId: exec.id, error: String(e) });
+          logger.error('[Scheduler] Failed to abandon orphaned', { executionId: exec.id, error: String(e) });
         }
       }
     } catch (e) {
-      logger.error('[GoalScheduler] Error in abandonOrphanedRunning', { error: String(e) });
+      logger.error('[Scheduler] Error in abandonOrphanedRunning', { error: String(e) });
     }
   }
 
   private async recoverStaleExecutions(): Promise<void> {
     try {
-      const stale = await prisma.goalExecution.findMany({
-        where: { status: 'running' },
+      const stale = await prisma.workUnit.findMany({
+        where: { status: 'active' },
       });
 
       if (stale.length === 0) return;
 
-      logger.info('[GoalScheduler] Recovering stale executions', { count: stale.length });
+      logger.info('[Scheduler] Recovering stale executions', { count: stale.length });
 
       for (const exec of stale) {
         const worktree = path.join(WORKTREES_DIR, exec.id);
@@ -423,11 +437,12 @@ export class GoalScheduler {
               await goalService.updateStepExecution(exec.id, { status: 'succeeded' });
               logger.info('[Recovery] Marked succeeded', { executionId: exec.id });
             } else {
+              const execMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
               let parsedInput: Record<string, unknown> = {};
-              if (typeof exec.input === 'string') {
-                try { parsedInput = JSON.parse(exec.input); } catch { parsedInput = {}; }
+              if (typeof execMeta.input === 'string') {
+                try { parsedInput = JSON.parse(execMeta.input); } catch { parsedInput = {}; }
               } else {
-                parsedInput = (exec.input as Record<string, unknown>) || {};
+                parsedInput = (execMeta.input as Record<string, unknown>) || {};
               }
               await goalService.updateStepExecution(exec.id, {
                 status: 'pending',
@@ -472,31 +487,36 @@ export class GoalScheduler {
     const now = new Date();
     const fallbackThreshold = new Date(Date.now() - 15 * 60_000);
 
-    const timedOut = await prisma.goalExecution.findMany({
+    const timedOut = await prisma.workUnit.findMany({
       where: {
-        status: 'running',
+        status: 'active',
         OR: [
           { timeoutAt: { lt: now } },
-          { timeoutAt: null, startedAt: { lt: fallbackThreshold } },
+          { timeoutAt: null, claimedAt: { lt: fallbackThreshold } },
         ],
       },
-      select: { id: true, goalId: true, stepIndex: true, startedAt: true, timeoutAt: true },
+      select: { id: true, parentId: true, claimedAt: true, timeoutAt: true, metadata: true },
     });
 
     for (const exec of timedOut) {
-      logger.warn('[GoalScheduler] Execution timed out', {
+      const meta = exec.metadata ? JSON.parse(exec.metadata) : {};
+      const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+      const stepIndex = input?.stepIndex;
+      const goalId = meta?.goalId || exec.parentId;
+
+      logger.warn('[Scheduler] Execution timed out', {
         executionId: exec.id,
-        goalId: exec.goalId,
-        stepIndex: exec.stepIndex,
-        startedAt: exec.startedAt,
+        goalId,
+        stepIndex,
+        claimedAt: exec.claimedAt,
         timeoutAt: exec.timeoutAt,
       });
 
       await onPhaseFailure({
         executionId: exec.id,
-        goalId: exec.goalId,
-        phase: exec.stepIndex === 999 ? 'integration' : 'executing',
-        error: `Execution timed out (startedAt: ${exec.startedAt?.toISOString() || 'unknown'})`,
+        goalId,
+        phase: stepIndex === 999 ? 'integration' : 'executing',
+        error: `Execution timed out (claimedAt: ${exec.claimedAt?.toISOString() || 'unknown'})`,
         severity: 'timeout',
       });
     }

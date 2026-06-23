@@ -12,12 +12,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     studioEvent: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn() },
-    goalExecution: {
+    workUnit: {
       findUnique: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
-      update: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'running' }),
+      update: vi.fn().mockResolvedValue({ id: 'exec-1', parentId: 'goal-1', status: 'active' }),
     },
-    goal: { findUnique: vi.fn().mockResolvedValue({ context: '{}' }), update: vi.fn() },
     pipelineDecision: { create: vi.fn() },
     project: { findUnique: vi.fn() },
   },
@@ -57,7 +56,7 @@ vi.mock('../events/session-summary-generator.js', () => ({
 }));
 
 vi.mock('../../daemon/metrics.js', () => ({
-  recordPipelineRun: vi.fn(),
+  recordExecution: vi.fn(),
 }));
 
 vi.mock('../../utils/git.js', () => ({
@@ -65,7 +64,7 @@ vi.mock('../../utils/git.js', () => ({
 }));
 
 vi.mock('../knowledge/knowledge-service.js', () => ({
-  knowledgeService: { pipelineStepFeedback: vi.fn(), extractFromExecution: vi.fn() },
+  knowledgeService: { workUnitFeedback: vi.fn(), extractFromExecution: vi.fn() },
 }));
 
 vi.mock('./knowledge-promoter.js', () => ({

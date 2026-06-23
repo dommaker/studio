@@ -380,12 +380,12 @@ export class OKRService {
       description: '管线 e2e 耗时 p90',
     },
     pipeline_duration_per_phase: {
-      dataSource: 'pipeline_run',
+      dataSource: 'execution_run',
       query: (okr, days, params) => okr.queryPipelineDurationPerPhase(params?.phase as string, days),
       description: '单阶段耗时',
     },
     cache_hit_rate: {
-      dataSource: 'pipeline_run',
+      dataSource: 'execution_run',
       query: (okr, days) => okr.queryCacheHitRate(days),
       description: '缓存命中率',
     },
@@ -450,7 +450,7 @@ export class OKRService {
       description: '行为反馈率',
     },
     pipeline_cost_tokens: {
-      dataSource: 'pipeline_run',
+      dataSource: 'execution_run',
       query: (okr, days) => okr.queryPipelineCostTokens(days),
       description: '管线 Token 总消耗',
     },
@@ -461,12 +461,12 @@ export class OKRService {
     },
     // ── Batch A: OKR metricTypes (data source exists) ──
     test_pass_rate: {
-      dataSource: 'pipeline_run',
+      dataSource: 'execution_run',
       query: (okr, days) => okr.queryTestPassRate(days),
       description: '测试通过率 (PipelineRun.testPassed)',
     },
     pipeline_goal_cost: {
-      dataSource: 'pipeline_run',
+      dataSource: 'execution_run',
       query: (okr, days) => okr.queryPipelineGoalCost(days),
       description: '单 Goal 平均 Token 成本',
     },
@@ -771,7 +771,7 @@ export class OKRService {
   private async queryTokenSavingRatio(days: number): Promise<number | null> {
     const since = new Date(Date.now() - days * 86400000);
     const pipeline = await prisma.pipelineRun.aggregate({
-      where: { createdAt: { gte: since }, source: 'pipeline', phase: { not: 'full' } },
+      where: { createdAt: { gte: since }, source: 'execution', phase: { not: 'full' } },
       _sum: { inputTokens: true },
     });
     const window = await prisma.pipelineRun.aggregate({
@@ -898,7 +898,7 @@ export class OKRService {
     try {
       const since = new Date(Date.now() - days * 86400000);
       const agg = await prisma.pipelineRun.aggregate({
-        where: { createdAt: { gte: since }, source: 'pipeline' },
+        where: { createdAt: { gte: since }, source: 'execution' },
         _sum: { inputTokens: true, outputTokens: true },
       });
       return (agg._sum.inputTokens || 0) + (agg._sum.outputTokens || 0);
@@ -940,7 +940,7 @@ export class OKRService {
       const since = new Date(Date.now() - days * 86400000);
       // Try StudioEvent costUsd first
       const costEvents = await prisma.studioEvent.findMany({
-        where: { timestamp: { gte: since }, type: 'pipeline_run', costUsd: { gt: 0 } },
+        where: { timestamp: { gte: since }, type: 'execution_run', costUsd: { gt: 0 } },
         select: { executionId: true, costUsd: true },
       });
       if (costEvents.length > 0) {
@@ -956,7 +956,7 @@ export class OKRService {
       }
       // Fallback: token-based proxy
       const runs = await prisma.pipelineRun.findMany({
-        where: { createdAt: { gte: since }, source: 'pipeline', phase: { not: 'full' } },
+        where: { createdAt: { gte: since }, source: 'execution', phase: { not: 'full' } },
         select: { goalId: true, inputTokens: true, outputTokens: true },
       });
       if (runs.length === 0) return null;

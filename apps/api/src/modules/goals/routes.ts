@@ -86,12 +86,12 @@ router.get('/stats', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Re
     if (companyId) where.companyId = companyId;
 
     const [totalGoals, activeGoals, completedGoals] = await Promise.all([
-      prisma.goal.count({ where }),
-      prisma.goal.count({ where: { ...where, status: 'executing' } }),
-      prisma.goal.count({ where: { ...where, status: 'succeeded' } }),
+      prisma.workUnit.count({ where: { ...where, type: 'task', parentId: null } }),
+      prisma.workUnit.count({ where: { ...where, type: 'task', parentId: null, status: 'active' } }),
+      prisma.workUnit.count({ where: { ...where, type: 'task', parentId: null, status: 'done' } }),
     ]);
 
-    const runningExecutions = await prisma.goalExecution.count({ where: { status: 'running' } });
+    const runningExecutions = await prisma.workUnit.count({ where: { status: 'active', parentId: { not: null } } });
 
     return res.json({
       data: {
@@ -186,8 +186,8 @@ router.put('/:id/steps/:stepId', async (req: Request, res: Response) => {
  */
 router.get('/:id/executions', async (req: Request, res: Response) => {
   try {
-    const executions = await prisma.goalExecution.findMany({
-      where: { goalId: req.params.id },
+    const executions = await prisma.workUnit.findMany({
+      where: { parentId: req.params.id },
       orderBy: { createdAt: 'desc' },
     });
     return res.json({ data: executions });

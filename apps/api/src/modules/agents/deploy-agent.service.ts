@@ -12,7 +12,7 @@ import { getDefaultBranch } from '../../utils/git.js';
 import { logger, eventBus } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
-import { recordPipelineRun } from '../../daemon/metrics.js';
+import { recordExecution } from '../../daemon/metrics.js';
 import { classifyFailureAction } from '../goals/failure-classifier.js';
 import type { DeployParams, DeployResult, DeployFinding, MergeBranchesParams, MergeBranchesResult } from './types.js';
 
@@ -94,7 +94,7 @@ class DeployAgent {
     timings.mergeMs = Date.now() - mergeStart;
     if (!mergeResult.success) {
       this.releaseMergeSlot(params.executionId);
-      recordPipelineRun({ source: 'pipeline', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: mergeResult.summary, sessionId: params.executionId }).catch(() => {});
+      recordExecution({ source: 'execution', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: mergeResult.summary, sessionId: params.executionId }).catch(() => {});
 
       // Emit deploy.completed event so Monitor/OKR can track merge failures
       eventBus.publish('deploy.completed', { executionId: params.executionId, result: mergeResult });
@@ -178,8 +178,8 @@ class DeployAgent {
     }).catch(() => { /* non-blocking */ });
 
     // Record deploy phase metrics
-    recordPipelineRun({
-      source: 'pipeline', phase: 'deploy',
+    recordExecution({
+      source: 'execution', phase: 'deploy',
       taskName: `deploy-${params.executionId}`,
       model: 'system',
       inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,

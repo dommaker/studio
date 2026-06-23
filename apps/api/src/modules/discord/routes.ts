@@ -181,11 +181,11 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
             const os = await import('os');
             const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
-            const runningExecs = await prisma.goalExecution.findMany({
-              where: { status: 'running' },
-              orderBy: { createdAt: 'desc' } as any,
+            const runningExecs = await prisma.workUnit.findMany({
+              where: { status: 'active', parentId: { not: null } },
+              orderBy: { createdAt: 'desc' },
               take: 5,
-              select: { id: true, goalId: true, stepIndex: true, agentType: true, startedAt: true },
+              select: { id: true, parentId: true, metadata: true, claimedAt: true },
             });
 
             if (runningExecs.length === 0) {
@@ -195,8 +195,9 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
             const lines: string[] = ['**Running Executions**', ''];
             for (const exec of runningExecs) {
-              const elapsed = exec.startedAt
-                ? `${Math.round((Date.now() - new Date(exec.startedAt).getTime()) / 60000)}m ago`
+              const eMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
+              const elapsed = exec.claimedAt
+                ? `${Math.round((Date.now() - new Date(exec.claimedAt).getTime()) / 60000)}m ago`
                 : 'unknown';
 
               // Read .progress.json from worktree
@@ -217,7 +218,8 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
                 logger.error({ error: String(e) }, '[Discord] Failed to read progress file');
               }
 
-              lines.push(`**${exec.id.slice(0, 8)}** step=${exec.stepIndex} goal=${exec.goalId.slice(0, 8)} ${elapsed}`);
+              const stepIdx = eMeta.stepIndex ?? '?';
+              lines.push(`**${exec.id.slice(0, 8)}** step=${stepIdx} goal=${(exec.parentId || '').slice(0, 8)} ${elapsed}`);
               lines.push(`  ${progressInfo}`);
               lines.push('');
             }
@@ -239,21 +241,21 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
           const eid = String(executionId).trim();
 
           try {
-            const exec = await prisma.goalExecution.findUnique({ where: { id: eid } });
+            const exec = await prisma.workUnit.findUnique({ where: { id: eid } });
             if (!exec) {
               // Try partial match
-              const match = await prisma.goalExecution.findFirst({
+              const match = await prisma.workUnit.findFirst({
                 where: { id: { startsWith: eid } },
                 select: { id: true, status: true },
               });
               if (match) {
-                if (match.status !== 'running' && match.status !== 'pending') {
+                if (match.status !== 'active' && match.status !== 'unassigned') {
                   res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Cannot stop execution with status: ${match.status}` } });
                   return;
                 }
-                await prisma.goalExecution.update({
+                await prisma.workUnit.update({
                   where: { id: match.id },
-                  data: { status: 'failed', error: 'Stopped by user via Discord' },
+                  data: { status: 'closed', metadata: JSON.stringify({ error: 'Stopped by user via Discord' }) },
                 });
                 // Try to kill running child process
                 const { agentExecutor } = await import('@dommaker/studio-agent');
@@ -270,14 +272,14 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
               return;
             }
 
-            if (exec.status !== 'running' && exec.status !== 'pending') {
+            if (exec.status !== 'active' && exec.status !== 'unassigned') {
               res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Cannot stop execution with status: ${exec.status}` } });
               return;
             }
 
-            await prisma.goalExecution.update({
+            await prisma.workUnit.update({
               where: { id: exec.id },
-              data: { status: 'failed', error: 'Stopped by user via Discord' },
+              data: { status: 'closed', metadata: JSON.stringify({ error: 'Stopped by user via Discord' }) },
             });
 
             // Try to kill running child process
@@ -323,11 +325,11 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
       if (action === 'retry') {
         const extraRounds = parseInt(parts[2] || '2', 10);
-        await prisma.goalExecution.update({
+        await prisma.workUnit.update({
           where: { id: targetId },
           data: {
-            status: 'pending',
-            input: { resumeAfterRetry: true, extraRounds } as any,
+            status: 'unassigned',
+            metadata: JSON.stringify({ resumeAfterRetry: true, extraRounds }),
           },
         });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔁 已重置，再给 ${extraRounds} 轮` } });
@@ -335,11 +337,11 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
       }
 
       if (action === 'retry-new') {
-        await prisma.goalExecution.update({
+        await prisma.workUnit.update({
           where: { id: targetId },
           data: {
-            status: 'pending',
-            input: JSON.stringify({ resumeAfterRetry: true, freshPrompt: true }),
+            status: 'unassigned',
+            metadata: JSON.stringify({ resumeAfterRetry: true, freshPrompt: true }),
           },
         });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔄 已重置，换了新方向` } });
@@ -347,9 +349,9 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
       }
 
       if (action === 'abandon') {
-        await prisma.goalExecution.update({
+        await prisma.workUnit.update({
           where: { id: targetId },
-          data: { status: 'failed', error: 'Abandoned by user via Discord' },
+          data: { status: 'closed', metadata: JSON.stringify({ error: 'Abandoned by user via Discord' }) },
         });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ 已放弃` } });
         return;

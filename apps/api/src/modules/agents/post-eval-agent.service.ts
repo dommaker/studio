@@ -84,13 +84,14 @@ class PostEvalAgent {
     const evalStart = Date.now();
     try {
       // 1. 获取 Goal 和关联的 RequirementsDoc
-      const goal = await prisma.goal.findUnique({
+      const goal = await prisma.workUnit.findUnique({
         where: { id: goalId },
-        select: { id: true, title: true, context: true, status: true, companyId: true },
+        select: { id: true, scope: true, metadata: true, status: true },
       });
       if (!goal) return null;
 
-      const ctx = (goal.context as unknown as Record<string, unknown>) || {};
+      const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
+      const ctx = goalMeta.context || {};
       const docId = ctx.requirementsDocId as string | undefined;
       const sddSlug = ctx.sddSlug as string | undefined;
       if (!docId) {
@@ -112,13 +113,13 @@ class PostEvalAgent {
       const changes = await this.getExecutionChanges(goalId);
 
       // 4. LLM 语义匹配: 每个 AC → 是否在 changes 中有对应实现
-      const report = await this.matchAcsToChanges(goal.title, acs, changes);
+      const report = await this.matchAcsToChanges(goal.scope, acs, changes);
 
       // 5. 计算完成度
       report.completeness = acs.length > 0 ? report.matchedAcs.length / acs.length : 0;
 
       // 5a. 归因分析: 对比 Analyst 预测 vs 实际执行
-      await this.attributeAnalystAccuracy(goalId, goal.title, docId).catch(e => {
+      await this.attributeAnalystAccuracy(goalId, goal.scope, docId).catch(e => {
         logger.warn('[PostEval] Attribution analysis failed', { goalId, error: String(e) });
       });
 
@@ -297,8 +298,8 @@ class PostEvalAgent {
     const runs = await prisma.pipelineRun.findMany({
       where: {
         sessionId: {
-          in: (await prisma.goalExecution.findMany({
-            where: { goalId },
+          in: (await prisma.workUnit.findMany({
+            where: { parentId: goalId },
             select: { id: true },
           })).map(e => e.id),
         },
@@ -317,8 +318,8 @@ class PostEvalAgent {
     try {
       const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), '.studio', 'worktrees');
       if (fs.existsSync(worktreesDir)) {
-        const execs = await prisma.goalExecution.findMany({
-          where: { goalId },
+        const execs = await prisma.workUnit.findMany({
+          where: { parentId: goalId },
           select: { id: true },
         });
         for (const e of execs) {
@@ -352,9 +353,9 @@ class PostEvalAgent {
   ): Promise<AnalystAccuracy | null> {
     try {
       // 1. 从 GoalExecutions 提取 Analyst 预测的 acGroup 数据 + 执行统计
-      const execs = await prisma.goalExecution.findMany({
-        where: { goalId },
-        select: { input: true, id: true, status: true, startedAt: true, completedAt: true },
+      const execs = await prisma.workUnit.findMany({
+        where: { parentId: goalId },
+        select: { metadata: true, id: true, status: true, claimedAt: true, completedAt: true },
       });
 
       const predictedFiles: string[] = [];
@@ -362,17 +363,18 @@ class PostEvalAgent {
       // G34-feedback-loop: 收集每个 execution 的 modelTier + 状态 + 耗时
       const tierBuckets: Record<string, { total: number; succeeded: number; failed: number; totalDurationMs: number }> = {};
       for (const e of execs) {
-        const input = (typeof e.input === 'string' ? JSON.parse(e.input) : e.input) as Record<string, any>;
+        const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
+        const input = eMeta.input || {};
         const acGroup = input?.acGroup as Record<string, any> | undefined;
         if (acGroup?.files?.length) predictedFiles.push(...acGroup.files.map((f: string) => f.replace(/`/g, '').trim()));
         if (acGroup?.dependencies?.length) predictedDeps.push(...(acGroup.dependencies as string[]));
         const tier = (acGroup?.modelTier as string) || 'standard';
         if (!tierBuckets[tier]) tierBuckets[tier] = { total: 0, succeeded: 0, failed: 0, totalDurationMs: 0 };
         tierBuckets[tier].total++;
-        if (e.status === 'succeeded') tierBuckets[tier].succeeded++;
-        else if (e.status === 'failed') tierBuckets[tier].failed++;
-        if (e.startedAt && e.completedAt) {
-          tierBuckets[tier].totalDurationMs += e.completedAt.getTime() - e.startedAt.getTime();
+        if (e.status === 'done') tierBuckets[tier].succeeded++;
+        else if (e.status === 'closed') tierBuckets[tier].failed++;
+        if (e.claimedAt && e.completedAt) {
+          tierBuckets[tier].totalDurationMs += e.completedAt.getTime() - e.claimedAt.getTime();
         }
       }
 

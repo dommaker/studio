@@ -84,7 +84,7 @@ describe('parseClaudeUsage', () => {
 
 describe('printComparison', () => {
   const base: MetricEntry = {
-    source: 'pipeline',
+    source: 'execution',
     phase: 'executor',
     taskName: 'test-task',
     model: 'claude-sonnet-4-6',

@@ -4,7 +4,7 @@ import { logger, parseStreamEvents, extractUsage } from '@dommaker/studio-shared
 import { formatTable } from '@dommaker/studio-shared/cli';
 
 export interface MetricEntry {
-  source: 'pipeline' | 'window';
+  source: 'execution' | 'window';
   phase: 'analyst' | 'executor' | 'review' | 'deploy' | 'full';
   taskName: string;
   model: string;
@@ -57,10 +57,10 @@ export function parseClaudeUsage(stdout: string): {
 }
 
 export async function recordWindowRun(entry: Omit<MetricEntry, 'source' | 'sessionId'>): Promise<boolean> {
-  return recordPipelineRun({ ...entry, source: 'window' });
+  return recordExecution({ ...entry, source: 'window' });
 }
 
-export async function recordPipelineRun(entry: MetricEntry): Promise<boolean> {
+export async function recordExecution(entry: MetricEntry): Promise<boolean> {
   try {
     // Point 12: B52 change attribution — tag every PipelineRun with active fixes + dynamic data
     logger.info('[Pipeline] B52 attribution', {
@@ -152,7 +152,7 @@ export function recordAgentSessionFromLog(
     // 同步写 Prisma（fire-and-forget，不阻塞）
     prisma.pipelineRun.create({
       data: {
-        source: 'pipeline',
+        source: 'execution',
         phase,
         taskName,
         model,
@@ -183,7 +183,7 @@ export function recordAgentSessionFromLog(
       prisma.studioEvent.create({
         data: {
           type: 'pipeline:metrics_write_failed',
-          source: 'pipeline',
+          source: 'execution',
           payload: JSON.stringify({ sessionId, phase, taskName, model, inputTokens, outputTokens, cacheHitTokens, error: String(e) }),
         },
       }).catch(() => {});
@@ -192,6 +192,10 @@ export function recordAgentSessionFromLog(
     // non-blocking
   }
 }
+
+/** @deprecated Use recordExecution */
+export const recordPipelineRun = recordExecution;
+
 export async function getComparison(taskName: string): Promise<{
   pipeline?: MetricEntry;
   window?: MetricEntry;
@@ -202,7 +206,7 @@ export async function getComparison(taskName: string): Promise<{
   });
   if (runs.length === 0) return null;
 
-  const pipeline = runs.find(r => r.source === 'pipeline');
+  const pipeline = runs.find(r => r.source === 'execution');
   const window = runs.find(r => r.source === 'window');
 
   return {

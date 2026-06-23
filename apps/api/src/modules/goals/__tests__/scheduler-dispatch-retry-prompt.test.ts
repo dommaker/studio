@@ -29,7 +29,7 @@ const {
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    goalExecution: {
+    workUnit: {
       update: mockPrismaUpdate,
       findMany: vi.fn().mockResolvedValue([]),
       findFirst: mockPrismaFindFirst,
@@ -106,7 +106,7 @@ vi.mock('../../utils/git.js', () => ({
 }));
 
 vi.mock('../../daemon/metrics.js', () => ({
-  recordPipelineRun: vi.fn().mockResolvedValue(undefined),
+  recordExecution: vi.fn().mockResolvedValue(undefined),
 }));
 
 import { dispatchStep, type DispatchContext } from '../scheduler-dispatch.js';
@@ -122,9 +122,9 @@ function makeCtx(): DispatchContext {
 function makeExec(overrides?: Partial<Record<string, unknown>>) {
   return {
     id: 'exec-1',
-    goalId: 'goal-1',
+    parentId: 'goal-1',
     stepIndex: 0,
-    status: 'pending',
+    status: 'unassigned',
     input: JSON.stringify({ acGroup: { acs: ['test ac'], files: ['test.ts'] } }),
     retryCount: 0,
     error: null,
@@ -135,9 +135,9 @@ function makeExec(overrides?: Partial<Record<string, unknown>>) {
 function makeGoal() {
   return {
     id: 'goal-1',
-    title: 'Test goal',
-    status: 'in_progress',
-    context: JSON.stringify({ sourceChannelId: 'ch-1' }),
+    scope: 'Test goal',
+    status: 'active',
+    metadata: JSON.stringify({ title: 'Test goal', context: JSON.stringify({ sourceChannelId: 'ch-1' }) }),
   };
 }
 
