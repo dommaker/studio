@@ -16,7 +16,7 @@ interface EvolutionState {
   pendingProposals: number;
 }
 
-/** In-memory pattern failure buffer: errorPattern → Set<goalId> */
+/** In-memory pattern failure buffer: errorPattern → Set<workUnitId> */
 const patternFailures = new Map<string, Set<string>>();
 
 /** Extract error pattern from message using simple keyword classification */
@@ -52,26 +52,26 @@ function saveState(state: EvolutionState): void {
 }
 
 /** 记录一次失败（供 agent-event-listener 调用） */
-export function recordFailure(goalId?: string, errorMsg?: string): void {
+export function recordFailure(workUnitId?: string, errorMsg?: string): void {
   const state = loadState();
   state.failureCount++;
   saveState(state);
 
-  // Pattern buffer: track recurring error patterns across different goals
-  if (goalId && errorMsg) {
+  // Pattern buffer: track recurring error patterns across different workUnits
+  if (workUnitId && errorMsg) {
     const pattern = classifyErrorPattern(errorMsg);
     const goals = patternFailures.get(pattern) || new Set<string>();
-    goals.add(goalId);
+    goals.add(workUnitId);
     patternFailures.set(pattern, goals);
 
-    // Same pattern across 3+ different goals → trigger evolution immediately
+    // Same pattern across 3+ different workUnits → trigger evolution immediately
     if (goals.size >= 3) {
-      logger.warn('[Evolution] Pattern detected across 3+ goals, triggering evolution', {
+      logger.warn('[Evolution] Pattern detected across 3+ workUnits, triggering evolution', {
         pattern,
-        affectedGoals: [...goals],
+        affectedWorkUnits: [...goals],
       });
       runEvolution().then(result => {
-        if (result) logger.info('[Evolution] Triggered by cross-goal pattern', { pattern, ...result });
+        if (result) logger.info('[Evolution] Triggered by cross-workUnit pattern', { pattern, ...result });
       }).catch(e => logger.warn('[Evolution] Pattern-triggered evolution failed', { error: String(e) }));
     }
   }
@@ -85,7 +85,7 @@ export function recordSuccess(): void {
 }
 
 /** 记录审查被拒绝（供 agent-event-listener 调用，Phase 3） */
-export function recordReviewRejected(goalId: string, taskId: string, cycle: number): void {
+export function recordReviewRejected(workUnitId: string, taskId: string, cycle: number): void {
   const state = loadState();
   state.failureCount++;
   saveState(state);
@@ -93,16 +93,16 @@ export function recordReviewRejected(goalId: string, taskId: string, cycle: numb
   // Add to pattern buffer
   const pattern = 'review_cycle_exhausted';
   const goals = patternFailures.get(pattern) || new Set<string>();
-  goals.add(goalId);
+  goals.add(workUnitId);
   patternFailures.set(pattern, goals);
 
-  logger.info('[Evolution] Review rejected recorded', { goalId, taskId, cycle, totalFailures: state.failureCount });
+  logger.info('[Evolution] Review rejected recorded', { workUnitId, taskId, cycle, totalFailures: state.failureCount });
 
-  // Same pattern across 3+ different goals → trigger evolution immediately
+  // Same pattern across 3+ different workUnits → trigger evolution immediately
   if (goals.size >= 3) {
-    logger.warn('[Evolution] Review rejection pattern across 3+ goals, triggering evolution', {
+    logger.warn('[Evolution] Review rejection pattern across 3+ workUnits, triggering evolution', {
       pattern,
-      affectedGoals: [...goals],
+      affectedWorkUnits: [...goals],
     });
     runEvolution().then(result => {
       if (result) logger.info('[Evolution] Triggered by review rejection pattern', { pattern, ...result });
@@ -111,10 +111,10 @@ export function recordReviewRejected(goalId: string, taskId: string, cycle: numb
 }
 
 /** Get snapshot of pattern failure buffer (for auditing, Phase 3) */
-export function getPatternBufferSnapshot(): Array<{ pattern: string; affectedGoals: string[]; count: number }> {
+export function getPatternBufferSnapshot(): Array<{ pattern: string; affectedWorkUnits: string[]; count: number }> {
   return [...patternFailures.entries()].map(([pattern, goals]) => ({
     pattern,
-    affectedGoals: [...goals],
+    affectedWorkUnits: [...goals],
     count: goals.size,
   }));
 }

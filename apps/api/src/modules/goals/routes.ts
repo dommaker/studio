@@ -1,19 +1,22 @@
 /**
  * Goal API 路由 - Goal 驱动架构
  *
- * POST /api/v1/goals — 创建目标
- * GET  /api/v1/goals — 目标列表
- * GET  /api/v1/goals/stats — 仪表盘统计
- * GET  /api/v1/goals/:id — 目标详情
+ * @deprecated Phase 3 LOW: Goal 路由正在迁移到 WorkUnit API。
+ * 本文件保留兼容性，Phase 3 HIGH 将逐步替换端点实现。
+ *
+ * POST /api/v1/goals — @deprecated → POST /api/v1/work-units (创建 WorkUnit)
+ * GET  /api/v1/goals — @deprecated → GET /api/v1/work-units (列表查询)
+ * GET  /api/v1/goals/stats — @deprecated → GET /api/v1/work-units/stats
+ * GET  /api/v1/goals/:id — @deprecated → GET /api/v1/work-units/:id
  * POST /api/v1/goals/:id/plan — @deprecated (410)
  * POST /api/v1/goals/:id/approve — @deprecated (410)
  * POST /api/v1/goals/:id/execute — @deprecated (410)
- * PUT  /api/v1/goals/:id/steps/:stepId — 更新步骤状态
- * GET  /api/v1/goals/:id/executable — 获取可执行步骤
- * GET  /api/v1/goals/:id/executions — GoalExecution 列表
- * POST /api/v1/goals/:id/executions/:executionId/cancel — 取消执行
- * POST /api/v1/goals/:id/executions/:executionId/retry — 重试执行
- * DELETE /api/v1/goals/:id — 删除目标
+ * PUT  /api/v1/goals/:id/steps/:stepId — @deprecated → PUT /api/v1/work-units/:id/steps/:stepId
+ * GET  /api/v1/goals/:id/executable — @deprecated → GET /api/v1/work-units/:id/executable
+ * GET  /api/v1/goals/:id/executions — @deprecated → GET /api/v1/work-units/:id/executions
+ * POST /api/v1/goals/:id/executions/:executionId/cancel — @deprecated → POST /api/v1/work-units/:id/executions/:id/cancel
+ * POST /api/v1/goals/:id/executions/:executionId/retry — @deprecated → POST /api/v1/work-units/:id/executions/:id/retry
+ * DELETE /api/v1/goals/:id — @deprecated → DELETE /api/v1/work-units/:id
  */
 
 import { Router, Request, Response } from 'express';
@@ -27,7 +30,8 @@ const router = Router();
 
 /**
  * POST /api/v1/goals
- * 创建目标
+ * @deprecated → POST /api/v1/work-units — 创建 WorkUnit 替代创建 Goal
+ * Phase 3 HIGH 迁移实现，当前保留兼容。
  */
 router.post('/', async (req: Request, res: Response) => {
   try {
@@ -52,7 +56,7 @@ router.post('/', async (req: Request, res: Response) => {
 
 /**
  * GET /api/v1/goals
- * 目标列表
+ * @deprecated → GET /api/v1/work-units — WorkUnit 列表查询替代
  */
 router.get('/', apiCache(CACHE_CONFIG.short), async (req: Request, res: Response) => {
   try {
@@ -72,7 +76,8 @@ router.get('/', apiCache(CACHE_CONFIG.short), async (req: Request, res: Response
 });
 
 /**
- * GET /api/v1/goals/stats — 仪表盘聚合统计
+ * GET /api/v1/goals/stats
+ * @deprecated → GET /api/v1/work-units/stats — WorkUnit 仪表盘统计替代
  */
 router.get('/stats', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Response) => {
   try {
@@ -104,7 +109,7 @@ router.get('/stats', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Re
 
 /**
  * GET /api/v1/goals/:id
- * 目标详情
+ * @deprecated → GET /api/v1/work-units/:id — WorkUnit 详情替代
  */
 router.get('/:id', async (req: Request, res: Response) => {
   try {
@@ -146,7 +151,7 @@ router.post('/:id/execute', async (_req: Request, res: Response) => {
 
 /**
  * GET /api/v1/goals/:id/executable
- * 获取可执行步骤（依赖已满足）
+ * @deprecated → GET /api/v1/work-units/:id/executable — WorkUnit 可执行步骤替代
  */
 router.get('/:id/executable', async (req: Request, res: Response) => {
   try {
@@ -160,7 +165,7 @@ router.get('/:id/executable', async (req: Request, res: Response) => {
 
 /**
  * PUT /api/v1/goals/:id/steps/:stepId
- * 更新步骤执行状态
+ * @deprecated → PUT /api/v1/work-units/:id/steps/:stepId — WorkUnit 步骤状态更新替代
  */
 router.put('/:id/steps/:stepId', async (req: Request, res: Response) => {
   try {
@@ -176,7 +181,8 @@ router.put('/:id/steps/:stepId', async (req: Request, res: Response) => {
 });
 
 /**
- * GET /api/v1/goals/:id/executions — GoalExecution 列表
+ * GET /api/v1/goals/:id/executions
+ * @deprecated → GET /api/v1/work-units/:id/executions — WorkUnit Execution 列表替代
  */
 router.get('/:id/executions', async (req: Request, res: Response) => {
   try {
@@ -193,6 +199,7 @@ router.get('/:id/executions', async (req: Request, res: Response) => {
 
 /**
  * POST /api/v1/goals/:id/executions/:executionId/cancel — 取消执行
+ * @deprecated → POST /api/v1/work-units/:id/executions/:executionId/cancel
  * 同时终止 agent 子进程（SIGTERM → SIGKILL）
  */
 router.post('/:id/executions/:executionId/cancel', async (req: Request, res: Response) => {
@@ -214,6 +221,7 @@ router.post('/:id/executions/:executionId/cancel', async (req: Request, res: Res
 
 /**
  * POST /api/v1/goals/:id/executions/:executionId/retry — 重试执行
+ * @deprecated → POST /api/v1/work-units/:id/executions/:executionId/retry
  */
 router.post('/:id/executions/:executionId/retry', async (req: Request, res: Response) => {
   try {
@@ -227,6 +235,7 @@ router.post('/:id/executions/:executionId/retry', async (req: Request, res: Resp
 
 /**
  * DELETE /api/v1/goals/:id
+ * @deprecated → DELETE /api/v1/work-units/:id — WorkUnit 删除替代
  */
 router.delete('/:id', async (req: Request, res: Response) => {
   try {

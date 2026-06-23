@@ -186,14 +186,14 @@ describe('recordFailure', () => {
     expect(state.failureCount).toBe(2);
   });
 
-  it('with goalId+errorMsg classifies pattern into buffer', async () => {
+  it('with workUnitId+errorMsg classifies pattern into buffer', async () => {
     const { recordFailure, getPatternBufferSnapshot } = await import('../evolution.service.js');
     recordFailure('g1', 'request timed out');
     const snap = getPatternBufferSnapshot();
-    expect(snap.some(s => s.pattern === 'timeout' && s.affectedGoals.includes('g1'))).toBe(true);
+    expect(snap.some(s => s.pattern === 'timeout' && s.affectedWorkUnits.includes('g1'))).toBe(true);
   });
 
-  it('without goalId only increments count', async () => {
+  it('without workUnitId only increments count', async () => {
     const { recordFailure, getPatternBufferSnapshot } = await import('../evolution.service.js');
     const before = getPatternBufferSnapshot().length;
     recordFailure(); // no args
@@ -232,7 +232,7 @@ describe('recordReviewRejected', () => {
     const snap = getPatternBufferSnapshot();
     const entry = snap.find(s => s.pattern === 'review_cycle_exhausted');
     expect(entry).toBeDefined();
-    expect(entry!.affectedGoals).toContain('g1');
+    expect(entry!.affectedWorkUnits).toContain('g1');
   });
 });
 
@@ -241,7 +241,7 @@ describe('recordReviewRejected', () => {
 // ════════════════════════════════════════════
 
 describe('getPatternBufferSnapshot', () => {
-  it('returns {pattern, affectedGoals, count}', async () => {
+  it('returns {pattern, affectedWorkUnits, count}', async () => {
     const { recordFailure, getPatternBufferSnapshot } = await import('../evolution.service.js');
     recordFailure('gA', 'timeout');
     recordFailure('gB', 'timeout');
@@ -250,11 +250,11 @@ describe('getPatternBufferSnapshot', () => {
     const entry = snap.find(s => s.pattern === 'timeout');
     expect(entry).toBeDefined();
     expect(entry!.count).toBe(2);
-    expect(entry!.affectedGoals).toContain('gA');
-    expect(entry!.affectedGoals).toContain('gB');
+    expect(entry!.affectedWorkUnits).toContain('gA');
+    expect(entry!.affectedWorkUnits).toContain('gB');
   });
 
-  it('same goal deduplicated (Set)', async () => {
+  it('same workUnit deduplicated (Set)', async () => {
     const { recordFailure, getPatternBufferSnapshot } = await import('../evolution.service.js');
     recordFailure('gX', 'timeout');
     recordFailure('gX', 'timeout');
