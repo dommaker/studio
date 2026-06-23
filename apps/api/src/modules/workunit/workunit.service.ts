@@ -37,6 +37,7 @@ export interface CreateWorkUnitInput {
   failureType?: string;
   retryCount?: number;
   timeoutAt?: Date | null;
+  completedAt?: Date | null;
   metadata?: WorkUnitMetadata;
 }
 
@@ -50,6 +51,7 @@ export interface UpdateWorkUnitInput {
   failureType?: string | null;
   retryCount?: number;
   timeoutAt?: Date | null;
+  completedAt?: Date | null;
   metadata?: WorkUnitMetadata;
 }
 
@@ -82,6 +84,7 @@ export class WorkUnitService {
         failureType: input.failureType ?? null,
         retryCount: input.retryCount ?? 0,
         timeoutAt: input.timeoutAt ?? null,
+        completedAt: input.completedAt ?? null,
         metadata: input.metadata ? JSON.stringify(input.metadata) : null,
       },
     });
@@ -155,6 +158,7 @@ export class WorkUnitService {
     if (input.failureType !== undefined) data.failureType = input.failureType;
     if (input.retryCount !== undefined) data.retryCount = input.retryCount;
     if (input.timeoutAt !== undefined) data.timeoutAt = input.timeoutAt;
+    if (input.completedAt !== undefined) data.completedAt = input.completedAt;
     if (input.metadata !== undefined) data.metadata = JSON.stringify(input.metadata);
 
     return this.prisma.workUnit.update({ where: { id }, data });
@@ -252,9 +256,15 @@ export class WorkUnitService {
       );
     }
 
+    const updateData: Prisma.WorkUnitUncheckedUpdateInput = { status: newStatus };
+    // 终态自动写入 completedAt
+    if (newStatus === 'done' || newStatus === 'closed') {
+      updateData.completedAt = new Date();
+    }
+
     const updated = await this.prisma.workUnit.update({
       where: { id },
-      data: { status: newStatus },
+      data: updateData,
     });
 
     emitWorkUnitStatusChanged({ workUnitId: id, oldStatus: current.status, newStatus });

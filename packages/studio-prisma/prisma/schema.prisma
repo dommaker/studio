@@ -1462,9 +1462,10 @@ model WorkUnit {
   metadata   String?  // JSON: 灵活扩展
 
   // 时间
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  claimedAt  DateTime? // claim 时间
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  claimedAt   DateTime? // claim 时间（= GoalExecution.startedAt）
+  completedAt DateTime? // 终态时间（done/closed 时写入）
 
   // 关联
   channel    Channel? @relation(fields: [channelId], references: [id])
