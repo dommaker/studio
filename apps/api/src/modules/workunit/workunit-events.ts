@@ -16,6 +16,8 @@ export const WORKUNIT_EVENTS = {
   STATUS_CHANGED: 'workunit.status_changed',
   DONE: 'workunit.done',
   UNCLAIMED: 'workunit.unclaimed',
+  REVIEW_PASSED: 'workunit.review.passed',
+  REVIEW_REJECTED: 'workunit.review.rejected',
 } as const;
 
 // ─── 事件数据类型 ───
@@ -40,6 +42,11 @@ export interface WorkUnitStatusChangedEvent {
 }
 
 export interface WorkUnitDoneEvent {
+  workUnitId: string;
+  scope: string;
+}
+
+export interface WorkUnitReviewEvent {
   workUnitId: string;
   scope: string;
 }
@@ -79,5 +86,23 @@ export function emitWorkUnitDone(data: WorkUnitDoneEvent): void {
     logger.debug('[WorkUnit] Event emitted', { event: WORKUNIT_EVENTS.DONE, workUnitId: data.workUnitId });
   } catch (err) {
     logger.warn('[WorkUnit] Failed to emit event', { event: WORKUNIT_EVENTS.DONE, error: String(err) });
+  }
+}
+
+export function emitWorkUnitReviewPassed(data: WorkUnitReviewEvent): void {
+  try {
+    eventBus.publish(WORKUNIT_EVENTS.REVIEW_PASSED, data);
+    logger.debug('[WorkUnit] Event emitted', { event: WORKUNIT_EVENTS.REVIEW_PASSED, workUnitId: data.workUnitId });
+  } catch (err) {
+    logger.warn('[WorkUnit] Failed to emit event', { event: WORKUNIT_EVENTS.REVIEW_PASSED, error: String(err) });
+  }
+}
+
+export function emitWorkUnitReviewRejected(data: WorkUnitReviewEvent): void {
+  try {
+    eventBus.publish(WORKUNIT_EVENTS.REVIEW_REJECTED, data);
+    logger.debug('[WorkUnit] Event emitted', { event: WORKUNIT_EVENTS.REVIEW_REJECTED, workUnitId: data.workUnitId });
+  } catch (err) {
+    logger.warn('[WorkUnit] Failed to emit event', { event: WORKUNIT_EVENTS.REVIEW_REJECTED, error: String(err) });
   }
 }

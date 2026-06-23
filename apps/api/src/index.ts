@@ -211,6 +211,10 @@ async function start() {
     process.on('unhandledRejection', (reason: any) => {
       logger.error('Unhandled rejection (logged, not restarting HTTP)', { message: reason?.message, stack: reason?.stack });
     });
+    process.on('uncaughtException', (err: Error) => {
+      logger.error('Uncaught exception — shutting down', { message: err.message, stack: err.stack });
+      process.exit(1);
+    });
     app.use((err: any, _req: any, res: any, _next: any) => {
       logger.error('Express error', { message: err?.message });
       if (!res.headersSent) res.status(500).json({ success: false, error: 'Internal error' });

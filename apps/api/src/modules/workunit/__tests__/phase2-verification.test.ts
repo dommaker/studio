@@ -1,0 +1,193 @@
+/**
+ * Phase 2 Verification Scenarios — agent-network-migration.md §6
+ *
+ * 验证 Agent Network 核心机制端到端：
+ * 1. 正常流程：message → WorkUnit → claim → in_review → approve → done
+ * 2. Review 失败：in_review → reject → active → in_review → done
+ * 3. Claim 竞争：乐观锁保证只有一个成功
+ * 4. 子 WorkUnit：父子关系 + 状态聚合
+ * 5. 依赖解锁：blocked → active when deps done
+ */
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { prisma } from '@dommaker/studio-prisma';
+import { WorkUnitService } from '../workunit.service.js';
+import { channelMessageService } from '../../channels/channel-message.service.js';
+
+describe('Phase 2 Verification Scenarios', () => {
+  const service = new WorkUnitService(prisma);
+  let testChannelId: string;
+  const testIds: string[] = [];
+  const messageIds: string[] = [];
+
+  beforeAll(async () => {
+    const channel = await prisma.channel.create({
+      data: { name: `#phase2-verify-${Date.now()}`, type: 'rnd' },
+    });
+    testChannelId = channel.id;
+  });
+
+  afterAll(async () => {
+    await prisma.channelMessage.deleteMany({ where: { id: { in: messageIds } } });
+    await prisma.workUnit.deleteMany({ where: { id: { in: testIds } } });
+    await prisma.channel.deleteMany({ where: { id: testChannelId } });
+  });
+
+  // ── Scenario 1: Normal flow (message → WorkUnit → claim → done) ──
+
+  it('Scenario 1: message → WorkUnit → claim → discussion → in_review → approve → done', async () => {
+    // Human sends message
+    const msg = await channelMessageService.createHumanMessage(
+      testChannelId, '需要优化登录页面的加载速度',
+    );
+    messageIds.push(msg.id);
+
+    // Convert message to WorkUnit
+    const wu = await service.createFromMessage(msg.id);
+    testIds.push(wu.id);
+    expect(wu.status).toBe('unassigned');
+
+    // Verify message linked
+    const linked = await prisma.channelMessage.findUnique({ where: { id: msg.id } });
+    expect(linked!.workUnitId).toBe(wu.id);
+
+    // Agent claims
+    const claimed = await service.claim(wu.id, 'agent-optimizer');
+    expect(claimed.status).toBe('active');
+    expect(claimed.assigneeId).toBe('agent-optimizer');
+
+    // Agent updates progress in discussion space
+    const progressMsg = await channelMessageService.createAgentMessage(
+      testChannelId, 'Optimizer', '正在分析页面加载瓶颈...', { workUnitId: wu.id },
+    );
+    messageIds.push(progressMsg.id);
+
+    // Agent submits for review
+    const inReview = await service.transitionStatus(wu.id, 'in_review');
+    expect(inReview.status).toBe('in_review');
+
+    // Human approves
+    const done = await service.reviewPassed(wu.id);
+    expect(done.status).toBe('done');
+    expect(done.completedAt).not.toBeNull();
+
+    // Discussion space has both messages
+    const discussion = await channelMessageService.listByWorkUnitId(wu.id);
+    expect(discussion.total).toBeGreaterThanOrEqual(2);
+  });
+
+  // ── Scenario 2: Review failure → retry → success ──
+
+  it('Scenario 2: in_review → reject → active → in_review → approve → done', async () => {
+    const wu = await service.create({ scope: 'Review retry test' });
+    testIds.push(wu.id);
+
+    await service.claim(wu.id, 'agent-dev');
+
+    // First review attempt — rejected
+    await service.transitionStatus(wu.id, 'in_review');
+    const rejected = await service.reviewRejected(wu.id);
+    expect(rejected.status).toBe('active');
+    const meta1 = JSON.parse(rejected.metadata ?? '{}');
+    expect(meta1._consecutiveReviewRejections).toBe(1);
+
+    // Agent fixes and resubmits
+    await service.transitionStatus(wu.id, 'in_review');
+    const done = await service.reviewPassed(wu.id);
+    expect(done.status).toBe('done');
+    const meta2 = JSON.parse(done.metadata ?? '{}');
+    expect(meta2._consecutiveReviewRejections).toBeUndefined(); // reset on pass
+  });
+
+  it('Scenario 2 edge: 3 consecutive rejections → auto-block', async () => {
+    const wu = await service.create({ scope: 'Triple reject test' });
+    testIds.push(wu.id);
+    await service.claim(wu.id, 'agent-stuck');
+
+    for (let i = 0; i < 3; i++) {
+      await service.transitionStatus(wu.id, 'in_review');
+      await service.reviewRejected(wu.id);
+      // After rejection, status is active (or blocked on 3rd)
+      if (i < 2) {
+        const current = await service.getById(wu.id);
+        expect(current!.status).toBe('active');
+      }
+    }
+
+    const blocked = await service.getById(wu.id);
+    expect(blocked!.status).toBe('blocked');
+  });
+
+  // ── Scenario 3: Claim competition ──
+
+  it('Scenario 3: optimistic lock — only one agent claims', async () => {
+    const wu = await service.create({ scope: 'Claim race' });
+    testIds.push(wu.id);
+
+    const results = await Promise.allSettled([
+      service.claim(wu.id, 'agent-fast'),
+      service.claim(wu.id, 'agent-slow'),
+    ]);
+
+    const fulfilled = results.filter(r => r.status === 'fulfilled');
+    const rejected = results.filter(r => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+  });
+
+  // ── Scenario 5: Sub-WorkUnit + parent aggregation ──
+
+  it('Scenario 5: parent-child decomposition + aggregation', async () => {
+    // Parent: "Implement auth"
+    const parent = await service.create({ scope: 'Implement auth system' });
+    testIds.push(parent.id);
+
+    // Children: decomposition
+    const analysis = await service.create({ scope: 'Auth requirement analysis', parentId: parent.id });
+    const impl = await service.create({ scope: 'Auth implementation', parentId: parent.id });
+    const review = await service.create({ scope: 'Auth review', parentId: parent.id });
+    testIds.push(analysis.id, impl.id, review.id);
+
+    // dependsOn: impl depends on analysis, review depends on impl
+    await service.update(impl.id, { dependsOn: [analysis.id] });
+    await service.update(review.id, { dependsOn: [impl.id] });
+
+    // Children complete sequentially
+    await service.transitionStatus(analysis.id, 'active');
+    await service.transitionStatus(analysis.id, 'in_review');
+    await service.transitionStatus(analysis.id, 'done');
+
+    // impl unblocks (dependency satisfied)
+    await prisma.workUnit.update({ where: { id: impl.id }, data: { status: 'blocked' } });
+    await service.unlockDependents(analysis.id);
+    const implAfter = await service.getById(impl.id);
+    expect(implAfter!.status).toBe('active');
+
+    await service.transitionStatus(impl.id, 'in_review');
+    await service.transitionStatus(impl.id, 'done');
+
+    // review unblocks
+    await prisma.workUnit.update({ where: { id: review.id }, data: { status: 'blocked' } });
+    await service.unlockDependents(impl.id);
+    const reviewAfter = await service.getById(review.id);
+    expect(reviewAfter!.status).toBe('active');
+
+    await service.transitionStatus(review.id, 'in_review');
+    await service.transitionStatus(review.id, 'done');
+
+    // Parent aggregation: all children done → in_review
+    await service.aggregateParentStatus(review.id);
+    const parentAfter = await service.getById(parent.id);
+    expect(parentAfter!.status).toBe('in_review');
+  });
+
+  it('Scenario 5 edge: 1 closed + rest done → parent in_review', async () => {
+    const parent = await service.create({ scope: 'Mixed completion' });
+    const c1 = await service.create({ scope: 'Done child', parentId: parent.id, status: 'done' });
+    const c2 = await service.create({ scope: 'Closed child', parentId: parent.id, status: 'closed' });
+    testIds.push(parent.id, c1.id, c2.id);
+
+    await service.aggregateParentStatus(c1.id);
+    const updated = await service.getById(parent.id);
+    expect(updated!.status).toBe('in_review');
+  });
+});

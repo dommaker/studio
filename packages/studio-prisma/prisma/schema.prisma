@@ -1439,6 +1439,22 @@ model FailureEvent {
   @@index([goalId])
 }
 
+// ── AS-025: Agent Network — AgentProfile (Phase 2) ──
+// 简化 Agent 身份：name + description + channels
+
+model AgentProfile {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  channels    String   @default("[]")  // JSON: Channel ID[]
+  status      String   @default("active") // active | inactive
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@map("agent_profile")
+}
+
 // ── AS-025: Agent Network — WorkUnit (3.28c-1) ──
 // WorkUnit 是统一工作单元：Goal/GoalExecution/Task 的参数化统一
 

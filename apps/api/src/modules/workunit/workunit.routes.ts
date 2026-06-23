@@ -10,6 +10,11 @@
  *   POST   /api/v1/workunits/:id/claim   — claim (optimistic lock)
  *   POST   /api/v1/workunits/:id/unclaim — unclaim
  *   POST   /api/v1/workunits/:id/status  — transition status (state machine)
+ *   POST   /api/v1/workunits/:id/review-passed   — review approved (in_review → done)
+ *   POST   /api/v1/workunits/:id/review-rejected — review rejected (in_review → active/blocked)
+ *
+ * 涌现路径 (AS-025 §5.15):
+ *   POST   /api/v1/workunits/from-message — convert ChannelMessage to WorkUnit
  *
  * 讨论空间 (AS-025 §5.16):
  *   GET    /api/v1/workunits/:id/messages       — list messages by workUnitId
@@ -78,6 +83,31 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
     });
+  }
+});
+
+/** POST /from-message — convert ChannelMessage to WorkUnit (emergence path) */
+router.post('/from-message', async (req: Request, res: Response) => {
+  try {
+    const { messageId, type, metadata } = req.body;
+
+    if (!messageId || typeof messageId !== 'string') {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'messageId is required' },
+      });
+    }
+
+    const wu = await service.createFromMessage(messageId, { type, metadata });
+    res.status(201).json(wu);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
+    }
+    if (msg.includes('already linked')) {
+      return res.status(409).json({ error: { code: 'ALREADY_CONVERTED', message: msg } });
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });
 
@@ -176,6 +206,40 @@ router.post('/:id/unclaim', async (req: Request, res: Response) => {
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: msg },
     });
+  }
+});
+
+/** POST /:id/review-passed — review approved (in_review → done) */
+router.post('/:id/review-passed', async (req: Request, res: Response) => {
+  try {
+    const wu = await service.reviewPassed(req.params.id);
+    res.json(wu);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
+    }
+    if (msg.includes('Cannot review')) {
+      return res.status(400).json({ error: { code: 'INVALID_TRANSITION', message: msg } });
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
+/** POST /:id/review-rejected — review rejected (in_review → active, or blocked after 3) */
+router.post('/:id/review-rejected', async (req: Request, res: Response) => {
+  try {
+    const wu = await service.reviewRejected(req.params.id);
+    res.json(wu);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
+    }
+    if (msg.includes('Cannot review')) {
+      return res.status(400).json({ error: { code: 'INVALID_TRANSITION', message: msg } });
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }
 });
 

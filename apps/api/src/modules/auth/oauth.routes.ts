@@ -30,9 +30,10 @@ router.get('/:provider(google|github)', (req, res) => {
   try {
     const authUrl = oauthService.getAuthorizationUrl(provider, state);
     res.redirect(authUrl);
-  } catch (err: any) {
-    logger.error(`[OAuth] Failed to get ${provider} auth URL`, err.message);
-    res.status(500).json({ error: err.message });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown';
+    logger.error(`[OAuth] Failed to get ${provider} auth URL`, { error: message });
+    res.status(500).json({ error: 'OAuth configuration error' });
   }
 });
 
@@ -79,9 +80,14 @@ router.get('/callback/:provider(google|github)', async (req, res) => {
       sessionId: session.id,
     });
     res.redirect(`${FRONTEND_URL}/auth/callback#${params}`);
-  } catch (err: any) {
-    logger.error(`[OAuth] ${provider} callback failed`, err.message);
-    res.redirect(`${FRONTEND_URL}/auth/callback?error=oauth_failed`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : 'unknown';
+    logger.error(`[OAuth] ${provider} callback failed`, { error: message });
+    const errorCode = message.includes('exchange') ? 'token_exchange_failed'
+      : message.includes('profile') ? 'profile_fetch_failed'
+      : message.includes('Unique constraint') ? 'account_conflict'
+      : 'oauth_failed';
+    res.redirect(`${FRONTEND_URL}/auth/callback?error=${errorCode}`);
   }
 });
 

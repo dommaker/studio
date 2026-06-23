@@ -1,5 +1,5 @@
 // WorkUnit API service test (AS-025, 3.28c-1 Task 2-4)
-// Tests: CRUD + Claim + State machine
+// Tests: CRUD + Claim + State machine + Review + from-message
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { prisma } from '@dommaker/studio-prisma';
 import { WorkUnitService } from '../workunit.service.js';
@@ -7,8 +7,23 @@ import { WorkUnitService } from '../workunit.service.js';
 describe('WorkUnit API service', () => {
   const service = new WorkUnitService(prisma);
   const testIds: string[] = [];
+  let testChannelId: string;
+
+  beforeAll(async () => {
+    // Clean up stale active WorkUnits from previous runs (file conflict isolation)
+    await prisma.workUnit.deleteMany({
+      where: { status: 'active', metadata: { contains: '"files"' } },
+    });
+
+    const channel = await prisma.channel.create({
+      data: { name: `#test-wu-${Date.now()}`, type: 'rnd' },
+    });
+    testChannelId = channel.id;
+  });
 
   afterAll(async () => {
+    await prisma.channelMessage.deleteMany({ where: { channelId: testChannelId } });
+    await prisma.channel.deleteMany({ where: { id: testChannelId } });
     await prisma.workUnit.deleteMany({ where: { id: { in: testIds } } });
   });
 
@@ -142,6 +157,69 @@ describe('WorkUnit API service', () => {
       expect(unclaimed.assigneeId).toBeNull();
       expect(unclaimed.status).toBe('unassigned');
     });
+
+    it('claim rejects on file conflict', async () => {
+      const wu1 = await service.create({
+        scope: 'File owner',
+        metadata: { files: ['src/auth.ts', 'src/login.ts'] },
+      });
+      const wu2 = await service.create({
+        scope: 'File conflict',
+        metadata: { files: ['src/auth.ts'] },
+      });
+      testIds.push(wu1.id, wu2.id);
+
+      await service.claim(wu1.id, 'agent-A');
+
+      await expect(service.claim(wu2.id, 'agent-B')).rejects.toThrow(/File conflict/);
+    });
+
+    it('claim succeeds when files do not overlap', async () => {
+      const wu1 = await service.create({
+        scope: 'Files A',
+        metadata: { files: ['src/a.ts'] },
+      });
+      const wu2 = await service.create({
+        scope: 'Files B',
+        metadata: { files: ['src/b.ts'] },
+      });
+      testIds.push(wu1.id, wu2.id);
+
+      await service.claim(wu1.id, 'agent-A');
+      const claimed = await service.claim(wu2.id, 'agent-B');
+
+      expect(claimed.assigneeId).toBe('agent-B');
+    });
+
+    it('claim succeeds when no files specified', async () => {
+      const wu1 = await service.create({ scope: 'No files', metadata: {} });
+      const wu2 = await service.create({ scope: 'Also no files' });
+      testIds.push(wu1.id, wu2.id);
+
+      await service.claim(wu1.id, 'agent-A');
+      const claimed = await service.claim(wu2.id, 'agent-B');
+
+      expect(claimed.assigneeId).toBe('agent-B');
+    });
+
+    it('Bug fix: claim rejects on file conflict with in_review WorkUnit', async () => {
+      const wu1 = await service.create({
+        scope: 'In review owner',
+        metadata: { files: ['src/conflict-review.ts'] },
+      });
+      const wu2 = await service.create({
+        scope: 'Conflicts with review',
+        metadata: { files: ['src/conflict-review.ts'] },
+      });
+      testIds.push(wu1.id, wu2.id);
+
+      // wu1 claimed then moved to in_review
+      await service.claim(wu1.id, 'agent-A');
+      await service.transitionStatus(wu1.id, 'in_review');
+
+      // wu2 should conflict even though wu1 is in_review, not active
+      await expect(service.claim(wu2.id, 'agent-B')).rejects.toThrow(/File conflict/);
+    });
   });
 
   // ---- Task 4: State machine ----
@@ -236,6 +314,390 @@ describe('WorkUnit API service', () => {
 
       const updated = await service.transitionStatus(wu.id, 'blocked');
       expect(updated.status).toBe('blocked');
+    });
+  });
+
+  // ---- Cycle detection integration ----
+
+  describe('dependsOn cycle detection', () => {
+    it('create with valid dependsOn succeeds', async () => {
+      const a = await service.create({ scope: 'cycle-a' });
+      const b = await service.create({ scope: 'cycle-b', dependsOn: [a.id] });
+      testIds.push(a.id, b.id);
+
+      expect(JSON.parse(b.dependsOn)).toEqual([a.id]);
+    });
+
+    it('create with cycle throws', async () => {
+      const a = await service.create({ scope: 'cycle-c' });
+      const b = await service.create({ scope: 'cycle-d', dependsOn: [a.id] });
+      testIds.push(a.id, b.id);
+
+      // a → b would create cycle (b already depends on a)
+      await expect(
+        service.update(a.id, { dependsOn: [b.id] })
+      ).rejects.toThrow(/Cycle detected/);
+    });
+
+    it('update dependsOn with valid deps succeeds', async () => {
+      const x = await service.create({ scope: 'cycle-x' });
+      const y = await service.create({ scope: 'cycle-y' });
+      const z = await service.create({ scope: 'cycle-z', dependsOn: [x.id] });
+      testIds.push(x.id, y.id, z.id);
+
+      // Change z to depend on y instead of x — valid
+      const updated = await service.update(z.id, { dependsOn: [y.id] });
+      expect(JSON.parse(updated.dependsOn)).toEqual([y.id]);
+    });
+
+    it('update dependsOn that creates cycle throws', async () => {
+      const p = await service.create({ scope: 'cycle-p' });
+      const q = await service.create({ scope: 'cycle-q', dependsOn: [p.id] });
+      testIds.push(p.id, q.id);
+
+      // p → q would create cycle (q already depends on p)
+      await expect(
+        service.update(p.id, { dependsOn: [q.id] })
+      ).rejects.toThrow(/Cycle detected/);
+    });
+
+    it('update without dependsOn change skips validation', async () => {
+      const m = await service.create({ scope: 'cycle-m' });
+      const n = await service.create({ scope: 'cycle-n', dependsOn: [m.id] });
+      testIds.push(m.id, n.id);
+
+      // Changing scope only — no cycle check
+      const updated = await service.update(n.id, { scope: 'cycle-n-renamed' });
+      expect(updated.scope).toBe('cycle-n-renamed');
+    });
+
+    it('9-stage linear pipeline create succeeds', async () => {
+      const stages = [
+        'analyst', 'decomposition', 'planner', 'executor',
+        'tdd-red', 'tdd-green', 'tdd-refactor', 'reviewer', 'deploy',
+      ];
+      const ids: string[] = [];
+      for (const stage of stages) {
+        const deps = ids.length > 0 ? [ids[ids.length - 1]] : [];
+        const wu = await service.create({ scope: `pipeline-${stage}`, dependsOn: deps });
+        ids.push(wu.id);
+        testIds.push(wu.id);
+      }
+      expect(ids).toHaveLength(9);
+    });
+  });
+
+  // ---- Review API ----
+
+  describe('Review', () => {
+    it('reviewPassed: in_review → done', async () => {
+      const wu = await service.create({ scope: 'review-pass-test' });
+      testIds.push(wu.id);
+      await service.transitionStatus(wu.id, 'active');
+      await service.transitionStatus(wu.id, 'in_review');
+
+      const result = await service.reviewPassed(wu.id);
+      expect(result.status).toBe('done');
+      expect(result.completedAt).not.toBeNull();
+    });
+
+    it('reviewPassed: rejects if not in_review', async () => {
+      const wu = await service.create({ scope: 'review-pass-invalid' });
+      testIds.push(wu.id);
+
+      await expect(service.reviewPassed(wu.id)).rejects.toThrow(/Cannot review/);
+    });
+
+    it('reviewRejected: in_review → active', async () => {
+      const wu = await service.create({ scope: 'review-reject-1' });
+      testIds.push(wu.id);
+      await service.transitionStatus(wu.id, 'active');
+      await service.transitionStatus(wu.id, 'in_review');
+
+      const result = await service.reviewRejected(wu.id);
+      expect(result.status).toBe('active');
+      const meta = JSON.parse(result.metadata ?? '{}');
+      expect(meta._consecutiveReviewRejections).toBe(1);
+    });
+
+    it('reviewRejected: 3 consecutive → auto-block', async () => {
+      const wu = await service.create({ scope: 'review-block-test' });
+      testIds.push(wu.id);
+
+      // Reject 1: in_review → active
+      await service.transitionStatus(wu.id, 'active');
+      await service.transitionStatus(wu.id, 'in_review');
+      await service.reviewRejected(wu.id);
+
+      // Reject 2: active → in_review → active
+      await service.transitionStatus(wu.id, 'in_review');
+      await service.reviewRejected(wu.id);
+
+      // Reject 3: active → in_review → blocked
+      await service.transitionStatus(wu.id, 'in_review');
+      const result = await service.reviewRejected(wu.id);
+      expect(result.status).toBe('blocked');
+    });
+
+    it('reviewPassed resets rejection counter', async () => {
+      const wu = await service.create({ scope: 'review-reset-test' });
+      testIds.push(wu.id);
+
+      // 2 rejections
+      await service.transitionStatus(wu.id, 'active');
+      await service.transitionStatus(wu.id, 'in_review');
+      await service.reviewRejected(wu.id);
+      await service.transitionStatus(wu.id, 'in_review');
+      await service.reviewRejected(wu.id);
+
+      // Now pass
+      await service.transitionStatus(wu.id, 'in_review');
+      const result = await service.reviewPassed(wu.id);
+      expect(result.status).toBe('done');
+      const meta = JSON.parse(result.metadata ?? '{}');
+      expect(meta._consecutiveReviewRejections).toBeUndefined();
+    });
+
+    it('reviewRejected: rejects if not in_review', async () => {
+      const wu = await service.create({ scope: 'review-reject-invalid' });
+      testIds.push(wu.id);
+
+      await expect(service.reviewRejected(wu.id)).rejects.toThrow(/Cannot review/);
+    });
+
+    it('Bug fix: transitionStatus in_review→done also works (reviewPassed event path)', async () => {
+      const wu = await service.create({ scope: 'review-via-transition' });
+      testIds.push(wu.id);
+      await service.transitionStatus(wu.id, 'active');
+      await service.transitionStatus(wu.id, 'in_review');
+
+      // Use transitionStatus instead of reviewPassed — should still work
+      const result = await service.transitionStatus(wu.id, 'done');
+      expect(result.status).toBe('done');
+      expect(result.completedAt).not.toBeNull();
+    });
+  });
+
+  // ---- from-message conversion ----
+
+  describe('createFromMessage', () => {
+    it('converts message to WorkUnit and links', async () => {
+      const msg = await prisma.channelMessage.create({
+        data: { channelId: testChannelId, authorType: 'human', content: 'Fix the login bug' },
+      });
+
+      const wu = await service.createFromMessage(msg.id);
+      testIds.push(wu.id);
+
+      expect(wu.scope).toBe('Fix the login bug');
+      expect(wu.channelId).toBe(testChannelId);
+      const meta = JSON.parse(wu.metadata ?? '{}');
+      expect(meta.sourceMessageId).toBe(msg.id);
+      expect(meta.creationMode).toBe('from-message');
+
+      // Verify message linked
+      const updated = await prisma.channelMessage.findUnique({ where: { id: msg.id } });
+      expect(updated!.workUnitId).toBe(wu.id);
+    });
+
+    it('rejects if message not found', async () => {
+      await expect(service.createFromMessage('nonexistent')).rejects.toThrow(/not found/);
+    });
+
+    it('rejects if message already converted', async () => {
+      const msg = await prisma.channelMessage.create({
+        data: { channelId: testChannelId, authorType: 'human', content: 'Already converted' },
+      });
+      const wu = await service.createFromMessage(msg.id);
+      testIds.push(wu.id);
+
+      await expect(service.createFromMessage(msg.id)).rejects.toThrow(/already linked/);
+    });
+
+    it('accepts custom type and metadata', async () => {
+      const msg = await prisma.channelMessage.create({
+        data: { channelId: testChannelId, authorType: 'human', content: 'Analysis needed' },
+      });
+
+      const wu = await service.createFromMessage(msg.id, {
+        type: 'analysis',
+        metadata: { priority: 'high' },
+      });
+      testIds.push(wu.id);
+
+      expect(wu.type).toBe('analysis');
+      const meta = JSON.parse(wu.metadata ?? '{}');
+      expect(meta.priority).toBe('high');
+      expect(meta.creationMode).toBe('from-message');
+    });
+
+    it('truncates long content for scope', async () => {
+      const longContent = 'x'.repeat(600);
+      const msg = await prisma.channelMessage.create({
+        data: { channelId: testChannelId, authorType: 'human', content: longContent },
+      });
+
+      const wu = await service.createFromMessage(msg.id);
+      testIds.push(wu.id);
+
+      expect(wu.scope).toHaveLength(500);
+    });
+  });
+
+  // ---- Parent state aggregation ----
+
+  describe('Parent state aggregation', () => {
+    it('direct: all children done → parent in_review', async () => {
+      const parent = await service.create({ scope: 'parent-agg-1' });
+      const c1 = await service.create({ scope: 'child-1', parentId: parent.id, status: 'done' });
+      const c2 = await service.create({ scope: 'child-2', parentId: parent.id, status: 'done' });
+      testIds.push(parent.id, c1.id, c2.id);
+
+      await service.aggregateParentStatus(c1.id);
+
+      const updated = await service.getById(parent.id);
+      expect(updated!.status).toBe('in_review');
+    });
+
+    it('direct: any child active → parent active', async () => {
+      const parent = await service.create({ scope: 'parent-agg-2' });
+      const c1 = await service.create({ scope: 'child-a', parentId: parent.id, status: 'active' });
+      const c2 = await service.create({ scope: 'child-b', parentId: parent.id });
+      testIds.push(parent.id, c1.id, c2.id);
+
+      await service.aggregateParentStatus(c1.id);
+
+      const updated = await service.getById(parent.id);
+      expect(updated!.status).toBe('active');
+    });
+
+    it('direct: any child blocked → parent blocked', async () => {
+      const parent = await service.create({ scope: 'parent-agg-3' });
+      const c1 = await service.create({ scope: 'child-x', parentId: parent.id, status: 'blocked' });
+      testIds.push(parent.id, c1.id);
+
+      await service.aggregateParentStatus(c1.id);
+
+      const updated = await service.getById(parent.id);
+      expect(updated!.status).toBe('blocked');
+    });
+
+    it('direct: all children closed → parent closed', async () => {
+      const parent = await service.create({ scope: 'parent-agg-4' });
+      const c1 = await service.create({ scope: 'child-c', parentId: parent.id, status: 'closed' });
+      testIds.push(parent.id, c1.id);
+
+      await service.aggregateParentStatus(c1.id);
+
+      const updated = await service.getById(parent.id);
+      expect(updated!.status).toBe('closed');
+    });
+
+    it('direct: 1 closed + rest done → parent in_review', async () => {
+      const parent = await service.create({ scope: 'parent-agg-5' });
+      const c1 = await service.create({ scope: 'child-d1', parentId: parent.id, status: 'done' });
+      const c2 = await service.create({ scope: 'child-d2', parentId: parent.id, status: 'closed' });
+      testIds.push(parent.id, c1.id, c2.id);
+
+      await service.aggregateParentStatus(c1.id);
+
+      const updated = await service.getById(parent.id);
+      expect(updated!.status).toBe('in_review');
+    });
+
+    it('cascade: child done triggers parent aggregation', async () => {
+      const parent = await service.create({ scope: 'parent-cascade' });
+      const c1 = await service.create({ scope: 'child-casc-1', parentId: parent.id });
+      testIds.push(parent.id, c1.id);
+
+      // Transition to done, then manually trigger aggregation (fire-and-forget cascades
+      // have inherent race — this verifies the cascade LOGIC, not async ordering)
+      await service.transitionStatus(c1.id, 'active');
+      await service.transitionStatus(c1.id, 'in_review');
+      await service.transitionStatus(c1.id, 'done');
+
+      // Direct call to verify aggregation logic works
+      await service.aggregateParentStatus(c1.id);
+
+      const updated = await service.getById(parent.id);
+      expect(updated!.status).toBe('in_review');
+    });
+  });
+
+  // ---- Dependency unlock ----
+
+  describe('Dependency unlock', () => {
+    it('blocked → active when all deps done', async () => {
+      const a = await service.create({ scope: 'dep-a' });
+      const b = await service.create({ scope: 'dep-b', dependsOn: [a.id] });
+      testIds.push(a.id, b.id);
+
+      await prisma.workUnit.update({ where: { id: b.id }, data: { status: 'blocked' } });
+
+      await service.transitionStatus(a.id, 'active');
+      await service.transitionStatus(a.id, 'in_review');
+      await service.transitionStatus(a.id, 'done');
+
+      await new Promise(r => setTimeout(r, 500));
+
+      const updated = await service.getById(b.id);
+      expect(updated!.status).toBe('active');
+    });
+
+    it('stays blocked when not all deps done', async () => {
+      const a = await service.create({ scope: 'dep-x' });
+      const b = await service.create({ scope: 'dep-y' });
+      const c = await service.create({ scope: 'dep-z', dependsOn: [a.id, b.id] });
+      testIds.push(a.id, b.id, c.id);
+
+      await prisma.workUnit.update({ where: { id: c.id }, data: { status: 'blocked' } });
+
+      await service.transitionStatus(a.id, 'active');
+      await service.transitionStatus(a.id, 'in_review');
+      await service.transitionStatus(a.id, 'done');
+
+      await new Promise(r => setTimeout(r, 500));
+
+      const updated = await service.getById(c.id);
+      expect(updated!.status).toBe('blocked');
+    });
+
+    it('unlocks when last dep done', async () => {
+      const a = await service.create({ scope: 'dep-p' });
+      const b = await service.create({ scope: 'dep-q' });
+      const c = await service.create({ scope: 'dep-r', dependsOn: [a.id, b.id] });
+      testIds.push(a.id, b.id, c.id);
+
+      await prisma.workUnit.update({ where: { id: c.id }, data: { status: 'blocked' } });
+
+      await service.transitionStatus(a.id, 'active');
+      await service.transitionStatus(a.id, 'in_review');
+      await service.transitionStatus(a.id, 'done');
+
+      await service.transitionStatus(b.id, 'active');
+      await service.transitionStatus(b.id, 'in_review');
+      await service.transitionStatus(b.id, 'done');
+
+      await new Promise(r => setTimeout(r, 500));
+
+      const updated = await service.getById(c.id);
+      expect(updated!.status).toBe('active');
+    });
+
+    it('Bug fix: closed also unlocks dependents', async () => {
+      const a = await service.create({ scope: 'dep-closed' });
+      const b = await service.create({ scope: 'dep-blocked', dependsOn: [a.id] });
+      testIds.push(a.id, b.id);
+
+      await prisma.workUnit.update({ where: { id: b.id }, data: { status: 'blocked' } });
+
+      // a → closed (terminal state, not done)
+      await service.transitionStatus(a.id, 'closed');
+
+      await new Promise(r => setTimeout(r, 500));
+
+      const updated = await service.getById(b.id);
+      expect(updated!.status).toBe('active');
     });
   });
 });

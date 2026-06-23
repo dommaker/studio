@@ -160,6 +160,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // WorkUnit routes (AS-025 §3.28c-1)
   const { default: workunitRoutes } = await import('./modules/workunit/workunit.routes.js') as { default: Router };
 
+  // AgentProfile routes (AS-025 Phase 2)
+  const { default: agentProfileRoutes } = await import('./modules/agents/agent-profile.routes.js') as { default: Router };
+
   const auth = [requireAuth()];
 
   return [
@@ -176,6 +179,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/pmo', router: pmoRoutes, comment: 'PMO-001' },
     { path: '/api/v1/goals', router: goalRoutes, comment: 'O6: Goal 驱动架构' },
     { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
+    { path: '/api/v1/agent-profiles', router: agentProfileRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD' },
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },
