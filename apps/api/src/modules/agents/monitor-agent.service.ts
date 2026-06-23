@@ -24,6 +24,7 @@ import { sharedStore, sharedLifecycle } from '../knowledge/knowledge-bus.service
 import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
 import { onPhaseFailure } from '../goals/pipeline-alarm.js';
+import { mapGoalStatuses, mapExecutionStatuses } from '../workunit/status-mapping.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 const FAILURE_THRESHOLD = 3;
@@ -260,18 +261,18 @@ export class MonitorAgent {
     const alerts: MonitorAlert[] = [];
     const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
 
-    const stuckExecutions = await prisma.goalExecution.findMany({
-      where: { status: 'running', startedAt: { lt: thirtyMinAgo } },
-      select: { id: true, goalId: true, startedAt: true },
+    const stuckExecutions = await prisma.workUnit.findMany({
+      where: { status: 'active', claimedAt: { lt: thirtyMinAgo } },
+      select: { id: true, parentId: true, claimedAt: true },
       take: 5,
     });
 
     for (const exec of stuckExecutions) {
-      const minutesStuck = Math.round((Date.now() - new Date(exec.startedAt).getTime()) / 60_000);
+      const minutesStuck = Math.round((Date.now() - new Date(exec.claimedAt!).getTime()) / 60_000);
       alerts.push({
         source: 'stuck_goals',
         level: 'warning',
-        message: `GoalExecution ${exec.id} 已卡住 ${minutesStuck} 分钟`,
+        message: `WorkUnit ${exec.id} 已卡住 ${minutesStuck} 分钟`,
         relatedTaskIds: [exec.id],
       });
     }
@@ -283,9 +284,9 @@ export class MonitorAgent {
 
   private async checkProgressStagnation(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
-    const running = await prisma.goalExecution.findMany({
-      where: { status: 'running' },
-      select: { id: true, goalId: true },
+    const running = await prisma.workUnit.findMany({
+      where: { status: 'active' },
+      select: { id: true, parentId: true },
       take: 10,
     });
 
@@ -343,8 +344,8 @@ export class MonitorAgent {
 
   private async checkSessionEscalation(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
-    const running = await prisma.goalExecution.findMany({
-      where: { status: { in: ['running', 'pending'] } },
+    const running = await prisma.workUnit.findMany({
+      where: { status: { in: mapExecutionStatuses(['running', 'pending']) } },
       select: { id: true },
       take: 10,
     });
@@ -383,14 +384,14 @@ export class MonitorAgent {
 
   private async checkTotalExecutionTime(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
-    const running = await prisma.goalExecution.findMany({
-      where: { status: { in: ['running', 'pending'] } },
-      select: { id: true, goalId: true, startedAt: true, createdAt: true },
+    const running = await prisma.workUnit.findMany({
+      where: { status: { in: mapExecutionStatuses(['running', 'pending']) } },
+      select: { id: true, parentId: true, claimedAt: true, createdAt: true },
       take: 10,
     });
 
     for (const exec of running) {
-      const startTime = new Date(exec.startedAt || exec.createdAt).getTime();
+      const startTime = new Date(exec.claimedAt || exec.createdAt).getTime();
       const elapsed = Date.now() - startTime;
 
       if (elapsed > TIME_CRITICAL_MS) {
@@ -417,11 +418,11 @@ export class MonitorAgent {
         } catch { /* ignore */ }
         // Update DB status
         try {
-          await prisma.goalExecution.update({
+          await prisma.workUnit.update({
             where: { id: exec.id },
             data: {
-              status: 'failed',
-              error: JSON.stringify({ message: `Auto-failed: execution exceeded 2.5h (${elapsedMin}min)`, failedAt: new Date().toISOString() }),
+              status: 'closed',
+              failureType: 'not_retryable',
               completedAt: new Date(),
             },
           });
@@ -432,7 +433,7 @@ export class MonitorAgent {
         // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
         await onPhaseFailure({
           executionId: exec.id,
-          goalId: exec.goalId || 'unknown',
+          goalId: exec.parentId || 'unknown',
           phase: 'executing',
           error: `执行超时 ${elapsedMin}min (阈值 ${Math.round(TIME_CRITICAL_MS / 60_000)}min)`,
           severity: 'timeout',
@@ -461,9 +462,9 @@ export class MonitorAgent {
 
   private async checkHeartbeatLoss(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
-    const running = await prisma.goalExecution.findMany({
-      where: { status: 'running' },
-      select: { id: true, startedAt: true },
+    const running = await prisma.workUnit.findMany({
+      where: { status: 'active' },
+      select: { id: true, claimedAt: true },
       take: 10,
     });
 
@@ -504,21 +505,21 @@ export class MonitorAgent {
   private async autoAbandonStaleBlocked(): Promise<void> {
     const cutoff = new Date(Date.now() - BLOCKED_AUTO_ABANDON_MS);
 
-    const stale = await prisma.goalExecution.findMany({
-      where: { status: 'blocked', startedAt: { lt: cutoff } },
+    const stale = await prisma.workUnit.findMany({
+      where: { status: 'blocked', claimedAt: { lt: cutoff } },
       select: { id: true },
       take: 20,
     });
 
     for (const exec of stale) {
-      logger.warn('[MonitorAgent] Auto-abandoning stale blocked execution', { executionId: exec.id });
+      logger.warn('[MonitorAgent] Auto-abandoning stale blocked work unit', { workUnitId: exec.id });
       try {
-        await prisma.goalExecution.update({
+        await prisma.workUnit.update({
           where: { id: exec.id },
-          data: { status: 'failed', error: `Auto-abandoned after 24h blocked` },
+          data: { status: 'closed', failureType: 'not_retryable' },
         });
       } catch (e) {
-        logger.error('[MonitorAgent] Failed to auto-abandon', { executionId: exec.id, error: String(e) });
+        logger.error('[MonitorAgent] Failed to auto-abandon', { workUnitId: exec.id, error: String(e) });
       }
     }
 
@@ -532,14 +533,14 @@ export class MonitorAgent {
   private async autoAbandonStaleRunning(): Promise<void> {
     const cutoff = new Date(Date.now() - TIME_CRITICAL_MS);
 
-    const stale = await prisma.goalExecution.findMany({
+    const stale = await prisma.workUnit.findMany({
       where: {
-        status: { in: ['running', 'pending'] },
+        status: { in: mapExecutionStatuses(['running', 'pending']) },
         OR: [
-          { startedAt: { lt: cutoff } },
+          { claimedAt: { lt: cutoff } },
           { createdAt: { lt: cutoff } },
         ],
-        Goal: { status: { in: ['succeeded', 'failed'] } },
+        parent: { status: { in: mapGoalStatuses(['succeeded', 'failed']) } },
       },
       select: { id: true, status: true },
       take: 20,
@@ -563,9 +564,9 @@ export class MonitorAgent {
       if (activeSessionIds.has(exec.id)) continue;
 
       try {
-        await prisma.goalExecution.update({
+        await prisma.workUnit.update({
           where: { id: exec.id },
-          data: { status: 'failed', error: `Auto-abandoned: orphan execution after 2.5h — parent goal terminal, no active agent session` },
+          data: { status: 'closed', failureType: 'not_retryable' },
         });
         abandoned.push(exec.id);
       } catch (e) {
@@ -657,18 +658,18 @@ export class MonitorAgent {
     const REVIEW_QUALITY_THRESHOLD = 75;
     const alerts: MonitorAlert[] = [];
     try {
-      const recentGoals = await prisma.goal.findMany({
+      const recentGoals = await prisma.workUnit.findMany({
         where: {
-          status: 'succeeded',
+          status: 'done',
           updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
         },
-        select: { id: true, title: true, context: true },
+        select: { id: true, scope: true, metadata: true },
         orderBy: { updatedAt: 'desc' },
         take: 20,
       });
 
       for (const goal of recentGoals) {
-        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+        const ctx = (typeof goal.metadata === 'string' ? JSON.parse(goal.metadata) : goal.metadata) || {};
         const reviewScore = ctx.reviewScore as number | undefined;
         const reviewCycle = (ctx.reviewCycle as number) || 1;
 
@@ -697,17 +698,17 @@ export class MonitorAgent {
     const TOKEN_BUDGET_CRIT = 1_000_000;
     const alerts: MonitorAlert[] = [];
     try {
-      const goals = await prisma.goal.findMany({
+      const goals = await prisma.workUnit.findMany({
         where: {
-          status: { in: ['executing', 'succeeded', 'blocked'] },
+          status: { in: mapGoalStatuses(['executing', 'succeeded', 'blocked']) },
           updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
         },
-        select: { id: true, title: true, context: true },
+        select: { id: true, scope: true, metadata: true },
         take: 10,
       });
 
       for (const goal of goals) {
-        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+        const ctx = (typeof goal.metadata === 'string' ? JSON.parse(goal.metadata) : goal.metadata) || {};
         const tokens = (ctx._cumulativeTokens as number) || 0;
         if (tokens >= TOKEN_BUDGET_CRIT) {
           alerts.push({
@@ -988,8 +989,8 @@ export class MonitorAgent {
 
     try {
       // Query recently completed goals with their executions
-      const recentGoals = await prisma.goal.findMany({
-        where: { status: { in: ['succeeded', 'failed'] }, completedAt: { gte: oneHourAgo } },
+      const recentGoals = await prisma.workUnit.findMany({
+        where: { status: { in: mapGoalStatuses(['succeeded', 'failed']) }, completedAt: { gte: oneHourAgo } },
         select: { id: true, status: true, createdAt: true, completedAt: true },
         orderBy: { completedAt: 'desc' },
         take: 5,
@@ -997,9 +998,9 @@ export class MonitorAgent {
       if (recentGoals.length === 0) return alerts;
 
       for (const goal of recentGoals) {
-        const execs = await prisma.goalExecution.findMany({
-          where: { goalId: goal.id, status: 'succeeded' },
-          select: { id: true, stepIndex: true, startedAt: true, completedAt: true },
+        const execs = await prisma.workUnit.findMany({
+          where: { parentId: goal.id, status: 'done' },
+          select: { id: true, claimedAt: true, completedAt: true },
           orderBy: { completedAt: 'asc' },
         });
 
@@ -1011,8 +1012,8 @@ export class MonitorAgent {
         let maxExecMinutes = 0;
         let totalExecMinutes = 0;
         for (const e of execs) {
-          if (e.startedAt && e.completedAt) {
-            const dur = (new Date(e.completedAt).getTime() - new Date(e.startedAt).getTime()) / 60000;
+          if (e.claimedAt && e.completedAt) {
+            const dur = (new Date(e.completedAt).getTime() - new Date(e.claimedAt).getTime()) / 60000;
             totalExecMinutes += dur;
             if (dur > maxExecMinutes) maxExecMinutes = dur;
           }
@@ -1096,9 +1097,9 @@ export class MonitorAgent {
 
   async evaluateTrajectory(): Promise<void> {
     try {
-      const recent = await prisma.goalExecution.findMany({
-        where: { status: { in: ['succeeded', 'failed'] }, completedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
-        select: { id: true, goalId: true, status: true, startedAt: true, completedAt: true, error: true },
+      const recent = await prisma.workUnit.findMany({
+        where: { status: { in: mapExecutionStatuses(['succeeded', 'failed']) }, completedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
+        select: { id: true, parentId: true, status: true, claimedAt: true, completedAt: true, metadata: true },
         orderBy: { completedAt: 'desc' },
         take: 10,
       });
@@ -1111,7 +1112,7 @@ export class MonitorAgent {
       let slowCount = 0;
       let retryCount = 0;
       let failureCount = 0;
-      let timedCount = 0;   // 有 startedAt+completedAt 的执行数
+      let timedCount = 0;   // 有 claimedAt+completedAt 的执行数
 
       for (const exec of recent) {
         totalExecutions++;
@@ -1123,15 +1124,15 @@ export class MonitorAgent {
         }
 
         // Check execution time — three tiers, 5-15min gap filled
-        if (exec.startedAt && exec.completedAt) {
+        if (exec.claimedAt && exec.completedAt) {
           timedCount++;
-          const durationMin = (new Date(exec.completedAt).getTime() - new Date(exec.startedAt).getTime()) / 60000;
+          const durationMin = (new Date(exec.completedAt).getTime() - new Date(exec.claimedAt).getTime()) / 60000;
           if (durationMin > 15) slowCount++;
           else if (durationMin > 5) normalCount++;
           else efficientCount++;
         }
 
-        if (exec.status === 'failed') failureCount++;
+        if (exec.status === 'closed') failureCount++;
       }
 
       // Efficiency: (efficient + normal) / timed (only executions with timing data)
@@ -1388,12 +1389,12 @@ export class MonitorAgent {
   private async applyTokenBudgetGate(): Promise<void> {
     try {
       const TOKEN_BUDGET_CRIT = 1_000_000;
-      const goals = await prisma.goal.findMany({
-        where: { status: 'executing', updatedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
-        select: { id: true, context: true },
+      const goals = await prisma.workUnit.findMany({
+        where: { status: 'active', updatedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
+        select: { id: true, metadata: true },
       });
       for (const goal of goals) {
-        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+        const ctx = (typeof goal.metadata === 'string' ? JSON.parse(goal.metadata) : goal.metadata) || {};
         const tokens = (ctx._cumulativeTokens as number) || 0;
         if (tokens >= TOKEN_BUDGET_CRIT) {
           const { goalScheduler } = await import('../goals/goal-scheduler.js');
@@ -2081,10 +2082,10 @@ export class MonitorAgent {
       // 2. Delete GoalExecution older than 90 days
       try {
         const execCutoff = new Date(Date.now() - 90 * 24 * 3600_000);
-        const deleted = await prisma.goalExecution.deleteMany({
+        const deleted = await prisma.workUnit.deleteMany({
           where: { createdAt: { lt: execCutoff } },
         });
-        logger.info('[MonitorAgent] TTL: GoalExecution cleaned', { deleted: deleted.count, cutoff: execCutoff.toISOString() });
+        logger.info('[MonitorAgent] TTL: WorkUnit cleaned', { deleted: deleted.count, cutoff: execCutoff.toISOString() });
       } catch (e) {
         logger.warn('[MonitorAgent] TTL: GoalExecution cleanup failed', { error: String(e) });
       }

@@ -12,7 +12,9 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, getModelForTier, type ModelTier } from '@dommaker/studio-shared';
 import { recordPipelineRun } from '../../daemon/metrics.js';
 import { agentRunner } from '@dommaker/studio-agent';
-import { goalService, parseJsonField } from './goal.service.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
+import { EXECUTION_TO_WORKUNIT_STATUS, mapExecutionStatuses } from '../workunit/status-mapping.js';
+import { parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
 import { generateSessionSummary } from '../events/session-summary-generator.js';
 import { roleConfigService } from '../roles/role-config.service.js';
@@ -37,6 +39,8 @@ import {
 import { classifyFailure, classifyFailureAction } from './failure-classifier.js';
 import { onPhaseFailure } from './pipeline-alarm.js';
 import { rollbackToIntegrationStep, parseIntegrationFailureType, type IntegrationResult } from './integration-rollback.js';
+
+const workUnitService = new WorkUnitService(prisma);
 
 const MAX_CONCURRENT = 5;
 const MAX_RETRIES = 3;
@@ -118,7 +122,7 @@ export async function dispatchStep(
   const tier = 'fast';
   if (input) {
     input.model = 'fast';
-    await goalService.updateStepExecution(executionId, { input }).catch(() => {});
+    await workUnitService.update(executionId, { metadata: { input: JSON.stringify(input) } }).catch(() => {});
   }
 
   // B57-P1: Set timeoutAt when execution starts running
@@ -127,7 +131,8 @@ export async function dispatchStep(
     : taskType === 'review-fix' ? 'review-fix'
     : 'executing';
   const timeoutAt = new Date(Date.now() + getTimeoutForPhase(phase));
-  await goalService.updateStepExecution(executionId, { status: 'running', timeoutAt });
+  await workUnitService.update(executionId, { timeoutAt });
+  await workUnitService.transitionStatus(executionId, 'active');
 
   // 构建 prompt
   const isSubAgent = input?.taskType === 'sub-agent';
@@ -249,7 +254,7 @@ export async function dispatchStep(
         ),
       ]);
       if (result.success) {
-        await goalService.updateStepExecution(executionId, { status: 'succeeded' });
+        await workUnitService.transitionStatus(executionId, 'done');
         const newState = updateDispatchOutcome({ failures: ctx.recentFailures, total: ctx.recentTotal }, true);
         ctx.recentFailures = newState.failures;
         ctx.recentTotal = newState.total;
@@ -293,10 +298,11 @@ export async function dispatchStep(
         }
         case 'missing_branch': {
           // Mark integration step as failed, don't retry
-          await goalService.updateStepExecution(executionId, {
-            status: 'failed',
-            error: integrationResult.error || 'missing step branches',
+          await workUnitService.update(executionId, {
+            metadata: { error: integrationResult.error || 'missing step branches' },
+            failureType: 'not_retryable',
           });
+          await workUnitService.transitionStatus(executionId, 'closed');
           return;
         }
       }
@@ -353,7 +359,11 @@ export async function dispatchStep(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     const classification = classifyFailureAction(errorMsg);
-    await goalService.updateStepExecution(executionId, { status: 'failed', error: errorMsg, failureType: classification.failureClass });
+    await workUnitService.update(executionId, {
+      metadata: { error: errorMsg },
+      failureType: classification.failureClass,
+    });
+    await workUnitService.transitionStatus(executionId, 'closed');
     logger.error('[GoalScheduler] Agent error', { executionId, error: errorMsg });
     // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
     await onPhaseFailure({
@@ -402,10 +412,12 @@ async function handleDispatchSuccess(
   }
   if (headCommit) outputData.headCommit = headCommit;
 
-  await goalService.updateStepExecution(executionId, {
-    status: 'succeeded',
-    ...(Object.keys(outputData).length > 0 ? { output: JSON.stringify(outputData) } : {}),
-  });
+  const successMetadata: Record<string, any> = {};
+  if (Object.keys(outputData).length > 0) successMetadata.output = JSON.stringify(outputData);
+  if (Object.keys(successMetadata).length > 0) {
+    await workUnitService.update(executionId, { metadata: successMetadata });
+  }
+  await workUnitService.transitionStatus(executionId, 'done');
   const tokenUsage = parseAgentTokenUsage(worktreeDir);
   // B59-004: read real test results from .progress.json
   let testPassed: boolean | undefined;
@@ -469,15 +481,11 @@ async function handleDispatchSuccess(
     logger.warn('[GoalScheduler] PipelineDecision write failed', { error: String(e) });
   }
   try {
-    const g = await prisma.goal.findUnique({ where: { id: goal.id }, select: { context: true } });
-    const gc = (typeof g?.context === 'string' ? JSON.parse(g.context) : g?.context) || {};
-    const prevTokens = (gc._cumulativeTokens as number) || 0;
+    const wuForTokens = await workUnitService.getById(goal.id);
+    const metaForTokens = wuForTokens?.metadata ? JSON.parse(wuForTokens.metadata) : {};
+    const prevTokens = (metaForTokens?._cumulativeTokens as number) || 0;
     const thisTokens = (tokenUsage.inputTokens || 0) + (tokenUsage.cacheHitTokens || 0);
-    gc._cumulativeTokens = prevTokens + thisTokens;
-    await prisma.goal.update({
-      where: { id: goal.id },
-      data: { context: gc as any },
-    });
+    await workUnitService.update(goal.id, { metadata: { _cumulativeTokens: prevTokens + thisTokens } });
   } catch { /* best-effort */ }
 
   logger.info('[GoalScheduler] Agent succeeded', {
@@ -524,7 +532,7 @@ async function handleDispatchSuccess(
 }
 
 /**
- * 检查执行是否可以重试。retryCount < MAX_RETRIES → 重置为 pending，返回 true。
+ * 检查执行是否可以重试。retryCount < MAX_RETRIES → 重置为 unassigned，返回 true。
  * 已达上限 → 返回 false，由调用方走正常失败流程。
  */
 export async function maybeRetryExecution(
@@ -539,35 +547,38 @@ export async function maybeRetryExecution(
     return false;
   }
 
-  const exec = await prisma.goalExecution.findUnique({
-    where: { id: executionId },
-    select: { retryCount: true },
-  });
-  if (!exec) return false;
+  const wu = await workUnitService.getById(executionId);
+  if (!wu) return false;
 
-  if (exec.retryCount >= maxRetries) {
-    logger.info('[GoalScheduler] Retry exhausted', { executionId, retryCount: exec.retryCount, maxRetries });
+  const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+  const currentRetryCount = (wu.retryCount as number) || 0;
+
+  if (currentRetryCount >= maxRetries) {
+    logger.info('[GoalScheduler] Retry exhausted', { executionId, retryCount: currentRetryCount, maxRetries });
     return false;
   }
 
-  await prisma.goalExecution.update({
-    where: { id: executionId },
-    data: {
-      status: 'pending',
-      retryCount: exec.retryCount + 1,
+  await workUnitService.update(executionId, {
+    retryCount: currentRetryCount + 1,
+    completedAt: null,
+    metadata: {
+      ...meta,
       error: JSON.stringify({
         message: error,
-        retryAttempt: exec.retryCount + 1,
+        retryAttempt: currentRetryCount + 1,
         timestamp: Date.now(),
       }),
-      startedAt: null,
-      completedAt: null,
     },
+  });
+  // Reset to unassigned so scheduler picks it up again
+  await prisma.workUnit.update({
+    where: { id: executionId },
+    data: { status: 'unassigned', claimedAt: null },
   });
 
   logger.warn('[GoalScheduler] Retrying execution', {
     executionId,
-    retryCount: exec.retryCount + 1,
+    retryCount: currentRetryCount + 1,
     maxRetries,
   });
   return true;
@@ -584,20 +595,26 @@ async function handleDispatchFailure(
   dispatchDuration: number,
   ctx: DispatchContext,
 ): Promise<void> {
-  // Retry check: if retryable, reset to pending and skip failure flow
+  // Retry check: if retryable, reset to unassigned and skip failure flow
   const errorStr = result.error || 'Agent execution failed';
   const retried = await maybeRetryExecution(executionId, errorStr);
   if (retried) return;
 
   const worktreeDir = path.join(WORKTREES_DIR, executionId);
   const classification = classifyFailureAction(errorStr);
-  const status = classification.action === 'mark-blocked' ? 'blocked_by_dependency' : 'failed';
-  await goalService.updateStepExecution(executionId, {
-    status,
-    error: errorStr,
+  const wuStatus = classification.action === 'mark-blocked' ? 'blocked' : 'closed';
+  const failureMetadata: Record<string, any> = { error: errorStr };
+  if (result.failureLog) failureMetadata.output = JSON.stringify({ failureLog: result.failureLog });
+  await workUnitService.update(executionId, {
     failureType: classification.failureClass,
-    ...(result.failureLog ? { output: JSON.stringify({ failureLog: result.failureLog }) } : {}),
+    metadata: failureMetadata,
   });
+  // blocked 状态通过 transitionStatus 设置；closed 也需要
+  if (wuStatus === 'blocked') {
+    await workUnitService.transitionStatus(executionId, 'blocked');
+  } else {
+    await workUnitService.transitionStatus(executionId, 'closed');
+  }
   const failTokens = parseAgentTokenUsage(worktreeDir);
   // B59-004: read real test results from .progress.json (agent may have written before crash)
   let failTestPassed: boolean | undefined;

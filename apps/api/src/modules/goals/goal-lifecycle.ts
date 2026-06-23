@@ -5,6 +5,8 @@
  */
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, appendChangelog, findSddDocByGoalId } from '@dommaker/studio-shared';
+import { WorkUnitService } from '../workunit/workunit.service.js';
+import { EXECUTION_TO_WORKUNIT_STATUS, GOAL_TO_WORKUNIT_STATUS, mapExecutionStatuses, isTerminalStatus } from '../workunit/status-mapping.js';
 import { skillStore } from '../skills/skill-store.js';
 import { proposalStore } from '../skills/proposal-store.js';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
@@ -20,6 +22,8 @@ import * as os from 'os';
 import * as fs from 'fs';
 import { execSync } from 'child_process';
 
+const workUnitService = new WorkUnitService(prisma);
+
 /**
  * 更新步骤执行状态
  */
@@ -28,171 +32,182 @@ export async function updateStepExecution(
   updates: { status?: string; output?: any; error?: string; input?: any; failureType?: FailureClass; timeoutAt?: Date },
   checkCompletionFn: (goalId: string) => Promise<void>,
 ): Promise<any> {
-  const data: Record<string, any> = { ...updates };
+  // Build metadata updates for fields that moved to JSON
+  const metadataUpdates: Record<string, any> = {};
+  if (updates.output !== undefined) metadataUpdates.output = updates.output;
+  if (updates.input !== undefined) metadataUpdates.input = updates.input;
   if (updates.error !== undefined) {
-    data.error = JSON.stringify({ message: updates.error, timestamp: Date.now() });
+    metadataUpdates.error = JSON.stringify({ message: updates.error, timestamp: Date.now() });
   }
-  const execution = await prisma.goalExecution.update({
-    where: { id: executionId },
-    data: {
-      ...data,
-      ...(updates.status === 'running' ? { startedAt: new Date() } : {}),
-      ...(updates.status === 'succeeded' || updates.status === 'failed'
-        ? { completedAt: new Date() }
-        : {}),
-    },
-  });
 
+  const wuUpdate: Record<string, any> = {};
+  if (Object.keys(metadataUpdates).length > 0) wuUpdate.metadata = metadataUpdates;
+  if (updates.failureType !== undefined) wuUpdate.failureType = updates.failureType;
+  if (updates.timeoutAt !== undefined) wuUpdate.timeoutAt = updates.timeoutAt;
+
+  if (Object.keys(wuUpdate).length > 0) {
+    await workUnitService.update(executionId, wuUpdate);
+  }
+
+  // Status transition
+  if (updates.status) {
+    const wuStatus = EXECUTION_TO_WORKUNIT_STATUS[updates.status];
+    if (wuStatus) {
+      await workUnitService.transitionStatus(executionId, wuStatus);
+    }
+  }
+
+  // Trigger completion check for terminal states
   if (updates.status === 'succeeded' || updates.status === 'failed') {
-    await checkCompletionFn(execution.goalId);
+    const wu = await workUnitService.getById(executionId);
+    const meta = wu?.metadata ? JSON.parse(wu.metadata) : {};
+    const goalId = meta?.goalId;
+    if (goalId) {
+      await checkCompletionFn(goalId);
+    }
   }
 
-  return execution;
+  return executionId;
 }
 
 /**
- * 取消 GoalExecution — 用户中断正在运行的 Agent
+ * 取消 WorkUnit — 用户中断正在运行的 Agent
  */
 export async function cancelGoalExecution(
   executionId: string,
   checkCompletionFn: (goalId: string) => Promise<void>,
 ): Promise<any> {
-  const execution = await prisma.goalExecution.findUnique({ where: { id: executionId } });
-  if (!execution) throw new Error(`GoalExecution not found: ${executionId}`);
-  if (execution.status !== 'running' && execution.status !== 'pending') {
-    throw new Error(`Cannot cancel execution with status: ${execution.status}`);
+  const wu = await workUnitService.getById(executionId);
+  if (!wu) throw new Error(`WorkUnit not found: ${executionId}`);
+  if (wu.status !== 'active' && wu.status !== 'unassigned') {
+    throw new Error(`Cannot cancel work unit with status: ${wu.status}`);
   }
 
-  const updated = await prisma.goalExecution.update({
-    where: { id: executionId },
-    data: {
-      status: 'failed',
-      error: JSON.stringify({ message: '用户取消', cancelledAt: new Date().toISOString() }),
-      completedAt: new Date(),
-    },
+  await workUnitService.update(executionId, {
+    metadata: { error: JSON.stringify({ message: '用户取消', cancelledAt: new Date().toISOString() }) },
   });
+  const updated = await workUnitService.transitionStatus(executionId, 'closed');
 
+  const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+  const goalId = meta?.goalId;
   logger.info(`[Goal] Execution cancelled: ${executionId}`);
-  await checkCompletionFn(execution.goalId);
+  if (goalId) await checkCompletionFn(goalId);
   return updated;
 }
 
 /**
- * 重试 GoalExecution — 重置失败的任务让 GoalScheduler 重新分派
+ * 重试 WorkUnit — 重置失败的任务让 GoalScheduler 重新分派
  */
 const MAX_RETRIES = 3;
 
 export async function retryGoalExecution(executionId: string): Promise<any> {
-  const execution = await prisma.goalExecution.findUnique({ where: { id: executionId } });
-  if (!execution) throw new Error(`GoalExecution not found: ${executionId}`);
-  if (execution.status !== 'failed') {
-    throw new Error(`Can only retry failed executions, current: ${execution.status}`);
+  const wu = await workUnitService.getById(executionId);
+  if (!wu) throw new Error(`WorkUnit not found: ${executionId}`);
+  if (wu.status !== 'closed') {
+    throw new Error(`Can only retry closed work units, current: ${wu.status}`);
   }
 
-  // Check retry count from input metadata
-  const input = (typeof execution.input === 'string' ? JSON.parse(execution.input) : execution.input) as Record<string, any> || {};
-  const retryCount = input._retryCount || 0;
+  const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+  const goalId = meta?.goalId;
+  const retryCount = (wu.retryCount as number) || 0;
   if (retryCount >= MAX_RETRIES) {
     // Mark goal as blocked — repeated failures indicate a systematic issue
-    await prisma.goal.update({
-      where: { id: execution.goalId },
-      data: { status: 'blocked' },
-    });
-    logger.warn(`[Goal] Execution ${executionId} exceeded max retries (${MAX_RETRIES}), goal ${execution.goalId} marked blocked`);
+    if (goalId) {
+      await prisma.workUnit.update({
+        where: { id: goalId },
+        data: { status: 'blocked' },
+      });
+    }
+    logger.warn(`[Goal] Execution ${executionId} exceeded max retries (${MAX_RETRIES}), goal ${goalId} marked blocked`);
     return {
       blocked: true,
-      goalId: execution.goalId,
+      goalId,
       reason: `Execution retried ${retryCount} times with same error. Goal marked as blocked — requires manual investigation.`,
-      lastError: execution.error,
+      lastError: meta?.error,
     };
   }
 
-  const updated = await prisma.goalExecution.update({
+  // Reset to unassigned for retry (closed → unassigned not in valid transitions, use direct update)
+  await workUnitService.update(executionId, {
+    retryCount: retryCount + 1,
+    completedAt: null,
+    metadata: { ...meta, _retryCount: retryCount + 1, error: null },
+  });
+  await prisma.workUnit.update({
     where: { id: executionId },
-    data: {
-      status: 'pending',
-      error: null,
-      completedAt: null,
-      startedAt: null,
-      input: JSON.stringify({ ...input, _retryCount: retryCount + 1 }),
-    },
+    data: { status: 'unassigned', claimedAt: null },
   });
 
   logger.info(`[Goal] Execution retried: ${executionId} (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-  return updated;
+  return { id: executionId, status: 'unassigned' };
 }
 
 /**
  * 检查目标是否完成
  */
 /**
- * Cascade failure to pending steps whose dependencies have failed.
- * Uses 'blocked_by_dependency' status (retryable) instead of permanent 'failed'.
+ * Cascade failure to unassigned steps whose dependencies have failed.
+ * Uses 'blocked' status (retryable) instead of permanent 'closed'.
  * Returns true if any steps were cascaded.
  */
-async function cascadeBlockedFailures(goalId: string, executions: any[]): Promise<boolean> {
-  // Read plan to get dependency info
-  const plan = await prisma.goalPlan.findFirst({
-    where: { goalId, status: 'approved' },
-    orderBy: { version: 'desc' },
-  });
-
-  let steps: GoalStep[];
-  if (plan) {
-    steps = parseJsonField<GoalStep[]>(plan.steps, []);
-  } else {
-    // No plan — reconstruct steps from executions (createGoalFromChannelDoc path)
-    steps = executions.map(e => {
-      const input = parseJsonField<Record<string, any>>(e.input, {});
-      const acGroup = input?.acGroup || {};
-      return {
-        index: e.stepIndex,
-        title: acGroup.id || `step-${e.stepIndex}`,
-        description: '',
-        agentType: e.agentType || 'claude',
-        input,
-        dependencies: (acGroup.dependencies || []).map((depId: string) => {
-          const depExec = executions.find(ex => {
-            const depInput = parseJsonField<Record<string, any>>(ex.input, {});
-            return depInput?.acGroup?.id === depId;
-          });
-          return depExec?.stepIndex ?? -1;
-        }).filter((i: number) => i >= 0),
-        estimatedDuration: '30m',
-      };
-    });
+async function cascadeBlockedFailures(goalId: string, workUnits: any[]): Promise<boolean> {
+  // Build lookup maps: stepIndex → WorkUnit, acGroupId → stepIndex
+  const stepIndexMap = new Map<number, any>();
+  const acGroupIdMap = new Map<string, number>();
+  for (const wu of workUnits) {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+    const stepIndex = input?.stepIndex ?? wu.retryCount; // fallback
+    stepIndexMap.set(stepIndex, wu);
+    const acGroupId = input?.acGroup?.id;
+    if (acGroupId) acGroupIdMap.set(acGroupId, stepIndex);
   }
-  if (steps.length === 0) return false;
 
-  const execMap = new Map(executions.map(e => [e.stepIndex, e]));
+  // Build dependency edges from dependsOn or metadata
+  const dependencyMap = new Map<number, number[]>(); // stepIndex → dependency stepIndices
+  for (const wu of workUnits) {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+    const stepIndex = input?.stepIndex ?? 0;
+    const acGroup = input?.acGroup || {};
+    const deps: number[] = (acGroup.dependencies || [])
+      .map((depId: string) => acGroupIdMap.get(depId))
+      .filter((i: number | undefined) => i !== undefined);
+    dependencyMap.set(stepIndex, deps);
+  }
+
+  if (stepIndexMap.size === 0) return false;
+
   let cascaded = false;
 
-  // Iteratively cascade: a step is blocked if any dependency is failed/blocked_by_dependency
-  // Repeat until no more cascading (handles chain dependencies)
+  // Iteratively cascade: a step is blocked if any dependency is closed/blocked
   let changed = true;
   while (changed) {
     changed = false;
-    for (const step of steps) {
-      const exec = execMap.get(step.index);
-      if (!exec || exec.status !== 'pending') continue;
+    for (const [stepIndex, wu] of stepIndexMap) {
+      if (wu.status !== 'unassigned') continue;
 
-      const blockedByFailedDep = step.dependencies.some(depIndex => {
-        const depExec = execMap.get(depIndex);
-        return depExec?.status === 'failed' || depExec?.status === 'blocked_by_dependency';
+      const deps = dependencyMap.get(stepIndex) || [];
+      const blockedByFailedDep = deps.some((depIndex: number) => {
+        const depWu = stepIndexMap.get(depIndex);
+        return depWu?.status === 'closed' || depWu?.status === 'blocked';
       });
 
       if (blockedByFailedDep) {
-        await prisma.goalExecution.update({
-          where: { id: exec.id },
-          data: {
-            status: 'blocked_by_dependency',
+        const failedDeps = deps.filter((d: number) => {
+          const depWu = stepIndexMap.get(d);
+          return depWu?.status === 'closed' || depWu?.status === 'blocked';
+        });
+        await workUnitService.update(wu.id, {
+          metadata: {
             error: JSON.stringify({
-              message: `Blocked by failed dependency (step ${step.dependencies.filter(d => ['failed', 'blocked_by_dependency'].includes(execMap.get(d)?.status)).join(', ')})`,
+              message: `Blocked by failed dependency (step ${failedDeps.join(', ')})`,
               timestamp: Date.now(),
             }),
           },
         });
-        exec.status = 'blocked_by_dependency'; // update local map for chain cascading
+        await workUnitService.transitionStatus(wu.id, 'blocked');
+        wu.status = 'blocked'; // update local map for chain cascading
         cascaded = true;
         changed = true;
       }
@@ -200,145 +215,160 @@ async function cascadeBlockedFailures(goalId: string, executions: any[]): Promis
   }
 
   if (cascaded) {
-    logger.warn('[Goal] Cascaded failure to blocked dependents (blocked_by_dependency)', { goalId });
+    logger.warn('[Goal] Cascaded failure to blocked dependents', { goalId });
   }
   return cascaded;
 }
 
 /**
- * Reset blocked_by_dependency steps back to pending for retry.
+ * Reset blocked steps back to unassigned for retry.
  * Called when a previously failed step is retried.
  */
 export async function resetBlockedByDependency(goalId: string): Promise<number> {
-  const blocked = await prisma.goalExecution.findMany({
-    where: { goalId, status: 'blocked_by_dependency' },
+  const blocked = await prisma.workUnit.findMany({
+    where: { status: 'blocked', metadata: { contains: goalId } },
   });
 
-  if (blocked.length === 0) return 0;
-
-  await prisma.goalExecution.updateMany({
-    where: { id: { in: blocked.map(e => e.id) } },
-    data: { status: 'pending', error: null },
+  // Filter to only WorkUnits belonging to this goal
+  const goalBlocked = blocked.filter(wu => {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    return meta?.goalId === goalId;
   });
 
-  logger.info(`[Goal] Reset ${blocked.length} blocked_by_dependency steps to pending`, { goalId });
-  return blocked.length;
+  if (goalBlocked.length === 0) return 0;
+
+  await prisma.workUnit.updateMany({
+    where: { id: { in: goalBlocked.map(wu => wu.id) } },
+    data: { status: 'unassigned', claimedAt: null },
+  });
+
+  logger.info(`[Goal] Reset ${goalBlocked.length} blocked steps to unassigned`, { goalId });
+  return goalBlocked.length;
 }
 
 /**
- * Reset blocked_by_dependency steps whose dependencies are now all satisfied.
+ * Reset blocked steps whose dependencies are now all satisfied.
  * Called after a retry succeeds and dependencies change.
  */
-async function resetUnblockedSteps(goalId: string, executions: any[]): Promise<boolean> {
-  const blockedExecs = executions.filter(e => e.status === 'blocked_by_dependency');
-  if (blockedExecs.length === 0) return false;
+async function resetUnblockedSteps(goalId: string, workUnits: any[]): Promise<boolean> {
+  const blockedWus = workUnits.filter(wu => wu.status === 'blocked');
+  if (blockedWus.length === 0) return false;
 
-  // Reconstruct steps to get dependency info
-  const plan = await prisma.goalPlan.findFirst({
-    where: { goalId, status: 'approved' },
-    orderBy: { version: 'desc' },
-  });
-
-  let steps: GoalStep[];
-  if (plan) {
-    steps = parseJsonField<GoalStep[]>(plan.steps, []);
-  } else {
-    steps = executions.map(e => {
-      const input = parseJsonField<Record<string, any>>(e.input, {});
-      const acGroup = input?.acGroup || {};
-      return {
-        index: e.stepIndex,
-        title: acGroup.id || `step-${e.stepIndex}`,
-        description: '',
-        agentType: e.agentType || 'claude',
-        input,
-        dependencies: (acGroup.dependencies || []).map((depId: string) => {
-          const depExec = executions.find(ex => {
-            const depInput = parseJsonField<Record<string, any>>(ex.input, {});
-            return depInput?.acGroup?.id === depId;
-          });
-          return depExec?.stepIndex ?? -1;
-        }).filter((i: number) => i >= 0),
-        estimatedDuration: '30m',
-      };
-    });
+  // Build lookup maps
+  const acGroupIdMap = new Map<string, number>();
+  for (const wu of workUnits) {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+    const stepIndex = input?.stepIndex ?? 0;
+    const acGroupId = input?.acGroup?.id;
+    if (acGroupId) acGroupIdMap.set(acGroupId, stepIndex);
   }
 
-  const execMap = new Map(executions.map(e => [e.stepIndex, e]));
+  const stepIndexMap = new Map(workUnits.map((wu: any) => {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+    return [input?.stepIndex ?? 0, wu];
+  }));
+
   let resetCount = 0;
 
-  for (const step of steps) {
-    const exec = execMap.get(step.index);
-    if (!exec || exec.status !== 'blocked_by_dependency') continue;
+  for (const wu of blockedWus) {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+    const stepIndex = input?.stepIndex ?? 0;
+    const acGroup = input?.acGroup || {};
+    const deps: number[] = (acGroup.dependencies || [])
+      .map((depId: string) => acGroupIdMap.get(depId))
+      .filter((i: number | undefined) => i !== undefined);
 
-    const allDepsSatisfied = step.dependencies.every(depIndex => {
-      const depExec = execMap.get(depIndex);
-      return depExec?.status === 'succeeded';
+    const allDepsSatisfied = deps.every((depIndex: number) => {
+      const depWu = stepIndexMap.get(depIndex);
+      return depWu?.status === 'done';
     });
 
     if (allDepsSatisfied) {
-      await prisma.goalExecution.update({
-        where: { id: exec.id },
-        data: { status: 'pending', error: null },
+      await prisma.workUnit.update({
+        where: { id: wu.id },
+        data: { status: 'unassigned', claimedAt: null },
       });
-      exec.status = 'pending'; // update local map
+      wu.status = 'unassigned'; // update local map
       resetCount++;
     }
   }
 
   if (resetCount > 0) {
-    logger.info(`[Goal] Reset ${resetCount} unblocked steps to pending`, { goalId });
+    logger.info(`[Goal] Reset ${resetCount} unblocked steps to unassigned`, { goalId });
   }
   return resetCount > 0;
 }
 
 export async function checkGoalCompletion(goalId: string): Promise<void> {
-  let executions = await prisma.goalExecution.findMany({
-    where: { goalId },
+  // Fetch all WorkUnits belonging to this goal
+  let allWus = await prisma.workUnit.findMany({
+    where: { metadata: { contains: goalId } },
+  });
+  // Filter to only WorkUnits with matching goalId in metadata
+  let workUnits = allWus.filter(wu => {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    return meta?.goalId === goalId;
   });
 
-  if (executions.length === 0) {
-    logger.warn('[Goal] No executions found, marking failed', { goalId });
-    await prisma.goal.update({
-      where: { id: goalId }, data: { status: 'failed', completedAt: new Date() },
+  if (workUnits.length === 0) {
+    logger.warn('[Goal] No work units found, marking failed', { goalId });
+    await prisma.workUnit.update({
+      where: { id: goalId }, data: { status: 'closed', completedAt: new Date() },
     });
     return;
   }
 
   // Cascade failure to steps blocked by failed dependencies
-  const cascaded = await cascadeBlockedFailures(goalId, executions);
+  const cascaded = await cascadeBlockedFailures(goalId, workUnits);
   if (cascaded) {
-    // Re-fetch executions with updated statuses
-    executions = await prisma.goalExecution.findMany({ where: { goalId } });
+    // Re-fetch with updated statuses
+    allWus = await prisma.workUnit.findMany({ where: { metadata: { contains: goalId } } });
+    workUnits = allWus.filter(wu => {
+      const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+      return meta?.goalId === goalId;
+    });
   }
 
-  // Reset blocked_by_dependency steps whose dependencies are now satisfied
-  // (e.g., after a retry succeeded)
-  const unblocked = await resetUnblockedSteps(goalId, executions);
+  // Reset blocked steps whose dependencies are now satisfied
+  const unblocked = await resetUnblockedSteps(goalId, workUnits);
   if (unblocked) {
-    executions = await prisma.goalExecution.findMany({ where: { goalId } });
+    allWus = await prisma.workUnit.findMany({ where: { metadata: { contains: goalId } } });
+    workUnits = allWus.filter(wu => {
+      const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+      return meta?.goalId === goalId;
+    });
   }
 
-  const regularSteps = executions.filter(e => e.stepIndex !== 999);
-  const integrationStep = executions.find(e => e.stepIndex === 999);
-  const terminalStatuses = ['succeeded', 'failed', 'blocked_by_dependency'];
-  const allRegularDone = regularSteps.every(e => terminalStatuses.includes(e.status));
+  const isIntegrationStep = (wu: any) => {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+    return input?.stepIndex === 999 || input?.taskType === 'integration';
+  };
+
+  const regularSteps = workUnits.filter(wu => !isIntegrationStep(wu));
+  const integrationStep = workUnits.find(wu => isIntegrationStep(wu));
+  const terminalStatuses = mapExecutionStatuses(['succeeded', 'failed']); // ['done', 'closed'] plus 'blocked'
+  const allTerminal = [...terminalStatuses, 'blocked'];
+  const allRegularDone = regularSteps.every(wu => allTerminal.includes(wu.status));
 
   if (allRegularDone && !integrationStep && regularSteps.length > 1) {
-    const anyRegularFailed = regularSteps.some(e => e.status === 'failed' || e.status === 'blocked_by_dependency');
+    const anyRegularFailed = regularSteps.some(wu => wu.status === 'closed' || wu.status === 'blocked');
     if (!anyRegularFailed) {
       logger.info('[Goal] All sub-agent steps succeeded, creating integration step', { goalId });
       try {
-        await prisma.goalExecution.create({
-          data: {
+        await workUnitService.create({
+          scope: `integration-${goalId}`,
+          status: 'unassigned',
+          metadata: {
             goalId,
-            stepIndex: 999,
-            status: 'pending',
-            agentType: 'claude',
             input: JSON.stringify({
               taskType: 'integration',
               goalId,
               totalSteps: regularSteps.length,
+              stepIndex: 999,
               model: 'standard',
             }),
           },
@@ -346,28 +376,29 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
         logger.info('[Goal] Integration step created, waiting for scheduler', { goalId });
       } catch (err) {
         logger.error('[Goal] Failed to create integration step', { goalId, error: String(err) });
-        await prisma.goal.update({
-          where: { id: goalId }, data: { status: 'failed', completedAt: new Date() },
+        await prisma.workUnit.update({
+          where: { id: goalId }, data: { status: 'closed', completedAt: new Date() },
         });
       }
       return;
     }
   }
 
-  const allDone = executions.every(e => terminalStatuses.includes(e.status));
+  const allDone = workUnits.every(wu => allTerminal.includes(wu.status));
   if (!allDone) return;
 
-  const anyFailed = executions.some(e => e.status === 'failed' || e.status === 'blocked_by_dependency');
-  const newStatus = anyFailed ? 'failed' : 'succeeded';
+  const anyFailed = workUnits.some(wu => wu.status === 'closed' || wu.status === 'blocked');
+  const goalWuStatus = anyFailed ? 'closed' : 'done';
 
-  await prisma.goal.update({
+  await prisma.workUnit.update({
     where: { id: goalId },
     data: {
-      status: newStatus,
+      status: goalWuStatus,
       completedAt: new Date(),
     },
   });
 
+  const newStatus = anyFailed ? 'failed' : 'succeeded';
   logger.info(`[Goal] ${goalId} completed with status: ${newStatus}`);
 
   // SP-004 Step 6: CHANGELOG entry for goal completion
@@ -427,13 +458,13 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
   // Only on final success — after review approves (not during review-fix cycles)
   // Defer cleanup: re-check goal status after handleGoalSucceeded may have dispatched review-fix
   if (newStatus === 'succeeded') {
-    const currentGoal = await prisma.goal.findUnique({ where: { id: goalId }, select: { status: true } });
-    if (currentGoal?.status === 'succeeded') {
+    const currentGoalWu = await prisma.workUnit.findUnique({ where: { id: goalId }, select: { status: true } });
+    if (currentGoalWu?.status === 'done') {
       cleanupGoalWorktrees(goalId).catch(err =>
         logger.warn('[Goal] Worktree cleanup failed (non-blocking)', { goalId, error: String(err) })
       );
     } else {
-      logger.info('[Goal] Skipping worktree cleanup — review cycle pending', { goalId, currentStatus: currentGoal?.status });
+      logger.info('[Goal] Skipping worktree cleanup — review cycle pending', { goalId, currentStatus: currentGoalWu?.status });
     }
   }
 }
@@ -442,9 +473,13 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
  * 清理 Goal 关联的所有 executor worktree 和 task 分支
  */
 async function cleanupGoalWorktrees(goalId: string): Promise<void> {
-  const executions = await prisma.goalExecution.findMany({
-    where: { goalId },
-    select: { id: true },
+  const allWus = await prisma.workUnit.findMany({
+    where: { metadata: { contains: goalId } },
+    select: { id: true, metadata: true },
+  });
+  const executions = allWus.filter(wu => {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    return meta?.goalId === goalId;
   });
   const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
   const repoDir = process.env.REPO_DIR || path.join(os.homedir(), 'projects', 'studio');
@@ -472,17 +507,25 @@ async function cleanupGoalWorktrees(goalId: string): Promise<void> {
  * Goal 失败后：更新 Project 状态为 failed
  */
 export async function handleGoalFailed(goalId: string): Promise<void> {
-  const goal = await prisma.goal.findUnique({ where: { id: goalId } });
-  if (!goal) return;
+  const goalWu = await prisma.workUnit.findUnique({ where: { id: goalId } });
+  if (!goalWu) return;
 
-  const projectId = (goal.context as unknown as Record<string, unknown>)?.projectId as string | undefined;
+  const goalMeta = goalWu.metadata ? JSON.parse(goalWu.metadata) : {};
+  const goalContext = goalMeta?.context ? (typeof goalMeta.context === 'string' ? JSON.parse(goalMeta.context) : goalMeta.context) : {};
+  const projectId = goalContext?.projectId as string | undefined;
+  const goalTitle = goalMeta?.title || goalWu.scope;
 
-  const failedExec = await prisma.goalExecution.findFirst({
-    where: { goalId, status: 'failed' },
-    select: { id: true, error: true, stepIndex: true, failureType: true },
-    orderBy: { stepIndex: 'desc' },
+  // Find the most recently failed WorkUnit for this goal
+  const allGoalWus = await prisma.workUnit.findMany({
+    where: { metadata: { contains: goalId } },
   });
-  const errorRaw: any = failedExec?.error;
+  const failedWus = allGoalWus.filter(wu => {
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    return meta?.goalId === goalId && wu.status === 'closed';
+  }).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+  const failedExec = failedWus[0];
+  const failedMeta = failedExec?.metadata ? JSON.parse(failedExec.metadata) : {};
+  const errorRaw: any = failedMeta?.error;
   const errorMsg = typeof errorRaw === 'object' ? (errorRaw?.message || JSON.stringify(errorRaw)) : (String(errorRaw || 'Unknown failure'));
 
   // Query FailureEvent to determine incident type (race-condition safe: fallback to 'zombie')
@@ -520,10 +563,7 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
     // B.1: Persist failureType if not already set
     if (failedExec && failureClass && failureClass !== 'unknown') {
       try {
-        await prisma.goalExecution.update({
-          where: { id: failedExec.id },
-          data: { failureType: failureClass },
-        });
+        await workUnitService.update(failedExec.id, { failureType: failureClass });
       } catch { /* non-blocking */ }
     }
   }
@@ -534,9 +574,9 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
     try {
       await retryGoalExecution(failedExec.id);
       // Reset goal status so GoalScheduler picks up the retried execution
-      await prisma.goal.update({
+      await prisma.workUnit.update({
         where: { id: goalId },
-        data: { status: 'executing', completedAt: null },
+        data: { status: 'active', completedAt: null },
       });
       routed = true;
     } catch (e) {
@@ -560,13 +600,12 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
   // mark-blocked: skip triageAgent, notification below is sufficient
 
   try {
-    const ctx = (goal.context as unknown as Record<string, unknown>) || {};
-    const sourceChannelId = ctx.sourceChannelId as string | undefined;
+    const sourceChannelId = goalContext?.sourceChannelId as string | undefined;
     if (sourceChannelId) {
-      const failReason = failedExec?.error ? failedExec.error.slice(0, 200) : '未知原因';
+      const failReason = failedMeta?.error ? String(failedMeta.error).slice(0, 200) : '未知原因';
       const { channelMessageService } = await import('../channels/channel-message.service.js');
       await channelMessageService.createAgentMessage(sourceChannelId, 'Executor', [
-        `## ❌ Goal 失败: ${goal.title}`,
+        `## ❌ Goal 失败: ${goalTitle}`,
         '',
         `**原因**: ${failReason}`,
         `**建议**: 拆分任务为更小的 AC 组，或使用 premium tier 模型`,
@@ -595,13 +634,21 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
  */
 export async function recordGoalCompletion(goalId: string): Promise<void> {
   try {
-    const goal = await prisma.goal.findUnique({ where: { id: goalId } });
-    if (!goal) return;
+    const goalWu = await prisma.workUnit.findUnique({ where: { id: goalId } });
+    if (!goalWu) return;
 
-    // Find all step-level PipelineRun records for this goal
-    const executions = await prisma.goalExecution.findMany({
-      where: { goalId },
-      select: { id: true, startedAt: true, completedAt: true, status: true },
+    const goalMeta = goalWu.metadata ? JSON.parse(goalWu.metadata) : {};
+    const goalTitle = goalMeta?.title || goalWu.scope;
+    const goalStatus = goalWu.status === 'done' ? 'succeeded' : goalWu.status === 'closed' ? 'failed' : goalWu.status;
+
+    // Find all step-level WorkUnits for this goal
+    const allGoalWus = await prisma.workUnit.findMany({
+      where: { metadata: { contains: goalId } },
+      select: { id: true, claimedAt: true, completedAt: true, status: true, metadata: true },
+    });
+    const executions = allGoalWus.filter(wu => {
+      const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+      return meta?.goalId === goalId;
     });
     const execIds = executions.map(e => e.id);
 
@@ -620,11 +667,11 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
     const totalSessions = runs.length;
     const successCount = runs.filter(r => r.success).length;
 
-    // Duration: prefer PipelineRun sum, fallback to GoalExecution wall clock
+    // Duration: prefer PipelineRun sum, fallback to WorkUnit wall clock
     let totalDurationMs = runs.reduce((s, r) => s + r.durationMs, 0);
     if (totalDurationMs === 0 && executions.length > 0) {
-      // Fallback: wall clock from earliest start to latest completion
-      const starts = executions.filter(e => e.startedAt).map(e => e.startedAt!.getTime());
+      // Fallback: wall clock from earliest claim to latest completion
+      const starts = executions.filter(e => e.claimedAt).map(e => e.claimedAt!.getTime());
       const ends = executions.filter(e => e.completedAt).map(e => e.completedAt!.getTime());
       if (starts.length > 0 && ends.length > 0) {
         totalDurationMs = Math.max(...ends) - Math.min(...starts);
@@ -640,15 +687,15 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
 
     const written = await recordPipelineRun({
       source: 'pipeline', phase: 'full',
-      taskName: goal.title,
+      taskName: goalTitle,
       model: 'summary',
       inputTokens: totalInputTokens,
       outputTokens: totalOutputTokens,
       cacheHitTokens: runs.reduce((s, r) => s + r.cacheHitTokens, 0),
       durationMs: totalDurationMs,
-      success: goal.status === 'succeeded',
+      success: goalStatus === 'succeeded',
       ...(summaryTestPassed !== undefined ? { testPassed: summaryTestPassed } : {}),
-      goalId: goal.id,
+      goalId,
     });
 
     if (!written) {
@@ -658,14 +705,14 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
     // Health check: verify at least one PipelineRun exists for this goal
     if (totalSessions === 0) {
       logger.warn('[GoalLifecycle] No PipelineRun records found for goal — metrics gap', {
-        goalId, execIds: execIds.length, goalStatus: goal.status,
+        goalId, execIds: execIds.length, goalStatus,
       });
       try {
         await prisma.studioEvent.create({
           data: {
             type: 'pipeline:metrics_missing',
             source: 'goal-lifecycle',
-            payload: JSON.stringify({ goalId, execCount: execIds.length, goalStatus: goal.status }),
+            payload: JSON.stringify({ goalId, execCount: execIds.length, goalStatus }),
           },
         });
       } catch { /* last resort */ }
@@ -678,8 +725,8 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
         resource: 'goal',
         resourceId: goalId,
         details: {
-          title: goal.title,
-          status: goal.status,
+          title: goalTitle,
+          status: goalStatus,
           totalInputTokens,
           totalOutputTokens,
           totalDurationMs,
@@ -692,7 +739,7 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
 
     logger.info('[Goal] Pipeline summary recorded', {
       goalId,
-      title: goal.title,
+      title: goalTitle,
       sessions: totalSessions,
       tokens: { input: totalInputTokens, output: totalOutputTokens },
       durationMs: totalDurationMs,
@@ -705,23 +752,23 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
         executionId: goalId,
         agentType: 'executor',
         consumedKnowledge: [],
-        success: goal.status === 'succeeded',
-        details: `Goal "${goal.title}" ${goal.status}. Sessions: ${totalSessions}, Tokens: ${totalInputTokens + totalOutputTokens}`,
+        success: goalStatus === 'succeeded',
+        details: `Goal "${goalTitle}" ${goalStatus}. Sessions: ${totalSessions}, Tokens: ${totalInputTokens + totalOutputTokens}`,
         timestamp: new Date().toISOString(),
         mode: 'pipeline',
       });
     } catch { /* non-blocking */ }
 
     try {
-      const ctx = (goal.context as unknown as Record<string, unknown>) || {};
-      const sourceChannelId = ctx.sourceChannelId as string | undefined;
+      const goalContextForSummary = goalMeta?.context ? (typeof goalMeta.context === 'string' ? JSON.parse(goalMeta.context) : goalMeta.context) : {};
+      const sourceChannelId = goalContextForSummary?.sourceChannelId as string | undefined;
       if (sourceChannelId) {
         const { channelMessageService } = await import('../channels/channel-message.service.js');
         const durationMin = Math.round(totalDurationMs / 60000);
         const tokenK = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(n);
         const summary = [
-          `## Goal 完成: ${goal.title}`,
-          `- 状态: ${goal.status === 'succeeded' ? '✅ 成功' : goal.status === 'failed' ? '❌ 失败' : '⏳ ' + goal.status}`,
+          `## Goal 完成: ${goalTitle}`,
+          `- 状态: ${goalStatus === 'succeeded' ? '✅ 成功' : goalStatus === 'failed' ? '❌ 失败' : '⏳ ' + goalStatus}`,
           `- Session: ${totalSessions} 轮`,
           `- Token: ${tokenK(totalInputTokens)} → ${tokenK(totalOutputTokens)}`,
           `- 耗时: ${durationMin} min`,
@@ -736,13 +783,13 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
     }
 
     try {
-      const ctx2 = (goal.context as unknown as Record<string, unknown>) || {};
-      const sourceChannelId = ctx2.sourceChannelId as string | undefined;
+      const goalContextForPostEval = goalMeta?.context ? (typeof goalMeta.context === 'string' ? JSON.parse(goalMeta.context) : goalMeta.context) : {};
+      const sourceChannelId = goalContextForPostEval?.sourceChannelId as string | undefined;
       const { postEvalAgent } = await import('../agents/post-eval-agent.service.js');
       const gapReport = await postEvalAgent.evaluate(goalId, sourceChannelId);
 
       // PostEval remediation: completeness < 50% → flag goal as incomplete
-      if (gapReport && gapReport.completeness < 0.5 && goal.status === 'succeeded') {
+      if (gapReport && gapReport.completeness < 0.5 && goalStatus === 'succeeded') {
         logger.error('[Goal] PostEval: completeness critically low — flagging goal', {
           goalId,
           completeness: Math.round(gapReport.completeness * 100) + '%',
@@ -750,9 +797,9 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
           missed: gapReport.missedAcs.length,
         });
         // Roll back status so the goal can be retried
-        await prisma.goal.update({
+        await prisma.workUnit.update({
           where: { id: goalId },
-          data: { status: 'failed', completedAt: new Date() },
+          data: { status: 'closed', completedAt: new Date() },
         });
         if (sourceChannelId) {
           try {
@@ -796,35 +843,50 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
  */
 async function createGoalDocument(goalId: string): Promise<void> {
   try {
-    const goal = await prisma.goal.findUnique({
+    const goalWu = await prisma.workUnit.findUnique({
       where: { id: goalId },
-      select: { id: true, title: true, companyId: true },
+      select: { id: true, scope: true, metadata: true },
     });
-    if (!goal?.companyId) return;
+    if (!goalWu) return;
+    const goalMeta = goalWu.metadata ? JSON.parse(goalWu.metadata) : {};
+    const goalContext = goalMeta?.context ? (typeof goalMeta.context === 'string' ? JSON.parse(goalMeta.context) : goalMeta.context) : {};
+    const companyId = goalContext?.companyId as string | undefined;
+    if (!companyId) return;
+
+    const goalTitle = goalMeta?.title || goalWu.scope;
 
     const project = await prisma.project.findFirst({
-      where: { companyId: goal.companyId },
+      where: { companyId },
       select: { id: true },
     });
     if (!project) return;
 
-    const execs = await prisma.goalExecution.findMany({
-      where: { goalId },
-      select: { id: true, output: true, stepIndex: true, status: true },
+    const allGoalWus = await prisma.workUnit.findMany({
+      where: { metadata: { contains: goalId } },
+      select: { id: true, metadata: true, status: true },
       take: 10,
     });
+    const execs = allGoalWus.filter(wu => {
+      const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+      return meta?.goalId === goalId;
+    });
 
-    const summary = execs.map(e =>
-      `- Step ${e.stepIndex}: ${e.status} (${(e.output as any)?.summary || 'no summary'})`
-    ).join('\n');
+    const summary = execs.map(wu => {
+      const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+      const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
+      const stepIndex = input?.stepIndex ?? '?';
+      const output = meta?.output;
+      const statusLabel = wu.status === 'done' ? 'succeeded' : wu.status === 'closed' ? 'failed' : wu.status;
+      return `- Step ${stepIndex}: ${statusLabel} (${(output as any)?.summary || 'no summary'})`;
+    }).join('\n');
 
     await prisma.document.create({
       data: {
         projectId: project.id,
-        companyId: goal.companyId,
+        companyId,
         type: 'execution',
-        title: goal.title || `Goal ${goalId.slice(0, 8)}`,
-        content: `## Execution Summary\n\nGoal: ${goal.title}\nID: ${goalId}\n\n### Steps\n${summary}`,
+        title: goalTitle || `Goal ${goalId.slice(0, 8)}`,
+        content: `## Execution Summary\n\nGoal: ${goalTitle}\nID: ${goalId}\n\n### Steps\n${summary}`,
         status: 'active',
         tags: '[]',
       },
@@ -876,47 +938,45 @@ async function trackSkillOutcomes(goalId: string, goalStatus: string): Promise<v
 }
 
 /**
- * Validate worktree paths for running executions on startup.
+ * Validate worktree paths for active WorkUnits on startup.
  * If a worktree directory is missing (e.g. after server restart with cleaned /tmp),
- * mark the execution as failed with a clear ENOENT-specific message.
+ * mark the WorkUnit as closed with a clear ENOENT-specific message.
  */
 export async function validateWorktreePaths(): Promise<number> {
-  const runningExecutions = await prisma.goalExecution.findMany({
-    where: { status: 'running' },
+  const activeWus = await prisma.workUnit.findMany({
+    where: { status: 'active' },
   });
 
-  if (runningExecutions.length === 0) return 0;
+  if (activeWus.length === 0) return 0;
 
   const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
   let failedCount = 0;
 
-  for (const exec of runningExecutions) {
-    const worktreePath = path.join(worktreesDir, exec.id);
+  for (const wu of activeWus) {
+    const worktreePath = path.join(worktreesDir, wu.id);
     if (!fs.existsSync(worktreePath)) {
-      await prisma.goalExecution.update({
-        where: { id: exec.id },
-        data: {
-          status: 'failed',
+      await workUnitService.update(wu.id, {
+        metadata: {
           error: JSON.stringify({
             message: `Worktree directory missing after restart: ${worktreePath}`,
             timestamp: Date.now(),
           }),
-          completedAt: new Date(),
         },
       });
-      logger.warn(`[Goal] Worktree lost for execution ${exec.id}, marked failed`);
+      await workUnitService.transitionStatus(wu.id, 'closed');
+      logger.warn(`[Goal] Worktree lost for WorkUnit ${wu.id}, marked closed`);
       failedCount++;
     }
   }
 
   if (failedCount > 0) {
-    logger.warn(`[Goal] validateWorktreePaths: ${failedCount}/${runningExecutions.length} executions had missing worktrees`);
+    logger.warn(`[Goal] validateWorktreePaths: ${failedCount}/${activeWus.length} work units had missing worktrees`);
   }
   return failedCount;
 }
 
 /**
- * Auto-fail goals that have been in 'blocked' status for > 7 days.
+ * Auto-fail WorkUnits that have been in 'blocked' status for > 7 days.
  * Called periodically by GoalScheduler tick and on server startup.
  */
 const BLOCKED_GOAL_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -924,33 +984,31 @@ const BLOCKED_GOAL_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 export async function expireStaleBlockedGoals(): Promise<number> {
   const cutoff = new Date(Date.now() - BLOCKED_GOAL_TTL_MS);
 
-  const stale = await prisma.goal.findMany({
+  const stale = await prisma.workUnit.findMany({
     where: { status: 'blocked', createdAt: { lt: cutoff } },
-    select: { id: true, title: true, createdAt: true },
+    select: { id: true, scope: true, createdAt: true, metadata: true },
   });
 
   if (stale.length === 0) return 0;
 
-  for (const goal of stale) {
-    const ageDays = Math.round((Date.now() - goal.createdAt.getTime()) / (24 * 60 * 60 * 1000));
-    await prisma.goal.update({
-      where: { id: goal.id },
-      data: {
-        status: 'failed',
-        completedAt: new Date(),
-        context: JSON.stringify({
-          failureReason: `auto-fail: blocked > 7 days TTL (age: ${ageDays}d)`,
-          autoFailedAt: new Date().toISOString(),
-        }),
+  for (const wu of stale) {
+    const ageDays = Math.round((Date.now() - wu.createdAt.getTime()) / (24 * 60 * 60 * 1000));
+    const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+    await workUnitService.update(wu.id, {
+      metadata: {
+        ...meta,
+        failureReason: `auto-fail: blocked > 7 days TTL (age: ${ageDays}d)`,
+        autoFailedAt: new Date().toISOString(),
       },
     });
-    logger.warn('[Goal] Auto-failed stale blocked goal (TTL)', {
-      goalId: goal.id,
-      title: goal.title?.slice(0, 60),
+    await workUnitService.transitionStatus(wu.id, 'closed');
+    logger.warn('[Goal] Auto-failed stale blocked WorkUnit (TTL)', {
+      workUnitId: wu.id,
+      scope: wu.scope?.slice(0, 60),
       ageDays,
     });
   }
 
-  logger.info(`[Goal] expireStaleBlockedGoals: ${stale.length} goals auto-failed`);
+  logger.info(`[Goal] expireStaleBlockedGoals: ${stale.length} work units auto-failed`);
   return stale.length;
 }

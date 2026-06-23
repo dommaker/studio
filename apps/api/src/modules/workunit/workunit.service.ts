@@ -24,6 +24,10 @@ export interface WorkUnitMetadata {
   error?: string;             // 从 GoalExecution.error 降级
   input?: string;             // 从 GoalExecution.input 降级
   output?: string;            // 从 GoalExecution.output 降级
+  goalId?: string;            // 从 GoalExecution.goalId 降级（Phase 3 迁移）
+  title?: string;             // 从 Goal.title 降级（Phase 3 迁移）
+  _cumulativeTokens?: number; // 内部 token 累计追踪
+  [key: string]: unknown;     // 允许扩展字段
 }
 
 export interface CreateWorkUnitInput {
