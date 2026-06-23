@@ -15,6 +15,7 @@ export interface CreateRoleInput {
   avatar?: string;
   companyId: string;
   workflows?: string[];
+  channels?: string[]; // 3.28c-2: Agent 订阅的 Channel ID 列表
 }
 
 export interface UpdateRoleInput {
@@ -22,10 +23,12 @@ export interface UpdateRoleInput {
   avatar?: string;
   status?: string;
   workflows?: string[];
+  channels?: string[]; // 3.28c-2: 更新订阅的 Channel
 }
 
-export interface RoleWithCapabilities extends Omit<Role, 'workflows'> {
+export interface RoleWithCapabilities extends Omit<Role, 'workflows' | 'channels'> {
   workflows: string[];
+  channels: string[];
 }
 
 export class RoleService {
@@ -39,6 +42,7 @@ export class RoleService {
         avatar: input.avatar,
         companyId: input.companyId,
         workflows: JSON.stringify(input.workflows ?? []),
+        channels: JSON.stringify(input.channels ?? []), // 3.28c-2: channels
       },
     });
 
@@ -55,6 +59,7 @@ export class RoleService {
     return {
       ...role,
       workflows: role.workflows ? JSON.parse(role.workflows) as string[] : [],
+      channels: role.channels ? JSON.parse(role.channels) as string[] : [], // 3.28c-2: channels
     };
   }
 
@@ -95,6 +100,10 @@ export class RoleService {
 
     if (input.workflows !== undefined) {
       updateData.workflows = JSON.stringify(input.workflows);
+    }
+
+    if (input.channels !== undefined) { // 3.28c-2: channels
+      updateData.channels = JSON.stringify(input.channels);
     }
 
     return this.prisma.role.update({

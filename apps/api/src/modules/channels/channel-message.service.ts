@@ -19,11 +19,13 @@ export interface MessageMeta {
 export interface AgentMessageOptions {
   replyToId?: string;
   meta?: MessageMeta;
+  workUnitId?: string; // AS-025 §5.16: 讨论空间关联
 }
 
 interface MessageRecord {
   id: string;
   channelId: string;
+  workUnitId: string | null;
   authorType: string;
   agentName: string | null;
   content: string;
@@ -47,6 +49,7 @@ class ChannelMessageService {
     channelId: string,
     content: string,
     replyToId?: string,
+    workUnitId?: string,
   ): Promise<MessageRecord> {
     const trimmed = content.trim();
     if (!trimmed) throw new Error('Content cannot be empty');
@@ -57,6 +60,7 @@ class ChannelMessageService {
         authorType: 'human',
         content: trimmed,
         replyToId: replyToId || null,
+        workUnitId: workUnitId || null,
       },
     });
 
@@ -84,6 +88,7 @@ class ChannelMessageService {
         content: trimmed,
         replyToId: options?.replyToId || null,
         meta: options?.meta ? JSON.stringify(options.meta) : '{}',
+        workUnitId: options?.workUnitId || null,
       },
     });
 
@@ -164,6 +169,35 @@ class ChannelMessageService {
     }
   }
 
+  /**
+   * AS-025 §5.16: List messages in a discussion space (grouped by workUnitId).
+   * Returns messages ordered by createdAt ascending (chronological).
+   */
+  async listByWorkUnitId(
+    workUnitId: string,
+    options?: { before?: Date; limit?: number },
+  ): Promise<{ data: MessageRecord[]; total: number }> {
+    const limit = options?.limit ?? 50;
+    const where: Record<string, unknown> = { workUnitId };
+    if (options?.before) {
+      where.createdAt = { lt: options.before };
+    }
+
+    const [messages, total] = await Promise.all([
+      prisma.channelMessage.findMany({
+        where,
+        orderBy: { createdAt: 'asc' },
+        take: limit,
+      }),
+      prisma.channelMessage.count({ where }),
+    ]);
+
+    return {
+      data: messages.map(m => this.shape(m)),
+      total,
+    };
+  }
+
   async createCardMessage(
     channelId: string,
     agentName: string,
@@ -182,6 +216,7 @@ class ChannelMessageService {
     return {
       id: record.id,
       channelId: record.channelId,
+      workUnitId: record.workUnitId ?? null,
       authorType: record.authorType,
       agentName: record.agentName,
       content: record.content,

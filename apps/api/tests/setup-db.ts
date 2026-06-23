@@ -25,12 +25,14 @@ try { unlinkSync(dbPath); } catch { /* ignore if not exists */ }
 try { unlinkSync(dbPath + '-journal'); } catch { /* ignore */ }
 try { unlinkSync(dbPath + '-wal'); } catch { /* ignore */ }
 
-// Use db push WITHOUT --force-reset to avoid file replacement race condition.
-// Since we deleted the file above, db push will create a fresh DB.
+// Use db push to create a fresh DB from schema.
+// --force-reset drops all data and recreates from schema (safe since we deleted the file).
+// This ensures the schema is always in sync, including new columns.
+// Also regenerates Prisma client to pick up schema changes.
 const prismaBin = resolve(__dirname, '../node_modules/.bin/prisma');
-execSync(`${prismaBin} db push --skip-generate --schema ${schemaPath}`, {
+execSync(`${prismaBin} db push --force-reset --schema ${schemaPath}`, {
   cwd: prismaDir,
   env: { ...process.env, DATABASE_URL: dbUrl },
   stdio: 'pipe',
-  timeout: 30_000,
+  timeout: 60_000,
 });

@@ -1,0 +1,339 @@
+/**
+ * WorkUnit API 路由 (AS-025 §3.28c-1, §5.16)
+ *
+ * Endpoints:
+ *   GET    /api/v1/workunits          — list
+ *   POST   /api/v1/workunits          — create
+ *   GET    /api/v1/workunits/:id      — get by id
+ *   PUT    /api/v1/workunits/:id      — update
+ *   DELETE /api/v1/workunits/:id      — delete
+ *   POST   /api/v1/workunits/:id/claim   — claim (optimistic lock)
+ *   POST   /api/v1/workunits/:id/unclaim — unclaim
+ *   POST   /api/v1/workunits/:id/status  — transition status (state machine)
+ *
+ * 讨论空间 (AS-025 §5.16):
+ *   GET    /api/v1/workunits/:id/messages       — list messages by workUnitId
+ *   POST   /api/v1/workunits/:id/messages       — send message (auto-associate workUnitId)
+ *   PATCH  /api/v1/workunits/:id/messages/:messageId — edit message
+ */
+
+import { Router, type Request, type Response } from 'express';
+import { prisma } from '../../core/database.js';
+import { WorkUnitService } from './workunit.service.js';
+import { channelMessageService } from '../channels/channel-message.service.js';
+import { getErrorMessage } from '../../utils/errors.js';
+import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
+
+const router = Router();
+const service = new WorkUnitService(prisma);
+
+/** GET / — list WorkUnits */
+router.get('/', async (req: Request, res: Response) => {
+  try {
+    const { type, status, assigneeId, channelId, parentId } = req.query;
+    const { page, limit } = parsePagination(req);
+
+    const result = await service.list({
+      type: type as string,
+      status: status as string,
+      assigneeId: assigneeId as string,
+      channelId: channelId as string,
+      parentId: parentId as string,
+      page,
+      limit,
+    });
+
+    res.json(formatPaginatedResponse(result.data, result.total, page, limit));
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
+    });
+  }
+});
+
+/** POST / — create WorkUnit */
+router.post('/', async (req: Request, res: Response) => {
+  try {
+    const { scope, type, assigneeId, status, channelId, parentId, dependsOn, metadata } = req.body;
+
+    if (!scope || typeof scope !== 'string') {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'scope is required and must be a string' },
+      });
+    }
+
+    const wu = await service.create({
+      scope,
+      type,
+      assigneeId,
+      status,
+      channelId,
+      parentId,
+      dependsOn,
+      metadata,
+    });
+
+    res.status(201).json(wu);
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
+    });
+  }
+});
+
+/** GET /:id — get WorkUnit by id */
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const wu = await service.getById(req.params.id);
+
+    if (!wu) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `WorkUnit ${req.params.id} not found` },
+      });
+    }
+
+    res.json(wu);
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
+    });
+  }
+});
+
+/** PUT /:id — update WorkUnit */
+router.put('/:id', async (req: Request, res: Response) => {
+  try {
+    const wu = await service.update(req.params.id, req.body);
+    res.json(wu);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found') || msg.includes('Record to update not found')) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: msg },
+      });
+    }
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+/** DELETE /:id — delete WorkUnit */
+router.delete('/:id', async (req: Request, res: Response) => {
+  try {
+    await service.delete(req.params.id);
+    res.status(204).send();
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found') || msg.includes('Record to delete does not exist')) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: msg },
+      });
+    }
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+/** POST /:id/claim — claim WorkUnit (optimistic lock) */
+router.post('/:id/claim', async (req: Request, res: Response) => {
+  try {
+    const { agentId } = req.body;
+    if (!agentId || typeof agentId !== 'string') {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'agentId is required' },
+      });
+    }
+
+    const wu = await service.claim(req.params.id, agentId);
+    res.json(wu);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg === 'Claim failed') {
+      return res.status(409).json({
+        error: { code: 'CLAIM_FAILED', message: msg },
+      });
+    }
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+/** POST /:id/unclaim — unclaim WorkUnit */
+router.post('/:id/unclaim', async (req: Request, res: Response) => {
+  try {
+    const wu = await service.unclaim(req.params.id);
+    res.json(wu);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found') || msg.includes('Record to update not found')) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: msg },
+      });
+    }
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+/** POST /:id/status — transition WorkUnit status (state machine) */
+router.post('/:id/status', async (req: Request, res: Response) => {
+  try {
+    const { status } = req.body;
+    if (!status || typeof status !== 'string') {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'status is required' },
+      });
+    }
+
+    const wu = await service.transitionStatus(req.params.id, status);
+    res.json(wu);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('Invalid status transition')) {
+      return res.status(400).json({
+        error: { code: 'INVALID_TRANSITION', message: msg },
+      });
+    }
+    if (msg.includes('not found')) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: msg },
+      });
+    }
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+// ── 讨论空间 (AS-025 §5.16) ──
+
+/** GET /:id/messages — list messages in discussion space (workUnitId grouping) */
+router.get('/:id/messages', async (req: Request, res: Response) => {
+  try {
+    const { before, limit = '50' } = req.query;
+    const take = Math.min(Number(limit), 100);
+
+    const beforeDate = before ? new Date(before as string) : undefined;
+
+    const result = await channelMessageService.listByWorkUnitId(req.params.id, {
+      before: beforeDate,
+      limit: take,
+    });
+
+    res.json({
+      success: true,
+      data: result.data,
+      total: result.total,
+      hasMore: result.data.length < result.total,
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
+    });
+  }
+});
+
+/** POST /:id/messages — send message in discussion space (auto-associate workUnitId) */
+router.post('/:id/messages', async (req: Request, res: Response) => {
+  try {
+    const { content, replyToId, authorType = 'human', agentName } = req.body;
+
+    if (!content || typeof content !== 'string' || !content.trim()) {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'content is required' },
+      });
+    }
+
+    // Verify WorkUnit exists
+    const wu = await service.getById(req.params.id);
+    if (!wu) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `WorkUnit ${req.params.id} not found` },
+      });
+    }
+
+    // Need a channelId — use WorkUnit's channelId or fallback to system channel
+    let channelId = wu.channelId;
+    if (!channelId) {
+      const sysChannel = await prisma.channel.findFirst({
+        where: { type: 'rnd' },
+        orderBy: { createdAt: 'asc' },
+      });
+      if (!sysChannel) {
+        return res.status(400).json({
+          error: { code: 'NO_CHANNEL', message: 'No channel available for discussion messages' },
+        });
+      }
+      channelId = sysChannel.id;
+    }
+
+    let message;
+    if (authorType === 'agent' && agentName) {
+      message = await channelMessageService.createAgentMessage(
+        channelId, agentName, content.trim(),
+        { replyToId, workUnitId: req.params.id },
+      );
+    } else {
+      message = await channelMessageService.createHumanMessage(
+        channelId, content.trim(), replyToId, req.params.id,
+      );
+    }
+
+    res.status(201).json(message);
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
+    });
+  }
+});
+
+/** PATCH /:id/messages/:messageId — edit message in discussion space */
+router.patch('/:id/messages/:messageId', async (req: Request, res: Response) => {
+  try {
+    const { content, meta } = req.body;
+
+    if (content === undefined && meta === undefined) {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'content or meta is required' },
+      });
+    }
+
+    // Verify message belongs to this WorkUnit
+    const message = await prisma.channelMessage.findUnique({
+      where: { id: req.params.messageId },
+    });
+    if (!message) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `Message ${req.params.messageId} not found` },
+      });
+    }
+    if (message.workUnitId !== req.params.id) {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: 'Message does not belong to this WorkUnit' },
+      });
+    }
+
+    const updated = await channelMessageService.updateMessage(req.params.messageId, {
+      content,
+      meta,
+    });
+
+    res.json(updated);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: msg },
+      });
+    }
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+export default router;

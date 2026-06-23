@@ -347,27 +347,32 @@ model Review {
   @@index([targetType])
 }
 
+// 3.28c-2 Agent 身份化审计：
+// 核心字段：name, type(→description)
+// 冗余字段（deprecated）：avatar, personality, level, capabilityLimit, salary, balance,
+//   tasksCompleted, qualityScore, satisfactionRate — 游戏化字段，非身份核心
 model Role {
   id                 String               @id @default(cuid())
-  name               String
-  type               String
-  avatar             String?
-  personality        String?
-  level              Int                  @default(1)
-  capabilityLimit    Int                  @default(10)
-  salary             Int                  @default(5000)
-  balance            Int                  @default(0)
-  tasksCompleted     Int                  @default(0)
-  qualityScore       Float                @default(0)
-  satisfactionRate   Float                @default(0)
+  name               String               // 核心：Agent 名称
+  type               String               // 核心：Agent 类型描述（analyst/executor/reviewer/...）
+  avatar             String?              // @deprecated 3.28c-2: 非身份核心，UI 层字段
+  personality        String?              // @deprecated 3.28c-2: 非身份核心，游戏化遗留
+  level              Int                  @default(1)          // @deprecated 3.28c-2: 游戏化字段
+  capabilityLimit    Int                  @default(10)         // @deprecated 3.28c-2: 游戏化字段
+  salary             Int                  @default(5000)       // @deprecated 3.28c-2: 游戏化字段
+  balance            Int                  @default(0)          // @deprecated 3.28c-2: 游戏化字段
+  tasksCompleted     Int                  @default(0)          // @deprecated 3.28c-2: 游戏化字段
+  qualityScore       Float                @default(0)          // @deprecated 3.28c-2: 游戏化字段
+  satisfactionRate   Float                @default(0)          // @deprecated 3.28c-2: 游戏化字段
   status             String               @default("active")
   companyId          String
-  
-  // 🆕 SEC-001: 创建者追踪（用于权限控制）
+
+  // SEC-001: 创建者追踪（用于权限控制）
   creatorId          String?
-  
+
   isProjectLead      Boolean              @default(false)
   workflows          String?
+  channels           String               @default("[]")      // 3.28c-2: Agent 订阅的 Channel ID 列表（JSON array）
   memory             String?                 // RoleMemory: 角色记忆（经验/决策/反馈/学习）
   joinedAt           DateTime?
   createdAt          DateTime             @default(now())
@@ -936,23 +941,26 @@ model Channel {
   updatedAt DateTime @updatedAt
   ChannelMessage ChannelMessage[]
   RequirementsDoc RequirementsDoc[]
+  workUnits      WorkUnit[] // AS-025: WorkUnit 关联
 
   @@unique([name])
 }
 
 model ChannelMessage {
-  id        String   @id @default(cuid())
-  channelId String
+  id         String   @id @default(cuid())
+  channelId  String
+  workUnitId String?  // AS-025 §5.16: 讨论空间虚拟分组
   authorType String  // "human" | "agent"
-  agentName String?  // Analyst | Executor | Reviewer | KK | Auditor | Triage | Deploy
-  content   String   // Markdown
-  replyToId String?  // 弱引用回复关系
-  meta      String   @default("{}") // JSON: { goalId?, requirementsDocId?, cardType?, cardData?, crossChannelRef?, atHuman? }
-  createdAt DateTime @default(now())
-  channel   Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  agentName  String?  // Analyst | Executor | Reviewer | KK | Auditor | Triage | Deploy
+  content    String   // Markdown
+  replyToId  String?  // 弱引用回复关系
+  meta       String   @default("{}") // JSON: { goalId?, requirementsDocId?, cardType?, cardData?, crossChannelRef?, atHuman? }
+  createdAt  DateTime @default(now())
+  channel    Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
   @@index([channelId, createdAt])
   @@index([authorType])
+  @@index([workUnitId])
 }
 
 model RequirementsDoc {
@@ -1428,4 +1436,41 @@ model FailureEvent {
 
   @@unique([executionId, category])
   @@index([goalId])
+}
+
+// ── AS-025: Agent Network — WorkUnit (3.28c-1) ──
+// WorkUnit 是统一工作单元：Goal/GoalExecution/Task 的参数化统一
+
+model WorkUnit {
+  id         String   @id @default(cuid())
+  parentId   String?  // 层级（decomposition）
+  dependsOn  String   @default("[]") // JSON: WorkUnit ID[] (顺序依赖)
+
+  // 三个本质属性
+  type       String   @default("task") // task | monitor | analysis | discussion
+  scope      String   // 范围：做什么
+  assigneeId String?  // 归属：谁在做（null = 未分配）
+  status     String   @default("unassigned") // unassigned | active | in_review | done | closed | blocked
+
+  // 上下文
+  channelId  String?  // 关联 Channel
+  metadata   String?  // JSON: 灵活扩展
+
+  // 时间
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  claimedAt  DateTime? // claim 时间
+
+  // 关联
+  channel    Channel? @relation(fields: [channelId], references: [id])
+  parent     WorkUnit? @relation("WorkUnitHierarchy", fields: [parentId], references: [id])
+  children   WorkUnit[] @relation("WorkUnitHierarchy")
+
+  @@index([status])
+  @@index([type])
+  @@index([channelId])
+  @@index([parentId])
+  @@index([assigneeId])
+  @@index([createdAt])
+  @@map("work_unit")
 }

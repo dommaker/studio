@@ -157,6 +157,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Pipeline dashboard routes
   const { default: pipelineDashboardRoutes } = await import('./modules/pipeline-dashboard/pipeline-dashboard.routes.js') as { default: Router };
 
+  // WorkUnit routes (AS-025 §3.28c-1)
+  const { default: workunitRoutes } = await import('./modules/workunit/workunit.routes.js') as { default: Router };
+
   const auth = [requireAuth()];
 
   return [
@@ -172,6 +175,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/requirements-docs', router: requirementsDocRoutes, comment: 'B2-009: RequirementsDoc edit' },
     { path: '/api/v1/pmo', router: pmoRoutes, comment: 'PMO-001' },
     { path: '/api/v1/goals', router: goalRoutes, comment: 'O6: Goal 驱动架构' },
+    { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },
