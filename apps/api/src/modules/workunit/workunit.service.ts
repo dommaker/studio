@@ -10,6 +10,21 @@ import { logger } from '@dommaker/studio-shared';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkills } from '../skills/skill-selector.js';
 import { skillLoaderService } from '../skills/skill-loader.js';
+import { emitWorkUnitCreated, emitWorkUnitClaimed, emitWorkUnitStatusChanged, emitWorkUnitDone } from './workunit-events.js';
+
+/** Metadata JSON schema — fields that don't warrant first-class columns */
+export interface WorkUnitMetadata {
+  priority?: 'low' | 'normal' | 'high' | 'critical';
+  createdBy?: string;
+  description?: string;       // 从 Goal.description 降级
+  constraints?: string;       // 从 Goal.constraints 降级
+  context?: string;           // 从 Goal.context 降级
+  planVersion?: number;       // 从 GoalPlan.version 降级
+  planReasoning?: string;     // 从 GoalPlan.reasoning 降级
+  error?: string;             // 从 GoalExecution.error 降级
+  input?: string;             // 从 GoalExecution.input 降级
+  output?: string;            // 从 GoalExecution.output 降级
+}
 
 export interface CreateWorkUnitInput {
   type?: string;
@@ -19,7 +34,10 @@ export interface CreateWorkUnitInput {
   channelId?: string | null;
   parentId?: string | null;
   dependsOn?: string[];
-  metadata?: Record<string, unknown>;
+  failureType?: string;
+  retryCount?: number;
+  timeoutAt?: Date | null;
+  metadata?: WorkUnitMetadata;
 }
 
 export interface UpdateWorkUnitInput {
@@ -29,7 +47,10 @@ export interface UpdateWorkUnitInput {
   channelId?: string | null;
   parentId?: string | null;
   dependsOn?: string[];
-  metadata?: Record<string, unknown>;
+  failureType?: string | null;
+  retryCount?: number;
+  timeoutAt?: Date | null;
+  metadata?: WorkUnitMetadata;
 }
 
 /** Valid status transitions map */
@@ -49,7 +70,7 @@ export class WorkUnitService {
    * Create a new WorkUnit.
    */
   async create(input: CreateWorkUnitInput): Promise<WorkUnit> {
-    return this.prisma.workUnit.create({
+    const wu = await this.prisma.workUnit.create({
       data: {
         type: input.type ?? 'task',
         scope: input.scope,
@@ -58,9 +79,21 @@ export class WorkUnitService {
         channelId: input.channelId ?? null,
         parentId: input.parentId ?? null,
         dependsOn: input.dependsOn ? JSON.stringify(input.dependsOn) : '[]',
+        failureType: input.failureType ?? null,
+        retryCount: input.retryCount ?? 0,
+        timeoutAt: input.timeoutAt ?? null,
         metadata: input.metadata ? JSON.stringify(input.metadata) : null,
       },
     });
+
+    emitWorkUnitCreated({
+      workUnitId: wu.id,
+      type: wu.type,
+      scope: wu.scope,
+      channelId: wu.channelId,
+    });
+
+    return wu;
   }
 
   /**
@@ -79,10 +112,12 @@ export class WorkUnitService {
     assigneeId?: string;
     channelId?: string;
     parentId?: string;
+    failureType?: string;
+    timedOutBefore?: Date;
     page?: number;
     limit?: number;
   }): Promise<{ data: WorkUnit[]; total: number }> {
-    const { type, status, assigneeId, channelId, parentId, page = 1, limit = 20 } = options ?? {};
+    const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, page = 1, limit = 20 } = options ?? {};
 
     const where: Prisma.WorkUnitWhereInput = {};
     if (type) where.type = type;
@@ -90,6 +125,8 @@ export class WorkUnitService {
     if (assigneeId) where.assigneeId = assigneeId;
     if (channelId) where.channelId = channelId;
     if (parentId) where.parentId = parentId;
+    if (failureType) where.failureType = failureType;
+    if (timedOutBefore) where.timeoutAt = { lte: timedOutBefore };
 
     const [data, total] = await Promise.all([
       this.prisma.workUnit.findMany({
@@ -115,6 +152,9 @@ export class WorkUnitService {
     if (input.channelId !== undefined) data.channelId = input.channelId;
     if (input.parentId !== undefined) data.parentId = input.parentId;
     if (input.dependsOn !== undefined) data.dependsOn = JSON.stringify(input.dependsOn);
+    if (input.failureType !== undefined) data.failureType = input.failureType;
+    if (input.retryCount !== undefined) data.retryCount = input.retryCount;
+    if (input.timeoutAt !== undefined) data.timeoutAt = input.timeoutAt;
     if (input.metadata !== undefined) data.metadata = JSON.stringify(input.metadata);
 
     return this.prisma.workUnit.update({ where: { id }, data });
@@ -145,6 +185,8 @@ export class WorkUnitService {
 
     const wu = await this.prisma.workUnit.findUnique({ where: { id } });
     if (!wu) throw new Error('WorkUnit not found');
+
+    emitWorkUnitClaimed({ workUnitId: id, agentId, scope: wu.scope });
 
     // AC4: auto-load matching skills based on scope (best-effort, non-blocking)
     this.autoLoadSkillsForAgent(agentId, wu.scope).catch((err) => {
@@ -210,9 +252,17 @@ export class WorkUnitService {
       );
     }
 
-    return this.prisma.workUnit.update({
+    const updated = await this.prisma.workUnit.update({
       where: { id },
       data: { status: newStatus },
     });
+
+    emitWorkUnitStatusChanged({ workUnitId: id, oldStatus: current.status, newStatus });
+
+    if (newStatus === 'done') {
+      emitWorkUnitDone({ workUnitId: id, scope: current.scope });
+    }
+
+    return updated;
   }
 }
