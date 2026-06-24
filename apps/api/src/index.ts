@@ -184,6 +184,27 @@ async function start() {
     startAuditSubscriber();
     try { startEvolutionScheduler(); } catch { logger.warn('Evolution scheduler unavailable'); }
 
+    // ── AS-026: AgentLoop per AgentProfile ──
+    try {
+      const { prisma } = await import('@dommaker/studio-prisma');
+      const { AgentLoop } = await import('./modules/agents/agent-loop.js');
+      const { registerDefaultTriggers } = await import('./modules/agents/default-triggers.js');
+      const { TriggerScheduler } = await import('./modules/triggers/trigger-scheduler.js');
+
+      const profiles = await prisma.agentProfile.findMany({ where: { status: 'active' } });
+      const registry = new (TriggerScheduler as any)(null);
+      registerDefaultTriggers(registry);
+
+      for (const profile of profiles) {
+        const loop = new AgentLoop(profile as any, registry);
+        await loop.start();
+        logger.info(`[AgentLoop] Started for profile ${profile.name}`);
+      }
+      if (profiles.length === 0) {
+        logger.info('[AgentLoop] No active profiles found, skipping auto-start');
+      }
+    } catch (e) { logger.warn('[AgentLoop] Failed to start', { error: String(e) }); }
+
     // ── Channel 初始化（Goal 管线需要）──
     await import('./modules/channels/channel-init.js').then(({ ensureDefaultChannels }) =>
       ensureDefaultChannels()
