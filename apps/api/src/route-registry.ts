@@ -163,6 +163,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // AgentProfile routes (AS-025 Phase 2)
   const { default: agentProfileRoutes } = await import('./modules/agents/agent-profile.routes.js') as { default: Router };
 
+  // RuntimeInstance routes (AS-026 AC-1)
+  const { default: agentInstanceRoutes } = await import('./modules/agents/agent-instance.routes.js') as { default: Router };
+
   const auth = [requireAuth()];
 
   return [
@@ -180,6 +183,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/goals', router: goalRoutes, comment: 'O6: Goal 驱动架构' },
     { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
     { path: '/api/v1/agent-profiles', router: agentProfileRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD' },
+    { path: '/api/v1/agent-instances', router: agentInstanceRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD' },
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },
