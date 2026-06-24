@@ -51,9 +51,9 @@ vi.mock('../../skills/skill-loader.js', () => ({
 }));
 
 const TEST_SKILLS: SkillEntry[] = [
-  { name: 'session-analyst', path: 'session-analyst/SKILL.md', question: '如何分析需求产出 spec' },
-  { name: 'code-review', path: 'code-review/SKILL.md', question: '审查代码' },
-  { name: 'tdd-red', path: 'tdd-red/SKILL.md', question: '测试设计' },
+  { name: 'session-analyst', path: 'session-analyst/SKILL.md', description: '需求分析、产出 spec/SDD、AC 形式化' },
+  { name: 'code-review', path: 'code-review/SKILL.md', description: '代码审查、多维度质量检查' },
+  { name: 'tdd-red', path: 'tdd-red/SKILL.md', description: '测试契约设计、RED 阶段' },
 ];
 
 describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {

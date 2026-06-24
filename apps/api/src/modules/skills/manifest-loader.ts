@@ -1,10 +1,10 @@
 /**
- * manifest-loader (AS-025 §3.28c-5)
+ * manifest-loader (AS-025 3.28c-5)
  *
- * Parses ~/.studio/skills/MANIFEST.md → SkillEntry[]
- * Skips "降级记录" section (deprecated skills).
+ * Scans skills directories, reads SKILL.md frontmatter to build SkillEntry[].
+ * No longer depends on manually maintained MANIFEST.md table.
  *
- * AC1: 读取 MANIFEST.md 返回 Skill 列表（name + description）
+ * AC1: scan skills directory, return Skill list (name + description)
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -16,95 +16,82 @@ export interface SkillEntry {
   name: string;
   /** Relative path (e.g., "session-analyst/SKILL.md") */
   path: string;
-  /** The "回答的问题" column — what this skill answers */
-  question: string;
+  /** Skill description from frontmatter (Chinese) */
+  description: string;
 }
 
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
-const MANIFEST_FILE = 'MANIFEST.md';
 
 /** Cache */
 let cachedEntries: SkillEntry[] | null = null;
 
 /**
- * Parse a markdown table row like:
- * | `session-analyst/SKILL.md` | 如何分析需求产出 spec 或 SDD |
- *
- * Returns { path, question } or null if malformed.
+ * Parse YAML frontmatter from SKILL.md content.
+ * Extracts name and description fields.
  */
-function parseTableRow(line: string): { skillPath: string; question: string } | null {
-  // Match: | `path` | question |
-  const match = line.match(/^\|\s*`([^`]+)`\s*\|\s*(.+?)\s*\|/);
+function parseFrontmatter(content: string): { name: string; description: string } | null {
+  const match = content.match(/^---\n([\s\S]*?)\n---/);
   if (!match) return null;
 
-  const [, skillPath, question] = match;
-  // Only accept paths ending in /SKILL.md
-  if (!skillPath.endsWith('/SKILL.md')) return null;
+  const yaml = match[1];
+  let name = '';
+  let description = '';
 
-  return { skillPath, question };
-}
-
-/**
- * Parse MANIFEST.md content into SkillEntry[].
- * Stops at "降级记录" section header.
- */
-function parseManifestContent(content: string): SkillEntry[] {
-  const entries: SkillEntry[] = [];
-  const lines = content.split('\n');
-  let inDeprecatedSection = false;
-
-  for (const line of lines) {
-    // Detect start of deprecated section
-    if (/^##\s+降级/.test(line)) {
-      inDeprecatedSection = true;
-      continue;
-    }
-
-    // Any other ## header exits the deprecated section
-    if (/^##\s+/.test(line)) {
-      inDeprecatedSection = false;
-      continue;
-    }
-
-    if (inDeprecatedSection) continue;
-
-    const parsed = parseTableRow(line);
-    if (!parsed) continue;
-
-    // Extract directory name from path: "session-analyst/SKILL.md" → "session-analyst"
-    const name = parsed.skillPath.replace('/SKILL.md', '');
-    entries.push({
-      name,
-      path: parsed.skillPath,
-      question: parsed.question,
-    });
+  for (const line of yaml.split('\n')) {
+    const kv = line.match(/^(\w+):\s*(.+)$/);
+    if (!kv) continue;
+    const [, key, val] = kv;
+    const cleaned = val.replace(/^["']|["']$/g, '');
+    if (key === 'name') name = cleaned;
+    if (key === 'description') description = cleaned;
   }
 
-  return entries;
+  return name ? { name, description } : null;
 }
 
 /**
- * Load and parse MANIFEST.md.
- * Cached after first call; use invalidateManifestCache() to refresh.
+ * Scan skills directories, build SkillEntry[] from SKILL.md frontmatter.
+ * Skips directories without valid SKILL.md or frontmatter.
  */
 export function loadManifest(): SkillEntry[] {
   if (cachedEntries) return cachedEntries;
 
-  const manifestPath = path.join(SKILLS_DIR, MANIFEST_FILE);
   try {
-    if (!fs.existsSync(manifestPath)) {
-      logger.warn('[manifest-loader] MANIFEST.md not found', { path: manifestPath });
+    if (!fs.existsSync(SKILLS_DIR)) {
+      logger.warn('[manifest-loader] Skills directory not found', { path: SKILLS_DIR });
       cachedEntries = [];
       return cachedEntries;
     }
 
-    const content = fs.readFileSync(manifestPath, 'utf-8');
-    cachedEntries = parseManifestContent(content);
+    const entries: SkillEntry[] = [];
+    const dirs = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
 
-    logger.info('[manifest-loader] Loaded manifest', { count: cachedEntries.length });
+    for (const dir of dirs) {
+      if (!dir.isDirectory()) continue;
+
+      const skillFile = path.join(SKILLS_DIR, dir.name, 'SKILL.md');
+      if (!fs.existsSync(skillFile)) continue;
+
+      try {
+        const content = fs.readFileSync(skillFile, 'utf-8');
+        const meta = parseFrontmatter(content);
+        if (!meta) continue;
+
+        entries.push({
+          name: meta.name || dir.name,
+          path: `${dir.name}/SKILL.md`,
+          description: meta.description,
+        });
+      } catch (err) {
+        logger.warn('[manifest-loader] Failed to read SKILL.md', { skill: dir.name, error: String(err) });
+      }
+    }
+
+    cachedEntries = entries;
+    logger.info('[manifest-loader] Loaded skills from directory', { count: cachedEntries.length });
     return cachedEntries;
   } catch (err) {
-    logger.error('[manifest-loader] Failed to load manifest', { error: String(err) });
+    logger.error('[manifest-loader] Failed to scan skills directory', { error: String(err) });
     cachedEntries = [];
     return cachedEntries;
   }
@@ -119,7 +106,7 @@ export function getSkillFilePath(entry: SkillEntry): string {
 
 /**
  * Read full SKILL.md content for a SkillEntry.
- * AC3: 加载选中 Skill 全文（SKILL.md 内容）
+ * AC3: load full SKILL.md content for selected skill
  * Returns null if file doesn't exist.
  */
 export function loadSkillContent(entry: SkillEntry): string | null {

@@ -12,25 +12,17 @@ import * as os from 'os';
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claim-skill-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
 
-// Create test MANIFEST
-const MANIFEST = `# Skill 索引
-
-## 原子 Skill
-
-| Skill | 回答的问题 |
-|-------|-----------|
-| \`session-analyst/SKILL.md\` | 如何分析需求产出 spec 或 SDD |
-| \`code-review/SKILL.md\` | 如何多维度审查代码质量 |
-`;
-fs.writeFileSync(path.join(testSkillsDir, 'MANIFEST.md'), MANIFEST, 'utf-8');
-
-// Create test SKILL.md files
-for (const name of ['session-analyst', 'code-review']) {
+// Create test SKILL.md files with description in frontmatter
+const SKILL_DESCRIPTIONS: Record<string, string> = {
+  'session-analyst': '需求分析、产出 spec/SDD、AC 形式化',
+  'code-review': '代码审查、多维度质量检查、AC 覆盖',
+};
+for (const [name, description] of Object.entries(SKILL_DESCRIPTIONS)) {
   const dir = path.join(testSkillsDir, name);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(
     path.join(dir, 'SKILL.md'),
-    `---\nname: ${name}\nstatus: published\n---\n\n# ${name}\nSkill content for ${name}\n`,
+    `---\nname: ${name}\ndescription: "${description}"\nstatus: published\n---\n\n# ${name}\nSkill content for ${name}\n`,
     'utf-8'
   );
 }

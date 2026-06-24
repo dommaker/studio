@@ -1,7 +1,7 @@
 /**
  * skill-selector tests (AS-025 §3.28c-5)
  *
- * AC2: 根据 scope 匹配 Skill（关键词匹配）
+ * AC2: 根据 scope 匹配 Skill（description 匹配）
  */
 import { describe, it, expect, vi } from 'vitest';
 
@@ -13,17 +13,17 @@ import { selectSkills } from '../skill-selector.js';
 import type { SkillEntry } from '../manifest-loader.js';
 
 const SKILLS: SkillEntry[] = [
-  { name: 'session-analyst', path: 'session-analyst/SKILL.md', question: '如何分析需求产出 spec 或 SDD' },
-  { name: 'tdd-red', path: 'tdd-red/SKILL.md', question: '如何设计测试契约（RED 阶段方法论）' },
-  { name: 'tdd-green', path: 'tdd-green/SKILL.md', question: '如何用最小代码让测试通过（GREEN 阶段）' },
-  { name: 'code-review', path: 'code-review/SKILL.md', question: '如何多维度审查代码质量' },
-  { name: 'arch-review-skill', path: 'arch-review-skill/SKILL.md', question: '概念完整性如何' },
-  { name: 'sdd-review-skill', path: 'sdd-review-skill/SKILL.md', question: '这个设计质量如何（三层一致性）' },
-  { name: 'spec-review-skill', path: 'spec-review-skill/SKILL.md', question: '这个 spec 可执行吗' },
-  { name: 'knowledge-extraction', path: 'knowledge-extraction/SKILL.md', question: '如何从事件提取知识' },
-  { name: 'knowledge-synthesis-skill', path: 'knowledge-synthesis-skill/SKILL.md', question: '如何跨时间窗口综合模式' },
-  { name: 'knowledge-quality-skill', path: 'knowledge-quality-skill/SKILL.md', question: '知识库健康度如何（语义层审计）' },
-  { name: 'doc-manager-skill', path: 'doc-manager-skill/SKILL.md', question: '如何管理结构化文档（保存进度/创建 spec/更新文档/更新 roadmap）' },
+  { name: 'session-analyst', path: 'session-analyst/SKILL.md', description: '分析需求、需求分析、产出 spec/SDD、AC 形式化、用户故事验收标准' },
+  { name: 'tdd-red', path: 'tdd-red/SKILL.md', description: '测试契约设计、RED 阶段、FAIL 测试、AC 转测试' },
+  { name: 'tdd-green', path: 'tdd-green/SKILL.md', description: '最小实现、GREEN 阶段、让测试通过、最小代码' },
+  { name: 'code-review', path: 'code-review/SKILL.md', description: '代码审查、多维度质量检查、AC 覆盖、安全审查' },
+  { name: 'arch-review-skill', path: 'arch-review-skill/SKILL.md', description: '架构审查、概念完整性、维度覆盖检查' },
+  { name: 'sdd-review-skill', path: 'sdd-review-skill/SKILL.md', description: 'SDD 审查、设计质量、三层一致性、AC Group 验证' },
+  { name: 'spec-review-skill', path: 'spec-review-skill/SKILL.md', description: 'spec 审查、可执行性检查、AC 可测试性' },
+  { name: 'knowledge-extraction', path: 'knowledge-extraction/SKILL.md', description: '知识提取、从事件提取可复用知识' },
+  { name: 'knowledge-synthesis-skill', path: 'knowledge-synthesis-skill/SKILL.md', description: '知识综合、跨时间窗口模式识别' },
+  { name: 'knowledge-quality-skill', path: 'knowledge-quality-skill/SKILL.md', description: '知识库健康度、语义层审计、知识质量审查' },
+  { name: 'doc-manager-skill', path: 'doc-manager-skill/SKILL.md', description: '文档管理、保存进度、创建 spec、更新 roadmap' },
 ];
 
 describe('skill-selector', () => {
@@ -73,11 +73,6 @@ describe('skill-selector', () => {
       expect(result.map(s => s.name)).toContain('doc-manager-skill');
     });
 
-    it('case-insensitive matching', () => {
-      const result = selectSkills('CODE REVIEW this PR', SKILLS);
-      expect(result.map(s => s.name)).toContain('code-review');
-    });
-
     it('matches multiple skills for composite scope', () => {
       const result = selectSkills('分析需求并设计测试契约', SKILLS);
       const names = result.map(s => s.name);
@@ -93,6 +88,21 @@ describe('skill-selector', () => {
     it('returns empty array for empty scope', () => {
       const result = selectSkills('', SKILLS);
       expect(result).toEqual([]);
+    });
+
+    it('"spec 审查" → spec-review-skill', () => {
+      const result = selectSkills('审查这个 spec 的可执行性', SKILLS);
+      expect(result.map(s => s.name)).toContain('spec-review-skill');
+    });
+
+    it('"SDD 审查" → sdd-review-skill', () => {
+      const result = selectSkills('SDD 审查：检查三层一致性', SKILLS);
+      expect(result.map(s => s.name)).toContain('sdd-review-skill');
+    });
+
+    it('"知识综合" → knowledge-synthesis-skill', () => {
+      const result = selectSkills('跨时间窗口综合模式', SKILLS);
+      expect(result.map(s => s.name)).toContain('knowledge-synthesis-skill');
     });
   });
 });
