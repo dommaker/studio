@@ -1,7 +1,21 @@
-// Trigger Action — execute trigger actions (3.28c-4)
-// Currently supports: CREATE WorkUnit
+// Trigger Action — execute trigger actions (3.28c-4, AS-026 extended)
+// Supports: CREATE WorkUnit, EXECUTE handler, UPDATE entity
 import { prisma } from '@dommaker/studio-prisma';
-import type { TriggerAction } from './trigger.types.js';
+import { logger } from '@dommaker/studio-shared';
+import type { TriggerAction, TriggerExecuteHandler } from './trigger.types.js';
+
+/** Handler registry for EXECUTE actions */
+const executeHandlers = new Map<string, TriggerExecuteHandler>();
+
+/** Register a handler for EXECUTE actions */
+export function registerExecuteHandler(target: string, handler: TriggerExecuteHandler): void {
+  executeHandlers.set(target, handler);
+}
+
+/** Unregister a handler */
+export function unregisterExecuteHandler(target: string): void {
+  executeHandlers.delete(target);
+}
 
 /**
  * Execute a CREATE action — creates a WorkUnit from trigger payload.
@@ -15,10 +29,6 @@ export async function executeCreateAction(
 ): Promise<{ id: string; type: string; scope: string; status: string; channelId: string | null; metadata: string | null }> {
   if (action.type !== 'CREATE') {
     throw new Error(`Unknown action type: ${action.type}`);
-  }
-
-  if (action.target !== 'WorkUnit') {
-    throw new Error(`Unknown target: ${action.target}`);
   }
 
   const { type, scope, channelId, metadata } = action.payload;
@@ -47,4 +57,92 @@ export async function executeCreateAction(
     channelId: workUnit.channelId,
     metadata: workUnit.metadata,
   };
+}
+
+/**
+ * Execute an EXECUTE action — calls a registered handler.
+ * @param action - The trigger action definition (must be EXECUTE type)
+ * @param context - Context passed to the handler (e.g. event payload)
+ */
+export async function executeExecuteAction(
+  action: TriggerAction,
+  context: unknown,
+): Promise<void> {
+  if (action.type !== 'EXECUTE') {
+    throw new Error(`Expected EXECUTE action, got: ${action.type}`);
+  }
+
+  const handler = executeHandlers.get(action.target);
+  if (!handler) {
+    logger.warn(`[TriggerAction] No handler registered for execute target: ${action.target}`);
+    return;
+  }
+
+  await handler(context);
+}
+
+/**
+ * Execute an UPDATE action — updates entity via prisma with template resolution.
+ * Supports $event.xxx template variables in query/update values.
+ * @param action - The trigger action definition (must be UPDATE type)
+ * @param context - Event payload for template resolution
+ */
+export async function executeUpdateAction(
+  action: TriggerAction,
+  context: unknown,
+): Promise<void> {
+  if (action.type !== 'UPDATE') {
+    throw new Error(`Expected UPDATE action, got: ${action.type}`);
+  }
+
+  const eventPayload = (context && typeof context === 'object') ? context as Record<string, unknown> : {};
+  const query = resolveTemplate(action.config.query, eventPayload);
+  const update = resolveTemplate(action.config.update, eventPayload);
+
+  // Only support workunit entity for MVP
+  if (action.target === 'workunit') {
+    await prisma.workUnit.updateMany({ where: query, data: update });
+  } else {
+    logger.warn(`[TriggerAction] Unknown UPDATE target: ${action.target}`);
+  }
+}
+
+/**
+ * Recursively resolve $event.xxx template variables in an object.
+ * $event.xxx → eventPayload.xxx. If key not found, field is skipped.
+ */
+function resolveTemplate(
+  obj: Record<string, unknown>,
+  eventPayload: Record<string, unknown>,
+): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === 'string' && value.startsWith('$event.')) {
+      const path = value.slice(7); // remove '$event.'
+      const resolved = getNestedValue(eventPayload, path);
+      if (resolved !== undefined) {
+        result[key] = resolved;
+      }
+      // Skip if not found in event payload
+    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      result[key] = resolveTemplate(value as Record<string, unknown>, eventPayload);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+/** Get nested value from object by dot-separated path */
+function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
+  const parts = path.split('.');
+  let current: unknown = obj;
+  for (const part of parts) {
+    if (current && typeof current === 'object' && part in (current as Record<string, unknown>)) {
+      current = (current as Record<string, unknown>)[part];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
 }

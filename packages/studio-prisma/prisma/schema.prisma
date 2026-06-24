@@ -1455,6 +1455,24 @@ model AgentProfile {
   @@map("agent_profile")
 }
 
+// ── AS-026: Agent Persistence MVP — RuntimeInstance ──
+// Agent 运行实例：关联 AgentProfile（Role），跟踪执行状态
+
+model RuntimeInstance {
+  id                String    @id @default(cuid())
+  roleId            String    // 关联 AgentProfile.id
+  sessionId         String?   // Claude session-id
+  status            String    @default("idle") // idle | active | terminated
+  currentWorkUnitId String?   // 当前处理的 WorkUnit
+  startedAt         DateTime  @default(now())
+  terminatedAt      DateTime?
+  metadata          String?   // JSON: { tokenUsed, tasksCompleted, lastHeartbeat }
+
+  @@index([roleId])
+  @@index([status])
+  @@map("runtime_instance")
+}
+
 // ── AS-025: Agent Network — WorkUnit (3.28c-1) ──
 // WorkUnit 是统一工作单元：Goal/GoalExecution/Task 的参数化统一
 

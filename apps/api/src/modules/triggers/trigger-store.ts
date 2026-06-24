@@ -14,17 +14,46 @@ function validateTrigger(config: TriggerConfig): void {
   if (!config.name || typeof config.name !== 'string') {
     throw new Error('Trigger must have a name');
   }
-  if (!config.condition || config.condition.type !== 'SCHEDULE' || !config.condition.cron) {
-    throw new Error('Trigger must have a SCHEDULE condition with cron');
+  if (!config.condition) {
+    throw new Error('Trigger must have a condition');
   }
-  if (!CronMatcher.isValid(config.condition.cron)) {
-    throw new Error(`Invalid cron expression: "${config.condition.cron}"`);
+  if (config.condition.type === 'SCHEDULE') {
+    if (!config.condition.cron) {
+      throw new Error('SCHEDULE condition must have cron');
+    }
+    if (!CronMatcher.isValid(config.condition.cron)) {
+      throw new Error(`Invalid cron expression: "${config.condition.cron}"`);
+    }
+  } else if (config.condition.type === 'EVENT') {
+    if (!config.condition.event) {
+      throw new Error('EVENT condition must have event name');
+    }
+  } else {
+    throw new Error(`Unknown condition type: ${(config.condition as { type: string }).type}`);
   }
-  if (!config.action || config.action.type !== 'CREATE' || !config.action.target) {
-    throw new Error('Trigger must have a CREATE action with target');
+  if (!config.action) {
+    throw new Error('Trigger must have an action');
   }
-  if (!config.action.payload || !config.action.payload.type || !config.action.payload.scope) {
-    throw new Error('Trigger action must have payload with type and scope');
+  if (config.action.type === 'CREATE') {
+    if (!config.action.target) {
+      throw new Error('CREATE action must have target');
+    }
+    if (!config.action.payload || !config.action.payload.type || !config.action.payload.scope) {
+      throw new Error('CREATE action must have payload with type and scope');
+    }
+  } else if (config.action.type === 'EXECUTE') {
+    if (!config.action.target) {
+      throw new Error('EXECUTE action must have target');
+    }
+  } else if (config.action.type === 'UPDATE') {
+    if (!config.action.target) {
+      throw new Error('UPDATE action must have target');
+    }
+    if (!config.action.config?.query || !config.action.config?.update) {
+      throw new Error('UPDATE action must have config with query and update');
+    }
+  } else {
+    throw new Error(`Unknown action type: ${(config.action as { type: string }).type}`);
   }
   if (typeof config.enabled !== 'boolean') {
     throw new Error('Trigger must have enabled (boolean)');

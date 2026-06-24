@@ -1,25 +1,38 @@
-// Trigger Registry Types (3.28c-4)
+// Trigger Registry Types (3.28c-4, AS-026 extended)
 // Trigger = condition (when) + action (what)
 
 /** Trigger condition — when to fire */
-export interface TriggerCondition {
-  type: 'SCHEDULE';
-  cron: string; // cron expression: "17 9 * * *"
-}
+export type TriggerCondition =
+  | { type: 'SCHEDULE'; cron: string }
+  | { type: 'EVENT'; event: string; filter?: Record<string, unknown> };
 
 /** Trigger action — what to do when fired */
-export interface TriggerAction {
-  type: 'CREATE';
-  target: 'WorkUnit';
-  payload: {
-    type: string;   // WorkUnit type: task | analysis | monitor | discussion
-    scope: string;  // WorkUnit scope
-    channelId?: string;
-    metadata?: Record<string, unknown>;
-  };
-}
+export type TriggerAction =
+  | {
+      type: 'CREATE';
+      target: 'WorkUnit';
+      payload: {
+        type: string;   // WorkUnit type: task | analysis | monitor | discussion
+        scope: string;  // WorkUnit scope
+        channelId?: string;
+        metadata?: Record<string, unknown>;
+      };
+    }
+  | {
+      type: 'EXECUTE';
+      target: string;   // handler name (e.g. 'agent-loop', 'agent-scan-workunits')
+      config?: Record<string, unknown>;
+    }
+  | {
+      type: 'UPDATE';
+      target: string;   // entity type (e.g. 'workunit')
+      config: {
+        query: Record<string, unknown>;
+        update: Record<string, unknown>;
+      };
+    };
 
-/** Full trigger definition (matches YAML schema) */
+/** Full trigger definition */
 export interface TriggerConfig {
   id: string;
   name: string;
@@ -44,3 +57,6 @@ export interface TriggerLogEntry {
   event: 'tick' | 'fired' | 'error' | 'skipped';
   message: string;
 }
+
+/** Handler function type for EXECUTE actions */
+export type TriggerExecuteHandler = (context: unknown) => Promise<void>;
