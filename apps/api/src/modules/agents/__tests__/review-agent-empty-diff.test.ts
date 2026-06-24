@@ -187,3 +187,61 @@ describe('ReviewAgent — empty diff pre-check', () => {
     expect(claudeCalls.length).toBeGreaterThan(0);
   });
 });
+
+describe('ReviewAgent — isSimpleChange total lines check', () => {
+  let worktree: string;
+
+  beforeEach(() => {
+    worktree = fs.mkdtempSync(path.join(os.tmpdir(), 'review-lines-'));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    try { fs.rmSync(worktree, { recursive: true, force: true }); } catch { /* best-effort */ }
+  });
+
+  /** Call isSimpleChange directly via any-cast */
+  async function callIsSimpleChange(acs?: string[]): Promise<boolean> {
+    return (reviewAgent as any).isSimpleChange(worktree, acs);
+  }
+
+  it('AC1: returns false when total changed lines > 20', async () => {
+    // 21 added lines → should be false
+    mockExecSh.mockResolvedValueOnce({ stdout: '21\t0\tsrc/foo.ts\n', stderr: '' });
+    expect(await callIsSimpleChange()).toBe(false);
+  });
+
+  it('AC3: returns true when total changed lines = 20 (boundary)', async () => {
+    // Exactly 20 added lines → should be true
+    mockExecSh.mockResolvedValueOnce({ stdout: '20\t0\tsrc/foo.ts\n', stderr: '' });
+    expect(await callIsSimpleChange()).toBe(true);
+  });
+
+  it('AC3: returns true when total changed lines < 20', async () => {
+    mockExecSh.mockResolvedValueOnce({ stdout: '5\t0\tsrc/foo.ts\n', stderr: '' });
+    expect(await callIsSimpleChange()).toBe(true);
+  });
+
+  it('AC3: returns false when total changed lines = 21 (boundary+1)', async () => {
+    mockExecSh.mockResolvedValueOnce({ stdout: '21\t0\tsrc/foo.ts\n', stderr: '' });
+    expect(await callIsSimpleChange()).toBe(false);
+  });
+
+  it('AC2: preserves existing behavior — >3 ACs returns false', async () => {
+    mockExecSh.mockResolvedValueOnce({ stdout: '5\t0\tsrc/foo.ts\n', stderr: '' });
+    expect(await callIsSimpleChange(['a', 'b', 'c', 'd'])).toBe(false);
+  });
+
+  it('AC2: preserves existing behavior — deletions returns false', async () => {
+    mockExecSh.mockResolvedValueOnce({ stdout: '5\t3\tsrc/foo.ts\n', stderr: '' });
+    expect(await callIsSimpleChange()).toBe(false);
+  });
+
+  it('AC2: preserves existing behavior — >2 source files returns false', async () => {
+    mockExecSh.mockResolvedValueOnce({
+      stdout: '5\t0\tsrc/a.ts\n5\t0\tsrc/b.ts\n5\t0\tsrc/c.ts\n',
+      stderr: '',
+    });
+    expect(await callIsSimpleChange()).toBe(false);
+  });
+});

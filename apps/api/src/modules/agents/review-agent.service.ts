@@ -697,7 +697,8 @@ export class ReviewAgent {
         totalAdded += Number(parts[0]) || 0;
         totalDeleted += Number(parts[1]) || 0;
       }
-      return totalAdded > 0 && totalDeleted === 0;
+      const totalLines = totalAdded + totalDeleted;
+      return totalAdded > 0 && totalDeleted === 0 && totalLines <= 20;
     } catch {
       return false;
     }

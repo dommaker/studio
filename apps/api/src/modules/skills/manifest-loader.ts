@@ -67,7 +67,7 @@ export function loadManifest(): SkillEntry[] {
     const dirs = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
 
     for (const dir of dirs) {
-      if (!dir.isDirectory()) continue;
+      if (!dir.isDirectory() || dir.name.startsWith('_')) continue;
 
       const skillFile = path.join(SKILLS_DIR, dir.name, 'SKILL.md');
       if (!fs.existsSync(skillFile)) continue;
