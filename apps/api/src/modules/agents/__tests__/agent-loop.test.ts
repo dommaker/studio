@@ -1,5 +1,6 @@
 // AC-3: AgentLoop core tests
-// Tests AgentLoop lifecycle: start, canClaim, onNewWorkUnit, tryClaim, loadSkills, executeWithSkills
+// Tests AgentLoop lifecycle: start, canClaim, onNewWorkUnit, tryClaim, execute
+// Skill injection removed — session-manager handles via formatForPrompt + loadSkill MCP
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 // vi.hoisted() ensures these are available when vi.mock factories run
@@ -8,11 +9,6 @@ const { mockClaim, mockUnclaim, mockGetById, mockUpdateStatus } = vi.hoisted(() 
   mockUnclaim: vi.fn(),
   mockGetById: vi.fn(),
   mockUpdateStatus: vi.fn(),
-}));
-
-const { mockListAll, mockLoadSingle } = vi.hoisted(() => ({
-  mockListAll: vi.fn().mockReturnValue([]),
-  mockLoadSingle: vi.fn().mockReturnValue(null),
 }));
 
 const { mockExecute } = vi.hoisted(() => ({
@@ -81,13 +77,6 @@ vi.mock('@dommaker/studio-prisma', () => ({
   },
 }));
 
-vi.mock('@dommaker/studio-skill', () => ({
-  skillLoader: {
-    listAll: mockListAll,
-    loadSingle: mockLoadSingle,
-  },
-}));
-
 vi.mock('@dommaker/studio-agent', () => ({
   agentExecutor: {
     execute: mockExecute,
@@ -130,8 +119,6 @@ describe('AgentLoop', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // Reset hoisted mocks to defaults
-    mockListAll.mockReturnValue([]);
-    mockLoadSingle.mockReturnValue(null);
     mockPrismaFindMany.mockResolvedValue([]);
     mockPrismaCreate.mockResolvedValue({
       id: 'inst-1',
@@ -303,17 +290,8 @@ describe('AgentLoop', () => {
   });
 
   describe('tryClaim()', () => {
-    it('claims WorkUnit → loads skills → executes → submits for review', async () => {
+    it('claims WorkUnit → executes → submits for review', async () => {
       mockPrismaUpdate.mockResolvedValue({}); // claim + status update
-      mockListAll.mockReturnValue([
-        { id: 'skill-1', name: 'test-skill', description: 'test skill for testing', prompt: 'You are a tester' },
-      ]);
-      mockLoadSingle.mockReturnValue({
-        id: 'skill-1',
-        name: 'test-skill',
-        description: 'test skill',
-        prompt: 'You are a tester',
-      });
       mockExecute.mockResolvedValue({
         success: true,
         outputText: 'Task completed',
@@ -369,84 +347,10 @@ describe('AgentLoop', () => {
       }));
     });
 
-    it('on skill load failure: degrades to no-skill execution', async () => {
-      mockPrismaUpdate.mockResolvedValue({}); // claim + status update
-      mockListAll.mockImplementation(() => { throw new Error('skill load failed'); });
-      mockExecute.mockResolvedValue({
-        success: true,
-        outputText: 'Done without skills',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-      await (agentLoop as any).tryClaim(workUnit);
-
-      // Should still execute (degraded to no-skill)
-      expect(mockExecute).toHaveBeenCalled();
-      expect(mockPrismaUpdate).toHaveBeenCalledWith(expect.objectContaining({
-        data: expect.objectContaining({ status: 'in_review' }),
-      }));
-    });
   });
 
-  describe('loadSkills()', () => {
-    it('loads skills matching WorkUnit scope via description', async () => {
-      mockListAll.mockReturnValue([
-        { id: 's1', name: 'skill-a', description: 'handles testing tasks', prompt: 'test' },
-        { id: 's2', name: 'skill-b', description: 'handles deployment', prompt: 'deploy' },
-      ]);
-      mockLoadSingle.mockReturnValue({
-        id: 's1', name: 'skill-a', description: 'handles testing tasks', prompt: 'test prompt',
-      });
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'testing' };
-      const skills = await (agentLoop as any).loadSkills(workUnit);
-
-      expect(skills.length).toBeGreaterThanOrEqual(0);
-      expect(mockListAll).toHaveBeenCalled();
-    });
-
-    it('returns empty array when no skills match', async () => {
-      mockListAll.mockReturnValue([]);
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'nonexistent' };
-      const skills = await (agentLoop as any).loadSkills(workUnit);
-
-      expect(skills).toEqual([]);
-    });
-
-    it('calls skillLoader.loadSingle for each matched skill', async () => {
-      mockListAll.mockReturnValue([
-        { id: 's1', name: 'skill-a', description: 'test skill', prompt: 'p' },
-      ]);
-      mockLoadSingle.mockReturnValue({
-        id: 's1', name: 'skill-a', description: 'test skill', prompt: 'full prompt',
-      });
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await (agentLoop as any).loadSkills(workUnit);
-
-      expect(mockLoadSingle).toHaveBeenCalled();
-    });
-  });
-
-  describe('executeWithSkills()', () => {
-    it('builds prompt with skill content + scope + knowledge', async () => {
+  describe('execute()', () => {
+    it('passes WorkUnit info to agentExecutor without skill injection', async () => {
       mockExecute.mockResolvedValue({
         success: true,
         outputText: 'Result',
@@ -459,41 +363,20 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, mockRegistry);
       await agentLoop.start();
 
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      const skills = [{ id: 's1', name: 'skill-a', description: 'test', prompt: 'skill prompt' }];
-
-      await (agentLoop as any).executeWithSkills(workUnit, skills);
-
-      expect(mockExecute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringContaining('skill prompt'),
-          id: expect.any(String),
-          executionId: expect.any(String),
-        }),
-      );
-    });
-
-    it('calls agentExecutor.execute with constructed prompt', async () => {
-      mockExecute.mockResolvedValue({
-        success: true,
-        outputText: 'Done',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await (agentLoop as any).executeWithSkills(workUnit, []);
+      const workUnit = { id: 'wu-1', type: 'task', scope: 'fix docs-freshness API' };
+      await (agentLoop as any).execute(workUnit);
 
       expect(mockExecute).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 'wu-1',
           executionId: expect.stringContaining('wu-1'),
-          prompt: expect.any(String),
+          prompt: expect.stringContaining('fix docs-freshness API'),
+        }),
+      );
+      // Skill content should NOT be in the prompt
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.not.stringContaining('## Available Skills'),
         }),
       );
     });
@@ -513,7 +396,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await (agentLoop as any).executeWithSkills(workUnit, []);
+      await (agentLoop as any).execute(workUnit);
 
       expect(eventBus.publish).toHaveBeenCalledWith(
         'channel.message.created',
@@ -531,7 +414,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await expect((agentLoop as any).executeWithSkills(workUnit, [])).rejects.toThrow('LLM timeout');
+      await expect((agentLoop as any).execute(workUnit)).rejects.toThrow('LLM timeout');
     });
   });
 });

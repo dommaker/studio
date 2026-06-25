@@ -1,14 +1,13 @@
 // AgentLoop — autonomous WorkUnit discovery + claim + execute cycle (AS-026)
-// Subscribes to EventBus for new WorkUnits, claims matching ones, loads skills, executes, submits for review.
+// Subscribes to EventBus for new WorkUnits, claims matching ones, executes, submits for review.
+// Skill injection handled by session-manager (formatForPrompt + loadSkill MCP tool).
 import { eventBus, logger } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
-import { skillLoader } from '@dommaker/studio-skill';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { registerExecuteHandler, unregisterExecuteHandler } from '../triggers/trigger-action.js';
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
 import type { WorkUnit, AgentProfile } from '@prisma/client';
-import type { SkillDefinition } from '@dommaker/studio-skill';
 
 /** Result from agentExecutor.execute() */
 interface ExecutionResult {
@@ -155,16 +154,8 @@ export class AgentLoop {
     }
 
     try {
-      // Load skills (degrade to no-skill on failure)
-      let skills: SkillDefinition[] = [];
-      try {
-        skills = await this.loadSkills(workUnit);
-      } catch (err: any) {
-        logger.warn(`[AgentLoop] Skill load failed for ${workUnit.id}, degrading: ${err.message}`);
-      }
-
-      // Execute
-      await this.executeWithSkills(workUnit, skills);
+      // Execute — skill injection handled by session-manager (formatForPrompt + loadSkill MCP)
+      await this.execute(workUnit);
 
       // Submit for review
       await prisma.workUnit.update({
@@ -187,33 +178,9 @@ export class AgentLoop {
     }
   }
 
-  /** Load skills matching WorkUnit scope */
-  private async loadSkills(workUnit: WorkUnit): Promise<SkillDefinition[]> {
-    const allSkills = skillLoader.listAll();
-    const scope = workUnit.scope?.toLowerCase() || '';
-
-    const matched = allSkills.filter(s => {
-      const desc = s.description?.toLowerCase() || '';
-      const name = s.name?.toLowerCase() || '';
-      return desc.includes(scope) || name.includes(scope) || scope.includes(name);
-    });
-
-    // Load full prompts for matched skills
-    const loaded: SkillDefinition[] = [];
-    for (const skill of matched) {
-      const full = skillLoader.loadSingle(skill.name);
-      if (full) loaded.push(full);
-    }
-    return loaded;
-  }
-
-  /** Execute WorkUnit with loaded skills */
-  private async executeWithSkills(workUnit: WorkUnit, skills: SkillDefinition[]): Promise<void> {
-    const skillPrompt = skills.length > 0
-      ? `\n\n## Available Skills\n${skills.map(s => `### ${s.name}\n${s.prompt}`).join('\n\n')}`
-      : '';
-
-    const prompt = `## Task\nWorkUnit: ${workUnit.id}\nType: ${workUnit.type}\nScope: ${workUnit.scope}${skillPrompt}`;
+  /** Execute WorkUnit — skill injection handled by session-manager */
+  private async execute(workUnit: WorkUnit): Promise<void> {
+    const prompt = `## Task\nWorkUnit: ${workUnit.id}\nType: ${workUnit.type}\nScope: ${workUnit.scope}`;
 
     const result: ExecutionResult = await agentExecutor.execute({
       id: workUnit.id,
