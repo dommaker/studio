@@ -22,6 +22,9 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     { to: '/pmo', icon: '📊', label: t('nav.pmo', 'PMO') },
     { to: '/knowledge', icon: '📚', label: t('nav.knowledge', '文档') },
     { to: '/wiki', icon: '📖', label: t('nav.wiki', 'Wiki') },
+    { to: '/workunits', icon: '📋', label: t('nav.workunits', 'WorkUnit') },
+    { to: '/agents', icon: '🤖', label: t('nav.agents', 'Agent') },
+    { to: '/monitoring', icon: '📈', label: t('nav.monitoring', '监控') },
     { to: '/tools', icon: '🔩', label: t('nav.tools', '工具') },
     { to: '/settings', icon: '⚙️', label: t('nav.settings', '设置') },
   ];

@@ -7,6 +7,8 @@
 
 import { spawn, execSync, type ChildProcess } from 'child_process';
 import { createConnection } from 'net';
+import { resolve } from 'path';
+import { existsSync, unlinkSync, mkdirSync } from 'fs';
 
 const API_PORT = 13001;
 const STARTUP_TIMEOUT = 60000;
@@ -69,18 +71,30 @@ export async function setup() {
     return;
   }
 
-  // Ensure test DB schema is up to date
-  const testDbUrl = process.env.DATABASE_URL || 'file:./packages/studio-prisma/prisma/test.db';
+  // Ensure test DB schema is up to date — use same path as setup-db.ts
+  const testDbDir = resolve(__dirname, '../apps/api/.test-data');
+  try { mkdirSync(testDbDir, { recursive: true }); } catch { /* exists */ }
+  const testDbPath = resolve(testDbDir, 'test.db');
+  const testDbUrl = `file:${testDbPath}`;
+
+  // Delete stale DB to avoid SQLITE_READONLY_DBMOVED
+  try { unlinkSync(testDbPath); } catch { /* ignore */ }
+  try { unlinkSync(testDbPath + '-journal'); } catch { /* ignore */ }
+  try { unlinkSync(testDbPath + '-wal'); } catch { /* ignore */ }
+
+  const schemaPath = resolve(__dirname, '../packages/studio-prisma/prisma/schema.prisma');
+  const prismaBin = resolve(__dirname, '../node_modules/.bin/prisma');
   try {
-    console.log('[globalSetup] Running prisma migrate deploy...');
-    execSync(`npx prisma migrate deploy`, {
+    console.log('[globalSetup] Running prisma db push...');
+    execSync(`${prismaBin} db push --force-reset --schema ${schemaPath}`, {
+      cwd: resolve(__dirname, '../packages/studio-prisma'),
       env: { ...process.env, DATABASE_URL: testDbUrl },
       stdio: 'pipe',
-      timeout: 30000,
+      timeout: 60000,
     });
-    console.log('[globalSetup] Prisma migrate done');
-  } catch (e: any) {
-    console.warn('[globalSetup] Prisma migrate failed (non-fatal):', e.message?.slice(0, 200));
+    console.log('[globalSetup] Prisma db push done');
+  } catch (e: unknown) {
+    console.warn('[globalSetup] Prisma db push failed (non-fatal):', e instanceof Error ? e.message.slice(0, 200) : String(e));
   }
 
   console.log(`\n[globalSetup] Starting API server on port ${API_PORT}...`);
@@ -92,7 +106,7 @@ export async function setup() {
       env: {
         ...process.env,
         PORT: String(API_PORT),
-        DATABASE_URL: process.env.DATABASE_URL || 'file:./packages/studio-prisma/prisma/test.db',
+        DATABASE_URL: testDbUrl,
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,

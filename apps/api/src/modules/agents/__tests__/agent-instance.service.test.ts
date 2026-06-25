@@ -21,6 +21,9 @@ vi.mock('@dommaker/studio-prisma', () => ({
     agentProfile: {
       findUnique: vi.fn(),
     },
+    workUnit: {
+      update: vi.fn().mockResolvedValue({}),
+    },
   },
 }));
 
@@ -142,6 +145,41 @@ describe('AgentInstanceService', () => {
       mockFindUnique.mockResolvedValue(mockInstance);
 
       await expect(service.update('inst-1', { status: 'invalid' })).rejects.toThrow();
+    });
+  });
+
+  describe('terminate()', () => {
+    it('should set status to terminated', async () => {
+      mockFindUnique.mockResolvedValue({ ...mockInstance, currentWorkUnitId: null });
+      mockUpdate.mockResolvedValue({ ...mockInstance, status: 'terminated', terminatedAt: new Date() });
+
+      const result = await service.terminate('inst-1');
+
+      expect(result.status).toBe('terminated');
+      expect(mockUpdate).toHaveBeenCalledWith({
+        where: { id: 'inst-1' },
+        data: expect.objectContaining({ status: 'terminated', currentWorkUnitId: null }),
+      });
+    });
+
+    it('should unclaim current WorkUnit when currentWorkUnitId exists', async () => {
+      const instanceWithWu = { ...mockInstance, currentWorkUnitId: 'wu-1' };
+      mockFindUnique.mockResolvedValue(instanceWithWu);
+      mockUpdate.mockResolvedValue({ ...instanceWithWu, status: 'terminated' });
+
+      await service.terminate('inst-1');
+
+      const { prisma } = await import('@dommaker/studio-prisma');
+      expect(prisma.workUnit.update).toHaveBeenCalledWith({
+        where: { id: 'wu-1' },
+        data: { assigneeId: null, status: 'unassigned' },
+      });
+    });
+
+    it('should throw when instance not found', async () => {
+      mockFindUnique.mockResolvedValue(null);
+
+      await expect(service.terminate('nonexistent')).rejects.toThrow('Instance not found');
     });
   });
 });

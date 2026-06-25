@@ -445,7 +445,7 @@ export class WorkUnitService {
    * Review rejected: in_review → active (or → blocked after 3 consecutive rejections).
    * Emits workunit.review.rejected.
    */
-  async reviewRejected(id: string): Promise<WorkUnit> {
+  async reviewRejected(id: string, reason?: string): Promise<WorkUnit> {
     const current = await this.prisma.workUnit.findUnique({ where: { id } });
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
@@ -455,6 +455,7 @@ export class WorkUnitService {
     const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
     const rejections = (metadata._consecutiveReviewRejections ?? 0) + 1;
     metadata._consecutiveReviewRejections = rejections;
+    if (reason) metadata._lastRejectionReason = reason;
 
     // 3 consecutive rejections → auto-block
     const newStatus = rejections >= 3 ? 'blocked' : 'active';

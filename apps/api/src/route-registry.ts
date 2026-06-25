@@ -169,6 +169,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Trigger routes (3.28c-4: REST API for trigger management)
   const { triggerRouter } = await import('./modules/triggers/trigger.routes.js') as { triggerRouter: Router };
 
+  // Monitoring routes (MVP-2 + MVP-6)
+  const { default: monitoringRoutes } = await import('./modules/monitoring/monitoring.routes.js') as { default: Router };
+
   const auth = [requireAuth()];
 
   return [
@@ -188,6 +191,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/agent-profiles', router: agentProfileRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD' },
     { path: '/api/v1/agent-instances', router: agentInstanceRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD' },
     { path: '/api/v1/triggers', router: triggerRouter, middleware: auth, comment: '3.28c-4: Trigger CRUD + status' },
+    { path: '/api/v1/monitoring', router: monitoringRoutes, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },

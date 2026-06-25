@@ -6,6 +6,7 @@
  *   POST   /api/v1/agent-instances          — create
  *   GET    /api/v1/agent-instances/:id      — get by id
  *   PATCH  /api/v1/agent-instances/:id      — update
+ *   POST   /api/v1/agent-instances/:id/terminate — terminate + unclaim WorkUnit
  */
 
 import { Router, type Request, type Response } from 'express';
@@ -92,6 +93,24 @@ router.patch('/:id', async (req: Request, res: Response) => {
       });
     }
     if (msg.includes('not found') || msg.includes('Record to update not found')) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: msg },
+      });
+    }
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+/** POST /:id/terminate — force terminate instance + unclaim WorkUnit */
+router.post('/:id/terminate', async (req: Request, res: Response) => {
+  try {
+    const instance = await service.terminate(req.params.id);
+    res.json(instance);
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: msg },
       });

@@ -21,6 +21,9 @@ const WikiPage = lazy(() => import('./pages/WikiPage').then(m => ({ default: m.W
 const WikiDocPage = lazy(() => import('./pages/WikiDocPage').then(m => ({ default: m.WikiDocPage })));
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })));
 const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => ({ default: m.OAuthCallback })));
+const WorkUnitListPage = lazy(() => import('./pages/WorkUnitListPage').then(m => ({ default: m.WorkUnitListPage })));
+const AgentDashboardPage = lazy(() => import('./pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
+const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ default: m.MonitoringPage })));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
@@ -205,6 +208,9 @@ export default function App() {
             <Route path="/knowledge/import" element={<Suspense fallback={<PageLoader />}><KnowledgeImportPage /></Suspense>} />
             <Route path="/wiki" element={<Suspense fallback={<PageLoader />}><WikiPage /></Suspense>} />
             <Route path="/wiki/:id" element={<Suspense fallback={<PageLoader />}><WikiDocPage /></Suspense>} />
+            <Route path="/workunits" element={<Suspense fallback={<PageLoader />}><WorkUnitListPage /></Suspense>} />
+            <Route path="/agents" element={<Suspense fallback={<PageLoader />}><AgentDashboardPage /></Suspense>} />
+            <Route path="/monitoring" element={<Suspense fallback={<PageLoader />}><MonitoringPage /></Suspense>} />
           </Routes>
         </div>
       </div>

@@ -36,6 +36,7 @@ export default defineWorkspace([
       exclude: ['apps/api/src/daemon/**', ...baseExclude],
       environment: 'node',
       globalSetup: ['./tests/globalSetup.ts'],
+      setupFiles: ['./apps/api/tests/setup-db.ts'],
     },
   },
   // daemon 测试（mocked — 不需要 Claude CLI）

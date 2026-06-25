@@ -57,6 +57,24 @@ export class AgentInstanceService {
     return { data, total };
   }
 
+  async terminate(id: string) {
+    const instance = await prisma.runtimeInstance.findUnique({ where: { id } });
+    if (!instance) throw new Error('Instance not found');
+
+    // Unclaim current WorkUnit if any
+    if (instance.currentWorkUnitId) {
+      await prisma.workUnit.update({
+        where: { id: instance.currentWorkUnitId },
+        data: { assigneeId: null, status: 'unassigned' },
+      }).catch(() => {}); // best-effort
+    }
+
+    return prisma.runtimeInstance.update({
+      where: { id },
+      data: { status: 'terminated', terminatedAt: new Date(), currentWorkUnitId: null },
+    });
+  }
+
   async update(id: string, input: UpdateInstanceInput) {
     if (input.status !== undefined && !(VALID_STATUSES as readonly string[]).includes(input.status)) {
       throw new Error(`Invalid status: ${input.status}. Must be one of: ${VALID_STATUSES.join(', ')}`);

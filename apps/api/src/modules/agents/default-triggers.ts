@@ -58,6 +58,16 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
+  // 5. agent-timeout: SCHEDULE every 2min → EXECUTE agent-timeout-scan
+  registry.registerTrigger({
+    id: 'agent-timeout',
+    name: 'Release timed-out Agent instances',
+    condition: { type: 'SCHEDULE', cron: '*/2 * * * *' },
+    action: { type: 'EXECUTE', target: 'agent-timeout-scan' },
+    enabled: true,
+    scope: 'system',
+  });
+
 }
 
 /** Get default trigger configs (for testing) */

@@ -116,6 +116,14 @@ export class AgentLoop {
   async scanForWork(): Promise<void> {
     if (this.processing) return;
 
+    // Update heartbeat
+    if (this.instance) {
+      await prisma.runtimeInstance.update({
+        where: { id: this.instance.id },
+        data: { lastHeartbeat: new Date() },
+      }).catch(() => {}); // best-effort
+    }
+
     const workUnits = await prisma.workUnit.findMany({
       where: {
         status: 'unassigned',

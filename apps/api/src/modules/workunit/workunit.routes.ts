@@ -229,7 +229,7 @@ router.post('/:id/review-passed', async (req: Request, res: Response) => {
 /** POST /:id/review-rejected — review rejected (in_review → active, or blocked after 3) */
 router.post('/:id/review-rejected', async (req: Request, res: Response) => {
   try {
-    const wu = await service.reviewRejected(req.params.id);
+    const wu = await service.reviewRejected(req.params.id, req.body?.reason);
     res.json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);

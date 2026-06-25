@@ -211,6 +211,30 @@ async function start() {
       ensureDefaultChannels()
     ).catch(e => logger.warn('Channel init unavailable', { error: String(e) }));
 
+    // ── Channel Message Events（讨论空间 EventBus subscriber）──
+    await import('./modules/channels/channel-message.events.js').then(({ registerChannelMessageEvents }) =>
+      registerChannelMessageEvents()
+    ).catch(e => logger.warn('ChannelMessageEvents unavailable', { error: String(e) }));
+
+    // ── Agent Timeout Scan（超时释放 handler）──
+    const { registerExecuteHandler } = await import('./modules/triggers/trigger-action.js');
+    registerExecuteHandler('agent-timeout-scan', async () => {
+      const { AgentInstanceService } = await import('./modules/agents/agent-instance.service.js');
+      const { prisma } = await import('@dommaker/studio-prisma');
+      const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+      const threshold = new Date(Date.now() - TIMEOUT_MS);
+      const stale = await prisma.runtimeInstance.findMany({
+        where: { status: { not: 'terminated' }, lastHeartbeat: { lt: threshold } },
+      });
+      const svc = new AgentInstanceService();
+      for (const inst of stale) {
+        await svc.terminate(inst.id).catch(err =>
+          logger.warn(`[AgentTimeout] Failed to terminate ${inst.id}: ${err}`)
+        );
+      }
+      if (stale.length > 0) logger.info(`[AgentTimeout] Terminated ${stale.length} stale instances`);
+    });
+
     // ── meeting 路径服务已摘除 ──
 
     // Express 4 不自动捕获 async route 异常 → monkey-patch Layer.handle_request
