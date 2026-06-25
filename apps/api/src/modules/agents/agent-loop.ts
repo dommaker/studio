@@ -111,7 +111,7 @@ export class AgentLoop {
     });
 
     if (workUnits.length > 0) {
-      await this.tryClaim(workUnits[0] as WorkUnit);
+      await this.tryClaim(workUnits[0]);
     }
   }
 
