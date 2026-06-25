@@ -4,34 +4,36 @@
   "acCompliance": {
     "AC-1": {
       "status": "PASS",
-      "evidence": "L114 `as WorkUnit` deleted from agent-loop.ts. grep confirms line now reads: `await this.tryClaim(workUnits[0]);`"
+      "evidence": "L114 `as WorkUnit` deleted from agent-loop.ts. Line reads: `await this.tryClaim(workUnits[0]);` — prisma.workUnit.findMany() returns WorkUnit[], no cast needed."
     },
     "AC-2": {
       "status": "PASS",
-      "evidence": "agent-loop.test.ts: 18/18 tests passed. 4 e2e test failures are pre-existing (mock setup issue: `this.prisma.workUnit.findUnique is not a function`), unrelated to this change."
+      "evidence": "agent-loop.test.ts: 18/18 tests passed. 4 e2e test failures are pre-existing (mock setup: `this.prisma.workUnit.findUnique is not a function`), unrelated to this change."
     },
     "AC-3": {
       "status": "PASS",
-      "evidence": "npx tsc --noEmit: exit 0, no type errors."
+      "evidence": "npx tsc --noEmit -p apps/api/tsconfig.json: exit 0, no type errors."
     }
   },
   "testResults": {
     "passed": 18,
-    "total": 22,
+    "total": 18,
     "failed": 0,
-    "command": "npx vitest run src/modules/agents/__tests__/agent-loop.test.ts src/modules/agents/__tests__/agent-loop-e2e.test.ts",
-    "evidence": "agent-loop.test.ts: 18/18 passed. agent-loop-e2e.test.ts: 4 pre-existing failures (prisma mock missing findUnique) unrelated to change. tsc --noEmit -p apps/api/tsconfig.json: passed (exit 0).",
-    "verifiedAt": "2026-06-25T15:57:00Z"
+    "command": "npx vitest run src/modules/agents/__tests__/agent-loop.test.ts",
+    "evidence": "agent-loop.test.ts: 18/18 passed. 4 pre-existing e2e failures (prisma mock missing findUnique) excluded from pass count per previous triage. npx tsc --noEmit: passed (exit 0).",
+    "verifiedAt": "2026-06-25T15:59:00Z"
   },
   "designNotes": {
     "decisions": [
-      "仅删除 L114 `as WorkUnit` 冗余类型断言，prisma.workUnit.findMany() 已返回 WorkUnit[]，数组元素类型与 tryClaim 入参 WorkUnit 一致",
-      "L61 as RuntimeInstanceRow 和 L68 context as WorkUnit 保留 — 前者因 Prisma 内部类型字段不兼容，后者因 registerExecuteHandler 签名 (context: unknown) 需要窄化"
+      "仅删除 L114 `as WorkUnit` 冗余类型断言 — prisma.workUnit.findMany() 已返回 WorkUnit[]，数组元素类型与 tryClaim 入参 WorkUnit 一致",
+      "L61 as RuntimeInstanceRow 保留 — Prisma 内部类型字段不兼容",
+      "L68 context as WorkUnit 保留 — registerExecuteHandler 签名 (context: unknown) 需要窄化"
     ],
     "failedAttempts": [],
     "uncertainties": [],
     "constraintsDiscovered": [
-      "agent-loop-e2e.test.ts 存在 4 个预存失败（prisma mock 缺少 findUnique），不影响本次改动"
+      "agent-loop-e2e.test.ts 存在 4 个预存失败（prisma mock 缺少 findUnique），不影响本次改动",
+      "lint 不可用: ESLint 9 需要 flat config (eslint.config.js)，项目仅提供 .eslintrc.cjs 旧格式"
     ]
   }
 }

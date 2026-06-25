@@ -52,8 +52,14 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/requirement-gate.ts
 
-<!-- STALE_SINCE: 2026-06-17 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/default-triggers.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts
+
+<!-- STALE_SINCE: 2026-06-25 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts
 
 ## 职责
 
@@ -74,6 +80,9 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `a8970c03`: agents): remove redundant as WorkUnit cast in agent-loop.ts L114
+- ✅ `f83bc026`: agents): AgentLoop→WorkUnitService + TriggerScheduler singleton
+- ✅ `4a0760ae`: agents): default-triggers 3 bug 修复
 - ✅ `5dbe148d`: daemon): pass config.timeoutMs through to agent-runner (B57-P3)
 - ✅ `f7ddf542`: pipeline LLM output resilience — JSON sanitize + deterministic gate
 - ✅ `0fbbc2ef`: B55 管线 Session 隔离 + Analyst 健壮性 + SDD 清理
