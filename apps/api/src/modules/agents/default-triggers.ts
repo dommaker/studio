@@ -52,7 +52,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
   registry.registerTrigger({
     id: 'poll-fallback',
     name: 'Fallback poll for unassigned WorkUnits',
-    condition: { type: 'SCHEDULE', cron: '*/30 * * * * *' },
+    condition: { type: 'SCHEDULE', cron: '*/30 * * * *' },
     action: { type: 'EXECUTE', target: 'agent-scan-workunits' },
     enabled: true,
     scope: 'system',
@@ -104,7 +104,7 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
     {
       id: 'poll-fallback',
       name: 'Fallback poll for unassigned WorkUnits',
-      condition: { type: 'SCHEDULE', cron: '*/30 * * * * *' },
+      condition: { type: 'SCHEDULE', cron: '*/30 * * * *' },
       action: { type: 'EXECUTE', target: 'agent-scan-workunits' },
       enabled: true,
       scope: 'system',

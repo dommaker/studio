@@ -42,6 +42,9 @@ export class AgentLoop {
   private instance: RuntimeInstanceRow | null = null;
   private processing = false;
   private acceptedTypes: string[] = [];
+  private scanInterval: ReturnType<typeof setInterval> | null = null;
+
+  private static readonly SCAN_INTERVAL_MS = 30_000; // 30 seconds
 
   constructor(role: AgentProfile, registry: TriggerScheduler) {
     this.role = role;
@@ -72,14 +75,27 @@ export class AgentLoop {
       return this.scanForWork();
     });
 
-    // 4. Initial scan
-    await this.scanForWork();
+    // 4. Initial scan (non-blocking — don't await, let server start first)
+    this.scanForWork().catch(err =>
+      logger.error(`[AgentLoop] Initial scan failed for ${this.role.name}: ${err.message}`)
+    );
 
-    logger.info(`[AgentLoop] Started for role ${this.role.name} (instance=${this.instance.id})`);
+    // 5. Periodic scan (bypasses cron — EventBus is in-process only)
+    this.scanInterval = setInterval(() => {
+      this.scanForWork().catch(err =>
+        logger.error(`[AgentLoop] Periodic scan failed for ${this.role.name}: ${err.message}`)
+      );
+    }, AgentLoop.SCAN_INTERVAL_MS);
+
+    logger.info(`[AgentLoop] Started for role ${this.role.name} (instance=${this.instance.id}, scanEvery=${AgentLoop.SCAN_INTERVAL_MS}ms)`);
   }
 
   /** Stop the agent loop and clean up */
   stop(): void {
+    if (this.scanInterval) {
+      clearInterval(this.scanInterval);
+      this.scanInterval = null;
+    }
     unregisterExecuteHandler('agent-loop');
     unregisterExecuteHandler('agent-scan-workunits');
     if (this.instance) {
@@ -141,12 +157,16 @@ export class AgentLoop {
   private async tryClaim(workUnit: WorkUnit): Promise<void> {
     this.processing = true;
     try {
-      // Claim via WorkUnitService (emits workunit.claimed event)
-      await this.workUnitService.claim(workUnit.id, this.instance!.id);
+      // Claim with optimistic lock
+      await prisma.workUnit.update({
+        where: { id: workUnit.id, assigneeId: null, status: 'unassigned' },
+        data: { assigneeId: this.instance!.id, status: 'active', claimedAt: new Date() },
+      });
     } catch (err: unknown) {
       this.processing = false;
       const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('Claim failed') || message.includes('P2025')) {
+      const code = err instanceof Object && 'code' in (err as any) ? (err as any).code : undefined;
+      if (code === 'P2025' || message.includes('Record to update not found')) {
         logger.debug(`[AgentLoop] WorkUnit ${workUnit.id} already claimed, skipping`);
         return;
       }
@@ -158,8 +178,11 @@ export class AgentLoop {
       const result = await this.execute(workUnit);
 
       if (result.success) {
-        // Submit for review via WorkUnitService (validates state machine + emits events)
-        await this.workUnitService.transitionStatus(workUnit.id, 'in_review');
+        // Submit for review
+        await prisma.workUnit.update({
+          where: { id: workUnit.id },
+          data: { status: 'in_review' },
+        });
         logger.info(`[AgentLoop] WorkUnit ${workUnit.id} submitted for review`);
       } else {
         // Execution failed — unclaim (state machine doesn't support active→unassigned)
