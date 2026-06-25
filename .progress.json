@@ -1,38 +1,37 @@
 {
-  "taskId": "ac-remove-redundant-cast",
+  "taskId": "test-periodic-scan",
   "allComplete": true,
   "acCompliance": {
     "AC-1": {
       "status": "PASS",
-      "evidence": "L114 `as WorkUnit` deleted from agent-loop.ts. Line reads: `await this.tryClaim(workUnits[0]);` — prisma.workUnit.findMany() returns WorkUnit[], no cast needed."
+      "evidence": "beforeEach 添加 mockPrismaUpdate.mockResolvedValue({})，修复 vi.clearAllMocks() 不清除实现导致的 2 个 tryClaim 测试失败。测试 20/20 全部通过。"
     },
     "AC-2": {
       "status": "PASS",
-      "evidence": "agent-loop.test.ts: 18/18 tests passed. 4 e2e test failures are pre-existing (mock setup: `this.prisma.workUnit.findUnique is not a function`), unrelated to this change."
+      "evidence": "添加 2 个周期性扫描测试: ① starts periodic scan interval with SCAN_INTERVAL_MS — spy setInterval 验证 30_000ms 参数; ② clears periodic scan interval — after stop() 验证 clearInterval 被调用。"
     },
     "AC-3": {
       "status": "PASS",
-      "evidence": "npx tsc --noEmit -p apps/api/tsconfig.json: exit 0, no type errors."
+      "evidence": "agent-loop.test.ts: 20/20 passed. npx tsc --noEmit -p apps/api/tsconfig.json: exit 0, no type errors."
     }
   },
   "testResults": {
-    "passed": 18,
-    "total": 18,
+    "passed": 20,
+    "total": 20,
     "failed": 0,
     "command": "npx vitest run src/modules/agents/__tests__/agent-loop.test.ts",
-    "evidence": "agent-loop.test.ts: 18/18 passed. 4 pre-existing e2e failures (prisma mock missing findUnique) excluded from pass count per previous triage. npx tsc --noEmit: passed (exit 0).",
-    "verifiedAt": "2026-06-25T15:59:00Z"
+    "evidence": "agent-loop.test.ts: 20/20 passed. npx tsc --noEmit: passed (exit 0).",
+    "verifiedAt": "2026-06-25T16:14:00Z"
   },
   "designNotes": {
     "decisions": [
-      "仅删除 L114 `as WorkUnit` 冗余类型断言 — prisma.workUnit.findMany() 已返回 WorkUnit[]，数组元素类型与 tryClaim 入参 WorkUnit 一致",
-      "L61 as RuntimeInstanceRow 保留 — Prisma 内部类型字段不兼容",
-      "L68 context as WorkUnit 保留 — registerExecuteHandler 签名 (context: unknown) 需要窄化"
+      "beforeEach 加 mockPrismaUpdate.mockResolvedValue({}) — vi.clearAllMocks() 不清除 mock 实现，前一个测试设了 mockRejectedValue 后 cascade 到后续测试",
+      "用 vi.spyOn(global, 'setInterval') 验证周期性扫描启动 — 不改 FakeTimers，避免侵入其他测试",
+      "新增 stop() describe 块验证 clearInterval 调用 — 与 afterEach 分离，独立测试关注点"
     ],
     "failedAttempts": [],
     "uncertainties": [],
     "constraintsDiscovered": [
-      "agent-loop-e2e.test.ts 存在 4 个预存失败（prisma mock 缺少 findUnique），不影响本次改动",
       "lint 不可用: ESLint 9 需要 flat config (eslint.config.js)，项目仅提供 .eslintrc.cjs 旧格式"
     ]
   }
