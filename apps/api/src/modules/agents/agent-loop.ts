@@ -6,6 +6,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { registerExecuteHandler, unregisterExecuteHandler } from '../triggers/trigger-action.js';
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
 import type { WorkUnit, AgentProfile } from '@prisma/client';
 
@@ -37,6 +38,7 @@ interface RuntimeInstanceRow {
 export class AgentLoop {
   private role: AgentProfile;
   private registry: TriggerScheduler;
+  private workUnitService: WorkUnitService;
   private instance: RuntimeInstanceRow | null = null;
   private processing = false;
   private acceptedTypes: string[] = [];
@@ -44,6 +46,7 @@ export class AgentLoop {
   constructor(role: AgentProfile, registry: TriggerScheduler) {
     this.role = role;
     this.registry = registry;
+    this.workUnitService = new WorkUnitService(prisma);
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
   }
 
@@ -138,15 +141,12 @@ export class AgentLoop {
   private async tryClaim(workUnit: WorkUnit): Promise<void> {
     this.processing = true;
     try {
-      // Claim with optimistic lock
-      await prisma.workUnit.update({
-        where: { id: workUnit.id, assigneeId: null, status: 'unassigned' },
-        data: { assigneeId: this.instance!.id, status: 'active', claimedAt: new Date() },
-      });
-    } catch (err: any) {
+      // Claim via WorkUnitService (emits workunit.claimed event)
+      await this.workUnitService.claim(workUnit.id, this.instance!.id);
+    } catch (err: unknown) {
       this.processing = false;
-      if (err?.code === 'P2025' || err?.status === 409) {
-        // Already claimed by someone else — skip
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes('Claim failed') || message.includes('P2025')) {
         logger.debug(`[AgentLoop] WorkUnit ${workUnit.id} already claimed, skipping`);
         return;
       }
@@ -155,31 +155,28 @@ export class AgentLoop {
 
     try {
       // Execute — skill injection handled by session-manager (formatForPrompt + loadSkill MCP)
-      await this.execute(workUnit);
+      const result = await this.execute(workUnit);
 
-      // Submit for review
-      await prisma.workUnit.update({
-        where: { id: workUnit.id },
-        data: { status: 'in_review' },
-      });
-
-      logger.info(`[AgentLoop] WorkUnit ${workUnit.id} submitted for review`);
-    } catch (err: any) {
-      // Execution failed — unclaim
-      logger.error(`[AgentLoop] Execution failed for ${workUnit.id}: ${err.message}`);
-      await prisma.workUnit.update({
-        where: { id: workUnit.id },
-        data: { assigneeId: null, status: 'unassigned' },
-      }).catch(unclaimErr => {
-        logger.error(`[AgentLoop] Unclaim failed for ${workUnit.id}: ${unclaimErr.message}`);
-      });
+      if (result.success) {
+        // Submit for review via WorkUnitService (validates state machine + emits events)
+        await this.workUnitService.transitionStatus(workUnit.id, 'in_review');
+        logger.info(`[AgentLoop] WorkUnit ${workUnit.id} submitted for review`);
+      } else {
+        // Execution failed — unclaim (state machine doesn't support active→unassigned)
+        logger.error(`[AgentLoop] Execution failed for ${workUnit.id}: ${result.error}`);
+        await this.unclaim(workUnit.id);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`[AgentLoop] Execution failed for ${workUnit.id}: ${message}`);
+      await this.unclaim(workUnit.id);
     } finally {
       this.processing = false;
     }
   }
 
   /** Execute WorkUnit — skill injection handled by session-manager */
-  private async execute(workUnit: WorkUnit): Promise<void> {
+  private async execute(workUnit: WorkUnit): Promise<ExecutionResult> {
     const prompt = `## Task\nWorkUnit: ${workUnit.id}\nType: ${workUnit.type}\nScope: ${workUnit.scope}`;
 
     const result: ExecutionResult = await agentExecutor.execute({
@@ -194,6 +191,18 @@ export class AgentLoop {
     if (result.outputText) {
       await this.postToDiscussionSpace(workUnit.id, result.outputText);
     }
+
+    return result;
+  }
+
+  /** Unclaim WorkUnit (direct prisma — state machine doesn't support active→unassigned) */
+  private async unclaim(workUnitId: string): Promise<void> {
+    await prisma.workUnit.update({
+      where: { id: workUnitId },
+      data: { assigneeId: null, status: 'unassigned' },
+    }).catch(unclaimErr => {
+      logger.error(`[AgentLoop] Unclaim failed for ${workUnitId}: ${unclaimErr.message}`);
+    });
   }
 
   /** Post execution result to WorkUnit discussion space */

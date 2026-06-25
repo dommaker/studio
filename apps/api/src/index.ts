@@ -189,10 +189,11 @@ async function start() {
       const { prisma } = await import('@dommaker/studio-prisma');
       const { AgentLoop } = await import('./modules/agents/agent-loop.js');
       const { registerDefaultTriggers } = await import('./modules/agents/default-triggers.js');
-      const { TriggerScheduler } = await import('./modules/triggers/trigger-scheduler.js');
+      const { getTriggerScheduler } = await import('./modules/triggers/trigger-registry.js');
 
       const profiles = await prisma.agentProfile.findMany({ where: { status: 'active' } });
-      const registry = new (TriggerScheduler as any)(null);
+      const registry = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
+      registry.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)
       registerDefaultTriggers(registry);
 
       for (const profile of profiles) {

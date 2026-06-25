@@ -166,6 +166,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // RuntimeInstance routes (AS-026 AC-1)
   const { default: agentInstanceRoutes } = await import('./modules/agents/agent-instance.routes.js') as { default: Router };
 
+  // Trigger routes (3.28c-4: REST API for trigger management)
+  const { triggerRouter } = await import('./modules/triggers/trigger.routes.js') as { triggerRouter: Router };
+
   const auth = [requireAuth()];
 
   return [
@@ -184,6 +187,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
     { path: '/api/v1/agent-profiles', router: agentProfileRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD' },
     { path: '/api/v1/agent-instances', router: agentInstanceRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD' },
+    { path: '/api/v1/triggers', router: triggerRouter, middleware: auth, comment: '3.28c-4: Trigger CRUD + status' },
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },

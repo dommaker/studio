@@ -95,7 +95,9 @@ export class TriggerScheduler {
   start(): void {
     if (this.intervalId) return;
 
-    this.loadTriggers();
+    if (this.store) {
+      this.loadTriggers();
+    }
     this.log('scheduler', 'tick', `Scheduler started with ${this.states.size} triggers`);
 
     this.intervalId = setInterval(() => this.tick(), TICK_INTERVAL_MS);

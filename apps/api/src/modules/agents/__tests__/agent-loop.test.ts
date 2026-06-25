@@ -11,6 +11,11 @@ const { mockClaim, mockUnclaim, mockGetById, mockUpdateStatus } = vi.hoisted(() 
   mockUpdateStatus: vi.fn(),
 }));
 
+const { mockWuClaim, mockWuTransitionStatus } = vi.hoisted(() => ({
+  mockWuClaim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'active' }),
+  mockWuTransitionStatus: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'in_review' }),
+}));
+
 const { mockExecute } = vi.hoisted(() => ({
   mockExecute: vi.fn(),
 }));
@@ -83,6 +88,13 @@ vi.mock('@dommaker/studio-agent', () => ({
   },
 }));
 
+vi.mock('../../workunit/workunit.service', () => ({
+  WorkUnitService: vi.fn().mockImplementation(() => ({
+    claim: mockWuClaim,
+    transitionStatus: mockWuTransitionStatus,
+  })),
+}));
+
 vi.mock('../../triggers/trigger-scheduler', () => ({
   TriggerScheduler: vi.fn().mockImplementation(() => ({
     registerTrigger: mockRegisterTrigger,
@@ -120,6 +132,8 @@ describe('AgentLoop', () => {
     vi.clearAllMocks();
     // Reset hoisted mocks to defaults
     mockPrismaFindMany.mockResolvedValue([]);
+    mockWuClaim.mockResolvedValue({ id: 'wu-1', status: 'active' });
+    mockWuTransitionStatus.mockResolvedValue({ id: 'wu-1', status: 'in_review' });
     mockPrismaCreate.mockResolvedValue({
       id: 'inst-1',
       roleId: 'role-1',
@@ -290,8 +304,7 @@ describe('AgentLoop', () => {
   });
 
   describe('tryClaim()', () => {
-    it('claims WorkUnit → executes → submits for review', async () => {
-      mockPrismaUpdate.mockResolvedValue({}); // claim + status update
+    it('claims via WorkUnitService → executes → transitions to in_review', async () => {
       mockExecute.mockResolvedValue({
         success: true,
         outputText: 'Task completed',
@@ -310,17 +323,13 @@ describe('AgentLoop', () => {
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
       await (agentLoop as any).tryClaim(workUnit);
 
-      // Claim + submit for review
-      expect(mockPrismaUpdate).toHaveBeenCalledWith(expect.objectContaining({
-        where: expect.objectContaining({ id: 'wu-1' }),
-        data: expect.objectContaining({ status: 'in_review' }),
-      }));
+      // Issue 3: uses WorkUnitService.claim() + transitionStatus()
+      expect(mockWuClaim).toHaveBeenCalledWith('wu-1', 'inst-1');
+      expect(mockWuTransitionStatus).toHaveBeenCalledWith('wu-1', 'in_review');
     });
 
     it('handles claim conflict gracefully (skip)', async () => {
-      const conflictError = new Error('Record not found');
-      (conflictError as any).code = 'P2025';
-      mockPrismaUpdate.mockRejectedValueOnce(conflictError); // claim fails
+      mockWuClaim.mockRejectedValue(new Error('Claim failed'));
 
       agentLoop = new AgentLoop(mockRole, mockRegistry);
       await agentLoop.start();
@@ -330,9 +339,7 @@ describe('AgentLoop', () => {
       await expect((agentLoop as any).tryClaim(workUnit)).resolves.toBeUndefined();
     });
 
-    it('on execution failure: unclaims', async () => {
-      mockPrismaUpdate.mockResolvedValueOnce({}) // claim succeeds
-        .mockResolvedValueOnce({}); // unclaim
+    it('on execution exception: unclaims via direct prisma', async () => {
       mockExecute.mockRejectedValue(new Error('execution failed'));
 
       agentLoop = new AgentLoop(mockRole, mockRegistry);
@@ -341,7 +348,33 @@ describe('AgentLoop', () => {
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
       await (agentLoop as any).tryClaim(workUnit);
 
-      // Should have called update to unclaim (status back to unassigned)
+      // Unclaim via direct prisma (state machine doesn't support active→unassigned)
+      expect(mockPrismaUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        data: expect.objectContaining({ assigneeId: null, status: 'unassigned' }),
+      }));
+    });
+
+    it('on execute returns success=false: unclaims instead of in_review', async () => {
+      mockExecute.mockResolvedValue({
+        success: false,
+        error: 'tests failed',
+        worktree: '/tmp/wt',
+        outputFiles: [],
+        logFile: '/tmp/log',
+        sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(
+        { ...mockRole, description: 'handles tasks' },
+        mockRegistry,
+      );
+      await agentLoop.start();
+
+      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
+      await (agentLoop as any).tryClaim(workUnit);
+
+      // Issue 4: success=false → unclaim, NOT in_review
+      expect(mockWuTransitionStatus).not.toHaveBeenCalledWith('wu-1', 'in_review');
       expect(mockPrismaUpdate).toHaveBeenCalledWith(expect.objectContaining({
         data: expect.objectContaining({ assigneeId: null, status: 'unassigned' }),
       }));

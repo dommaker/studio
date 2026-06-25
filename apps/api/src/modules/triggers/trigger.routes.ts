@@ -1,15 +1,12 @@
 // Trigger Routes — REST API for trigger management (3.28c-4)
 import { Router } from 'express';
 import { TriggerStore } from './trigger-store.js';
-import { TriggerScheduler } from './trigger-scheduler.js';
+import { getTriggerScheduler } from './trigger-registry.js';
 import type { TriggerConfig } from './trigger.types.js';
 
 const router = Router();
 const store = new TriggerStore();
-const scheduler = new TriggerScheduler(store);
-
-// Start scheduler on module load
-scheduler.start();
+const scheduler = getTriggerScheduler(store); // Singleton — shared with AgentLoop
 
 /** GET /api/triggers — list all triggers */
 router.get('/', (_req, res) => {
