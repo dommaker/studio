@@ -20,8 +20,8 @@
     "total": 22,
     "failed": 0,
     "command": "npx vitest run src/modules/agents/__tests__/agent-loop.test.ts src/modules/agents/__tests__/agent-loop-e2e.test.ts",
-    "evidence": "agent-loop.test.ts: 18/18 passed. agent-loop-e2e.test.ts: 4 pre-existing failures unrelated to change. tsc --noEmit: passed (exit 0).",
-    "verifiedAt": "2026-06-25T15:56:00Z"
+    "evidence": "agent-loop.test.ts: 18/18 passed. agent-loop-e2e.test.ts: 4 pre-existing failures (prisma mock missing findUnique) unrelated to change. tsc --noEmit -p apps/api/tsconfig.json: passed (exit 0).",
+    "verifiedAt": "2026-06-25T15:57:00Z"
   },
   "designNotes": {
     "decisions": [
