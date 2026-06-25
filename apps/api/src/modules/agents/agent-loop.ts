@@ -3,6 +3,7 @@
 // Skill injection handled by session-manager (formatForPrompt + loadSkill MCP tool).
 import { eventBus, logger } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { agentExecutor } from '@dommaker/studio-agent';
 import { registerExecuteHandler, unregisterExecuteHandler } from '../triggers/trigger-action.js';
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
@@ -173,7 +174,7 @@ export class AgentLoop {
     } catch (err: unknown) {
       this.processing = false;
       const message = err instanceof Error ? err.message : String(err);
-      const code = err instanceof Object && 'code' in (err as any) ? (err as any).code : undefined;
+      const code = err instanceof PrismaClientKnownRequestError ? err.code : undefined;
       if (code === 'P2025' || message.includes('Record to update not found')) {
         logger.debug(`[AgentLoop] WorkUnit ${workUnit.id} already claimed, skipping`);
         return;

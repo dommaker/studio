@@ -1,6 +1,8 @@
 // AC-6: AgentLoop E2E verification tests
 // Tests full WorkUnit lifecycle: create → claim → execute → review
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import type { WorkUnit } from '@prisma/client';
 
 const { mockPrismaCreate, mockPrismaUpdate, mockPrismaFindMany, mockPrismaInstanceUpdate, mockPrismaInstanceCreate } = vi.hoisted(() => ({
   mockPrismaCreate: vi.fn(),
@@ -100,7 +102,7 @@ describe('AgentLoop E2E', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    registry = new (TriggerScheduler as any)(null);
+    registry = new (TriggerScheduler as unknown as { new (arg: unknown): unknown })(null);
 
     // Default: instance create returns unique IDs
     let instanceCounter = 0;
@@ -169,7 +171,7 @@ describe('AgentLoop E2E', () => {
     await agent.start();
 
     // Simulate EventBus firing onNewWorkUnit
-    await agent.onNewWorkUnit(workUnit as any);
+    await agent.onNewWorkUnit(workUnit as unknown as WorkUnit);
 
     // Verify: claim was called
     expect(mockPrismaUpdate).toHaveBeenCalledWith(
@@ -227,8 +229,7 @@ describe('AgentLoop E2E', () => {
       if (args?.data?.assigneeId) {
         claimCount++;
         if (claimCount > 1) {
-          const err = new Error('Record not found');
-          (err as any).code = 'P2025';
+          const err = new PrismaClientKnownRequestError('Record not found', { code: 'P2025', clientVersion: 'test', meta: {} });
           return Promise.reject(err);
         }
       }
@@ -237,8 +238,8 @@ describe('AgentLoop E2E', () => {
 
     // Both agents try to claim wu1 — second should be gracefully skipped
     await Promise.all([
-      agent1.onNewWorkUnit(wu1 as any),
-      agent2.onNewWorkUnit(wu1 as any),
+      agent1.onNewWorkUnit(wu1 as unknown as WorkUnit),
+      agent2.onNewWorkUnit(wu1 as unknown as WorkUnit),
     ]);
 
     // Only one should have successfully claimed
@@ -263,7 +264,7 @@ describe('AgentLoop E2E', () => {
     instances.push(agent1);
     await agent1.start();
 
-    await agent1.onNewWorkUnit(wu as any);
+    await agent1.onNewWorkUnit(wu as unknown as WorkUnit);
 
     // Verify: unclaim happened
     expect(mockPrismaUpdate).toHaveBeenCalledWith(
@@ -292,7 +293,7 @@ describe('AgentLoop E2E', () => {
     instances.push(agent2);
     await agent2.start();
 
-    await agent2.onNewWorkUnit(wu as any);
+    await agent2.onNewWorkUnit(wu as unknown as WorkUnit);
 
     // agent2 should have claimed and submitted for review
     expect(mockExecute).toHaveBeenCalled();
@@ -320,7 +321,7 @@ describe('AgentLoop E2E', () => {
     instances.push(agent);
     await agent.start();
 
-    await agent.onNewWorkUnit(wu as any);
+    await agent.onNewWorkUnit(wu as unknown as WorkUnit);
 
     // Verify: submitted for review
     const reviewCall = mockPrismaUpdate.mock.calls.find(

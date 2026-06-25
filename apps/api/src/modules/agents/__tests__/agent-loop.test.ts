@@ -2,6 +2,8 @@
 // Tests AgentLoop lifecycle: start, canClaim, onNewWorkUnit, tryClaim, execute
 // Skill injection removed — session-manager handles via formatForPrompt + loadSkill MCP
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
+import type { WorkUnit } from '@prisma/client';
 
 // vi.hoisted() ensures these are available when vi.mock factories run
 const { mockClaim, mockUnclaim, mockGetById, mockUpdateStatus } = vi.hoisted(() => ({
@@ -221,7 +223,7 @@ describe('AgentLoop', () => {
       agentLoop = new AgentLoop(mockRole, mockRegistry);
       await agentLoop.start();
 
-      expect((agentLoop as any).scanInterval).not.toBeNull();
+      expect((agentLoop as unknown as Record<string, unknown>).scanInterval).not.toBeNull();
       agentLoop.stop();
 
       expect(clearIntervalSpy).toHaveBeenCalled();
@@ -245,16 +247,16 @@ describe('AgentLoop', () => {
         status: 'unassigned',
         assigneeId: null,
       };
-      expect((agentLoop as any).canClaim(workUnit)).toBe(true);
+      expect((agentLoop as unknown as Record<string, unknown>).canClaim(workUnit)).toBe(true);
     });
 
     it('returns false when processing=true', async () => {
       agentLoop = new AgentLoop(mockRole, mockRegistry);
       await agentLoop.start();
-      (agentLoop as any).processing = true;
+      (agentLoop as unknown as Record<string, unknown>).processing = true;
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned' };
-      expect((agentLoop as any).canClaim(workUnit)).toBe(false);
+      expect((agentLoop as unknown as Record<string, unknown>).canClaim(workUnit)).toBe(false);
     });
 
     it('returns false when type not in acceptedTypes', async () => {
@@ -265,7 +267,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned' };
-      expect((agentLoop as any).canClaim(workUnit)).toBe(false);
+      expect((agentLoop as unknown as Record<string, unknown>).canClaim(workUnit)).toBe(false);
     });
 
     it('returns false when status !== unassigned', async () => {
@@ -273,7 +275,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'active' };
-      expect((agentLoop as any).canClaim(workUnit)).toBe(false);
+      expect((agentLoop as unknown as Record<string, unknown>).canClaim(workUnit)).toBe(false);
     });
   });
 
@@ -295,34 +297,34 @@ describe('AgentLoop', () => {
       );
       await agentLoop.start();
 
-      const tryClaimSpy = vi.spyOn(agentLoop as any, 'tryClaim');
+      const tryClaimSpy = vi.spyOn(agentLoop as unknown as Record<string, unknown>, 'tryClaim');
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
 
-      await agentLoop.onNewWorkUnit(workUnit as any);
+      await agentLoop.onNewWorkUnit(workUnit as unknown as WorkUnit);
       expect(tryClaimSpy).toHaveBeenCalledWith(workUnit);
     });
 
     it('skips when canClaim returns false', async () => {
       agentLoop = new AgentLoop(mockRole, mockRegistry);
       await agentLoop.start();
-      (agentLoop as any).processing = true;
+      (agentLoop as unknown as Record<string, unknown>).processing = true;
 
-      const tryClaimSpy = vi.spyOn(agentLoop as any, 'tryClaim');
+      const tryClaimSpy = vi.spyOn(agentLoop as unknown as Record<string, unknown>, 'tryClaim');
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned' };
 
-      await agentLoop.onNewWorkUnit(workUnit as any);
+      await agentLoop.onNewWorkUnit(workUnit as unknown as WorkUnit);
       expect(tryClaimSpy).not.toHaveBeenCalled();
     });
 
     it('skips when already processing', async () => {
       agentLoop = new AgentLoop(mockRole, mockRegistry);
       await agentLoop.start();
-      (agentLoop as any).processing = true;
+      (agentLoop as unknown as Record<string, unknown>).processing = true;
 
-      const tryClaimSpy = vi.spyOn(agentLoop as any, 'tryClaim');
+      const tryClaimSpy = vi.spyOn(agentLoop as unknown as Record<string, unknown>, 'tryClaim');
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned' };
 
-      await agentLoop.onNewWorkUnit(workUnit as any);
+      await agentLoop.onNewWorkUnit(workUnit as unknown as WorkUnit);
       expect(tryClaimSpy).not.toHaveBeenCalled();
     });
   });
@@ -345,7 +347,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-      await (agentLoop as any).tryClaim(workUnit);
+      await (agentLoop as unknown as Record<string, unknown>).tryClaim(workUnit);
 
       // Claim via prisma.workUnit.update (optimistic lock)
       expect(mockPrismaUpdate).toHaveBeenCalledWith(expect.objectContaining({
@@ -360,8 +362,7 @@ describe('AgentLoop', () => {
     });
 
     it('handles claim conflict gracefully (skip)', async () => {
-      const err = new Error('Record to update not found') as any;
-      err.code = 'P2025';
+      const err = new PrismaClientKnownRequestError('Record to update not found', { code: 'P2025', clientVersion: 'test', meta: {} });
       mockPrismaUpdate.mockRejectedValue(err);
 
       agentLoop = new AgentLoop(mockRole, mockRegistry);
@@ -369,7 +370,7 @@ describe('AgentLoop', () => {
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
       // Should not throw
-      await expect((agentLoop as any).tryClaim(workUnit)).resolves.toBeUndefined();
+      await expect((agentLoop as unknown as Record<string, unknown>).tryClaim(workUnit)).resolves.toBeUndefined();
     });
 
     it('on execution exception: unclaims via direct prisma', async () => {
@@ -379,7 +380,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-      await (agentLoop as any).tryClaim(workUnit);
+      await (agentLoop as unknown as Record<string, unknown>).tryClaim(workUnit);
 
       // Unclaim via direct prisma (state machine doesn't support active→unassigned)
       expect(mockPrismaUpdate).toHaveBeenCalledWith(expect.objectContaining({
@@ -404,7 +405,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-      await (agentLoop as any).tryClaim(workUnit);
+      await (agentLoop as unknown as Record<string, unknown>).tryClaim(workUnit);
 
       // Issue 4: success=false → unclaim, NOT in_review
       expect(mockPrismaUpdate).toHaveBeenCalledWith(expect.objectContaining({
@@ -429,7 +430,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'fix docs-freshness API' };
-      await (agentLoop as any).execute(workUnit);
+      await (agentLoop as unknown as Record<string, unknown>).execute(workUnit);
 
       expect(mockExecute).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -461,7 +462,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await (agentLoop as any).execute(workUnit);
+      await (agentLoop as unknown as Record<string, unknown>).execute(workUnit);
 
       expect(eventBus.publish).toHaveBeenCalledWith(
         'channel.message.created',
@@ -479,7 +480,7 @@ describe('AgentLoop', () => {
       await agentLoop.start();
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await expect((agentLoop as any).execute(workUnit)).rejects.toThrow('LLM timeout');
+      await expect((agentLoop as unknown as Record<string, unknown>).execute(workUnit)).rejects.toThrow('LLM timeout');
     });
   });
 });
