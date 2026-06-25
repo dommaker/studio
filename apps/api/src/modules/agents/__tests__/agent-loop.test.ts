@@ -183,6 +183,17 @@ describe('AgentLoop', () => {
       );
     });
 
+    it('registers agent-scan-workunits handler for poll-fallback trigger', async () => {
+      agentLoop = new AgentLoop(mockRole, mockRegistry);
+      await agentLoop.start();
+
+      // Bug 1 fix: poll-fallback trigger targets 'agent-scan-workunits' but no handler was registered
+      expect(mockRegisterExecuteHandler).toHaveBeenCalledWith(
+        'agent-scan-workunits',
+        expect.any(Function),
+      );
+    });
+
     it('calls scanForWork on startup', async () => {
       const scanSpy = vi.spyOn(AgentLoop.prototype, 'scanForWork');
       agentLoop = new AgentLoop(mockRole, mockRegistry);

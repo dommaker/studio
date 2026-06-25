@@ -73,7 +73,7 @@ describe('Default Triggers', () => {
     );
   });
 
-  it('dependency-unlock fires on workunit.done', () => {
+  it('dependency-unlock fires on workunit.done with $event.id template', () => {
     registerDefaultTriggers(registry);
 
     const unlockCall = mockRegisterTrigger.mock.calls.find(
@@ -83,6 +83,8 @@ describe('Default Triggers', () => {
     expect(unlockCall![0].condition).toEqual(
       expect.objectContaining({ type: 'EVENT', event: 'workunit.done' }),
     );
+    // Bug 2 fix: dependsOn should use $event.id template, not contains: ''
+    expect(unlockCall![0].action.config.query.dependsOn).toEqual({ contains: '$event.id' });
   });
 
   it('poll-fallback fires every 30 seconds', () => {
@@ -97,6 +99,16 @@ describe('Default Triggers', () => {
     );
     // 6-field cron (with seconds) for 30-second interval
     expect(pollCall![0].condition.cron).toContain('*/30');
+  });
+
+  it('does not register stale-recovery handler (workunit-timeout is UPDATE, not EXECUTE)', () => {
+    registerDefaultTriggers(registry);
+
+    // Bug 3 fix: stale-recovery handler was dead code (UPDATE action doesn't call EXECUTE handlers)
+    const staleCalls = mockRegisterExecuteHandler.mock.calls.filter(
+      (c: any) => c[0] === 'stale-recovery',
+    );
+    expect(staleCalls).toHaveLength(0);
   });
 
   it('getDefaultTriggerConfigs returns 4 configs', () => {

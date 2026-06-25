@@ -1,7 +1,5 @@
 // Default Triggers — 4 system triggers for Agent Network (AS-026, AC-4)
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
-import { registerExecuteHandler } from '../triggers/trigger-action.js';
-import { recoverStaleWorkUnits } from '../goals/stale-recovery.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
 
 /** Register the 4 default system triggers */
@@ -42,7 +40,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       type: 'UPDATE',
       target: 'workunit',
       config: {
-        query: { status: 'blocked', dependsOn: { contains: '' } },
+        query: { status: 'blocked', dependsOn: { contains: '$event.id' } },
         update: { status: 'unassigned' },
       },
     },
@@ -60,10 +58,6 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
-  // Register handler for stale recovery (workunit-timeout trigger)
-  registerExecuteHandler('stale-recovery', async () => {
-    await recoverStaleWorkUnits();
-  });
 }
 
 /** Get default trigger configs (for testing) */
@@ -100,7 +94,7 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
         type: 'UPDATE',
         target: 'workunit',
         config: {
-          query: { status: 'blocked' },
+          query: { status: 'blocked', dependsOn: { contains: '$event.id' } },
           update: { status: 'unassigned' },
         },
       },

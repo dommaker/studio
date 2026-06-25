@@ -61,10 +61,13 @@ export class AgentLoop {
     // 2. Register EVENT trigger for workunit.created
     this.registerAgentTriggers();
 
-    // 3. Register EXECUTE handler so trigger-action can call us
+    // 3. Register EXECUTE handlers so trigger-action can call us
     registerExecuteHandler('agent-loop', (context: unknown) => {
       const workUnit = context as WorkUnit;
       return this.onNewWorkUnit(workUnit);
+    });
+    registerExecuteHandler('agent-scan-workunits', () => {
+      return this.scanForWork();
     });
 
     // 4. Initial scan
@@ -76,6 +79,7 @@ export class AgentLoop {
   /** Stop the agent loop and clean up */
   stop(): void {
     unregisterExecuteHandler('agent-loop');
+    unregisterExecuteHandler('agent-scan-workunits');
     if (this.instance) {
       prisma.runtimeInstance.update({
         where: { id: this.instance.id },
