@@ -23,7 +23,7 @@ export async function recoverStaleWorkUnits(): Promise<number> {
   const now = new Date();
   const fallbackThreshold = new Date(Date.now() - 15 * 60_000);
 
-  const timedOut = await prisma.workUnit.findMany({
+  const timedOut = await prisma.goalExecution.findMany({
     where: {
       status: 'active',
       OR: [
@@ -69,7 +69,7 @@ export async function recoverStaleWorkUnits(): Promise<number> {
  */
 export async function recoverOrphanedExecutions(): Promise<number> {
   try {
-    const stale = await prisma.workUnit.findMany({
+    const stale = await prisma.goalExecution.findMany({
       where: { status: 'active' },
     });
 

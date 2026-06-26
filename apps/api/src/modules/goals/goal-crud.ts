@@ -57,7 +57,7 @@ export interface CreateGoalInput {
  */
 export async function createGoal(input: CreateGoalInput): Promise<any> {
   // 去重防护：同 scope WorkUnit 24h 内 closed → 拒绝
-  const recentFailures = await prisma.workUnit.count({
+  const recentFailures = await prisma.goal.count({
     where: {
       scope: input.title,
       status: 'closed',
@@ -71,7 +71,7 @@ export async function createGoal(input: CreateGoalInput): Promise<any> {
     );
   }
 
-  const goal = await prisma.workUnit.create({
+  const goal = await prisma.goal.create({
     data: {
       scope: input.title,
       type: 'task',
@@ -95,7 +95,7 @@ export async function createGoal(input: CreateGoalInput): Promise<any> {
  * 获取目标详情
  */
 export async function getGoal(goalId: string): Promise<any> {
-  const goal = await prisma.workUnit.findUnique({
+  const goal = await prisma.goal.findUnique({
     where: { id: goalId },
     include: {
       children: { orderBy: { createdAt: 'desc' } },
@@ -116,7 +116,7 @@ export async function listGoals(companyId: string, status?: string, failureType?
   };
   if (status) where.status = status;
   if (failureType) where.failureType = failureType;
-  return prisma.workUnit.findMany({
+  return prisma.goal.findMany({
     where,
     orderBy: { createdAt: 'desc' },
   });
@@ -126,7 +126,7 @@ export async function listGoals(companyId: string, status?: string, failureType?
  * 删除目标
  */
 export async function deleteGoal(goalId: string): Promise<void> {
-  await prisma.workUnit.delete({ where: { id: goalId } });
+  await prisma.goal.delete({ where: { id: goalId } });
   logger.info(`[Goal] Deleted: ${goalId}`);
 }
 
@@ -134,11 +134,11 @@ export async function deleteGoal(goalId: string): Promise<void> {
  * 用 LLM 生成执行计划
  */
 export async function generatePlan(goalId: string): Promise<GoalPlanDraft> {
-  const goal = await prisma.workUnit.findUnique({ where: { id: goalId } });
+  const goal = await prisma.goal.findUnique({ where: { id: goalId } });
   if (!goal) throw new Error('Goal not found');
   const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
 
-  await prisma.workUnit.update({
+  await prisma.goal.update({
     where: { id: goalId },
     data: { status: 'active' },
   });
@@ -195,7 +195,7 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
   const plan = await modelGateway.promptJson<GoalPlanDraft>(prompt, '你是一个专业的项目规划师。');
 
   // Store plan in goal metadata
-  await prisma.workUnit.update({
+  await prisma.goal.update({
     where: { id: goalId },
     data: {
       metadata: JSON.stringify({
@@ -218,13 +218,13 @@ ${skills.length > 0 ? skills.map(s => `${s.name} (${s.category})`).join(', ') : 
  * 审批计划
  */
 export async function approvePlan(goalId: string): Promise<void> {
-  const goal = await prisma.workUnit.findUnique({ where: { id: goalId } });
+  const goal = await prisma.goal.findUnique({ where: { id: goalId } });
   if (!goal) throw new Error('Goal not found');
   const meta = goal.metadata ? JSON.parse(goal.metadata) : {};
   if (!meta.plan) throw new Error('No plan found');
 
   meta.plan.status = 'approved';
-  await prisma.workUnit.update({
+  await prisma.goal.update({
     where: { id: goalId },
     data: { status: 'active', metadata: JSON.stringify(meta) },
   });
@@ -236,7 +236,7 @@ export async function approvePlan(goalId: string): Promise<void> {
  * 开始执行（创建 GoalExecution 记录）
  */
 export async function startExecution(goalId: string): Promise<any[]> {
-  const goal = await prisma.workUnit.findUnique({ where: { id: goalId } });
+  const goal = await prisma.goal.findUnique({ where: { id: goalId } });
   if (!goal) throw new Error('Goal not found');
   const meta = goal.metadata ? JSON.parse(goal.metadata) : {};
   if (!meta.plan || meta.plan.status !== 'approved') throw new Error('No approved plan found');
@@ -245,7 +245,7 @@ export async function startExecution(goalId: string): Promise<any[]> {
   const executions = [];
 
   for (const step of steps) {
-    const execution = await prisma.workUnit.create({
+    const execution = await prisma.goal.create({
       data: {
         parentId: goalId,
         scope: step.title || `step-${step.index}`,
@@ -288,7 +288,7 @@ export async function createGoalFromChannelDoc(input: {
   const { title, summary, acGroups, constraints = [], companyId, sourceChannelId, requirementsDocId, sddSlug, projectId, workspaceRepoId, risks = [], contractTests } = input;
 
   // 去重防护：同 scope WorkUnit 24h 内 closed → 拒绝
-  const recentFailures = await prisma.workUnit.count({
+  const recentFailures = await prisma.goal.count({
     where: {
       scope: title,
       status: 'closed',
@@ -345,7 +345,7 @@ export async function createGoalFromChannelDoc(input: {
   const priority = input.priority || (risks.includes('auth') || risks.includes('financial') ? 'high' :
     risks.includes('schema_change') ? 'critical' : 'normal');
 
-  const goal = await prisma.workUnit.create({
+  const goal = await prisma.goal.create({
     data: {
       scope: summary || title,
       type: 'task',
@@ -360,7 +360,7 @@ export async function createGoalFromChannelDoc(input: {
   });
 
   for (const step of steps) {
-    await prisma.workUnit.create({
+    await prisma.goal.create({
       data: {
         parentId: goal.id,
         scope: step.title || `step-${step.index}`,
@@ -397,7 +397,7 @@ export async function createGoalFromChannelDoc(input: {
  * 获取目标的可执行步骤（依赖已满足的 pending 步骤）
  */
 export async function getExecutableSteps(goalId: string): Promise<any[]> {
-  const goal = await prisma.workUnit.findUnique({ where: { id: goalId } });
+  const goal = await prisma.goal.findUnique({ where: { id: goalId } });
   if (!goal) return [];
   const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
 
@@ -408,11 +408,11 @@ export async function getExecutableSteps(goalId: string): Promise<any[]> {
   if (plan && plan.status === 'approved') {
     steps = plan.steps || [];
     logger.info('[Goal] Found plan', { goalId, stepCount: steps.length });
-    executions = await prisma.workUnit.findMany({
+    executions = await prisma.goal.findMany({
       where: { parentId: goalId },
     });
   } else {
-    executions = await prisma.workUnit.findMany({
+    executions = await prisma.goal.findMany({
       where: { parentId: goalId },
       orderBy: { createdAt: 'asc' },
     });

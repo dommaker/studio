@@ -1,7 +1,729 @@
 {
+  "apps/api": [
+    {
+      "file": "apps/api/src/modules/goals/event-handler.ts",
+      "line": 140,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/event-handler.ts",
+      "line": 141,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/event-handler.ts",
+      "line": 141,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/execution-alarm.ts",
+      "line": 44,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 62,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 76,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 90,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 101,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 105,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 105,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 106,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 139,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 139,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 157,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 201,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 223,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 223,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 229,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 241,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 241,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 250,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 293,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 350,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 365,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 390,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 402,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 402,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 412,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-crud.ts",
+      "line": 416,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 226,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 231,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 231,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 301,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 305,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 305,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 321,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 323,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 323,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 331,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 333,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 333,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 470,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 471,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 474,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 474,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 506,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 506,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 509,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 513,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 516,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 516,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 518,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 518,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 520,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 520,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 632,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 632,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 633,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 638,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 639,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 642,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 642,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 666,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 666,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 840,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 857,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 858,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 862,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 862,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 867,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 867,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 981,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-lifecycle.ts",
+      "line": 999,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 30,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 31,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 58,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 58,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 78,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 79,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 82,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 82,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 133,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 332,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 341,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 357,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 362,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 367,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 367,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 372,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 394,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 394,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 398,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/goal-review.ts",
+      "line": 481,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 123,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 124,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 213,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 214,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 214,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 271,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 272,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 335,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/integration-rollback.ts",
+      "line": 429,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/routes.ts",
+      "line": 94,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/routes.ts",
+      "line": 190,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 133,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 176,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 186,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 203,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 203,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 235,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 240,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 240,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 328,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 329,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 343,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 352,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 356,
+      "code": "TS2345"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 366,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 440,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 440,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 495,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 498,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-integration.ts",
+      "line": 519,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 198,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 199,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 240,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 241,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 255,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 255,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 293,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 294,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 294,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 441,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 445,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 445,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 465,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 465,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 477,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/scheduler-prompt.ts",
+      "line": 477,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/stale-recovery.ts",
+      "line": 31,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/stale-recovery.ts",
+      "line": 34,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/goals/stale-recovery.ts",
+      "line": 55,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/stale-recovery.ts",
+      "line": 96,
+      "code": "TS2339"
+    },
+    {
+      "file": "apps/api/src/modules/goals/stale-recovery.ts",
+      "line": 96,
+      "code": "TS2339"
+    }
+  ],
   "_meta": {
-    "generated": "2026-06-02T09:54:15.584Z",
-    "totalErrors": 0,
-    "commit": "9066cff110139984918fb65cba08bdf96400dc38"
+    "generated": "2026-06-26T04:05:33.066Z",
+    "totalErrors": 144,
+    "commit": "4f473e57b1988757b5577bd1007732f72c4c8012"
   }
 }

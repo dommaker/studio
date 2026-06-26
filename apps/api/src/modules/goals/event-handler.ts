@@ -137,7 +137,7 @@ export class AgentEventListener {
       // 更新 Wiki 项目页执行结果
       if (goalId) {
         try {
-          const wu = await prisma.workUnit.findUnique({ where: { id: goalExecutionId }, select: { metadata: true } });
+          const wu = await prisma.goalExecution.findUnique({ where: { id: goalExecutionId }, select: { metadata: true } });
           const wuMeta = wu?.metadata ? JSON.parse(wu.metadata as string) : {};
           const goalContext = wuMeta?.context ? (typeof wuMeta.context === 'string' ? JSON.parse(wuMeta.context) : wuMeta.context) : {};
           const companyId = goalContext?.companyId as string | undefined;

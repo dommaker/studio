@@ -37,7 +37,7 @@ export async function onPhaseFailure(ctx: AlarmContext): Promise<void> {
   // 1. 终止：标记 DB（executionId 存在时）
   if (ctx.executionId) {
     try {
-      await prisma.workUnit.update({
+      await prisma.goalExecution.update({
         where: { id: ctx.executionId },
         data: {
           status: 'closed',

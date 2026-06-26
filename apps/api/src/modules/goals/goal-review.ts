@@ -26,7 +26,7 @@ export async function findReviewWorktree(goalId: string): Promise<string | null>
   const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
   // Find integration step (stepIndex=999) among children
-  const allChildren = await prisma.workUnit.findMany({
+  const allChildren = await prisma.goalExecution.findMany({
     where: { parentId: goalId, status: 'done' },
     select: { id: true, metadata: true },
   });
@@ -52,7 +52,7 @@ export async function findReviewWorktree(goalId: string): Promise<string | null>
  * Goal 成功后：先审查，再决定放行还是打回
  */
 export async function handleGoalSucceeded(goalId: string): Promise<void> {
-  const goal = await prisma.workUnit.findUnique({ where: { id: goalId } });
+  const goal = await prisma.goalExecution.findUnique({ where: { id: goalId } });
   if (!goal) return;
 
   const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
@@ -74,7 +74,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
       return ag?.acs || [];
     });
   } else {
-    const execs = await prisma.workUnit.findMany({
+    const execs = await prisma.goalExecution.findMany({
       where: { parentId: goalId },
       select: { metadata: true },
     });
@@ -97,7 +97,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
   const worktree = await findReviewWorktree(goalId);
   if (!worktree) {
     logger.error('[Goal] No review worktree found — blocking goal for investigation', { goalId });
-    await prisma.workUnit.update({
+    await prisma.goalExecution.update({
       where: { id: goalId },
       data: { status: 'blocked' },
     });
@@ -138,7 +138,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     });
   } catch (err) {
     logger.error('[Goal] Reviewer crashed — blocking deploy', { goalId, error: String(err) });
-    await prisma.workUnit.update({ where: { id: goalId }, data: { status: 'blocked' } });
+    await prisma.goalExecution.update({ where: { id: goalId }, data: { status: 'blocked' } });
     const goalCtx = goalContext;
     const channelId = goalCtx.sourceChannelId as string;
     if (channelId) {
@@ -327,14 +327,14 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
 
   if (effectiveApproved) {
     logger.info('[Goal] Review approved', { goalId, score: review.score, cycle: reviewCycle + 1 });
-    await prisma.workUnit.update({
+    await prisma.goalExecution.update({
       where: { id: goalId },
       data: { metadata: JSON.stringify({ ...goalMeta, context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } }) },
     });
     await finalizeGoalSucceeded(goalId);
   } else if (reviewCycle + 1 >= 3) {
     logger.warn('[Goal] Review max cycles exhausted, escalating', { goalId, cycles: reviewCycle + 1, score: review.score });
-    await prisma.workUnit.update({
+    await prisma.goalExecution.update({
       where: { id: goalId },
       data: {
         status: 'blocked',
@@ -350,7 +350,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     });
   } else {
     logger.info('[Goal] Review not approved, re-queuing for fixes', { goalId, cycle: reviewCycle + 1, score: review.score });
-    await prisma.workUnit.update({
+    await prisma.goalExecution.update({
       where: { id: goalId },
       data: {
         status: 'active',
@@ -358,14 +358,14 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
       },
     });
 
-    const doneChildren = await prisma.workUnit.findMany({
+    const doneChildren = await prisma.goalExecution.findMany({
       where: { parentId: goalId, status: 'done' },
       orderBy: { createdAt: 'desc' },
     });
     const lastExec = doneChildren[0];
     if (lastExec) {
       const lastMeta = lastExec.metadata ? JSON.parse(lastExec.metadata) : {};
-      await prisma.workUnit.update({
+      await prisma.goalExecution.update({
         where: { id: lastExec.id },
         data: {
           status: 'unassigned',
@@ -388,13 +388,13 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
  * Goal 审查通过后：创建 PR + 更新 Project 状态 + 更新 OKR
  */
 async function finalizeGoalSucceeded(goalId: string): Promise<void> {
-  const goal = await prisma.workUnit.findUnique({ where: { id: goalId } });
+  const goal = await prisma.goalExecution.findUnique({ where: { id: goalId } });
   if (!goal) return;
 
   const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
   const projectId = goalMeta.context?.projectId as string | undefined;
 
-  const goalExecutions = await prisma.workUnit.findMany({
+  const goalExecutions = await prisma.goalExecution.findMany({
     where: { parentId: goalId },
     select: { id: true },
   });
@@ -432,7 +432,7 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
     }
   } catch (e) {
     logger.error('[Goal] Test gate check failed — blocking deploy', { goalId, error: String(e) });
-    await prisma.workUnit.update({ where: { id: goalId }, data: { status: 'blocked' } });
+    await prisma.goalExecution.update({ where: { id: goalId }, data: { status: 'blocked' } });
     throw new Error(`Test gate check failed: ${String(e)}`);
   }
 
@@ -512,7 +512,7 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
   // Deploy failure → roll back goal status
   if (!deploySuccess) {
     logger.warn('[Goal] Deploy failed — rolling back goal status to failed', { goalId });
-    await prisma.workUnit.update({
+    await prisma.goalExecution.update({
       where: { id: goalId },
       data: { status: 'closed', completedAt: new Date() },
     });

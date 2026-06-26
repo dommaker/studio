@@ -129,7 +129,7 @@ export class GoalScheduler {
     this.processing = true;
 
     try {
-      const executingGoals = await prisma.workUnit.findMany({
+      const executingGoals = await prisma.goalExecution.findMany({
         where: { status: 'active', type: 'task', parentId: null },
         select: { id: true },
       });
@@ -172,7 +172,7 @@ export class GoalScheduler {
     this.processingGoals.add(goalId);
 
     try {
-      const runningCount = await prisma.workUnit.count({
+      const runningCount = await prisma.goalExecution.count({
         where: { parentId: goalId, status: 'active' },
       });
       const strategy = getDispatchStrategy(this.recentFailures, this.recentTotal);
@@ -182,7 +182,7 @@ export class GoalScheduler {
 
       const executableSteps = await goalService.getExecutableSteps(goalId);
       if (executableSteps.length === 0) {
-        const allExecs = await prisma.workUnit.findMany({
+        const allExecs = await prisma.goalExecution.findMany({
           where: { parentId: goalId }, select: { status: true },
         });
         if (allExecs.length === 0) {
@@ -197,7 +197,7 @@ export class GoalScheduler {
         return;
       }
 
-      const goal = await prisma.workUnit.findUnique({ where: { id: goalId } });
+      const goal = await prisma.goalExecution.findUnique({ where: { id: goalId } });
       if (!goal) return;
 
       const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
@@ -230,13 +230,13 @@ export class GoalScheduler {
 
       // O3c: File conflict detection
       try {
-        const currentlyRunning = await prisma.workUnit.findMany({
+        const currentlyRunning = await prisma.goalExecution.findMany({
           where: { status: 'active' },
           select: { id: true, parentId: true },
         });
         const activeFiles = new Set<string>();
         for (const running of currentlyRunning) {
-          const exec = await prisma.workUnit.findUnique({ where: { id: running.id } });
+          const exec = await prisma.goalExecution.findUnique({ where: { id: running.id } });
           const execMeta = exec?.metadata ? JSON.parse(exec.metadata) : {};
           const execInput = execMeta?.input ? (typeof execMeta.input === 'string' ? JSON.parse(execMeta.input) : execMeta.input) : null;
           const files = (execInput?.acGroup?.files as string[]) || [];
@@ -290,7 +290,7 @@ export class GoalScheduler {
 
       // O4-KR1: Record parallel execution count for OKR metric
       if (toDispatch.length > 0) {
-        const totalRunning = await prisma.workUnit.count({ where: { status: 'active' } });
+        const totalRunning = await prisma.goalExecution.count({ where: { status: 'active' } });
         prisma.studioEvent.create({
           data: {
             type: 'scheduler:parallel',
@@ -324,7 +324,7 @@ export class GoalScheduler {
   // ========================================
 
   private async checkAllStepsCompleted(goalId: string): Promise<void> {
-    const all = await prisma.workUnit.findMany({
+    const all = await prisma.goalExecution.findMany({
       where: { parentId: goalId },
       select: { status: true, id: true, metadata: true },
     });
@@ -361,7 +361,7 @@ export class GoalScheduler {
     logger.info('[Scheduler] Creating integration step', { goalId });
 
     try {
-      await prisma.workUnit.create({
+      await prisma.goalExecution.create({
         data: {
           parentId: goalId,
           scope: `integration-${goalId}`,
@@ -390,7 +390,7 @@ export class GoalScheduler {
 
   private async abandonOrphanedRunning(): Promise<void> {
     try {
-      const orphaned = await prisma.workUnit.findMany({
+      const orphaned = await prisma.goalExecution.findMany({
         where: { status: { in: ['active', 'unassigned'] } },
         select: { id: true },
       });
@@ -414,7 +414,7 @@ export class GoalScheduler {
 
   private async recoverStaleExecutions(): Promise<void> {
     try {
-      const stale = await prisma.workUnit.findMany({
+      const stale = await prisma.goalExecution.findMany({
         where: { status: 'active' },
       });
 
@@ -487,7 +487,7 @@ export class GoalScheduler {
     const now = new Date();
     const fallbackThreshold = new Date(Date.now() - 15 * 60_000);
 
-    const timedOut = await prisma.workUnit.findMany({
+    const timedOut = await prisma.goalExecution.findMany({
       where: {
         status: 'active',
         OR: [
