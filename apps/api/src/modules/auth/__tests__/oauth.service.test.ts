@@ -8,7 +8,7 @@
  * - createOAuthSession(userId, req) creates session with tokens
  */
 import type { Session, User, RefreshToken, OAuthAccount } from '@prisma/client';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 type OAuthProvider = 'google' | 'github';
 
