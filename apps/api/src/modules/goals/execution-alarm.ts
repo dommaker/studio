@@ -40,8 +40,8 @@ export async function onPhaseFailure(ctx: AlarmContext): Promise<void> {
       await prisma.goalExecution.update({
         where: { id: ctx.executionId },
         data: {
-          status: 'closed',
-          metadata: JSON.stringify({ error: JSON.stringify({ message: ctx.error, phase: ctx.phase }) }),
+          status: 'failed',
+          error: JSON.stringify({ message: ctx.error, phase: ctx.phase }),
         },
       });
     } catch { /* execution may not exist */ }

@@ -25,21 +25,20 @@ import * as fs from 'fs';
 export async function findReviewWorktree(goalId: string): Promise<string | null> {
   const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
-  // Find integration step (stepIndex=999) among children
-  const allChildren = await prisma.goalExecution.findMany({
-    where: { parentId: goalId, status: 'done' },
-    select: { id: true, metadata: true },
-  });
-  const integrationExec = allChildren.find(c => {
-    const m = c.metadata ? JSON.parse(c.metadata) : {};
-    return m.stepIndex === 999;
+  const integrationExec = await prisma.goalExecution.findFirst({
+    where: { goalId, stepIndex: 999, status: 'succeeded' },
+    select: { id: true },
   });
   if (integrationExec) {
     const wt = path.join(WORKTREES_DIR, integrationExec.id);
     if (fs.existsSync(wt)) return wt;
   }
 
-  const anyExec = allChildren[0];
+  const anyExec = await prisma.goalExecution.findFirst({
+    where: { goalId, status: 'succeeded' },
+    orderBy: { createdAt: 'desc' },
+    select: { id: true },
+  });
   if (anyExec) {
     const wt = path.join(WORKTREES_DIR, anyExec.id);
     if (fs.existsSync(wt)) return wt;
@@ -52,19 +51,23 @@ export async function findReviewWorktree(goalId: string): Promise<string | null>
  * Goal 成功后：先审查，再决定放行还是打回
  */
 export async function handleGoalSucceeded(goalId: string): Promise<void> {
-  const goal = await prisma.goalExecution.findUnique({ where: { id: goalId } });
+  const goal = await prisma.goal.findUnique({ where: { id: goalId } });
   if (!goal) return;
 
-  const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
-  const goalContext = goalMeta.context || {};
+  const goalMeta = goal.context ? (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) : {};
+  const goalContext = goalMeta?.context ? (typeof goalMeta.context === 'string' ? JSON.parse(goalMeta.context) : goalMeta.context) : {};
 
   // 提取 ACs + D7: acGroup context
-  const plan = goalMeta.plan;
   let allAcs: string[] = [];
   let steps: GoalStep[] = [];
   const mergedContext: { files: string[]; gotchas: string[]; implementationNotes: string[] } = { files: [], gotchas: [], implementationNotes: [] };
-  if (plan && plan.status === 'approved') {
-    steps = plan.steps || [];
+
+  const approvedPlan = await prisma.goalPlan.findFirst({
+    where: { goalId, status: 'approved' },
+    orderBy: { version: 'desc' },
+  });
+  if (approvedPlan) {
+    steps = parseJsonField<GoalStep[]>(approvedPlan.steps, []);
     allAcs = steps.flatMap(s => {
       const inp = s.input as Record<string, any> | null;
       const ag = inp?.acGroup;
@@ -75,13 +78,12 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     });
   } else {
     const execs = await prisma.goalExecution.findMany({
-      where: { parentId: goalId },
-      select: { metadata: true },
+      where: { goalId },
+      select: { input: true },
     });
     for (const e of execs) {
-      const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
-      const inp = eMeta.input || {};
-      const ag = inp?.acGroup;
+      const eInput = e.input ? (typeof e.input === 'string' ? JSON.parse(e.input) : e.input) : {};
+      const ag = eInput?.acGroup;
       if (ag?.files) mergedContext.files.push(...ag.files);
       if (ag?.gotchas) mergedContext.gotchas.push(...ag.gotchas);
       if (ag?.implementationNotes) mergedContext.implementationNotes.push(ag.implementationNotes);
@@ -97,7 +99,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
   const worktree = await findReviewWorktree(goalId);
   if (!worktree) {
     logger.error('[Goal] No review worktree found — blocking goal for investigation', { goalId });
-    await prisma.goalExecution.update({
+    await prisma.goal.update({
       where: { id: goalId },
       data: { status: 'blocked' },
     });
@@ -130,7 +132,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
       taskId: goalId,
       projectId,
       worktree,
-      taskDescription: goal.scope,
+      taskDescription: goal.description,
       acceptanceCriteria: allAcs.length > 0 ? allAcs : undefined,
       cycle: reviewCycle + 1,
       complexity,
@@ -138,7 +140,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     });
   } catch (err) {
     logger.error('[Goal] Reviewer crashed — blocking deploy', { goalId, error: String(err) });
-    await prisma.goalExecution.update({ where: { id: goalId }, data: { status: 'blocked' } });
+    await prisma.goal.update({ where: { id: goalId }, data: { status: 'blocked' } });
     const goalCtx = goalContext;
     const channelId = goalCtx.sourceChannelId as string;
     if (channelId) {
@@ -327,18 +329,18 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
 
   if (effectiveApproved) {
     logger.info('[Goal] Review approved', { goalId, score: review.score, cycle: reviewCycle + 1 });
-    await prisma.goalExecution.update({
+    await prisma.goal.update({
       where: { id: goalId },
-      data: { metadata: JSON.stringify({ ...goalMeta, context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } }) },
+      data: { context: JSON.stringify({ ...goalMeta, context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } }) },
     });
     await finalizeGoalSucceeded(goalId);
   } else if (reviewCycle + 1 >= 3) {
     logger.warn('[Goal] Review max cycles exhausted, escalating', { goalId, cycles: reviewCycle + 1, score: review.score });
-    await prisma.goalExecution.update({
+    await prisma.goal.update({
       where: { id: goalId },
       data: {
         status: 'blocked',
-        metadata: JSON.stringify({ ...goalMeta, context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } }),
+        context: JSON.stringify({ ...goalMeta, context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } }),
       },
     });
     // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
@@ -350,33 +352,30 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     });
   } else {
     logger.info('[Goal] Review not approved, re-queuing for fixes', { goalId, cycle: reviewCycle + 1, score: review.score });
-    await prisma.goalExecution.update({
+    await prisma.goal.update({
       where: { id: goalId },
       data: {
-        status: 'active',
-        metadata: JSON.stringify({ ...goalMeta, context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } }),
+        status: 'executing',
+        context: JSON.stringify({ ...goalMeta, context: { ...goalContext, reviewCycle: reviewCycle + 1, reviewScore: review.score } }),
       },
     });
 
     const doneChildren = await prisma.goalExecution.findMany({
-      where: { parentId: goalId, status: 'done' },
+      where: { goalId, status: 'succeeded' },
       orderBy: { createdAt: 'desc' },
     });
     const lastExec = doneChildren[0];
     if (lastExec) {
-      const lastMeta = lastExec.metadata ? JSON.parse(lastExec.metadata) : {};
+      const lastInput = lastExec.input ? (typeof lastExec.input === 'string' ? JSON.parse(lastExec.input) : lastExec.input) : {};
       await prisma.goalExecution.update({
         where: { id: lastExec.id },
         data: {
-          status: 'unassigned',
-          metadata: JSON.stringify({
-            ...lastMeta,
-            input: {
-              ...(lastMeta.input || {}),
-              taskType: 'review-fix',
-              fixContext: review.issues.map(i => `[${i.severity}] ${i.message}`).join('\n'),
-              reviewCycle: reviewCycle + 1,
-            },
+          status: 'pending',
+          input: JSON.stringify({
+            ...lastInput,
+            taskType: 'review-fix',
+            fixContext: review.issues.map(i => `[${i.severity}] ${i.message}`).join('\n'),
+            reviewCycle: reviewCycle + 1,
           }),
         },
       });
@@ -388,14 +387,15 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
  * Goal 审查通过后：创建 PR + 更新 Project 状态 + 更新 OKR
  */
 async function finalizeGoalSucceeded(goalId: string): Promise<void> {
-  const goal = await prisma.goalExecution.findUnique({ where: { id: goalId } });
+  const goal = await prisma.goal.findUnique({ where: { id: goalId } });
   if (!goal) return;
 
-  const goalMeta = goal.metadata ? JSON.parse(goal.metadata) : {};
-  const projectId = goalMeta.context?.projectId as string | undefined;
+  const goalMeta = goal.context ? (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) : {};
+  const goalContext = goalMeta?.context ? (typeof goalMeta.context === 'string' ? JSON.parse(goalMeta.context) : goalMeta.context) : {};
+  const projectId = goalContext?.projectId as string | undefined;
 
   const goalExecutions = await prisma.goalExecution.findMany({
-    where: { parentId: goalId },
+    where: { goalId },
     select: { id: true },
   });
   const executionIds = goalExecutions.map(e => e.id);
@@ -432,7 +432,7 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
     }
   } catch (e) {
     logger.error('[Goal] Test gate check failed — blocking deploy', { goalId, error: String(e) });
-    await prisma.goalExecution.update({ where: { id: goalId }, data: { status: 'blocked' } });
+    await prisma.goal.update({ where: { id: goalId }, data: { status: 'blocked' } });
     throw new Error(`Test gate check failed: ${String(e)}`);
   }
 
@@ -478,7 +478,7 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
         executionIds,
         worktree,
         environment: 'vps',
-        taskDescription: goal.scope,
+        taskDescription: goal.description,
       });
       logger.info('[Goal] Deploy completed', {
         goalId,
@@ -512,9 +512,9 @@ async function finalizeGoalSucceeded(goalId: string): Promise<void> {
   // Deploy failure → roll back goal status
   if (!deploySuccess) {
     logger.warn('[Goal] Deploy failed — rolling back goal status to failed', { goalId });
-    await prisma.goalExecution.update({
+    await prisma.goal.update({
       where: { id: goalId },
-      data: { status: 'closed', completedAt: new Date() },
+      data: { status: 'failed', completedAt: new Date() },
     });
     return;
   }

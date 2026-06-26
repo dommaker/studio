@@ -120,21 +120,15 @@ export async function mapAffectedFilesToSteps(
   if (affectedFiles.length === 0) return [];
 
   const allDoneChildren = await prisma.goalExecution.findMany({
-    where: { parentId: goalId, status: 'done' },
-    select: { id: true, metadata: true },
+    where: { goalId, status: 'succeeded' },
+    select: { id: true, stepIndex: true },
   });
-  const succeededExecs = allDoneChildren.filter(c => {
-    const m = c.metadata ? JSON.parse(c.metadata) : {};
-    return m.stepIndex !== 999;
-  });
+  const succeededExecs = allDoneChildren.filter(c => c.stepIndex !== 999);
 
   if (succeededExecs.length === 0) return [];
 
   // Build execId → stepIndex map
-  const execToStep = new Map(succeededExecs.map(e => {
-    const m = e.metadata ? JSON.parse(e.metadata) : {};
-    return [e.id, m.stepIndex ?? 0];
-  }));
+  const execToStep = new Map(succeededExecs.map(e => [e.id, e.stepIndex ?? 0]));
   const matchedSteps = new Set<number>();
 
   for (const file of affectedFiles) {
@@ -210,9 +204,8 @@ async function cascadeDownstreamSteps(
   goalId: string,
   initialSteps: number[],
 ): Promise<number[]> {
-  const goal = await prisma.goalExecution.findUnique({ where: { id: goalId }, select: { metadata: true } });
-  const goalMeta = goal?.metadata ? JSON.parse(goal.metadata) : {};
-  const plan = goalMeta.plan;
+  const goalPlan = await prisma.goalPlan.findFirst({ where: { goalId, status: 'approved' }, orderBy: { version: 'desc' }, select: { steps: true } });
+  const plan = goalPlan ? { status: 'approved', steps: goalPlan.steps ? JSON.parse(goalPlan.steps) : [] } : null;
 
   if (!plan || plan.status !== 'approved') return initialSteps;
 

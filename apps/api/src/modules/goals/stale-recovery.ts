@@ -25,26 +25,24 @@ export async function recoverStaleWorkUnits(): Promise<number> {
 
   const timedOut = await prisma.goalExecution.findMany({
     where: {
-      status: 'active',
+      status: 'running',
       OR: [
         { timeoutAt: { lt: now } },
         { timeoutAt: null, claimedAt: { lt: fallbackThreshold } },
       ],
     },
-    select: { id: true, parentId: true, claimedAt: true, timeoutAt: true, metadata: true },
+    select: { id: true, goalId: true, startedAt: true, timeoutAt: true, input: true, stepIndex: true },
   });
 
   for (const exec of timedOut) {
-    const meta = exec.metadata ? JSON.parse(exec.metadata) : {};
-    const input = meta?.input ? (typeof meta.input === 'string' ? JSON.parse(meta.input) : meta.input) : {};
-    const stepIndex = input?.stepIndex;
-    const goalId = meta?.goalId || exec.parentId;
+    const goalId = exec.goalId;
+    const stepIndex = exec.stepIndex;
 
     logger.warn('[StaleRecovery] Execution timed out', {
       executionId: exec.id,
       goalId,
       stepIndex,
-      claimedAt: exec.claimedAt,
+      startedAt: exec.startedAt,
       timeoutAt: exec.timeoutAt,
     });
 
@@ -52,7 +50,7 @@ export async function recoverStaleWorkUnits(): Promise<number> {
       executionId: exec.id,
       goalId,
       phase: stepIndex === 999 ? 'integration' : 'executing',
-      error: `Execution timed out (claimedAt: ${exec.claimedAt?.toISOString() || 'unknown'})`,
+      error: `Execution timed out (startedAt: ${exec.startedAt?.toISOString() || 'unknown'})`,
       severity: 'timeout',
     });
   }
@@ -70,7 +68,7 @@ export async function recoverStaleWorkUnits(): Promise<number> {
 export async function recoverOrphanedExecutions(): Promise<number> {
   try {
     const stale = await prisma.goalExecution.findMany({
-      where: { status: 'active' },
+      where: { status: 'running' },
     });
 
     if (stale.length === 0) return 0;
@@ -93,12 +91,11 @@ export async function recoverOrphanedExecutions(): Promise<number> {
             await goalService.updateStepExecution(exec.id, { status: 'succeeded' });
             logger.info('[StaleRecovery] Marked succeeded', { executionId: exec.id });
           } else {
-            const execMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
             let parsedInput: Record<string, unknown> = {};
-            if (typeof execMeta.input === 'string') {
-              try { parsedInput = JSON.parse(execMeta.input); } catch { parsedInput = {}; }
+            if (typeof exec.input === 'string') {
+              try { parsedInput = JSON.parse(exec.input); } catch { parsedInput = {}; }
             } else {
-              parsedInput = (execMeta.input as Record<string, unknown>) || {};
+              parsedInput = (exec.input as Record<string, unknown>) || {};
             }
             await goalService.updateStepExecution(exec.id, {
               status: 'pending',
