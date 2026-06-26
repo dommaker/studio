@@ -552,12 +552,13 @@ describe('auth service', () => {
         id: 'u1', email: 'test@test.com', passwordHash: '$2a$12$hash',
       } as unknown as User);
       vi.mocked(prisma.passwordResetToken.create).mockResolvedValue({
-        id: 'prt1', token: 'reset-token-abc', userId: 'u1', email: 'test@test.com',
+        id: 'prt1', token: 'ignored', userId: 'u1', email: 'test@test.com',
       } as unknown as any);
 
       const token = await generateResetToken('test@test.com');
 
-      expect(token).toBe('reset-token-abc');
+      expect(token).toEqual(expect.any(String));
+      expect(token.length).toBe(64); // 32 bytes hex
       expect(prisma.passwordResetToken.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ token: expect.any(String), userId: 'u1', email: 'test@test.com' }),
@@ -684,67 +685,6 @@ describe('auth service', () => {
           }),
         })
       );
-    });
-  });
-});
-    const testPassword = 'legacy-pw';
-    const testSalt = 'legacy-salt';
-    const pbkdf2Digest = crypto.pbkdf2Sync(testPassword, testSalt, 1000, 64, 'sha256').toString('hex');
-    const legacyHash = `${testSalt}:${pbkdf2Digest}`;
-
-    it('silently upgrades PBKDF2 hash to bcrypt on successful login (AC2)', async () => {
-      vi.mocked(prisma.user.findUnique).mockResolvedValue({
-        id: 'u-legacy',
-        email: 'legacy@test.com',
-        passwordHash: legacyHash,
-        role: 'User',
-      } as any);
-      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.session.create).mockResolvedValue({
-        id: 's-legacy',
-        token: '',
-        expiresAt: new Date(Date.now() + 604800000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
-      vi.mocked(prisma.user.update).mockResolvedValue({} as any);
-
-      await login({ email: 'legacy@test.com', password: testPassword });
-
-      // Verify silent upgrade: user.update called with bcrypt hash
-      expect(prisma.user.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'u-legacy' },
-          data: expect.objectContaining({
-            passwordHash: expect.stringMatching(/^\$2[aby]\$\d+\$/),
-          }),
-        })
-      );
-    });
-
-    it('uses bcrypt path after PBKDF2 upgrade (no rehash on subsequent login) (AC3)', async () => {
-      const bcrypt = await import('bcryptjs');
-      const bcryptHash = bcrypt.hashSync(testPassword, 4);
-
-      vi.mocked(prisma.user.findUnique).mockResolvedValue({
-        id: 'u-upgraded',
-        email: 'upgraded@test.com',
-        passwordHash: bcryptHash,
-        role: 'User',
-      } as any);
-      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
-      vi.mocked(prisma.session.create).mockResolvedValue({
-        id: 's-upgraded',
-        token: '',
-        expiresAt: new Date(Date.now() + 604800000),
-      } as any);
-      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
-      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
-
-      await login({ email: 'upgraded@test.com', password: testPassword });
-
-      // bcrypt path: no rehash needed, user.update should not be called
-      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 });

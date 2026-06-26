@@ -561,6 +561,18 @@ describe('auth routes', () => {
       expect(typeof handlers[0]).toBe('function');
     });
 
+    it('authRateLimit mounted on POST /forgot-password', () => {
+      const handlers = getHandlers(routes, 'post', '/forgot-password');
+      expect(handlers.length).toBeGreaterThanOrEqual(2);
+      expect(typeof handlers[0]).toBe('function');
+    });
+
+    it('authRateLimit mounted on POST /reset-password', () => {
+      const handlers = getHandlers(routes, 'post', '/reset-password');
+      expect(handlers.length).toBeGreaterThanOrEqual(2);
+      expect(typeof handlers[0]).toBe('function');
+    });
+
     it('guest-session has no middleware; /me has optionalAuth middleware only', () => {
       const gs = getHandlers(routes, 'post', '/guest-session');
       expect(gs.length).toBe(1);
