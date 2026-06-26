@@ -129,7 +129,7 @@ export async function dispatchStep(
     : 'executing';
   const timeoutAt = new Date(Date.now() + getTimeoutForPhase(phase));
   await prisma.goalExecution.update({ where: { id: executionId }, data: { timeoutAt } });
-  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'active' } });
+  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'running' } });
 
   // 构建 prompt
   const isSubAgent = input?.taskType === 'sub-agent';
@@ -251,7 +251,7 @@ export async function dispatchStep(
         ),
       ]);
       if (result.success) {
-        await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'done' } });
+        await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'succeeded' } });
         const newState = updateDispatchOutcome({ failures: ctx.recentFailures, total: ctx.recentTotal }, true);
         ctx.recentFailures = newState.failures;
         ctx.recentTotal = newState.total;
@@ -299,7 +299,7 @@ export async function dispatchStep(
             error: integrationResult.error || 'missing step branches',
             failureType: 'not_retryable',
           } });
-          await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'closed' } });
+          await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'failed' } });
           return;
         }
       }
@@ -360,7 +360,7 @@ export async function dispatchStep(
       error: errorMsg,
       failureType: classification.failureClass,
     } });
-    await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'closed' } });
+    await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'failed' } });
     logger.error('[Scheduler] Agent error', { executionId, error: errorMsg });
     // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
     await onPhaseFailure({
@@ -418,7 +418,7 @@ async function handleDispatchSuccess(
       await prisma.goalExecution.update({ where: { id: executionId }, data: successData as any });
     }
   }
-  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'done' } });
+  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'succeeded' } });
   const tokenUsage = parseAgentTokenUsage(worktreeDir);
   // B59-004: read real test results from .progress.json
   let testPassed: boolean | undefined;
@@ -570,7 +570,7 @@ export async function maybeRetryExecution(
     }),
   } });
   // Reset to unassigned so scheduler picks it up again
-  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'unassigned' } });
+  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'pending' } });
 
   logger.warn('[Scheduler] Retrying execution', {
     executionId,
@@ -610,7 +610,7 @@ async function handleDispatchFailure(
   if (wuStatus === 'blocked') {
     await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'blocked' } });
   } else {
-    await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'closed' } });
+    await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'failed' } });
   }
   const failTokens = parseAgentTokenUsage(worktreeDir);
   // B59-004: read real test results from .progress.json (agent may have written before crash)
