@@ -3,7 +3,7 @@
 > 此文件描述 apps/api/src/modules/auth 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-06-26 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/email.service.ts, apps/api/src/modules/auth/routes.ts, apps/api/src/modules/auth/CONTEXT.md, apps/api/src/modules/auth/service.ts, apps/api/src/modules/auth/oauth.routes.ts
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/CONTEXT.md, apps/api/src/modules/auth/email.service.ts, apps/api/src/modules/auth/routes.ts, apps/api/src/modules/auth/service.ts, apps/api/src/modules/auth/oauth.routes.ts
 
 ## 职责
 
