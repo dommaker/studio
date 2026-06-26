@@ -41,8 +41,12 @@ Goal 生命周期核心模块。CRUD → Plan → Scheduler → Executor → Rev
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/CONTEXT.md, apps/api/src/modules/goals/scheduler-prompt.ts
 
-<!-- STALE_SINCE: 2026-06-17 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/routes.ts, apps/api/src/modules/goals/goal-review.ts, apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/scheduler-dispatch.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/stale-recovery.ts, apps/api/src/modules/goals/execution-alarm.ts, apps/api/src/modules/goals/goal-crud.ts, apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/goal-review.ts, apps/api/src/modules/goals/integration-rollback.ts, apps/api/src/modules/goals/routes.ts, apps/api/src/modules/goals/scheduler-dispatch.ts, apps/api/src/modules/goals/scheduler-integration.ts, apps/api/src/modules/goals/scheduler-prompt.ts, apps/api/src/modules/goals/scheduler-queue.ts, apps/api/src/modules/goals/executor-subagent-spawner.ts, apps/api/src/modules/goals/event-handler.ts, apps/api/src/modules/goals/goal.service.ts, apps/api/src/modules/goals/CONTEXT.md
+
+<!-- STALE_SINCE: 2026-06-25 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/stale-recovery.ts, apps/api/src/modules/goals/execution-alarm.ts, apps/api/src/modules/goals/goal-crud.ts, apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/goal-review.ts, apps/api/src/modules/goals/integration-rollback.ts, apps/api/src/modules/goals/routes.ts, apps/api/src/modules/goals/scheduler-dispatch.ts, apps/api/src/modules/goals/scheduler-integration.ts, apps/api/src/modules/goals/scheduler-prompt.ts, apps/api/src/modules/goals/scheduler-queue.ts, apps/api/src/modules/goals/executor-subagent-spawner.ts, apps/api/src/modules/goals/event-handler.ts, apps/api/src/modules/goals/goal.service.ts, apps/api/src/modules/goals/CONTEXT.md
 
 ## 核心导出
 - `goal.service.ts` → GoalService (Goal CRUD + 审查 + 完成判定)

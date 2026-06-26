@@ -58,8 +58,22 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts
 
-<!-- STALE_SINCE: 2026-06-25 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/default-triggers.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
+
+<!-- STALE_SINCE: 2026-06-26 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
 
 ## 职责
 
@@ -80,6 +94,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `93f20262`: agents): tryClaim revert to direct prisma + poll-fallback cron fix
 - ✅ `a8970c03`: agents): remove redundant as WorkUnit cast in agent-loop.ts L114
 - ✅ `f83bc026`: agents): AgentLoop→WorkUnitService + TriggerScheduler singleton
 - ✅ `4a0760ae`: agents): default-triggers 3 bug 修复

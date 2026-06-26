@@ -2,8 +2,14 @@
 
 > 此文件描述 apps/api/src/modules/admin 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-06-18 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/admin/docs-freshness.routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/admin/CONTEXT.md, apps/api/src/modules/admin/docs-freshness.routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/admin/CONTEXT.md, apps/api/src/modules/admin/docs-freshness.routes.ts
+
+<!-- STALE_SINCE: 2026-06-26 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/admin/CONTEXT.md, apps/api/src/modules/admin/docs-freshness.routes.ts
 
 ## 职责
 
