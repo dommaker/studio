@@ -10,10 +10,9 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 const {
-  mockUpdateStepExecution,
+  mockGoalExecUpdate,
+  mockGoalExecFindUnique,
   mockAgentExecute,
-  mockWuUpdate,
-  mockWuTransitionStatus,
   mockPrismaCreate,
   mockPrismaFindMany,
   mockClassifyTaskComplexity,
@@ -21,12 +20,11 @@ const {
   mockGetHistoricalBestTier,
   mockMaybeExploreDowngrade,
 } = vi.hoisted(() => ({
-  mockUpdateStepExecution: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'running' }),
+  mockGoalExecUpdate: vi.fn().mockResolvedValue({}),
+  mockGoalExecFindUnique: vi.fn().mockResolvedValue(null),
   mockAgentExecute: vi.fn().mockResolvedValue({
     success: true, outputFiles: [], sessionCount: 1, totalDurationMs: 100, sessionIds: [],
   }),
-  mockWuUpdate: vi.fn().mockResolvedValue({}),
-  mockWuTransitionStatus: vi.fn().mockResolvedValue({}),
   mockPrismaCreate: vi.fn().mockResolvedValue({}),
   mockPrismaFindMany: vi.fn().mockResolvedValue([]),
   mockClassifyTaskComplexity: vi.fn(),
@@ -35,20 +33,13 @@ const {
   mockMaybeExploreDowngrade: vi.fn(),
 }));
 
-vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
-    update: mockWuUpdate,
-    transitionStatus: mockWuTransitionStatus,
-    getById: vi.fn().mockResolvedValue(null),
-  })),
-}));
-
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     studioEvent: { create: mockPrismaCreate, findMany: mockPrismaFindMany },
     project: { findUnique: vi.fn().mockResolvedValue(null) },
     pipelineDecision: { create: vi.fn().mockResolvedValue({}) },
     failureEvent: { findFirst: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({}) },
+    goalExecution: { update: mockGoalExecUpdate, findUnique: mockGoalExecFindUnique, findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 
@@ -71,7 +62,7 @@ vi.mock('@dommaker/studio-shared/harness/hooks', () => ({
 
 vi.mock('../goal.service.js', () => ({
   goalService: {
-    updateStepExecution: mockUpdateStepExecution,
+    updateStepExecution: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'running' }),
     checkGoalCompletion: vi.fn().mockResolvedValue(undefined),
   },
   parseJsonField: <T>(val: unknown, def: T): T => {
@@ -197,12 +188,12 @@ describe('B57-P0: Executor always uses fast tier', () => {
 
     await dispatchStep(exec, makeGoal(), makeCtx());
 
-    const inputUpdateCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => (call[1] as Record<string, unknown>)?.input
+    const inputUpdateCalls = mockGoalExecUpdate.mock.calls.filter(
+      (call: [{ where: { id: string }; data: Record<string, unknown> }]) => call[0]?.data?.input
     );
     expect(inputUpdateCalls.length).toBeGreaterThanOrEqual(1);
-    const lastInputUpdate = inputUpdateCalls[inputUpdateCalls.length - 1][1] as { input: { model: string } };
-    expect(lastInputUpdate.input.model).toBe('fast');
+    const lastInputUpdate = inputUpdateCalls[inputUpdateCalls.length - 1][0].data.input as string;
+    expect(JSON.parse(lastInputUpdate).model).toBe('fast');
   });
 
   test('classifyTaskComplexity is never called', async () => {

@@ -10,32 +10,19 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 const {
-  mockUpdateStepExecution,
+  mockGoalExecUpdate,
+  mockGoalExecFindUnique,
   mockAgentExecute,
-  mockWuUpdate,
-  mockWuTransitionStatus,
-  mockGetById,
   mockPrismaCreate,
   mockPrismaFindMany,
 } = vi.hoisted(() => ({
-  mockUpdateStepExecution: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed' }),
+  mockGoalExecUpdate: vi.fn().mockResolvedValue({}),
+  mockGoalExecFindUnique: vi.fn().mockResolvedValue({ retryCount: 3 }),
   mockAgentExecute: vi.fn(),
-  mockWuUpdate: vi.fn().mockResolvedValue({}),
-  mockWuTransitionStatus: vi.fn().mockResolvedValue({}),
-  mockGetById: vi.fn().mockResolvedValue({ retryCount: 3 }),
   mockPrismaCreate: vi.fn().mockResolvedValue({}),
   mockPrismaFindMany: vi.fn().mockResolvedValue([]),
 }));
 
-vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
-    update: mockWuUpdate,
-    transitionStatus: mockWuTransitionStatus,
-    getById: mockGetById,
-  })),
-}));
-
-// Mock prisma
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     studioEvent: {
@@ -45,9 +32,17 @@ vi.mock('@dommaker/studio-prisma', () => ({
     project: {
       findUnique: vi.fn().mockResolvedValue(null),
     },
+    pipelineDecision: {
+      create: vi.fn().mockResolvedValue({}),
+    },
     failureEvent: {
       findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({}),
+    },
+    goalExecution: {
+      update: mockGoalExecUpdate,
+      findUnique: mockGoalExecFindUnique,
+      findMany: vi.fn().mockResolvedValue([]),
     },
   },
 }));
@@ -71,7 +66,7 @@ vi.mock('@dommaker/studio-shared/harness/hooks', () => ({
 
 vi.mock('../goal.service.js', () => ({
   goalService: {
-    updateStepExecution: mockUpdateStepExecution,
+    updateStepExecution: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed' }),
     checkGoalCompletion: vi.fn().mockResolvedValue(undefined),
   },
   parseJsonField: <T>(val: unknown, def: T): T => {
@@ -79,6 +74,47 @@ vi.mock('../goal.service.js', () => ({
     if (typeof val === 'string') { try { return JSON.parse(val); } catch { return def; } }
     return val as T;
   },
+}));
+
+
+
+vi.mock('../execution-alarm.js', () => ({
+  onPhaseFailure: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../integration-rollback.js', () => ({
+  rollbackToIntegrationStep: vi.fn(),
+  parseIntegrationFailureType: vi.fn(),
+}));
+
+vi.mock('../scheduler-queue.js', () => ({
+  getDispatchStrategy: vi.fn().mockReturnValue('normal'),
+  updateDispatchOutcome: vi.fn().mockReturnValue({ failures: 0, total: 1 }),
+  parseAgentTokenUsage: vi.fn().mockReturnValue({ model: 'fast', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0 }),
+}));
+
+vi.mock('../knowledge/knowledge-service.js', () => ({
+  knowledgeService: { workUnitFeedback: vi.fn(), extractFromExecution: vi.fn() },
+}));
+
+vi.mock('./knowledge-promoter.js', () => ({
+  recordKnowledgeRefs: vi.fn(),
+}));
+
+vi.mock('../knowledge/knowledge-bus.service.js', () => ({
+  knowledgeBus: { search: vi.fn().mockReturnValue([]), formatSearchForPrompt: vi.fn().mockReturnValue(''), recordPattern: vi.fn() },
+}));
+
+vi.mock('../knowledge/resolution.service.js', () => ({
+  resolutionMatcher: { formatForPrompt: vi.fn().mockResolvedValue('') },
+}));
+
+vi.mock('../skills/skill-loader.js', () => ({
+  skillLoaderService: { loadSkill: vi.fn().mockResolvedValue(null) },
+}));
+
+vi.mock('../knowledge/consumers/prompt-builder.js', () => ({
+  getLastInjectedIds: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock('../scheduler-prompt.js', () => ({
@@ -154,15 +190,15 @@ describe('failureType wiring in dispatchStep', () => {
       sessionIds: [],
     });
 
-    mockGetById.mockResolvedValue({ retryCount: 3 });
+    mockGoalExecFindUnique.mockResolvedValue({ retryCount: 3, input: null });
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockWuUpdate.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
+    const failureCalls = mockGoalExecUpdate.mock.calls.filter(
+      (call: [{ where: { id: string }; data: Record<string, unknown> }]) => call[0]?.data?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('retryable');
+    expect(failureCalls[failureCalls.length - 1][0].data.failureType).toBe('retryable');
   });
 
   test('writes failureType=not-retryable when agent fails with approach infeasible', async () => {
@@ -171,15 +207,15 @@ describe('failureType wiring in dispatchStep', () => {
       error: 'The approach is infeasible because API does not exist',
       sessionIds: [],
     });
-    mockGetById.mockResolvedValue({ retryCount: 3 });
+    mockGoalExecFindUnique.mockResolvedValue({ retryCount: 3, input: null });
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockWuUpdate.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
+    const failureCalls = mockGoalExecUpdate.mock.calls.filter(
+      (call: [{ where: { id: string }; data: Record<string, unknown> }]) => call[0]?.data?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('not-retryable');
+    expect(failureCalls[failureCalls.length - 1][0].data.failureType).toBe('not-retryable');
   });
 
   test('writes failureType=infrastructure when agent fails with worktree error', async () => {
@@ -188,15 +224,15 @@ describe('failureType wiring in dispatchStep', () => {
       error: 'worktree directory ENOENT: /root/worktrees/abc123',
       sessionIds: [],
     });
-    mockGetById.mockResolvedValue({ retryCount: 3 });
+    mockGoalExecFindUnique.mockResolvedValue({ retryCount: 3, input: null });
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockWuUpdate.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
+    const failureCalls = mockGoalExecUpdate.mock.calls.filter(
+      (call: [{ where: { id: string }; data: Record<string, unknown> }]) => call[0]?.data?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('infrastructure');
+    expect(failureCalls[failureCalls.length - 1][0].data.failureType).toBe('infrastructure');
   });
 
   test('writes failureType=unknown when agent fails with unrecognized error', async () => {
@@ -205,15 +241,15 @@ describe('failureType wiring in dispatchStep', () => {
       error: 'Something weird happened',
       sessionIds: [],
     });
-    mockGetById.mockResolvedValue({ retryCount: 3 });
+    mockGoalExecFindUnique.mockResolvedValue({ retryCount: 3, input: null });
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockWuUpdate.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
+    const failureCalls = mockGoalExecUpdate.mock.calls.filter(
+      (call: [{ where: { id: string }; data: Record<string, unknown> }]) => call[0]?.data?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('unknown');
+    expect(failureCalls[failureCalls.length - 1][0].data.failureType).toBe('unknown');
   });
 
   test('writes failureType in catch block when agent throws', async () => {
@@ -221,10 +257,10 @@ describe('failureType wiring in dispatchStep', () => {
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockWuUpdate.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
+    const failureCalls = mockGoalExecUpdate.mock.calls.filter(
+      (call: [{ where: { id: string }; data: Record<string, unknown> }]) => call[0]?.data?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('retryable');
+    expect(failureCalls[failureCalls.length - 1][0].data.failureType).toBe('retryable');
   });
 });

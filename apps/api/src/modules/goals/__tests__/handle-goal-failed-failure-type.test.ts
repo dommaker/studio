@@ -67,9 +67,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockGoalFindUnique.mockResolvedValue({
     id: 'goal-1',
-    scope: 'Test Goal',
-    status: 'running',
     title: 'Test Goal',
+    status: 'running',
     context: '{}',
   });
   mockGoalExecutionFindMany.mockResolvedValue([]);
@@ -77,6 +76,8 @@ beforeEach(() => {
   mockClassifyFailureAction.mockReturnValue({ action: 'triage-agent', failureClass: 'unknown' });
   mockHandleAlert.mockResolvedValue(undefined);
   mockGoalExecutionUpdate.mockResolvedValue({});
+  mockGoalExecutionFindUnique.mockResolvedValue(null);
+  mockGoalUpdate.mockResolvedValue({});
 });
 
 import { handleGoalFailed } from '../goal-lifecycle.js';
@@ -108,18 +109,21 @@ describe('handleGoalFailed — failureType routing (B.2/B.3/B.4)', () => {
       stepIndex: 0,
       updatedAt: new Date(),
     }]);
-    mockGoalFindUnique
-      .mockResolvedValueOnce({ id: 'goal-1', scope: 'Test Goal', status: 'running', title: 'Test Goal', context: '{}' })
-      .mockResolvedValueOnce({ id: 'exec-1', status: 'failed', retryCount: 0, goalId: 'goal-1', error: 'worktree lost' });
-    mockGoalExecutionFindUnique
-      .mockResolvedValueOnce({ id: 'exec-1', status: 'failed', retryCount: 0, goalId: 'goal-1', error: 'worktree lost' });
+    mockGoalExecutionFindUnique.mockResolvedValue({
+      id: 'exec-1', status: 'failed', retryCount: 0, goalId: 'goal-1', error: 'worktree lost',
+    });
 
     await handleGoalFailed('goal-1');
 
     expect(mockClassifyFailureAction).not.toHaveBeenCalled();
     expect(mockGoalExecutionUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'running' }),
+        data: expect.objectContaining({ status: 'pending' }),
+      })
+    );
+    expect(mockGoalUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'executing' }),
       })
     );
   });
@@ -134,18 +138,16 @@ describe('handleGoalFailed — failureType routing (B.2/B.3/B.4)', () => {
       stepIndex: 0,
       updatedAt: new Date(),
     }]);
-    mockGoalFindUnique
-      .mockResolvedValueOnce({ id: 'goal-1', scope: 'Test Goal', status: 'running', title: 'Test Goal', context: '{}' })
-      .mockResolvedValueOnce({ id: 'exec-1', status: 'failed', retryCount: 0, goalId: 'goal-1', error: 'TypeError: undefined' });
-    mockGoalExecutionFindUnique
-      .mockResolvedValueOnce({ id: 'exec-1', status: 'failed', retryCount: 0, goalId: 'goal-1', error: 'TypeError: undefined' });
+    mockGoalExecutionFindUnique.mockResolvedValue({
+      id: 'exec-1', status: 'failed', retryCount: 0, goalId: 'goal-1', error: 'TypeError: undefined',
+    });
 
     await handleGoalFailed('goal-1');
 
     expect(mockClassifyFailureAction).not.toHaveBeenCalled();
     expect(mockGoalExecutionUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: expect.objectContaining({ status: 'running' }),
+        data: expect.objectContaining({ status: 'pending' }),
       })
     );
   });
@@ -164,10 +166,10 @@ describe('handleGoalFailed — failureType routing (B.2/B.3/B.4)', () => {
     await handleGoalFailed('goal-1');
 
     expect(mockClassifyFailureAction).not.toHaveBeenCalled();
-    const runningUpdates = mockGoalExecutionUpdate.mock.calls.filter(
-      (c: any) => c[0]?.data?.status === 'running'
+    const pendingUpdates = mockGoalExecutionUpdate.mock.calls.filter(
+      (c: any) => c[0]?.data?.status === 'pending'
     );
-    expect(runningUpdates.length).toBe(0);
+    expect(pendingUpdates.length).toBe(0);
     expect(mockHandleAlert).not.toHaveBeenCalled();
   });
 

@@ -11,29 +11,17 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 const {
-  mockUpdateStepExecution,
+  mockGoalExecUpdate,
+  mockGoalExecFindUnique,
   mockAgentExecute,
-  mockWuUpdate,
-  mockWuTransitionStatus,
-  mockGetById,
   mockPrismaCreate,
   mockPrismaFindMany,
 } = vi.hoisted(() => ({
-  mockUpdateStepExecution: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed' }),
+  mockGoalExecUpdate: vi.fn().mockResolvedValue({}),
+  mockGoalExecFindUnique: vi.fn().mockResolvedValue({ retryCount: 3 }),
   mockAgentExecute: vi.fn(),
-  mockWuUpdate: vi.fn().mockResolvedValue({}),
-  mockWuTransitionStatus: vi.fn().mockResolvedValue({}),
-  mockGetById: vi.fn().mockResolvedValue({ retryCount: 3 }),
   mockPrismaCreate: vi.fn().mockResolvedValue({}),
   mockPrismaFindMany: vi.fn().mockResolvedValue([]),
-}));
-
-vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
-    update: mockWuUpdate,
-    transitionStatus: mockWuTransitionStatus,
-    getById: mockGetById,
-  })),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
@@ -45,9 +33,17 @@ vi.mock('@dommaker/studio-prisma', () => ({
     project: {
       findUnique: vi.fn().mockResolvedValue(null),
     },
+    pipelineDecision: {
+      create: vi.fn().mockResolvedValue({}),
+    },
     failureEvent: {
       findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({}),
+    },
+    goalExecution: {
+      update: mockGoalExecUpdate,
+      findUnique: mockGoalExecFindUnique,
+      findMany: vi.fn().mockResolvedValue([]),
     },
   },
 }));
@@ -71,7 +67,7 @@ vi.mock('@dommaker/studio-shared/harness/hooks', () => ({
 
 vi.mock('../goal.service.js', () => ({
   goalService: {
-    updateStepExecution: mockUpdateStepExecution,
+    updateStepExecution: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed' }),
     checkGoalCompletion: vi.fn().mockResolvedValue(undefined),
   },
   parseJsonField: <T>(val: unknown, def: T): T => {
@@ -79,6 +75,47 @@ vi.mock('../goal.service.js', () => ({
     if (typeof val === 'string') { try { return JSON.parse(val); } catch { return def; } }
     return val as T;
   },
+}));
+
+
+
+vi.mock('../execution-alarm.js', () => ({
+  onPhaseFailure: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../integration-rollback.js', () => ({
+  rollbackToIntegrationStep: vi.fn(),
+  parseIntegrationFailureType: vi.fn(),
+}));
+
+vi.mock('../scheduler-queue.js', () => ({
+  getDispatchStrategy: vi.fn().mockReturnValue('normal'),
+  updateDispatchOutcome: vi.fn().mockReturnValue({ failures: 0, total: 1 }),
+  parseAgentTokenUsage: vi.fn().mockReturnValue({ model: 'fast', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0 }),
+}));
+
+vi.mock('../knowledge/knowledge-service.js', () => ({
+  knowledgeService: { workUnitFeedback: vi.fn(), extractFromExecution: vi.fn() },
+}));
+
+vi.mock('./knowledge-promoter.js', () => ({
+  recordKnowledgeRefs: vi.fn(),
+}));
+
+vi.mock('../knowledge/knowledge-bus.service.js', () => ({
+  knowledgeBus: { search: vi.fn().mockReturnValue([]), formatSearchForPrompt: vi.fn().mockReturnValue(''), recordPattern: vi.fn() },
+}));
+
+vi.mock('../knowledge/resolution.service.js', () => ({
+  resolutionMatcher: { formatForPrompt: vi.fn().mockResolvedValue('') },
+}));
+
+vi.mock('../skills/skill-loader.js', () => ({
+  skillLoaderService: { loadSkill: vi.fn().mockResolvedValue(null) },
+}));
+
+vi.mock('../knowledge/consumers/prompt-builder.js', () => ({
+  getLastInjectedIds: vi.fn().mockReturnValue([]),
 }));
 
 vi.mock('../scheduler-prompt.js', () => ({
@@ -142,26 +179,28 @@ function makeGoal() {
   };
 }
 
-/** Get the last workUnitService.update call's data payload that contains a failureType */
+/** Get the last prisma.goalExecution.update call's data payload that contains a failureType */
 function lastFailurePayload(): Record<string, unknown> {
-  const failureCalls = mockWuUpdate.mock.calls.filter(
-    (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
+  const failureCalls = mockGoalExecUpdate.mock.calls.filter(
+    (call: [{ where: { id: string }; data: Record<string, unknown> }]) => call[0]?.data?.failureType !== undefined
   );
   expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-  return failureCalls[failureCalls.length - 1][1];
+  return failureCalls[failureCalls.length - 1][0].data;
 }
 
-/** Get the last workUnitService.transitionStatus call's status value */
+/** Get the last prisma.goalExecution.update call's status value */
 function lastStatusTransition(): string {
-  const statusCalls = mockWuTransitionStatus.mock.calls;
+  const statusCalls = mockGoalExecUpdate.mock.calls.filter(
+    (call: [{ where: { id: string }; data: Record<string, unknown> }]) => call[0]?.data?.status !== undefined
+  );
   expect(statusCalls.length).toBeGreaterThanOrEqual(1);
-  return statusCalls[statusCalls.length - 1][1] as string;
+  return statusCalls[statusCalls.length - 1][0].data.status as string;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
   // retries exhausted so maybeRetryExecution returns false
-  mockGetById.mockResolvedValue({ retryCount: 3 });
+  mockGoalExecFindUnique.mockResolvedValue({ retryCount: 3, input: null });
 });
 
 describe('handleDispatchFailure status routing', () => {
@@ -179,7 +218,7 @@ describe('handleDispatchFailure status routing', () => {
     expect(lastStatusTransition()).toBe('blocked');
   });
 
-  test('retryable (retries exhausted) → status closed', async () => {
+  test('retryable (retries exhausted) → status failed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'exit code 1',
@@ -190,10 +229,10 @@ describe('handleDispatchFailure status routing', () => {
 
     const payload = lastFailurePayload();
     expect(payload.failureType).toBe('retryable');
-    expect(lastStatusTransition()).toBe('closed');
+    expect(lastStatusTransition()).toBe('failed');
   });
 
-  test('infrastructure (retries exhausted) → status closed', async () => {
+  test('infrastructure (retries exhausted) → status failed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'worktree directory ENOENT: /root/worktrees/abc123',
@@ -204,10 +243,10 @@ describe('handleDispatchFailure status routing', () => {
 
     const payload = lastFailurePayload();
     expect(payload.failureType).toBe('infrastructure');
-    expect(lastStatusTransition()).toBe('closed');
+    expect(lastStatusTransition()).toBe('failed');
   });
 
-  test('unknown (triage-agent action) → status closed', async () => {
+  test('unknown (triage-agent action) → status failed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'Something weird happened',
@@ -218,6 +257,6 @@ describe('handleDispatchFailure status routing', () => {
 
     const payload = lastFailurePayload();
     expect(payload.failureType).toBe('unknown');
-    expect(lastStatusTransition()).toBe('closed');
+    expect(lastStatusTransition()).toBe('failed');
   });
 });

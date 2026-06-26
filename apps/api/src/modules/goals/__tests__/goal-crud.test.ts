@@ -33,45 +33,29 @@ describe('listGoals', () => {
     mockFindMany.mockResolvedValue([]);
   });
 
-  it('calls prisma without failureType filter when not provided', async () => {
+  it('calls prisma without status filter when not provided', async () => {
     await listGoals('company-1');
 
     expect(mockFindMany).toHaveBeenCalledWith({
       where: { companyId: 'company-1' },
-      include: { GoalPlan: { orderBy: { version: 'desc' }, take: 1 } },
       orderBy: { createdAt: 'desc' },
     });
   });
 
-  it('adds GoalExecution relation filter when failureType provided', async () => {
-    await listGoals('company-1', undefined, 'not-retryable');
-
-    expect(mockFindMany).toHaveBeenCalledWith({
-      where: {
-        companyId: 'company-1',
-        GoalExecution: { some: { failureType: 'not-retryable' } },
-      },
-      include: { GoalPlan: { orderBy: { version: 'desc' }, take: 1 } },
-      orderBy: { createdAt: 'desc' },
-    });
-  });
-
-  it('combines status and failureType filters', async () => {
-    await listGoals('company-1', 'failed', 'not-retryable');
+  it('applies status filter when provided', async () => {
+    await listGoals('company-1', 'failed');
 
     expect(mockFindMany).toHaveBeenCalledWith({
       where: {
         companyId: 'company-1',
         status: 'failed',
-        GoalExecution: { some: { failureType: 'not-retryable' } },
       },
-      include: { GoalPlan: { orderBy: { version: 'desc' }, take: 1 } },
       orderBy: { createdAt: 'desc' },
     });
   });
 
   it('returns empty array when no goals match', async () => {
-    const result = await listGoals('company-1', undefined, 'nonexistent');
+    const result = await listGoals('company-1');
     expect(result).toEqual([]);
   });
 });

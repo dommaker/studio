@@ -28,12 +28,12 @@ describe('Pipeline feedback loop contract', () => {
   const lifecycleSrc = readSource('goal-lifecycle.ts');
 
   describe('Goal/GoalExecution prisma model usage', () => {
-    it('scheduler-dispatch uses workUnitService for execution queries (not yet migrated to prisma.goalExecution)', () => {
-      expect(dispatchSrc).toContain('workUnitService');
+    it('scheduler-dispatch uses prisma.goalExecution for execution queries', () => {
+      expect(dispatchSrc).toContain('prisma.goalExecution');
     });
 
-    it('scheduler-dispatch uses WorkUnitService class', () => {
-      expect(dispatchSrc).toContain('WorkUnitService');
+    it('scheduler-dispatch uses prisma.goalExecution.update for execution updates', () => {
+      expect(dispatchSrc).toContain('prisma.goalExecution.update');
     });
 
     it('goal-lifecycle uses prisma.goalExecution for execution updates', () => {
@@ -49,25 +49,25 @@ describe('Pipeline feedback loop contract', () => {
     });
   });
 
-  describe('Status values — scheduler-dispatch uses workUnit status values', () => {
-    it('uses active status for running executions', () => {
-      expect(dispatchSrc).toMatch(/transitionStatus\(.*'active'\)/);
+  describe('Status values — scheduler-dispatch uses prisma.goalExecution status values', () => {
+    it('uses running status for dispatched executions', () => {
+      expect(dispatchSrc).toMatch(/status:\s*'running'/);
     });
 
-    it('uses done status for completed executions', () => {
-      expect(dispatchSrc).toMatch(/transitionStatus\(.*'done'\)/);
+    it('uses succeeded status for completed executions', () => {
+      expect(dispatchSrc).toMatch(/status:\s*'succeeded'/);
     });
 
-    it('uses closed status for failed executions', () => {
-      expect(dispatchSrc).toMatch(/transitionStatus\(.*'closed'\)/);
+    it('uses failed status for failed executions', () => {
+      expect(dispatchSrc).toMatch(/status:\s*'failed'/);
     });
 
-    it('uses unassigned status for retry reset', () => {
-      expect(dispatchSrc).toMatch(/transitionStatus\(.*'unassigned'\)/);
+    it('uses pending status for retry reset', () => {
+      expect(dispatchSrc).toMatch(/status:\s*'pending'/);
     });
 
     it('uses blocked status for not-retryable failures', () => {
-      expect(dispatchSrc).toMatch(/transitionStatus\(.*'blocked'\)/);
+      expect(dispatchSrc).toMatch(/status:\s*'blocked'/);
     });
 
     it('goal-lifecycle uses new status values (succeeded/failed)', () => {

@@ -235,9 +235,9 @@ describe('rollbackToIntegrationStep', () => {
 
     expect(result.rolledBackSteps).toEqual([0]);
 
-    // Target step (exec-0) should be reset to pending
+    // Target step (exec-0) should be reset to unassigned
     const stepResetCall = mockUpdate.mock.calls.find(
-      (c: any) => c[0]?.where?.id === 'exec-0' && c[0]?.data?.status === 'pending'
+      (c: any) => c[0]?.where?.id === 'exec-0' && c[0]?.data?.status === 'unassigned'
     );
     expect(stepResetCall).toBeDefined();
     expect(stepResetCall[0].data.retryCount).toBe(1);
@@ -246,10 +246,10 @@ describe('rollbackToIntegrationStep', () => {
     // Integration step (999) should be deleted
     expect(mockDelete).toHaveBeenCalledWith({ where: { id: 'exec-int' } });
 
-    // Goal should be reset to executing
-    expect(mockGoalUpdate).toHaveBeenCalledWith({
+    // Goal should be reset to active (via goalExecution.update with goalId)
+    expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'goal-1' },
-      data: { status: 'executing', completedAt: null },
+      data: { status: 'active', completedAt: null },
     });
   });
 
@@ -269,7 +269,7 @@ describe('rollbackToIntegrationStep', () => {
     });
 
     const stepResetCall = mockUpdate.mock.calls.find(
-      (c: any) => c[0]?.where?.id === 'exec-0' && c[0]?.data?.status === 'pending'
+      (c: any) => c[0]?.where?.id === 'exec-0' && c[0]?.data?.status === 'unassigned'
     );
     // retryCount was 1, should be incremented to 2
     expect(stepResetCall[0].data.retryCount).toBe(2);
@@ -291,13 +291,13 @@ describe('rollbackToIntegrationStep', () => {
     });
 
     expect(result.blocked).toBe(true);
-    expect(mockGoalUpdate).toHaveBeenCalledWith({
+    expect(mockUpdate).toHaveBeenCalledWith({
       where: { id: 'goal-1' },
       data: { status: 'blocked' },
     });
-    // Step should NOT be reset to pending
+    // Step should NOT be reset to unassigned
     const stepResetCall = mockUpdate.mock.calls.find(
-      (c: any) => c[0]?.where?.id === 'exec-0' && c[0]?.data?.status === 'pending'
+      (c: any) => c[0]?.where?.id === 'exec-0' && c[0]?.data?.status === 'unassigned'
     );
     expect(stepResetCall).toBeUndefined();
   });
@@ -323,7 +323,7 @@ describe('rollbackToIntegrationStep', () => {
 
     // Both steps should be reset
     const resetCalls = mockUpdate.mock.calls.filter(
-      (c: any) => c[0]?.data?.status === 'pending' && c[0]?.where?.id?.startsWith('exec-')
+      (c: any) => c[0]?.data?.status === 'unassigned' && c[0]?.where?.id?.startsWith('exec-')
     );
     expect(resetCalls.length).toBe(2);
   });
@@ -355,9 +355,9 @@ describe('rollbackToIntegrationStep', () => {
     expect(result.rolledBackSteps).toContain(0);
     expect(result.rolledBackSteps).toContain(1);
 
-    // Both steps should have status: pending update
+    // Both steps should have status: unassigned update
     const resetCalls = mockUpdate.mock.calls.filter(
-      (c: any) => c[0]?.data?.status === 'pending' && c[0]?.where?.id?.startsWith('exec-')
+      (c: any) => c[0]?.data?.status === 'unassigned' && c[0]?.where?.id?.startsWith('exec-')
     );
     expect(resetCalls.length).toBe(2);
   });

@@ -9,25 +9,23 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock dependencies
-vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
-    update: vi.fn().mockResolvedValue({}),
-    transitionStatus: vi.fn().mockResolvedValue({}),
-    getById: vi.fn().mockResolvedValue(null),
-  })),
-}));
-
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     studioEvent: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn() },
     pipelineDecision: { create: vi.fn() },
     project: { findUnique: vi.fn() },
+    goalExecution: {
+      update: vi.fn().mockResolvedValue({}),
+      findUnique: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
+    },
   },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   eventBus: { emit: vi.fn() },
+  getModelForTier: vi.fn().mockReturnValue('claude-sonnet-4-20250514'),
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
@@ -76,6 +74,20 @@ vi.mock('./knowledge-promoter.js', () => ({
 
 vi.mock('./failure-classifier.js', () => ({
   classifyFailure: vi.fn().mockReturnValue('retryable'),
+  classifyFailureAction: vi.fn().mockReturnValue({ failureClass: 'retryable', action: 'retry-execution' }),
+}));
+
+vi.mock('./execution-alarm.js', () => ({
+  onPhaseFailure: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('./integration-rollback.js', () => ({
+  rollbackToIntegrationStep: vi.fn(),
+  parseIntegrationFailureType: vi.fn(),
+}));
+
+vi.mock('../knowledge/consumers/prompt-builder.js', () => ({
+  getLastInjectedIds: vi.fn().mockReturnValue([]),
 }));
 
 const mockLoadSkill = vi.fn();
