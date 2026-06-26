@@ -43,6 +43,8 @@ vi.mock('../service.js', () => ({
   cleanupExpiredSessions: vi.fn(),
   generateEmailVerificationToken: vi.fn().mockResolvedValue('verification-token-123'),
   verifyEmail: vi.fn(),
+  generateResetToken: vi.fn(),
+  resetPassword: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-audit', () => ({
@@ -424,6 +426,119 @@ describe('auth routes', () => {
 
       expect(res.status).toHaveBeenCalledWith(500);
       expect(res.json).toHaveBeenCalledWith({ error: 'DB err' });
+    });
+  });
+
+  describe('POST /forgot-password', () => {
+    it('returns 200 with success message on valid email', async () => {
+      vi.mocked(authService.generateResetToken).mockResolvedValue('reset-token-123');
+
+      const { res } = await invokeRoute(routes, 'post', '/forgot-password', {
+        body: { email: 'user@test.com' },
+      });
+
+      expect(authService.generateResetToken).toHaveBeenCalledWith('user@test.com');
+      expect(res.json).toHaveBeenCalledWith({
+        message: '如果该邮箱已注册，重置密码链接已发送',
+      });
+    });
+
+    it('returns 200 even when email not found (no email leak)', async () => {
+      vi.mocked(authService.generateResetToken).mockResolvedValue(null);
+
+      const { res } = await invokeRoute(routes, 'post', '/forgot-password', {
+        body: { email: 'unknown@test.com' },
+      });
+
+      expect(res.json).toHaveBeenCalledWith({
+        message: '如果该邮箱已注册，重置密码链接已发送',
+      });
+    });
+
+    it('returns 400 when email is missing', async () => {
+      const { res } = await invokeRoute(routes, 'post', '/forgot-password', {
+        body: {},
+      });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: '邮箱不能为空' });
+      expect(authService.generateResetToken).not.toHaveBeenCalled();
+    });
+
+    it('returns 500 when service throws', async () => {
+      vi.mocked(authService.generateResetToken).mockRejectedValue(new Error('DB error'));
+
+      const { res } = await invokeRoute(routes, 'post', '/forgot-password', {
+        body: { email: 'user@test.com' },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
+    });
+  });
+
+  describe('POST /reset-password', () => {
+    it('returns 200 with success message on valid token', async () => {
+      vi.mocked(authService.resetPassword).mockResolvedValue(true);
+
+      const { res } = await invokeRoute(routes, 'post', '/reset-password', {
+        body: { token: 'valid-token', password: 'NewP@ss123' },
+      });
+
+      expect(authService.resetPassword).toHaveBeenCalledWith('valid-token', 'NewP@ss123');
+      expect(res.json).toHaveBeenCalledWith({ message: '密码重置成功' });
+    });
+
+    it('returns 400 when token or password missing', async () => {
+      const { res } = await invokeRoute(routes, 'post', '/reset-password', {
+        body: {},
+      });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'token 和密码不能为空' });
+      expect(authService.resetPassword).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when only password missing', async () => {
+      const { res } = await invokeRoute(routes, 'post', '/reset-password', {
+        body: { token: 'some-token' },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'token 和密码不能为空' });
+      expect(authService.resetPassword).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when only token missing', async () => {
+      const { res } = await invokeRoute(routes, 'post', '/reset-password', {
+        body: { password: 'NewP@ss123' },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'token 和密码不能为空' });
+      expect(authService.resetPassword).not.toHaveBeenCalled();
+    });
+
+    it('returns 400 when token is invalid/expired', async () => {
+      vi.mocked(authService.resetPassword).mockResolvedValue(false);
+
+      const { res } = await invokeRoute(routes, 'post', '/reset-password', {
+        body: { token: 'bad-token', password: 'NewP@ss123' },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: '重置链接无效或已过期' });
+    });
+
+    it('returns 500 when service throws', async () => {
+      vi.mocked(authService.resetPassword).mockRejectedValue(new Error('DB error'));
+
+      const { res } = await invokeRoute(routes, 'post', '/reset-password', {
+        body: { token: 't', password: 'P@ss123' },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
     });
   });
 
