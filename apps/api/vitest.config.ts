@@ -10,5 +10,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
     },
+    // SQLite 不支持并发写入, 串行执行测试文件
+    maxConcurrency: 1,
   },
 });

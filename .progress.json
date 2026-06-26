@@ -25,7 +25,7 @@
     "failed": 0,
     "command": "npx vitest run apps/api/src/modules/auth/__tests__/ --reporter=verbose",
     "evidence": "service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 17/17, middleware-invocation.test.ts 7/7. tsc --noEmit: exit 0, no type errors.",
-    "verifiedAt": "2026-06-26T11:06:00Z"
+    "verifiedAt": "2026-06-26T11:13:00Z"
   },
   "designNotes": {
     "decisions": [
@@ -33,12 +33,18 @@
       "Token 过期: 1 小时 (RESET_TOKEN_EXPIRY_HOURS=1)。",
       "原子更新: resetPassword 使用 Prisma $transaction 包裹密码更新+token 标记已使用。",
       "安全: forgot-password 返回统一消息，不暴露邮箱是否注册。OAuth 用户(passwordHash=null)返回 null。",
-      "邮件: 暂无邮件服务，仅 logger.info 输出 token，预留 TODO。"
+      "邮件: 暂无邮件服务，仅 logger.info 输出 token，预留 TODO。",
+      "setup-db.ts: prisma db push 加 --accept-data-loss。新版 Prisma 对破坏性 schema 变更要求此 flag。因 DB file 已被删除，无数据丢失风险。",
+      "vitest.config.ts: 加 maxConcurrency: 1。SQLite 不支持并发写入，vitest 默认 5 个并发 worker 导致 database is locked / readonly database 错误。",
+      "setup-db.ts: 若 DB 已存在则跳过 push。vitest 串行模式下 setup 只执行一次，避免重复 push 浪费 CI 时间。"
     ],
-    "failedAttempts": [],
+    "failedAttempts": [
+      "试过用原子 mkdir 做分布式锁控制并发 push, 但 SQLite 底层仍出现 readonly database 错误。改用 maxConcurrency: 1 更可靠。"
+    ],
     "uncertainties": [],
     "constraintsDiscovered": [
-      "Docker 容器内 SQLite 曾被 YDService 进程锁定，导致 prisma db push --force-reset 失败 (P3016)。需 kill -9 后重试。",
+      "Prisma 5.x db push --force-reset 对包含新唯一约束的 schema 变更需要 --accept-data-loss, 即使数据已全部删除。",
+      "Vitest 1.6.1 pool:threads 模式下多 worker 共享 SQLite DB file 导致不可预测的并发错误。",
       "ESLint 9 不支持 .eslintrc.cjs 遗留配置，lint 命令无法运行（预存问题，非本次改动引入）。"
     ]
   }

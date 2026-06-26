@@ -19,20 +19,21 @@ const dbPath = testDbPath;
 const prismaDir = resolve(__dirname, '../../../packages/studio-prisma');
 const schemaPath = resolve(prismaDir, 'prisma/schema.prisma');
 
-// Always recreate test DB to ensure schema is in sync.
-// Delete first to avoid SQLITE_READONLY_DBMOVED from stale file descriptors.
-try { unlinkSync(dbPath); } catch { /* ignore if not exists */ }
-try { unlinkSync(dbPath + '-journal'); } catch { /* ignore */ }
-try { unlinkSync(dbPath + '-wal'); } catch { /* ignore */ }
+// Don't recreate if DB already exists — vitest runs setup once per session
+// with maxConcurrency: 1.
+if (!existsSync(dbPath)) {
+  // Delete stale journal files to avoid SQLITE_READONLY_DBMOVED.
+  try { unlinkSync(dbPath); } catch { /* ignore */ }
+  try { unlinkSync(dbPath + '-journal'); } catch { /* ignore */ }
+  try { unlinkSync(dbPath + '-wal'); } catch { /* ignore */ }
 
-// Use db push to create a fresh DB from schema.
-// --force-reset drops all data and recreates from schema (safe since we deleted the file).
-// This ensures the schema is always in sync, including new columns.
-// Also regenerates Prisma client to pick up schema changes.
-const prismaBin = resolve(__dirname, '../node_modules/.bin/prisma');
-execSync(`${prismaBin} db push --force-reset --schema ${schemaPath}`, {
-  cwd: prismaDir,
-  env: { ...process.env, DATABASE_URL: dbUrl },
-  stdio: 'pipe',
-  timeout: 60_000,
-});
+  // Use db push to create a fresh DB from schema.
+  // --force-reset drops all data and recreates from schema (safe since we deleted the file).
+  const prismaBin = resolve(__dirname, '../node_modules/.bin/prisma');
+  execSync(`${prismaBin} db push --force-reset --accept-data-loss --schema ${schemaPath}`, {
+    cwd: prismaDir,
+    env: { ...process.env, DATABASE_URL: dbUrl },
+    stdio: 'pipe',
+    timeout: 60_000,
+  });
+}
