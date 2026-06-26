@@ -11,15 +11,23 @@ const {
   mockWuFindMany,
   mockWuUpdate,
   mockDaemonGetStatus,
+  mockGoalFindMany,
+  mockGeFindMany,
+  mockGeUpdate,
 } = vi.hoisted(() => ({
   mockWuFindMany: vi.fn(() => Promise.resolve([])),
   mockWuUpdate: vi.fn(() => Promise.resolve({})),
   mockDaemonGetStatus: vi.fn(() => []),
+  mockGoalFindMany: vi.fn(() => Promise.resolve([])),
+  mockGeFindMany: vi.fn(() => Promise.resolve([])),
+  mockGeUpdate: vi.fn(() => Promise.resolve({})),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     workUnit: { findMany: mockWuFindMany, update: mockWuUpdate },
+    goal: { findMany: mockGoalFindMany },
+    goalExecution: { findMany: mockGeFindMany, update: mockGeUpdate },
     $queryRaw: vi.fn(() => Promise.resolve([])),
   },
 }));
@@ -53,6 +61,7 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} })
 vi.mock('../../knowledge/knowledge-sync.service.js', () => ({ knowledgeSync: {} }));
 vi.mock('../../knowledge/preference-observer.js', () => ({ preferenceObserver: { record: vi.fn() } }));
 vi.mock('../triage-agent.service.js', () => ({ triageAgent: { handleAlert: vi.fn() } }));
+vi.mock('../../goals/execution-alarm.js', () => ({ onPhaseFailure: vi.fn() }));
 
 vi.mock('../../daemon/studio-daemon.js', () => ({
   daemon: { getStatus: mockDaemonGetStatus },
@@ -176,16 +185,21 @@ describe('MonitorAgent WorkflowObserver (B9-025)', () => {
 describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
   beforeEach(() => {
     mockWuFindMany.mockReset();
-    mockWuFindMany.mockReset();
     mockWuUpdate.mockReset();
+    mockGoalFindMany.mockReset();
+    mockGoalFindMany.mockResolvedValue([]);
+    mockGeFindMany.mockReset();
+    mockGeFindMany.mockResolvedValue([]);
+    mockGeUpdate.mockReset();
+    mockGeUpdate.mockResolvedValue({});
     mockDaemonGetStatus.mockReset();
     mockDaemonGetStatus.mockReturnValue([]); // no active sessions
   });
 
   // 1. reviewScore=0 means never scored — must NOT produce alert
   it('checkReviewQuality: reviewScore=0 (never scored) produces no alert', async () => {
-    mockWuFindMany.mockResolvedValue([
-      { id: 'goal_never_scored', scope: 'T1', metadata: JSON.stringify({ reviewScore: 0 }) },
+    mockGoalFindMany.mockResolvedValue([
+      { id: 'goal_never_scored', context: JSON.stringify({ reviewScore: 0 }) },
     ]);
 
     const alerts = await (monitorAgent as any).checkReviewQuality();
@@ -194,8 +208,8 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
 
   // 2. reviewScore=40 < 75 threshold AND > 0 — must produce critical alert
   it('checkReviewQuality: reviewScore=40 produces critical alert', async () => {
-    mockWuFindMany.mockResolvedValue([
-      { id: 'goal_low_score', scope: 'T2', metadata: JSON.stringify({ reviewScore: 40, reviewCycle: 1 }) },
+    mockGoalFindMany.mockResolvedValue([
+      { id: 'goal_low_score', context: JSON.stringify({ reviewScore: 40, reviewCycle: 1 }) },
     ]);
 
     const alerts = await (monitorAgent as any).checkReviewQuality();
@@ -205,26 +219,26 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
     expect(alerts[0].message).toContain('40');
   });
 
-  // 3. orphan pending execution (createdAt > 2.5h, parent goal failed) → auto-abandoned
-  it('autoAbandonStaleRunning: orphan unassigned execution with terminal parent goal is abandoned', async () => {
-    const orphanId = 'orphan_pending_exec_1';
+  // 3. orphan running execution (parent goal succeeded) → auto-failed
+  it('autoAbandonStaleRunning: orphan running execution with terminal parent goal is abandoned', async () => {
+    const orphanId = 'orphan_exec_1';
 
-    mockWuFindMany.mockResolvedValue([
-      { id: orphanId, status: 'unassigned' },
+    mockGeFindMany.mockResolvedValue([
+      { id: orphanId, status: 'running' },
     ]);
-    mockWuUpdate.mockResolvedValue({ id: orphanId, status: 'closed' });
+    mockGeUpdate.mockResolvedValue({ id: orphanId, status: 'failed' });
 
     await (monitorAgent as any).autoAbandonStaleRunning();
 
-    expect(mockWuFindMany).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockGeFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
-        status: { in: ['active', 'unassigned'] },
-        parent: { status: { in: ['done', 'closed'] } },
+        status: 'running',
+        Goal: { status: { in: ['succeeded', 'failed'] } },
       }),
     }));
-    expect(mockWuUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockGeUpdate).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: orphanId },
-      data: expect.objectContaining({ status: 'closed' }),
+      data: expect.objectContaining({ status: 'failed' }),
     }));
   });
 });
@@ -233,18 +247,20 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
 
 describe('MonitorAgent auto-fail time-critical executions', () => {
   beforeEach(() => {
-    mockWuFindMany.mockReset();
-    mockWuUpdate.mockReset();
+    mockGeFindMany.mockReset();
+    mockGeFindMany.mockResolvedValue([]);
+    mockGeUpdate.mockReset();
+    mockGeUpdate.mockResolvedValue({});
     vi.mocked(agentRunner.stop).mockReset();
   });
 
   it('auto-fails execution exceeding 2.5h and calls agentRunner.stop', async () => {
     const execId = 'exec-timeout-test';
     // Simulate execution started 3h ago (> TIME_CRITICAL_MS = 2.5h)
-    mockWuFindMany.mockResolvedValue([{
+    mockGeFindMany.mockResolvedValue([{
       id: execId,
-      parentId: 'goal-1',
-      claimedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
+      goalId: 'goal-1',
+      startedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
       createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
     }]);
     vi.mocked(agentRunner.stop).mockResolvedValue(undefined);
@@ -262,19 +278,19 @@ describe('MonitorAgent auto-fail time-critical executions', () => {
     // Should call agentRunner.stop to kill the process
     expect(agentRunner.stop).toHaveBeenCalledWith(execId);
 
-    // Should update DB status to 'closed'
-    expect(mockWuUpdate).toHaveBeenCalledWith(expect.objectContaining({
+    // Should update DB status to 'failed'
+    expect(mockGeUpdate).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: execId },
-      data: expect.objectContaining({ status: 'closed' }),
+      data: expect.objectContaining({ status: 'failed' }),
     }));
   });
 
   it('does not auto-fail execution under 2.5h', async () => {
     // Simulate execution started 1h ago (< TIME_CRITICAL_MS)
-    mockWuFindMany.mockResolvedValue([{
+    mockGeFindMany.mockResolvedValue([{
       id: 'exec-ok',
-      parentId: 'goal-1',
-      claimedAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
+      goalId: 'goal-1',
+      startedAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
       createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
     }]);
 
@@ -284,7 +300,7 @@ describe('MonitorAgent auto-fail time-critical executions', () => {
     expect(agentRunner.stop).not.toHaveBeenCalled();
 
     // Should NOT update DB status
-    expect(mockWuUpdate).not.toHaveBeenCalled();
+    expect(mockGeUpdate).not.toHaveBeenCalled();
 
     // Should generate info alert (1h < TIME_WARN_MS would be info level)
     const criticalAlerts = alerts.filter((a: any) => a.level === 'critical');

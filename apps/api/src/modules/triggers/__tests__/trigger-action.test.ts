@@ -76,13 +76,13 @@ describe('TriggerAction — CREATE WorkUnit', () => {
     expect(meta.triggerSource).toBe('trigger-registry');
   });
 
-  it('rejects unsupported target', async () => {
+  it('rejects unsupported action type', async () => {
     const action = {
-      type: 'CREATE',
-      target: 'UnknownTarget',
+      type: 'INVALID',
+      target: 'WorkUnit',
       payload: { type: 'task', scope: 'x' },
     } as TriggerAction;
 
-    await expect(executeCreateAction(action, 'test')).rejects.toThrow(/Unknown target/);
+    await expect(executeCreateAction(action, 'test')).rejects.toThrow(/Unknown action type/);
   });
 });

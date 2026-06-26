@@ -46,6 +46,22 @@ vi.mock('fs', async (importOriginal) => {
 
 vi.mock('child_process', () => ({ exec: vi.fn() }));
 
+// Mock @dommaker/studio-skill — skill-loader uses skillLoader.loadSingle/get
+vi.mock('@dommaker/studio-skill', () => ({
+  skillLoader: {
+    loadSingle: vi.fn().mockReturnValue({
+      name: 'test-skill',
+      prompt: 'do stuff',
+      tools: [],
+      tier: 'standard',
+      requires: [],
+    }),
+    get: vi.fn().mockReturnValue(null),
+    load: vi.fn().mockReturnValue([]),
+    formatForPrompt: vi.fn().mockReturnValue(''),
+  },
+}));
+
 describe('Skill event emission', () => {
   beforeEach(() => {
     vi.clearAllMocks();

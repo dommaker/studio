@@ -26,6 +26,11 @@ vi.mock('../../knowledge-bus.service.js', () => ({
   sharedLifecycle: { recordReference: mockRecordReference },
 }));
 
+// Mock skillLoader to prevent Skills section (which contains backticks in template)
+vi.mock('@dommaker/studio-skill', () => ({
+  skillLoader: { load: vi.fn().mockReturnValue([]), formatForPrompt: vi.fn().mockReturnValue('') },
+}));
+
 // Import after mocks
 const { buildKnowledgeContext } = await import('../prompt-builder.js');
 

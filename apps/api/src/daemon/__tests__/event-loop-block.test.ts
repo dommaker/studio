@@ -39,6 +39,22 @@ vi.mock('../task-logger.js', () => ({
   classifyTaskError: vi.fn(() => 'unknown'),
 }));
 
+vi.mock('@dommaker/studio-agent', () => ({
+  agentRunner: {
+    executeLightweight: vi.fn().mockResolvedValue({
+      success: true,
+      output: 'DONE',
+      totalDurationMs: 100,
+      worktree: '',
+      outputFiles: [],
+      logFile: '',
+      sessionCount: 1,
+    }),
+    stop: vi.fn(),
+    execute: vi.fn(),
+  },
+}));
+
 import { daemon } from '../studio-daemon.js';
 
 const WORKTREES_DIR = path.join(os.tmpdir(), 'daemon-block-test');

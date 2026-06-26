@@ -40,10 +40,10 @@ describe('Default Triggers', () => {
     registry = new (TriggerScheduler as any)(null);
   });
 
-  it('registers 4 default triggers', () => {
+  it('registers 5 default triggers', () => {
     registerDefaultTriggers(registry);
 
-    expect(mockRegisterTrigger).toHaveBeenCalledTimes(4);
+    expect(mockRegisterTrigger).toHaveBeenCalledTimes(5);
   });
 
   it('agent-discover fires on workunit.created', () => {
@@ -120,5 +120,20 @@ describe('Default Triggers', () => {
       'dependency-unlock',
       'poll-fallback',
     ]);
+  });
+
+  it('agent-timeout fires every 2 minutes', () => {
+    registerDefaultTriggers(registry);
+
+    const timeoutCall = mockRegisterTrigger.mock.calls.find(
+      (c: any) => c[0].id === 'agent-timeout',
+    );
+    expect(timeoutCall).toBeDefined();
+    expect(timeoutCall![0].condition).toEqual(
+      expect.objectContaining({ type: 'SCHEDULE', cron: '*/2 * * * *' }),
+    );
+    expect(timeoutCall![0].action).toEqual(
+      expect.objectContaining({ type: 'EXECUTE', target: 'agent-timeout-scan' }),
+    );
   });
 });

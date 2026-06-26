@@ -24,7 +24,7 @@ describe('API Flows E2E', () => {
   beforeAll(async () => {
     for (let i = 0; i < 20; i++) {
       try {
-        const res = await fetch(`${API}/../health`, { signal: AbortSignal.timeout(2000) });
+        const res = await fetch(`${API}/health`, { signal: AbortSignal.timeout(2000) });
         if (res.ok) return;
       } catch { /* not ready */ }
       await new Promise(r => setTimeout(r, 1000));
@@ -32,8 +32,7 @@ describe('API Flows E2E', () => {
   }, 30_000);
 
   it('health endpoint responds', async () => {
-    const baseUrl = API.replace('/api/v1', '');
-    const res = await fetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${API}/health`, { signal: AbortSignal.timeout(5000) });
     expect(res.status).toBe(200);
   });
 

@@ -7,8 +7,8 @@ import type { OKRKeyResult } from '../okr.service.js';
 const service = new OKRService();
 let testCompanyId: string;
 let seededOkrId: string;
-const seededIds: { pipelineRuns: string[]; workUnits: string[] } = {
-  pipelineRuns: [], workUnits: [],
+const seededIds: { pipelineRuns: string[]; workUnits: string[]; goals: string[]; goalExecutions: string[] } = {
+  pipelineRuns: [], workUnits: [], goals: [], goalExecutions: [],
 };
 
 describe('B8 OKR Service', () => {
@@ -41,6 +41,20 @@ describe('B8 OKR Service', () => {
       data: { parentId: g1.id, scope: 'step-0', status: 'done', type: 'task' },
     });
 
+    // 4b. Goal + GoalExecution — for checkDataSourceHealth & getMetricBaseline
+    const goal1 = await prisma.goal.create({
+      data: { title: 'test-goal-ok', description: 'seed', status: 'succeeded', companyId: testCompanyId },
+    });
+    const goal2 = await prisma.goal.create({
+      data: { title: 'test-goal-fail', description: 'seed', status: 'failed', companyId: testCompanyId },
+    });
+    seededIds.goals.push(goal1.id, goal2.id);
+
+    const ge1 = await prisma.goalExecution.create({
+      data: { goalId: goal1.id, stepIndex: 0, status: 'succeeded', startedAt: new Date(), completedAt: new Date() },
+    });
+    seededIds.goalExecutions.push(ge1.id);
+
     // 5. OKR fixture — for syncKRProgress + recalibration
     const okr = await prisma.oKR.create({
       data: {
@@ -66,6 +80,8 @@ describe('B8 OKR Service', () => {
     // Cleanup seeded data (order matters for FK constraints)
     await prisma.kRHistory.deleteMany({ where: { okrId: seededOkrId } });
     await prisma.oKR.deleteMany({ where: { id: seededOkrId } });
+    await prisma.goalExecution.deleteMany({ where: { id: { in: seededIds.goalExecutions } } });
+    await prisma.goal.deleteMany({ where: { id: { in: seededIds.goals } } });
     await prisma.workUnit.deleteMany({ where: { parentId: { in: seededIds.workUnits } } });
     await prisma.workUnit.deleteMany({ where: { id: { in: seededIds.workUnits } } });
     await prisma.pipelineRun.deleteMany({ where: { id: { in: seededIds.pipelineRuns } } });

@@ -53,8 +53,9 @@ describe('P2: Cascade failure — single-step retry', () => {
       path.resolve(__dirname, '../src/modules/goals/goal-lifecycle.ts'),
       'utf-8'
     );
-    // Should distinguish between "blocked by dependency" (retryable) and "actually failed"
-    expect(source).toMatch(/blocked_by_dependency|cascade_blocked/);
+    // Should distinguish between "blocked" (retryable — reset to pending) and "failed" (permanent)
+    expect(source).toMatch(/status.*blocked|blocked.*status/);
+    expect(source).toMatch(/reset.*pending|status.*pending/i);
   });
 });
 

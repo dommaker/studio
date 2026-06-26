@@ -33,7 +33,7 @@ describe('Auth Flow E2E', () => {
     // Wait for server to be ready
     for (let i = 0; i < 20; i++) {
       try {
-        const res = await fetch(`${API}/../health`, { signal: AbortSignal.timeout(2000) });
+        const res = await fetch(`${API}/health`, { signal: AbortSignal.timeout(2000) });
         if (res.ok) return;
       } catch { /* not ready */ }
       await new Promise(r => setTimeout(r, 1000));

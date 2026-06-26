@@ -1,5 +1,57 @@
 // 深挖：过期恢复边界情况测试
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('@dommaker/studio-shared/node', () => ({
+  execSh: vi.fn().mockResolvedValue({
+    stdout: '{"result": "DONE", "usage": {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0}}',
+  }),
+  resolveSessionId: vi.fn(() => null),
+  readSessionIdFile: vi.fn(() => null),
+}));
+
+vi.mock('@dommaker/studio-shared', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  getModelForTier: vi.fn(() => 'claude-sonnet-4-6'),
+  parseStreamEvents: vi.fn(() => []),
+  extractUsage: vi.fn(() => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 })),
+  extractResult: vi.fn(() => ({ text: 'DONE', isError: false })),
+  extractToolCalls: vi.fn(() => []),
+  extractWriteContent: vi.fn(() => null),
+  buildSpawnEnv: vi.fn(() => ({})),
+}));
+
+vi.mock('@dommaker/studio-shared/harness/hooks', () => ({
+  beforeAgentExecute: vi.fn(),
+  buildAgentConstraintPrompt: vi.fn(() => ''),
+}));
+
+vi.mock('@dommaker/studio-agent', () => ({
+  agentRunner: {
+    executeLightweight: vi.fn().mockResolvedValue({
+      success: true,
+      output: 'DONE',
+      totalDurationMs: 100,
+      worktree: '',
+      outputFiles: [],
+      logFile: '',
+      sessionCount: 1,
+    }),
+    stop: vi.fn(),
+    execute: vi.fn(),
+  },
+}));
+
+vi.mock('../metrics.js', () => ({
+  parseClaudeUsage: vi.fn(() => ({ inputTokens: 100, outputTokens: 50, cacheHitTokens: 0 })),
+  recordExecution: vi.fn(() => Promise.resolve()),
+  recordAgentSessionFromLog: vi.fn(),
+}));
+
+vi.mock('../task-logger.js', () => ({
+  writeTaskLog: vi.fn(),
+  classifyTaskError: vi.fn(() => 'unknown'),
+}));
+
 import { SessionManager } from '../session-manager.js';
 import * as path from 'path';
 import * as os from 'os';
