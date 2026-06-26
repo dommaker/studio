@@ -1,34 +1,35 @@
 {
-  "taskId": "test-normal-2",
+  "taskId": "test-normal-1",
   "allComplete": true,
   "acCompliance": {
-    "AC1": "忘记密码页面: GET /forgot-password 显示邮箱输入表单，用户可请求密码重置链接",
-    "AC2": "重置密码页面: GET /reset-password?token=xxx 显示密码输入表单，使用 token 设置新密码",
-    "AC3": "后端 generateResetToken(email): 生成一次性 token (32字节 hex, 1h过期)，不暴露邮箱是否存在",
-    "AC4": "后端 resetPassword(token, password): 原子性标记 token 已使用 + 更新 bcrypt 密码哈希",
-    "AC5": "POST /forgot-password: 速率限制 (authRateLimit)，统一返回成功信息防止邮箱枚举",
-    "AC6": "POST /reset-password: 验证 token + 密码非空，无效/过期返回 400",
-    "AC7": "前端 authApi: forgotPassword(email) + resetPassword(token, password) 方法",
-    "AC8": "前端 authStore: requestPasswordReset(email) + resetPassword(token, password) 动作",
-    "AC9": "AuthModal 显示 '忘记密码？' 链接导航到 /forgot-password",
-    "AC10": "AUTH_PATHS 包含 /auth/forgot-password 和 /auth/reset-password 避免 token refresh 拦截"
+    "AC1": "register(email,password) 创建用户并返回 session/jwt/refreshToken/isNewUser",
+    "AC2": "register 重复邮箱抛出 '邮箱已被注册'",
+    "AC3": "密码使用 bcrypt 加密存储 (hashPassword, salt rounds=12)",
+    "AC4": "verifyPassword 兼容旧 PBKDF2 格式 (salt:hash)，匹配时返回 needsRehash=true",
+    "AC5": "login 旧 PBKDF2 密码静默升级为 bcrypt (user.update with bcrypt hash)",
+    "AC6": "POST /register 成功返回 200 + user/session/token + verificationToken",
+    "AC7": "POST /register 重复邮箱返回 409，其他错误返回 400",
+    "AC8": "generateEmailVerificationToken(userId,email) 生成 32B hex token，24h 过期",
+    "AC9": "verifyEmail(token) 原子性标记 usedAt + 设置 emailVerified，无效/过期返回 false",
+    "AC10": "POST /verify-email 无效/过期 token 返回 400",
+    "AC11": "POST /send-verification 重新发送验证邮件（需登录），已验证邮箱返回 400"
   },
   "testResults": {
     "passed": 114,
     "total": 114,
     "failed": 0,
-    "command": "cd apps/api && npx vitest run src/modules/auth/",
-    "evidence": "src/modules/auth/__tests__/service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3. auth-related type check clean.",
-    "verifiedAt": "2026-06-26T12:03:30Z"
+    "command": "cd /root/projects/studio && npx vitest run apps/api/src/modules/auth/",
+    "evidence": "6 files passed: service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3. type check (tsc --noEmit) clean.",
+    "verifiedAt": "2026-06-26T12:07:50Z"
   },
   "designNotes": {
     "decisions": [
-      "前端 authApi 和 authStore 均添加 forgotPassword/resetPassword 方法，保持与现有 authApi 模式一致",
-      "ForgotPasswordPage 和 ResetPasswordPage 绕过 guest wall (在 App.tsx 中 isGuest 检查前处理)，确保未登录用户可访问",
-      "忘记密码使用统一响应信息防止邮箱枚举攻击",
-      "重置密码使用原子性事务: 标记 token 已使用 + 更新密码哈希在同个 $transaction 中完成",
-      "token 使用 crypto.randomBytes(32).toString('hex') 生成，不可预测",
-      "AuthModal 添加 '忘记密码？' 链接提供用户入口"
+      "密码使用 bcrypt hashSync(password, 12) 加密，salt rounds=12 兼顾安全与性能",
+      "旧 PBKDF2 格式 (salt:hash) 兼容：verifyPassword 检测冒号数量区分新旧格式，匹配时返回 needsRehash 触发 login 静默升级",
+      "邮箱验证 token 使用 crypto.randomBytes(32).toString('hex')，不可预测",
+      "verifyEmail 使用 $transaction 原子性保证：token 只使用一次 + emailVerified 同步更新",
+      "POST /register 成功返回 verificationToken 便于开发/测试，生产环境通过邮件发送",
+      "POST /register 用 authRateLimit 防止暴力注册"
     ],
     "failedAttempts": [],
     "uncertainties": [],
