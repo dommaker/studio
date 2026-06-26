@@ -1,6 +1,6 @@
 {
   "taskId": "test-normal-2",
-  "allComplete": false,
+  "allComplete": true,
   "acCompliance": {
     "AC1": "generateResetToken 为存在密码的用户生成 64 字符 hex token",
     "AC2": "generateResetToken 用户不存在时返回 null（不泄露邮箱是否存在）",
