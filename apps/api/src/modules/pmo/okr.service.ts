@@ -1,7 +1,6 @@
 // OKR Service - PMO 模块核心服务
 import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
-import { mapGoalStatuses, mapExecutionStatuses } from '../workunit/status-mapping.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -344,16 +343,17 @@ export class OKRService {
    * 检查数据源可用性
    */
   async checkDataSourceHealth(): Promise<Record<string, 'ok' | 'empty'>> {
-    const [pipelineRunCount, studioEventCount, workUnitCount] = await Promise.all([
+    const [pipelineRunCount, studioEventCount, goalCount, goalExecCount] = await Promise.all([
       prisma.pipelineRun.count(),
       prisma.studioEvent.count(),
-      prisma.workUnit.count(),
+      prisma.goal.count(),
+      prisma.goalExecution.count(),
     ]);
     return {
       pipeline_run: pipelineRunCount > 0 ? 'ok' : 'empty',
       studio_event: studioEventCount > 0 ? 'ok' : 'empty',
-      goal: workUnitCount > 0 ? 'ok' : 'empty',
-      goal_execution: workUnitCount > 0 ? 'ok' : 'empty',
+      goal: goalCount > 0 ? 'ok' : 'empty',
+      goal_execution: goalExecCount > 0 ? 'ok' : 'empty',
     };
   }
 
@@ -659,25 +659,25 @@ export class OKRService {
       }
     }
 
-    // Source 3: WorkUnit wall clock (legacy fallback)
-    const executions = await prisma.workUnit.findMany({
+    // Source 3: GoalExecution wall clock (legacy fallback)
+    const executions = await prisma.goalExecution.findMany({
       where: {
-        claimedAt: { gte: since },
+        startedAt: { gte: since },
         completedAt: { not: null },
-        status: 'done',
+        status: 'succeeded',
       },
-      select: { parentId: true, claimedAt: true, completedAt: true },
+      select: { goalId: true, startedAt: true, completedAt: true },
     });
 
     if (executions.length === 0) return null;
 
     const byGoalExec = new Map<string, { startedAt: Date; completedAt: Date }>();
     for (const e of executions) {
-      const existing = byGoalExec.get(e.parentId!);
+      const existing = byGoalExec.get(e.goalId!);
       if (!existing) {
-        byGoalExec.set(e.parentId!, { startedAt: e.claimedAt!, completedAt: e.completedAt! });
+        byGoalExec.set(e.goalId!, { startedAt: e.startedAt!, completedAt: e.completedAt! });
       } else {
-        if (e.claimedAt! < existing.startedAt) existing.startedAt = e.claimedAt!;
+        if (e.startedAt! < existing.startedAt) existing.startedAt = e.startedAt!;
         if (e.completedAt! > existing.completedAt) existing.completedAt = e.completedAt!;
       }
     }
@@ -734,8 +734,8 @@ export class OKRService {
   private async queryExecutionSuccessRate(days: number): Promise<number | null> {
     const since = new Date(Date.now() - days * 86400000);
     const [total, succeeded] = await Promise.all([
-      prisma.workUnit.count({ where: { createdAt: { gte: since }, status: { not: 'unassigned' } } }),
-      prisma.workUnit.count({ where: { createdAt: { gte: since }, status: 'done' } }),
+      prisma.goal.count({ where: { createdAt: { gte: since }, status: { not: 'pending' } } }),
+      prisma.goal.count({ where: { createdAt: { gte: since }, status: 'succeeded' } }),
     ]);
 
     if (total === 0) return null;
@@ -745,14 +745,14 @@ export class OKRService {
   /** 审查通过率 */
   private async queryReviewPassRate(days: number): Promise<number | null> {
     const since = new Date(Date.now() - days * 86400000);
-    const goals = await prisma.workUnit.findMany({
-      where: { createdAt: { gte: since }, status: { in: mapGoalStatuses(['succeeded', 'failed']) } },
-      select: { metadata: true },
+    const goals = await prisma.goal.findMany({
+      where: { createdAt: { gte: since }, status: { in: ['succeeded', 'failed'] } },
+      select: { context: true },
     });
 
     const withReview = goals.filter(g => {
       try {
-        const ctx = JSON.parse(g.metadata!);
+        const ctx = JSON.parse(g.context!);
         return typeof ctx?.reviewScore === 'number';
       } catch { return false; }
     });
@@ -760,7 +760,7 @@ export class OKRService {
     if (withReview.length === 0) return null;
 
     const passed = withReview.filter(g => {
-      const ctx = JSON.parse(g.metadata!);
+      const ctx = JSON.parse(g.context!);
       return ctx.reviewScore >= 70;
     });
 
@@ -908,13 +908,13 @@ export class OKRService {
   private async querySessionDurationAvg(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const execs = await prisma.workUnit.findMany({
-        where: { claimedAt: { gte: since }, completedAt: { not: null }, status: 'done' },
-        select: { claimedAt: true, completedAt: true },
+      const execs = await prisma.goalExecution.findMany({
+        where: { startedAt: { gte: since }, completedAt: { not: null }, status: 'succeeded' },
+        select: { startedAt: true, completedAt: true },
       });
       if (execs.length === 0) return null;
       const totalMs = execs.reduce((sum, e) =>
-        sum + (e.completedAt!.getTime() - e.claimedAt!.getTime()), 0);
+        sum + (e.completedAt!.getTime() - e.startedAt!.getTime()), 0);
       return Math.round(totalMs / execs.length / 1000 / 60); // minutes
     } catch { return null; }
   }
@@ -975,19 +975,19 @@ export class OKRService {
   private async queryQueueDurationAvg(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const goals = await prisma.workUnit.findMany({
-        where: { createdAt: { gte: since }, status: { not: 'unassigned' } },
+      const goals = await prisma.goal.findMany({
+        where: { createdAt: { gte: since }, status: { not: 'pending' } },
         select: { id: true, createdAt: true },
       });
       if (goals.length === 0) return null;
-      const execs = await prisma.workUnit.findMany({
-        where: { parentId: { in: goals.map(g => g.id) }, claimedAt: { not: null } },
-        select: { parentId: true, claimedAt: true },
+      const execs = await prisma.goalExecution.findMany({
+        where: { goalId: { in: goals.map(g => g.id) }, startedAt: { not: null } },
+        select: { goalId: true, startedAt: true },
       });
       const byGoal = new Map<string, Date>();
       for (const e of execs) {
-        const existing = byGoal.get(e.parentId!);
-        if (!existing || e.claimedAt! < existing) byGoal.set(e.parentId!, e.claimedAt!);
+        const existing = byGoal.get(e.goalId!);
+        if (!existing || e.startedAt! < existing) byGoal.set(e.goalId!, e.startedAt!);
       }
       const waits: number[] = [];
       for (const g of goals) {
@@ -1159,7 +1159,7 @@ export class OKRService {
     try {
       const since = new Date(Date.now() - days * 86400000);
       const [total, conflicts] = await Promise.all([
-        prisma.workUnit.count({ where: { createdAt: { gte: since }, parentId: { not: null } } }),
+        prisma.goalExecution.count({ where: { createdAt: { gte: since }, goalId: { not: null } } }),
         prisma.studioEvent.count({ where: { type: 'scheduler:conflict', timestamp: { gte: since } } }),
       ]);
       if (total === 0) return null;

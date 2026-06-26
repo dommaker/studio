@@ -29,30 +29,30 @@ router.get('/status', async (_req, res) => {
 
     // ── Active Goals ──
     const [executingGoals, draftGoals, pendingGoals] = await Promise.all([
-      prisma.workUnit.findMany({
-        where: { status: 'active', type: 'task', parentId: null },
-        select: { id: true, scope: true, status: true, metadata: true, createdAt: true },
+      prisma.goal.findMany({
+        where: { status: 'executing' },
+        select: { id: true, title: true, status: true, context: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
         take: 20,
       }),
-      prisma.workUnit.findMany({
-        where: { status: 'unassigned', type: 'task', parentId: null },
-        select: { id: true, scope: true, status: true, metadata: true, createdAt: true },
+      prisma.goal.findMany({
+        where: { status: 'draft' },
+        select: { id: true, title: true, status: true, context: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
-      prisma.workUnit.findMany({
-        where: { status: 'unassigned', type: 'task', parentId: null },
-        select: { id: true, scope: true, status: true, metadata: true, createdAt: true },
+      prisma.goal.findMany({
+        where: { status: 'draft' },
+        select: { id: true, title: true, status: true, context: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
         take: 5,
       }),
     ]);
 
     // ── Running Executions (with progress from worktree) ──
-    const runningExecs = await prisma.workUnit.findMany({
-      where: { status: 'active', parentId: { not: null } },
-      select: { id: true, parentId: true, metadata: true, createdAt: true },
+    const runningExecs = await prisma.goalExecution.findMany({
+      where: { status: 'running' },
+      select: { id: true, goalId: true, stepIndex: true, agentType: true, input: true, createdAt: true },
       orderBy: { createdAt: 'desc' },
       take: 30,
     });
@@ -67,14 +67,13 @@ router.get('/status', async (_req, res) => {
         }
       } catch { /* worktree may not exist yet */ }
 
-      const eMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
-      const input = eMeta.input || {};
+      const input = exec.input ? JSON.parse(exec.input) : {};
 
       return {
         id: exec.id,
-        goalId: exec.parentId,
-        stepIndex: eMeta.stepIndex ?? 0,
-        agentType: eMeta.agentType,
+        goalId: exec.goalId,
+        stepIndex: exec.stepIndex ?? 0,
+        agentType: exec.agentType,
         createdAt: exec.createdAt,
         taskType: input.taskType || 'sub-agent',
         acCount: (input.acGroup as any)?.acs?.length || 0,
@@ -84,9 +83,9 @@ router.get('/status', async (_req, res) => {
     });
 
     // ── Recently Completed ──
-    const recentExecs = await prisma.workUnit.findMany({
-      where: { status: { in: ['done', 'closed'] }, parentId: { not: null } },
-      select: { id: true, parentId: true, status: true, metadata: true, completedAt: true },
+    const recentExecs = await prisma.goalExecution.findMany({
+      where: { status: { in: ['succeeded', 'failed'] } },
+      select: { id: true, goalId: true, status: true, error: true, completedAt: true },
       orderBy: { completedAt: 'desc' },
       take: 20,
     });
@@ -138,23 +137,21 @@ router.get('/status', async (_req, res) => {
       timestamp: new Date().toISOString(),
       goals: {
         executing: executingGoals.map(g => {
-          const gMeta = g.metadata ? JSON.parse(g.metadata) : {};
-          const ctx = gMeta.context || {};
+          const ctx = g.context ? JSON.parse(g.context) : {};
           return {
-            id: g.id, title: g.scope, status: g.status, createdAt: g.createdAt,
+            id: g.id, title: g.title, status: g.status, createdAt: g.createdAt,
             sourceChannelId: ctx.sourceChannelId,
           };
         }),
-        draft: draftGoals.map(g => ({ id: g.id, title: g.scope, status: g.status, createdAt: g.createdAt })),
-        pending: pendingGoals.map(g => ({ id: g.id, title: g.scope, status: g.status, createdAt: g.createdAt })),
+        draft: draftGoals.map(g => ({ id: g.id, title: g.title, status: g.status, createdAt: g.createdAt })),
+        pending: pendingGoals.map(g => ({ id: g.id, title: g.title, status: g.status, createdAt: g.createdAt })),
         total: executingGoals.length + draftGoals.length + pendingGoals.length,
       },
       executions: {
         running: executionsWithProgress,
-        recent: recentExecs.map(e => {
-          const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
-          return { id: e.id, parentId: e.parentId, status: e.status, completedAt: e.completedAt, error: eMeta.error };
-        }),
+        recent: recentExecs.map(e => ({
+          id: e.id, goalId: e.goalId, status: e.status, completedAt: e.completedAt, error: e.error,
+        })),
         totalRunning: runningExecs.length,
       },
       pipeline: {

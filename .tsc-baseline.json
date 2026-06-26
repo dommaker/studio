@@ -71,26 +71,6 @@
       "code": "TS2554"
     },
     {
-      "file": "apps/api/src/modules/goals/integration-rollback.ts",
-      "line": 264,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/goals/integration-rollback.ts",
-      "line": 265,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/goals/integration-rollback.ts",
-      "line": 328,
-      "code": "TS2353"
-    },
-    {
-      "file": "apps/api/src/modules/goals/integration-rollback.ts",
-      "line": 422,
-      "code": "TS2353"
-    },
-    {
       "file": "apps/api/src/modules/goals/scheduler-integration.ts",
       "line": 133,
       "code": "TS2353"
@@ -272,8 +252,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-06-26T04:40:06.956Z",
-    "totalErrors": 54,
-    "commit": "58b1d3e148cc28737b36a31f41f5158b6030836b"
+    "generated": "2026-06-26T06:22:15.650Z",
+    "totalErrors": 50,
+    "commit": "836038acd315b54a056e96d9af800a68a5493fb9"
   }
 }

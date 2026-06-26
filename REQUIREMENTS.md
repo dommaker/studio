@@ -4,9 +4,9 @@
 
 ## 任务
 ## Task
-WorkUnit: test-normal-1
+WorkUnit: test-normal-2
 Type: task
-Scope: 用户注册功能，邮箱验证，密码加密，单元测试
+Scope: 给用户模块加个忘记密码功能，点击后发邮件重置
 
 ## 你负责的验收标准
 （从任务描述中推断）
