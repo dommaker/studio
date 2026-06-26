@@ -396,5 +396,50 @@ export async function revokeRefreshToken(refreshToken: string): Promise<boolean>
   return true;
 }
 
+const RESET_TOKEN_EXPIRY_HOURS = 1;
+
+/**
+ * 生成密码重置 Token
+ * 不暴露邮箱是否存在（安全考量）
+ */
+export async function generateResetToken(email: string): Promise<string | null> {
+  const user = await prisma.user.findUnique({ where: { email } });
+  if (!user || !user.passwordHash) return null; // OAuth 用户无密码
+
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + RESET_TOKEN_EXPIRY_HOURS);
+
+  await prisma.passwordResetToken.create({
+    data: { token, userId: user.id, email, expiresAt },
+  });
+
+  return token;
+}
+
+/**
+ * 重置密码：验证 token 并更新密码
+ */
+export async function resetPassword(token: string, newPassword: string): Promise<boolean> {
+  const record = await prisma.passwordResetToken.findUnique({ where: { token } });
+  if (!record || record.usedAt || record.expiresAt < new Date()) return false;
+
+  const passwordHash = hashPassword(newPassword);
+
+  // 原子性：标记 token 已使用 + 更新密码
+  await prisma.$transaction([
+    prisma.passwordResetToken.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() },
+    }),
+    prisma.user.update({
+      where: { id: record.userId },
+      data: { passwordHash },
+    }),
+  ]);
+
+  return true;
+}
+
 // 导出工具函数（用于测试）
 export { hashPassword, verifyPassword };

@@ -197,4 +197,53 @@ router.post('/refresh', refreshRateLimit, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/v1/auth/forgot-password
+ * 请求密码重置邮件（公开端点，不暴露邮箱是否存在）
+ */
+router.post('/forgot-password', authRateLimit, async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      res.status(400).json({ error: '邮箱不能为空' });
+      return;
+    }
+
+    const token = await authService.generateResetToken(email);
+    if (token) {
+      logger.info('Password reset token generated', { email });
+      // TODO: 接入邮件服务发送重置链接
+    }
+
+    // 统一返回成功，不暴露邮箱是否存在
+    res.json({ message: '如果该邮箱已注册，重置密码链接已发送' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/v1/auth/reset-password
+ * 使用 token 重置密码（公开端点）
+ */
+router.post('/reset-password', authRateLimit, async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      res.status(400).json({ error: 'token 和密码不能为空' });
+      return;
+    }
+
+    const success = await authService.resetPassword(token, password);
+    if (!success) {
+      res.status(400).json({ error: '重置链接无效或已过期' });
+      return;
+    }
+
+    res.json({ message: '密码重置成功' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
 export default router;

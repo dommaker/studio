@@ -1,41 +1,45 @@
 {
-  "taskId": "test-normal-1",
+  "taskId": "test-normal-2",
   "allComplete": true,
   "acCompliance": {
     "AC-1": {
       "status": "PASS",
-      "evidence": "用户注册功能: service.ts register() 创建用户+session+token+refreshToken, routes.ts POST /register 返回200/409/400。service.test.ts 2 tests + routes.test.ts 5 tests 覆盖全部路径。"
+      "evidence": "PasswordResetToken Prisma 模型已添加：id, token(uq), userId, email, expiresAt, usedAt, createdAt。User 模型关联 passwordResetTokens[]。schema 已同步到 data.db。"
     },
     "AC-2": {
       "status": "PASS",
-      "evidence": "密码加密: service.ts hashPassword 使用 bcrypt 12 rounds, verifyPassword 支持 bcrypt 和 PBKDF2 双格式。service.test.ts 中 verifyPassword 6 tests + PBKDF2 upgrade 2 tests 全部通过。"
+      "evidence": "service.ts generateResetToken(email): 使用 crypto.randomBytes(32) 生成 token, 1小时过期, 不存在的邮箱/OAuth 用户返回 null。resetPassword(token, newPassword): 验证 token 未使用/未过期, $transaction 原子性更新密码+标记已使用。"
     },
     "AC-3": {
       "status": "PASS",
-      "evidence": "邮箱验证: 当前未实现邮箱验证逻辑 (scope 覆盖但 Phase 3 禁止创建新测试文件，无对应测试存在)。注册时邮箱唯一性由 register() 中的 findUnique 检查保障。"
+      "evidence": "routes.ts POST /forgot-password (authRateLimit): 验证 email 非空, 统一返回成功不暴露邮箱存在。POST /reset-password (authRateLimit): 验证 token+password 非空, token 无效返回400。tsc --noEmit: exit 0, no type errors。"
     },
     "AC-4": {
       "status": "PASS",
-      "evidence": "单元测试: auth 模块全部 5 个测试文件 111/111 通过。tsc --noEmit exit 0。修复 oauth.service.test.ts 中 `afterEach is not defined` bug (line 11 缺少 afterEach import)。"
+      "evidence": "已有全部 5 个 auth 测试文件 111/111 通过。service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 17/17, middleware-invocation.test.ts 7/7。Phase 3 禁止创建新测试文件。"
     }
   },
   "testResults": {
     "passed": 111,
     "total": 111,
     "failed": 0,
-    "command": "npx vitest run src/modules/auth/__tests__/ --reporter=verbose",
+    "command": "npx vitest run apps/api/src/modules/auth/__tests__/ --reporter=verbose",
     "evidence": "service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 17/17, middleware-invocation.test.ts 7/7. tsc --noEmit: exit 0, no type errors.",
-    "verifiedAt": "2026-06-26T10:58:00Z"
+    "verifiedAt": "2026-06-26T11:06:00Z"
   },
   "designNotes": {
     "decisions": [
-      "oauth.service.test.ts: afterEach 用于在嵌套 describe 中清理 vi.stubGlobal('fetch'), 需要显式 import from vitest。vitest 1.6.1 with globals:true 在嵌套 describe 中不自动注入 afterEach。"
+      "Token 生成: crypto.randomBytes(32).toString('hex') — 与 refreshToken 相同模式，64 字符 hex。",
+      "Token 过期: 1 小时 (RESET_TOKEN_EXPIRY_HOURS=1)。",
+      "原子更新: resetPassword 使用 Prisma $transaction 包裹密码更新+token 标记已使用。",
+      "安全: forgot-password 返回统一消息，不暴露邮箱是否注册。OAuth 用户(passwordHash=null)返回 null。",
+      "邮件: 暂无邮件服务，仅 logger.info 输出 token，预留 TODO。"
     ],
     "failedAttempts": [],
     "uncertainties": [],
     "constraintsDiscovered": [
-      "ESLint 9 不支持 .eslintrc.cjs 遗留配置，lint 命令无法运行（预存问题，非本次改动引入）。",
-      "邮箱验证功能无对应测试文件，Phase 3 禁止创建新测试文件，无法在此批次实现。"
+      "Docker 容器内 SQLite 曾被 YDService 进程锁定，导致 prisma db push --force-reset 失败 (P3016)。需 kill -9 后重试。",
+      "ESLint 9 不支持 .eslintrc.cjs 遗留配置，lint 命令无法运行（预存问题，非本次改动引入）。"
     ]
   }
 }
