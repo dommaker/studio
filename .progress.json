@@ -26,7 +26,7 @@
     "failed": 0,
     "command": "npx vitest run apps/api/src/modules/auth/__tests__/",
     "evidence": "6 files passed: service.test.ts 41/41, routes.test.ts 40/40, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3",
-    "verifiedAt": "2026-06-26T13:49:52Z"
+    "verifiedAt": "2026-06-26T13:52:31Z"
   },
   "designNotes": {
     "decisions": [
