@@ -1,36 +1,35 @@
 {
-  "taskId": "test-normal-2",
+  "taskId": "test-normal-1",
   "allComplete": true,
   "acCompliance": {
-    "AC1": "POST /forgot-password 接受 email，调用 generateResetToken，生成 token 后发邮件",
-    "AC2": "POST /forgot-password 不暴露邮箱是否存在（统一返回成功消息）",
-    "AC3": "POST /forgot-password email 为空返回 400",
-    "AC4": "POST /reset-password 验证 token + 新密码，成功则更新密码",
-    "AC5": "POST /reset-password token/密码为空返回 400",
-    "AC6": "POST /reset-password 无效/过期 token 返回 400",
-    "AC7": "generateResetToken 对不存在的邮箱返回 null（不暴露用户是否存在）",
-    "AC8": "generateResetToken 对 OAuth 用户（无 passwordHash）返回 null",
-    "AC9": "resetPassword 使用 $transaction 原子性标记 usedAt + 更新 passwordHash",
-    "AC10": "resetPassword 已使用/过期 token 返回 false",
-    "AC11": "sendPasswordResetEmail 开发环境输出重置链接到日志",
-    "AC12": "forgot-password 和 reset-password 端点应用 authRateLimit 限流"
+    "AC1": "POST /register 创建用户，返回 token/refreshToken/session，isNewUser=true",
+    "AC2": "POST /register 重复邮箱返回 409 '邮箱已被注册'",
+    "AC3": "密码使用 bcrypt 12 轮加密存储（hashPassword）",
+    "AC4": "verifyPassword 兼容 bcrypt 和旧 PBKDF2 格式，PBKDF2 验证成功返回 needsRehash",
+    "AC5": "generateEmailVerificationToken 生成 32 字节 hex 一次性验证 token",
+    "AC6": "verifyEmail 验证 token 并原子性标记 emailVerified",
+    "AC7": "POST /verify-email 公开端点，token 为空返回 400",
+    "AC8": "POST /send-verification 需登录，已验证邮箱返回 400",
+    "AC9": "login/register 使用 authRateLimit 限流",
+    "AC10": "verifyPassword 对 malformed hash 返回 valid=false",
+    "AC11": "verifyPassword 对空 salt/hash 片段优雅处理"
   },
   "testResults": {
     "passed": 133,
     "total": 133,
     "failed": 0,
-    "command": "cd /root/projects/studio && npx vitest run apps/api/src/modules/auth/",
-    "evidence": "6 files passed: service.test.ts 41/41, routes.test.ts 40/40, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3. type check (tsc --noEmit) clean.",
-    "verifiedAt": "2026-06-26T12:19:00Z"
+    "command": "cd /root/projects/studio/apps/api && npx vitest run src/modules/auth",
+    "evidence": "6 files passed: service.test.ts 41/41, routes.test.ts 40/40, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3. type check (tsc --noEmit) clean for auth module.",
+    "verifiedAt": "2026-06-26T12:20:00Z"
   },
   "designNotes": {
     "decisions": [
-      "generateResetToken 使用 crypto.randomBytes(32).toString('hex') 生成不可预测 token",
-      "generateResetToken 对不存在邮箱和 OAuth 用户统一返回 null，不暴露用户是否存在",
-      "resetPassword 使用 $transaction 原子性标记 usedAt + 更新 passwordHash",
-      "resetToken 1 小时过期，防止长期有效",
-      "POST /forgot-password 和 /reset-password 均使用 authRateLimit 防止暴力破解",
-      "sendPasswordResetEmail 开发环境输出链接到日志，生产环境占位待接 SMTP"
+      "hashPassword 使用 bcrypt 12 轮，平衡安全与性能",
+      "verifyPassword 双格式支持：bcrypt（新）和 PBKDF2（旧），兼容旧系统迁移",
+      "密码错误使用中文错误消息，路由层映射 HTTP 状态码",
+      "generateEmailVerificationToken 使用 crypto.randomBytes(32) 生成不可预测 token",
+      "verifyEmail 使用 $transaction 原子性标记 usedAt + 设置 emailVerified",
+      "send-verification 端点 requireAuth，防止未授权调用"
     ],
     "failedAttempts": [],
     "uncertainties": [],
