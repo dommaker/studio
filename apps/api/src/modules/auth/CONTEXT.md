@@ -2,8 +2,16 @@
 
 > 此文件描述 apps/api/src/modules/auth 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-06-09 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/oauth.routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/oauth.routes.ts, apps/api/src/modules/auth/oauth.service.ts, apps/api/src/modules/auth/service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/oauth.routes.ts
+
+<!-- STALE_SINCE: 2026-06-26 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/oauth.routes.ts
 
 ## 职责
 
@@ -24,4 +32,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `0b2db57e`: oauth): return dynamic error message in route 500 response
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
