@@ -33,7 +33,7 @@ router.get('/:provider(google|github)', (req, res) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'unknown';
     logger.error(`[OAuth] Failed to get ${provider} auth URL`, { error: message });
-    res.status(500).json({ error: 'OAuth configuration error' });
+    res.status(500).json({ error: message });
   }
 });
 
