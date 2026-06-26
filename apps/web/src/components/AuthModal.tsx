@@ -92,6 +92,14 @@ export function AuthModal({ onClose }: Props) {
             {loading ? '...' : '确认'}
           </button>
         </form>
+        <div className="mt-3 text-center">
+          <a
+            href="/forgot-password"
+            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+          >
+            忘记密码？
+          </a>
+        </div>
       </div>
     </div>
   );
