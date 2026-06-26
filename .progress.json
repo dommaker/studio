@@ -1,21 +1,17 @@
 {
-  "taskId": "test-normal-2",
+  "taskId": "test-normal-1",
   "allComplete": true,
   "acCompliance": {
-    "AC1": "POST /forgot-password 生成密码重置 token 并通过邮件发送重置链接",
-    "AC2": "POST /forgot-password 邮箱不存在时返回统一消息（不暴露邮箱是否注册）",
-    "AC3": "POST /forgot-password 缺少邮箱返回 400",
-    "AC4": "POST /reset-password 使用有效 token 重置密码成功",
-    "AC5": "POST /reset-password 缺少 token 或密码返回 400",
-    "AC6": "POST /reset-password 无效/过期/已使用 token 返回 400",
-    "AC7": "generateResetToken 用户存在且有密码时生成 64 字符 hex token",
-    "AC8": "generateResetToken 用户不存在返回 null（安全：不暴露邮箱）",
-    "AC9": "generateResetToken OAuth 无密码用户返回 null",
-    "AC10": "generateResetToken 设置 1 小时过期",
-    "AC11": "resetPassword 有效 token 原子性更新 usedAt + passwordHash",
-    "AC12": "resetPassword 已使用/过期/不存在 token 返回 false",
-    "AC13": "sendPasswordResetEmail 开发环境输出重置链接到日志",
-    "AC14": "Rate limit: authRateLimit 挂载在 /forgot-password 和 /reset-password 上"
+    "AC1": "用户注册：register 创建用户并返回 session + token",
+    "AC2": "用户注册：重复邮箱返回 409",
+    "AC3": "邮箱验证：generateEmailVerificationToken 生成 64 字符 hex token",
+    "AC4": "邮箱验证：verifyEmail 验证 token 并标记 emailVerified",
+    "AC5": "邮箱验证：无效/过期/已使用 token 返回 false",
+    "AC6": "密码加密：hashPassword 使用 bcrypt 加密密码",
+    "AC7": "密码验证：verifyPassword 支持 bcrypt 格式验证",
+    "AC8": "密码验证：verifyPassword 兼容旧 PBKDF2 格式并返回 needsRehash=true",
+    "AC9": "密码验证：错误密码返回 valid=false",
+    "AC10": "审计日志：register 成功/失败记录审计日志"
   },
   "testResults": {
     "passed": 133,
@@ -23,15 +19,16 @@
     "failed": 0,
     "command": "npx vitest run apps/api/src/modules/auth/__tests__/",
     "evidence": "6 files passed: service.test.ts 41/41, routes.test.ts 40/40, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3",
-    "verifiedAt": "2026-06-26T13:29:20Z"
+    "verifiedAt": "2026-06-26T13:33:00Z"
   },
   "designNotes": {
     "decisions": [
-      "generateResetToken 使用 crypto.randomBytes(32).toString('hex') 生成 64 字符不可预测 token",
-      "密码重置 token 设置 1 小时过期（短于邮箱验证的 24 小时，因为密码重置安全风险更高）",
-      "resetPassword 使用 $transaction 原子性标记 usedAt + 更新 passwordHash，防止并发多次使用同一 token",
-      "用户不存在或 OAuth 无密码用户均返回 null（安全：不暴露邮箱是否注册）",
-      "忘记密码邮箱不区分用户是否存在，统一返回相同消息（防止邮箱枚举攻击）"
+      "hashPassword 使用 bcrypt 加盐轮数 12，安全性与性能的平衡选择",
+      "verifyPassword 同时支持 bcrypt 和旧 PBKDF2 两种格式，保证向后兼容",
+      "旧 PBKDF2 格式验证成功后返回 needsRehash: true，调用方静默升级为 bcrypt",
+      "generateEmailVerificationToken 使用 crypto.randomBytes(32).toString('hex') 生成 64 字符不可预测 token",
+      "邮箱验证 token 设置 24 小时过期",
+      "verifyEmail 使用 $transaction 原子性标记 usedAt + emailVerified，防止并发多次使用同一 token"
     ],
     "failedAttempts": [],
     "uncertainties": [],
