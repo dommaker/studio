@@ -12,29 +12,29 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 const {
   mockUpdateStepExecution,
   mockAgentExecute,
-  mockPrismaUpdate,
+  mockWuUpdate,
+  mockWuTransitionStatus,
   mockPrismaCreate,
   mockPrismaFindMany,
-  mockPrismaFindUnique,
-  mockPrismaFindFirst,
 } = vi.hoisted(() => ({
   mockUpdateStepExecution: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'running' }),
   mockAgentExecute: vi.fn().mockResolvedValue({ success: true, outputFiles: [], sessionCount: 1, totalDurationMs: 100, sessionIds: [] }),
-  mockPrismaUpdate: vi.fn().mockResolvedValue({}),
+  mockWuUpdate: vi.fn().mockResolvedValue({}),
+  mockWuTransitionStatus: vi.fn().mockResolvedValue({}),
   mockPrismaCreate: vi.fn().mockResolvedValue({}),
   mockPrismaFindMany: vi.fn().mockResolvedValue([]),
-  mockPrismaFindUnique: vi.fn().mockResolvedValue(null),
-  mockPrismaFindFirst: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../../workunit/workunit.service.js', () => ({
+  WorkUnitService: vi.fn().mockImplementation(() => ({
+    update: mockWuUpdate,
+    transitionStatus: mockWuTransitionStatus,
+    getById: vi.fn().mockResolvedValue(null),
+  })),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    workUnit: {
-      update: mockPrismaUpdate,
-      findMany: vi.fn().mockResolvedValue([]),
-      findFirst: mockPrismaFindFirst,
-      findUnique: mockPrismaFindUnique,
-    },
     studioEvent: {
       create: mockPrismaCreate,
       findMany: mockPrismaFindMany,
@@ -122,9 +122,9 @@ function makeCtx(): DispatchContext {
 function makeExec(overrides?: Partial<Record<string, unknown>>) {
   return {
     id: 'exec-1',
-    parentId: 'goal-1',
+    goalId: 'goal-1',
     stepIndex: 0,
-    status: 'unassigned',
+    status: 'pending',
     input: JSON.stringify({ acGroup: { acs: ['test ac'], files: ['test.ts'] } }),
     retryCount: 0,
     error: null,
@@ -136,8 +136,9 @@ function makeGoal() {
   return {
     id: 'goal-1',
     scope: 'Test goal',
-    status: 'active',
-    metadata: JSON.stringify({ title: 'Test goal', context: JSON.stringify({ sourceChannelId: 'ch-1' }) }),
+    status: 'running',
+    title: 'Test goal',
+    context: JSON.stringify({ sourceChannelId: 'ch-1' }),
   };
 }
 
@@ -181,10 +182,8 @@ describe('retry previousError injection', () => {
     await dispatchStep(makeExec({ retryCount: 2, error: prevError }), makeGoal(), makeCtx());
 
     const task = mockAgentExecute.mock.calls[0][0];
-    // Should contain a formatted warning section, not raw JSON
     expect(task.prompt).toContain('Previous Attempt Failed');
     expect(task.prompt).toContain('Session 1 produced zero progress');
-    // Should NOT contain raw JSON keys like "retryAttempt" or "timestamp"
     expect(task.prompt).not.toContain('"retryAttempt"');
     expect(task.prompt).not.toContain('"timestamp"');
   });

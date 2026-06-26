@@ -13,35 +13,37 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 const {
   mockUpdateStepExecution,
   mockAgentExecute,
-  mockPrismaUpdate,
+  mockWuUpdate,
+  mockWuTransitionStatus,
+  mockGetById,
   mockPrismaCreate,
   mockPrismaFindMany,
-  mockPrismaFindUnique,
-  mockPrismaFindFirst,
 } = vi.hoisted(() => ({
   mockUpdateStepExecution: vi.fn().mockResolvedValue({ id: 'exec-1', goalId: 'goal-1', status: 'failed' }),
   mockAgentExecute: vi.fn(),
-  mockPrismaUpdate: vi.fn().mockResolvedValue({}),
+  mockWuUpdate: vi.fn().mockResolvedValue({}),
+  mockWuTransitionStatus: vi.fn().mockResolvedValue({}),
+  mockGetById: vi.fn().mockResolvedValue({ retryCount: 3 }),
   mockPrismaCreate: vi.fn().mockResolvedValue({}),
   mockPrismaFindMany: vi.fn().mockResolvedValue([]),
-  mockPrismaFindUnique: vi.fn().mockResolvedValue({ retryCount: 3 }),
-  mockPrismaFindFirst: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock('../../workunit/workunit.service.js', () => ({
+  WorkUnitService: vi.fn().mockImplementation(() => ({
+    update: mockWuUpdate,
+    transitionStatus: mockWuTransitionStatus,
+    getById: mockGetById,
+  })),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    workUnit: {
-      update: mockPrismaUpdate,
-      findMany: vi.fn().mockResolvedValue([]),
-      findFirst: mockPrismaFindFirst,
-      findUnique: mockPrismaFindUnique,
-    },
     studioEvent: {
       create: mockPrismaCreate,
       findMany: mockPrismaFindMany,
     },
     project: {
-      findUnique: mockPrismaFindUnique,
+      findUnique: vi.fn().mockResolvedValue(null),
     },
     failureEvent: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -123,9 +125,9 @@ function makeCtx(): DispatchContext {
 function makeExec() {
   return {
     id: 'exec-1',
-    parentId: 'goal-1',
+    goalId: 'goal-1',
     stepIndex: 0,
-    status: 'unassigned',
+    status: 'pending',
     input: JSON.stringify({ acGroup: { acs: ['test ac'], files: ['test.ts'] } }),
   };
 }
@@ -134,8 +136,9 @@ function makeGoal() {
   return {
     id: 'goal-1',
     scope: 'Test goal',
-    status: 'active',
-    metadata: JSON.stringify({ title: 'Test goal', context: JSON.stringify({ sourceChannelId: 'ch-1' }) }),
+    status: 'running',
+    title: 'Test goal',
+    context: JSON.stringify({ sourceChannelId: 'ch-1' }),
   };
 }
 
@@ -152,7 +155,7 @@ function lastFailurePayload(): Record<string, unknown> {
 beforeEach(() => {
   vi.clearAllMocks();
   // retries exhausted so maybeRetryExecution returns false
-  mockPrismaFindUnique.mockResolvedValue({ retryCount: 3 });
+  mockGetById.mockResolvedValue({ retryCount: 3 });
 });
 
 describe('handleDispatchFailure status routing', () => {

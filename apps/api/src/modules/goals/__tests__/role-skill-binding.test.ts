@@ -9,14 +9,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock dependencies
+vi.mock('../../workunit/workunit.service.js', () => ({
+  WorkUnitService: vi.fn().mockImplementation(() => ({
+    update: vi.fn().mockResolvedValue({}),
+    transitionStatus: vi.fn().mockResolvedValue({}),
+    getById: vi.fn().mockResolvedValue(null),
+  })),
+}));
+
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     studioEvent: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn() },
-    workUnit: {
-      findUnique: vi.fn(),
-      findMany: vi.fn().mockResolvedValue([]),
-      update: vi.fn().mockResolvedValue({ id: 'exec-1', parentId: 'goal-1', status: 'active' }),
-    },
     pipelineDecision: { create: vi.fn() },
     project: { findUnique: vi.fn() },
   },
@@ -192,8 +195,6 @@ describe('Role-Skill binding in scheduler-dispatch', () => {
     const executeMock = vi.mocked(agentRunner.execute);
     expect(executeMock).toHaveBeenCalledTimes(1);
     const callArgs = executeMock.mock.calls[0][0];
-    // Skill content should be present in prompt (from boundSkills loading)
-    // The prompt should contain TDD-related skill content
     const prompt = callArgs.prompt as string;
     expect(prompt).toMatch(/TDD|测试|test/i);
   });
@@ -234,13 +235,11 @@ describe('Role-Skill binding in scheduler-dispatch', () => {
 
     mockLoadSkill.mockResolvedValue(null);
 
-    // Should not throw
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
     const executeMock = vi.mocked(agentRunner.execute);
     expect(executeMock).toHaveBeenCalledTimes(1);
     const callArgs = executeMock.mock.calls[0][0];
-    // No Bound Skills section since no skills loaded
     expect(callArgs.prompt).not.toContain('Bound Skills');
   });
 });

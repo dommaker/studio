@@ -12,11 +12,10 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 const {
   mockUpdateStepExecution,
   mockAgentExecute,
-  mockPrismaUpdate,
+  mockWuUpdate,
+  mockWuTransitionStatus,
   mockPrismaCreate,
   mockPrismaFindMany,
-  mockPrismaFindUnique,
-  mockPrismaFindFirst,
   mockClassifyTaskComplexity,
   mockInferTaskCategory,
   mockGetHistoricalBestTier,
@@ -26,25 +25,26 @@ const {
   mockAgentExecute: vi.fn().mockResolvedValue({
     success: true, outputFiles: [], sessionCount: 1, totalDurationMs: 100, sessionIds: [],
   }),
-  mockPrismaUpdate: vi.fn().mockResolvedValue({}),
+  mockWuUpdate: vi.fn().mockResolvedValue({}),
+  mockWuTransitionStatus: vi.fn().mockResolvedValue({}),
   mockPrismaCreate: vi.fn().mockResolvedValue({}),
   mockPrismaFindMany: vi.fn().mockResolvedValue([]),
-  mockPrismaFindUnique: vi.fn().mockResolvedValue(null),
-  mockPrismaFindFirst: vi.fn().mockResolvedValue(null),
   mockClassifyTaskComplexity: vi.fn(),
   mockInferTaskCategory: vi.fn(),
   mockGetHistoricalBestTier: vi.fn(),
   mockMaybeExploreDowngrade: vi.fn(),
 }));
 
+vi.mock('../../workunit/workunit.service.js', () => ({
+  WorkUnitService: vi.fn().mockImplementation(() => ({
+    update: mockWuUpdate,
+    transitionStatus: mockWuTransitionStatus,
+    getById: vi.fn().mockResolvedValue(null),
+  })),
+}));
+
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    workUnit: {
-      update: mockPrismaUpdate,
-      findMany: vi.fn().mockResolvedValue([]),
-      findFirst: mockPrismaFindFirst,
-      findUnique: mockPrismaFindUnique,
-    },
     studioEvent: { create: mockPrismaCreate, findMany: mockPrismaFindMany },
     project: { findUnique: vi.fn().mockResolvedValue(null) },
     pipelineDecision: { create: vi.fn().mockResolvedValue({}) },
@@ -153,9 +153,9 @@ function makeCtx(): DispatchContext {
 function makeExec(overrides?: Record<string, unknown>) {
   return {
     id: 'exec-1',
-    parentId: 'goal-1',
+    goalId: 'goal-1',
     stepIndex: 0,
-    status: 'unassigned',
+    status: 'pending',
     input: JSON.stringify({ acGroup: { acs: ['test ac'], files: ['test.ts'] } }),
     ...overrides,
   };
@@ -165,8 +165,9 @@ function makeGoal() {
   return {
     id: 'goal-1',
     scope: 'Test goal',
-    status: 'active',
-    metadata: JSON.stringify({ title: 'Test goal', context: JSON.stringify({ sourceChannelId: 'ch-1' }) }),
+    status: 'running',
+    title: 'Test goal',
+    context: JSON.stringify({ sourceChannelId: 'ch-1' }),
   };
 }
 
@@ -196,7 +197,6 @@ describe('B57-P0: Executor always uses fast tier', () => {
 
     await dispatchStep(exec, makeGoal(), makeCtx());
 
-    // Verify that updateStepExecution was called with input.model = 'fast'
     const inputUpdateCalls = mockUpdateStepExecution.mock.calls.filter(
       (call: [string, Record<string, unknown>]) => (call[1] as Record<string, unknown>)?.input
     );
@@ -230,7 +230,6 @@ describe('B57-P0: Executor always uses fast tier', () => {
       input: JSON.stringify({ taskType: 'integration', goalId: 'goal-1', totalSteps: 2 }),
     });
 
-    // Integration code execution will fail (mocked as undefined), falls back to Claude
     await dispatchStep(exec, makeGoal(), makeCtx());
 
     if (mockAgentExecute.mock.calls.length > 0) {

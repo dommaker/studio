@@ -1,16 +1,16 @@
 // AC-5: Stale Recovery tests
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { mockFindMany, mockUpdateMany } = vi.hoisted(() => ({
-  mockFindMany: vi.fn().mockResolvedValue([]),
-  mockUpdateMany: vi.fn().mockResolvedValue({ count: 0 }),
+const { mockExecFindMany, mockExecUpdate } = vi.hoisted(() => ({
+  mockExecFindMany: vi.fn().mockResolvedValue([]),
+  mockExecUpdate: vi.fn().mockResolvedValue({ count: 0 }),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    workUnit: {
-      findMany: mockFindMany,
-      updateMany: mockUpdateMany,
+    goalExecution: {
+      findMany: mockExecFindMany,
+      update: mockExecUpdate,
     },
   },
 }));
@@ -55,13 +55,15 @@ describe('Stale Recovery', () => {
   });
 
   it('recoverStaleWorkUnits releases timed-out claims', async () => {
-    mockFindMany.mockResolvedValueOnce([
+    mockExecFindMany.mockResolvedValueOnce([
       {
-        id: 'wu-1',
-        parentId: null,
+        id: 'exec-1',
+        goalId: null,
+        stepIndex: 0,
         claimedAt: new Date(Date.now() - 30 * 60_000),
         timeoutAt: new Date(Date.now() - 10 * 60_000),
-        metadata: null,
+        startedAt: new Date(Date.now() - 30 * 60_000),
+        input: null,
       },
     ]);
 
@@ -70,14 +72,14 @@ describe('Stale Recovery', () => {
 
     expect(count).toBe(1);
     expect(onPhaseFailure).toHaveBeenCalledWith(
-      expect.objectContaining({ executionId: 'wu-1' }),
+      expect.objectContaining({ executionId: 'exec-1' }),
     );
   });
 
   it('recoverStaleWorkUnits returns count of released', async () => {
-    mockFindMany.mockResolvedValueOnce([
-      { id: 'wu-1', parentId: null, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), metadata: null },
-      { id: 'wu-2', parentId: null, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 2000), metadata: null },
+    mockExecFindMany.mockResolvedValueOnce([
+      { id: 'exec-1', goalId: null, stepIndex: 0, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), startedAt: new Date(), input: null },
+      { id: 'exec-2', goalId: null, stepIndex: 1, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 2000), startedAt: new Date(), input: null },
     ]);
 
     const count = await recoverStaleWorkUnits();
@@ -85,15 +87,13 @@ describe('Stale Recovery', () => {
   });
 
   it('recoverStaleWorkUnits is idempotent', async () => {
-    // First call finds timed-out items
-    mockFindMany.mockResolvedValueOnce([
-      { id: 'wu-1', parentId: null, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), metadata: null },
+    mockExecFindMany.mockResolvedValueOnce([
+      { id: 'exec-1', goalId: null, stepIndex: 0, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), startedAt: new Date(), input: null },
     ]);
     const count1 = await recoverStaleWorkUnits();
 
-    // Second call — same items would be found again (idempotent because onPhaseFailure handles it)
-    mockFindMany.mockResolvedValueOnce([
-      { id: 'wu-1', parentId: null, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), metadata: null },
+    mockExecFindMany.mockResolvedValueOnce([
+      { id: 'exec-1', goalId: null, stepIndex: 0, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), startedAt: new Date(), input: null },
     ]);
     const count2 = await recoverStaleWorkUnits();
 
@@ -102,8 +102,8 @@ describe('Stale Recovery', () => {
   });
 
   it('recoverOrphanedExecutions handles missing worktree', async () => {
-    mockFindMany.mockResolvedValueOnce([
-      { id: 'wu-orphan', status: 'active', metadata: null },
+    mockExecFindMany.mockResolvedValueOnce([
+      { id: 'exec-orphan', status: 'running', input: null },
     ]);
 
     const { goalService } = await import('../goal.service');
@@ -111,7 +111,7 @@ describe('Stale Recovery', () => {
 
     expect(count).toBe(1);
     expect(goalService.updateStepExecution).toHaveBeenCalledWith(
-      'wu-orphan',
+      'exec-orphan',
       expect.objectContaining({ status: 'failed' }),
     );
   });
