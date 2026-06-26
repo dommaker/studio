@@ -13,7 +13,7 @@
     "failed": 0,
     "command": "cd apps/api && npx vitest run src/modules/auth/",
     "evidence": "src/modules/auth/__tests__/service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3. tsc --noEmit: exit 0, no type errors.",
-    "verifiedAt": "2026-06-26T11:35:41Z"
+    "verifiedAt": "2026-06-26T11:42:56Z"
   },
   "designNotes": {
     "decisions": [

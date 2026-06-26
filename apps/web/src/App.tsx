@@ -24,6 +24,8 @@ const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => 
 const WorkUnitListPage = lazy(() => import('./pages/WorkUnitListPage').then(m => ({ default: m.WorkUnitListPage })));
 const AgentDashboardPage = lazy(() => import('./pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
 const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ default: m.MonitoringPage })));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
@@ -144,6 +146,26 @@ export default function App() {
       <ThemeProvider>
         <Suspense fallback={<PageLoader />}>
           <OAuthCallback />
+        </Suspense>
+      </ThemeProvider>
+    );
+  }
+
+  // Forgot/reset password: bypass guest wall
+  if (location.pathname === '/forgot-password') {
+    return (
+      <ThemeProvider>
+        <Suspense fallback={<PageLoader />}>
+          <ForgotPasswordPage />
+        </Suspense>
+      </ThemeProvider>
+    );
+  }
+  if (location.pathname === '/reset-password') {
+    return (
+      <ThemeProvider>
+        <Suspense fallback={<PageLoader />}>
+          <ResetPasswordPage />
         </Suspense>
       </ThemeProvider>
     );
