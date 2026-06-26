@@ -1,34 +1,26 @@
 {
-  "taskId": "test-normal-2",
+  "taskId": "test-normal-1",
   "allComplete": true,
   "acCompliance": {
-    "AC1": "忘记密码页面: GET /forgot-password 显示邮箱输入表单，用户可请求密码重置链接",
-    "AC2": "重置密码页面: GET /reset-password?token=xxx 显示密码输入表单，使用 token 设置新密码",
-    "AC3": "后端 generateResetToken(email): 生成一次性 token (32字节 hex, 1h过期)，不暴露邮箱是否存在",
-    "AC4": "后端 resetPassword(token, password): 原子性标记 token 已使用 + 更新 bcrypt 密码哈希",
-    "AC5": "POST /forgot-password: 速率限制 (authRateLimit)，统一返回成功信息防止邮箱枚举",
-    "AC6": "POST /reset-password: 验证 token + 密码非空，无效/过期返回 400",
-    "AC7": "前端 authApi: forgotPassword(email) + resetPassword(token, password) 方法",
-    "AC8": "前端 authStore: requestPasswordReset(email) + resetPassword(token, password) 动作",
-    "AC9": "AuthModal 显示 '忘记密码？' 链接导航到 /forgot-password",
-    "AC10": "AUTH_PATHS 包含 /auth/forgot-password 和 /auth/reset-password 避免 token refresh 拦截"
+    "AC1": "用户注册功能: POST /register 创建用户并返回 session/token，邮箱重复返回409",
+    "AC2": "密码加密: 使用 bcrypt (rounds=12) 加密密码，支持旧 PBKDF2 格式静默升级",
+    "AC3": "邮箱验证: generateEmailVerificationToken + verifyEmail 流程完整，token 一次性使用",
+    "AC4": "路由级单元测试覆盖: register/login/logout/me/guest-session 5端点 + 审计日志 + 速率限制"
   },
   "testResults": {
     "passed": 114,
     "total": 114,
     "failed": 0,
     "command": "cd apps/api && npx vitest run src/modules/auth/",
-    "evidence": "src/modules/auth/__tests__/service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3. auth-related type check clean.",
-    "verifiedAt": "2026-06-26T11:54:26Z"
+    "evidence": "src/modules/auth/__tests__/service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3. type check clean.",
+    "verifiedAt": "2026-06-26T11:55:52Z"
   },
   "designNotes": {
     "decisions": [
-      "前端 authApi 和 authStore 均添加 forgotPassword/resetPassword 方法，保持与现有 authApi 模式一致",
-      "ForgotPasswordPage 和 ResetPasswordPage 绕过 guest wall (在 App.tsx 中 isGuest 检查前处理)，确保未登录用户可访问",
-      "忘记密码使用统一响应信息防止邮箱枚举攻击",
-      "重置密码使用原子性事务: 标记 token 已使用 + 更新密码哈希在同个 $transaction 中完成",
-      "token 使用 crypto.randomBytes(32).toString('hex') 生成，不可预测",
-      "AuthModal 添加 '忘记密码？' 链接提供用户入口"
+      "密码加密使用 bcrypt (rounds=12) 作为默认方案，hashPassword 内部使用 bcrypt.hashSync",
+      "verifyPassword 支持双格式检测: bcrypt 新格式和 PBKDF2 salt:hash 旧格式，旧格式验证通过后静默升级",
+      "邮箱验证 token 24小时过期，一次性使用(usedAt 标记)",
+      "register 路由自动生成邮箱验证 token 并返回（开发环境直接返回，生产环境通过邮件发送）"
     ],
     "failedAttempts": [],
     "uncertainties": [],
