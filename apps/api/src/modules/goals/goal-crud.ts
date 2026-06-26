@@ -420,20 +420,19 @@ export async function getExecutableSteps(goalId: string): Promise<any[]> {
       const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
       const input = eMeta.input || {};
       const acGroup = input?.acGroup || {};
-      const stepIndex = eMeta.stepIndex ?? 0;
+      const stepIndex = e.stepIndex ?? 0;
       return {
         index: stepIndex,
         title: acGroup.id || `step-${stepIndex}`,
         description: (acGroup.acs || []).join('; '),
-        agentType: eMeta.agentType || 'claude',
+        agentType: e.agentType || 'claude',
         input,
         dependencies: (acGroup.dependencies || []).map((depId: string) => {
           const depExec = executions.find(ex => {
-            const depMeta = ex.metadata ? JSON.parse(ex.metadata) : {};
-            return depMeta.input?.acGroup?.id === depId;
+            const depInput = ex.input ? JSON.parse(ex.input as string) : {};
+            return depInput?.acGroup?.id === depId;
           });
-          const depMeta = depExec?.metadata ? JSON.parse(depExec.metadata) : {};
-          return depMeta.stepIndex ?? -1;
+          return depExec?.stepIndex ?? -1;
         }).filter((i: number) => i >= 0),
         estimatedDuration: '30m',
       };
@@ -441,19 +440,16 @@ export async function getExecutableSteps(goalId: string): Promise<any[]> {
     logger.info('[Goal] No plan — reconstructed from executions', { goalId, stepCount: steps.length });
   }
 
-  const executionMap = new Map(executions.map(e => {
-    const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
-    return [eMeta.stepIndex ?? 0, e];
-  }));
+  const executionMap = new Map(executions.map(e => [e.stepIndex ?? 0, e]));
   const executable = [];
 
   for (const step of steps) {
     const exec = executionMap.get(step.index);
-    if (!exec || exec.status !== 'unassigned') continue;
+    if (!exec || exec.status !== 'pending') continue;
 
     const depsSatisfied = step.dependencies.every(depIndex => {
       const depExec = executionMap.get(depIndex);
-      return depExec?.status === 'done';
+      return depExec?.status === 'succeeded';
     });
 
     if (depsSatisfied) {
@@ -466,13 +462,12 @@ export async function getExecutableSteps(goalId: string): Promise<any[]> {
 
   const allRegularDone = steps.every(s => {
     const e = executionMap.get(s.index);
-    return e?.status === 'done' || e?.status === 'closed';
+    return e?.status === 'succeeded' || e?.status === 'failed';
   });
 
   if (allRegularDone && executable.length === 0) {
     const integrationExec = executions.find(e => {
-      const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
-      return eMeta.stepIndex === 999 && e.status === 'unassigned';
+      return e.stepIndex === 999 && e.status === 'pending';
     });
     if (integrationExec) {
       executable.push({
