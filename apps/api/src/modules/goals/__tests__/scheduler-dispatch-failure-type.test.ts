@@ -154,19 +154,15 @@ describe('failureType wiring in dispatchStep', () => {
       sessionIds: [],
     });
 
-    // maybeRetryExecution will find existing retries — mock to return retryCount=3 (exhausted)
     mockGetById.mockResolvedValue({ retryCount: 3 });
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    // Verify updateStepExecution was called with failureType in the failure path
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed'
+    const failureCalls = mockWuUpdate.mock.calls.filter(
+      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
-    const failureCall = failureCalls[failureCalls.length - 1];
-    expect(failureCall[1]).toHaveProperty('failureType');
-    expect(failureCall[1].failureType).toBe('retryable');
+    expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('retryable');
   });
 
   test('writes failureType=not-retryable when agent fails with approach infeasible', async () => {
@@ -179,8 +175,8 @@ describe('failureType wiring in dispatchStep', () => {
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed' || call[1]?.status === 'blocked_by_dependency'
+    const failureCalls = mockWuUpdate.mock.calls.filter(
+      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
     expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('not-retryable');
@@ -196,8 +192,8 @@ describe('failureType wiring in dispatchStep', () => {
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed'
+    const failureCalls = mockWuUpdate.mock.calls.filter(
+      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
     expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('infrastructure');
@@ -213,8 +209,8 @@ describe('failureType wiring in dispatchStep', () => {
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed'
+    const failureCalls = mockWuUpdate.mock.calls.filter(
+      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
     expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('unknown');
@@ -225,8 +221,8 @@ describe('failureType wiring in dispatchStep', () => {
 
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
-    const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-      (call: [string, Record<string, unknown>]) => call[1]?.status === 'failed'
+    const failureCalls = mockWuUpdate.mock.calls.filter(
+      (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
     );
     expect(failureCalls.length).toBeGreaterThanOrEqual(1);
     expect(failureCalls[failureCalls.length - 1][1].failureType).toBe('retryable');

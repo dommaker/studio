@@ -12,8 +12,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, getModelForTier, type ModelTier } from '@dommaker/studio-shared';
 import { recordExecution } from '../../daemon/metrics.js';
 import { agentRunner } from '@dommaker/studio-agent';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import { EXECUTION_TO_WORKUNIT_STATUS, mapExecutionStatuses } from '../workunit/status-mapping.js';
+
 import { parseJsonField } from './goal.service.js';
 import { beforeAgentDispatch } from '@dommaker/studio-shared/harness/hooks';
 import { generateSessionSummary } from '../events/session-summary-generator.js';
@@ -39,8 +38,6 @@ import {
 import { classifyFailure, classifyFailureAction } from './failure-classifier.js';
 import { onPhaseFailure } from './execution-alarm.js';
 import { rollbackToIntegrationStep, parseIntegrationFailureType, type IntegrationResult } from './integration-rollback.js';
-
-const workUnitService = new WorkUnitService(prisma);
 
 const MAX_CONCURRENT = 5;
 const MAX_RETRIES = 3;
@@ -122,7 +119,7 @@ export async function dispatchStep(
   const tier = 'fast';
   if (input) {
     input.model = 'fast';
-    await workUnitService.update(executionId, { metadata: { input: JSON.stringify(input) } }).catch(() => {});
+    await prisma.goalExecution.update({ where: { id: executionId }, data: { input: JSON.stringify(input) } }).catch(() => {});
   }
 
   // B57-P1: Set timeoutAt when execution starts running
@@ -131,8 +128,8 @@ export async function dispatchStep(
     : taskType === 'review-fix' ? 'review-fix'
     : 'executing';
   const timeoutAt = new Date(Date.now() + getTimeoutForPhase(phase));
-  await workUnitService.update(executionId, { timeoutAt });
-  await workUnitService.transitionStatus(executionId, 'active');
+  await prisma.goalExecution.update({ where: { id: executionId }, data: { timeoutAt } });
+  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'active' } });
 
   // 构建 prompt
   const isSubAgent = input?.taskType === 'sub-agent';
@@ -254,7 +251,7 @@ export async function dispatchStep(
         ),
       ]);
       if (result.success) {
-        await workUnitService.transitionStatus(executionId, 'done');
+        await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'done' } });
         const newState = updateDispatchOutcome({ failures: ctx.recentFailures, total: ctx.recentTotal }, true);
         ctx.recentFailures = newState.failures;
         ctx.recentTotal = newState.total;
@@ -298,11 +295,11 @@ export async function dispatchStep(
         }
         case 'missing_branch': {
           // Mark integration step as failed, don't retry
-          await workUnitService.update(executionId, {
-            metadata: { error: integrationResult.error || 'missing step branches' },
+          await prisma.goalExecution.update({ where: { id: executionId }, data: {
+            error: integrationResult.error || 'missing step branches',
             failureType: 'not_retryable',
-          });
-          await workUnitService.transitionStatus(executionId, 'closed');
+          } });
+          await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'closed' } });
           return;
         }
       }
@@ -359,11 +356,11 @@ export async function dispatchStep(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     const classification = classifyFailureAction(errorMsg);
-    await workUnitService.update(executionId, {
-      metadata: { error: errorMsg },
+    await prisma.goalExecution.update({ where: { id: executionId }, data: {
+      error: errorMsg,
       failureType: classification.failureClass,
-    });
-    await workUnitService.transitionStatus(executionId, 'closed');
+    } });
+    await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'closed' } });
     logger.error('[Scheduler] Agent error', { executionId, error: errorMsg });
     // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
     await onPhaseFailure({
@@ -415,9 +412,13 @@ async function handleDispatchSuccess(
   const successMetadata: Record<string, any> = {};
   if (Object.keys(outputData).length > 0) successMetadata.output = JSON.stringify(outputData);
   if (Object.keys(successMetadata).length > 0) {
-    await workUnitService.update(executionId, { metadata: successMetadata });
+    const successData: Record<string, unknown> = {};
+    if (successMetadata.output) successData.output = successMetadata.output;
+    if (Object.keys(successData).length > 0) {
+      await prisma.goalExecution.update({ where: { id: executionId }, data: successData as any });
+    }
   }
-  await workUnitService.transitionStatus(executionId, 'done');
+  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'done' } });
   const tokenUsage = parseAgentTokenUsage(worktreeDir);
   // B59-004: read real test results from .progress.json
   let testPassed: boolean | undefined;
@@ -481,11 +482,12 @@ async function handleDispatchSuccess(
     logger.warn('[Scheduler] SchedulingDecision write failed', { error: String(e) });
   }
   try {
-    const wuForTokens = await workUnitService.getById(goal.id);
-    const metaForTokens = wuForTokens?.metadata ? JSON.parse(wuForTokens.metadata) : {};
+    const wuForTokens = await prisma.goalExecution.findUnique({ where: { id: goal.id } });
+    const metaForTokens = wuForTokens?.output ? JSON.parse(wuForTokens.output) : {};
     const prevTokens = (metaForTokens?._cumulativeTokens as number) || 0;
     const thisTokens = (tokenUsage.inputTokens || 0) + (tokenUsage.cacheHitTokens || 0);
-    await workUnitService.update(goal.id, { metadata: { _cumulativeTokens: prevTokens + thisTokens } });
+    // _cumulativeTokens stored as JSON in output field of goal's own execution
+    await prisma.goalExecution.update({ where: { id: goal.id }, data: { output: JSON.stringify({ _cumulativeTokens: prevTokens + thisTokens }) } }).catch(() => {});
   } catch { /* best-effort */ }
 
   logger.info('[Scheduler] Agent succeeded', {
@@ -547,10 +549,10 @@ export async function maybeRetryExecution(
     return false;
   }
 
-  const wu = await workUnitService.getById(executionId);
+  const wu = await prisma.goalExecution.findUnique({ where: { id: executionId } });
   if (!wu) return false;
 
-  const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+  const meta = wu.input ? JSON.parse(wu.input) : {};
   const currentRetryCount = (wu.retryCount as number) || 0;
 
   if (currentRetryCount >= maxRetries) {
@@ -558,20 +560,17 @@ export async function maybeRetryExecution(
     return false;
   }
 
-  await workUnitService.update(executionId, {
+  await prisma.goalExecution.update({ where: { id: executionId }, data: {
     retryCount: currentRetryCount + 1,
     completedAt: null,
-    metadata: {
-      ...meta,
-      error: JSON.stringify({
-        message: error,
-        retryAttempt: currentRetryCount + 1,
-        timestamp: Date.now(),
-      }),
-    },
-  });
+    error: JSON.stringify({
+      message: error,
+      retryAttempt: currentRetryCount + 1,
+      timestamp: Date.now(),
+    }),
+  } });
   // Reset to unassigned so scheduler picks it up again
-  await workUnitService.transitionStatus(executionId, 'unassigned');
+  await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'unassigned' } });
 
   logger.warn('[Scheduler] Retrying execution', {
     executionId,
@@ -602,15 +601,16 @@ async function handleDispatchFailure(
   const wuStatus = classification.action === 'mark-blocked' ? 'blocked' : 'closed';
   const failureMetadata: Record<string, any> = { error: errorStr };
   if (result.failureLog) failureMetadata.output = JSON.stringify({ failureLog: result.failureLog });
-  await workUnitService.update(executionId, {
+  await prisma.goalExecution.update({ where: { id: executionId }, data: {
     failureType: classification.failureClass,
-    metadata: failureMetadata,
-  });
+    error: failureMetadata.error,
+    ...(failureMetadata.output ? { output: failureMetadata.output } : {}),
+  } });
   // blocked 状态通过 transitionStatus 设置；closed 也需要
   if (wuStatus === 'blocked') {
-    await workUnitService.transitionStatus(executionId, 'blocked');
+    await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'blocked' } });
   } else {
-    await workUnitService.transitionStatus(executionId, 'closed');
+    await prisma.goalExecution.update({ where: { id: executionId }, data: { status: 'closed' } });
   }
   const failTokens = parseAgentTokenUsage(worktreeDir);
   // B59-004: read real test results from .progress.json (agent may have written before crash)

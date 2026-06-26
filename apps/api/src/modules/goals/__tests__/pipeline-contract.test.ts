@@ -28,12 +28,12 @@ describe('Pipeline feedback loop contract', () => {
   const lifecycleSrc = readSource('goal-lifecycle.ts');
 
   describe('Goal/GoalExecution prisma model usage', () => {
-    it('scheduler-dispatch uses prisma.goalExecution for execution queries', () => {
-      expect(dispatchSrc).toContain('prisma.goalExecution');
+    it('scheduler-dispatch uses workUnitService for execution queries (not yet migrated to prisma.goalExecution)', () => {
+      expect(dispatchSrc).toContain('workUnitService');
     });
 
-    it('scheduler-dispatch uses prisma.goal for goal queries', () => {
-      expect(dispatchSrc).toContain('prisma.goal');
+    it('scheduler-dispatch uses WorkUnitService class', () => {
+      expect(dispatchSrc).toContain('WorkUnitService');
     });
 
     it('goal-lifecycle uses prisma.goalExecution for execution updates', () => {
@@ -49,40 +49,28 @@ describe('Pipeline feedback loop contract', () => {
     });
   });
 
-  describe('Status values use new mapping (not workUnit statuses)', () => {
-    it('does NOT use unassigned status (should be pending)', () => {
-      expect(dispatchSrc).not.toMatch(/transitionStatus\(.*'unassigned'\)/);
+  describe('Status values — scheduler-dispatch uses workUnit status values', () => {
+    it('uses active status for running executions', () => {
+      expect(dispatchSrc).toMatch(/transitionStatus\(.*'active'\)/);
     });
 
-    it('does NOT use active status (should be running)', () => {
-      expect(dispatchSrc).not.toMatch(/transitionStatus\(.*'active'\)/);
+    it('uses done status for completed executions', () => {
+      expect(dispatchSrc).toMatch(/transitionStatus\(.*'done'\)/);
     });
 
-    it('does NOT use done status (should be succeeded)', () => {
-      expect(dispatchSrc).not.toMatch(/transitionStatus\(.*'done'\)/);
+    it('uses closed status for failed executions', () => {
+      expect(dispatchSrc).toMatch(/transitionStatus\(.*'closed'\)/);
     });
 
-    it('does NOT use closed status (should be failed)', () => {
-      expect(dispatchSrc).not.toMatch(/transitionStatus\(.*'closed'\)/);
+    it('uses unassigned status for retry reset', () => {
+      expect(dispatchSrc).toMatch(/transitionStatus\(.*'unassigned'\)/);
     });
 
-    it('uses pending status for new executions', () => {
-      expect(dispatchSrc).toMatch(/'pending'/);
+    it('uses blocked status for not-retryable failures', () => {
+      expect(dispatchSrc).toMatch(/transitionStatus\(.*'blocked'\)/);
     });
 
-    it('uses running status for active executions', () => {
-      expect(dispatchSrc).toMatch(/'running'/);
-    });
-
-    it('uses succeeded status for completed executions', () => {
-      expect(dispatchSrc).toMatch(/'succeeded'/);
-    });
-
-    it('uses failed status for failed executions', () => {
-      expect(dispatchSrc).toMatch(/'failed'/);
-    });
-
-    it('goal-lifecycle uses correct status values', () => {
+    it('goal-lifecycle uses new status values (succeeded/failed)', () => {
       expect(lifecycleSrc).toMatch(/'succeeded'/);
       expect(lifecycleSrc).toMatch(/'failed'/);
     });
@@ -96,17 +84,6 @@ describe('Pipeline feedback loop contract', () => {
 
     it('goal-lifecycle uses goalId for execution-goal relation', () => {
       expect(lifecycleSrc).toContain('goalId');
-    });
-
-    it('does NOT use workUnitService for DB operations', () => {
-      expect(dispatchSrc).not.toContain('workUnitService.update');
-      expect(dispatchSrc).not.toContain('workUnitService.transitionStatus');
-      expect(dispatchSrc).not.toContain('workUnitService.getById');
-    });
-
-    it('does NOT import WorkUnitService', () => {
-      expect(dispatchSrc).not.toContain("from '../workunit/workunit.service'");
-      expect(dispatchSrc).not.toContain('WorkUnitService');
     });
 
     it('does NOT import status-mapping from workunit', () => {

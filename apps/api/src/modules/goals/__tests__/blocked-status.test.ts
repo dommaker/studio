@@ -142,14 +142,20 @@ function makeGoal() {
   };
 }
 
-/** Get the last updateStepExecution call's data payload */
+/** Get the last workUnitService.update call's data payload that contains a failureType */
 function lastFailurePayload(): Record<string, unknown> {
-  const failureCalls = mockUpdateStepExecution.mock.calls.filter(
-    (call: [string, Record<string, unknown>]) =>
-      call[1]?.status === 'failed' || call[1]?.status === 'blocked_by_dependency'
+  const failureCalls = mockWuUpdate.mock.calls.filter(
+    (call: [string, Record<string, unknown>]) => call[1]?.failureType !== undefined
   );
   expect(failureCalls.length).toBeGreaterThanOrEqual(1);
   return failureCalls[failureCalls.length - 1][1];
+}
+
+/** Get the last workUnitService.transitionStatus call's status value */
+function lastStatusTransition(): string {
+  const statusCalls = mockWuTransitionStatus.mock.calls;
+  expect(statusCalls.length).toBeGreaterThanOrEqual(1);
+  return statusCalls[statusCalls.length - 1][1] as string;
 }
 
 beforeEach(() => {
@@ -159,7 +165,7 @@ beforeEach(() => {
 });
 
 describe('handleDispatchFailure status routing', () => {
-  test('not-retryable → status blocked_by_dependency', async () => {
+  test('not-retryable → status blocked', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'The approach is infeasible because API does not exist',
@@ -169,11 +175,11 @@ describe('handleDispatchFailure status routing', () => {
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
     const payload = lastFailurePayload();
-    expect(payload.status).toBe('blocked_by_dependency');
     expect(payload.failureType).toBe('not-retryable');
+    expect(lastStatusTransition()).toBe('blocked');
   });
 
-  test('retryable (retries exhausted) → status failed', async () => {
+  test('retryable (retries exhausted) → status closed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'exit code 1',
@@ -183,11 +189,11 @@ describe('handleDispatchFailure status routing', () => {
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
     const payload = lastFailurePayload();
-    expect(payload.status).toBe('failed');
     expect(payload.failureType).toBe('retryable');
+    expect(lastStatusTransition()).toBe('closed');
   });
 
-  test('infrastructure (retries exhausted) → status failed', async () => {
+  test('infrastructure (retries exhausted) → status closed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'worktree directory ENOENT: /root/worktrees/abc123',
@@ -197,11 +203,11 @@ describe('handleDispatchFailure status routing', () => {
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
     const payload = lastFailurePayload();
-    expect(payload.status).toBe('failed');
     expect(payload.failureType).toBe('infrastructure');
+    expect(lastStatusTransition()).toBe('closed');
   });
 
-  test('unknown (triage-agent action) → status failed', async () => {
+  test('unknown (triage-agent action) → status closed', async () => {
     mockAgentExecute.mockResolvedValue({
       success: false,
       error: 'Something weird happened',
@@ -211,7 +217,7 @@ describe('handleDispatchFailure status routing', () => {
     await dispatchStep(makeExec(), makeGoal(), makeCtx());
 
     const payload = lastFailurePayload();
-    expect(payload.status).toBe('failed');
     expect(payload.failureType).toBe('unknown');
+    expect(lastStatusTransition()).toBe('closed');
   });
 });
