@@ -20,7 +20,7 @@
     "failed": 0,
     "command": "cd /root/projects/studio/apps/api && npx vitest run src/modules/auth",
     "evidence": "6 files passed: service.test.ts 41/41, routes.test.ts 40/40, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3. type check (tsc --noEmit) clean for auth module.",
-    "verifiedAt": "2026-06-26T12:20:00Z"
+    "verifiedAt": "2026-06-26T12:24:32Z"
   },
   "designNotes": {
     "decisions": [
