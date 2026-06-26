@@ -1,5 +1,5 @@
 {
-  "taskId": "test-normal-1",
+  "taskId": "test-normal-2",
   "allComplete": true,
   "acCompliance": {
     "AC1": "createGuestSession 创建 guest session 并返回 token",
