@@ -666,6 +666,9 @@ export class AgentExecutor {
     const skillsToInject = skillLoader.load({ agentType: 'executor', tier: skillTier });
     const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
+    // [Skill Discovery] Log injected skills for Agent Network analysis
+    logger.info(`[SkillDiscovery] task=${task.id} skills=[${skillsToInject.map(s => s.id).join(',')}]`);
+
     if (session === 1 || !progress) {
       // O1c: Inject Analyst context to prevent re-exploring verified files
       const analystContext = (task.parameters?.analystContext as any) || null;

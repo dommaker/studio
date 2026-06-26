@@ -1045,6 +1045,10 @@ const loadSkill: MCPTool = {
   handler: async (input) => {
     const { skillName } = input;
 
+    // [Skill Discovery] Log Agent's skill selection
+    const { logger } = await import('@dommaker/studio-shared');
+    logger.info(`[SkillDiscovery] Agent selected skill: ${skillName}`);
+
     // 1. Try package SkillLoader (sync, cached, includes hardcoded + DB skills)
     const { skillLoader } = await import('@dommaker/studio-skill');
     const fullPrompt = skillLoader.getFullPrompt(skillName);

@@ -125,6 +125,8 @@ export class AgentLoop {
       }).catch(() => {}); // best-effort
     }
 
+    logger.info(`[AgentLoop] Scanning for work: role=${this.role.name} acceptedTypes=${JSON.stringify(this.acceptedTypes)}`);
+
     const workUnits = await prisma.workUnit.findMany({
       where: {
         status: 'unassigned',
@@ -136,7 +138,10 @@ export class AgentLoop {
     });
 
     if (workUnits.length > 0) {
+      logger.info(`[AgentLoop] Found unassigned WorkUnit: ${workUnits[0].id} type=${workUnits[0].type}`);
       await this.tryClaim(workUnits[0]);
+    } else {
+      logger.info(`[AgentLoop] No unassigned WorkUnits found for role=${this.role.name}`);
     }
   }
 
@@ -166,16 +171,12 @@ export class AgentLoop {
   private async tryClaim(workUnit: WorkUnit): Promise<void> {
     this.processing = true;
     try {
-      // Claim with optimistic lock
-      await prisma.workUnit.update({
-        where: { id: workUnit.id, assigneeId: null, status: 'unassigned' },
-        data: { assigneeId: this.instance!.id, status: 'active', claimedAt: new Date() },
-      });
+      // Claim via WorkUnitService (triggers autoLoadSkillsForAgent)
+      await this.workUnitService.claim(workUnit.id, this.instance!.id);
     } catch (err: unknown) {
       this.processing = false;
       const message = err instanceof Error ? err.message : String(err);
-      const code = err instanceof PrismaClientKnownRequestError ? err.code : undefined;
-      if (code === 'P2025' || message.includes('Record to update not found')) {
+      if (message.includes('Claim failed') || message.includes('already claimed')) {
         logger.debug(`[AgentLoop] WorkUnit ${workUnit.id} already claimed, skipping`);
         return;
       }
@@ -188,20 +189,17 @@ export class AgentLoop {
 
       if (result.success) {
         // Submit for review
-        await prisma.workUnit.update({
-          where: { id: workUnit.id },
-          data: { status: 'in_review' },
-        });
+        await this.workUnitService.transitionStatus(workUnit.id, 'in_review');
         logger.info(`[AgentLoop] WorkUnit ${workUnit.id} submitted for review`);
       } else {
-        // Execution failed — unclaim (state machine doesn't support active→unassigned)
+        // Execution failed — unclaim
         logger.error(`[AgentLoop] Execution failed for ${workUnit.id}: ${result.error}`);
-        await this.unclaim(workUnit.id);
+        await this.workUnitService.unclaim(workUnit.id);
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[AgentLoop] Execution failed for ${workUnit.id}: ${message}`);
-      await this.unclaim(workUnit.id);
+      await this.workUnitService.unclaim(workUnit.id);
     } finally {
       this.processing = false;
     }
@@ -209,6 +207,9 @@ export class AgentLoop {
 
   /** Execute WorkUnit — skill injection handled by session-manager */
   private async execute(workUnit: WorkUnit): Promise<ExecutionResult> {
+    // [Skill Discovery] Log WorkUnit context for analysis
+    logger.info(`[SkillDiscovery] workUnit=${workUnit.id} type=${workUnit.type} role=${this.role.name} scope="${workUnit.scope?.substring(0, 100)}"`);
+
     const prompt = `## Task\nWorkUnit: ${workUnit.id}\nType: ${workUnit.type}\nScope: ${workUnit.scope}`;
 
     const result: ExecutionResult = await agentExecutor.execute({

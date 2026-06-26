@@ -113,7 +113,7 @@ export class SkillLoader {
 
     return this.cache.filter(s => {
       if (exclude.includes(s.id)) return false;
-      if (agentType && !s.agentTypes.includes(agentType)) return false;
+      if (agentType && s.agentTypes.length > 0 && !s.agentTypes.includes(agentType)) return false;
       if (tier) {
         const tierRank: Record<string, number> = { fast: 1, standard: 2, premium: 3 };
         if (tierRank[s.tier] > tierRank[tier]) return false;

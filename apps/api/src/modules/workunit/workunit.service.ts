@@ -277,6 +277,8 @@ export class WorkUnitService {
    * @throws Error if claim fails (already claimed or invalid state)
    */
   async claim(id: string, agentId: string): Promise<WorkUnit> {
+    logger.info(`[WorkUnit] Claiming WorkUnit: ${id} by agent ${agentId}`);
+
     // File conflict check before claiming
     const wuToClaim = await this.prisma.workUnit.findUnique({ where: { id } });
     if (!wuToClaim) throw new Error('WorkUnit not found');

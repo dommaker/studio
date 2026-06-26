@@ -8,6 +8,7 @@
  * AC2: 根据 scope 匹配 Skill
  */
 import type { SkillEntry } from './manifest-loader.js';
+import { logger } from '@dommaker/studio-shared';
 
 /** 去除标点和空白，保留字母数字和中文字符 */
 function normalize(text: string): string {
@@ -79,7 +80,7 @@ export function selectSkills(scope: string, skills: SkillEntry[]): SkillEntry[] 
   const scopeNorm = normalize(scope);
   if (!scopeNorm) return [];
 
-  return skills.filter(skill => {
+  const matched = skills.filter(skill => {
     const positive = stripNotFor(skill.description);
     const descNorm = normalize(positive);
     if (!descNorm) return false;
@@ -88,4 +89,9 @@ export function selectSkills(scope: string, skills: SkillEntry[]): SkillEntry[] 
       || tokenMatch(scopeNorm, descNorm)
       || sharesNgram(scopeNorm, descNorm, 4);
   });
+
+  // [Skill Discovery] Log matching results
+  logger.info(`[SkillDiscovery] scope="${scope}" matched=[${matched.map(s => s.name).join(',')}]`);
+
+  return matched;
 }
