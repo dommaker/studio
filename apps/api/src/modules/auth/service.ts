@@ -441,5 +441,45 @@ export async function resetPassword(token: string, newPassword: string): Promise
   return true;
 }
 
+const EMAIL_VERIFICATION_EXPIRY_HOURS = 24;
+
+/**
+ * 生成邮箱验证 Token
+ * 用户注册后调用，生成一次性验证链接
+ */
+export async function generateEmailVerificationToken(userId: string, email: string): Promise<string> {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + EMAIL_VERIFICATION_EXPIRY_HOURS);
+
+  await prisma.emailVerificationToken.create({
+    data: { token, userId, email, expiresAt },
+  });
+
+  return token;
+}
+
+/**
+ * 验证邮箱：验证 token 并标记 emailVerified
+ */
+export async function verifyEmail(token: string): Promise<boolean> {
+  const record = await prisma.emailVerificationToken.findUnique({ where: { token } });
+  if (!record || record.usedAt || record.expiresAt < new Date()) return false;
+
+  // 原子性：标记 token 已使用 + 设置 emailVerified
+  await prisma.$transaction([
+    prisma.emailVerificationToken.update({
+      where: { id: record.id },
+      data: { usedAt: new Date() },
+    }),
+    prisma.user.update({
+      where: { id: record.userId },
+      data: { emailVerified: new Date() },
+    }),
+  ]);
+
+  return true;
+}
+
 // 导出工具函数（用于测试）
 export { hashPassword, verifyPassword };

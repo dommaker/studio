@@ -41,6 +41,8 @@ vi.mock('../service.js', () => ({
   getCurrentUser: vi.fn(),
   exchangeRefreshToken: vi.fn(),
   cleanupExpiredSessions: vi.fn(),
+  generateEmailVerificationToken: vi.fn().mockResolvedValue('verification-token-123'),
+  verifyEmail: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-audit', () => ({

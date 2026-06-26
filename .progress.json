@@ -1,51 +1,27 @@
 {
-  "taskId": "test-normal-2",
-  "allComplete": true,
-  "acCompliance": {
-    "AC-1": {
-      "status": "PASS",
-      "evidence": "PasswordResetToken Prisma 模型已添加：id, token(uq), userId, email, expiresAt, usedAt, createdAt。User 模型关联 passwordResetTokens[]。schema 已同步到 data.db。"
-    },
-    "AC-2": {
-      "status": "PASS",
-      "evidence": "service.ts generateResetToken(email): 使用 crypto.randomBytes(32) 生成 token, 1小时过期, 不存在的邮箱/OAuth 用户返回 null。resetPassword(token, newPassword): 验证 token 未使用/未过期, $transaction 原子性更新密码+标记已使用。"
-    },
-    "AC-3": {
-      "status": "PASS",
-      "evidence": "routes.ts POST /forgot-password (authRateLimit): 验证 email 非空, 统一返回成功不暴露邮箱存在。POST /reset-password (authRateLimit): 验证 token+password 非空, token 无效返回400。tsc --noEmit: exit 0, no type errors。"
-    },
-    "AC-4": {
-      "status": "PASS",
-      "evidence": "已有全部 5 个 auth 测试文件 111/111 通过。service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 17/17, middleware-invocation.test.ts 7/7。Phase 3 禁止创建新测试文件。"
-    }
-  },
+  "taskId": "test-normal-1",
+  "allComplete": false,
+  "acCompliance": {},
   "testResults": {
     "passed": 111,
     "total": 111,
     "failed": 0,
-    "command": "npx vitest run apps/api/src/modules/auth/__tests__/ --reporter=verbose",
-    "evidence": "service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 17/17, middleware-invocation.test.ts 7/7. tsc --noEmit: exit 0, no type errors.",
-    "verifiedAt": "2026-06-26T11:13:00Z"
+    "command": "cd apps/api && npx vitest run --config vitest.config.ts src/modules/auth/__tests__/",
+    "evidence": "service.test.ts 34/34, routes.test.ts 28/28, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8. tsc --noEmit: exit 0, no type errors.",
+    "verifiedAt": "2026-06-26T11:17:00Z"
   },
   "designNotes": {
     "decisions": [
-      "Token 生成: crypto.randomBytes(32).toString('hex') — 与 refreshToken 相同模式，64 字符 hex。",
-      "Token 过期: 1 小时 (RESET_TOKEN_EXPIRY_HOURS=1)。",
-      "原子更新: resetPassword 使用 Prisma $transaction 包裹密码更新+token 标记已使用。",
-      "安全: forgot-password 返回统一消息，不暴露邮箱是否注册。OAuth 用户(passwordHash=null)返回 null。",
-      "邮件: 暂无邮件服务，仅 logger.info 输出 token，预留 TODO。",
-      "setup-db.ts: prisma db push 加 --accept-data-loss。新版 Prisma 对破坏性 schema 变更要求此 flag。因 DB file 已被删除，无数据丢失风险。",
-      "vitest.config.ts: 加 maxConcurrency: 1。SQLite 不支持并发写入，vitest 默认 5 个并发 worker 导致 database is locked / readonly database 错误。",
-      "setup-db.ts: 若 DB 已存在则跳过 push。vitest 串行模式下 setup 只执行一次，避免重复 push 浪费 CI 时间。"
+      "Prisma schema: User 新增 emailVerified(DateTime?) 字段 + EmailVerificationToken 模型（与 PasswordResetToken 相同模式）。",
+      "Token 生成: crypto.randomBytes(32).toString('hex') — 与 reset token 一致，64 字符 hex。",
+      "Token 过期: 24 小时 (EMAIL_VERIFICATION_EXPIRY_HOURS=24)。",
+      "原子更新: verifyEmail 使用 $transaction 包裹 token 标记已使用 + 设置 emailVerified。",
+      "register 路由: 注册成功后自动生成 verificationToken 并返回（开发环境），生产环境通过邮件发送。",
+      "send-verification: 需要登录，检查 emailVerified 状态后重新生成 token。",
+      "verify-email: 公开端点，验证 token 有效则标记邮箱已验证。"
     ],
-    "failedAttempts": [
-      "试过用原子 mkdir 做分布式锁控制并发 push, 但 SQLite 底层仍出现 readonly database 错误。改用 maxConcurrency: 1 更可靠。"
-    ],
+    "failedAttempts": [],
     "uncertainties": [],
-    "constraintsDiscovered": [
-      "Prisma 5.x db push --force-reset 对包含新唯一约束的 schema 变更需要 --accept-data-loss, 即使数据已全部删除。",
-      "Vitest 1.6.1 pool:threads 模式下多 worker 共享 SQLite DB file 导致不可预测的并发错误。",
-      "ESLint 9 不支持 .eslintrc.cjs 遗留配置，lint 命令无法运行（预存问题，非本次改动引入）。"
-    ]
+    "constraintsDiscovered": []
   }
 }

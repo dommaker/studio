@@ -35,6 +35,10 @@ router.post('/register', authRateLimit, async (req, res) => {
   try {
     const result = await authService.register(req.body);
     
+    // 生成邮箱验证 token（开发环境直接返回，生产环境通过邮件发送）
+    const verificationToken = await authService.generateEmailVerificationToken(result.user.id, result.user.email);
+    logger.info('Email verification token generated', { email: result.user.email });
+
     // SEC-010: 记录注册成功
     await auditService.log({
       userId: result.user.id,
@@ -44,8 +48,8 @@ router.post('/register', authRateLimit, async (req, res) => {
       details: { email: result.user.email },
       status: 'success',
     }).catch(err => logger.error('Audit log error', { error: String(err) }));
-    
-    res.json(result);
+
+    res.json({ ...result, verificationToken });
   } catch (error) {
     const err = error as Error;
     
@@ -241,6 +245,61 @@ router.post('/reset-password', authRateLimit, async (req, res) => {
     }
 
     res.json({ message: '密码重置成功' });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/v1/auth/send-verification
+ * 重新发送邮箱验证邮件（需要登录）
+ */
+router.post('/send-verification', requireAuth(), async (req, res) => {
+  try {
+    const authInfo = getAuthInfo(req);
+    if (!authInfo?.userId) {
+      res.status(401).json({ error: '请先登录' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({ where: { id: authInfo.userId } });
+    if (!user) {
+      res.status(404).json({ error: '用户不存在' });
+      return;
+    }
+    if (user.emailVerified) {
+      res.status(400).json({ error: '邮箱已验证' });
+      return;
+    }
+
+    const token = await authService.generateEmailVerificationToken(user.id, user.email);
+    logger.info('Email verification token re-generated', { email: user.email });
+
+    res.json({ message: '验证邮件已发送', verificationToken: token });
+  } catch (error) {
+    res.status(500).json({ error: (error as Error).message });
+  }
+});
+
+/**
+ * POST /api/v1/auth/verify-email
+ * 验证邮箱（公开端点，使用 token）
+ */
+router.post('/verify-email', authRateLimit, async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      res.status(400).json({ error: 'token 不能为空' });
+      return;
+    }
+
+    const success = await authService.verifyEmail(token);
+    if (!success) {
+      res.status(400).json({ error: '验证链接无效或已过期' });
+      return;
+    }
+
+    res.json({ message: '邮箱验证成功' });
   } catch (error) {
     res.status(500).json({ error: (error as Error).message });
   }

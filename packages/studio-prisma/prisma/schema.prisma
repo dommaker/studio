@@ -425,17 +425,19 @@ model User {
   passwordHash String?   // null for OAuth users
   name         String?
   avatar       String?
-  role         String    @default("Guest") // Guest, User, Admin
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  
+  role           String    @default("Guest") // Guest, User, Admin
+  emailVerified  DateTime? // 邮箱验证时间，null 表示未验证
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
   // 关联
-  sessions            Session[]
-  refreshTokens       RefreshToken[]
-  oauthAccounts       OAuthAccount[]
-  auditLogs           AuditLog[] @relation("UserAuditLogs")
-  createdRoles        Role[]    @relation("CreatedRoles")
-  passwordResetTokens PasswordResetToken[]
+  sessions                Session[]
+  refreshTokens           RefreshToken[]
+  oauthAccounts           OAuthAccount[]
+  auditLogs               AuditLog[] @relation("UserAuditLogs")
+  createdRoles            Role[]    @relation("CreatedRoles")
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
 }
 
 model Session {
@@ -488,6 +490,22 @@ model OAuthAccount {
 }
 
 model PasswordResetToken {
+  id        String    @id @default(cuid())
+  token     String    @unique
+  userId    String
+  email     String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+  @@index([userId])
+  @@index([email])
+}
+
+model EmailVerificationToken {
   id        String    @id @default(cuid())
   token     String    @unique
   userId    String
