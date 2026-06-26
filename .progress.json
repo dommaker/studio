@@ -1,20 +1,21 @@
 {
-  "taskId": "test-normal-1",
+  "taskId": "test-normal-2",
   "allComplete": true,
   "acCompliance": {
-    "AC1": "register 创建用户并使用 bcrypt 加密密码存储，返回 session/token/isNewUser",
-    "AC2": "register 邮箱重复时抛出'邮箱已被注册'",
-    "AC3": "hashPassword 使用 bcrypt 且 cost factor >= 10",
-    "AC4": "verifyPassword 支持 bcrypt 格式密码验证",
-    "AC5": "verifyPassword 兼容旧 PBKDF2 格式并返回 needsRehash",
-    "AC6": "generateEmailVerificationToken 生成 64 字符 hex token，24 小时过期",
-    "AC7": "verifyEmail 有效 token 标记 emailVerified",
-    "AC8": "verifyEmail 无效/已使用/过期 token 返回 false",
-    "AC9": "POST /register 创建用户并返回 user/token/refreshToken，同时生成验证 token",
-    "AC10": "POST /register 邮箱重复返回 409",
-    "AC11": "POST /verify-email 有效 token 返回'邮箱验证成功'",
-    "AC12": "POST /verify-email 缺少 token 返回 400",
-    "AC13": "POST /verify-email 无效/过期 token 返回 400"
+    "AC1": "POST /forgot-password 生成密码重置 token 并通过邮件发送重置链接",
+    "AC2": "POST /forgot-password 邮箱不存在时返回统一消息（不暴露邮箱是否注册）",
+    "AC3": "POST /forgot-password 缺少邮箱返回 400",
+    "AC4": "POST /reset-password 使用有效 token 重置密码成功",
+    "AC5": "POST /reset-password 缺少 token 或密码返回 400",
+    "AC6": "POST /reset-password 无效/过期/已使用 token 返回 400",
+    "AC7": "generateResetToken 用户存在且有密码时生成 64 字符 hex token",
+    "AC8": "generateResetToken 用户不存在返回 null（安全：不暴露邮箱）",
+    "AC9": "generateResetToken OAuth 无密码用户返回 null",
+    "AC10": "generateResetToken 设置 1 小时过期",
+    "AC11": "resetPassword 有效 token 原子性更新 usedAt + passwordHash",
+    "AC12": "resetPassword 已使用/过期/不存在 token 返回 false",
+    "AC13": "sendPasswordResetEmail 开发环境输出重置链接到日志",
+    "AC14": "Rate limit: authRateLimit 挂载在 /forgot-password 和 /reset-password 上"
   },
   "testResults": {
     "passed": 133,
@@ -22,16 +23,15 @@
     "failed": 0,
     "command": "npx vitest run apps/api/src/modules/auth/__tests__/",
     "evidence": "6 files passed: service.test.ts 41/41, routes.test.ts 40/40, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3",
-    "verifiedAt": "2026-06-26T13:28:30Z"
+    "verifiedAt": "2026-06-26T13:29:20Z"
   },
   "designNotes": {
     "decisions": [
-      "hashPassword 使用 bcrypt.hashSync(password, 12)，cost 12 平衡安全与性能",
-      "verifyPassword 兼容旧 PBKDF2 格式（salt:hash），验证通过后标记 needsRehash 供调用方静默升级至 bcrypt",
-      "邮箱验证 token 使用 crypto.randomBytes(32).toString('hex') 生成 64 字符不可预测 token",
-      "邮箱验证 token 24 小时过期，用户可重新发送",
-      "verifyEmail 使用 $transaction 原子性标记 usedAt + 设置 emailVerified，防止并发重复验证",
-      "register 自动生成邮箱验证 token，开发环境直接返回，生产环境通过邮件发送"
+      "generateResetToken 使用 crypto.randomBytes(32).toString('hex') 生成 64 字符不可预测 token",
+      "密码重置 token 设置 1 小时过期（短于邮箱验证的 24 小时，因为密码重置安全风险更高）",
+      "resetPassword 使用 $transaction 原子性标记 usedAt + 更新 passwordHash，防止并发多次使用同一 token",
+      "用户不存在或 OAuth 无密码用户均返回 null（安全：不暴露邮箱是否注册）",
+      "忘记密码邮箱不区分用户是否存在，统一返回相同消息（防止邮箱枚举攻击）"
     ],
     "failedAttempts": [],
     "uncertainties": [],
