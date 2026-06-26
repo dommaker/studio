@@ -1,28 +1,21 @@
 {
-  "taskId": "test-normal-1",
+  "taskId": "test-normal-2",
   "allComplete": true,
   "acCompliance": {
-    "AC1": "hashPassword 使用 bcrypt 加密，12 轮 salt",
-    "AC2": "verifyPassword 支持 bcrypt 格式校验",
-    "AC3": "verifyPassword 支持旧 PBKDF2 salt:hash 格式，有效密码返回 needsRehash=true",
-    "AC4": "verifyPassword 无效密码返回 valid=false",
-    "AC5": "register 重复邮箱抛错 '邮箱已被注册'（路由层映射为 409）",
-    "AC6": "register 创建用户并返回 AuthResult（含 user/session/token/refreshToken/isNewUser）",
-    "AC7": "register 使用 bcrypt 加密密码存入 passwordHash",
-    "AC8": "generateEmailVerificationToken 生成 64 字符 hex token，24 小时过期",
-    "AC9": "verifyEmail 有效 token 原子性标记 usedAt + 设置 emailVerified",
-    "AC10": "verifyEmail 无效/过期/已使用 token 返回 false",
-    "AC11": "POST /register 成功返回 200 + user/tokens/session/isNewUser + verificationToken",
-    "AC12": "POST /register 重复邮箱返回 409",
-    "AC13": "POST /register 审计日志记录成功/失败（SEC-010）",
-    "AC14": "POST /verify-email 有效 token 返回 200",
-    "AC15": "POST /verify-email 无效/过期 token 返回 400",
-    "AC16": "POST /verify-email 缺少 token 返回 400",
-    "AC17": "POST /send-verification 返回新的 verificationToken",
-    "AC18": "POST /send-verification 已验证邮箱返回 400",
-    "AC19": "authRateLimit 挂载在 POST /register",
-    "AC20": "authRateLimit 挂载在 POST /verify-email",
-    "AC21": "sendPasswordResetEmail 开发环境输出 [DEV EMAIL] 格式日志，生产环境输出 [EMAIL] 格式"
+    "AC1": "POST /forgot-password 接收 email 参数，生成重置 token，发送密码重置邮件",
+    "AC2": "POST /forgot-password 不暴露邮箱是否存在（统一返回成功消息）",
+    "AC3": "POST /forgot-password 缺少 email 返回 400",
+    "AC4": "generateResetToken 为有效用户生成 64 字符 hex token，1 小时过期",
+    "AC5": "generateResetToken 为不存在用户返回 null",
+    "AC6": "generateResetToken 为 OAuth 用户（无 passwordHash）返回 null",
+    "AC7": "resetPassword 有效 token 原子性标记 usedAt + 更新 passwordHash，返回 true",
+    "AC8": "resetPassword 无效/已使用/过期 token 返回 false",
+    "AC9": "POST /reset-password 有效 token 返回 200 + 成功消息",
+    "AC10": "POST /reset-password 无效/已使用/过期 token 返回 400",
+    "AC11": "POST /reset-password 缺少 token 或 password 返回 400",
+    "AC12": "sendPasswordResetEmail 开发环境输出 [DEV EMAIL] 格式，生产环境输出 [EMAIL] 格式",
+    "AC13": "sendPasswordResetEmail 使用自定义 FRONTEND_URL 构建重置链接",
+    "AC14": "authRateLimit 挂载在 POST /forgot-password 和 POST /reset-password"
   },
   "testResults": {
     "passed": 133,
@@ -30,18 +23,15 @@
     "failed": 0,
     "command": "npx vitest run apps/api/src/modules/auth/__tests__/",
     "evidence": "6 files passed: service.test.ts 41/41, routes.test.ts 40/40, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3",
-    "verifiedAt": "2026-06-26T13:57:48Z"
+    "verifiedAt": "2026-06-26T14:02:00Z"
   },
   "designNotes": {
     "decisions": [
-      "hashPassword 使用 bcryptjs 同步 API (hashSync)，12 轮 salt，平衡安全与性能",
-      "verifyPassword 双格式兼容：新密码用 bcrypt，旧密码用 PBKDF2 (salt:hash)，迁移期间无缝升级",
-      "register 流程：哈希密码→创建用户→创建 session→生成 JWT→生成 refreshToken→生成邮箱验证 token",
-      "register 路由返回 verificationToken（开发环境直接返回，生产环境通过邮件发送）",
-      "verifyEmail 使用 $transaction 原子性标记 token usedAt + 设置 emailVerified，防止并发重复验证",
-      "generateEmailVerificationToken 使用 crypto.randomBytes(32).toString('hex') 生成 64 字符 hex token",
-      "POST /send-verification 需登录（requireAuth），已验证邮箱返回 400",
-      "POST /register 和 POST /verify-email 挂载 authRateLimit 防止暴力请求"
+      "generateResetToken 使用 crypto.randomBytes(32).toString('hex') 生成 64 字符 hex token，1 小时过期",
+      "generateResetToken 对不存在用户和 OAuth 用户返回 null，不暴露邮箱注册状态",
+      "resetPassword 使用 $transaction 原子性标记 usedAt + 更新 passwordHash，防止并发重复使用 token",
+      "sendPasswordResetEmail 开发环境 logger.info 输出重置链接，生产环境需接入真实 SMTP",
+      "POST /forgot-password 和 POST /reset-password 挂载 authRateLimit 防止暴力请求"
     ],
     "failedAttempts": [],
     "uncertainties": [],
