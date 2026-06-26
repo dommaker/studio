@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireAuth, getAuthInfo, optionalAuth, requireRole } from '../../middleware/auth.js';
 import { authRateLimit, refreshRateLimit } from '../../middleware/rate-limit.js';
 import * as authService from './service.js';
+import { sendPasswordResetEmail } from './email.service.js';
 import { AuditService } from '@dommaker/studio-audit';  // 🆕 SEC-010
 import { prisma } from '../../core/database.js';
 import { logger } from '@dommaker/studio-shared';
@@ -216,7 +217,7 @@ router.post('/forgot-password', authRateLimit, async (req, res) => {
     const token = await authService.generateResetToken(email);
     if (token) {
       logger.info('Password reset token generated', { email });
-      // TODO: 接入邮件服务发送重置链接
+      await sendPasswordResetEmail(email, token);
     }
 
     // 统一返回成功，不暴露邮箱是否存在
