@@ -1,16 +1,18 @@
 {
-  "taskId": "test-normal-1",
+  "taskId": "test-normal-2",
   "allComplete": true,
   "acCompliance": {
-    "AC1": "register 创建用户并返回 session，邮箱已被注册时抛出错误",
-    "AC2": "hashPassword 使用 bcrypt 12 轮加密密码",
-    "AC3": "verifyPassword 支持 bcrypt 和旧 PBKDF2 双格式",
-    "AC4": "verifyPassword 旧 PBKDF2 格式验证成功后返回 needsRehash: true",
-    "AC5": "generateEmailVerificationToken 生成 64 字符 hex token，24 小时过期",
-    "AC6": "verifyEmail 有效 token 原子性标记 usedAt + 设置 emailVerified，返回 true",
-    "AC7": "verifyEmail 无效/已使用/过期 token 返回 false",
-    "AC8": "register 使用 $transaction 或顺序操作确保数据一致性",
-    "AC9": "密码错误时返回错误信息，不暴露用户是否存在"
+    "AC1": "POST /forgot-password 接受 email 参数，有效用户生成 reset token 并调用 sendPasswordResetEmail",
+    "AC2": "POST /forgot-password 用户不存在时统一返回 200（邮箱枚举防护）",
+    "AC3": "POST /forgot-password 缺少 email 返回 400",
+    "AC4": "POST /reset-password 有效 token + 新密码成功更新密码",
+    "AC5": "POST /reset-password 无效/已使用/过期 token 返回 400",
+    "AC6": "POST /reset-password 缺少 token 或 password 返回 400",
+    "AC7": "generateResetToken 生成 64 字符 hex token，1 小时过期",
+    "AC8": "resetPassword 使用 $transaction 原子性标记 usedAt + 更新 passwordHash",
+    "AC9": "generateResetToken 对 OAuth 用户（无 passwordHash）返回 null",
+    "AC10": "sendPasswordResetEmail 开发环境输出 DEV EMAIL 日志含重置链接",
+    "AC11": "sendPasswordResetEmail 可正确读取 FRONTEND_URL 环境变量"
   },
   "testResults": {
     "passed": 133,
@@ -18,16 +20,16 @@
     "failed": 0,
     "command": "cd apps/api && npx vitest run src/modules/auth/__tests__/",
     "evidence": "6 files passed: service.test.ts 41/41, routes.test.ts 40/40, oauth.service.test.ts 26/26, oauth.routes.test.ts 15/15, middleware-invocation.test.ts 8/8, email.service.test.ts 3/3",
-    "verifiedAt": "2026-06-26T13:10:31Z"
+    "verifiedAt": "2026-06-26T13:13:15Z"
   },
   "designNotes": {
     "decisions": [
-      "hashPassword 使用 bcrypt 12 轮（安全性与性能平衡，12 轮约 250ms）",
-      "verifyPassword 支持 bcrypt（新）+ PBKDF2（旧）双格式兼容迁移",
-      "generateEmailVerificationToken 使用 crypto.randomBytes(32).toString('hex') 生成 64 字符不可预测 token",
-      "verifyEmail 使用 $transaction 原子性标记 usedAt + 设置 emailVerified，防止并发重复验证",
-      "邮箱验证 token 24 小时过期（较长周期给用户足够时间验证邮箱）",
-      "register 检查邮箱存在性后创建用户，逻辑上保证数据一致性"
+      "generateResetToken 使用 crypto.randomBytes(32).toString('hex') 生成 64 字符不可预测 token",
+      "重置 token 1 小时过期（较短窗口减少攻击面）",
+      "resetPassword 使用 $transaction 原子性标记 usedAt + 更新 passwordHash，防止并发重复使用",
+      "邮箱枚举防护：forgot-password 统一返回成功消息，不暴露邮箱是否存在",
+      "sendPasswordResetEmail 仅日志输出，生产环境需接入真实 SMTP（TODO）",
+      "FRONTEND_URL 在调用时从 process.env 读取，便于测试动态切换"
     ],
     "failedAttempts": [],
     "uncertainties": [],
