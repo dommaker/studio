@@ -4,7 +4,35 @@
  * SP-003: GateChecker 整合
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+const store = new Map<string, any>();
+let nextId = 1;
+
+vi.mock('@prisma/client', () => {
+  return {
+    PrismaClient: class {
+      specChangeRequest = {
+        create: async ({ data }: any) => {
+          const id = `mock-${nextId++}`;
+          const record = { ...data, id, submittedAt: new Date(), appliedAt: null };
+          store.set(id, record);
+          return record;
+        },
+        findUnique: async ({ where }: any) => store.get(where.id) ?? null,
+        findFirst: async () => null,
+        update: async ({ where, data }: any) => {
+          const record = store.get(where.id);
+          if (record) Object.assign(record, data);
+          return record;
+        },
+        findMany: async () => [...store.values()],
+      };
+    },
+    Prisma: { ModelName: {} },
+  };
+});
+
 import { GateCheckerService, gateCheckerService } from './gate-checker.service.js';
 import { changeApproverService } from './change-approver.service.js';
 import { isHarnessCheck } from '../types/gate.types.js';
@@ -12,7 +40,8 @@ import type { SpecContent } from '../types/gate.types.js';
 
 describe('GateCheckerService', () => {
   beforeEach(() => {
-    // 清理（ChangeApproverService 使用全局 Map）
+    store.clear();
+    nextId = 1;
   });
 
   // AC-001: L1 变更无需门禁验证

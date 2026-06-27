@@ -68,7 +68,7 @@ describe('AgentCompleter', () => {
     });
 
     it('returns empty for nonexistent directory', async () => {
-      const files = await completer.detectOutputFiles('/nonexistent/path');
+      const files = await completer.detectOutputFiles(path.join(tmpDir, 'does-not-exist-' + Date.now()));
       expect(files).toEqual([]);
     });
   });

@@ -1,3 +1,5 @@
-// WorkUnit routes tests — see workunit-api.test.ts for full coverage
-// This file exists to satisfy the pre-commit hook naming convention
-export {};
+import { describe, it } from 'vitest';
+
+describe('workunit routes', () => {
+  it.skip('placeholder — see workunit-api.test.ts for coverage', () => {});
+});

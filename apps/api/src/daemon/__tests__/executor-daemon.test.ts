@@ -10,13 +10,28 @@ const REPO_DIR = process.env.REPO_DIR || '/root/projects/studio';
 
 // Mock dependencies — no real Claude CLI needed
 vi.mock('@dommaker/studio-shared/node', () => ({
-  execSh: vi.fn(async (cmd: string) => {
-    // Simulate Claude modifying files based on prompt content
-    const promptMatch = cmd.match(/< "(.+?)"/);
-    const cdMatch = cmd.match(/cd "(.+?)"/);
-    if (promptMatch && cdMatch) {
-      const prompt = fs.readFileSync(promptMatch[1], 'utf-8');
-      const wt = cdMatch[1];
+  execSh: vi.fn(async () => ({
+    stdout: '{"result": "DONE", "usage": {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0}}',
+  })),
+  resolveSessionId: vi.fn((worktree: string) => {
+    const sidFile = path.join(worktree, '.daemon', 'session-id');
+    try { return fs.readFileSync(sidFile, 'utf-8').trim(); } catch { return null; }
+  }),
+  readSessionIdFile: vi.fn((worktree: string) => {
+    const sidFile = path.join(worktree, '.daemon', 'session-id');
+    try {
+      const content = fs.readFileSync(sidFile, 'utf-8').trim();
+      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(content) ? content : null;
+    } catch { return null; }
+  }),
+}));
+
+// Mock agentRunner — runTask delegates to agentRunner.executeLightweight, not execSh directly
+vi.mock('@dommaker/studio-agent', () => ({
+  agentRunner: {
+    executeLightweight: vi.fn(async (task: any) => {
+      const prompt: string = task.prompt;
+      const wt: string = task.parameters?.worktree || '';
 
       // Simulate adding healthCheck method
       if (prompt.includes('healthCheck()') && prompt.includes('{ ok: boolean')) {
@@ -51,22 +66,18 @@ vi.mock('@dommaker/studio-shared/node', () => ({
           }
         }
       }
-    }
-    return {
-      stdout: '{"result": "DONE", "usage": {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0}}',
-    };
-  }),
-  resolveSessionId: vi.fn((worktree: string) => {
-    const sidFile = path.join(worktree, '.daemon', 'session-id');
-    try { return fs.readFileSync(sidFile, 'utf-8').trim(); } catch { return null; }
-  }),
-  readSessionIdFile: vi.fn((worktree: string) => {
-    const sidFile = path.join(worktree, '.daemon', 'session-id');
-    try {
-      const content = fs.readFileSync(sidFile, 'utf-8').trim();
-      return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(content) ? content : null;
-    } catch { return null; }
-  }),
+
+      return {
+        success: true,
+        worktree: wt,
+        outputFiles: [],
+        logFile: path.join(wt, '.agent.log'),
+        sessionCount: 1,
+        outputText: 'DONE',
+        totalDurationMs: 100,
+      };
+    }),
+  },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({

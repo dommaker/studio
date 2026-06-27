@@ -15,7 +15,7 @@ vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     workspaceToken: { findUnique: vi.fn() },
     workspace: { findUnique: vi.fn() },
-    goal: { findUnique: vi.fn() },
+    workUnit: { findUnique: vi.fn() },
   },
 }));
 

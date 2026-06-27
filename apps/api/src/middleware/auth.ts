@@ -257,6 +257,10 @@ async function findResourceCreator(model: string, resourceId: string): Promise<s
       const meta = JSON.parse(r.metadata);
       return meta.createdBy ?? undefined;
     }
+    case 'workspace': {
+      const r = await prisma.workspace.findUnique({ where: { id: resourceId }, select: { creatorId: true, createdBy: true } });
+      return r?.creatorId ?? r?.createdBy ?? undefined;
+    }
     case 'signedDocument': {
       const r = await prisma.signedDocument.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
       return r?.createdBy ?? undefined;
@@ -266,7 +270,7 @@ async function findResourceCreator(model: string, resourceId: string): Promise<s
       return r?.createdBy ?? undefined;
     }
     default:
-      return undefined;
+      throw new Error(`Unsupported ownership model: ${model}`);
   }
 }
 

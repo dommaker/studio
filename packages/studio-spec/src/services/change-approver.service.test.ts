@@ -8,13 +8,46 @@
  * - L4 多人审批
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+const store = new Map<string, any>();
+let nextId = 1;
+
+vi.mock('@prisma/client', () => {
+  return {
+    PrismaClient: class {
+      specChangeRequest = {
+        create: async ({ data }: any) => {
+          const id = `mock-${nextId++}`;
+          const record = { ...data, id, submittedAt: new Date(), appliedAt: null };
+          store.set(id, record);
+          return record;
+        },
+        findUnique: async ({ where }: any) => store.get(where.id) ?? null,
+        findFirst: async () => null,
+        update: async ({ where, data }: any) => {
+          const record = store.get(where.id);
+          if (record) Object.assign(record, data);
+          return record;
+        },
+        findMany: async () => [...store.values()],
+      };
+    },
+    Prisma: { ModelName: {} },
+  };
+});
+
 import { ChangeApproverService } from './change-approver.service.js';
 import type { SpecContent } from '../types/change.types.js';
 
 const approver = new ChangeApproverService();
 
 describe('ChangeApproverService', () => {
+  beforeEach(() => {
+    store.clear();
+    nextId = 1;
+  });
+
   // L1 变更：自动通过
   it('L1 change should be auto_approved', async () => {
     const newSpec: SpecContent = {

@@ -8,7 +8,12 @@
  * - AC-010: 与 CheckpointValidator 整合
  */
 
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
+
+vi.mock('@prisma/client', () => ({
+  PrismaClient: class {},
+  Prisma: { ModelName: {} },
+}));
 import {
   SpecValidatorService,
   ArchitectureValidator,
@@ -28,7 +33,9 @@ describe('SpecValidatorService', () => {
   it('AC-001: should return complete validation result', async () => {
     const input: ValidateSpecInput = {
       specId: 'SP-001',
-      specPath: '/root/projects/studio/docs/specs/SP-001-spec-validator.md',
+      specContent: {
+        metadata: { id: 'SP-001', title: 'Test Spec', status: 'draft', created: '2026-01-01' },
+      },
     };
 
     const result = await validator.validateSpec(input);
