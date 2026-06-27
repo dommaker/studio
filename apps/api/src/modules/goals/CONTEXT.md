@@ -45,8 +45,14 @@ Goal 生命周期核心模块。CRUD → Plan → Scheduler → Executor → Rev
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/stale-recovery.ts, apps/api/src/modules/goals/execution-alarm.ts, apps/api/src/modules/goals/goal-crud.ts, apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/goal-review.ts, apps/api/src/modules/goals/integration-rollback.ts, apps/api/src/modules/goals/routes.ts, apps/api/src/modules/goals/scheduler-dispatch.ts, apps/api/src/modules/goals/scheduler-integration.ts, apps/api/src/modules/goals/scheduler-prompt.ts, apps/api/src/modules/goals/scheduler-queue.ts, apps/api/src/modules/goals/executor-subagent-spawner.ts, apps/api/src/modules/goals/event-handler.ts, apps/api/src/modules/goals/goal.service.ts, apps/api/src/modules/goals/CONTEXT.md
 
-<!-- STALE_SINCE: 2026-06-25 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/stale-recovery.ts, apps/api/src/modules/goals/execution-alarm.ts, apps/api/src/modules/goals/goal-crud.ts, apps/api/src/modules/goals/goal-lifecycle.ts, apps/api/src/modules/goals/goal-review.ts, apps/api/src/modules/goals/integration-rollback.ts, apps/api/src/modules/goals/routes.ts, apps/api/src/modules/goals/scheduler-dispatch.ts, apps/api/src/modules/goals/scheduler-integration.ts, apps/api/src/modules/goals/scheduler-prompt.ts, apps/api/src/modules/goals/scheduler-queue.ts, apps/api/src/modules/goals/executor-subagent-spawner.ts, apps/api/src/modules/goals/event-handler.ts, apps/api/src/modules/goals/goal.service.ts, apps/api/src/modules/goals/CONTEXT.md
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/review-orchestrator.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/review-orchestrator.ts
+
+<!-- STALE_SINCE: 2026-06-26 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/goals/review-orchestrator.ts
 
 ## 核心导出
 - `goal.service.ts` → GoalService (Goal CRUD + 审查 + 完成判定)
@@ -69,6 +75,7 @@ verifiedAt: 61f2ab3006736b235471b06ade93f1292584940f
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `4d657a54`: goals): 全部 273 个测试通过
 - ✅ `857ee9f4`: goals): stats endpoint uses 'succeeded' not 'completed' (B59-006)
 - ✅ `067ce06f`: review): write reviewScore in re-queue path (B59-005)
 - ✅ `b5363a27`: executor): testPassed reads real test results from .progress.json (B59-004)
