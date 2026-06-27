@@ -54,6 +54,7 @@ export default defineWorkspace([
       exclude: baseExclude,
       environment: 'node',
       globalSetup: ['./tests/globalSetup.ts'],
+      setupFiles: ['./apps/api/tests/setup-db.ts'],
     },
   },
   // scripts 测试
