@@ -15,7 +15,8 @@ vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     workspaceToken: { findUnique: vi.fn() },
     workspace: { findUnique: vi.fn() },
-    workUnit: { findUnique: vi.fn() },
+    goal: { findUnique: vi.fn() },
+    role: { findUnique: vi.fn() },
   },
 }));
 
@@ -283,13 +284,30 @@ describe('checkOwnership', () => {
   it('uses custom paramKey to extract resource ID', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { goalId: 'g1' };
-    vi.mocked(prisma.workUnit.findUnique).mockResolvedValue({
-      metadata: JSON.stringify({ createdBy: 'u1' }),
+    vi.mocked(prisma.goal.findUnique).mockResolvedValue({
+      createdBy: 'u1',
     } as any);
 
     const middleware = checkOwnership('goal', 'goalId');
     await middleware(req as Request, res as Response, next);
 
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('normalizes model name case (Role → role)', async () => {
+    (req as any).user = { id: 'u1', role: 'User' };
+    req.params = { id: 'r1' };
+    vi.mocked(prisma.role.findUnique).mockResolvedValue({
+      creatorId: 'u1',
+    } as any);
+
+    const middleware = checkOwnership('Role');
+    await middleware(req as Request, res as Response, next);
+
+    expect(prisma.role.findUnique).toHaveBeenCalledWith({
+      where: { id: 'r1' },
+      select: { creatorId: true },
+    });
     expect(next).toHaveBeenCalled();
   });
 

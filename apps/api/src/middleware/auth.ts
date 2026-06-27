@@ -246,16 +246,14 @@ export function requireRole(...roles: string[]) {
  * 各模型使用对应的 creatorId / createdBy 字段
  */
 async function findResourceCreator(model: string, resourceId: string): Promise<string | null | undefined> {
-  switch (model) {
+  switch (model.toLowerCase()) {
     case 'role': {
       const r = await prisma.role.findUnique({ where: { id: resourceId }, select: { creatorId: true } });
       return r?.creatorId ?? undefined;
     }
     case 'goal': {
-      const r = await prisma.workUnit.findUnique({ where: { id: resourceId }, select: { metadata: true } });
-      if (!r?.metadata) return undefined;
-      const meta = JSON.parse(r.metadata);
-      return meta.createdBy ?? undefined;
+      const r = await prisma.goal.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
+      return r?.createdBy ?? undefined;
     }
     case 'workspace': {
       const r = await prisma.workspace.findUnique({ where: { id: resourceId }, select: { creatorId: true, createdBy: true } });
