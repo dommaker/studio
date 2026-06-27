@@ -12,6 +12,10 @@ vi.mock('@dommaker/studio-prisma', () => ({
       findMany: mockExecFindMany,
       update: mockExecUpdate,
     },
+    workUnit: {
+      findMany: mockExecFindMany,
+      update: mockExecUpdate,
+    },
   },
 }));
 
@@ -103,7 +107,7 @@ describe('Stale Recovery', () => {
 
   it('recoverOrphanedExecutions handles missing worktree', async () => {
     mockExecFindMany.mockResolvedValueOnce([
-      { id: 'exec-orphan', status: 'running', input: null },
+      { id: 'exec-orphan', status: 'active', input: null },
     ]);
 
     const { goalService } = await import('../goal.service');
@@ -112,7 +116,7 @@ describe('Stale Recovery', () => {
     expect(count).toBe(1);
     expect(goalService.updateStepExecution).toHaveBeenCalledWith(
       'exec-orphan',
-      expect.objectContaining({ status: 'failed' }),
+      expect.objectContaining({ status: 'blocked' }),
     );
   });
 });

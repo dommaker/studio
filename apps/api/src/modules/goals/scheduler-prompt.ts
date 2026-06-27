@@ -194,7 +194,7 @@ export function buildLegacyPrompt(input: Record<string, any> | null): string {
 
 /** O1f: Lightweight integration prompt */
 export async function buildIntegrationPrompt(goalId: string): Promise<string> {
-  const execs = await prisma.goalExecution.findMany({
+  const execs = await prisma.workUnit.findMany({
     where: { parentId: goalId, status: 'done' },
     select: { id: true, metadata: true },
     orderBy: { createdAt: 'asc' },
@@ -236,7 +236,7 @@ export async function getSiblingContext(
   currentExecutionId: string,
   currentStepIndex: number,
 ): Promise<string> {
-  const allExecs = await prisma.goalExecution.findMany({
+  const allExecs = await prisma.workUnit.findMany({
     where: { parentId: goalId },
     select: { id: true, status: true, metadata: true },
   });
@@ -290,7 +290,7 @@ export async function getSiblingContext(
 /** 获取公司级知识注入（已沉淀的 Pattern/Skill） */
 export async function getCompanyKnowledge(goalId: string, input: Record<string, any> | null): Promise<string> {
   try {
-    const goal = await prisma.goalExecution.findUnique({ where: { id: goalId }, select: { metadata: true } });
+    const goal = await prisma.workUnit.findUnique({ where: { id: goalId }, select: { metadata: true } });
     const goalMeta = goal?.metadata ? JSON.parse(goal.metadata) : {};
     const companyId = goalMeta.companyId || goalMeta.context?.companyId;
     if (!companyId) return '';
@@ -437,7 +437,7 @@ export async function runIntegrationInCode(
   }
   logger.info('[Scheduler] Integration worktree created', { worktree, executionId });
 
-  const allDoneChildren = await prisma.goalExecution.findMany({
+  const allDoneChildren = await prisma.workUnit.findMany({
     where: { parentId: goalId, status: 'done' },
     orderBy: { createdAt: 'asc' },
   });

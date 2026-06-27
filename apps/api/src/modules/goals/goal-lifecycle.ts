@@ -461,7 +461,7 @@ export async function handleGoalFailed(goalId: string): Promise<void> {
   const allGoalExecs = await prisma.goalExecution.findMany({ where: { goalId } });
   const failedExecs = allGoalExecs
     .filter(e => e.status === 'failed')
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
   const failedExec = failedExecs[0];
   const errorRaw: any = failedExec?.error;
   const errorMsg = typeof errorRaw === 'object' ? (errorRaw?.message || JSON.stringify(errorRaw)) : (String(errorRaw || 'Unknown failure'));
@@ -578,6 +578,7 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
     if (!goal) return;
 
     const goalTitle = goal.title;
+    const goalMeta = goal.context ? (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) : {};
     const goalStatus = goal.status === 'succeeded' ? 'succeeded' : goal.status === 'failed' ? 'failed' : goal.status;
 
     const executions = await prisma.goalExecution.findMany({
@@ -693,7 +694,7 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
     } catch { /* non-blocking */ }
 
     try {
-      const goalContextForSummary = goalMeta?.context ? (typeof goalMeta.context === 'string' ? JSON.parse(goalMeta.context) : goalMeta.context) : {};
+      const goalContextForSummary = goalMeta;
       const sourceChannelId = goalContextForSummary?.sourceChannelId as string | undefined;
       if (sourceChannelId) {
         const { channelMessageService } = await import('../channels/channel-message.service.js');
@@ -716,7 +717,7 @@ export async function recordGoalCompletion(goalId: string): Promise<void> {
     }
 
     try {
-      const goalContextForPostEval = goalMeta?.context ? (typeof goalMeta.context === 'string' ? JSON.parse(goalMeta.context) : goalMeta.context) : {};
+      const goalContextForPostEval = goalMeta;
       const sourceChannelId = goalContextForPostEval?.sourceChannelId as string | undefined;
       const { postEvalAgent } = await import('../agents/post-eval-agent.service.js');
       const gapReport = await postEvalAgent.evaluate(goalId, sourceChannelId);

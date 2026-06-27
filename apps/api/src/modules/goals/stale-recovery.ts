@@ -23,26 +23,26 @@ export async function recoverStaleWorkUnits(): Promise<number> {
   const now = new Date();
   const fallbackThreshold = new Date(Date.now() - 15 * 60_000);
 
-  const timedOut = await prisma.goalExecution.findMany({
+  const timedOut = await prisma.workUnit.findMany({
     where: {
-      status: 'running',
+      status: 'active',
       OR: [
         { timeoutAt: { lt: now } },
         { timeoutAt: null, claimedAt: { lt: fallbackThreshold } },
       ],
     },
-    select: { id: true, goalId: true, startedAt: true, timeoutAt: true, input: true, stepIndex: true },
+    select: { id: true, parentId: true, claimedAt: true, timeoutAt: true, metadata: true, scope: true },
   });
 
   for (const exec of timedOut) {
-    const goalId = exec.goalId;
-    const stepIndex = exec.stepIndex;
+    const goalId = exec.parentId;
+    const stepIndex = exec.scope ? Number(exec.scope) : undefined;
 
     logger.warn('[StaleRecovery] Execution timed out', {
       executionId: exec.id,
       goalId,
       stepIndex,
-      startedAt: exec.startedAt,
+      startedAt: exec.claimedAt,
       timeoutAt: exec.timeoutAt,
     });
 
@@ -50,7 +50,7 @@ export async function recoverStaleWorkUnits(): Promise<number> {
       executionId: exec.id,
       goalId,
       phase: stepIndex === 999 ? 'integration' : 'executing',
-      error: `Execution timed out (startedAt: ${exec.startedAt?.toISOString() || 'unknown'})`,
+      error: `Execution timed out (startedAt: ${exec.claimedAt?.toISOString() || 'unknown'})`,
       severity: 'timeout',
     });
   }
@@ -67,8 +67,8 @@ export async function recoverStaleWorkUnits(): Promise<number> {
  */
 export async function recoverOrphanedExecutions(): Promise<number> {
   try {
-    const stale = await prisma.goalExecution.findMany({
-      where: { status: 'running' },
+    const stale = await prisma.workUnit.findMany({
+      where: { status: 'active' },
     });
 
     if (stale.length === 0) return 0;
@@ -88,17 +88,17 @@ export async function recoverOrphanedExecutions(): Promise<number> {
           }
 
           if (allComplete) {
-            await goalService.updateStepExecution(exec.id, { status: 'succeeded' });
+            await goalService.updateStepExecution(exec.id, { status: 'done' });
             logger.info('[StaleRecovery] Marked succeeded', { executionId: exec.id });
           } else {
             let parsedInput: Record<string, unknown> = {};
-            if (typeof exec.input === 'string') {
-              try { parsedInput = JSON.parse(exec.input); } catch { parsedInput = {}; }
+            if (typeof exec.metadata === 'string') {
+              try { parsedInput = JSON.parse(exec.metadata); } catch { parsedInput = {}; }
             } else {
-              parsedInput = (exec.input as Record<string, unknown>) || {};
+              parsedInput = (exec.metadata as Record<string, unknown>) || {};
             }
             await goalService.updateStepExecution(exec.id, {
-              status: 'pending',
+              status: 'unassigned',
               input: JSON.stringify({
                 ...(parsedInput as Record<string, unknown>),
                 resumeAfterRestart: true,
@@ -109,7 +109,7 @@ export async function recoverOrphanedExecutions(): Promise<number> {
           recovered++;
         } else {
           await goalService.updateStepExecution(exec.id, {
-            status: 'failed',
+            status: 'blocked',
             error: 'Worktree lost after service restart',
           });
           logger.warn('[StaleRecovery] Worktree lost, marked failed', { executionId: exec.id });
@@ -118,7 +118,7 @@ export async function recoverOrphanedExecutions(): Promise<number> {
       } catch (e) {
         logger.error('[StaleRecovery] Error recovering execution', { executionId: exec.id, error: String(e) });
         await goalService.updateStepExecution(exec.id, {
-          status: 'failed',
+          status: 'blocked',
           error: `Recovery error: ${String(e)}`,
         }).catch((dbErr) => {
           logger.error('[StaleRecovery] Failed to persist failed status', {

@@ -62,7 +62,7 @@ export class GoalService {
 
   /** @deprecated → WorkUnitService.list() — listGoals 迁移为 WorkUnit 列表查询 */
   async listGoals(companyId: string, status?: string, failureType?: string): Promise<any[]> {
-    return listGoalsImpl(companyId, status, failureType);
+    return listGoalsImpl(companyId, status);
   }
 
   /** @deprecated → Analyst 直接输出 acGroups，不再需要 LLM 二次分解 */
