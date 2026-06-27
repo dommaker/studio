@@ -47,8 +47,8 @@ coverage/
 # Test results (screenshots, videos)
 test-results/
 
-# Spec source (tracked)
-!docs/specs/
+# Spec source (ignored)
+docs/
 
 # PM2 配置（可能包含敏感信息）
 ecosystem.config.cjs
@@ -68,8 +68,7 @@ e2e/.auth.json
 CLAUDE.md
 .claude/
 
-# Design docs (tracked)
-!docs/
+# Design docs (ignored)
 DESIGN_REFACTOR.md
 
 # Pipeline-generated SDD docs in wrong location (canonical: docs/sdd/)
