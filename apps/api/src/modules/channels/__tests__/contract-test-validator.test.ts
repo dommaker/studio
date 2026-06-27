@@ -263,13 +263,13 @@ describe('validateImportPaths', () => {
     expect(result.importPaths[0].resolved).toBe(true);
   });
 
-  it('fails for relative import to non-existing file', () => {
+  it('treats non-existing file in existing dir as forward reference', () => {
     const content = `import { x } from './nonexistent';`;
     const result = validateImportPaths('g1', 'test.ts', content, tmpDir);
 
-    expect(result.pass).toBe(false);
-    expect(result.importPaths[0].resolved).toBe(false);
-    expect(result.importPaths[0].reason).toContain('file not found');
+    expect(result.pass).toBe(true);
+    expect(result.importPaths[0].resolved).toBe(true);
+    expect(result.importPaths[0].reason).toContain('forward reference');
   });
 
   it('resolves index file imports', () => {

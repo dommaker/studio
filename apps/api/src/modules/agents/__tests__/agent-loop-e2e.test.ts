@@ -4,10 +4,12 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import type { WorkUnit } from '@prisma/client';
 
-const { mockPrismaCreate, mockPrismaUpdate, mockPrismaFindMany, mockPrismaInstanceUpdate, mockPrismaInstanceCreate } = vi.hoisted(() => ({
+const { mockPrismaCreate, mockPrismaUpdate, mockPrismaFindMany, mockPrismaFindUnique, mockPrismaUpdateMany, mockPrismaInstanceUpdate, mockPrismaInstanceCreate } = vi.hoisted(() => ({
   mockPrismaCreate: vi.fn(),
   mockPrismaUpdate: vi.fn(),
   mockPrismaFindMany: vi.fn(),
+  mockPrismaFindUnique: vi.fn(),
+  mockPrismaUpdateMany: vi.fn().mockResolvedValue({ count: 1 }),
   mockPrismaInstanceUpdate: vi.fn().mockResolvedValue({}),
   mockPrismaInstanceCreate: vi.fn(),
 }));
@@ -50,6 +52,8 @@ vi.mock('@dommaker/studio-prisma', () => ({
     },
     workUnit: {
       findMany: mockPrismaFindMany,
+      findUnique: mockPrismaFindUnique,
+      updateMany: mockPrismaUpdateMany,
       update: mockPrismaUpdate,
     },
   },
@@ -122,6 +126,10 @@ describe('AgentLoop E2E', () => {
 
     // Default: workUnit.findMany returns empty
     mockPrismaFindMany.mockResolvedValue([]);
+    // Default: workUnit.findUnique returns null (overridden per-test)
+    mockPrismaFindUnique.mockReset();
+    // Default: workUnit.updateMany returns success
+    mockPrismaUpdateMany.mockResolvedValue({ count: 1 });
   });
 
   afterEach(() => {
@@ -141,7 +149,7 @@ describe('AgentLoop E2E', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
       parentId: null,
-      dependsOn: null,
+      dependsOn: '[]',
       failureType: null,
       retryCount: 0,
       timeoutAt: null,
@@ -151,6 +159,14 @@ describe('AgentLoop E2E', () => {
       claimedAt: null,
     };
 
+    // findUnique returns workUnit with correct status per call:
+    // 1st: claim file-conflict check (status=unassigned)
+    // 2nd: claim return after updateMany (status=active)
+    // 3rd: transitionStatus current-status check (status=active)
+    mockPrismaFindUnique
+      .mockResolvedValueOnce(workUnit)
+      .mockResolvedValueOnce({ ...workUnit, status: 'active', assigneeId: 'inst-1' })
+      .mockResolvedValue({ ...workUnit, status: 'active', assigneeId: 'inst-1' });
     // Claim succeeds
     mockPrismaUpdate.mockResolvedValue({});
     // Execute succeeds
@@ -173,11 +189,16 @@ describe('AgentLoop E2E', () => {
     // Simulate EventBus firing onNewWorkUnit
     await agent.onNewWorkUnit(workUnit as unknown as WorkUnit);
 
-    // Verify: claim was called
-    expect(mockPrismaUpdate).toHaveBeenCalledWith(
+    // Verify: findUnique was called (for claim file-conflict check)
+    expect(mockPrismaFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'wu-e2e-1' } }),
+    );
+
+    // Verify: updateMany was called for claim (optimistic lock)
+    expect(mockPrismaUpdateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ id: 'wu-e2e-1' }),
-        data: expect.objectContaining({ assigneeId: expect.any(String), status: 'active' }),
+        where: expect.objectContaining({ id: 'wu-e2e-1', assigneeId: null, status: 'unassigned' }),
+        data: expect.objectContaining({ status: 'active' }),
       }),
     );
 
@@ -186,18 +207,18 @@ describe('AgentLoop E2E', () => {
       expect.objectContaining({ id: 'wu-e2e-1' }),
     );
 
-    // Verify: submitted for review
+    // Verify: submitted for review via update
     expect(mockPrismaUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'wu-e2e-1' },
-        data: { status: 'in_review' },
+        data: expect.objectContaining({ status: 'in_review' }),
       }),
     );
   });
 
   it('multiple WorkUnits → different agents claim (no duplicate)', async () => {
-    const wu1 = { id: 'wu-multi-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-    const wu2 = { id: 'wu-multi-2', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
+    const wu1 = { id: 'wu-multi-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null, dependsOn: '[]', metadata: null };
+    const wu2 = { id: 'wu-multi-2', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null, dependsOn: '[]', metadata: null };
 
     mockPrismaUpdate.mockResolvedValue({});
     mockExecute.mockResolvedValue({
@@ -222,18 +243,23 @@ describe('AgentLoop E2E', () => {
     await agent1.start();
     await agent2.start();
 
-    // Both try to claim the same WorkUnit — only one should succeed
-    // (optimistic lock: second update fails with P2025)
+    // findUnique returns the workUnit for claim lookups
+    mockPrismaFindUnique.mockImplementation((args: any) => {
+      if (args?.where?.id === 'wu-multi-1') return Promise.resolve(wu1);
+      if (args?.where?.id === 'wu-multi-2') return Promise.resolve(wu2);
+      return Promise.resolve(null);
+    });
+
+    // Second claim fails with P2025 (optimistic lock)
     let claimCount = 0;
-    mockPrismaUpdate.mockImplementation((args: any) => {
-      if (args?.data?.assigneeId) {
+    mockPrismaUpdateMany.mockImplementation((args: any) => {
+      if (args?.where?.assigneeId === null) {
         claimCount++;
         if (claimCount > 1) {
-          const err = new PrismaClientKnownRequestError('Record not found', { code: 'P2025', clientVersion: 'test', meta: {} });
-          return Promise.reject(err);
+          return Promise.resolve({ count: 0 });
         }
       }
-      return Promise.resolve({});
+      return Promise.resolve({ count: 1 });
     });
 
     // Both agents try to claim wu1 — second should be gracefully skipped
@@ -242,19 +268,21 @@ describe('AgentLoop E2E', () => {
       agent2.onNewWorkUnit(wu1 as unknown as WorkUnit),
     ]);
 
-    // Only one should have successfully claimed
-    const claimCalls = mockPrismaUpdate.mock.calls.filter(
-      (c: any) => c[0]?.data?.assigneeId && c[0]?.where?.id === 'wu-multi-1',
+    // updateMany was called for claim attempts
+    const claimCalls = mockPrismaUpdateMany.mock.calls.filter(
+      (c: any) => c[0]?.where?.id === 'wu-multi-1',
     );
-    expect(claimCalls.length).toBeLessThanOrEqual(2); // Both attempted, one succeeded
+    expect(claimCalls.length).toBeGreaterThanOrEqual(1);
   });
 
   it('agent failure → unclaim → other agent can claim', async () => {
-    const wu = { id: 'wu-fail-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
+    const wu = { id: 'wu-fail-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null, dependsOn: '[]', metadata: null };
+
+    // findUnique returns the workUnit
+    mockPrismaFindUnique.mockResolvedValue(wu);
 
     // First agent: claim succeeds, execute fails
-    mockPrismaUpdate.mockResolvedValueOnce({}) // claim
-      .mockResolvedValueOnce({}); // unclaim
+    mockPrismaUpdate.mockResolvedValue({}); // unclaim + transitionStatus
     mockExecute.mockRejectedValueOnce(new Error('LLM crashed'));
 
     const agent1 = new AgentLoop(
@@ -266,7 +294,7 @@ describe('AgentLoop E2E', () => {
 
     await agent1.onNewWorkUnit(wu as unknown as WorkUnit);
 
-    // Verify: unclaim happened
+    // Verify: unclaim happened via update
     expect(mockPrismaUpdate).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'wu-fail-1' },
@@ -275,8 +303,7 @@ describe('AgentLoop E2E', () => {
     );
 
     // Second agent: can now claim the same WorkUnit
-    mockPrismaUpdate.mockResolvedValueOnce({}) // claim
-      .mockResolvedValueOnce({}); // submit for review
+    mockPrismaUpdate.mockResolvedValue({});
     mockExecute.mockResolvedValueOnce({
       success: true,
       outputText: 'Recovered',
@@ -300,10 +327,13 @@ describe('AgentLoop E2E', () => {
   });
 
   it('review pass → WorkUnit status = done', async () => {
-    // This tests the review flow: after in_review, a review pass sets status to done
-    // AgentLoop submits for review, then external reviewer sets to done
-    const wu = { id: 'wu-review-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
+    const wu = { id: 'wu-review-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null, dependsOn: '[]', metadata: null };
 
+    // findUnique returns workUnit with correct status per call
+    mockPrismaFindUnique
+      .mockResolvedValueOnce(wu)
+      .mockResolvedValueOnce({ ...wu, status: 'active', assigneeId: 'inst-1' })
+      .mockResolvedValue({ ...wu, status: 'active', assigneeId: 'inst-1' });
     mockPrismaUpdate.mockResolvedValue({});
     mockExecute.mockResolvedValue({
       success: true,
@@ -330,7 +360,6 @@ describe('AgentLoop E2E', () => {
     expect(reviewCall).toBeDefined();
 
     // Simulate external review pass → status = done
-    // (This is done by the review system, not AgentLoop, but we verify the flow)
     mockPrismaUpdate.mockResolvedValueOnce({});
     const { prisma } = await import('@dommaker/studio-prisma');
     await prisma.workUnit.update({
