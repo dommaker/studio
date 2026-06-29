@@ -16,33 +16,33 @@ import { onPhaseFailure } from './execution-alarm.js';
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
 /**
- * 释放超时 claim：status=active + (timeoutAt < now || claimedAt > 15min ago)
+ * 释放超时 GoalExecution：status=running + (timeoutAt < now || startedAt > 15min ago)
  * @returns 释放数量
  */
-export async function recoverStaleWorkUnits(): Promise<number> {
+export async function recoverStaleExecutions(): Promise<number> {
   const now = new Date();
   const fallbackThreshold = new Date(Date.now() - 15 * 60_000);
 
-  const timedOut = await prisma.workUnit.findMany({
+  const timedOut = await prisma.goalExecution.findMany({
     where: {
-      status: 'active',
+      status: 'running',
       OR: [
         { timeoutAt: { lt: now } },
-        { timeoutAt: null, claimedAt: { lt: fallbackThreshold } },
+        { timeoutAt: null, startedAt: { lt: fallbackThreshold } },
       ],
     },
-    select: { id: true, parentId: true, claimedAt: true, timeoutAt: true, metadata: true, scope: true },
+    select: { id: true, goalId: true, stepIndex: true, startedAt: true, timeoutAt: true, input: true },
   });
 
   for (const exec of timedOut) {
-    const goalId = exec.parentId;
-    const stepIndex = exec.scope ? Number(exec.scope) : undefined;
+    const goalId = exec.goalId;
+    const stepIndex = exec.stepIndex;
 
     logger.warn('[StaleRecovery] Execution timed out', {
       executionId: exec.id,
       goalId,
       stepIndex,
-      startedAt: exec.claimedAt,
+      startedAt: exec.startedAt,
       timeoutAt: exec.timeoutAt,
     });
 
@@ -50,7 +50,7 @@ export async function recoverStaleWorkUnits(): Promise<number> {
       executionId: exec.id,
       goalId,
       phase: stepIndex === 999 ? 'integration' : 'executing',
-      error: `Execution timed out (startedAt: ${exec.claimedAt?.toISOString() || 'unknown'})`,
+      error: `Execution timed out (startedAt: ${exec.startedAt?.toISOString() || 'unknown'})`,
       severity: 'timeout',
     });
   }
@@ -59,7 +59,12 @@ export async function recoverStaleWorkUnits(): Promise<number> {
 }
 
 /**
- * 孤儿恢复：检查 active WorkUnit 的 worktree 状态
+ * @deprecated Use recoverStaleExecutions instead
+ */
+export const recoverStaleWorkUnits = recoverStaleExecutions;
+
+/**
+ * 孤儿恢复：检查 running GoalExecution 的 worktree 状态
  * - worktree 不存在 → mark failed
  * - .progress.json allComplete → mark succeeded
  * - 否则 → re-queue with resumeAfterRestart
@@ -67,8 +72,9 @@ export async function recoverStaleWorkUnits(): Promise<number> {
  */
 export async function recoverOrphanedExecutions(): Promise<number> {
   try {
-    const stale = await prisma.workUnit.findMany({
-      where: { status: 'active' },
+    const stale = await prisma.goalExecution.findMany({
+      where: { status: 'running' },
+      select: { id: true, input: true },
     });
 
     if (stale.length === 0) return 0;
@@ -88,17 +94,15 @@ export async function recoverOrphanedExecutions(): Promise<number> {
           }
 
           if (allComplete) {
-            await goalService.updateStepExecution(exec.id, { status: 'done' });
+            await goalService.updateStepExecution(exec.id, { status: 'succeeded' });
             logger.info('[StaleRecovery] Marked succeeded', { executionId: exec.id });
           } else {
             let parsedInput: Record<string, unknown> = {};
-            if (typeof exec.metadata === 'string') {
-              try { parsedInput = JSON.parse(exec.metadata); } catch { parsedInput = {}; }
-            } else {
-              parsedInput = (exec.metadata as Record<string, unknown>) || {};
+            if (exec.input) {
+              try { parsedInput = JSON.parse(exec.input); } catch { parsedInput = {}; }
             }
             await goalService.updateStepExecution(exec.id, {
-              status: 'unassigned',
+              status: 'pending',
               input: JSON.stringify({
                 ...(parsedInput as Record<string, unknown>),
                 resumeAfterRestart: true,
@@ -109,7 +113,7 @@ export async function recoverOrphanedExecutions(): Promise<number> {
           recovered++;
         } else {
           await goalService.updateStepExecution(exec.id, {
-            status: 'blocked',
+            status: 'failed',
             error: 'Worktree lost after service restart',
           });
           logger.warn('[StaleRecovery] Worktree lost, marked failed', { executionId: exec.id });
@@ -118,7 +122,7 @@ export async function recoverOrphanedExecutions(): Promise<number> {
       } catch (e) {
         logger.error('[StaleRecovery] Error recovering execution', { executionId: exec.id, error: String(e) });
         await goalService.updateStepExecution(exec.id, {
-          status: 'blocked',
+          status: 'failed',
           error: `Recovery error: ${String(e)}`,
         }).catch((dbErr) => {
           logger.error('[StaleRecovery] Failed to persist failed status', {

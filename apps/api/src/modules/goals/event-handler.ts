@@ -11,14 +11,11 @@ import * as path from 'path';
 import { execSync } from 'child_process';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import { EXECUTION_TO_WORKUNIT_STATUS } from '../workunit/status-mapping.js';
+import { goalService } from './goal.service.js';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 import { recordDecision } from '@dommaker/studio-shared/harness/hooks';
 import { recordFailure, recordSuccess, runEvolution } from '../harness/evolution.service.js';
 import { triggerPostCompletionKnowledge, triggerFailureKnowledge } from './knowledge-promoter.js';
-
-const workUnitService = new WorkUnitService(prisma);
 
 export class AgentEventListener {
   private started = false;
@@ -60,12 +57,11 @@ export class AgentEventListener {
 
     if (!goalExecutionId) return;
 
-    // session loop 路径没有 goalId → 从 WorkUnit metadata 查
+    // session loop 路径没有 goalId → 从 GoalExecution 查
     if (!goalId) {
       try {
-        const wu = await workUnitService.getById(goalExecutionId);
-        const meta = wu?.metadata ? JSON.parse(wu.metadata) : {};
-        goalId = meta?.goalId || undefined;
+        const ge = await prisma.goalExecution.findUnique({ where: { id: goalExecutionId }, select: { goalId: true } });
+        goalId = ge?.goalId || undefined;
       } catch {
         // ignore
       }
@@ -85,21 +81,17 @@ export class AgentEventListener {
       completionOutput = this.buildCompletionOutput(worktree);
     }
 
-    // 更新 WorkUnit 状态
+    // 更新 GoalExecution 状态
     try {
-      // 先更新 metadata（output/error）
-      const metadataUpdates: Record<string, any> = {};
-      if (completionOutput) metadataUpdates.output = completionOutput;
-      if (!isCompleted) metadataUpdates.error = (data.error as string) || 'Agent execution failed';
-      if (Object.keys(metadataUpdates).length > 0) {
-        await workUnitService.update(goalExecutionId, { metadata: metadataUpdates });
-      }
-      // 然后转换状态
-      const newStatus = EXECUTION_TO_WORKUNIT_STATUS[isCompleted ? 'succeeded' : 'failed'];
-      await workUnitService.transitionStatus(goalExecutionId, newStatus);
-      logger.info('[AgentEventListener] WorkUnit updated', {
+      const statusUpdate = isCompleted ? 'succeeded' : 'failed';
+      await goalService.updateStepExecution(goalExecutionId, {
+        status: statusUpdate,
+        ...(completionOutput ? { output: completionOutput } : {}),
+        ...(!isCompleted ? { error: (data.error as string) || 'Agent execution failed' } : {}),
+      });
+      logger.info('[AgentEventListener] GoalExecution updated', {
         goalExecutionId, executionId, goalId,
-        status: newStatus,
+        status: statusUpdate,
         hasOutput: !!completionOutput,
       });
 
@@ -131,22 +123,24 @@ export class AgentEventListener {
 
       // 事件驱动：通知 scheduler 有 step 完成，触发下一轮调度
       if (isCompleted && goalId) {
-        eventBus.publish('workunit.done', { workUnitId: goalExecutionId, goalId });
+        eventBus.publish('goal.executionDone', { executionId: goalExecutionId, goalId });
       }
 
       // 更新 Wiki 项目页执行结果
       if (goalId) {
         try {
-          const wu = await prisma.workUnit.findUnique({ where: { id: goalExecutionId }, select: { metadata: true } });
-          const wuMeta = wu?.metadata ? JSON.parse(wu.metadata as string) : {};
-          const goalContext = wuMeta?.context ? (typeof wuMeta.context === 'string' ? JSON.parse(wuMeta.context) : wuMeta.context) : {};
-          const companyId = goalContext?.companyId as string | undefined;
+          const ge = await prisma.goalExecution.findUnique({
+            where: { id: goalExecutionId },
+            select: { input: true, Goal: { select: { context: true, companyId: true } } },
+          });
+          const goalCtx = ge?.Goal?.context ? JSON.parse(ge.Goal.context) : {};
+          const companyId = (goalCtx?.companyId || ge?.Goal?.companyId) as string | undefined;
           if (companyId) {
-            const projectId = goalContext?.projectId as string | undefined;
+            const projectId = goalCtx?.projectId as string | undefined;
             if (projectId) {
               const project = await prisma.project.findUnique({ where: { id: projectId }, select: { pmoNumber: true } });
               if (project) {
-                const execInput = wuMeta?.input ? (typeof wuMeta.input === 'string' ? JSON.parse(wuMeta.input) : wuMeta.input) : {};
+                const execInput = ge?.input ? JSON.parse(ge.input) : {};
                 const acGroupId = (execInput?.acGroup?.id as string) || undefined;
                 knowledgeBus.recordPattern({
                   type: isCompleted ? 'pattern' : 'failure',
@@ -190,19 +184,17 @@ export class AgentEventListener {
         actorRole: 'executor',
       });
     } catch (e) {
-      logger.error('[AgentEventListener] Failed to update WorkUnit', {
+      logger.error('[AgentEventListener] Failed to update GoalExecution', {
         goalExecutionId, executionId, goalId,
         error: String(e),
       });
     }
 
-    // 更新 Task 状态 — 通过 workUnitId 找到关联的 Task
+    // 更新 Task 状态 — 通过 GoalExecution.input 找到关联的 Task
     try {
-      const wuForTask = await workUnitService.getById(goalExecutionId);
-
-      if (wuForTask) {
-        const wuMetaForTask = wuForTask.metadata ? JSON.parse(wuForTask.metadata) : {};
-        const execInputForTask = wuMetaForTask?.input ? (typeof wuMetaForTask.input === 'string' ? JSON.parse(wuMetaForTask.input) : wuMetaForTask.input) : {};
+      const geForTask = await prisma.goalExecution.findUnique({ where: { id: goalExecutionId }, select: { input: true } });
+      if (geForTask) {
+        const execInputForTask = geForTask.input ? JSON.parse(geForTask.input) : {};
         const taskId = execInputForTask?.taskId as string | undefined;
 
         if (taskId) {

@@ -194,17 +194,16 @@ export function buildLegacyPrompt(input: Record<string, any> | null): string {
 
 /** O1f: Lightweight integration prompt */
 export async function buildIntegrationPrompt(goalId: string): Promise<string> {
-  const execs = await prisma.workUnit.findMany({
-    where: { parentId: goalId, status: 'done' },
-    select: { id: true, metadata: true },
+  const execs = await prisma.goalExecution.findMany({
+    where: { goalId, status: 'succeeded' },
+    select: { id: true, input: true, output: true, stepIndex: true },
     orderBy: { createdAt: 'asc' },
   });
 
   const groupList = execs.map(e => {
-    const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
-    const input = eMeta.input || {};
-    const output = eMeta.output || {};
-    const stepIndex = eMeta.stepIndex ?? 0;
+    const input = e.input ? JSON.parse(e.input) : {};
+    const output = e.output ? JSON.parse(e.output) : {};
+    const stepIndex = e.stepIndex ?? 0;
     return [
       `### AC 组 ${stepIndex + 1}`,
       `  - 执行 ID: ${e.id}`,
@@ -236,13 +235,13 @@ export async function getSiblingContext(
   currentExecutionId: string,
   currentStepIndex: number,
 ): Promise<string> {
-  const allExecs = await prisma.workUnit.findMany({
-    where: { parentId: goalId },
-    select: { id: true, status: true, metadata: true },
+  const allExecs = await prisma.goalExecution.findMany({
+    where: { goalId },
+    select: { id: true, status: true, input: true, output: true, stepIndex: true },
   });
 
   const completed = allExecs.filter(
-    e => e.status === 'done' && e.id !== currentExecutionId,
+    e => e.status === 'succeeded' && e.id !== currentExecutionId,
   );
   if (completed.length === 0) return '';
 
@@ -252,11 +251,10 @@ export async function getSiblingContext(
   ];
 
   for (const sibling of completed) {
-    const sMeta = sibling.metadata ? JSON.parse(sibling.metadata) : {};
-    const siblingInput = sMeta.input || {};
-    const stepIndex = sMeta.stepIndex ?? 0;
+    const siblingInput = sibling.input ? JSON.parse(sibling.input) : {};
+    const stepIndex = sibling.stepIndex ?? 0;
     const stepTitle = siblingInput?.acGroup?.id || 'AC 组 ' + (stepIndex + 1);
-    const output = sMeta.output || null;
+    const output = sibling.output ? JSON.parse(sibling.output) : null;
     if (!output) continue;
 
     lines.push('');
@@ -290,9 +288,9 @@ export async function getSiblingContext(
 /** 获取公司级知识注入（已沉淀的 Pattern/Skill） */
 export async function getCompanyKnowledge(goalId: string, input: Record<string, any> | null): Promise<string> {
   try {
-    const goal = await prisma.workUnit.findUnique({ where: { id: goalId }, select: { metadata: true } });
-    const goalMeta = goal?.metadata ? JSON.parse(goal.metadata) : {};
-    const companyId = goalMeta.companyId || goalMeta.context?.companyId;
+    const goal = await prisma.goal.findUnique({ where: { id: goalId }, select: { context: true, companyId: true } });
+    const goalCtx = goal?.context ? JSON.parse(goal.context) : {};
+    const companyId = goalCtx?.companyId || goal?.companyId;
     if (!companyId) return '';
 
     const skills = skillStore.list(
@@ -437,14 +435,11 @@ export async function runIntegrationInCode(
   }
   logger.info('[Scheduler] Integration worktree created', { worktree, executionId });
 
-  const allDoneChildren = await prisma.workUnit.findMany({
-    where: { parentId: goalId, status: 'done' },
+  const allDoneChildren = await prisma.goalExecution.findMany({
+    where: { goalId, status: 'succeeded' },
     orderBy: { createdAt: 'asc' },
   });
-  const succeededExecs = allDoneChildren.filter(c => {
-    const m = c.metadata ? JSON.parse(c.metadata) : {};
-    return m.stepIndex !== 999;
-  });
+  const succeededExecs = allDoneChildren.filter(c => c.stepIndex !== 999);
   const mergedBranches: string[] = [];
   const missingBranches: string[] = [];
   for (const exec of succeededExecs) {
@@ -462,8 +457,8 @@ export async function runIntegrationInCode(
     // Fallback: use stored headCommit from execution output
     if (!branchExists) {
       try {
-        const execMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
-        const output = execMeta.output || {};
+        const execOutput = exec.output ? JSON.parse(exec.output) : {};
+        const output = execOutput;
         const sha = output?.headCommit;
         if (sha && /^[0-9a-f]{40}$/.test(sha)) {
           execSync(`git cat-file -t "${sha}"`, { cwd: worktree, timeout: 5_000, stdio: 'pipe' });
@@ -474,8 +469,7 @@ export async function runIntegrationInCode(
       } catch { /* SHA not available or not valid */ }
     }
     if (!branchExists) {
-      const execMeta = exec.metadata ? JSON.parse(exec.metadata) : {};
-      missingBranches.push(`step ${execMeta.stepIndex ?? '?'} (${exec.id.slice(0, 8)})`);
+      missingBranches.push(`step ${exec.stepIndex ?? '?'} (${exec.id.slice(0, 8)})`);
       continue;
     }
     try {

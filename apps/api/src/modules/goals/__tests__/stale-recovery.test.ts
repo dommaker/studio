@@ -12,10 +12,6 @@ vi.mock('@dommaker/studio-prisma', () => ({
       findMany: mockExecFindMany,
       update: mockExecUpdate,
     },
-    workUnit: {
-      findMany: mockExecFindMany,
-      update: mockExecUpdate,
-    },
   },
 }));
 
@@ -51,28 +47,27 @@ vi.mock('fs', async (importOriginal) => {
   };
 });
 
-import { recoverStaleWorkUnits, recoverOrphanedExecutions } from '../stale-recovery';
+import { recoverStaleExecutions, recoverStaleWorkUnits, recoverOrphanedExecutions } from '../stale-recovery';
 
 describe('Stale Recovery', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('recoverStaleWorkUnits releases timed-out claims', async () => {
+  it('recoverStaleExecutions releases timed-out executions', async () => {
     mockExecFindMany.mockResolvedValueOnce([
       {
         id: 'exec-1',
-        goalId: null,
+        goalId: 'goal-1',
         stepIndex: 0,
-        claimedAt: new Date(Date.now() - 30 * 60_000),
-        timeoutAt: new Date(Date.now() - 10 * 60_000),
         startedAt: new Date(Date.now() - 30 * 60_000),
+        timeoutAt: new Date(Date.now() - 10 * 60_000),
         input: null,
       },
     ]);
 
     const { onPhaseFailure } = await import('../execution-alarm');
-    const count = await recoverStaleWorkUnits();
+    const count = await recoverStaleExecutions();
 
     expect(count).toBe(1);
     expect(onPhaseFailure).toHaveBeenCalledWith(
@@ -80,26 +75,26 @@ describe('Stale Recovery', () => {
     );
   });
 
-  it('recoverStaleWorkUnits returns count of released', async () => {
+  it('recoverStaleWorkUnits is aliased to recoverStaleExecutions', async () => {
     mockExecFindMany.mockResolvedValueOnce([
-      { id: 'exec-1', goalId: null, stepIndex: 0, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), startedAt: new Date(), input: null },
-      { id: 'exec-2', goalId: null, stepIndex: 1, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 2000), startedAt: new Date(), input: null },
+      { id: 'exec-1', goalId: 'goal-1', stepIndex: 0, startedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), input: null },
+      { id: 'exec-2', goalId: 'goal-1', stepIndex: 1, startedAt: new Date(), timeoutAt: new Date(Date.now() - 2000), input: null },
     ]);
 
     const count = await recoverStaleWorkUnits();
     expect(count).toBe(2);
   });
 
-  it('recoverStaleWorkUnits is idempotent', async () => {
+  it('recoverStaleExecutions is idempotent', async () => {
     mockExecFindMany.mockResolvedValueOnce([
-      { id: 'exec-1', goalId: null, stepIndex: 0, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), startedAt: new Date(), input: null },
+      { id: 'exec-1', goalId: 'goal-1', stepIndex: 0, startedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), input: null },
     ]);
-    const count1 = await recoverStaleWorkUnits();
+    const count1 = await recoverStaleExecutions();
 
     mockExecFindMany.mockResolvedValueOnce([
-      { id: 'exec-1', goalId: null, stepIndex: 0, claimedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), startedAt: new Date(), input: null },
+      { id: 'exec-1', goalId: 'goal-1', stepIndex: 0, startedAt: new Date(), timeoutAt: new Date(Date.now() - 1000), input: null },
     ]);
-    const count2 = await recoverStaleWorkUnits();
+    const count2 = await recoverStaleExecutions();
 
     expect(count1).toBe(1);
     expect(count2).toBe(1);
@@ -107,7 +102,7 @@ describe('Stale Recovery', () => {
 
   it('recoverOrphanedExecutions handles missing worktree', async () => {
     mockExecFindMany.mockResolvedValueOnce([
-      { id: 'exec-orphan', status: 'active', input: null },
+      { id: 'exec-orphan', status: 'running', input: null },
     ]);
 
     const { goalService } = await import('../goal.service');
@@ -116,7 +111,7 @@ describe('Stale Recovery', () => {
     expect(count).toBe(1);
     expect(goalService.updateStepExecution).toHaveBeenCalledWith(
       'exec-orphan',
-      expect.objectContaining({ status: 'blocked' }),
+      expect.objectContaining({ status: 'failed' }),
     );
   });
 });
