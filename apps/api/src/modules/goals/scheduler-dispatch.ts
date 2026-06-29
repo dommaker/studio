@@ -500,10 +500,10 @@ async function handleDispatchSuccess(
     strategy,
   });
 
-  // ── Knowledge feedback loop: workUnitFeedback + extractFromExecution + recordKnowledgeRefs ──
+  // ── Knowledge feedback loop: pipelineFeedback + extractFromExecution + recordKnowledgeRefs ──
   try {
     const { knowledgeService } = await import('../knowledge/knowledge-service.js');
-    await knowledgeService.workUnitFeedback({
+    await knowledgeService.pipelineFeedback({
       goalId: goal.id,
       executionId,
       phase: 'executor',
@@ -664,10 +664,10 @@ async function handleDispatchFailure(
     strategy,
   });
 
-  // ── Knowledge feedback loop: workUnitFeedback (failure) ──
+  // ── Knowledge feedback loop: pipelineFeedback (failure) ──
   try {
     const { knowledgeService } = await import('../knowledge/knowledge-service.js');
-    await knowledgeService.workUnitFeedback({
+    await knowledgeService.pipelineFeedback({
       goalId: goal.id,
       executionId,
       phase: 'executor',

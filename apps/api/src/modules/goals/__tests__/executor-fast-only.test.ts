@@ -112,7 +112,7 @@ vi.mock('../../daemon/metrics.js', () => ({
 }));
 
 vi.mock('../knowledge/knowledge-service.js', () => ({
-  knowledgeService: { workUnitFeedback: vi.fn(), extractFromExecution: vi.fn() },
+  knowledgeService: { pipelineFeedback: vi.fn(), extractFromExecution: vi.fn() },
 }));
 
 vi.mock('./knowledge-promoter.js', () => ({

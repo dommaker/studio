@@ -577,10 +577,10 @@ describe('KnowledgeService Phase 1C: Extract', () => {
 // ── Phase 3: Feedback loop behavior tests ──
 
 describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
-  describe('workUnitFeedback', () => {
+  describe('pipelineFeedback', () => {
     it('creates StudioEvent with correct type pattern (success)', async () => {
       const { ks, prisma } = createKS();
-      await ks.workUnitFeedback({
+      await ks.pipelineFeedback({
         goalId: 'goal-1',
         executionId: 'exec-1',
         phase: 'executor',
@@ -600,7 +600,7 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
 
     it('creates StudioEvent with correct type pattern (failure)', async () => {
       const { ks, prisma } = createKS();
-      await ks.workUnitFeedback({
+      await ks.pipelineFeedback({
         goalId: 'goal-1',
         executionId: 'exec-1',
         phase: 'executor',
@@ -619,7 +619,7 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
 
     it('emits knowledge event on eventEmitter', async () => {
       const { ks, eventEmitter } = createKS();
-      await ks.workUnitFeedback({
+      await ks.pipelineFeedback({
         goalId: 'goal-1',
         executionId: 'exec-1',
         phase: 'executor',
@@ -627,14 +627,14 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
         durationMs: 5000,
       });
       expect(eventEmitter.emit).toHaveBeenCalledWith('knowledge',
-        expect.objectContaining({ type: 'workUnitFeedback' }),
+        expect.objectContaining({ type: 'pipelineFeedback' }),
       );
     });
 
     it('non-blocking: does not throw when prisma fails', async () => {
       const { ks, prisma } = createKS();
       (prisma.studioEvent.create as any).mockRejectedValueOnce(new Error('DB down'));
-      await expect(ks.workUnitFeedback({
+      await expect(ks.pipelineFeedback({
         goalId: 'goal-1',
         executionId: 'exec-1',
         phase: 'executor',
@@ -818,7 +818,7 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('recordConsumption exists', () => expect(typeof ks.recordConsumption).toBe('function'));
     it('recordOutcome exists', () => expect(typeof ks.recordOutcome).toBe('function'));
     it('recordFeedback exists', () => expect(typeof ks.recordFeedback).toBe('function'));
-    it('workUnitFeedback exists', () => expect(typeof ks.workUnitFeedback).toBe('function'));
+    it('pipelineFeedback exists', () => expect(typeof ks.pipelineFeedback).toBe('function'));
   });
 
   describe('Lifecycle (4 methods)', () => {

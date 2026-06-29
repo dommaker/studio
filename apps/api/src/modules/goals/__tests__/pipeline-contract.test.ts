@@ -8,7 +8,7 @@
  * - 字段：goalId（非 parentId），独立列（非 metadata JSON）
  *
  * 同时验证 Knowledge feedback loop 接线：
- * - workUnitFeedback → scheduler-dispatch.ts
+ * - pipelineFeedback → scheduler-dispatch.ts
  * - extractFromExecution → scheduler-dispatch.ts
  * - recordOutcome → goal-lifecycle.ts recordGoalCompletion
  * - recordKnowledgeRefs → scheduler-dispatch.ts
@@ -92,23 +92,23 @@ describe('Pipeline feedback loop contract', () => {
   });
 
   describe('scheduler-dispatch.ts wiring', () => {
-    it('calls workUnitFeedback on success path', () => {
-      expect(dispatchSrc).toContain('knowledgeService.workUnitFeedback');
+    it('calls pipelineFeedback on success path', () => {
+      expect(dispatchSrc).toContain('knowledgeService.pipelineFeedback');
       // success path: after "Agent succeeded" log
       const successBlock = dispatchSrc.slice(
         dispatchSrc.indexOf('Agent succeeded'),
         dispatchSrc.indexOf('Agent failed') || dispatchSrc.length,
       );
-      expect(successBlock).toContain('workUnitFeedback');
+      expect(successBlock).toContain('pipelineFeedback');
       expect(successBlock).toContain('success: true');
     });
 
-    it('calls workUnitFeedback on failure path', () => {
+    it('calls pipelineFeedback on failure path', () => {
       // failure path: after "Agent failed" log
-      const failIdx = dispatchSrc.indexOf('// ── Knowledge feedback loop: workUnitFeedback (failure)');
+      const failIdx = dispatchSrc.indexOf('// ── Knowledge feedback loop: pipelineFeedback (failure)');
       expect(failIdx).toBeGreaterThan(-1);
       const failBlock = dispatchSrc.slice(failIdx, failIdx + 500);
-      expect(failBlock).toContain('workUnitFeedback');
+      expect(failBlock).toContain('pipelineFeedback');
       expect(failBlock).toContain('success: false');
     });
 
@@ -122,7 +122,7 @@ describe('Pipeline feedback loop contract', () => {
 
     it('calls extractFromExecution on failure path', () => {
       // Verify extractFromExecution also called on failure path (success: false)
-      const failFeedbackIdx = dispatchSrc.indexOf('Knowledge feedback loop: workUnitFeedback (failure)');
+      const failFeedbackIdx = dispatchSrc.indexOf('Knowledge feedback loop: pipelineFeedback (failure)');
       expect(failFeedbackIdx).toBeGreaterThan(-1);
       const failBlock = dispatchSrc.slice(failFeedbackIdx, dispatchSrc.indexOf('handleDispatchFailure', failFeedbackIdx + 1) || dispatchSrc.length);
       expect(failBlock).toContain('extractFromExecution');
@@ -146,17 +146,17 @@ describe('Pipeline feedback loop contract', () => {
       expect(failBlock).toContain('recordKnowledgeRefs');
     });
 
-    it('passes goalId to workUnitFeedback', () => {
+    it('passes goalId to pipelineFeedback', () => {
       // Both success and failure paths must pass goalId
-      const matches = dispatchSrc.match(/workUnitFeedback\(\{[\s\S]*?\}\)/g);
+      const matches = dispatchSrc.match(/pipelineFeedback\(\{[\s\S]*?\}\)/g);
       expect(matches).not.toBeNull();
       for (const m of matches!) {
         expect(m).toContain('goalId');
       }
     });
 
-    it('passes phase to workUnitFeedback', () => {
-      const matches = dispatchSrc.match(/workUnitFeedback\(\{[\s\S]*?\}\)/g);
+    it('passes phase to pipelineFeedback', () => {
+      const matches = dispatchSrc.match(/pipelineFeedback\(\{[\s\S]*?\}\)/g);
       expect(matches).not.toBeNull();
       for (const m of matches!) {
         expect(m).toContain("phase: 'executor'");
@@ -166,7 +166,7 @@ describe('Pipeline feedback loop contract', () => {
     it('non-blocking: knowledge feedback calls are wrapped in try/catch', () => {
       // Each call site should have try/catch with /* non-blocking */
       const nonBlockingCount = (dispatchSrc.match(/\/\* non-blocking \*\//g) || []).length;
-      // At least 2 for workUnitFeedback + 1 for extractFromExecution
+      // At least 2 for pipelineFeedback + 1 for extractFromExecution
       expect(nonBlockingCount).toBeGreaterThanOrEqual(3);
     });
   });

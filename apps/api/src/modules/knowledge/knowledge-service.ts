@@ -810,7 +810,7 @@ export class KnowledgeService {
    * Record per-step pipeline feedback as StudioEvent.
    * Called after each pipeline phase (analyst/executor/review/deploy) completes.
    */
-  async workUnitFeedback(params: {
+  async pipelineFeedback(params: {
     goalId: string;
     executionId: string;
     phase: string;
@@ -827,10 +827,10 @@ export class KnowledgeService {
           payload: JSON.stringify(params),
         },
       });
-    } catch (e) { logger.warn('[KnowledgeService] workUnitFeedback failed', { error: String(e) }); }
+    } catch (e) { logger.warn('[KnowledgeService] pipelineFeedback failed', { error: String(e) }); }
 
     this.eventEmitter.emit('knowledge', {
-      type: 'workUnitFeedback',
+      type: 'pipelineFeedback',
       data: { goalId: params.goalId, phase: params.phase, success: params.success },
     });
   }
