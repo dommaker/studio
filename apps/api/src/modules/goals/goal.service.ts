@@ -44,7 +44,7 @@ import {
   retryGoalExecution as retryGoalExecutionImpl,
   checkGoalCompletion as checkGoalCompletionImpl,
 } from './goal-lifecycle.js';
-import type { FailureClass } from './failure-classifier.js';
+import type { FailureClass } from '../shared/failure-classifier.js';
 
 // ─── Goal Service Class ───
 

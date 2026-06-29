@@ -11,7 +11,7 @@ import { proposalStore } from '../skills/proposal-store.js';
 import { tracePipeline } from '../monitoring/trace-pipeline.service.js';
 import { checkBeforeTaskComplete } from '@dommaker/studio-shared/harness/hooks';
 import { triageAgent } from '../agents/triage-agent.service.js';
-import { classifyFailureAction, type FailureClass } from './failure-classifier.js';
+import { classifyFailureAction, type FailureClass } from '../shared/failure-classifier.js';
 import { AuditService } from '@dommaker/studio-audit';
 import { recordExecution } from '../../daemon/metrics.js';
 import { parseJsonField, type GoalStep } from './goal-crud.js';

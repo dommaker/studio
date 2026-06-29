@@ -6,7 +6,7 @@
  * AC-3: queryDeploySuccessRate parses top-level payload.success (not payload.result.success)
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { classifyFailureAction, type FailureClass } from '../../goals/failure-classifier.js';
+import { classifyFailureAction, type FailureClass } from '../../shared/failure-classifier.js';
 import { OKRService } from '../../pmo/okr.service.js';
 import { prisma } from '../../../core/database.js';
 

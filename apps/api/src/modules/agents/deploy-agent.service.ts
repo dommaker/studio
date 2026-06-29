@@ -13,7 +13,7 @@ import { logger, eventBus } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { recordExecution } from '../../daemon/metrics.js';
-import { classifyFailureAction } from '../goals/failure-classifier.js';
+import { classifyFailureAction } from '../shared/failure-classifier.js';
 import type { DeployParams, DeployResult, DeployFinding, MergeBranchesParams, MergeBranchesResult } from './types.js';
 
 class DeployAgent {

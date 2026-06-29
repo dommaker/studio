@@ -28,7 +28,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
 });
 
-vi.mock('../failure-classifier.js', () => ({
+vi.mock('../../shared/failure-classifier.js', () => ({
   classifyFailure: vi.fn().mockReturnValue('retryable'),
   classifyFailureAction: vi.fn().mockReturnValue({ action: 'retry', failureClass: 'retryable' }),
 }));
@@ -109,7 +109,7 @@ describe('maybeRetryExecution()', () => {
   });
 
   test('does not retry when failure is not-retryable (approach infeasible)', async () => {
-    const { classifyFailure } = await import('../failure-classifier.js');
+    const { classifyFailure } = await import('../../shared/failure-classifier.js');
     vi.mocked(classifyFailure).mockReturnValueOnce('not-retryable');
     mockFindUnique.mockResolvedValue({ id: 'exec-1', retryCount: 0, input: null });
 
@@ -120,7 +120,7 @@ describe('maybeRetryExecution()', () => {
   });
 
   test('does not retry when failure is not-retryable (API does not exist)', async () => {
-    const { classifyFailure } = await import('../failure-classifier.js');
+    const { classifyFailure } = await import('../../shared/failure-classifier.js');
     vi.mocked(classifyFailure).mockReturnValueOnce('not-retryable');
     mockFindUnique.mockResolvedValue({ id: 'exec-1', retryCount: 0, input: null });
 
@@ -131,7 +131,7 @@ describe('maybeRetryExecution()', () => {
   });
 
   test('retries when failure is unknown (allows retry for diagnosis)', async () => {
-    const { classifyFailure } = await import('../failure-classifier.js');
+    const { classifyFailure } = await import('../../shared/failure-classifier.js');
     vi.mocked(classifyFailure).mockReturnValueOnce('unknown');
     mockFindUnique.mockResolvedValue({ id: 'exec-1', retryCount: 0, input: null });
 

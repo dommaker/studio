@@ -55,7 +55,7 @@ vi.mock('../goal-review.js', () => ({
   findReviewWorktree: vi.fn(),
 }));
 
-vi.mock('../failure-classifier.js', () => ({
+vi.mock('../../shared/failure-classifier.js', () => ({
   classifyFailureAction: mockClassifyFailureAction,
 }));
 

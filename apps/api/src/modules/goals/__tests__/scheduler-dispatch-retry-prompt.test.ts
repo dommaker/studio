@@ -76,7 +76,7 @@ vi.mock('../goal.service.js', () => ({
   },
 }));
 
-vi.mock('../failure-classifier.js', () => ({
+vi.mock('../../shared/failure-classifier.js', () => ({
   classifyFailure: vi.fn().mockReturnValue('retryable'),
   classifyFailureAction: vi.fn().mockReturnValue({ failureClass: 'retryable', action: 'retry-execution' }),
 }));
