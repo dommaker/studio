@@ -1,6 +1,6 @@
 {
   "taskId": "cmr0sjqak000711q47p44v143",
-  "allComplete": false,
+  "allComplete": true,
   "acCompliance": {
     "AC1": "D1 语义完整性审计 — 按 type 检查必要内容完整性",
     "AC2": "D2 内容价值审计 — 识别并归档噪声条目",
