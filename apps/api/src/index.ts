@@ -22,8 +22,6 @@ import { modelGateway } from '@dommaker/studio-shared';
 import { llmConfigService } from './modules/llm/config.service.js';
 import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
-import { goalScheduler } from './modules/goals/goal-scheduler.js';
-import { agentEventListener } from './modules/goals/agent-event-listener.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
 import { monitorAgent } from './modules/agents/monitor-agent.service.js';
 import { auditorAgent } from './modules/agents/auditor-agent.service.js';
@@ -168,9 +166,7 @@ async function start() {
     const detachWsGateway = attachWsGateway(server);
     logger.info('[WsGateway] Attached to HTTP server at /ws/daemon');
 
-    // ── Goal 管线核心服务 ──
-    goalScheduler.start();
-    agentEventListener.start();
+    // ── 核心服务 ──
     monitorAgent.start();
     auditorAgent.start();
     dataAnalystAgent.start();
@@ -356,8 +352,6 @@ async function start() {
       detachWsGateway();
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }
       stopEvolutionScheduler();
-      goalScheduler.stop();
-      agentEventListener.stop();
       monitorAgent.stop();
       auditorAgent.stop();
       stopAuditSubscriber();

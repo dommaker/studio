@@ -23,7 +23,7 @@ import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@domma
 import { sharedStore, sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
 import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
-import { onPhaseFailure } from '../goals/execution-alarm.js';
+import { onPhaseFailure } from './execution-alarm.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 const FAILURE_THRESHOLD = 3;
@@ -257,83 +257,38 @@ export class MonitorAgent {
   }
 
   private async checkStuckGoals(): Promise<MonitorAlert[]> {
-    const alerts: MonitorAlert[] = [];
-    const thirtyMinAgo = new Date(Date.now() - 30 * 60 * 1000);
-
-    const stuckExecutions = await prisma.goalExecution.findMany({
-      where: { status: 'running', startedAt: { lt: thirtyMinAgo } },
-      select: { id: true, goalId: true, startedAt: true },
-      take: 5,
-    });
-
-    for (const exec of stuckExecutions) {
-      const minutesStuck = Math.round((Date.now() - new Date(exec.startedAt!).getTime()) / 60_000);
-      alerts.push({
-        source: 'stuck_goals',
-        level: 'warning',
-        message: `Execution ${exec.id} 已卡住 ${minutesStuck} 分钟`,
-        relatedTaskIds: [exec.id],
-      });
-    }
-
-    return alerts;
+    // WorkUnit workunit-timeout trigger（每 5min）已覆盖超时检测
+    return [];
   }
 
   // ── NA Step 7: 进度停滞检测 ──
 
   private async checkProgressStagnation(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
-    const running = await prisma.goalExecution.findMany({
-      where: { status: 'running' },
-      select: { id: true, goalId: true },
+    const running = await prisma.workUnit.findMany({
+      where: { status: 'active' },
+      select: { id: true, updatedAt: true },
       take: 10,
     });
 
-    for (const exec of running) {
-      const worktree = path.join(WORKTREES_DIR, exec.id);
-      const progressPath = path.join(worktree, '.progress.json');
+    for (const wu of running) {
+      const minutesSinceUpdate = Math.round((Date.now() - new Date(wu.updatedAt).getTime()) / 60_000);
 
-      let completedCount = 0;
-      try {
-        if (fs.existsSync(progressPath)) {
-          const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-          completedCount = (progress.completedSteps || []).length;
-        }
-      } catch { continue; }
-
-      const prev = progressSnapshots.get(exec.id);
-      if (prev) {
-        if (completedCount === prev.completedCount) {
-          prev.unchangedCount++;
-
-          if (prev.unchangedCount >= PROGRESS_STAGNATION_CRIT) {
-            alerts.push({
-              source: 'progress_stagnation',
-              level: 'critical',
-              message: `Execution ${exec.id} 进度停滞 ${prev.unchangedCount * 5} 分钟（Level 2）`,
-              relatedTaskIds: [exec.id],
-            });
-          } else if (prev.unchangedCount >= PROGRESS_STAGNATION_WARN) {
-            alerts.push({
-              source: 'progress_stagnation',
-              level: 'info',
-              message: `Execution ${exec.id} 进度停滞 ${prev.unchangedCount * 5} 分钟（Level 1）`,
-              relatedTaskIds: [exec.id],
-            });
-          }
-        } else {
-          prev.completedCount = completedCount;
-          prev.unchangedCount = 0;
-        }
-      } else {
-        progressSnapshots.set(exec.id, { completedCount, unchangedCount: 0, lastHeartbeat: Date.now() });
+      if (minutesSinceUpdate > PROGRESS_STAGNATION_CRIT * 5) {
+        alerts.push({
+          source: 'progress_stagnation',
+          level: 'critical',
+          message: `WorkUnit ${wu.id} 进度停滞 ${minutesSinceUpdate} 分钟（Level 2）`,
+          relatedTaskIds: [wu.id],
+        });
+      } else if (minutesSinceUpdate > PROGRESS_STAGNATION_WARN * 5) {
+        alerts.push({
+          source: 'progress_stagnation',
+          level: 'info',
+          message: `WorkUnit ${wu.id} 进度停滞 ${minutesSinceUpdate} 分钟（Level 1）`,
+          relatedTaskIds: [wu.id],
+        });
       }
-    }
-
-    // Cleanup stale snapshots: remove entries for executions no longer running
-    const runningIds = new Set(running.map(e => e.id));
-    for (const key of progressSnapshots.keys()) {
-      if (!runningIds.has(key)) progressSnapshots.delete(key);
     }
 
     return alerts;
@@ -342,96 +297,57 @@ export class MonitorAgent {
   // ── NA Step 7: 会话计数告警 ──
 
   private async checkSessionEscalation(): Promise<MonitorAlert[]> {
-    const alerts: MonitorAlert[] = [];
-    const running = await prisma.goalExecution.findMany({
-      where: { status: 'running' },
-      select: { id: true },
-      take: 10,
-    });
-
-    for (const exec of running) {
-      const worktree = path.join(WORKTREES_DIR, exec.id);
-      const progressPath = path.join(worktree, '.progress.json');
-
-      try {
-        if (!fs.existsSync(progressPath)) continue;
-        const progress = JSON.parse(fs.readFileSync(progressPath, 'utf-8'));
-        const sessionCount = progress.sessionCount || 1;
-
-        if (sessionCount >= SESSION_ESCALATE) {
-          alerts.push({
-            source: 'session_escalation',
-            level: 'critical',
-            message: `Execution ${exec.id} 会话耗尽（${sessionCount} 次）— 需要人工介入`,
-            relatedTaskIds: [exec.id],
-          });
-        } else if (sessionCount >= SESSION_WARN) {
-          alerts.push({
-            source: 'session_escalation',
-            level: 'warning',
-            message: `Execution ${exec.id} 已重试 ${sessionCount} 次（Level 1）`,
-            relatedTaskIds: [exec.id],
-          });
-        }
-      } catch { continue; }
-    }
-
-    return alerts;
+    // WorkUnit.retryCount 一等字段已覆盖会话重试计数
+    return [];
   }
 
   // ── NA Step 7: 总执行时间告警 + 主动终止 ──
 
   private async checkTotalExecutionTime(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
-    const running = await prisma.goalExecution.findMany({
-      where: { status: 'running' },
-      select: { id: true, goalId: true, startedAt: true, createdAt: true },
+    const running = await prisma.workUnit.findMany({
+      where: { status: 'active' },
+      select: { id: true, parentId: true, claimedAt: true, createdAt: true },
       take: 10,
     });
 
     for (const exec of running) {
-      const startTime = new Date(exec.startedAt || exec.createdAt).getTime();
+      const startTime = new Date(exec.claimedAt || exec.createdAt).getTime();
       const elapsed = Date.now() - startTime;
 
       if (elapsed > TIME_CRITICAL_MS) {
         alerts.push({
           source: 'total_time',
           level: 'critical',
-          message: `Execution ${exec.id} 执行超过 2.5h — 主动终止`,
+          message: `WorkUnit ${exec.id} 执行超过 2.5h — 主动终止`,
           relatedTaskIds: [exec.id],
         });
 
-        // Active intervention: kill process + fail execution
+        // Active intervention: stop agent process
         const elapsedMin = Math.round(elapsed / 60_000);
         try {
           await agentRunner.stop(exec.id);
-          logger.info('[MonitorAgent] Stopped timed-out execution', { executionId: exec.id.slice(0, 8), elapsedMin });
+          logger.info('[MonitorAgent] Stopped timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
         } catch (stopErr) {
-          logger.warn('[MonitorAgent] Failed to stop execution process', { executionId: exec.id.slice(0, 8), error: String(stopErr) });
+          logger.warn('[MonitorAgent] Failed to stop workUnit process', { workUnitId: exec.id.slice(0, 8), error: String(stopErr) });
         }
-        // Kill tmux session as fallback
-        try {
-          const { execSync } = await import('child_process');
-          const tmuxSession = exec.id.replace(/-/g, '');
-          execSync(`tmux kill-session -t ${tmuxSession} 2>/dev/null || true`);
-        } catch { /* ignore */ }
         // Update DB status
         try {
-          await prisma.goalExecution.update({
+          await prisma.workUnit.update({
             where: { id: exec.id },
             data: {
-              status: 'failed',
+              status: 'closed',
               completedAt: new Date(),
             },
           });
-          logger.info('[MonitorAgent] Auto-failed timed-out execution', { executionId: exec.id.slice(0, 8), elapsedMin });
+          logger.info('[MonitorAgent] Auto-closed timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
         } catch (dbErr) {
-          logger.error('[MonitorAgent] Failed to update execution status', { executionId: exec.id.slice(0, 8), error: String(dbErr) });
+          logger.error('[MonitorAgent] Failed to update workUnit status', { workUnitId: exec.id.slice(0, 8), error: String(dbErr) });
         }
         // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
         await onPhaseFailure({
           executionId: exec.id,
-          goalId: exec.goalId || 'unknown',
+          goalId: exec.parentId || 'unknown',
           phase: 'executing',
           error: `执行超时 ${elapsedMin}min (阈值 ${Math.round(TIME_CRITICAL_MS / 60_000)}min)`,
           severity: 'timeout',
@@ -440,14 +356,14 @@ export class MonitorAgent {
         alerts.push({
           source: 'total_time',
           level: 'warning',
-          message: `Execution ${exec.id} 执行超过 2h（Level 2）`,
+          message: `WorkUnit ${exec.id} 执行超过 2h（Level 2）`,
           relatedTaskIds: [exec.id],
         });
       } else if (elapsed > TIME_WARN_MS) {
         alerts.push({
           source: 'total_time',
           level: 'info',
-          message: `Execution ${exec.id} 执行超过 1h（Level 1）`,
+          message: `WorkUnit ${exec.id} 执行超过 1h（Level 1）`,
           relatedTaskIds: [exec.id],
         });
       }
@@ -459,43 +375,8 @@ export class MonitorAgent {
   // ── NA Step 7: 心跳丢失检测 ──
 
   private async checkHeartbeatLoss(): Promise<MonitorAlert[]> {
-    const alerts: MonitorAlert[] = [];
-    const running = await prisma.goalExecution.findMany({
-      where: { status: 'running' },
-      select: { id: true, startedAt: true },
-      take: 10,
-    });
-
-    for (const exec of running) {
-      const snapshot = progressSnapshots.get(exec.id);
-      if (!snapshot) continue;
-
-      const sinceLastHeartbeat = Date.now() - snapshot.lastHeartbeat;
-
-      if (sinceLastHeartbeat > HEARTBEAT_LOST_MS * 2) {
-        alerts.push({
-          source: 'heartbeat_loss',
-          level: 'critical',
-          message: `Execution ${exec.id} 心跳丢失超过 30 分钟 — 强制重开`,
-          relatedTaskIds: [exec.id],
-        });
-        // 主动 kill tmux + 触发 re-spawn
-        try {
-          const { execSync } = await import('child_process');
-          const tmuxSession = exec.id.replace(/-/g, '');
-          execSync(`tmux kill-session -t ${tmuxSession} 2>/dev/null || true`);
-        } catch { /* ignore */ }
-      } else if (sinceLastHeartbeat > HEARTBEAT_LOST_MS) {
-        alerts.push({
-          source: 'heartbeat_loss',
-          level: 'warning',
-          message: `Execution ${exec.id} 心跳丢失超过 15 分钟（Level 2）`,
-          relatedTaskIds: [exec.id],
-        });
-      }
-    }
-
-    return alerts;
+    // WorkUnit.updatedAt 作为心跳机制，workunit-timeout trigger 覆盖超时检测
+    return [];
   }
 
   // ── NA Step 7: 24h 自动放弃 ──
@@ -503,18 +384,18 @@ export class MonitorAgent {
   private async autoAbandonStaleBlocked(): Promise<void> {
     const cutoff = new Date(Date.now() - BLOCKED_AUTO_ABANDON_MS);
 
-    const stale = await prisma.goalExecution.findMany({
+    const stale = await prisma.workUnit.findMany({
       where: { status: 'blocked', createdAt: { lt: cutoff } },
       select: { id: true },
       take: 20,
     });
 
     for (const exec of stale) {
-      logger.warn('[MonitorAgent] Auto-abandoning stale blocked execution', { executionId: exec.id });
+      logger.warn('[MonitorAgent] Auto-abandoning stale blocked workUnit', { workUnitId: exec.id });
       try {
-        await prisma.goalExecution.update({
+        await prisma.workUnit.update({
           where: { id: exec.id },
-          data: { status: 'failed' },
+          data: { status: 'closed' },
         });
       } catch (e) {
         logger.error('[MonitorAgent] Failed to auto-abandon', { executionId: exec.id, error: String(e) });
@@ -529,52 +410,8 @@ export class MonitorAgent {
   // ── Orphan execution 自动放弃（2.5h, 父 goal 已终态）──
 
   private async autoAbandonStaleRunning(): Promise<void> {
-    const cutoff = new Date(Date.now() - TIME_CRITICAL_MS);
-
-    const stale = await prisma.goalExecution.findMany({
-      where: {
-        status: 'running',
-        OR: [
-          { startedAt: { lt: cutoff } },
-          { createdAt: { lt: cutoff } },
-        ],
-        Goal: { status: { in: ['succeeded', 'failed'] } },
-      },
-      select: { id: true, status: true },
-      take: 20,
-    });
-
-    if (stale.length === 0) return;
-
-    // Check if daemon has an active session for any of these executions
-    const activeSessionIds = new Set<string>();
-    try {
-      const { daemon } = await import('../../daemon/studio-daemon.js');
-      const statuses = daemon.getStatus() as Array<{ name: string; sessionId?: string; isBusy: boolean; pid?: number } | null>;
-      for (const s of (statuses || [])) {
-        if (s?.isBusy && s?.sessionId) activeSessionIds.add(s.sessionId);
-      }
-    } catch {}
-
-    const abandoned: string[] = [];
-    for (const exec of stale) {
-      // Don't auto-abandon if daemon still has an active session for this execution
-      if (activeSessionIds.has(exec.id)) continue;
-
-      try {
-        await prisma.goalExecution.update({
-          where: { id: exec.id },
-          data: { status: 'failed' },
-        });
-        abandoned.push(exec.id);
-      } catch (e) {
-        logger.error('[MonitorAgent] Failed to auto-abandon stale execution', { executionId: exec.id, error: String(e) });
-      }
-    }
-
-    if (abandoned.length > 0) {
-      logger.info('[MonitorAgent] Auto-abandoned stale executions', { count: abandoned.length, ids: abandoned.map(id => id.slice(0, 8)) });
-    }
+    // WorkUnit workunit-timeout trigger + checkFileConflicts 已覆盖孤儿清理
+    return;
   }
 
   /**
@@ -656,18 +493,18 @@ export class MonitorAgent {
     const REVIEW_QUALITY_THRESHOLD = 75;
     const alerts: MonitorAlert[] = [];
     try {
-      const recentGoals = await prisma.goal.findMany({
+      const recentGoals = await prisma.workUnit.findMany({
         where: {
-          status: 'succeeded',
+          status: 'done',
           updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
         },
-        select: { id: true, context: true },
+        select: { id: true, metadata: true },
         orderBy: { updatedAt: 'desc' },
         take: 20,
       });
 
       for (const goal of recentGoals) {
-        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+        const ctx = (typeof goal.metadata === 'string' ? JSON.parse(goal.metadata) : goal.metadata) || {};
         const reviewScore = ctx.reviewScore as number | undefined;
         const reviewCycle = (ctx.reviewCycle as number) || 1;
 
@@ -696,17 +533,17 @@ export class MonitorAgent {
     const TOKEN_BUDGET_CRIT = 1_000_000;
     const alerts: MonitorAlert[] = [];
     try {
-      const goals = await prisma.goal.findMany({
+      const goals = await prisma.workUnit.findMany({
         where: {
-          status: { in: ['executing', 'succeeded', 'blocked'] },
+          status: { in: ['active', 'done', 'blocked'] },
           updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
         },
-        select: { id: true, context: true },
+        select: { id: true, metadata: true },
         take: 10,
       });
 
       for (const goal of goals) {
-        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
+        const ctx = (typeof goal.metadata === 'string' ? JSON.parse(goal.metadata) : goal.metadata) || {};
         const tokens = (ctx._cumulativeTokens as number) || 0;
         if (tokens >= TOKEN_BUDGET_CRIT) {
           alerts.push({
@@ -982,73 +819,8 @@ export class MonitorAgent {
   // ── Pipeline Latency: per-stage timing + bottleneck detection ──
 
   private async checkPipelineLatency(): Promise<MonitorAlert[]> {
-    const alerts: MonitorAlert[] = [];
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-
-    try {
-      // Query recently completed goals with their executions
-      const recentGoals = await prisma.goal.findMany({
-        where: { status: { in: ['succeeded', 'failed'] }, completedAt: { gte: oneHourAgo } },
-        select: { id: true, status: true, createdAt: true, completedAt: true },
-        orderBy: { completedAt: 'desc' },
-        take: 5,
-      });
-      if (recentGoals.length === 0) return alerts;
-
-      for (const goal of recentGoals) {
-        const execs = await prisma.goalExecution.findMany({
-          where: { goalId: goal.id, status: 'succeeded' },
-          select: { id: true, startedAt: true, completedAt: true },
-          orderBy: { completedAt: 'asc' },
-        });
-
-        const goalDuration = goal.completedAt
-          ? (new Date(goal.completedAt).getTime() - new Date(goal.createdAt).getTime()) / 60000
-          : 0;
-
-        // Per-execution timing
-        let maxExecMinutes = 0;
-        let totalExecMinutes = 0;
-        for (const e of execs) {
-          if (e.startedAt && e.completedAt) {
-            const dur = (new Date(e.completedAt).getTime() - new Date(e.startedAt).getTime()) / 60000;
-            totalExecMinutes += dur;
-            if (dur > maxExecMinutes) maxExecMinutes = dur;
-          }
-        }
-
-        // Log pipeline timing
-        logger.info('[MonitorAgent] Pipeline timing', {
-          goalId: goal.id.slice(0, 8),
-          totalMin: Math.round(goalDuration),
-          execCount: execs.length,
-          maxExecMin: Math.round(maxExecMinutes),
-          avgExecMin: execs.length > 0 ? Math.round(totalExecMinutes / execs.length) : 0,
-          status: goal.status,
-        });
-
-        // Alert on slow stages
-        if (goalDuration > 30) {
-          alerts.push({
-            source: 'total_time',
-            level: 'critical',
-            message: `Goal ${goal.id.slice(0, 8)} took ${Math.round(goalDuration)}min — check pipeline bottleneck`,
-            relatedTaskIds: [goal.id],
-          });
-        } else if (maxExecMinutes > 20) {
-          alerts.push({
-            source: 'total_time',
-            level: 'warning',
-            message: `Execution ${execs[0]?.id?.slice(0, 8) || '?'} took ${Math.round(maxExecMinutes)}min — slow executor`,
-            relatedTaskIds: execs.map(e => e.id),
-          });
-        }
-      }
-    } catch (e) {
-      logger.warn('[MonitorAgent] Pipeline latency check failed', { error: String(e) });
-    }
-
-    return alerts;
+    // Pipeline 双层模型（Goal + GoalExecution）已禁用，管线延迟指标待 WorkUnit 聚合方案确定后重建
+    return [];
   }
 
   // ── P0.3: Tool Pattern Detection — 工具调用异常模式 ──
@@ -1095,52 +867,51 @@ export class MonitorAgent {
 
   async evaluateTrajectory(): Promise<void> {
     try {
-      const recent = await prisma.goalExecution.findMany({
-        where: { status: { in: ['succeeded', 'failed'] }, completedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
-        select: { id: true, goalId: true, status: true, startedAt: true, completedAt: true },
+      const recent = await prisma.workUnit.findMany({
+        where: { status: { in: ['done', 'closed'] }, completedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
+        select: { id: true, parentId: true, status: true, claimedAt: true, completedAt: true, retryCount: true },
         orderBy: { completedAt: 'desc' },
         take: 10,
       });
 
-      if (recent.length === 0) return; // No executions to evaluate
+      if (recent.length === 0) return; // No workUnits to evaluate
 
-      let totalExecutions = 0;
+      let totalWorkUnits = 0;
       let efficientCount = 0;
       let normalCount = 0;
       let slowCount = 0;
       let retryCount = 0;
       let failureCount = 0;
-      let timedCount = 0;   // 有 startedAt+completedAt 的执行数
+      let timedCount = 0;   // 有 claimedAt+completedAt 的 WorkUnit 数
 
-      for (const exec of recent) {
-        totalExecutions++;
+      for (const wu of recent) {
+        totalWorkUnits++;
 
-        // Check progress stagnation via snapshot
-        const snap = progressSnapshots.get(exec.id);
-        if (snap && snap.unchangedCount >= 3) {
+        // Check retry count from WorkUnit field
+        if (wu.retryCount > 0) {
           retryCount++;
         }
 
         // Check execution time — three tiers, 5-15min gap filled
-        if (exec.startedAt && exec.completedAt) {
+        if (wu.claimedAt && wu.completedAt) {
           timedCount++;
-          const durationMin = (new Date(exec.completedAt).getTime() - new Date(exec.startedAt).getTime()) / 60000;
+          const durationMin = (new Date(wu.completedAt).getTime() - new Date(wu.claimedAt).getTime()) / 60000;
           if (durationMin > 15) slowCount++;
           else if (durationMin > 5) normalCount++;
           else efficientCount++;
         }
 
-        if (exec.status === 'failed') failureCount++;
+        if (wu.status === 'closed') failureCount++;
       }
 
-      // Efficiency: (efficient + normal) / timed (only executions with timing data)
+      // Efficiency: (efficient + normal) / timed (only workUnits with timing data)
       const efficiency = timedCount > 0 ? Math.round(((efficientCount + normalCount) / timedCount) * 100) : 0;
       const slowRate = timedCount > 0 ? Math.round((slowCount / timedCount) * 100) : 0;
 
       const report = {
         type: 'monitor:trajectory',
         timestamp: Date.now(),
-        totalExecutions,
+        totalWorkUnits,
         efficiency: `${efficiency}%`,
         slowRate: `${slowRate}%`,
         retryCount,
@@ -1158,7 +929,7 @@ export class MonitorAgent {
           type: 'monitor:alert',
           level: 'warning',
           source: 'trajectory',
-          message: `Pipeline efficiency ${efficiency}% (${slowRate}% slow executions, ${retryCount} retries)`,
+          message: `WorkUnit efficiency ${efficiency}% (${slowRate}% slow, ${retryCount} retries)`,
           timestamp: Date.now(),
         });
       }
@@ -1167,17 +938,10 @@ export class MonitorAgent {
     }
   }
 
-  // ── G5 Evolution: 路由决策反馈 ──
+  // ── G5 Evolution: 路由决策反馈（Pipeline 已废弃）──
 
   private async analyzeRoutingEvolution(): Promise<void> {
-    try {
-      const { goalScheduler } = await import('../goals/goal-scheduler.js');
-      const suggestions = (goalScheduler as any).analyzeRoutingFeedback?.() || [];
-      for (const s of suggestions) {
-        logger.warn('[MonitorAgent] Routing suggestion', s);
-        this.emitEvent({ type: 'monitor:alert', level: 'warning', source: 'routing_evolution', ...s, timestamp: Date.now() });
-      }
-    } catch { /* non-blocking */ }
+    // Pipeline GoalScheduler disabled — no routing feedback available
   }
 
   // ── B1-008: System health check for Triage ──
@@ -1353,54 +1117,14 @@ export class MonitorAgent {
    * ε-greedy 成功率 > 80% → 该 taskCategory 永久降级。
    */
   private async applyRoutingOptimizations(): Promise<void> {
-    try {
-      const { goalScheduler } = await import('../goals/goal-scheduler.js');
-      const suggestions = (goalScheduler as any).analyzeRoutingFeedback?.() || [];
-
-      for (const s of suggestions) {
-        if (s.type === 'routing.downgrade') {
-          // Extract task category from the message: premium/"import-fix" 100% success → try standard
-          const catMatch = s.message.match(/premium\/"(\w+)"/);
-          if (catMatch) {
-            const category = catMatch[1];
-            (goalScheduler as any).addRoutingOverride?.(category, 'standard');
-            logger.info('[MonitorAgent] Auto-optimized routing', { category, action: 'downgrade to standard' });
-          }
-        }
-      }
-      // ε-greedy exploration success → expand boundary
-      if (suggestions.some((s: any) => s.type === 'routing.exploration')) {
-        const expSuggestion = suggestions.find((s: any) => s.type === 'routing.exploration');
-        const match = expSuggestion?.message?.match(/(\d+)\/(\d+).*(\d+)%/);
-        if (match && parseInt(match[1]) >= 3 && parseInt(match[3]) > 80) {
-          // Exploration is working well → keep current boundary (don't revert)
-          logger.info('[MonitorAgent] ε-greedy boundary confirmed', { success: match[1], total: match[2] });
-        }
-      }
-    } catch { /* best-effort */ }
+    // Pipeline GoalScheduler disabled — no routing optimizations available
   }
 
   /**
-   * Token 预算超标的 goal → 在 GoalScheduler 中标记强制降级。
-   * 后续该 goal 的所有 executor dispatch 强制使用 flash。
+   * Token 预算超标的 goal → 强制降级（Pipeline 已废弃，保留方法签名为兼容）
    */
   private async applyTokenBudgetGate(): Promise<void> {
-    try {
-      const TOKEN_BUDGET_CRIT = 1_000_000;
-      const goals = await prisma.goal.findMany({
-        where: { status: 'running', updatedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
-        select: { id: true, context: true },
-      });
-      for (const goal of goals) {
-        const ctx = (typeof goal.context === 'string' ? JSON.parse(goal.context) : goal.context) || {};
-        const tokens = (ctx._cumulativeTokens as number) || 0;
-        if (tokens >= TOKEN_BUDGET_CRIT) {
-          const { goalScheduler } = await import('../goals/goal-scheduler.js');
-          (goalScheduler as any).addTokenGate?.(goal.id);
-          logger.warn('[MonitorAgent] Token budget gate applied', { goalId: goal.id.slice(0, 8), tokens });
-        }
-      }
-    } catch { /* best-effort */ }
+    // Pipeline GoalScheduler disabled — no token budget gate available
   }
 
   // ── DailyReflection: 每日洞察聚合 ──
@@ -2077,13 +1801,13 @@ export class MonitorAgent {
         logger.warn('[MonitorAgent] TTL: Session cleanup failed', { error: String(e) });
       }
 
-      // 2. Delete GoalExecution older than 90 days
+      // 2. Delete WorkUnit older than 90 days (replaces GoalExecution TTL)
       try {
         const execCutoff = new Date(Date.now() - 90 * 24 * 3600_000);
-        const deleted = await prisma.goalExecution.deleteMany({
+        const deleted = await prisma.workUnit.deleteMany({
           where: { createdAt: { lt: execCutoff } },
         });
-        logger.info('[MonitorAgent] TTL: GoalExecution cleaned', { deleted: deleted.count, cutoff: execCutoff.toISOString() });
+        logger.info('[MonitorAgent] TTL: WorkUnit cleaned', { deleted: deleted.count, cutoff: execCutoff.toISOString() });
       } catch (e) {
         logger.warn('[MonitorAgent] TTL: GoalExecution cleanup failed', { error: String(e) });
       }

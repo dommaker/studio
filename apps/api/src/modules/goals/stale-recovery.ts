@@ -11,7 +11,7 @@ import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { goalService } from './goal.service.js';
-import { onPhaseFailure } from './execution-alarm.js';
+import { onPhaseFailure } from '../agents/execution-alarm.js';
 
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 

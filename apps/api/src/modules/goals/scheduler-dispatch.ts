@@ -36,7 +36,7 @@ import {
   runIntegrationInCode,
 } from './scheduler-prompt.js';
 import { classifyFailure, classifyFailureAction } from '../shared/failure-classifier.js';
-import { onPhaseFailure } from './execution-alarm.js';
+import { onPhaseFailure } from '../agents/execution-alarm.js';
 import { rollbackToIntegrationStep, parseIntegrationFailureType, type IntegrationResult } from './integration-rollback.js';
 
 const MAX_CONCURRENT = 5;

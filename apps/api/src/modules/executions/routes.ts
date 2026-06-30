@@ -161,21 +161,7 @@ router.post('/events', async (req: Request, res: Response) => {
             }
           }
 
-          // 更新 GoalExecution 状态（如果有关联）
-          const goalExecId = (studioExecution.parameters as unknown as Record<string, unknown>)?.goalExecutionId as string | undefined;
-          if (goalExecId) {
-            try {
-              const { goalService } = await import('../goals/goal.service.js');
-              await goalService.updateStepExecution(goalExecId, {
-                status: newStatus === 'completed' ? 'succeeded' : 'failed',
-                output: outputs,
-                error: error ? String(error) : undefined,
-              });
-              logger.info(`[GoalExecution Sync] Updated ${goalExecId} to ${newStatus === 'completed' ? 'succeeded' : 'failed'}`);
-            } catch (goalErr) {
-              logger.error('[GoalExecution Sync] Failed to update', { error: String(goalErr) });
-            }
-          }
+          // GoalExecution sync removed — Pipeline GoalScheduler disabled
         }
       } else {
         logger.warn(`[Execution Sync] No studio execution found for runtimeExecutionId ${executionId}`);

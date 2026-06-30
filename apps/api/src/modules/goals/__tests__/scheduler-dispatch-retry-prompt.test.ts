@@ -81,7 +81,7 @@ vi.mock('../../shared/failure-classifier.js', () => ({
   classifyFailureAction: vi.fn().mockReturnValue({ failureClass: 'retryable', action: 'retry-execution' }),
 }));
 
-vi.mock('../execution-alarm.js', () => ({
+vi.mock('../../agents/execution-alarm.js', () => ({
   onPhaseFailure: vi.fn().mockResolvedValue(undefined),
 }));
 

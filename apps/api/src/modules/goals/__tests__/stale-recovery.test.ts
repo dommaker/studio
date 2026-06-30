@@ -34,7 +34,7 @@ vi.mock('../goal.service', () => ({
   },
 }));
 
-vi.mock('../execution-alarm', () => ({
+vi.mock('../../agents/execution-alarm', () => ({
   onPhaseFailure: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -66,7 +66,7 @@ describe('Stale Recovery', () => {
       },
     ]);
 
-    const { onPhaseFailure } = await import('../execution-alarm');
+    const { onPhaseFailure } = await import('../../agents/execution-alarm');
     const count = await recoverStaleExecutions();
 
     expect(count).toBe(1);

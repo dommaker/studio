@@ -39,15 +39,9 @@ app.get('/health', (req: any, res: any) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// G5: 模型路由历史（供 CLI 查询）
+// G5: 模型路由历史（Pipeline 已废弃，保留端点返回空）
 app.get('/metrics/routing', async (req: any, res: any) => {
-  try {
-    const { goalScheduler } = await import('./modules/goals/goal-scheduler.js');
-    const history = (goalScheduler as any).recentClassifications || [];
-    res.json({ data: history.slice(-10), total: history.length });
-  } catch {
-    res.json({ data: [], total: 0 });
-  }
+  res.json({ data: [], total: 0 });
 });
 
 // Prometheus 指标

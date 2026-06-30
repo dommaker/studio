@@ -616,16 +616,16 @@ router.post('/init-admin', async (req: Request, res: Response) => {
  */
 router.get('/health', async (_req: Request, res: Response) => {
   try {
-    const [activeGoals, pendingGoals, recentEvents] = await Promise.all([
-      prisma.goal.count({ where: { status: 'executing' } }),
-      prisma.goalExecution.count({ where: { status: 'pending' } }),
+    const [activeWorkUnits, pendingWorkUnits, recentEvents] = await Promise.all([
+      prisma.workUnit.count({ where: { status: 'active' } }),
+      prisma.workUnit.count({ where: { status: 'unassigned' } }),
       prisma.studioEvent.findMany({ orderBy: { timestamp: 'desc' }, take: 20 }),
     ]);
     res.json({
-      activeGoals,
-      pendingExecutions: pendingGoals,
+      activeWorkUnits,
+      pendingWorkUnits,
       recentActivity: recentEvents.length,
-      ok: activeGoals > 0 || pendingGoals > 0,
+      ok: activeWorkUnits > 0 || pendingWorkUnits > 0,
     });
   } catch (error) {
     logger.error({ error }, 'Failed to get pipeline health');

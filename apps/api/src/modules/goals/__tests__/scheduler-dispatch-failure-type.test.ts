@@ -78,7 +78,7 @@ vi.mock('../goal.service.js', () => ({
 
 
 
-vi.mock('../execution-alarm.js', () => ({
+vi.mock('../../agents/execution-alarm.js', () => ({
   onPhaseFailure: vi.fn().mockResolvedValue(undefined),
 }));
 

@@ -9,7 +9,6 @@ import { verifySddFile } from './sdd-verification.js';
 import { skillStore } from '../skills/skill-store.js';
 import { splitAcGroupsByRepo } from './multi-repo-split.js';
 import { ensureModelTierInheritance } from './acgroup-tier.js';
-import { goalService } from '../goals/goal.service.js';
 import { sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { projectService } from '../pmo/project.service.js';
 import { requireAuth } from '../../middleware/auth.js';
@@ -753,20 +752,13 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
         // Fall back to the single-repo workspaceRepoId resolved earlier
         groupRepoId = groupRepoId || workspaceRepoId;
 
-        const result = await goalService.createGoalFromChannelDoc({
-          title: repoGroups.length > 1 ? `${doc.title} [${group.targetRepo}]` : doc.title,
-          summary: sddBody.slice(0, 200),
-          acGroups: group.acGroups,
-          companyId: company.id,
-          sourceChannelId: req.params.channelId,
-          requirementsDocId: docId,
-          sddSlug: sddSlug || undefined,
-          projectId,
-          risks,
-          ...(groupRepoId ? { workspaceRepoId: groupRepoId } : {}),
-          ...(contractTests?.length ? { contractTests } : {}),
+        // Pipeline disabled — return 503 with deprecation notice
+        return res.status(503).json({
+          error: {
+            code: 'PIPELINE_DEPRECATED',
+            message: 'Pipeline (GoalScheduler) has been disabled. Use Agent Network (WorkUnit) to create tasks.',
+          },
         });
-        results.push(result);
       }
 
       const primaryResult = results[0];
