@@ -1,7 +1,10 @@
 // AgentLoop — autonomous WorkUnit discovery + claim + execute cycle (AS-026)
 // Subscribes to EventBus for new WorkUnits, claims matching ones, executes, submits for review.
 // Skill injection handled by session-manager (formatForPrompt + loadSkill MCP tool).
-import { eventBus, logger } from '@dommaker/studio-shared';
+// Post-execution: analyzes agent log for knowledge search behavior (analyzeKnowledgeSearch).
+import { eventBus, logger, parseStreamEvents, extractToolCalls } from '@dommaker/studio-shared';
+import { readFileSync } from 'fs';
+import { homedir } from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
 import { agentExecutor } from '@dommaker/studio-agent';
@@ -23,6 +26,15 @@ interface ExecutionResult {
   totalDurationMs?: number;
   sessionIds?: string[];
   outputText?: string;
+}
+
+/** Path to project knowledge base — injected into Agent prompt for on-demand retrieval */
+const KNOWLEDGE_BASE_PATH = `${homedir()}/.studio/knowledge/`;
+
+/** Result of analyzing agent log for knowledge search behavior */
+export interface KnowledgeSearchAnalysis {
+  searched: boolean;
+  searchCalls: Array<{ tool: string; detail?: string }>;
 }
 
 interface RuntimeInstanceRow {
@@ -205,12 +217,22 @@ export class AgentLoop {
     }
   }
 
-  /** Execute WorkUnit — skill injection handled by session-manager */
+  /** Execute WorkUnit — skill injection by session-manager; post-execution knowledge analysis */
   private async execute(workUnit: WorkUnit): Promise<ExecutionResult> {
     // [Skill Discovery] Log WorkUnit context for analysis
     logger.info(`[SkillDiscovery] workUnit=${workUnit.id} type=${workUnit.type} role=${this.role.name} scope="${workUnit.scope?.substring(0, 100)}"`);
 
-    const prompt = `## Task\nWorkUnit: ${workUnit.id}\nType: ${workUnit.type}\nScope: ${workUnit.scope}`;
+    const prompt = [
+      `## Task`,
+      `WorkUnit: ${workUnit.id}`,
+      `Type: ${workUnit.type}`,
+      `Scope: ${workUnit.scope}`,
+      ``,
+      `## Knowledge`,
+      `Project knowledge base: ${KNOWLEDGE_BASE_PATH}`,
+      `When you need patterns, lessons learned, or architecture decisions, search here:`,
+      `  grep -r "<keyword>" ${KNOWLEDGE_BASE_PATH}`,
+    ].join('\n');
 
     const result: ExecutionResult = await agentExecutor.execute({
       id: workUnit.id,
@@ -220,12 +242,32 @@ export class AgentLoop {
       timeoutMs: 5 * 60_000, // 5 minutes default
     });
 
+    // Analyze knowledge search behavior from agent log
+    if (result.logFile) {
+      const analysis = this.analyzeKnowledgeSearchFromLog(result.logFile);
+      if (analysis.searched) {
+        logger.info(`[AgentLoop] Knowledge search detected for ${workUnit.id}: ${analysis.searchCalls.length} call(s) [${analysis.searchCalls.map(c => c.tool).join(', ')}]`);
+      }
+    }
+
     // Post result to discussion space
     if (result.outputText) {
       await this.postToDiscussionSpace(workUnit.id, result.outputText);
     }
 
     return result;
+  }
+
+  /** Read agent log file and analyze for knowledge search behavior */
+  private analyzeKnowledgeSearchFromLog(logFile: string): KnowledgeSearchAnalysis {
+    try {
+      const logContent = readFileSync(logFile, 'utf-8');
+      return analyzeKnowledgeSearch(logContent);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.debug(`[AgentLoop] Failed to read log file for knowledge analysis: ${message}`);
+      return { searched: false, searchCalls: [] };
+    }
   }
 
   /** Unclaim WorkUnit (direct prisma — state machine doesn't support active→unassigned) */
@@ -255,4 +297,50 @@ export class AgentLoop {
     const typeKeywords = ['task', 'bug', 'feature', 'refactor', 'test', 'docs', 'review'];
     return typeKeywords.filter(kw => description.toLowerCase().includes(kw));
   }
+}
+
+/**
+ * Analyze agent log for knowledge search behavior.
+ * Checks if the agent used Read/Bash/Glob on knowledge base paths, or called mcp__local-rag tools.
+ * Pure function — takes log content string, no file I/O.
+ */
+export function analyzeKnowledgeSearch(logContent: string): KnowledgeSearchAnalysis {
+  const events = parseStreamEvents(logContent);
+  const toolCalls = extractToolCalls(events);
+
+  const searchCalls: Array<{ tool: string; detail?: string }> = [];
+  for (const call of toolCalls) {
+    const detail = getKnowledgeSearchDetail(call.name, call.input);
+    if (detail !== null) {
+      searchCalls.push({ tool: call.name, detail });
+    }
+  }
+
+  return { searched: searchCalls.length > 0, searchCalls };
+}
+
+/** Returns a detail string if the tool call targets the knowledge base, null otherwise */
+function getKnowledgeSearchDetail(toolName: string, input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null;
+  const inp = input as Record<string, unknown>;
+
+  // Read — check file_path
+  if (toolName === 'Read') {
+    const fp = inp.file_path;
+    if (typeof fp === 'string' && fp.includes('.studio/knowledge')) return fp;
+  }
+
+  // Bash — check command for knowledge base paths
+  if (toolName === 'Bash') {
+    const cmd = inp.command;
+    if (typeof cmd === 'string' && cmd.includes('.studio/knowledge')) return cmd;
+  }
+
+  // Glob — check pattern for knowledge base paths
+  if (toolName === 'Glob') {
+    const pattern = inp.pattern;
+    if (typeof pattern === 'string' && pattern.includes('.studio/knowledge')) return pattern;
+  }
+
+  return null;
 }

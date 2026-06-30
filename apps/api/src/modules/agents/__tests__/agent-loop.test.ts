@@ -115,7 +115,7 @@ vi.mock('../../triggers/trigger-action', () => ({
   executeUpdateAction: vi.fn(),
 }));
 
-import { AgentLoop } from '../agent-loop';
+import { AgentLoop, analyzeKnowledgeSearch } from '../agent-loop';
 import type { TriggerScheduler } from '../../triggers/trigger-scheduler';
 
 describe('AgentLoop', () => {
@@ -467,6 +467,29 @@ describe('AgentLoop', () => {
       );
     });
 
+    it('includes knowledge base hint in prompt', async () => {
+      mockExecute.mockResolvedValue({
+        success: true,
+        outputText: 'Result',
+        worktree: '/tmp/wt',
+        outputFiles: [],
+        logFile: '/tmp/log',
+        sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, mockRegistry);
+      await agentLoop.start();
+
+      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
+      await (agentLoop as unknown as Record<string, unknown>).execute(workUnit);
+
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('.studio/knowledge'),
+        }),
+      );
+    });
+
     it('throws on agentExecutor failure', async () => {
       mockExecute.mockRejectedValue(new Error('LLM timeout'));
 
@@ -475,6 +498,141 @@ describe('AgentLoop', () => {
 
       const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
       await expect((agentLoop as unknown as Record<string, unknown>).execute(workUnit)).rejects.toThrow('LLM timeout');
+    });
+  });
+
+  describe('analyzeKnowledgeSearch()', () => {
+    it('returns empty when log content is empty', () => {
+      const result = analyzeKnowledgeSearch('');
+      expect(result.searched).toBe(false);
+      expect(result.searchCalls).toEqual([]);
+    });
+
+    it('returns empty when no knowledge-related tool calls exist', () => {
+      const log = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/tmp/src/index.ts' } }],
+        },
+      });
+      const result = analyzeKnowledgeSearch(log);
+      expect(result.searched).toBe(false);
+      expect(result.searchCalls).toEqual([]);
+    });
+
+    it('detects Read tool call targeting knowledge base', () => {
+      const log = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{
+            type: 'tool_use', name: 'Read',
+            input: { file_path: '/root/.studio/knowledge/pattern-auth.md' },
+          }],
+        },
+      });
+      const result = analyzeKnowledgeSearch(log);
+      expect(result.searched).toBe(true);
+      expect(result.searchCalls).toHaveLength(1);
+      expect(result.searchCalls[0].tool).toBe('Read');
+    });
+
+    it('detects Bash grep targeting knowledge base', () => {
+      const log = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{
+            type: 'tool_use', name: 'Bash',
+            input: { command: 'grep -r "auth" ~/.studio/knowledge/' },
+          }],
+        },
+      });
+      const result = analyzeKnowledgeSearch(log);
+      expect(result.searched).toBe(true);
+      expect(result.searchCalls).toHaveLength(1);
+      expect(result.searchCalls[0].tool).toBe('Bash');
+    });
+
+    it('detects Glob targeting knowledge base', () => {
+      const log = JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{
+            type: 'tool_use', name: 'Glob',
+            input: { pattern: '.studio/knowledge/**/*.md' },
+          }],
+        },
+      });
+      const result = analyzeKnowledgeSearch(log);
+      expect(result.searched).toBe(true);
+      expect(result.searchCalls).toHaveLength(1);
+      expect(result.searchCalls[0].tool).toBe('Glob');
+    });
+
+    it('counts multiple knowledge searches', () => {
+      const log = [
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{
+              type: 'tool_use', name: 'Bash',
+              input: { command: 'grep -r "auth" ~/.studio/knowledge/' },
+            }],
+          },
+        }),
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{
+              type: 'tool_use', name: 'Read',
+              input: { file_path: '/root/.studio/knowledge/pattern-auth.md' },
+            }],
+          },
+        }),
+      ].join('\n');
+      const result = analyzeKnowledgeSearch(log);
+      expect(result.searched).toBe(true);
+      expect(result.searchCalls).toHaveLength(2);
+    });
+
+    it('ignores non-knowledge tool calls', () => {
+      const log = [
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'tool_use', name: 'Read', input: { file_path: '/tmp/src/index.ts' } }],
+          },
+        }),
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'tool_use', name: 'Bash', input: { command: 'npm test' } }],
+          },
+        }),
+        JSON.stringify({
+          type: 'assistant',
+          message: {
+            content: [{ type: 'tool_use', name: 'Write', input: { file_path: '/tmp/src/new.ts', content: 'x' } }],
+          },
+        }),
+      ].join('\n');
+      const result = analyzeKnowledgeSearch(log);
+      expect(result.searched).toBe(false);
+      expect(result.searchCalls).toEqual([]);
+    });
+
+    it('skips malformed JSON lines', () => {
+      const log = `not valid json\n${JSON.stringify({
+        type: 'assistant',
+        message: {
+          content: [{
+            type: 'tool_use', name: 'Read',
+            input: { file_path: '/root/.studio/knowledge/test.md' },
+          }],
+        },
+      })}`;
+      const result = analyzeKnowledgeSearch(log);
+      expect(result.searched).toBe(true);
+      expect(result.searchCalls).toHaveLength(1);
     });
   });
 });
