@@ -11,23 +11,15 @@ const {
   mockWuFindMany,
   mockWuUpdate,
   mockDaemonGetStatus,
-  mockGoalFindMany,
-  mockGeFindMany,
-  mockGeUpdate,
 } = vi.hoisted(() => ({
   mockWuFindMany: vi.fn(() => Promise.resolve([])),
   mockWuUpdate: vi.fn(() => Promise.resolve({})),
   mockDaemonGetStatus: vi.fn(() => []),
-  mockGoalFindMany: vi.fn(() => Promise.resolve([])),
-  mockGeFindMany: vi.fn(() => Promise.resolve([])),
-  mockGeUpdate: vi.fn(() => Promise.resolve({})),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     workUnit: { findMany: mockWuFindMany, update: mockWuUpdate },
-    goal: { findMany: mockGoalFindMany },
-    goalExecution: { findMany: mockGeFindMany, update: mockGeUpdate },
     $queryRaw: vi.fn(() => Promise.resolve([])),
   },
 }));
@@ -187,12 +179,6 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
     mockWuFindMany.mockReset();
     mockWuFindMany.mockResolvedValue([]);
     mockWuUpdate.mockReset();
-    mockGoalFindMany.mockReset();
-    mockGoalFindMany.mockResolvedValue([]);
-    mockGeFindMany.mockReset();
-    mockGeFindMany.mockResolvedValue([]);
-    mockGeUpdate.mockReset();
-    mockGeUpdate.mockResolvedValue({});
     mockDaemonGetStatus.mockReset();
     mockDaemonGetStatus.mockReturnValue([]); // no active sessions
   });
@@ -225,8 +211,8 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
     await (monitorAgent as any).autoAbandonStaleRunning();
 
     // Method is now a no-op — should not call any prisma queries
-    expect(mockGeFindMany).not.toHaveBeenCalled();
-    expect(mockGeUpdate).not.toHaveBeenCalled();
+    expect(mockWuFindMany).not.toHaveBeenCalled();
+    expect(mockWuUpdate).not.toHaveBeenCalled();
   });
 });
 
