@@ -42,6 +42,12 @@ describe('extractAffectedFiles', () => {
       expect(result).toContain('src/utils/helper.ts');
     });
 
+    it('extracts .tsx paths from unstructured error', () => {
+      const error = 'Cannot resolve module src/components/App.tsx in context';
+      const result = extractAffectedFiles(error);
+      expect(result).toContain('src/components/App.tsx');
+    });
+
     it('excludes node_modules paths', () => {
       const error = 'Error in node_modules/lodash/index.ts somewhere';
       const result = extractAffectedFiles(error);

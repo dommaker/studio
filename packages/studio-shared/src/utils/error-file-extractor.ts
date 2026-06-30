@@ -30,7 +30,7 @@ export function extractAffectedFiles(errorOutput: string): string[] {
 
   // Layer 3: generic fallback — only when layers 1+2 found nothing
   if (files.size === 0) {
-    const genericMatches = errorOutput.matchAll(/(\S+\.ts)(?:\s|$|:)/g);
+    const genericMatches = errorOutput.matchAll(/(\S+\.tsx?)(?:\s|$|:)/g);
     for (const m of genericMatches) {
       if (!m[1].includes('node_modules') && !m[1].includes('dist/')) {
         files.add(m[1]);
