@@ -40,10 +40,10 @@ describe('Default Triggers', () => {
     registry = new (TriggerScheduler as any)(null);
   });
 
-  it('registers 5 default triggers', () => {
+  it('registers 6 default triggers', () => {
     registerDefaultTriggers(registry);
 
-    expect(mockRegisterTrigger).toHaveBeenCalledTimes(5);
+    expect(mockRegisterTrigger).toHaveBeenCalledTimes(6);
   });
 
   it('agent-discover fires on workunit.created', () => {
@@ -111,15 +111,36 @@ describe('Default Triggers', () => {
     expect(staleCalls).toHaveLength(0);
   });
 
-  it('getDefaultTriggerConfigs returns 4 configs', () => {
+  it('getDefaultTriggerConfigs returns 5 configs', () => {
     const configs = getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(4);
+    expect(configs).toHaveLength(5);
     expect(configs.map(c => c.id)).toEqual([
       'agent-discover',
       'workunit-timeout',
       'dependency-unlock',
       'poll-fallback',
+      'knowledge-quality-audit',
     ]);
+  });
+
+  it('knowledge-quality-audit fires daily and creates a WorkUnit', () => {
+    registerDefaultTriggers(registry);
+
+    const auditCall = mockRegisterTrigger.mock.calls.find(
+      (c: any) => c[0].id === 'knowledge-quality-audit',
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall![0].condition).toEqual(
+      expect.objectContaining({ type: 'SCHEDULE' }),
+    );
+    expect(auditCall![0].action).toEqual(
+      expect.objectContaining({
+        type: 'CREATE',
+        target: 'WorkUnit',
+      }),
+    );
+    expect(auditCall![0].action.payload.type).toBe('analysis');
+    expect(auditCall![0].action.payload.scope).toContain('knowledge-quality-skill');
   });
 
   it('agent-timeout fires every 2 minutes', () => {

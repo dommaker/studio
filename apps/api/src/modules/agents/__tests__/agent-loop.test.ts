@@ -490,6 +490,29 @@ describe('AgentLoop', () => {
       );
     });
 
+    it('hint instructs agent to search _index.md first', async () => {
+      mockExecute.mockResolvedValue({
+        success: true,
+        outputText: 'Result',
+        worktree: '/tmp/wt',
+        outputFiles: [],
+        logFile: '/tmp/log',
+        sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, mockRegistry);
+      await agentLoop.start();
+
+      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
+      await (agentLoop as unknown as Record<string, unknown>).execute(workUnit);
+
+      expect(mockExecute).toHaveBeenCalledWith(
+        expect.objectContaining({
+          prompt: expect.stringContaining('_index.md'),
+        }),
+      );
+    });
+
     it('throws on agentExecutor failure', async () => {
       mockExecute.mockRejectedValue(new Error('LLM timeout'));
 

@@ -230,8 +230,11 @@ export class AgentLoop {
       ``,
       `## Knowledge`,
       `Project knowledge base: ${KNOWLEDGE_BASE_PATH}`,
-      `When you need patterns, lessons learned, or architecture decisions, search here:`,
-      `  grep -r "<keyword>" ${KNOWLEDGE_BASE_PATH}`,
+      `Search the INDEX first (one-line-per-entry, 80-96% less output):`,
+      `  grep -i "<keyword>" ${KNOWLEDGE_BASE_PATH}_index.md`,
+      `Then Read the matching file for full content:`,
+      `  Read ${KNOWLEDGE_BASE_PATH}<filename>`,
+      `Fallback: grep -r "<keyword>" ${KNOWLEDGE_BASE_PATH} only if index misses.`,
     ].join('\n');
 
     const result: ExecutionResult = await agentExecutor.execute({

@@ -68,6 +68,23 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
+  // 6. knowledge-quality-audit: SCHEDULE daily 3:17 → CREATE WorkUnit for semantic audit
+  registry.registerTrigger({
+    id: 'knowledge-quality-audit',
+    name: 'Daily knowledge quality semantic audit',
+    condition: { type: 'SCHEDULE', cron: '17 3 * * *' },
+    action: {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: {
+        type: 'analysis',
+        scope: 'Run knowledge-quality-skill: audit semantic quality of ~/.studio/knowledge/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.',
+      },
+    },
+    enabled: true,
+    scope: 'system',
+  });
+
 }
 
 /** Get default trigger configs (for testing) */
@@ -116,6 +133,21 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
       name: 'Fallback poll for unassigned WorkUnits',
       condition: { type: 'SCHEDULE', cron: '*/30 * * * *' },
       action: { type: 'EXECUTE', target: 'agent-scan-workunits' },
+      enabled: true,
+      scope: 'system',
+    },
+    {
+      id: 'knowledge-quality-audit',
+      name: 'Daily knowledge quality semantic audit',
+      condition: { type: 'SCHEDULE', cron: '17 3 * * *' },
+      action: {
+        type: 'CREATE',
+        target: 'WorkUnit',
+        payload: {
+          type: 'analysis',
+          scope: 'Run knowledge-quality-skill: audit semantic quality of ~/.studio/knowledge/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.',
+        },
+      },
       enabled: true,
       scope: 'system',
     },
