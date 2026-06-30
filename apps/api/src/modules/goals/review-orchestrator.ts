@@ -1,6 +1,8 @@
 /**
  * Review Orchestrator — 审查循环管理
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * 从 agent-event-listener.ts 提取。
  */
 import * as fs from 'fs';

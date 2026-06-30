@@ -1,6 +1,8 @@
 /**
  * Goal CRUD — 创建/读取/更新/删除操作
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * 从 goal.service.ts 提取的纯函数。
  */
 import { prisma } from '@dommaker/studio-prisma';

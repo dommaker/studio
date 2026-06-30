@@ -1,6 +1,9 @@
 /**
  * Goal Scheduler - Facade
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network（WorkUnit）替代。
+ * Phase 4 将删除整个 goals/ 目录。不要新增代码到此文件。
+ *
  * 轮询 executing 状态的 Goal，调度可执行的 step。
  *
  * P11-01: Split into sub-modules:

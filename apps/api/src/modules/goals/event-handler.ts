@@ -1,6 +1,8 @@
 /**
  * Event Handler — Agent 事件核心处理逻辑
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * 从 agent-event-listener.ts 提取。
  * 委托 knowledge-promoter.ts 处理子流程。
  */

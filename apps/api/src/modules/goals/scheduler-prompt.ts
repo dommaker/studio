@@ -1,6 +1,8 @@
 /**
  * Scheduler Prompt — prompt 构建、上下文收集、Integration 代码执行
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * 从 scheduler-dispatch.ts 提取。
  */
 

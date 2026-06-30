@@ -1,6 +1,8 @@
 /**
  * Scheduler Integration — GoalScheduler 类的生命周期和调度循环
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * 从 goal-scheduler.ts 提取。
  */
 

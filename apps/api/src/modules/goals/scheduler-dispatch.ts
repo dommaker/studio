@@ -1,6 +1,8 @@
 /**
  * Scheduler Dispatch — dispatchStep 核心逻辑 + DispatchContext
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * 从 goal-scheduler.ts 提取。prompt 构建和上下文收集在 scheduler-prompt.ts。
  */
 

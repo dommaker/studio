@@ -1,6 +1,10 @@
 /**
  * Goal Service - Facade
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network（WorkUnit）替代。
+ * Phase 4 将删除整个 goals/ 目录。不要新增代码到此文件。
+ * 迁移进度：Phase 1 ✅（MonitorAgent/OKR 查询迁移）→ Phase 2 ✅（价值提取）→ Phase 3（本标注）→ Phase 4（删除）
+ *
  * Pipeline（Goal 系统）的统一入口。Goal + GoalPlan + GoalExecution 三层模型：
  * 人定义目标和约束，LLM 生成执行计划，系统自动调度执行。
  *

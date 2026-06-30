@@ -1,6 +1,8 @@
 /**
  * Integration Rollback — B58: Phase Gate 验证 + 局部重跑
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * Integration 失败后：诊断失败类型 → 定位问题 step → 级联 rollback → 重调度
  *
  * 核心函数：

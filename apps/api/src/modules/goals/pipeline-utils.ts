@@ -1,6 +1,8 @@
 /**
  * Pipeline Utils — 共享纯函数层
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * parseAcGroups: RequirementsDocJson → AcGroup[]
  * resolveDependencies: Kahn 拓扑排序 → AcGroup[][]
  * routeModel: 纯函数版 tier 路由

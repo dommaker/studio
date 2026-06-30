@@ -1,6 +1,8 @@
 /**
  * Goal Review — 审查集成 + 成功处理 + 部署
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * 从 goal.service.ts 提取。
  */
 import { prisma } from '@dommaker/studio-prisma';

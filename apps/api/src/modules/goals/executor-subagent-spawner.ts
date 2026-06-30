@@ -1,6 +1,8 @@
 /**
  * Executor Sub-agent Spawner — 组内波次并行实现。
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * Parent = 系统代码（不做 LLM 推理），Sub-agent = Claude session（用 green-only-tdd Skill）。
  * 参考 reviewParallel() 模式：write prompt → pipe to `claude --print` → collect results。
  */

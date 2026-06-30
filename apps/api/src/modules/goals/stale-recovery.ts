@@ -1,6 +1,8 @@
 /**
  * Stale Recovery — 从 GoalScheduler 提取的超时 GC + 孤儿恢复逻辑
  *
+ * @deprecated Pipeline（Goal 系统）已废弃，由 Agent Network 替代。Phase 4 将删除整个 goals/ 目录。
+ *
  * AS-026: 提取为独立函数，供 Trigger 和 Scheduler 共用。
  * 函数设计为 idempotent，可安全并发调用。
  */
