@@ -1,24 +1,23 @@
 /**
  * Pipeline Alarm — 管线阶段失败统一处理
  *
- * 职责：终止(DB) + 通知(Discord) + 知识沉淀(KnowledgeStore)
+ * 职责：通知(Discord) + 知识沉淀(KnowledgeStore)
+ *
+ * @deprecated Pipeline（Goal 系统）已废弃。DB 状态更新已移除（GoalExecution 表不再写入）。
+ * 通知 + 知识沉淀保留供 MonitorAgent 超时告警使用，Phase 4 整体删除。
  *
  * 调用方：
- * - GoalScheduler checkTimedOutExecutions → severity: 'timeout'
- * - goal-review.ts review 耗尽 → severity: 'exhausted'
- * - MonitorAgent autoAbandon/autoFail → severity: 'error'
- * - scheduler-dispatch.ts catch → severity: 'error'
+ * - MonitorAgent autoAbandon/autoFail → severity: 'timeout'
  */
 
-import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { notifyService } from '../outbound-notify/notify.service.js';
 import { knowledgeBus } from '../knowledge/knowledge-bus.service.js';
 
 export interface AlarmContext {
-  /** GoalExecution ID (optional — some phases like review don't have one) */
+  /** WorkUnit or GoalExecution ID (optional) */
   executionId?: string;
-  /** Goal ID */
+  /** Goal or parent WorkUnit ID */
   goalId: string;
   /** Pipeline phase that failed */
   phase: 'analyst' | 'executing' | 'integration' | 'review' | 'deploy' | 'knowledge';
@@ -29,25 +28,12 @@ export interface AlarmContext {
 }
 
 /**
- * 管线阶段失败统一处理：DB 状态 + Discord 通知 + 知识沉淀
+ * 管线阶段失败统一处理：Discord 通知 + 知识沉淀
  *
  * 所有副作用 non-blocking：任一环节失败不影响其他环节。
  */
 export async function onPhaseFailure(ctx: AlarmContext): Promise<void> {
-  // 1. 终止：标记 DB（executionId 存在时）
-  if (ctx.executionId) {
-    try {
-      await prisma.goalExecution.update({
-        where: { id: ctx.executionId },
-        data: {
-          status: 'failed',
-          error: JSON.stringify({ message: ctx.error, phase: ctx.phase }),
-        },
-      });
-    } catch { /* execution may not exist */ }
-  }
-
-  // 2. 通知：Discord via NotifyService
+  // 1. 通知：Discord via NotifyService
   const notifyType = ctx.severity === 'timeout' ? 'timeout' as const
     : ctx.severity === 'exhausted' ? 'human-needed' as const
     : 'task-failed' as const;
@@ -66,7 +52,7 @@ export async function onPhaseFailure(ctx: AlarmContext): Promise<void> {
     logger.warn('[PipelineAlarm] Notification failed', { error: String(e) });
   }
 
-  // 3. 知识：沉淀失败模式
+  // 2. 知识：沉淀失败模式
   try {
     if (typeof knowledgeBus.recordPattern === 'function') {
       await knowledgeBus.recordPattern({

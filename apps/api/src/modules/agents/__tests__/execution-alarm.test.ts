@@ -4,8 +4,7 @@
  * AC:
  * - onPhaseFailure calls notifyService.send() with correct type/priority
  * - onPhaseFailure calls knowledgeBus.recordPattern() with correct severity
- * - onPhaseFailure updates GoalExecution DB when executionId provided
- * - onPhaseFailure tolerates missing executionId (no DB update)
+ * - onPhaseFailure tolerates missing executionId
  * - All side effects are non-blocking (catch errors internally)
  * - timeout severity → notify type 'timeout', priority 'medium'
  * - exhausted severity → notify type 'human-needed', priority 'high'
@@ -17,11 +16,9 @@ import { describe, test, expect, vi, beforeEach } from 'vitest';
 const {
   mockNotifySend,
   mockRecordPattern,
-  mockGoalExecUpdate,
 } = vi.hoisted(() => ({
   mockNotifySend: vi.fn().mockResolvedValue(undefined),
   mockRecordPattern: vi.fn().mockResolvedValue(undefined),
-  mockGoalExecUpdate: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock('../../outbound-notify/notify.service.js', () => ({
@@ -30,12 +27,6 @@ vi.mock('../../outbound-notify/notify.service.js', () => ({
 
 vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
   knowledgeBus: { recordPattern: mockRecordPattern },
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    goalExecution: { update: mockGoalExecUpdate },
-  },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
@@ -114,23 +105,6 @@ describe('onPhaseFailure — knowledge recording', () => {
   });
 });
 
-describe('onPhaseFailure — DB update', () => {
-  test('with executionId → updates GoalExecution status to failed', async () => {
-    await onPhaseFailure(makeCtx({ executionId: 'exec-123' }));
-
-    expect(mockGoalExecUpdate).toHaveBeenCalledOnce();
-    const update = mockGoalExecUpdate.mock.calls[0][0];
-    expect(update.where.id).toBe('exec-123');
-    expect(update.data.status).toBe('failed');
-  });
-
-  test('without executionId → no DB update', async () => {
-    await onPhaseFailure(makeCtx());
-
-    expect(mockGoalExecUpdate).not.toHaveBeenCalled();
-  });
-});
-
 describe('onPhaseFailure — non-blocking', () => {
   test('notifyService failure does not throw', async () => {
     mockNotifySend.mockRejectedValue(new Error('Discord down'));
@@ -144,16 +118,9 @@ describe('onPhaseFailure — non-blocking', () => {
     await expect(onPhaseFailure(makeCtx())).resolves.toBeUndefined();
   });
 
-  test('DB update failure does not throw', async () => {
-    mockGoalExecUpdate.mockRejectedValue(new Error('DB down'));
-
-    await expect(onPhaseFailure(makeCtx({ executionId: 'exec-123' }))).resolves.toBeUndefined();
-  });
-
   test('all services fail simultaneously → still resolves', async () => {
     mockNotifySend.mockRejectedValue(new Error('notify down'));
     mockRecordPattern.mockRejectedValue(new Error('kb down'));
-    mockGoalExecUpdate.mockRejectedValue(new Error('db down'));
 
     await expect(onPhaseFailure(makeCtx({ executionId: 'exec-123' }))).resolves.toBeUndefined();
   });
