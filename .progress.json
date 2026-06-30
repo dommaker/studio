@@ -19,9 +19,9 @@
     "AC4": "D4 审计完成 — 已归档失效引用的 architecture 条目 (ARC-012/016/017) 保留为历史参考。技能条目无过时代码引用",
     "AC5": "D5 审计完成 — 识别碎片集群：JWT 碎片 (11条)、GoalExecution 碎片 (5条)、Tool Pattern Detection 碎片 (6条) 全部归档。DEC-004~012 保持独立",
     "AC6": "D6 审计完成 — 移除 17 条条目的低质量 'low_quality' 标签（这些条目实质有内容，标签误标），归档条目标签不再维护",
-    "AC7": "75 条噪声条目已移入 ~/.studio/knowledge/archived/",
-    "AC8": "碎片集群已全部归档：JWT 11 条、GoalExecution 5 条、Tool Pattern Detection 6 条、Monitor 6 条、Triage Fix 5 条、Session 事件 13 条",
-    "AC9": "_index.md 重建完成：77 条活跃条目，平均分布在 7 种类型"
+    "AC7": "75 条噪声条目已移入 ~/.studio/knowledge/archived/；本轮新增归档 8 条（superpowers 外部参考、AS-025 已废弃/合并、ARC-012/016/017 已标记 archived、knowledge_engine_ops_gap/GUI-139/PIT-008 已标记 archived）",
+    "AC8": "碎片集群已全部归档：JWT 11 条、GoalExecution 5 条、Tool Pattern Detection 6 条、Monitor 6 条、Triage Fix 5 条、Session 事件 13 条。本轮无新碎片发现",
+    "AC9": "_index.md 重建完成：69 条活跃条目（原 77），类型分布: architecture:19 decision:12 guideline:10 pitfall:1 process:2 pattern:9 skill:16。清理 3 个 false 'low_quality' 标签（deploy-push-resilience/PRO-003/PRO-004），deploy-push-resilience maturity draft→verified"
   },
   "testResults": {
     "passed": 0,
@@ -29,12 +29,14 @@
     "failed": 0,
     "command": "n/a — 知识库审计任务，无代码测试",
     "evidence": "harness knowledge audit: 96/100 — 所有 flagged 问题均在 archived/ 目录中（预期行为）",
-    "verifiedAt": "2026-06-30T21:00:00Z"
+    "verifiedAt": "2026-06-30T21:30:00Z"
   },
   "designNotes": {
     "decisions": [
       "噪声条目按类型归档而非删除 — 保留审计痕迹",
       "low_quality 标签从 17 条有内容条目中移除 — 原标签误标，条目不满足 D2 低价值定义",
+      "第二轮审计新增 8 条归档：superpowers 为外部参考原文不满足 D2；AS-025 已声明 deprecated/merged 不满足 D4；6 条 maturity:archived 物理文件仍在主目录，物理移动到 .archive/ 消除不一致",
+      "deploy-push-resilience.md 原 draft/low_quality 但内容完整（AC + Architecture Decisions），纠正 maturity→verified 并替换标签为 deploy-push/resilience/proxy-health",
       "_index.md 排除 resolutions/ 和 .archive/ 目录 — resolutions 由系统管理，.archive 为预归档历史",
       "_index.md 使用 filename|id|type|title|maturity|tags|description 格式保持向后兼容",
       "fragment clusters 全部归档而非合并 — 集群内容已在对应 architecture 条目中覆盖"
