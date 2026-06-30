@@ -297,7 +297,7 @@ export class AgentLoop {
   private parseAcceptedTypes(description: string | null): string[] {
     if (!description) return [];
     // Extract types from description like "handles tasks and bugs"
-    const typeKeywords = ['task', 'bug', 'feature', 'refactor', 'test', 'docs', 'review'];
+    const typeKeywords = ['task', 'bug', 'feature', 'refactor', 'test', 'docs', 'review', 'analysis'];
     return typeKeywords.filter(kw => description.toLowerCase().includes(kw));
   }
 }

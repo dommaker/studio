@@ -10,17 +10,38 @@ const scheduler = getTriggerScheduler(store); // Singleton — shared with Agent
 
 /** GET /api/triggers — list all triggers */
 router.get('/', (_req, res) => {
-  const triggers = store.list();
+  const storeTriggers = store.list();
   const states = scheduler.getStates();
   const stateMap = new Map(states.map(s => [s.config.id, s]));
 
-  const result = triggers.map(t => ({
-    ...t,
-    _state: {
-      lastFiredAt: stateMap.get(t.id)?.lastFiredAt || null,
-      errorCount: stateMap.get(t.id)?.errorCount || 0,
-    },
-  }));
+  // Merge: store triggers + scheduler-only triggers (system defaults)
+  const seenIds = new Set<string>();
+  const result: Array<TriggerConfig & { _state: { lastFiredAt: Date | null; errorCount: number } }> = [];
+
+  // 1. Store triggers (user-defined + persisted)
+  for (const t of storeTriggers) {
+    seenIds.add(t.id);
+    result.push({
+      ...t,
+      _state: {
+        lastFiredAt: stateMap.get(t.id)?.lastFiredAt || null,
+        errorCount: stateMap.get(t.id)?.errorCount || 0,
+      },
+    });
+  }
+
+  // 2. Scheduler-only triggers (system defaults not persisted to store)
+  for (const state of states) {
+    if (!seenIds.has(state.config.id)) {
+      result.push({
+        ...state.config,
+        _state: {
+          lastFiredAt: state.lastFiredAt || null,
+          errorCount: state.errorCount || 0,
+        },
+      });
+    }
+  }
 
   res.json({ triggers: result, schedulerRunning: scheduler.isRunning() });
 });
