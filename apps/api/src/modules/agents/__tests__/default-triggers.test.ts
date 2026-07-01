@@ -40,10 +40,10 @@ describe('Default Triggers', () => {
     registry = new (TriggerScheduler as any)(null);
   });
 
-  it('registers 6 default triggers', () => {
+  it('registers 7 default triggers', () => {
     registerDefaultTriggers(registry);
 
-    expect(mockRegisterTrigger).toHaveBeenCalledTimes(6);
+    expect(mockRegisterTrigger).toHaveBeenCalledTimes(7);
   });
 
   it('agent-discover fires on workunit.created', () => {
@@ -156,5 +156,25 @@ describe('Default Triggers', () => {
     expect(timeoutCall![0].action).toEqual(
       expect.objectContaining({ type: 'EXECUTE', target: 'agent-timeout-scan' }),
     );
+  });
+
+  it('session-knowledge-extraction fires daily at 4:17 and creates WorkUnit', () => {
+    registerDefaultTriggers(registry);
+
+    const extractCall = mockRegisterTrigger.mock.calls.find(
+      (c: any) => c[0].id === 'session-knowledge-extraction',
+    );
+    expect(extractCall).toBeDefined();
+    expect(extractCall![0].condition).toEqual(
+      expect.objectContaining({ type: 'SCHEDULE', cron: '17 4 * * *' }),
+    );
+    expect(extractCall![0].action).toEqual(
+      expect.objectContaining({
+        type: 'CREATE',
+        target: 'WorkUnit',
+      }),
+    );
+    expect(extractCall![0].action.payload.type).toBe('analysis');
+    expect(extractCall![0].action.payload.scope).toContain('data/sessions');
   });
 });

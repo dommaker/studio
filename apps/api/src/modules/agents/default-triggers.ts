@@ -85,6 +85,23 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
+  // 7. session-knowledge-extraction: SCHEDULE daily 4:17 → CREATE WorkUnit for session extraction
+  registry.registerTrigger({
+    id: 'session-knowledge-extraction',
+    name: 'Daily session knowledge extraction',
+    condition: { type: 'SCHEDULE', cron: '17 4 * * *' },
+    action: {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: {
+        type: 'analysis',
+        scope: 'Scan ~/.studio/data/sessions/ for unprocessed JSONL files. Extract knowledge using knowledge-extraction skill. Mark processed files with .done suffix.',
+      },
+    },
+    enabled: true,
+    scope: 'system',
+  });
+
 }
 
 /** Get default trigger configs (for testing) */
