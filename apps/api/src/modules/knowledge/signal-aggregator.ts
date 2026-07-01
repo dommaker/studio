@@ -12,7 +12,11 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { sharedStore, sharedIngest, sharedLifecycle, scheduleVectorDbSync } from './knowledge-bus.service.js';
+import { writeTrendData } from './knowledge-service.js';
+import { sharedStore } from './knowledge-bus.service.js';
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
 
 // ── Types ──
 
@@ -132,35 +136,34 @@ export class SignalAggregator {
   }
 
   /**
-   * 创建或更新趋势条目
+   * 写入趋势摘要到 data/trends/ 目录
    */
   private upsertTrend(trend: TrendSummary): boolean {
-    const title = `趋势: ${trend.tag} 频发 ${trend.count}次/${trend.windowDays}天`;
+    const dateStr = new Date().toISOString().split('T')[0];
     const content = [
-      `tag: ${trend.tag}`,
-      `count: ${trend.count}`,
-      `window: ${trend.windowDays}d`,
-      `samples:`,
-      ...trend.sampleTitles.map(t => `  - ${t.slice(0, 80)}`),
+      `## ${trend.tag} 趋势 (${trend.count} 条/${trend.windowDays}天)`,
+      ``,
+      ...trend.sampleTitles.map(t => `- ${t.slice(0, 80)}`),
     ].join('\n');
 
-    // 检查是否已有同 tag 的趋势条目
-    const existing = sharedStore.list({ tags: [TREND_TAG] }).find(e => e.tags?.includes(trend.tag));
-    if (existing) {
-      // 更新已有趋势
-      sharedStore.update(existing.id, { content, title });
-      sharedLifecycle.recordReference(existing.id, 'signal-aggregator');
-      logger.debug('[SignalAggregator] Updated trend', { tag: trend.tag, id: existing.id });
-      return false;
+    // 检查同日期文件是否已有该 tag 的趋势
+    const dataDir = path.join(os.homedir(), '.studio', 'data', 'trends');
+    const filePath = path.join(dataDir, `${dateStr}.md`);
+
+    if (fs.existsSync(filePath)) {
+      const existing = fs.readFileSync(filePath, 'utf-8');
+      // 同 tag 更新：替换对应 section
+      const tagPattern = new RegExp(`## ${trend.tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} 趋势[\\s\\S]*?(?=## |$)`);
+      if (tagPattern.test(existing)) {
+        fs.writeFileSync(filePath, existing.replace(tagPattern, content + '\n'), 'utf-8');
+        logger.debug('[SignalAggregator] Updated trend in data/', { tag: trend.tag });
+        return false;
+      }
     }
 
-    // 创建新趋势条目
-    const result = sharedIngest.ingestEntry(
-      { type: 'guideline', title, content, tags: [TREND_TAG, trend.tag] },
-      { source: 'signal-aggregator', layer: 'project', maturity: 'active', tags: [TREND_TAG, trend.tag], consumptionMode: 'signal' },
-    );
-    scheduleVectorDbSync();
-    logger.debug('[SignalAggregator] Created trend', { tag: trend.tag, id: result.id });
+    // 新趋势：追加到文件
+    writeTrendData(`${dateStr}.md`, content);
+    logger.debug('[SignalAggregator] Created trend → data/', { tag: trend.tag });
     return true;
   }
 }
