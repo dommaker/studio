@@ -168,24 +168,26 @@ cstnew (shell 函数 in ~/.zshrc)
 | 1.7 | cstnew 链路改造（.zshrc + events-daemon） | ✅ | 系统文件 |
 | 1.8 | session→知识聚合 trigger（SCHEDULE 04:17） | ✅ | 9f84026 |
 
-### Phase 2: 存量分类迁移
+### Phase 2: 存量分类迁移 ✅ 完成
 
-| # | 任务 | 目标 |
-|---|------|------|
-| 2.1 | 能力型 → 注册为 Skill 或归档 | forensic-review/tool-risk 等 → `~/.studio/skills/` |
-| 2.2 | Pipeline 遗骸 → .archive/ | skills/ 子目录 7 条 |
-| 2.3 | 数据型 → .archive/ | [沉淀] 条目 |
-| 2.4 | 文档型 → studio/docs/ 或 .archive/ | pattern-prompt-context-injection 等 |
-| 2.5 | 骨架型 → 升级或归档 | 内容太薄的 stub 条目 |
-| 2.6 | 规则型 → CLAUDE.md 或保留 | 评估是否已在 CLAUDE.md 覆盖 |
+> 原始分类（2.1-2.6）经第一性分析与实际存量不符，重新定义 AC。详见 `docs/sdd/kb-optimize-phase2/design.md`。
 
-### Phase 3: 索引质量提升
+| AC | 内容 | 状态 |
+|----|------|:----:|
+| AC-1 | resolutions/ 166 条测试污染删除 | ✅ |
+| AC-2 | archive/process-PRO-006.md 空数据删除 | ✅ |
+| AC-3 | 7 条 Pipeline Skill 归档（.archive/pipeline-skills/） | ✅ |
+| AC-4 | 3 条 architecture- 前缀 type=guideline → 重命名 guideline- | ✅ |
+| AC-5 | 17 条无 frontmatter 补全（13 根目录 + 4 arch-patterns/） | ✅ |
+| AC-6 | index.json 重建（45 条目） | ✅ |
 
-| # | 任务 | 目标 |
-|---|------|------|
-| 3.1 | 补 tag（18 条无 tag） | grep 可发现性 |
-| 3.2 | 补 maturity（23 条 unknown） | 生命周期管理 |
-| 3.3 | 标准化 ID | FileKnowledgeStore 可管理 |
+### Phase 3: 索引质量提升（部分已被 Phase 2 覆盖）
+
+| # | 任务 | 目标 | 状态 |
+|---|------|------|------|
+| 3.1 | 补 tag（18 条无 tag） | grep 可发现性 | ✅ Phase 2 AC-5 已补 |
+| 3.2 | 补 maturity（23 条 unknown） | 生命周期管理 | ✅ Phase 2 AC-5 已补 |
+| 3.3 | 标准化 ID | FileKnowledgeStore 可管理 | 待做 |
 
 ### Phase 4: 消费闭环
 
