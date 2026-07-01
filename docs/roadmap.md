@@ -1,6 +1,6 @@
 # Studio Roadmap — 唯一入口
 
-> 最后更新：2026-07-01 (B63 知识库优化 Phase 1+2+3 完成：源头修复 10 AC + 存量迁移 6 AC + 索引标准化)
+> 最后更新：2026-07-01 (B63 知识库优化全部完成：Phase 1-4 共 23 AC)
 > 架构文档：[specs/arch/index.md](specs/arch/index.md)
 > OKR：[OKR/](OKR/)
 > 分支：仅 master，无活跃功能分支
