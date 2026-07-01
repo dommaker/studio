@@ -102,6 +102,40 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
+  // 8. zero-consumption-audit: SCHEDULE daily 5:17 → CREATE WorkUnit for zero-consumption review
+  registry.registerTrigger({
+    id: 'zero-consumption-audit',
+    name: 'Daily zero-consumption knowledge audit',
+    condition: { type: 'SCHEDULE', cron: '17 5 * * *' },
+    action: {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: {
+        type: 'analysis',
+        scope: 'Scan ~/.studio/knowledge/ for entries with empty referencedBy. Output audit report to ~/.studio/data/knowledge-consumption-audit.md with entry list, creation dates, and recommendations (keep/archive).',
+      },
+    },
+    enabled: true,
+    scope: 'system',
+  });
+
+  // 9. knowledge-synthesis: SCHEDULE weekly Monday 10:23 → CREATE WorkUnit for Skill proposal
+  registry.registerTrigger({
+    id: 'knowledge-synthesis',
+    name: 'Weekly knowledge synthesis and Skill proposal',
+    condition: { type: 'SCHEDULE', cron: '23 10 * * 1' },
+    action: {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: {
+        type: 'analysis',
+        scope: 'Execute knowledge-synthesis-skill: scan recent knowledge entries for semantic patterns. If 3+ entries share an underlying pattern, propose a new Skill via skill-creator.',
+      },
+    },
+    enabled: true,
+    scope: 'system',
+  });
+
 }
 
 /** Get default trigger configs (for testing) */
@@ -163,6 +197,36 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
         payload: {
           type: 'analysis',
           scope: 'Run knowledge-quality-skill: audit semantic quality of ~/.studio/knowledge/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.',
+        },
+      },
+      enabled: true,
+      scope: 'system',
+    },
+    {
+      id: 'zero-consumption-audit',
+      name: 'Daily zero-consumption knowledge audit',
+      condition: { type: 'SCHEDULE', cron: '17 5 * * *' },
+      action: {
+        type: 'CREATE',
+        target: 'WorkUnit',
+        payload: {
+          type: 'analysis',
+          scope: 'Scan ~/.studio/knowledge/ for entries with empty referencedBy. Output audit report to ~/.studio/data/knowledge-consumption-audit.md with entry list, creation dates, and recommendations (keep/archive).',
+        },
+      },
+      enabled: true,
+      scope: 'system',
+    },
+    {
+      id: 'knowledge-synthesis',
+      name: 'Weekly knowledge synthesis and Skill proposal',
+      condition: { type: 'SCHEDULE', cron: '23 10 * * 1' },
+      action: {
+        type: 'CREATE',
+        target: 'WorkUnit',
+        payload: {
+          type: 'analysis',
+          scope: 'Execute knowledge-synthesis-skill: scan recent knowledge entries for semantic patterns. If 3+ entries share an underlying pattern, propose a new Skill via skill-creator.',
         },
       },
       enabled: true,

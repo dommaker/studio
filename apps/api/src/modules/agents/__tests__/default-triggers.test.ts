@@ -40,10 +40,10 @@ describe('Default Triggers', () => {
     registry = new (TriggerScheduler as any)(null);
   });
 
-  it('registers 7 default triggers', () => {
+  it('registers 9 default triggers', () => {
     registerDefaultTriggers(registry);
 
-    expect(mockRegisterTrigger).toHaveBeenCalledTimes(7);
+    expect(mockRegisterTrigger).toHaveBeenCalledTimes(9);
   });
 
   it('agent-discover fires on workunit.created', () => {
@@ -111,15 +111,17 @@ describe('Default Triggers', () => {
     expect(staleCalls).toHaveLength(0);
   });
 
-  it('getDefaultTriggerConfigs returns 5 configs', () => {
+  it('getDefaultTriggerConfigs returns 7 configs', () => {
     const configs = getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(5);
+    expect(configs).toHaveLength(7);
     expect(configs.map(c => c.id)).toEqual([
       'agent-discover',
       'workunit-timeout',
       'dependency-unlock',
       'poll-fallback',
       'knowledge-quality-audit',
+      'zero-consumption-audit',
+      'knowledge-synthesis',
     ]);
   });
 
@@ -176,5 +178,45 @@ describe('Default Triggers', () => {
     );
     expect(extractCall![0].action.payload.type).toBe('analysis');
     expect(extractCall![0].action.payload.scope).toContain('data/sessions');
+  });
+
+  it('zero-consumption-audit fires daily at 5:17 and creates WorkUnit', () => {
+    registerDefaultTriggers(registry);
+
+    const auditCall = mockRegisterTrigger.mock.calls.find(
+      (c: any) => c[0].id === 'zero-consumption-audit',
+    );
+    expect(auditCall).toBeDefined();
+    expect(auditCall![0].condition).toEqual(
+      expect.objectContaining({ type: 'SCHEDULE', cron: '17 5 * * *' }),
+    );
+    expect(auditCall![0].action).toEqual(
+      expect.objectContaining({
+        type: 'CREATE',
+        target: 'WorkUnit',
+      }),
+    );
+    expect(auditCall![0].action.payload.type).toBe('analysis');
+    expect(auditCall![0].action.payload.scope).toContain('referencedBy');
+  });
+
+  it('knowledge-synthesis fires weekly Monday 10:23 and creates WorkUnit', () => {
+    registerDefaultTriggers(registry);
+
+    const synthesisCall = mockRegisterTrigger.mock.calls.find(
+      (c: any) => c[0].id === 'knowledge-synthesis',
+    );
+    expect(synthesisCall).toBeDefined();
+    expect(synthesisCall![0].condition).toEqual(
+      expect.objectContaining({ type: 'SCHEDULE', cron: '23 10 * * 1' }),
+    );
+    expect(synthesisCall![0].action).toEqual(
+      expect.objectContaining({
+        type: 'CREATE',
+        target: 'WorkUnit',
+      }),
+    );
+    expect(synthesisCall![0].action.payload.type).toBe('analysis');
+    expect(synthesisCall![0].action.payload.scope).toContain('knowledge-synthesis-skill');
   });
 });
