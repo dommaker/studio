@@ -16,7 +16,7 @@ import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
-import { knowledgeService } from '../knowledge/knowledge-service.js';
+import { knowledgeService, writeTrendData } from '../knowledge/knowledge-service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
@@ -1666,21 +1666,19 @@ export class MonitorAgent {
 
       if (stats.total < 5) return true;
 
+      const dateStr = new Date().toISOString().split('T')[0];
       const content = [
-        `路由统计 (最近 ${stats.total} 条):`,
-        `  premium: ${stats.premium} (${Math.round(stats.premium / stats.total * 100)}%)`,
-        `  standard: ${stats.standard} (${Math.round(stats.standard / stats.total * 100)}%)`,
-        `  降级: ${stats.degraded} (${Math.round(stats.degraded / stats.total * 100)}%)`,
+        `## [沉淀] 路由分布 ${dateStr}`,
+        ``,
+        `- premium: ${stats.premium} (${Math.round(stats.premium / stats.total * 100)}%)`,
+        `- standard: ${stats.standard} (${Math.round(stats.standard / stats.total * 100)}%)`,
+        `- 降级: ${stats.degraded} (${Math.round(stats.degraded / stats.total * 100)}%)`,
+        `- metric: routing_distribution`,
       ].join('\n');
 
-      await knowledgeService.recordTrend({
-        title: `[沉淀] 路由分布 ${new Date().toISOString().split('T')[0]}`,
-        content,
-        metric: 'routing_distribution',
-        tags: ['monitor'],
-      });
+      writeTrendData(`${dateStr}.md`, content);
 
-      logger.info('[MonitorAgent] Precipitate routing: done', { total: stats.total, degraded: stats.degraded });
+      logger.info('[MonitorAgent] Precipitate routing → data/', { total: stats.total, degraded: stats.degraded });
       return true;
     } catch (e) {
       logger.warn('[MonitorAgent] Precipitate routing failed', { error: String(e) });
