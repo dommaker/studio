@@ -9,6 +9,7 @@ import { modelGateway, logger } from '@dommaker/studio-shared';
 import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { DecisionRecord } from '@dommaker/harness';
 import { sharedStore, sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
+import { validateKnowledgeForm } from '../knowledge/knowledge-service.js';
 import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { exec } from 'child_process';
@@ -902,6 +903,36 @@ ${existingPatternsBlock}`;
     options: { source: string; layer: string; maturity?: string; tags?: string[]; projects?: string[] },
   ): boolean {
     const entry = { title: partial.title || '', content: partial.content || '', tags: partial.tags || [], type: partial.type || 'guideline' };
+
+    // 形态门禁：判断是否属于知识形态
+    const formResult = validateKnowledgeForm({
+      type: entry.type,
+      content: entry.content,
+      tags: [...entry.tags, ...(options.tags || [])],
+    });
+
+    if (!formResult.valid) {
+      logger.info('[KnowledgeAgent] Form gate rejected', {
+        form: formResult.form,
+        reason: formResult.reason,
+        title: entry.title.slice(0, 50),
+      });
+
+      if (formResult.form === 'data') {
+        // 数据重定向到 data/ 目录
+        const dateStr = new Date().toISOString().split('T')[0];
+        const dataDir = path.join(os.homedir(), '.studio', 'data');
+        fs.mkdirSync(dataDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(dataDir, `${dateStr}-extracted.md`),
+          `## ${entry.title}\n\n${entry.content}\n\nsource: ${options.source}\n`,
+          'utf-8',
+        );
+      }
+      // form='skill'/'rule' → 只记日志，不写入
+      return false;
+    }
+
     const issues = sharedLinter.validateEntry(entry);
 
     const blockers = issues.filter(i => i.severity === 'high');

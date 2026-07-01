@@ -171,6 +171,108 @@ describe('AC-A.2: recordAnalystAccuracy → data/', () => {
   });
 });
 
+describe('AC-B.1: validateKnowledgeForm()', () => {
+  it('type=guideline → valid=true, form=knowledge', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const result = validateKnowledgeForm({
+      type: 'guideline',
+      content: 'Use early returns to keep code flat and readable.',
+      tags: [],
+    });
+    expect(result.valid).toBe(true);
+    expect(result.form).toBe('knowledge');
+  });
+
+  it('type=pitfall → valid=true, form=knowledge', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const result = validateKnowledgeForm({
+      type: 'pitfall',
+      content: 'Do not call LLM for deterministic decisions like routing or status codes.',
+      tags: [],
+    });
+    expect(result.valid).toBe(true);
+    expect(result.form).toBe('knowledge');
+  });
+
+  it('type=process + 含百分比 → valid=false, form=data', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const result = validateKnowledgeForm({
+      type: 'process',
+      content: '路由分布分析：premium 占 75%，standard 占 20%，degraded 占 5%。',
+      tags: [],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.form).toBe('data');
+  });
+
+  it('tags=[trend] → valid=false, form=data', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const result = validateKnowledgeForm({
+      type: 'guideline',
+      content: 'Some trend content that is long enough to pass length check easily.',
+      tags: ['trend'],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.form).toBe('data');
+  });
+
+  it('多步骤流程 + >500字 → valid=false, form=skill', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const longContent = 'Step 1: Analyze the requirement.\nStep 2: Design the solution.\nStep 3: Implement the code.\n' + 'x'.repeat(500);
+    const result = validateKnowledgeForm({
+      type: 'guideline',
+      content: longContent,
+      tags: [],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.form).toBe('skill');
+  });
+
+  it('"禁止..." + <100字 → valid=false, form=rule', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const result = validateKnowledgeForm({
+      type: 'guideline',
+      content: '禁止在代码中硬编码 API 密钥。',
+      tags: [],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.form).toBe('rule');
+  });
+
+  it('content 为空 → valid=false, form=data', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const result = validateKnowledgeForm({
+      type: 'guideline',
+      content: '',
+      tags: [],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.form).toBe('data');
+  });
+
+  it('content <20字 → valid=false, form=data', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const result = validateKnowledgeForm({
+      type: 'guideline',
+      content: 'Too short',
+      tags: [],
+    });
+    expect(result.valid).toBe(false);
+    expect(result.form).toBe('data');
+  });
+
+  it('无法判断的混合内容 → valid=true (宽容策略)', async () => {
+    const { validateKnowledgeForm } = await import('../knowledge-service.js');
+    const result = validateKnowledgeForm({
+      type: 'guideline',
+      content: 'This is a mixed content that has some structure but is primarily an explanatory guideline about how to approach complex debugging scenarios in distributed systems without a clear single answer.',
+      tags: [],
+    });
+    expect(result.valid).toBe(true);
+    expect(result.form).toBe('knowledge');
+  });
+});
+
 describe('writeTrendData utility', () => {
   beforeEach(() => {
     if (fs.existsSync(TEST_DATA_DIR)) {
