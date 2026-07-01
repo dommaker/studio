@@ -189,14 +189,14 @@ cstnew (shell 函数 in ~/.zshrc)
 | 3.2 | 补 maturity（23 条 unknown） | 生命周期管理 | ✅ Phase 2 AC-5 已补 |
 | 3.3 | 标准化 ID | FileKnowledgeStore 可管理 | ✅ 18 条补 ID，44/44 全覆盖 |
 
-### Phase 4: 消费闭环
+### Phase 4: 消费闭环 ✅ 完成
 
-| # | 任务 | 目标 |
-|---|------|------|
-| 4.1 | Agent 搜索后记录 referencedBy | 消费数据闭环 |
-| 4.2 | 零消费条目定期审查 | 长期质量保障 |
-| 4.3 | 知识→Skill 路径：knowledge-synthesis-skill 检测高引用条目 → 调用 skill-creator 创建 Skill | 稳定知识固化为可执行能力 |
-| 4.4 | 废弃 knowledge-skill-evolver.ts（DB 产出无法被 Agent 消费） | 消除死路径 |
+| # | 任务 | 目标 | Commit |
+|---|------|------|--------|
+| 4.1 | Agent 搜索后记录 referencedBy | extractKnowledgeEntryIds + recordConsumption 集成 | d1ae762 |
+| 4.2 | 零消费条目定期审查 | SCHEDULE trigger 每日 5:17 | 5bda291 |
+| 4.3 | 知识→Skill SCHEDULE trigger | SCHEDULE trigger 每周一 10:23 | 5bda291 |
+| 4.4 | 废弃 knowledge-skill-evolver.ts | 删除死代码（零调用方） | 809b0ec |
 
 ## 关键文件
 
