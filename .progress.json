@@ -1,46 +1,57 @@
 {
-  "taskId": "cmr1131nb004y11b8bre6nnd2",
+  "taskId": "cmr2gixph008j11b8bu3jkj5e",
   "allComplete": true,
   "acCompliance": {
-    "AC1": "D1 语义完整性 — 按 type 检查 body 必要内容",
-    "AC2": "D2 内容价值 — 识别并归档噪声条目",
+    "AC1": "D1 语义完整性 — 按 type 检查 body 必要内容 (knowledge-quality-pattern 定义)",
+    "AC2": "D2 内容价值 — 识别并归档低价值/噪音条目",
     "AC3": "D3 一致性 — 检查语义矛盾和格式分裂",
-    "AC4": "D4 时效性 — 检查代码引用存活",
+    "AC4": "D4 时效性 — 检查代码引用存活和废弃领域",
     "AC5": "D5 去重 — 检查语义重复和跨 type 等价",
     "AC6": "D6 Tag 质量 — 检查 tag 宽泛和不匹配",
-    "AC7": "归档 low_quality 噪声条目到 archive/",
-    "AC8": "修复类型碎片集群 — 同 type 误分类合并",
-    "AC9": "重建 _index.md — 收敛后重建索引"
+    "AC7": "D7 领域相关性 — 检查 Pipeline 废弃领域条目",
+    "AC8": "归档 low_quality 噪声条目到 archive/",
+    "AC9": "合并碎片集群 (fragment clusters)",
+    "AC10": "重建 _index.md — 收敛后重建索引"
   },
   "acResults": {
-    "AC1": "D1 审计完成 — 48 条活跃条目全部逐条校验。3 条 architecture 实为 guideline(complete_the_pattern/verify_before_move/memory_frontmatter)，已改 type。内容完整条目保持原样",
-    "AC2": "D2 审计完成 — process-PRO-006.md（路由分布统计）为零价值噪音条目，全部为 0% 空数据，已移入 archive/",
-    "AC3": "D3 审计完成 — 无跨条目语义矛盾。修复 4 条 memory-sync 条目的 createdAt→created 格式分裂(complete_the_pattern/verify_before_move/memory_frontmatter/evolution_extension)",
-    "AC4": "D4 审计完成 — 所有条目代码引用存活。6 条决策条目(DEC-004/005/011/012、deploy-push-resilience/AS-019) referencedBy 为空但内容仍有效，保持活跃",
-    "AC5": "D5 审计完成 — 3 条 architecture 误分类为 guideline 修复类型碎片(complete_the_pattern/verify_before_move/memory_frontmatter)。无跨 type 等价重复",
-    "AC6": "D6 审计完成 — ARC-011 标签从 8 条冗余变体精简为 4 个精确标签(jwt-auth/token-refresh/oauth2/design-doc)。AS-019 和 memory_frontmatter 空标签已补充",
-    "AC7": "1 条噪声条目移入 ~/.studio/knowledge/archive/process-PRO-006.md",
-    "AC8": "3 条 architecture→guideline 类型修复：complete_the_pattern、verify_before_move、memory_frontmatter。4 条 createdAt→created 格式修复",
-    "AC9": "_index.md 重建完成：53 条目（含 archive 1 条）。类型分布: architecture:12 decision:8 guideline:12 process:3 pattern:7 skill:11。之前: architecture:15 guideline:9，guideline +3 来自 reclassify"
+    "AC1": "D1 审计完成 — 36 条活跃条目+4 arch-patterns 全部逐条校验。发现：8 条 decision 类型实际为 pitfall 结构(缺选项/结论/理由)；7 条 guideline 缺显式反例节。系统性格式问题关联提取 prompt",
+    "AC2": "D2 审计完成 — 6 条目归档:DEC-001(API key命名,价值低且Pipeline域),ARC-021(类型错标),DEC-011(被core-concepts完全覆盖),PRO-003(零值噪音),pattern-task-tier-routing(已废弃),pattern-worktree-state-reconciliation(已废弃)",
+    "AC3": "D3 审计完成 — 无跨条目语义矛盾。已修复:skill-discovery-matching-pitfalls.md 内部type不一致(frontmatter:pitfall vs body:guideline)",
+    "AC4": "D4 审计完成 — 已修复:pattern-prompt-context-injection.md 源码引用指向废弃goals/模块 → 移除具体路径,保留模式描述。lifecycle-pattern.md 引用不存在的doc-freshness-skill需后续更新",
+    "AC5": "D5 审计完成 — DEC-004(加载机制)与agent-network-skill-architecture.md重叠(50%),已合并后归档。DEC-011(Claim乐观锁)/DEC-012(scope自然语言)完全被core-concepts覆盖,已合并后归档。skill-discovery-matching-pitfalls与skill-definition-process描述陷阱重叠>50%",
+    "AC6": "D6 审计完成 — process-PRO-004 标签中文→英文。其余条目标签匹配内容",
+    "AC7": "D7 审计完成 — 3 条 Pipeline 域条目(pattern-task-tier-routing/pattern-worktree-state-reconciliation/ARC-021)已归档。AS-019 从 KnowledgeBus 依赖中剥离通用模式(pattern-knowledge-retrieval-scoring)",
+    "AC8": "9 条目移入 archive/: architecture-ARC-021, architecture-AS-019, DEC-001, DEC-004, DEC-011, DEC-012, pattern-task-tier-routing, pattern-worktree-state-reconciliation, process-PRO-003",
+    "AC9": "合并完成: DEC-004→agent-network-skill-architecture.md(加载机制实装注意事项); DEC-012→agent-network-core-concepts.md(scope设计说明); AS-019→pattern-knowledge-retrieval-scoring.md(评分算法+三层上下文模式); PRO-004→guideline(六维追踪框架,改type+英文tags+反例)",
+    "AC10": "_index.md 重建完成: 36 条目(存档9)。类型分布: architecture:6 decision:4 guideline:25 pitfall:1"
   },
   "testResults": {
     "passed": 0,
     "total": 0,
     "failed": 0,
-    "command": "n/a — 知识库审计任务，无代码测试",
-    "evidence": "harness knowledge audit: 89/100。本 scope 问题全部已修复。其余 flagged 条目在 .harness/ 知识存储中，属前次 D7-D8 审计范围",
+    "command": "n/a — 知识库语义审计任务，无代码测试",
+    "evidence": "所有操作已验证: ls 确认36条活跃+9条归档, grep 确认archive内容正确, harness knowledge audit 报告 88/100(6条归档条目空内容为预期)。_index.md 重建完成",
     "verifiedAt": "2026-07-01T00:00:00Z"
   },
   "designNotes": {
     "decisions": [
-      "process-PRO-006.md 归档而非删除 — 保留历史轨迹",
-      "3 条 architecture→guideline 改 type 不改文件名 — 保留 id 兼容性，避免断链",
-      "createdAt→created 字段修复只改键名不改值 — 时间戳精确到毫秒，保留无需转换",
-      "ARC-011 tags 从 8 条冗余变体精简 — 原标签是同一标题的 7 种变体，无信息增益",
-      "fragment clusters 以 type 修复方式解决而非合并 — 内容已独立完整，合并损失信息"
+      "ARC-021 归档而非重分类为 pitfall — 核心问题(异步时序)引用的KnowledgeBus已废弃,保留通用教训无意义",
+      "DEC-004/DEC-012 内容合并到父条目后归档 — 加载机制细节写入skill-architecture实现注意事项,scope设计说明写入core-concepts WorkUnit节",
+      "AS-019 提取通用模式(pattern-knowledge-retrieval-scoring)后归档 — 评分算法(typeWeight/freshness/maturity)和三层上下文模型是架构无关的通用模式",
+      "PRO-004 (六维追踪) 重写为 guideline 而非 process — 原内容为框架性方法,非可执行步骤;改用 规则/适用场景/反例 结构提升可用性",
+      "GUI-xxx 系列的 D1 系统性问题不在此次修复范围 — 根因在提取 prompt 格式(根因/责任归属/预防措施),需改知识提取管线",
+      "process-PRO-003 归档而非删除 — 保留历史轨迹",
+      "skill-discovery-matching-pitfalls 内部 type 不一致暂不强制统一 — 该条目故意用 pitfall 正文覆盖 guideline 内容,保持 frontmatter type = pitfall 为准"
     ],
-    "failedAttempts": [],
-    "uncertainties": [],
-    "constraintsDiscovered": []
+    "failedAttempts": [
+      "尝试用 harness knowledge index 重建索引 — CLI 无此子命令,需手动用 python 生成"
+    ],
+    "uncertainties": [
+      "lifecycle-pattern.md 引用 doc-freshness-skill — 该 skill 不存在于 ~/.studio/skills/ 仅存在于已废弃 lifecycle-skill 的引用中。需确认是否需要新创建或移除引用"
+    ],
+    "constraintsDiscovered": [
+      "GUI-xxx 条目的 D1 系统性失败(D1 guideline 要求 规则+适用场景+反例,但提取 prompt 产出 根因/责任归属/预防措施)非单次审计可修复",
+      "所有 DEC-xxx 条目的结构性问题(decision 类型但 pitfall 结构)同属提取 pipeline 问题"
+    ]
   }
 }
