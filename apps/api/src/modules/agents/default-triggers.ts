@@ -1,8 +1,8 @@
-// Default Triggers — 4 system triggers for Agent Network (AS-026, AC-4)
+// Default Triggers — 9 system triggers for Agent Network
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
 
-/** Register the 4 default system triggers */
+/** Register the 9 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
   // 1. agent-discover: EVENT workunit.created → EXECUTE agent-loop
   registry.registerTrigger({
@@ -188,6 +188,14 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
       scope: 'system',
     },
     {
+      id: 'agent-timeout',
+      name: 'Release timed-out Agent instances',
+      condition: { type: 'SCHEDULE', cron: '*/2 * * * *' },
+      action: { type: 'EXECUTE', target: 'agent-timeout-scan' },
+      enabled: true,
+      scope: 'system',
+    },
+    {
       id: 'knowledge-quality-audit',
       name: 'Daily knowledge quality semantic audit',
       condition: { type: 'SCHEDULE', cron: '17 3 * * *' },
@@ -197,6 +205,21 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
         payload: {
           type: 'analysis',
           scope: 'Run knowledge-quality-skill: audit semantic quality of ~/.studio/knowledge/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.',
+        },
+      },
+      enabled: true,
+      scope: 'system',
+    },
+    {
+      id: 'session-knowledge-extraction',
+      name: 'Daily session knowledge extraction',
+      condition: { type: 'SCHEDULE', cron: '17 4 * * *' },
+      action: {
+        type: 'CREATE',
+        target: 'WorkUnit',
+        payload: {
+          type: 'analysis',
+          scope: 'Scan ~/.studio/data/sessions/ for unprocessed JSONL files. Extract knowledge using knowledge-extraction skill. Mark processed files with .done suffix.',
         },
       },
       enabled: true,

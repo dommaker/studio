@@ -111,15 +111,17 @@ describe('Default Triggers', () => {
     expect(staleCalls).toHaveLength(0);
   });
 
-  it('getDefaultTriggerConfigs returns 7 configs', () => {
+  it('getDefaultTriggerConfigs returns 9 configs', () => {
     const configs = getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(7);
+    expect(configs).toHaveLength(9);
     expect(configs.map(c => c.id)).toEqual([
       'agent-discover',
       'workunit-timeout',
       'dependency-unlock',
       'poll-fallback',
+      'agent-timeout',
       'knowledge-quality-audit',
+      'session-knowledge-extraction',
       'zero-consumption-audit',
       'knowledge-synthesis',
     ]);
