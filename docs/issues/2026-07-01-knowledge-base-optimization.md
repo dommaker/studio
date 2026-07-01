@@ -181,13 +181,13 @@ cstnew (shell 函数 in ~/.zshrc)
 | AC-5 | 17 条无 frontmatter 补全（13 根目录 + 4 arch-patterns/） | ✅ |
 | AC-6 | index.json 重建（45 条目） | ✅ |
 
-### Phase 3: 索引质量提升（部分已被 Phase 2 覆盖）
+### Phase 3: 索引质量提升 ✅ 完成
 
 | # | 任务 | 目标 | 状态 |
 |---|------|------|------|
 | 3.1 | 补 tag（18 条无 tag） | grep 可发现性 | ✅ Phase 2 AC-5 已补 |
 | 3.2 | 补 maturity（23 条 unknown） | 生命周期管理 | ✅ Phase 2 AC-5 已补 |
-| 3.3 | 标准化 ID | FileKnowledgeStore 可管理 | 待做 |
+| 3.3 | 标准化 ID | FileKnowledgeStore 可管理 | ✅ 18 条补 ID，44/44 全覆盖 |
 
 ### Phase 4: 消费闭环
 
