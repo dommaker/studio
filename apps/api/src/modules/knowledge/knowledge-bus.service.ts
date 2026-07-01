@@ -1,4 +1,8 @@
 /**
+ * @deprecated Pipeline 层组件，随 Pipeline 30 天观察期后删除（2026-07 起算）。
+ * Agent Network 层使用 knowledgeService（knowledge-service.ts）。
+ * 新代码禁止引用本模块。
+ *
  * KnowledgeBus — Agent 间共享知识总线 (H1, 2026-05-21)
  *
  * 每个 Agent 既是生产者也是消费者：

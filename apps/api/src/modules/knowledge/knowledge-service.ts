@@ -32,6 +32,9 @@ import { scheduleVectorDbSync } from './knowledge-bus.service.js';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
 import { join, basename } from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 
 // ── Type mapping (absorbed from KnowledgeBus) ──
 
@@ -51,6 +54,27 @@ const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
   gap: 'guideline',
   resolution: 'guideline',
 };
+
+// ── Data layer: trends directory ──
+
+const DATA_TRENDS_DIR = path.join(os.homedir(), '.studio', 'data', 'trends');
+
+/**
+ * 写入趋势数据到 data/trends/ 目录。
+ * 替代原 recordTrend 写入 knowledge/ 的行为。
+ * 被 knowledgeService.recordTrend/recordAnalystAccuracy、
+ * monitorAgent.precipitateRouting、signalAggregator.upsertTrend 共用。
+ */
+export function writeTrendData(filename: string, content: string): void {
+  fs.mkdirSync(DATA_TRENDS_DIR, { recursive: true });
+  const filePath = path.join(DATA_TRENDS_DIR, filename);
+  if (fs.existsSync(filePath)) {
+    const existing = fs.readFileSync(filePath, 'utf-8');
+    fs.writeFileSync(filePath, existing + '\n\n---\n\n' + content, 'utf-8');
+  } else {
+    fs.writeFileSync(filePath, content, 'utf-8');
+  }
+}
 
 // ── Stop words for keyword extraction ──
 
@@ -350,63 +374,37 @@ export class KnowledgeService {
 
   async recordTrend(entry: TrendEntry): Promise<void> {
     try {
-      this.ingest.ingestEntry(
-        {
-          type: 'process' as KnowledgeSubsystem,
-          title: entry.title,
-          content: entry.content,
-          tags: ['trend'],
-        },
-        {
-          source: `trend:auditor:${new Date().toISOString()}`,
-          layer: 'project',
-          maturity: 'active',
-          tags: ['trend'],
-          consumptionMode: 'signal',
-        },
-      );
-      scheduleVectorDbSync();
-    } catch {
-      // best-effort
+      const dateStr = new Date().toISOString().split('T')[0];
+      const content = `## ${entry.title}\n\n${entry.content}\n\nmetric: ${entry.metric}`;
+      writeTrendData(`${dateStr}.md`, content);
+      logger.debug('[KnowledgeService] recordTrend → data/', { metric: entry.metric });
+    } catch (e) {
+      logger.warn('[KnowledgeService] recordTrend failed', { error: String(e) });
     }
   }
 
   async recordAnalystAccuracy(data: AnalystAccuracyInput): Promise<void> {
     try {
+      const dateStr = new Date().toISOString().split('T')[0];
       const missedFiles = data.predictedFiles.filter(f => !data.actualFiles.includes(f));
       const extraFiles = data.actualFiles.filter(f => !data.predictedFiles.includes(f));
       const missedDeps = data.predictedDeps.filter(d => !data.actualDeps.includes(d));
 
       const content = [
-        `任务: ${data.goalTitle}`,
-        `AC匹配率: ${Math.round(data.acMatchRate * 100)}%`,
-        `预测文件: [${data.predictedFiles.join(', ')}]`,
-        `实际文件: [${data.actualFiles.join(', ')}]`,
-        missedFiles.length > 0 ? `漏预测文件: ${missedFiles.join(', ')}` : '',
-        extraFiles.length > 0 ? `多预测文件: ${extraFiles.join(', ')}` : '',
-        missedDeps.length > 0 ? `漏预测依赖: ${missedDeps.join(', ')}` : '',
-        Object.entries(data.missesByType).length > 0
-          ? `误判类型: ${Object.entries(data.missesByType).map(([k, v]) => `${k}(${v})`).join(', ')}`
-          : '',
-      ].filter(Boolean).join('; ');
+        `## AnalystAccuracy: ${data.goalTitle.slice(0, 80)}`,
+        ``,
+        `- AC匹配率: ${Math.round(data.acMatchRate * 100)}%`,
+        `- 预测文件: [${data.predictedFiles.join(', ')}]`,
+        `- 实际文件: [${data.actualFiles.join(', ')}]`,
+        missedFiles.length > 0 ? `- 漏预测: [${missedFiles.join(', ')}]` : '',
+        extraFiles.length > 0 ? `- 多预测: [${extraFiles.join(', ')}]` : '',
+        missedDeps.length > 0 ? `- 漏依赖: [${missedDeps.join(', ')}]` : '',
+      ].filter(Boolean).join('\n');
 
-      this.ingest.ingestEntry(
-        {
-          type: ENTRY_TYPE_MAP['analyst_accuracy'] || 'model',
-          title: `AnalystAccuracy: ${data.goalTitle.slice(0, 80)}`,
-          content,
-          tags: ['analyst_accuracy'],
-        },
-        {
-          source: `analyst_accuracy:posteval:${data.docId.slice(0, 16)}`,
-          layer: 'project',
-          maturity: 'draft',
-          tags: ['analyst_accuracy'],
-        },
-      );
-      scheduleVectorDbSync();
+      writeTrendData(`${dateStr}.md`, content);
+      logger.debug('[KnowledgeService] recordAnalystAccuracy → data/');
     } catch (e) {
-      logger.warn('[KnowledgeService] Failed to record analyst accuracy', { error: String(e) });
+      logger.warn('[KnowledgeService] recordAnalystAccuracy failed', { error: String(e) });
     }
   }
 
