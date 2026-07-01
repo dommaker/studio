@@ -16,7 +16,7 @@ describe('AC-B.3: safeIngest form gate', () => {
       'apps/api/src/modules/agents/knowledge-agent.service.ts',
       'utf-8'
     );
-    expect(source).toContain("import { validateKnowledgeForm } from '../knowledge/knowledge-service.js'");
+    expect(source).toMatch(/import.*validateKnowledgeForm.*from.*knowledge-service/);
   });
 
   test('calls validateKnowledgeForm in safeIngest', async () => {
@@ -27,14 +27,14 @@ describe('AC-B.3: safeIngest form gate', () => {
     expect(source).toContain('validateKnowledgeForm(');
   });
 
-  test('handles form=data with data/ redirect', async () => {
+  test('handles form=data with writeTrendData (append mode)', async () => {
     const source = fs.readFileSync(
       'apps/api/src/modules/agents/knowledge-agent.service.ts',
       'utf-8'
     );
-    // Should write to data/ directory when form='data'
+    // Should use writeTrendData for data redirect (append, not overwrite)
     expect(source).toMatch(/formResult\.form\s*===\s*['"]data['"]/);
-    expect(source).toMatch(/-extracted\.md/);
+    expect(source).toMatch(/writeTrendData\(.*extracted\.md/);
   });
 
   test('returns false when form gate rejects', async () => {

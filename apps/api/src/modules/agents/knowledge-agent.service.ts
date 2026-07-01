@@ -9,7 +9,7 @@ import { modelGateway, logger } from '@dommaker/studio-shared';
 import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { DecisionRecord } from '@dommaker/harness';
 import { sharedStore, sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
-import { validateKnowledgeForm } from '../knowledge/knowledge-service.js';
+import { validateKnowledgeForm, writeTrendData } from '../knowledge/knowledge-service.js';
 import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { exec } from 'child_process';
@@ -919,15 +919,10 @@ ${existingPatternsBlock}`;
       });
 
       if (formResult.form === 'data') {
-        // 数据重定向到 data/ 目录
+        // 数据重定向到 data/trends/ 目录（复用 writeTrendData 追加模式）
         const dateStr = new Date().toISOString().split('T')[0];
-        const dataDir = path.join(os.homedir(), '.studio', 'data');
-        fs.mkdirSync(dataDir, { recursive: true });
-        fs.writeFileSync(
-          path.join(dataDir, `${dateStr}-extracted.md`),
-          `## ${entry.title}\n\n${entry.content}\n\nsource: ${options.source}\n`,
-          'utf-8',
-        );
+        const content = `## ${entry.title}\n\n${entry.content}\n\nsource: ${options.source}`;
+        writeTrendData(`${dateStr}-extracted.md`, content);
       }
       // form='skill'/'rule' → 只记日志，不写入
       return false;
