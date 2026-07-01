@@ -115,7 +115,7 @@ vi.mock('../../triggers/trigger-action', () => ({
   executeUpdateAction: vi.fn(),
 }));
 
-import { AgentLoop, analyzeKnowledgeSearch } from '../agent-loop';
+import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds } from '../agent-loop';
 import type { TriggerScheduler } from '../../triggers/trigger-scheduler';
 
 describe('AgentLoop', () => {
@@ -656,6 +656,67 @@ describe('AgentLoop', () => {
       const result = analyzeKnowledgeSearch(log);
       expect(result.searched).toBe(true);
       expect(result.searchCalls).toHaveLength(1);
+    });
+  });
+
+  describe('extractKnowledgeEntryIds()', () => {
+    it('extracts entry ID from Read tool call', () => {
+      const analysis = {
+        searched: true,
+        searchCalls: [{ tool: 'Read', detail: '/root/.studio/knowledge/decision-DEC-001.md' }],
+      };
+      const result = extractKnowledgeEntryIds(analysis);
+      expect(result).toEqual(['decision-DEC-001']);
+    });
+
+    it('extracts entry ID from Bash grep command', () => {
+      const analysis = {
+        searched: true,
+        searchCalls: [{ tool: 'Bash', detail: 'grep -r "auth" /root/.studio/knowledge/pattern-auth.md' }],
+      };
+      const result = extractKnowledgeEntryIds(analysis);
+      expect(result).toEqual(['pattern-auth']);
+    });
+
+    it('excludes _index.md', () => {
+      const analysis = {
+        searched: true,
+        searchCalls: [{ tool: 'Read', detail: '/root/.studio/knowledge/_index.md' }],
+      };
+      const result = extractKnowledgeEntryIds(analysis);
+      expect(result).toEqual([]);
+    });
+
+    it('deduplicates entries accessed multiple times', () => {
+      const analysis = {
+        searched: true,
+        searchCalls: [
+          { tool: 'Read', detail: '/root/.studio/knowledge/decision-DEC-001.md' },
+          { tool: 'Read', detail: '/root/.studio/knowledge/decision-DEC-001.md' },
+          { tool: 'Bash', detail: 'grep "DEC-001" ~/.studio/knowledge/decision-DEC-001.md' },
+        ],
+      };
+      const result = extractKnowledgeEntryIds(analysis);
+      expect(result).toEqual(['decision-DEC-001']);
+    });
+
+    it('returns empty for searchCalls without detail', () => {
+      const analysis = {
+        searched: true,
+        searchCalls: [{ tool: 'Glob', detail: undefined }],
+      };
+      const result = extractKnowledgeEntryIds(analysis);
+      expect(result).toEqual([]);
+    });
+
+    it('handles subdirectory paths like arch-patterns/concept.md', () => {
+      const analysis = {
+        searched: true,
+        searchCalls: [{ tool: 'Read', detail: '/root/.studio/knowledge/arch-patterns/concept.md' }],
+      };
+      const result = extractKnowledgeEntryIds(analysis);
+      // Should extract filename only, not path with subdirectory
+      expect(result).toEqual(['arch-patterns/concept']);
     });
   });
 });

@@ -250,6 +250,16 @@ export class AgentLoop {
       const analysis = this.analyzeKnowledgeSearchFromLog(result.logFile);
       if (analysis.searched) {
         logger.info(`[AgentLoop] Knowledge search detected for ${workUnit.id}: ${analysis.searchCalls.length} call(s) [${analysis.searchCalls.map(c => c.tool).join(', ')}]`);
+        // Record knowledge consumption (non-blocking)
+        const entryIds = extractKnowledgeEntryIds(analysis);
+        if (entryIds.length > 0) {
+          try {
+            const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+            knowledgeService.recordConsumption(entryIds, `workUnit:${workUnit.id}`);
+          } catch (err) {
+            logger.debug(`[AgentLoop] Failed to record knowledge consumption: ${err}`);
+          }
+        }
       }
     }
 
@@ -346,4 +356,25 @@ function getKnowledgeSearchDetail(toolName: string, input: unknown): string | nu
   }
 
   return null;
+}
+
+/**
+ * Extract knowledge entry IDs from search analysis results.
+ * Parses file paths from Read/Bash tool call details.
+ */
+export function extractKnowledgeEntryIds(analysis: KnowledgeSearchAnalysis): string[] {
+  const ids: string[] = [];
+  for (const call of analysis.searchCalls) {
+    if (!call.detail) continue;
+    // Match .studio/knowledge/<path>.md — captures subdirectory paths too
+    const match = call.detail.match(/\.studio\/knowledge\/([^/\s]+(?:\/[^/\s]+)?\.md)/);
+    if (match) {
+      const filePart = match[1];
+      // Exclude _index.md
+      if (filePart === '_index.md' || filePart.endsWith('/_index.md')) continue;
+      // Remove .md suffix for entry ID
+      ids.push(filePart.replace(/\.md$/, ''));
+    }
+  }
+  return [...new Set(ids)];
 }
