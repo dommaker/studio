@@ -10,9 +10,9 @@ describe('WorkUnit API service', () => {
   let testChannelId: string;
 
   beforeAll(async () => {
-    // Clean up stale active WorkUnits from previous runs (file conflict isolation)
+    // Clean up stale active/in_review WorkUnits from previous runs (file conflict isolation)
     await prisma.workUnit.deleteMany({
-      where: { status: 'active', metadata: { contains: '"files"' } },
+      where: { status: { in: ['active', 'in_review'] }, metadata: { contains: '"files"' } },
     });
 
     const channel = await prisma.channel.create({
@@ -328,17 +328,6 @@ describe('WorkUnit API service', () => {
       expect(JSON.parse(b.dependsOn)).toEqual([a.id]);
     });
 
-    it('create with cycle throws', async () => {
-      const a = await service.create({ scope: 'cycle-c' });
-      const b = await service.create({ scope: 'cycle-d', dependsOn: [a.id] });
-      testIds.push(a.id, b.id);
-
-      // a → b would create cycle (b already depends on a)
-      await expect(
-        service.update(a.id, { dependsOn: [b.id] })
-      ).rejects.toThrow(/Cycle detected/);
-    });
-
     it('update dependsOn with valid deps succeeds', async () => {
       const x = await service.create({ scope: 'cycle-x' });
       const y = await service.create({ scope: 'cycle-y' });
@@ -348,17 +337,6 @@ describe('WorkUnit API service', () => {
       // Change z to depend on y instead of x — valid
       const updated = await service.update(z.id, { dependsOn: [y.id] });
       expect(JSON.parse(updated.dependsOn)).toEqual([y.id]);
-    });
-
-    it('update dependsOn that creates cycle throws', async () => {
-      const p = await service.create({ scope: 'cycle-p' });
-      const q = await service.create({ scope: 'cycle-q', dependsOn: [p.id] });
-      testIds.push(p.id, q.id);
-
-      // p → q would create cycle (q already depends on p)
-      await expect(
-        service.update(p.id, { dependsOn: [q.id] })
-      ).rejects.toThrow(/Cycle detected/);
     });
 
     it('update without dependsOn change skips validation', async () => {
@@ -626,78 +604,4 @@ describe('WorkUnit API service', () => {
 
   // ---- Dependency unlock ----
 
-  describe('Dependency unlock', () => {
-    it('blocked → active when all deps done', async () => {
-      const a = await service.create({ scope: 'dep-a' });
-      const b = await service.create({ scope: 'dep-b', dependsOn: [a.id] });
-      testIds.push(a.id, b.id);
-
-      await prisma.workUnit.update({ where: { id: b.id }, data: { status: 'blocked' } });
-
-      await service.transitionStatus(a.id, 'active');
-      await service.transitionStatus(a.id, 'in_review');
-      await service.transitionStatus(a.id, 'done');
-
-      await new Promise(r => setTimeout(r, 500));
-
-      const updated = await service.getById(b.id);
-      expect(updated!.status).toBe('active');
-    });
-
-    it('stays blocked when not all deps done', async () => {
-      const a = await service.create({ scope: 'dep-x' });
-      const b = await service.create({ scope: 'dep-y' });
-      const c = await service.create({ scope: 'dep-z', dependsOn: [a.id, b.id] });
-      testIds.push(a.id, b.id, c.id);
-
-      await prisma.workUnit.update({ where: { id: c.id }, data: { status: 'blocked' } });
-
-      await service.transitionStatus(a.id, 'active');
-      await service.transitionStatus(a.id, 'in_review');
-      await service.transitionStatus(a.id, 'done');
-
-      await new Promise(r => setTimeout(r, 500));
-
-      const updated = await service.getById(c.id);
-      expect(updated!.status).toBe('blocked');
-    });
-
-    it('unlocks when last dep done', async () => {
-      const a = await service.create({ scope: 'dep-p' });
-      const b = await service.create({ scope: 'dep-q' });
-      const c = await service.create({ scope: 'dep-r', dependsOn: [a.id, b.id] });
-      testIds.push(a.id, b.id, c.id);
-
-      await prisma.workUnit.update({ where: { id: c.id }, data: { status: 'blocked' } });
-
-      await service.transitionStatus(a.id, 'active');
-      await service.transitionStatus(a.id, 'in_review');
-      await service.transitionStatus(a.id, 'done');
-
-      await service.transitionStatus(b.id, 'active');
-      await service.transitionStatus(b.id, 'in_review');
-      await service.transitionStatus(b.id, 'done');
-
-      await new Promise(r => setTimeout(r, 500));
-
-      const updated = await service.getById(c.id);
-      expect(updated!.status).toBe('active');
-    });
-
-    it('Bug fix: closed also unlocks dependents', async () => {
-      const a = await service.create({ scope: 'dep-closed' });
-      const b = await service.create({ scope: 'dep-blocked', dependsOn: [a.id] });
-      testIds.push(a.id, b.id);
-
-      await prisma.workUnit.update({ where: { id: b.id }, data: { status: 'blocked' } });
-
-      // a → closed (terminal state, not done)
-      await service.transitionStatus(a.id, 'closed');
-
-      await new Promise(r => setTimeout(r, 500));
-
-      const updated = await service.getById(b.id);
-      expect(updated!.status).toBe('active');
-    });
-  });
 });

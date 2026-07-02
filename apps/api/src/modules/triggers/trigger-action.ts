@@ -82,22 +82,19 @@ export async function executeExecuteAction(
 }
 
 /**
- * Execute an UPDATE action — updates entity via prisma with template resolution.
- * Supports $event.xxx template variables in query/update values.
+ * Execute an UPDATE action — updates entity via prisma.
  * @param action - The trigger action definition (must be UPDATE type)
- * @param context - Event payload for template resolution
  */
 export async function executeUpdateAction(
   action: TriggerAction,
-  context: unknown,
+  _context: unknown,
 ): Promise<void> {
   if (action.type !== 'UPDATE') {
     throw new Error(`Expected UPDATE action, got: ${action.type}`);
   }
 
-  const eventPayload = (context && typeof context === 'object') ? context as Record<string, unknown> : {};
-  const query = resolveTemplate(action.config.query, eventPayload);
-  const update = resolveTemplate(action.config.update, eventPayload);
+  const query = action.config.query;
+  const update = action.config.update;
 
   // Only support workunit entity for MVP
   if (action.target === 'workunit') {
@@ -105,44 +102,4 @@ export async function executeUpdateAction(
   } else {
     logger.warn(`[TriggerAction] Unknown UPDATE target: ${action.target}`);
   }
-}
-
-/**
- * Recursively resolve $event.xxx template variables in an object.
- * $event.xxx → eventPayload.xxx. If key not found, field is skipped.
- */
-function resolveTemplate(
-  obj: Record<string, unknown>,
-  eventPayload: Record<string, unknown>,
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (typeof value === 'string' && value.startsWith('$event.')) {
-      const path = value.slice(7); // remove '$event.'
-      const resolved = getNestedValue(eventPayload, path);
-      if (resolved !== undefined) {
-        result[key] = resolved;
-      }
-      // Skip if not found in event payload
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
-      result[key] = resolveTemplate(value as Record<string, unknown>, eventPayload);
-    } else {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
-/** Get nested value from object by dot-separated path */
-function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.');
-  let current: unknown = obj;
-  for (const part of parts) {
-    if (current && typeof current === 'object' && part in (current as Record<string, unknown>)) {
-      current = (current as Record<string, unknown>)[part];
-    } else {
-      return undefined;
-    }
-  }
-  return current;
 }

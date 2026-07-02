@@ -1,7 +1,6 @@
-// Trigger Scheduler — periodic cron checker + event subscriber (3.28c-4, AS-026 extended)
+// Trigger Scheduler — periodic cron checker (3.28c-4, AS-026 extended)
 // SCHEDULE triggers: checked every 60s tick
-// EVENT triggers: subscribe to EventBus, fire on matching events
-import { eventBus, logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { CronMatcher } from './cron-matcher.js';
 import { TriggerStore } from './trigger-store.js';
 import { executeCreateAction, executeExecuteAction, executeUpdateAction } from './trigger-action.js';
@@ -14,8 +13,6 @@ export class TriggerScheduler {
   private states: Map<string, TriggerState> = new Map();
   private logs: TriggerLogEntry[] = [];
   private intervalId: ReturnType<typeof setInterval> | null = null;
-  /** Track EventBus subscriptions for EVENT triggers (triggerId → unsubscribe fn) */
-  private eventSubscriptions: Map<string, () => void> = new Map();
 
   constructor(store: TriggerStore) {
     this.store = store;
@@ -41,14 +38,10 @@ export class TriggerScheduler {
   }
 
   /**
-   * Register a trigger programmatically (used by AgentLoop for EVENT triggers).
-   * If trigger has EVENT condition, subscribes to EventBus.
-   * If trigger already exists, updates config and re-subscribes if needed.
+   * Register a trigger programmatically.
+   * If trigger already exists, updates config.
    */
   registerTrigger(trigger: TriggerConfig): void {
-    // Unsubscribe existing EVENT subscription if updating
-    this.unsubscribeEvent(trigger.id);
-
     const existing = this.states.get(trigger.id);
     this.states.set(trigger.id, existing || {
       config: trigger,
@@ -58,17 +51,11 @@ export class TriggerScheduler {
     });
     this.states.get(trigger.id)!.config = trigger;
 
-    // Subscribe to EventBus for EVENT conditions
-    if (trigger.condition.type === 'EVENT' && trigger.enabled) {
-      this.subscribeEvent(trigger);
-    }
-
     this.log(trigger.id, 'tick', `Trigger "${trigger.name}" registered (${trigger.condition.type})`);
   }
 
-  /** Unregister a trigger and clean up subscriptions */
+  /** Unregister a trigger */
   unregisterTrigger(id: string): void {
-    this.unsubscribeEvent(id);
     this.states.delete(id);
     this.log(id, 'tick', `Trigger unregistered`);
   }
@@ -78,9 +65,6 @@ export class TriggerScheduler {
     const state = this.states.get(id);
     if (!state) return;
     state.config = { ...state.config, enabled: true };
-    if (state.config.condition.type === 'EVENT') {
-      this.subscribeEvent(state.config);
-    }
   }
 
   /** Disable a trigger */
@@ -88,7 +72,6 @@ export class TriggerScheduler {
     const state = this.states.get(id);
     if (!state) return;
     state.config = { ...state.config, enabled: false };
-    this.unsubscribeEvent(id);
   }
 
   /** Start the scheduler */
@@ -103,14 +86,11 @@ export class TriggerScheduler {
     this.intervalId = setInterval(() => this.tick(), TICK_INTERVAL_MS);
   }
 
-  /** Stop the scheduler and clean up all subscriptions */
+  /** Stop the scheduler */
   stop(): void {
     if (this.intervalId) {
       clearInterval(this.intervalId);
       this.intervalId = null;
-    }
-    for (const [id] of this.eventSubscriptions) {
-      this.unsubscribeEvent(id);
     }
     this.log('scheduler', 'tick', 'Scheduler stopped');
   }
@@ -155,45 +135,6 @@ export class TriggerScheduler {
       case 'UPDATE':
         await executeUpdateAction(config.action, context);
         break;
-    }
-  }
-
-  /** Subscribe to EventBus for an EVENT trigger */
-  private subscribeEvent(trigger: TriggerConfig): void {
-    if (trigger.condition.type !== 'EVENT') return;
-
-    const eventName = trigger.condition.event;
-    const filter = trigger.condition.filter;
-    const handler = (payload: unknown) => {
-      const state = this.states.get(trigger.id);
-      if (!state || !state.config.enabled) return;
-
-      // Apply filter if configured
-      if (filter) {
-        const eventPayload = (payload && typeof payload === 'object') ? payload as Record<string, unknown> : {};
-        for (const [key, expected] of Object.entries(filter)) {
-          if (eventPayload[key] !== expected) return;
-        }
-      }
-
-      this.log(trigger.id, 'fired', `EVENT trigger "${trigger.name}" fired on ${eventName}`);
-      this.executeTrigger(trigger, payload).catch(err => {
-        if (state) state.errorCount++;
-        this.log(trigger.id, 'error', `EVENT trigger "${trigger.name}" failed: ${err.message}`);
-      });
-      if (state) state.lastFiredAt = new Date();
-    };
-
-    eventBus.subscribe(eventName, handler);
-    this.eventSubscriptions.set(trigger.id, () => eventBus.unsubscribe(eventName, handler));
-  }
-
-  /** Unsubscribe from EventBus for a trigger */
-  private unsubscribeEvent(triggerId: string): void {
-    const unsub = this.eventSubscriptions.get(triggerId);
-    if (unsub) {
-      unsub();
-      this.eventSubscriptions.delete(triggerId);
     }
   }
 

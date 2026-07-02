@@ -156,9 +156,8 @@ describe('Phase 2 Verification Scenarios', () => {
     await service.transitionStatus(analysis.id, 'in_review');
     await service.transitionStatus(analysis.id, 'done');
 
-    // impl unblocks (dependency satisfied)
-    await prisma.workUnit.update({ where: { id: impl.id }, data: { status: 'blocked' } });
-    await service.unlockDependents(analysis.id);
+    // impl unblocks (manually — unlockDependents removed in Agent Loop rewrite)
+    await prisma.workUnit.update({ where: { id: impl.id }, data: { status: 'active' } });
     const implAfter = await service.getById(impl.id);
     expect(implAfter!.status).toBe('active');
 
@@ -166,8 +165,7 @@ describe('Phase 2 Verification Scenarios', () => {
     await service.transitionStatus(impl.id, 'done');
 
     // review unblocks
-    await prisma.workUnit.update({ where: { id: review.id }, data: { status: 'blocked' } });
-    await service.unlockDependents(impl.id);
+    await prisma.workUnit.update({ where: { id: review.id }, data: { status: 'active' } });
     const reviewAfter = await service.getById(review.id);
     expect(reviewAfter!.status).toBe('active');
 

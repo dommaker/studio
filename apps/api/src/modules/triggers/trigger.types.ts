@@ -2,9 +2,7 @@
 // Trigger = condition (when) + action (what)
 
 /** Trigger condition — when to fire */
-export type TriggerCondition =
-  | { type: 'SCHEDULE'; cron: string }
-  | { type: 'EVENT'; event: string; filter?: Record<string, unknown> };
+export type TriggerCondition = { type: 'SCHEDULE'; cron: string };
 
 /** Trigger action — what to do when fired */
 export type TriggerAction =

@@ -24,10 +24,6 @@ function validateTrigger(config: TriggerConfig): void {
     if (!CronMatcher.isValid(config.condition.cron)) {
       throw new Error(`Invalid cron expression: "${config.condition.cron}"`);
     }
-  } else if (config.condition.type === 'EVENT') {
-    if (!config.condition.event) {
-      throw new Error('EVENT condition must have event name');
-    }
   } else {
     throw new Error(`Unknown condition type: ${(config.condition as { type: string }).type}`);
   }

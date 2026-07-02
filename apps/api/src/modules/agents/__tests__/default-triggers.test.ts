@@ -40,25 +40,10 @@ describe('Default Triggers', () => {
     registry = new (TriggerScheduler as any)(null);
   });
 
-  it('registers 9 default triggers', () => {
+  it('registers 6 default triggers', () => {
     registerDefaultTriggers(registry);
 
-    expect(mockRegisterTrigger).toHaveBeenCalledTimes(9);
-  });
-
-  it('agent-discover fires on workunit.created', () => {
-    registerDefaultTriggers(registry);
-
-    const discoverCall = mockRegisterTrigger.mock.calls.find(
-      (c: any) => c[0].id === 'agent-discover',
-    );
-    expect(discoverCall).toBeDefined();
-    expect(discoverCall![0].condition).toEqual(
-      expect.objectContaining({ type: 'EVENT', event: 'workunit.created' }),
-    );
-    expect(discoverCall![0].action).toEqual(
-      expect.objectContaining({ type: 'EXECUTE', target: 'agent-loop' }),
-    );
+    expect(mockRegisterTrigger).toHaveBeenCalledTimes(6);
   });
 
   it('workunit-timeout fires every 5 minutes', () => {
@@ -73,34 +58,6 @@ describe('Default Triggers', () => {
     );
   });
 
-  it('dependency-unlock fires on workunit.done with $event.id template', () => {
-    registerDefaultTriggers(registry);
-
-    const unlockCall = mockRegisterTrigger.mock.calls.find(
-      (c: any) => c[0].id === 'dependency-unlock',
-    );
-    expect(unlockCall).toBeDefined();
-    expect(unlockCall![0].condition).toEqual(
-      expect.objectContaining({ type: 'EVENT', event: 'workunit.done' }),
-    );
-    // Bug 2 fix: dependsOn should use $event.id template, not contains: ''
-    expect(unlockCall![0].action.config.query.dependsOn).toEqual({ contains: '$event.id' });
-  });
-
-  it('poll-fallback fires every 30 seconds', () => {
-    registerDefaultTriggers(registry);
-
-    const pollCall = mockRegisterTrigger.mock.calls.find(
-      (c: any) => c[0].id === 'poll-fallback',
-    );
-    expect(pollCall).toBeDefined();
-    expect(pollCall![0].condition).toEqual(
-      expect.objectContaining({ type: 'SCHEDULE' }),
-    );
-    // 6-field cron (with seconds) for 30-second interval
-    expect(pollCall![0].condition.cron).toContain('*/30');
-  });
-
   it('does not register stale-recovery handler (workunit-timeout is UPDATE, not EXECUTE)', () => {
     registerDefaultTriggers(registry);
 
@@ -111,14 +68,11 @@ describe('Default Triggers', () => {
     expect(staleCalls).toHaveLength(0);
   });
 
-  it('getDefaultTriggerConfigs returns 9 configs', () => {
+  it('getDefaultTriggerConfigs returns 6 configs', () => {
     const configs = getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(9);
+    expect(configs).toHaveLength(6);
     expect(configs.map(c => c.id)).toEqual([
-      'agent-discover',
       'workunit-timeout',
-      'dependency-unlock',
-      'poll-fallback',
       'agent-timeout',
       'knowledge-quality-audit',
       'session-knowledge-extraction',

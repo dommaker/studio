@@ -10,8 +10,6 @@ import { logger } from '@dommaker/studio-shared';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkills } from '../skills/skill-selector.js';
 import { skillLoaderService } from '../skills/skill-loader.js';
-import { emitWorkUnitCreated, emitWorkUnitClaimed, emitWorkUnitStatusChanged, emitWorkUnitDone, emitWorkUnitReviewPassed, emitWorkUnitReviewRejected } from './workunit-events.js';
-import { validateNoCycle } from './cycle-detection.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
 export interface WorkUnitMetadata {
@@ -87,12 +85,6 @@ export class WorkUnitService {
    * Create a new WorkUnit.
    */
   async create(input: CreateWorkUnitInput): Promise<WorkUnit> {
-    // Cycle detection for dependsOn
-    if (input.dependsOn && input.dependsOn.length > 0) {
-      const existingEdges = await this.getExistingEdges();
-      validateNoCycle('__new__', input.dependsOn, existingEdges);
-    }
-
     const wu = await this.prisma.workUnit.create({
       data: {
         type: input.type ?? 'task',
@@ -108,13 +100,6 @@ export class WorkUnitService {
         completedAt: input.completedAt ?? null,
         metadata: input.metadata ? JSON.stringify(input.metadata) : null,
       },
-    });
-
-    emitWorkUnitCreated({
-      workUnitId: wu.id,
-      type: wu.type,
-      scope: wu.scope,
-      channelId: wu.channelId,
     });
 
     return wu;
@@ -215,12 +200,6 @@ export class WorkUnitService {
     if (input.completedAt !== undefined) data.completedAt = input.completedAt;
     if (input.metadata !== undefined) data.metadata = JSON.stringify(input.metadata);
 
-    // Cycle detection when dependsOn changes (exclude self from existing edges)
-    if (input.dependsOn !== undefined) {
-      const existingEdges = await this.getExistingEdges(id);
-      validateNoCycle(id, input.dependsOn, existingEdges);
-    }
-
     return this.prisma.workUnit.update({ where: { id }, data });
   }
 
@@ -229,22 +208,6 @@ export class WorkUnitService {
    */
   async delete(id: string): Promise<void> {
     await this.prisma.workUnit.delete({ where: { id } });
-  }
-
-  /**
-   * Build dependsOn edges from all WorkUnits in DB.
-   * @param excludeId - exclude this WorkUnit's edges (for update: we're replacing its edges)
-   */
-  private async getExistingEdges(excludeId?: string): Promise<Map<string, string[]>> {
-    const all = await this.prisma.workUnit.findMany({
-      select: { id: true, dependsOn: true },
-    });
-    const edges = new Map<string, string[]>();
-    for (const wu of all) {
-      if (wu.id === excludeId) continue;
-      edges.set(wu.id, JSON.parse(wu.dependsOn));
-    }
-    return edges;
   }
 
   /**
@@ -305,8 +268,6 @@ export class WorkUnitService {
 
     const wu = await this.prisma.workUnit.findUnique({ where: { id } });
     if (!wu) throw new Error('WorkUnit not found');
-
-    emitWorkUnitClaimed({ workUnitId: id, agentId, scope: wu.scope });
 
     // AC4: auto-load matching skills based on scope (best-effort, non-blocking)
     this.autoLoadSkillsForAgent(agentId, wu.scope).catch((err) => {
@@ -383,28 +344,6 @@ export class WorkUnitService {
       data: updateData,
     });
 
-    emitWorkUnitStatusChanged({ workUnitId: id, oldStatus: current.status, newStatus });
-
-    if (newStatus === 'done') {
-      emitWorkUnitDone({ workUnitId: id, scope: current.scope });
-      // Cascade: dependency unlock on terminal state (best-effort)
-      this.unlockDependents(id).catch(err =>
-        logger.warn('[WorkUnit] unlockDependents failed', { workUnitId: id, error: String(err) })
-      );
-    }
-
-    // Bug fix: closed is also terminal — unlock dependents
-    if (newStatus === 'closed') {
-      this.unlockDependents(id).catch(err =>
-        logger.warn('[WorkUnit] unlockDependents failed', { workUnitId: id, error: String(err) })
-      );
-    }
-
-    // Bug fix: in_review → done semantically means review passed
-    if (current.status === 'in_review' && newStatus === 'done') {
-      emitWorkUnitReviewPassed({ workUnitId: id, scope: current.scope });
-    }
-
     // Cascade: parent status aggregation on any status change that affects parent
     if (['active', 'blocked', 'done', 'closed'].includes(newStatus)) {
       this.aggregateParentStatus(id).catch(err =>
@@ -434,14 +373,7 @@ export class WorkUnitService {
       data: { status: 'done', completedAt: new Date(), metadata: JSON.stringify(metadata) },
     });
 
-    emitWorkUnitStatusChanged({ workUnitId: id, oldStatus: 'in_review', newStatus: 'done' });
-    emitWorkUnitDone({ workUnitId: id, scope: current.scope });
-    emitWorkUnitReviewPassed({ workUnitId: id, scope: current.scope });
-
-    // Cascade: dependency unlock + parent aggregation (best-effort)
-    this.unlockDependents(id).catch(err =>
-      logger.warn('[WorkUnit] unlockDependents failed', { workUnitId: id, error: String(err) })
-    );
+    // Cascade: parent aggregation (best-effort)
     this.aggregateParentStatus(id).catch(err =>
       logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
     );
@@ -472,9 +404,6 @@ export class WorkUnitService {
       where: { id },
       data: { status: newStatus, metadata: JSON.stringify(metadata) },
     });
-
-    emitWorkUnitStatusChanged({ workUnitId: id, oldStatus: 'in_review', newStatus });
-    emitWorkUnitReviewRejected({ workUnitId: id, scope: current.scope });
 
     if (newStatus === 'blocked') {
       logger.warn('[WorkUnit] Auto-blocked after 3 consecutive review rejections', { workUnitId: id });
@@ -550,42 +479,4 @@ export class WorkUnitService {
     });
   }
 
-  /**
-   * Cascade: unlock blocked WorkUnits whose dependsOn are all done.
-   * Called after a WorkUnit transitions to done.
-   */
-  async unlockDependents(doneWorkUnitId: string): Promise<void> {
-    // Find WorkUnits that depend on the done one and are blocked
-    const allWorkUnits = await this.prisma.workUnit.findMany({
-      where: { status: 'blocked' },
-      select: { id: true, dependsOn: true },
-    });
-
-    for (const wu of allWorkUnits) {
-      const deps: string[] = JSON.parse(wu.dependsOn);
-      if (!deps.includes(doneWorkUnitId)) continue;
-
-      // Check if ALL dependencies are done
-      const depWorkUnits = await this.prisma.workUnit.findMany({
-        where: { id: { in: deps } },
-        select: { id: true, status: true },
-      });
-
-      const allDone = depWorkUnits.every(d => d.status === 'done' || d.status === 'closed');
-      if (!allDone) continue;
-
-      // blocked → active is a valid transition
-      await this.prisma.workUnit.update({
-        where: { id: wu.id },
-        data: { status: 'active' },
-      });
-
-      emitWorkUnitStatusChanged({ workUnitId: wu.id, oldStatus: 'blocked', newStatus: 'active' });
-
-      logger.info('[WorkUnit] Dependency unlock', {
-        workUnitId: wu.id,
-        unblockedBy: doneWorkUnitId,
-      });
-    }
-  }
 }

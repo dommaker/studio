@@ -207,11 +207,6 @@ async function start() {
       ensureDefaultChannels()
     ).catch(e => logger.warn('Channel init unavailable', { error: String(e) }));
 
-    // ── Channel Message Events（讨论空间 EventBus subscriber）──
-    await import('./modules/channels/channel-message.events.js').then(({ registerChannelMessageEvents }) =>
-      registerChannelMessageEvents()
-    ).catch(e => logger.warn('ChannelMessageEvents unavailable', { error: String(e) }));
-
     // ── Agent Timeout Scan（超时释放 handler）──
     const { registerExecuteHandler } = await import('./modules/triggers/trigger-action.js');
     registerExecuteHandler('agent-timeout-scan', async () => {
