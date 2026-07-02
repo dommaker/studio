@@ -20,6 +20,8 @@ export interface KnowledgeSearchAnalysis {
 export interface StepResult {
   action: 'progress' | 'complete' | 'need_input';
   summary: string;
+  /** Metadata fields to merge into WorkUnit.metadata (set by agentStep, written atomically by recordResult) */
+  metadataUpdates?: Partial<WorkUnitMetadata>;
 }
 
 /** Observation collected from DB */
@@ -173,17 +175,17 @@ export class AgentLoop {
       ? buildReplyPrompt(wu, target.newReplies)
       : buildContinuePrompt(wu);
 
-    // Session management
+    // Session management — metadata updates returned for atomic write in recordResult
     let sessionFlags: string;
+    const metadataUpdates: Partial<WorkUnitMetadata> = {};
     if (metadata.sessionId) {
       sessionFlags = `--resume ${metadata.sessionId}`;
+      metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
     } else {
       const newId = randomUUID();
       sessionFlags = `--session-id ${newId}`;
-      await prisma.workUnit.update({
-        where: { id: wu.id },
-        data: { metadata: JSON.stringify({ ...metadata, sessionId: newId, startedAt: new Date().toISOString() }) },
-      });
+      metadataUpdates.sessionId = newId;
+      metadataUpdates.startedAt = new Date().toISOString();
     }
 
     const task: AgentTask = {
@@ -205,7 +207,8 @@ export class AgentLoop {
     };
 
     const result: ExecutionResult = await agentRunner.executeLightweight(task);
-    return parseAgentOutput(result.outputText ?? '');
+    const stepResult = parseAgentOutput(result.outputText ?? '');
+    return { ...stepResult, metadataUpdates };
   }
 
   /** Record result: monitoring checkpoints + state transitions (zero token) */
@@ -218,13 +221,19 @@ export class AgentLoop {
     const stepCount = (metadata.stepCount ?? 0) + 1;
     let consecutiveStuck = result.action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
 
+    // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
+    // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
     await prisma.workUnit.update({
       where: { id: wuId },
-      data: { metadata: JSON.stringify({ ...metadata, stepCount, consecutiveStuck }) },
+      data: { metadata: JSON.stringify({ ...metadata, ...result.metadataUpdates, stepCount, consecutiveStuck }) },
     });
 
     // Monitoring: step limit
     if (stepCount > 15) {
+      // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
+      if (wu.status === 'blocked') {
+        await this.workUnitService.transitionStatus(wuId, 'active');
+      }
       await this.workUnitService.transitionStatus(wuId, 'in_review');
       await this.postToDiscussionSpace(wuId, '步骤数超限，强制提交审查');
       return;
@@ -246,6 +255,10 @@ export class AgentLoop {
         break;
       case 'complete':
         await this.postToDiscussionSpace(wuId, result.summary);
+        // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
+        if (wu.status === 'blocked') {
+          await this.workUnitService.transitionStatus(wuId, 'active');
+        }
         await this.workUnitService.transitionStatus(wuId, 'in_review');
         break;
       case 'need_input':
