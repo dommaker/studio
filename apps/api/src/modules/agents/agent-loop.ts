@@ -1,40 +1,38 @@
-// AgentLoop — autonomous WorkUnit discovery + claim + execute cycle (AS-026)
-// Subscribes to EventBus for new WorkUnits, claims matching ones, executes, submits for review.
-// Skill injection handled by session-manager (formatForPrompt + loadSkill MCP tool).
-// Post-execution: analyzes agent log for knowledge search behavior (analyzeKnowledgeSearch).
-import { eventBus, logger, parseStreamEvents, extractToolCalls } from '@dommaker/studio-shared';
-import { readFileSync } from 'fs';
-import { homedir } from 'os';
+// AgentLoop — observe→resolveTarget→agentStep→recordResult decision loop (AS-025)
+// Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
+// Knowledge search analysis preserved as module-level exports.
+import { logger, parseStreamEvents, extractToolCalls } from '@dommaker/studio-shared';
+import { randomUUID } from 'crypto';
 import { prisma } from '@dommaker/studio-prisma';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import { agentExecutor } from '@dommaker/studio-agent';
-import { registerExecuteHandler, unregisterExecuteHandler } from '../triggers/trigger-action.js';
+import { agentRunner } from '@dommaker/studio-agent';
+import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
-import { WorkUnitService } from '../workunit/workunit.service.js';
-import type { TriggerConfig } from '../triggers/trigger.types.js';
-import type { WorkUnit, AgentProfile } from '@prisma/client';
-
-/** Result from agentExecutor.execute() */
-interface ExecutionResult {
-  success: boolean;
-  worktree: string;
-  outputFiles: string[];
-  error?: string;
-  failureLog?: string;
-  logFile: string;
-  sessionCount: number;
-  totalDurationMs?: number;
-  sessionIds?: string[];
-  outputText?: string;
-}
-
-/** Path to project knowledge base — injected into Agent prompt for on-demand retrieval */
-const KNOWLEDGE_BASE_PATH = `${homedir()}/.studio/knowledge/`;
+import { WorkUnitService, type WorkUnitMetadata } from '../workunit/workunit.service.js';
+import type { WorkUnit, AgentProfile, ChannelMessage } from '@prisma/client';
 
 /** Result of analyzing agent log for knowledge search behavior */
 export interface KnowledgeSearchAnalysis {
   searched: boolean;
   searchCalls: Array<{ tool: string; detail?: string }>;
+}
+
+/** Agent output action after parsing */
+export interface StepResult {
+  action: 'progress' | 'complete' | 'need_input';
+  summary: string;
+}
+
+/** Observation collected from DB */
+interface Observations {
+  myActive: WorkUnit[];
+  unassigned: WorkUnit[];
+  newReplies: ChannelMessage[];
+}
+
+/** Resolved target for agentStep */
+interface Target {
+  workUnit: WorkUnit;
+  newReplies?: ChannelMessage[];
 }
 
 interface RuntimeInstanceRow {
@@ -50,67 +48,80 @@ interface RuntimeInstanceRow {
 
 export class AgentLoop {
   private role: AgentProfile;
-  private registry: TriggerScheduler;
   private workUnitService: WorkUnitService;
   private instance: RuntimeInstanceRow | null = null;
-  private processing = false;
   private acceptedTypes: string[] = [];
-  private scanInterval: ReturnType<typeof setInterval> | null = null;
+  private alive = false;
+  private myChannels: string[] = [];
 
-  private static readonly SCAN_INTERVAL_MS = 30_000; // 30 seconds
-
-  constructor(role: AgentProfile, registry: TriggerScheduler) {
+  constructor(role: AgentProfile, _registry: TriggerScheduler) {
     this.role = role;
-    this.registry = registry;
     this.workUnitService = new WorkUnitService(prisma);
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
   }
 
-  /** Start the agent loop: create instance, register triggers, scan for work */
+  /** Start the agent loop: create instance, enter observe-decide-act cycle */
   async start(): Promise<void> {
-    // 1. Create RuntimeInstance
     this.instance = await prisma.runtimeInstance.create({
-      data: {
-        roleId: this.role.id,
-        status: 'idle',
-      },
+      data: { roleId: this.role.id, status: 'idle' },
     }) as RuntimeInstanceRow;
 
-    // 2. Register EVENT trigger for workunit.created
-    this.registerAgentTriggers();
+    this.alive = true;
+    logger.info(`[AgentLoop] Started for role ${this.role.name} (instance=${this.instance.id})`);
 
-    // 3. Register EXECUTE handlers so trigger-action can call us
-    registerExecuteHandler('agent-loop', (context: unknown) => {
-      const workUnit = context as WorkUnit;
-      return this.onNewWorkUnit(workUnit);
-    });
-    registerExecuteHandler('agent-scan-workunits', () => {
-      return this.scanForWork();
-    });
-
-    // 4. Initial scan (non-blocking — don't await, let server start first)
-    this.scanForWork().catch(err =>
-      logger.error(`[AgentLoop] Initial scan failed for ${this.role.name}: ${err.message}`)
+    // Main loop (non-blocking — fire and forget like original)
+    this.runLoop().catch(err =>
+      logger.error(`[AgentLoop] Loop failed for ${this.role.name}: ${err.message}`)
     );
+  }
 
-    // 5. Periodic scan (bypasses cron — EventBus is in-process only)
-    this.scanInterval = setInterval(() => {
-      this.scanForWork().catch(err =>
-        logger.error(`[AgentLoop] Periodic scan failed for ${this.role.name}: ${err.message}`)
-      );
-    }, AgentLoop.SCAN_INTERVAL_MS);
+  /** Main observe→resolveTarget→agentStep→recordResult loop */
+  private async runLoop(): Promise<void> {
+    while (this.alive) {
+      try {
+        const observations = await this.observe();
+        const target = resolveTarget(observations);
 
-    logger.info(`[AgentLoop] Started for role ${this.role.name} (instance=${this.instance.id}, scanEvery=${AgentLoop.SCAN_INTERVAL_MS}ms)`);
+        if (!target) {
+          await sleep(15_000);
+          continue;
+        }
+
+        // Claim if unassigned
+        if (target.workUnit.status === 'unassigned') {
+          try {
+            await this.workUnitService.claim(target.workUnit.id, this.instance!.id);
+            target.workUnit = await prisma.workUnit.findUniqueOrThrow({
+              where: { id: target.workUnit.id },
+            });
+          } catch {
+            await sleep(1_000);
+            continue;
+          }
+        }
+
+        // Update heartbeat
+        if (this.instance) {
+          await prisma.runtimeInstance.update({
+            where: { id: this.instance.id },
+            data: { lastHeartbeat: new Date(), currentWorkUnitId: target.workUnit.id },
+          }).catch(() => {});
+        }
+
+        const result = await this.agentStep(target);
+        await this.recordResult(target, result);
+        await sleep(dynamicInterval(result));
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(`[AgentLoop] Loop iteration error: ${message}`);
+        await sleep(15_000);
+      }
+    }
   }
 
   /** Stop the agent loop and clean up */
   stop(): void {
-    if (this.scanInterval) {
-      clearInterval(this.scanInterval);
-      this.scanInterval = null;
-    }
-    unregisterExecuteHandler('agent-loop');
-    unregisterExecuteHandler('agent-scan-workunits');
+    this.alive = false;
     if (this.instance) {
       prisma.runtimeInstance.update({
         where: { id: this.instance.id },
@@ -119,202 +130,247 @@ export class AgentLoop {
     }
   }
 
-  /** Handle new WorkUnit event from EventBus via trigger */
-  async onNewWorkUnit(workUnit: WorkUnit): Promise<void> {
-    if (!this.canClaim(workUnit)) return;
-    await this.tryClaim(workUnit);
-  }
+  /** Observe: collect state from DB (zero token) */
+  private async observe(): Promise<Observations> {
+    const myActive = await prisma.workUnit.findMany({
+      where: {
+        assigneeId: this.instance?.id,
+        status: { in: ['active', 'blocked'] },
+      },
+    });
 
-  /** Scan for unassigned WorkUnits matching acceptedTypes */
-  async scanForWork(): Promise<void> {
-    if (this.processing) return;
-
-    // Update heartbeat
-    if (this.instance) {
-      await prisma.runtimeInstance.update({
-        where: { id: this.instance.id },
-        data: { lastHeartbeat: new Date() },
-      }).catch(() => {}); // best-effort
-    }
-
-    logger.info(`[AgentLoop] Scanning for work: role=${this.role.name} acceptedTypes=${JSON.stringify(this.acceptedTypes)}`);
-
-    const workUnits = await prisma.workUnit.findMany({
+    const unassigned = await prisma.workUnit.findMany({
       where: {
         status: 'unassigned',
-        assigneeId: null,
-        type: { in: this.acceptedTypes.length > 0 ? this.acceptedTypes : undefined },
+        channelId: this.myChannels.length > 0 ? { in: this.myChannels } : undefined,
+        type: this.acceptedTypes.length > 0 ? { in: this.acceptedTypes } : undefined,
       },
       orderBy: { createdAt: 'asc' },
-      take: 1,
+      take: 5,
     });
 
-    if (workUnits.length > 0) {
-      logger.info(`[AgentLoop] Found unassigned WorkUnit: ${workUnits[0].id} type=${workUnits[0].type}`);
-      await this.tryClaim(workUnits[0]);
+    const allReplies: ChannelMessage[] = [];
+    for (const wu of myActive) {
+      const msgs = await prisma.channelMessage.findMany({
+        where: {
+          workUnitId: wu.id,
+          authorType: 'human',
+          createdAt: { gt: wu.updatedAt },
+        },
+      });
+      allReplies.push(...msgs);
+    }
+
+    return { myActive, unassigned, newReplies: allReplies };
+  }
+
+  /** Execute one step via Agent process (Agent's token) */
+  private async agentStep(target: Target): Promise<StepResult> {
+    const wu = target.workUnit;
+    const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+
+    const prompt = target.newReplies?.length
+      ? buildReplyPrompt(wu, target.newReplies)
+      : buildContinuePrompt(wu);
+
+    // Session management
+    let sessionFlags: string;
+    if (metadata.sessionId) {
+      sessionFlags = `--resume ${metadata.sessionId}`;
     } else {
-      logger.info(`[AgentLoop] No unassigned WorkUnits found for role=${this.role.name}`);
-    }
-  }
-
-  /** Register EVENT trigger for workunit.created */
-  private registerAgentTriggers(): void {
-    const trigger: TriggerConfig = {
-      id: `agent-discover-${this.role.id}`,
-      name: `Auto-discover for ${this.role.name}`,
-      condition: { type: 'EVENT', event: 'workunit.created' },
-      action: { type: 'EXECUTE', target: 'agent-loop' },
-      enabled: true,
-      scope: 'system',
-    };
-    this.registry.registerTrigger(trigger);
-  }
-
-  /** Check if this agent can claim the given WorkUnit */
-  private canClaim(workUnit: WorkUnit): boolean {
-    if (this.processing) return false;
-    if (!this.instance) return false;
-    if (workUnit.status !== 'unassigned') return false;
-    if (this.acceptedTypes.length > 0 && !this.acceptedTypes.includes(workUnit.type)) return false;
-    return true;
-  }
-
-  /** Try to claim and execute a WorkUnit */
-  private async tryClaim(workUnit: WorkUnit): Promise<void> {
-    this.processing = true;
-    try {
-      // Claim via WorkUnitService (triggers autoLoadSkillsForAgent)
-      await this.workUnitService.claim(workUnit.id, this.instance!.id);
-    } catch (err: unknown) {
-      this.processing = false;
-      const message = err instanceof Error ? err.message : String(err);
-      if (message.includes('Claim failed') || message.includes('already claimed')) {
-        logger.debug(`[AgentLoop] WorkUnit ${workUnit.id} already claimed, skipping`);
-        return;
-      }
-      throw err;
+      const newId = randomUUID();
+      sessionFlags = `--session-id ${newId}`;
+      await prisma.workUnit.update({
+        where: { id: wu.id },
+        data: { metadata: JSON.stringify({ ...metadata, sessionId: newId, startedAt: new Date().toISOString() }) },
+      });
     }
 
-    try {
-      // Execute — skill injection handled by session-manager (formatForPrompt + loadSkill MCP)
-      const result = await this.execute(workUnit);
-
-      if (result.success) {
-        // Submit for review
-        await this.workUnitService.transitionStatus(workUnit.id, 'in_review');
-        logger.info(`[AgentLoop] WorkUnit ${workUnit.id} submitted for review`);
-      } else {
-        // Execution failed — unclaim
-        logger.error(`[AgentLoop] Execution failed for ${workUnit.id}: ${result.error}`);
-        await this.workUnitService.unclaim(workUnit.id);
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error(`[AgentLoop] Execution failed for ${workUnit.id}: ${message}`);
-      await this.workUnitService.unclaim(workUnit.id);
-    } finally {
-      this.processing = false;
-    }
-  }
-
-  /** Execute WorkUnit — skill injection by session-manager; post-execution knowledge analysis */
-  private async execute(workUnit: WorkUnit): Promise<ExecutionResult> {
-    // [Skill Discovery] Log WorkUnit context for analysis
-    logger.info(`[SkillDiscovery] workUnit=${workUnit.id} type=${workUnit.type} role=${this.role.name} scope="${workUnit.scope?.substring(0, 100)}"`);
-
-    const prompt = [
-      `## Task`,
-      `WorkUnit: ${workUnit.id}`,
-      `Type: ${workUnit.type}`,
-      `Scope: ${workUnit.scope}`,
-      ``,
-      `## Knowledge`,
-      `Project knowledge base: ${KNOWLEDGE_BASE_PATH}`,
-      `Search the INDEX first (one-line-per-entry, 80-96% less output):`,
-      `  grep -i "<keyword>" ${KNOWLEDGE_BASE_PATH}_index.md`,
-      `Then Read the matching file for full content:`,
-      `  Read ${KNOWLEDGE_BASE_PATH}<filename>`,
-      `Fallback: grep -r "<keyword>" ${KNOWLEDGE_BASE_PATH} only if index misses.`,
-    ].join('\n');
-
-    const result: ExecutionResult = await agentExecutor.execute({
-      id: workUnit.id,
-      executionId: `${workUnit.id}-${Date.now()}`,
+    const task: AgentTask = {
+      id: wu.id,
+      executionId: `${wu.id}-${Date.now()}`,
       agentType: 'claude',
       prompt,
-      timeoutMs: 5 * 60_000, // 5 minutes default
-    });
+      parameters: {
+        sessionFlags,
+        agentRole: 'executor',
+        workUnitId: wu.id,
+        extraEnv: {
+          STUDIO_WORKUNIT_ID: wu.id,
+          STUDIO_CHANNEL_ID: wu.channelId ?? '',
+        },
+      },
+      model: 'standard',
+      timeoutMs: 120_000,
+    };
 
-    // Analyze knowledge search behavior from agent log
-    if (result.logFile) {
-      const analysis = this.analyzeKnowledgeSearchFromLog(result.logFile);
-      if (analysis.searched) {
-        logger.info(`[AgentLoop] Knowledge search detected for ${workUnit.id}: ${analysis.searchCalls.length} call(s) [${analysis.searchCalls.map(c => c.tool).join(', ')}]`);
-        // Record knowledge consumption (non-blocking)
-        const entryIds = extractKnowledgeEntryIds(analysis);
-        if (entryIds.length > 0) {
-          try {
-            const { knowledgeService } = await import('../knowledge/knowledge-service.js');
-            knowledgeService.recordConsumption(entryIds, `workUnit:${workUnit.id}`);
-          } catch (err) {
-            logger.debug(`[AgentLoop] Failed to record knowledge consumption: ${err}`);
-          }
-        }
-      }
-    }
-
-    // Post result to discussion space
-    if (result.outputText) {
-      await this.postToDiscussionSpace(workUnit.id, result.outputText);
-    }
-
-    return result;
+    const result: ExecutionResult = await agentRunner.executeLightweight(task);
+    return parseAgentOutput(result.outputText ?? '');
   }
 
-  /** Read agent log file and analyze for knowledge search behavior */
-  private analyzeKnowledgeSearchFromLog(logFile: string): KnowledgeSearchAnalysis {
-    try {
-      const logContent = readFileSync(logFile, 'utf-8');
-      return analyzeKnowledgeSearch(logContent);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.debug(`[AgentLoop] Failed to read log file for knowledge analysis: ${message}`);
-      return { searched: false, searchCalls: [] };
-    }
-  }
+  /** Record result: monitoring checkpoints + state transitions (zero token) */
+  private async recordResult(target: Target, result: StepResult): Promise<void> {
+    const wuId = target.workUnit.id;
+    const wu = await prisma.workUnit.findUnique({ where: { id: wuId } });
+    if (!wu) return;
 
-  /** Unclaim WorkUnit (direct prisma — state machine doesn't support active→unassigned) */
-  private async unclaim(workUnitId: string): Promise<void> {
+    const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    const stepCount = (metadata.stepCount ?? 0) + 1;
+    let consecutiveStuck = result.action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
+
     await prisma.workUnit.update({
-      where: { id: workUnitId },
-      data: { assigneeId: null, status: 'unassigned' },
-    }).catch(unclaimErr => {
-      logger.error(`[AgentLoop] Unclaim failed for ${workUnitId}: ${unclaimErr.message}`);
+      where: { id: wuId },
+      data: { metadata: JSON.stringify({ ...metadata, stepCount, consecutiveStuck }) },
     });
+
+    // Monitoring: step limit
+    if (stepCount > 15) {
+      await this.workUnitService.transitionStatus(wuId, 'in_review');
+      await this.postToDiscussionSpace(wuId, '步骤数超限，强制提交审查');
+      return;
+    }
+    // Monitoring: stuck detection
+    if (consecutiveStuck >= 3) {
+      await this.workUnitService.transitionStatus(wuId, 'blocked');
+      await this.postToDiscussionSpace(wuId, '连续 3 步无进展，等待人类介入');
+      return;
+    }
+
+    // State transitions by action
+    switch (result.action) {
+      case 'progress':
+        await this.postToDiscussionSpace(wuId, result.summary);
+        if (wu.status === 'blocked') {
+          await this.workUnitService.transitionStatus(wuId, 'active');
+        }
+        break;
+      case 'complete':
+        await this.postToDiscussionSpace(wuId, result.summary);
+        await this.workUnitService.transitionStatus(wuId, 'in_review');
+        break;
+      case 'need_input':
+        await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`);
+        await this.workUnitService.transitionStatus(wuId, 'blocked');
+        break;
+    }
   }
 
-  /** Post execution result to WorkUnit discussion space */
+  /** Post message directly to discussion space (no EventBus) */
   private async postToDiscussionSpace(workUnitId: string, content: string): Promise<void> {
-    eventBus.publish('channel.message.created', {
-      workUnitId,
-      content,
-      authorType: 'agent',
-      authorId: this.instance?.id,
+    const wu = await prisma.workUnit.findUnique({ where: { id: workUnitId } });
+    if (!wu?.channelId) return;
+
+    await prisma.channelMessage.create({
+      data: {
+        content,
+        workUnitId,
+        channelId: wu.channelId,
+        authorType: 'agent',
+        agentName: this.role.name,
+      },
     });
   }
 
   /** Parse accepted WorkUnit types from role description */
   private parseAcceptedTypes(description: string | null): string[] {
     if (!description) return [];
-    // Extract types from description like "handles tasks and bugs"
     const typeKeywords = ['task', 'bug', 'feature', 'refactor', 'test', 'docs', 'review', 'analysis'];
     return typeKeywords.filter(kw => description.toLowerCase().includes(kw));
   }
 }
 
+// ─── Exported pure functions (testable) ───
+
+/** Resolve target from observations (pure code, zero LLM) */
+export function resolveTarget(obs: Observations): Target | null {
+  // Priority 1: human reply (including blocked WorkUnit)
+  if (obs.newReplies.length > 0) {
+    const repliedWuId = obs.newReplies[0].workUnitId;
+    const wu = obs.myActive.find(w => w.id === repliedWuId);
+    if (wu) return { workUnit: wu, newReplies: obs.newReplies };
+  }
+
+  // Priority 2: active WorkUnit continues
+  const activeWu = obs.myActive.find(w => w.status === 'active');
+  if (activeWu) return { workUnit: activeWu };
+
+  // Priority 3: idle, take earliest unassigned
+  if (obs.unassigned.length > 0) {
+    return { workUnit: obs.unassigned[0] };
+  }
+
+  // No target
+  return null;
+}
+
+/** Parse agent output for ACTION protocol */
+export function parseAgentOutput(text: string): StepResult {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const match = lines[i].match(/ACTION:\s*(PROGRESS|COMPLETE|NEED_INPUT):(.*)/);
+    if (match) {
+      const actionMap: Record<string, StepResult['action']> = {
+        PROGRESS: 'progress',
+        COMPLETE: 'complete',
+        NEED_INPUT: 'need_input',
+      };
+      return { action: actionMap[match[1]], summary: match[2].trim() };
+    }
+  }
+  return { action: 'progress', summary: text.trim() };
+}
+
+/** Dynamic sleep interval based on result */
+export function dynamicInterval(result: { action: string }): number {
+  switch (result.action) {
+    case 'progress':   return 3_000;
+    case 'complete':   return 10_000;
+    case 'need_input': return 30_000;
+    default:           return 15_000;
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// ─── Prompt builders ───
+
+function buildContinuePrompt(wu: WorkUnit): string {
+  return `## 当前工作
+
+${wu.scope}
+
+## 要求
+
+继续上次工作。每步结束后输出：
+  ACTION: PROGRESS:<summary>      完成一步，继续中
+  ACTION: COMPLETE:<summary>      全部完成
+  ACTION: NEED_INPUT:<需要什么>   需要人类输入`;
+}
+
+function buildReplyPrompt(wu: WorkUnit, replies: ChannelMessage[]): string {
+  const replyText = replies.map(r => r.content).join('\n');
+  return `## 当前工作
+
+${wu.scope}
+
+## 人类新回复
+
+${replyText}
+
+## 要求
+
+根据回复调整方案，继续工作。每步结束后输出：
+  ACTION: PROGRESS:<summary>      完成一步，继续中
+  ACTION: COMPLETE:<summary>      全部完成
+  ACTION: NEED_INPUT:<需要什么>   需要人类输入`;
+}
+
+// ─── Knowledge search analysis (preserved from original) ───
+
 /**
  * Analyze agent log for knowledge search behavior.
- * Checks if the agent used Read/Bash/Glob on knowledge base paths, or called mcp__local-rag tools.
  * Pure function — takes log content string, no file I/O.
  */
 export function analyzeKnowledgeSearch(logContent: string): KnowledgeSearchAnalysis {
@@ -332,24 +388,18 @@ export function analyzeKnowledgeSearch(logContent: string): KnowledgeSearchAnaly
   return { searched: searchCalls.length > 0, searchCalls };
 }
 
-/** Returns a detail string if the tool call targets the knowledge base, null otherwise */
 function getKnowledgeSearchDetail(toolName: string, input: unknown): string | null {
   if (!input || typeof input !== 'object') return null;
   const inp = input as Record<string, unknown>;
 
-  // Read — check file_path
   if (toolName === 'Read') {
     const fp = inp.file_path;
     if (typeof fp === 'string' && fp.includes('.studio/knowledge')) return fp;
   }
-
-  // Bash — check command for knowledge base paths
   if (toolName === 'Bash') {
     const cmd = inp.command;
     if (typeof cmd === 'string' && cmd.includes('.studio/knowledge')) return cmd;
   }
-
-  // Glob — check pattern for knowledge base paths
   if (toolName === 'Glob') {
     const pattern = inp.pattern;
     if (typeof pattern === 'string' && pattern.includes('.studio/knowledge')) return pattern;
@@ -366,15 +416,12 @@ export function extractKnowledgeEntryIds(analysis: KnowledgeSearchAnalysis): str
   const ids: string[] = [];
   for (const call of analysis.searchCalls) {
     if (!call.detail) continue;
-    // Match .studio/knowledge/<path>.md — captures subdirectory paths too
     const match = call.detail.match(/\.studio\/knowledge\/([^/\s]+(?:\/[^/\s]+)?\.md)/);
     if (match) {
       const filePart = match[1];
-      // Exclude _index.md
       if (filePart === '_index.md' || filePart.endsWith('/_index.md')) continue;
-      // Remove .md suffix for entry ID
       ids.push(filePart.replace(/\.md$/, ''));
     }
   }
-  return [...new Set(ids)];
+  return Array.from(new Set(ids));
 }

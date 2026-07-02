@@ -11,3 +11,5 @@ export type {
   AgentConfig,
   AgentCapabilities,
 } from './types.js';
+
+export type { AgentTask, ExecutionResult } from './services/session-manager.js';

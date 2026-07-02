@@ -1,39 +1,20 @@
-// AC-3: AgentLoop core tests
-// Tests AgentLoop lifecycle: start, canClaim, onNewWorkUnit, tryClaim, execute
-// Skill injection removed — session-manager handles via formatForPrompt + loadSkill MCP
+// AC-3: AgentLoop knowledge search analysis tests
+// Agent Loop rewrite (ac-agent-loop-rewrite): removed canClaim/onNewWorkUnit/tryClaim/execute/scanForWork
+// New loop behavior tested in agent-loop-v2.test.ts
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PrismaClientKnownRequestError } from '@prisma/client/runtime/library';
-import type { WorkUnit } from '@prisma/client';
 
 // vi.hoisted() ensures these are available when vi.mock factories run
-const { mockClaim, mockUnclaim, mockGetById, mockUpdateStatus } = vi.hoisted(() => ({
-  mockClaim: vi.fn(),
-  mockUnclaim: vi.fn(),
-  mockGetById: vi.fn(),
-  mockUpdateStatus: vi.fn(),
-}));
-
 const { mockWuClaim, mockWuUnclaim, mockWuTransitionStatus } = vi.hoisted(() => ({
   mockWuClaim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'active' }),
   mockWuUnclaim: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'unassigned' }),
   mockWuTransitionStatus: vi.fn().mockResolvedValue({ id: 'wu-1', status: 'in_review' }),
 }));
 
-const { mockExecute } = vi.hoisted(() => ({
-  mockExecute: vi.fn(),
+const { mockExecuteLightweight } = vi.hoisted(() => ({
+  mockExecuteLightweight: vi.fn(),
 }));
 
-const { mockRegisterTrigger, mockUnregisterTrigger } = vi.hoisted(() => ({
-  mockRegisterTrigger: vi.fn(),
-  mockUnregisterTrigger: vi.fn(),
-}));
-
-const { mockRegisterExecuteHandler, mockUnregisterExecuteHandler } = vi.hoisted(() => ({
-  mockRegisterExecuteHandler: vi.fn(),
-  mockUnregisterExecuteHandler: vi.fn(),
-}));
-
-const { mockPrismaCreate, mockPrismaUpdate, mockPrismaFindMany, mockPrismaInstanceUpdate } = vi.hoisted(() => ({
+const { mockPrismaCreate, mockPrismaUpdate, mockPrismaFindMany, mockPrismaFindUnique, mockPrismaInstanceUpdate } = vi.hoisted(() => ({
   mockPrismaCreate: vi.fn().mockResolvedValue({
     id: 'inst-1',
     roleId: 'role-1',
@@ -46,6 +27,7 @@ const { mockPrismaCreate, mockPrismaUpdate, mockPrismaFindMany, mockPrismaInstan
   }),
   mockPrismaUpdate: vi.fn().mockResolvedValue({}),
   mockPrismaFindMany: vi.fn().mockResolvedValue([]),
+  mockPrismaFindUnique: vi.fn().mockResolvedValue(null),
   mockPrismaInstanceUpdate: vi.fn().mockResolvedValue({
     id: 'inst-1',
     status: 'terminated',
@@ -58,11 +40,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return {
     ...orig,
-    eventBus: {
-      subscribe: vi.fn(),
-      unsubscribe: vi.fn(),
-      publish: vi.fn(),
-    },
     logger: {
       info: vi.fn(),
       warn: vi.fn(),
@@ -80,14 +57,19 @@ vi.mock('@dommaker/studio-prisma', () => ({
     },
     workUnit: {
       findMany: mockPrismaFindMany,
+      findUnique: mockPrismaFindUnique,
       update: mockPrismaUpdate,
+    },
+    channelMessage: {
+      findMany: vi.fn().mockResolvedValue([]),
+      create: vi.fn().mockResolvedValue({}),
     },
   },
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
-  agentExecutor: {
-    execute: mockExecute,
+  agentRunner: {
+    executeLightweight: mockExecuteLightweight,
   },
 }));
 
@@ -101,18 +83,8 @@ vi.mock('../../workunit/workunit.service', () => ({
 
 vi.mock('../../triggers/trigger-scheduler', () => ({
   TriggerScheduler: vi.fn().mockImplementation(() => ({
-    registerTrigger: mockRegisterTrigger,
-    unregisterTrigger: mockUnregisterTrigger,
     getStates: vi.fn().mockReturnValue([]),
   })),
-}));
-
-vi.mock('../../triggers/trigger-action', () => ({
-  registerExecuteHandler: mockRegisterExecuteHandler,
-  unregisterExecuteHandler: mockUnregisterExecuteHandler,
-  executeExecuteAction: vi.fn(),
-  executeCreateAction: vi.fn(),
-  executeUpdateAction: vi.fn(),
 }));
 
 import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds } from '../agent-loop';
@@ -134,12 +106,6 @@ describe('AgentLoop', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    // Reset hoisted mocks to defaults
-    mockPrismaUpdate.mockResolvedValue({});
-    mockPrismaFindMany.mockResolvedValue([]);
-    mockWuClaim.mockResolvedValue({ id: 'wu-1', status: 'active' });
-    mockWuUnclaim.mockResolvedValue({ id: 'wu-1', status: 'unassigned' });
-    mockWuTransitionStatus.mockResolvedValue({ id: 'wu-1', status: 'in_review' });
     mockPrismaCreate.mockResolvedValue({
       id: 'inst-1',
       roleId: 'role-1',
@@ -150,7 +116,7 @@ describe('AgentLoop', () => {
       terminatedAt: null,
       metadata: null,
     });
-    mockRegistry = { registerTrigger: mockRegisterTrigger } as unknown as TriggerScheduler;
+    mockRegistry = {} as unknown as TriggerScheduler;
   });
 
   afterEach(() => {
@@ -170,357 +136,6 @@ describe('AgentLoop', () => {
           status: 'idle',
         }),
       });
-    });
-
-    it('registers EVENT trigger for workunit.created', async () => {
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      expect(mockRegisterTrigger).toHaveBeenCalledWith(
-        expect.objectContaining({
-          condition: expect.objectContaining({
-            type: 'EVENT',
-            event: 'workunit.created',
-          }),
-          action: expect.objectContaining({
-            type: 'EXECUTE',
-            target: 'agent-loop',
-          }),
-        }),
-      );
-    });
-
-    it('registers agent-scan-workunits handler for poll-fallback trigger', async () => {
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      // Bug 1 fix: poll-fallback trigger targets 'agent-scan-workunits' but no handler was registered
-      expect(mockRegisterExecuteHandler).toHaveBeenCalledWith(
-        'agent-scan-workunits',
-        expect.any(Function),
-      );
-    });
-
-    it('calls scanForWork on startup', async () => {
-      const scanSpy = vi.spyOn(AgentLoop.prototype, 'scanForWork');
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      expect(scanSpy).toHaveBeenCalled();
-      scanSpy.mockRestore();
-    });
-
-    it('starts periodic scan interval with SCAN_INTERVAL_MS', async () => {
-      const setIntervalSpy = vi.spyOn(global, 'setInterval');
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      expect(setIntervalSpy).toHaveBeenCalledWith(expect.any(Function), 30_000);
-      setIntervalSpy.mockRestore();
-    });
-  });
-
-  describe('stop()', () => {
-    it('clears periodic scan interval', async () => {
-      const clearIntervalSpy = vi.spyOn(global, 'clearInterval');
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      expect((agentLoop as unknown as Record<string, unknown>).scanInterval).not.toBeNull();
-      agentLoop.stop();
-
-      expect(clearIntervalSpy).toHaveBeenCalled();
-      clearIntervalSpy.mockRestore();
-    });
-  });
-
-  describe('canClaim()', () => {
-    it('returns true when idle + type matches + status=unassigned', async () => {
-      agentLoop = new AgentLoop(
-        { ...mockRole, description: 'handles tasks and bugs' },
-        mockRegistry,
-      );
-      // Start to create instance
-      await agentLoop.start();
-
-      const workUnit = {
-        id: 'wu-1',
-        type: 'task',
-        scope: 'test',
-        status: 'unassigned',
-        assigneeId: null,
-      };
-      expect((agentLoop as unknown as Record<string, unknown>).canClaim(workUnit)).toBe(true);
-    });
-
-    it('returns false when processing=true', async () => {
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-      (agentLoop as unknown as Record<string, unknown>).processing = true;
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned' };
-      expect((agentLoop as unknown as Record<string, unknown>).canClaim(workUnit)).toBe(false);
-    });
-
-    it('returns false when type not in acceptedTypes', async () => {
-      agentLoop = new AgentLoop(
-        { ...mockRole, description: 'handles bugs only' },
-        mockRegistry,
-      );
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned' };
-      expect((agentLoop as unknown as Record<string, unknown>).canClaim(workUnit)).toBe(false);
-    });
-
-    it('returns false when status !== unassigned', async () => {
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'active' };
-      expect((agentLoop as unknown as Record<string, unknown>).canClaim(workUnit)).toBe(false);
-    });
-  });
-
-  describe('onNewWorkUnit()', () => {
-    it('calls tryClaim when canClaim returns true', async () => {
-      mockPrismaUpdate.mockResolvedValue({}); // claim succeeds
-      mockExecute.mockResolvedValue({
-        success: true,
-        outputText: 'Done',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(
-        { ...mockRole, description: 'handles tasks' },
-        mockRegistry,
-      );
-      await agentLoop.start();
-
-      const tryClaimSpy = vi.spyOn(agentLoop as unknown as Record<string, unknown>, 'tryClaim');
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-
-      await agentLoop.onNewWorkUnit(workUnit as unknown as WorkUnit);
-      expect(tryClaimSpy).toHaveBeenCalledWith(workUnit);
-    });
-
-    it('skips when canClaim returns false', async () => {
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-      (agentLoop as unknown as Record<string, unknown>).processing = true;
-
-      const tryClaimSpy = vi.spyOn(agentLoop as unknown as Record<string, unknown>, 'tryClaim');
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned' };
-
-      await agentLoop.onNewWorkUnit(workUnit as unknown as WorkUnit);
-      expect(tryClaimSpy).not.toHaveBeenCalled();
-    });
-
-    it('skips when already processing', async () => {
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-      (agentLoop as unknown as Record<string, unknown>).processing = true;
-
-      const tryClaimSpy = vi.spyOn(agentLoop as unknown as Record<string, unknown>, 'tryClaim');
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned' };
-
-      await agentLoop.onNewWorkUnit(workUnit as unknown as WorkUnit);
-      expect(tryClaimSpy).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('tryClaim()', () => {
-    it('claims via WorkUnitService → executes → transitions to in_review', async () => {
-      mockExecute.mockResolvedValue({
-        success: true,
-        outputText: 'Task completed',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(
-        { ...mockRole, description: 'handles tasks' },
-        mockRegistry,
-      );
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-      await (agentLoop as unknown as Record<string, unknown>).tryClaim(workUnit);
-
-      // Claim via WorkUnitService.claim
-      expect(mockWuClaim).toHaveBeenCalledWith('wu-1', 'inst-1');
-      // Submit for review via WorkUnitService.transitionStatus
-      expect(mockWuTransitionStatus).toHaveBeenCalledWith('wu-1', 'in_review');
-    });
-
-    it('handles claim conflict gracefully (skip)', async () => {
-      mockWuClaim.mockRejectedValue(new Error('Claim failed: already claimed'));
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-      // Should not throw
-      await expect((agentLoop as unknown as Record<string, unknown>).tryClaim(workUnit)).resolves.toBeUndefined();
-    });
-
-    it('on execution exception: unclaims via WorkUnitService', async () => {
-      mockExecute.mockImplementation(() => Promise.reject(new Error('execution failed')));
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-      await (agentLoop as unknown as Record<string, unknown>).tryClaim(workUnit);
-
-      // Unclaim via WorkUnitService.unclaim
-      expect(mockWuUnclaim).toHaveBeenCalledWith('wu-1');
-    });
-
-    it('on execute returns success=false: unclaims instead of in_review', async () => {
-      mockExecute.mockResolvedValue({
-        success: false,
-        error: 'tests failed',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(
-        { ...mockRole, description: 'handles tasks' },
-        mockRegistry,
-      );
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test', status: 'unassigned', assigneeId: null };
-      await (agentLoop as unknown as Record<string, unknown>).tryClaim(workUnit);
-
-      // success=false → unclaim via WorkUnitService
-      expect(mockWuUnclaim).toHaveBeenCalledWith('wu-1');
-      // Should NOT have transitioned to in_review
-      expect(mockWuTransitionStatus).not.toHaveBeenCalled();
-    });
-
-  });
-
-  describe('execute()', () => {
-    it('passes WorkUnit info to agentExecutor without skill injection', async () => {
-      mockExecute.mockResolvedValue({
-        success: true,
-        outputText: 'Result',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'fix docs-freshness API' };
-      await (agentLoop as unknown as Record<string, unknown>).execute(workUnit);
-
-      expect(mockExecute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          id: 'wu-1',
-          executionId: expect.stringContaining('wu-1'),
-          prompt: expect.stringContaining('fix docs-freshness API'),
-        }),
-      );
-      // Skill content should NOT be in the prompt
-      expect(mockExecute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.not.stringContaining('## Available Skills'),
-        }),
-      );
-    });
-
-    it('posts result to discussion space', async () => {
-      const { eventBus } = await import('@dommaker/studio-shared');
-      mockExecute.mockResolvedValue({
-        success: true,
-        outputText: 'Task completed successfully',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await (agentLoop as unknown as Record<string, unknown>).execute(workUnit);
-
-      expect(eventBus.publish).toHaveBeenCalledWith(
-        'channel.message.created',
-        expect.objectContaining({
-          workUnitId: 'wu-1',
-          content: expect.stringContaining('Task completed'),
-        }),
-      );
-    });
-
-    it('includes knowledge base hint in prompt', async () => {
-      mockExecute.mockResolvedValue({
-        success: true,
-        outputText: 'Result',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await (agentLoop as unknown as Record<string, unknown>).execute(workUnit);
-
-      expect(mockExecute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringContaining('.studio/knowledge'),
-        }),
-      );
-    });
-
-    it('hint instructs agent to search _index.md first', async () => {
-      mockExecute.mockResolvedValue({
-        success: true,
-        outputText: 'Result',
-        worktree: '/tmp/wt',
-        outputFiles: [],
-        logFile: '/tmp/log',
-        sessionCount: 1,
-      });
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await (agentLoop as unknown as Record<string, unknown>).execute(workUnit);
-
-      expect(mockExecute).toHaveBeenCalledWith(
-        expect.objectContaining({
-          prompt: expect.stringContaining('_index.md'),
-        }),
-      );
-    });
-
-    it('throws on agentExecutor failure', async () => {
-      mockExecute.mockRejectedValue(new Error('LLM timeout'));
-
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
-      await agentLoop.start();
-
-      const workUnit = { id: 'wu-1', type: 'task', scope: 'test' };
-      await expect((agentLoop as unknown as Record<string, unknown>).execute(workUnit)).rejects.toThrow('LLM timeout');
     });
   });
 
