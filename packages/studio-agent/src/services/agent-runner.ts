@@ -446,8 +446,8 @@ export class AgentRunner implements IAgentRunner {
                   ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
                 },
               }),
-              // HOME isolation: prevent user-level settings.json env override
-              HOME: `/tmp/execution-${task.executionId}`,
+              // HOME isolation: per-WorkUnit so session resume finds previous session.
+              HOME: `/tmp/agent-loop/${(task.parameters?.workUnitId as string) || task.executionId}`,
             },
             timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
@@ -835,14 +835,13 @@ export class AgentRunner implements IAgentRunner {
               extra: {
                 STUDIO_EXECUTION_ID: task.executionId,
                 ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
+                ...(task.parameters?.workUnitId ? { STUDIO_WORKUNIT_ID: task.parameters.workUnitId as string } : {}),
                 ...(task.parameters?.extraEnv as Record<string, string> || {}),
               },
             }),
-            // HOME isolation: prevent user-level settings.json env block
-            // from overriding pipeline config (DeepSeek API keys/models).
-            // Claude Code CLI reads $HOME/.claude/settings.json on startup.
-            // Project-level settings (permissions/hooks) use absolute paths, unaffected.
-            HOME: `/tmp/execution-${task.executionId}`,
+            // HOME isolation: per-WorkUnit so session resume finds previous session.
+            // Falls back to executionId when workUnitId not provided (backward compat).
+            HOME: `/tmp/agent-loop/${(task.parameters?.workUnitId as string) || task.executionId}`,
           },
           timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,

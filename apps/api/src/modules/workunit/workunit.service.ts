@@ -32,6 +32,12 @@ export interface WorkUnitMetadata {
   sourceMessageId?: string;   // createFromMessage 涌现路径来源
   creationMode?: string;      // 创建模式：from-message / manual
   _cumulativeTokens?: number; // 内部 token 累计追踪
+  // Agent Loop session 追踪（AS-025 Agent Loop 重写）
+  sessionId?: string;         // 当前关联的 Claude session
+  stepCount?: number;         // 已执行步骤数
+  startedAt?: string;         // 首次执行时间
+  consecutiveStuck?: number;  // 连续无进展步数
+  sessionResumes?: number;    // session 恢复次数
   [key: string]: unknown;     // 允许扩展字段
 }
 
