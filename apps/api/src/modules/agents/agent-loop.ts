@@ -6,7 +6,6 @@ import { randomUUID } from 'crypto';
 import { prisma } from '@dommaker/studio-prisma';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
-import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 import { WorkUnitService, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import type { WorkUnit, AgentProfile, ChannelMessage } from '@prisma/client';
 
@@ -56,10 +55,16 @@ export class AgentLoop {
   private alive = false;
   private myChannels: string[] = [];
 
-  constructor(role: AgentProfile, _registry: TriggerScheduler) {
+  constructor(role: AgentProfile) {
     this.role = role;
     this.workUnitService = new WorkUnitService(prisma);
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
+    // W-4 fix: parse channels from role.channels JSON
+    try {
+      this.myChannels = JSON.parse(role.channels || '[]');
+    } catch {
+      this.myChannels = [];
+    }
   }
 
   /** Start the agent loop: create instance, enter observe-decide-act cycle */
@@ -151,17 +156,24 @@ export class AgentLoop {
       take: 5,
     });
 
-    const allReplies: ChannelMessage[] = [];
-    for (const wu of myActive) {
-      const msgs = await prisma.channelMessage.findMany({
-        where: {
-          workUnitId: wu.id,
-          authorType: 'human',
-          createdAt: { gt: wu.updatedAt },
-        },
-      });
-      allReplies.push(...msgs);
-    }
+    // W-6 fix: batch query for newReplies instead of N+1
+    const activeWuIds = myActive.map(wu => wu.id);
+    const allReplies = activeWuIds.length > 0
+      ? await prisma.channelMessage.findMany({
+          where: {
+            workUnitId: { in: activeWuIds },
+            authorType: 'human',
+            // Filter by createdAt > updatedAt per WU — done in memory after batch fetch
+          },
+        }).then(msgs => {
+          // Filter: only messages created after their WU's last update
+          const wuUpdatedAt = new Map(myActive.map(wu => [wu.id, wu.updatedAt]));
+          return msgs.filter(msg => {
+            const updatedAt = wuUpdatedAt.get(msg.workUnitId);
+            return updatedAt && msg.createdAt > updatedAt;
+          });
+        })
+      : [];
 
     return { myActive, unassigned, newReplies: allReplies };
   }
@@ -206,9 +218,21 @@ export class AgentLoop {
       timeoutMs: 120_000,
     };
 
-    const result: ExecutionResult = await agentRunner.executeLightweight(task);
-    const stepResult = parseAgentOutput(result.outputText ?? '');
-    return { ...stepResult, metadataUpdates };
+    try {
+      const result: ExecutionResult = await agentRunner.executeLightweight(task);
+      const stepResult = parseAgentOutput(result.outputText ?? '');
+      return { ...stepResult, metadataUpdates };
+    } catch (err) {
+      // W-3 fix: executeLightweight failure returns error result instead of throwing
+      // This allows recordResult to update metadata and monitoring to handle it (consecutiveStuck → blocked)
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`[AgentLoop] agentStep executeLightweight failed: ${message}`);
+      return {
+        action: 'need_input' as const, // increments consecutiveStuck
+        summary: `Agent execution failed: ${message}`,
+        metadataUpdates,
+      };
+    }
   }
 
   /** Record result: monitoring checkpoints + state transitions (zero token) */

@@ -88,11 +88,9 @@ vi.mock('../../triggers/trigger-scheduler', () => ({
 }));
 
 import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds } from '../agent-loop';
-import type { TriggerScheduler } from '../../triggers/trigger-scheduler';
 
 describe('AgentLoop', () => {
   let agentLoop: AgentLoop;
-  let mockRegistry: TriggerScheduler;
 
   const mockRole = {
     id: 'role-1',
@@ -116,7 +114,6 @@ describe('AgentLoop', () => {
       terminatedAt: null,
       metadata: null,
     });
-    mockRegistry = {} as unknown as TriggerScheduler;
   });
 
   afterEach(() => {
@@ -127,7 +124,7 @@ describe('AgentLoop', () => {
 
   describe('start()', () => {
     it('creates RuntimeInstance with idle status', async () => {
-      agentLoop = new AgentLoop(mockRole, mockRegistry);
+      agentLoop = new AgentLoop(mockRole);
       await agentLoop.start();
 
       expect(mockPrismaCreate).toHaveBeenCalledWith({

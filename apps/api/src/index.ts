@@ -193,7 +193,7 @@ async function start() {
       registerDefaultTriggers(registry);
 
       for (const profile of profiles) {
-        const loop = new AgentLoop(profile as any, registry);
+        const loop = new AgentLoop(profile as any);
         await loop.start();
         logger.info(`[AgentLoop] Started for profile ${profile.name}`);
       }

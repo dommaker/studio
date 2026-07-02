@@ -1,6 +1,6 @@
 # Studio Roadmap — 唯一入口
 
-> 最后更新：2026-07-01 (B63 知识库优化全部完成：Phase 1-4 共 23 AC)
+> 最后更新：2026-07-02 (Agent Loop 重写完成 + SDD 生命周期设计决策)
 > 架构文档：[specs/arch/index.md](specs/arch/index.md)
 > OKR：[OKR/](OKR/)
 > 分支：仅 master，无活跃功能分支
@@ -1078,6 +1078,21 @@ Trigger (cron: "0 9 * * *")
 - 路由优化：快速退出替代外部前置检查（5 个 skill 改造）
 - 完整链路实测：design-analyst(快速退出) → tdd-implement → code-review ✅
 - token 节省：小改动 ~85%，中等 ~47%
+
+**Agent Loop 重写**（2026-07-02）：
+- SDD：[agent-network-loop-rewrite/](sdd/agent-network-loop-rewrite/)
+- 架构变更：EventBus 驱动 → Polling 决策循环（observe→resolveTarget→agentStep→recordResult→sleep）
+- ACTION 协议：Agent 输出 `ACTION: PROGRESS|COMPLETE|NEED_INPUT:<summary>`
+- 删除 6 文件（workunit-events/cycle-detection/channel-message.events + tests）
+- 347 测试 PASS + tsc 0 errors + 3 Critical 修复（C-1/C-2/C-3）
+- E2E 验证 3/3 PASS（ACTION 协议/Session resume/自主推进）
+- Commits: `040e43f` → `9ad005e` → `0312555` → `be4f751` → `d8fbd56` → `ccca3ae`
+
+**SDD 生命周期设计决策**（2026-07-02）：
+- 问题：50+ SDD 目录 status 不准 → Agent 搜索噪音
+- 方案：Git 作为反向索引（`git blame` → commit → SDD slug → 设计文档）
+- 前提：tdd-implement ⑦ 保证 SDD status 准确（全量验证后自动更新 status → implemented）
+- Skill 更新：tdd-implement + code-review 自检表
 
 **下一步**：
 1. Phase 2 拆分为 6 个独立 MVP（每个可独立测试）

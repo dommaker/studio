@@ -190,7 +190,7 @@ async function verifyAssumption3() {
   log(`  Created RuntimeInstance: ${instance.id}`);
 
   // Manually run the agent loop for a few iterations
-  const agentLoop = new AgentLoop(role as unknown as AgentProfile, null as any);
+  const agentLoop = new AgentLoop(role as unknown as AgentProfile);
   // Inject instance
   (agentLoop as any).instance = instance;
 
