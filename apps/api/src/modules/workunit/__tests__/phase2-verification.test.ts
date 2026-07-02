@@ -147,10 +147,6 @@ describe('Phase 2 Verification Scenarios', () => {
     const review = await service.create({ scope: 'Auth review', parentId: parent.id });
     testIds.push(analysis.id, impl.id, review.id);
 
-    // dependsOn: impl depends on analysis, review depends on impl
-    await service.update(impl.id, { dependsOn: [analysis.id] });
-    await service.update(review.id, { dependsOn: [impl.id] });
-
     // Children complete sequentially
     await service.transitionStatus(analysis.id, 'active');
     await service.transitionStatus(analysis.id, 'in_review');

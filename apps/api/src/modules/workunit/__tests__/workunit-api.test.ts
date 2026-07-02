@@ -48,7 +48,6 @@ describe('WorkUnit API service', () => {
         assigneeId: 'agent-1',
         channelId: null,
         parentId: null,
-        dependsOn: ['dep-1'],
         metadata: { priority: 'high' },
       });
       testIds.push(wu.id);
@@ -56,7 +55,6 @@ describe('WorkUnit API service', () => {
       expect(wu.type).toBe('analysis');
       expect(wu.scope).toBe('Full fields');
       expect(wu.assigneeId).toBe('agent-1');
-      expect(wu.dependsOn).toBe('["dep-1"]');
       expect(wu.metadata).toBe('{"priority":"high"}');
     });
 
@@ -314,54 +312,6 @@ describe('WorkUnit API service', () => {
 
       const updated = await service.transitionStatus(wu.id, 'blocked');
       expect(updated.status).toBe('blocked');
-    });
-  });
-
-  // ---- Cycle detection integration ----
-
-  describe('dependsOn cycle detection', () => {
-    it('create with valid dependsOn succeeds', async () => {
-      const a = await service.create({ scope: 'cycle-a' });
-      const b = await service.create({ scope: 'cycle-b', dependsOn: [a.id] });
-      testIds.push(a.id, b.id);
-
-      expect(JSON.parse(b.dependsOn)).toEqual([a.id]);
-    });
-
-    it('update dependsOn with valid deps succeeds', async () => {
-      const x = await service.create({ scope: 'cycle-x' });
-      const y = await service.create({ scope: 'cycle-y' });
-      const z = await service.create({ scope: 'cycle-z', dependsOn: [x.id] });
-      testIds.push(x.id, y.id, z.id);
-
-      // Change z to depend on y instead of x — valid
-      const updated = await service.update(z.id, { dependsOn: [y.id] });
-      expect(JSON.parse(updated.dependsOn)).toEqual([y.id]);
-    });
-
-    it('update without dependsOn change skips validation', async () => {
-      const m = await service.create({ scope: 'cycle-m' });
-      const n = await service.create({ scope: 'cycle-n', dependsOn: [m.id] });
-      testIds.push(m.id, n.id);
-
-      // Changing scope only — no cycle check
-      const updated = await service.update(n.id, { scope: 'cycle-n-renamed' });
-      expect(updated.scope).toBe('cycle-n-renamed');
-    });
-
-    it('9-stage linear pipeline create succeeds', async () => {
-      const stages = [
-        'analyst', 'decomposition', 'planner', 'executor',
-        'tdd-red', 'tdd-green', 'tdd-refactor', 'reviewer', 'deploy',
-      ];
-      const ids: string[] = [];
-      for (const stage of stages) {
-        const deps = ids.length > 0 ? [ids[ids.length - 1]] : [];
-        const wu = await service.create({ scope: `pipeline-${stage}`, dependsOn: deps });
-        ids.push(wu.id);
-        testIds.push(wu.id);
-      }
-      expect(ids).toHaveLength(9);
     });
   });
 

@@ -46,7 +46,6 @@ export interface CreateWorkUnitInput {
   status?: string;
   channelId?: string | null;
   parentId?: string | null;
-  dependsOn?: string[];
   failureType?: string;
   retryCount?: number;
   timeoutAt?: Date | null;
@@ -60,7 +59,6 @@ export interface UpdateWorkUnitInput {
   assigneeId?: string | null;
   channelId?: string | null;
   parentId?: string | null;
-  dependsOn?: string[];
   failureType?: string | null;
   retryCount?: number;
   timeoutAt?: Date | null;
@@ -93,7 +91,6 @@ export class WorkUnitService {
         status: input.status ?? 'unassigned',
         channelId: input.channelId ?? null,
         parentId: input.parentId ?? null,
-        dependsOn: input.dependsOn ? JSON.stringify(input.dependsOn) : '[]',
         failureType: input.failureType ?? null,
         retryCount: input.retryCount ?? 0,
         timeoutAt: input.timeoutAt ?? null,
@@ -193,7 +190,6 @@ export class WorkUnitService {
     if (input.assigneeId !== undefined) data.assigneeId = input.assigneeId;
     if (input.channelId !== undefined) data.channelId = input.channelId;
     if (input.parentId !== undefined) data.parentId = input.parentId;
-    if (input.dependsOn !== undefined) data.dependsOn = JSON.stringify(input.dependsOn);
     if (input.failureType !== undefined) data.failureType = input.failureType;
     if (input.retryCount !== undefined) data.retryCount = input.retryCount;
     if (input.timeoutAt !== undefined) data.timeoutAt = input.timeoutAt;

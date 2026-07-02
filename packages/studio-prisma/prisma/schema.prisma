@@ -1516,7 +1516,6 @@ model RuntimeInstance {
 model WorkUnit {
   id         String   @id @default(cuid())
   parentId   String?  // 层级（decomposition）
-  dependsOn  String   @default("[]") // JSON: WorkUnit ID[] (顺序依赖)
 
   // 三个本质属性
   type       String   @default("task") // task | monitor | analysis | discussion

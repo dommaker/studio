@@ -23,7 +23,6 @@ describe('WorkUnit data model', () => {
     expect(wu.assigneeId).toBeNull();
     expect(wu.channelId).toBeNull();
     expect(wu.parentId).toBeNull();
-    expect(wu.dependsOn).toBe('[]'); // JSON default
     expect(wu.metadata).toBeNull();
   });
 
@@ -36,7 +35,6 @@ describe('WorkUnit data model', () => {
         status: 'active',
         channelId: null,
         parentId: null,
-        dependsOn: '["wu-1","wu-2"]',
         metadata: '{"priority":"high"}',
       },
     });
@@ -46,7 +44,6 @@ describe('WorkUnit data model', () => {
     expect(wu.scope).toBe('System health check');
     expect(wu.assigneeId).toBe('agent-1');
     expect(wu.status).toBe('active');
-    expect(wu.dependsOn).toBe('["wu-1","wu-2"]');
     expect(wu.metadata).toBe('{"priority":"high"}');
   });
 

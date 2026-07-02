@@ -59,7 +59,7 @@ router.get('/', async (req: Request, res: Response) => {
 /** POST / — create WorkUnit */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { scope, type, assigneeId, status, channelId, parentId, dependsOn, metadata } = req.body;
+    const { scope, type, assigneeId, status, channelId, parentId, metadata } = req.body;
 
     if (!scope || typeof scope !== 'string') {
       return res.status(400).json({
@@ -74,7 +74,6 @@ router.post('/', async (req: Request, res: Response) => {
       status,
       channelId,
       parentId,
-      dependsOn,
       metadata,
     });
 
