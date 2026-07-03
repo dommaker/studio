@@ -61,7 +61,8 @@ export class AgentLoop {
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
     // W-4 fix: parse channels from role.channels JSON
     try {
-      this.myChannels = JSON.parse(role.channels || '[]');
+      const parsed = JSON.parse(role.channels || '[]');
+      this.myChannels = Array.isArray(parsed) ? parsed : [];
     } catch {
       this.myChannels = [];
     }
