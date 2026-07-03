@@ -90,6 +90,13 @@ export class AgentLoop {
         const target = resolveTarget(observations);
 
         if (!target) {
+          // No work available → back to idle (fix: status stays correct after task completion)
+          if (this.instance) {
+            await prisma.runtimeInstance.update({
+              where: { id: this.instance.id },
+              data: { status: 'idle', currentWorkUnitId: null },
+            }).catch(() => {});
+          }
           await sleep(15_000);
           continue;
         }
@@ -107,11 +114,11 @@ export class AgentLoop {
           }
         }
 
-        // Update heartbeat
+        // Update heartbeat + status=active (fix: monitoring.active was always 0)
         if (this.instance) {
           await prisma.runtimeInstance.update({
             where: { id: this.instance.id },
-            data: { lastHeartbeat: new Date(), currentWorkUnitId: target.workUnit.id },
+            data: { lastHeartbeat: new Date(), currentWorkUnitId: target.workUnit.id, status: 'active' },
           }).catch(() => {});
         }
 
