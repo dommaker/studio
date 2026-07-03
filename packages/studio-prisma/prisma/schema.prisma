@@ -127,7 +127,6 @@ model Company {
   OKR          OKR[]
   Documents    Document[]
   projects     Project[]
-  Goal         Goal[]
 }
 
 model OKR {
@@ -215,71 +214,6 @@ model Execution {
   @@index([workflowId])
   @@index([roleId])
   @@index([okrId])
-}
-
-// ─── Goal 驱动架构 ───
-
-model Goal {
-  id            String      @id @default(cuid())
-  title         String
-  description   String
-  status        String      @default("draft")     // draft | planning | executing | succeeded | failed | blocked
-  priority      String      @default("normal")    // low/normal/high/critical
-  constraints   String?                               // 人定义的约束条件
-  context       String?                               // 上下文信息（会议、项目等）
-  companyId     String
-  createdBy     String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  completedAt   DateTime?
-  GoalPlan      GoalPlan[]
-  GoalExecution GoalExecution[]
-  Company       Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@index([companyId])
-  @@index([status])
-  @@index([createdAt])
-}
-
-model GoalPlan {
-  id          String        @id @default(cuid())
-  goalId      String
-  status      String        @default("draft")     // draft | approved | executing | completed
-  steps       String                                  // GoalStep[]: LLM 生成的执行计划
-  reasoning   String?                               // LLM 的推理过程
-  version     Int           @default(1)
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-  Goal        Goal          @relation(fields: [goalId], references: [id], onDelete: Cascade)
-  GoalExecution GoalExecution[]
-
-  @@index([goalId])
-  @@index([status])
-}
-
-model GoalExecution {
-  id          String     @id @default(cuid())
-  goalId      String
-  planId      String?    // G34: optional — GoalPlan stage eliminated for direct acGroup→Execution
-  stepIndex   Int                                    // 对应 GoalPlan.steps 中的索引
-  status      String     @default("pending")         // pending | running | succeeded | failed
-  agentType   String?                                // 执行此步骤的 agent 类型
-  input       String?                                  // 步骤输入
-  output      String?                                  // 步骤输出
-  error       String?
-  failureType String?                                  // 失败分类: retryable|not-retryable|infrastructure|unknown
-  retryCount  Int        @default(0)                    // 失败重试次数
-  startedAt   DateTime?
-  completedAt DateTime?
-  timeoutAt   DateTime?                                    // B57-P1: per-phase 超时标记
-  createdAt   DateTime   @default(now())
-  Goal        Goal       @relation(fields: [goalId], references: [id], onDelete: Cascade)
-  GoalPlan    GoalPlan?  @relation(fields: [planId], references: [id], onDelete: Cascade)
-
-  @@index([goalId])
-  @@index([planId])
-  @@index([status])
-  @@index([failureType])
 }
 
 // ─── LLM 配置体系 ───
@@ -1232,30 +1166,6 @@ model Resolution {
 
 // ── 管线指标 (B1-016) ──
 
-model PipelineRun {
-  id        String   @id @default(cuid())
-  source    String   // "pipeline" | "window"
-  phase     String   // "analyst" | "executor" | "full"
-  taskName  String
-  model     String
-  inputTokens     Int
-  outputTokens    Int
-  cacheHitTokens  Int      @default(0)
-  durationMs      Int
-  success         Boolean
-  testPassed      Boolean?
-  lintPassed      Boolean?
-  diffLines       Int?
-  error           String?
-  sessionId       String?
-  goalId          String?
-  createdAt DateTime @default(now())
-
-  @@index([source, createdAt])
-  @@index([phase])
-  @@index([goalId])
-}
-
 // ── G30: Unified StudioEvent Table ──
 
 model StudioEvent {
@@ -1292,44 +1202,6 @@ model StudioEvent {
   @@index([agentRole])
 }
 
-// PipelineReview — 审查结果持久化 (OBS-2)
-model PipelineReview {
-  id             String   @id @default(cuid())
-  executionId    String   @unique
-  goalId         String?
-  overallApproved Boolean  @default(false)
-  score          Int?      // 0-100
-  stanceCount    Int       @default(0)
-  stancesJson    String    // JSON: 完整 stanceReports
-  issuesJson     String    // JSON: 所有 issues
-  summary        String?
-  createdAt      DateTime  @default(now())
-
-  @@index([goalId])
-  @@index([createdAt])
-  @@map("pipeline_review")
-}
-
-// SchedulingDecision — 路由决策持久化 (OBS-6)
-// NOTE: Prisma model kept as PipelineDecision until client regeneration; TS type alias SchedulingDecision used in code
-model PipelineDecision {
-  id             String   @id @default(cuid())
-  executionId    String   @unique
-  goalId         String?
-  tier           String    // fast/standard/premium
-  reason         String    // classification reason
-  acCount        Int       @default(0)
-  fileCount      Int       @default(0)
-  taskCategory   String?   // feature/bug/refactor/config/test
-  riskHits       Int       @default(0)
-  estimatedLines Int?
-  featuresJson   String?   // JSON: full classification inputs
-  createdAt      DateTime  @default(now())
-
-  @@index([goalId])
-  @@index([createdAt])
-  @@map("pipeline_decision")
-}
 
 // KE-003: User behavior distillation profiles
 model UserBehaviorProfile {
