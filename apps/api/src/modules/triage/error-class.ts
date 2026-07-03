@@ -103,7 +103,7 @@ const SYSTEM_PATTERNS: Array<{
   { match: (t) => t === 'execution_timeout', errorClass: 'timeout', severity: 'critical', action: 'kill execution + re-spawn with model tier upgrade' },
   // 跨执行模式（Auditor/Evolution 升级，Phase 3）
   { match: (t) => t === 'agent_type_failure_trend', errorClass: 'vendor_error', severity: 'degraded', action: 'log & escalate to human — systemic agent type failure pattern needs manual investigation' },
-  { match: (t) => t === 'pipeline_health_degraded', errorClass: 'vendor_error', severity: 'degraded', action: 'restart server + clean temp files' },
+  { match: (t) => t === 'workunit_health_degraded', errorClass: 'vendor_error', severity: 'degraded', action: 'check agent health + examine failed WorkUnits' },
   { match: (t) => t === 'review_cycle_exhausted', errorClass: 'validation_failure', severity: 'critical', action: 'escalate to human — review cycle exhausted, manual intervention required' },
 ];
 

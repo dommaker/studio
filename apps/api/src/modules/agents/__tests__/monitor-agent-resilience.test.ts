@@ -75,7 +75,7 @@ describe('MonitorAgent deploy + proxy alerts (AC-3)', () => {
       // the method exists and handles the source by checking the
       // import types: MonitorAlertSource includes deploy_push_failed
       const validSources = [
-        'failure_trend', 'stuck_goals', 'progress_stagnation',
+        'failure_trend', 'stuck_workunits', 'progress_stagnation',
         'session_escalation', 'total_time', 'heartbeat_loss',
         'tool_error_rate', 'tool_zero_success', 'session_file_size',
         'review_quality', 'deploy_push_failed', 'proxy_restart_exhausted',
@@ -135,7 +135,7 @@ describe('MonitorAgent deploy + proxy alerts (AC-3)', () => {
         'session_escalation',
         'total_time',
         'heartbeat_loss',
-        'stuck_goals',
+        'stuck_workunits',
         'progress_stagnation',
         'tool_error_rate',
         'tool_zero_success',

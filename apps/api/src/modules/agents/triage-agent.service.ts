@@ -107,7 +107,7 @@ class TriageAgent {
 
     try {
       // Service health check
-      if (input.type === 'service_down' || input.type === 'pipeline_health_degraded') {
+      if (input.type === 'service_down' || input.type === 'workunit_health_degraded') {
         try {
           const { execSync } = await import('child_process');
           const health = execSync(`curl -s -o /dev/null -w "%{http_code}" http://localhost:${process.env.PORT || 3001}/health 2>/dev/null || echo "unreachable"`, {
@@ -298,9 +298,9 @@ class TriageAgent {
       agent_type_failure_trend: [
         'echo "[Triage] agent_type_failure_trend — systemic pattern, logging and escalating to human"',
       ],
-      pipeline_health_degraded: [
-        'echo "[Triage] pipeline_health_degraded — restarting server"; pm2 restart studio-api 2>/dev/null || true',
-        'rm -rf /tmp/studio-* 2>/dev/null; find /var/log -name "*.log" -mtime +7 -delete 2>/dev/null || true',
+      workunit_health_degraded: [
+        'echo "[Triage] workunit_health_degraded — checking agent health + examining failed WorkUnits"',
+        'echo "[Triage] reviewing recent WorkUnit failures for pattern analysis"',
       ],
       review_cycle_exhausted: [
         'echo "[Triage] review_cycle_exhausted — event-driven, escalating to human"',

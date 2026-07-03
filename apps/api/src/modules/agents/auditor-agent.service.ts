@@ -108,7 +108,7 @@ export class AuditorAgent {
         tierStats.set(tier, tr);
       }
 
-      // 5. Goal 状态分布
+      // 5. WorkUnit 状态分布
       const goalStats = await prisma.workUnit.groupBy({
         by: ['status'],
         where: { updatedAt: { gte: yesterday }, type: 'task', parentId: null },
@@ -138,7 +138,7 @@ export class AuditorAgent {
             return `- **${tier}**: ${s.total} 次 (成功: ${s.total - s.failed}, 失败: ${s.failed}, 成功率: ${rate}%)`;
           }),
         '',
-        '### Goal 状态',
+        '### WorkUnit 状态',
         ...goalStats.map(g => `- ${g.status}: ${g._count}`),
       ];
 
@@ -514,26 +514,26 @@ export class AuditorAgent {
       }
     }
 
-    // Overall successRate < 50% → pipeline_health_degraded
+    // Overall successRate < 50% → workunit_health_degraded
     if (total >= 5 && overallSuccessRate < 50) {
       try {
         const { triageAgent } = await import('./triage-agent.service.js');
         triageAgent.handleAlert({
-          type: 'pipeline_health_degraded',
+          type: 'workunit_health_degraded',
           severity: 'critical',
-          message: `Pipeline success rate ${overallSuccessRate}% (${failed}/${total} failed) below 50% threshold`,
+          message: `WorkUnit success rate ${overallSuccessRate}% (${failed}/${total} failed) below 50% threshold`,
           details: {
             overallSuccessRate,
             total,
             failed,
           },
         }).catch(err => {
-          logger.error('[AuditorAgent] Triage escalation failed (pipeline_health)', {
+          logger.error('[AuditorAgent] Triage escalation failed (workunit_health)', {
             error: String(err),
           });
         });
       } catch (err) {
-        logger.warn('[AuditorAgent] Failed to import triageAgent for pipeline_health_degraded', { error: String(err) });
+        logger.warn('[AuditorAgent] Failed to import triageAgent for workunit_health_degraded', { error: String(err) });
       }
     }
   }
@@ -755,7 +755,7 @@ export class AuditorAgent {
                 detail: `OKR "${okr.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，趋势${trend < 0 ? '恶化中' : '未改善'}。建议触发深度根因分析`,
               });
 
-              // AS-018 PROPOSE: critical → root cause analysis + draft Goal
+              // AS-018 PROPOSE: critical → root cause analysis + draft WorkUnit
               try {
                 const diagnosis = await this.diagnoseRootCause(okr.id, kr.title, 'critical');
                 if (diagnosis) {
@@ -764,10 +764,10 @@ export class AuditorAgent {
                     confidence: diagnosis.confidence,
                   });
                   if (preCheck.status !== 'blocked') {
-                    const goal = await prisma.workUnit.create({
+                    const wu = await prisma.workUnit.create({
                       data: {
                         scope: `[OKR优化] ${kr.title}: ${diagnosis.suggestedFix.substring(0, 80)}`,
-                        type: 'task',
+                        type: 'okr_proposal',
                         status: 'unassigned',
                         metadata: JSON.stringify({
                           description: JSON.stringify({
@@ -795,9 +795,9 @@ export class AuditorAgent {
                       `**预期改善**: ${diagnosis.expectedImprovement}\n` +
                       `**置信度**: ${Math.round(diagnosis.confidence * 100)}%\n` +
                       (preCheck.reasons.length > 0 ? `**注意**: ${preCheck.reasons.join('; ')}\n` : '') +
-                      `\nDraft Goal 已创建: ${goal.id}`
+                      `\nDraft WorkUnit 已创建: ${wu.id}`
                     );
-                    logger.info('[Auditor] OKR proposal created', { okrId: okr.id, kr: kr.title, goalId: goal.id });
+                    logger.info('[Auditor] OKR proposal created', { okrId: okr.id, kr: kr.title, workUnitId: wu.id });
                   } else {
                     logger.info('[Auditor] OKR proposal blocked', { kr: kr.title, reasons: preCheck.reasons });
                   }
@@ -1624,15 +1624,15 @@ export class AuditorAgent {
 
     // 3. 检查重复提案
     try {
-      const recentGoals = await prisma.workUnit.findMany({
+      const recentWorkUnits = await prisma.workUnit.findMany({
         where: {
           scope: { contains: proposal.suggestedFix.substring(0, 30) },
-          type: 'task',
+          type: 'okr_proposal',
           createdAt: { gte: new Date(Date.now() - 14 * 86400000) },
         },
       });
-      if (recentGoals.length > 0) {
-        reasons.push(`最近 14 天内已有 ${recentGoals.length} 个相似 Goal，建议检查是否需要重新提案`);
+      if (recentWorkUnits.length > 0) {
+        reasons.push(`最近 14 天内已有 ${recentWorkUnits.length} 个相似 WorkUnit，建议检查是否需要重新提案`);
       }
     } catch { /* non-blocking */ }
 

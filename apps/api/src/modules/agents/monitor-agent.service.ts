@@ -183,7 +183,7 @@ export class MonitorAgent {
       session_escalation: 'execution_session_exhausted',
       total_time: 'execution_timeout',
       heartbeat_loss: 'execution_heartbeat_lost',
-      stuck_goals: 'execution_stuck',
+      stuck_workunits: 'execution_stuck',
       progress_stagnation: 'execution_progress_stagnation',
       tool_error_rate: null,
       tool_zero_success: null,
@@ -493,7 +493,7 @@ export class MonitorAgent {
     const REVIEW_QUALITY_THRESHOLD = 75;
     const alerts: MonitorAlert[] = [];
     try {
-      const recentGoals = await prisma.workUnit.findMany({
+      const recentWorkUnits = await prisma.workUnit.findMany({
         where: {
           status: 'done',
           updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
@@ -503,18 +503,18 @@ export class MonitorAgent {
         take: 20,
       });
 
-      for (const goal of recentGoals) {
-        const ctx = (typeof goal.metadata === 'string' ? JSON.parse(goal.metadata) : goal.metadata) || {};
+      for (const wu of recentWorkUnits) {
+        const ctx = (typeof wu.metadata === 'string' ? JSON.parse(wu.metadata) : wu.metadata) || {};
         const reviewScore = ctx.reviewScore as number | undefined;
         const reviewCycle = (ctx.reviewCycle as number) || 1;
 
         if (reviewScore !== undefined && reviewScore > 0 && reviewScore < REVIEW_QUALITY_THRESHOLD) {
           alerts.push({
-            projectId: goal.id.slice(0, 8),
-            message: `Goal ${goal.id.slice(0, 8)} review score ${reviewScore} < ${REVIEW_QUALITY_THRESHOLD} but approved. ${reviewCycle > 1 ? `(after ${reviewCycle} cycles)` : '(first cycle)'}. Review may be letting sub-par code through.`,
+            projectId: wu.id.slice(0, 8),
+            message: `WorkUnit ${wu.id.slice(0, 8)} review score ${reviewScore} < ${REVIEW_QUALITY_THRESHOLD} but approved. ${reviewCycle > 1 ? `(after ${reviewCycle} cycles)` : '(first cycle)'}. Review may be letting sub-par code through.`,
             source: 'review_quality',
             level: reviewScore < 50 ? 'critical' : 'warning',
-            relatedTaskIds: [goal.id],
+            relatedTaskIds: [wu.id],
             timestamp: Date.now(),
           });
         }
@@ -526,14 +526,14 @@ export class MonitorAgent {
   }
 
   /**
-   * P2-1: Token budget check — goal 累计 token 超阈值告警
+   * P2-1: Token budget check — WorkUnit 累计 token 超阈值告警
    */
   private async checkTokenBudget(): Promise<MonitorAlert[]> {
     const TOKEN_BUDGET_WARN = 500_000;
     const TOKEN_BUDGET_CRIT = 1_000_000;
     const alerts: MonitorAlert[] = [];
     try {
-      const goals = await prisma.workUnit.findMany({
+      const workUnits = await prisma.workUnit.findMany({
         where: {
           status: { in: ['active', 'done', 'blocked'] },
           updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
@@ -542,25 +542,25 @@ export class MonitorAgent {
         take: 10,
       });
 
-      for (const goal of goals) {
-        const ctx = (typeof goal.metadata === 'string' ? JSON.parse(goal.metadata) : goal.metadata) || {};
+      for (const wu of workUnits) {
+        const ctx = (typeof wu.metadata === 'string' ? JSON.parse(wu.metadata) : wu.metadata) || {};
         const tokens = (ctx._cumulativeTokens as number) || 0;
         if (tokens >= TOKEN_BUDGET_CRIT) {
           alerts.push({
-            projectId: goal.id.slice(0, 8),
-            message: `Goal ${goal.id.slice(0, 8)} exceeded critical token budget: ${(tokens / 1000).toFixed(0)}K tokens`,
+            projectId: wu.id.slice(0, 8),
+            message: `WorkUnit ${wu.id.slice(0, 8)} exceeded critical token budget: ${(tokens / 1000).toFixed(0)}K tokens`,
             source: 'total_time',
             level: 'critical',
-            relatedTaskIds: [goal.id],
+            relatedTaskIds: [wu.id],
             timestamp: Date.now(),
           });
         } else if (tokens >= TOKEN_BUDGET_WARN) {
           alerts.push({
-            projectId: goal.id.slice(0, 8),
-            message: `Goal ${goal.id.slice(0, 8)} approaching token budget: ${(tokens / 1000).toFixed(0)}K tokens`,
+            projectId: wu.id.slice(0, 8),
+            message: `WorkUnit ${wu.id.slice(0, 8)} approaching token budget: ${(tokens / 1000).toFixed(0)}K tokens`,
             source: 'total_time',
             level: 'warning',
-            relatedTaskIds: [goal.id],
+            relatedTaskIds: [wu.id],
             timestamp: Date.now(),
           });
         }
@@ -1807,7 +1807,7 @@ export class MonitorAgent {
         });
         logger.info('[MonitorAgent] TTL: WorkUnit cleaned', { deleted: deleted.count, cutoff: execCutoff.toISOString() });
       } catch (e) {
-        logger.warn('[MonitorAgent] TTL: GoalExecution cleanup failed', { error: String(e) });
+        logger.warn('[MonitorAgent] TTL: WorkUnit cleanup failed', { error: String(e) });
       }
 
       // 3. Delete PipelineRun older than 90 days

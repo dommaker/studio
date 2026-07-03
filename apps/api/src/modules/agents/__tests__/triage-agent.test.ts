@@ -29,7 +29,7 @@ describe('TriageAgent + MonitorAgent', () => {
     });
   });
 
-  // ── handleAlert pipeline ──
+  // ── handleAlert cross-execution ──
 
   describe('TriageAgent.handleAlert()', () => {
     it('creates an Incident record with valid ID format', async () => {
@@ -126,7 +126,7 @@ describe('TriageAgent + MonitorAgent', () => {
         type: 'execution_stuck',
         severity: 'critical',
         message: 'Test: execution stuck 35min',
-        details: { executionId: 'test-exec-1', monitorSource: 'stuck_goals' },
+        details: { executionId: 'test-exec-1', monitorSource: 'stuck_workunits' },
       });
 
       expect(result.incidentId).toMatch(/^I-\d{8}-/);

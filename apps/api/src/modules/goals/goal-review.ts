@@ -108,7 +108,7 @@ export async function handleGoalSucceeded(goalId: string): Promise<void> {
     try {
       const { triageAgent } = await import('../agents/triage-agent.service.js');
       await triageAgent.handleAlert({
-        type: 'pipeline_health_degraded',
+        type: 'workunit_health_degraded',
         severity: 'critical',
         message: `Goal ${goalId}: No review worktree found after all execution steps completed`,
         details: { goalId, reason: 'review_worktree_missing' },

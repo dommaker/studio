@@ -17,7 +17,7 @@ export type TriageIncidentType =
   | 'execution_timeout'
   // 跨执行模式（Auditor/Evolution 升级，Phase 3）
   | 'agent_type_failure_trend'
-  | 'pipeline_health_degraded'
+  | 'workunit_health_degraded'
   | 'review_cycle_exhausted'
   // 系统健康
   | 'knowledge_health_degraded';
@@ -42,7 +42,7 @@ export interface TriageLogEntry {
 export interface DeployParams {
   projectId: string;
   executionId: string;
-  executionIds?: string[]; // execution IDs to scope cleanup to (one per GoalExecution)
+  executionIds?: string[]; // execution IDs to scope cleanup to (one per WorkUnit)
   worktree: string;
   environment: 'vps' | 'company_frontend' | 'company_backend';
   taskDescription: string;
@@ -143,7 +143,7 @@ export interface KnowledgeEntryDraft {
 
 export type MonitorAlertSource =
   | 'failure_trend'
-  | 'stuck_goals'
+  | 'stuck_workunits'
   | 'progress_stagnation'
   | 'session_escalation'
   | 'total_time'
