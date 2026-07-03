@@ -1,5 +1,5 @@
 ---
-status: draft
+status: implemented
 version: "1.0"
 source: docs/issues/2026-07-03-pipeline-removal-checklist.md
 type: cleanup

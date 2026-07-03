@@ -25,7 +25,7 @@ interface ScopeConfig {
 
 const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
   'pipeline-stages': {
-    files: ['apps/api/src/modules/goals/goal-scheduler.ts', 'apps/api/src/modules/goals/goal.service.ts', 'apps/api/src/modules/channels/analyst-trigger.service.ts', 'apps/api/src/modules/channels/channel.routes.ts'],
+    files: ['apps/api/src/modules/channels/analyst-trigger.service.ts', 'apps/api/src/modules/channels/channel.routes.ts'],
     title: 'Pipeline Stages',
     knowledgeType: 'process',
   },
@@ -35,7 +35,7 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'architecture',
   },
   'pipeline-logging': {
-    files: ['apps/api/src/modules/agents/*.service.ts', 'apps/api/src/daemon/metrics.ts', 'packages/studio-shared/src/llm/model-gateway.ts'],
+    files: ['apps/api/src/modules/agents/*.service.ts', 'packages/studio-shared/src/llm/model-gateway.ts'],
     title: 'Pipeline Logging & Observability',
     knowledgeType: 'architecture',
   },
@@ -57,11 +57,6 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
   'knowledgestore-bp': {
     files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts', 'harness/src/knowledge/ingest.ts', 'harness/src/knowledge/lifecycle.ts'],
     title: 'KnowledgeStore Breakpoint Fixes',
-    knowledgeType: 'architecture',
-  },
-  'pipeline-state-machines': {
-    files: ['apps/api/src/modules/goals/goal-scheduler.ts', 'apps/api/src/modules/goals/goal.service.ts'],
-    title: 'Pipeline State Machines & Model Tiers',
     knowledgeType: 'architecture',
   },
   'knowledge-engine-flywheel': {

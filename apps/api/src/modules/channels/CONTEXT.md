@@ -60,8 +60,7 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 - `agents/monitor-agent` — 管线监控
 
 **被依赖**：
-- `cli/studio-cli.ts` — 管线 CLI 入口调用 trigger()
-- `modules/goals/routes.ts` — auto-start execution 消费 RequirementsDoc
+- `cli/studio-cli.ts` — CLI 入口调用 trigger()
 
 ## 注意事项
 
