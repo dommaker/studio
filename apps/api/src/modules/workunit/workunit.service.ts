@@ -16,16 +16,16 @@ export interface WorkUnitMetadata {
   files?: string[];              // 文件路径列表（文件冲突检查用）
   priority?: 'low' | 'normal' | 'high' | 'critical';
   createdBy?: string;
-  description?: string;       // 从 Goal.description 降级
-  constraints?: string;       // 从 Goal.constraints 降级
-  context?: string;           // 从 Goal.context 降级
-  planVersion?: number;       // 从 GoalPlan.version 降级
-  planReasoning?: string;     // 从 GoalPlan.reasoning 降级
-  error?: string;             // 从 GoalExecution.error 降级
-  input?: string;             // 从 GoalExecution.input 降级
-  output?: string;            // 从 GoalExecution.output 降级
-  goalId?: string;            // 从 GoalExecution.goalId 降级（Phase 3 迁移）
-  title?: string;             // 从 Goal.title 降级（Phase 3 迁移）
+  description?: string;       // 从 WorkUnit.description 降级
+  constraints?: string;       // 从 WorkUnit.constraints 降级
+  context?: string;           // 从 WorkUnit.context 降级
+  planVersion?: number;       // 从 WorkUnit.planVersion 降级
+  planReasoning?: string;     // 从 WorkUnit.planReasoning 降级
+  error?: string;             // 从 WorkUnit.error 降级
+  input?: string;             // 从 WorkUnit.input 降级
+  output?: string;            // 从 WorkUnit.output 降级
+  goalId?: string;            // 从 WorkUnit.goalId 降级（Phase 3 迁移）
+  title?: string;             // 从 WorkUnit.title 降级（Phase 3 迁移）
   _consecutiveReviewRejections?: number;  // 连续 review reject 计数（3x → auto-block）
   sourceMessageId?: string;   // createFromMessage 涌现路径来源
   creationMode?: string;      // 创建模式：from-message / manual

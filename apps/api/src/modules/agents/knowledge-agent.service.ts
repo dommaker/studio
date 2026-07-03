@@ -55,7 +55,7 @@ export class KnowledgeAgent {
    * 1. Docs: memory/*.md + CLAUDE.md + README.md (layer: 'system', types: architecture/process/decision)
    * 2. Code: package.json + tsconfig.json (layer: 'tech', types: model)
    * 3. Git: recent refactor/fix commits (layer: 'project', types: pitfall/guideline)
-   * 4. Manual: pipeline flow, agent responsibilities (layer: 'system', types: process)
+   * 4. Manual: agent network flow, agent responsibilities (layer: 'system', types: process)
    */
   async coldStartAll(): Promise<void> {
     const projectRoot = process.env.REPO_DIR || path.join(os.homedir(), 'projects');
@@ -79,10 +79,10 @@ export class KnowledgeAgent {
         docPaths,
         manualEntries: [
           {
-            title: 'Pipeline 9-Stage Flow',
-            content: 'Plan→Dispatch→Execute→Review→Deploy→PostEval→Audit→Monitor→Triage',
+            title: 'Agent Network Flow',
+            content: 'Trigger→Claim→Execute→Review→Deploy→Audit→Monitor',
             type: 'process',
-            tags: ['pipeline', 'architecture'],
+            tags: ['agent-network', 'architecture'],
           },
           {
             title: '8-Agent System',

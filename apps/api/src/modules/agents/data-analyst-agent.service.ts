@@ -93,10 +93,9 @@ class DataAnalystAgent {
       // 1. Collect data
       const metrics = await this.collectMetrics();
       const events = await this.collectRecentEvents();
-      const runs = await this.collectRecentRuns();
 
       // 2. Build prompt
-      const prompt = this.buildPrompt(metrics, events, runs);
+      const prompt = this.buildPrompt(metrics, events);
 
       // 3. LLM analysis
       const analysis = await modelGateway.promptJson<DataAnalysisReport['analysis']>(
@@ -113,7 +112,7 @@ class DataAnalystAgent {
           durationMs: Date.now() - start,
           tokensUsed: 0, // modelGateway doesn't expose token count
           model: 'standard',
-          dataPoints: events.length + runs.length,
+          dataPoints: events.length,
         },
       };
 
@@ -157,33 +156,17 @@ class DataAnalystAgent {
     });
   }
 
-  async collectRecentRuns(): Promise<Array<{ phase: string; taskName: string; model: string; success: boolean; durationMs: number; inputTokens: number; outputTokens: number }>> {
-    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-    return prisma.pipelineRun.findMany({
-      where: { createdAt: { gte: yesterday } },
-      orderBy: { createdAt: 'desc' },
-      select: { phase: true, taskName: true, model: true, success: true, durationMs: true, inputTokens: true, outputTokens: true },
-    });
-  }
-
   // ── Prompt ──
 
   private buildPrompt(
     metrics: Record<string, number | null>,
     events: Array<{ type: string; source: string; timestamp: Date; payload: string }>,
-    runs: Array<{ phase: string; taskName: string; model: string; success: boolean; durationMs: number; inputTokens: number; outputTokens: number }>,
   ): string {
     // Summarize events by type
     const eventsByType: Record<string, number> = {};
     for (const e of events) {
       eventsByType[e.type] = (eventsByType[e.type] || 0) + 1;
     }
-
-    // Summarize runs
-    const totalRuns = runs.length;
-    const succeededRuns = runs.filter(r => r.success).length;
-    const totalTokens = runs.reduce((s, r) => s + r.inputTokens + r.outputTokens, 0);
-    const avgDuration = totalRuns > 0 ? Math.round(runs.reduce((s, r) => s + r.durationMs, 0) / totalRuns) : 0;
 
     return [
       '分析以下 Studio 管线 24h 数据，产出结构化报告。',
@@ -193,10 +176,6 @@ class DataAnalystAgent {
       '',
       '## 事件统计 (type → count)',
       JSON.stringify(eventsByType, null, 2),
-      '',
-      '## 管线运行摘要',
-      `- 总运行: ${totalRuns}, 成功: ${succeededRuns}, 成功率: ${totalRuns > 0 ? Math.round(succeededRuns / totalRuns * 100) : 0}%`,
-      `- 总 token: ${totalTokens}, 平均耗时: ${avgDuration}ms`,
       '',
       '## 分析要求',
       '1. trends: 哪些指标值得关注？方向(up/down/stable)和重要性(high/medium/low)',

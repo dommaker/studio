@@ -12,7 +12,6 @@ import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { discoveryExposure } from '../channels/discovery-exposure.service.js';
-import { recordExecution } from '../../daemon/metrics.js';
 import { skillLoader } from '@dommaker/studio-skill';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -262,46 +261,6 @@ export class ReviewAgent {
         durationMs: Date.now() - startTime,
         tokens: reviewTokens,
       });
-
-      // Record review phase metrics
-      recordExecution({
-        source: 'execution', phase: 'review',
-        taskName: `review-${taskId}`,
-        model,
-        inputTokens: reviewTokens?.inputTokens || 0,
-        outputTokens: reviewTokens?.outputTokens || 0,
-        cacheHitTokens: reviewTokens?.cacheHitTokens || 0,
-        durationMs: Date.now() - startTime,
-        success: report.overallApproved,
-        sessionId: taskId,
-      }).catch(() => { /* non-blocking */ });
-
-      // OBS-2: Persist review to DB (before worktree cleanup deletes .review-report.json)
-    try {
-      const { prisma } = await import('../../core/database.js');
-      await prisma.pipelineReview.upsert({
-        where: { executionId: taskId },
-        create: {
-          executionId: taskId,
-          overallApproved: report.overallApproved,
-          score: reviewScore,
-          stanceCount: report.stanceReports ? Object.keys(report.stanceReports).length : 0,
-          stancesJson: JSON.stringify(report.stanceReports || {}),
-          issuesJson: JSON.stringify(report.issues || []),
-          summary: `Review ${report.overallApproved ? 'APPROVED' : 'REJECTED'} cycle ${cycle}: ${totalIssues} issues, score ${reviewScore}`,
-        },
-        update: {
-          overallApproved: report.overallApproved,
-          score: reviewScore,
-          stanceCount: report.stanceReports ? Object.keys(report.stanceReports).length : 0,
-          stancesJson: JSON.stringify(report.stanceReports || {}),
-          issuesJson: JSON.stringify(report.issues || []),
-          summary: `Review ${report.overallApproved ? 'APPROVED' : 'REJECTED'} cycle ${cycle}: ${totalIssues} issues, score ${reviewScore}`,
-        },
-      });
-    } catch (e) {
-      logger.warn('[ReviewAgent] Failed to persist review', { error: String(e) });
-    }
 
     // Record review pattern to KnowledgeBus
     const issueSummary = (report.issues ?? []).slice(0, 5).map(i => `[${i.severity}] ${i.message}`).join('\n');

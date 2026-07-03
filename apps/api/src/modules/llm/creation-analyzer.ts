@@ -156,7 +156,7 @@ function parseIntentResponse(content: string): CreationIntent | null {
 
 // 回退到关键词匹配
 function fallbackIntentAnalysis(input: string): CreationIntent {
-  const workflowKeywords = ['workflow', '工作流', '流程', 'pipeline', '编排'];
+  const workflowKeywords = ['workflow', '工作流', '流程', '编排'];
   const skillKeywords = ['step', 'skill', '技能', '步骤', '能力'];
   
   const hasWorkflow = workflowKeywords.some(k => input.includes(k));

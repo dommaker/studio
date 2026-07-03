@@ -211,7 +211,7 @@ export interface ExecutionOutcome {
   success: boolean;
   details: string;
   timestamp: string;
-  mode?: 'external_agent' | 'channel' | 'pipeline';
+  mode?: 'external_agent' | 'channel';
 }
 
 export interface InjectOpts {
@@ -858,35 +858,6 @@ export class KnowledgeService {
         this.lifecycle.checkSkillCandidateRevocation(sourceEntry.id);
       }
     } catch { /* non-blocking */ }
-  }
-
-  /**
-   * Record per-step pipeline feedback as StudioEvent.
-   * Called after each pipeline phase (analyst/executor/review/deploy) completes.
-   */
-  async pipelineFeedback(params: {
-    goalId: string;
-    executionId: string;
-    phase: string;
-    success: boolean;
-    durationMs: number;
-    tokensUsed?: number;
-    error?: string;
-  }): Promise<void> {
-    try {
-      await this.prisma.studioEvent.create({
-        data: {
-          type: `knowledge:pipeline:${params.phase}:${params.success ? 'success' : 'failure'}`,
-          source: 'execution',
-          payload: JSON.stringify(params),
-        },
-      });
-    } catch (e) { logger.warn('[KnowledgeService] pipelineFeedback failed', { error: String(e) }); }
-
-    this.eventEmitter.emit('knowledge', {
-      type: 'pipelineFeedback',
-      data: { goalId: params.goalId, phase: params.phase, success: params.success },
-    });
   }
 
   // ═══════════ Lifecycle ════════════

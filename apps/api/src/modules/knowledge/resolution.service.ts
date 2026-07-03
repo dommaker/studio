@@ -266,7 +266,7 @@ export class ResolutionService {
         layer: 'L3_tool_behavior',
         title: 'AC 范围外修改 — 改/删了 AC 未要求的代码导致功能回归',
         fix: '检查 AC 中的 files 列表和 gotchas（红线）。不在 AC 范围内的代码绝对不要碰，尤其是：① shell 重定向参数(2>&1, tee)通常有隐蔽的消费者(audit/log)；② 异常处理代码；③ 未在 AC 中提及的文件。每处改动前问自己：这个改动属于哪个 AC？如果找不到对应的 AC → 不要改。',
-        tags: ['pipeline', 'executor', 'surgical', 'scope', 'regression'],
+        tags: ['executor', 'surgical', 'scope', 'regression'],
       },
     ];
 

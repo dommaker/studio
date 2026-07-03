@@ -1125,7 +1125,7 @@ export class AuditorAgent {
     const failures = recentExecs
       .filter(e => e.status === 'closed' && e.error)
       .map(e => ({
-        goalId: (e as any).goalId || 'unknown',
+        workUnitId: (e as any).goalId || 'unknown',
         executionId: (e as any).id || 'unknown',
         error: e.error!,
         taskDescription: this.extractTaskDescription(e.input),

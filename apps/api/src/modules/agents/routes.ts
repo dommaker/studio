@@ -4,11 +4,9 @@ import { AgentRegistry } from '@dommaker/studio-agent';
 import { prisma } from '../../core/database.js';
 import { postEvalAgent } from './post-eval-agent.service.js';
 import { reviewAgent } from './review-agent.service.js';
-import { deployAgent } from './deploy-agent.service.js';
 import { requireNotGuest, requireRole } from '../../middleware/auth.js';
 import { eventStore } from '../../core/event-store.js';
 import { logger } from '@dommaker/studio-shared';
-import type { MergeToMasterRequest } from './types.js';
 
 const router = Router();
 
@@ -180,58 +178,5 @@ router.post('/review/diff', async (req: Request, res: Response) => {
   }
 });
 
-// ── Merge branches (topology-agnostic) ───────────────────
-
-router.post('/deploy/merge', async (req: Request, res: Response) => {
-  try {
-    const { source, target, repoPath, push } = req.body;
-    if (!source || !target) {
-      return res.status(400).json({ error: { code: 'MISSING_PARAM', message: 'source and target are required' } });
-    }
-    const result = await deployAgent.mergeBranches({ source, target, repoPath, push });
-    res.json(result);
-  } catch (error) {
-    logger.error('[Agents] Merge branches failed', { error: String(error) });
-    res.status(500).json({ error: { code: 'MERGE_FAILED', message: String(error) } });
-  }
-});
-
-// ── Merge to default branch (convenience composite) ──────
-
-router.post('/deploy/merge-to-master', async (req: Request, res: Response) => {
-  try {
-    const repoDir = process.env.REPO_DIR || '/root/projects/studio';
-    const { getDefaultBranch } = await import('../../utils/git.js');
-    const defaultBranch = getDefaultBranch(repoDir);
-    const { sourceBranch, skipReview = false, environment = 'vps' } = req.body as MergeToMasterRequest;
-    let reviewApproved = true;
-    let reviewScore = 100;
-    const reviewIssues: any[] = [];
-
-    if (!skipReview) {
-      logger.info(`[Agents] merge-to-${defaultBranch}: running review`, { sourceBranch, repoDir });
-      const reviewResult = await reviewAgent.reviewDiff({
-        baseRef: `origin/${defaultBranch}`,
-        headRef: `origin/${sourceBranch}`,
-        repoPath: repoDir,
-        description: `Merge ${sourceBranch} → ${defaultBranch}: ${sourceBranch} branch commits ahead of ${defaultBranch}`,
-      });
-      reviewApproved = reviewResult.approved;
-      reviewScore = reviewResult.score;
-      reviewIssues.push(...reviewResult.issues);
-
-      if (!reviewApproved) {
-        return res.status(200).json({ reviewApproved: false, reviewScore, reviewIssues, merged: false, pushed: false, summary: `Review rejected (score: ${reviewScore}). Fix issues before merge.` });
-      }
-      logger.info(`[Agents] merge-to-${defaultBranch}: review approved`, { sourceBranch, score: reviewScore });
-    }
-
-    const mergeResult = await deployAgent.mergeBranches({ source: sourceBranch, target: defaultBranch, repoPath: repoDir, push: true });
-    res.status(200).json({ reviewApproved, reviewScore, reviewIssues, merged: mergeResult.merged, pushed: mergeResult.pushed, summary: mergeResult.summary });
-  } catch (error) {
-    logger.error('[Agents] merge-to-master failed', { error: String(error) });
-    res.status(500).json({ error: { code: 'MERGE_TO_MASTER_FAILED', message: String(error) } });
-  }
-});
 
 export default router;

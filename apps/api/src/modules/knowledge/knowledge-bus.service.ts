@@ -610,7 +610,7 @@ export function scheduleVectorDbSync(): void {
  * upsertKnowledge 是设计分析结论 → 供 agent 查询（不进 prompt 注入流）。
  */
 export async function upsertKnowledge(params: {
-  scope: string;          // 子系统命名空间，如 "pipeline-logging", "knowledge-circuit"
+  scope: string;          // 子系统命名空间，如 "workunit-execution", "knowledge-circuit"
   title: string;
   content: string;
   type?: 'architecture' | 'process' | 'guideline';

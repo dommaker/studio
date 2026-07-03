@@ -51,7 +51,7 @@ export function preScan(requirement: string, repoDir: string): ScoutScope {
   // Extract module-like keywords
   const moduleKeywords = [
     'channel', 'goal', 'executor', 'review', 'deploy', 'knowledge',
-    'pipeline', 'scheduler', 'agent', 'monitor', 'skill', 'session', 'worktree',
+    'scheduler', 'agent', 'monitor', 'skill', 'session', 'worktree',
     'auth', 'schema', 'migration', 'prisma', 'mcp', 'harness', 'analyst',
   ];
   for (const kw of moduleKeywords) {

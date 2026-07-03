@@ -6,7 +6,6 @@ import { logger, getModelForTier, parseStreamEvents, extractUsage, extractWriteC
 import { readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
-import { recordExecution } from './metrics.js';
 import { writeTaskLog, classifyTaskError } from './task-logger.js';
 import type { TaskLog } from './task-logger.js';
 
@@ -227,13 +226,6 @@ export class SessionManager {
           state.sessionId = crypto.randomUUID();
         }
 
-        recordExecution({
-          source: 'execution', phase,
-          taskName: `daemon-${sessionName}-${taskIndex}`, model,
-          inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs,
-          success: false, error: errorMsg, sessionId: state.sessionId,
-        }).catch(e => logger.warn('[SessionManager] Metrics record failed', { error: String(e) }));
-
         writeTaskLog(buildLog({
           command: '', success: false,
           errorType: classifyTaskError(errorMsg + stdoutTail),
@@ -344,24 +336,6 @@ export class SessionManager {
         costUSD: Math.round(sessionCost * 1000) / 1000,
       });
 
-      // Pipeline metrics
-      recordExecution({
-        source: 'execution', phase,
-        taskName: `daemon-${sessionName}-${state.taskCount}`, model,
-        inputTokens: usage.inputTokens, outputTokens: usage.outputTokens,
-        cacheHitTokens: usage.cacheHitTokens, durationMs, success: true,
-        sessionId: state.sessionId,
-      }).catch(e => logger.warn('[SessionManager] Metrics record failed', { error: String(e) }));
-
-      // Session-level cache metrics from .agent.log
-      import('../daemon/metrics.js').then(({ recordAgentSessionFromLog }) => {
-        recordAgentSessionFromLog(
-          state.config.worktree, state.sessionId,
-          isAnalyst ? 'analyst' as const : 'executor' as const,
-          `daemon-${sessionName}-${state.taskCount}`,
-        );
-      }).catch(() => {});
-
       writeTaskLog(buildLog({
         command: `agentRunner.executeLightweight (${sessionFlag})`,
         success: true,
@@ -385,13 +359,6 @@ export class SessionManager {
         session: sessionName, task: taskIndex, durationMs,
         error: errorMsg.slice(0, 200),
       });
-
-      recordExecution({
-        source: 'execution', phase,
-        taskName: `daemon-${sessionName}-${taskIndex}`, model,
-        inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs,
-        success: false, error: errorMsg.slice(0, 300), sessionId: state.sessionId,
-      }).catch(e => logger.warn('[SessionManager] Metrics record failed', { error: String(e) }));
 
       writeTaskLog(buildLog({
         command: '', success: false, errorType: 'parse_error',

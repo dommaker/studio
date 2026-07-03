@@ -9,7 +9,6 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus, toKebab, writeSddDoc, appendChangelog } from '@dommaker/studio-shared';
 import { classifyError, formatTriageMessage } from '../triage/error-class.js';
 import { channelMessageService } from './channel-message.service.js';
-import { recordExecution } from '../../daemon/metrics.js';
 import { perInvocationOutputFile } from './analyst-knowledge.js';
 import { buildAnalystPrompt } from './analyst-prompt.js';
 import { runClaudeCode, validateAnalystOutput, preClassifyTier, type RequirementsDocJson } from './analyst-executor.js';
@@ -826,7 +825,7 @@ class AnalystTriggerService {
               timestamp: Date.now(),
             });
           }
-        } catch { /* KnowledgeBus write-back is best-effort, don't block pipeline */ }
+        } catch { /* KnowledgeBus write-back is best-effort, don't block execution */ }
 
         // G33: Expose discoveries to channel (non-blocking)
         if (response.requirement.discoveries?.length) {
@@ -845,42 +844,11 @@ class AnalystTriggerService {
         logger.warn('[AnalystTrigger] KnowledgeSync capture failed (non-blocking)', { error: String(e) });
       }
 
-      // 9. Record Analyst phase metrics
-      if (route === 'direct') {
-        // 9a. Pre-analyst knowledge search (0 tokens, duration only)
-        recordExecution({
-          source: 'execution', phase: 'analyst',
-          taskName: `pre-analyst:${response.requirement.title || '需求分析'}`,
-          model: 'knowledge-search',
-          inputTokens: 0, outputTokens: 0, cacheHitTokens: 0,
-          durationMs: preAnalystDurationMs,
-          success: true,
-          sessionId: doc.id,
-        }).catch((e: unknown) => {
-          logger.error('[AnalystTrigger] Pre-analyst metrics FAILED', { error: String(e) });
-        });
-      }
-
-      // 9b. Analyst Claude session (direct: full session; scout+synth: synthesizer only)
-      recordExecution({
-        source: 'execution', phase: 'analyst',
-        taskName: response.requirement.title || '需求分析',
-        model: `claude-${preTier}`,
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-        cacheHitTokens: usage.cacheHitTokens,
-        durationMs: route === 'scout+synth' ? scoutMetrics.synthMs : durationMs - preAnalystDurationMs,
-        success: true,
-        sessionId: doc.id,
-      }).catch((e: unknown) => {
-        logger.error('[AnalystTrigger] PipelineRun record FAILED', { error: String(e), docId: doc.id });
-      });
-
       // Point 12 (analyst-specific): B52 attribution with scoutRoute flag
-      logger.info('[Pipeline] B52 attribution', {
+      logger.info('[Analyst] B52 attribution', {
         phase: 'analyst',
         channelId,
-        goalId: doc.id,
+        workUnitId: doc.id,
         perExecutionSession: true,
         emptyDiffReject: true,
         noAcGroupMerge: true,

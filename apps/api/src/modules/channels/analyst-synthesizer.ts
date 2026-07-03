@@ -45,7 +45,7 @@ export function buildSynthesizerPrompt(
     '',
     '**铁律：只输出用户明确要求的需求。**',
     '**铁律：AC 描述必须动词开头。**',
-    '**铁律：已实现的需求不创建 Goal。**',
+    '**铁律：已实现的需求不创建 WorkUnit。**',
     '',
     '## 探索范围',
     `模块: ${scope.modules.join(', ') || 'N/A'}`,

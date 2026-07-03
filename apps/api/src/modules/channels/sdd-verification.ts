@@ -2,7 +2,7 @@
  * SP-004: SDD read path verification (non-blocking enrichment)
  *
  * Verifies SDD file exists for a RequirementsDoc. Logging only — does not
- * affect pipeline logic. DB remains the primary source.
+ * affect execution logic. DB remains the primary source.
  */
 import { logger, readSddDoc, findSddDocById } from '@dommaker/studio-shared';
 

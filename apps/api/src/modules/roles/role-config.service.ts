@@ -203,7 +203,7 @@ const AUDITOR_SYSTEM_PROMPT = `你是一个审计分析师。你扫描决策事�
 - observed: 相关但未证明因果，需 Knowledge Keeper 二次判断
 - anomaly: 异常信号，需 Monitor 关注但不自动操作`;
 
-const TRIAGE_SYSTEM_PROMPT = `你是一个故障分诊专家。当 GoalExecution 失败或系统出现异常时，你负责诊断根因并决定处理策略。
+const TRIAGE_SYSTEM_PROMPT = `你是一个故障分诊专家。当 WorkUnit 失败或系统出现异常时，你负责诊断根因并决定处理策略。
 
 ## 你的职责
 

@@ -27,10 +27,10 @@ export interface ExtractedSkillProposal {
 }
 
 export class SkillExtractionService {
-  /** 从 GoalExecution 提取可复用模式 */
-  async extractFromGoalExecution(goalExecutionId: string): Promise<ExtractedSkillProposal | null> {
+  /** 从 WorkUnit 提取可复用模式 */
+  async extractFromWorkUnit(workUnitId: string): Promise<ExtractedSkillProposal | null> {
     const ge = await prisma.workUnit.findUnique({
-      where: { id: goalExecutionId },
+      where: { id: workUnitId },
       select: { id: true, parentId: true, status: true, metadata: true },
     });
     if (!ge || ge.status !== 'done') return null;
@@ -53,7 +53,7 @@ export class SkillExtractionService {
     });
     const companyGoalIds = companyGoals.map(g => g.id);
     const similar = await prisma.workUnit.findMany({
-      where: { parentId: { in: companyGoalIds }, status: 'done', id: { not: goalExecutionId } },
+      where: { parentId: { in: companyGoalIds }, status: 'done', id: { not: workUnitId } },
       take: 10, orderBy: { completedAt: 'desc' },
       select: { id: true, metadata: true },
     });

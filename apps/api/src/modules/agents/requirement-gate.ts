@@ -1,7 +1,7 @@
 /**
  * RequirementGate — RequirementsDoc 质量门 (2026-05-21)
  *
- * 在 Goal 创建前验证 AC 组质量：
+ * 在 WorkUnit 创建前验证 AC 组质量：
  *   Stage 1 (纯代码): AC 粒度、文件路径、依赖闭环
  *   Stage 2 (flash LLM): AC 独立性、隐式依赖、文件冲突
  *

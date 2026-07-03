@@ -75,9 +75,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Skill proposal routes
   const { default: skillProposalRoutes } = await import('./modules/tools-std/skill-proposal-routes.js') as { default: Router };
 
-  // Goal routes
-  const { default: goalRoutes } = await import('./modules/goals/routes.js') as { default: Router };
-
   // LLM Config routes (加密配置)
   const { default: llmConfigRoutes } = await import('./modules/llm/config.routes.js') as { default: Router };
 
@@ -154,9 +151,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   });
   const healthRoutes = healthRouter;
 
-  // Pipeline dashboard routes
-  const { default: pipelineDashboardRoutes } = await import('./modules/pipeline-dashboard/pipeline-dashboard.routes.js') as { default: Router };
-
   // WorkUnit routes (AS-025 §3.28c-1)
   const { default: workunitRoutes } = await import('./modules/workunit/workunit.routes.js') as { default: Router };
 
@@ -186,7 +180,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/channels', router: channelRoutes, comment: 'B1-001: Channel chat interface' },
     { path: '/api/v1/requirements-docs', router: requirementsDocRoutes, comment: 'B2-009: RequirementsDoc edit' },
     { path: '/api/v1/pmo', router: pmoRoutes, comment: 'PMO-001' },
-    { path: '/api/v1/goals', router: goalRoutes, comment: 'O6: Goal 驱动架构' },
     { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
     { path: '/api/v1/agent-profiles', router: agentProfileRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD' },
     { path: '/api/v1/agent-instances', router: agentInstanceRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD' },
@@ -233,8 +226,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
 
     // 运维
-    { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Pipeline health check' },
-    { path: '/api/v1/pipeline', router: pipelineDashboardRoutes, comment: 'Pipeline status dashboard' },
+    { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check' },
     { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: auth, comment: 'AR-012' },
     { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: auth, comment: 'T-020: CLAUDE.md 新鲜度检查' },
 

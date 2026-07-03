@@ -1,5 +1,5 @@
 /**
- * DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链
+ * DecisionChainExtractor (G-004) — 从 Meeting 辩论 + WorkUnit 执行中提取决策链
  *
  * 提取完整推理链：背景→候选方案→选择理由→权衡，而非仅存最终决策。
  */
@@ -131,7 +131,7 @@ ${participants.join(', ')}
   }
 
   /**
-   * 从 Goal 执行中提取（架构变更时调用）
+   * 从 WorkUnit 执行中提取（架构变更时调用）
    */
   async extractFromExecution(params: {
     taskId: string;

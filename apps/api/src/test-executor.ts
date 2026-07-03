@@ -15,7 +15,7 @@ async function main() {
   });
 
   if (execs.length === 0) {
-    console.log('No unassigned executions. Creating test Goal...');
+    console.log('No unassigned executions. Creating test WorkUnit...');
 
     const acGroup = { id: 'test', acs: ['Create /tmp/test-result.txt with content "TEST PASSED"'], files: ['/tmp/test-result.txt'], implementationNotes: 'Run: echo "TEST PASSED" > /tmp/test-result.txt', gotchas: ['Strictly one-line shell command, do NOT create projects'] };
 
@@ -54,7 +54,7 @@ async function main() {
       }
     });
 
-    console.log(`Created test Goal: ${goal.id}`);
+    console.log(`Created test WorkUnit: ${goal.id}`);
     console.log(`Created test Execution: ${exec.id}`);
 
     const result = await agentExecutor.execute({

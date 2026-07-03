@@ -1,8 +1,8 @@
 /**
- * P3: Multi-repo Goal splitting
+ * P3: Multi-repo WorkUnit splitting
  *
  * When acGroups target different repos, split into separate groups.
- * Each group becomes an independent Goal bound to its WorkspaceRepo.
+ * Each group becomes an independent WorkUnit bound to its WorkspaceRepo.
  */
 
 export interface AcGroupWithRepo {

@@ -145,10 +145,6 @@ async function start() {
       knowledgeAgent.coldStartAll().catch(() => { /* non-blocking */ });
     });
 
-    // ⑨: 初始化 trace 管道（Goal 完成后自动分析 trace 数据）
-    const { initTracePipeline } = await import('./modules/monitoring/init-trace.js');
-    await initTracePipeline();
-
     // 注册路由
     await registerRoutes();
     logger.info('Routes registered');

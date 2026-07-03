@@ -86,7 +86,7 @@ function formatCodeStructurePrompt(dir: string, structure: CodeStructure): strin
 
 /** docs/architecture/ 模块定义 */
 const ARCH_MODULES = [
-  { name: 'pipeline', title: '管线', sourceDirs: ['apps/api/src/modules/goals', 'apps/api/src/modules/agents'] },
+  { name: 'pipeline', title: '管线', sourceDirs: ['apps/api/src/modules/agents'] },
   { name: 'knowledge', title: '知识引擎', sourceDirs: ['apps/api/src/modules/knowledge', 'harness/src/knowledge'] },
   { name: 'constraints', title: '约束系统', sourceDirs: ['harness/src/core/constraints', 'harness/src/constraints'] },
   { name: 'agents', title: 'Agent 系统', sourceDirs: ['apps/api/src/modules/agents'] },

@@ -1,7 +1,7 @@
 /**
  * SessionSummaryAgent — 会话级知识提取 (2026-05-25)
  *
- * 在 daemon 启动时运行，提取上次会话以来所有非 Goal 维度的知识：
+ * 在 daemon 启动时运行，提取上次会话以来所有非 WorkUnit 维度的知识：
  *   - git log 中的 fix/feat/refactor commits → KnowledgeBus patterns
  *   - journal 中的 error 模式 → KB
  *   - .agent.log 中的 session stats → KB

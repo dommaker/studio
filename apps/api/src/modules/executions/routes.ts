@@ -60,7 +60,6 @@ router.get('/', async (req: Request, res: Response) => {
         currentStep: runningStep >= 0 ? runningStep + 1 : completedSteps,
         totalSteps,
         progress: totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0,
-        goalName: (exec as any).Goal?.name,
       };
     });
 
@@ -151,17 +150,7 @@ router.post('/events', async (req: Request, res: Response) => {
             });
 
             logger.info(`[Task Sync] Updated task ${task.id} to ${newStatus}`);
-
-            // 非 Goal 路径的旧流程已废弃：Project 状态由 GoalScheduler → agent-event-listener 处理
-            if (newStatus === 'completed') {
-              const goalExecId = (studioExecution.parameters as unknown as Record<string, unknown>)?.goalExecutionId as string | undefined;
-              if (!goalExecId) {
-                logger.info('[Legacy] Task completed without Goal, skipping Project status update (deprecated path)');
-              }
-            }
           }
-
-          // GoalExecution sync removed — Pipeline GoalScheduler disabled
         }
       } else {
         logger.warn(`[Execution Sync] No studio execution found for runtimeExecutionId ${executionId}`);
@@ -184,13 +173,8 @@ router.get('/:executionId', async (req: Request, res: Response) => {
   try {
     const { executionId } = req.params;
 
-    const execution = await (prisma.execution.findUnique as Function)({
+    const execution = await prisma.execution.findUnique({
       where: { id: executionId },
-      include: {
-        Goal: {
-          select: { name: true }
-        }
-      }
     });
 
     if (!execution) {
@@ -212,7 +196,6 @@ router.get('/:executionId', async (req: Request, res: Response) => {
       currentStep: runningStep >= 0 ? runningStep + 1 : completedSteps,
       totalSteps,
       progress: totalSteps > 0 ? Math.round((completedSteps / totalSteps) * 100) : 0,
-      goalName: (execution as any).Goal?.name,
     };
 
     res.json(executionWithProgress);
@@ -249,13 +232,8 @@ router.post('/:executionId/archive', async (req: Request, res: Response) => {
     const path = await import('path');
 
     // 获取执行详情
-    const execution = await (prisma.execution.findUnique as Function)({
+    const execution = await prisma.execution.findUnique({
       where: { id: executionId },
-      include: {
-        Goal: {
-          select: { name: true }
-        }
-      }
     });
 
     if (!execution) {
@@ -284,7 +262,7 @@ router.post('/:executionId/archive', async (req: Request, res: Response) => {
 
     // 生成文件名
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '');
-    const goalName = (execution as any).Goal?.name || execution.workflowId || "";
+    const goalName = execution.workflowId || '';
     const sanitizedName = goalName.replace(/[📝📋🏗️🎨⚙️🧪🚀🌐🔄👀]/g, '').replace(/[^a-zA-Z0-9\u4e00-\u9fa5-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     const fileName = `${sanitizedName || 'task'}-${timestamp.slice(0, 12)}.md`;
     const filePath = path.join(tasksDir, fileName);

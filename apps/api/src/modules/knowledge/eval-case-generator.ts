@@ -21,7 +21,7 @@ export type EvalTag =
   | 'other';
 
 interface EvalCaseInput {
-  goalId: string;
+  workUnitId: string;
   executionId: string;
   error: string;
   taskDescription?: string;
@@ -80,7 +80,7 @@ export class EvalCaseGenerator {
    * 从一批 GoalExecution 失败中生成 eval cases
    */
   async generateFromFailures(failures: Array<{
-    goalId: string;
+    workUnitId: string;
     executionId: string;
     error: string;
     taskDescription?: string;
@@ -97,9 +97,9 @@ export class EvalCaseGenerator {
 
       const tag = this.classifyTag(f.error, f.changedFiles || []);
 
-      // 去重：同 goal + 同 tag 不重复
+      // 去重：同 workUnit + 同 tag 不重复
       const dup = existing.some(e =>
-        e.sourceGoalId === f.goalId &&
+        e.sourceGoalId === f.workUnitId &&
         this.parseContentTag(e.content) === tag,
       );
       if (dup) continue;
@@ -119,11 +119,11 @@ export class EvalCaseGenerator {
         createEvalCase({
           content,
           triggerCondition,
-          sourceGoalId: f.goalId,
+          sourceGoalId: f.workUnitId,
           status: 'active',
         });
 
-        existing.push({ sourceGoalId: f.goalId, content });
+        existing.push({ sourceGoalId: f.workUnitId, content });
         created++;
       } catch (err) {
         logger.warn('[EvalCaseGenerator] Failed to create eval case', {

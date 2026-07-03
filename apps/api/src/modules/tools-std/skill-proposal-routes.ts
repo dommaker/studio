@@ -74,7 +74,7 @@ router.post('/scan', async (req: Request, res: Response) => {
 router.post('/extract/:executionId', async (req: Request, res: Response) => {
   try {
     const { executionId } = req.params;
-    const proposal = await skillExtractionService.extractFromGoalExecution(executionId);
+    const proposal = await skillExtractionService.extractFromWorkUnit(executionId);
 
     if (!proposal) {
       return res.json({ extracted: false, message: 'No reusable pattern found' });

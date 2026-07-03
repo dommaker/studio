@@ -52,7 +52,7 @@ export class DiscoveryExposureService {
           });
         } catch {}
 
-        // G33: high/critical discoveries trigger automatic @analyst for pipeline execution
+        // G33: high/critical discoveries trigger automatic @analyst for execution
         if (d.severity === 'high' || d.severity === 'critical') {
           this.autoTriggerAnalyst(d, sourceChannelId).catch(e =>
             logger.warn('[DiscoveryExposure] auto-trigger failed', { error: String(e) })

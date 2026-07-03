@@ -23,7 +23,6 @@ import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@domma
 import { sharedStore, sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
 import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
-import { onPhaseFailure } from './execution-alarm.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 const FAILURE_THRESHOLD = 3;
@@ -322,14 +321,6 @@ export class MonitorAgent {
         } catch (dbErr) {
           logger.error('[MonitorAgent] Failed to update workUnit status', { workUnitId: exec.id.slice(0, 8), error: String(dbErr) });
         }
-        // B57-P7: 统一告警 — Discord 通知 + 知识沉淀
-        await onPhaseFailure({
-          executionId: exec.id,
-          goalId: exec.parentId || 'unknown',
-          phase: 'executing',
-          error: `执行超时 ${elapsedMin}min (阈值 ${Math.round(TIME_CRITICAL_MS / 60_000)}min)`,
-          severity: 'timeout',
-        });
       } else if (elapsed > TIME_ESCALATE_MS) {
         alerts.push({
           source: 'total_time',

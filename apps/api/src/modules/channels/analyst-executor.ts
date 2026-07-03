@@ -6,9 +6,41 @@
 import { logger, modelGateway } from '@dommaker/studio-shared';
 import { daemon } from '../../daemon/studio-daemon.js';
 import { ensureWorktree } from './analyst-knowledge.js';
-import { parseClaudeUsage } from '../../daemon/metrics.js';
 import * as fs from 'fs';
 import * as path from 'path';
+
+/**
+ * 从 Claude Code stdout 解析 usage（--output-format json）
+ */
+function parseClaudeUsage(stdout: string): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheHitTokens: number;
+} {
+  for (const line of stdout.split('\n').reverse()) {
+    const trimmed = line.trim();
+    if (!trimmed || !trimmed.startsWith('{')) continue;
+    try {
+      const parsed = JSON.parse(trimmed);
+      const u = parsed.usage || {};
+      if (u.input_tokens || u.output_tokens) {
+        return {
+          inputTokens: u.input_tokens || 0,
+          outputTokens: u.output_tokens || 0,
+          cacheHitTokens: u.cache_read_input_tokens || u.cache_creation_input_tokens || 0,
+        };
+      }
+    } catch { /* skip */ }
+  }
+  const inputMatch = stdout.match(/input_tokens[:\s]+(\d+)/i);
+  const outputMatch = stdout.match(/output_tokens[:\s]+(\d+)/i);
+  const cacheMatch = stdout.match(/cache_read_input_tokens[:\s]+(\d+)/i);
+  return {
+    inputTokens: inputMatch ? parseInt(inputMatch[1]) : 0,
+    outputTokens: outputMatch ? parseInt(outputMatch[1]) : 0,
+    cacheHitTokens: cacheMatch ? parseInt(cacheMatch[1]) : 0,
+  };
+}
 
 export interface RequirementsDocJson {
   requirement: {
