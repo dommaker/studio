@@ -106,10 +106,6 @@ export interface MergeToMasterResult {
   summary: string;
 }
 
-// ── PostEval ──
-
-export type { GapReport } from './post-eval-agent.service.js';
-
 // ── Existing ──
 
 export interface ReviewResult {

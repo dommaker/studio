@@ -49,11 +49,6 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     title: 'KnowledgeSync Service',
     knowledgeType: 'architecture',
   },
-  'plan-coverage': {
-    files: ['apps/api/src/modules/agents/post-eval-agent.service.ts', 'harness/src/cli/commands/posteval-plan.ts', 'harness/bin/harness.js', '.git/hooks/pre-commit'],
-    title: 'Plan Coverage via PostEval',
-    knowledgeType: 'architecture',
-  },
   'knowledge-types': {
     files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts'],
     title: 'Knowledge Types: Pattern vs Document',

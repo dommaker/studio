@@ -2,7 +2,6 @@
 import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
 import { prisma } from '../../core/database.js';
-import { postEvalAgent } from './post-eval-agent.service.js';
 import { reviewAgent } from './review-agent.service.js';
 import { requireNotGuest, requireRole } from '../../middleware/auth.js';
 import { eventStore } from '../../core/event-store.js';
@@ -138,25 +137,6 @@ router.delete('/:agentId', requireRole('Admin'), async (req: Request, res: Respo
     logger.error('Failed to delete agent', { error: String(error) });
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to delete agent' },
-    });
-  }
-});
-
-// Plan coverage via PostEval (pre-commit hook)
-router.post('/post-eval/plan-coverage', async (req: Request, res: Response) => {
-  try {
-    const { planPath } = req.body;
-    if (!planPath) {
-      return res.status(400).json({
-        error: { code: 'MISSING_PARAM', message: 'planPath is required' },
-      });
-    }
-    const report = await postEvalAgent.evaluatePlanCoverage(planPath);
-    res.json(report);
-  } catch (error: any) {
-    logger.error('[PostEval] Plan coverage check failed', { error: String(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Plan coverage check failed' },
     });
   }
 });
