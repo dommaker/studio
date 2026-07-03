@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-06-06
+> 最后更新: 2026-07-03
 
 ---
 
@@ -167,3 +167,43 @@
 | pagination | src/utils/pagination.ts | 分页工具 - 统一 API 分页参数解析和响应格式 |
 | response | src/utils/response.ts | 统一响应格式工具 - 规范化 API 响应结构 |
 | services | src/utils/services.ts | 创建懒加载单例服务 |
+
+| agent-instance.routes | src/modules/agents/agent-instance.routes.ts | RuntimeInstance API 路由 (AS-026 AC-1) |
+| agent-instance.service | src/modules/agents/agent-instance.service.ts | AgentInstance Service — RuntimeInstance CRUD |
+| agent-loop | src/modules/agents/agent-loop.ts | Analyze agent log for knowledge search behavior. |
+| agent-profile.routes | src/modules/agents/agent-profile.routes.ts | AgentProfile API 路由 (AS-025 Phase 2) |
+| agent-profile.service | src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
+| default-triggers | src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
+| email.service | src/modules/auth/email.service.ts | 邮件服务 - Email Service |
+| oauth.routes | src/modules/auth/oauth.routes.ts | GET /auth/:provider |
+| oauth.service | src/modules/auth/oauth.service.ts | OAuth 2.0 service for Google and GitHub providers. |
+| acgroup-tier | src/modules/channels/acgroup-tier.ts | AC Group modelTier inheritance. |
+| analyst-fact-verification | src/modules/channels/analyst-fact-verification.ts | Analyst Fact Verification — 事实验证层 (D6) |
+| analyst-prescan | src/modules/channels/analyst-prescan.ts | Analyst PreScan — Rule-based code scope detection (0 LLM tokens) |
+| analyst-scout | src/modules/channels/analyst-scout.ts | Analyst Scout — Parallel code exploration sessions |
+| analyst-synthesizer | src/modules/channels/analyst-synthesizer.ts | Analyst Synthesizer — Combines Scout reports into RequirementsDoc prompt |
+| contract-test-red-check | src/modules/channels/contract-test-red-check.ts | Contract Test RED Check — Layer 4: 执行测试验证 RED 状态 |
+| contract-test-validator | src/modules/channels/contract-test-validator.ts | Contract Test Validator — Layer 1-3 质量检查 |
+| multi-repo-split | src/modules/channels/multi-repo-split.ts | P3: Multi-repo WorkUnit splitting |
+| sdd-verification | src/modules/channels/sdd-verification.ts | SP-004: SDD read path verification (non-blocking enrichment) |
+| eval-case-store | src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
+| improver-scheduler.service | src/modules/knowledge/improver-scheduler.service.ts | ImproverScheduler — 自文档化调度器 |
+| signal-aggregator | src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 聚合趋势摘要 |
+| monitoring.routes | src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
+| monitoring.service | src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
+| sdd-freshness.service | src/modules/sdd/sdd-freshness.service.ts | SDD Doc Freshness Service |
+| failure-classifier | src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
+| manifest-loader | src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
+| proposal-store | src/modules/skills/proposal-store.ts | ProposalStore — File-based CRUD for SkillProposal |
+| skill-selector | src/modules/skills/skill-selector.ts | skill-selector (AS-025 3.28c-5) |
+| skill-store | src/modules/skills/skill-store.ts | SkillStore — File-based CRUD for Skill metadata |
+| cron-matcher | src/modules/triggers/cron-matcher.ts | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
+| trigger-action | src/modules/triggers/trigger-action.ts | Execute a CREATE action — creates a WorkUnit from trigger payload. |
+| trigger-registry | src/modules/triggers/trigger-registry.ts | Trigger Registry — singleton TriggerScheduler instance |
+| trigger-scheduler | src/modules/triggers/trigger-scheduler.ts | Register a trigger programmatically. |
+| trigger-store | src/modules/triggers/trigger-store.ts | Trigger Store — YAML-based trigger config persistence (3.28c-4) |
+| trigger.routes | src/modules/triggers/trigger.routes.ts | Trigger Routes — REST API for trigger management (3.28c-4) |
+| trigger.types | src/modules/triggers/trigger.types.ts | Trigger Registry Types (3.28c-4, AS-026 extended) |
+| wiki.service | src/modules/wiki/wiki.service.ts | Wiki service — SDD-based read logic |
+| workunit.routes | src/modules/workunit/workunit.routes.ts | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
+| workunit.service | src/modules/workunit/workunit.service.ts | WorkUnit Service — 工作单元 CRUD + Claim + 状态机 |

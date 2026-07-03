@@ -1,6 +1,6 @@
 # Studio Roadmap — 唯一入口
 
-> 最后更新：2026-07-02 (Agent Loop 重写完成 + SDD 生命周期设计决策)
+> 最后更新：2026-07-03 (Pipeline 代码全量移除完成 — SDD pipeline-removal-cleanup Phase 1-7 + code review)
 > 架构文档：[specs/arch/index.md](specs/arch/index.md)
 > OKR：[OKR/](OKR/)
 > 分支：仅 master，无活跃功能分支
@@ -557,6 +557,7 @@ P10+ (进化闭环)              ← 持续优化
 | B61 | 06-30→07-01 | 知识消费管道最后一公里：AgentLoop hint（优先搜 _index.md）+ 知识库索引生成器（`harness knowledge index` CLI）+ knowledge-quality-audit trigger（SCHEDULE cron 3:17 → CREATE WorkUnit）+ audit 4 bug fix + 4 根因修复（P0 parseAcceptedTypes 缺 analysis / P1 systemd PATH 缺 pnpm / P2 skill 指定 .archive/ / P3 trigger API 合并 scheduler+store）+ E2E 验证通过（Agent 自动审计 3 轮，归档 ~180 条噪声，索引 69 条目 0 污染）+ D7 领域相关性维度 + deprecated-domain audit 规则 + index.json 同步修复。harness ec62020+fe53441+5dbe731+12cda1a, studio aefaa18+f053cf9 |
 | B62 | 07-01 | 知识库优化第一性分析完成：52 条目溯源 → ~40 写入路径全景 → L1/L2/L3 三层模型 → 8 项决策 → Phase 1 计划定稿（8 任务，SCHEDULE 可行性已验证）。Issue: 2026-07-01-knowledge-base-optimization.md。恢复提示词: prompt_resume_knowledge_optimization.md |
 | B63 | 07-01 | 知识库优化 Phase 1 源头修复完成：10 AC 全部实现（AC-A.1~A.5 数据切断 + AC-B.1~B.3 形态门禁 + AC-C.1~C.2 链路改造）。SDD: docs/sdd/kb-optimize-phase1/。7 commits, 33 tests passing, code-review PASS |
+| B64 | 07-03 | Pipeline 代码全量移除（SDD pipeline-removal-cleanup）：7 Phase 执行（语义修复→SDD frontmatter→重度依赖→中度+轻度→post-eval 清理→Prisma 6 模型删除→测试清理）+ code review warning 修复。7 grep 全零 + tsc 0 errors。8 commits (34fc7ac→ab28f57), ~2500 行删除 |
 
 ---
 
@@ -1163,9 +1164,14 @@ Trigger (cron: "0 9 * * *")
 
 ---
 
-### Pipeline 废弃 — Phase 1-4a（✅ 完成 2026-06-30）
+### Pipeline 代码移除 — 全部完成（✅ 2026-07-03）
 
 **Issue**：[2026-06-29-pipeline-deprecation-analysis.md](issues/2026-06-29-pipeline-deprecation-analysis.md)
+**SDD**：[pipeline-removal-cleanup/](sdd/pipeline-removal-cleanup/) (requirement + design + task)
+
+分两阶段完成：先废弃标记（Phase 1-4a），再全量移除（SDD Phase 1-7）。
+
+#### 阶段一：废弃标记（2026-06-30）
 
 | Phase | 内容 | 状态 | commit |
 |-------|------|------|--------|
@@ -1173,9 +1179,25 @@ Trigger (cron: "0 9 * * *")
 | Phase 2 | 价值提取：3 工具函数→studio-shared + 5 知识条目→knowledge/ | ✅ | `d4b331e` `8bacc73` |
 | Phase 3 | 18 个 .ts 文件 @deprecated + DEPRECATED.md | ✅ | `c85c2d1` |
 | Phase 4a | 残留代码清理（dashboard→503, auth→删 case goal, alarm→删 DB 写） | ✅ | `da47faa` |
-| Phase 4b | 删除整个 goals/ 目录（触发条件：30 天观察期，2026-07-30 可执行） | ⏳ 待执行 | — |
 
-**Phase 2 提取产出**：
+#### 阶段二：SDD 全量移除（2026-07-03）
+
+SDD 三层文档：7 AC + 7 Phase 执行顺序 + 契约测试规划。
+
+| Phase | 内容 | commit | 改动 |
+|-------|------|--------|------|
+| 1 | 语义层修复（pipeline_health_degraded→workunit_health_degraded + Goal→WorkUnit 变量名） | `34fc7ac` | 6 文件 |
+| 2 | SDD frontmatter goalId→workUnitId（类型+序列化+消费方+29 SDD 文件） | `77cc3ba` | 35 文件 |
+| 3 | 重度依赖清理（studio-cli/okr/monitor/auditor/channel.routes 死代码） | `b8912dc` | 5 文件 |
+| 4 | 中度+轻度依赖（11 中度删除/改名 + 25 轻度注释/字符串修复 + goals/ 目录删除） | `fb13e2b` | ~40 文件 |
+| 5 | post-eval-agent 清理 + knowledge-bus posteval 移除 | `1c610a8` | -706 行 |
+| 6 | Prisma 6 模型删除（Goal/GoalPlan/GoalExecution/PipelineRun/PipelineReview/PipelineDecision） | `eb7df9b` | -128 行 |
+| 7 | 测试清理（10 删除 + 5 修改）+ 7 grep 零验证 | `555a5a3` | -1569 行 |
+| Fix | Code review warning 修复（dead scope configs + pipeline-dashboard 删除 + CONTEXT.md 清理） | `ab28f57` | -49 行 |
+
+**验证**：7 grep 全零 + tsc 0 errors + code-review PASS。
+
+**Phase 2 提取产出**（阶段一）：
 - `packages/studio-shared/src/utils/concurrency-control.ts` — getDispatchStrategy/getAvailableSlots/updateDispatchOutcome
 - `packages/studio-shared/src/utils/error-file-extractor.ts` — extractAffectedFiles（3 层 pattern）
 - `packages/studio-shared/src/utils/git-utils.ts` — forceCommit
@@ -1184,11 +1206,6 @@ Trigger (cron: "0 9 * * *")
 - `~/.studio/knowledge/pattern-cascade-rollback.md` — 5 种 failureType + BFS 级联
 - `~/.studio/knowledge/pattern-prompt-context-injection.md` — 三层 prompt 注入 + sibling context
 - `~/.studio/knowledge/pattern-worktree-state-reconciliation.md` — 超时扫描 + worktree 状态仲裁 + 三路分发
-
-**Phase 4b 触发条件**：
-- Phase 1-4a 全部完成 ✅
-- 30 天观察期 — GoalScheduler 2026-06-30 禁用 → 2026-07-30 可删
-- OKR 历史数据 — 确认无需迁移（Pipeline KR 随系统废弃失效）
 
 ---
 

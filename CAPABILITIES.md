@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-06-10
+> 最后更新: 2026-07-03
 
 ---
 
@@ -255,3 +255,46 @@
 | knowledge-service | apps/api/src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |
 | signal-aggregator | apps/api/src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | external-fetcher | apps/api/src/modules/knowledge/producers/external-fetcher.ts | ExternalFetcher — fetch external docs and ingest as reference knowledge. |
+| concurrency-control | packages/studio-shared/src/utils/concurrency-control.ts | Concurrency control utilities extracted from Pipeline scheduler. |
+| error-file-extractor | packages/studio-shared/src/utils/error-file-extractor.ts | Extract affected file paths from compiler/test error messages. |
+| git-utils | packages/studio-shared/src/utils/git-utils.ts | Git utility functions extracted from Pipeline executor-subagent-spawner. |
+| sdd-utils | packages/studio-shared/src/utils/sdd-utils.ts | SDD 工具函数 — frontmatter 解析 + slug 生成 |
+| intent-router | packages/studio-skill/src/intent-router.ts | Match task text against skill name/description. |
+| agent-instance.routes | apps/api/src/modules/agents/agent-instance.routes.ts | RuntimeInstance API 路由 (AS-026 AC-1) |
+| agent-instance.service | apps/api/src/modules/agents/agent-instance.service.ts | AgentInstance Service — RuntimeInstance CRUD |
+| agent-loop | apps/api/src/modules/agents/agent-loop.ts | Analyze agent log for knowledge search behavior. |
+| agent-profile.routes | apps/api/src/modules/agents/agent-profile.routes.ts | AgentProfile API 路由 (AS-025 Phase 2) |
+| agent-profile.service | apps/api/src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
+| default-triggers | apps/api/src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
+| email.service | apps/api/src/modules/auth/email.service.ts | 邮件服务 - Email Service |
+| acgroup-tier | apps/api/src/modules/channels/acgroup-tier.ts | AC Group modelTier inheritance. |
+| analyst-prescan | apps/api/src/modules/channels/analyst-prescan.ts | Analyst PreScan — Rule-based code scope detection (0 LLM tokens) |
+| analyst-scout | apps/api/src/modules/channels/analyst-scout.ts | Analyst Scout — Parallel code exploration sessions |
+| analyst-synthesizer | apps/api/src/modules/channels/analyst-synthesizer.ts | Analyst Synthesizer — Combines Scout reports into RequirementsDoc prompt |
+| contract-test-red-check | apps/api/src/modules/channels/contract-test-red-check.ts | Contract Test RED Check — Layer 4: 执行测试验证 RED 状态 |
+| contract-test-validator | apps/api/src/modules/channels/contract-test-validator.ts | Contract Test Validator — Layer 1-3 质量检查 |
+| multi-repo-split | apps/api/src/modules/channels/multi-repo-split.ts | P3: Multi-repo WorkUnit splitting |
+| sdd-verification | apps/api/src/modules/channels/sdd-verification.ts | SP-004: SDD read path verification (non-blocking enrichment) |
+| eval-case-store | apps/api/src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
+| improver-scheduler.service | apps/api/src/modules/knowledge/improver-scheduler.service.ts | ImproverScheduler — 自文档化调度器 |
+| monitoring.routes | apps/api/src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
+| monitoring.service | apps/api/src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
+| sdd-freshness.service | apps/api/src/modules/sdd/sdd-freshness.service.ts | SDD Doc Freshness Service |
+| manifest-loader | apps/api/src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
+| proposal-store | apps/api/src/modules/skills/proposal-store.ts | ProposalStore — File-based CRUD for SkillProposal |
+| skill-selector | apps/api/src/modules/skills/skill-selector.ts | skill-selector (AS-025 3.28c-5) |
+| skill-store | apps/api/src/modules/skills/skill-store.ts | SkillStore — File-based CRUD for Skill metadata |
+| cron-matcher | apps/api/src/modules/triggers/cron-matcher.ts | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
+| trigger-action | apps/api/src/modules/triggers/trigger-action.ts | Execute a CREATE action — creates a WorkUnit from trigger payload. |
+| trigger-registry | apps/api/src/modules/triggers/trigger-registry.ts | Trigger Registry — singleton TriggerScheduler instance |
+| trigger-scheduler | apps/api/src/modules/triggers/trigger-scheduler.ts | Register a trigger programmatically. |
+| trigger-store | apps/api/src/modules/triggers/trigger-store.ts | Trigger Store — YAML-based trigger config persistence (3.28c-4) |
+| trigger.routes | apps/api/src/modules/triggers/trigger.routes.ts | Trigger Routes — REST API for trigger management (3.28c-4) |
+| trigger.types | apps/api/src/modules/triggers/trigger.types.ts | Trigger Registry Types (3.28c-4, AS-026 extended) |
+| wiki.service | apps/api/src/modules/wiki/wiki.service.ts | Wiki service — SDD-based read logic |
+| workunit.routes | apps/api/src/modules/workunit/workunit.routes.ts | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
+| workunit.service | apps/api/src/modules/workunit/workunit.service.ts | WorkUnit Service — 工作单元 CRUD + Claim + 状态机 |
+| monitoring | apps/web/src/api/monitoring.ts | Monitoring API — Agent Network (MVP-2 + MVP-6) |
+| workunit | apps/web/src/api/workunit.ts | WorkUnit API — Agent Network §3.28c-1 |
+| workunitStore | apps/web/src/stores/workunitStore.ts | WorkUnit Store — Agent Network §3.28c-1 |
+| data | src/data.ts | data |
