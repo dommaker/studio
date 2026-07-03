@@ -14,7 +14,7 @@ import { join, dirname } from 'path';
 
 export interface SddFrontmatter {
   id: string;                // SDD 文档 ID（cuid）
-  goalId?: string;           // 关联的 Goal ID
+  workUnitId?: string;       // 关联的 WorkUnit ID
   slug: string;              // 目录名（title 的 kebab-case）
   title: string;
   status: 'draft' | 'confirmed' | 'done' | 'stale';
@@ -149,7 +149,7 @@ export function stringifySddFrontmatter(fm: Partial<SddFrontmatter>): string {
   };
 
   writeStr('id', fm.id);
-  writeStr('goalId', fm.goalId);
+  writeStr('workUnitId', fm.workUnitId);
   writeStr('slug', fm.slug);
   writeStr('title', fm.title);
   writeStr('status', fm.status);
@@ -231,24 +231,24 @@ export function findSddDocById(id: string): string | null {
 }
 
 /**
- * 通过 goalId 查找 SDD 文档 slug。
- * 扫描所有 SDD 目录的 requirement.md frontmatter 匹配 goalId 字段。
+ * 通过 workUnitId 查找 SDD 文档 slug。
+ * 扫描所有 SDD 目录的 requirement.md frontmatter 匹配 workUnitId 字段。
  */
-export function findSddDocByGoalId(goalId: string): string | null {
+export function findSddDocByWorkUnitId(workUnitId: string): string | null {
   const slugs = listSddDocs();
   for (const slug of slugs) {
     const doc = readSddDoc(slug, 'requirement');
-    if (doc?.meta.goalId === goalId) return slug;
+    if (doc?.meta.workUnitId === workUnitId) return slug;
   }
   return null;
 }
 
 /**
- * 通过 goalId 读取 SDD 文档指定层。
- * 组合 findSddDocByGoalId + readSddDoc。
+ * 通过 workUnitId 读取 SDD 文档指定层。
+ * 组合 findSddDocByWorkUnitId + readSddDoc。
  */
-export function readSddDocByGoalId(goalId: string, layer: 'requirement' | 'design' | 'task'): { meta: Partial<SddFrontmatter>; body: string } | null {
-  const slug = findSddDocByGoalId(goalId);
+export function readSddDocByWorkUnitId(workUnitId: string, layer: 'requirement' | 'design' | 'task'): { meta: Partial<SddFrontmatter>; body: string } | null {
+  const slug = findSddDocByWorkUnitId(workUnitId);
   if (!slug) return null;
   return readSddDoc(slug, layer);
 }
@@ -411,10 +411,10 @@ export function appendChangelog(slug: string, entry: string): void {
  *
  * @param filter - 可选过滤条件
  * @param filter.status - 按文档状态过滤
- * @param filter.goalId - 按关联 Goal ID 过滤
+ * @param filter.workUnitId - 按关联 WorkUnit ID 过滤
  * @returns 匹配的 frontmatter 数组
  */
-export function findSddDocs(filter?: { status?: string; goalId?: string }): Array<Partial<SddFrontmatter>> {
+export function findSddDocs(filter?: { status?: string; workUnitId?: string }): Array<Partial<SddFrontmatter>> {
   const slugs = listSddDocs();
   const results: Array<Partial<SddFrontmatter>> = [];
 
@@ -423,7 +423,7 @@ export function findSddDocs(filter?: { status?: string; goalId?: string }): Arra
     if (!doc) continue;
 
     if (filter?.status && doc.meta.status !== filter.status) continue;
-    if (filter?.goalId && doc.meta.goalId !== filter.goalId) continue;
+    if (filter?.workUnitId && doc.meta.workUnitId !== filter.workUnitId) continue;
 
     results.push(doc.meta);
   }

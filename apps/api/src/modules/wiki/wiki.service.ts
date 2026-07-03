@@ -18,7 +18,7 @@ export interface WikiListItem {
   title: string;
   tags: string[];
   status: string;
-  goalId?: string;
+  workUnitId?: string;
   projectId?: string;
   sourceChannelId?: string;
   updatedAt: string;
@@ -41,7 +41,7 @@ export interface WikiDocDetail {
   title: string;
   status: string;
   tags: string[];
-  goalId?: string;
+  workUnitId?: string;
   sourceChannelId?: string;
   tier?: string;
   linkedDocIds: string[];
@@ -92,7 +92,7 @@ export function listWikiDocs(filters: {
       title: meta.title ?? slug,
       tags: meta.tags ?? [],
       status: meta.status ?? 'draft',
-      goalId: meta.goalId,
+      workUnitId: meta.workUnitId,
       sourceChannelId: meta.sourceChannelId,
       updatedAt: meta.updatedAt ?? meta.createdAt ?? '',
       createdAt: meta.createdAt ?? '',
@@ -198,7 +198,7 @@ export function getWikiDocById(id: string): WikiDocDetail | null {
     title: meta.title ?? slug,
     status: meta.status ?? 'draft',
     tags: meta.tags ?? [],
-    goalId: meta.goalId,
+    workUnitId: meta.workUnitId,
     sourceChannelId: meta.sourceChannelId,
     tier: meta.tier,
     linkedDocIds,

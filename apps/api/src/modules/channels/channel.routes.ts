@@ -3,7 +3,7 @@ import { Router } from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, appendChangelog, findSddDocById, readSddDoc, readSddDocByGoalId, updateSddFrontmatter, parseTaskDocContractTests } from '@dommaker/studio-shared';
+import { logger, appendChangelog, findSddDocById, readSddDoc, readSddDocByWorkUnitId, updateSddFrontmatter, parseTaskDocContractTests } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { verifySddFile } from './sdd-verification.js';
 import { skillStore } from '../skills/skill-store.js';
@@ -424,17 +424,17 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
       // Build doc from SDD frontmatter (replaces DB read)
       const doc = {
         id: (sddReq.meta.id as string) || docId,
-        goalId: (sddReq.meta.goalId as string) || null,
+        workUnitId: (sddReq.meta.workUnitId as string) || null,
         title: (sddReq.meta.title as string) || '需求',
         status: (sddReq.meta.status as string) || 'draft',
         tags: sddReq.meta.tags ? JSON.stringify(sddReq.meta.tags) : '[]',
         projectId: null as string | null,
       };
 
-      // Idempotency guard: prevent duplicate Goals from race between autoStartExecution + CLI polling
-      if (doc.goalId || doc.status === 'confirmed') {
-        logger.info('[Channel] start_execution skipped — doc already has goal', { docId, goalId: doc.goalId });
-        return res.json({ success: true, data: { skipped: true, goalId: doc.goalId || 'already_confirmed' } });
+      // Idempotency guard: prevent duplicate WorkUnits from race between autoStartExecution + CLI polling
+      if (doc.workUnitId || doc.status === 'confirmed') {
+        logger.info('[Channel] start_execution skipped — doc already has workUnit', { docId, workUnitId: doc.workUnitId });
+        return res.json({ success: true, data: { skipped: true, workUnitId: doc.workUnitId || 'already_confirmed' } });
       }
 
       // SP-004: Verify SDD file exists (enrichment, non-blocking)
@@ -765,7 +765,7 @@ router.post('/:channelId/messages/:messageId/actions', async (req, res) => {
 
       // SP-004: SDD primary, DB fire-and-forget
       if (resolvedSlug) {
-        try { updateSddFrontmatter(resolvedSlug, { status: 'confirmed', goalId: primaryResult.goalId, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
+        try { updateSddFrontmatter(resolvedSlug, { status: 'confirmed', workUnitId: primaryResult.goalId, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
       }
       // DB async sync (non-blocking)
       prisma.requirementsDoc.update({

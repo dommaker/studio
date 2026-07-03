@@ -7,7 +7,7 @@
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway, readSddDocByGoalId } from '@dommaker/studio-shared';
+import { logger, modelGateway, readSddDocByWorkUnitId } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { execSync } from 'child_process';
@@ -100,7 +100,7 @@ class PostEvalAgent {
       }
 
       // SP-004: SDD-only read for AC extraction
-      const sddDoc = readSddDocByGoalId(goalId, 'requirement');
+      const sddDoc = readSddDocByWorkUnitId(goalId, 'requirement');
       if (!sddDoc) {
         logger.info('[PostEval] SDD not found for goal, skipping', { goalId, docId });
         return null;

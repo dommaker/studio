@@ -30,7 +30,7 @@ beforeAll(() => {
   // Create test docs
   writeSddDoc('test-doc-1', 'requirement', {
     id: 'doc-aaa-111',
-    goalId: 'goal-xxx-001',
+    workUnitId: 'goal-xxx-001',
     slug: 'test-doc-1',
     title: 'Test Doc 1',
     status: 'draft',
@@ -134,8 +134,8 @@ describe('findSddDocByGoalId', () => {
     expect(findSddDocByGoalId('goal-nonexistent')).toBeNull();
   });
 
-  test('returns null when doc has no goalId', () => {
-    // test-doc-2 has no goalId
+  test('returns null when doc has no workUnitId', () => {
+    // test-doc-2 has no workUnitId
     expect(findSddDocByGoalId('goal-yyy-002')).toBeNull();
   });
 });
@@ -441,26 +441,26 @@ describe('findSddDocs', () => {
     expect(results).toEqual([]);
   });
 
-  test('filters by goalId', () => {
-    const results = findSddDocs({ goalId: 'goal-xxx-001' });
+  test('filters by workUnitId', () => {
+    const results = findSddDocs({ workUnitId: 'goal-xxx-001' });
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe('doc-aaa-111');
-    expect(results[0].goalId).toBe('goal-xxx-001');
+    expect(results[0].workUnitId).toBe('goal-xxx-001');
   });
 
-  test('returns empty for non-matching goalId', () => {
-    const results = findSddDocs({ goalId: 'goal-nonexistent' });
+  test('returns empty for non-matching workUnitId', () => {
+    const results = findSddDocs({ workUnitId: 'goal-nonexistent' });
     expect(results).toEqual([]);
   });
 
-  test('filters by both status and goalId', () => {
-    const results = findSddDocs({ status: 'draft', goalId: 'goal-xxx-001' });
+  test('filters by both status and workUnitId', () => {
+    const results = findSddDocs({ status: 'draft', workUnitId: 'goal-xxx-001' });
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe('doc-aaa-111');
   });
 
-  test('returns empty when status+goalId combo does not match', () => {
-    const results = findSddDocs({ status: 'done', goalId: 'goal-xxx-001' });
+  test('returns empty when status+workUnitId combo does not match', () => {
+    const results = findSddDocs({ status: 'done', workUnitId: 'goal-xxx-001' });
     expect(results).toEqual([]);
   });
 });

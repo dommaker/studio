@@ -94,7 +94,7 @@ class AnalystTriggerService {
             const allFiles = [...new Set(acGroups.flatMap((g: any) => g.files || []).filter(Boolean)
               .map((f: string) => f.replace(/:L?\d+(-L?\d+)?$/, '')))];
             writeSddDoc(slug, 'requirement', {
-              id: existingDoc.id, goalId: existingDoc.goalId || undefined, slug,
+              id: existingDoc.id, workUnitId: existingDoc.goalId || undefined, slug,
               title: existingDoc.title, status: 'draft',
               tier: (response.requirement.tier as any) || 'standard',
               version: 1, requirementVersion: 1, designVersion: 1, taskVersion: 1,
@@ -663,7 +663,7 @@ class AnalystTriggerService {
 
         writeSddDoc(slug, 'requirement', {
           id: doc.id,
-          goalId: doc.goalId || undefined,
+          workUnitId: doc.goalId || undefined,
           slug,
           title: response.requirement.title || '需求分析',
           status: 'draft',

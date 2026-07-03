@@ -6,7 +6,7 @@
  * 从 goal.service.ts 提取。
  */
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, appendChangelog, findSddDocByGoalId } from '@dommaker/studio-shared';
+import { logger, appendChangelog, findSddDocByWorkUnitId } from '@dommaker/studio-shared';
 
 import { skillStore } from '../skills/skill-store.js';
 import { proposalStore } from '../skills/proposal-store.js';
@@ -352,7 +352,7 @@ export async function checkGoalCompletion(goalId: string): Promise<void> {
 
   // SP-004 Step 6: CHANGELOG entry for goal completion
   try {
-    const slug = findSddDocByGoalId(goalId);
+    const slug = findSddDocByWorkUnitId(goalId);
     if (slug) {
       appendChangelog(slug, `Goal ${newStatus} (${goalId.slice(0, 8)})`);
     }
