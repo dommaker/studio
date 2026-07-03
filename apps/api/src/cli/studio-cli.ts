@@ -170,108 +170,12 @@ async function studioUp(configPath?: string) {
   await import('../index.js');
 }
 
-/**
- * SSE listener: 等待 goal.created 事件
- * 连接 /api/v1/events/stream?topics=goals，解析 SSE 事件流
- * 超时返回 null
- */
-async function waitForGoalCreated(baseUrl: string, timeoutMs: number, sinceMs: number): Promise<string | null> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-
-  try {
-    const resp = await fetch(`${baseUrl}/events/stream?topics=goals`, {
-      signal: controller.signal,
-      headers: { 'Accept': 'text/event-stream' },
-    });
-
-    if (!resp.ok) {
-      // SSE 端点不可用，降级为轮询
-      console.log('  SSE unavailable, falling back to polling...');
-      return pollForGoalCreated(baseUrl, timeoutMs, sinceMs);
-    }
-
-    const reader = resp.body?.getReader();
-    if (!reader) return pollForGoalCreated(baseUrl, timeoutMs, sinceMs);
-
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let currentEvent = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (line.startsWith('event: ')) {
-          currentEvent = line.slice(7).trim();
-        } else if (line.startsWith('data: ') && currentEvent === 'goal.created') {
-          try {
-            const data = JSON.parse(line.slice(6));
-            if (data.goalId) {
-              reader.cancel();
-              clearTimeout(timer);
-              return data.goalId;
-            }
-          } catch { /* ignore parse error */ }
-        }
-      }
-    }
-  } catch (err: any) {
-    if (err.name !== 'AbortError') {
-      console.log('  SSE error, falling back to polling...');
-      return pollForGoalCreated(baseUrl, timeoutMs, sinceMs);
-    }
-  } finally {
-    clearTimeout(timer);
-  }
-  return null;
-}
-
-/**
- * Fallback: 轮询 RequirementsDoc.goalId（当 SSE 不可用时）
- */
-async function pollForGoalCreated(baseUrl: string, timeoutMs: number, sinceMs: number): Promise<string | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    await new Promise(r => setTimeout(r, 5_000));
-    try {
-      const resp = await fetch(`${baseUrl}/pipeline/status`);
-      if (resp.ok) {
-        const data = await resp.json() as any;
-        // 优先匹配正在执行的 goals（刚创建）
-        const running = data?.goals?.executing?.[0];
-        if (running?.id && new Date(running.createdAt).getTime() >= sinceMs) {
-          return running.id;
-        }
-        // fallback: 匹配最近执行，但必须是 CLI 启动后创建的
-        const recent = data?.executions?.recent?.[0];
-        if (recent?.goalId && recent.status !== 'failed' && new Date(recent.completedAt).getTime() >= sinceMs) {
-          return recent.goalId;
-        }
-      }
-    } catch { /* retry */ }
-  }
-  return null;
-}
-
 async function studioRun() {
   const args = process.argv.slice(3);
-  const waitIndex = args.indexOf('--wait');
-  const pipelineIndex = args.indexOf('--pipeline');
-  const fullWait = waitIndex >= 0 || pipelineIndex >= 0;
-  const requirement = (fullWait
-    ? args.slice(0, waitIndex >= 0 ? waitIndex : pipelineIndex)
-    : args).join(' ').trim();
+  const requirement = args.join(' ').trim();
 
   if (!requirement) {
-    console.error('Usage: studio run "requirement description" [--wait] [--pipeline]');
-    console.error('  --wait       Wait for Goal completion (succeeded/failed/blocked)');
-    console.error('  --pipeline   Wait for full pipeline: Goal→Review→Deploy→Knowledge→Trace');
+    console.error('Usage: studio run "requirement description"');
     process.exit(1);
   }
 
@@ -292,9 +196,6 @@ async function studioRun() {
       process.exit(1);
     }
 
-    // Get #系统 channel (for knowledge cards)
-    const sysChannel = channels.find((c: any) => c.type === 'system');
-
     // Send message (appends @Analyst automatically in the route handler)
     const content = /@analyst/i.test(requirement) ? requirement : `${requirement} @Analyst`;
     const msgResp = await fetch(`${baseUrl}/channels/${rndChannel.id}/messages`, {
@@ -310,206 +211,6 @@ async function studioRun() {
     }
 
     console.log(`✅ Submitted to ${rndChannel.name}. Analyst is analyzing...`);
-
-    if (!fullWait) {
-      console.log('Tip: use --wait to wait for Goal completion, --pipeline for full pipeline');
-      return;
-    }
-
-    const maxRounds = pipelineIndex >= 0 ? 360 : 120; // --pipeline: 60min, --wait: 20min
-    console.log(`Waiting for ${pipelineIndex >= 0 ? 'full pipeline' : 'Goal completion'} (--wait)...`);
-
-    // Phase-level stall detection — 各阶段超时（ms）
-    const PHASE_TIMEOUTS: Record<string, { warn: number; cancel: number }> = {
-      executing: { warn: 35 * 60_000, cancel: 45 * 60_000 },
-      review:    { warn: 10 * 60_000, cancel: 15 * 60_000 },
-      deploy:    { warn: 15 * 60_000, cancel: 20 * 60_000 },
-      knowledge: { warn: 10 * 60_000, cancel: 15 * 60_000 },
-      trace:     { warn: 5 * 60_000,  cancel: 10 * 60_000 },
-    };
-
-    let goalId: string | null = null;
-    let pipelineStage = 'plan'; // plan → executing → review → deploy → knowledge → trace → done
-    let deployChecked = false;
-    let knowledgeChecked = false;
-    let traceChecked = false;
-    let reviewMsgs: Array<{ content: string; meta: any }> = [];
-    let phaseStartedAt = Date.now();
-    let lastProgressLog = 0;
-
-    // Phase stall check — returns true if should abort
-    function checkPhaseStall(stage: string, baseUrl: string, gid: string): boolean {
-      const elapsed = Date.now() - phaseStartedAt;
-      const limits = PHASE_TIMEOUTS[stage];
-      if (!limits) return false;
-
-      if (elapsed > limits.cancel) {
-        const mins = Math.round(elapsed / 60_000);
-        console.error(`\n⚠️ Phase stall detected: '${stage}' exceeded ${mins}min (limit: ${Math.round(limits.cancel / 60_000)}min)`);
-        console.error(`  Cancelling running executions and aborting...`);
-        // Fire-and-forget cancel API call
-        cancelRunningExecutions(baseUrl, gid).catch(() => {});
-        return true;
-      }
-      if (elapsed > limits.warn && Date.now() - lastProgressLog > 60_000) {
-        const mins = Math.round(elapsed / 60_000);
-        console.log(`  ⏳ Phase '${stage}' running ${mins}min (warn at ${Math.round(limits.warn / 60_000)}min, cancel at ${Math.round(limits.cancel / 60_000)}min)`);
-        lastProgressLog = Date.now();
-      }
-      return false;
-    }
-
-    // Cancel all running executions for a goal via API
-    async function cancelRunningExecutions(baseUrl: string, gid: string): Promise<void> {
-      try {
-        const resp = await fetch(`${baseUrl}/goals/${gid}`);
-        const { data: goal } = await resp.json() as { data: { GoalExecution?: Array<{ id: string; status: string }> } };
-        const running = (goal?.GoalExecution || []).filter((e: { status: string }) => e.status === 'running');
-        for (const exec of running) {
-          console.log(`  Cancelling execution ${exec.id.slice(0, 8)}...`);
-          await fetch(`${baseUrl}/goals/${gid}/executions/${exec.id}/cancel`, { method: 'POST' });
-        }
-      } catch { /* best effort */ }
-    }
-
-    // Stage 1: SSE 监听等待新 Goal 创建（不使用全局最近执行，避免匹配旧 Goal）
-    const sinceMs = Date.now();
-    if (!goalId) {
-      console.log('  Phase 1/6: Listening for Goal creation (SSE)...');
-      goalId = await waitForGoalCreated(baseUrl, maxRounds * 10_000, sinceMs);
-      if (goalId) {
-        console.log(`  Goal created: ${goalId.slice(0, 8)}`);
-        pipelineStage = 'executing';
-        phaseStartedAt = Date.now();
-      } else {
-        console.log('  Timeout: No Goal created');
-        process.exit(1);
-      }
-    }
-
-    for (let i = 0; i < maxRounds; i++) {
-      await new Promise(r => setTimeout(r, 10_000));
-
-      // Phase stall detection — check before doing anything else
-      if (goalId && checkPhaseStall(pipelineStage, baseUrl, goalId)) {
-        process.exit(1);
-      }
-
-      try {
-
-        // Stage 2: check Goal + execution status
-        const goalResp = await fetch(`${baseUrl}/goals/${goalId}`);
-        const { data: goal } = await goalResp.json() as {
-          data: { id: string; status: string; title: string; GoalExecution?: Array<{ status: string }> };
-        };
-
-        if (pipelineStage === 'executing') {
-          if (goal.status === 'failed') {
-            console.log(`❌ Goal ${goalId.slice(0, 8)} failed`);
-            process.exit(1);
-          }
-          if (goal.status === 'succeeded') {
-            console.log(`  Phase 2/6: Goal completed ✅`);
-            pipelineStage = 'review';
-            phaseStartedAt = Date.now();
-          } else if (goal.status === 'blocked') {
-            console.log(`  Phase 2/6: Goal blocked — needs human review ⚠️`);
-            pipelineStage = 'review';
-            phaseStartedAt = Date.now();
-          } else {
-            if (i % 3 === 0) console.log(`  Phase 2/6: Executing (${goal.status})...`);
-            continue;
-          }
-        }
-
-        // Stage 3: Review completion (only for --pipeline)
-        if (pipelineStage === 'review' && pipelineIndex >= 0) {
-          // Check for review results via channel messages
-          const rndMsgs = await fetch(`${baseUrl}/channels/${rndChannel.id}/messages?limit=10`);
-          ({ data: reviewMsgs } = await rndMsgs.json() as { data: Array<{ content: string; meta: any }> });
-          const reviewDone = reviewMsgs.some((m: any) => {
-            let meta = m.meta; if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch {}
-            return meta?.status === 'done' || meta?.reviewResult;
-          });
-
-          if (reviewDone || i > 60) { // 10 min max for review
-            console.log(`  Phase 3/6: Review complete ✅`);
-            pipelineStage = deployChecked ? 'knowledge' : 'deploy';
-            phaseStartedAt = Date.now();
-          } else if (i % 3 === 0) {
-            console.log('  Phase 3/6: Waiting for Review...');
-          }
-        } else if (pipelineStage === 'review' && pipelineIndex < 0) {
-          // --wait mode: stop after goal complete
-          console.log(`✅ Goal ${goalId.slice(0, 8)} completed`);
-          process.exit(0);
-        }
-
-        // Stage 4: Deploy/PR check (only for --pipeline)
-        if (pipelineStage === 'deploy' && pipelineIndex >= 0) {
-          const deployMsg = reviewMsgs.some((m: any) =>
-            m.content?.includes('Deploy') || m.content?.includes('PR created') || m.content?.includes('部署')
-          );
-          if (deployMsg || i > 90) {
-            console.log(`  Phase 4/6: Deploy/PR check complete ✅`);
-            pipelineStage = 'knowledge';
-            deployChecked = true;
-            phaseStartedAt = Date.now();
-          } else if (i % 3 === 0) {
-            console.log('  Phase 4/6: Waiting for Deploy/PR...');
-          }
-        }
-
-        // Stage 5: Knowledge extraction (only for --pipeline)
-        if (pipelineStage === 'knowledge' && pipelineIndex >= 0) {
-          if (sysChannel) {
-            const sysMsgs = await fetch(`${baseUrl}/channels/${sysChannel.id}/messages?limit=5`);
-            const { data: sysData } = await sysMsgs.json() as { data: Array<{ meta: any }> };
-            const knowledgeCard = sysData.some((m: any) => {
-              let meta = m.meta; if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch {}
-              return meta?.cardType === 'knowledge_confirm' || meta?.cardType === 'skill_review_request';
-            });
-            if (knowledgeCard || i > 150) { // 25 min max
-              console.log(`  Phase 5/6: Knowledge extraction/approval detected ✅`);
-              pipelineStage = 'trace';
-              knowledgeChecked = true;
-              phaseStartedAt = Date.now();
-            } else if (i % 3 === 0) {
-              console.log('  Phase 5/6: Waiting for Knowledge extraction...');
-            }
-          } else {
-            pipelineStage = 'trace';
-            phaseStartedAt = Date.now();
-          }
-        }
-
-        // Stage 6: Trace analysis (only for --pipeline)
-        if (pipelineStage === 'trace' && pipelineIndex >= 0) {
-          try {
-            const traceResp = await fetch(`${baseUrl}/health`);
-            if (traceResp.ok) {
-              const { passRate, totalChecks } = await traceResp.json() as any;
-              if (totalChecks > 0 || traceChecked) {
-                console.log(`  Phase 6/6: Trace analysis available (pass rate: ${passRate || 'N/A'}%) ✅`);
-              }
-              traceChecked = true;
-            }
-            console.log(`\n✅ Pipeline complete for Goal ${goalId.slice(0, 8)}`);
-            console.log('  Analyzed: Goal → Review → Deploy → Knowledge → Trace');
-            process.exit(0);
-          } catch {
-            if (i % 6 === 0) console.log('  Phase 6/6: Waiting for Trace analysis...');
-          }
-        }
-      } catch (err) {
-        if (i % 6 === 0) console.log('  Waiting for server...');
-      }
-    }
-
-    const phaseElapsed = Math.round((Date.now() - phaseStartedAt) / 60_000);
-    console.log(`\nTimeout: Pipeline did not complete within ${maxRounds / 6} minutes`);
-    console.log(`  Stuck in phase: '${pipelineStage}' (${phaseElapsed}min)`);
-    process.exit(1);
   } catch (err: any) {
     console.error('Failed to connect to studio server:', err.message);
     console.error('Make sure studio is running: studio up');
@@ -722,80 +423,6 @@ async function studioReject() {
     console.error('Failed:', e.message);
     process.exit(1);
   }
-}
-
-async function studioPipeline() {
-  const port = parseInt(process.env.PORT || '3001');
-  const baseUrl = `http://localhost:${port}/api/v1`;
-  console.log('Pipeline Status');
-  console.log('━━━━━━━━━━━━━━━');
-
-  const stage = async (name: string, fn: () => Promise<string>) => {
-    try {
-      const result = await fn();
-      console.log(`  ${result} ${name}`);
-    } catch (e: any) {
-      console.log(`  ❌ ${name}: ${e.message?.slice(0, 60) || 'unreachable'}`);
-    }
-  };
-
-  await stage('RequirementsDoc', async () => {
-    const r = await fetch(`${baseUrl}/requirements-docs`);
-    const { data } = await r.json() as any;
-    return Array.isArray(data) ? `📋 (${data.length} docs)` : '📋';
-  });
-
-  await stage('Goals', async () => {
-    const r = await fetch(`${baseUrl}/goals`);
-    const { data } = await r.json() as any;
-    const active = Array.isArray(data) ? data.filter((g: any) => g.status !== 'succeeded' && g.status !== 'failed').length : 0;
-    return `🎯 (${active} active)`;
-  });
-
-  await stage('Review (recent)', async () => {
-    const chResp = await fetch(`${baseUrl}/channels`);
-    const { data: channels } = await chResp.json() as { data: Array<{ id: string; type: string }> };
-    const rnd = channels.find((c: any) => c.type === 'rnd');
-    if (!rnd) return '🔍 (no 研发 channel)';
-    const msgs = await fetch(`${baseUrl}/channels/${rnd.id}/messages?limit=5`);
-    const { data: msgData } = await msgs.json() as { data: Array<{ meta: any }> };
-    const reviews = msgData.filter((m: any) => {
-      let meta = m.meta; if (typeof meta === 'string') try { meta = JSON.parse(meta); } catch {}
-      return meta?.reviewResult;
-    }).length;
-    return reviews > 0 ? `✅ (${reviews} reviews)` : '⏳ (pending)';
-  });
-
-  await stage('Deploy/PR', async () => {
-    const chResp = await fetch(`${baseUrl}/channels`);
-    const { data: channels } = await chResp.json() as { data: Array<{ id: string; type: string }> };
-    const rnd = channels.find((c: any) => c.type === 'rnd');
-    if (!rnd) return '🔍';
-    const msgs = await fetch(`${baseUrl}/channels/${rnd.id}/messages?limit=10`);
-    const { data: msgData } = await msgs.json() as { data: Array<{ content: string }> };
-    const deploys = msgData.filter((m: any) => m.content?.includes('Deploy') || m.content?.includes('PR created') || m.content?.includes('部署')).length;
-    return deploys > 0 ? `🚀 (${deploys})` : '⏳';
-  });
-
-  await stage('Knowledge', async () => {
-    const r = await fetch(`${baseUrl}/harness/knowledge?limit=5`);
-    const { data } = await r.json() as any;
-    return Array.isArray(data) && data.length > 0 ? `🧠 (${data.length} entries)` : '⏳';
-  });
-
-  await stage('Trace analysis', async () => {
-    const r = await fetch(`${baseUrl}/health`);
-    if (!r.ok) return '❌';
-    const { status, passRate } = await r.json() as any;
-    return `${status === 'healthy' ? '✅' : '⚠️'} (${passRate || 'N/A'}%)`;
-  });
-
-  await stage('Skill proposals', async () => {
-    const r = await fetch(`${baseUrl}/tools`);
-    const { data } = await r.json() as any;
-    const skills = Array.isArray(data) ? data : [];
-    return `🔩 (${skills.length} skills)`;
-  });
 }
 
 async function studioStatus() {
@@ -1536,43 +1163,17 @@ async function main() {
     case 'run':
       await studioRun();
       break;
-    case 'metrics':
-      if (args[1] === 'compare' && args[2]) {
-        const taskName = args[2];
-        const { getComparison, printComparison } = await import('../daemon/metrics.js');
-        const result = await getComparison(taskName);
-        if (result) {
-          console.log(printComparison(result.pipeline, result.window));
-        } else {
-          console.log(`No metrics found for task: ${taskName}`);
-        }
-      } else if (args[1] === 'summary') {
-        const { getPhaseSummary, printSummary } = await import('../daemon/metrics.js');
-        const { phases, overview } = await getPhaseSummary();
-        console.log(printSummary(phases, overview));
-      } else {
-        console.log('Studio Metrics');
-        console.log('  studio metrics compare <task>  Compare pipeline vs window');
-        console.log('  studio metrics summary         Phase summary (last 24h)');
-      }
-      break;
     case 'status':
       await studioStatus();
       break;
     case 'test':
       await studioTest();
       break;
-    case 'pipeline':
-      await studioPipeline();
-      break;
     case 'approve':
       await studioApprove();
       break;
     case 'reject':
       await studioReject();
-      break;
-    case 'goal':
-      await apiCommand('goals', args.slice(1));
       break;
     case 'knowledge':
       await apiCommand('knowledge', args.slice(1));
@@ -1621,12 +1222,8 @@ async function main() {
       console.log('');
       console.log('  执行:');
       console.log('    studio run <requirement>   Submit to #研发 (@Analyst)');
-      console.log('    studio run <req> --wait    Wait for Goal completion');
-      console.log('    studio run <req> --pipeline Wait full pipeline');
-      console.log('    studio pipeline            Check full pipeline status');
       console.log('');
       console.log('  数据:');
-      console.log('    studio goal <list|status>  Goal management');
       console.log('    studio knowledge <search>  Knowledge base search');
       console.log('    studio channel <list>      Channel list');
       console.log('    studio role <list|show>    Role management');
@@ -1653,8 +1250,6 @@ async function main() {
       console.log('    studio workon <name>      Set active project');
       console.log('    studio daemon start       Register workspace with server');
       console.log('    studio daemon status      Daemon session status');
-      console.log('    studio metrics compare <t> Metrics');
-      console.log('    studio metrics summary       Phase summary (last 24h)');
       break;
   }
 }

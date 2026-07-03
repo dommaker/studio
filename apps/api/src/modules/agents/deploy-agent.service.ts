@@ -1,9 +1,11 @@
 /**
  * Deploy Agent — merge to master, push, deploy, cleanup
  *
- * Pipeline position: last consumer of integration worktree.
- * Input:  reviewed + QA-passed code in worktree
- * Output: deployed release + cleaned worktrees/branches
+ * @deprecated Pipeline 专属，随 Goal/GoalExecution 废弃。
+ * Agent Network 不需要此 Agent — 部署由 WorkUnit 完成后人工触发或 CI/CD 处理。
+ *
+ * 原 Pipeline 位置：integration worktree 的最后消费者。
+ * 清理计划：Phase 2 Pipeline 废弃时一并删除。
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -96,7 +98,7 @@ class DeployAgent {
       this.releaseMergeSlot(params.executionId);
       recordExecution({ source: 'execution', phase: 'deploy', taskName: `deploy-${params.executionId}`, model: 'system', inputTokens: 0, outputTokens: 0, cacheHitTokens: 0, durationMs: Date.now() - startTime, success: false, error: mergeResult.summary, sessionId: params.executionId }).catch(() => {});
 
-      // Emit deploy.completed event so Monitor/OKR can track merge failures
+      // @deprecated Pipeline 废弃后删除。EventBus 无消费者，已有 prisma.studioEvent.create 写入 DB。
       eventBus.publish('deploy.completed', { executionId: params.executionId, result: mergeResult });
       prisma.studioEvent.create({
         data: {
@@ -145,6 +147,7 @@ class DeployAgent {
 
     const durationMs = Date.now() - startTime;
 
+    // @deprecated Pipeline 废弃后删除。EventBus 无消费者，已有 prisma.studioEvent.create 写入 DB。
     eventBus.publish('deploy.completed', { executionId: params.executionId, result: deployResult });
 
     // T3: Enrich failure event with failureClass for OKR/monitoring

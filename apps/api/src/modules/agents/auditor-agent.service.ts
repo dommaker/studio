@@ -642,41 +642,7 @@ export class AuditorAgent {
         });
       }
 
-      // Circuit 5: Pipeline cache efficiency — from PipelineRun.sessionId entries
-      try {
-        const recentRuns = await prisma.pipelineRun.findMany({
-          where: {
-            sessionId: { not: null },
-            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-          },
-          select: { phase: true, model: true, cacheHitTokens: true, inputTokens: true },
-          orderBy: { createdAt: 'desc' },
-          take: 30,
-        });
-        if (recentRuns.length > 0) {
-          const byPhase = new Map<string, { total: number; ratio: number; model: string }>();
-          for (const r of recentRuns) {
-            const key = r.phase;
-            const existing = byPhase.get(key);
-            if (!existing || r.inputTokens > 0) {
-              const ratio = r.inputTokens > 0 ? r.cacheHitTokens / r.inputTokens : 0;
-              byPhase.set(key, { total: (existing?.total || 0) + 1, ratio: existing ? Math.max(existing.ratio, ratio) : ratio, model: r.model });
-            }
-          }
-          for (const [phase, s] of byPhase) {
-            if (s.ratio < 5) {
-              suggestions.push({
-                type: 'circuit_fix',
-                risk: 'low',
-                agentType: 'auditor',
-                detail: `${phase} 缓存比仅 ${s.ratio.toFixed(1)}x (${s.total} sessions, ${s.model}) — 检查 shared prefix 是否生效`,
-              });
-            }
-          }
-        }
-      } catch { /* non-blocking */ }
-
-      // Circuit 6: CONTEXT.md 覆盖率 — 关键目录缺索引则 Analysist 每次都重探索
+      // Circuit 5: CONTEXT.md 覆盖率 — 关键目录缺索引则 Analysist 每次都重探索
       try {
         const fs = require('fs');
         const p = require('path');
@@ -1553,28 +1519,6 @@ export class AuditorAgent {
   private async aggregateDiagnosticSignals(): Promise<string[]> {
     const signals: string[] = [];
     const since = new Date(Date.now() - 7 * 86400000);
-
-    try {
-      // Phase breakdown
-      const phaseStats = await prisma.pipelineRun.groupBy({
-        by: ['phase'],
-        where: { createdAt: { gte: since }, phase: { not: 'full' }, inputTokens: { gt: 0 } },
-        _avg: { durationMs: true },
-        _count: true,
-      });
-      if (phaseStats.length > 0) {
-        const total = phaseStats.reduce((s, p) => s + (p._avg.durationMs || 0), 0);
-        signals.push(`- Phase 耗时分布: ${phaseStats.map(p => `${p.phase} ${Math.round((p._avg.durationMs || 0) / 1000 / 60)}min (${total > 0 ? Math.round((p._avg.durationMs || 0) / total * 100) : 0}%)`).join(', ')}`);
-      }
-    } catch { /* non-blocking */ }
-
-    try {
-      // Session count
-      const multiSession = await prisma.pipelineRun.count({
-        where: { createdAt: { gte: since }, phase: 'executor', sessionId: { not: null } },
-      });
-      signals.push(`- Executor 执行次数: ${multiSession}`);
-    } catch { /* non-blocking */ }
 
     try {
       // KnowledgeService patterns via getStats

@@ -33,8 +33,6 @@ const HEARTBEAT_FILE = path.join(os.homedir(), '.studio', 'heartbeats.json');
 // NA Step 7: 告警阈值
 const PROGRESS_STAGNATION_WARN = 3;  // 连续 3 次无进展 → Level 1
 const PROGRESS_STAGNATION_CRIT = 6;  // 连续 6 次无进展 → Level 2
-const SESSION_WARN = 3;              // session ≥ 3 → Level 1
-const SESSION_ESCALATE = 5;          // session ≥ 5 → Level 3
 const TIME_WARN_MS = 60 * 60 * 1000;       // 1h → Level 1
 const TIME_ESCALATE_MS = 2 * 60 * 60 * 1000; // 2h → Level 2
 const TIME_CRITICAL_MS = 2.5 * 60 * 60 * 1000; // 2.5h → Level 3
@@ -88,16 +86,12 @@ export class MonitorAgent {
     const alerts: MonitorAlert[] = [];
 
     alerts.push(...await this.checkFailureTrend());
-    alerts.push(...await this.checkStuckGoals());
     alerts.push(...await this.checkProgressStagnation());
-    alerts.push(...await this.checkSessionEscalation());
     await this.autoAbandonStaleRunning(); // 先清理僵尸，再检查执行时间告警
     alerts.push(...await this.checkTotalExecutionTime());
     alerts.push(...await this.checkHeartbeatLoss());
-    alerts.push(...await this.checkPipelineLatency());
     alerts.push(...await this.checkToolPatterns());
     await this.evaluateTrajectory();  // G4
-    await this.analyzeRoutingEvolution();  // G5 evolution
     await this.autoAbandonStaleBlocked();
     await this.systemTriageCheck();
     await this.gcStaleWorktrees();
@@ -112,10 +106,6 @@ export class MonitorAgent {
 
     // G31: Data lifecycle TTL — 每天 23:55 清理过期数据
     await this.dataLifecycle();
-
-    // ── 自动优化执行 ──
-    await this.applyRoutingOptimizations();
-    await this.applyTokenBudgetGate();
 
     // Log all alerts
     for (const alert of alerts) {
@@ -256,11 +246,6 @@ export class MonitorAgent {
     return alerts;
   }
 
-  private async checkStuckGoals(): Promise<MonitorAlert[]> {
-    // WorkUnit workunit-timeout trigger（每 5min）已覆盖超时检测
-    return [];
-  }
-
   // ── NA Step 7: 进度停滞检测 ──
 
   private async checkProgressStagnation(): Promise<MonitorAlert[]> {
@@ -292,13 +277,6 @@ export class MonitorAgent {
     }
 
     return alerts;
-  }
-
-  // ── NA Step 7: 会话计数告警 ──
-
-  private async checkSessionEscalation(): Promise<MonitorAlert[]> {
-    // WorkUnit.retryCount 一等字段已覆盖会话重试计数
-    return [];
   }
 
   // ── NA Step 7: 总执行时间告警 + 主动终止 ──
@@ -816,13 +794,6 @@ export class MonitorAgent {
     } catch { /* non-blocking */ }
   }
 
-  // ── Pipeline Latency: per-stage timing + bottleneck detection ──
-
-  private async checkPipelineLatency(): Promise<MonitorAlert[]> {
-    // Pipeline 双层模型（Goal + GoalExecution）已禁用，管线延迟指标待 WorkUnit 聚合方案确定后重建
-    return [];
-  }
-
   // ── P0.3: Tool Pattern Detection — 工具调用异常模式 ──
 
   private async checkToolPatterns(): Promise<MonitorAlert[]> {
@@ -936,12 +907,6 @@ export class MonitorAgent {
     } catch (e) {
       logger.warn('[MonitorAgent] Trajectory eval failed', { error: String(e) });
     }
-  }
-
-  // ── G5 Evolution: 路由决策反馈（Pipeline 已废弃）──
-
-  private async analyzeRoutingEvolution(): Promise<void> {
-    // Pipeline GoalScheduler disabled — no routing feedback available
   }
 
   // ── B1-008: System health check for Triage ──
@@ -1109,24 +1074,6 @@ export class MonitorAgent {
     }
   }
 
-  // ── 自动优化执行 ──
-
-  /**
-   * 根据路由反馈自动调整 classifyTaskComplexity 的阈值。
-   * 只做降级（降低阈值让更多任务用 flash），不自动升级。
-   * ε-greedy 成功率 > 80% → 该 taskCategory 永久降级。
-   */
-  private async applyRoutingOptimizations(): Promise<void> {
-    // Pipeline GoalScheduler disabled — no routing optimizations available
-  }
-
-  /**
-   * Token 预算超标的 goal → 强制降级（Pipeline 已废弃，保留方法签名为兼容）
-   */
-  private async applyTokenBudgetGate(): Promise<void> {
-    // Pipeline GoalScheduler disabled — no token budget gate available
-  }
-
   // ── DailyReflection: 每日洞察聚合 ──
 
   /**
@@ -1243,30 +1190,7 @@ export class MonitorAgent {
         }
       } catch { /* best-effort */ }
 
-      // 2. Pipeline runs
-      try {
-        const runs = await prisma.pipelineRun.findMany({
-          where: { createdAt: { gte: since } },
-          select: { phase: true, success: true, inputTokens: true, cacheHitTokens: true, durationMs: true },
-        });
-        if (runs.length > 0) {
-          const goals = runs.filter((r: any) => r.phase === 'full');
-          const totalInput = runs.reduce((s: number, r: any) => s + (r.inputTokens || 0), 0);
-          const totalCache = runs.reduce((s: number, r: any) => s + (r.cacheHitTokens || 0), 0);
-
-          lines.push('', '### 管线执行');
-          lines.push(`- Pipeline runs: ${runs.length} | Goals: ${goals.length}`);
-          lines.push(`- Token: ${(totalInput / 1000).toFixed(0)}K input + ${(totalCache / 1000).toFixed(0)}K cache`);
-
-          const execRuns = runs.filter((r: any) => r.phase === 'executor');
-          const successRate = execRuns.length > 0
-            ? Math.round((execRuns.filter((r: any) => r.success).length / execRuns.length) * 100)
-            : 0;
-          lines.push(`- Executor 成功率: ${successRate}% (${execRuns.filter((r: any) => r.success).length}/${execRuns.length})`);
-        }
-      } catch { /* best-effort */ }
-
-      // 3. Git commits
+      // 2. Git commits
       try {
         const { execSync } = await import('child_process');
         const repoDir = process.env.REPO_DIR || '/root/projects/studio';
@@ -1556,10 +1480,7 @@ export class MonitorAgent {
     // 1. StudioEvent: 提取 >7d 且未沉淀的事件
     results.studioEvent = await this.precipitateStudioEvents();
 
-    // 2. routing.jsonl: 提取路由决策模式
-    results.routing = await this.precipitateRouting();
-
-    // 3. .agent.log 归档: 提取执行失败模式
+    // 2. .agent.log 归档: 提取执行失败模式
     results.sessions = await this.precipitateSessionLogs();
 
     logger.info('[MonitorAgent] Precipitation completed', results);
@@ -1637,51 +1558,6 @@ export class MonitorAgent {
       return true;
     } catch (e) {
       logger.warn('[MonitorAgent] Precipitate StudioEvent failed', { error: String(e) });
-      return false;
-    }
-  }
-
-  /** 从 routing.jsonl 提取路由决策模式 */
-  private async precipitateRouting(): Promise<boolean> {
-    try {
-      const routingFile = path.join(os.homedir(), '.studio', '.harness', 'routing.jsonl');
-      if (!fs.existsSync(routingFile)) return true;
-
-      const raw = fs.readFileSync(routingFile, 'utf-8');
-      const lines = raw.split('\n').filter(l => l.trim());
-      if (lines.length < 10) return true; // 数据太少不值得提取
-
-      // 统计路由分布
-      const stats = { premium: 0, standard: 0, degraded: 0, total: 0 };
-      const recent = lines.slice(-100);
-      for (const line of recent) {
-        try {
-          const entry = JSON.parse(line);
-          stats.total++;
-          if (entry.tier === 'premium') stats.premium++;
-          else if (entry.tier === 'standard') stats.standard++;
-          if (entry.degraded) stats.degraded++;
-        } catch { /* skip */ }
-      }
-
-      if (stats.total < 5) return true;
-
-      const dateStr = new Date().toISOString().split('T')[0];
-      const content = [
-        `## [沉淀] 路由分布 ${dateStr}`,
-        ``,
-        `- premium: ${stats.premium} (${Math.round(stats.premium / stats.total * 100)}%)`,
-        `- standard: ${stats.standard} (${Math.round(stats.standard / stats.total * 100)}%)`,
-        `- 降级: ${stats.degraded} (${Math.round(stats.degraded / stats.total * 100)}%)`,
-        `- metric: routing_distribution`,
-      ].join('\n');
-
-      writeTrendData(`${dateStr}.md`, content);
-
-      logger.info('[MonitorAgent] Precipitate routing → data/', { total: stats.total, degraded: stats.degraded });
-      return true;
-    } catch (e) {
-      logger.warn('[MonitorAgent] Precipitate routing failed', { error: String(e) });
       return false;
     }
   }
@@ -1810,17 +1686,6 @@ export class MonitorAgent {
         logger.warn('[MonitorAgent] TTL: WorkUnit cleanup failed', { error: String(e) });
       }
 
-      // 3. Delete PipelineRun older than 90 days
-      try {
-        const pipelineCutoff = new Date(Date.now() - 90 * 24 * 3600_000);
-        const deleted = await prisma.pipelineRun.deleteMany({
-          where: { createdAt: { lt: pipelineCutoff } },
-        });
-        logger.info('[MonitorAgent] TTL: PipelineRun cleaned', { deleted: deleted.count, cutoff: pipelineCutoff.toISOString() });
-      } catch (e) {
-        logger.warn('[MonitorAgent] TTL: PipelineRun cleanup failed', { error: String(e) });
-      }
-
       // 4. VACUUM to reclaim disk space
       try {
         await prisma.$executeRawUnsafe('VACUUM');
@@ -1876,27 +1741,7 @@ export class MonitorAgent {
         logger.warn('[MonitorAgent] TTL: StudioEvent cleanup skipped (precipitation failed)');
       }
 
-      // 8. routing.jsonl: 截断保留最近 500 行（需沉淀成功）
-      if (gate.routing !== false) {
-        try {
-          const routingFile = path.join(os.homedir(), '.studio', '.harness', 'routing.jsonl');
-          if (fs.existsSync(routingFile)) {
-            const raw = fs.readFileSync(routingFile, 'utf-8');
-            const lines = raw.split('\n').filter(l => l.trim());
-            if (lines.length > 500) {
-              const kept = lines.slice(-500);
-              fs.writeFileSync(routingFile, kept.join('\n') + '\n', 'utf-8');
-              logger.info('[MonitorAgent] TTL: routing.jsonl truncated', { original: lines.length, kept: kept.length });
-            }
-          }
-        } catch (e) {
-          logger.warn('[MonitorAgent] TTL: routing.jsonl truncation failed', { error: String(e) });
-        }
-      } else {
-        logger.warn('[MonitorAgent] TTL: routing.jsonl cleanup skipped (precipitation failed)');
-      }
-
-      // 9. sessions 归档 log: 删除 >30d 的文件（需沉淀成功）
+      // 8. sessions 归档 log: 删除 >30d 的文件（需沉淀成功）
       if (gate.sessions !== false) {
         try {
           const sessionsDir = path.join(os.homedir(), '.studio', 'sessions');

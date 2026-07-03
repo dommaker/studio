@@ -343,16 +343,13 @@ export class OKRService {
    * 检查数据源可用性
    */
   async checkDataSourceHealth(): Promise<Record<string, 'ok' | 'empty'>> {
-    const [pipelineRunCount, studioEventCount, workUnitCount] = await Promise.all([
-      prisma.pipelineRun.count(),
+    const [studioEventCount, workUnitCount] = await Promise.all([
       prisma.studioEvent.count(),
       prisma.workUnit.count(),
     ]);
     return {
-      pipeline_run: pipelineRunCount > 0 ? 'ok' : 'empty',
       studio_event: studioEventCount > 0 ? 'ok' : 'empty',
-      goal: workUnitCount > 0 ? 'ok' : 'empty',
-      goal_execution: workUnitCount > 0 ? 'ok' : 'empty',
+      execution: workUnitCount > 0 ? 'ok' : 'empty',
     };
   }
 
@@ -373,35 +370,15 @@ export class OKRService {
     query: (okr: OKRService, days: number, params?: Record<string, unknown>) => Promise<number | null>;
     description: string;
   }> = {
-    pipeline_duration_p90: {
-      dataSource: 'goal_execution',
-      query: (okr, days) => okr.queryPipelineDurationP90(days),
-      description: '管线 e2e 耗时 p90',
-    },
-    pipeline_duration_per_phase: {
-      dataSource: 'execution_run',
-      query: (okr, days, params) => okr.queryPipelineDurationPerPhase(params?.phase as string, days),
-      description: '单阶段耗时',
-    },
-    cache_hit_rate: {
-      dataSource: 'execution_run',
-      query: (okr, days) => okr.queryCacheHitRate(days),
-      description: '缓存命中率',
-    },
     execution_success_rate: {
-      dataSource: 'goal',
+      dataSource: 'execution',
       query: (okr, days) => okr.queryExecutionSuccessRate(days),
       description: '执行成功率',
     },
     review_pass_rate: {
-      dataSource: 'goal',
+      dataSource: 'execution',
       query: (okr, days) => okr.queryReviewPassRate(days),
       description: '审查通过率',
-    },
-    token_saving_ratio: {
-      dataSource: 'studio_event',
-      query: (okr, days) => okr.queryTokenSavingRatio(days),
-      description: 'Token 节省比',
     },
     knowledge_entry_count: {
       dataSource: 'studio_event',
@@ -448,29 +425,14 @@ export class OKRService {
       query: (okr, days) => okr.queryBehaviorFeedbackRate(days),
       description: '行为反馈率',
     },
-    pipeline_cost_tokens: {
-      dataSource: 'execution_run',
-      query: (okr, days) => okr.queryPipelineCostTokens(days),
-      description: '管线 Token 总消耗',
-    },
     session_duration_avg: {
-      dataSource: 'goal_execution',
+      dataSource: 'execution',
       query: (okr, days) => okr.querySessionDurationAvg(days),
       description: '平均会话时长',
     },
     // ── Batch A: OKR metricTypes (data source exists) ──
-    test_pass_rate: {
-      dataSource: 'execution_run',
-      query: (okr, days) => okr.queryTestPassRate(days),
-      description: '测试通过率 (PipelineRun.testPassed)',
-    },
-    pipeline_goal_cost: {
-      dataSource: 'execution_run',
-      query: (okr, days) => okr.queryPipelineGoalCost(days),
-      description: '单 Goal 平均 Token 成本',
-    },
     queue_duration_avg: {
-      dataSource: 'goal',
+      dataSource: 'execution',
       query: (okr, days) => okr.queryQueueDurationAvg(days),
       description: '平均排队时间 (WorkUnit.createdAt → child.claimedAt)',
     },
@@ -521,13 +483,8 @@ export class OKRService {
       description: '执行改善度 (recordOutcome before/after)',
     },
     // ── Batch C: OKR metricTypes (need infrastructure) ──
-    rollback_rate: {
-      dataSource: 'studio_event',
-      query: (okr, days) => okr.queryRollbackRate(days),
-      description: '回滚率 (N/A — 系统无 rollback 机制)',
-    },
     max_concurrent: {
-      dataSource: 'goal',
+      dataSource: 'execution',
       query: (okr, days) => okr.queryMaxConcurrent(days),
       description: '最大并行数 (concurrent executing goals)',
     },
@@ -616,119 +573,6 @@ export class OKRService {
 
   // ── 具体 metric 查询 ──
 
-  /** 管线 e2e 耗时 p90 — 优先 PipelineRun phase='full', 回退 GoalExecution wall clock */
-  private async queryPipelineDurationP90(days: number): Promise<number | null> {
-    const since = new Date(Date.now() - days * 86400000);
-
-    // Source 1: PipelineRun phase='full' (goal-level summary, most reliable)
-    const fullRuns = await prisma.pipelineRun.findMany({
-      where: {
-        phase: 'full',
-        createdAt: { gte: since },
-        durationMs: { gt: 1000 },
-      },
-      select: { durationMs: true, goalId: true },
-    });
-
-    if (fullRuns.length > 0) {
-      const durations = fullRuns.map(r => r.durationMs).sort((a, b) => a - b);
-      const idx = Math.ceil(durations.length * 0.9) - 1;
-      return Math.round(durations[Math.min(idx, durations.length - 1)] / 1000 / 60);
-    }
-
-    // Source 2: PipelineRun step-level, aggregate by goalId
-    const stepRuns = await prisma.pipelineRun.findMany({
-      where: {
-        createdAt: { gte: since },
-        goalId: { not: null },
-        phase: { not: 'full' },
-      },
-      select: { goalId: true, durationMs: true },
-    });
-
-    if (stepRuns.length > 0) {
-      const byGoal = new Map<string, number>();
-      for (const r of stepRuns) {
-        byGoal.set(r.goalId!, (byGoal.get(r.goalId!) || 0) + r.durationMs);
-      }
-      const durations = Array.from(byGoal.values()).filter(d => d > 1000).sort((a, b) => a - b);
-      if (durations.length > 0) {
-        const idx = Math.ceil(durations.length * 0.9) - 1;
-        return Math.round(durations[Math.min(idx, durations.length - 1)] / 1000 / 60);
-      }
-    }
-
-    // Source 3: WorkUnit wall clock (legacy fallback)
-    const executions = await prisma.workUnit.findMany({
-      where: {
-        claimedAt: { gte: since },
-        completedAt: { not: null },
-        status: 'done',
-      },
-      select: { parentId: true, claimedAt: true, completedAt: true },
-    });
-
-    if (executions.length === 0) return null;
-
-    const byParentExec = new Map<string, { claimedAt: Date; completedAt: Date }>();
-    for (const e of executions) {
-      const existing = byParentExec.get(e.parentId!);
-      if (!existing) {
-        byParentExec.set(e.parentId!, { claimedAt: e.claimedAt!, completedAt: e.completedAt! });
-      } else {
-        if (e.claimedAt! < existing.claimedAt) existing.claimedAt = e.claimedAt!;
-        if (e.completedAt! > existing.completedAt) existing.completedAt = e.completedAt!;
-      }
-    }
-
-    const durations = Array.from(byParentExec.values())
-      .map(g => g.completedAt.getTime() - g.claimedAt.getTime())
-      .filter(d => d > 1000)
-      .sort((a, b) => a - b);
-
-    if (durations.length === 0) return null;
-
-    const idx = Math.ceil(durations.length * 0.9) - 1;
-    return Math.round(durations[Math.min(idx, durations.length - 1)] / 1000 / 60);
-  }
-
-  /** 管线单阶段耗时 */
-  private async queryPipelineDurationPerPhase(phase?: string, days?: number): Promise<number | null> {
-    const since = new Date(Date.now() - (days || 7) * 86400000);
-    const where: Record<string, unknown> = {
-      createdAt: { gte: since },
-      phase: { not: 'full' },
-    };
-    if (phase) where.phase = phase;
-
-    const result = await prisma.pipelineRun.aggregate({
-      where,
-      _avg: { durationMs: true },
-    });
-
-    return result._avg.durationMs ? Math.round(result._avg.durationMs / 1000 / 60) : null;
-  }
-
-  /** 缓存命中率 */
-  private async queryCacheHitRate(days: number): Promise<number | null> {
-    const since = new Date(Date.now() - days * 86400000);
-    const result = await prisma.pipelineRun.aggregate({
-      where: {
-        createdAt: { gte: since },
-        phase: { not: 'full' },
-        inputTokens: { gt: 0 },
-      },
-      _sum: { cacheHitTokens: true, inputTokens: true },
-    });
-
-    const cacheHit = result._sum.cacheHitTokens || 0;
-    const input = result._sum.inputTokens || 0;
-    const total = cacheHit + input;
-    if (total === 0) return null;
-    // Claude: cache_read_input_tokens / (cache_read_input_tokens + input_tokens)
-    return Math.round(cacheHit / total * 100);
-  }
-
   /** 执行成功率 */
   private async queryExecutionSuccessRate(days: number): Promise<number | null> {
     const since = new Date(Date.now() - days * 86400000);
@@ -764,24 +608,6 @@ export class OKRService {
     });
 
     return Math.round((passed.length / withReview.length) * 100);
-  }
-
-  /** Token 节省率 (pipeline vs window baseline) */
-  private async queryTokenSavingRatio(days: number): Promise<number | null> {
-    const since = new Date(Date.now() - days * 86400000);
-    const pipeline = await prisma.pipelineRun.aggregate({
-      where: { createdAt: { gte: since }, source: 'execution', phase: { not: 'full' } },
-      _sum: { inputTokens: true },
-    });
-    const window = await prisma.pipelineRun.aggregate({
-      where: { createdAt: { gte: since }, source: 'window', phase: { not: 'full' } },
-      _sum: { inputTokens: true },
-    });
-
-    const pipelineTokens = pipeline._sum.inputTokens || 0;
-    const windowTokens = window._sum.inputTokens || 0;
-    if (windowTokens === 0) return null;
-    return Math.round((1 - pipelineTokens / windowTokens) * 100);
   }
 
   // ── Extended metric queries (registry) ──
@@ -893,17 +719,6 @@ export class OKRService {
     } catch { return null; }
   }
 
-  private async queryPipelineCostTokens(days: number): Promise<number | null> {
-    try {
-      const since = new Date(Date.now() - days * 86400000);
-      const agg = await prisma.pipelineRun.aggregate({
-        where: { createdAt: { gte: since }, source: 'execution' },
-        _sum: { inputTokens: true, outputTokens: true },
-      });
-      return (agg._sum.inputTokens || 0) + (agg._sum.outputTokens || 0);
-    } catch { return null; }
-  }
-
   private async querySessionDurationAvg(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
@@ -919,56 +734,6 @@ export class OKRService {
   }
 
   // ── Batch A: OKR metricType queries (data source exists) ──
-
-  /** Pipeline O3-KR1: 测试通过率 */
-  private async queryTestPassRate(days: number): Promise<number | null> {
-    try {
-      const since = new Date(Date.now() - days * 86400000);
-      const [total, passed] = await Promise.all([
-        prisma.pipelineRun.count({ where: { createdAt: { gte: since }, testPassed: { not: null } } }),
-        prisma.pipelineRun.count({ where: { createdAt: { gte: since }, testPassed: true } }),
-      ]);
-      if (total === 0) return null;
-      return Math.round((passed / total) * 100);
-    } catch { return null; }
-  }
-
-  /** Pipeline O2-KR3: 单 Goal 成本 (USD from StudioEvent, fallback to tokens) */
-  private async queryPipelineGoalCost(days: number): Promise<number | null> {
-    try {
-      const since = new Date(Date.now() - days * 86400000);
-      // Try StudioEvent costUsd first
-      const costEvents = await prisma.studioEvent.findMany({
-        where: { timestamp: { gte: since }, type: 'execution_run', costUsd: { gt: 0 } },
-        select: { executionId: true, costUsd: true },
-      });
-      if (costEvents.length > 0) {
-        const byGoal = new Map<string, number>();
-        for (const e of costEvents) {
-          const key = e.executionId || 'unknown';
-          byGoal.set(key, (byGoal.get(key) || 0) + (e.costUsd || 0));
-        }
-        if (byGoal.size > 0) {
-          const total = Array.from(byGoal.values()).reduce((s, v) => s + v, 0);
-          return Math.round((total / byGoal.size) * 1000) / 1000;
-        }
-      }
-      // Fallback: token-based proxy
-      const runs = await prisma.pipelineRun.findMany({
-        where: { createdAt: { gte: since }, source: 'execution', phase: { not: 'full' } },
-        select: { goalId: true, inputTokens: true, outputTokens: true },
-      });
-      if (runs.length === 0) return null;
-      const byGoal = new Map<string, number>();
-      for (const r of runs) {
-        const key = r.goalId || 'unknown';
-        byGoal.set(key, (byGoal.get(key) || 0) + r.inputTokens + r.outputTokens);
-      }
-      if (byGoal.size === 0) return null;
-      const totalTokens = Array.from(byGoal.values()).reduce((s, v) => s + v, 0);
-      return Math.round(totalTokens / byGoal.size);
-    } catch { return null; }
-  }
 
   /** Pipeline O4-KR3: 排队时间 (WorkUnit.createdAt → child.claimedAt) */
   private async queryQueueDurationAvg(days: number): Promise<number | null> {
@@ -1123,11 +888,6 @@ export class OKRService {
 
   // ── Batch C: queries (need infrastructure) ──
 
-  /** Pipeline O3-KR4: 回滚率 — N/A (系统无 deploy rollback 机制，始终返回 0) */
-  private async queryRollbackRate(_days: number): Promise<number | null> {
-    return 0;
-  }
-
   /** Pipeline O4-KR1: 最大并行数 */
   private async queryMaxConcurrent(days: number): Promise<number | null> {
     try {
@@ -1165,12 +925,8 @@ export class OKRService {
 
   /** 理论上限 */
   private static readonly UPPER_BOUNDS: Record<string, number> = {
-    pipeline_duration_p90: Infinity,   // 越低越好，不设上限
-    pipeline_duration_per_phase: Infinity,
-    cache_hit_rate: 99.9,
     execution_success_rate: 100,
     review_pass_rate: 100,
-    token_saving_ratio: 90,
     knowledge_entry_count: Infinity,
     knowledge_consumption_hit_rate: 100,
     resolution_count: Infinity,
@@ -1180,10 +936,7 @@ export class OKRService {
     deploy_failure_rate: 100,
     analyst_accuracy: 100,
     behavior_feedback_rate: 100,
-    pipeline_cost_tokens: Infinity,
     session_duration_avg: Infinity,
-    test_pass_rate: 100,
-    pipeline_goal_cost: Infinity,
     queue_duration_avg: Infinity,
     knowledge_quality_gate_pass_rate: 100,
     knowledge_quality_score: 100,
@@ -1194,7 +947,6 @@ export class OKRService {
     knowledge_skill_usage_rate: 100,
     knowledge_growth_rate: Infinity,
     execution_improvement: 100,
-    rollback_rate: 100,
     max_concurrent: Infinity,
     conflict_rate: 100,
   };

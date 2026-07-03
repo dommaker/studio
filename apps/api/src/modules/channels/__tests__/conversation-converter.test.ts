@@ -9,12 +9,12 @@ vi.mock('../analyst-trigger.service.js', () => ({
   },
 }));
 
-import { convertConversationToPipeline } from '../conversation-converter.js';
+import { triggerAnalyst } from '../conversation-converter.js';
 import { analystTriggerService } from '../analyst-trigger.service.js';
 
 let channelId: string;
 
-describe('convertConversationToPipeline', () => {
+describe('triggerAnalyst', () => {
   beforeAll(async () => {
     const channel = await prisma.channel.create({
       data: { name: `#test-convert-${Date.now()}`, type: 'rnd' },
@@ -61,7 +61,7 @@ describe('convertConversationToPipeline', () => {
       },
     });
 
-    const result = await convertConversationToPipeline(channelId);
+    const result = await triggerAnalyst(channelId);
 
     expect(result.messageCount).toBe(3);
     expect(result.hasRequirementsDoc).toBe(false);
@@ -99,7 +99,7 @@ describe('convertConversationToPipeline', () => {
       },
     });
 
-    await convertConversationToPipeline(channelId);
+    await triggerAnalyst(channelId);
 
     const context = vi.mocked(analystTriggerService.trigger).mock.calls[0][2];
     expect(context).toContain('@Executor: Ready to execute');
@@ -116,7 +116,7 @@ describe('convertConversationToPipeline', () => {
       },
     });
 
-    await convertConversationToPipeline(channelId);
+    await triggerAnalyst(channelId);
 
     const context = vi.mocked(analystTriggerService.trigger).mock.calls[0][2];
     expect(context).toContain('@KK: Fallback test');
@@ -133,7 +133,7 @@ describe('convertConversationToPipeline', () => {
       },
     });
 
-    await convertConversationToPipeline(channelId);
+    await triggerAnalyst(channelId);
 
     const context = vi.mocked(analystTriggerService.trigger).mock.calls[0][2];
     expect(context).toContain('@Agent: Anonymous agent');
@@ -160,7 +160,7 @@ describe('convertConversationToPipeline', () => {
       },
     });
 
-    const result = await convertConversationToPipeline(channelId);
+    const result = await triggerAnalyst(channelId);
 
     expect(result.hasRequirementsDoc).toBe(true);
 
@@ -172,7 +172,7 @@ describe('convertConversationToPipeline', () => {
   // ── Empty conversation ──
 
   it('throws on empty conversation', async () => {
-    await expect(convertConversationToPipeline(channelId)).rejects.toThrow(
+    await expect(triggerAnalyst(channelId)).rejects.toThrow(
       'No conversation messages found in channel',
     );
   });
@@ -188,7 +188,7 @@ describe('convertConversationToPipeline', () => {
       },
     });
 
-    await expect(convertConversationToPipeline(channelId)).rejects.toThrow(
+    await expect(triggerAnalyst(channelId)).rejects.toThrow(
       'No conversation messages found in channel',
     );
   });
@@ -222,7 +222,7 @@ describe('convertConversationToPipeline', () => {
       },
     });
 
-    const result = await convertConversationToPipeline(channelId);
+    const result = await triggerAnalyst(channelId);
 
     expect(result.messageCount).toBe(2); // human + agent, not system
 

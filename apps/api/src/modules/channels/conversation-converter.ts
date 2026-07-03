@@ -1,8 +1,8 @@
 /**
- * Conversation → Pipeline Conversion (AS-020 §6.6 P10)
+ * Conversation → Analyst Trigger (AS-020 §6.6 P10)
  *
  * Packages conversation context from a Channel and triggers the Analyst
- * agent to start a pipeline.
+ * agent to start analysis.
  */
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
@@ -15,7 +15,7 @@ export interface ConversionResult {
 }
 
 /**
- * Package conversation messages and trigger Analyst pipeline.
+ * Package conversation messages and trigger Analyst.
  *
  * Filters human + agent messages, formats as dialogue text,
  * injects RequirementsDoc if present, then calls analystTriggerService.trigger().
@@ -23,7 +23,7 @@ export interface ConversionResult {
  * @param channelId - Channel to convert
  * @returns ConversionResult with packaging stats
  */
-export async function convertConversationToPipeline(
+export async function triggerAnalyst(
   channelId: string,
 ): Promise<ConversionResult> {
   // Fetch all messages in chronological order
