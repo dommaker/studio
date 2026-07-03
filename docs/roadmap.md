@@ -604,22 +604,24 @@ P10+ (进化闭环)              ← 持续优化
 
 ### Phase 3.25: AC 组拆分 + Executor 并行（B60 P2/P3 修复）
 
+> ⚠️ **已废弃**：Pipeline 已全量移除（2026-07-03），本 Phase 不再适用。
+
 **Spec 文件**：[ac-group-splitting-and-executor-subagents.md](specs/pipeline/ac-group-splitting-and-executor-subagents.md)
 
 **目标**：消除无效 AC（"写测试""跑验证"）+ Executor 组内波次并行。B60 场景从 18min 降至 ~4min。
 
 | Phase | 任务 | 类型 | 状态 |
 |-------|------|------|------|
-| 1 | `req/SKILL.md` 三层过滤 + 禁止 AC 类型 + 质量门 | Skill | 待开始 |
-| 1 | `analyst-prompt.ts` 删除 3 处矛盾规则 | Prompt | 待开始 |
-| 1 | `validateAnalystOutput` 拒绝"写测试"/纯验证 AC | 安全网 | 待开始 |
-| 1 | `contract-test-writing/SKILL.md` 一致性规则 | Skill | 待开始 |
-| 2 | `green-only-tdd/SKILL.md` 重写为 sub-agent 约束 | Skill | 待开始 |
-| 2 | 删除 `sub-agent-workflow/SKILL.md` | Skill | 待开始 |
-| 2 | 波次分析算法（analyzeWaves） | 安全网 | 待开始 |
-| 2 | Parent session spawn sub-agents + Promise.all | 安全网 | 待开始 |
-| 2 | Parent 统一 git commit | 安全网 | 待开始 |
-| 2 | Integration 空 merge 检查 | 安全网 | 待开始 |
+| 1 | `req/SKILL.md` 三层过滤 + 禁止 AC 类型 + 质量门 | Skill | ~~待开始~~ 废弃 |
+| 1 | `analyst-prompt.ts` 删除 3 处矛盾规则 | Prompt | ~~待开始~~ 废弃 |
+| 1 | `validateAnalystOutput` 拒绝"写测试"/纯验证 AC | 安全网 | ~~待开始~~ 废弃 |
+| 1 | `contract-test-writing/SKILL.md` 一致性规则 | Skill | ~~待开始~~ 废弃 |
+| 2 | `green-only-tdd/SKILL.md` 重写为 sub-agent 约束 | Skill | ~~待开始~~ 废弃 |
+| 2 | 删除 `sub-agent-workflow/SKILL.md` | Skill | ~~待开始~~ 废弃 |
+| 2 | 波次分析算法（analyzeWaves） | 安全网 | ~~待开始~~ 废弃 |
+| 2 | Parent session spawn sub-agents + Promise.all | 安全网 | ~~待开始~~ 废弃 |
+| 2 | Parent 统一 git commit | 安全网 | ~~待开始~~ 废弃 |
+| 2 | Integration 空 merge 检查 | 安全网 | ~~待开始~~ 废弃 |
 
 **关键决策**：
 - Parent = 系统代码（`no_model_for_deterministic`，波次分析 0 项需要 LLM）
@@ -629,23 +631,27 @@ P10+ (进化闭环)              ← 持续优化
 
 ### Phase 3.26: 管线 Skill 进化 — 优化 + 反馈闭环
 
+> ⚠️ **已废弃**：Pipeline 已全量移除（2026-07-03），本 Phase 不再适用。
+
 **Spec 文件**：[pipeline-skill-evolution.md](specs/pipeline/pipeline-skill-evolution.md)
 
 **目标**：4 个管线 Skill 额外优化 + 自动反馈闭环。无效 AC 率从 30% 降至 <1%。
 
 | Phase | 任务 | Skill | 状态 |
 |-------|------|-------|------|
-| 2 | files 字段验证规则 | `req/SKILL.md` | 待开始 |
-| 2 | 工具集明确（禁止 Grep/Glob） | `green-only-tdd/SKILL.md` | 待开始 |
-| 2 | RED 状态验证说明 | `contract-test-writing/SKILL.md` | 待开始 |
-| 2 | architectureContext 过期机制 | `req/SKILL.md` | 待开始 |
-| 2 | architectureContext 验证步骤 | `green-only-tdd/SKILL.md` | 待开始 |
-| 2 | 失败处理流程 | `green-only-tdd/SKILL.md` | 待开始 |
-| 3 | 事件采集（Skill 加载/门禁/失败） | 系统 | 待开始 |
-| 3 | 每日聚合 + 阈值检测 | 系统 | 待开始 |
-| 3 | Skill 版本管理（CHANGELOG + 版本号） | 系统 | 待开始 |
+| 2 | files 字段验证规则 | `req/SKILL.md` | ~~待开始~~ 废弃 |
+| 2 | 工具集明确（禁止 Grep/Glob） | `green-only-tdd/SKILL.md` | ~~待开始~~ 废弃 |
+| 2 | RED 状态验证说明 | `contract-test-writing/SKILL.md` | ~~待开始~~ 废弃 |
+| 2 | architectureContext 过期机制 | `req/SKILL.md` | ~~待开始~~ 废弃 |
+| 2 | architectureContext 验证步骤 | `green-only-tdd/SKILL.md` | ~~待开始~~ 废弃 |
+| 2 | 失败处理流程 | `green-only-tdd/SKILL.md` | ~~待开始~~ 废弃 |
+| 3 | 事件采集（Skill 加载/门禁/失败） | 系统 | ~~待开始~~ 废弃 |
+| 3 | 每日聚合 + 阈值检测 | 系统 | ~~待开始~~ 废弃 |
+| 3 | Skill 版本管理（CHANGELOG + 版本号） | 系统 | ~~待开始~~ 废弃 |
 
 ### Phase 3.27: B60 剩余问题修复 — SSE/CLI 卡住/Review 缩放
+
+> ⚠️ **已废弃**：Pipeline 已全量移除（2026-07-03），本 Phase 不再适用。
 
 **Spec 文件**：[b60-remaining-fixes.md](specs/pipeline/b60-remaining-fixes.md)
 
@@ -653,12 +659,12 @@ P10+ (进化闭环)              ← 持续优化
 
 | Phase | 任务 | 文件 | 状态 |
 |-------|------|------|------|
-| 1 | SSE 路由禁用 compression | `app.ts` / `sse.routes.ts` | 待开始 |
-| 1 | CLI 轮询加 MAX_WAIT_MS（30min 硬超时） | `studio-cli.ts` | 待开始 |
-| 2 | Stuck pipeline 检测 | `scheduler-integration.ts` | 待开始 |
-| 2 | isSimpleChange 修复（totalChanged ≤ 20） | `review-agent.service.ts` | 待开始 |
-| 2 | Review fast-path（简单变更跳过完整审查） | `goal-review.ts` | 待开始 |
-| 2 | Knowledge inject token cap（3000 tokens） | `knowledge-service.ts` | 待开始 |
+| 1 | SSE 路由禁用 compression | `app.ts` / `sse.routes.ts` | ~~待开始~~ 废弃 |
+| 1 | CLI 轮询加 MAX_WAIT_MS（30min 硬超时） | `studio-cli.ts` | ~~待开始~~ 废弃 |
+| 2 | Stuck pipeline 检测 | `scheduler-integration.ts` | ~~待开始~~ 废弃 |
+| 2 | isSimpleChange 修复（totalChanged ≤ 20） | `review-agent.service.ts` | ~~待开始~~ 废弃 |
+| 2 | Review fast-path（简单变更跳过完整审查） | `goal-review.ts` | ~~待开始~~ 废弃 |
+| 2 | Knowledge inject token cap（3000 tokens） | `knowledge-service.ts` | ~~待开始~~ 废弃 |
 
 ---
 
