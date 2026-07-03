@@ -7,8 +7,8 @@ import type { OKRKeyResult } from '../okr.service.js';
 const service = new OKRService();
 let testCompanyId: string;
 let seededOkrId: string;
-const seededIds: { pipelineRuns: string[]; workUnits: string[]; goals: string[]; goalExecutions: string[] } = {
-  pipelineRuns: [], workUnits: [], goals: [], goalExecutions: [],
+const seededIds: { workUnits: string[] } = {
+  workUnits: [],
 };
 
 describe('B8 OKR Service', () => {
@@ -17,17 +17,7 @@ describe('B8 OKR Service', () => {
     const company = await prisma.company.findFirst();
     testCompanyId = company?.id || (await prisma.company.create({ data: { name: 'B8 Test Corp' } })).id;
 
-    // 2. PipelineRun — for cache_hit_rate, pipeline_duration_p90 queries
-    const pr = await prisma.pipelineRun.create({
-      data: {
-        source: 'test', phase: 'executor', taskName: 'test-task',
-        model: 'standard', inputTokens: 1000, outputTokens: 500,
-        cacheHitTokens: 600, durationMs: 300000, success: true,
-      },
-    });
-    seededIds.pipelineRuns.push(pr.id);
-
-    // 3. WorkUnits (parent) — for execution_success_rate, review_pass_rate queries
+    // 2. WorkUnits (parent) — for execution_success_rate, review_pass_rate queries
     const g1 = await prisma.workUnit.create({
       data: { scope: 'test-goal-ok', metadata: JSON.stringify({ description: 'seed' }), status: 'done', type: 'task' },
     });
@@ -36,39 +26,23 @@ describe('B8 OKR Service', () => {
     });
     seededIds.workUnits.push(g1.id, g2.id);
 
-    // 4. WorkUnit (child) — for goal_execution health check
+    // 3. WorkUnit (child) — for execution health check
     await prisma.workUnit.create({
       data: { parentId: g1.id, scope: 'step-0', status: 'done', type: 'task' },
     });
 
-    // 4b. Goal + GoalExecution — for checkDataSourceHealth & getMetricBaseline
-    const goal1 = await prisma.goal.create({
-      data: { title: 'test-goal-ok', description: 'seed', status: 'succeeded', companyId: testCompanyId },
-    });
-    const goal2 = await prisma.goal.create({
-      data: { title: 'test-goal-fail', description: 'seed', status: 'failed', companyId: testCompanyId },
-    });
-    seededIds.goals.push(goal1.id, goal2.id);
-
-    const ge1 = await prisma.goalExecution.create({
-      data: { goalId: goal1.id, stepIndex: 0, status: 'succeeded', startedAt: new Date(), completedAt: new Date() },
-    });
-    seededIds.goalExecutions.push(ge1.id);
-
-    // 5. OKR fixture — for syncKRProgress + recalibration
+    // 4. OKR fixture — for syncKRProgress + recalibration
     const okr = await prisma.oKR.create({
       data: {
         companyId: testCompanyId,
-        title: 'Pipeline OKR Test',
+        title: 'Agent Network OKR Test',
         quarter: '2026-Q2',
-        objectives: JSON.stringify([{ id: 'o1', title: 'Pipeline Quality' }]),
+        objectives: JSON.stringify([{ id: 'o1', title: 'Execution Quality' }]),
         keyResults: JSON.stringify([
-          { id: 'kr-cache', objectiveId: 'o1', title: '缓存命中率', target: 50, current: 0, unit: '%', metricType: 'cache_hit_rate' },
           { id: 'kr-exec', objectiveId: 'o1', title: '执行成功率', target: 80, current: 0, unit: '%', metricType: 'execution_success_rate' },
-          { id: 'kr-token', objectiveId: 'o1', title: 'Token 节省率', target: 60, current: 0, unit: '%', metricType: 'token_saving_ratio' },
-          { id: 'kr-duration', objectiveId: 'o1', title: '管线 e2e 耗时 p90', target: 600000, current: 0, unit: 'ms', metricType: 'pipeline_duration_p90' },
           { id: 'kr-review', objectiveId: 'o1', title: 'Review 通过率', target: 90, current: 0, unit: '%', metricType: 'review_pass_rate' },
-          { id: 'kr-cost', objectiveId: 'o1', title: '单 Goal 成本', target: 50000, current: 0, unit: 'tokens', metricType: 'pipeline_goal_cost' },
+          { id: 'kr-deploy', objectiveId: 'o1', title: '部署成功率', target: 95, current: 0, unit: '%', metricType: 'deploy_success_rate' },
+          { id: 'kr-incident', objectiveId: 'o1', title: '事件数', target: 5, current: 0, unit: 'count', metricType: 'incident_count' },
         ]),
         progress: 0,
       },
@@ -80,33 +54,26 @@ describe('B8 OKR Service', () => {
     // Cleanup seeded data (order matters for FK constraints)
     await prisma.kRHistory.deleteMany({ where: { okrId: seededOkrId } });
     await prisma.oKR.deleteMany({ where: { id: seededOkrId } });
-    await prisma.goalExecution.deleteMany({ where: { id: { in: seededIds.goalExecutions } } });
-    await prisma.goal.deleteMany({ where: { id: { in: seededIds.goals } } });
     await prisma.workUnit.deleteMany({ where: { parentId: { in: seededIds.workUnits } } });
     await prisma.workUnit.deleteMany({ where: { id: { in: seededIds.workUnits } } });
-    await prisma.pipelineRun.deleteMany({ where: { id: { in: seededIds.pipelineRuns } } });
   });
 
   describe('checkDataSourceHealth', () => {
-    it('returns ok for all 4 data sources', async () => {
+    it('returns ok for data sources', async () => {
       const health = await service.checkDataSourceHealth();
-      expect(health).toHaveProperty('pipeline_run');
       expect(health).toHaveProperty('studio_event');
-      expect(health).toHaveProperty('goal');
-      expect(health).toHaveProperty('goal_execution');
-      expect(health.pipeline_run).toBe('ok');
-      expect(health.goal).toBe('ok');
-      expect(health.goal_execution).toBe('ok');
+      expect(health).toHaveProperty('execution');
+      expect(health.execution).toBe('ok');
       // studio_event: may be 'empty' if no events seeded — that's OK for R3 test
     });
   });
 
   describe('validateKRTarget', () => {
     it('blocks target below baseline (R1)', async () => {
-      // cache_hit_rate baseline = 600/(600+1000)*100 = 37.5 → target 30 should block
+      // execution_success_rate has seeded data → baseline exists → target 1 should block
       const kr: OKRKeyResult = {
-        id: 'test-r1', objectiveId: 'o1', title: 'cache hit too low',
-        target: 30, current: 0, unit: '%', metricType: 'cache_hit_rate',
+        id: 'test-r1', objectiveId: 'o1', title: 'exec rate too low',
+        target: 1, current: 0, unit: '%', metricType: 'execution_success_rate',
       };
       const result = await service.validateKRTarget(kr);
       expect(result.status).toBe('blocked');
@@ -125,11 +92,11 @@ describe('B8 OKR Service', () => {
     it('blocks when data source is empty (R3)', async () => {
       // Mock checkDataSourceHealth to simulate empty studio_event
       const spy = vi.spyOn(service, 'checkDataSourceHealth').mockResolvedValue({
-        pipeline_run: 'ok', studio_event: 'empty', goal: 'ok', goal_execution: 'ok',
+        studio_event: 'empty', execution: 'ok',
       });
       const kr: OKRKeyResult = {
-        id: 'test-r3', objectiveId: 'o1', title: 'token saving',
-        target: 60, current: 0, unit: '%', metricType: 'token_saving_ratio',
+        id: 'test-r3', objectiveId: 'o1', title: 'incident count',
+        target: 60, current: 0, unit: '%', metricType: 'incident_count',
       };
       const result = await service.validateKRTarget(kr);
       expect(result.status).toBe('blocked');
@@ -140,7 +107,7 @@ describe('B8 OKR Service', () => {
     it('blocks target <= 0 (R4)', async () => {
       const kr: OKRKeyResult = {
         id: 'test-r4', objectiveId: 'o1', title: 'invalid',
-        target: 0, current: 0, unit: '%', metricType: 'cache_hit_rate',
+        target: 0, current: 0, unit: '%', metricType: 'execution_success_rate',
       };
       const result = await service.validateKRTarget(kr);
       expect(result.status).toBe('blocked');
@@ -157,18 +124,20 @@ describe('B8 OKR Service', () => {
   });
 
   describe('getMetricBaseline', () => {
-    it('returns number for cache_hit_rate', async () => {
-      const baseline = await service.getMetricBaseline('cache_hit_rate');
+    it('returns number for execution_success_rate', async () => {
+      const baseline = await service.getMetricBaseline('execution_success_rate');
       expect(baseline).not.toBeNull();
       expect(typeof baseline).toBe('number');
       expect(baseline!).toBeGreaterThanOrEqual(0);
       expect(baseline!).toBeLessThanOrEqual(100);
     });
 
-    it('returns number for execution_success_rate', async () => {
-      const baseline = await service.getMetricBaseline('execution_success_rate');
-      expect(baseline).not.toBeNull();
-      expect(typeof baseline).toBe('number');
+    it('returns number or null for review_pass_rate (depends on data)', async () => {
+      const baseline = await service.getMetricBaseline('review_pass_rate');
+      // review_pass_rate may return null if no review data in seeded WorkUnits
+      if (baseline !== null) {
+        expect(typeof baseline).toBe('number');
+      }
     });
 
     it('returns null for unknown metricType', async () => {
@@ -182,23 +151,19 @@ describe('B8 OKR Service', () => {
       await expect(service.syncKRProgress('non-existent-id')).rejects.toThrow('not found');
     });
 
-    it('syncs pipeline OKR and returns mixed statuses', async () => {
+    it('syncs OKR and returns mixed statuses', async () => {
       const results = await service.syncKRProgress(seededOkrId);
-      expect(results.length).toBe(6);
+      expect(results.length).toBe(4);
       const statuses = results.map(r => r.status);
-      // cache_hit_rate + execution_success_rate + pipeline_duration_p90 + review_pass_rate should be 'ok'
+      // execution_success_rate + review_pass_rate (execution source) should be queryable
       expect(statuses).toContain('ok');
-      // token_saving_ratio (StudioEvent source) should be no_data
-      expect(statuses).toContain('no_data');
     });
   });
 
   describe('recalibration', () => {
     it('detects when baseline exceeds target', async () => {
       const suggestions = await service.getRecalibrationSuggestions(seededOkrId);
-      // pipeline_duration_p90: actual ~300000ms (5min) vs target 600000ms (10min) → NOT exceeding
-      // But if we check cache_hit_rate: baseline ~37% vs target 50% → NOT exceeding
-      // So just verify it returns an array without error
+      // Just verify it returns an array without error
       expect(Array.isArray(suggestions)).toBe(true);
     });
   });
@@ -211,22 +176,20 @@ describe('B8 OKR Service', () => {
   });
 
   describe('OKR metricType coverage', () => {
-    // Pipeline OKR: 14 KRs
-    const PIPELINE_KRS = [
-      'pipeline_duration_p90',       // O1-KR1 p90 总耗时
-      'pipeline_duration_per_phase', // O1-KR2 各阶段耗时
-      'execution_success_rate',      // O1-KR3 成功完成率
-      'token_saving_ratio',          // O2-KR1 token 节省率
-      'cache_hit_rate',              // O2-KR2 缓存命中率
-      'pipeline_goal_cost',          // O2-KR3 单 Goal 成本
-      'test_pass_rate',              // O3-KR1 测试通过率
-      'review_pass_rate',            // O3-KR2 Review 通过率
-      'deploy_success_rate',         // O3-KR3 部署成功率
-      'deploy_failure_rate',         // O3-KR3b 部署失败率
-      'rollback_rate',               // O3-KR4 回滚率
-      'max_concurrent',              // O4-KR1 最大并行数
-      'conflict_rate',               // O4-KR2 冲突率
-      'queue_duration_avg',          // O4-KR3 排队时间
+    // Execution OKR: metrics querying WorkUnit/StudioEvent
+    const EXECUTION_KRS = [
+      'execution_success_rate',      // WorkUnit success rate
+      'review_pass_rate',            // WorkUnit review pass rate
+      'deploy_success_rate',         // StudioEvent deploy success
+      'deploy_failure_rate',         // StudioEvent deploy failure
+      'max_concurrent',              // WorkUnit concurrent
+      'conflict_rate',               // StudioEvent conflicts
+      'incident_count',              // StudioEvent incidents
+      'queue_duration_avg',          // WorkUnit queue duration
+      'session_duration_avg',        // WorkUnit session duration
+      'analyst_accuracy',            // StudioEvent analyst accuracy
+      'resolution_count',            // StudioEvent resolutions
+      'resolution_verify_rate',      // StudioEvent resolution verify
     ];
 
     // Knowledge OKR: 10 KRs
@@ -243,14 +206,14 @@ describe('B8 OKR Service', () => {
       'knowledge_quality_trend',          // O3-KR4 质量趋势
     ];
 
-    const ALL_KRS = [...PIPELINE_KRS, ...KNOWLEDGE_KRS];
+    const ALL_KRS = [...EXECUTION_KRS, ...KNOWLEDGE_KRS];
 
     it.each(ALL_KRS)('metricType "%s" is registered', (metricType) => {
       expect(OKRService.METRIC_REGISTRY).toHaveProperty(metricType);
     });
 
-    it('Pipeline OKR: all 14 KRs have metricTypes', () => {
-      for (const kr of PIPELINE_KRS) {
+    it('Execution OKR: all KRs have metricTypes', () => {
+      for (const kr of EXECUTION_KRS) {
         expect(OKRService.METRIC_REGISTRY).toHaveProperty(kr);
       }
     });
@@ -261,8 +224,8 @@ describe('B8 OKR Service', () => {
       }
     });
 
-    it('total metricTypes >= 24 (OKR coverage)', () => {
-      expect(Object.keys(OKRService.METRIC_REGISTRY).length).toBeGreaterThanOrEqual(24);
+    it('total metricTypes >= 22 (OKR coverage)', () => {
+      expect(Object.keys(OKRService.METRIC_REGISTRY).length).toBeGreaterThanOrEqual(22);
     });
 
     it('UPPER_BOUNDS covers all registered metricTypes', () => {

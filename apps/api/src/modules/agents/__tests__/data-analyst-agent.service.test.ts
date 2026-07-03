@@ -15,11 +15,6 @@ vi.mock('@dommaker/studio-prisma', () => ({
       ]),
       create: vi.fn().mockResolvedValue({ id: 'ev-1' }),
     },
-    pipelineRun: {
-      findMany: vi.fn().mockResolvedValue([
-        { phase: 'executor', taskName: 't1', model: 'standard', success: true, durationMs: 1000, inputTokens: 500, outputTokens: 200 },
-      ]),
-    },
   },
 }));
 
@@ -27,9 +22,9 @@ vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn() },
   modelGateway: {
     promptJson: vi.fn().mockResolvedValue({
-      trends: [{ metric: 'cache_hit_rate', direction: 'up', significance: 'medium', description: '缓存命中率上升' }],
+      trends: [{ metric: 'execution_success_rate', direction: 'up', significance: 'medium', description: '执行成功率上升' }],
       rootCauses: [],
-      recommendations: [{ priority: 'P1', action: '优化缓存策略', expectedImpact: '提升命中率', relatedMetrics: ['cache_hit_rate'] }],
+      recommendations: [{ priority: 'P1', action: '优化执行策略', expectedImpact: '提升成功率', relatedMetrics: ['execution_success_rate'] }],
       anomalies: [],
     }),
   },
@@ -48,9 +43,9 @@ describe('DataAnalystAgent', () => {
     // Spy on okrService.getMetricBaseline
     dataAnalystAgent.okrService.getMetricBaseline = vi.fn().mockImplementation((metricType: string) => {
       const data: Record<string, number | null> = {
-        cache_hit_rate: 60,
         execution_success_rate: 80,
-        token_saving_ratio: null,
+        review_pass_rate: 90,
+        deploy_success_rate: null,
       };
       return Promise.resolve(data[metricType] ?? null);
     });
@@ -63,9 +58,9 @@ describe('DataAnalystAgent', () => {
   describe('collectMetrics', () => {
     it('returns metrics for all registered metricTypes', async () => {
       const metrics = await dataAnalystAgent.collectMetrics();
-      expect(metrics.cache_hit_rate).toBe(60);
       expect(metrics.execution_success_rate).toBe(80);
-      expect(metrics.token_saving_ratio).toBeNull();
+      expect(metrics.review_pass_rate).toBe(90);
+      expect(metrics.deploy_success_rate).toBeNull();
     });
   });
 
@@ -82,25 +77,13 @@ describe('DataAnalystAgent', () => {
     });
   });
 
-  describe('collectRecentRuns', () => {
-    it('queries PipelineRun from last 24h', async () => {
-      const runs = await dataAnalystAgent.collectRecentRuns();
-      expect(prisma.pipelineRun.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { createdAt: { gte: expect.any(Date) } },
-        }),
-      );
-      expect(runs).toHaveLength(1);
-    });
-  });
-
   describe('analyze', () => {
     it('produces a DataAnalysisReport and stores it', async () => {
       const report = await dataAnalystAgent.analyze();
 
       expect(report).not.toBeNull();
       expect(report!.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(report!.metrics).toHaveProperty('cache_hit_rate', 60);
+      expect(report!.metrics).toHaveProperty('execution_success_rate', 80);
       expect(report!.analysis.trends).toHaveLength(1);
       expect(report!.analysis.recommendations).toHaveLength(1);
       expect(report!.metadata.durationMs).toBeGreaterThanOrEqual(0);
@@ -120,8 +103,8 @@ describe('DataAnalystAgent', () => {
 
       expect(modelGateway.promptJson).toHaveBeenCalledTimes(1);
       const prompt = (modelGateway.promptJson as any).mock.calls[0][0];
-      expect(prompt).toContain('cache_hit_rate');
-      expect(prompt).toContain('60');
+      expect(prompt).toContain('execution_success_rate');
+      expect(prompt).toContain('80');
     });
 
     it('returns null on LLM failure without throwing', async () => {

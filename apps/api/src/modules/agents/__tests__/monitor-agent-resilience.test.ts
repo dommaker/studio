@@ -53,7 +53,6 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} })
 vi.mock('../../knowledge/knowledge-sync.service.js', () => ({ knowledgeSync: {} }));
 vi.mock('../../knowledge/preference-observer.js', () => ({ preferenceObserver: { record: vi.fn() } }));
 vi.mock('../triage-agent.service.js', () => ({ triageAgent: { handleAlert: vi.fn() } }));
-vi.mock('../execution-alarm.js', () => ({ onPhaseFailure: vi.fn() }));
 
 vi.mock('../../daemon/studio-daemon.js', () => ({
   daemon: { getStatus: mockDaemonGetStatus },

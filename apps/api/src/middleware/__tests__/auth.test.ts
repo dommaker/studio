@@ -15,7 +15,7 @@ vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     workspaceToken: { findUnique: vi.fn() },
     workspace: { findUnique: vi.fn() },
-    goal: { findUnique: vi.fn() },
+    document: { findUnique: vi.fn() },
     role: { findUnique: vi.fn() },
   },
 }));
@@ -239,11 +239,11 @@ describe('checkOwnership', () => {
   it('returns 403 when resource uses createdBy field and mismatches', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { id: 'g1' };
-    vi.mocked(prisma.goal.findUnique).mockResolvedValue({
+    vi.mocked(prisma.document.findUnique).mockResolvedValue({
       createdBy: 'other-user',
     } as any);
 
-    const middleware = checkOwnership('goal');
+    const middleware = checkOwnership('document');
     await middleware(req as Request, res as Response, next);
 
     expect(res.status).toHaveBeenCalledWith(403);
@@ -269,11 +269,11 @@ describe('checkOwnership', () => {
   it('calls next() when user owns the resource via createdBy', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { id: 'g1' };
-    vi.mocked(prisma.goal.findUnique).mockResolvedValue({
+    vi.mocked(prisma.document.findUnique).mockResolvedValue({
       createdBy: 'u1',
     } as any);
 
-    const middleware = checkOwnership('goal');
+    const middleware = checkOwnership('document');
     await middleware(req as Request, res as Response, next);
 
     expect(next).toHaveBeenCalled();
@@ -281,12 +281,12 @@ describe('checkOwnership', () => {
 
   it('uses custom paramKey to extract resource ID', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
-    req.params = { goalId: 'g1' };
-    vi.mocked(prisma.goal.findUnique).mockResolvedValue({
+    req.params = { docId: 'd1' };
+    vi.mocked(prisma.document.findUnique).mockResolvedValue({
       createdBy: 'u1',
     } as any);
 
-    const middleware = checkOwnership('goal', 'goalId');
+    const middleware = checkOwnership('document', 'docId');
     await middleware(req as Request, res as Response, next);
 
     expect(next).toHaveBeenCalled();

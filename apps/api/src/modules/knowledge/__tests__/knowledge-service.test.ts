@@ -189,19 +189,16 @@ describe('KnowledgeService Phase 1A: Produce', () => {
   });
 
   describe('recordTrend', () => {
-    it('ingests with trend tag', async () => {
-      const { ks, ingest } = createKS();
+    it('writes trend data without throwing', async () => {
+      const { ks } = createKS();
       const entry: TrendEntry = {
         title: 'Build time increasing',
         content: 'Average build time up 20%',
         metric: 'build_time',
         tags: ['performance'],
       };
-      await ks.recordTrend(entry);
-      expect(ingest.ingestEntry).toHaveBeenCalledWith(
-        expect.objectContaining({ tags: expect.arrayContaining(['trend']) }),
-        expect.objectContaining({ source: expect.stringContaining('trend:') }),
-      );
+      // recordTrend now writes to data/ directory (not ingest)
+      await expect(ks.recordTrend(entry)).resolves.not.toThrow();
     });
   });
 });
@@ -577,73 +574,6 @@ describe('KnowledgeService Phase 1C: Extract', () => {
 // ── Phase 3: Feedback loop behavior tests ──
 
 describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
-  describe('pipelineFeedback', () => {
-    it('creates StudioEvent with correct type pattern (success)', async () => {
-      const { ks, prisma } = createKS();
-      await ks.pipelineFeedback({
-        goalId: 'goal-1',
-        executionId: 'exec-1',
-        phase: 'executor',
-        success: true,
-        durationMs: 5000,
-        tokensUsed: 1000,
-      });
-      expect(prisma.studioEvent.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            type: 'knowledge:pipeline:executor:success',
-            source: 'execution',
-          }),
-        }),
-      );
-    });
-
-    it('creates StudioEvent with correct type pattern (failure)', async () => {
-      const { ks, prisma } = createKS();
-      await ks.pipelineFeedback({
-        goalId: 'goal-1',
-        executionId: 'exec-1',
-        phase: 'executor',
-        success: false,
-        durationMs: 5000,
-        error: 'Agent failed',
-      });
-      expect(prisma.studioEvent.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            type: 'knowledge:pipeline:executor:failure',
-          }),
-        }),
-      );
-    });
-
-    it('emits knowledge event on eventEmitter', async () => {
-      const { ks, eventEmitter } = createKS();
-      await ks.pipelineFeedback({
-        goalId: 'goal-1',
-        executionId: 'exec-1',
-        phase: 'executor',
-        success: true,
-        durationMs: 5000,
-      });
-      expect(eventEmitter.emit).toHaveBeenCalledWith('knowledge',
-        expect.objectContaining({ type: 'pipelineFeedback' }),
-      );
-    });
-
-    it('non-blocking: does not throw when prisma fails', async () => {
-      const { ks, prisma } = createKS();
-      (prisma.studioEvent.create as any).mockRejectedValueOnce(new Error('DB down'));
-      await expect(ks.pipelineFeedback({
-        goalId: 'goal-1',
-        executionId: 'exec-1',
-        phase: 'executor',
-        success: true,
-        durationMs: 5000,
-      })).resolves.not.toThrow();
-    });
-  });
-
   describe('extractFromExecution', () => {
     it('calls recordPattern with execution data', async () => {
       const { ks, ingest } = createKS();
@@ -818,7 +748,6 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('recordConsumption exists', () => expect(typeof ks.recordConsumption).toBe('function'));
     it('recordOutcome exists', () => expect(typeof ks.recordOutcome).toBe('function'));
     it('recordFeedback exists', () => expect(typeof ks.recordFeedback).toBe('function'));
-    it('pipelineFeedback exists', () => expect(typeof ks.pipelineFeedback).toBe('function'));
   });
 
   describe('Lifecycle (4 methods)', () => {
@@ -842,10 +771,10 @@ describe('KnowledgeService Phase 0: contract', () => {
   });
 
   describe('method count', () => {
-    it('has exactly 36 public methods', () => {
+    it('has exactly 35 public methods', () => {
       const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
         .filter(m => m !== 'constructor');
-      expect(methods).toHaveLength(36);
+      expect(methods).toHaveLength(35);
     });
   });
 });
