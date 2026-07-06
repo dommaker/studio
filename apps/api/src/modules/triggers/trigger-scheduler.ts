@@ -1,25 +1,40 @@
-// Trigger Scheduler — periodic cron checker (3.28c-4, AS-026 extended)
+// Trigger Scheduler — periodic cron checker + EVENT subscriber (3.28c-4, AS-026 extended)
 // SCHEDULE triggers: checked every 60s tick
-import { logger } from '@dommaker/studio-shared';
+// EVENT triggers: subscribe to EventBus, fire on matching events
+import { logger, type StudioEventBus } from '@dommaker/studio-shared';
 import { CronMatcher } from './cron-matcher.js';
 import { TriggerStore } from './trigger-store.js';
-import { executeCreateAction, executeExecuteAction, executeUpdateAction } from './trigger-action.js';
+import {
+  executeCreateAction,
+  executeExecuteAction,
+  executeUpdateAction,
+  registerExecuteHandler as registerActionHandler,
+} from './trigger-action.js';
 import type { TriggerConfig, TriggerState, TriggerLogEntry } from './trigger.types.js';
 
 const TICK_INTERVAL_MS = 60_000; // 1 minute
 
+export interface TriggerSchedulerDeps {
+  store: TriggerStore | null;
+  eventBus?: StudioEventBus;
+}
+
 export class TriggerScheduler {
-  private store: TriggerStore;
+  private store: TriggerStore | null;
+  private eventBus?: StudioEventBus;
   private states: Map<string, TriggerState> = new Map();
   private logs: TriggerLogEntry[] = [];
   private intervalId: ReturnType<typeof setInterval> | null = null;
+  private subscriptions: Map<string, () => void> = new Map(); // triggerId → unsubscribe
 
-  constructor(store: TriggerStore) {
-    this.store = store;
+  constructor(deps: TriggerSchedulerDeps) {
+    this.store = deps.store;
+    this.eventBus = deps.eventBus;
   }
 
   /** Load triggers from YAML store and initialize states */
   loadTriggers(): void {
+    if (!this.store) return;
     const triggers = this.store.list();
     const newStates = new Map<string, TriggerState>();
 
@@ -40,6 +55,7 @@ export class TriggerScheduler {
   /**
    * Register a trigger programmatically.
    * If trigger already exists, updates config.
+   * EVENT triggers: subscribe to EventBus.
    */
   registerTrigger(trigger: TriggerConfig): void {
     const existing = this.states.get(trigger.id);
@@ -51,11 +67,31 @@ export class TriggerScheduler {
     });
     this.states.get(trigger.id)!.config = trigger;
 
+    // EVENT trigger: subscribe to eventBus
+    if (trigger.condition.type === 'EVENT' && this.eventBus) {
+      // Clean up old subscription if re-registering
+      this.subscriptions.get(trigger.id)?.();
+
+      const eventName = trigger.condition.event;
+      const handler = (payload: unknown) => this.handleEvent(trigger, payload);
+      this.eventBus.subscribe(eventName, handler);
+      this.subscriptions.set(trigger.id, () => {
+        this.eventBus!.unsubscribe(eventName, handler);
+      });
+    }
+
     this.log(trigger.id, 'tick', `Trigger "${trigger.name}" registered (${trigger.condition.type})`);
   }
 
-  /** Unregister a trigger */
+  /** Register an EXECUTE action handler (delegates to trigger-action registry) */
+  registerExecuteHandler(target: string, handler: (payload: unknown) => Promise<void>): void {
+    registerActionHandler(target, handler);
+  }
+
+  /** Unregister a trigger and clean up event subscription */
   unregisterTrigger(id: string): void {
+    this.subscriptions.get(id)?.();
+    this.subscriptions.delete(id);
     this.states.delete(id);
     this.log(id, 'tick', `Trigger unregistered`);
   }
@@ -93,6 +129,15 @@ export class TriggerScheduler {
       this.intervalId = null;
     }
     this.log('scheduler', 'tick', 'Scheduler stopped');
+  }
+
+  /** Stop scheduler and clean up all event subscriptions */
+  dispose(): void {
+    this.stop();
+    for (const unsub of this.subscriptions.values()) {
+      unsub();
+    }
+    this.subscriptions.clear();
   }
 
   /** Check if scheduler is running */
@@ -136,6 +181,32 @@ export class TriggerScheduler {
         await executeUpdateAction(config.action, context);
         break;
     }
+  }
+
+  /** Handle an incoming event for an EVENT trigger */
+  private handleEvent(trigger: TriggerConfig, payload: unknown): void {
+    if (!trigger.enabled) return;
+
+    // Filter matching
+    if (trigger.condition.type === 'EVENT' && trigger.condition.filter) {
+      if (!this.matchFilter(payload, trigger.condition.filter)) return;
+    }
+
+    this.log(trigger.id, 'fired', `EVENT trigger "${trigger.name}" fired`);
+    this.executeTrigger(trigger, payload).catch(err => {
+      const state = this.states.get(trigger.id);
+      if (state) state.errorCount++;
+      this.log(trigger.id, 'error', `EVENT trigger "${trigger.name}" failed: ${(err as Error).message}`);
+    });
+  }
+
+  /** Check if event payload matches trigger filter (shallow key-value match) */
+  private matchFilter(payload: unknown, filter: Record<string, unknown>): boolean {
+    if (typeof payload !== 'object' || payload === null) return false;
+    for (const [key, value] of Object.entries(filter)) {
+      if ((payload as Record<string, unknown>)[key] !== value) return false;
+    }
+    return true;
   }
 
   /** Get current trigger states */

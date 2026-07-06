@@ -3,10 +3,9 @@
  *
  * Source-code verification:
  * - 3 triggers removed from default-triggers.ts (9→6)
- * - EVENT condition type removed from trigger.types.ts
- * - subscribeEvent/unsubscribeEvent removed from trigger-scheduler.ts
+ * - EVENT condition type re-added by PMO-Channel-Agent-Flow SDD AC-1
+ * - subscribeEvent/unsubscribeEvent removed from trigger-scheduler.ts (replaced by registerTrigger EVENT handling)
  * - resolveTemplate/getNestedValue removed from trigger-action.ts
- * - EVENT validation removed from trigger-store.ts
  * - 6 retained triggers intact
  */
 
@@ -39,10 +38,10 @@ describe('Trigger cleanup verification', () => {
     expect(content).not.toMatch(/poll-fallback/);
   });
 
-  it('EVENT condition type is removed from TriggerCondition', () => {
+  it('EVENT condition type is present in TriggerCondition (re-added by PMO-SDD AC-1)', () => {
     const content = fs.readFileSync(path.join(TRIGGERS_DIR, 'trigger.types.ts'), 'utf-8');
-    // Check that EVENT type variant is gone from TriggerCondition union
-    expect(content).not.toMatch(/type:\s*'EVENT'/);
+    // AC-1 of PMO-Channel-Agent-Flow SDD re-introduced EVENT type
+    expect(content).toMatch(/type:\s*'EVENT'/);
   });
 
   it('subscribeEvent method is removed from TriggerScheduler', () => {
