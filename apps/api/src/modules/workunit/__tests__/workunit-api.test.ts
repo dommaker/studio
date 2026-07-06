@@ -1,7 +1,8 @@
 // WorkUnit API service test (AS-025, 3.28c-1 Task 2-4)
 // Tests: CRUD + Claim + State machine + Review + from-message
-import { describe, it, expect, afterAll, beforeAll } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
 import { prisma } from '@dommaker/studio-prisma';
+import { eventBus } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit.service.js';
 
 describe('WorkUnit API service', () => {
@@ -553,5 +554,45 @@ describe('WorkUnit API service', () => {
   });
 
   // ---- Dependency unlock ----
+
+  // ---- AC-4: create() publishes workunit.created event ----
+
+  describe('AC-4: WorkUnit creation event', () => {
+    it('create() publishes workunit.created event', async () => {
+      const publishSpy = vi.spyOn(eventBus, 'publish');
+
+      const wu = await service.create({ scope: 'Event test', type: 'task' });
+      testIds.push(wu.id);
+
+      expect(publishSpy).toHaveBeenCalledWith(
+        'workunit.created',
+        expect.objectContaining({ workunit: expect.objectContaining({ id: wu.id }) }),
+      );
+
+      publishSpy.mockRestore();
+    });
+
+    it('create() still returns WorkUnit after event publish', async () => {
+      const wu = await service.create({ scope: 'Return value test' });
+      testIds.push(wu.id);
+
+      expect(wu.id).toBeDefined();
+      expect(wu.scope).toBe('Return value test');
+      expect(wu.status).toBe('unassigned');
+    });
+
+    it('create() does not throw when eventBus.publish fails', async () => {
+      const publishSpy = vi.spyOn(eventBus, 'publish').mockImplementation(() => {
+        throw new Error('EventBus failure');
+      });
+
+      // Should not throw — eventBus failure is non-blocking
+      const wu = await service.create({ scope: 'Resilience test' });
+      testIds.push(wu.id);
+
+      expect(wu.id).toBeDefined();
+      publishSpy.mockRestore();
+    });
+  });
 
 });

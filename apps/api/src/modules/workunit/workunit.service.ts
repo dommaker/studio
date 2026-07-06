@@ -6,7 +6,7 @@
 
 import { Prisma, type WorkUnit } from '@prisma/client';
 import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, eventBus } from '@dommaker/studio-shared';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkills } from '../skills/skill-selector.js';
 import { skillLoaderService } from '../skills/skill-loader.js';
@@ -98,6 +98,16 @@ export class WorkUnitService {
         metadata: input.metadata ? JSON.stringify(input.metadata) : null,
       },
     });
+
+    // Publish event for EVENT trigger consumers (AgentLoop, etc.)
+    try {
+      eventBus.publish('workunit.created', { workunit: wu });
+    } catch (err) {
+      logger.warn('[WorkUnit] Failed to publish workunit.created (non-blocking)', {
+        workUnitId: wu.id,
+        error: String(err),
+      });
+    }
 
     return wu;
   }

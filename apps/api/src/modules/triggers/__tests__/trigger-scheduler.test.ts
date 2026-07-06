@@ -7,6 +7,37 @@ import { TriggerScheduler } from '../trigger-scheduler';
 import { TriggerStore } from '../trigger-store';
 import type { TriggerConfig } from '../trigger.types';
 
+describe('EVENT condition type', () => {
+  it('AC-1: TriggerCondition accepts EVENT type', () => {
+    const eventTrigger: TriggerConfig = {
+      id: 'test-event',
+      name: 'Test Event Trigger',
+      condition: { type: 'EVENT', event: 'workunit.created' },
+      action: { type: 'EXECUTE', target: 'test-handler' },
+      enabled: true,
+      scope: 'system',
+    };
+    expect(eventTrigger.condition.type).toBe('EVENT');
+    if (eventTrigger.condition.type === 'EVENT') {
+      expect(eventTrigger.condition.event).toBe('workunit.created');
+    }
+  });
+
+  it('AC-1: EVENT condition with filter', () => {
+    const eventTrigger: TriggerConfig = {
+      id: 'test-event-filter',
+      name: 'Test Event Filter',
+      condition: { type: 'EVENT', event: 'workunit.created', filter: { type: 'analysis' } },
+      action: { type: 'EXECUTE', target: 'test-handler' },
+      enabled: true,
+      scope: 'system',
+    };
+    if (eventTrigger.condition.type === 'EVENT') {
+      expect(eventTrigger.condition.filter).toEqual({ type: 'analysis' });
+    }
+  });
+});
+
 describe('TriggerScheduler', () => {
   let tmpDir: string;
   let store: TriggerStore;
