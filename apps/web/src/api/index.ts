@@ -328,6 +328,10 @@ export const projectApi = {
   updateStatus: (id: string, status: string) =>
     api.put(`/pmo/project/${id}/status`, { status }),
 
+  // 发布 PMO 到 Channel
+  publish: (id: string, channelId: string) =>
+    api.post(`/pmo/project/${id}/publish`, { channelId }),
+
   // 删除项目
   delete: (id: string) => api.delete(`/pmo/project/${id}`),
 

@@ -1,7 +1,8 @@
 // PMOPage - PMO 管理主页面（项目 + OKR）
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { api } from '../api';
+import { api, projectApi } from '../api';
+import { channelApi, type Channel } from '../api/channel';
 import { toast } from '../utils/toast';
 import '../styles/theme.css';
 
@@ -154,8 +155,16 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const defaultTab = tabParam === 'okr' ? 'okr' : 'projects';
   const [activeTab, setActiveTab] = useState<'projects' | 'okr'>(defaultTab);
 
+  // AC-6: Publish dialog state
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [showPublishDialog, setShowPublishDialog] = useState(false);
+  const [publishProjectId, setPublishProjectId] = useState<string | null>(null);
+  const [selectedChannelId, setSelectedChannelId] = useState('');
+  const [publishing, setPublishing] = useState(false);
+
   useEffect(() => {
     loadData();
+    loadChannels();
   }, [companyId]);
 
   const loadData = async () => {
@@ -198,6 +207,38 @@ export function PMOPage({ companyId }: PMOPageProps) {
       active: '#2196F3',
     };
     return colors[status] || '#9E9E9E';
+  };
+
+  const loadChannels = async () => {
+    try {
+      const res = await channelApi.list();
+      setChannels(res.data?.data || []);
+    } catch {
+      // best-effort: channels may not be available
+    }
+  };
+
+  const handlePublishClick = (e: React.MouseEvent, projectId: string) => {
+    e.stopPropagation();
+    setPublishProjectId(projectId);
+    setSelectedChannelId(channels.length > 0 ? channels[0].id : '');
+    setShowPublishDialog(true);
+  };
+
+  const handlePublishConfirm = async () => {
+    if (!publishProjectId || !selectedChannelId) return;
+    setPublishing(true);
+    try {
+      await projectApi.publish(publishProjectId, selectedChannelId);
+      toast.success('发布成功');
+      setShowPublishDialog(false);
+      loadData();
+    } catch (err) {
+      const msg = (err as Error).message || '发布失败';
+      toast.error(msg);
+    } finally {
+      setPublishing(false);
+    }
   };
 
   // 🆕 B8: 创建 OKR (支持 KR + metricType)
@@ -336,6 +377,21 @@ export function PMOPage({ companyId }: PMOPageProps) {
                         }}>
                           {project.OKR.title}
                         </span>
+                      )}
+                      {project.status === 'pending' && (
+                        <button
+                          onClick={(e) => handlePublishClick(e, project.id)}
+                          disabled={channels.length === 0}
+                          className="text-xs px-3 py-1 rounded font-medium transition-all"
+                          style={{
+                            background: channels.length === 0 ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
+                            color: channels.length === 0 ? 'var(--text-tertiary)' : '#fff',
+                            cursor: channels.length === 0 ? 'not-allowed' : 'pointer',
+                          }}
+                          title={channels.length === 0 ? '无可用 Channel' : '发布到 Channel'}
+                        >
+                          发布
+                        </button>
                       )}
                     </div>
                   </div>
@@ -570,6 +626,46 @@ export function PMOPage({ companyId }: PMOPageProps) {
                 className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
               >
                 创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AC-6: Publish dialog */}
+      {showPublishDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
+          <div className="p-6 rounded-xl w-96" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>
+            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>发布到 Channel</h3>
+            {channels.length === 0 ? (
+              <p style={{ color: 'var(--text-tertiary)' }}>无可用 Channel，请先创建</p>
+            ) : (
+              <select
+                value={selectedChannelId}
+                onChange={(e) => setSelectedChannelId(e.target.value)}
+                className="w-full p-2 rounded mb-4"
+                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
+              >
+                {channels.map(ch => (
+                  <option key={ch.id} value={ch.id}>{ch.name}</option>
+                ))}
+              </select>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowPublishDialog(false)}
+                className="px-4 py-2 rounded"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                取消
+              </button>
+              <button
+                onClick={handlePublishConfirm}
+                disabled={publishing || channels.length === 0}
+                className="px-4 py-2 rounded text-white"
+                style={{ background: publishing ? 'var(--bg-tertiary)' : 'var(--accent-primary)' }}
+              >
+                {publishing ? '发布中...' : '确认发布'}
               </button>
             </div>
           </div>

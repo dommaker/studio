@@ -12,7 +12,16 @@ export interface ChannelMessage {
   createdAt: string;
 }
 
+export interface Channel {
+  id: string;
+  name: string;
+  type: string;
+}
+
 export const channelApi = {
+  list: () =>
+    api.get<{ success: boolean; data: Channel[] }>('/channels'),
+
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
     api.get<{ success: boolean; data: ChannelMessage[]; total: number; hasMore: boolean }>(
       `/channels/${channelId}/messages`,
