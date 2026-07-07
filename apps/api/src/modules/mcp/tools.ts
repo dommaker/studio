@@ -9,6 +9,7 @@ import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { toolRegistry, type RegisteredTool } from './tool-registry.js';
 import { mcpPermissionService } from './permission.service.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
 
 // ─── 类型（向后兼容） ───
 
@@ -1070,6 +1071,41 @@ const loadSkill: MCPTool = {
   },
 };
 
+// ─── WorkUnit ───
+
+const createWorkUnit: MCPTool = {
+  name: 'createWorkUnit',
+  description: '创建 WorkUnit（工作单元）。Agent 用于拆分下游任务。',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      type: { type: 'string', enum: ['task', 'analysis', 'monitor', 'discussion'], description: 'WorkUnit 类型' },
+      scope: { type: 'string', description: '工作范围描述' },
+      channelId: { type: 'string', description: 'Channel ID（可选）' },
+      parentId: { type: 'string', description: '父 WorkUnit ID（可选）' },
+      metadata: { type: 'object', description: '附加元数据（可选）' },
+    },
+    required: ['type', 'scope'],
+  },
+  handler: async (input) => {
+    const workUnitService = new WorkUnitService(prisma);
+    const workunit = await workUnitService.create({
+      type: input.type,
+      scope: input.scope,
+      channelId: input.channelId,
+      parentId: input.parentId,
+      metadata: input.metadata,
+      status: 'unassigned',
+    });
+    return {
+      workUnitId: workunit.id,
+      type: workunit.type,
+      scope: workunit.scope,
+      status: workunit.status,
+    };
+  },
+};
+
 // ─── 注册所有 tools ───
 
 const allTools: RegisteredTool[] = [
@@ -1112,6 +1148,8 @@ const allTools: RegisteredTool[] = [
   publishPackage,
   // Skill 按需加载 (1)
   loadSkill,
+  // WorkUnit (1)
+  createWorkUnit,
 ];
 
 // FL-026: Register all tools into the registry on module load
