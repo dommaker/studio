@@ -7,9 +7,12 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
+
+const workUnitService = new WorkUnitService(prisma);
 
 /**
- * Submit a requirement to #研发 channel and trigger @Analyst analysis.
+ * Submit a requirement to #研发 channel and create a WorkUnit.
  * Returns a confirmation message suitable for display to the user.
  */
 export async function triggerRequirement(requirement: string): Promise<string> {
@@ -19,20 +22,21 @@ export async function triggerRequirement(requirement: string): Promise<string> {
     throw new Error('#研发 channel not found. Start studio first.');
   }
 
-  // Append @Analyst to trigger analysis (case-insensitive check to avoid double-append)
-  const content = /@analyst/i.test(requirement) ? requirement : `${requirement} @Analyst`;
+  const content = requirement.trim();
 
   // Create human message in the channel
   const message = await channelMessageService.createHumanMessage(rndChannel.id, content);
 
-  // Fire Analyst trigger (the route handler normally does this for HTTP requests,
-  // but since we call createHumanMessage directly, we need to trigger manually)
-  const { analystTriggerService } = await import('../channels/analyst-trigger.service.js');
-  analystTriggerService.trigger(rndChannel.id, message.id, content).catch(err =>
-    logger.error('[CommandRunner] Analyst trigger failed', { error: String(err) }),
-  );
+  // Create WorkUnit for the requirement
+  await workUnitService.create({
+    scope: content,
+    channelId: rndChannel.id,
+    type: 'task',
+    status: 'unassigned',
+    metadata: { creationMode: 'discord' },
+  });
 
   logger.info('[CommandRunner] Requirement submitted', { channelId: rndChannel.id, messageId: message.id });
 
-  return `✅ 已提交到 #研发，Analyst 正在分析...\nMessage ID: ${message.id}`;
+  return `✅ 已提交到 #研发，WorkUnit 已创建\nMessage ID: ${message.id}`;
 }
