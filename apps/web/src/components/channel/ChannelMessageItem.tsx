@@ -1,4 +1,4 @@
-// Channel message renderer — B2: multi-card support
+// Channel message renderer — AC-C2: reply button + quote rendering
 import type { ChannelMessage } from '../../api/channel';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
@@ -8,6 +8,8 @@ import { DeployApprovalCard } from './DeployApprovalCard'; // M4a
 interface Props {
   message: ChannelMessage;
   onAction: (messageId: string, action: string) => void;
+  onReply?: (message: ChannelMessage) => void;
+  findMessage?: (id: string) => ChannelMessage | undefined;
 }
 
 function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction: Props['onAction']) {
@@ -26,18 +28,35 @@ function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction
   }
 }
 
-export function ChannelMessageItem({ message, onAction }: Props) {
+export function ChannelMessageItem({ message, onAction, onReply, findMessage }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
   const card = renderCard(meta, message, onAction);
+  const parentMessage = message.replyToId && findMessage ? findMessage(message.replyToId) : undefined;
 
   return (
-    <div className={`flex ${isHuman ? 'justify-end' : 'justify-start'} mb-4`}>
+    <div className={`flex ${isHuman ? 'justify-end' : 'justify-start'} mb-4 group`}>
       <div className={`max-w-[80%] ${isHuman ? 'order-1' : 'order-1'}`}>
-        {/* Author label */}
-        <div className={`text-xs mb-1 ${isHuman ? 'text-right text-blue-600' : 'text-left text-gray-500'}`}>
-          {isHuman ? 'You' : message.agentName || 'Agent'}
+        {/* Author label + reply button */}
+        <div className={`text-xs mb-1 flex items-center gap-2 ${isHuman ? 'justify-end text-blue-600' : 'justify-start text-gray-500'}`}>
+          <span>{isHuman ? 'You' : message.agentName || 'Agent'}</span>
+          {onReply && (
+            <button
+              onClick={() => onReply(message)}
+              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 transition-opacity text-xs"
+              title="回复"
+            >
+              ↩
+            </button>
+          )}
         </div>
+
+        {/* Quote block (reply reference) */}
+        {parentMessage && (
+          <div className="text-xs text-gray-500 border-l-2 border-gray-300 pl-2 mb-1 italic truncate max-w-full">
+            &gt; {parentMessage.authorType === 'human' ? 'You' : parentMessage.agentName || 'Agent'}: {parentMessage.content}
+          </div>
+        )}
 
         {/* Content or Card */}
         {card || (

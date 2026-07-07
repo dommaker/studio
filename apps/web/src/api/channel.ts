@@ -18,6 +18,13 @@ export interface Channel {
   type: string;
 }
 
+export interface AgentProfile {
+  id: string;
+  name: string;
+  description: string | null;
+  status: string;
+}
+
 export const channelApi = {
   list: () =>
     api.get<{ success: boolean; data: Channel[] }>('/channels'),
@@ -29,11 +36,13 @@ export const channelApi = {
     ),
 
   sendMessage: (channelId: string, content: string, replyToId?: string) =>
-    api.post<{ success: boolean; data: ChannelMessage & { analystTriggered: boolean } }>(
+    api.post<{ success: boolean; data: ChannelMessage }>(
       `/channels/${channelId}/messages`,
       { content, replyToId }
     ),
 
-  sendAction: (channelId: string, messageId: string, action: string) =>
-    api.post(`/channels/${channelId}/messages/${messageId}/actions`, { action }),
+  listAgents: () =>
+    api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {
+      params: { status: 'active' },
+    }),
 };

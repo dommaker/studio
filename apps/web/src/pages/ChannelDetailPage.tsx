@@ -1,11 +1,12 @@
 // Channel Detail Page — B1-001
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { api } from '../api';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelWorkspaceSetting } from '../components/ChannelWorkspaceSetting';
+import type { ChannelMessage } from '../api/channel';
 
 function isToday(d: Date) {
   const now = new Date();
@@ -21,27 +22,37 @@ export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [channel, setChannel] = useState<any>(null);
-  const { messages, loading, sendMessage, sendAction, loadMore, hasMore } = useChannelMessages(id);
+  const { messages, loading, sendMessage, loadMore, hasMore } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
 
   useEffect(() => {
     if (!id) return;
     api.get(`/channels/${id}`).then(r => setChannel(r.data.data)).catch(() => {});
   }, [id]);
 
-  const handleSend = async (content: string) => {
+  const handleSend = async (content: string, replyToId?: string) => {
     setSending(true);
     try {
-      await sendMessage(content);
+      await sendMessage(content, replyToId);
+      setReplyTo(null);
     } finally {
       setSending(false);
     }
   };
 
-  const handleAction = (messageId: string, action: string) => {
-    sendAction(messageId, action);
-  };
+  const handleAction = useCallback((_messageId: string, _action: string) => {
+    // Card actions — handled by individual card components
+  }, []);
+
+  const handleReply = useCallback((message: ChannelMessage) => {
+    setReplyTo(message);
+  }, []);
+
+  const findMessage = useCallback((msgId: string) => {
+    return messages.find(m => m.id === msgId);
+  }, [messages]);
 
   if (!id) return <div className="p-8 text-center text-gray-500">Invalid channel</div>;
 
@@ -78,7 +89,7 @@ export function ChannelDetailPage() {
         {!loading && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm">
             <p className="mb-2">发送消息开始对话</p>
-            <p className="text-xs">输入 ≥30 字并包含 @Analyst 可触发需求分析</p>
+            <p className="text-xs">@Agent 提及 Agent 创建任务</p>
           </div>
         )}
 
@@ -132,7 +143,7 @@ export function ChannelDetailPage() {
                     <div className="flex-1 border-t border-gray-200" />
                   </div>
                 )}
-                <ChannelMessageItem message={msg} onAction={handleAction} />
+                <ChannelMessageItem message={msg} onAction={handleAction} onReply={handleReply} findMessage={findMessage} />
               </div>
             );
           })}
@@ -141,7 +152,7 @@ export function ChannelDetailPage() {
       </div>
 
       {/* Input */}
-      <ChannelInput onSend={handleSend} sending={sending} />
+      <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
     </div>
   );
 }

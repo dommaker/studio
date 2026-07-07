@@ -1,29 +1,26 @@
-// Channel message input — B2: @mention autocomplete
-import { useState, useRef, useCallback, useMemo } from 'react';
+// Channel message input — AC-C1: @mention autocomplete + AC-C2: reply mode
+import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { channelApi, type AgentProfile, type ChannelMessage } from '../../api/channel';
 
 interface Props {
-  onSend: (content: string) => void;
+  onSend: (content: string, replyToId?: string) => void;
   sending: boolean;
+  replyTo?: ChannelMessage | null;
+  onCancelReply?: () => void;
 }
 
-const AGENTS = [
-  { name: 'Analyst', desc: '需求分析' },
-  { name: 'Executor', desc: '代码执行' },
-  { name: 'Reviewer', desc: '代码审查' },
-  { name: 'KK', desc: '知识管理' },
-  { name: 'Auditor', desc: '系统审计' },
-  { name: 'Triage', desc: '应急响应' },
-  { name: 'Deploy', desc: '部署检查' },
-];
-
-export function ChannelInput({ onSend, sending }: Props) {
+export function ChannelInput({ onSend, sending, replyTo, onCancelReply }: Props) {
   const [content, setContent] = useState('');
-  const [mentionQuery, setMentionQuery] = useState('');
+  const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [mentionIdx, setMentionIdx] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const charCount = content.length;
-  const hasAnalyst = /@analyst/i.test(content);
-  const canTrigger = charCount >= 30 && hasAnalyst;
+
+  // AC-C1: Fetch active agents from API (replaces hardcoded AGENTS array)
+  useEffect(() => {
+    channelApi.listAgents()
+      .then(res => setAgents(res.data.data))
+      .catch(() => setAgents([]));
+  }, []);
 
   // Parse if we're in a mention: last @word before cursor
   const mentionState = useMemo(() => {
@@ -40,8 +37,8 @@ export function ChannelInput({ onSend, sending }: Props) {
   const filteredAgents = useMemo(() => {
     if (!mentionState) return [];
     const q = mentionState.query.toLowerCase();
-    return AGENTS.filter(a => a.name.toLowerCase().includes(q));
-  }, [mentionState]);
+    return agents.filter(a => a.name.toLowerCase().includes(q));
+  }, [mentionState, agents]);
 
   const insertMention = useCallback((agentName: string) => {
     if (!mentionState) return;
@@ -50,7 +47,6 @@ export function ChannelInput({ onSend, sending }: Props) {
     const after = content.slice(pos);
     const newContent = `${before}@${agentName} ${after}`;
     setContent(newContent);
-    setMentionQuery('');
     setMentionIdx(0);
     // Set cursor after the inserted mention
     setTimeout(() => {
@@ -66,7 +62,7 @@ export function ChannelInput({ onSend, sending }: Props) {
   const handleSend = () => {
     const trimmed = content.trim();
     if (!trimmed || sending) return;
-    onSend(trimmed);
+    onSend(trimmed, replyTo?.id);
     setContent('');
   };
 
@@ -90,7 +86,6 @@ export function ChannelInput({ onSend, sending }: Props) {
       }
       if (e.key === 'Escape') {
         e.preventDefault();
-        setMentionQuery('');
         setMentionIdx(0);
         return;
       }
@@ -103,13 +98,30 @@ export function ChannelInput({ onSend, sending }: Props) {
 
   return (
     <div className="border-t border-gray-200 p-4 bg-white relative">
+      {/* Reply preview */}
+      {replyTo && onCancelReply && (
+        <div className="flex items-center gap-2 mb-2 px-3 py-1.5 bg-blue-50 border-l-2 border-blue-400 rounded text-sm">
+          <span className="text-blue-500">↩</span>
+          <span className="text-gray-500">
+            回复 {replyTo.authorType === 'human' ? 'You' : replyTo.agentName || 'Agent'}:
+          </span>
+          <span className="text-gray-700 truncate flex-1">{replyTo.content}</span>
+          <button
+            onClick={onCancelReply}
+            className="text-gray-400 hover:text-gray-600 text-xs"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       <div className="flex items-end gap-3">
         <textarea
           ref={textareaRef}
           value={content}
           onChange={e => setContent(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入消息，@Agent 提及 Agent，@Analyst 触发需求分析..."
+          placeholder="输入消息，@Agent 提及 Agent..."
           rows={2}
           className="flex-1 resize-none border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
           disabled={sending}
@@ -128,32 +140,26 @@ export function ChannelInput({ onSend, sending }: Props) {
         <div className="absolute bottom-full left-4 mb-1 w-56 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-48 overflow-y-auto">
           {filteredAgents.map((agent, i) => (
             <button
-              key={agent.name}
+              key={agent.id}
               className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 transition-colors ${
                 i === mentionIdx ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'
               }`}
               onMouseDown={e => { e.preventDefault(); insertMention(agent.name); }}
             >
               <span className="font-medium">@{agent.name}</span>
-              <span className="text-xs text-gray-400 ml-auto">{agent.desc}</span>
+              {agent.description && (
+                <span className="text-xs text-gray-400 ml-auto">{agent.description}</span>
+              )}
             </button>
           ))}
         </div>
       )}
 
       <div className="flex justify-between items-center mt-1.5 px-1">
-        <span className={`text-xs ${canTrigger ? 'text-blue-500 font-medium' : 'text-gray-400'}`}>
-          {charCount < 30 && hasAnalyst
-            ? `还需 ${30 - charCount} 字触发 @Analyst`
-            : canTrigger
-              ? '✓ 将触发 @Analyst 需求分析'
-              : hasAnalyst
-                ? `@Analyst 已识别（${charCount}/30）`
-                : filteredAgents.length > 0
-                  ? `↑↓ 选择 Enter 确认 Esc 取消`
-                  : ''}
+        <span className="text-xs text-gray-400">
+          {filteredAgents.length > 0 ? '↑↓ 选择 Enter 确认 Esc 取消' : ''}
         </span>
-        <span className="text-xs text-gray-400">{charCount} 字</span>
+        <span className="text-xs text-gray-400">{content.length} 字</span>
       </div>
     </div>
   );

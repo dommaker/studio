@@ -63,19 +63,13 @@ export function useChannelMessages(channelId: string | undefined) {
     return () => clearInterval(poll);
   }, [channelId, fetchMessages, status]);
 
-  const sendMessage = useCallback(async (content: string) => {
+  const sendMessage = useCallback(async (content: string, replyToId?: string) => {
     if (!channelId || !content.trim()) return null;
-    const res = await channelApi.sendMessage(channelId, content);
+    const res = await channelApi.sendMessage(channelId, content, replyToId);
     const msg = res.data.data;
     setMessages(prev => [...prev, msg]);
     return msg;
   }, [channelId]);
-
-  const sendAction = useCallback(async (messageId: string, action: string) => {
-    if (!channelId) return;
-    await channelApi.sendAction(channelId, messageId, action);
-    fetchMessages();
-  }, [channelId, fetchMessages]);
 
   const loadMore = useCallback(async () => {
     if (!channelId || !hasMore) return;
@@ -91,5 +85,5 @@ export function useChannelMessages(channelId: string | undefined) {
     }
   }, [channelId, hasMore, messages]);
 
-  return { messages, loading, hasMore, sendMessage, sendAction, loadMore, refresh: fetchMessages };
+  return { messages, loading, hasMore, sendMessage, loadMore, refresh: fetchMessages };
 }
