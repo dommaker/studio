@@ -194,6 +194,34 @@ router.delete('/project/:id', requireRole('Admin'), async (req: Request, res: Re
 });
 
 /**
+ * POST /api/v1/pmo/project/:id/publish
+ * 发布 PMO 到 Channel，创建分析 WorkUnit
+ */
+router.post('/project/:id/publish', async (req: Request, res: Response) => {
+  try {
+    const { channelId } = req.body;
+    if (!channelId) {
+      return res.status(400).json({
+        error: { code: 'MISSING_CHANNEL_ID', message: 'channelId is required' },
+      });
+    }
+
+    const result = await projectService.publish({
+      projectId: req.params.id,
+      channelId,
+    });
+    res.json(result);
+  } catch (error) {
+    const message = (error as Error).message;
+    const status = message.includes('not found') || message.includes('pending') ? 400 : 500;
+    logger.error({ error: message, projectId: req.params.id }, 'Failed to publish project');
+    res.status(status).json({
+      error: { code: status === 400 ? 'BAD_REQUEST' : 'INTERNAL_ERROR', message },
+    });
+  }
+});
+
+/**
  * POST /api/v1/pmo/project/parse-command
  * 解析 CEO 指令中的 PMO 号
  */

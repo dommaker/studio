@@ -6,6 +6,8 @@
 
 import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
+import { channelMessageService } from '../channels/channel-message.service.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
 
 export interface CreateProjectInput {
   companyId: string;
@@ -351,5 +353,34 @@ export const projectService = {
     }
 
     return Math.round((completed / total) * 100);
+  },
+
+  /**
+   * 发布 PMO 项目到 Channel
+   * 创建 ChannelMessage + 分析 WorkUnit，状态 pending → active
+   */
+  async publish(input: { projectId: string; channelId: string }) {
+    const project = await this.get(input.projectId);
+    if (!project) throw new Error('Project not found');
+    if (project.status !== 'pending') throw new Error('Project must be pending to publish');
+
+    // 1. 创建 ChannelMessage
+    const content = `📋 ${project.pmoNumber}: ${project.title}\n\n${project.requirement || ''}`;
+    const message = await channelMessageService.createHumanMessage(input.channelId, content);
+    await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id });
+
+    // 2. 创建分析 WorkUnit
+    const workUnitService = new WorkUnitService(prisma);
+    const workUnit = await workUnitService.create({
+      type: 'analysis',
+      scope: `分析需求 ${project.pmoNumber}: ${project.title}\n\n${project.requirement || ''}`,
+      channelId: input.channelId,
+      metadata: { pmoId: project.id, pmoNumber: project.pmoNumber },
+    });
+
+    // 3. 更新 PMO 状态
+    const updatedProject = await this.updateStatus(input.projectId, 'active');
+
+    return { message, workUnit, project: updatedProject };
   }
 };
