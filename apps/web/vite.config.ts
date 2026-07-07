@@ -8,6 +8,7 @@ const DEV_API_PORT = parseInt(process.env.VITE_DEV_API_PORT || '13001'); // 默�
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  base: process.env.VITE_BASE || '/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -20,8 +21,6 @@ export default defineConfig({
     host: '0.0.0.0', // 允许外网访问
     port: parseInt(process.env.VITE_PORT || '5173'),
     allowedHosts: true, // 允许所有 hosts 访问（Tailscale 网络内安全）
-    // 开发环境通过 nginx /dev/ 代理时，需要设置 base
-    base: process.env.VITE_BASE || '/',
     hmr: {
       // 客户端端口（服务器实际监听端口）
       // host 不设置，让客户端自动使用访问地址
