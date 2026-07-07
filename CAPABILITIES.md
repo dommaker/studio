@@ -155,7 +155,7 @@
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | server | apps/api/src/modules/mcp/server.ts | MCP Server - Model Context Protocol 服务器 |
 | tool-registry | apps/api/src/modules/mcp/tool-registry.ts | MCP Tool Registry — dynamic registration, health, rate limiting |
-| tools | apps/api/src/modules/mcp/tools.ts | MCP Tools 定义 |
+| tools | apps/api/src/modules/mcp/tools.ts | MCP Tools 定义 — 含 createWorkUnit (PMO→Channel→Agent) |
 | init-trace | apps/api/src/modules/monitoring/init-trace.ts | ⑨: Trace pipeline initialization |
 | trace-pipeline.service | apps/api/src/modules/monitoring/trace-pipeline.service.ts | TracePipelineService — ⑨ 修复 |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
@@ -164,8 +164,8 @@
 | routes | apps/api/src/modules/outputs/routes.ts | 产出文档 API - 存储和展示执行结果 |
 | pipeline-dashboard.routes | apps/api/src/modules/pipeline-dashboard/pipeline-dashboard.routes.ts | Dogfood Status Dashboard — GET /api/v1/dogfood/status |
 | okr.service | apps/api/src/modules/pmo/okr.service.ts | 🆕 AS-016: 获取当前季度 |
-| project.service | apps/api/src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 |
-| routes | apps/api/src/modules/pmo/routes.ts | GET /api/v1/pmo/project |
+| project.service | apps/api/src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 + publish() → Channel + getLinkedSDDs() |
+| routes | apps/api/src/modules/pmo/routes.ts | PMO API — 项目 CRUD + POST publish + GET sdd 关联查询 |
 | memory-routes | apps/api/src/modules/roles/memory-routes.ts | Role Memory API 路由 |
 | memory.service | apps/api/src/modules/roles/memory.service.ts | MemoryService - 角色记忆管理 |
 | role-config.service | apps/api/src/modules/roles/role-config.service.ts | RoleConfig Service — 可进化角色配置的 CRUD + 初始化 |
@@ -182,7 +182,7 @@
 | skill-proposal-routes | apps/api/src/modules/tools-std/skill-proposal-routes.ts | Skill Proposal API 路由 |
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | apps/api/src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
-| channel | apps/web/src/api/channel.ts | Channel API — B1-001 |
+| channel | apps/web/src/api/channel.ts | Channel API — list + publish 发布 |
 | examples | apps/web/src/data/examples.ts | 预置示例工作流 |
 | useCapabilities | apps/web/src/hooks/useCapabilities.ts | 获取 Stage 分类数据（UI-001） |
 | useChannelEvents | apps/web/src/hooks/useChannelEvents.ts | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
@@ -286,14 +286,14 @@
 | skill-store | apps/api/src/modules/skills/skill-store.ts | SkillStore — File-based CRUD for Skill metadata |
 | cron-matcher | apps/api/src/modules/triggers/cron-matcher.ts | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
 | trigger-action | apps/api/src/modules/triggers/trigger-action.ts | Execute a CREATE action — creates a WorkUnit from trigger payload. |
-| trigger-registry | apps/api/src/modules/triggers/trigger-registry.ts | Trigger Registry — singleton TriggerScheduler instance |
-| trigger-scheduler | apps/api/src/modules/triggers/trigger-scheduler.ts | Register a trigger programmatically. |
+| trigger-registry | apps/api/src/modules/triggers/trigger-registry.ts | Trigger Registry — singleton TriggerScheduler with eventBus injection |
+| trigger-scheduler | apps/api/src/modules/triggers/trigger-scheduler.ts | TriggerScheduler — SCHEDULE tick + EVENT EventBus subscription |
 | trigger-store | apps/api/src/modules/triggers/trigger-store.ts | Trigger Store — YAML-based trigger config persistence (3.28c-4) |
 | trigger.routes | apps/api/src/modules/triggers/trigger.routes.ts | Trigger Routes — REST API for trigger management (3.28c-4) |
-| trigger.types | apps/api/src/modules/triggers/trigger.types.ts | Trigger Registry Types (3.28c-4, AS-026 extended) |
+| trigger.types | apps/api/src/modules/triggers/trigger.types.ts | Trigger Types — SCHEDULE + EVENT discriminated union (AS-026) |
 | wiki.service | apps/api/src/modules/wiki/wiki.service.ts | Wiki service — SDD-based read logic |
 | workunit.routes | apps/api/src/modules/workunit/workunit.routes.ts | WorkUnit API 路由 (AS-025 §3.28c-1, §5.16) |
-| workunit.service | apps/api/src/modules/workunit/workunit.service.ts | WorkUnit Service — 工作单元 CRUD + Claim + 状态机 |
+| workunit.service | apps/api/src/modules/workunit/workunit.service.ts | WorkUnit Service — CRUD + Claim + 状态机 + create() 发布 workunit.created 事件 |
 | monitoring | apps/web/src/api/monitoring.ts | Monitoring API — Agent Network (MVP-2 + MVP-6) |
 | workunit | apps/web/src/api/workunit.ts | WorkUnit API — Agent Network §3.28c-1 |
 | workunitStore | apps/web/src/stores/workunitStore.ts | WorkUnit Store — Agent Network §3.28c-1 |
