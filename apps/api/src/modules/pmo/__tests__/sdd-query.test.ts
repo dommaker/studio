@@ -58,8 +58,8 @@ describe('AC-10: PMO-SDD association query', () => {
 
   it('matching SDD entries returned', async () => {
     const indexContent = [
-      '| other-slug | PM-999 | done | Other | [] |',
-      '| my-slug | PM-001 | confirmed | My SDD | ["a"] |',
+      'other-slug | PM-999 | done | Other | []',
+      'my-slug | PM-001 | confirmed | My SDD | ["a"]',
     ].join('\n');
 
     mockExistsSync.mockReturnValue(true);
@@ -72,7 +72,7 @@ describe('AC-10: PMO-SDD association query', () => {
   });
 
   it('no match → empty array', async () => {
-    const indexContent = '| other-slug | PM-999 | done | Other | [] |';
+    const indexContent = 'other-slug | PM-999 | done | Other | []';
 
     mockExistsSync.mockReturnValue(true);
     mockReadFileSync.mockReturnValue(indexContent);

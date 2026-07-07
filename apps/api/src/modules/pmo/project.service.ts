@@ -407,11 +407,11 @@ export const projectService = {
       .map(line => {
         const parts = line.split('|').map(s => s.trim());
         return {
-          slug: parts[1] || '',
-          pmoNumber: parts[2] || '',
-          status: parts[3] || '',
-          title: parts[4] || '',
-          tags: parts[5] || '',
+          slug: parts[0] || '',
+          pmoNumber: parts[1] || '',
+          status: parts[2] || '',
+          title: parts[3] || '',
+          tags: parts[4] || '',
         };
       });
 

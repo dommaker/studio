@@ -93,8 +93,9 @@ describe('AC-6: PMO publish button', () => {
     renderPMO();
 
     await waitFor(() => {
-      const btn = screen.getAllByText('发布')[0];
-      expect(btn).toBeDisabled();
+      const btn = screen.getAllByText('发布')[0].closest('button');
+      expect(btn).toBeTruthy();
+      expect(btn!.disabled).toBe(true);
     });
   });
 });
