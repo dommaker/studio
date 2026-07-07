@@ -2,7 +2,7 @@
  * B3-002/B3-003: Shared command runner for CLI and Discord
  *
  * Both `studio run` CLI and `/studio run` Discord slash command
- * reuse this logic to submit a requirement to #研发 and trigger @Analyst.
+ * reuse this logic to submit a requirement to #研发 and create a WorkUnit.
  */
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
