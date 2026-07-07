@@ -8,6 +8,8 @@ import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface CreateProjectInput {
   companyId: string;
@@ -382,5 +384,37 @@ export const projectService = {
     const updatedProject = await this.updateStatus(input.projectId, 'active');
 
     return { message, workUnit, project: updatedProject };
+  },
+
+  /**
+   * 查询与 PMO 关联的 SDD 条目
+   * 读 SDD 索引文件，按 pmoNumber 过滤
+   */
+  async getLinkedSDDs(projectId: string): Promise<{ sddEntries: Array<{ slug: string; pmoNumber: string; status: string; title: string; tags: string }> }> {
+    const project = await this.get(projectId);
+    if (!project) throw new Error('Project not found');
+
+    const indexPath = path.join(process.cwd(), 'docs/sdd/_index.md');
+    if (!fs.existsSync(indexPath)) {
+      logger.warn({ projectId }, 'SDD index file not found');
+      return { sddEntries: [] };
+    }
+
+    const content = fs.readFileSync(indexPath, 'utf-8');
+    const entries = content
+      .split('\n')
+      .filter(line => line.includes(project.pmoNumber) && !line.startsWith('#'))
+      .map(line => {
+        const parts = line.split('|').map(s => s.trim());
+        return {
+          slug: parts[1] || '',
+          pmoNumber: parts[2] || '',
+          status: parts[3] || '',
+          title: parts[4] || '',
+          tags: parts[5] || '',
+        };
+      });
+
+    return { sddEntries: entries };
   }
 };

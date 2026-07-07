@@ -222,6 +222,26 @@ router.post('/project/:id/publish', async (req: Request, res: Response) => {
 });
 
 /**
+ * GET /api/v1/pmo/project/:id/sdd
+ * 查询与 PMO 关联的 SDD 条目
+ */
+router.get('/project/:id/sdd', async (req: Request, res: Response) => {
+  try {
+    const result = await projectService.getLinkedSDDs(req.params.id);
+    res.json(result);
+  } catch (error) {
+    const message = (error as Error).message;
+    if (message.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message } });
+    }
+    logger.error({ error: message, projectId: req.params.id }, 'Failed to query linked SDDs');
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message },
+    });
+  }
+});
+
+/**
  * POST /api/v1/pmo/project/parse-command
  * 解析 CEO 指令中的 PMO 号
  */
