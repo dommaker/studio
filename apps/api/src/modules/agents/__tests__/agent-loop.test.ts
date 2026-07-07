@@ -84,7 +84,24 @@ vi.mock('../../workunit/workunit.service', () => ({
 vi.mock('../../triggers/trigger-scheduler', () => ({
   TriggerScheduler: vi.fn().mockImplementation(() => ({
     getStates: vi.fn().mockReturnValue([]),
+    registerTrigger: vi.fn(),
+    unregisterTrigger: vi.fn(),
+    registerExecuteHandler: vi.fn(),
+    dispose: vi.fn(),
   })),
+}));
+
+const { mockTriggerScheduler } = vi.hoisted(() => ({
+  mockTriggerScheduler: {
+    registerTrigger: vi.fn(),
+    unregisterTrigger: vi.fn(),
+    registerExecuteHandler: vi.fn(),
+    getStates: vi.fn().mockReturnValue([]),
+  },
+}));
+
+vi.mock('../../triggers/trigger-registry', () => ({
+  getTriggerScheduler: () => mockTriggerScheduler,
 }));
 
 import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds } from '../agent-loop';
@@ -133,6 +150,41 @@ describe('AgentLoop', () => {
           status: 'idle',
         }),
       });
+    });
+  });
+
+  describe('AC-3: EVENT trigger registration', () => {
+    it('start() registers workunit.created EVENT trigger', async () => {
+      agentLoop = new AgentLoop(mockRole);
+      await agentLoop.start();
+
+      expect(mockTriggerScheduler.registerTrigger).toHaveBeenCalledWith(
+        expect.objectContaining({
+          condition: { type: 'EVENT', event: 'workunit.created' },
+          action: expect.objectContaining({ type: 'EXECUTE' }),
+          enabled: true,
+        })
+      );
+    });
+
+    it('start() registers EXECUTE handler', async () => {
+      agentLoop = new AgentLoop(mockRole);
+      await agentLoop.start();
+
+      expect(mockTriggerScheduler.registerExecuteHandler).toHaveBeenCalledWith(
+        expect.stringContaining('agent-loop-role-1'),
+        expect.any(Function)
+      );
+    });
+
+    it('stop() unregisters EVENT trigger', async () => {
+      agentLoop = new AgentLoop(mockRole);
+      await agentLoop.start();
+      agentLoop.stop();
+
+      expect(mockTriggerScheduler.unregisterTrigger).toHaveBeenCalledWith(
+        expect.stringContaining('agent-loop-role-1')
+      );
     });
   });
 

@@ -8,6 +8,7 @@ import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { WorkUnitService, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import type { WorkUnit, AgentProfile, ChannelMessage } from '@prisma/client';
+import { getTriggerScheduler } from '../triggers/trigger-registry.js';
 
 /** Result of analyzing agent log for knowledge search behavior */
 export interface KnowledgeSearchAnalysis {
@@ -54,6 +55,7 @@ export class AgentLoop {
   private acceptedTypes: string[] = [];
   private alive = false;
   private myChannels: string[] = [];
+  private triggerId: string | null = null;
 
   constructor(role: AgentProfile) {
     this.role = role;
@@ -68,7 +70,7 @@ export class AgentLoop {
     }
   }
 
-  /** Start the agent loop: create instance, enter observe-decide-act cycle */
+  /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle */
   async start(): Promise<void> {
     this.instance = await prisma.runtimeInstance.create({
       data: { roleId: this.role.id, status: 'idle' },
@@ -76,6 +78,28 @@ export class AgentLoop {
 
     this.alive = true;
     logger.info(`[AgentLoop] Started for role ${this.role.name} (instance=${this.instance.id})`);
+
+    // AC-3: Register EVENT trigger for workunit.created
+    const scheduler = getTriggerScheduler();
+    this.triggerId = `agent-loop-${this.role.id}-workunit-created`;
+    const handlerTarget = `agent-loop-${this.role.id}-observe`;
+
+    scheduler.registerExecuteHandler(handlerTarget, async () => {
+      if (this.alive) {
+        this.observe().catch(err =>
+          logger.warn(`[AgentLoop] EVENT-triggered observe failed: ${err.message}`)
+        );
+      }
+    });
+
+    scheduler.registerTrigger({
+      id: this.triggerId,
+      name: `Agent ${this.role.name} observe on workunit.created`,
+      condition: { type: 'EVENT', event: 'workunit.created' },
+      action: { type: 'EXECUTE', target: handlerTarget },
+      enabled: true,
+      scope: 'agent',
+    });
 
     // Main loop (non-blocking — fire and forget like original)
     this.runLoop().catch(err =>
@@ -137,6 +161,9 @@ export class AgentLoop {
   /** Stop the agent loop and clean up */
   stop(): void {
     this.alive = false;
+    if (this.triggerId) {
+      getTriggerScheduler().unregisterTrigger(this.triggerId);
+    }
     if (this.instance) {
       prisma.runtimeInstance.update({
         where: { id: this.instance.id },
