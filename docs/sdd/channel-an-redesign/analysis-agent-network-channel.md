@@ -166,82 +166,141 @@ Thread 回复      → 寻址：原 Agent → 反馈给正在工作的人
 
 ---
 
-## 五、Agent 记忆 × 知识系统统一架构
+## 五、DATA 驱动的知识架构（修正版）
 
 ### 核心洞察
 
-知识系统的数据层（会话记录、Channel 消息、WorkUnit 结果）**天然就是 Agent 的情景记忆**。不需要另建记忆系统 — 需要在现有知识管线上加 agentId 维度。
+不需要独立的「Agent 记忆系统」。知识引擎飞轮已经是完整基建。Agent 的「记忆」就是知识引擎在特定工作场景下产出的知识。
 
-### 三层记忆架构
-
-```
-Layer 3: 全局知识（shared knowledge）
-  ├── 来源：所有 Agent 经验中可泛化的部分
-  ├── 存储：~/.studio/knowledge/（现有）
-  ├── 消费者：所有 Agent
-  └── 提取：现有 PatternMiner + 知识合成
-
-Layer 2: Agent 个人知识（per-agent knowledge）
-  ├── 来源：该 Agent 的历史 WorkUnit + Channel 交互 + 人类反馈
-  ├── 存储：~/.studio/memory/{agentId}/ 或 DB 字段
-  ├── 消费者：仅该 Agent
-  └── 提取：per-agent 知识蒸馏（新流程）
-
-Layer 1: Agent 情景记忆（per-agent episodic memory）
-  ├── 来源：该 Agent 的 WorkUnit 执行日志、Channel 消息、session 历史
-  ├── 存储：ChannelMessage (workUnitId 关联) + WorkUnit metadata
-  ├── 消费者：该 Agent 的 agentStep prompt 注入
-  └── 提取：直接查询，不需要提取（原始数据）
-```
-
-### 数据→知识管线加 Agent 维度
+### 否定方向
 
 ```
-                       ┌─────────────────────────────────────┐
-                       │         数据层（raw）                │
-                       │                                     │
-  Channel 消息 ────────┤  agentId  tagging                   │
-  WorkUnit 结果 ───────┤  每条数据带 agentId（谁产生的）       │
-  Session 日志 ────────┤  或 null（系统级，非特定 Agent）      │
-  审计事件 ────────────┤                                     │
-                       └──────────┬──────────────────────────┘
-                                  │
-                    ┌─────────────┼─────────────┐
-                    ▼             ▼              ▼
-            ┌──────────┐  ┌──────────┐  ┌──────────────┐
-            │ 全局数据  │  │ Pat 数据  │  │ Hank 数据     │
-            │ agentId= │  │ agentId= │  │ agentId=     │
-            │  null    │  │  Pat     │  │  Hank        │
-            └────┬─────┘  └────┬─────┘  └────┬─────────┘
-                 │              │              │
-                 ▼              ▼              ▼
-            ┌──────────┐  ┌──────────┐  ┌──────────┐
-            │ 全局知识  │  │ Pat 记忆  │  │ Hank 记忆 │
-            │ (现有)   │  │ (新增)   │  │ (新增)   │
-            └──────────┘  └──────────┘  └──────────┘
+❌ per-agent 记忆目录（~/.studio/memory/{agentId}/）
+  → 知识耦合身份，身份变了知识断
+  → 不同人做同样的事，知识不共享
+
+❌ agentId 标签
+  → agentId 是身份不是场景
+  → 知识应该跟场景走，不跟人走
+
+❌ 独立提取管线（个人 + 全局两条）
+  → 同一套飞轮，不需要两条管线
+
+❌ 晋升机制（个人记忆 → 全局知识）
+  → 不需要，知识天然按场景组织
 ```
 
-### 记忆→知识的晋升路径
+### DATA 是一切的基础
 
 ```
-Agent 经验（情景记忆）
-  ├──→ Per-agent 提炼 ──→ 个人知识（语义记忆 + 程序记忆）
-  │                         「我学到：这类任务先跑测试再改代码」
+DATA（原始数据）= 飞轮的输入：
+  ├── session 日志（Agent 做了什么）
+  ├── skill 使用记录（用了什么 skill，产出什么）
+  ├── 监控日志（token 消耗、执行时间、成功/失败）
+  ├── 对话记录（Thread 消息、人和 Agent 交互）
+  ├── 代码变更（改了哪些文件）
+  └── WorkUnit 结果（成功/失败/部分完成）
+
+这些全是 DATA，平级的。
+skill 只是其中一种数据，不是维度。
+```
+
+### 上下文标签（不是 agentId）
+
+```
+知识关联的是工作场景，不是人：
+
+Pat 做完需求 A 的设计，学到：
+  ❌ 标签 agentId=Pat（耦合身份）
+  ✅ 标签 project=projectA, workType=design（耦合场景）
+
+下次任何人做 design 在 projectA → 都应该知道这条知识
+```
+
+### 存储格式：JSONL + md
+
+```
+JSONL（日志型，追加写，机器消费为主）：
+  ├── Channel 消息 → data/channels/rnd.jsonl
+  ├── Session 日志 → data/sessions/2026-07-09.jsonl
+  ├── Skill 执行记录 → data/skills/2026-07-09.jsonl
+  └── 监控日志 → data/metrics/2026-07-09.jsonl
+
+md（内容型，人/LLM 直接读）：
+  ├── 知识条目 → knowledge/*.md（已有）
+  ├── WorkUnit → workunits/*.md
+  └── Agent 配置 → agents/*.md
+```
+
+### 目录结构
+
+```
+.studio/
+  ├── data/                          # JSONL（日志型数据）
+  │   ├── channels/
+  │   │   └── rnd.jsonl              # Channel 消息流
+  │   ├── sessions/
+  │   │   └── 2026-07-09.jsonl       # session 日志
+  │   ├── skills/
+  │   │   └── 2026-07-09.jsonl       # skill 执行记录
+  │   └── metrics/
+  │       └── 2026-07-09.jsonl       # 监控指标
   │
-  └──→ 可泛化部分 ──────→ 全局知识（晋升）
-                            「代码变更必须先过 tsc」
+  ├── knowledge/                     # md（知识，已有）
+  │   └── entry-001.md
+  │
+  ├── workunits/                     # md
+  │   └── wu-001.md
+  │
+  └── agents/                        # md（配置）
+      └── pat.md
 ```
 
-### Channel 在记忆架构中的角色
+### JSONL 格式示例
+
+```jsonl
+// channels/rnd.jsonl
+{"ts":"2026-07-09T10:00:00Z","author":"human","content":"@Pat 需求A...","project":"projectA","thread":"wu-001"}
+{"ts":"2026-07-09T10:05:00Z","author":"Pat","content":"分析完成...","project":"projectA","thread":"wu-001","skill":"design-analyst"}
+
+// skills/2026-07-09.jsonl
+{"ts":"2026-07-09T10:03:00Z","skill":"design-analyst","project":"projectA","workUnit":"wu-001","duration":180,"result":"success"}
+```
+
+### 飞轮如何覆盖「Agent 记忆」
 
 ```
-Channel = Agent 经验来源（情景记忆的产生地）
+数据产生：
+  Agent 工作 → 产生 DATA（session + skill + conversation...）
+  → DATA 自然带有上下文标签（project + workType）
 
-Agent 参与 Channel
-  → 读 Channel 消息（情景记忆读取）
-  → 在 Channel 中执行任务（情景记忆产生）
-  → 人类在 Thread 中给反馈（语义记忆原料）
-  → 任务完成/失败（程序记忆原料）
+提取：
+  PatternMiner 分析 DATA → 产出知识条目
+  → 知识条目带 context 标签（project + workType）
+  → 不需要 agentId
+
+存储：
+  ~/.studio/knowledge/（统一存储，已有基建）
+
+消费：
+  Agent spawn → 知道当前 WorkUnit 的 project + workType
+  → 查知识存储（按 context 过滤）
+  → 注入 prompt
+
+进化：
+  同一类工作积累足够多经验 → 合成为通用模式
+  → 跨项目通用 → 去掉 project 标签，只留 workType
+```
+
+### 持久化机制
+
+```
+WorkUnit 内部连贯 → Claude Code session 机制（已有）
+跨 WorkUnit 经验 → 知识引擎飞轮（已有基建 + context 标签）
+
+不需要新建记忆系统
+飞轮还是那个飞轮
+只是输入更丰富（带标签的 DATA），输出更精准（按场景过滤）
 ```
 
 ---
@@ -259,10 +318,10 @@ Agent 参与 Channel
 
 | 组件 | 内容 |
 |---|---|
-| Memory Store | per-agent md 文件存储，~/.studio/memory/ |
-| Retrieval API | MCP tool 扩展，query_documents 增加 agentId 参数 |
-| Memory Lifecycle | 过期规则、晋升条件、审计规则 |
-| Data Tagging | WorkUnit/Channel 消息自动标记 agentId |
+| DATA 层 | JSONL 统一存储（channels/sessions/skills/metrics） |
+| DATA 标签规范 | 每条数据带 context 标签（project/workType） |
+| Skill 执行记录 | Skill 完成时自动写 JSONL 记录 |
+| 知识检索扩展 | MCP query_documents 加 context 过滤（按 frontmatter/标签） |
 | 项目发现 | 扫描本地目录，检测项目（CLAUDE.md/package.json/.git） |
 
 **Studio（需要 LLM）**：
@@ -280,28 +339,28 @@ Agent 参与 Channel
 ```
 Phase 1: 本地化改造（基础）
   L1: 项目发现（扫描本地目录注册 Project）
-  L2: Channel 绑定 Project
+  L2: WorkUnit 关联 Project
   L3: Agent 执行 cwd = project.path（直接本地 spawn）
 
 Phase 2: Channel 路由完善
   S1: @mention → assigneeId 绑定
   S2: Convert to Task API
-  S3: Agent 进度写入 Thread
+  S3: Thread-per-WorkUnit + Agent 消息写入 Thread
 
-Phase 3: 数据层迁移
-  D1: Channel 消息存储从 SQLite → md
-  D2: WorkUnit 存储从 SQLite → md
-  D3: Agent 记忆存储（~/.studio/memory/ md）
+Phase 3: DATA 层建设
+  D1: JSONL 统一存储（channels/sessions/skills/metrics）
+  D2: DATA 标签规范（project + workType）
+  D3: Skill 执行时自动写记录
 
-Phase 4: 执行隔离
+Phase 4: 知识引擎扩展
+  K1: PatternMiner 提取时感知 context 标签
+  K2: MCP query_documents 加 context 过滤
+  K3: Agent spawn 时按当前场景注入知识
+
+Phase 5: 执行隔离 + 数据迁移
   I1: Agent 执行用 git worktree 隔离
-  I2: Channel 历史读取（md 文件）
-  I3: agentStep 记忆注入（md 文件）
-
-Phase 5: 知识闭环（长期）
-  K1: 经验蒸馏（LLM）
-  K2: 记忆晋升（per-agent → global）
-  K3: 项目知识自动沉淀（SDD 等提交到项目仓库）
+  I2: WorkUnit md 文件化
+  I3: 现有 SQLite 数据迁移到 JSONL/md
 ```
 
 ---
@@ -320,20 +379,25 @@ Phase 5: 知识闭环（长期）
 | 5 | 无 @mention 消息不涌现 WorkUnit | Studio S2 | P2 | ~50 行 |
 | 6 | Agent 进度不在 Thread 内 | Studio S3 | P2 | ~20 行 |
 | 7 | Agent 不读 Channel 历史 | Studio S6 | P3 | ~40 行 |
-| 8 | Per-agent 记忆存储 | Harness H1 | P2 | 中 |
-| 9 | Per-agent 记忆检索 | Harness H2 | P3 | 中 |
-| 10 | agentStep 记忆注入 | Studio S4 | P3 | 中 |
-| 11 | 经验蒸馏（LLM） | Studio S5 | 长期 | 大 |
-| 12 | 记忆晋升 | Studio S7 | 长期 | 中 |
+| 8 | ~~Per-agent 记忆存储~~ | — | — | **已取消：不需要独立记忆系统** |
+| 9 | ~~Per-agent 记忆检索~~ | — | — | **已取消：知识引擎按 context 过滤** |
+| 10 | ~~agentStep 记忆注入~~ | Studio | — | **重设计：按场景标签注入知识（Phase 4 K3）** |
+| 11 | ~~经验蒸馏（LLM）~~ | — | — | **已有：知识引擎 PatternMiner 覆盖** |
+| 12 | ~~记忆晋升~~ | — | — | **已取消：不需要晋升机制** |
 | 13 | studio-daemon（引擎发现+进程管理） | Harness H1 | — | **已取消：Studio 本身是本地服务，不需要 daemon** |
 | 14 | Workspace 注册协议（daemon↔server） | Harness H1 | — | **已取消：同上** |
 | 15 | Agent 执行迁移到 daemon（server 不再 spawn CLI） | Harness | — | **已取消：本地服务直接 spawn** |
 | 16 | 项目发现（扫描本地目录注册 Project） | Studio | P1 | 中 |
 | 17 | Channel 绑定 Project | Studio | P1 | 中 |
 | 18 | Agent 执行用 git worktree 隔离 | Studio | P2 | 中 |
-| 19 | 数据存储从 SQLite 迁移到 md 文件 | Studio | P2 | 大 |
+| 19 | 数据存储从 SQLite 迁移到 JSONL/md | Studio | P2 | 大 |
 | 20 | Thread-per-WorkUnit（WorkUnit 创建时自动创建 Thread） | Studio | P1 | 中 |
 | 21 | Agent 消息写入 Thread（postToDiscussionSpace 带 replyToId） | Studio | P1 | 中 |
+| 22 | DATA 层统一存储（JSONL：channels/sessions/skills/metrics） | Harness | P1 | 中 |
+| 23 | DATA 标签规范（每条数据带 project + workType） | Harness | P1 | 小 |
+| 24 | Skill 执行自动写记录（JSONL） | Harness | P1 | 小 |
+| 25 | MCP query_documents 加 context 过滤 | Harness | P2 | 中 |
+| 26 | Agent spawn 按场景注入知识 | Studio | P2 | 中 |
 
 ---
 
@@ -742,3 +806,8 @@ Agent = 人（坐在房间里，看哪个桌子在叫自己）
 - [x] ~~SDD 等知识的归属~~ → 项目级知识（git 共享），个人记忆（本地）
 - [x] ~~WorkUnit 流转机制~~ → 对话驱动（@mention 传递），不是状态机
 - [x] ~~Skill × 角色 × 阶段怎么统一~~ → @mention 决定角色，Thread 上下文决定 Skill
+- [x] ~~并行上下文隔离~~ → Thread = 上下文边界，每次 spawn 按 Thread 注入
+- [x] ~~持久化机制~~ → WorkUnit 内靠 Claude Code session，跨 WorkUnit 靠知识引擎飞轮
+- [x] ~~Agent 记忆系统~~ → 不需要独立系统，复用知识引擎飞轮 + context 标签
+- [x] ~~agentId 耦合~~ → 改为 context 标签（project + workType），知识跟场景走
+- [x] ~~数据格式~~ → JSONL（日志型）+ md（内容型），按特性分
