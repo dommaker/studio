@@ -259,12 +259,11 @@ Agent 参与 Channel
 
 | 组件 | 内容 |
 |---|---|
-| Memory Store | per-agent 存储，复用 knowledge entry 格式，加 agentId 字段 |
+| Memory Store | per-agent md 文件存储，~/.studio/memory/ |
 | Retrieval API | MCP tool 扩展，query_documents 增加 agentId 参数 |
-| Memory Lifecycle | 过期规则、晋升条件、审计规则（加 agentId 维度） |
+| Memory Lifecycle | 过期规则、晋升条件、审计规则 |
 | Data Tagging | WorkUnit/Channel 消息自动标记 agentId |
-| studio-daemon | 用户机器守护进程：引擎发现、进程管理、server 长连接 |
-| Workspace 注册 | daemon 连接 server + 引擎上报协议 |
+| 项目发现 | 扫描本地目录，检测项目（CLAUDE.md/package.json/.git） |
 
 **Studio（需要 LLM）**：
 
@@ -279,25 +278,30 @@ Agent 参与 Channel
 ### 执行顺序
 
 ```
-Phase 1: Harness 基建 + Daemon（可与 Phase 2 并行）
-  H1: studio-daemon（引擎发现 + server 长连接 + 进程管理）
-  H2: Memory Store + agentId 标记
-  H3: Retrieval API 扩展（MCP tool）
-  H4: Lifecycle 规则
+Phase 1: 本地化改造（基础）
+  L1: 项目发现（扫描本地目录注册 Project）
+  L2: Channel 绑定 Project
+  L3: Agent 执行 cwd = project.path（直接本地 spawn）
 
-Phase 2: Studio 路由（不依赖新基建，立即做）
+Phase 2: Channel 路由完善
   S1: @mention → assigneeId 绑定
   S2: Convert to Task API
   S3: Agent 进度写入 Thread
 
-Phase 3: Studio 记忆消费（依赖 Phase 1）
-  S4: agentStep 记忆注入
-  S5: 经验蒸馏（LLM）
-  S6: Channel 历史读取
+Phase 3: 数据层迁移
+  D1: Channel 消息存储从 SQLite → md
+  D2: WorkUnit 存储从 SQLite → md
+  D3: Agent 记忆存储（~/.studio/memory/ md）
 
-Phase 4: 闭环
-  S7: 记忆晋升（per-agent → global）
-  S8: Channel UI 记忆展示
+Phase 4: 执行隔离
+  I1: Agent 执行用 git worktree 隔离
+  I2: Channel 历史读取（md 文件）
+  I3: agentStep 记忆注入（md 文件）
+
+Phase 5: 知识闭环（长期）
+  K1: 经验蒸馏（LLM）
+  K2: 记忆晋升（per-agent → global）
+  K3: 项目知识自动沉淀（SDD 等提交到项目仓库）
 ```
 
 ---
@@ -321,9 +325,13 @@ Phase 4: 闭环
 | 10 | agentStep 记忆注入 | Studio S4 | P3 | 中 |
 | 11 | 经验蒸馏（LLM） | Studio S5 | 长期 | 大 |
 | 12 | 记忆晋升 | Studio S7 | 长期 | 中 |
-| 13 | studio-daemon（引擎发现+进程管理） | Harness H1 | **P0** | 大 |
-| 14 | Workspace 注册协议（daemon↔server） | Harness H1 | **P0** | 中 |
-| 15 | Agent 执行迁移到 daemon（server 不再 spawn CLI） | Harness | P1 | 大 |
+| 13 | studio-daemon（引擎发现+进程管理） | Harness H1 | — | **已取消：Studio 本身是本地服务，不需要 daemon** |
+| 14 | Workspace 注册协议（daemon↔server） | Harness H1 | — | **已取消：同上** |
+| 15 | Agent 执行迁移到 daemon（server 不再 spawn CLI） | Harness | — | **已取消：本地服务直接 spawn** |
+| 16 | 项目发现（扫描本地目录注册 Project） | Studio | P1 | 中 |
+| 17 | Channel 绑定 Project | Studio | P1 | 中 |
+| 18 | Agent 执行用 git worktree 隔离 | Studio | P2 | 中 |
+| 19 | 数据存储从 SQLite 迁移到 md 文件 | Studio | P2 | 大 |
 
 ---
 
@@ -402,74 +410,93 @@ Raft 模式：#build 有 Pat(PM) + Hank(Engineer) + Rin(Reviewer)
 | 7 | Agent 不读 Channel 历史 | observe() 查近期消息注入 prompt | 待实现 |
 | 8 | 无持久记忆 | 三层记忆架构（见第五节） | 长期 |
 
-### 算力模型：用户自带，服务器协调
+### 算力模型：Studio = 本地服务
 
-**决策**：引擎跑在用户机器上，用用户的 CLI，消耗用户的 token。Studio server 只做协调。
+**决策**：Studio 是用户机器上的本地服务。数据全在本地。引擎在本地。token 消耗在本地。
 
-**错误方向（已否定）**：服务器跑引擎 → 消耗服务器 token → 不可持续。
+**否定方向**：
+- ~~远程 server 跑引擎~~ → 消耗平台 token，不可持续
+- ~~远程 server 存数据~~ → 公司数据不应上传到平台服务器
 
-#### Raft 参考实现
-
-```
-1. 用户在机器上安装 daemon
-   $ raft-computer setup my-server
-
-2. daemon 连 server，上报本机引擎
-   → 扫描 PATH → [claude, codex, opencode]
-   → server 记录 Computer.runtimes
-
-3. 用户在 UI 创建 Agent，选 Computer + 选 runtime
-   → Agent 进程跑在用户机器上
-```
-
-#### Studio 实体模型
+#### 架构
 
 ```
-Studio Server（协调层，零 token 消耗）
-  ├── Channel（消息路由）
-  ├── WorkUnit（任务管理）
-  ├── AgentProfile（身份：name + desc + channels + memory）
-  │
-  └── Workspace（= Computer = 用户机器）
-        ├── daemon（长连接 server）
-        ├── 引擎（claude / codex / opencode，用户已安装）
-        └── RuntimeInstance（引擎进程，daemon 管理）
+每个用户机器上：
+  studio start
+  → 本地 server（localhost:13001）
+  → 本地数据（~/.studio/）
+  → 本地引擎（Claude Code 等）
+  → 浏览器访问 localhost
+
+Studio Server ≠ 远程服务
+Studio Server = 本地进程（每个用户自己跑）
 ```
 
-**Workspace = Computer**：AS-023 的 Workspace 概念直接对应 Raft 的 Computer。不是两个东西。
+#### 数据主权
 
-#### 职责划分
+```
+Studio 提供：harness + channel + 角色 + 记忆系统（基建）
+数据沉淀在：算力本地（.studio/）
+Studio 不收集：用户的业务数据、代码、记忆、知识
 
-| 职责 | Server | Workspace |
+Server 不存：
+  ❌ 消息内容（协调用元数据除外）
+  ❌ 记忆内容
+  ❌ 知识条目
+  ❌ WorkUnit 详情
+  ❌ 任何业务上下文
+```
+
+#### 数据存储：md 文件
+
+**决策**：用户数据全用 md 文件。零运行时依赖。LLM 原生可读。Git 友好。
+
+```
+| 数据类型 | 写频率 | 存储 |
 |---|---|---|
-| 消息路由/存储 | ✅ | — |
-| WorkUnit 调度 | ✅ | — |
-| AgentProfile 持久化 | ✅ | — |
-| 引擎进程管理 | — | ✅（daemon） |
-| 任务执行 | — | ✅（CLI 进程） |
-| token 消耗 | — | ✅（用户 API key） |
-| 引擎发现 | — | ✅（daemon 扫描上报） |
+| Channel 消息 | 高 | md（本地） |
+| WorkUnit | 中 | md（本地） |
+| Agent 记忆 | 低 | md（本地） |
+| 知识条目 | 低 | md（已有 ~/.studio/knowledge/） |
+| Agent 配置 | 极低 | md |
+```
 
-#### 引擎发现流程
+**理由**：
+- 数据消费者是 LLM → md 直接可读，无需 DB 查询工具
+- 数据量是单用户级别 → 不需要 SQLite 的查询性能
+- 人类可读 → 直接看、直接编辑
+- Git 追踪 → diff/merge 天然支持
+
+#### 本地目录结构
 
 ```
-Workspace daemon 启动
-  → 扫描本机 PATH 中的 CLI 工具
-  → 上报 server: { computerId, runtimes: ["claude-code", "codex", "opencode"] }
-  → server 存储为 Workspace.runtimes
+~/.studio/                        # 个人全局（本地服务数据）
+  ├── memory/                     # Agent 记忆
+  ├── knowledge/                  # 全局知识（已有）
+  └── config/                     # Studio 配置
 
-用户创建 Agent
-  → UI 显示该 Workspace 可用引擎列表
-  → 用户选择引擎 + 填 name/description/channels
-  → server 创建 AgentProfile
-  → daemon 收到指令 → spawn 引擎进程 = RuntimeInstance
+~/projects/projectA/              # 项目 A
+  ├── src/
+  ├── docs/sdd/                   # 项目级 SDD（git 管理，团队共享）
+  ├── CLAUDE.md                   # 项目约束
+  └── ...
 ```
+
+**知识分层**：
+
+| 知识类型 | 位置 | 共享方式 |
+|---|---|---|
+| Agent 记忆 | `~/.studio/memory/` | 不共享（个人） |
+| 个人知识 | `~/.studio/knowledge/` | 不共享（个人） |
+| SDD | `project/docs/sdd/` | git（团队） |
+| 项目模式/决策 | `project/docs/` | git（团队） |
+| CLAUDE.md | `project/CLAUDE.md` | git（团队） |
 
 #### Agent : Instance = 1:1
 
 **决策**：1 个 AgentProfile 对应 1 个引擎进程。不可共享。
 
-**原因**：LLM 上下文窗口 = 单一会话。一个进程只有一个上下文。
+**原因**：LLM 上下文窗口 = 单一会话。一个进程只能有一个身份。
 
 ```
 假设 Claude Code 进程 X 同时扮演 Pat(PM) + Hank(Engineer)：
@@ -481,32 +508,94 @@ Memory 注入污染 → Pat 的记忆 ≠ Hank 的记忆
 → 上下文污染，角色行为混乱
 ```
 
-**结论**：引擎类型可以复用（同一台机器 3 个 Claude Code 进程），但每个进程只能承载 1 个 AgentProfile。
+**结论**：引擎类型可复用（同一台机器 3 个 Claude Code 进程），但每个进程只能承载 1 个 AgentProfile。
+
+### 项目绑定：Agent 如何知道在哪个工程工作
+
+#### 问题
 
 ```
-机器上装了 Claude Code（引擎类型）
-  → 3 个 Claude Code 进程（3 个实例）
-  → 进程 1 = Pat，进程 2 = Hank，进程 3 = Rin
-  → 空闲时 idle（进程存活，低资源）
-  → 忙碌时各自处理 WorkUnit
+Agent 执行时需要知道：
+  1. 有哪些项目（发现）
+  2. 在哪个项目工作（绑定）
+  3. 项目的上下文（CLAUDE.md + 代码）
 ```
 
-#### 需要的 Studio 组件（新增）
+#### Raft 做法（参考但不同）
 
-| 组件 | 当前 | 需要 |
+```
+Raft：Agent 有独立 workspace 目录 → 需要代码时 clone repo 进来
+  → 适合 Agent 独立产出
+  → 不适合在开发者已有项目上工作
+```
+
+#### Studio 做法：项目发现 + Channel 绑定
+
+```
+Studio 本地启动时：
+  扫描 ~/projects/（或配置的根目录）
+  → 检测项目（有 package.json / CLAUDE.md / .git）
+  → 注册为 Project
+
+Channel 关联 Project：
+  Channel #前端 → Project: projectA
+  Channel #后端 → Project: projectB
+
+Agent 执行时：
+  WorkUnit → channelId → projectId → project.path
+  → spawn CLI，cwd = project.path
+  → CLI 自动读取 project/CLAUDE.md
+```
+
+**关键**：Agent 不需要知道自己在哪个项目 — Channel 决定项目上下文，人通过选择 Channel 选择项目。
+
+### 执行隔离：git worktree
+
+#### 场景分析
+
+```
+单人本地（当前）：
+  Agent 串行工作 → 不需要隔离 → 直接指向项目目录
+
+多 Agent 并行（未来）：
+  Agent-1 改 feature-a → Agent-2 改 feature-b
+  → 需要目录隔离
+
+开发模式：分支开发 + 发布线上
+  每个需求 = 不同分支 → git worktree 天然提供隔离
+  冲突只在 merge 时出现（不常见）
+```
+
+#### worktree 方案
+
+```
+WorkUnit 创建
+  → 基于 main 创建 feature 分支
+  → git worktree add（隔离目录）
+  → Agent 在 worktree 目录执行
+  → 完成 → commit → push → PR/merge
+  → worktree remove
+
+冲突？→ 正常 git merge 流程处理
+```
+
+#### Raft clone vs git worktree
+
+| 维度 | Raft clone | git worktree |
 |---|---|---|
-| studio-daemon | ❌ 无 | 新建（类 raft-computer） |
-| Workspace 注册 | ❌ 无 | daemon 连接 + 引擎上报 |
-| Runtime 发现 | 硬编码 Claude Code | daemon 扫描 PATH 上报 |
-| Agent 执行 | server spawn CLI | daemon spawn CLI |
-| API key | server 环境变量 | 用户机器本地配置 |
+| 隔离级别 | 完全隔离（独立 repo） | 分支隔离（同 repo） |
+| 同步方式 | push/pull | merge |
+| 和原项目关系 | 断开 | 连接 |
+| 磁盘占用 | 完整副本 | 只存差异文件 |
+| 适合场景 | Agent 独立产出 | 在已有项目上开发 |
+
+**Studio 选择 worktree**：Agent 在开发者已有项目上工作，不是独立产出。分支模型 + worktree 隔离 = 和开发者日常工作流一致。
 
 ---
 
 ## 九、待讨论
 
 - [ ] AgentProfile.channels 的启用策略：创建时绑定 vs 自主 join？
-- [ ] Per-agent 记忆的存储位置：文件系统 vs DB？
 - [ ] 记忆注入的 token 预算如何控制？
 - [ ] Convert to Task 是否需要 LLM 辅助判断 scope？
 - [ ] 记忆晋升的触发条件：被多少 Agent 引用后晋升？
@@ -514,8 +603,14 @@ Memory 注入污染 → Pat 的记忆 ≠ Hank 的记忆
 ### 已解决
 
 - [x] ~~Agent 能力模型（capability）~~ → LLM 是能力引擎，不需要结构化字段
-- [x] ~~Agent 创建流程~~ → Workspace daemon 上报引擎 → 用户 UI 选择引擎+填身份
-- [x] ~~引擎在哪运行~~ → 用户机器，用户的 CLI，用户的 token
-- [x] ~~Workspace 和 Computer 的关系~~ → 同一概念，Workspace = Computer
+- [x] ~~引擎在哪运行~~ → 本地，用户的 CLI，用户的 token
 - [x] ~~Agent 和引擎实例的比例~~ → 1:1，一个进程一个身份
 - [x] ~~多角色 Channel 竞争~~ → @mention 绑定 assigneeId，人类是路由器
+- [x] ~~Studio 是远程还是本地~~ → 本地服务，每个用户自己跑
+- [x] ~~数据存储在哪~~ → 算力本地，Studio 不收集用户数据
+- [x] ~~数据格式~~ → md 文件（LLM 原生可读，git 友好）
+- [x] ~~Workspace 和 Computer 的关系~~ → 同一概念
+- [x] ~~Agent 如何知道在哪个项目工作~~ → 项目发现 + Channel 绑定 Project
+- [x] ~~Agent 执行隔离~~ → git worktree（分支级隔离）
+- [x] ~~merge 冲突~~ → 不常见，正常 git merge 流程处理
+- [x] ~~SDD 等知识的归属~~ → 项目级知识（git 共享），个人记忆（本地）
