@@ -263,6 +263,8 @@ Agent 参与 Channel
 | Retrieval API | MCP tool 扩展，query_documents 增加 agentId 参数 |
 | Memory Lifecycle | 过期规则、晋升条件、审计规则（加 agentId 维度） |
 | Data Tagging | WorkUnit/Channel 消息自动标记 agentId |
+| studio-daemon | 用户机器守护进程：引擎发现、进程管理、server 长连接 |
+| Workspace 注册 | daemon 连接 server + 引擎上报协议 |
 
 **Studio（需要 LLM）**：
 
@@ -277,10 +279,11 @@ Agent 参与 Channel
 ### 执行顺序
 
 ```
-Phase 1: Harness 基建（可与 Phase 2 并行）
-  H1: Memory Store + agentId 标记
-  H2: Retrieval API 扩展（MCP tool）
-  H3: Lifecycle 规则
+Phase 1: Harness 基建 + Daemon（可与 Phase 2 并行）
+  H1: studio-daemon（引擎发现 + server 长连接 + 进程管理）
+  H2: Memory Store + agentId 标记
+  H3: Retrieval API 扩展（MCP tool）
+  H4: Lifecycle 规则
 
 Phase 2: Studio 路由（不依赖新基建，立即做）
   S1: @mention → assigneeId 绑定
@@ -301,12 +304,15 @@ Phase 4: 闭环
 
 ## 七、缺口清单
 
+> 注：#4 竞争无能力过滤 已被第八节设计决策解决（@mention 绑定 = 无竞争）。
+> Agent 能力模型（capability）不再需要 — LLM 是能力引擎。
+
 | # | 缺口 | 归属 | 优先级 | 改动量 |
 |---|---|---|---|---|
-| 1 | @mention 不绑定 assigneeId | Studio S1 | P1 | 1 行 |
+| 1 | @mention 不绑定 assigneeId | Studio S1 | **P0** | 1 行 |
 | 2 | listAgents 不过滤 RuntimeInstance 状态 | Studio | P2 | 中 |
 | 3 | Agent.channels 为空时看全部（无隔离） | Studio S3 | P3 | 低 |
-| 4 | 竞争无能力过滤（先到先得） | Studio | P3 | 高 |
+| ~~4~~ | ~~竞争无能力过滤~~ | — | — | **已解决：@mention 绑定** |
 | 5 | 无 @mention 消息不涌现 WorkUnit | Studio S2 | P2 | ~50 行 |
 | 6 | Agent 进度不在 Thread 内 | Studio S3 | P2 | ~20 行 |
 | 7 | Agent 不读 Channel 历史 | Studio S6 | P3 | ~40 行 |
@@ -315,14 +321,201 @@ Phase 4: 闭环
 | 10 | agentStep 记忆注入 | Studio S4 | P3 | 中 |
 | 11 | 经验蒸馏（LLM） | Studio S5 | 长期 | 大 |
 | 12 | 记忆晋升 | Studio S7 | 长期 | 中 |
+| 13 | studio-daemon（引擎发现+进程管理） | Harness H1 | **P0** | 大 |
+| 14 | Workspace 注册协议（daemon↔server） | Harness H1 | **P0** | 中 |
+| 15 | Agent 执行迁移到 daemon（server 不再 spawn CLI） | Harness | P1 | 大 |
 
 ---
 
-## 八、待讨论
+## 八、设计决策收敛（2026-07-08 讨论）
+
+### AgentProfile 最小设计
+
+**决策**：AgentProfile = name + description + channels + status + memory。
+**不添加** role、capabilities 等结构化字段。
+
+**理由**：
+- Agent 本质是 LLM 驱动的。LLM 就是能力引擎，不需要结构化能力描述
+- description 面向人类选择（「这个 Agent 做什么」），不是给机器过滤的
+- role/capabilities 是 Pipeline 思维的残留（预定义执行路径）
+- 多角色 Channel 里靠 @mention 路由，不靠 capability 匹配
+
+### @mention = 路由机制
+
+**核心洞察**：多角色 Channel（如 Raft 的 Pat/Hank/Rin）需要一种机制让人指定「找谁做事」。@mention 就是这种机制。
+
+```
+@Pat 拆需求     → 只 Pat 响应（assigneeId=Pat.id）
+@Hank 实现      → 只 Hank 响应（assigneeId=Hank.id）
+随便说句话       → 广播，谁觉得相关谁 claim（assigneeId=null）
+```
+
+**之前错误结论**：「@mention 硬绑定 = Pipeline 耦合」。
+**纠正**：Pipeline 耦合是指硬编码执行流程（A→B→C 固定链路）。@mention 是寻址信号（选择对话对象），完全不同。群聊里 @某人 = 找某人说话，这是基本社交协议。
+
+**结论**：@mention 匹配到 Agent → `WorkUnit.assigneeId = agent.id`。这不是耦合，是正确路由。
+
+### 多角色 Channel 的竞争问题
+
+**问题**：「所有 WorkUnit 都可 claim，LLM 自己判断能不能做」在多角色 Channel 失效。
+
+```
+Raft 模式：#build 有 Pat(PM) + Hank(Engineer) + Rin(Reviewer)
+一条无 @mention 消息 → 3 个 Agent 都看到 → 都可能 claim
+→ Pat 拆了需求 → Hank 也开始拆（不是他的活）→ 混乱
+```
+
+**解法**：
+1. **有 @mention** → assigneeId 绑定，只有被 @ 的 Agent claim
+2. **无 @mention** → 两种处理：
+   - 纯讨论（不创建 WorkUnit）— 当前已实现
+   - Convert to Task（人类手动转为 WorkUnit）— 待实现
+3. **Agent 自主涌现**（层 2）— 长期，需要 LLM 判断能力匹配
+
+**人类是路由器**：在多角色场景，人类通过 @mention 选择正确的 Agent。系统不需要替人做这个决策。
+
+### 当前 @mention 实现链路
+
+```
+前端：ChannelInput → channelApi.listAgents() → GET /agent-profiles?status=active
+      ↓ 显示 @mention autocomplete 下拉
+      ↓ 用户选择 → 插入 @AgentName 到消息内容
+
+后端：message-routing.ts → detectMention() 解析 @AgentName
+      ↓ 匹配 AgentProfile（by name）
+      ↓ 创建 WorkUnit（assigneeId=null ← 这里要改为 agent.id）
+```
+
+**当前数据**：1 个 AgentProfile（test-executor），无 seeding，无 role 字段。
+前端 autocomplete 已对接 API，改动只在后端路由层。
+
+### 8 个缺口 → 方案映射
+
+| # | 缺口 | 方案 | 状态 |
+|---|---|---|---|
+| 1 | @mention 不绑定 assigneeId | message-routing.ts 改 1 行 | 待实现 |
+| 2 | listAgents 不过滤在线状态 | agent-profile.service JOIN RuntimeInstance | 待设计 |
+| 3 | Agent.channels 空=看全部 | 创建时指定 channels / join API | 需进一步设计 |
+| 4 | 竞争无过滤 | @mention 绑定后此问题消失（有 @ 无竞争） | 自然解决 |
+| 5 | 无涌现机制 | Convert to Task API + 前端按钮 | 待实现 |
+| 6 | Agent 进度不在 Thread | postToDiscussionSpace 带 replyToId | 待实现 |
+| 7 | Agent 不读 Channel 历史 | observe() 查近期消息注入 prompt | 待实现 |
+| 8 | 无持久记忆 | 三层记忆架构（见第五节） | 长期 |
+
+### 算力模型：用户自带，服务器协调
+
+**决策**：引擎跑在用户机器上，用用户的 CLI，消耗用户的 token。Studio server 只做协调。
+
+**错误方向（已否定）**：服务器跑引擎 → 消耗服务器 token → 不可持续。
+
+#### Raft 参考实现
+
+```
+1. 用户在机器上安装 daemon
+   $ raft-computer setup my-server
+
+2. daemon 连 server，上报本机引擎
+   → 扫描 PATH → [claude, codex, opencode]
+   → server 记录 Computer.runtimes
+
+3. 用户在 UI 创建 Agent，选 Computer + 选 runtime
+   → Agent 进程跑在用户机器上
+```
+
+#### Studio 实体模型
+
+```
+Studio Server（协调层，零 token 消耗）
+  ├── Channel（消息路由）
+  ├── WorkUnit（任务管理）
+  ├── AgentProfile（身份：name + desc + channels + memory）
+  │
+  └── Workspace（= Computer = 用户机器）
+        ├── daemon（长连接 server）
+        ├── 引擎（claude / codex / opencode，用户已安装）
+        └── RuntimeInstance（引擎进程，daemon 管理）
+```
+
+**Workspace = Computer**：AS-023 的 Workspace 概念直接对应 Raft 的 Computer。不是两个东西。
+
+#### 职责划分
+
+| 职责 | Server | Workspace |
+|---|---|---|
+| 消息路由/存储 | ✅ | — |
+| WorkUnit 调度 | ✅ | — |
+| AgentProfile 持久化 | ✅ | — |
+| 引擎进程管理 | — | ✅（daemon） |
+| 任务执行 | — | ✅（CLI 进程） |
+| token 消耗 | — | ✅（用户 API key） |
+| 引擎发现 | — | ✅（daemon 扫描上报） |
+
+#### 引擎发现流程
+
+```
+Workspace daemon 启动
+  → 扫描本机 PATH 中的 CLI 工具
+  → 上报 server: { computerId, runtimes: ["claude-code", "codex", "opencode"] }
+  → server 存储为 Workspace.runtimes
+
+用户创建 Agent
+  → UI 显示该 Workspace 可用引擎列表
+  → 用户选择引擎 + 填 name/description/channels
+  → server 创建 AgentProfile
+  → daemon 收到指令 → spawn 引擎进程 = RuntimeInstance
+```
+
+#### Agent : Instance = 1:1
+
+**决策**：1 个 AgentProfile 对应 1 个引擎进程。不可共享。
+
+**原因**：LLM 上下文窗口 = 单一会话。一个进程只有一个上下文。
+
+```
+假设 Claude Code 进程 X 同时扮演 Pat(PM) + Hank(Engineer)：
+
+System Prompt 冲突 → 一个进程只能有一个角色设定
+Memory 注入污染 → Pat 的记忆 ≠ Hank 的记忆
+对话上下文混乱 → 同时处理两个 Channel 的对话
+
+→ 上下文污染，角色行为混乱
+```
+
+**结论**：引擎类型可以复用（同一台机器 3 个 Claude Code 进程），但每个进程只能承载 1 个 AgentProfile。
+
+```
+机器上装了 Claude Code（引擎类型）
+  → 3 个 Claude Code 进程（3 个实例）
+  → 进程 1 = Pat，进程 2 = Hank，进程 3 = Rin
+  → 空闲时 idle（进程存活，低资源）
+  → 忙碌时各自处理 WorkUnit
+```
+
+#### 需要的 Studio 组件（新增）
+
+| 组件 | 当前 | 需要 |
+|---|---|---|
+| studio-daemon | ❌ 无 | 新建（类 raft-computer） |
+| Workspace 注册 | ❌ 无 | daemon 连接 + 引擎上报 |
+| Runtime 发现 | 硬编码 Claude Code | daemon 扫描 PATH 上报 |
+| Agent 执行 | server spawn CLI | daemon spawn CLI |
+| API key | server 环境变量 | 用户机器本地配置 |
+
+---
+
+## 九、待讨论
 
 - [ ] AgentProfile.channels 的启用策略：创建时绑定 vs 自主 join？
 - [ ] Per-agent 记忆的存储位置：文件系统 vs DB？
 - [ ] 记忆注入的 token 预算如何控制？
 - [ ] Convert to Task 是否需要 LLM 辅助判断 scope？
-- [ ] Agent 能力模型（capability）如何设计？影响竞争过滤。
 - [ ] 记忆晋升的触发条件：被多少 Agent 引用后晋升？
+
+### 已解决
+
+- [x] ~~Agent 能力模型（capability）~~ → LLM 是能力引擎，不需要结构化字段
+- [x] ~~Agent 创建流程~~ → Workspace daemon 上报引擎 → 用户 UI 选择引擎+填身份
+- [x] ~~引擎在哪运行~~ → 用户机器，用户的 CLI，用户的 token
+- [x] ~~Workspace 和 Computer 的关系~~ → 同一概念，Workspace = Computer
+- [x] ~~Agent 和引擎实例的比例~~ → 1:1，一个进程一个身份
+- [x] ~~多角色 Channel 竞争~~ → @mention 绑定 assigneeId，人类是路由器
