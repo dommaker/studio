@@ -332,6 +332,8 @@ Phase 5: 知识闭环（长期）
 | 17 | Channel 绑定 Project | Studio | P1 | 中 |
 | 18 | Agent 执行用 git worktree 隔离 | Studio | P2 | 中 |
 | 19 | 数据存储从 SQLite 迁移到 md 文件 | Studio | P2 | 大 |
+| 20 | Thread-per-WorkUnit（WorkUnit 创建时自动创建 Thread） | Studio | P1 | 中 |
+| 21 | Agent 消息写入 Thread（postToDiscussionSpace 带 replyToId） | Studio | P1 | 中 |
 
 ---
 
@@ -591,6 +593,130 @@ WorkUnit 创建
 
 **Studio 选择 worktree**：Agent 在开发者已有项目上工作，不是独立产出。分支模型 + worktree 隔离 = 和开发者日常工作流一致。
 
+### Thread 驱动流转：WorkUnit × Skill × 角色
+
+#### 问题
+
+```
+一个 WorkUnit 从需求到完成，经过 6 个阶段：
+  设计 → Spec审查 → 任务规划 → SDD审查 → 实现 → 代码审查
+
+涉及 3 个维度：
+  角色（谁做）：PM(Pat) / DEV(Hank) / QA(Rin)
+  Skill（怎么做）：design-analyst / spec-review / task-planner / sdd-review / tdd-implement / code-review
+  阶段（做到哪）：6 个阶段
+
+三个维度怎么统一？怎么流转？
+```
+
+#### 两个模型对比
+
+**模型 A：状态机驱动**
+
+```
+WorkUnit.status = 'design' → Pat 看到 → 做 → 改 status = 'spec_review'
+WorkUnit.status = 'spec_review' → Rin 看到 → 做 → 改 status = 'task_plan'
+...
+
+问题：硬编码流程 = Pipeline 换皮
+  → 不灵活（简单需求不需要 6 步）
+  → 不自然（人要插话改方向很难）
+```
+
+**模型 B：对话驱动（选定）**
+
+```
+@mention 传递 = 流转机制
+Thread 上下文 = 隐含状态
+Agent 读上下文 → LLM 判断用哪个 Skill
+
+没有中央调度器，没有硬编码流程
+```
+
+#### 对话驱动流转示例
+
+```
+Thread（需求 A 的工作空间）
+
+消息 1 [人]：@Pat 需求 A 是...
+  → WorkUnit 创建，assigneeId=Pat
+
+消息 2 [Pat]：分析了，产出 spec。（读 Thread → 用 design-analyst）
+  @Rin 请审查
+  → Rin 看到 @mention
+
+消息 3 [Rin]：审查 spec，PASS。（读 Thread → 判断是 spec → 用 spec-review）
+  @Pat 请出 SDD
+
+消息 4 [Pat]：SDD 完成。（读 Thread → 用 task-planner）
+  @Rin 请审查
+
+消息 5 [Rin]：SDD PASS。（读 Thread → 判断是 SDD → 用 sdd-review）
+  @Hank 请实现
+
+消息 6 [Hank]：实现完成。（读 Thread → 用 tdd-implement）
+  @Rin 请 review
+
+消息 7 [Rin]：code review PASS。需求 A 完成。
+```
+
+#### 三维度统一
+
+```
+阶段：不需要显式定义。Thread 消息序列隐含阶段
+角色：@mention 决定谁上
+Skill：Agent 读 Thread 上下文，LLM 判断用哪个
+
+流转机制：@mention 传递
+  → 完成的人 @下一个人
+  → 被 @的人看到 → 读上下文 → 选 Skill → 执行
+```
+
+#### 和 AgentProfile 最小设计的关系
+
+```
+AgentProfile = name + description + channels + memory
+没有 role 字段，没有 skill 绑定
+
+Rin 的 description = "审查所有产出物"
+Rin 看到 @mention → 读 Thread 上下文 → LLM 判断该用 spec-review 还是 code-review
+
+LLM 是能力引擎，不需要结构化路由
+```
+
+#### 并行场景
+
+```
+Thread 需求 A：Pat → Rin → Pat → Rin → Hank → Rin
+Thread 需求 B：Pat → Rin → Hank → Rin（可能跳过某些步骤）
+Thread 需求 C：Pat → Hank → Rin（简单需求，跳过设计审查）
+
+3 个 Thread 独立流转，互不干扰
+每个 Thread 有自己的消息历史（上下文）
+Agent 在不同 Thread 间切换 = 在不同需求间切换
+```
+
+#### 核心优势
+
+```
+没有中央调度器
+没有硬编码流程
+@mention = 路由
+Thread 上下文 = 状态
+LLM = 决策引擎（选 Skill、判断下一步）
+```
+
+#### 比喻
+
+```
+Channel = 房间（#研发）
+Thread = 桌子（需求 A / B / C）
+WorkUnit = 议题（和 Thread 一一对应）
+@mention = 传递话筒（做完交给下一个人）
+Skill = 工具（Agent 根据上下文选）
+Agent = 人（坐在房间里，看哪个桌子在叫自己）
+```
+
 ---
 
 ## 九、待讨论
@@ -614,3 +740,5 @@ WorkUnit 创建
 - [x] ~~Agent 执行隔离~~ → git worktree（分支级隔离）
 - [x] ~~merge 冲突~~ → 不常见，正常 git merge 流程处理
 - [x] ~~SDD 等知识的归属~~ → 项目级知识（git 共享），个人记忆（本地）
+- [x] ~~WorkUnit 流转机制~~ → 对话驱动（@mention 传递），不是状态机
+- [x] ~~Skill × 角色 × 阶段怎么统一~~ → @mention 决定角色，Thread 上下文决定 Skill
