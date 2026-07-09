@@ -396,13 +396,13 @@ Agent 工作中需要知识 → 调 query_documents
 
 ```
 Phase 1: 本地化改造（基础）
-  L1: 项目发现（扫描本地目录注册 Project）
+  L1: 项目发现（扫描本地目录注册 Project）  ← 前置依赖
   L2: WorkUnit 关联 Project
   L3: Agent 执行 cwd = project.path（直接本地 spawn）
 
 Phase 2: Channel 路由完善
   S1: @mention → assigneeId 绑定
-  S2: Convert to Task API
+  S2: Convert to Task API（LLM 预填 + 人选项目，依赖 L1）
   S3: Thread-per-WorkUnit + Agent 消息写入 Thread
 
 Phase 3: DATA 层建设
@@ -432,7 +432,7 @@ Phase 5: 执行隔离 + 数据迁移
 |---|---|---|---|---|
 | 1 | @mention 不绑定 assigneeId | Studio S1 | **P0** | 1 行 |
 | 2 | listAgents 不过滤 RuntimeInstance 状态 | Studio | P2 | 中 |
-| 3 | Agent.channels 为空时看全部（无隔离） | Studio S3 | P3 | 低 |
+| 3 | ~~Agent.channels 为空时看全部~~ | — | — | **已解决：Channel 管成员列表，Agent 不需要 channels 字段** |
 | ~~4~~ | ~~竞争无能力过滤~~ | — | — | **已解决：@mention 绑定** |
 | 5 | 无 @mention 消息不涌现 WorkUnit | Studio S2 | P2 | ~50 行 |
 | 6 | Agent 进度不在 Thread 内 | Studio S3 | P2 | ~20 行 |
@@ -846,10 +846,7 @@ Agent = 人（坐在房间里，看哪个桌子在叫自己）
 
 ## 九、待讨论
 
-- [ ] AgentProfile.channels 的启用策略：创建时绑定 vs 自主 join？
-- [ ] 记忆注入的 token 预算如何控制？
-- [ ] Convert to Task 是否需要 LLM 辅助判断 scope？
-- [ ] 记忆晋升的触发条件：被多少 Agent 引用后晋升？
+（全部已解决，见下方已解决清单）
 
 ### 已解决
 
@@ -875,3 +872,6 @@ Agent = 人（坐在房间里，看哪个桌子在叫自己）
 - [x] ~~知识存储位置~~ → 双层：个人 ~/.studio/knowledge/ + 项目 project/.studio/knowledge/
 - [x] ~~知识消费方式~~ → MCP query_documents 按需查询，不注入
 - [x] ~~双层知识可行性~~ → 已验证：LanceDB 单表 ingest 多目录，查询侧零改动
+- [x] ~~AgentProfile.channels 启用策略~~ → Channel 管成员列表（创建时选 + 邀请/踢出），Agent 不需要 channels 字段
+- [x] ~~记忆注入 token 预算~~ → 不需要注入，按需查询（MCP query_documents）
+- [x] ~~记忆晋升触发条件~~ → 不需要晋升机制，知识按场景标签组织
