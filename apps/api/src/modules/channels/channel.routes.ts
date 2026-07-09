@@ -222,7 +222,7 @@ router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
 
 // POST /api/v1/channels — create a new channel (B2-007)
 router.post('/', async (req, res) => {
-  const { name, type = 'rnd' } = req.body;
+  const { name, type = 'rnd', members } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'name is required' });
   }
@@ -231,7 +231,9 @@ router.post('/', async (req, res) => {
   }
   const channelName = name.startsWith('#') ? name.trim() : `#${name.trim()}`;
   try {
-    const channel = await prisma.channel.create({ data: { name: channelName, type } });
+    const channel = await prisma.channel.create({
+      data: { name: channelName, type, members: members ? JSON.stringify(members) : '[]' },
+    });
     logger.info('[Channel] Created', { id: channel.id, name: channelName });
     res.status(201).json({ success: true, data: channel });
   } catch (e: any) {
@@ -389,4 +391,41 @@ router.put('/:id/restore', async (req, res) => {
   res.json({ success: true, data: { restored: true, name: restoredName } });
 });
 
+// PATCH /api/v1/channels/:id/members — update channel members (AC-B2)
+router.patch('/:id/members', async (req, res) => {
+  const { add, remove } = req.body;
+  try {
+    const members = await updateChannelMembers(req.params.id, { add, remove });
+    res.json({ success: true, data: { members } });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ success: false, error: msg });
+    }
+    throw e;
+  }
+});
+
 export default router;
+
+/** Update channel members: add/remove agent IDs (idempotent). Returns updated members array. */
+export async function updateChannelMembers(
+  channelId: string,
+  ops: { add?: string[]; remove?: string[] },
+): Promise<string[]> {
+  const channel = await prisma.channel.findUnique({ where: { id: channelId } });
+  if (!channel) throw new Error(`Channel ${channelId} not found`);
+
+  const current: string[] = JSON.parse(channel.members);
+  const addIds: string[] = ops.add ?? [];
+  const removeIds: string[] = ops.remove ?? [];
+
+  const updated = [...new Set([...current, ...addIds])].filter(id => !removeIds.includes(id));
+
+  await prisma.channel.update({
+    where: { id: channelId },
+    data: { members: JSON.stringify(updated) },
+  });
+
+  return updated;
+}

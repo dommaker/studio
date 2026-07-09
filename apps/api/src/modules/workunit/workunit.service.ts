@@ -46,6 +46,7 @@ export interface CreateWorkUnitInput {
   status?: string;
   channelId?: string | null;
   parentId?: string | null;
+  projectPath?: string | null;
   failureType?: string;
   retryCount?: number;
   timeoutAt?: Date | null;
@@ -59,6 +60,7 @@ export interface UpdateWorkUnitInput {
   assigneeId?: string | null;
   channelId?: string | null;
   parentId?: string | null;
+  projectPath?: string | null;
   failureType?: string | null;
   retryCount?: number;
   timeoutAt?: Date | null;
@@ -91,6 +93,7 @@ export class WorkUnitService {
         status: input.status ?? 'unassigned',
         channelId: input.channelId ?? null,
         parentId: input.parentId ?? null,
+        projectPath: input.projectPath ?? null,
         failureType: input.failureType ?? null,
         retryCount: input.retryCount ?? 0,
         timeoutAt: input.timeoutAt ?? null,
@@ -200,6 +203,7 @@ export class WorkUnitService {
     if (input.assigneeId !== undefined) data.assigneeId = input.assigneeId;
     if (input.channelId !== undefined) data.channelId = input.channelId;
     if (input.parentId !== undefined) data.parentId = input.parentId;
+    if (input.projectPath !== undefined) data.projectPath = input.projectPath;
     if (input.failureType !== undefined) data.failureType = input.failureType;
     if (input.retryCount !== undefined) data.retryCount = input.retryCount;
     if (input.timeoutAt !== undefined) data.timeoutAt = input.timeoutAt;

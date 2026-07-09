@@ -595,4 +595,36 @@ describe('WorkUnit API service', () => {
     });
   });
 
+  // ---- AC-D2: WorkUnit.projectPath ----
+
+  describe('AC-D2: WorkUnit.projectPath', () => {
+    it('create with projectPath → stored and returned', async () => {
+      const wu = await service.create({
+        scope: 'ProjectPath test',
+        projectPath: '/home/user/projects/my-app',
+      });
+      testIds.push(wu.id);
+
+      expect(wu.projectPath).toBe('/home/user/projects/my-app');
+
+      const fetched = await service.getById(wu.id);
+      expect(fetched!.projectPath).toBe('/home/user/projects/my-app');
+    });
+
+    it('create without projectPath → projectPath = null', async () => {
+      const wu = await service.create({ scope: 'No projectPath' });
+      testIds.push(wu.id);
+
+      expect(wu.projectPath).toBeNull();
+    });
+
+    it('update projectPath', async () => {
+      const wu = await service.create({ scope: 'Update projectPath' });
+      testIds.push(wu.id);
+
+      const updated = await service.update(wu.id, { projectPath: '/new/path' });
+      expect(updated.projectPath).toBe('/new/path');
+    });
+  });
+
 });
