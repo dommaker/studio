@@ -6,8 +6,12 @@ import { channelMessageService } from './channel-message.service.js';
 import { routeMessage } from './message-routing.js';
 import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
+import { ConvertToTaskService } from './convert-to-task.service.js';
+import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 
 const router = Router();
+const convertToTaskService = new ConvertToTaskService(prisma);
+const projectDiscoveryService = new ProjectDiscoveryService();
 
 // ─── AC Group Parser ───────────────────────────────────────────────
 //
@@ -403,6 +407,66 @@ router.patch('/:id/members', async (req, res) => {
       return res.status(404).json({ success: false, error: msg });
     }
     throw e;
+  }
+});
+
+// POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
+router.post('/:id/messages/:messageId/convert-to-task', async (req, res) => {
+  const { id: channelId, messageId } = req.params;
+  const { title, description, assigneeId, projectPath } = req.body;
+
+  try {
+    const workUnit = await convertToTaskService.convert(channelId, messageId, {
+      title,
+      description,
+      assigneeId,
+      projectPath,
+    });
+    res.status(201).json({ success: true, data: workUnit });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ success: false, error: msg });
+    }
+    if (msg.includes('already')) {
+      return res.status(400).json({ success: false, error: msg });
+    }
+    throw e;
+  }
+});
+
+// POST /api/v1/channels/:id/messages/:messageId/convert-to-task/suggest (AC-E2)
+router.post('/:id/messages/:messageId/convert-to-task/suggest', async (req, res) => {
+  const { messageId } = req.params;
+
+  try {
+    // 1. Get message content
+    const message = await prisma.channelMessage.findUnique({ where: { id: messageId } });
+    if (!message) {
+      return res.status(404).json({ success: false, error: 'Message not found' });
+    }
+
+    // 2. Get available agents
+    const agents = await prisma.agentProfile.findMany({
+      where: { status: 'active' },
+      select: { id: true, name: true, description: true },
+    });
+
+    // 3. Get available projects
+    const projects = await projectDiscoveryService.discover();
+
+    // 4. Get LLM suggestion
+    const suggestion = await convertToTaskService.suggest(
+      message.content,
+      agents,
+      projects.map(p => ({ name: p.name, path: p.path })),
+    );
+
+    res.json({ success: true, data: suggestion });
+  } catch (error) {
+    // Non-blocking: return empty suggestion on error
+    logger.warn('[ConvertToTask] Suggest endpoint error (non-blocking)', { error: String(error) });
+    res.json({ success: true, data: {} });
   }
 });
 
