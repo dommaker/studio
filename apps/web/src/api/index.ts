@@ -129,13 +129,13 @@ api.interceptors.response.use(
   }
 );
 
-// Task API
+// Task API (backend route: /workunits)
 export const taskApi = {
-  create: (data: any) => api.post('/tasks', data),
-  list: (params?: any) => api.get('/tasks', { params }),
-  get: (id: string) => api.get(`/tasks/${id}`),
-  update: (id: string, data: any) => api.put(`/tasks/${id}`, data),
-  cancel: (id: string) => api.post(`/tasks/${id}/cancel`),
+  create: (data: any) => api.post('/workunits', data),
+  list: (params?: any) => api.get('/workunits', { params }),
+  get: (id: string) => api.get(`/workunits/${id}`),
+  update: (id: string, data: any) => api.put(`/workunits/${id}`, data),
+  cancel: (id: string) => api.post(`/workunits/${id}/cancel`),
 };
 
 // Agent API
@@ -163,7 +163,6 @@ export const runtimeWorkflowApi = {
   listSteps: () => api.get('/skills'),
   listSkills: () => api.get('/skills'),
   listWorkflows: () => api.get('/workflows'),
-  listTools: () => api.get('/tools-std'),
   // 配置
   getConfig: () => api.get('/runtime-config'),
   updateConfig: (data: {
