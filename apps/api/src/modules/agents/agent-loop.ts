@@ -332,6 +332,8 @@ export class AgentLoop {
     const wu = await prisma.workUnit.findUnique({ where: { id: workUnitId } });
     if (!wu?.channelId) return;
 
+    const anchor = await findAnchorMessage(workUnitId);
+
     await prisma.channelMessage.create({
       data: {
         content,
@@ -339,6 +341,7 @@ export class AgentLoop {
         channelId: wu.channelId,
         authorType: 'agent',
         agentName: this.role.name,
+        replyToId: anchor?.id ?? null,
       },
     });
   }
@@ -352,6 +355,14 @@ export class AgentLoop {
 }
 
 // ─── Exported pure functions (testable) ───
+
+/** Find the anchor message (first message, no replyToId) for a WorkUnit */
+export async function findAnchorMessage(workUnitId: string): Promise<ChannelMessage | null> {
+  return prisma.channelMessage.findFirst({
+    where: { workUnitId, replyToId: null },
+    orderBy: { createdAt: 'asc' },
+  });
+}
 
 /** Resolve target from observations (pure code, zero LLM) */
 export function resolveTarget(obs: Observations): Target | null {

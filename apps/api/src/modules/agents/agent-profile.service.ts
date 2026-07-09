@@ -45,14 +45,15 @@ export class AgentProfileService {
 
   async list(options?: {
     status?: string;
+    channelId?: string;
     page?: number;
     limit?: number;
-  }): Promise<{ data: AgentProfile[]; total: number }> {
-    const { status, page = 1, limit = 20 } = options ?? {};
+  }): Promise<{ data: Array<AgentProfile & { isOnline: boolean }>; total: number }> {
+    const { status, channelId, page = 1, limit = 20 } = options ?? {};
     const where: Prisma.AgentProfileWhereInput = {};
     if (status) where.status = status;
 
-    const [data, total] = await Promise.all([
+    const [rawData, total] = await Promise.all([
       this.prisma.agentProfile.findMany({
         where,
         skip: (page - 1) * limit,
@@ -62,7 +63,31 @@ export class AgentProfileService {
       this.prisma.agentProfile.count({ where }),
     ]);
 
-    return { data, total };
+    // Filter by channelId (AgentProfile.channels contains channelId)
+    let filtered = rawData;
+    if (channelId) {
+      const byChannels = rawData.filter(p => {
+        const agentChannels: string[] = p.channels ? JSON.parse(p.channels) : [];
+        return agentChannels.includes(channelId);
+      });
+      // Fallback: if no agents have this channelId, return all (empty members fallback)
+      filtered = byChannels.length > 0 ? byChannels : rawData;
+    }
+
+    // Add isOnline field (check RuntimeInstance)
+    const agentIds = filtered.map(p => p.id);
+    const activeInstances = await this.prisma.runtimeInstance.findMany({
+      where: { roleId: { in: agentIds }, status: 'active' },
+      select: { roleId: true },
+    });
+    const onlineSet = new Set(activeInstances.map(ri => ri.roleId));
+
+    const data = filtered.map(p => ({
+      ...p,
+      isOnline: onlineSet.has(p.id),
+    }));
+
+    return { data, total: channelId ? data.length : total };
   }
 
   async update(id: string, input: UpdateAgentProfileInput): Promise<AgentProfile> {

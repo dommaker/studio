@@ -7,10 +7,12 @@
  * - resolveTarget() — priority routing (pure logic)
  * - observe() — DB query structure
  * - recordResult() — monitoring + state transitions
+ * - findAnchorMessage() — AC-C2: Thread anchor message lookup
  */
 
-import { describe, test, expect, vi, beforeEach } from 'vitest';
+import { describe, test, expect, vi, beforeEach, afterAll } from 'vitest';
 import type { WorkUnit, ChannelMessage } from '@prisma/client';
+import { prisma } from '../../../core/database.js';
 
 // We'll import the actual functions once implemented
 // For RED phase, these imports will fail until implementation exists
@@ -174,5 +176,91 @@ describe('resolveTarget()', () => {
     // blocked WU with no replies → no active WU → check unassigned → null
     const target = resolveTarget(obs);
     expect(target).toBeNull();
+  });
+});
+
+// ── AC-C2: findAnchorMessage — Thread anchor lookup ──
+
+describe('AC-C2: findAnchorMessage', () => {
+  let findAnchorMessage: (workUnitId: string) => Promise<ChannelMessage | null>;
+  let testChannelId: string;
+  let testWorkUnitId: string;
+
+  beforeEach(async () => {
+    try {
+      const mod = await import('../agent-loop.js');
+      findAnchorMessage = mod.findAnchorMessage;
+    } catch {
+      findAnchorMessage = vi.fn() as any;
+    }
+
+    // Create test fixtures
+    const channel = await prisma.channel.create({
+      data: { name: `#test-thread-${Date.now()}` },
+    });
+    testChannelId = channel.id;
+    const wu = await prisma.workUnit.create({
+      data: { scope: 'thread test', channelId: testChannelId, type: 'task', status: 'unassigned' },
+    });
+    testWorkUnitId = wu.id;
+  });
+
+  test('returns the first message (no replyToId) for a WorkUnit', async () => {
+    // Create anchor message (workUnitId set, no replyToId)
+    const anchor = await prisma.channelMessage.create({
+      data: {
+        channelId: testChannelId,
+        content: 'anchor message',
+        authorType: 'human',
+        workUnitId: testWorkUnitId,
+      },
+    });
+
+    const result = await findAnchorMessage(testWorkUnitId);
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe(anchor.id);
+  });
+
+  test('returns anchor when multiple messages exist (first with no replyToId)', async () => {
+    const anchor = await prisma.channelMessage.create({
+      data: {
+        channelId: testChannelId,
+        content: 'first message',
+        authorType: 'human',
+        workUnitId: testWorkUnitId,
+      },
+    });
+    // Second message with replyToId (thread reply)
+    await prisma.channelMessage.create({
+      data: {
+        channelId: testChannelId,
+        content: 'thread reply',
+        authorType: 'agent',
+        workUnitId: testWorkUnitId,
+        replyToId: anchor.id,
+      },
+    });
+
+    const result = await findAnchorMessage(testWorkUnitId);
+    expect(result).not.toBeNull();
+    expect(result!.id).toBe(anchor.id);
+    expect(result!.replyToId).toBeNull();
+  });
+
+  test('returns null when WorkUnit has no messages', async () => {
+    const result = await findAnchorMessage(testWorkUnitId);
+    expect(result).toBeNull();
+  });
+
+  // Cleanup
+  afterAll(async () => {
+    // Clean up test channels and work units
+    const testChannels = await prisma.channel.findMany({
+      where: { name: { startsWith: '#test-thread-' } },
+    });
+    const channelIds = testChannels.map(c => c.id);
+    await prisma.channelMessage.deleteMany({ where: { channelId: { in: channelIds } } });
+    await prisma.workUnit.deleteMany({ where: { channelId: { in: channelIds } } });
+    await prisma.channel.deleteMany({ where: { id: { in: channelIds } } });
   });
 });

@@ -807,6 +807,7 @@ model Channel {
   defaultPath        String? // 默认执行路径（相对于 workspaceRoot）
   discordChannelId String? // Discord 频道绑定
   discordWebhookUrl String? // Agent 回复推送目标
+  members      String   @default("[]") // JSON: AgentProfile ID[]（Channel 成员）
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   ChannelMessage ChannelMessage[]
@@ -1302,8 +1303,9 @@ model WorkUnit {
   timeoutAt   DateTime?
 
   // 上下文
-  channelId  String?  // 关联 Channel
-  metadata   String?  // JSON: 灵活扩展
+  channelId   String?  // 关联 Channel
+  projectPath String?  // 本地项目路径（Agent 执行 cwd）
+  metadata    String?  // JSON: 灵活扩展
 
   // 时间
   createdAt   DateTime @default(now())

@@ -64,6 +64,7 @@ export async function routeMessage(
       channelId,
       type: 'task',
       status: 'unassigned',
+      assigneeId: agent?.id ?? null,
       metadata: {
         mentionName,
         matched: !!agent,

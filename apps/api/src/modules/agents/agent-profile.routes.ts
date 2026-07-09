@@ -21,11 +21,12 @@ const service = new AgentProfileService(prisma);
 /** GET / — list AgentProfiles */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { status } = req.query;
+    const { status, channelId } = req.query;
     const { page, limit } = parsePagination(req);
 
     const result = await service.list({
       status: status as string,
+      channelId: channelId as string,
       page,
       limit,
     });

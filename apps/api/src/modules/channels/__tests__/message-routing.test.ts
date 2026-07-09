@@ -27,6 +27,54 @@ describe('Message Routing (AC-B1-B4)', () => {
     await prisma.agentProfile.deleteMany({});
   });
 
+  // ── AC-A1: @mention binds assigneeId ──
+
+  describe('AC-A1: @mention → assigneeId binding', () => {
+    it('sets assigneeId when @mention matches active AgentProfile', async () => {
+      const agent = await prisma.agentProfile.create({
+        data: { name: 'AssignAgent', description: 'assignable', status: 'active' },
+      });
+
+      const result = await routeMessage(channelId, '@AssignAgent do this');
+
+      const wu = await prisma.workUnit.findUnique({ where: { id: result.workUnitId! } });
+      expect(wu!.assigneeId).toBe(agent.id);
+    });
+
+    it('sets assigneeId=null when @mention does not match any Agent', async () => {
+      const result = await routeMessage(channelId, '@Nobody help me');
+
+      const wu = await prisma.workUnit.findUnique({ where: { id: result.workUnitId! } });
+      expect(wu!.assigneeId).toBeNull();
+    });
+
+    it('sets assigneeId=null when @mention matches inactive Agent', async () => {
+      await prisma.agentProfile.create({
+        data: { name: 'InactiveAgent', description: 'offline', status: 'inactive' },
+      });
+
+      const result = await routeMessage(channelId, '@InactiveAgent do this');
+
+      const wu = await prisma.workUnit.findUnique({ where: { id: result.workUnitId! } });
+      expect(wu!.assigneeId).toBeNull();
+    });
+
+    it('still binds assigneeId when agent is active but has existing WorkUnit', async () => {
+      const agent = await prisma.agentProfile.create({
+        data: { name: 'BusyAgent', description: 'busy', status: 'active' },
+      });
+      // Pre-create a WorkUnit for this agent (simulating busy state)
+      await prisma.workUnit.create({
+        data: { scope: 'existing task', channelId, type: 'task', status: 'active', assigneeId: agent.id },
+      });
+
+      const result = await routeMessage(channelId, '@BusyAgent new task');
+
+      const wu = await prisma.workUnit.findUnique({ where: { id: result.workUnitId! } });
+      expect(wu!.assigneeId).toBe(agent.id);
+    });
+  });
+
   // ── AC-B1: @mention creates WorkUnit ──
 
   describe('AC-B1: @mention → WorkUnit', () => {
