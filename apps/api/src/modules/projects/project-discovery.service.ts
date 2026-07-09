@@ -118,25 +118,27 @@ export class ProjectDiscoveryService {
       { file: '.git', isDir: true },
     ];
 
+    let found = false;
     let hasClaudeMd = false;
     let language: string | undefined;
 
     for (const marker of markers) {
       try {
         await access(join(dir, marker.file));
+        found = true;
         if (marker.isMarker && marker.file === 'CLAUDE.md') {
           hasClaudeMd = true;
         }
         if (marker.detectLang) {
           language = await this.detectLanguage(dir);
         }
-        return { isProject: true, hasClaudeMd, language };
       } catch {
         // Marker not found, continue
       }
     }
 
-    return { isProject: false, hasClaudeMd: false, language };
+    if (!found) return { isProject: false, hasClaudeMd: false, language };
+    return { isProject: true, hasClaudeMd, language };
   }
 
   private async detectLanguage(dir: string): Promise<string | undefined> {

@@ -53,25 +53,28 @@ export class AgentProfileService {
     const where: Prisma.AgentProfileWhereInput = {};
     if (status) where.status = status;
 
+    // When filtering by channelId, fetch all (no pagination) to avoid missing members across pages
+    const fetchAll = !!channelId;
+
     const [rawData, total] = await Promise.all([
       this.prisma.agentProfile.findMany({
         where,
-        skip: (page - 1) * limit,
-        take: limit,
+        ...(fetchAll ? {} : { skip: (page - 1) * limit, take: limit }),
         orderBy: { createdAt: 'desc' },
       }),
       this.prisma.agentProfile.count({ where }),
     ]);
 
-    // Filter by channelId (AgentProfile.channels contains channelId)
+    // Filter by channelId (Channel.members contains AgentProfile IDs)
     let filtered = rawData;
     if (channelId) {
-      const byChannels = rawData.filter(p => {
-        const agentChannels: string[] = p.channels ? JSON.parse(p.channels) : [];
-        return agentChannels.includes(channelId);
-      });
-      // Fallback: if no agents have this channelId, return all (empty members fallback)
-      filtered = byChannels.length > 0 ? byChannels : rawData;
+      // Query canonical source: Channel.members (written by PATCH /channels/:id/members)
+      const channel = await this.prisma.channel.findUnique({ where: { id: channelId } });
+      const memberIds: string[] = channel?.members ? JSON.parse(channel.members) : [];
+      if (memberIds.length > 0) {
+        filtered = rawData.filter(p => memberIds.includes(p.id));
+      }
+      // Fallback: if channel has no members configured, return all (empty members fallback)
     }
 
     // Add isOnline field (check RuntimeInstance)
@@ -87,7 +90,7 @@ export class AgentProfileService {
       isOnline: onlineSet.has(p.id),
     }));
 
-    return { data, total: channelId ? data.length : total };
+    return { data, total: channelId ? filtered.length : total };
   }
 
   async update(id: string, input: UpdateAgentProfileInput): Promise<AgentProfile> {

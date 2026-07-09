@@ -39,27 +39,30 @@ export class ConvertToTaskService {
       throw new Error(`Message already has WorkUnit ${message.workUnitId}`);
     }
 
-    // 2. Create WorkUnit
-    const workUnit = await this.prisma.workUnit.create({
-      data: {
-        scope: input.title || message.content.slice(0, 500),
-        channelId,
-        type: 'task',
-        status: input.assigneeId ? 'active' : 'unassigned',
-        assigneeId: input.assigneeId ?? null,
-        projectPath: input.projectPath ?? null,
-        metadata: JSON.stringify({
-          creationMode: 'convert',
-          originalMessageId: messageId,
-          description: input.description,
-        }),
-      },
-    });
+    // 2+3. Create WorkUnit + link message as thread anchor (atomic)
+    const workUnit = await this.prisma.$transaction(async (tx) => {
+      const wu = await tx.workUnit.create({
+        data: {
+          scope: input.title || message.content.slice(0, 500),
+          channelId,
+          type: 'task',
+          status: input.assigneeId ? 'active' : 'unassigned',
+          assigneeId: input.assigneeId ?? null,
+          projectPath: input.projectPath ?? null,
+          metadata: JSON.stringify({
+            creationMode: 'convert',
+            originalMessageId: messageId,
+            description: input.description,
+          }),
+        },
+      });
 
-    // 3. Link message as thread anchor
-    await this.prisma.channelMessage.update({
-      where: { id: messageId },
-      data: { workUnitId: workUnit.id },
+      await tx.channelMessage.update({
+        where: { id: messageId },
+        data: { workUnitId: wu.id },
+      });
+
+      return wu;
     });
 
     return workUnit;

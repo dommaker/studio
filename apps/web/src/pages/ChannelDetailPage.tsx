@@ -155,7 +155,8 @@ export function ChannelDetailPage() {
             } catch { return false; }
           });
           const active = messages.filter(m => !completed.includes(m));
-          const visibleMessages = showCompleted ? messages : [...active, ...completed.slice(-2)];
+          const visibleMessages = (showCompleted ? messages : [...active, ...completed.slice(-2)])
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
           // Re-group visible messages into threads
           const items = groupIntoThreads(visibleMessages);

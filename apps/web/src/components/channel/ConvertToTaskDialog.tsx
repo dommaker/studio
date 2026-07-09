@@ -20,6 +20,7 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
   const [projects, setProjects] = useState<LocalProject[]>([]);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
 
   // Fetch agents + projects + LLM suggestion on open
   useEffect(() => {
@@ -29,6 +30,7 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
     setDescription('');
     setAssigneeId('');
     setProjectPath('');
+    setError('');
 
     Promise.all([
       channelApi.listAgents(channelId).then(r => r.data.data).catch(() => []),
@@ -55,8 +57,8 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
       });
       onConverted();
       onClose();
-    } catch {
-      // TODO: error toast
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '创建失败，请重试');
     } finally {
       setSubmitting(false);
     }
@@ -76,6 +78,10 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
 
         {loading && (
           <div className="text-center text-gray-400 text-sm mb-4">正在获取建议...</div>
+        )}
+
+        {error && (
+          <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded mb-4">{error}</div>
         )}
 
         <div className="space-y-3">

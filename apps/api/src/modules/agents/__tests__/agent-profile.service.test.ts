@@ -158,11 +158,15 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     expect(found!.isOnline).toBe(false);
   });
 
-  it('list({ channelId }) filters agents by channel membership', async () => {
-    const ch1 = await prisma.channel.create({ data: { name: `#test-ac-a2-${Date.now()}` } });
-    const agent1 = await service.create({ name: 'channel-agent-1', channels: [ch1.id] });
+  it('list({ channelId }) filters agents by Channel.members', async () => {
+    const agent1 = await service.create({ name: 'channel-agent-1' });
     const agent2 = await service.create({ name: 'channel-agent-2', channels: [] });
     testIds.push(agent1.id, agent2.id);
+
+    // Set Channel.members to include agent1 (canonical source)
+    const ch1 = await prisma.channel.create({
+      data: { name: `#test-ac-a2-${Date.now()}`, members: JSON.stringify([agent1.id]) },
+    });
 
     const result = await service.list({ channelId: ch1.id });
     const ids = result.data.map(p => p.id);
