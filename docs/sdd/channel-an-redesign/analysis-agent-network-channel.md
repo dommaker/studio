@@ -303,6 +303,64 @@ WorkUnit 内部连贯 → Claude Code session 机制（已有）
 只是输入更丰富（带标签的 DATA），输出更精准（按场景过滤）
 ```
 
+### 知识存储：个人 + 项目双层
+
+```
+~/.studio/knowledge/              # 个人知识（不共享）
+  → 跨项目的通用经验
+  → 个人偏好、习惯
+  → 不进 git
+
+projectA/.studio/knowledge/       # 项目知识（git 共享）
+  → 关于 projectA 的知识
+  → 项目特定的模式/教训/决策
+  → 进 git，团队共享
+```
+
+**判断标准**：换个人做这个项目，需要看到吗？
+- 需要 → 项目目录（git 共享）
+- 不需要 → ~/.studio/（个人本地）
+
+**知识沉淀逻辑**：
+```
+Agent 在 projectA 工作 → 产出知识
+  → 引擎提取时判断：带 project 标签？
+  → 是 → 写入 projectA/.studio/knowledge/（git 追踪）
+  → 否（通用的）→ 写入 ~/.studio/knowledge/（个人）
+```
+
+**消费方式**：MCP query_documents 按需查询，不是注入
+```
+Agent 工作中需要知识 → 调 query_documents
+  → 查 projectA/.studio/knowledge/ + ~/.studio/knowledge/
+  → 只返回相关的几条
+  → 零噪音，零 token 浪费
+```
+
+### 可行性验证
+
+```
+现有基建：
+  query_documents → mcp-local-rag（LanceDB 向量搜索）
+  知识写入 → KnowledgeBus → FileKnowledgeStore
+  向量同步 → scheduleVectorDbSync → mcp-local-rag ingest
+  知识审计 → harness knowledge audit（支持 --dir）
+
+关键发现：LanceDB 是单一向量表
+  → 所有 ingest 的文件都在同一向量空间
+  → 查询侧零改动（天然跨文件搜索）
+
+需要的改动：
+  🔧 scheduleVectorDbSync：多目录 ingest 到同一 DB
+  🔧 KnowledgeBus 写入：按 project 标签决定写入目录
+  🔧 knowledge audit：扫描多目录（已有 --dir，扩展）
+
+不需要改：
+  ❌ mcp-local-rag 本身
+  ❌ query_documents 接口
+  ❌ LanceDB 查询逻辑
+```
+
 ---
 
 ## 六、Harness vs Studio 分工
@@ -397,7 +455,10 @@ Phase 5: 执行隔离 + 数据迁移
 | 23 | DATA 标签规范（每条数据带 project + workType） | Harness | P1 | 小 |
 | 24 | Skill 执行自动写记录（JSONL） | Harness | P1 | 小 |
 | 25 | MCP query_documents 加 context 过滤 | Harness | P2 | 中 |
-| 26 | Agent spawn 按场景注入知识 | Studio | P2 | 中 |
+| 26 | Agent 按需查询知识（非注入） | Studio | P2 | 小 |
+| 27 | 知识双层存储（个人 + 项目目录） | Harness | P2 | 小 |
+| 28 | scheduleVectorDbSync 多目录 ingest | Harness | P2 | 小 |
+| 29 | KnowledgeBus 按 project 标签写对应目录 | Studio | P2 | 小 |
 
 ---
 
@@ -811,3 +872,6 @@ Agent = 人（坐在房间里，看哪个桌子在叫自己）
 - [x] ~~Agent 记忆系统~~ → 不需要独立系统，复用知识引擎飞轮 + context 标签
 - [x] ~~agentId 耦合~~ → 改为 context 标签（project + workType），知识跟场景走
 - [x] ~~数据格式~~ → JSONL（日志型）+ md（内容型），按特性分
+- [x] ~~知识存储位置~~ → 双层：个人 ~/.studio/knowledge/ + 项目 project/.studio/knowledge/
+- [x] ~~知识消费方式~~ → MCP query_documents 按需查询，不注入
+- [x] ~~双层知识可行性~~ → 已验证：LanceDB 单表 ingest 多目录，查询侧零改动
