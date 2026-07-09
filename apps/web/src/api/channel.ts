@@ -1,4 +1,4 @@
-// Channel API — B1-001
+// Channel API — B1-001 + Phase 2 (AC-B4/C3/E3)
 import { api } from './index';
 
 export interface ChannelMessage {
@@ -7,7 +7,8 @@ export interface ChannelMessage {
   authorType: 'human' | 'agent';
   agentName?: string;
   content: string;
-  replyToId?: string;
+  replyToId?: string | null;
+  workUnitId?: string | null;
   meta?: string;
   createdAt: string;
 }
@@ -23,6 +24,21 @@ export interface AgentProfile {
   name: string;
   description: string | null;
   status: string;
+  isOnline?: boolean;
+}
+
+export interface ConvertSuggestion {
+  title?: string;
+  description?: string;
+  suggestedAssigneeId?: string;
+  suggestedProjectPath?: string;
+}
+
+export interface LocalProject {
+  name: string;
+  path: string;
+  hasClaudeMd: boolean;
+  language?: string;
 }
 
 export const channelApi = {
@@ -41,8 +57,26 @@ export const channelApi = {
       { content, replyToId }
     ),
 
-  listAgents: () =>
+  listAgents: (channelId?: string) =>
     api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {
-      params: { status: 'active' },
+      params: { status: 'active', ...(channelId ? { channelId } : {}) },
     }),
+
+  convertToTask: (channelId: string, messageId: string, data: {
+    title?: string; description?: string; assigneeId?: string; projectPath?: string;
+  }) =>
+    api.post<{ success: boolean; data: unknown }>(
+      `/channels/${channelId}/messages/${messageId}/convert-to-task`,
+      data
+    ),
+
+  suggestTask: (channelId: string, messageId: string) =>
+    api.post<{ success: boolean; data: ConvertSuggestion }>(
+      `/channels/${channelId}/messages/${messageId}/convert-to-task/suggest`
+    ),
+
+  discoverProjects: (search?: string) => {
+    const params = search ? `?search=${encodeURIComponent(search)}` : '';
+    return api.get<{ success: boolean; data: LocalProject[] }>(`/projects/discover${params}`);
+  },
 };

@@ -1,15 +1,24 @@
-// Channel message renderer — AC-C2: reply button + quote rendering
+// Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task
+import { useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
 import { DeployApprovalCard } from './DeployApprovalCard'; // M4a
+import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 
 interface Props {
   message: ChannelMessage;
   onAction: (messageId: string, action: string) => void;
   onReply?: (message: ChannelMessage) => void;
   findMessage?: (id: string) => ChannelMessage | undefined;
+  channelId?: string;
+  /** AC-C3: thread rendering */
+  isThreadAnchor?: boolean;
+  threadReplyCount?: number;
+  isExpanded?: boolean;
+  onToggleThread?: () => void;
+  isThreadReply?: boolean;
 }
 
 function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction: Props['onAction']) {
@@ -28,16 +37,27 @@ function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction
   }
 }
 
-export function ChannelMessageItem({ message, onAction, onReply, findMessage }: Props) {
+export function ChannelMessageItem({
+  message, onAction, onReply, findMessage, channelId,
+  isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
+}: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
   const card = renderCard(meta, message, onAction);
   const parentMessage = message.replyToId && findMessage ? findMessage(message.replyToId) : undefined;
+  const [convertOpen, setConvertOpen] = useState(false);
+  const canConvert = !message.workUnitId && isHuman && !!channelId;
+
+  const handleConverted = () => {
+    setConvertOpen(false);
+    // Parent will refresh messages via onAction
+    onAction(message.id, 'converted');
+  };
 
   return (
-    <div className={`flex ${isHuman ? 'justify-end' : 'justify-start'} mb-4 group`}>
+    <div className={`flex ${isHuman ? 'justify-end' : 'justify-start'} mb-4 group ${isThreadReply ? 'ml-8' : ''}`}>
       <div className={`max-w-[80%] ${isHuman ? 'order-1' : 'order-1'}`}>
-        {/* Author label + reply button */}
+        {/* Author label + reply button + convert button */}
         <div className={`text-xs mb-1 flex items-center gap-2 ${isHuman ? 'justify-end text-blue-600' : 'justify-start text-gray-500'}`}>
           <span>{isHuman ? 'You' : message.agentName || 'Agent'}</span>
           {onReply && (
@@ -47,6 +67,15 @@ export function ChannelMessageItem({ message, onAction, onReply, findMessage }: 
               title="回复"
             >
               ↩
+            </button>
+          )}
+          {canConvert && (
+            <button
+              onClick={() => setConvertOpen(true)}
+              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-green-500 transition-opacity text-xs"
+              title="转为任务"
+            >
+              📋
             </button>
           )}
         </div>
@@ -73,7 +102,29 @@ export function ChannelMessageItem({ message, onAction, onReply, findMessage }: 
         <div className={`text-xs mt-1 text-gray-400 ${isHuman ? 'text-right' : 'text-left'}`}>
           {formatTime(message.createdAt)}
         </div>
+
+        {/* AC-C3: Thread reply count badge */}
+        {isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0 && (
+          <button
+            onClick={onToggleThread}
+            className="text-xs text-blue-500 hover:text-blue-700 mt-1"
+          >
+            {isExpanded ? '收起回复' : `${threadReplyCount} 条回复`}
+          </button>
+        )}
       </div>
+
+      {/* AC-E3: Convert to Task dialog */}
+      {channelId && (
+        <ConvertToTaskDialog
+          open={convertOpen}
+          onClose={() => setConvertOpen(false)}
+          messageId={message.id}
+          channelId={channelId}
+          messageContent={message.content}
+          onConverted={handleConverted}
+        />
+      )}
     </div>
   );
 }

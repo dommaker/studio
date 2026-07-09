@@ -1,4 +1,4 @@
-// Channel Detail Page — B1-001
+// Channel Detail Page — B1-001 + Phase 2 (AC-C3 Thread rendering)
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useCallback } from 'react';
 import { api } from '../api';
@@ -18,11 +18,39 @@ function isYesterday(d: Date) {
   return d.toDateString() === y.toDateString();
 }
 
+/** AC-C3: Group messages into threads (anchor + replies) */
+interface ThreadGroup {
+  anchor: ChannelMessage;
+  replies: ChannelMessage[];
+}
+
+function groupIntoThreads(messages: ChannelMessage[]): Array<ChannelMessage | ThreadGroup> {
+  const anchorMap = new Map<string, ThreadGroup>();
+  const result: Array<ChannelMessage | ThreadGroup> = [];
+
+  for (const msg of messages) {
+    if (msg.workUnitId && !msg.replyToId) {
+      // This is a thread anchor
+      const group: ThreadGroup = { anchor: msg, replies: [] };
+      anchorMap.set(msg.id, group);
+      result.push(group);
+    } else if (msg.replyToId && anchorMap.has(msg.replyToId)) {
+      // This is a thread reply
+      anchorMap.get(msg.replyToId)!.replies.push(msg);
+    } else {
+      // Regular message (no thread)
+      result.push(msg);
+    }
+  }
+
+  return result;
+}
+
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [channel, setChannel] = useState<any>(null);
-  const { messages, loading, sendMessage, loadMore, hasMore } = useChannelMessages(id);
+  const { messages, loading, sendMessage, loadMore, hasMore, refresh } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
@@ -42,9 +70,9 @@ export function ChannelDetailPage() {
     }
   };
 
-  const handleAction = useCallback((_messageId: string, _action: string) => {
-    // Card actions — handled by individual card components
-  }, []);
+  const handleAction = useCallback((_messageId: string, action: string) => {
+    if (action === 'converted') refresh();
+  }, [refresh]);
 
   const handleReply = useCallback((message: ChannelMessage) => {
     setReplyTo(message);
@@ -53,6 +81,18 @@ export function ChannelDetailPage() {
   const findMessage = useCallback((msgId: string) => {
     return messages.find(m => m.id === msgId);
   }, [messages]);
+
+  // AC-C3: Thread expand/collapse state
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+
+  const toggleThread = useCallback((anchorId: string) => {
+    setExpandedThreads(prev => {
+      const next = new Set(prev);
+      if (next.has(anchorId)) next.delete(anchorId);
+      else next.add(anchorId);
+      return next;
+    });
+  }, []);
 
   if (!id) return <div className="p-8 text-center text-gray-500">Invalid channel</div>;
 
@@ -105,7 +145,7 @@ export function ChannelDetailPage() {
           </div>
         )}
 
-        {/* B2-002: Date separators + B2-006: collapse completed */}
+        {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads */}
         {(() => {
           let lastDate = '';
           const completed = messages.filter(m => {
@@ -115,7 +155,10 @@ export function ChannelDetailPage() {
             } catch { return false; }
           });
           const active = messages.filter(m => !completed.includes(m));
-          const display = showCompleted ? messages : [...active, ...completed.slice(-2)];
+          const visibleMessages = showCompleted ? messages : [...active, ...completed.slice(-2)];
+
+          // Re-group visible messages into threads
+          const items = groupIntoThreads(visibleMessages);
 
           return (
             <>
@@ -127,32 +170,82 @@ export function ChannelDetailPage() {
                   </button>
                 </div>
               )}
-              {display.map(msg => {
-                const d = new Date(msg.createdAt);
-                const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-                const showDate = dateStr !== lastDate;
-                lastDate = dateStr;
-                return (
-                  <div key={msg.id}>
-                    {showDate && (
-                      <div className="flex items-center gap-3 my-4">
-                        <div className="flex-1 border-t border-gray-200" />
-                    <span className="text-xs text-gray-400 flex-shrink-0">
-                      {isToday(d) ? '今天' : isYesterday(d) ? '昨天' : dateStr}
-                    </span>
-                    <div className="flex-1 border-t border-gray-200" />
-                  </div>
-                )}
-                <ChannelMessageItem message={msg} onAction={handleAction} onReply={handleReply} findMessage={findMessage} />
-              </div>
-            );
-          })}
-        </>)
+              {items.map(item => {
+                if ('anchor' in item) {
+                  // ThreadGroup
+                  const msg = item.anchor;
+                  const d = new Date(msg.createdAt);
+                  const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+                  const showDate = dateStr !== lastDate;
+                  lastDate = dateStr;
+                  const anchorId = msg.id;
+                  const expanded = expandedThreads.has(anchorId);
+
+                  return (
+                    <div key={anchorId}>
+                      {showDate && (
+                        <div className="flex items-center gap-3 my-4">
+                          <div className="flex-1 border-t border-gray-200" />
+                          <span className="text-xs text-gray-400 flex-shrink-0">
+                            {isToday(d) ? '今天' : isYesterday(d) ? '昨天' : dateStr}
+                          </span>
+                          <div className="flex-1 border-t border-gray-200" />
+                        </div>
+                      )}
+                      <ChannelMessageItem
+                        message={msg}
+                        onAction={handleAction}
+                        onReply={handleReply}
+                        findMessage={findMessage}
+                        channelId={id}
+                        isThreadAnchor
+                        threadReplyCount={item.replies.length}
+                        isExpanded={expanded}
+                        onToggleThread={() => toggleThread(anchorId)}
+                      />
+                      {expanded && item.replies.map(reply => (
+                        <ChannelMessageItem
+                          key={reply.id}
+                          message={reply}
+                          onAction={handleAction}
+                          onReply={handleReply}
+                          findMessage={findMessage}
+                          channelId={id}
+                          isThreadReply
+                        />
+                      ))}
+                    </div>
+                  );
+                } else {
+                  // Regular message
+                  const msg = item;
+                  const d = new Date(msg.createdAt);
+                  const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+                  const showDate = dateStr !== lastDate;
+                  lastDate = dateStr;
+                  return (
+                    <div key={msg.id}>
+                      {showDate && (
+                        <div className="flex items-center gap-3 my-4">
+                          <div className="flex-1 border-t border-gray-200" />
+                          <span className="text-xs text-gray-400 flex-shrink-0">
+                            {isToday(d) ? '今天' : isYesterday(d) ? '昨天' : dateStr}
+                          </span>
+                          <div className="flex-1 border-t border-gray-200" />
+                        </div>
+                      )}
+                      <ChannelMessageItem message={msg} onAction={handleAction} onReply={handleReply} findMessage={findMessage} channelId={id} />
+                    </div>
+                  );
+                }
+              })}
+            </>
+          );
         })()}
       </div>
 
       {/* Input */}
-      <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} />
+      <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} />
     </div>
   );
 }

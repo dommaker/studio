@@ -7,20 +7,21 @@ interface Props {
   sending: boolean;
   replyTo?: ChannelMessage | null;
   onCancelReply?: () => void;
+  channelId?: string;
 }
 
-export function ChannelInput({ onSend, sending, replyTo, onCancelReply }: Props) {
+export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId }: Props) {
   const [content, setContent] = useState('');
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [mentionIdx, setMentionIdx] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // AC-C1: Fetch active agents from API (replaces hardcoded AGENTS array)
+  // AC-B4: Fetch agents filtered by channel membership (falls back to all active if no channelId)
   useEffect(() => {
-    channelApi.listAgents()
+    channelApi.listAgents(channelId)
       .then(res => setAgents(res.data.data))
       .catch(() => setAgents([]));
-  }, []);
+  }, [channelId]);
 
   // Parse if we're in a mention: last @word before cursor
   const mentionState = useMemo(() => {
