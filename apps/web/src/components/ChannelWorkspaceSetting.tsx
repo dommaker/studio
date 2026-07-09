@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { workspaceApi, taskApi } from '../api';
+import { workspaceApi } from '../api';
+import { channelApi } from '../api/channel';
 
 interface Workspace {
   id: string;
@@ -28,7 +29,7 @@ export const ChannelWorkspaceSetting: React.FC<ChannelWorkspaceSettingProps> = (
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const value = e.target.value;
     setSelected(value);
-    taskApi.update(channelId, { defaultWorkspaceId: value });
+    channelApi.update(channelId, { defaultWorkspaceId: value });
   };
 
   return (

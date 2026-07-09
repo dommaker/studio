@@ -45,6 +45,9 @@ export const channelApi = {
   list: () =>
     api.get<{ success: boolean; data: Channel[] }>('/channels'),
 
+  update: (channelId: string, data: { defaultWorkspaceId?: string; defaultPath?: string; name?: string }) =>
+    api.patch<{ success: boolean; data: Channel }>(`/channels/${channelId}`, data),
+
   listMessages: (channelId: string, params?: { before?: string; limit?: number }) =>
     api.get<{ success: boolean; data: ChannelMessage[]; total: number; hasMore: boolean }>(
       `/channels/${channelId}/messages`,

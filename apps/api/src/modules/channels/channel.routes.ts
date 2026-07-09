@@ -395,6 +395,26 @@ router.put('/:id/restore', async (req, res) => {
   res.json({ success: true, data: { restored: true, name: restoredName } });
 });
 
+// PATCH /api/v1/channels/:id — update channel settings
+router.patch('/:id', async (req, res) => {
+  const { id } = req.params;
+  const { name, defaultWorkspaceId, defaultPath } = req.body;
+  try {
+    const data: Record<string, unknown> = {};
+    if (name !== undefined) data.name = name;
+    if (defaultWorkspaceId !== undefined) data.defaultWorkspaceId = defaultWorkspaceId;
+    if (defaultPath !== undefined) data.defaultPath = defaultPath;
+    const channel = await prisma.channel.update({ where: { id }, data });
+    res.json({ success: true, data: channel });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (msg.includes('Record to update not found')) {
+      return res.status(404).json({ success: false, error: 'Channel not found' });
+    }
+    throw e;
+  }
+});
+
 // PATCH /api/v1/channels/:id/members — update channel members (AC-B2)
 router.patch('/:id/members', async (req, res) => {
   const { add, remove } = req.body;
