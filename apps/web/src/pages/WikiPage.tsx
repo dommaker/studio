@@ -41,7 +41,7 @@ export function WikiPage() {
   const [viewMode, setViewMode] = useState<'list' | 'graph'>('list');
   const [graphData, setGraphData] = useState<KnowledgeGraph | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchDocs = useCallback(async (searchTerm: string) => {
     setLoading(true);

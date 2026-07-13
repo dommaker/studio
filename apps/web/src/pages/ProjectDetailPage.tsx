@@ -37,7 +37,6 @@ interface Task {
 interface Execution {
   id: string;
   status: string;
-  workflowId?: string;
   workflowName?: string;
   parameters?: any;
   createdAt: string;
@@ -60,6 +59,7 @@ interface Project {
   progress: number;
   gitBranch?: string;
   gitRepo?: string;
+  worktreePath?: string;
   startedAt?: string;
   completedAt?: string;
   createdAt: string;

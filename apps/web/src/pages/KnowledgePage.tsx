@@ -117,6 +117,19 @@ export function KnowledgePage() {
     finally { setGapLoading(false); }
   }, []);
 
+  // AS-022: Load unified knowledge entries
+  const loadUnified = useCallback(async () => {
+    setUnifiedLoading(true);
+    try {
+      const params = new URLSearchParams({ limit: '50', offset: String(unifiedOffset) });
+      if (unifiedMode) params.set('consumptionMode', unifiedMode);
+      const res = await api.get(`/knowledge/unified?${params}`);
+      setUnifiedEntries(res.data.entries || []);
+      setUnifiedTotal(res.data.total || 0);
+    } catch { setUnifiedEntries([]); }
+    finally { setUnifiedLoading(false); }
+  }, [unifiedMode, unifiedOffset]);
+
   useEffect(() => {
     if (!companyId) return;
     if (activeTab === 'documents') loadDocuments();
@@ -136,19 +149,6 @@ export function KnowledgePage() {
       loadUnified();
     } catch (err) { console.error('Failed to create entry:', err); }
   };
-
-  // AS-022: Load unified knowledge entries
-  const loadUnified = useCallback(async () => {
-    setUnifiedLoading(true);
-    try {
-      const params = new URLSearchParams({ limit: '50', offset: String(unifiedOffset) });
-      if (unifiedMode) params.set('consumptionMode', unifiedMode);
-      const res = await api.get(`/knowledge/unified?${params}`);
-      setUnifiedEntries(res.data.entries || []);
-      setUnifiedTotal(res.data.total || 0);
-    } catch { setUnifiedEntries([]); }
-    finally { setUnifiedLoading(false); }
-  }, [unifiedMode, unifiedOffset]);
 
   // S11: Unified search across all types
   const handleGlobalSearch = useCallback(async () => {

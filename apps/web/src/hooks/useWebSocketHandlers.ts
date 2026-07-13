@@ -143,8 +143,8 @@ export function useWebSocketHandlers(setExecutions: React.Dispatch<React.SetStat
 
       // NA Step 8: Agent 进度事件
       case 'agent.progress': {
-        const phase = event.data?.phase || 'running';
-        const session = event.data?.session || 1;
+        const phase = data?.phase || 'running';
+        const session = data?.session || 1;
         setCurrentExecution(prev => prev ? {
           ...prev,
           status: 'running',
@@ -155,8 +155,8 @@ export function useWebSocketHandlers(setExecutions: React.Dispatch<React.SetStat
       }
 
       case 'agent.heartbeat': {
-        const currentStep = event.data?.currentStep || '';
-        const runningDuration = event.data?.runningDuration || '';
+        const currentStep = data?.currentStep || '';
+        const runningDuration = data?.runningDuration || '';
         setCurrentExecution(prev => prev ? {
           ...prev,
           status: 'running',
@@ -174,7 +174,7 @@ export function useWebSocketHandlers(setExecutions: React.Dispatch<React.SetStat
         setCurrentExecution(prev => prev ? {
           ...prev,
           status: 'failed',
-          error: event.data?.error || 'Agent execution failed',
+          error: data?.error || 'Agent execution failed',
         } : null);
         break;
     }
