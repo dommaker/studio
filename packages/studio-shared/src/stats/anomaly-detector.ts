@@ -7,7 +7,7 @@
  * @param values - 数值数组，空数组返回 {mean:0, stddev:0}，NaN 值自动过滤
  */
 export function meanAndStddev(values: number[]): { mean: number; stddev: number } {
-  const filtered = values.filter((v) => !Number.isNaN(v));
+  const filtered = values.filter((v) => !Number.isNaN(v) && Number.isFinite(v));
   if (filtered.length === 0) return { mean: 0, stddev: 0 };
 
   const n = filtered.length;

@@ -135,6 +135,21 @@ export async function detectAnomalies(): Promise<AnomalyReport> {
       anomalies: anomalies.length,
     });
 
+    // Write anomaly events to studioEvent
+    for (const anomaly of anomalies) {
+      try {
+        await prisma.studioEvent.create({
+          data: {
+            type: 'metric:anomaly',
+            source: 'okr-anomaly-detector',
+            payload: JSON.stringify(anomaly),
+          },
+        });
+      } catch {
+        // Non-blocking: event write failure doesn't stop scan
+      }
+    }
+
     return {
       anomalies,
       summary: {

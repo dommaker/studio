@@ -66,6 +66,13 @@ describe('rollingBaseline', () => {
     const result = rollingBaseline([1, 2], 10);
     expect(result.mean).toBeCloseTo(1.5);
   });
+
+  it('filters Infinity and NaN values in window', () => {
+    const result = rollingBaseline([1, Infinity, 3, NaN, 5], 3);
+    // Last 3 elements: [3, NaN, 5] → filtered to [3, 5], mean=4
+    expect(result.mean).toBeCloseTo(4);
+    expect(result.stddev).toBeGreaterThan(0);
+  });
 });
 
 describe('detectTrend', () => {

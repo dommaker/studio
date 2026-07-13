@@ -2,15 +2,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock prisma
 const mockFindMany = vi.fn();
+const mockCreateEvent = vi.fn().mockResolvedValue(undefined);
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
     kRHistory: { findMany: mockFindMany },
+    studioEvent: { create: mockCreateEvent },
     $queryRawUnsafe: vi.fn(),
   },
 }));
 
 // Mock studioEvent logger
-const mockCreate = vi.fn();
 vi.mock('@dommaker/studio-shared', async () => {
   const actual = await vi.importActual('@dommaker/studio-shared');
   return {
@@ -76,6 +77,10 @@ describe('detectAnomalies', () => {
     const result = await detectAnomalies();
     expect(result.anomalies.length).toBeGreaterThan(0);
     expect(result.anomalies[0].anomalyType).toBe('zscore');
+    // Verify event written
+    expect(mockCreateEvent).toHaveBeenCalled();
+    const call = mockCreateEvent.mock.calls[0][0];
+    expect(call.data.type).toBe('metric:anomaly');
   });
 
   it('detects trend anomaly for consecutive decline', async () => {
