@@ -88,7 +88,6 @@
 | types | packages/studio-task/src/types.ts | CLI 命令选项和输出类型 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
-| agent-context | apps/api/src/modules/agents/agent-context.ts | buildAgentContext — 统一 Agent 上下文构建器 |
 | auditor-agent.service | apps/api/src/modules/agents/auditor-agent.service.ts | Auditor Agent — 跨任务审计 + 周期洞察 |
 | deploy-agent.service | apps/api/src/modules/agents/deploy-agent.service.ts | Deploy Agent — merge to master, push, deploy, cleanup |
 | knowledge-agent.service | apps/api/src/modules/agents/knowledge-agent.service.ts | Knowledge Agent - 从执行结果中异步提取知识 |
@@ -168,7 +167,6 @@
 | routes | apps/api/src/modules/pmo/routes.ts | PMO API — 项目 CRUD + POST publish + GET sdd 关联查询 |
 | memory-routes | apps/api/src/modules/roles/memory-routes.ts | Role Memory API 路由 |
 | memory.service | apps/api/src/modules/roles/memory.service.ts | MemoryService - 角色记忆管理 |
-| role-config.service | apps/api/src/modules/roles/role-config.service.ts | RoleConfig Service — 可进化角色配置的 CRUD + 初始化 |
 | role.service | apps/api/src/modules/roles/role.service.ts | Role Service — 角色管理 |
 | role.types | apps/api/src/modules/roles/role.types.ts | Role memory types — used by memory.service.ts |
 | routes | apps/api/src/modules/roles/routes.ts | Role API 路由 |
@@ -177,9 +175,8 @@
 | routes | apps/api/src/modules/spec-reviews/routes.ts | Spec 审查 API 路由 |
 | spec-review.service | apps/api/src/modules/spec-reviews/spec-review.service.ts | Spec 审查服务 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
-| routes | apps/api/src/modules/tools-std/routes.ts | skills/routes.ts - Tool 管理 API（tools/std 目录） |
-| skill-extraction.service | apps/api/src/modules/tools-std/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
-| skill-proposal-routes | apps/api/src/modules/tools-std/skill-proposal-routes.ts | Skill Proposal API 路由 |
+| skill-extraction.service | apps/api/src/modules/skills/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
+| skill-proposal-routes | apps/api/src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | apps/api/src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
 | channel | apps/web/src/api/channel.ts | Channel API — list + publish 发布 |
@@ -244,7 +241,6 @@
 | agent-runner | packages/studio-agent/src/services/agent-runner.ts | Agent Runner — unified executor merging AgentExecutor + TaskExecutor |
 | spawn-claude-cli | packages/studio-shared/src/llm/spawn-claude-cli.ts | CLI Spawn 环境变量构造 |
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
-| data-analyst-agent.service | apps/api/src/modules/agents/data-analyst-agent.service.ts | DataAnalyst Agent — 每日数据分析 (LLM) |
 | oauth.routes | apps/api/src/modules/auth/oauth.routes.ts | GET /auth/:provider |
 | oauth.service | apps/api/src/modules/auth/oauth.service.ts | OAuth 2.0 service for Google and GitHub providers. |
 | analyst-fact-verification | apps/api/src/modules/channels/analyst-fact-verification.ts | Analyst Fact Verification — 事实验证层 (D6) |

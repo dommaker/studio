@@ -1,4 +1,4 @@
-// Default Triggers — 6 system triggers for Agent Network
+// Default Triggers — 7 system triggers for Agent Network
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
 
@@ -48,7 +48,17 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
-  // 4. session-knowledge-extraction: SCHEDULE daily 4:17 → CREATE WorkUnit for session extraction
+  // 4. okr-metric-sync: SCHEDULE daily 3:47 → EXECUTE okr-metric-sync
+  registry.registerTrigger({
+    id: 'okr-metric-sync',
+    name: 'OKR Metric Sync',
+    condition: { type: 'SCHEDULE', cron: '47 3 * * *' },
+    action: { type: 'EXECUTE', target: 'okr-metric-sync' },
+    scope: 'system',
+    enabled: true,
+  });
+
+  // 5. session-knowledge-extraction: SCHEDULE daily 4:17 → CREATE WorkUnit for session extraction
   registry.registerTrigger({
     id: 'session-knowledge-extraction',
     name: 'Daily session knowledge extraction',
@@ -65,7 +75,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
-  // 5. zero-consumption-audit: SCHEDULE daily 5:17 → CREATE WorkUnit for zero-consumption review
+  // 6. zero-consumption-audit: SCHEDULE daily 5:17 → CREATE WorkUnit for zero-consumption review
   registry.registerTrigger({
     id: 'zero-consumption-audit',
     name: 'Daily zero-consumption knowledge audit',
@@ -82,7 +92,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
-  // 6. knowledge-synthesis: SCHEDULE weekly Monday 10:23 → CREATE WorkUnit for Skill proposal
+  // 7. knowledge-synthesis: SCHEDULE weekly Monday 10:23 → CREATE WorkUnit for Skill proposal
   registry.registerTrigger({
     id: 'knowledge-synthesis',
     name: 'Weekly knowledge synthesis and Skill proposal',
@@ -141,6 +151,14 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
       },
       enabled: true,
       scope: 'system',
+    },
+    {
+      id: 'okr-metric-sync',
+      name: 'OKR Metric Sync',
+      condition: { type: 'SCHEDULE', cron: '47 3 * * *' },
+      action: { type: 'EXECUTE', target: 'okr-metric-sync' },
+      scope: 'system',
+      enabled: true,
     },
     {
       id: 'session-knowledge-extraction',

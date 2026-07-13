@@ -30,9 +30,7 @@
 | request-logger | src/middleware/request-logger.ts | 请求日志中间件 |
 | docs-freshness.routes | src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
-| agent-context | src/modules/agents/agent-context.ts | buildAgentContext — 统一 Agent 上下文构建器 |
 | auditor-agent.service | src/modules/agents/auditor-agent.service.ts | Auditor Agent — 跨任务审计 + 周期洞察 |
-| data-analyst-agent.service | src/modules/agents/data-analyst-agent.service.ts | DataAnalyst Agent — 每日数据分析 (LLM) |
 | deploy-agent.service | src/modules/agents/deploy-agent.service.ts | Deploy Agent — merge to master, push, deploy, cleanup |
 | knowledge-agent.service | src/modules/agents/knowledge-agent.service.ts | Knowledge Agent - 从执行结果中异步提取知识 |
 | monitor-agent.service | src/modules/agents/monitor-agent.service.ts | Monitor Agent - 健康监控 + NA Step 7 渐进告警 |
@@ -133,7 +131,6 @@
 | routes | src/modules/pmo/routes.ts | GET /api/v1/pmo/project |
 | memory-routes | src/modules/roles/memory-routes.ts | Role Memory API 路由 |
 | memory.service | src/modules/roles/memory.service.ts | MemoryService - 角色记忆管理 |
-| role-config.service | src/modules/roles/role-config.service.ts | RoleConfig Service — 可进化角色配置的 CRUD + 初始化 |
 | role.service | src/modules/roles/role.service.ts | Role Service — 角色管理 |
 | role.types | src/modules/roles/role.types.ts | Role memory types — used by memory.service.ts |
 | routes | src/modules/roles/routes.ts | Role API 路由 |
@@ -143,9 +140,8 @@
 | routes | src/modules/spec-reviews/routes.ts | Spec 审查 API 路由 |
 | spec-review.service | src/modules/spec-reviews/spec-review.service.ts | Spec 审查服务 |
 | routes | src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
-| routes | src/modules/tools-std/routes.ts | skills/routes.ts - Tool 管理 API（tools/std 目录） |
-| skill-extraction.service | src/modules/tools-std/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
-| skill-proposal-routes | src/modules/tools-std/skill-proposal-routes.ts | Skill Proposal API 路由 |
+| skill-extraction.service | src/modules/skills/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
+| skill-proposal-routes | src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |
 | error-class | src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
 | daemon-routes | src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
