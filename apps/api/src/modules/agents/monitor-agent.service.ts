@@ -14,7 +14,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
+import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import { knowledgeService, writeTrendData } from '../knowledge/knowledge-service.js';
 import type { MonitorAlert, TriageIncidentInput } from './types.js';
@@ -52,6 +53,11 @@ export class MonitorAgent {
   private lastDecayRun = 0;
   private lastUserModelRun = 0;
   private lastDailyReflectionTs = 0;
+  private fileStore: FileStore;
+
+  constructor(fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+  }
 
   start(): void {
     if (this.interval) return;
@@ -121,29 +127,6 @@ export class MonitorAgent {
           this.emitEvent({ type: 'monitor:alert', ...alert, timestamp: Date.now() });
         } catch { /* non-blocking */ }
       }
-    }
-
-    // B11-010: LLM 根因分析 — 多告警关联时调 LLM 诊断
-    const significantAlerts = alerts.filter(a => a.level === 'critical' || a.level === 'warning');
-    if (significantAlerts.length >= 2) {
-      try {
-        const { modelGateway } = await import('@dommaker/studio-shared');
-        const alertSummary = significantAlerts.map(a => `[${a.level}] ${a.source}: ${a.message}`).join('\n');
-        const rootCause = await modelGateway.prompt(
-          `以下是监控系统同时检测到的 ${significantAlerts.length} 条告警：\n${alertSummary}\n\n分析这些告警的关联性，指出可能的根因（1-3 句话）。`,
-          '你是 SRE 根因分析专家。简短回答，指出最可能的共同根因。',
-        );
-        if (rootCause) {
-          logger.warn('[MonitorAgent] LLM root cause analysis', { rootCause: rootCause.slice(0, 300) });
-          // Record root cause as a pattern for future reference
-          knowledgeService.recordPattern({
-            type: 'pattern',
-            title: `[Monitor RCA] ${significantAlerts.length} alerts correlated`,
-            content: `告警: ${alertSummary}\n根因分析: ${rootCause}`,
-            tags: ['monitor'],
-          }).catch(() => { /* non-blocking */ });
-        }
-      } catch { /* LLM unavailable — non-blocking */ }
     }
 
     // Phase 1 (FL-037): Escalate critical execution-level alerts to Triage
@@ -249,11 +232,7 @@ export class MonitorAgent {
 
   private async checkProgressStagnation(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
-    const running = await prisma.workUnit.findMany({
-      where: { status: 'active' },
-      select: { id: true, updatedAt: true },
-      take: 10,
-    });
+    const running = (await this.fileStore.getIndex({ status: 'active' })).slice(0, 10);
 
     for (const wu of running) {
       const minutesSinceUpdate = Math.round((Date.now() - new Date(wu.updatedAt).getTime()) / 60_000);
@@ -282,11 +261,7 @@ export class MonitorAgent {
 
   private async checkTotalExecutionTime(): Promise<MonitorAlert[]> {
     const alerts: MonitorAlert[] = [];
-    const running = await prisma.workUnit.findMany({
-      where: { status: 'active' },
-      select: { id: true, parentId: true, claimedAt: true, createdAt: true },
-      take: 10,
-    });
+    const running = (await this.fileStore.getIndex({ status: 'active' })).slice(0, 10);
 
     for (const exec of running) {
       const startTime = new Date(exec.claimedAt || exec.createdAt).getTime();
@@ -308,15 +283,16 @@ export class MonitorAgent {
         } catch (stopErr) {
           logger.warn('[MonitorAgent] Failed to stop workUnit process', { workUnitId: exec.id.slice(0, 8), error: String(stopErr) });
         }
-        // Update DB status
+        // Update status via FileStore
         try {
-          await prisma.workUnit.update({
-            where: { id: exec.id },
-            data: {
+          const current = (await this.fileStore.getIndex()).find(s => s.id === exec.id);
+          if (current) {
+            await this.fileStore.upsertSnapshot({
+              ...current,
               status: 'closed',
-              completedAt: new Date(),
-            },
-          });
+              completedAt: new Date().toISOString(),
+            });
+          }
           logger.info('[MonitorAgent] Auto-closed timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
         } catch (dbErr) {
           logger.error('[MonitorAgent] Failed to update workUnit status', { workUnitId: exec.id.slice(0, 8), error: String(dbErr) });
@@ -353,19 +329,17 @@ export class MonitorAgent {
   private async autoAbandonStaleBlocked(): Promise<void> {
     const cutoff = new Date(Date.now() - BLOCKED_AUTO_ABANDON_MS);
 
-    const stale = await prisma.workUnit.findMany({
-      where: { status: 'blocked', createdAt: { lt: cutoff } },
-      select: { id: true },
-      take: 20,
-    });
+    const stale = (await this.fileStore.getIndex({ status: 'blocked' }))
+      .filter(s => new Date(s.createdAt).getTime() < cutoff.getTime())
+      .slice(0, 20);
 
     for (const exec of stale) {
       logger.warn('[MonitorAgent] Auto-abandoning stale blocked workUnit', { workUnitId: exec.id });
       try {
-        await prisma.workUnit.update({
-          where: { id: exec.id },
-          data: { status: 'closed' },
-        });
+        const current = (await this.fileStore.getIndex()).find(s => s.id === exec.id);
+        if (current) {
+          await this.fileStore.upsertSnapshot({ ...current, status: 'closed' });
+        }
       } catch (e) {
         logger.error('[MonitorAgent] Failed to auto-abandon', { executionId: exec.id, error: String(e) });
       }
@@ -462,15 +436,11 @@ export class MonitorAgent {
     const REVIEW_QUALITY_THRESHOLD = 75;
     const alerts: MonitorAlert[] = [];
     try {
-      const recentWorkUnits = await prisma.workUnit.findMany({
-        where: {
-          status: 'done',
-          updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
-        },
-        select: { id: true, metadata: true },
-        orderBy: { updatedAt: 'desc' },
-        take: 20,
-      });
+      const cutoff = Date.now() - 7 * 24 * 3600_000;
+      const recentWorkUnits = (await this.fileStore.getIndex({ status: 'done' }))
+        .filter(s => new Date(s.updatedAt).getTime() >= cutoff)
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        .slice(0, 20);
 
       for (const wu of recentWorkUnits) {
         const ctx = (typeof wu.metadata === 'string' ? JSON.parse(wu.metadata) : wu.metadata) || {};
@@ -502,14 +472,11 @@ export class MonitorAgent {
     const TOKEN_BUDGET_CRIT = 1_000_000;
     const alerts: MonitorAlert[] = [];
     try {
-      const workUnits = await prisma.workUnit.findMany({
-        where: {
-          status: { in: ['active', 'done', 'blocked'] },
-          updatedAt: { gte: new Date(Date.now() - 7 * 24 * 3600_000) },
-        },
-        select: { id: true, metadata: true },
-        take: 10,
-      });
+      const validStatuses = new Set(['active', 'done', 'blocked']);
+      const cutoff = Date.now() - 7 * 24 * 3600_000;
+      const workUnits = (await this.fileStore.getIndex())
+        .filter(s => validStatuses.has(s.status) && new Date(s.updatedAt).getTime() >= cutoff)
+        .slice(0, 10);
 
       for (const wu of workUnits) {
         const ctx = (typeof wu.metadata === 'string' ? JSON.parse(wu.metadata) : wu.metadata) || {};
@@ -829,12 +796,16 @@ export class MonitorAgent {
 
   async evaluateTrajectory(): Promise<void> {
     try {
-      const recent = await prisma.workUnit.findMany({
-        where: { status: { in: ['done', 'closed'] }, completedAt: { gte: new Date(Date.now() - 24 * 3600_000) } },
-        select: { id: true, parentId: true, status: true, claimedAt: true, completedAt: true, retryCount: true },
-        orderBy: { completedAt: 'desc' },
-        take: 10,
-      });
+      const validStatuses = new Set(['done', 'closed']);
+      const cutoff = Date.now() - 24 * 3600_000;
+      const recent = (await this.fileStore.getIndex())
+        .filter(s => validStatuses.has(s.status) && s.completedAt && new Date(s.completedAt).getTime() >= cutoff)
+        .sort((a, b) => {
+          if (!a.completedAt) return 1;
+          if (!b.completedAt) return -1;
+          return new Date(b.completedAt).getTime() - new Date(a.completedAt).getTime();
+        })
+        .slice(0, 10);
 
       if (recent.length === 0) return; // No workUnits to evaluate
 
@@ -1122,7 +1093,7 @@ export class MonitorAgent {
         }
       } catch { lines.push('### 会话活动\n(数据源不可用)'); }
 
-      // 1b. Workflow detection (7-day window, from StudioEvent session:summary)
+      // 1b. Pattern detection (7-day window, from StudioEvent session:summary)
       try {
         const weekAgo = new Date(now - 7 * 24 * 3600_000);
         const summaryEvents = await prisma.studioEvent.findMany({
@@ -1135,10 +1106,10 @@ export class MonitorAgent {
           for (const ev of summaryEvents) {
             try {
               const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
-              const wt = (p as any)?.workflowType || 'unknown';
-              if (!typeCounts[wt]) typeCounts[wt] = { count: 0, successCount: 0 };
-              typeCounts[wt].count++;
-              if ((p as any)?.success !== false) typeCounts[wt].successCount++;
+              const pt = (p as any)?.patternType || (p as any)?.workflowType || 'unknown';
+              if (!typeCounts[pt]) typeCounts[pt] = { count: 0, successCount: 0 };
+              typeCounts[pt].count++;
+              if ((p as any)?.success !== false) typeCounts[pt].successCount++;
             } catch {}
           }
 
@@ -1147,21 +1118,21 @@ export class MonitorAgent {
             .sort((a, b) => b[1].count - a[1].count);
 
           if (recurring.length > 0) {
-            lines.push('', '### 工作流模式（7天）');
-            for (const [wt, s] of recurring) {
+            lines.push('', '### 交互模式（7天）');
+            for (const [pt, s] of recurring) {
               const rate = Math.round((s.successCount / s.count) * 100);
-              lines.push(`- **${wt}**: ${s.count} 次, 成功率 ${rate}%`);
-              if (['ci_fix', 'test_triage', 'release_prep'].includes(wt)) {
-                lines.push(`  → 建议创建 Skill 自动化此工作流`);
+              lines.push(`- **${pt}**: ${s.count} 次, 成功率 ${rate}%`);
+              if (['ci_fix', 'test_triage', 'release_prep'].includes(pt)) {
+                lines.push(`  → 建议创建 Skill 自动化此模式`);
               }
             }
           }
 
-          // B9-025: Persist workflow_report + update UserPreference
+          // B9-025: Persist pattern_report + update UserPreference
           const distribution: Record<string, number> = {};
-          for (const [wt, s] of Object.entries(typeCounts)) distribution[wt] = s.count;
-          const recurringData = recurring.map(([wt, s]) => ({
-            type: wt,
+          for (const [pt, s] of Object.entries(typeCounts)) distribution[pt] = s.count;
+          const recurringData = recurring.map(([pt, s]) => ({
+            type: pt,
             count: s.count,
             successRate: Math.round((s.successCount / s.count) * 100) / 100,
             lastSeen: today,
@@ -1169,14 +1140,14 @@ export class MonitorAgent {
 
           prisma.studioEvent.create({
             data: {
-              type: 'workflow_report',
+              type: 'pattern_report',
               source: 'monitor',
               payload: JSON.stringify({ distribution, recurring: recurringData, date: today }),
             },
-          }).catch((e: any) => { logger.warn('[MonitorAgent] workflow_report event failed', { error: String(e) }); });
+          }).catch((e: any) => { logger.warn('[MonitorAgent] pattern_report event failed', { error: String(e) }); });
 
-          preferenceObserver.updateFromWorkflowReport(distribution, recurringData).catch((e) => {
-            logger.warn('[MonitorAgent] updateFromWorkflowReport failed', { error: String(e) });
+          preferenceObserver.updateFromPatternReport(distribution, recurringData).catch((e) => {
+            logger.warn('[MonitorAgent] updateFromPatternReport failed', { error: String(e) });
           });
         }
       } catch { /* best-effort */ }
@@ -1313,7 +1284,7 @@ export class MonitorAgent {
             byAction[p.suggestedAction] = (byAction[p.suggestedAction] || 0) + 1;
             if (p.status === 'pending') pendingCount++;
           }
-          const catLabels: Record<string, string> = { correction: '纠正', workflow: '决策', automation: '自动化' };
+          const catLabels: Record<string, string> = { correction: '纠正', pattern: '决策', workflow: '决策', automation: '自动化' };
           const actLabels: Record<string, string> = { create_rule: '规则', create_skill: 'Skill', create_automation: '自动化', skip: '跳过' };
 
           lines.push('', '### 行为模式（24h）');
@@ -1335,7 +1306,7 @@ export class MonitorAgent {
         try {
           const weekAgoForProfile = new Date(now - 7 * 24 * 3600_000);
           const weeklyEvents = await prisma.studioEvent.findMany({
-            where: { type: 'workflow_report', timestamp: { gte: weekAgoForProfile } },
+            where: { type: { in: ['pattern_report', 'workflow_report'] }, timestamp: { gte: weekAgoForProfile } },
             select: { payload: true },
             orderBy: { timestamp: 'desc' },
           });
@@ -1352,11 +1323,12 @@ export class MonitorAgent {
 
             const sorted = Object.entries(merged).sort((a, b) => b[1] - a[1]);
             if (sorted.length > 0) {
-              lines.push('', '### 周工作画像');
-              lines.push(`- Top 工作流: ${sorted.slice(0, 3).map(([t, c]) => `${t}(${c})`).join(', ')}`);
-              const pref = await (prisma as any).userPreference.findFirst({ where: { userId: 'default' }, select: { preferredWorkflowTypes: true } });
-              if (pref?.preferredWorkflowTypes) {
-                const preferred = JSON.parse(pref.preferredWorkflowTypes) as string[];
+              lines.push('', '### 周交互画像');
+              lines.push(`- Top 模式: ${sorted.slice(0, 3).map(([t, c]) => `${t}(${c})`).join(', ')}`);
+              const pref = await (prisma as any).userPreference.findFirst({ where: { userId: 'default' }, select: { preferredPatternTypes: true, preferredWorkflowTypes: true } });
+              const preferredRaw = pref?.preferredPatternTypes || pref?.preferredWorkflowTypes;
+              if (preferredRaw) {
+                const preferred = JSON.parse(preferredRaw) as string[];
                 const newTypes = sorted.filter(([t]) => !preferred.includes(t)).map(([t]) => t);
                 if (newTypes.length > 0) lines.push(`- 新增高频类型: ${newTypes.join(', ')}`);
               }
@@ -1368,7 +1340,8 @@ export class MonitorAgent {
       // Post to #系统 channel
       const content = lines.join('\n');
       try {
-        const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+        const sysChannels = await this.fileStore.listChannels({ name: '#系统' });
+        const sysChannel = sysChannels[0] ?? null;
         if (sysChannel) {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
           await channelMessageService.createAgentMessage(sysChannel.id, 'DailyReflection', content, {
@@ -1402,13 +1375,13 @@ export class MonitorAgent {
     }
   }
 
-  // ── B9-025: WorkflowObserver — 工作流模式持久化 ──
+  // ── B9-025: PatternObserver — 交互模式持久化 ──
 
   /**
-   * 从 session:summary 事件中提取工作流分布，写入 workflow_report + 更新 UserPreference。
+   * 从 session:summary 事件中提取模式分布，写入 pattern_report + 更新 UserPreference。
    * 可独立调用（非 DailyReflection 时间窗口也可触发）。
    */
-  async observeWorkflow(): Promise<{ distribution: Record<string, number>; recurring: Array<{ type: string; count: number; successRate: number }> } | null> {
+  async observePattern(): Promise<{ distribution: Record<string, number>; recurring: Array<{ type: string; count: number; successRate: number }> } | null> {
     try {
       const weekAgo = new Date(Date.now() - 7 * 24 * 3600_000);
       const events = await prisma.studioEvent.findMany({
@@ -1421,33 +1394,33 @@ export class MonitorAgent {
       for (const ev of events) {
         try {
           const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
-          const wt = (p as any)?.workflowType || 'unknown';
-          if (!typeCounts[wt]) typeCounts[wt] = { count: 0, successCount: 0 };
-          typeCounts[wt].count++;
-          if ((p as any)?.success !== false) typeCounts[wt].successCount++;
+          const pt = (p as any)?.patternType || (p as any)?.workflowType || 'unknown';
+          if (!typeCounts[pt]) typeCounts[pt] = { count: 0, successCount: 0 };
+          typeCounts[pt].count++;
+          if ((p as any)?.success !== false) typeCounts[pt].successCount++;
         } catch {}
       }
 
       const distribution: Record<string, number> = {};
-      for (const [wt, s] of Object.entries(typeCounts)) distribution[wt] = s.count;
+      for (const [pt, s] of Object.entries(typeCounts)) distribution[pt] = s.count;
 
       const recurring = Object.entries(typeCounts)
         .filter(([_, s]) => s.count >= 3 && s.successCount / s.count > 0.7)
-        .map(([wt, s]) => ({ type: wt, count: s.count, successRate: Math.round((s.successCount / s.count) * 100) / 100 }));
+        .map(([pt, s]) => ({ type: pt, count: s.count, successRate: Math.round((s.successCount / s.count) * 100) / 100 }));
 
       const today = new Date().toISOString().split('T')[0];
       await prisma.studioEvent.create({
         data: {
-          type: 'workflow_report',
+          type: 'pattern_report',
           source: 'monitor',
           payload: JSON.stringify({ distribution, recurring, date: today }),
         },
       });
 
-      await preferenceObserver.updateFromWorkflowReport(distribution, recurring.map(r => ({ ...r, lastSeen: today })));
+      await preferenceObserver.updateFromPatternReport(distribution, recurring.map(r => ({ ...r, lastSeen: today })));
       return { distribution, recurring };
     } catch (e: any) {
-      logger.warn('[MonitorAgent] observeWorkflow failed', { error: String(e) });
+      logger.warn('[MonitorAgent] observePattern failed', { error: String(e) });
       return null;
     }
   }
@@ -1505,40 +1478,6 @@ export class MonitorAgent {
         byType[key].push(e);
       }
 
-      // 构建摘要文本供 LLM 提取
-      const summary = Object.entries(byType).map(([type, evts]) => {
-        const sample = evts.slice(0, 10).map(e => {
-          const p = e.payload ? JSON.parse(e.payload) : {};
-          return `  - ${e.source} @ ${e.timestamp.toISOString()}: ${JSON.stringify(p).slice(0, 200)}`;
-        }).join('\n');
-        return `## ${type} (${evts.length} events)\n${sample}`;
-      }).join('\n\n');
-
-      const extraction = await modelGateway.promptJson<{ entries: Array<{ type: string; title: string; content: string; tags: string[] }> }>(
-        summary.slice(0, 30_000),
-        `你是运维知识提取专家。从 Agent 系统的事件日志中提取可复用的运维知识。
-
-关注：
-- 失败模式（哪些 type 的事件失败率高，根因是什么）
-- 性能趋势（token 消耗、延迟异常）
-- 资源使用模式（模型选择、成本）
-
-输出格式：{ "entries": [{ "type": "failure|trend|pitfall", "title": "根因概括", "content": "根因+预防措施", "tags": [...] }] }
-只提取有价值的模式。没有则返回空数组。最多 5 条。`,
-      );
-
-      if (extraction.entries?.length) {
-        for (const entry of extraction.entries) {
-          await knowledgeService.recordPattern({
-            type: entry.type as any,
-            title: `[沉淀] ${entry.title}`,
-            content: entry.content,
-            tags: ['monitor'],
-          });
-        }
-        logger.info('[MonitorAgent] Precipitate StudioEvent: extracted', { count: extraction.entries.length });
-      }
-
       // 标记已沉淀
       const ids = events.map(e => e.id);
       await prisma.studioEvent.updateMany({
@@ -1585,32 +1524,7 @@ export class MonitorAgent {
 
       if (errorSnippets.length === 0) return true;
 
-      const extraction = await modelGateway.promptJson<{ entries: Array<{ type: string; title: string; content: string; tags: string[] }> }>(
-        errorSnippets.join('\n\n').slice(0, 20_000),
-        `你是运维知识提取专家。从 Agent 执行日志的错误片段中提取可复用的失败模式。
-
-关注：
-- 高频错误类型（什么错误反复出现）
-- 根因模式（环境问题？代码问题？配置问题？）
-- 预防措施（如何避免同类错误）
-
-输出格式：{ "entries": [{ "type": "failure|pitfall", "title": "根因概括", "content": "根因+预防", "tags": [...] }] }
-只提取有共性的模式，单次偶发错误不提取。最多 3 条。`,
-      );
-
-      if (extraction.entries?.length) {
-        for (const entry of extraction.entries) {
-          await knowledgeService.recordPattern({
-            type: entry.type as any,
-            title: `[沉淀] ${entry.title}`,
-            content: entry.content,
-            tags: ['monitor'],
-          });
-        }
-        logger.info('[MonitorAgent] Precipitate sessions: extracted', { count: extraction.entries.length });
-      }
-
-      logger.info('[MonitorAgent] Precipitate sessions: done', { files: files.length, extracted: extraction.entries?.length || 0 });
+      logger.info('[MonitorAgent] Precipitate sessions: done', { files: files.length });
       return true;
     } catch (e) {
       logger.warn('[MonitorAgent] Precipitate sessions failed', { error: String(e) });
@@ -1645,15 +1559,12 @@ export class MonitorAgent {
       const gate = await this.precipitate();
       logger.info('[MonitorAgent] Precipitation gate', gate);
 
-      // 1. Delete ChannelMessage older than 30 days
+      // 1. 文件存储不设 TTL（JSONL append-only，清理无意义）
       try {
         const channelCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
-        const deleted = await prisma.channelMessage.deleteMany({
-          where: { createdAt: { lt: channelCutoff } },
-        });
-        logger.info('[MonitorAgent] TTL: ChannelMessage cleaned', { deleted: deleted.count, cutoff: channelCutoff.toISOString() });
+        logger.info('[MonitorAgent] TTL: ChannelMessage skipped (file storage)', { cutoff: channelCutoff.toISOString() });
       } catch (e) {
-        logger.warn('[MonitorAgent] TTL: ChannelMessage cleanup failed', { error: String(e) });
+        logger.warn('[MonitorAgent] TTL: ChannelMessage skipped with error', { error: String(e) });
       }
 
       // 1b. Delete expired Session records
@@ -1668,11 +1579,13 @@ export class MonitorAgent {
 
       // 2. Delete WorkUnit older than 90 days (replaces GoalExecution TTL)
       try {
-        const execCutoff = new Date(Date.now() - 90 * 24 * 3600_000);
-        const deleted = await prisma.workUnit.deleteMany({
-          where: { createdAt: { lt: execCutoff } },
-        });
-        logger.info('[MonitorAgent] TTL: WorkUnit cleaned', { deleted: deleted.count, cutoff: execCutoff.toISOString() });
+        const execCutoffMs = Date.now() - 90 * 24 * 3600_000;
+        const allWu = await this.fileStore.getIndex();
+        const toDelete = allWu.filter(s => new Date(s.createdAt).getTime() < execCutoffMs);
+        for (const wu of toDelete) {
+          await this.fileStore.removeSnapshot(wu.id);
+        }
+        logger.info('[MonitorAgent] TTL: WorkUnit cleaned', { deleted: toDelete.length, cutoff: new Date(execCutoffMs).toISOString() });
       } catch (e) {
         logger.warn('[MonitorAgent] TTL: WorkUnit cleanup failed', { error: String(e) });
       }
