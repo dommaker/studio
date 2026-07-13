@@ -27,7 +27,11 @@ vi.mock('@dommaker/harness', () => ({
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  modelGateway: { prompt: vi.fn(), promptJson: vi.fn() },
+  FileStore: class {
+    getIndex = vi.fn(() => Promise.resolve([]));
+    upsertSnapshot = vi.fn(() => Promise.resolve());
+    removeSnapshot = vi.fn(() => Promise.resolve());
+  },
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({

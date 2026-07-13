@@ -8,25 +8,29 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ── Mocks (hoisted by vitest) ──────────────────────────────────────────────
 const {
-  mockWuFindMany,
-  mockWuUpdate,
+  mockGetIndex,
+  mockUpsertSnapshot,
   mockDaemonGetStatus,
 } = vi.hoisted(() => ({
-  mockWuFindMany: vi.fn(() => Promise.resolve([])),
-  mockWuUpdate: vi.fn(() => Promise.resolve({})),
+  mockGetIndex: vi.fn(() => Promise.resolve([])),
+  mockUpsertSnapshot: vi.fn(() => Promise.resolve()),
   mockDaemonGetStatus: vi.fn(() => []),
 }));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    workUnit: { findMany: mockWuFindMany, update: mockWuUpdate },
+    workUnit: { findMany: vi.fn(() => Promise.resolve([])), update: vi.fn(() => Promise.resolve({})) },
     $queryRaw: vi.fn(() => Promise.resolve([])),
   },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  modelGateway: { prompt: vi.fn(), promptJson: vi.fn() },
+  FileStore: class {
+    getIndex = mockGetIndex;
+    upsertSnapshot = mockUpsertSnapshot;
+    removeSnapshot = vi.fn(() => Promise.resolve());
+  },
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
@@ -60,6 +64,29 @@ vi.mock('../../daemon/studio-daemon.js', () => ({
 
 import { monitorAgent } from '../monitor-agent.service.js';
 import { agentRunner } from '@dommaker/studio-agent';
+
+/** Create minimal WorkUnitSnapshot for test fixtures */
+function makeSnapshot(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: 'test-wu',
+    parentId: null,
+    type: 'task',
+    scope: '',
+    assigneeId: null,
+    status: 'done',
+    failureType: null,
+    retryCount: 0,
+    timeoutAt: null,
+    channelId: null,
+    projectPath: null,
+    metadata: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    claimedAt: null,
+    completedAt: null,
+    ...overrides,
+  };
+}
 
 describe('MonitorAgent deploy + proxy alerts (AC-3)', () => {
   // ============================================================
@@ -151,23 +178,23 @@ describe('MonitorAgent deploy + proxy alerts (AC-3)', () => {
   });
 });
 
-describe('MonitorAgent WorkflowObserver (B9-025)', () => {
-  it('observeWorkflow method exists on monitorAgent', () => {
-    expect(typeof (monitorAgent as any).observeWorkflow).toBe('function');
+describe('MonitorAgent PatternObserver (B9-025)', () => {
+  it('observePattern method exists on monitorAgent', () => {
+    expect(typeof (monitorAgent as any).observePattern).toBe('function');
   });
 
-  it('observeWorkflow returns null when insufficient events', async () => {
+  it('observePattern returns null when insufficient events', async () => {
     // With < 3 session:summary events in 7 days, should return null
-    const result = await (monitorAgent as any).observeWorkflow();
+    const result = await (monitorAgent as any).observePattern();
     expect(result === null || typeof result === 'object').toBe(true);
   });
 
-  it('workflow_report event type is valid StudioEvent type', () => {
+  it('pattern_report event type is valid StudioEvent type', () => {
     const validEventTypes = [
       'session:summary', 'execution_run', 'tool:call', 'routing_decision',
-      'daily_reflection', 'workflow_report',
+      'daily_reflection', 'pattern_report',
     ];
-    expect(validEventTypes).toContain('workflow_report');
+    expect(validEventTypes).toContain('pattern_report');
   });
 });
 
@@ -175,17 +202,18 @@ describe('MonitorAgent WorkflowObserver (B9-025)', () => {
 
 describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
   beforeEach(() => {
-    mockWuFindMany.mockReset();
-    mockWuFindMany.mockResolvedValue([]);
-    mockWuUpdate.mockReset();
+    mockGetIndex.mockReset();
+    mockGetIndex.mockResolvedValue([]);
+    mockUpsertSnapshot.mockReset();
     mockDaemonGetStatus.mockReset();
     mockDaemonGetStatus.mockReturnValue([]); // no active sessions
   });
 
   // 1. reviewScore=0 means never scored — must NOT produce alert
   it('checkReviewQuality: reviewScore=0 (never scored) produces no alert', async () => {
-    mockWuFindMany.mockResolvedValue([
-      { id: 'goal_never_scored', metadata: JSON.stringify({ reviewScore: 0 }) },
+    const now = new Date().toISOString();
+    mockGetIndex.mockResolvedValue([
+      makeSnapshot({ id: 'goal_never_scored', status: 'done', metadata: JSON.stringify({ reviewScore: 0 }), updatedAt: now }),
     ]);
 
     const alerts = await (monitorAgent as any).checkReviewQuality();
@@ -194,8 +222,9 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
 
   // 2. reviewScore=40 < 75 threshold AND > 0 — must produce critical alert
   it('checkReviewQuality: reviewScore=40 produces critical alert', async () => {
-    mockWuFindMany.mockResolvedValue([
-      { id: 'goal_low_score', metadata: JSON.stringify({ reviewScore: 40, reviewCycle: 1 }) },
+    const now = new Date().toISOString();
+    mockGetIndex.mockResolvedValue([
+      makeSnapshot({ id: 'goal_low_score', status: 'done', metadata: JSON.stringify({ reviewScore: 40, reviewCycle: 1 }), updatedAt: now }),
     ]);
 
     const alerts = await (monitorAgent as any).checkReviewQuality();
@@ -209,9 +238,9 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
   it('autoAbandonStaleRunning: no-op (covered by workunit-timeout trigger)', async () => {
     await (monitorAgent as any).autoAbandonStaleRunning();
 
-    // Method is now a no-op — should not call any prisma queries
-    expect(mockWuFindMany).not.toHaveBeenCalled();
-    expect(mockWuUpdate).not.toHaveBeenCalled();
+    // Method is now a no-op — should not call any FileStore queries
+    expect(mockGetIndex).not.toHaveBeenCalled();
+    expect(mockUpsertSnapshot).not.toHaveBeenCalled();
   });
 });
 
@@ -219,22 +248,19 @@ describe('MonitorAgent B48-1A: reviewQuality + orphan cleanup', () => {
 
 describe('MonitorAgent auto-fail time-critical workUnits', () => {
   beforeEach(() => {
-    mockWuFindMany.mockReset();
-    mockWuFindMany.mockResolvedValue([]);
-    mockWuUpdate.mockReset();
-    mockWuUpdate.mockResolvedValue({});
+    mockGetIndex.mockReset();
+    mockGetIndex.mockResolvedValue([]);
+    mockUpsertSnapshot.mockReset();
     vi.mocked(agentRunner.stop).mockReset();
   });
 
   it('auto-fails workUnit exceeding 2.5h and calls agentRunner.stop', async () => {
     const execId = 'exec-timeout-test';
+    const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
     // Simulate workUnit claimed 3h ago (> TIME_CRITICAL_MS = 2.5h)
-    mockWuFindMany.mockResolvedValue([{
-      id: execId,
-      parentId: 'parent-1',
-      claimedAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000),
-    }]);
+    mockGetIndex.mockResolvedValue([
+      makeSnapshot({ id: execId, status: 'active', parentId: 'parent-1', claimedAt: threeHoursAgo, createdAt: threeHoursAgo }),
+    ]);
     vi.mocked(agentRunner.stop).mockResolvedValue(undefined);
 
     const alerts = await (monitorAgent as any).checkTotalExecutionTime();
@@ -250,29 +276,26 @@ describe('MonitorAgent auto-fail time-critical workUnits', () => {
     // Should call agentRunner.stop to kill the process
     expect(agentRunner.stop).toHaveBeenCalledWith(execId);
 
-    // Should update DB status to 'closed'
-    expect(mockWuUpdate).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: execId },
-      data: expect.objectContaining({ status: 'closed' }),
-    }));
+    // Should upsert snapshot with status 'closed'
+    expect(mockUpsertSnapshot).toHaveBeenCalledWith(
+      expect.objectContaining({ id: execId, status: 'closed' }),
+    );
   });
 
   it('does not auto-fail workUnit under 2.5h', async () => {
+    const oneHourAgo = new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString();
     // Simulate workUnit claimed 1h ago (< TIME_CRITICAL_MS)
-    mockWuFindMany.mockResolvedValue([{
-      id: 'exec-ok',
-      parentId: 'parent-1',
-      claimedAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
-      createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000),
-    }]);
+    mockGetIndex.mockResolvedValue([
+      makeSnapshot({ id: 'exec-ok', status: 'active', parentId: 'parent-1', claimedAt: oneHourAgo, createdAt: oneHourAgo }),
+    ]);
 
     const alerts = await (monitorAgent as any).checkTotalExecutionTime();
 
     // Should NOT call agentRunner.stop
     expect(agentRunner.stop).not.toHaveBeenCalled();
 
-    // Should NOT update DB status
-    expect(mockWuUpdate).not.toHaveBeenCalled();
+    // Should NOT upsert status
+    expect(mockUpsertSnapshot).not.toHaveBeenCalled();
 
     // Should generate info alert (1h < TIME_WARN_MS would be info level)
     const criticalAlerts = alerts.filter((a: any) => a.level === 'critical');
