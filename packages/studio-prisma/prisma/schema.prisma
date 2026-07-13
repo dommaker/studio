@@ -32,19 +32,6 @@ model Agent {
   @@index([category])
 }
 
-model ApiKey {
-  id          String    @id @default(cuid())
-  userId      String
-  name        String
-  key         String    @unique
-  permissions String?
-  expiresAt   DateTime?
-  lastUsedAt  DateTime?
-  createdAt   DateTime  @default(now())
-
-  @@index([userId])
-}
-
 model AuditLog {
   id           String   @id @default(cuid())
   userId       String?
@@ -149,46 +136,16 @@ model OKR {
   @@map("okr")
 }
 
-// KRHistory — KR 进度历史快照 (B8 OKR 驱动闭环)
 model KRHistory {
   id        String   @id @default(cuid())
   krId      String
   okrId     String
   value     Float
-  status    String   // ok | no_data | stale
+  status    String
   timestamp DateTime @default(now())
 
   @@index([okrId, krId])
   @@index([timestamp])
-  @@map("kr_history")
-}
-
-
-model Countersign {
-  id             String         @id @default(cuid())
-  documentId     String
-  config         String
-  signers        String
-  result         String?
-  createdAt      DateTime       @default(now())
-  completedAt    DateTime?
-  SignedDocument SignedDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-
-  @@index([documentId])
-}
-
-model DocumentFlow {
-  id             String         @id @default(cuid())
-  documentId     String
-  status         String         @default("running")
-  steps          String
-  currentStep    Int            @default(0)
-  startedAt      DateTime       @default(now())
-  completedAt    DateTime?
-  SignedDocument SignedDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-
-  @@index([documentId])
-  @@index([status])
 }
 
 model Execution {
@@ -211,70 +168,6 @@ model Execution {
   @@index([okrId])
 }
 
-// ─── LLM 配置体系 ───
-
-model LLMConfig {
-  id          String   @id @default(cuid())
-  scope       String   // orchestrator | agent_codex | agent_claude | agent_opencode | agent_default | studio
-  provider    String   // anthropic | openai | tencent | deepseek | custom
-  baseUrl     String?
-  model       String
-  options     String?    // temperature, maxTokens, etc.
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([scope, provider])
-  @@index([scope])
-  @@index([isActive])
-}
-
-model IssueReport {
-  id                   String    @id @default(cuid())
-  title                String
-  description          String
-  type                 String
-  severity             String
-  documentId           String?
-  taskId               String?
-  responsibilityChain  String
-  accountabilityResult String?
-  totalPenalty         Float     @default(0)
-  status               String    @default("reported")
-  resolvedAt           DateTime?
-  reportedBy           String
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-
-  @@index([documentId])
-  @@index([severity])
-  @@index([taskId])
-  @@index([type])
-}
-
-model Review {
-  id            String   @id @default(cuid())
-  reviewerId    String
-  reviewerType  String
-  targetId      String
-  targetType    String
-  featureId     String?
-  taskId        String?
-  ticketId      String?
-  dimensions    String
-  overallScore  Float
-  comment       String?
-  tags String @default("[]")
-  createdAt     DateTime @default(now())
-  rewardGranted Boolean  @default(false)
-  couponId      String?
-
-  @@index([createdAt])
-  @@index([reviewerId])
-  @@index([targetId])
-  @@index([targetType])
-}
-
 model SignedDocument {
   id             String         @id @default(cuid())
   type           String
@@ -293,8 +186,6 @@ model SignedDocument {
   archivedAt     DateTime?
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
-  Countersign    Countersign[]
-  DocumentFlow   DocumentFlow[]
 
   @@index([createdAt])
   @@index([status])
@@ -401,34 +292,6 @@ model EmailVerificationToken {
   @@index([token])
   @@index([userId])
   @@index([email])
-}
-
-model UserProfile {
-  id               String   @id @default(cuid())
-  age              Int
-  gender           String
-  occupation       String
-  location         String?
-  interests String @default("[]")
-  techLevel        String
-  spendingHabits   String
-  activityLevel    String
-  feedbackStyle    String
-  priceSensitivity Float    @default(0.5)
-  isSimulated      Boolean  @default(true)
-  balance          Int      @default(0)
-  totalSpent       Int      @default(0)
-  memberLevel      String   @default("free")
-  registeredAt     DateTime @default(now())
-  lastActiveAt     DateTime @default(now())
-  reviewCount      Int      @default(0)
-  averageRating    Float    @default(0)
-  points           Int      @default(0)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  @@index([isSimulated])
-  @@index([memberLevel])
 }
 
 model SpecReview {
@@ -709,34 +572,6 @@ model SpecChangeRequest {
   @@index([submittedAt])
 }
 
-model MCPAuditLog {
-  id         String   @id @default(cuid())
-  toolName   String
-  roleId     String?
-  input      String?     // sanitized (no secrets)
-  output     String?     // summary only
-  duration   Int       // ms
-  success    Boolean
-  error      String?
-  createdAt  DateTime @default(now())
-
-  @@index([toolName])
-  @@index([roleId])
-  @@index([createdAt])
-}
-
-model MCPPermission {
-  id        String   @id @default(cuid())
-  roleId    String
-  toolName  String
-  allowed   Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([roleId, toolName])
-  @@index([roleId])
-}
-
 model DecisionAudit {
   id          String   @id @default(cuid())
   eventType   String                       // meeting.completed / requirements.generated / goal.created / execution.completed / review.completed / wiki.updated / constraint.proposed / role.updated
@@ -755,108 +590,7 @@ model DecisionAudit {
   @@index([createdAt])
 }
 
-model RoleConfig {
-  id          String   @id @default(cuid())
-  roleType    String   @unique
-  companyId   String
 
-  // ── 身份 ──
-  systemPrompt String  @default("")
-
-  // ── 立场（JSON，Analyst + Reviewer 共用） ──
-  stances     String?
-
-  // ── 推理档位 ──
-  modelTier   String   @default("standard")
-  modelRouting String?
-
-  // ── 能力 ──
-  boundSkills       String  @default("[]")
-  boundMcps         String  @default("[]")
-  boundTools        String  @default("[]")
-
-  // ── 约束 ──
-  boundConstraints  String  @default("[]")
-
-  // ── 执行参数（Executor） ──
-  executionParams   String?
-
-  // ── 进化权限 ──
-  evolutionHooks    String?
-
-  // ── 元数据 ──
-  version     Int      @default(1)
-  updatedBy   String?
-  updatedReason String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([companyId])
-  @@index([roleType, companyId])
-}
-
-// ─────────────────────────────────────────────
-// Studio 2.0 新模型（2026-05-08）
-// ─────────────────────────────────────────────
-
-model Channel {
-  id        String   @id @default(cuid())
-  name      String   // "#研发" | "#决策" | "#系统"
-  type      String   @default("rnd") // rnd | decision | system
-  defaultWorkspaceId String? // 默认执行 Workspace
-  defaultPath        String? // 默认执行路径（相对于 workspaceRoot）
-  discordChannelId String? // Discord 频道绑定
-  discordWebhookUrl String? // Agent 回复推送目标
-  members      String   @default("[]") // JSON: AgentProfile ID[]（Channel 成员）
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  ChannelMessage ChannelMessage[]
-  RequirementsDoc RequirementsDoc[]
-  workUnits      WorkUnit[] // AS-025: WorkUnit 关联
-
-  @@unique([name])
-}
-
-model ChannelMessage {
-  id         String   @id @default(cuid())
-  channelId  String
-  workUnitId String?  // AS-025 §5.16: 讨论空间虚拟分组
-  authorType String  // "human" | "agent"
-  agentName  String?  // Analyst | Executor | Reviewer | KK | Auditor | Triage | Deploy
-  content    String   // Markdown
-  replyToId  String?  // 弱引用回复关系
-  meta       String   @default("{}") // JSON: { goalId?, requirementsDocId?, cardType?, cardData?, crossChannelRef?, atHuman? }
-  createdAt  DateTime @default(now())
-  channel    Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
-
-  @@index([channelId, createdAt])
-  @@index([authorType])
-  @@index([workUnitId])
-}
-
-model RequirementsDoc {
-  id        String   @id @default(cuid())
-  title     String
-  content   String   // Markdown 全文
-  acGroups  String?  // G34: JSON array of structured AC groups (source of truth)
-  contractTests String? // TDD-07: JSON array of { file, content } — Analyst 契约测试
-  contractTestsSkipReason String? // Analyst 主动跳过契约测试的原因
-  tags      String   @default("[]") // JSON array
-  goalId    String?  // 开始执行后关联
-  projectId String?
-  sourceChannelId String
-  status    String   @default("draft") // draft | confirmed | done
-  linkedDocIds String @default("[]") // JSON array of RequirementsDoc ids
-  executionSummary String? // Goal 完成后补充
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  channel   Channel  @relation(fields: [sourceChannelId], references: [id])
-
-  @@index([status])
-  @@index([goalId])
-  @@index([sourceChannelId])
-  @@index([projectId])
-}
 
 model Incident {
   id             String   @id
@@ -1232,99 +966,4 @@ model WorkspaceEvent {
   createdAt   DateTime   @default(now())
 }
 
-model FailureEvent {
-  id           String   @id @default(cuid())
-  executionId  String
-  goalId       String
-  category     String   // infra | pipeline | agent | unknown
-  severity     String   // critical | warning
-  errorMessage String
-  routeTarget  String   // triage | resolution_kb | human
-  incidentType String?  // TriageIncidentType if routed to triage
-  matchedPattern String?
-  createdAt    DateTime @default(now())
 
-  @@unique([executionId, category])
-  @@index([goalId])
-}
-
-// ── AS-025: Agent Network — AgentProfile (Phase 2) ──
-// 简化 Agent 身份：name + description + channels
-
-model AgentProfile {
-  id          String   @id @default(cuid())
-  name        String   @unique
-  description String?
-  channels    String   @default("[]")  // JSON: Channel ID[]
-  status      String   @default("active") // active | inactive
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([status])
-  @@map("agent_profile")
-}
-
-// ── AS-026: Agent Persistence MVP — RuntimeInstance ──
-// Agent 运行实例：关联 AgentProfile（Role），跟踪执行状态
-
-model RuntimeInstance {
-  id                String    @id @default(cuid())
-  roleId            String    // 关联 AgentProfile.id
-  sessionId         String?   // Claude session-id
-  status            String    @default("idle") // idle | active | terminated
-  currentWorkUnitId String?   // 当前处理的 WorkUnit
-  startedAt         DateTime  @default(now())
-  terminatedAt      DateTime?
-  lastHeartbeat     DateTime? // AgentLoop scan 时更新，超时扫描用
-  metadata          String?   // JSON: { tokenUsed, tasksCompleted }
-
-  @@index([roleId])
-  @@index([status])
-  @@index([lastHeartbeat])
-  @@map("runtime_instance")
-}
-
-// ── AS-025: Agent Network — WorkUnit (3.28c-1) ──
-// WorkUnit 是统一工作单元：Goal/GoalExecution/Task 的参数化统一
-
-model WorkUnit {
-  id         String   @id @default(cuid())
-  parentId   String?  // 层级（decomposition）
-
-  // 三个本质属性
-  type       String   @default("task") // task | monitor | analysis | discussion
-  scope      String   // 范围：做什么
-  assigneeId String?  // 归属：谁在做（null = 未分配）
-  status     String   @default("unassigned") // unassigned | active | in_review | done | closed | blocked
-
-  // 执行状态（Monitor 高频查询，升为一等列）
-  failureType String?  // retryable | not_retryable | infrastructure | unknown
-  retryCount  Int      @default(0)
-  timeoutAt   DateTime?
-
-  // 上下文
-  channelId   String?  // 关联 Channel
-  projectPath String?  // 本地项目路径（Agent 执行 cwd）
-  metadata    String?  // JSON: 灵活扩展
-
-  // 时间
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  claimedAt   DateTime? // claim 时间（= GoalExecution.startedAt）
-  completedAt DateTime? // 终态时间（done/closed 时写入）
-
-  // 关联
-  channel    Channel? @relation(fields: [channelId], references: [id])
-  parent     WorkUnit? @relation("WorkUnitHierarchy", fields: [parentId], references: [id])
-  children   WorkUnit[] @relation("WorkUnitHierarchy")
-
-  @@index([status])
-  @@index([type])
-  @@index([channelId])
-  @@index([parentId])
-  @@index([assigneeId])
-  @@index([createdAt])
-  @@index([failureType])
-  @@index([timeoutAt])
-  @@map("work_unit")
-}
