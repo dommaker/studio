@@ -1,28 +1,38 @@
 /**
  * AgentProfile CRUD 测试 — AS-025 Phase 2
+ * Storage: FileStore（迁移自 Prisma）
  */
 import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 import { prisma } from '../../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { AgentProfileService } from '../agent-profile.service.js';
 
-describe('AgentProfile CRUD', () => {
-  const service = new AgentProfileService(prisma);
-  const testIds: string[] = [];
+function createTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-profile-test-'));
+}
 
-  beforeAll(async () => {
-    // Clean stale data from previous runs (test DB persists across runs)
-    await prisma.agentProfile.deleteMany({
-      where: { name: { startsWith: 'test-' } },
-    });
+describe('AgentProfile CRUD', () => {
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+  const testProfileIds: string[] = [];
+
+  beforeAll(() => {
+    tmpDir = createTempDir();
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore, prisma);
   });
 
-  afterAll(async () => {
-    await prisma.agentProfile.deleteMany({ where: { id: { in: testIds } } });
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('create with minimal fields', async () => {
     const profile = await service.create({ name: 'test-pm' });
-    testIds.push(profile.id);
+    testProfileIds.push(profile.id);
 
     expect(profile.id).toBeDefined();
     expect(profile.name).toBe('test-pm');
@@ -37,7 +47,7 @@ describe('AgentProfile CRUD', () => {
       description: 'Writes code',
       channels: ['ch-1', 'ch-2'],
     });
-    testIds.push(profile.id);
+    testProfileIds.push(profile.id);
 
     expect(profile.name).toBe('test-engineer');
     expect(profile.description).toBe('Writes code');
@@ -51,7 +61,7 @@ describe('AgentProfile CRUD', () => {
 
   it('get by id', async () => {
     const created = await service.create({ name: 'test-get' });
-    testIds.push(created.id);
+    testProfileIds.push(created.id);
 
     const found = await service.getById(created.id);
     expect(found).not.toBeNull();
@@ -73,7 +83,7 @@ describe('AgentProfile CRUD', () => {
 
   it('update', async () => {
     const created = await service.create({ name: 'test-update' });
-    testIds.push(created.id);
+    testProfileIds.push(created.id);
 
     const updated = await service.update(created.id, {
       description: 'Updated description',
@@ -91,31 +101,92 @@ describe('AgentProfile CRUD', () => {
     const found = await service.getById(created.id);
     expect(found).toBeNull();
   });
+
+  // ── AC Group 1: provider field ──
+
+  it('create with provider field', async () => {
+    const profile = await service.create({
+      name: 'test-provider-claude',
+      provider: 'claude',
+    });
+    testProfileIds.push(profile.id);
+    expect(profile.provider).toBe('claude');
+  });
+
+  it('create without provider defaults to null', async () => {
+    const profile = await service.create({ name: 'test-no-provider' });
+    testProfileIds.push(profile.id);
+    expect(profile.provider).toBeNull();
+  });
+
+  it('update provider field', async () => {
+    const created = await service.create({ name: 'test-update-provider' });
+    testProfileIds.push(created.id);
+
+    const updated = await service.update(created.id, { provider: 'codex' });
+    expect(updated.provider).toBe('codex');
+  });
+
+  it('update provider to null clears it', async () => {
+    const created = await service.create({ name: 'test-clear-provider', provider: 'claude' });
+    testProfileIds.push(created.id);
+
+    const updated = await service.update(created.id, { provider: null });
+    expect(updated.provider).toBeNull();
+  });
+
+  it('list with provider filter', async () => {
+    const c1 = await service.create({ name: 'test-list-provider-1', provider: 'claude' });
+    const c2 = await service.create({ name: 'test-list-provider-2', provider: 'codex' });
+    const c3 = await service.create({ name: 'test-list-provider-3' });
+    testProfileIds.push(c1.id, c2.id, c3.id);
+
+    const claudeOnly = await service.list({ provider: 'claude' });
+    const claudeIds = claudeOnly.data.map(p => p.id);
+    expect(claudeIds).toContain(c1.id);
+    expect(claudeIds).not.toContain(c2.id);
+    expect(claudeIds).not.toContain(c3.id);
+  });
+
+  it('list with provider=null returns only null-provider profiles', async () => {
+    const withProvider = await service.create({ name: 'test-provider-filter', provider: 'claude' });
+    const withoutProvider = await service.create({ name: 'test-null-provider-filter' });
+    testProfileIds.push(withProvider.id, withoutProvider.id);
+
+    const result = await service.list({ provider: null });
+    const ids = result.data.map(p => p.id);
+    expect(ids).toContain(withoutProvider.id);
+    expect(ids).not.toContain(withProvider.id);
+  });
 });
 
 // ── AC-A2: listAgents online status + channelId filter ──
 
 describe('AC-A2: listAgents online status + channelId filter', () => {
-  const service = new AgentProfileService(prisma);
-  const testIds: string[] = [];
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+  const testProfileIds: string[] = [];
   const runtimeIds: string[] = [];
 
-  beforeEach(async () => {
-    // Clean up test data
-    await prisma.runtimeInstance.deleteMany({ where: { roleId: { in: testIds } } });
-    await prisma.agentProfile.deleteMany({ where: { id: { in: testIds } } });
-    testIds.length = 0;
-    runtimeIds.length = 0;
+  beforeAll(() => {
+    tmpDir = createTempDir();
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore, prisma);
   });
 
-  afterAll(async () => {
-    await prisma.runtimeInstance.deleteMany({ where: { roleId: { in: testIds } } });
-    await prisma.agentProfile.deleteMany({ where: { id: { in: testIds } } });
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    testProfileIds.length = 0;
+    runtimeIds.length = 0;
   });
 
   it('list() returns results with isOnline field', async () => {
     const profile = await service.create({ name: 'online-test-1' });
-    testIds.push(profile.id);
+    testProfileIds.push(profile.id);
 
     const result = await service.list({ status: 'active' });
     const found = result.data.find(p => p.id === profile.id);
@@ -123,35 +194,43 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     expect(found).toHaveProperty('isOnline');
   });
 
-  it('isOnline=true when RuntimeInstance status=active exists', async () => {
+  it('isOnline=true when RuntimeState status=active exists', async () => {
+    const now = new Date().toISOString();
     const profile = await service.create({ name: 'online-test-2' });
-    testIds.push(profile.id);
-    const ri = await prisma.runtimeInstance.create({
-      data: { roleId: profile.id, status: 'active' },
+    testProfileIds.push(profile.id);
+    const stateId = `ri-${profile.id}`;
+    await fileStore.createState(stateId, {
+      id: stateId, roleId: profile.id, sessionId: null, status: 'active',
+      currentWorkUnitId: null, startedAt: now, terminatedAt: null,
+      lastHeartbeat: null, metadata: null,
     });
-    runtimeIds.push(ri.id);
+    runtimeIds.push(stateId);
 
     const result = await service.list({ status: 'active' });
     const found = result.data.find(p => p.id === profile.id);
     expect(found!.isOnline).toBe(true);
   });
 
-  it('isOnline=false when no RuntimeInstance exists', async () => {
+  it('isOnline=false when no RuntimeState exists', async () => {
     const profile = await service.create({ name: 'online-test-3' });
-    testIds.push(profile.id);
+    testProfileIds.push(profile.id);
 
     const result = await service.list({ status: 'active' });
     const found = result.data.find(p => p.id === profile.id);
     expect(found!.isOnline).toBe(false);
   });
 
-  it('isOnline=false when RuntimeInstance status=idle', async () => {
+  it('isOnline=false when RuntimeState status=idle', async () => {
+    const now = new Date().toISOString();
     const profile = await service.create({ name: 'online-test-4' });
-    testIds.push(profile.id);
-    const ri = await prisma.runtimeInstance.create({
-      data: { roleId: profile.id, status: 'idle' },
+    testProfileIds.push(profile.id);
+    const stateId = `ri-${profile.id}`;
+    await fileStore.createState(stateId, {
+      id: stateId, roleId: profile.id, sessionId: null, status: 'idle',
+      currentWorkUnitId: null, startedAt: now, terminatedAt: null,
+      lastHeartbeat: null, metadata: null,
     });
-    runtimeIds.push(ri.id);
+    runtimeIds.push(stateId);
 
     const result = await service.list({ status: 'active' });
     const found = result.data.find(p => p.id === profile.id);
@@ -161,32 +240,44 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
   it('list({ channelId }) filters agents by Channel.members', async () => {
     const agent1 = await service.create({ name: 'channel-agent-1' });
     const agent2 = await service.create({ name: 'channel-agent-2', channels: [] });
-    testIds.push(agent1.id, agent2.id);
+    testProfileIds.push(agent1.id, agent2.id);
 
     // Set Channel.members to include agent1 (canonical source)
-    const ch1 = await prisma.channel.create({
-      data: { name: `#test-ac-a2-${Date.now()}`, members: JSON.stringify([agent1.id]) },
+    const ch1Id = `ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = new Date().toISOString();
+    await fileStore.createChannel({
+      id: ch1Id, name: `#test-ac-a2-${Date.now()}`, type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null,
+      members: JSON.stringify([agent1.id]),
+      createdAt: now, updatedAt: now,
     });
 
-    const result = await service.list({ channelId: ch1.id });
+    const result = await service.list({ channelId: ch1Id });
     const ids = result.data.map(p => p.id);
     expect(ids).toContain(agent1.id);
     expect(ids).not.toContain(agent2.id);
 
-    await prisma.channel.delete({ where: { id: ch1.id } });
+    await fileStore.deleteChannel(ch1Id);
   });
 
   it('list({ channelId }) returns all active agents when Channel.members=[]', async () => {
-    const ch2 = await prisma.channel.create({
-      data: { name: `#test-ac-a2-empty-${Date.now()}`, members: '[]' },
+    const ch2Id = `ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const now = new Date().toISOString();
+    await fileStore.createChannel({
+      id: ch2Id, name: `#test-ac-a2-empty-${Date.now()}`, type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null,
+      members: '[]',
+      createdAt: now, updatedAt: now,
     });
     const agent3 = await service.create({ name: 'channel-agent-3' });
-    testIds.push(agent3.id);
+    testProfileIds.push(agent3.id);
 
-    const result = await service.list({ channelId: ch2.id });
+    const result = await service.list({ channelId: ch2Id });
     // Empty members → returns all active agents (fallback)
     expect(result.data.length).toBeGreaterThanOrEqual(1);
 
-    await prisma.channel.delete({ where: { id: ch2.id } });
+    await fileStore.deleteChannel(ch2Id);
   });
 });

@@ -17,6 +17,9 @@ export interface Channel {
   id: string;
   name: string;
   type: string;
+  defaultWorkspaceId?: string | null;
+  defaultPath?: string | null;
+  members?: string; // JSON string of agent ID array
 }
 
 export interface AgentProfile {
@@ -82,4 +85,10 @@ export const channelApi = {
     const params = search ? `?search=${encodeURIComponent(search)}` : '';
     return api.get<{ success: boolean; data: LocalProject[] }>(`/projects/discover${params}`);
   },
+
+  updateMembers: (channelId: string, ops: { add?: string[]; remove?: string[] }) =>
+    api.patch<{ success: boolean; data: { members: string[] } }>(`/channels/${channelId}/members`, ops),
+
+  createAgent: (data: { name: string; description?: string; channels?: string; provider?: string }) =>
+    api.post<AgentProfile>('/agent-profiles', data),
 };

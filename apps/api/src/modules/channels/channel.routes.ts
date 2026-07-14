@@ -1,7 +1,8 @@
 // Channel Routes — B1-001/B1-002/B1-009/B1-011
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, readSddDoc, updateSddFrontmatter } from '@dommaker/studio-shared';
+import { logger, readSddDoc, updateSddFrontmatter, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { routeMessage } from './message-routing.js';
 import { projectService } from '../pmo/project.service.js';
@@ -10,7 +11,8 @@ import { ConvertToTaskService } from './convert-to-task.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 
 const router = Router();
-const convertToTaskService = new ConvertToTaskService(prisma);
+const fileStore = new FileStore();
+const convertToTaskService = new ConvertToTaskService(undefined, fileStore);
 const projectDiscoveryService = new ProjectDiscoveryService();
 
 // ─── AC Group Parser ───────────────────────────────────────────────
@@ -218,15 +220,14 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
 
 // GET /api/v1/channels — list all channels
 router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
-  const channels = await prisma.channel.findMany({
-    orderBy: { createdAt: 'asc' },
-  });
+  const channels = await fileStore.listChannels();
   res.json({ success: true, data: channels });
 });
 
 // POST /api/v1/channels — create a new channel (B2-007)
+// Also supports creating initial agents: { agents: [{ name, description? }] }
 router.post('/', async (req, res) => {
-  const { name, type = 'rnd', members } = req.body;
+  const { name, type = 'rnd', members, agents } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'name is required' });
   }
@@ -235,27 +236,70 @@ router.post('/', async (req, res) => {
   }
   const channelName = name.startsWith('#') ? name.trim() : `#${name.trim()}`;
   try {
-    const channel = await prisma.channel.create({
-      data: { name: channelName, type, members: members ? JSON.stringify(members) : '[]' },
-    });
-    logger.info('[Channel] Created', { id: channel.id, name: channelName });
-    res.status(201).json({ success: true, data: channel });
+    // Check duplicate name (FileStore has no unique constraint)
+    const existing = await fileStore.listChannels({ name: channelName });
+    if (existing.length > 0) {
+      return res.status(409).json({ success: false, error: 'Channel name already exists' });
+    }
+    // Create channel first
+    const now = new Date().toISOString();
+    const channel = {
+      id: randomUUID(),
+      name: channelName,
+      type,
+      defaultWorkspaceId: null,
+      defaultPath: null,
+      discordChannelId: null,
+      discordWebhookUrl: null,
+      members: '[]',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await fileStore.createChannel(channel);
+
+    // Create initial agents if provided
+    const createdAgentIds: string[] = [];
+    if (Array.isArray(agents) && agents.length > 0) {
+      for (const agent of agents) {
+        if (!agent.name || typeof agent.name !== 'string') continue;
+        try {
+          const profile = await createAgentWithFileStore(fileStore, agent.name.trim(), agent.description, channel.id, agent.provider);
+          createdAgentIds.push(profile.id);
+        } catch (agentErr: any) {
+          // Skip duplicate agent names, continue with others
+          if (!agentErr?.message?.includes('Unique constraint')) {
+            logger.warn('[Channel] Failed to create agent', { agent: agent.name, error: String(agentErr) });
+          }
+        }
+      }
+
+      // Update channel members with created agent IDs
+      if (createdAgentIds.length > 0) {
+        await fileStore.updateChannel(channel.id, { members: JSON.stringify(createdAgentIds) });
+      }
+    }
+
+    // Also include explicitly provided member IDs
+    if (Array.isArray(members) && members.length > 0) {
+      const allMembers = [...new Set([...createdAgentIds, ...members])];
+      await fileStore.updateChannel(channel.id, { members: JSON.stringify(allMembers) });
+    }
+
+    // Reload channel to get final members
+    const finalChannel = await fileStore.getChannel(channel.id);
+    logger.info('[Channel] Created', { id: channel.id, name: channelName, agents: createdAgentIds.length });
+    res.status(201).json({ success: true, data: finalChannel });
   } catch (e: any) {
-    if (e?.code === 'P2002') return res.status(409).json({ success: false, error: 'Channel name already exists' });
     throw e;
   }
 });
 
 // GET /api/v1/channels/:id — get channel detail
 router.get('/:id', async (req, res) => {
-  const channel = await prisma.channel.findUnique({
-    where: { id: req.params.id },
-    include: {
-      _count: { select: { ChannelMessage: true } },
-    },
-  });
+  const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
-  res.json({ success: true, data: channel });
+  const messageCount = await fileStore.countMessages(req.params.id);
+  res.json({ success: true, data: { ...channel, _count: { ChannelMessage: messageCount } } });
 });
 
 // GET /api/v1/channels/:id/messages — paginated messages
@@ -263,29 +307,26 @@ router.get('/:id/messages', async (req, res) => {
   const { before, limit = '50' } = req.query;
   const take = Math.min(Number(limit), 100);
 
-  const where: any = { channelId: req.params.id };
+  let messages = await fileStore.queryMessages(req.params.id);
   if (before) {
-    where.createdAt = { lt: new Date(before as string) };
+    const beforeTime = new Date(before as string).getTime();
+    messages = messages.filter(m => new Date(m.createdAt).getTime() < beforeTime);
   }
+  const total = messages.length;
 
-  const [messages, total] = await Promise.all([
-    prisma.channelMessage.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: take + 1,
-    }),
-    prisma.channelMessage.count({ where: { channelId: req.params.id } }),
-  ]);
-
+  // Sort descending, take + 1 for hasMore
+  messages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const hasMore = messages.length > take;
   if (hasMore) messages.pop();
 
-  res.json({
-    success: true,
-    data: messages.reverse(), // chronological order
-    total,
-    hasMore,
-  });
+  // 解析 meta JSON，转换 createdAt 类型
+  const data = messages.reverse().map(m => ({
+    ...m,
+    meta: typeof m.meta === 'string' ? JSON.parse(m.meta) : m.meta,
+    createdAt: new Date(m.createdAt),
+  }));
+
+  res.json({ success: true, data, total, hasMore });
 });
 
 // POST /api/v1/channels/:id/messages — send a message
@@ -298,7 +339,7 @@ router.post('/:id/messages', async (req, res) => {
   const channelId = req.params.id;
   const trimmedContent = content.trim();
 
-  const channel = await prisma.channel.findUnique({ where: { id: channelId } });
+  const channel = await fileStore.getChannel(channelId);
   if (!channel) {
     return res.status(404).json({ success: false, error: 'Channel not found' });
   }
@@ -314,22 +355,20 @@ router.post('/:id/messages', async (req, res) => {
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
 router.delete('/:id', async (req, res) => {
-  const channel = await prisma.channel.findUnique({ where: { id: req.params.id } });
+  const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
 
   // Find or create #研发 as fallback
-  let rndChannel = await prisma.channel.findFirst({ where: { type: 'rnd', id: { not: channel.id } } });
+  let rndChannels = await fileStore.listChannels({ type: 'rnd' });
+  let rndChannel = rndChannels.find(c => c.id !== channel.id);
   if (!rndChannel) {
-    rndChannel = await prisma.channel.create({ data: { name: '#研发', type: 'rnd' } });
+    const rndId = randomUUID();
+    const now = new Date().toISOString();
+    rndChannel = { id: rndId, name: '#研发', type: 'rnd', defaultWorkspaceId: null, defaultPath: null, discordChannelId: null, discordWebhookUrl: null, members: '[]', createdAt: now, updatedAt: now };
+    await fileStore.createChannel(rndChannel);
   }
 
-  // SP-004: SDD primary for channel migration
-  // DB async sync (non-blocking)
-  prisma.requirementsDoc.updateMany({
-    where: { sourceChannelId: channel.id },
-    data: { sourceChannelId: rndChannel.id },
-  }).catch((e: unknown) => logger.warn('[Channel] DB migration sync failed (non-blocking)', { error: String(e) }));
-  // SDD frontmatters for migrated docs
+  // SDD frontmatters for migrated docs (non-blocking)
   try {
     const { listSddDocs } = await import('@dommaker/studio-shared');
     for (const slug of listSddDocs()) {
@@ -340,57 +379,47 @@ router.delete('/:id', async (req, res) => {
     }
   } catch { /* non-blocking */ }
 
-  // Migrate Goals (via context.sourceChannelId) — update context JSON
-  const goals = await prisma.workUnit.findMany({
-    where: { metadata: { contains: channel.id }, type: 'task', parentId: null },
-  });
+  // Migrate WorkUnits via FileStore (context.sourceChannelId in metadata)
+  const allWus = await fileStore.getIndex();
+  const goals = allWus.filter(s => s.type === 'task' && s.parentId === null && s.metadata?.includes(channel.id));
   for (const goal of goals) {
     const meta = goal.metadata ? JSON.parse(goal.metadata) : {};
     const ctx = meta.context || {};
     if (ctx.sourceChannelId === channel.id) {
       ctx.sourceChannelId = rndChannel.id;
       meta.context = ctx;
-      await prisma.workUnit.update({
-        where: { id: goal.id },
-        data: { metadata: JSON.stringify(meta) },
-      });
+      await fileStore.upsertSnapshot({ ...goal, metadata: JSON.stringify(meta), updatedAt: new Date().toISOString() });
     }
   }
 
-  // Cascade delete messages + channel
-  await prisma.channel.delete({ where: { id: channel.id } });
+  // Delete channel
+  await fileStore.deleteChannel(channel.id);
   logger.info('[Channel] Deleted with fallback', { deletedId: channel.id, fallbackId: rndChannel.id });
   res.json({ success: true, data: { deleted: true, fallbackChannelId: rndChannel.id } });
 });
 
 // PUT /api/v1/channels/:id/archive — archive a channel (B1-011)
 router.put('/:id/archive', async (req, res) => {
-  const channel = await prisma.channel.findUnique({ where: { id: req.params.id } });
+  const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
 
   // Archive by renaming with timestamp suffix
   const archivedName = `${channel.name}-archived-${Date.now()}`;
-  await prisma.channel.update({
-    where: { id: channel.id },
-    data: { name: archivedName },
-  });
+  await fileStore.updateChannel(channel.id, { name: archivedName });
   logger.info('[Channel] Archived', { channelId: channel.id, oldName: channel.name });
   res.json({ success: true, data: { archived: true, newName: archivedName } });
 });
 
 // PUT /api/v1/channels/:id/restore — restore an archived channel (B1-011)
 router.put('/:id/restore', async (req, res) => {
-  const channel = await prisma.channel.findUnique({ where: { id: req.params.id } });
+  const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   if (!channel.name.includes('-archived-')) {
     return res.status(400).json({ success: false, error: 'Channel is not archived' });
   }
 
   const restoredName = channel.name.replace(/-archived-\d+$/, '');
-  await prisma.channel.update({
-    where: { id: channel.id },
-    data: { name: restoredName },
-  });
+  await fileStore.updateChannel(channel.id, { name: restoredName });
   logger.info('[Channel] Restored', { channelId: channel.id, restoredName });
   res.json({ success: true, data: { restored: true, name: restoredName } });
 });
@@ -404,11 +433,13 @@ router.patch('/:id', async (req, res) => {
     if (name !== undefined) data.name = name;
     if (defaultWorkspaceId !== undefined) data.defaultWorkspaceId = defaultWorkspaceId;
     if (defaultPath !== undefined) data.defaultPath = defaultPath;
-    const channel = await prisma.channel.update({ where: { id }, data });
-    res.json({ success: true, data: channel });
+    await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
+    const updated = await fileStore.getChannel(id);
+    if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
+    res.json({ success: true, data: updated });
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    if (msg.includes('Record to update not found')) {
+    if (msg.includes('not found')) {
       return res.status(404).json({ success: false, error: 'Channel not found' });
     }
     throw e;
@@ -461,16 +492,15 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', async (req, res)
 
   try {
     // 1. Get message content
-    const message = await prisma.channelMessage.findUnique({ where: { id: messageId } });
-    if (!message) {
+    const found = await fileStore.getMessageById(messageId);
+    if (!found) {
       return res.status(404).json({ success: false, error: 'Message not found' });
     }
+    const message = found.message;
 
     // 2. Get available agents
-    const agents = await prisma.agentProfile.findMany({
-      where: { status: 'active' },
-      select: { id: true, name: true, description: true },
-    });
+    const allProfiles = await fileStore.listProfiles({ status: 'active' });
+    const agents = allProfiles.map(p => ({ id: p.id, name: p.name, description: p.description }));
 
     // 3. Get available projects
     const projects = await projectDiscoveryService.discover();
@@ -492,12 +522,37 @@ router.post('/:id/messages/:messageId/convert-to-task/suggest', async (req, res)
 
 export default router;
 
+/** Create an agent profile using FileStore (used during channel creation). */
+async function createAgentWithFileStore(fs: FileStore, name: string, description: string | null, channelId: string, provider?: string): Promise<{ id: string }> {
+  const { randomUUID } = await import('crypto');
+  // Check name uniqueness
+  const all = await fs.listProfiles();
+  const existing = all.find(p => p.name === name);
+  if (existing) {
+    return existing;
+  }
+
+  const now = new Date().toISOString();
+  const profile = {
+    id: randomUUID(),
+    name,
+    description: description ?? null,
+    channels: JSON.stringify([channelId]),
+    provider: provider ?? null,
+    status: 'active' as const,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await fs.createProfile(profile);
+  return profile;
+}
+
 /** Update channel members: add/remove agent IDs (idempotent). Returns updated members array. */
 export async function updateChannelMembers(
   channelId: string,
   ops: { add?: string[]; remove?: string[] },
 ): Promise<string[]> {
-  const channel = await prisma.channel.findUnique({ where: { id: channelId } });
+  const channel = await fileStore.getChannel(channelId);
   if (!channel) throw new Error(`Channel ${channelId} not found`);
 
   const current: string[] = JSON.parse(channel.members);
@@ -506,10 +561,7 @@ export async function updateChannelMembers(
 
   const updated = [...new Set([...current, ...addIds])].filter(id => !removeIds.includes(id));
 
-  await prisma.channel.update({
-    where: { id: channelId },
-    data: { members: JSON.stringify(updated) },
-  });
+  await fileStore.updateChannel(channelId, { members: JSON.stringify(updated) });
 
   return updated;
 }

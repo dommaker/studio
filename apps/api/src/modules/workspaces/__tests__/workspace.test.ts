@@ -315,6 +315,85 @@ describe('WorkspaceRuntime', () => {
   });
 });
 
+// AC Group 4: GET /workspaces/:id with runtimes
+describe('Workspace getById with runtimes', () => {
+  let workspaceId: string;
+  let tokenId: string;
+
+  beforeAll(async () => {
+    const { token } = await createTestToken('test-getbyid-token');
+    tokenId = token.id;
+    const ws = await prisma.workspace.create({
+      data: {
+        name: 'test-getbyid-workspace',
+        tokenId,
+        workspaceRoot: '/tmp/test',
+      },
+    });
+    workspaceId = ws.id;
+  });
+
+  afterAll(async () => {
+    await prisma.workspaceRuntime.deleteMany({ where: { workspaceId } });
+    await prisma.workspace.deleteMany({ where: { id: workspaceId } });
+    await prisma.workspaceToken.deleteMany({ where: { id: tokenId } });
+  });
+
+  it('findUnique with include runtimes returns workspace + runtimes array', async () => {
+    // Create a runtime for this workspace
+    await prisma.workspaceRuntime.create({
+      data: {
+        workspaceId,
+        provider: 'claude',
+        name: 'Claude Code',
+        version: '2.1.0',
+        status: 'online',
+      },
+    });
+
+    const ws = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      include: { runtimes: true },
+    });
+
+    expect(ws).toBeTruthy();
+    expect(ws!.runtimes).toHaveLength(1);
+    expect(ws!.runtimes[0].provider).toBe('claude');
+    expect(ws!.runtimes[0].version).toBe('2.1.0');
+    expect(ws!.runtimes[0].status).toBe('online');
+  });
+
+  it('findUnique with nonexistent id returns null', async () => {
+    const ws = await prisma.workspace.findUnique({
+      where: { id: 'nonexistent-id' },
+      include: { runtimes: true },
+    });
+
+    expect(ws).toBeNull();
+  });
+
+  it('workspace without runtimes returns empty runtimes array', async () => {
+    // Create a fresh workspace without runtimes
+    const ws2 = await prisma.workspace.create({
+      data: {
+        name: 'test-no-runtimes',
+        tokenId,
+        workspaceRoot: '/tmp/test2',
+      },
+    });
+
+    const found = await prisma.workspace.findUnique({
+      where: { id: ws2.id },
+      include: { runtimes: true },
+    });
+
+    expect(found).toBeTruthy();
+    expect(found!.runtimes).toEqual([]);
+
+    await prisma.workspace.delete({ where: { id: ws2.id } });
+  });
+});
+
 describe('Token verification flow', () => {
   it('verifies token by SHA-256 hash lookup + finds workspace', async () => {
     const plaintext = generateToken();
