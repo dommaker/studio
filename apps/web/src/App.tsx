@@ -8,10 +8,8 @@ const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({
 
 // 路由级代码分割 - 懒加载页面组件
 const GoalListPage = lazy(() => import('./pages/GoalListPage').then(m => ({ default: m.GoalListPage })));
-const ToolList = lazy(() => import('./pages/ToolList').then(m => ({ default: m.ToolList })));
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
 const ToolsStdPage = lazy(() => import('./pages/ToolsStdPage').then(m => ({ default: m.ToolsStdPage })));
-const RolesPage = lazy(() => import('./pages/RolesPage').then(m => ({ default: m.RolesPage })));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then(m => ({ default: m.AuditLogsPage })));
 const PMOPage = lazy(() => import('./pages/PMOPage').then(m => ({ default: m.PMOPage })));
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
@@ -24,6 +22,7 @@ const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => 
 const WorkUnitListPage = lazy(() => import('./pages/WorkUnitListPage').then(m => ({ default: m.WorkUnitListPage })));
 const AgentDashboardPage = lazy(() => import('./pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
 const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ default: m.MonitoringPage })));
+const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(m => ({ default: m.WorkspacePage })));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 
@@ -219,8 +218,6 @@ export default function App() {
             <Route path="/project/:projectId" element={<Suspense fallback={<PageLoader />}><ProjectDetailPage /></Suspense>} />
             <Route path="/goals" element={<Suspense fallback={<PageLoader />}><GoalListPage /></Suspense>} />
             <Route path="/skills" element={<Suspense fallback={<PageLoader />}><ToolsStdPage /></Suspense>} />
-            <Route path="/tools" element={<Suspense fallback={<PageLoader />}><ToolList /></Suspense>} />
-            <Route path="/roles" element={<Suspense fallback={<PageLoader />}><RolesPage /></Suspense>} />
             <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
             <Route path="/audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogsPage /></Suspense>} />
             <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelListPage /></Suspense>} />
@@ -233,6 +230,7 @@ export default function App() {
             <Route path="/workunits" element={<Suspense fallback={<PageLoader />}><WorkUnitListPage /></Suspense>} />
             <Route path="/agents" element={<Suspense fallback={<PageLoader />}><AgentDashboardPage /></Suspense>} />
             <Route path="/monitoring" element={<Suspense fallback={<PageLoader />}><MonitoringPage /></Suspense>} />
+            <Route path="/workspaces/:id" element={<Suspense fallback={<PageLoader />}><WorkspacePage /></Suspense>} />
           </Routes>
         </div>
       </div>
