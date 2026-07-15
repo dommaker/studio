@@ -595,7 +595,9 @@ ${wu.scope}
 继续上次工作。每步结束后输出：
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
-  ACTION: NEED_INPUT:<需要什么>   需要人类输入`;
+  ACTION: NEED_INPUT:<需要什么>   需要人类输入
+
+当做出设计决策（选型、架构选择、方案取舍）时，用 Write 工具追加到 ~/.studio/knowledge/decision-YYYY-MM-DD.md 记录：话题、候选方案、选择、理由。`;
 }
 
 function buildReplyPrompt(wu: WorkUnitData, replies: ChannelMessageData[]): string {
