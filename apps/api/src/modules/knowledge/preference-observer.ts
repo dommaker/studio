@@ -65,7 +65,7 @@ export class PreferenceObserver {
   }
 
   /**
-   * 从路由反馈更新模型偏好
+   * @deprecated Pipeline tier routing 已废弃，此方法无调用者。保留空壳。
    */
   async updateFromRoutingFeedback(classifications: RoutingClassification[]): Promise<void> {
     if (classifications.length === 0) return;
