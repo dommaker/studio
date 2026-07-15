@@ -44,7 +44,7 @@ const EXTRACT_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记�
 
 export class DecisionChainExtractor {
   /**
-   * 从 Meeting 讨论中提取（自动，监听 meeting.ended 事件）
+   * @deprecated Meeting 模块已删除，此方法无调用者。保留空壳防止编译错误。
    */
   async extractFromMeeting(params: {
     meetingId: string;
@@ -145,8 +145,9 @@ ${participants.join(', ')}
   }): Promise<number> {
     const { taskId, projectId, taskDescription, changedFiles, diff } = params;
 
-    // 只提取架构相关变更
-    if (!this.isArchitectureChange(changedFiles)) return 0;
+    // T-1.3: 用 task description 关键词预筛选替代架构文件正则
+    const decisionKeywords = /选择|方案|决定|选型|设计|架构|改为|迁移|重构|替代|切换/;
+    if (!decisionKeywords.test(taskDescription)) return 0;
 
     try {
       const prompt = `## 任务
