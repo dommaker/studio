@@ -221,20 +221,20 @@ describe('PreferenceObserver.getPreferences', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null if confidence < 0.4', async () => {
+  it('returns null if confidence < 0.3', async () => {
     await prisma.userPreference.create({
-      data: { userId: 'default', confidence: 0.3 },
+      data: { userId: 'default', confidence: 0.2 },
     });
     const result = await observer.getPreferences();
     expect(result).toBeNull();
     await prisma.userPreference.deleteMany({ where: { userId: 'default' } });
   });
 
-  it('returns parsed preferences when confidence >= 0.4', async () => {
+  it('returns parsed preferences when confidence >= 0.3', async () => {
     await prisma.userPreference.create({
       data: {
         userId: 'default',
-        confidence: 0.5,
+        confidence: 0.35,
         preferredModel: 'premium',
         modelUsageRatio: '{"premium":0.7}',
         responseStyle: 'concise',
@@ -249,7 +249,7 @@ describe('PreferenceObserver.getPreferences', () => {
     expect(result!.preferredModel).toBe('premium');
     expect(result!.responseStyle).toBe('concise');
     expect(result!.activeHours).toEqual([9, 10, 14]);
-    expect(result!.confidence).toBe(0.5);
+    expect(result!.confidence).toBe(0.35);
     await prisma.userPreference.deleteMany({ where: { userId: 'default' } });
   });
 });

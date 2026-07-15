@@ -8,14 +8,14 @@ import { describe, test, expect, vi, beforeAll } from 'vitest';
 
 // Mock SDD functions before importing AgentRunner
 const mockReadSddDoc = vi.fn();
-const mockFindSddDocByGoalId = vi.fn();
+const mockFindSddDocById = vi.fn();
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return {
     ...orig,
     readSddDoc: mockReadSddDoc,
-    findSddDocByGoalId: mockFindSddDocByGoalId,
+    findSddDocById: mockFindSddDocById,
   };
 });
 
@@ -40,7 +40,7 @@ describe('resolveSddTaskData', () => {
   });
 
   test('returns DB contractTests when no slug available', () => {
-    mockFindSddDocByGoalId.mockReturnValue(null);
+    mockFindSddDocById.mockReturnValue(null);
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ contractTests: dbTests });
     const result = (runner as any).resolveSddTaskData(task);
@@ -133,8 +133,8 @@ describe('resolveSddTaskData', () => {
     expect(result.testFiles).toEqual([]);
   });
 
-  test('resolves slug from goalId via findSddDocByGoalId', () => {
-    mockFindSddDocByGoalId.mockReturnValue('sdd-by-goal');
+  test('resolves slug from task.parameters.goalId via findSddDocById', () => {
+    mockFindSddDocById.mockReturnValue('sdd-by-goal');
     mockReadSddDoc.mockReturnValue({
       meta: { id: 'test-doc-5', slug: 'sdd-by-goal' },
       body: [

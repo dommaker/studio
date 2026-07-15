@@ -212,7 +212,7 @@ export class PreferenceObserver {
       const pref = await prisma.userPreference.findFirst({
         where: { userId: 'default' },
       });
-      if (!pref || pref.confidence < 0.4) return null;
+      if (!pref || pref.confidence < 0.3) return null;
 
       return {
         preferredModel: pref.preferredModel,
