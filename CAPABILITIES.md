@@ -155,13 +155,10 @@
 | server | apps/api/src/modules/mcp/server.ts | MCP Server - Model Context Protocol 服务器 |
 | tool-registry | apps/api/src/modules/mcp/tool-registry.ts | MCP Tool Registry — dynamic registration, health, rate limiting |
 | tools | apps/api/src/modules/mcp/tools.ts | MCP Tools 定义 — 含 createWorkUnit (PMO→Channel→Agent) |
-| init-trace | apps/api/src/modules/monitoring/init-trace.ts | ⑨: Trace pipeline initialization |
-| trace-pipeline.service | apps/api/src/modules/monitoring/trace-pipeline.service.ts | TracePipelineService — ⑨ 修复 |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | notify.service | apps/api/src/modules/outbound-notify/notify.service.ts | NotifyService - 通知服务 |
 | routes | apps/api/src/modules/outbound-notify/routes.ts | Notify API 路由 |
 | routes | apps/api/src/modules/outputs/routes.ts | 产出文档 API - 存储和展示执行结果 |
-| pipeline-dashboard.routes | apps/api/src/modules/pipeline-dashboard/pipeline-dashboard.routes.ts | Dogfood Status Dashboard — GET /api/v1/dogfood/status |
 | okr.service | apps/api/src/modules/pmo/okr.service.ts | 🆕 AS-016: 获取当前季度 |
 | project.service | apps/api/src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 + publish() → Channel + getLinkedSDDs() |
 | routes | apps/api/src/modules/pmo/routes.ts | PMO API — 项目 CRUD + POST publish + GET sdd 关联查询 |
@@ -216,7 +213,6 @@
 | analyst-executor | apps/api/src/modules/channels/analyst-executor.ts | Analyst Executor — Claude Code 执行 + 输出验证 |
 | analyst-knowledge | apps/api/src/modules/channels/analyst-knowledge.ts | Analyst Knowledge — 知识加载、保存、段落筛选 |
 | analyst-prompt | apps/api/src/modules/channels/analyst-prompt.ts | Analyst Prompt — prompt 构建逻辑 |
-| conversation-converter | apps/api/src/modules/channels/conversation-converter.ts | Conversation → Pipeline Conversion (AS-020 §6.6 P10) |
 | conversation-handler | apps/api/src/modules/channels/conversation-handler.ts | ConversationHandler — Channel conversation mode (AS-020 §6.4) |
 | event-handler | apps/api/src/modules/goals/event-handler.ts | Event Handler — Agent 事件核心处理逻辑 |
 | goal-crud | apps/api/src/modules/goals/goal-crud.ts | Goal CRUD — 创建/读取/更新/删除操作 |

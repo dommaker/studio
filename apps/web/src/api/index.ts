@@ -190,13 +190,6 @@ export const runtimeWorkflowApi = {
   deleteProject: (id: string) => api.delete(`/pmo/project/${id}`),
 };
 
-// Execution API
-export const executionApi = {
-  list: (workflowId?: string) => api.get('/executions', { params: { workflowId } }),
-  get: (id: string) => api.get(`/executions/${id}`),
-  stats: () => api.get('/executions/stats'),
-};
-
 // Step API - 步骤管理
 export const stepApi = {
   list: () => api.get('/steps'),
@@ -350,21 +343,6 @@ export const wikiApi = {
     api.put(`/wiki/${id}`, data),
   getGraph: () =>
     api.get('/wiki/graph'),
-};
-
-// Goal API
-export const goalApi = {
-  list: (params?: { companyId?: string; status?: string }) =>
-    api.get('/goals', { params }),
-  get: (id: string) => api.get(`/goals/${id}`),
-  stats: (companyId?: string) =>
-    api.get('/goals/stats', { params: { companyId } }),
-  listExecutions: (goalId: string) =>
-    api.get(`/goals/${goalId}/executions`),
-  cancelExecution: (goalId: string, executionId: string) =>
-    api.post(`/goals/${goalId}/executions/${executionId}/cancel`),
-  retryExecution: (goalId: string, executionId: string) =>
-    api.post(`/goals/${goalId}/executions/${executionId}/retry`),
 };
 
 // Workspace API — AS-020 P2/P7

@@ -37,31 +37,6 @@ export interface TriageLogEntry {
   durationMs?: number;
 }
 
-// ── Deploy Agent ──
-
-export interface DeployParams {
-  projectId: string;
-  executionId: string;
-  executionIds?: string[]; // execution IDs to scope cleanup to (one per WorkUnit)
-  worktree: string;
-  environment: 'vps' | 'company_frontend' | 'company_backend';
-  taskDescription: string;
-}
-
-export interface DeployFinding {
-  severity: 'info' | 'warning' | 'blocker';
-  category: 'ac_completion' | 'sql_change' | 'dependency_change' | 'general';
-  message: string;
-}
-
-export interface DeployResult {
-  success: boolean;
-  type: 'vps' | 'company_frontend' | 'company_backend';
-  findings: DeployFinding[];
-  artifact?: string;
-  summary: string;
-}
-
 // ── ReviewDiff (parameterized diff review, topology-agnostic) ──
 
 export interface ReviewDiffParams {
