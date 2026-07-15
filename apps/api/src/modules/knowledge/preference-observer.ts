@@ -21,14 +21,6 @@ interface ToolCallTrace {
   riskLevel?: string;
 }
 
-interface RoutingClassification {
-  taskId: string;
-  tier: 'premium' | 'standard' | 'fast';
-  result: 'success' | 'failure';
-  duration: number;
-  timestamp: number;
-}
-
 export class PreferenceObserver {
   private readonly emaAlpha = 0.15; // EMA 平滑因子（高噪声数据用低 alpha）
   private readonly coldStartThreshold = 50; // 低于此交互数 → cold start
@@ -55,50 +47,6 @@ export class PreferenceObserver {
         where: { id: pref.id },
         data: {
           favoriteTools: pref.favoriteTools,
-          confidence: this.computeConfidence(pref.confidence),
-          lastInferredAt: new Date(),
-        },
-      });
-    } catch (err) {
-      /* non-blocking */
-    }
-  }
-
-  /**
-   * @deprecated Pipeline tier routing 已废弃，此方法无调用者。保留空壳。
-   */
-  async updateFromRoutingFeedback(classifications: RoutingClassification[]): Promise<void> {
-    if (classifications.length === 0) return;
-
-    try {
-      const pref = await this.getOrCreatePreference();
-      const ratio = JSON.parse(pref.modelUsageRatio) as Record<string, number>;
-
-      for (const c of classifications) {
-        ratio[c.tier] = (ratio[c.tier] || 0) + 1;
-      }
-
-      // 归一化
-      const total = Object.values(ratio).reduce((a, b) => a + b, 0);
-      for (const k of Object.keys(ratio)) {
-        ratio[k] = Math.round((ratio[k] / total) * 100) / 100;
-      }
-
-      // 找 preferredModel
-      let maxRatio = 0;
-      let preferred = pref.preferredModel;
-      for (const [tier, r] of Object.entries(ratio)) {
-        if (r > maxRatio) {
-          maxRatio = r;
-          preferred = tier;
-        }
-      }
-
-      await prisma.userPreference.update({
-        where: { id: pref.id },
-        data: {
-          preferredModel: preferred,
-          modelUsageRatio: JSON.stringify(ratio),
           confidence: this.computeConfidence(pref.confidence),
           lastInferredAt: new Date(),
         },

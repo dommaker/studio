@@ -1,8 +1,8 @@
 /**
  * PreferenceObserver 独立测试
  *
- * 覆盖：updateFromToolTrace、updateFromRoutingFeedback、updateActiveHours、
- *       updateResponseStyle、updateAutoApproveThreshold、getPreferences、formatForPrompt
+ * 覆盖：updateFromToolTrace、updateActiveHours、updateResponseStyle、
+ *       updateAutoApproveThreshold、getPreferences、formatForPrompt
  *
  * 约定：真 SQLite (test.db)，无 Prisma mock，测试后清理数据
  */
@@ -77,30 +77,6 @@ describe('PreferenceObserver.updateFromToolTrace', () => {
 
     const after = await prisma.userPreference.findFirst({ where: { userId: 'default' } });
     expect(after!.confidence).toBeGreaterThan(confBefore);
-  });
-});
-
-// ════════════════════════════════════════════
-// updateFromRoutingFeedback
-// ════════════════════════════════════════════
-
-describe('PreferenceObserver.updateFromRoutingFeedback', () => {
-  it('skips empty array', async () => {
-    await observer.updateFromRoutingFeedback([]);
-    // no error
-  });
-
-  it('updates modelUsageRatio and preferredModel', async () => {
-    await observer.updateFromRoutingFeedback([
-      { taskId: 't1', tier: 'premium', result: 'success', duration: 100, timestamp: Date.now() },
-      { taskId: 't2', tier: 'premium', result: 'success', duration: 200, timestamp: Date.now() },
-      { taskId: 't3', tier: 'fast', result: 'success', duration: 50, timestamp: Date.now() },
-    ]);
-
-    const pref = await prisma.userPreference.findFirst({ where: { userId: 'default' } });
-    const ratio = JSON.parse(pref!.modelUsageRatio) as Record<string, number>;
-    expect(ratio['premium']).toBeGreaterThan(ratio['fast']);
-    expect(pref!.preferredModel).toBe('premium');
   });
 });
 
