@@ -6,6 +6,7 @@ import { useChannelMessages } from '../hooks/useChannelEvents';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelWorkspaceSetting } from '../components/ChannelWorkspaceSetting';
+import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
 import type { ChannelMessage } from '../api/channel';
 
 function isToday(d: Date) {
@@ -111,7 +112,8 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </p>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <ChannelMemberManager channelId={id} membersJson={channel?.members} />
           <ChannelWorkspaceSetting
             channelId={id}
             defaultWorkspaceId={channel?.defaultWorkspaceId}

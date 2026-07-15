@@ -6,12 +6,12 @@
  * 2. @mention detected → create WorkUnit
  * 3. plain text → store only
  */
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 
-const workUnitService = new WorkUnitService(prisma);
+const fileStore = new FileStore();
+const workUnitService = new WorkUnitService();
 
 /**
  * Detect @mention in message content.
@@ -34,16 +34,19 @@ export async function routeMessage(
   channelId: string,
   content: string,
   replyToId?: string,
+  fs?: FileStore,
 ) {
+  const resolvedFs = fs ?? fileStore;
+  // Use resolved FileStore for WorkUnitService (supports test injection)
+  const wuService = new WorkUnitService(undefined, resolvedFs);
+
   // Priority 1: Thread reply — inherit workUnitId from parent
   if (replyToId) {
-    const originalMsg = await prisma.channelMessage.findUnique({
-      where: { id: replyToId },
-    });
-    if (!originalMsg) {
+    const found = await resolvedFs.getMessageById(replyToId);
+    if (!found) {
       throw new Error(`Replied message ${replyToId} not found`);
     }
-    const inheritedWorkUnitId = originalMsg.workUnitId ?? undefined;
+    const inheritedWorkUnitId = found.message.workUnitId ?? undefined;
     return channelMessageService.createHumanMessage(
       channelId,
       content,
@@ -55,11 +58,10 @@ export async function routeMessage(
   // Priority 2: @mention → create WorkUnit
   const mentionName = detectMention(content);
   if (mentionName) {
-    const agent = await prisma.agentProfile.findFirst({
-      where: { name: mentionName, status: 'active' },
-    });
+    const allProfiles = await resolvedFs.listProfiles({ status: 'active' });
+    const agent = allProfiles.find(p => p.name === mentionName) ?? null;
     const scope = content.replace(/@[\w-]+\s*/, '');
-    const workUnit = await workUnitService.create({
+    const workUnit = await wuService.create({
       scope,
       channelId,
       type: 'task',

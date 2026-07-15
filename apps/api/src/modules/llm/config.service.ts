@@ -74,7 +74,7 @@ export class LLMConfigService {
       throw new Error(`Invalid provider: ${input.provider}. Valid: ${validProviders.join(', ')}`);
     }
 
-    const config = await prisma.lLMConfig.upsert({
+    const config = await (prisma as any).lLMConfig.upsert({
       where: {
         scope_provider: { scope: input.scope, provider: input.provider },
       },
@@ -102,7 +102,7 @@ export class LLMConfigService {
    * 获取指定 scope 的配置列表（脱敏）
    */
   async getConfigs(scope?: string): Promise<MaskedLLMConfig[]> {
-    const configs = await prisma.lLMConfig.findMany({
+    const configs = await (prisma as any).lLMConfig.findMany({
       where: scope ? { scope, isActive: true } : { isActive: true },
       orderBy: [{ scope: 'asc' }, { provider: 'asc' }],
     });
@@ -136,7 +136,7 @@ export class LLMConfigService {
    * 删除配置
    */
   async deleteConfig(id: string): Promise<void> {
-    await prisma.lLMConfig.delete({ where: { id } });
+    await (prisma as any).lLMConfig.delete({ where: { id } });
     logger.info(`[LLM Config] Deleted: ${id}`);
   }
 
@@ -149,7 +149,7 @@ export class LLMConfigService {
    * 启动时调用一次，配置变更时可重新调用
    */
   async syncToGateway(): Promise<number> {
-    const configs = await prisma.lLMConfig.findMany({
+    const configs = await (prisma as any).lLMConfig.findMany({
       where: { isActive: true },
     });
 
@@ -226,7 +226,7 @@ export class LLMConfigService {
   // ─── 内部方法 ───
 
   private async findActiveConfig(scope: string) {
-    return prisma.lLMConfig.findFirst({
+    return (prisma as any).lLMConfig.findFirst({
       where: { scope, isActive: true },
       orderBy: { updatedAt: 'desc' },
     });

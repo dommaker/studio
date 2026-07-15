@@ -5,10 +5,11 @@
  * reuse this logic to submit a requirement to #研发 and create a WorkUnit.
  */
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 
+const fileStore = new FileStore();
 const workUnitService = new WorkUnitService(prisma);
 
 /**
@@ -17,7 +18,8 @@ const workUnitService = new WorkUnitService(prisma);
  */
 export async function triggerRequirement(requirement: string): Promise<string> {
   // Find #研发 channel
-  const rndChannel = await prisma.channel.findFirst({ where: { type: 'rnd' } });
+  const rndChannels = await fileStore.listChannels({ type: 'rnd' });
+  const rndChannel = rndChannels[0] ?? null;
   if (!rndChannel) {
     throw new Error('#研发 channel not found. Start studio first.');
   }

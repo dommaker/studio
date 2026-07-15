@@ -90,7 +90,7 @@ const ARCH_MODULES = [
   { name: 'knowledge', title: '知识引擎', sourceDirs: ['apps/api/src/modules/knowledge', 'harness/src/knowledge'] },
   { name: 'constraints', title: '约束系统', sourceDirs: ['harness/src/core/constraints', 'harness/src/constraints'] },
   { name: 'agents', title: 'Agent 系统', sourceDirs: ['apps/api/src/modules/agents'] },
-  { name: 'skills', title: 'Skill 系统', sourceDirs: ['apps/api/src/modules/skills', 'apps/api/src/modules/tools-std'] },
+  { name: 'skills', title: 'Skill 系统', sourceDirs: ['apps/api/src/modules/skills'] },
   { name: 'infra', title: '基础设施', sourceDirs: ['apps/api/src/daemon', 'packages/studio-shared'] },
   { name: 'index', title: '总索引', sourceDirs: [] },
 ];

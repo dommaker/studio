@@ -1,7 +1,6 @@
 // ExecutionPanel - 执行状态面板（深色主题）
 // @ts-nocheck - This component is deprecated after routing refactor, not used anymore
 import { useEffect, useState, useCallback } from 'react';
-import { useWorkflowStore } from '../stores';
 import { useWebSocket } from '../api/websocket';
 import { taskApi } from '../api';
 import { CheckpointTimeline, type CheckpointResult } from './CheckpointTimeline';
@@ -12,7 +11,6 @@ import '../styles/theme.css';
 // 任务状态类型
 interface Task {
   id: string;
-  workflowId: string;
   executionId: string;
   nodeId: string;
   agentType: string;
@@ -35,7 +33,6 @@ interface QueueStats {
 }
 
 export function ExecutionPanel() {
-  const { selectedWorkflow } = useWorkflowStore();
   const currentExecution = undefined;
   const [execution, setExecution] = useState<Execution | null>(null);
   const [nodeExecutions, setNodeExecutions] = useState<NodeExecution[]>([]);
@@ -223,7 +220,7 @@ export function ExecutionPanel() {
         <div className="flex items-center gap-2 mb-2">
           <StatusBadge status={execution?.status || currentExecution.status} />
           <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            {selectedWorkflow?.name || '工作流'}
+            {'执行状态'}
           </span>
         </div>
         <div className="text-xs" style={{ color: 'var(--text-muted)' }}>

@@ -1,140 +1,133 @@
 // AC-1: RuntimeInstance CRUD tests
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-const { mockCreate, mockFindUnique, mockFindMany, mockUpdate, mockCount } = vi.hoisted(() => ({
-  mockCreate: vi.fn(),
-  mockFindUnique: vi.fn(),
-  mockFindMany: vi.fn().mockResolvedValue([]),
-  mockUpdate: vi.fn(),
-  mockCount: vi.fn().mockResolvedValue(0),
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    runtimeInstance: {
-      create: mockCreate,
-      findUnique: mockFindUnique,
-      findMany: mockFindMany,
-      update: mockUpdate,
-      count: mockCount,
-    },
-    agentProfile: {
-      findUnique: vi.fn(),
-    },
-    workUnit: {
-      update: vi.fn().mockResolvedValue({}),
-    },
-  },
-}));
-
-vi.mock('@dommaker/studio-shared', async (importOriginal) => {
-  const orig = await importOriginal() as Record<string, unknown>;
-  return { ...orig, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
-});
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
 
 import { AgentInstanceService } from '../agent-instance.service';
 
+function createTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-instance-test-'));
+}
+
 describe('AgentInstanceService', () => {
   let service: AgentInstanceService;
+  let fileStore: FileStore;
+  let tmpDir: string;
 
-  const mockInstance = {
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    fileStore = new FileStore(tmpDir);
+    service = new AgentInstanceService(fileStore);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  const mockState: RuntimeStateData = {
     id: 'inst-1',
     roleId: 'role-1',
     sessionId: null,
     status: 'idle',
     currentWorkUnitId: null,
-    startedAt: new Date(),
+    startedAt: now,
     terminatedAt: null,
+    lastHeartbeat: null,
     metadata: null,
   };
 
-  beforeEach(() => {
-    vi.clearAllMocks();
-    service = new AgentInstanceService();
-  });
-
   describe('create()', () => {
     it('creates instance with roleId and returns idle status', async () => {
-      mockCreate.mockResolvedValue(mockInstance);
-
       const result = await service.create({ roleId: 'role-1' });
 
       expect(result.status).toBe('idle');
       expect(result.roleId).toBe('role-1');
-      expect(mockCreate).toHaveBeenCalledWith({
-        data: expect.objectContaining({ roleId: 'role-1', status: 'idle' }),
-      });
+      expect(result.id).toBeDefined();
+
+      // 验证持久化到 FileStore
+      const stored = await fileStore.getState(result.id);
+      expect(stored).not.toBeNull();
+      expect(stored!.status).toBe('idle');
     });
 
-    it('returns 400 for invalid roleId', async () => {
-      const err = new Error('Foreign key constraint');
-      (err as any).code = 'P2003';
-      mockCreate.mockRejectedValue(err);
-
-      await expect(service.create({ roleId: 'nonexistent' })).rejects.toThrow();
+    it('returns 400 for invalid roleId — no foreign key constraint with FileStore', async () => {
+      // FileStore 没有外键约束，创建不会抛错
+      const result = await service.create({ roleId: 'nonexistent' });
+      expect(result.roleId).toBe('nonexistent');
     });
   });
 
   describe('getById()', () => {
     it('gets instance by id', async () => {
-      mockFindUnique.mockResolvedValue(mockInstance);
+      await fileStore.createState('inst-1', mockState);
 
       const result = await service.getById('inst-1');
 
-      expect(result).toEqual(mockInstance);
-      expect(mockFindUnique).toHaveBeenCalledWith({ where: { id: 'inst-1' } });
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe('inst-1');
+      expect(result!.status).toBe('idle');
     });
 
     it('returns null for nonexistent id', async () => {
-      mockFindUnique.mockResolvedValue(null);
-
       const result = await service.getById('nonexistent');
-
       expect(result).toBeNull();
     });
   });
 
   describe('list()', () => {
     it('lists instances filtered by status', async () => {
-      mockFindMany.mockResolvedValue([mockInstance]);
-      mockCount.mockResolvedValue(1);
+      await fileStore.createState('inst-1', { ...mockState, id: 'inst-1', status: 'idle' });
+      await fileStore.createState('inst-2', { ...mockState, id: 'inst-2', status: 'active' });
 
       const result = await service.list({ status: 'idle' });
 
       expect(result.data).toHaveLength(1);
       expect(result.total).toBe(1);
-      expect(mockFindMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { status: 'idle' } }),
-      );
+      expect(result.data[0].id).toBe('inst-1');
     });
 
     it('lists all instances when no filter', async () => {
-      mockFindMany.mockResolvedValue([mockInstance]);
-      mockCount.mockResolvedValue(1);
+      await fileStore.createState('inst-1', { ...mockState, id: 'inst-1' });
+      await fileStore.createState('inst-2', { ...mockState, id: 'inst-2' });
 
       const result = await service.list();
 
-      expect(result.data).toHaveLength(1);
+      expect(result.data).toHaveLength(2);
+      expect(result.total).toBe(2);
+    });
+
+    it('supports pagination', async () => {
+      for (let i = 0; i < 5; i++) {
+        await fileStore.createState(`inst-${i}`, { ...mockState, id: `inst-${i}`, startedAt: new Date(Date.now() + i).toISOString() });
+      }
+
+      const page1 = await service.list({ page: 1, limit: 2 });
+      expect(page1.data).toHaveLength(2);
+      expect(page1.total).toBe(5);
+
+      const page3 = await service.list({ page: 3, limit: 2 });
+      expect(page3.data).toHaveLength(1);
+      expect(page3.total).toBe(5);
     });
   });
 
   describe('update()', () => {
     it('updates instance status from idle to active', async () => {
-      mockFindUnique.mockResolvedValue(mockInstance);
-      mockUpdate.mockResolvedValue({ ...mockInstance, status: 'active' });
+      await fileStore.createState('inst-1', mockState);
 
       const result = await service.update('inst-1', { status: 'active' });
 
       expect(result.status).toBe('active');
-      expect(mockUpdate).toHaveBeenCalledWith({
-        where: { id: 'inst-1' },
-        data: expect.objectContaining({ status: 'active' }),
-      });
+
+      const stored = await fileStore.getState('inst-1');
+      expect(stored!.status).toBe('active');
     });
 
     it('updates instance currentWorkUnitId', async () => {
-      mockFindUnique.mockResolvedValue(mockInstance);
-      mockUpdate.mockResolvedValue({ ...mockInstance, currentWorkUnitId: 'wu-1' });
+      await fileStore.createState('inst-1', mockState);
 
       const result = await service.update('inst-1', { currentWorkUnitId: 'wu-1' });
 
@@ -142,43 +135,44 @@ describe('AgentInstanceService', () => {
     });
 
     it('returns 400 for invalid status value', async () => {
-      mockFindUnique.mockResolvedValue(mockInstance);
+      await fileStore.createState('inst-1', mockState);
 
-      await expect(service.update('inst-1', { status: 'invalid' })).rejects.toThrow();
+      await expect(service.update('inst-1', { status: 'invalid' })).rejects.toThrow('Invalid status');
     });
   });
 
   describe('terminate()', () => {
     it('should set status to terminated', async () => {
-      mockFindUnique.mockResolvedValue({ ...mockInstance, currentWorkUnitId: null });
-      mockUpdate.mockResolvedValue({ ...mockInstance, status: 'terminated', terminatedAt: new Date() });
+      await fileStore.createState('inst-1', { ...mockState, currentWorkUnitId: null });
 
       const result = await service.terminate('inst-1');
 
       expect(result.status).toBe('terminated');
-      expect(mockUpdate).toHaveBeenCalledWith({
-        where: { id: 'inst-1' },
-        data: expect.objectContaining({ status: 'terminated', currentWorkUnitId: null }),
-      });
+      expect(result.terminatedAt).not.toBeNull();
     });
 
     it('should unclaim current WorkUnit when currentWorkUnitId exists', async () => {
-      const instanceWithWu = { ...mockInstance, currentWorkUnitId: 'wu-1' };
-      mockFindUnique.mockResolvedValue(instanceWithWu);
-      mockUpdate.mockResolvedValue({ ...instanceWithWu, status: 'terminated' });
+      // Set up a WorkUnit snapshot in FileStore
+      const now = new Date().toISOString();
+      await fileStore.upsertSnapshot({
+        id: 'wu-1', parentId: null, type: 'task', scope: 'test',
+        assigneeId: 'inst-1', status: 'active', failureType: null, retryCount: 0,
+        timeoutAt: null, channelId: null, projectPath: null, metadata: null,
+        createdAt: now, updatedAt: now, claimedAt: now, completedAt: null,
+      });
+      await fileStore.createState('inst-1', { ...mockState, currentWorkUnitId: 'wu-1' });
 
       await service.terminate('inst-1');
 
-      const { prisma } = await import('@dommaker/studio-prisma');
-      expect(prisma.workUnit.update).toHaveBeenCalledWith({
-        where: { id: 'wu-1' },
-        data: { assigneeId: null, status: 'unassigned' },
-      });
+      // Verify WorkUnit was unclaimed via FileStore
+      const snapshots = await fileStore.getIndex();
+      const wu = snapshots.find(s => s.id === 'wu-1');
+      expect(wu).toBeDefined();
+      expect(wu!.assigneeId).toBeNull();
+      expect(wu!.status).toBe('unassigned');
     });
 
     it('should throw when instance not found', async () => {
-      mockFindUnique.mockResolvedValue(null);
-
       await expect(service.terminate('nonexistent')).rejects.toThrow('Instance not found');
     });
   });

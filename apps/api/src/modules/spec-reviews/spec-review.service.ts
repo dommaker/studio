@@ -11,7 +11,6 @@
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { notificationService } from '@dommaker/studio-notification';
-import { roleService } from '../roles/role.service.js';
 
 export interface SpecChange {
   type: 'architecture' | 'api' | 'data-model' | 'workflow' | 'step' | 'skill' | 'other';
@@ -22,7 +21,6 @@ export interface SpecChange {
 }
 
 export interface CreateReviewInput {
-  workflowId?: string;
   title: string;
   description?: string;
   changes: SpecChange[];
@@ -51,7 +49,6 @@ export class SpecReviewService {
     const review = await prisma.specReview.create({
       data: {
         id: this.generateId(),
-        workflowId: input.workflowId,
         title: input.title,
         description: input.description,
         changes: input.changes as any,
@@ -98,17 +95,12 @@ export class SpecReviewService {
    * 查询审查列表
    */
   async getReviews(options?: {
-    workflowId?: string;
     status?: string;
     limit?: number;
     offset?: number;
   }) {
     const where: any = {};
-    
-    if (options?.workflowId) {
-      where.workflowId = options.workflowId;
-    }
-    
+
     if (options?.status) {
       where.status = options.status;
     }
@@ -278,24 +270,9 @@ export class SpecReviewService {
     const reviewers: Array<{ userId: string; name: string }> = [
       { userId: 'architect', name: '架构师' },
     ];
-    
-    // 动态获取项目负责人
-    try {
-      const companyId = input.companyId || 'default-company';
-      const projectLead = await roleService.getProjectLead(companyId);
-      if (projectLead) {
-        reviewers.push({
-          userId: projectLead.id,
-          name: projectLead.name,
-        });
-      } else {
-        // 兜底：使用默认名称
-        reviewers.push({ userId: 'project_lead', name: '项目负责人' });
-      }
-    } catch (err) {
-      logger.warn('Failed to get project lead, using default', { err });
-      reviewers.push({ userId: 'project_lead', name: '项目负责人' });
-    }
+
+    // 使用默认项目负责人（Role 功能已废弃）
+    reviewers.push({ userId: 'project_lead', name: '项目负责人' });
     
     for (const reviewer of reviewers) {
       try {
@@ -304,7 +281,7 @@ export class SpecReviewService {
           type: 'review_request',
           title: `Spec 审查请求: ${input.title}`,
           content: input.description || `检测到 ${input.changes.length} 个变更需要审查`,
-          link: `/workflows/${input.workflowId}?review=${reviewId}`,
+          link: `/reviews/${reviewId}`,
         });
       } catch (err) {
         logger.error('Failed to send notification', { err, userId: reviewer.userId });

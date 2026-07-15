@@ -1283,7 +1283,7 @@ router.get('/health', async (_req: Request, res: Response) => {
 
 /**
  * Decision #5: CSO 验证路由
- * GET /api/v1/cso/validate — 校验 workflow/skill 描述是否规范
+ * GET /api/v1/cso/validate — 校验 skill 描述是否规范
  * 前端 api.validateCSO() 调用此端点
  */
 // Decision #5: CSO 验证 — 直接挂主 router（/api/v1/cso/validate）

@@ -248,14 +248,15 @@ export class PreferenceObserver {
   }
 
   /**
-   * 从 workflow_report 更新工作流偏好 (B9-025)
+   * 从 pattern_report 更新交互模式偏好 (B9-025)
    */
-  async updateFromWorkflowReport(distribution: Record<string, number>, recurring: Array<{ type: string; count: number; successRate: number; lastSeen: string }>): Promise<void> {
+  async updateFromPatternReport(distribution: Record<string, number>, recurring: Array<{ type: string; count: number; successRate: number; lastSeen: string }>): Promise<void> {
     try {
       const pref = await this.getOrCreatePreference();
 
-      // Merge distribution with existing
-      const existing = (pref as any).workflowDistribution ? JSON.parse((pref as any).workflowDistribution) as Record<string, number> : {};
+      // Merge distribution with existing — support both old (workflowDistribution) and new (patternDistribution) column names
+      const rawExisting = (pref as any).patternDistribution || (pref as any).workflowDistribution;
+      const existing = rawExisting ? JSON.parse(rawExisting) as Record<string, number> : {};
       for (const [k, v] of Object.entries(distribution)) {
         existing[k] = (existing[k] || 0) + v;
       }
@@ -270,9 +271,9 @@ export class PreferenceObserver {
       await (prisma as any).userPreference.update({
         where: { id: pref.id },
         data: {
-          workflowDistribution: JSON.stringify(existing),
-          recurringWorkflows: JSON.stringify(recurring),
-          preferredWorkflowTypes: JSON.stringify(preferred),
+          patternDistribution: JSON.stringify(existing),
+          recurringPatterns: JSON.stringify(recurring),
+          preferredPatternTypes: JSON.stringify(preferred),
           confidence: this.computeConfidence(pref.confidence),
           lastInferredAt: new Date(),
         },

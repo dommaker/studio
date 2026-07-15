@@ -1181,9 +1181,6 @@ async function main() {
     case 'channel':
       await apiCommand('channels', args.slice(1));
       break;
-    case 'role':
-      await apiCommand('roles', args.slice(1));
-      break;
     case 'task':
       await apiCommand('tasks', args.slice(1));
       break;

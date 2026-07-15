@@ -56,11 +56,17 @@ export interface ExecutorConfig {
 export interface AgentTask {
   id: string;
   executionId: string;
-  agentType: 'codex' | 'claude';
+  provider: 'claude' | 'codex' | 'opencode' | 'openclaw';
   model?: string;
   prompt: string;
   notifyTarget?: string;
-  parameters?: Record<string, unknown>;
+  parameters?: {
+    sessionId?: string;
+    maxTurns?: number;
+    knowledgeContext?: string;
+    agentRole?: string;
+    [key: string]: unknown;
+  };
   /** 实时进度回调 — 每轮 session 后调用，用于推送到 Channel */
   onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
   /** P3: 覆盖 tier 默认超时 (ms)。提供时替代 getSessionTimeout(tier)。 */
@@ -663,7 +669,7 @@ export class AgentExecutor {
 
     // O2i: Skill on-demand injection
     const skillTier = (task.model as SkillTier) || 'standard';
-    const skillsToInject = skillLoader.load({ agentType: 'executor', tier: skillTier });
+    const skillsToInject = skillLoader.load({ tier: skillTier });
     const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
     // [Skill Discovery] Log injected skills for Agent Network analysis

@@ -23,6 +23,7 @@ export function ChannelListPage() {
   const [showNewForm, setShowNewForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('rnd');
+  const [newAgents, setNewAgents] = useState(''); // comma-separated agent names
   // B2-011: per-channel unread counters
   const [unreadCounts, setUnreadCounts] = useState<Record<string, number>>({});
   const { onEvent } = useWebSocketContext();
@@ -60,15 +61,27 @@ export function ChannelListPage() {
     setUnreadCounts(prev => { const next = { ...prev }; delete next[channelId]; return next; });
   };
 
-  // B2-007: Create new channel
+  // B2-007: Create new channel (with optional initial agents)
   const handleCreate = async () => {
     if (!newName.trim()) return;
     try {
-      const res = await api.post('/channels', { name: newName.trim(), type: newType });
+      // Parse agent names from comma/newline-separated input
+      const agentNames = newAgents
+        .split(/[,\n]/)
+        .map(s => s.trim())
+        .filter(Boolean);
+      const agents = agentNames.map(name => ({ name }));
+
+      const res = await api.post('/channels', {
+        name: newName.trim(),
+        type: newType,
+        ...(agents.length > 0 ? { agents } : {}),
+      });
       const ch = res.data.data;
       setChannels(prev => [...prev, ch]);
       setShowNewForm(false);
       setNewName('');
+      setNewAgents('');
       navigate(`/channels/${ch.id}`);
     } catch (err: any) {
       alert(err?.response?.data?.error || 'Failed to create channel');
@@ -100,6 +113,13 @@ export function ChannelListPage() {
               className="w-full text-sm border border-gray-300 rounded px-2 py-1 mb-2"
               autoFocus
             />
+            <textarea
+              value={newAgents}
+              onChange={e => setNewAgents(e.target.value)}
+              placeholder="初始 Agent（可选，逗号分隔）&#10;例: Analyst, Executor, Reviewer"
+              className="w-full text-xs border border-gray-300 rounded px-2 py-1 mb-2 resize-none"
+              rows={2}
+            />
             <div className="flex items-center gap-2">
               <select value={newType} onChange={e => setNewType(e.target.value)}
                 className="text-xs border border-gray-300 rounded px-1 py-0.5">
@@ -111,7 +131,7 @@ export function ChannelListPage() {
                 className="text-xs bg-blue-500 text-white px-2 py-0.5 rounded hover:bg-blue-600">
                 创建
               </button>
-              <button onClick={() => setShowNewForm(false)}
+              <button onClick={() => { setShowNewForm(false); setNewName(''); setNewAgents(''); }}
                 className="text-xs text-gray-400 hover:text-gray-600">
                 取消
               </button>

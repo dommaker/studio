@@ -1,6 +1,6 @@
 // Triage Agent Service — incident response: diagnose → classify → act → resolve/escalate
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, eventBus } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
 import { classifySystemError } from '../triage/error-class.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import type { SystemTriageResult } from '../triage/error-class.js';
@@ -18,6 +18,12 @@ interface PhaseResult {
 }
 
 class TriageAgent {
+  private fileStore: FileStore;
+
+  constructor(fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+  }
+
   async handleAlert(input: TriageIncidentInput): Promise<{
     incidentId: string;
     resolved: boolean;
@@ -150,7 +156,7 @@ class TriageAgent {
       // Cross-execution pattern diagnosis (Phase 3: Auditor)
       if (input.type === 'agent_type_failure_trend') {
         try {
-          const runningCount = await prisma.workUnit.count({ where: { status: { in: ['active', 'unassigned'] }, parentId: { not: null } } });
+          const runningCount = (await this.fileStore.getIndex()).filter(s => ['active', 'unassigned'].includes(s.status) && s.parentId !== null).length;
           findings.push(`Running/pending executions: ${runningCount}`);
         } catch {
           findings.push('Unable to query execution counts');

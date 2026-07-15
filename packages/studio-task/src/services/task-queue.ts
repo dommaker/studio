@@ -18,7 +18,6 @@ export const RETRY_CONFIG = {
 
 export interface Task {
   id: string;
-  workflowId: string;
   executionId: string;
   nodeId: string;
   agentType: string;
@@ -78,7 +77,6 @@ export class TaskQueue {
    * 创建任务
    */
   async createTask(params: {
-    workflowId: string;
     executionId: string;
     nodeId: string;
     agentType: string;
@@ -87,7 +85,6 @@ export class TaskQueue {
   }): Promise<Task> {
     const task: Task = {
       id: `task-${randomUUID()}`,
-      workflowId: params.workflowId,
       executionId: params.executionId,
       nodeId: params.nodeId,
       agentType: params.agentType,
@@ -357,7 +354,6 @@ export class TaskQueue {
    */
   async getActiveExecutionsByRole(roleId: string): Promise<Array<{
     id: string;
-    workflowId: string;
     status: string;
     startTime: Date | null;
     createdAt: Date;
@@ -370,16 +366,14 @@ export class TaskQueue {
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
-        workflowId: true,
         status: true,
         startTime: true,
         createdAt: true,
       },
     });
-    
+
     return executions.map(e => ({
       id: e.id,
-      workflowId: e.workflowId || '',
       status: e.status,
       startTime: e.startTime,
       createdAt: e.createdAt,

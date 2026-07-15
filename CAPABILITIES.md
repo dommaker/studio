@@ -184,8 +184,7 @@
 | useCapabilities | apps/web/src/hooks/useCapabilities.ts | 获取 Stage 分类数据（UI-001） |
 | useChannelEvents | apps/web/src/hooks/useChannelEvents.ts | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
 | useCompanyId | apps/web/src/hooks/useCompanyId.ts | useCompanyId - 统一获取公司 ID |
-| useCompanyStats | apps/web/src/hooks/useCompanyStats.ts | useCompanyStats - 公司大厅统计数据 Hook |
-| useDashboardData | apps/web/src/hooks/useDashboardData.ts | useDashboardData - 首页聚合数据 Hook（优化首屏加载） |
+
 | useGlobalModals | apps/web/src/hooks/useGlobalModals.ts | 全局弹窗状态 hook |
 | useWebSocket | apps/web/src/hooks/useWebSocket.ts | WebSocket 连接管理 Hook（P2-4） |
 | useWebSocketHandlers | apps/web/src/hooks/useWebSocketHandlers.ts | WebSocket 事件处理 hook |

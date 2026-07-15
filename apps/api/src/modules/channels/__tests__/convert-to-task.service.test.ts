@@ -5,19 +5,27 @@
  * - E1: POST /channels/:id/messages/:messageId/convert-to-task
  * - E2: POST /channels/:id/messages/:messageId/convert-to-task/suggest
  */
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
+import { describe, it, expect, beforeAll, afterAll, vi, beforeEach } from 'vitest';
+import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { WorkUnitService } from '../../workunit/workunit.service.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
 // We'll import convert-to-task service once implemented
 let ConvertToTaskService: typeof import('../convert-to-task.service.js').ConvertToTaskService;
 
 describe('AC-E1+E2: Convert to Task', () => {
   const testChannelIds: string[] = [];
-  const testMessageIds: string[] = [];
   const testWorkUnitIds: string[] = [];
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let workUnitService: WorkUnitService;
 
   beforeAll(async () => {
-    // Dynamic import (will fail until implemented)
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'convert-task-'));
+    fileStore = new FileStore(tmpDir);
+    workUnitService = new WorkUnitService(undefined, fileStore);
     try {
       const mod = await import('../convert-to-task.service.js');
       ConvertToTaskService = mod.ConvertToTaskService;
@@ -27,24 +35,47 @@ describe('AC-E1+E2: Convert to Task', () => {
   });
 
   afterAll(async () => {
-    await prisma.channelMessage.deleteMany({ where: { id: { in: testMessageIds } } });
-    await prisma.workUnit.deleteMany({ where: { id: { in: testWorkUnitIds } } });
-    await prisma.channel.deleteMany({ where: { id: { in: testChannelIds } } });
+    for (const id of testWorkUnitIds) {
+      await workUnitService.delete(id).catch(() => {});
+    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
+
+  beforeEach(() => {
+    // Recreate FileStore for clean state
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+    fs.mkdirSync(tmpDir, { recursive: true });
+    fileStore = new FileStore(tmpDir);
+  });
+
+  /** 在 FileStore 中创建消息，返回 {channelId, msgId} */
+  async function createFsMessage(content: string, opts?: { workUnitId?: string }): Promise<{ channelId: string; msgId: string }> {
+    const chId = `test-ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    testChannelIds.push(chId);
+    await fileStore.createChannel({
+      id: chId, name: `#e1-test`, type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null, members: '[]',
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    });
+    const now = new Date().toISOString();
+    const msg: ChannelMessageData = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      channelId: chId, authorType: 'human', agentName: null,
+      content, replyToId: null, meta: '{}',
+      workUnitId: opts?.workUnitId ?? null, createdAt: now,
+    };
+    await fileStore.appendMessage(chId, msg);
+    return { channelId: chId, msgId: msg.id };
+  }
 
   // ── AC-E1: Convert to Task API ──
 
   describe('AC-E1: Convert to Task API', () => {
     it('normal convert → WorkUnit created + message linked', async () => {
-      const ch = await prisma.channel.create({ data: { name: `#e1-test-${Date.now()}` } });
-      testChannelIds.push(ch.id);
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: ch.id, content: 'Fix the login bug', authorType: 'human' },
-      });
-      testMessageIds.push(msg.id);
-
-      const service = new ConvertToTaskService(prisma);
-      const workUnit = await service.convert(ch.id, msg.id, {
+      const { channelId, msgId } = await createFsMessage('Fix the login bug');
+      const service = new ConvertToTaskService(undefined, fileStore);
+      const workUnit = await service.convert(channelId, msgId, {
         title: 'Fix login bug',
         description: 'Users cannot login with SSO',
       });
@@ -52,84 +83,60 @@ describe('AC-E1+E2: Convert to Task', () => {
 
       expect(workUnit).toBeDefined();
       expect(workUnit.scope).toBe('Fix login bug');
-      expect(workUnit.channelId).toBe(ch.id);
+      expect(workUnit.channelId).toBe(channelId);
       expect(workUnit.status).toBe('unassigned');
 
       // Message should now be linked
-      const updatedMsg = await prisma.channelMessage.findUnique({ where: { id: msg.id } });
-      expect(updatedMsg!.workUnitId).toBe(workUnit.id);
+      const found = await fileStore.getMessageById(msgId);
+      expect(found).not.toBeNull();
+      expect(found!.message.workUnitId).toBe(workUnit.id);
     });
 
-    it('message already has workUnitId → 400', async () => {
-      const ch = await prisma.channel.create({ data: { name: `#e1-dup-${Date.now()}` } });
-      testChannelIds.push(ch.id);
-      const existingWu = await prisma.workUnit.create({
-        data: { scope: 'existing', channelId: ch.id, type: 'task', status: 'unassigned' },
+    it('message already has workUnitId → error', async () => {
+      const existingWu = await workUnitService.create({
+        scope: 'existing', type: 'task', status: 'unassigned',
       });
       testWorkUnitIds.push(existingWu.id);
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: ch.id, content: 'already linked', authorType: 'human', workUnitId: existingWu.id },
-      });
-      testMessageIds.push(msg.id);
+      const { channelId, msgId } = await createFsMessage('already linked', { workUnitId: existingWu.id });
 
-      const service = new ConvertToTaskService(prisma);
-      await expect(service.convert(ch.id, msg.id, {})).rejects.toThrow(/already/i);
+      const service = new ConvertToTaskService(undefined, fileStore);
+      await expect(service.convert(channelId, msgId, {})).rejects.toThrow(/already/i);
     });
 
     it('message not found → error', async () => {
-      const ch = await prisma.channel.create({ data: { name: `#e1-404-${Date.now()}` } });
-      testChannelIds.push(ch.id);
-
-      const service = new ConvertToTaskService(prisma);
-      await expect(service.convert(ch.id, 'nonexistent-msg-id', {})).rejects.toThrow(/not found/i);
+      const service = new ConvertToTaskService(undefined, fileStore);
+      await expect(service.convert('ch-id', 'nonexistent-msg-id', {})).rejects.toThrow(/not found/i);
     });
 
     it('convert makes message the anchor (workUnitId set, replyToId null)', async () => {
-      const ch = await prisma.channel.create({ data: { name: `#e1-anchor-${Date.now()}` } });
-      testChannelIds.push(ch.id);
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: ch.id, content: 'anchor message', authorType: 'human' },
-      });
-      testMessageIds.push(msg.id);
-
-      const service = new ConvertToTaskService(prisma);
-      const workUnit = await service.convert(ch.id, msg.id, { title: 'Anchor task' });
+      const { channelId, msgId } = await createFsMessage('anchor message');
+      const service = new ConvertToTaskService(undefined, fileStore);
+      const workUnit = await service.convert(channelId, msgId, { title: 'Anchor task' });
       testWorkUnitIds.push(workUnit.id);
 
-      const updatedMsg = await prisma.channelMessage.findUnique({ where: { id: msg.id } });
-      expect(updatedMsg!.workUnitId).toBe(workUnit.id);
-      expect(updatedMsg!.replyToId).toBeNull();
+      const found = await fileStore.getMessageById(msgId);
+      expect(found).not.toBeNull();
+      expect(found!.message.workUnitId).toBe(workUnit.id);
+      expect(found!.message.replyToId).toBeNull();
     });
 
     it('with assigneeId → WorkUnit.status = active', async () => {
-      const ch = await prisma.channel.create({ data: { name: `#e1-assignee-${Date.now()}` } });
-      testChannelIds.push(ch.id);
-      const agent = await prisma.agentProfile.create({ data: { name: `e1-agent-${Date.now()}` } });
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: ch.id, content: 'assign me', authorType: 'human' },
-      });
-      testMessageIds.push(msg.id);
-
-      const service = new ConvertToTaskService(prisma);
-      const workUnit = await service.convert(ch.id, msg.id, { assigneeId: agent.id });
+      const { channelId, msgId } = await createFsMessage('assign me');
+      const agentId = `agent-e1-${Date.now()}`;
+      const now = new Date().toISOString();
+      await fileStore.createProfile({ id: agentId, name: `e1-agent`, description: null, channels: '[]', status: 'active', createdAt: now, updatedAt: now });
+      const service = new ConvertToTaskService(undefined, fileStore);
+      const workUnit = await service.convert(channelId, msgId, { assigneeId: agentId });
       testWorkUnitIds.push(workUnit.id);
 
-      expect(workUnit.assigneeId).toBe(agent.id);
+      expect(workUnit.assigneeId).toBe(agentId);
       expect(workUnit.status).toBe('active');
-
-      await prisma.agentProfile.delete({ where: { id: agent.id } });
     });
 
     it('without assigneeId → WorkUnit.status = unassigned', async () => {
-      const ch = await prisma.channel.create({ data: { name: `#e1-noassign-${Date.now()}` } });
-      testChannelIds.push(ch.id);
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: ch.id, content: 'no assignee', authorType: 'human' },
-      });
-      testMessageIds.push(msg.id);
-
-      const service = new ConvertToTaskService(prisma);
-      const workUnit = await service.convert(ch.id, msg.id, {});
+      const { channelId, msgId } = await createFsMessage('no assignee');
+      const service = new ConvertToTaskService(undefined, fileStore);
+      const workUnit = await service.convert(channelId, msgId, {});
       testWorkUnitIds.push(workUnit.id);
 
       expect(workUnit.assigneeId).toBeNull();
@@ -141,7 +148,7 @@ describe('AC-E1+E2: Convert to Task', () => {
 
   describe('AC-E2: LLM suggest', () => {
     it('normal suggest → returns suggestion object', async () => {
-      const service = new ConvertToTaskService(prisma);
+      const service = new ConvertToTaskService(undefined);
 
       // Mock the LLM call
       const mockSuggest = vi.spyOn(service as unknown as Record<string, unknown>, 'callLLM' as never)
@@ -155,13 +162,13 @@ describe('AC-E1+E2: Convert to Task', () => {
     });
 
     it('empty message → returns empty suggestion', async () => {
-      const service = new ConvertToTaskService(prisma);
+      const service = new ConvertToTaskService(undefined);
       const result = await service.suggest('', [], []);
       expect(result).toEqual({});
     });
 
     it('LLM call failure → returns empty suggestion (non-blocking)', async () => {
-      const service = new ConvertToTaskService(prisma);
+      const service = new ConvertToTaskService(undefined);
 
       // Force LLM to fail by mocking fetch
       const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));

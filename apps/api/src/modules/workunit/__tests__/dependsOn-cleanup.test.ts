@@ -15,23 +15,10 @@ const SCHEMA_PATH = path.resolve(__dirname, '../../../../../../packages/studio-p
 const WORKUNIT_DIR = path.resolve(__dirname, '..');
 
 describe('dependsOn cleanup verification', () => {
-  it('schema.prisma WorkUnit model has no dependsOn field', () => {
+  it('schema.prisma WorkUnit model removed (migrated to FileStore)', () => {
     const content = fs.readFileSync(SCHEMA_PATH, 'utf-8');
-    // Find WorkUnit model start, then find matching closing brace
-    const wuStart = content.indexOf('model WorkUnit {');
-    expect(wuStart).toBeGreaterThan(-1);
-    // Find the closing brace at the same indentation level
-    let depth = 0;
-    let wuEnd = -1;
-    for (let i = wuStart; i < content.length; i++) {
-      if (content[i] === '{') depth++;
-      if (content[i] === '}') {
-        depth--;
-        if (depth === 0) { wuEnd = i; break; }
-      }
-    }
-    const wuBlock = content.substring(wuStart, wuEnd);
-    expect(wuBlock).not.toMatch(/\bdependsOn\b/);
+    // WorkUnit model was deleted from schema.prisma (migrated to FileStore)
+    expect(content).not.toMatch(/model WorkUnit\s*\{/);
   });
 
   it('workunit.service.ts CreateWorkUnitInput has no dependsOn', () => {

@@ -13,24 +13,19 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const { t } = useTranslation();
   const location = useLocation();
 
-  // 首页不显示侧边栏
-  if (location.pathname === '/') return null;
-
   // 导航项
   const navItems = [
-    { to: '/', icon: '🏠', label: t('nav.home', '首页') },
+    { to: '/channels', icon: '💬', label: t('nav.channels', '频道') },
     { to: '/pmo', icon: '📊', label: t('nav.pmo', 'PMO') },
     { to: '/knowledge', icon: '📚', label: t('nav.knowledge', '文档') },
     { to: '/wiki', icon: '📖', label: t('nav.wiki', 'Wiki') },
     { to: '/workunits', icon: '📋', label: t('nav.workunits', 'WorkUnit') },
     { to: '/agents', icon: '🤖', label: t('nav.agents', 'Agent') },
     { to: '/monitoring', icon: '📈', label: t('nav.monitoring', '监控') },
-    { to: '/tools', icon: '🔩', label: t('nav.tools', '工具') },
     { to: '/settings', icon: '⚙️', label: t('nav.settings', '设置') },
   ];
 
   const isActive = (path: string) => {
-    if (path === '/') return location.pathname === '/';
     return location.pathname.startsWith(path);
   };
 

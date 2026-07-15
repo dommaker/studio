@@ -92,7 +92,6 @@ describe('TaskQueue', () => {
   describe('TaskQueue methods', () => {
     const makeTask = (overrides = {}) => ({
       id: 'task-1',
-      workflowId: 'wf-1',
       executionId: 'ex-1',
       nodeId: 'node-1',
       agentType: 'solo-developer',
@@ -217,7 +216,6 @@ describe('TaskQueue', () => {
 
       const task: Task = {
         id: 'test-id',
-        workflowId: 'wf-1',
         executionId: 'ex-1',
         nodeId: 'node-1',
         agentType: 'solo-developer',

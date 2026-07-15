@@ -17,7 +17,7 @@ const DEFINITIONS_DIR = getToolsDir();
 // 能力类型定义
 interface Capability {
   name: string;
-  type: 'tool' | 'workflow' | 'skill';
+  type: 'tool' | 'skill';
   category: string;
   description: string;
   path: string;
@@ -124,16 +124,6 @@ router.get('/registry', (req, res) => {
     tools: registry.tools.length,
     capabilities,
   });
-});
-
-// 获取 workflows — 已废弃，workflows 不再包含在 registry 中
-router.get('/registry/workflows', (_req, res) => {
-  res.json([]);
-});
-
-// 获取 skills — 已废弃
-router.get('/registry/skills', (_req, res) => {
-  res.json([]);
 });
 
 // 刷新 Registry 缓存

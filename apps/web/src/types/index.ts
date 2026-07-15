@@ -34,7 +34,6 @@ export type RuntimePhase = BaseExecutionPhase;
 // 执行记录（后端 API 返回的数据结构）
 export interface Execution {
   id: string;
-  workflowId: string;
   workflowName?: string;
   status: ExecutionStatus;
   input?: string;

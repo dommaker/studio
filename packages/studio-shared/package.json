@@ -11,7 +11,8 @@
     "./constants": "./src/constants/levels.ts",
     "./harness": "./src/harness/index.ts",
     "./harness/hooks": "./src/harness/hooks/index.ts",
-    "./harness/runtime/bootstrap": "./src/harness/runtime/bootstrap.ts"
+    "./harness/runtime/bootstrap": "./src/harness/runtime/bootstrap.ts",
+    "./stats/*": "./src/stats/*"
   },
   "scripts": {
     "build": "tsc",

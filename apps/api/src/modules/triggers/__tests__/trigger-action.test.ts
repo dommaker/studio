@@ -1,15 +1,17 @@
 // Trigger Action Tests (3.28c-4) — RED phase
 import { describe, it, expect, afterAll } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
 import { executeCreateAction } from '../trigger-action';
+import { FileStore } from '@dommaker/studio-shared';
+import { WorkUnitService } from '../../workunit/workunit.service.js';
 import type { TriggerAction } from '../trigger.types';
 
 describe('TriggerAction — CREATE WorkUnit', () => {
   const createdIds: string[] = [];
+  const workUnitService = new WorkUnitService();
 
   afterAll(async () => {
-    if (createdIds.length > 0) {
-      await prisma.workUnit.deleteMany({ where: { id: { in: createdIds } } });
+    for (const id of createdIds) {
+      await workUnitService.delete(id).catch(() => {});
     }
   });
 
@@ -33,9 +35,15 @@ describe('TriggerAction — CREATE WorkUnit', () => {
   });
 
   it('sets channelId when provided', async () => {
-    // Create a channel first
-    const channel = await prisma.channel.create({
-      data: { name: '#trigger-test-channel' },
+    // Create a channel first in FileStore
+    const channelId = `trigger-test-ch-${Date.now()}`;
+    const fileStore = new FileStore();
+    const now = new Date().toISOString();
+    await fileStore.createChannel({
+      id: channelId, name: '#trigger-test-channel', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null,
+      members: '[]', createdAt: now, updatedAt: now,
     });
 
     const action: TriggerAction = {
@@ -44,17 +52,14 @@ describe('TriggerAction — CREATE WorkUnit', () => {
       payload: {
         type: 'task',
         scope: 'Channel-bound task',
-        channelId: channel.id,
+        channelId,
       },
     };
 
     const result = await executeCreateAction(action, 'test-trigger');
     createdIds.push(result.id);
 
-    expect(result.channelId).toBe(channel.id);
-
-    // Cleanup channel
-    await prisma.channel.delete({ where: { id: channel.id } });
+    expect(result.channelId).toBe(channelId);
   });
 
   it('stores trigger id in metadata', async () => {

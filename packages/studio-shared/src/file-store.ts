@@ -368,7 +368,7 @@ export class FileStore {
     return this.readJson<ChannelData>(this.channelConfigPath(id));
   }
 
-  async listChannels(filter?: { name?: string; type?: string }): Promise<ChannelData[]> {
+  async listChannels(filter?: { name?: string; type?: string; excludeArchived?: boolean }): Promise<ChannelData[]> {
     const dir = this.channelsDir();
     try {
       const entries = await fs.promises.readdir(dir, { withFileTypes: true });
@@ -379,6 +379,7 @@ export class FileStore {
         if (ch) {
           if (filter?.name && ch.name !== filter.name) continue;
           if (filter?.type && ch.type !== filter.type) continue;
+          if (filter?.excludeArchived && /-archived-\d+$/.test(ch.name)) continue;
           channels.push(ch);
         }
       }

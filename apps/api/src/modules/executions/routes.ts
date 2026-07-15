@@ -25,12 +25,9 @@ interface NodeExecution {
 // 获取执行列表
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { workflowId, status, page = 1, limit = 20 } = req.query;
+    const { status, page = 1, limit = 20 } = req.query;
 
     const where: Record<string, unknown> = {};
-    if (workflowId) {
-      where.workflowId = workflowId;
-    }
     if (status) {
       where.status = status;
     }
@@ -262,7 +259,7 @@ router.post('/:executionId/archive', async (req: Request, res: Response) => {
 
     // 生成文件名
     const timestamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\..+/, '').replace('T', '');
-    const goalName = execution.workflowId || '';
+    const goalName = (execution.parameters as any)?.requirement || execution.id;
     const sanitizedName = goalName.replace(/[📝📋🏗️🎨⚙️🧪🚀🌐🔄👀]/g, '').replace(/[^a-zA-Z0-9\u4e00-\u9fa5-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
     const fileName = `${sanitizedName || 'task'}-${timestamp.slice(0, 12)}.md`;
     const filePath = path.join(tasksDir, fileName);

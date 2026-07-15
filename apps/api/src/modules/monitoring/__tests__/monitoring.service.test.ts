@@ -1,30 +1,55 @@
 // Contract test: MonitoringService — MVP-2 + MVP-6
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { FileStore } from '@dommaker/studio-shared';
 import { MonitoringService } from '../monitoring.service.js';
 
-const service = new MonitoringService();
+function createTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-test-'));
+}
+
+const tmpDir = createTempDir();
+const fileStore = new FileStore(tmpDir);
+const service = new MonitoringService(fileStore);
 
 let testProfileId: string;
 let testInstanceId: string;
 
 beforeAll(async () => {
-  // Create test AgentProfile
-  const profile = await prisma.agentProfile.create({
-    data: { name: `test-monitor-${Date.now()}`, description: 'test', status: 'active' },
+  // Create test data via FileStore (override the service's FileStore path)
+  const now = new Date().toISOString();
+  testProfileId = 'test-monitor-profile';
+
+  // Create AgentProfile
+  await fileStore.createProfile({
+    id: testProfileId,
+    name: `test-monitor-${Date.now()}`,
+    description: 'test',
+    channels: '[]',
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
   });
-  testProfileId = profile.id;
 
   // Create test RuntimeInstance
-  const instance = await prisma.runtimeInstance.create({
-    data: { roleId: testProfileId, status: 'idle' },
+  testInstanceId = 'test-monitor-instance';
+  await fileStore.createState(testInstanceId, {
+    id: testInstanceId,
+    roleId: testProfileId,
+    sessionId: null,
+    status: 'idle',
+    currentWorkUnitId: null,
+    startedAt: now,
+    terminatedAt: null,
+    lastHeartbeat: null,
+    metadata: null,
   });
-  testInstanceId = instance.id;
 });
 
 afterAll(async () => {
-  await prisma.runtimeInstance.deleteMany({ where: { roleId: testProfileId } });
-  await prisma.agentProfile.deleteMany({ where: { id: testProfileId } });
+  fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
 describe('MonitoringService.getAgentSummary', () => {

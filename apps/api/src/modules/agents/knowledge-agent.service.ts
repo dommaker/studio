@@ -5,7 +5,7 @@
  * 使用 harness KnowledgeStore + KnowledgeIngest 存储。
  */
 
-import { modelGateway, logger } from '@dommaker/studio-shared';
+import { modelGateway, logger, FileStore } from '@dommaker/studio-shared';
 import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { DecisionRecord } from '@dommaker/harness';
 import { sharedStore, sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
@@ -49,6 +49,12 @@ const KNOWLEDGE_SYSTEM_PROMPT = `你是一个知识提取专家。请从以下�
 - 最多提取 5 个条目`;
 
 export class KnowledgeAgent {
+
+  private fileStore: FileStore;
+
+  constructor(fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+  }
 
   /**
    * P1b: Four-source cold start import
@@ -611,7 +617,7 @@ ${deployResult.summary.slice(0, 2000)}
   /**
    * KE-003: Extract user behavior patterns from session transcript.
    *
-   * Three signal types: correction (user corrects assistant), workflow (decision chain),
+   * Three signal types: correction (user corrects assistant), pattern (decision chain),
    * automation (repeated manual ops). Results stored in UserBehaviorProfile table.
    *
    * Layer 1 context injection: existing profiles + memory rules into prompt to avoid re-extraction.
@@ -679,7 +685,7 @@ ${deployResult.summary.slice(0, 2000)}
 
 提取：纠正内容 + 触发场景 + 推断的规则
 
-### B. 决策模式（workflow）
+### B. 决策模式（pattern）
 用户的决策链。识别标志：
 - "先X再Y" / "先看...再做..."
 - 用户引导助手的执行顺序
@@ -697,7 +703,7 @@ ${deployResult.summary.slice(0, 2000)}
 
 [
   {
-    "category": "correction|workflow|automation",
+    "category": "correction|pattern|automation",
     "title": "简短标题（10字以内）",
     "evidence": "原文引用",
     "pattern": "模式描述",
@@ -777,15 +783,35 @@ ${existingPatternsBlock}`;
       // - create_rule → ~/.claude/projects/-root-projects/memory/feedback_<topic>.md (Claude Code reads)
       const CONSUME_THRESHOLD = 0.85;
       let consumed = 0;
-      const SKILLS_DIR = path.join(os.homedir(), '.studio', 'knowledge', 'skills');
+      // GAP-8: 写入路径改为 ~/.studio/skills/<name>/SKILL.md
+      const SKILLS_DIR = path.join(os.homedir(), '.studio', 'skills');
       const MEMORY_DIR = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'memory');
+
+      // GAP-8: 数据迁移 — 旧路径 ~/.studio/knowledge/skills/ → ~/.studio/skills/
+      try {
+        const oldSkillsDir = path.join(os.homedir(), '.studio', 'knowledge', 'skills');
+        if (fs.existsSync(oldSkillsDir)) {
+          const entries = fs.readdirSync(oldSkillsDir, { withFileTypes: true });
+          for (const entry of entries) {
+            if (entry.isFile() && entry.name.endsWith('.md')) {
+              const name = entry.name.replace(/\.md$/, '');
+              const targetDir = path.join(SKILLS_DIR, name);
+              if (!fs.existsSync(targetDir)) {
+                fs.mkdirSync(targetDir, { recursive: true });
+                fs.copyFileSync(path.join(oldSkillsDir, entry.name), path.join(targetDir, 'SKILL.md'));
+              }
+            }
+          }
+        }
+      } catch { /* best-effort migration */ }
 
       for (const cp of createdProfiles) {
         if (cp.confidence < CONSUME_THRESHOLD || cp.suggestedAction === 'skip') continue;
         try {
           if (cp.suggestedAction === 'create_skill' || cp.suggestedAction === 'create_automation') {
             const skillName = cp.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-            fs.mkdirSync(SKILLS_DIR, { recursive: true });
+            const skillDir = path.join(SKILLS_DIR, skillName);
+            fs.mkdirSync(skillDir, { recursive: true });
             const skillContent = [
               '---',
               `name: ${skillName}`,
@@ -805,7 +831,7 @@ ${existingPatternsBlock}`;
               cp.pattern,
               '',
             ].join('\n');
-            fs.writeFileSync(path.join(SKILLS_DIR, `${skillName}.md`), skillContent, 'utf-8');
+            fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillContent, 'utf-8');
           } else if (cp.suggestedAction === 'create_rule') {
             const topic = cp.title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
             fs.mkdirSync(MEMORY_DIR, { recursive: true });
@@ -876,14 +902,30 @@ ${existingPatternsBlock}`;
    */
   private async getOrCreateSystemChannel(): Promise<{ id: string; name: string } | null> {
     try {
-      let channel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+      const channels = await this.fileStore.listChannels({ name: '#系统' });
+      let channel = channels[0] ?? null;
       if (!channel) {
-        channel = await prisma.channel.create({
-          data: { name: '#系统', type: 'system' },
+        const { randomUUID } = await import('crypto');
+        const now = new Date().toISOString();
+        await this.fileStore.createChannel({
+          id: randomUUID(),
+          name: '#系统',
+          type: 'system',
+          defaultWorkspaceId: null,
+          defaultPath: null,
+          discordChannelId: null,
+          discordWebhookUrl: null,
+          members: '[]',
+          createdAt: now,
+          updatedAt: now,
         });
-        logger.info('[KnowledgeAgent] Created #系统 channel', { channelId: channel.id });
+        const newChannels = await this.fileStore.listChannels({ name: '#系统' });
+        channel = newChannels[0] ?? null;
+        if (channel) {
+          logger.info('[KnowledgeAgent] Created #系统 channel', { channelId: channel.id });
+        }
       }
-      return { id: channel.id, name: channel.name };
+      return channel ? { id: channel.id, name: channel.name } : null;
     } catch (err) {
       logger.error('[KnowledgeAgent] Failed to get/create #系统 channel', { error: String(err) });
       return null;

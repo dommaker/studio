@@ -37,7 +37,6 @@ export function isCriticalOperation(req: Request): boolean {
   const criticalPatterns = [
     '/api/v1/auth/',  // 认证相关
     '/api/v1/roles/',  // 角色管理
-    '/api/v1/workflows/',  // 工作流
     '/api/v1/executions/',  // 执行
     '/api/v1/backups/',  // 备份
     '/api/v1/pmo/',  // 项目管理

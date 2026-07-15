@@ -1,8 +1,7 @@
 // App.tsx - Agent Studio - 路由重构
 import { useState, useEffect, lazy, Suspense } from 'react';
-import { Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
-const Home = lazy(() => import('./pages/Home').then(m => ({ default: m.Home })));
 const ChannelListPage = lazy(() => import('./pages/ChannelListPage').then(m => ({ default: m.ChannelListPage })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
 
@@ -39,33 +38,23 @@ import { GlobalModals } from './components/GlobalModals';
 import { useAgentStore, useRuntimeStore } from './stores';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
-import { projectApi } from './api';
 import { useWebSocket, WebSocketProvider } from './api/websocket';
 import { useWebSocketHandlers } from './hooks/useWebSocketHandlers';
 import { useGlobalModals } from './hooks/useGlobalModals';
-import type { IntentAnalysis } from './types';
-import { toast } from './utils/toast';
 import './styles/theme.css';
 
 export default function App() {
   const { t } = useTranslation();
   const location = useLocation();
-  const navigate = useNavigate();
   const { loadAgents } = useAgentStore();
   const { loadExecutions, runtimeExecutions } = useRuntimeStore();
   const isGuest = useAuthStore((s) => s.isGuest());
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
 
-  // Hooks
-  const noop = async (_id: string) => {};
-  const executions: any[] = [];
-  const setExecutions = (_: any) => {};
-
   const {
-    thinkingMessages, isThinking,
     currentExecution, setCurrentExecution,
     handleWebSocketMessage,
-  } = useWebSocketHandlers(setExecutions);
+  } = useWebSocketHandlers(() => {});
 
   const {
     showAgentRegistry, setShowAgentRegistry,
@@ -75,15 +64,10 @@ export default function App() {
   } = useGlobalModals();
 
   // 本地 state
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [intentAnalysis, setIntentAnalysis] = useState<IntentAnalysis | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [defaultCompanyId] = useState<string>(() => {
-    return localStorage.getItem('companyId') || 'cmo77h9qf0002vsqjikl1qul9';
-  });
 
   // WebSocket
-  const { status: wsStatus, subscribe } = useWebSocket({
+  const { status: wsStatus } = useWebSocket({
     onMessage: handleWebSocketMessage,
     reconnect: true,
   });
@@ -93,51 +77,6 @@ export default function App() {
     loadAgents();
     loadExecutions();
   }, [loadAgents, loadExecutions]);
-
-  // 订阅运行中的 Pipeline
-  useEffect(() => {
-    if (wsStatus === 'connected') {
-      executions.forEach(exec => {
-        if (exec.status === 'running') subscribe(exec.id);
-      });
-    }
-  }, [executions, wsStatus, subscribe]);
-
-  // CEO 指令提交
-  const handleCommandSubmit = async (command: string, useLLM: boolean) => {
-    setIsAnalyzing(true);
-    try {
-      const parseResult = await projectApi.parseCommand(command);
-      const { type, pmoNumber } = parseResult.data || parseResult;
-
-      if (type === 'link' && pmoNumber) {
-        const projectRes = await projectApi.getByPmoNumber(defaultCompanyId, pmoNumber);
-        const project = projectRes.data;
-        if (project) {
-          navigate(`/pmo/project/${project.id}`);
-        } else {
-          toast.error(`项目 ${pmoNumber} 不存在`);
-        }
-        return;
-      }
-
-      const projectRes = await projectApi.create({
-        companyId: defaultCompanyId,
-        title: command.slice(0, 50),
-        requirement: command,
-      });
-      const projectData = projectRes.data || projectRes;
-      const projectId = projectData.id;
-      const newPmoNumber = projectData.pmoNumber;
-
-      toast.success(`项目已创建: ${newPmoNumber}`);
-    } catch (error) {
-      console.error('FL-001 command submit failed:', error);
-      toast.error('指令处理失败，请刷新页面后重试');
-    } finally {
-      setIsAnalyzing(false);
-    }
-  };
 
   // OAuth callback: bypass guest wall (user is returning from OAuth provider)
   if (location.pathname === '/auth/callback') {

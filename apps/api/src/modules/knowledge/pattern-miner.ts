@@ -6,13 +6,14 @@
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 
 const EVENTS_DIR = process.env.EVENTS_DIR || path.join(os.homedir(), 'events');
+const fileStore = new FileStore();
 
 interface ToolTraceEvent {
   type: string;
@@ -87,7 +88,7 @@ export class PatternMiner {
       }
     }
 
-    // 3. B10-103: Mine UserBehaviorProfile for workflow patterns
+    // 3. B10-103: Mine UserBehaviorProfile for interaction patterns
     const behaviorPatterns = await this.mineBehaviorProfiles(yesterday);
     newPatterns.push(...behaviorPatterns);
 
@@ -110,7 +111,8 @@ export class PatternMiner {
         });
         if (highConfPatterns.length > 0) {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
-          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          const sysChannels = await fileStore.listChannels({ name: '#系统' });
+          const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
             const insightLines = highConfPatterns.map(p =>
               `- **${p.name}**: ${p.insight || p.description} (置信度: ${Math.round(p.confidence * 100)}%)`
@@ -272,7 +274,7 @@ export class PatternMiner {
   }
 
   /**
-   * B10-103: Mine UserBehaviorProfile entries for workflow/automation patterns.
+   * B10-103: Mine UserBehaviorProfile entries for interaction/automation patterns.
    * Aggregates similar behavior profiles into InteractionPattern entries.
    */
   private async mineBehaviorProfiles(since: number): Promise<number[]> {
@@ -309,7 +311,7 @@ export class PatternMiner {
         const name = `行为模式: ${category} → ${suggestedAction}`;
         const p = await this.upsertPattern({
           name,
-          category: 'workflow',
+          category: 'pattern',
           description: `${group.length} 个行为模式指向 ${suggestedAction}（${titles.join(', ')}）`,
           pattern: JSON.stringify({ category, suggestedAction, titles }),
           frequency: group.length,

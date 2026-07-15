@@ -180,33 +180,7 @@
     "show": "Show",
     "hide": "Hide"
   },
-  
-  "home": {
-    "title": "Agent Studio",
-    "subtitle": "Multi-role collaborative AI Agent platform",
-    "commandPlaceholder": "Enter command, e.g.: Implement user login",
-    "analyze": "Analyze",
-    "execute": "Execute",
-    "modify": "Modify Flow",
-    "recentExecutions": "Recent Executions",
-    "startNew": "Start New Task",
-    "useLLM": "Use LLM Analysis",
-    "commandCenter": "Command Center",
-    "commandSubtitle": "Describe requirements in natural language, AI team completes the workflow",
-    "running": "Running",
-    "viewAll": "View All",
-    "feature": {
-      "intent": "Intent Recognition",
-      "intentDesc": "AI analyzes requirements and matches the best workflow",
-      "orchestration": "Auto Orchestration",
-      "orchestrationDesc": "Automatically invoke requirements, architecture, development, testing, deployment",
-      "feedback": "Real-time Feedback",
-      "feedbackDesc": "View execution status and output for each step",
-      "iteration": "Fast Iteration",
-      "iterationDesc": "One-click execution, automatic loop until task completion"
-    }
-  },
-  
+
   "connection": {
     "connected": "Connected",
     "disconnected": "Disconnected"

@@ -137,20 +137,6 @@ export const STAGE_TOOLS: Record<Stage, string[]> = {
 };
 
 /**
- * 阶段 → Workflow 映射
- * 
- * 每个阶段可用的 Workflow
- */
-export const STAGE_WORKFLOWS: Record<Stage, string[]> = {
-  plan: ['wf-planning', 'wf-architecture-review', 'wf-spec-review'],
-  develop: ['wf-dev', 'wf-iterate', 'wf-backend', 'wf-frontend'],
-  verify: ['wf-test', 'wf-review', 'wf-e2e-test'],
-  deploy: ['wf-release', 'wf-deploy'],
-  fix: ['wf-bugfix', 'wf-patch'],
-  govern: ['wf-evolution', 'wf-audit', 'wf-constraint'],
-};
-
-/**
  * 阶段名称
  */
 export const STAGE_NAMES: Record<Stage, string> = {
@@ -196,7 +182,6 @@ export interface RoleDerivedConfig {
 
   // 自动推导
   stages: Stage[];
-  workflows: string[];
   tools: string[];
 
   // 静态配置
@@ -212,7 +197,6 @@ export interface UICategory {
   name: string;
   description: string;
   tools: string[];
-  workflows: string[];
 }
 
 // ========== 核心决策函数 ==========
@@ -307,30 +291,10 @@ export function isToolAllowedForStage(toolPath: string, stage: Stage): boolean {
 }
 
 /**
- * 获取角色可用的 Workflow 列表
- * 
- * @param role 角色
- * @returns 可用的 Workflow ID 列表
- */
-export function getRoleWorkflows(role: Role): string[] {
-  const workflows: string[] = [];
-
-  // 遍历所有阶段，找出角色有责任的阶段
-  for (const stage of Object.keys(RESPONSIBILITY_CHAIN) as Stage[]) {
-    if (canRoleExecuteStage(role, stage)) {
-      workflows.push(...STAGE_WORKFLOWS[stage]);
-    }
-  }
-
-  return [...new Set(workflows)]; // 去重
-}
-
-/**
  * 推导角色配置
  * 
  * 根据责任链自动推导：
  * - 可参与的阶段
- * - 可执行的 Workflow
  * - 可使用的 Tools
  */
 export function deriveRoleConfig(role: Role): RoleDerivedConfig {
@@ -342,17 +306,13 @@ export function deriveRoleConfig(role: Role): RoleDerivedConfig {
     }
   }
 
-  // 2. 推导可用的 Workflow
-  const workflows = getRoleWorkflows(role);
-
-  // 3. 推导可用的 Tools
+  // 2. 推导可用的 Tools
   const tools = stages.flatMap(s => STAGE_TOOLS[s]);
   const uniqueTools = [...new Set(tools)];
 
   return {
     role,
     stages,
-    workflows,
     tools: uniqueTools,
     name: ROLE_NAMES[role] || role,
     description: ROLE_DESCRIPTIONS[role] || '',
@@ -373,7 +333,6 @@ export function buildUICategories(): UICategory[] {
       name: STAGE_NAMES[stage as Stage],
       description: '', // 从 stage-definitions.ts 获取
       tools: STAGE_TOOLS[stage as Stage],
-      workflows: STAGE_WORKFLOWS[stage as Stage],
     });
   }
 

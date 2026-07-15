@@ -193,9 +193,10 @@ export async function emitFileChange(filePath: string, sessionId: string, execut
 }
 
 /**
- * 记录执行错误到 GoalExecution
+ * [DEPRECATED] GoalExecution 已迁移至 WorkUnit
+ * 保留签名兼容 caller，实际记录不再写入已删除的 GoalExecution 表
  */
-export async function recordExecutionError(opts: {
+export async function recordExecutionError(_opts: {
   executionId: string;
   errMsg: string;
   errStack?: string;
@@ -206,27 +207,7 @@ export async function recordExecutionError(opts: {
   signal?: string;
   code?: number;
 }): Promise<void> {
-  try {
-    await prisma.goalExecution.update({
-      where: { id: opts.executionId },
-      data: {
-        status: 'failed',
-        error: JSON.stringify({
-          message: opts.errMsg,
-          stack: opts.errStack,
-          stderr: opts.stderrText,
-          stdout: opts.stdoutText,
-          sessionCount: opts.sessionCount,
-          cumulativeSessionMs: opts.cumulativeSessionMs,
-          signal: opts.signal,
-          code: opts.code,
-          timestamp: Date.now(),
-        }),
-      },
-    });
-  } catch (e) {
-    logger.warn('[OutputCapture] Failed to store error details', { error: String(e) });
-  }
+  logger.warn('[OutputCapture] recordExecutionError deprecated, GoalExecution table removed');
 }
 
 // 约束 metadata 缓存

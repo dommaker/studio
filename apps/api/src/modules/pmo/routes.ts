@@ -6,6 +6,7 @@ import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
 import { requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
+import { FileStore } from '@dommaker/studio-shared';
 
 const router = Router();
 
@@ -518,13 +519,6 @@ router.get('/projects', async (req: Request, res: Response) => {
     const status = req.query.status as string | undefined;
     const limit = parseInt(req.query.limit as string) || 20;
 
-    // 获取公司下所有角色 ID
-    const roles = await prisma.role.findMany({
-      where: { companyId },
-      select: { id: true },
-    });
-    const roleIds = roles.map(r => r.id);
-
     // 构建查询条件
     const where: Record<string, unknown> = {};
     if (okrId) {
@@ -548,7 +542,6 @@ router.get('/projects', async (req: Request, res: Response) => {
     // 获取数据库中的 Execution 记录（补充 okrId）
     const dbExecutions = await prisma.execution.findMany({
       where: {
-        roleId: { in: roleIds },
         ...where,
       },
       orderBy: { createdAt: 'desc' },
@@ -584,16 +577,11 @@ router.get('/projects', async (req: Request, res: Response) => {
 router.put('/projects/:id/okr', async (req: Request, res: Response) => {
   try {
     const executionId = req.params.id;
-    const { okrId, roleId } = req.body;
+    const { okrId } = req.body;
 
-    // 获取 Execution 和关联的角色
+    // 获取 Execution
     const execution = await prisma.execution.findUnique({
       where: { id: executionId },
-      include: {
-        Role: {
-          select: { companyId: true, isProjectLead: true },
-        },
-      },
     });
 
     if (!execution) {
@@ -601,24 +589,11 @@ router.put('/projects/:id/okr', async (req: Request, res: Response) => {
       const newExecution = await prisma.execution.create({
         data: {
           id: executionId,
-          workflowId: 'unknown',
           roleId: null,
           okrId,
         },
       });
       return res.json(newExecution);
-    }
-
-    // 权限检查：管理员或 ProjectLead
-    if (roleId && execution.Role) {
-      const isAdmin = await okrService.checkPermission(roleId, execution.Role.companyId);
-      const isProjectLead = execution.Role.isProjectLead;
-
-      if (!isAdmin && !isProjectLead) {
-        return res.status(403).json({
-          error: { code: 'FORBIDDEN', message: 'Only admins or ProjectLead can set OKR' },
-        });
-      }
     }
 
     // 更新 OKR 关联
@@ -636,25 +611,6 @@ router.put('/projects/:id/okr', async (req: Request, res: Response) => {
   }
 });
 
-/**
- * POST /api/v1/pmo/init-admin
- * 初始化公司管理员（将 CEO 加入 adminRoleIds）
- */
-router.post('/init-admin', async (req: Request, res: Response) => {
-  try {
-    const { companyId } = req.body;
-
-    await okrService.initAdmin(companyId);
-
-    res.json({ success: true, message: 'Admin initialized' });
-  } catch (error) {
-    logger.error({ error }, 'Failed to init admin');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to init admin' },
-    });
-  }
-});
-
 // ============================================
 // O3g: Pipeline Health Dashboard API
 // ============================================
@@ -664,11 +620,11 @@ router.post('/init-admin', async (req: Request, res: Response) => {
  */
 router.get('/health', async (_req: Request, res: Response) => {
   try {
-    const [activeWorkUnits, pendingWorkUnits, recentEvents] = await Promise.all([
-      prisma.workUnit.count({ where: { status: 'active' } }),
-      prisma.workUnit.count({ where: { status: 'unassigned' } }),
-      prisma.studioEvent.findMany({ orderBy: { timestamp: 'desc' }, take: 20 }),
-    ]);
+    const fileStore = new FileStore();
+    const snapshots = await fileStore.getIndex();
+    const activeWorkUnits = snapshots.filter(s => s.status === 'active').length;
+    const pendingWorkUnits = snapshots.filter(s => s.status === 'unassigned').length;
+    const recentEvents = await prisma.studioEvent.findMany({ orderBy: { timestamp: 'desc' }, take: 20 });
     res.json({
       activeWorkUnits,
       pendingWorkUnits,

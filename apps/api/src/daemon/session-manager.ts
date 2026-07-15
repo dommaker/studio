@@ -201,7 +201,7 @@ export class SessionManager {
       const result = await agentRunner.executeLightweight({
         id: execId,
         executionId: state.sessionId,
-        agentType: 'claude',
+        provider: 'claude',
         model: state.config.modelTier,
         prompt: job.prompt,
         timeoutMs: state.config.timeoutMs,

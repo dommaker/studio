@@ -6,6 +6,7 @@
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { prisma } from '@dommaker/studio-prisma';
+import { FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../../skills/skill-store.js';
 
 let testCompanyId: string;
@@ -15,6 +16,8 @@ let testSkillHighSR: string;  // successRate >= 0.8 + draft
 let testSkillNormal: string;  // normal, shouldn't trigger
 
 describe('AuditorAgent B3-005', () => {
+  const fileStore = new FileStore();
+
   beforeAll(async () => {
     // Find or create test company
     let company = await prisma.company.findFirst();
@@ -23,10 +26,27 @@ describe('AuditorAgent B3-005', () => {
     }
     testCompanyId = company.id;
 
-    // Find or create system channel
-    let channel = await prisma.channel.findUnique({ where: { name: '#系统' } });
-    if (!channel) {
-      channel = await prisma.channel.create({ data: { name: '#系统', type: 'system' } });
+    // Create system channel in FileStore (for channelMessageService)
+    const channelId = `system-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await fileStore.createChannel({
+      id: channelId,
+      name: '#系统',
+      type: 'system',
+        defaultWorkspaceId: null,
+        defaultPath: null,
+        discordChannelId: null,
+        discordWebhookUrl: null,
+        members: '[]',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+    });
+
+    // Clean up stale #系统 channels from previous test runs
+    const staleSystemChannels = await fileStore.listChannels({ name: '#系统' });
+    for (const stale of staleSystemChannels) {
+      if (stale.id !== channelId) {
+        await fileStore.deleteChannel(stale.id).catch(() => {});
+      }
     }
 
     // Create session:summary events so activeSessionCount >= 5 (required for skill audit)
@@ -38,24 +58,17 @@ describe('AuditorAgent B3-005', () => {
         data: { type: 'session:summary', source: 'test', payload: '{}', timestamp: new Date() },
       });
     }
-    testChannelId = channel.id;
+    testChannelId = channelId;
   });
 
   afterAll(async () => {
     // Cleanup test skills from SkillStore
     skillStore.deleteMany({ companyId: testCompanyId });
-    // Cleanup test messages
-    await prisma.channelMessage.deleteMany({ where: { channelId: testChannelId, agentName: 'Auditor', content: { contains: '审计建议 — 待人工确认' } } });
   });
 
   beforeEach(async () => {
     // Clean up test skills from previous runs
     skillStore.deleteMany({ name: { startsWith: '__test_' } });
-
-    // Clean test messages
-    await prisma.channelMessage.deleteMany({
-      where: { channelId: testChannelId, content: { contains: '审计建议 — 待人工确认' } },
-    });
 
     // Create test skills
     const s1 = skillStore.create({
@@ -361,19 +374,15 @@ describe('AuditorAgent B3-005', () => {
 
       await (agent as any).pushConfirmationCards(suggestions);
 
-      // Verify card was created
-      const card = await prisma.channelMessage.findFirst({
-        where: {
-          channelId: testChannelId,
-          agentName: 'Auditor',
-          content: { contains: '审计建议 — 待人工确认' },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
+      // Verify card was created in FileStore
+      const allMsgs = await fileStore.queryAllMessages({ agentNames: ['Auditor'] });
+      const card = allMsgs.find(m =>
+        m.channelId === testChannelId &&
+        m.content.includes('审计建议 — 待人工确认'),
+      );
 
-      expect(card).not.toBeNull();
-      // meta is auto-parsed by Prisma middleware
-      const meta = typeof card!.meta === 'string' ? JSON.parse(card!.meta as string) : card!.meta;
+      expect(card).toBeDefined();
+      const meta = typeof card!.meta === 'string' ? JSON.parse(card!.meta) : (card!.meta ?? {});
       expect(meta.cardType).toBe('auditor_suggestion');
       expect(meta.status).toBe('ready');
       expect(meta.cardData.suggestions).toHaveLength(1);

@@ -83,7 +83,7 @@ export class ReviewAgent {
       let indexSection = '';
       try {
         const knowledgeContext = await knowledgeService.injectContext('reviewer');
-        if (knowledgeContext) indexSection = '\n## 知识检索\n' + knowledgeContext + '\n';
+        if (knowledgeContext.prompt) indexSection = '\n## 知识检索\n' + knowledgeContext.prompt + '\n';
       } catch { /* best-effort */ }
       // TDD-04: Load reviewer skills via SkillLoader
       const reviewerSkills = skillLoader.load({ agentType: 'reviewer' });
@@ -499,7 +499,7 @@ export class ReviewAgent {
       let indexSection = '';
       try {
         const knowledgeContext = await knowledgeService.injectContext('reviewer');
-        if (knowledgeContext) indexSection = '\n## 知识检索\n' + knowledgeContext + '\n';
+        if (knowledgeContext.prompt) indexSection = '\n## 知识检索\n' + knowledgeContext.prompt + '\n';
       } catch { /* best-effort */ }
       // TDD-04: Load reviewer skills for branch diff review too
       const reviewerSkills = skillLoader.load({ agentType: 'reviewer' });

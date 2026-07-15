@@ -17,7 +17,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { prisma } from '@dommaker/studio-prisma';
+import { FileStore } from '@dommaker/studio-shared';
 import { TriggerStore } from '../../triggers/trigger-store.js';
 import { executeCreateAction } from '../../triggers/trigger-action.js';
 import { WorkUnitService } from '../workunit.service.js';
@@ -57,20 +57,32 @@ const TEST_SKILLS: SkillEntry[] = [
 ];
 
 describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
-  const workUnitService = new WorkUnitService(prisma);
+  const workUnitService = new WorkUnitService();
   let testChannelId: string;
   let triggerDir: string;
   let triggerStore: TriggerStore;
   let workUnitId: string;
+  let fileStore: FileStore;
   const messageIds: string[] = [];
   const triggerId = 'e2e-lifecycle-trigger';
 
   beforeAll(async () => {
-    // 1. Create test Channel
-    const channel = await prisma.channel.create({
-      data: { name: `#e2e-lifecycle-${Date.now()}`, type: 'rnd' },
+    // 1. Create test Channel in FileStore (for message ops)
+    fileStore = new FileStore();
+    const channelName = `#e2e-lifecycle-${Date.now()}`;
+    testChannelId = `e2e-ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await fileStore.createChannel({
+      id: testChannelId,
+      name: channelName,
+      type: 'rnd',
+      defaultWorkspaceId: null,
+      defaultPath: null,
+      discordChannelId: null,
+      discordWebhookUrl: null,
+      members: '[]',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
-    testChannelId = channel.id;
 
     // 2. Temp directory for trigger YAML
     triggerDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-triggers-'));
@@ -81,19 +93,13 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
   });
 
   afterAll(async () => {
-    // Cleanup: messages
-    if (messageIds.length > 0) {
-      await prisma.channelMessage.deleteMany({
-        where: { id: { in: messageIds } },
-      }).catch(() => {});
-    }
     // Cleanup: work unit
     if (workUnitId) {
-      await prisma.workUnit.delete({ where: { id: workUnitId } }).catch(() => {});
+      await workUnitService.delete(workUnitId).catch(() => {});
     }
     // Cleanup: channel
     if (testChannelId) {
-      await prisma.channel.delete({ where: { id: testChannelId } }).catch(() => {});
+      await fileStore.deleteChannel(testChannelId).catch(() => {});
     }
     // Cleanup: temp trigger dir
     if (triggerDir) {

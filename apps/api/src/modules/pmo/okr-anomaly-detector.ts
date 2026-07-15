@@ -1,11 +1,5 @@
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
-import {
-  zScoreTest,
-  detectTrend,
-  detectDelta,
-  rollingBaseline,
-} from '@dommaker/studio-shared/stats/anomaly-detector';
+import { logger, zScoreTest, detectTrend, detectDelta, rollingBaseline } from '@dommaker/studio-shared';
 
 interface AnomalyReport {
   anomalies: AnomalyItem[];

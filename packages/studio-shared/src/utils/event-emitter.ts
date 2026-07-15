@@ -50,11 +50,6 @@ export class EventEmitter {
 
 // 事件类型常量
 export const Events = {
-  WORKFLOW_STARTED: 'workflow.started',
-  WORKFLOW_COMPLETED: 'workflow.completed',
-  WORKFLOW_FAILED: 'workflow.failed',
-  WORKFLOW_CANCELLED: 'workflow.cancelled',
-
   STEP_STARTED: 'step.started',
   STEP_PROGRESS: 'step.progress',
   STEP_COMPLETED: 'step.completed',

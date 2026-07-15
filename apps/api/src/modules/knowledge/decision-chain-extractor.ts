@@ -5,7 +5,9 @@
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { modelGateway, logger } from '@dommaker/studio-shared';
+import { modelGateway, logger, FileStore } from '@dommaker/studio-shared';
+
+const fileStore = new FileStore();
 
 const EXTRACT_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记录中提取决策链。
 
@@ -109,7 +111,8 @@ ${participants.join(', ')}
       if (count > 0) {
         try {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
-          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          const sysChannels = await fileStore.listChannels({ name: '#系统' });
+          const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
             const decisionSummary = decisions
               .slice(0, 3)
@@ -193,7 +196,8 @@ ${(diff || '').substring(0, 3000)}
       if (count > 0) {
         try {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
-          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          const sysChannels = await fileStore.listChannels({ name: '#系统' });
+          const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
             const decisionSummary = result.decisions
               .slice(0, 3)

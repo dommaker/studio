@@ -3,13 +3,43 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { prisma } from '../../../core/database.js';
 import { OKRService, getCurrentQuarter } from '../okr.service.js';
 import type { OKRKeyResult } from '../okr.service.js';
+import { FileStore } from '@dommaker/studio-shared';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
-const service = new OKRService();
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-b8-'));
+const fileStore = new FileStore(testDir);
+const service = new OKRService(fileStore);
 let testCompanyId: string;
 let seededOkrId: string;
-const seededIds: { workUnits: string[] } = {
-  workUnits: [],
-};
+
+/** 创建 WorkUnitSnapshot 并写入 FileStore */
+async function seedWorkUnit(overrides: Partial<import('@dommaker/studio-shared').WorkUnitSnapshot>): Promise<string> {
+  const id = overrides.id ?? require('crypto').randomUUID();
+  const now = new Date().toISOString();
+  const snapshot: import('@dommaker/studio-shared').WorkUnitSnapshot = {
+    id,
+    parentId: null,
+    type: 'task',
+    scope: 'seed',
+    assigneeId: null,
+    status: 'unassigned',
+    failureType: null,
+    retryCount: 0,
+    timeoutAt: null,
+    channelId: null,
+    projectPath: null,
+    metadata: null,
+    createdAt: now,
+    updatedAt: now,
+    claimedAt: null,
+    completedAt: null,
+    ...overrides,
+  };
+  await fileStore.upsertSnapshot(snapshot);
+  return id;
+}
 
 describe('B8 OKR Service', () => {
   beforeAll(async () => {
@@ -18,18 +48,11 @@ describe('B8 OKR Service', () => {
     testCompanyId = company?.id || (await prisma.company.create({ data: { name: 'B8 Test Corp' } })).id;
 
     // 2. WorkUnits (parent) — for execution_success_rate, review_pass_rate queries
-    const g1 = await prisma.workUnit.create({
-      data: { scope: 'test-goal-ok', metadata: JSON.stringify({ description: 'seed' }), status: 'done', type: 'task' },
-    });
-    const g2 = await prisma.workUnit.create({
-      data: { scope: 'test-goal-fail', metadata: JSON.stringify({ description: 'seed' }), status: 'closed', type: 'task' },
-    });
-    seededIds.workUnits.push(g1.id, g2.id);
+    const g1 = await seedWorkUnit({ scope: 'test-goal-ok', metadata: JSON.stringify({ description: 'seed' }), status: 'done' });
+    const g2 = await seedWorkUnit({ scope: 'test-goal-fail', metadata: JSON.stringify({ description: 'seed' }), status: 'closed' });
 
     // 3. WorkUnit (child) — for execution health check
-    await prisma.workUnit.create({
-      data: { parentId: g1.id, scope: 'step-0', status: 'done', type: 'task' },
-    });
+    await seedWorkUnit({ parentId: g1, scope: 'step-0', status: 'done' });
 
     // 4. OKR fixture — for syncKRProgress + recalibration
     const okr = await prisma.oKR.create({
@@ -54,8 +77,8 @@ describe('B8 OKR Service', () => {
     // Cleanup seeded data (order matters for FK constraints)
     await prisma.kRHistory.deleteMany({ where: { okrId: seededOkrId } });
     await prisma.oKR.deleteMany({ where: { id: seededOkrId } });
-    await prisma.workUnit.deleteMany({ where: { parentId: { in: seededIds.workUnits } } });
-    await prisma.workUnit.deleteMany({ where: { id: { in: seededIds.workUnits } } });
+    // FileStore cleanup
+    fs.rmSync(testDir, { recursive: true, force: true });
   });
 
   describe('checkDataSourceHealth', () => {

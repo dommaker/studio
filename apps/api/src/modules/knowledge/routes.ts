@@ -161,7 +161,6 @@ knowledgeRoutes.get('/', async (req, res) => {
       take: Number(limit),
       include: {
         Project: { select: { pmoNumber: true, title: true } },
-        CreatedBy: { select: { name: true, type: true } },
       },
     });
 
@@ -394,7 +393,6 @@ knowledgeRoutes.get('/detail/:documentId', async (req, res) => {
       where: { id: documentId },
       include: {
         Project: { select: { pmoNumber: true, title: true } },
-        CreatedBy: { select: { name: true, type: true } },
       },
     });
 
@@ -428,9 +426,6 @@ knowledgeRoutes.get('/:projectId', async (req, res) => {
         { type: 'asc' },
         { updatedAt: 'desc' },
       ],
-      include: {
-        CreatedBy: { select: { name: true, type: true } },
-      },
     });
 
     // 按类型分组

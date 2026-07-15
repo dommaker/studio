@@ -4,9 +4,10 @@
  * Handles conversion of channel messages to WorkUnits (AC-E1)
  * and LLM-based suggestions for task creation (AC-E2).
  */
-import { Prisma, type WorkUnit } from '@prisma/client';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
+import { WorkUnitService } from '../workunit/workunit.service.js';
+import type { WorkUnitData } from '../workunit/workunit.service.js';
 
 export interface ConvertInput {
   title?: string;
@@ -23,47 +24,51 @@ export interface ConvertSuggestion {
 }
 
 export class ConvertToTaskService {
-  constructor(private prisma: ExtendedPrismaClient) {}
+  private fileStore: FileStore;
+  private workUnitService: WorkUnitService;
+
+  constructor(_prisma?: ExtendedPrismaClient, fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+    this.workUnitService = new WorkUnitService(undefined, this.fileStore);
+  }
 
   /**
    * AC-E1: Convert a message to a WorkUnit.
-   * Creates WorkUnit, links message as thread anchor.
+   * Creates WorkUnit via FileStore, links message as thread anchor.
    */
-  async convert(channelId: string, messageId: string, input: ConvertInput): Promise<WorkUnit> {
-    // 1. Fetch original message
-    const message = await this.prisma.channelMessage.findUnique({ where: { id: messageId } });
-    if (!message) {
+  async convert(channelId: string, messageId: string, input: ConvertInput): Promise<WorkUnitData> {
+    // 1. Fetch original message via FileStore
+    const found = await this.fileStore.getMessageById(messageId);
+    if (!found) {
       throw new Error(`Message ${messageId} not found`);
     }
-    if (message.workUnitId) {
-      throw new Error(`Message already has WorkUnit ${message.workUnitId}`);
+    if (found.message.workUnitId) {
+      throw new Error(`Message already has WorkUnit ${found.message.workUnitId}`);
     }
 
-    // 2+3. Create WorkUnit + link message as thread anchor (atomic)
-    const workUnit = await this.prisma.$transaction(async (tx) => {
-      const wu = await tx.workUnit.create({
-        data: {
-          scope: input.title || message.content.slice(0, 500),
-          channelId,
-          type: 'task',
-          status: input.assigneeId ? 'active' : 'unassigned',
-          assigneeId: input.assigneeId ?? null,
-          projectPath: input.projectPath ?? null,
-          metadata: JSON.stringify({
-            creationMode: 'convert',
-            originalMessageId: messageId,
-            description: input.description,
-          }),
-        },
-      });
-
-      await tx.channelMessage.update({
-        where: { id: messageId },
-        data: { workUnitId: wu.id },
-      });
-
-      return wu;
+    // 2. Create WorkUnit via WorkUnitService (FileStore)
+    const workUnit = await this.workUnitService.create({
+      scope: input.title || found.message.content.slice(0, 500),
+      channelId,
+      type: 'task',
+      status: input.assigneeId ? 'active' : 'unassigned',
+      assigneeId: input.assigneeId ?? null,
+      projectPath: input.projectPath ?? null,
+      metadata: {
+        creationMode: 'convert',
+        originalMessageId: messageId,
+        description: input.description,
+      },
     });
+
+    // 3. Link message to WorkUnit via FileStore (append updated copy)
+    const now = new Date().toISOString();
+    const updatedMsg: ChannelMessageData = {
+      ...found.message,
+      workUnitId: workUnit.id,
+      createdAt: now,
+    };
+    await this.fileStore.appendMessage(found.channelId, updatedMsg);
 
     return workUnit;
   }

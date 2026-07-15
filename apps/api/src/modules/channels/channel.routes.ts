@@ -218,9 +218,9 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
   return groups;
 }
 
-// GET /api/v1/channels — list all channels
+// GET /api/v1/channels — list all non-archived channels
 router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
-  const channels = await fileStore.listChannels();
+  const channels = await fileStore.listChannels({ excludeArchived: true });
   res.json({ success: true, data: channels });
 });
 

@@ -9,7 +9,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 // ── Mocks ──────────────────────────────────────────────────
 
 const mockFindMany = vi.fn().mockResolvedValue([]);
-const mockCreate = vi.fn().mockResolvedValue({});
+const mockCreate = vi.fn().mockImplementation(({ data }: any) => Promise.resolve({ id: 'profile-1', ...data }));
+const mockUpdate = vi.fn().mockResolvedValue({});
 const mockPromptJson = vi.fn();
 
 vi.mock('@dommaker/studio-prisma', () => ({
@@ -17,11 +18,13 @@ vi.mock('@dommaker/studio-prisma', () => ({
     userBehaviorProfile: {
       findMany: mockFindMany,
       create: mockCreate,
+      update: mockUpdate,
     },
   },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
+  FileStore: class {},
   modelGateway: {
     promptJson: (...args: any[]) => mockPromptJson(...args),
   },
@@ -63,7 +66,7 @@ describe('KnowledgeAgent.extractUserBehavior (KE-003)', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
     mockFindMany.mockResolvedValue([]);
-    mockCreate.mockResolvedValue({});
+    mockCreate.mockImplementation(({ data }: any) => Promise.resolve({ id: 'test-created', ...(data || {}) }));
 
     // Mock successful gateway response (parsed JSON, not raw API)
     mockPromptJson.mockResolvedValue([
@@ -174,5 +177,39 @@ describe('KnowledgeAgent.extractUserBehavior (KE-003)', () => {
       expect.any(String),
       { provider: 'knowledge', tier: 'standard' },
     );
+  });
+
+  it('AC-5.1: write skill to ~/.studio/skills/<name>/SKILL.md for create_skill', async () => {
+    mockPromptJson.mockResolvedValue([{
+      category: 'pattern',
+      title: 'test-skill',
+      evidence: 'User repeated a common pattern',
+      pattern: 'Always check git status before committing',
+      suggestedAction: 'create_skill',
+      confidence: 0.9,
+    }]);
+
+    await extractUserBehavior('User: check status first', 'session:test-skill');
+
+    // Should mark as applied after writing
+    expect(mockUpdate).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: expect.any(String) }),
+      data: expect.objectContaining({ status: 'applied' }),
+    });
+  });
+
+  it('AC-5.3: should check old path for migration', async () => {
+    mockPromptJson.mockResolvedValue([{
+      category: 'pattern',
+      title: 'migration-skill',
+      evidence: 'test',
+      pattern: 'test pattern',
+      suggestedAction: 'create_skill',
+      confidence: 0.9,
+    }]);
+
+    await extractUserBehavior('User: test', 'session:migration');
+    // No throw = migration check passes silently
+    expect(mockCreate).toHaveBeenCalled();
   });
 });

@@ -1,31 +1,49 @@
 // WorkUnit API service test (AS-025, 3.28c-1 Task 2-4)
 // Tests: CRUD + Claim + State machine + Review + from-message
 import { describe, it, expect, afterAll, beforeAll, vi } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
-import { eventBus } from '@dommaker/studio-shared';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { eventBus, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit.service.js';
+import { channelMessageService } from '../../channels/channel-message.service.js';
 
 describe('WorkUnit API service', () => {
-  const service = new WorkUnitService(prisma);
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let service: WorkUnitService;
   const testIds: string[] = [];
   let testChannelId: string;
 
   beforeAll(async () => {
-    // Clean up stale active/in_review WorkUnits from previous runs (file conflict isolation)
-    await prisma.workUnit.deleteMany({
-      where: { status: { in: ['active', 'in_review'] }, metadata: { contains: '"files"' } },
-    });
+    // Use temp directory for FileStore isolation
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-test-'));
+    fileStore = new FileStore(tmpDir);
+    service = new WorkUnitService(undefined, fileStore);
 
-    const channel = await prisma.channel.create({
-      data: { name: `#test-wu-${Date.now()}`, type: 'rnd' },
+    // Inject same FileStore into channelMessageService for cross-store consistency
+    channelMessageService.setFileStore(fileStore);
+
+    // Create channel in FileStore (for message ops)
+    const channelName = `#test-wu-${Date.now()}`;
+    testChannelId = `ch-${Date.now()}`;
+    await fileStore.createChannel({
+      id: testChannelId,
+      name: channelName,
+      type: 'rnd',
+      defaultWorkspaceId: null,
+      defaultPath: null,
+      discordChannelId: null,
+      discordWebhookUrl: null,
+      members: '[]',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
-    testChannelId = channel.id;
   });
 
   afterAll(async () => {
-    await prisma.channelMessage.deleteMany({ where: { channelId: testChannelId } });
-    await prisma.channel.deleteMany({ where: { id: testChannelId } });
-    await prisma.workUnit.deleteMany({ where: { id: { in: testIds } } });
+    // Cleanup temp directory
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   // ---- Task 2: CRUD ----
@@ -411,9 +429,9 @@ describe('WorkUnit API service', () => {
 
   describe('createFromMessage', () => {
     it('converts message to WorkUnit and links', async () => {
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: testChannelId, authorType: 'human', content: 'Fix the login bug' },
-      });
+      const msg = await channelMessageService.createHumanMessage(
+        testChannelId, 'Fix the login bug',
+      );
 
       const wu = await service.createFromMessage(msg.id);
       testIds.push(wu.id);
@@ -425,8 +443,9 @@ describe('WorkUnit API service', () => {
       expect(meta.creationMode).toBe('from-message');
 
       // Verify message linked
-      const updated = await prisma.channelMessage.findUnique({ where: { id: msg.id } });
-      expect(updated!.workUnitId).toBe(wu.id);
+      const updated = await fileStore.getMessageById(msg.id);
+      expect(updated).not.toBeNull();
+      expect(updated!.message.workUnitId).toBe(wu.id);
     });
 
     it('rejects if message not found', async () => {
@@ -434,9 +453,9 @@ describe('WorkUnit API service', () => {
     });
 
     it('rejects if message already converted', async () => {
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: testChannelId, authorType: 'human', content: 'Already converted' },
-      });
+      const msg = await channelMessageService.createHumanMessage(
+        testChannelId, 'Already converted',
+      );
       const wu = await service.createFromMessage(msg.id);
       testIds.push(wu.id);
 
@@ -444,9 +463,9 @@ describe('WorkUnit API service', () => {
     });
 
     it('accepts custom type and metadata', async () => {
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: testChannelId, authorType: 'human', content: 'Analysis needed' },
-      });
+      const msg = await channelMessageService.createHumanMessage(
+        testChannelId, 'Analysis needed',
+      );
 
       const wu = await service.createFromMessage(msg.id, {
         type: 'analysis',
@@ -462,9 +481,9 @@ describe('WorkUnit API service', () => {
 
     it('truncates long content for scope', async () => {
       const longContent = 'x'.repeat(600);
-      const msg = await prisma.channelMessage.create({
-        data: { channelId: testChannelId, authorType: 'human', content: longContent },
-      });
+      const msg = await channelMessageService.createHumanMessage(
+        testChannelId, longContent,
+      );
 
       const wu = await service.createFromMessage(msg.id);
       testIds.push(wu.id);
@@ -552,8 +571,6 @@ describe('WorkUnit API service', () => {
       expect(updated!.status).toBe('in_review');
     });
   });
-
-  // ---- Dependency unlock ----
 
   // ---- AC-4: create() publishes workunit.created event ----
 

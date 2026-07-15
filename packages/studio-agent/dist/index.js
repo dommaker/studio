@@ -1,7 +1,7 @@
 "use strict";
 // studio-agent 入口
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.agentCompleter = exports.AgentCompleter = exports.agentRunner = exports.AgentRunner = exports.agentExecutor = exports.AgentExecutor = exports.AgentRegistry = void 0;
+exports.DEFAULT_PERSONAS = exports.listPersonas = exports.getPersona = exports.agentCompleter = exports.AgentCompleter = exports.agentRunner = exports.AgentRunner = exports.agentExecutor = exports.AgentExecutor = exports.AgentRegistry = void 0;
 var agent_registry_js_1 = require("./services/agent-registry.js");
 Object.defineProperty(exports, "AgentRegistry", { enumerable: true, get: function () { return agent_registry_js_1.AgentRegistry; } });
 var agent_executor_js_1 = require("./services/agent-executor.js");
@@ -13,3 +13,7 @@ Object.defineProperty(exports, "agentRunner", { enumerable: true, get: function 
 var agent_completer_js_1 = require("./services/agent-completer.js");
 Object.defineProperty(exports, "AgentCompleter", { enumerable: true, get: function () { return agent_completer_js_1.AgentCompleter; } });
 Object.defineProperty(exports, "agentCompleter", { enumerable: true, get: function () { return agent_completer_js_1.agentCompleter; } });
+var registry_js_1 = require("./registry.js");
+Object.defineProperty(exports, "getPersona", { enumerable: true, get: function () { return registry_js_1.getPersona; } });
+Object.defineProperty(exports, "listPersonas", { enumerable: true, get: function () { return registry_js_1.listPersonas; } });
+Object.defineProperty(exports, "DEFAULT_PERSONAS", { enumerable: true, get: function () { return registry_js_1.DEFAULT_PERSONAS; } });

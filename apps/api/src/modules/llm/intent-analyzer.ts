@@ -44,14 +44,14 @@ async function isLLMAvailable(): Promise<boolean> {
 
 export interface IntentResult {
   matchedCapability: string;
-  capabilityType: 'skill' | 'workflow' | 'tool';
+  capabilityType: 'skill' | 'tool';
   confidence: number;
   reasoning?: string;
 }
 
 // 构建 LLM prompt
 function buildPrompt(input: string, capabilities: Record<string, unknown>[]): { messages: Record<string, unknown>[] } {
-  // 只保留 skill 和 workflow，限制数量，并添加详细说明
+  // 只保留 skill，限制数量，并添加详细说明
   const skillList = capabilities
     .filter(c => c.type === 'skill')
     .slice(0, 20)
@@ -80,26 +80,17 @@ function buildPrompt(input: string, capabilities: Record<string, unknown>[]): { 
     })
     .join('\n');
 
-  const workflowList = capabilities
-    .filter(c => c.type === 'workflow')
-    .slice(0, 15)
-    .map(c => `- ${c.name}: ${c.description}`)
-    .join('\n');
-
   const systemPrompt = `你是意图识别系统。根据用户输入匹配最合适的能力。
 
 Skills（完整流程）:
 ${skillList}
-
-Workflows（单个步骤）:
-${workflowList}
 
 规则：
 1. 必须匹配用户意图和能力的实际用途
 2. "调研外部产品"、"了解竞品" 等不是分析代码，不应匹配 research-arch
 3. 如果没有合适的能力，返回 {"capability": null, "type": null, "confidence": 0, "reasoning": "无匹配能力"}
 4. 优先选择 skill
-5. 直接返回 JSON，格式：{"capability":"名称或null","type":"skill或workflow或null","confidence":0.0-1.0,"reasoning":"简短说明"}`;
+5. 直接返回 JSON，格式：{"capability":"名称或null","type":"skill或null","confidence":0.0-1.0,"reasoning":"简短说明"}`;
 
   const userPrompt = `用户输入：${input}\n\n分析并返回JSON：`;
 
@@ -152,7 +143,6 @@ export async function analyzeIntentWithLLM(input: string): Promise<IntentResult 
     // 合并能力列表
     const capabilities = [
       ...registry.tools.map(c => ({ ...c, type: 'tool' as const })),
-      ...((registry as unknown as { workflows?: typeof registry.tools }).workflows ?? []).map(c => ({ ...c, type: 'workflow' as const })),
       ...((registry as unknown as { skills?: typeof registry.tools }).skills ?? []).map(c => ({ ...c, type: 'skill' as const })),
     ];
     

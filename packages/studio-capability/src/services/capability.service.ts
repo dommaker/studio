@@ -13,7 +13,7 @@ import * as fs from 'fs';
 // 能力类型定义（来自 registry）
 interface RegistryCapability {
   name: string;
-  type: 'tool' | 'workflow' | 'skill';
+  type: 'tool' | 'skill';
   category: string;
   description: string;
   path: string;
@@ -27,7 +27,6 @@ interface Registry {
 const CAPABILITY_COST: Record<string, number> = {
   tool: 1000,
   step: 3000,
-  workflow: 10000,
   skill: 5000,
 };
 

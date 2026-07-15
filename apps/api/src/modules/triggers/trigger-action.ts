@@ -1,8 +1,8 @@
 // Trigger Action — execute trigger actions (3.28c-4, AS-026 extended)
 // Supports: CREATE WorkUnit, EXECUTE handler, UPDATE entity
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger, type WorkUnitEvent, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import type { TriggerAction, TriggerExecuteHandler } from './trigger.types.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
 
 /** Handler registry for EXECUTE actions */
 const executeHandlers = new Map<string, TriggerExecuteHandler>();
@@ -16,6 +16,9 @@ export function registerExecuteHandler(target: string, handler: TriggerExecuteHa
 export function unregisterExecuteHandler(target: string): void {
   executeHandlers.delete(target);
 }
+
+const fileStore = new FileStore();
+const workUnitService = new WorkUnitService();
 
 /**
  * Execute a CREATE action — creates a WorkUnit from trigger payload.
@@ -33,20 +36,18 @@ export async function executeCreateAction(
 
   const { type, scope, channelId, metadata } = action.payload;
 
-  const mergedMetadata = JSON.stringify({
+  const mergedMetadata = {
     ...(metadata || {}),
     triggerId,
     triggerSource: 'trigger-registry',
     triggeredAt: new Date().toISOString(),
-  });
+  };
 
-  const workUnit = await prisma.workUnit.create({
-    data: {
-      type,
-      scope,
-      channelId: channelId || null,
-      metadata: mergedMetadata,
-    },
+  const workUnit = await workUnitService.create({
+    type,
+    scope,
+    channelId: channelId || null,
+    metadata: mergedMetadata,
   });
 
   return {
@@ -82,7 +83,7 @@ export async function executeExecuteAction(
 }
 
 /**
- * Execute an UPDATE action — updates entity via prisma.
+ * Execute an UPDATE action — updates entity via FileStore.
  * @param action - The trigger action definition (must be UPDATE type)
  */
 export async function executeUpdateAction(
@@ -98,7 +99,34 @@ export async function executeUpdateAction(
 
   // Only support workunit entity for MVP
   if (action.target === 'workunit') {
-    await prisma.workUnit.updateMany({ where: query, data: update });
+    const snapshots = await fileStore.getIndex();
+    const now = new Date().toISOString();
+
+    for (const s of snapshots) {
+      // Match snapshot against query (simple key-value equality)
+      let matches = true;
+      for (const [key, value] of Object.entries(query as Record<string, unknown>)) {
+        if ((s as unknown as Record<string, unknown>)[key] !== value) {
+          matches = false;
+          break;
+        }
+      }
+      if (!matches) continue;
+
+      const updatedSnapshot: WorkUnitSnapshot = {
+        ...s,
+        ...update as Partial<WorkUnitSnapshot>,
+        updatedAt: now,
+      };
+      const event: WorkUnitEvent = {
+        type: 'updated',
+        wuId: s.id,
+        timestamp: now,
+        data: updatedSnapshot as unknown as Record<string, unknown>,
+      };
+      await fileStore.appendEvent(event);
+      await fileStore.upsertSnapshot(updatedSnapshot);
+    }
   } else {
     logger.warn(`[TriggerAction] Unknown UPDATE target: ${action.target}`);
   }

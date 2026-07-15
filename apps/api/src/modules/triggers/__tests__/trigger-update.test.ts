@@ -1,10 +1,17 @@
 // AC-2: UPDATE action tests
-import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executeUpdateAction } from '../trigger-action';
 import type { TriggerAction } from '../trigger.types';
 
-// Mock logger
+// Mock FileStore so trigger-action module uses a controlled instance
+const mockFileStore = vi.hoisted(() => ({
+  getIndex: vi.fn(),
+  upsertSnapshot: vi.fn(),
+  appendEvent: vi.fn(),
+  removeSnapshot: vi.fn(),
+  claimWorkUnit: vi.fn(),
+}));
+
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return {
@@ -15,42 +22,58 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
       error: vi.fn(),
       debug: vi.fn(),
     },
+    FileStore: vi.fn(() => mockFileStore),
   };
 });
 
 describe('Trigger UPDATE action', () => {
-  const createdIds: string[] = [];
 
-  afterAll(async () => {
-    if (createdIds.length > 0) {
-      await prisma.workUnit.deleteMany({ where: { id: { in: createdIds } } });
-    }
+  beforeEach(() => {
+    vi.clearAllMocks();
   });
 
-  it('executes prisma update with static query/update', async () => {
-    // Create a WorkUnit to update
-    const wu = await prisma.workUnit.create({
-      data: {
+  it('executes FileStore update with static query/update', async () => {
+    const wuId = 'test-wu-1';
+
+    // Seed the mock FileStore with a WorkUnit snapshot
+    mockFileStore.getIndex.mockResolvedValue([
+      {
+        id: wuId,
+        parentId: null,
         type: 'task',
         scope: 'update-test',
+        assigneeId: 'agent-1',
         status: 'active',
+        failureType: null,
+        retryCount: 0,
+        timeoutAt: null,
+        channelId: null,
+        projectPath: null,
+        metadata: null,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        claimedAt: new Date().toISOString(),
+        completedAt: null,
       },
-    });
-    createdIds.push(wu.id);
+    ]);
 
     const action: TriggerAction = {
       type: 'UPDATE',
       target: 'workunit',
       config: {
-        query: { id: wu.id },
+        query: { id: wuId },
         update: { status: 'unassigned', assigneeId: null },
       },
     };
 
     await executeUpdateAction(action, {});
 
-    const updated = await prisma.workUnit.findUnique({ where: { id: wu.id } });
-    expect(updated!.status).toBe('unassigned');
-    expect(updated!.assigneeId).toBeNull();
+    // Verify the update was applied via upsertSnapshot
+    expect(mockFileStore.appendEvent).toHaveBeenCalled();
+    expect(mockFileStore.upsertSnapshot).toHaveBeenCalled();
+
+    const updatedSnapshot = mockFileStore.upsertSnapshot.mock.calls[0][0];
+    expect(updatedSnapshot.status).toBe('unassigned');
+    expect(updatedSnapshot.assigneeId).toBeNull();
   });
 });

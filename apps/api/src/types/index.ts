@@ -150,7 +150,6 @@ export interface NodeExecution {
 
 export interface Execution {
   id: string;
-  workflowId: string;
   status: ExecutionStatus;
   startTime?: string;
   endTime?: string;

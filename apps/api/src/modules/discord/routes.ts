@@ -6,10 +6,11 @@
  */
 
 import express, { Router, Request, Response } from 'express';
-import { prisma } from '@dommaker/studio-prisma';
+import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { eventStore } from '../../core/event-store.js';
 const router = express.Router();
+const fileStore = new FileStore();
 
 // Discord Interaction Types
 const InteractionType = {
@@ -181,12 +182,11 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
             const os = await import('os');
             const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 
-            const runningExecs = await prisma.workUnit.findMany({
-              where: { status: 'active', parentId: { not: null } },
-              orderBy: { createdAt: 'desc' },
-              take: 5,
-              select: { id: true, parentId: true, metadata: true, claimedAt: true },
-            });
+            const allActive = await fileStore.getIndex({ status: 'active' });
+            const runningExecs = allActive
+              .filter(s => s.parentId !== null)
+              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+              .slice(0, 5);
 
             if (runningExecs.length === 0) {
               res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'No running executions.' } });
@@ -241,22 +241,17 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
           const eid = String(executionId).trim();
 
           try {
-            const exec = await prisma.workUnit.findUnique({ where: { id: eid } });
+            const allSnapshots = await fileStore.getIndex();
+            const exec = allSnapshots.find(s => s.id === eid);
             if (!exec) {
               // Try partial match
-              const match = await prisma.workUnit.findFirst({
-                where: { id: { startsWith: eid } },
-                select: { id: true, status: true },
-              });
+              const match = allSnapshots.find(s => s.id.startsWith(eid));
               if (match) {
                 if (match.status !== 'active' && match.status !== 'unassigned') {
                   res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `Cannot stop execution with status: ${match.status}` } });
                   return;
                 }
-                await prisma.workUnit.update({
-                  where: { id: match.id },
-                  data: { status: 'closed', metadata: JSON.stringify({ error: 'Stopped by user via Discord' }) },
-                });
+                await closeAndEmit(match.id, 'Stopped by user via Discord');
                 // Try to kill running child process
                 const { agentExecutor } = await import('@dommaker/studio-agent');
                 await agentExecutor.stop(match.id);
@@ -277,10 +272,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
               return;
             }
 
-            await prisma.workUnit.update({
-              where: { id: exec.id },
-              data: { status: 'closed', metadata: JSON.stringify({ error: 'Stopped by user via Discord' }) },
-            });
+            await closeAndEmit(exec.id, 'Stopped by user via Discord');
 
             // Try to kill running child process
             const { agentExecutor } = await import('@dommaker/studio-agent');
@@ -325,34 +317,19 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
       if (action === 'retry') {
         const extraRounds = parseInt(parts[2] || '2', 10);
-        await prisma.workUnit.update({
-          where: { id: targetId },
-          data: {
-            status: 'unassigned',
-            metadata: JSON.stringify({ resumeAfterRetry: true, extraRounds }),
-          },
-        });
+        await updateWorkUnitStatus(targetId, 'unassigned', { resumeAfterRetry: true, extraRounds });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔁 已重置，再给 ${extraRounds} 轮` } });
         return;
       }
 
       if (action === 'retry-new') {
-        await prisma.workUnit.update({
-          where: { id: targetId },
-          data: {
-            status: 'unassigned',
-            metadata: JSON.stringify({ resumeAfterRetry: true, freshPrompt: true }),
-          },
-        });
+        await updateWorkUnitStatus(targetId, 'unassigned', { resumeAfterRetry: true, freshPrompt: true });
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `🔄 已重置，换了新方向` } });
         return;
       }
 
       if (action === 'abandon') {
-        await prisma.workUnit.update({
-          where: { id: targetId },
-          data: { status: 'closed', metadata: JSON.stringify({ error: 'Abandoned by user via Discord' }) },
-        });
+        await closeAndEmit(targetId, 'Abandoned by user via Discord');
         res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ 已放弃` } });
         return;
       }
@@ -366,5 +343,53 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
   res.status(400).send('Unknown interaction type');
 });
+
+/**
+ * 关闭 WorkUnit 并发布事件
+ */
+async function closeAndEmit(wuId: string, reason: string): Promise<void> {
+  const snapshots = await fileStore.getIndex();
+  const snap = snapshots.find(s => s.id === wuId);
+  if (!snap) return;
+
+  const now = new Date().toISOString();
+  const updated: WorkUnitSnapshot = {
+    ...snap,
+    status: 'closed',
+    metadata: JSON.stringify({ error: reason }),
+    updatedAt: now,
+  };
+
+  await fileStore.appendEvent({ type: 'closed', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> });
+  await fileStore.upsertSnapshot(updated);
+  eventStore.publish('events:goal-execution', JSON.stringify({
+    event_type: 'goal-execution.updated',
+    data: { executionId: wuId, status: 'failed', error: reason },
+  })).catch(() => {});
+}
+
+/**
+ * 更新 WorkUnit 状态和 metadata
+ */
+async function updateWorkUnitStatus(wuId: string, status: string, extraMeta: Record<string, unknown>): Promise<void> {
+  const snapshots = await fileStore.getIndex();
+  const snap = snapshots.find(s => s.id === wuId);
+  if (!snap) throw new Error(`WorkUnit not found: ${wuId}`);
+
+  const now = new Date().toISOString();
+  let meta: Record<string, unknown> = {};
+  try { meta = snap.metadata ? JSON.parse(snap.metadata) : {}; } catch {}
+  Object.assign(meta, extraMeta);
+
+  const updated: WorkUnitSnapshot = {
+    ...snap,
+    status,
+    metadata: JSON.stringify(meta),
+    updatedAt: now,
+  };
+
+  await fileStore.appendEvent({ type: 'updated', wuId, timestamp: now, data: updated as unknown as Record<string, unknown> });
+  await fileStore.upsertSnapshot(updated);
+}
 
 export default router;

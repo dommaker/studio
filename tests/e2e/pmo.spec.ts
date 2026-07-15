@@ -4,31 +4,6 @@ import { test, expect } from '@playwright/test';
 const BASE_URL = 'http://localhost:5173';
 
 test.describe('PMO 模块 E2E 测试', () => {
-  
-  test.beforeAll(async () => {
-    // 确保前端服务运行
-    // API 服务已在 3001 端口运行
-  });
-
-  test('AC-007: PMO 入口显示在 CompanyHall', async ({ page }) => {
-    // 导航到首页
-    await page.goto(BASE_URL);
-    
-    // 等待页面加载
-    await page.waitForLoadState('domcontentloaded');
-    
-    // 检查 PMO 卡片是否存在
-    const pmoCard = page.locator('text=PMO 管理');
-    await expect(pmoCard).toBeVisible({ timeout: 10000 });
-    
-    // 检查 PMO 卡片描述
-    const pmoDescription = page.locator('text=OKR + 项目组合');
-    await expect(pmoDescription).toBeVisible();
-    
-    // 检查 PMO 卡片链接
-    const pmoLink = page.locator('a[href="/pmo"]');
-    await expect(pmoLink).toBeVisible();
-  });
 
   test('AC-008: PMO 页面显示项目列表', async ({ page }) => {
     // 直接导航到 PMO 页面

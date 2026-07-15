@@ -9,27 +9,49 @@
  * 5. 依赖解锁：blocked → active when deps done
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit.service.js';
 import { channelMessageService } from '../../channels/channel-message.service.js';
 
 describe('Phase 2 Verification Scenarios', () => {
-  const service = new WorkUnitService(prisma);
+  let service: WorkUnitService;
   let testChannelId: string;
   const testIds: string[] = [];
   const messageIds: string[] = [];
+  let fileStore: FileStore;
+  let tmpDir: string;
 
   beforeAll(async () => {
-    const channel = await prisma.channel.create({
-      data: { name: `#phase2-verify-${Date.now()}`, type: 'rnd' },
+    // Isolated temp dir for FileStore
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase2-verify-'));
+    fileStore = new FileStore(tmpDir);
+    service = new WorkUnitService(undefined, fileStore);
+    channelMessageService.setFileStore(fileStore);
+
+    // Create channel in FileStore (for message ops)
+    const channelName = `#phase2-verify-${Date.now()}`;
+    testChannelId = `phase2-ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    await fileStore.createChannel({
+      id: testChannelId,
+      name: channelName,
+      type: 'rnd',
+      defaultWorkspaceId: null,
+      defaultPath: null,
+      discordChannelId: null,
+      discordWebhookUrl: null,
+      members: '[]',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
-    testChannelId = channel.id;
   });
 
   afterAll(async () => {
-    await prisma.channelMessage.deleteMany({ where: { id: { in: messageIds } } });
-    await prisma.workUnit.deleteMany({ where: { id: { in: testIds } } });
-    await prisma.channel.deleteMany({ where: { id: testChannelId } });
+    await fileStore.deleteChannel(testChannelId).catch(() => {});
+    await Promise.all(testIds.map(id => service.delete(id).catch(() => {})));
+    if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   // ── Scenario 1: Normal flow (message → WorkUnit → claim → done) ──
@@ -47,8 +69,9 @@ describe('Phase 2 Verification Scenarios', () => {
     expect(wu.status).toBe('unassigned');
 
     // Verify message linked
-    const linked = await prisma.channelMessage.findUnique({ where: { id: msg.id } });
-    expect(linked!.workUnitId).toBe(wu.id);
+    const linked = await fileStore.getMessageById(msg.id);
+    expect(linked).not.toBeNull();
+    expect(linked!.message.workUnitId).toBe(wu.id);
 
     // Agent claims
     const claimed = await service.claim(wu.id, 'agent-optimizer');
@@ -153,7 +176,7 @@ describe('Phase 2 Verification Scenarios', () => {
     await service.transitionStatus(analysis.id, 'done');
 
     // impl unblocks (manually — unlockDependents removed in Agent Loop rewrite)
-    await prisma.workUnit.update({ where: { id: impl.id }, data: { status: 'active' } });
+    await service.transitionStatus(impl.id, 'active');
     const implAfter = await service.getById(impl.id);
     expect(implAfter!.status).toBe('active');
 
@@ -161,7 +184,7 @@ describe('Phase 2 Verification Scenarios', () => {
     await service.transitionStatus(impl.id, 'done');
 
     // review unblocks
-    await prisma.workUnit.update({ where: { id: review.id }, data: { status: 'active' } });
+    await service.transitionStatus(review.id, 'active');
     const reviewAfter = await service.getById(review.id);
     expect(reviewAfter!.status).toBe('active');
 

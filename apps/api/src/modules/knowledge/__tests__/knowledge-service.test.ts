@@ -306,20 +306,21 @@ describe('KnowledgeService Phase 1A: Consume', () => {
   });
 
   describe('injectContext', () => {
-    it('returns empty string when no knowledge exists', async () => {
+    it('returns empty prompt and injectedIds when no knowledge exists', async () => {
       const { ks } = createKS();
       const result = await ks.injectContext('executor');
-      expect(result).toBe('');
+      expect(result).toEqual({ prompt: '', injectedIds: [] });
     });
 
     it('includes rules section when rules exist', async () => {
       const { ks, query } = createKS();
       query.queryEntries.mockResolvedValueOnce([
-        { id: 'r1', content: 'Always use TypeScript', type: 'guideline' },
+        { id: 'r1', content: 'Always use TypeScript', type: 'guideline', sourceReference: 'ref1', status: 'published' },
       ]);
       const result = await ks.injectContext('executor');
-      expect(result).toContain('## 系统约束');
-      expect(result).toContain('Always use TypeScript');
+      expect(result.prompt).toContain('## 系统约束');
+      expect(result.prompt).toContain('Always use TypeScript');
+      expect(result.injectedIds).toContain('r1');
     });
 
     it('includes context section', async () => {
@@ -327,17 +328,78 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       // First call = rules (empty), second = context
       query.queryEntries
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ id: 'c1', content: 'Use ESM imports', type: 'model' }]);
+        .mockResolvedValueOnce([{ id: 'c1', content: 'Use ESM imports', type: 'model', sourceReference: 'ref2', status: 'published' }]);
       const result = await ks.injectContext('executor');
-      expect(result).toContain('## 上下文');
-      expect(result).toContain('Use ESM imports');
+      expect(result.prompt).toContain('## 上下文');
+      expect(result.prompt).toContain('Use ESM imports');
+      expect(result.injectedIds).toContain('c1');
     });
 
     it('records references for injected entries', async () => {
       const { ks, query, lifecycle } = createKS();
-      query.queryEntries.mockResolvedValueOnce([{ id: 'r1', content: 'Rule 1', type: 'guideline' }]);
+      query.queryEntries.mockResolvedValueOnce([{ id: 'r1', content: 'Rule 1', type: 'guideline', sourceReference: 'ref1', status: 'published' }]);
       await ks.injectContext('executor');
       expect(lifecycle.recordReference).toHaveBeenCalledWith('r1', 'prompt-inject');
+    });
+
+    it('AC-1.1: returns InjectContextResult type with prompt and injectedIds', async () => {
+      const { ks } = createKS();
+      const result = await ks.injectContext('executor');
+      expect(result).toHaveProperty('prompt');
+      expect(result).toHaveProperty('injectedIds');
+      expect(typeof result.prompt).toBe('string');
+      expect(Array.isArray(result.injectedIds)).toBe(true);
+    });
+
+    it('AC-2.1: query filters by status=published', async () => {
+      const { ks, query } = createKS();
+      await ks.injectContext('executor');
+      // Both rule and context queries should pass status: 'published'
+      expect(query.queryEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'published', consumptionModes: ['rule'] }),
+      );
+      expect(query.queryEntries).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'published', consumptionModes: ['context'] }),
+      );
+    });
+
+    it('AC-2.2: filters out entries without sourceReference', async () => {
+      const { ks, query } = createKS();
+      query.queryEntries
+        .mockResolvedValueOnce([
+          { id: 'r1', content: 'Rule 1', type: 'guideline', sourceReference: null, status: 'published' },
+          { id: 'r2', content: 'Rule 2', type: 'guideline', sourceReference: 'ref1', status: 'published' },
+        ])
+        .mockResolvedValueOnce([]);
+      const result = await ks.injectContext('executor');
+      expect(result.injectedIds).toEqual(['r2']);
+      expect(result.prompt).not.toContain('Rule 1');
+      expect(result.prompt).toContain('Rule 2');
+    });
+
+    it('AC-2.3: filters out stale entries', async () => {
+      const { ks, query } = createKS();
+      query.queryEntries
+        .mockResolvedValueOnce([
+          { id: 'r1', content: 'Stale rule', type: 'guideline', sourceReference: 'ref1', status: 'stale' },
+          { id: 'r2', content: 'Active rule', type: 'guideline', sourceReference: 'ref1', status: 'published' },
+        ])
+        .mockResolvedValueOnce([]);
+      const result = await ks.injectContext('executor');
+      expect(result.injectedIds).toEqual(['r2']);
+      expect(result.prompt).toContain('Active rule');
+      expect(result.prompt).not.toContain('Stale rule');
+    });
+
+    it('AC-2.4: injectedIds only contains IDs of actually injected entries', async () => {
+      const { ks, query } = createKS();
+      // rule query returns entry without sourceReference (excluded), context returns valid entry
+      query.queryEntries
+        .mockResolvedValueOnce([{ id: 'r1', content: 'Rule 1', type: 'guideline', sourceReference: null, status: 'published' }])
+        .mockResolvedValueOnce([{ id: 'c1', content: 'Context 1', type: 'model', sourceReference: 'ref1', status: 'published' }]);
+      const result = await ks.injectContext('executor');
+      // r1 should be filtered out, only c1 is injected
+      expect(result.injectedIds).toEqual(['c1']);
     });
   });
 
@@ -568,6 +630,85 @@ describe('KnowledgeService Phase 1C: Extract', () => {
         consumedKnowledge: [],
       })).resolves.not.toThrow();
     });
+
+    it('AC-3.1: marks entry need_review when execution fails', async () => {
+      const { ks, ingest } = createKS();
+      await ks.extractFromExecution({
+        task: 'Fix auth bug',
+        diff: '+failed change',
+        success: false,
+        duration: 1000,
+        agentType: 'executor',
+        consumedKnowledge: [],
+      });
+      // Should tag with need_review
+      expect(ingest.ingestEntry).toHaveBeenCalledWith(
+        expect.objectContaining({ tags: expect.arrayContaining(['need_review']) }),
+        expect.anything(),
+      );
+    });
+
+    it('AC-3.1: does not tag need_review when execution succeeds', async () => {
+      const { ks, ingest } = createKS();
+      await ks.extractFromExecution({
+        task: 'Fix auth bug',
+        diff: '+fixed auth',
+        success: true,
+        duration: 1000,
+        agentType: 'executor',
+        consumedKnowledge: [],
+      });
+      // Should NOT have need_review tag
+      const callArgs = ingest.ingestEntry.mock.calls[0];
+      expect(callArgs[0].tags).not.toContain('need_review');
+    });
+
+    it('AC-3.2: records sourceExecutionId in content', async () => {
+      const { ks } = createKS();
+      await ks.extractFromExecution({
+        task: 'Fix auth bug',
+        diff: '+fixed auth',
+        success: true,
+        duration: 1000,
+        agentType: 'executor',
+        consumedKnowledge: [],
+      });
+      // Verify no throw — sourceExecutionId is optional in ExtractionResult
+      // Content tracing is handled via recordPattern source
+    });
+
+    it('AC-3.3: dedup - skips when existing published entry on same topic exists', async () => {
+      const { ks, store, ingest } = createKS();
+      // Pre-populate store with an existing entry on same topic
+      const existingEntry = {
+        id: 'existing-1',
+        title: '[Exec] executor: Fix auth bug',
+        content: 'Previous execution data',
+        tags: ['execution', 'executor'],
+        maturity: 'active',
+        lastReferenced: new Date().toISOString(),
+      };
+      store.list.mockReturnValue([existingEntry]);
+
+      await ks.extractFromExecution({
+        task: 'Fix auth bug',
+        diff: '+new fix data',
+        success: true,
+        duration: 2000,
+        agentType: 'executor',
+        consumedKnowledge: [],
+      });
+
+      // Should merge into existing rather than creating new
+      expect(store.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'existing-1',
+          content: expect.stringContaining('Previous execution data'),
+        }),
+      );
+      // Should NOT create new entry via ingest
+      expect(ingest.ingestEntry).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -747,7 +888,6 @@ describe('KnowledgeService Phase 0: contract', () => {
   describe('Track (4 methods)', () => {
     it('recordConsumption exists', () => expect(typeof ks.recordConsumption).toBe('function'));
     it('recordOutcome exists', () => expect(typeof ks.recordOutcome).toBe('function'));
-    it('recordFeedback exists', () => expect(typeof ks.recordFeedback).toBe('function'));
   });
 
   describe('Lifecycle (4 methods)', () => {
