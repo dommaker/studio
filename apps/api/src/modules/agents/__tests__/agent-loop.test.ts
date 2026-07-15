@@ -92,7 +92,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds, extractInputTokens, isProcessAlive } from '../agent-loop';
+import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds, extractInputTokens, isProcessAlive, writeToolCallEvents } from '../agent-loop';
 
 describe('AgentLoop', () => {
   let agentLoop: AgentLoop;
@@ -842,6 +842,56 @@ describe('AgentLoop', () => {
 
     it('returns false for non-existent PID', () => {
       expect(isProcessAlive(999_999_999)).toBe(false);
+    });
+  });
+
+  describe('writeToolCallEvents() — T-1.1', () => {
+    let testDir: string;
+
+    beforeEach(() => {
+      testDir = path.join(os.tmpdir(), `toolcall-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+    });
+
+    afterEach(() => {
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
+    it('writes tool:call JSONL from stream-json output', () => {
+      const eventsFile = path.join(testDir, 'studio.jsonl');
+      const streamOutput = [
+        '{"type":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo.ts"}}]}',
+        '{"type":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/bar.ts","old_string":"x","new_string":"y"}}]}',
+        '{"type":"result"}',
+      ].join('\n');
+
+      const count = writeToolCallEvents(streamOutput, eventsFile);
+      expect(count).toBe(2);
+
+      // Verify JSONL content
+      const raw = fs.readFileSync(eventsFile, 'utf-8').trim().split('\n');
+      expect(raw.length).toBe(2);
+
+      const first = JSON.parse(raw[0]);
+      expect(first.type).toBe('tool:call');
+      expect(first.tool).toBe('Read');
+      expect(first.caller).toBe('agent-loop');
+
+      const second = JSON.parse(raw[1]);
+      expect(second.type).toBe('tool:call');
+      expect(second.tool).toBe('Edit');
+      expect(second.success).toBe(true);
+    });
+
+    it('returns 0 for empty output', () => {
+      const eventsFile = path.join(testDir, 'empty.jsonl');
+      const count = writeToolCallEvents('', eventsFile);
+      expect(count).toBe(0);
+    });
+
+    it('returns 0 for output without tool_use', () => {
+      const eventsFile = path.join(testDir, 'no-tools.jsonl');
+      const count = writeToolCallEvents('{"type":"result","result":"done"}', eventsFile);
+      expect(count).toBe(0);
     });
   });
 });

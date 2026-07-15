@@ -4,6 +4,9 @@
 import { execSync } from 'child_process';
 import { logger, parseStreamEvents, extractToolCalls, FileStore, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { randomUUID } from 'crypto';
+import { appendFileSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
@@ -314,6 +317,13 @@ export class AgentLoop {
     try {
       const result: ExecutionResult = await agentRunner.executeLightweight(task);
       const stepResult = parseAgentOutput(result.outputText ?? '');
+
+      // T-1.1: Record tool:call events for PatternMiner data source
+      if (result.outputText) {
+        try {
+          writeToolCallEvents(result.outputText, join(DEFAULT_EVENTS_DIR, 'studio.jsonl'));
+        } catch { /* non-blocking */ }
+      }
 
       // GAP-6: recordOutcome + extractFromExecution (non-blocking)
       this.recordExecutionOutcome(wu, result).catch(() => {});
@@ -663,4 +673,37 @@ export function extractKnowledgeEntryIds(analysis: KnowledgeSearchAnalysis): str
     }
   }
   return Array.from(new Set(ids));
+}
+
+// ─── tool:call event recording ───
+
+const DEFAULT_EVENTS_DIR = join(homedir(), 'events');
+
+/**
+ * Write tool:call events extracted from stream-json output to a JSONL file.
+ * Returns the count of tool calls written.
+ * T-1.1: Wiring tool:call recording for PatternMiner data source.
+ */
+export function writeToolCallEvents(outputText: string, filePath: string): number {
+  const events = parseStreamEvents(outputText);
+  const toolCalls = extractToolCalls(events);
+  if (toolCalls.length === 0) return 0;
+
+  const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  const now = Date.now();
+  for (const call of toolCalls) {
+    const event = JSON.stringify({
+      type: 'tool:call',
+      tool: call.name,
+      success: true,
+      durationMs: 0,
+      timestamp: now,
+      caller: 'agent-loop',
+    });
+    appendFileSync(filePath, event + '\n', 'utf-8');
+  }
+
+  return toolCalls.length;
 }
