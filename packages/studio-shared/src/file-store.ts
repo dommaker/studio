@@ -154,11 +154,15 @@ export class FileStore {
     await fs.promises.mkdir(dir, { recursive: true });
   }
 
-  /** 读取 JSON 文件，不存在返回 null */
+  /** 读取 JSON 文件，不存在或损坏返回 null */
   private async readJson<T>(filePath: string): Promise<T | null> {
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
-      return JSON.parse(content) as T;
+      try {
+        return JSON.parse(content) as T;
+      } catch {
+        return null; // corrupt JSON → treat as missing
+      }
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return null;
       throw err;
@@ -177,12 +181,20 @@ export class FileStore {
     await fs.promises.appendFile(filePath, JSON.stringify(data) + '\n', 'utf-8');
   }
 
-  /** 读取全部 JSONL 行 */
+  /** 读取全部 JSONL 行（跳过解析失败的行） */
   private async readJsonl<T>(filePath: string): Promise<T[]> {
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const lines = content.split('\n').filter(l => l.trim().length > 0);
-      return lines.map(l => JSON.parse(l) as T);
+      const results: T[] = [];
+      for (const line of lines) {
+        try {
+          results.push(JSON.parse(line) as T);
+        } catch {
+          // skip corrupt lines
+        }
+      }
+      return results;
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return [];
       throw err;

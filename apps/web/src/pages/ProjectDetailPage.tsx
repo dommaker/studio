@@ -107,21 +107,24 @@ export function ProjectDetailPage() {
   const loadData = async () => {
     try {
       setLoading(true);
-      
-      // 加载项目详情
+
+      // 加载项目详情（必须成功）
       const projectRes = await projectApi.get(projectId!);
       const projectData = projectRes.data;
       setProject(projectData);
-      
-      // 加载任务列表
-      const tasksRes = await api.get(`/tasks?projectId=${projectId}`);
-      setTasks(tasksRes.data || []);
-      
-      // 🆕 加载知识库文档
-      const docsRes = await api.get(`/knowledge/${projectId}`);
-      setDocuments(docsRes.data?.documents || []);
-      
       setLoading(false);
+
+      // 加载任务列表（best-effort，不阻塞页面）
+      try {
+        const tasksRes = await api.get(`/tasks?projectId=${projectId}`);
+        setTasks(tasksRes.data || []);
+      } catch { setTasks([]); }
+
+      // 加载知识库文档（best-effort，不阻塞页面）
+      try {
+        const docsRes = await api.get(`/knowledge/${projectId}`);
+        setDocuments(docsRes.data?.documents || []);
+      } catch { setDocuments([]); }
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Failed to load project');
       setLoading(false);
