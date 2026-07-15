@@ -39,6 +39,7 @@ export interface WikiGraphEdge {
 export interface WikiDocDetail {
   id: string;
   title: string;
+  content: string;
   status: string;
   tags: string[];
   workUnitId?: string;
@@ -46,6 +47,8 @@ export interface WikiDocDetail {
   tier?: string;
   linkedDocIds: string[];
   linkedDocs: { id: string; title: string }[];
+  wikiLinks: { id: string; title: string }[];
+  backlinks: { id: string; title: string }[];
   requirement: string | null;
   design: string | null;
   task: string | null;
@@ -193,9 +196,41 @@ export function getWikiDocById(id: string): WikiDocDetail | null {
     }
   }
 
+  // Compute backlinks: docs whose linkedDocIds point to this doc
+  const backlinks: { id: string; title: string }[] = [];
+  const allSlugs = listSddDocs();
+  for (const otherSlug of allSlugs) {
+    if (otherSlug === slug) continue;
+    const otherReq = readSddDoc(otherSlug, 'requirement');
+    if (!otherReq?.meta.id) continue;
+    const otherLinkedIds = parseLinkedDocIds(otherReq.meta.linkedDocIds);
+    if (otherLinkedIds.includes(id)) {
+      backlinks.push({ id: otherReq.meta.id, title: otherReq.meta.title ?? otherSlug });
+    }
+  }
+
+  // Compute wikiLinks: [[links]] parsed from content -> resolved to doc IDs
+  const wikiLinks: { id: string; title: string }[] = [];
+  const allContent = [req.body, design?.body, task?.body].filter(Boolean).join('\n');
+  const wikiLinkRegex = /\[\[([^\]]+)\]\]/g;
+  const seenWikiLinks = new Set<string>();
+  let match;
+  while ((match = wikiLinkRegex.exec(allContent)) !== null) {
+    const linkRef = match[1].trim();
+    if (seenWikiLinks.has(linkRef)) continue;
+    seenWikiLinks.add(linkRef);
+    // Try resolving as doc ID first, then as slug
+    const linkedSlug = findSddDocById(linkRef) ?? linkRef;
+    const linkedReq = readSddDoc(linkedSlug, 'requirement');
+    if (linkedReq?.meta.id && linkedReq.meta.id !== id) {
+      wikiLinks.push({ id: linkedReq.meta.id, title: linkedReq.meta.title ?? linkedSlug });
+    }
+  }
+
   return {
     id: meta.id!,
     title: meta.title ?? slug,
+    content: req.body,
     status: meta.status ?? 'draft',
     tags: meta.tags ?? [],
     workUnitId: meta.workUnitId,
@@ -203,6 +238,8 @@ export function getWikiDocById(id: string): WikiDocDetail | null {
     tier: meta.tier,
     linkedDocIds,
     linkedDocs,
+    wikiLinks,
+    backlinks,
     requirement: req.body,
     design: design?.body ?? null,
     task: task?.body ?? null,

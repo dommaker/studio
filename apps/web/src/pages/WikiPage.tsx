@@ -122,7 +122,7 @@ export function WikiPage() {
       <div className="p-6 pb-0">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            需求文档档案馆
+            文档
           </h1>
           <button
             onClick={handleToggleGraph}

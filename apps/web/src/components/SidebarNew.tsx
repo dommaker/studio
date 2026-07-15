@@ -17,8 +17,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
   const navItems = [
     { to: '/channels', icon: '💬', label: t('nav.channels', '频道') },
     { to: '/pmo', icon: '📊', label: t('nav.pmo', 'PMO') },
-    { to: '/knowledge', icon: '📚', label: t('nav.knowledge', '文档') },
-    { to: '/wiki', icon: '📖', label: t('nav.wiki', 'Wiki') },
+    { to: '/knowledge', icon: '📚', label: t('nav.knowledge', '知识库') },
+    { to: '/wiki', icon: '📖', label: t('nav.wiki', '文档') },
     { to: '/workunits', icon: '📋', label: t('nav.workunits', 'WorkUnit') },
     { to: '/agents', icon: '🤖', label: t('nav.agents', 'Agent') },
     { to: '/monitoring', icon: '📈', label: t('nav.monitoring', '监控') },

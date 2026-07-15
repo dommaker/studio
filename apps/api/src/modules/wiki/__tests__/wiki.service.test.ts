@@ -290,14 +290,14 @@ describe('getWikiDocById', () => {
   it('returns metadata from requirement frontmatter', async () => {
     mockFindSddDocById.mockReturnValue('test-doc');
     mockReadSddDoc
-      .mockReturnValueOnce({ meta: makeReqMeta({ tags: ['arch', 'api'], goalId: 'g-1', sourceChannelId: 'ch-1', tier: 'premium' }), body: 'req' })
+      .mockReturnValueOnce({ meta: makeReqMeta({ tags: ['arch', 'api'], workUnitId: 'g-1', sourceChannelId: 'ch-1', tier: 'premium' }), body: 'req' })
       .mockReturnValueOnce({ meta: makeReqMeta(), body: 'design' })
       .mockReturnValueOnce({ meta: makeReqMeta(), body: 'task' });
 
     const result = await getWikiDocById('doc-001');
 
     expect(result!.tags).toEqual(['arch', 'api']);
-    expect(result!.goalId).toBe('g-1');
+    expect(result!.workUnitId).toBe('g-1');
     expect(result!.sourceChannelId).toBe('ch-1');
     expect(result!.tier).toBe('premium');
   });

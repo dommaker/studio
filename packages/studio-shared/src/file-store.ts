@@ -270,6 +270,7 @@ export class FileStore {
   async listProfiles(filter?: { status?: string }): Promise<AgentProfileData[]> {
     const dir = this.agentsDir();
     try {
+      await fs.promises.mkdir(dir, { recursive: true });
       const entries = await fs.promises.readdir(dir, { withFileTypes: true });
       const profiles: AgentProfileData[] = [];
       for (const entry of entries) {
@@ -322,6 +323,7 @@ export class FileStore {
   async listStates(): Promise<RuntimeStateData[]> {
     const dir = this.agentsDir();
     try {
+      await fs.promises.mkdir(dir, { recursive: true });
       const entries = await fs.promises.readdir(dir, { withFileTypes: true });
       const states: RuntimeStateData[] = [];
       for (const entry of entries) {
@@ -371,6 +373,7 @@ export class FileStore {
   async listChannels(filter?: { name?: string; type?: string; excludeArchived?: boolean }): Promise<ChannelData[]> {
     const dir = this.channelsDir();
     try {
+      await fs.promises.mkdir(dir, { recursive: true });
       const entries = await fs.promises.readdir(dir, { withFileTypes: true });
       const channels: ChannelData[] = [];
       for (const entry of entries) {
