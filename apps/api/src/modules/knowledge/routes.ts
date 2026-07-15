@@ -985,26 +985,25 @@ knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) =>
       }
     }
 
-    // Search interaction patterns
+    // Search interaction patterns (KnowledgeStore)
     if (searchTypes.includes('pattern')) {
-      const patterns = await prisma.interactionPattern.findMany({
-        where: {
-          OR: [
-            { name: { contains: query } },
-            { description: { contains: query } },
-            { insight: { contains: query } },
-          ],
-          status: 'active',
-        },
-        take: takeLimit,
-        orderBy: { confidence: 'desc' },
-      });
-      for (const p of patterns) {
+      const { sharedStore } = await import('./knowledge-bus.service.js');
+      const patterns = sharedStore.list({ tags: ['pattern', 'active'] })
+        .filter((e: any) => {
+          const d = JSON.parse(e.content || '{}');
+          const name = e.title || '';
+          const desc = d.description || '';
+          const insight = d.insight || '';
+          return name.includes(query) || desc.includes(query) || insight.includes(query);
+        })
+        .slice(0, takeLimit);
+      for (const e of patterns) {
+        const d = JSON.parse((e as any).content || '{}');
         results.push({
           type: 'pattern',
-          id: p.id,
-          title: p.name,
-          snippet: (p.insight || p.description).slice(0, 200),
+          id: (e as any).id,
+          title: (e as any).title,
+          snippet: (d.insight || d.description || '').slice(0, 200),
           score: 2,
         });
       }

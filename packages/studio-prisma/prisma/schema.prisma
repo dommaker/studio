@@ -611,34 +611,6 @@ model Incident {
 // ── 知识库五大缺口 (G-001~005, 2026-05-19) ──
 
 
-model BusinessRule {
-  id          String   @id @default(cuid())
-
-  name        String   // 唯一标识: min_requirement_length
-  category    String   // constraint | architecture | behavior | threshold
-  description String
-
-  condition   String   // 触发条件
-  action      String   // 执行动作
-  defaultValue String? // 默认值
-
-  source      String   // 来源文件: analst-trigger.service.ts:42
-  sourceType  String   // code_constant | env_var | harness_constraint | config_file
-
-  affects     String   @default("[]") // ["analyst","executor","reviewer"]
-
-  status      String   @default("active") // active | modified | deprecated
-  version     Int      @default(1)
-
-  lastExtractedAt DateTime?
-  lastVerifiedAt  DateTime?
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([category, status])
-  @@index([name])
-}
 
 model EnvironmentSnapshot {
   id          String   @id @default(cuid())
@@ -676,63 +648,6 @@ model EnvironmentSnapshot {
   @@index([takenAt])
 }
 
-model DecisionChain {
-  id          String   @id @default(cuid())
-
-  topic       String   // 决策主题
-  category    String   // architecture | tooling | process | design
-
-  context     String   // 决策背景
-  options     String   // 候选方案 JSON
-  chosen      String   // 选择的方案
-  rationale   String   // 选择理由
-  tradeoffs   String   // 已知权衡
-
-  sourceType  String   // meeting | execution | pr | audit
-  sourceId    String?  // 关联源 ID
-  participants String  @default("[]")
-  voteDistribution String?
-  dissentNotes String?
-
-  revisable   Boolean  @default(true)
-  revisitCondition String?
-
-  outcomeKnown    Boolean @default(false)
-  outcomeSummary  String?
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([category])
-  @@index([sourceType])
-  @@index([topic])
-}
-
-model InteractionPattern {
-  id          String   @id @default(cuid())
-
-  name        String   // 模式名称
-  category    String   // tool_usage | workflow | error | collaboration
-  description String
-
-  pattern     String   // 模式定义 JSON
-  frequency   Float    // 次/天
-  confidence  Float    // 0-1
-
-  insight     String   // 洞察
-  suggestion  String?  // 优化建议
-
-  observedPeriodStart DateTime
-  observedPeriodEnd   DateTime
-
-  status      String   @default("active") // active | outdated
-
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([category, status])
-  @@index([confidence])
-}
 
 // ── 管线指标 (B1-016) ──
 

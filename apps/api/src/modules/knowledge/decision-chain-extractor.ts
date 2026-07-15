@@ -1,11 +1,14 @@
 /**
- * DecisionChainExtractor (G-004) — 从 Meeting 辩论 + WorkUnit 执行中提取决策链
+ * DecisionChainExtractor (G-004) — 从 WorkUnit 执行中提取决策链
  *
- * 提取完整推理链：背景→候选方案→选择理由→权衡，而非仅存最终决策。
+ * 存储：KnowledgeStore (type=decision, tags=['decision'])
+ * 提取完整推理链：背景→候选方案→选择理由→权衡。
  */
 
-import { prisma } from '@dommaker/studio-prisma';
 import { modelGateway, logger, FileStore } from '@dommaker/studio-shared';
+import { randomUUID } from 'crypto';
+import { sharedStore } from './knowledge-bus.service.js';
+import type { KnowledgeEntry } from '@dommaker/harness';
 
 const fileStore = new FileStore();
 
@@ -42,9 +45,17 @@ const EXTRACT_SYSTEM_PROMPT = `你是一个决策分析师。从以下讨论记�
 - 没有明确决策的讨论 → 返回空数组
 - 最多提取 3 个决策`;
 
+function newId(): string {
+  return `decision-${randomUUID().slice(0, 8)}`;
+}
+
+function now(): string {
+  return new Date().toISOString();
+}
+
 export class DecisionChainExtractor {
   /**
-   * 从 WorkUnit 执行中提取（架构变更时调用）
+   * 从 WorkUnit 执行中提取（关键词预筛选）
    */
   async extractFromExecution(params: {
     taskId: string;
@@ -55,7 +66,6 @@ export class DecisionChainExtractor {
   }): Promise<number> {
     const { taskId, projectId, taskDescription, changedFiles, diff } = params;
 
-    // T-1.3: 用 task description 关键词预筛选替代架构文件正则
     const decisionKeywords = /选择|方案|决定|选型|设计|架构|改为|迁移|重构|替代|切换/;
     if (!decisionKeywords.test(taskDescription)) return 0;
 
@@ -79,31 +89,47 @@ ${(diff || '').substring(0, 3000)}
 
       if (!result.decisions?.length) return 0;
 
+      const ts = now();
       let count = 0;
       for (const d of result.decisions) {
         if (!d.topic || !d.chosen) continue;
 
-        await prisma.decisionChain.create({
-          data: {
-            topic: d.topic,
-            category: this.inferCategory(d.topic, d.options),
+        const entry = {
+          id: newId(),
+          type: 'decision' as any,
+          title: d.topic,
+          content: JSON.stringify({
             context: d.context || taskDescription,
-            options: JSON.stringify(d.options || [{ name: d.chosen, pros: [], cons: [] }]),
+            options: d.options || [],
             chosen: d.chosen,
             rationale: d.rationale || '',
             tradeoffs: d.tradeoffs || '',
             sourceType: 'execution',
             sourceId: taskId,
-            participants: JSON.stringify(['executor']),
+            participants: ['executor'],
             revisable: true,
-          },
-        });
+          }),
+          maturity: 'active' as any,
+          layer: 'project',
+          created: ts,
+          lastReferenced: ts,
+          contributors: ['decision-chain-extractor'],
+          projects: [projectId],
+          tags: ['decision', 'execution', this.inferCategory(d.topic, d.options)],
+          applicablePhases: [],
+          sourceReferences: [{ source: `execution:${taskId}`, timestamp: ts }] as any,
+          referencedBy: [],
+          executionResults: [],
+          consumptionMode: 'reference',
+          origin: 'agent',
+        } as unknown as KnowledgeEntry;
+
+        sharedStore.save(entry);
         count++;
       }
 
       logger.info('[DecisionChainExtractor] Extracted from execution', { taskId, count, llmMs });
 
-      // S10: Push decision confirmation card to #系统 channel
       if (count > 0) {
         try {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
@@ -145,25 +171,43 @@ ${(diff || '').substring(0, 3000)}
     revisable?: boolean;
     revisitCondition?: string;
   }): Promise<string> {
-    const record = await prisma.decisionChain.create({
-      data: {
-        topic: params.topic,
-        category: params.category,
+    const id = newId();
+    const ts = now();
+
+    const entry = {
+      id,
+      type: 'decision' as any,
+      title: params.topic,
+      content: JSON.stringify({
         context: params.context,
-        options: JSON.stringify(params.options || []),
+        options: params.options || [],
         chosen: params.chosen,
         rationale: params.rationale,
         tradeoffs: params.tradeoffs || '',
-        sourceType: params.sourceType || 'audit',
+        sourceType: params.sourceType || 'manual',
         sourceId: params.sourceId || null,
-        participants: JSON.stringify(['manual']),
+        participants: ['manual'],
         revisable: params.revisable !== false,
         revisitCondition: params.revisitCondition || null,
-      },
-    });
+      }),
+      maturity: 'active' as any,
+      layer: 'project',
+      created: ts,
+      lastReferenced: ts,
+      contributors: ['decision-chain-extractor'],
+      projects: [],
+      tags: ['decision', params.category],
+      applicablePhases: [],
+      sourceReferences: [],
+      referencedBy: [],
+      executionResults: [],
+      consumptionMode: 'reference',
+      origin: 'human',
+    } as unknown as KnowledgeEntry;
 
-    logger.info('[DecisionChainExtractor] Manual decision recorded', { id: record.id, topic: params.topic });
-    return record.id;
+    sharedStore.save(entry);
+    logger.info('[DecisionChainExtractor] Manual decision recorded', { id, topic: params.topic });
+    return id;
   }
 
   /**
@@ -175,41 +219,66 @@ ${(diff || '').substring(0, 3000)}
     sourceType?: string;
     limit?: number;
   }): Promise<Record<string, any>[]> {
-    const where: any = {};
-    if (params.topic) where.topic = { contains: params.topic };
-    if (params.category) where.category = params.category;
-    if (params.sourceType) where.sourceType = params.sourceType;
-
-    const chains = await prisma.decisionChain.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: params.limit || 20,
+    const entries = sharedStore.list({ tags: ['decision'] });
+    let results = entries.map(e => {
+      const data = JSON.parse((e as any).content || '{}');
+      return {
+        id: e.id,
+        topic: e.title,
+        category: (e as any).tags?.find((t: string) => t !== 'decision') || 'process',
+        context: data.context || '',
+        chosen: data.chosen || '',
+        rationale: data.rationale || '',
+        tradeoffs: data.tradeoffs || '',
+        sourceType: data.sourceType || '',
+        sourceId: data.sourceId,
+        options: data.options || [],
+        participants: data.participants || [],
+        revisable: data.revisable !== false,
+        revisitCondition: data.revisitCondition,
+        createdAt: e.created,
+      };
     });
 
-    return chains.map(c => ({
-      ...c,
-      options: JSON.parse(c.options),
-      participants: JSON.parse(c.participants),
-    }));
+    // Filter
+    if (params.topic) {
+      const q = params.topic.toLowerCase();
+      results = results.filter(r => r.topic.toLowerCase().includes(q));
+    }
+    if (params.category) {
+      results = results.filter(r => r.category === params.category);
+    }
+    if (params.sourceType) {
+      results = results.filter(r => r.sourceType === params.sourceType);
+    }
+
+    // Sort by createdAt desc
+    results.sort((a, b) => (b.createdAt > a.createdAt ? 1 : -1));
+    return results.slice(0, params.limit || 20);
   }
 
   /**
    * 获取应重新审视的决策
    */
   async getRevisable(): Promise<Record<string, any>[]> {
-    const chains = await prisma.decisionChain.findMany({
-      where: { revisable: true },
-      orderBy: { createdAt: 'desc' },
-      take: 20,
-    });
-
-    return chains
-      .filter(c => c.revisitCondition)
-      .map(c => ({
-        ...c,
-        options: JSON.parse(c.options),
-        participants: JSON.parse(c.participants),
-      }));
+    const entries = sharedStore.list({ tags: ['decision'] });
+    return entries
+      .map(e => {
+        const data = JSON.parse((e as any).content || '{}');
+        if (!data.revisable || !data.revisitCondition) return null;
+        return {
+          id: e.id,
+          topic: e.title,
+          options: data.options || [],
+          chosen: data.chosen || '',
+          rationale: data.rationale || '',
+          tradeoffs: data.tradeoffs || '',
+          sourceType: data.sourceType || '',
+          revisitCondition: data.revisitCondition,
+          createdAt: e.created,
+        };
+      })
+      .filter(Boolean) as Record<string, any>[];
   }
 
   /**
@@ -227,8 +296,6 @@ ${(diff || '').substring(0, 3000)}
     return lines.join('\n') + '\n';
   }
 
-  // ── private ──
-
   private inferCategory(topic: string, options: any[]): string {
     const t = topic.toLowerCase();
     if (t.match(/db|database|sqlite|postgres|storage|orm/)) return 'tooling';
@@ -237,22 +304,6 @@ ${(diff || '').substring(0, 3000)}
     if (t.match(/ui|frontend|component|page|route/)) return 'design';
     if (t.match(/api|endpoint|route|protocol/)) return 'design';
     return 'process';
-  }
-
-  private isArchitectureChange(files: string[]): boolean {
-    const signals = [
-      /schema\.prisma$/,
-      /\.architect\//,
-      /tsconfig.*\.json$/,
-      /package\.json$/,
-      /docker/i,
-      /nginx/i,
-      /config\.(yml|yaml)$/,
-      /\.env\./,
-      /src\/core\//,
-      /src\/modules\//,
-    ];
-    return signals.some(re => files.some(f => re.test(f)));
   }
 }
 

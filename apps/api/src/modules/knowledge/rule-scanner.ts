@@ -4,8 +4,8 @@
  * 冷启动全量扫描 + 变更时增量 diff 更新。
  */
 
-import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
+import { sharedStore } from './knowledge-bus.service.js';
 import { readFileSync, existsSync, readdirSync } from 'fs';
 import path from 'path';
 import * as os from 'os';
@@ -45,72 +45,73 @@ export class RuleScanner {
     let updated = 0;
     let skipped = 0;
 
+    // Get existing rules from KnowledgeStore for dedup + deprecation
+    const existingEntries = sharedStore.list({ tags: ['rule'] });
+    const existingByName = new Map<string, any>();
+    for (const e of existingEntries) {
+      existingByName.set((e as any).title, e);
+    }
+
+    const known = new Set(rules.map(r => r.name));
+    const ts = new Date().toISOString();
+
     for (const rule of rules) {
       if (!rule.name || !rule.description) continue;
 
-      const existing = await prisma.businessRule.findFirst({
-        where: { name: rule.name },
-      });
+      const existing = existingByName.get(rule.name);
 
       if (existing) {
-        // 检查是否有变化
+        const d = JSON.parse((existing as any).content || '{}');
         const changed =
-          existing.description !== rule.description ||
-          existing.condition !== rule.condition ||
-          existing.defaultValue !== rule.defaultValue;
+          d.description !== rule.description ||
+          d.condition !== rule.condition ||
+          d.defaultValue !== rule.defaultValue;
 
         if (changed) {
-          await prisma.businessRule.update({
-            where: { id: existing.id },
-            data: {
-              description: rule.description,
-              condition: rule.condition,
-              action: rule.action,
-              defaultValue: rule.defaultValue,
-              source: rule.source,
-              sourceType: rule.sourceType,
-              affects: JSON.stringify(rule.affects),
-              version: existing.version + 1,
-              status: 'active',
-              lastExtractedAt: new Date(),
-            },
-          });
+          sharedStore.save({
+            ...existing,
+            title: rule.name,
+            content: JSON.stringify(rule),
+            lastReferenced: ts,
+          } as any);
           updated++;
-          logger.debug(`[RuleScanner] Updated: ${rule.name} v${existing.version + 1}`);
         } else {
-          // 标记为已验证
-          await prisma.businessRule.update({
-            where: { id: existing.id },
-            data: { lastVerifiedAt: new Date() },
-          });
           skipped++;
         }
       } else {
-        await prisma.businessRule.create({
-          data: {
-            name: rule.name,
-            category: rule.category,
-            description: rule.description,
-            condition: rule.condition,
-            action: rule.action,
-            defaultValue: rule.defaultValue || null,
-            source: rule.source,
-            sourceType: rule.sourceType,
-            affects: JSON.stringify(rule.affects),
-            lastExtractedAt: new Date(),
-          },
-        });
+        const id = `rule-${rule.name.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60)}`;
+        sharedStore.save({
+          id,
+          type: 'guideline' as any,
+          title: rule.name,
+          content: JSON.stringify(rule),
+          maturity: 'active' as any,
+          layer: 'project',
+          created: ts,
+          lastReferenced: ts,
+          contributors: ['rule-scanner'],
+          projects: [],
+          tags: ['rule', 'active', rule.category],
+          applicablePhases: [],
+          sourceReferences: [],
+          referencedBy: [],
+          executionResults: [],
+          consumptionMode: 'rule',
+          origin: 'system',
+        } as any);
         created++;
-        logger.debug(`[RuleScanner] Created: ${rule.name}`);
       }
     }
 
-    // 标记不在本次扫描结果中的规则为可能过期
-    const known = new Set(rules.map(r => r.name));
-    await prisma.businessRule.updateMany({
-      where: { status: 'active', name: { notIn: Array.from(known) } },
-      data: { status: 'deprecated' },
-    });
+    // Deprecate rules not found in this scan
+    for (const [name, entry] of existingByName) {
+      if (!known.has(name)) {
+        sharedStore.save({
+          ...entry,
+          tags: [...(entry as any).tags.filter((t: string) => t !== 'active'), 'deprecated'],
+        } as any);
+      }
+    }
 
     logger.info(`[RuleScanner] Scan done: ${created} created, ${updated} updated, ${skipped} unchanged`);
     return { created, updated, skipped };
@@ -138,22 +139,23 @@ export class RuleScanner {
    * 获取所有活跃规则（供 Agent context 注入）
    */
   async getActiveRules(): Promise<Record<string, any>[]> {
-    const rules = await prisma.businessRule.findMany({
-      where: { status: 'active' },
-      orderBy: { category: 'asc' },
-    });
-
-    return rules.map(r => ({
-      name: r.name,
-      category: r.category,
-      description: r.description,
-      condition: r.condition,
-      action: r.action,
-      defaultValue: r.defaultValue,
-      source: r.source,
-      affects: JSON.parse(r.affects),
-      version: r.version,
-    }));
+    const entries = sharedStore.list({ tags: ['rule', 'active'] });
+    return entries
+      .map((e: any) => {
+        const r = JSON.parse(e.content || '{}');
+        return {
+          name: r.name || e.title,
+          category: r.category || '',
+          description: r.description || '',
+          condition: r.condition || '',
+          action: r.action || '',
+          defaultValue: r.defaultValue || null,
+          source: r.source || '',
+          affects: r.affects || [],
+          version: r.version || 1,
+        };
+      })
+      .sort((a: any, b: any) => a.category.localeCompare(b.category));
   }
 
   /**
@@ -302,7 +304,8 @@ export class RuleScanner {
       logger.warn('[RuleScanner] Failed to scan source constants', { error: String(err) });
     }
 
-    return rules;
+    // T-1.3: 只保留有同行注释的常量 — 过滤纯配置值
+    return rules.filter(r => r.description && !r.description.startsWith('MAX_') && !r.description.startsWith('MIN_') && !r.description.startsWith('DEFAULT_') && !r.description.startsWith('LIMIT_') && !r.description.startsWith('THRESHOLD_'));
   }
 
   private scanEnvThresholds(): ScannedRule[] {

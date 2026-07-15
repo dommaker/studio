@@ -188,7 +188,7 @@ export class UnifiedQuery {
     // Prisma count
     if (!filter?.sources || filter.sources.includes('prisma')) {
       if (filter?.consumptionModes?.includes('rule')) {
-        count += await prisma.businessRule.count({ where: { status: 'active' } });
+        count += this.store.list({ tags: ['rule', 'active'] }).length;
       }
       if (filter?.consumptionModes?.includes('context')) {
         const prefs = this.store.list({ tags: ['preference', 'user-default'] });
@@ -225,11 +225,12 @@ export class UnifiedQuery {
       }
     }
 
-    // BusinessRule → rule entries
+    // BusinessRule → rule entries (KnowledgeStore)
     if (modes.includes('rule')) {
-      const rules = await prisma.businessRule.findMany({ where: { status: 'active' } });
-      for (const rule of rules) {
-        entries.push(this.ruleToEntry(rule));
+      const ruleEntries = this.store.list({ tags: ['rule', 'active'] });
+      for (const entry of ruleEntries) {
+        const rule = JSON.parse((entry as any).content || '{}');
+        entries.push(this.ruleToEntry({ ...rule, name: (entry as any).title }));
       }
     }
 
