@@ -572,23 +572,6 @@ model SpecChangeRequest {
   @@index([submittedAt])
 }
 
-model DecisionAudit {
-  id          String   @id @default(cuid())
-  eventType   String                       // meeting.completed / requirements.generated / goal.created / execution.completed / review.completed / wiki.updated / constraint.proposed / role.updated
-  entityType  String                       // meeting / goal / execution / review / wiki / constraint / role
-  entityId    String                       // ID of the primary entity
-  companyId   String?
-  projectId   String?
-  summary     String                       // Human-readable one-liner
-  details     String?                        // Full event payload
-  actorRole   String?                      // Which role triggered this (analyst/executor/reviewer/knowledge_keeper/auditor/constraint_evolver)
-  createdAt   DateTime  @default(now())
-
-  @@index([eventType])
-  @@index([entityType, entityId])
-  @@index([companyId])
-  @@index([createdAt])
-}
 
 
 
@@ -715,24 +698,6 @@ model StudioEvent {
 
 
 // KE-003: User behavior distillation profiles
-model UserBehaviorProfile {
-  id              String   @id @default(cuid())
-  sessionId       String
-  category        String   // correction | workflow | automation
-  title           String
-  evidence        String
-  pattern         String
-  suggestedAction String   // create_rule | create_skill | create_automation | skip
-  confidence      Float
-  alreadyCovered  String?
-  status          String   @default("pending") // pending | confirmed | rejected | applied
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-
-  @@index([sessionId])
-  @@index([category])
-  @@index([status])
-  @@index([createdAt])
   @@map("user_behavior_profile")
 }
 

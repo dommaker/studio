@@ -84,10 +84,12 @@ export class AuditorAgent {
         perType.set(errorType, (perType.get(errorType) || 0) + 1);
       }
 
-      // 3. 最近 24h 的审计事件统计
-      const auditCount = await prisma.decisionAudit.count({
-        where: { createdAt: { gte: yesterday } },
-      });
+      // 3. 最近 24h 的审计事件统计 (KnowledgeStore)
+      const { sharedStore: auditStore } = await import('../knowledge/knowledge-bus.service.js');
+      const auditEntries = auditStore.list({ tags: ['audit'] });
+      const auditCount = auditEntries.filter((e: any) =>
+        new Date(e.created).getTime() >= yesterday.getTime()
+      ).length;
 
       // 4. Agent-type × tier 3D 交叉分析
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -1093,14 +1095,26 @@ export class AuditorAgent {
         successRate: s.total > 0 ? Math.round((1 - s.failed / s.total) * 100) : 100,
       }));
 
-      await prisma.decisionAudit.create({
-        data: {
-          entityType: 'model_tier',
-          entityId: `daily-${new Date().toISOString().slice(0, 10)}`,
-          eventType: 'tier_success_rate',
-          summary: JSON.stringify(stats),
-        },
-      });
+      const { sharedStore: tierStatsStore } = await import('../knowledge/knowledge-bus.service.js');
+      tierStatsStore.save({
+        id: `tier-stats-${new Date().toISOString().slice(0, 10)}`,
+        type: 'guideline' as any,
+        title: 'tier_success_rate',
+        content: JSON.stringify(stats),
+        maturity: 'active' as any,
+        layer: 'project',
+        created: new Date().toISOString(),
+        lastReferenced: new Date().toISOString(),
+        contributors: ['auditor-agent'],
+        projects: [],
+        tags: ['audit', 'tier_stats'],
+        applicablePhases: [],
+        sourceReferences: [],
+        referencedBy: [],
+        executionResults: [],
+        consumptionMode: 'reference' as any,
+        origin: 'agent' as any,
+      } as any);
 
       logger.info('[AuditorAgent] Tier stats saved', { tiers: stats.length });
     } catch (err) {

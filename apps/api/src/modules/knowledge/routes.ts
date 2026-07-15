@@ -961,25 +961,25 @@ knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) =>
       }
     }
 
-    // Search behavior profiles
+    // Search behavior profiles (KnowledgeStore)
     if (searchTypes.includes('behavior')) {
-      const profiles = await prisma.userBehaviorProfile.findMany({
-        where: {
-          OR: [
-            { title: { contains: query } },
-            { pattern: { contains: query } },
-            { evidence: { contains: query } },
-          ],
-        },
-        take: takeLimit,
-        orderBy: { confidence: 'desc' },
-      });
-      for (const p of profiles) {
+      const { sharedStore: bSearchStore } = await import('./knowledge-bus.service.js');
+      const behaviorSearchEntries = bSearchStore.list({ tags: ['behavior'] })
+        .filter((e: any) => {
+          const d = JSON.parse(e.content || '{}');
+          const title = e.title || '';
+          const pattern = d.pattern || '';
+          const evidence = d.evidence || '';
+          return title.includes(query) || pattern.includes(query) || evidence.includes(query);
+        })
+        .slice(0, takeLimit);
+      for (const e of behaviorSearchEntries) {
+        const d = JSON.parse((e as any).content || '{}');
         results.push({
           type: 'behavior',
-          id: p.id,
-          title: p.title,
-          snippet: p.pattern.slice(0, 200),
+          id: (e as any).id,
+          title: (e as any).title,
+          snippet: (d.pattern || '').slice(0, 200),
           score: 1,
         });
       }

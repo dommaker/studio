@@ -640,13 +640,10 @@ ${deployResult.summary.slice(0, 2000)}
       // Extract sessionId from source: "session:<uuid>.jsonl.bak..." → "<uuid>"
       const sessionId = source.replace('session:', '').split('.jsonl')[0];
 
-      // Layer 1: inject existing patterns for dedup
-      const existingProfiles = await prisma.userBehaviorProfile.findMany({
-        select: { title: true },
-        orderBy: { createdAt: 'desc' },
-        take: 50,
-      });
-      const existingTitles = existingProfiles.map(p => p.title);
+      // Layer 1: inject existing patterns for dedup (KnowledgeStore)
+      const { sharedStore: behaviorStore } = await import('../knowledge/knowledge-bus.service.js');
+      const behaviorEntries = behaviorStore.list({ tags: ['behavior'] });
+      const existingTitles = behaviorEntries.slice(0, 50).map((e: any) => e.title);
 
       // Read memory rules for dedup
       const memoryDir = path.join(os.homedir(), '.claude', 'projects', '-root-projects', 'memory');
@@ -759,22 +756,32 @@ ${existingPatternsBlock}`;
           t => t.toLowerCase().includes(titleNorm) || titleNorm.includes(t.toLowerCase()),
         );
 
-        const created = await prisma.userBehaviorProfile.create({
-          data: {
-            sessionId,
-            category: p.category,
-            title: p.title.slice(0, 100),
-            evidence: (p.evidence || '').slice(0, 500),
-            pattern: p.pattern.slice(0, 500),
-            suggestedAction: p.suggestedAction || 'skip',
-            confidence: Math.min(1, Math.max(0, p.confidence || 0.5)),
-            alreadyCovered: alreadyCovered || null,
-            status: alreadyCovered ? 'rejected' : 'pending',
-          },
-        });
+        const behaviorId = `ubp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+        const status = alreadyCovered ? 'rejected' : 'pending';
+        const confidence = Math.min(1, Math.max(0, p.confidence || 0.5));
+        const { sharedStore: behaviorStore } = await import('../knowledge/knowledge-bus.service.js');
+        behaviorStore.save({
+          id: behaviorId,
+          type: 'guideline' as any,
+          title: p.title.slice(0, 100),
+          content: JSON.stringify({ sessionId, category: p.category, evidence: (p.evidence || '').slice(0, 500), pattern: p.pattern.slice(0, 500), suggestedAction: p.suggestedAction || 'skip', confidence, alreadyCovered, status }),
+          maturity: 'active' as any,
+          layer: 'project' as any,
+          created: new Date().toISOString(),
+          lastReferenced: new Date().toISOString(),
+          contributors: ['knowledge-agent'],
+          projects: [],
+          tags: ['behavior', status],
+          applicablePhases: [],
+          sourceReferences: [],
+          referencedBy: [],
+          executionResults: [],
+          consumptionMode: 'signal' as any,
+          origin: 'agent' as any,
+        } as any);
         stored++;
         if (!alreadyCovered) {
-          createdProfiles.push({ id: created.id, ...p, confidence: created.confidence });
+          createdProfiles.push({ id: behaviorId, ...p, confidence });
         }
       }
 
@@ -850,10 +857,13 @@ ${existingPatternsBlock}`;
             fs.writeFileSync(path.join(MEMORY_DIR, `feedback_${topic}.md`), ruleContent, 'utf-8');
           }
 
-          await prisma.userBehaviorProfile.update({
-            where: { id: cp.id },
-            data: { status: 'applied' },
-          });
+          try {
+            const { sharedStore: applyStore } = await import('../knowledge/knowledge-bus.service.js');
+            const entry = applyStore.get(cp.id);
+            if (entry) {
+              applyStore.save({ ...entry, tags: [...(entry as any).tags.filter((t: string) => t !== 'pending'), 'applied'] } as any);
+            }
+          } catch { /* non-blocking */ }
           consumed++;
           logger.info('[KnowledgeAgent] Behavior profile consumed immediately', {
             id: cp.id.slice(0, 8),

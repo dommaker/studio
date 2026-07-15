@@ -1269,12 +1269,16 @@ export class MonitorAgent {
         store.snapshot();
       } catch { /* best-effort */ }
 
-      // B10-201: Behavior profile trends
+      // B10-201: Behavior profile trends (KnowledgeStore)
       try {
-        const behaviorProfiles = await prisma.userBehaviorProfile.findMany({
-          where: { createdAt: { gte: since } },
-          select: { category: true, suggestedAction: true, confidence: true, status: true },
-        });
+        const { sharedStore: bStore } = await import('../knowledge/knowledge-bus.service.js');
+        const behaviorEntries = bStore.list({ tags: ['behavior'] });
+        const behaviorProfiles = behaviorEntries
+          .filter((e: any) => new Date(e.created).getTime() >= since.getTime())
+          .map((e: any) => {
+            const d = JSON.parse(e.content || '{}');
+            return { category: d.category || 'unknown', suggestedAction: d.suggestedAction || 'skip', confidence: d.confidence || 0, status: (e as any).tags?.includes('pending') ? 'pending' : 'applied' };
+          });
         if (behaviorProfiles.length > 0) {
           const byCat: Record<string, number> = {};
           const byAction: Record<string, number> = {};
