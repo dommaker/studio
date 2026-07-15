@@ -8,7 +8,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 
-type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction' | 'behavior' | 'resolution';
+type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction' | 'resolution';
 
 const gapLabels: Record<GapTab, string> = {
   preference: '偏好',
@@ -16,12 +16,11 @@ const gapLabels: Record<GapTab, string> = {
   environment: '环境',
   decision_chain: '决策链',
   interaction: '交互模式',
-  behavior: '行为模式',
   resolution: '解法库',
 };
 const gapIcons: Record<GapTab, string> = {
   preference: '👤', business_rule: '📏', environment: '🖥️',
-  decision_chain: '🔗', interaction: '📊', behavior: '🧩', resolution: '🔧',
+  decision_chain: '🔗', interaction: '📊', resolution: '🔧',
 };
 
 type ActiveTab = GapTab | 'unified';
@@ -51,10 +50,7 @@ export function KnowledgePage() {
   const loadGapData = useCallback(async (type: string) => {
     setGapLoading(true);
     try {
-      if (type === 'behavior') {
-        const res = await api.get('/knowledge/behavior');
-        setGapData(res.data.profiles || []);
-      } else if (type === 'resolution') {
+      if (type === 'resolution') {
         const res = await api.get('/knowledge/resolutions');
         setGapData(res.data.resolutions || []);
       } else {
@@ -127,8 +123,6 @@ export function KnowledgePage() {
         return <DecisionChainCard item={item} />;
       case 'interaction':
         return <InteractionPatternCard item={item} />;
-      case 'behavior':
-        return <BehaviorProfileCard item={item} />;
       case 'resolution':
         return <ResolutionCard item={item} />;
       default:
@@ -426,75 +420,6 @@ function InteractionPatternCard({ item }: { item: any }) {
       <p className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>{item.description}</p>
       {item.insight && <p className="text-sm" style={{ color: 'var(--accent-primary)' }}>💡 {item.insight}</p>}
       {item.suggestion && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>建议: {item.suggestion}</p>}
-    </div>
-  );
-}
-
-function BehaviorProfileCard({ item }: { item: any }) {
-  const categoryLabels: Record<string, string> = {
-    correction: '纠正信号',
-    workflow: '决策模式',
-    automation: '重复操作',
-  };
-  const statusColors: Record<string, string> = {
-    pending: 'var(--warning)',
-    confirmed: 'var(--accent-primary)',
-    rejected: 'var(--text-tertiary)',
-    applied: 'var(--success, #22c55e)',
-  };
-  const actionLabels: Record<string, string> = {
-    create_rule: '创建规则',
-    create_skill: '创建 Skill',
-    create_automation: '创建自动化',
-    skip: '跳过',
-  };
-
-  const handleFeedback = async (newStatus: string) => {
-    try {
-      await api.patch(`/knowledge/behavior/${item.id}`, { status: newStatus });
-      item.status = newStatus;
-    } catch (err) {
-      console.error('Failed to update behavior status:', err);
-    }
-  };
-
-  return (
-    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-      <div className="flex items-center gap-2 mb-2">
-        <span>🧩</span>
-        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</span>
-        <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
-          {categoryLabels[item.category] || item.category}
-        </span>
-        <span className="text-xs px-2 py-0.5 rounded" style={{
-          background: statusColors[item.status] || 'var(--text-tertiary)',
-          color: 'white',
-        }}>{item.status}</span>
-        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>
-          置信度: {Math.round((item.confidence || 0) * 100)}%
-        </span>
-      </div>
-      {item.evidence && (
-        <p className="text-xs mb-1 italic" style={{ color: 'var(--text-tertiary)' }}>"{item.evidence.slice(0, 150)}"</p>
-      )}
-      <p className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>{item.pattern}</p>
-      <div className="flex items-center gap-2 mt-2 text-xs" style={{ color: 'var(--text-tertiary)' }}>
-        <span>建议: {actionLabels[item.suggestedAction] || item.suggestedAction}</span>
-        {item.alreadyCovered && <span> (已覆盖: {item.alreadyCovered})</span>}
-        <span className="ml-auto">{new Date(item.createdAt).toLocaleDateString('zh-CN')}</span>
-      </div>
-      {item.status === 'pending' && (
-        <div className="flex gap-2 mt-3">
-          <button onClick={() => handleFeedback('confirmed')}
-            className="px-3 py-1 text-xs rounded" style={{ background: 'var(--accent-primary)', color: 'white' }}>
-            确认
-          </button>
-          <button onClick={() => handleFeedback('rejected')}
-            className="px-3 py-1 text-xs rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-            跳过
-          </button>
-        </div>
-      )}
     </div>
   );
 }

@@ -8,6 +8,19 @@ vi.mock('os', () => ({
   freemem: () => 4 * 1024 * 1024 * 1024,   // 4GB (75% used)
 }));
 
+// Mock dynamic imports used by collectDb() and collectWorkunitStats()
+vi.mock('@dommaker/studio-prisma', () => ({
+  prisma: { $queryRawUnsafe: vi.fn().mockResolvedValue([{ 1: 1 }]) },
+}));
+
+vi.mock('@dommaker/studio-shared', () => {
+  const FileStore = vi.fn();
+  FileStore.prototype.getIndex = vi.fn().mockResolvedValue([]);
+  FileStore.prototype.listStates = vi.fn().mockResolvedValue([]);
+  FileStore.prototype.listProfiles = vi.fn().mockResolvedValue([]);
+  return { FileStore, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+});
+
 // Mock process.memoryUsage
 vi.spyOn(process, 'memoryUsage').mockReturnValue({
   heapUsed: 200 * 1024 * 1024, // 200MB

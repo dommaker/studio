@@ -16,7 +16,7 @@
  *   Executor → read patterns before execution
  *   Ops     → read incidents for pattern learning
  *
- * 底层存储：harness KnowledgeStore + DB (DecisionAudit, Incident, PipelineRun)
+ * 底层存储：harness KnowledgeStore + DB (Incident, PipelineRun)
  */
 
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';

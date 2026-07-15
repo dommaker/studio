@@ -1325,8 +1325,10 @@ export class MonitorAgent {
             if (sorted.length > 0) {
               lines.push('', '### 周交互画像');
               lines.push(`- Top 模式: ${sorted.slice(0, 3).map(([t, c]) => `${t}(${c})`).join(', ')}`);
-              const pref = await (prisma as any).userPreference.findFirst({ where: { userId: 'default' }, select: { preferredPatternTypes: true, preferredWorkflowTypes: true } });
-              const preferredRaw = pref?.preferredPatternTypes || pref?.preferredWorkflowTypes;
+              const { sharedStore } = await import('../knowledge/knowledge-bus.service.js');
+              const prefEntries = sharedStore.list({ tags: ['preference', 'user-default'] });
+              const prefData = prefEntries.length > 0 ? JSON.parse((prefEntries[0] as any).content || '{}') : {};
+              const preferredRaw = prefData.preferredPatternTypes;
               if (preferredRaw) {
                 const preferred = JSON.parse(preferredRaw) as string[];
                 const newTypes = sorted.filter(([t]) => !preferred.includes(t)).map(([t]) => t);

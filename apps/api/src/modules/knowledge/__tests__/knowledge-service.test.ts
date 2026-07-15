@@ -911,10 +911,10 @@ describe('KnowledgeService Phase 0: contract', () => {
   });
 
   describe('method count', () => {
-    it('has exactly 35 public methods', () => {
+    it('has exactly 34 public methods', () => {
       const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
         .filter(m => m !== 'constructor');
-      expect(methods).toHaveLength(35);
+      expect(methods).toHaveLength(34);
     });
   });
 });

@@ -13,8 +13,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-bus.service.ts
 
-<!-- STALE_SINCE: 2026-06-17 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/improver-scheduler.service.ts, apps/api/src/modules/knowledge/knowledge-service.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/preference-observer.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/knowledge-sync.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts
+
+<!-- STALE_SINCE: 2026-07-15 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/improver-scheduler.service.ts, apps/api/src/modules/knowledge/knowledge-service.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/preference-observer.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/knowledge-sync.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts
 
 ## 职责
 
@@ -85,6 +89,7 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `ab28f573`: pipeline-removal): code review warnings — dead scope configs + pipeline-dashboard deletion
 - ✅ `ea7b91c9`: knowledge): persist extractFromExecution to StudioEvent (B59-002)
 - ✅ B56: 删 formatIndexSummary() + analyst-knowledge 死链路（loadKnowledge/saveKnowledge/selectRelevantSections）— KnowledgeStore 闭环已覆盖
 - ✅ B56: refreshStaleContext — 自动刷新 stale CONTEXT.md（扫描 ⚠️ 标记 → 提取代码结构 → LLM 填充空章节 → 保留修复历史）+ startScheduler 替换 runSelfDoc

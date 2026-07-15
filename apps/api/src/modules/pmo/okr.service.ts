@@ -677,14 +677,8 @@ export class OKRService {
   }
 
   private async queryBehaviorFeedbackRate(_days: number): Promise<number | null> {
-    try {
-      const total = await prisma.userBehaviorProfile.count();
-      if (total === 0) return null;
-      const feedback = await prisma.userBehaviorProfile.count({
-        where: { status: { in: ['confirmed', 'rejected', 'applied'] } },
-      });
-      return Math.round((feedback / total) * 100);
-    } catch { return null; }
+    // UserBehaviorProfile table deleted — feedback rate metric unavailable
+    return null;
   }
 
   private async querySessionDurationAvg(days: number): Promise<number | null> {

@@ -196,14 +196,14 @@ async function studioRun() {
       process.exit(1);
     }
 
-    // Send message (appends @Analyst automatically in the route handler)
+    // Send message (@mention → WorkUnit creation in route handler)
     const content = /@analyst/i.test(requirement) ? requirement : `${requirement} @Analyst`;
     const msgResp = await fetch(`${baseUrl}/channels/${rndChannel.id}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
     });
-    const msgResult = await msgResp.json() as { success: boolean; data?: { id: string; analystTriggered: boolean }; error?: string };
+    const msgResult = await msgResp.json() as { success: boolean; data?: { id: string }; error?: string };
 
     if (!msgResult.success) {
       console.error('Failed to submit:', msgResult.error);

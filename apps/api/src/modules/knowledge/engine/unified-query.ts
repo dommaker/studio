@@ -191,8 +191,8 @@ export class UnifiedQuery {
         count += await prisma.businessRule.count({ where: { status: 'active' } });
       }
       if (filter?.consumptionModes?.includes('context')) {
-        const pref = await prisma.userPreference.findFirst({ where: { userId: 'default' } });
-        if (pref) count++;
+        const prefs = this.store.list({ tags: ['preference', 'user-default'] });
+        if (prefs.length > 0) count++;
         const env = await prisma.environmentSnapshot.findFirst({ orderBy: { createdAt: 'desc' } });
         if (env) count++;
       }
@@ -216,11 +216,12 @@ export class UnifiedQuery {
     const entries: StudioEntry[] = [];
     const modes = filter.consumptionModes ?? [];
 
-    // UserPreference → context entry
+    // UserPreference → context entry (KnowledgeStore)
     if (modes.includes('context')) {
-      const pref = await prisma.userPreference.findFirst({ where: { userId: 'default' } });
-      if (pref) {
-        entries.push(this.preferenceToEntry(pref));
+      const prefEntries = this.store.list({ tags: ['preference', 'user-default'] });
+      if (prefEntries.length > 0) {
+        const prefData = JSON.parse((prefEntries[0] as any).content || '{}');
+        entries.push(this.preferenceToEntry(prefData));
       }
     }
 

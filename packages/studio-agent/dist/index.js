@@ -1,7 +1,7 @@
 "use strict";
 // studio-agent 入口
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.DEFAULT_PERSONAS = exports.listPersonas = exports.getPersona = exports.agentCompleter = exports.AgentCompleter = exports.agentRunner = exports.AgentRunner = exports.agentExecutor = exports.AgentExecutor = exports.AgentRegistry = void 0;
+exports.buildSpawnArgs = exports.DEFAULT_PERSONAS = exports.listPersonas = exports.getPersona = exports.agentCompleter = exports.AgentCompleter = exports.agentRunner = exports.AgentRunner = exports.agentExecutor = exports.AgentExecutor = exports.AgentRegistry = void 0;
 var agent_registry_js_1 = require("./services/agent-registry.js");
 Object.defineProperty(exports, "AgentRegistry", { enumerable: true, get: function () { return agent_registry_js_1.AgentRegistry; } });
 var agent_executor_js_1 = require("./services/agent-executor.js");
@@ -17,3 +17,6 @@ var registry_js_1 = require("./registry.js");
 Object.defineProperty(exports, "getPersona", { enumerable: true, get: function () { return registry_js_1.getPersona; } });
 Object.defineProperty(exports, "listPersonas", { enumerable: true, get: function () { return registry_js_1.listPersonas; } });
 Object.defineProperty(exports, "DEFAULT_PERSONAS", { enumerable: true, get: function () { return registry_js_1.DEFAULT_PERSONAS; } });
+// CLI adapter — pure function buildSpawnArgs for provider-specific CLI args
+var cli_adapter_js_1 = require("./cli-adapter.js");
+Object.defineProperty(exports, "buildSpawnArgs", { enumerable: true, get: function () { return cli_adapter_js_1.buildSpawnArgs; } });

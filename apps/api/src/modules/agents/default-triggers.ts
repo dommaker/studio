@@ -2,7 +2,7 @@
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
 
-/** Register the 6 default system triggers */
+/** Register the 7 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
   // 1. workunit-timeout: SCHEDULE every 5 min → UPDATE workunit (timeout release)
   registry.registerTrigger({

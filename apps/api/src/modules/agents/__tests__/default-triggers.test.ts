@@ -40,10 +40,10 @@ describe('Default Triggers', () => {
     registry = new (TriggerScheduler as any)(null);
   });
 
-  it('registers 6 default triggers', () => {
+  it('registers 7 default triggers', () => {
     registerDefaultTriggers(registry);
 
-    expect(mockRegisterTrigger).toHaveBeenCalledTimes(6);
+    expect(mockRegisterTrigger).toHaveBeenCalledTimes(7);
   });
 
   it('workunit-timeout fires every 5 minutes', () => {
@@ -68,13 +68,14 @@ describe('Default Triggers', () => {
     expect(staleCalls).toHaveLength(0);
   });
 
-  it('getDefaultTriggerConfigs returns 6 configs', () => {
+  it('getDefaultTriggerConfigs returns 7 configs', () => {
     const configs = getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(6);
+    expect(configs).toHaveLength(7);
     expect(configs.map(c => c.id)).toEqual([
       'workunit-timeout',
       'agent-timeout',
       'knowledge-quality-audit',
+      'okr-metric-sync',
       'session-knowledge-extraction',
       'zero-consumption-audit',
       'knowledge-synthesis',

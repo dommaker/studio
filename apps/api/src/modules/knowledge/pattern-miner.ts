@@ -88,11 +88,7 @@ export class PatternMiner {
       }
     }
 
-    // 3. B10-103: Mine UserBehaviorProfile for interaction patterns
-    const behaviorPatterns = await this.mineBehaviorProfiles(yesterday);
-    newPatterns.push(...behaviorPatterns);
-
-    // 4. 清理旧模式
+    // 3. 清理旧模式
     await prisma.interactionPattern.updateMany({
       where: {
         observedPeriodEnd: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
@@ -271,65 +267,6 @@ export class PatternMiner {
       },
     });
     return 1;
-  }
-
-  /**
-   * B10-103: Mine UserBehaviorProfile entries for interaction/automation patterns.
-   * Aggregates similar behavior profiles into InteractionPattern entries.
-   */
-  private async mineBehaviorProfiles(since: number): Promise<number[]> {
-    const newPatterns: number[] = [];
-
-    try {
-      const profiles = await prisma.userBehaviorProfile.findMany({
-        where: {
-          createdAt: { gte: new Date(since) },
-          status: { notIn: ['rejected'] },
-          confidence: { gte: 0.5 },
-        },
-        orderBy: { confidence: 'desc' },
-      });
-
-      if (profiles.length === 0) return newPatterns;
-
-      // Aggregate by category + suggestedAction
-      const groups = new Map<string, typeof profiles>();
-      for (const p of profiles) {
-        const key = `${p.category}:${p.suggestedAction}`;
-        const group = groups.get(key) || [];
-        group.push(p);
-        groups.set(key, group);
-      }
-
-      for (const [key, group] of groups) {
-        if (group.length < 2) continue; // need at least 2 to form a pattern
-
-        const [category, suggestedAction] = key.split(':');
-        const avgConfidence = group.reduce((s, p) => s + p.confidence, 0) / group.length;
-        const titles = group.map(p => p.title).slice(0, 5);
-
-        const name = `行为模式: ${category} → ${suggestedAction}`;
-        const p = await this.upsertPattern({
-          name,
-          category: 'pattern',
-          description: `${group.length} 个行为模式指向 ${suggestedAction}（${titles.join(', ')}）`,
-          pattern: JSON.stringify({ category, suggestedAction, titles }),
-          frequency: group.length,
-          confidence: Math.min(avgConfidence, 0.95),
-          insight: `用户在 ${category} 类场景中反复出现相似模式，建议 ${suggestedAction}`,
-          suggestion: suggestedAction === 'create_rule' ? '考虑自动创建规则' :
-            suggestedAction === 'create_skill' ? '考虑创建 Skill 自动化' :
-            suggestedAction === 'create_automation' ? '考虑脚本自动化' : undefined,
-          observedPeriodStart: new Date(since),
-          observedPeriodEnd: new Date(),
-        });
-        newPatterns.push(p);
-      }
-    } catch (err) {
-      logger.warn('[PatternMiner] mineBehaviorProfiles failed', { error: String(err) });
-    }
-
-    return newPatterns;
   }
 
   /**

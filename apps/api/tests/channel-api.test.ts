@@ -5,13 +5,11 @@
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../src/core/database.js';
-import { channelMessageService } from '../src/modules/channels/channel-message.service.js';
 
 const BASE = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13001'}/api/v1`;
 
 const TEST_CHANNEL = `test-channel-${Date.now()}`;
 let channelId: string;
-let messageId: string;
 let authToken: string;
 
 describe('Channel API', () => {
@@ -92,7 +90,6 @@ describe('Channel API', () => {
       expect(res.status).toBe(201);
       expect(data.success).toBe(true);
       expect(data.data.content).toBe('Hello from test');
-      messageId = data.data.id;
     });
 
     it('rejects empty content', async () => {
@@ -115,98 +112,6 @@ describe('Channel API', () => {
       expect(data.data.length).toBeGreaterThan(0);
       expect(typeof data.hasMore).toBe('boolean');
       expect(typeof data.total).toBe('number');
-    });
-  });
-
-  // ── Card Actions ──
-
-  describe('POST /channels/:channelId/messages/:messageId/actions', () => {
-    it('rejects unknown action', async () => {
-      const res = await fetch(`${BASE}/channels/${channelId}/messages/${messageId}/actions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'unknown_action' }),
-      });
-      expect(res.status).toBe(400);
-    });
-
-    it('accepts knowledge_confirm action', async () => {
-      // First create a knowledge_confirm card
-      const cr = await fetch(`${BASE}/channels/${channelId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: 'Test knowledge card',
-          authorType: 'agent',
-          agentName: 'KK',
-          meta: JSON.stringify({
-            cardType: 'knowledge_confirm',
-            cardData: { entries: [{ type: 'guideline', title: 'Test', content: 'Test content', tags: ['test'] }], taskId: 'test-123', projectId: 'test-proj' },
-          }),
-        }),
-      });
-      // Note: this sends as human message, which doesn't support meta directly.
-      // In real usage, createCardMessage is used via channelMessageService.
-      // Just verify the action endpoint is wired.
-      expect(cr.status).toBe(201);
-    });
-
-    // ── B3-005: Auditor Suggestion actions ──
-    // Each test is self-contained: creates its own card, cleans up after itself
-
-    let auditorChannelId: string;
-
-    beforeAll(async () => {
-      let sysChannel = await prisma.channel.findFirst({ where: { type: 'system', name: '#系统' } });
-      if (!sysChannel) sysChannel = await prisma.channel.findFirst({ where: { type: 'system' } });
-      if (!sysChannel) sysChannel = await prisma.channel.create({ data: { name: '#系统', type: 'system' } });
-      auditorChannelId = sysChannel.id;
-    });
-
-    it('accepts auditor_apply_confirm and resolves card', async () => {
-      const ts = Date.now();
-      // Create card via service (POST /messages only creates human messages)
-      const card = await channelMessageService.createCardMessage(
-        auditorChannelId, 'Auditor', `## Audit Confirm ${ts}`,
-        'auditor_suggestion',
-        { suggestions: [{ type: 'prompt_optimization', risk: 'high', agentType: 'analyst', detail: `optimize ${ts}` }], status: 'ready' },
-      );
-      expect(card.id).toBeDefined();
-
-      const res = await fetch(`${BASE}/channels/${auditorChannelId}/messages/${card.id}/actions`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'auditor_apply_confirm' }),
-      });
-      expect(res.status).toBe(200);
-      const data = await res.json() as any;
-      expect(data.success).toBe(true);
-    });
-
-    it('accepts auditor_apply_reject and marks rejected', async () => {
-      const ts = Date.now();
-      const card = await channelMessageService.createCardMessage(
-        auditorChannelId, 'Auditor', `## Audit Reject ${ts}`,
-        'auditor_suggestion',
-        { suggestions: [{ type: 'param_tuning', risk: 'high', agentType: 'executor', detail: `tuning ${ts}` }], status: 'ready' },
-      );
-      expect(card.id).toBeDefined();
-
-      const res = await fetch(`${BASE}/channels/${auditorChannelId}/messages/${card.id}/actions`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'auditor_apply_reject' }),
-      });
-      expect(res.status).toBe(200);
-      const data = await res.json() as any;
-      expect(data.success).toBe(true);
-    });
-
-    it('still rejects unknown action', async () => {
-      const res = await fetch(`${BASE}/channels/${channelId}/messages/${messageId}/actions`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'bogus_action_xyz' }),
-      });
-      expect(res.status).toBe(400);
     });
   });
 

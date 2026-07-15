@@ -26,8 +26,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-executor.ts
 
-<!-- STALE_SINCE: 2026-06-17 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/CONTEXT.md, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-trigger.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel-init.ts, apps/api/src/modules/channels/channel-message.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/message-routing.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/acgroup-tier.ts, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-fact-verification.ts, apps/api/src/modules/channels/analyst-knowledge.ts, apps/api/src/modules/channels/analyst-prescan.ts, apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-scout.ts, apps/api/src/modules/channels/analyst-synthesizer.ts, apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-red-check.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/conversation-converter.ts, apps/api/src/modules/channels/conversation-handler.ts, apps/api/src/modules/channels/multi-repo-split.ts, apps/api/src/modules/channels/sdd-verification.ts, apps/api/src/modules/channels/CONTEXT.md
+
+<!-- STALE_SINCE: 2026-07-15 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel-init.ts, apps/api/src/modules/channels/channel-message.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/message-routing.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/acgroup-tier.ts, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-fact-verification.ts, apps/api/src/modules/channels/analyst-knowledge.ts, apps/api/src/modules/channels/analyst-prescan.ts, apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-scout.ts, apps/api/src/modules/channels/analyst-synthesizer.ts, apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-red-check.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/conversation-converter.ts, apps/api/src/modules/channels/conversation-handler.ts, apps/api/src/modules/channels/multi-repo-split.ts, apps/api/src/modules/channels/sdd-verification.ts, apps/api/src/modules/channels/CONTEXT.md
 
 ## 职责
 
@@ -73,6 +77,9 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `8d6820d3`: ChannelWorkspaceSetting calling wrong API (404)
+- ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
+- ✅ `ab28f573`: pipeline-removal): code review warnings — dead scope configs + pipeline-dashboard deletion
 - ✅ B56: 清理 knowledge.md 死链路 — 删 loadKnowledge/saveKnowledge/selectRelevantSections/KNOWLEDGE_FILE（零调用方），trigger 不再写文件，scout/analyst prompt 指向 KnowledgeStore/MCP search
 - ✅ `5797f5f5`: restore CONTEXT.md stale warnings, only append fix entry
 - ✅ `e0685c3d`: pipeline output resilience + DB dedup (0 token reuse) — worktree fallback + path resolution + quality-gated dedup

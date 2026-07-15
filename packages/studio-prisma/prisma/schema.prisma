@@ -610,46 +610,6 @@ model Incident {
 
 // ── 知识库五大缺口 (G-001~005, 2026-05-19) ──
 
-model UserPreference {
-  id          String   @id @default(cuid())
-  userId      String   @default("default") // 当前单用户系统
-
-  // 模型偏好
-  preferredModel    String?  // premium | standard | fast
-  modelUsageRatio   String   @default("{}") // {"premium":0.7,"standard":0.2,"fast":0.1}
-  downgradeAccepted Boolean  @default(false)
-
-  // 交互偏好
-  responseStyle     String?  // concise | detailed | balanced
-  messageFrequency  Float?   // 平均每小时消息数
-  avgMessageLength  Int?
-  preferredAgents   String   @default("[]") // ["@Analyst","@Executor"]
-
-  // 决策偏好
-  autoApproveThreshold  Float?  // 低于此置信度需人工确认
-  reviewRoundsTolerance Int?
-
-  // 工具偏好
-  favoriteTools     String   @default("[]")
-  toolRiskTolerance String?  // low | medium | high
-
-  // 时间模式
-  activeHours       String   @default("[]") // [9,10,11,14,15,16]
-  avgSessionMinutes Int?
-
-  // 工作流模式 (B9-025)
-  workflowDistribution  String?  // JSON: {"ci_fix":5,"refactor":3,...}
-  recurringWorkflows    String?  // JSON: [{type,count,successRate,lastSeen}]
-  preferredWorkflowTypes String? // JSON: ["ci_fix","test_triage"]
-
-  // 元数据
-  confidence        Float    @default(0.3)
-  lastInferredAt    DateTime?
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  @@index([userId])
-}
 
 model BusinessRule {
   id          String   @id @default(cuid())
