@@ -14,12 +14,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: dommaker/harness
-          path: ../harness
+          path: harness-src
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: npm install -g pnpm@latest
-      - run: cd ../harness && pnpm install --ignore-scripts && pnpm build
+      - run: ln -s "$(pwd)/harness-src" ../harness
+      - run: cd harness-src && pnpm install --ignore-scripts && pnpm build
       - run: pnpm install
       - run: pnpm build
       - run: pnpm test
