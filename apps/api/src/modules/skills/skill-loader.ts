@@ -16,6 +16,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+type SkillTrigger = string;
+
 // ── Types ──
 
 export interface LoadedSkill {
@@ -46,6 +48,7 @@ export interface UnloadSkillOptions {
 
 export interface LoadForSessionOptions {
   sessionId: string;
+  trigger: SkillTrigger;
   agentType: string;
   tier?: SkillTier;
 }
@@ -58,13 +61,14 @@ const TIER_TOOL_ACCESS: Record<SkillTier, Set<string>> = {
   premium: new Set(['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch']),
 };
 
-// ── File-based skill scanning (.md with frontmatter) ──
+// ── File-based skill loading (.md with frontmatter) ──
 
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
 
 interface SkillFrontmatter {
   name: string;
   description?: string;
+  trigger?: SkillTrigger;
   agentTypes?: string[];
   tier?: SkillTier;
   tools?: string[];
@@ -95,24 +99,83 @@ function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: stri
   return { meta: meta as unknown as SkillFrontmatter, body };
 }
 
-/**
- * Scan disk for all published skill metadata.
- * Used by loadForSession() to find matching skills before loading.
- */
-function scanPublishedSkills(): SkillFrontmatter[] {
+function loadSkillFromDisk(skillName: string): { meta: SkillFrontmatter; prompt: string } | null {
   try {
-    if (!fs.existsSync(SKILLS_DIR)) return [];
-    const results: SkillFrontmatter[] = [];
-    const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const filePath = path.join(SKILLS_DIR, entry.name, 'SKILL.md');
+    if (!fs.existsSync(SKILLS_DIR)) return null;
+    const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    for (const trigger of triggers) {
+      const filePath = path.join(SKILLS_DIR, trigger, skillName, 'SKILL.md');
       if (!fs.existsSync(filePath)) continue;
       const raw = fs.readFileSync(filePath, 'utf-8');
       const parsed = parseFrontmatter(raw);
       if (!parsed) continue;
       if (parsed.meta.status && parsed.meta.status !== 'published') continue;
-      results.push(parsed.meta);
+      return { meta: parsed.meta, prompt: parsed.body };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function loadAllSkillFiles(): SkillFrontmatter[] {
+  try {
+    if (!fs.existsSync(SKILLS_DIR)) return [];
+    const results: SkillFrontmatter[] = [];
+    const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
+      .filter(d => d.isDirectory())
+      .map(d => d.name);
+    for (const trigger of triggers) {
+      const triggerDir = path.join(SKILLS_DIR, trigger);
+      const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name);
+      for (const skillName of skills) {
+        const filePath = path.join(triggerDir, skillName, 'SKILL.md');
+        if (!fs.existsSync(filePath)) continue;
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const parsed = parseFrontmatter(raw);
+        if (!parsed) continue;
+        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+        results.push(parsed.meta);
+      }
+    }
+    return results;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Load skill metadata from specific trigger subdirectories.
+ * Scans the given trigger + 'always/' directories only.
+ */
+function normalizeTriggerDir(trigger: string): string {
+  return trigger.replace(/_/g, '-');
+}
+
+function loadSkillFilesForTrigger(trigger: string): SkillFrontmatter[] {
+  try {
+    if (!fs.existsSync(SKILLS_DIR)) return [];
+    const results: SkillFrontmatter[] = [];
+    const dirsToScan = [normalizeTriggerDir(trigger), 'always'];
+    for (const dir of dirsToScan) {
+      const triggerDir = path.join(SKILLS_DIR, dir);
+      if (!fs.existsSync(triggerDir)) continue;
+      const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
+        .filter(d => d.isDirectory())
+        .map(d => d.name);
+      for (const skillName of skills) {
+        const filePath = path.join(triggerDir, skillName, 'SKILL.md');
+        if (!fs.existsSync(filePath)) continue;
+        const raw = fs.readFileSync(filePath, 'utf-8');
+        const parsed = parseFrontmatter(raw);
+        if (!parsed) continue;
+        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
+        results.push(parsed.meta);
+      }
     }
     return results;
   } catch {
@@ -151,25 +214,25 @@ export class SkillLoaderService {
       return state.loaded.get(skillName)!;
     }
 
-    // Load skill using package loader (handles disk reading + caching)
-    // Always try loadSingle() first to get the latest version from disk
-    let skill = skillLoader.loadSingle(skillName);
+    // Try file-based loading first
+    const fileSkill = loadSkillFromDisk(skillName);
 
-    // Fall back to cached version if not found on disk
-    if (!skill) {
-      skill = skillLoader.get(skillName);
-    }
+    let skillId: string;
+    let prompt: string;
+    let tools: string[];
+    let tier: SkillTier;
+    let required: string[];
 
-    if (!skill) {
+    if (!fileSkill) {
       logger.warn('[SkillLoader] Skill not found on disk', { skillName });
       return null;
     }
 
-    const skillId = `file:${skillName}`;
-    const prompt = skill.prompt;
-    const tools = skill.tools || [];
-    const tier = skill.tier || 'standard';
-    const required = skill.requires || [];
+    skillId = `file:${skillName}`;
+    prompt = fileSkill.prompt;
+    tools = fileSkill.meta.tools || [];
+    tier = (fileSkill.meta.tier || 'standard') as SkillTier;
+    required = fileSkill.meta.required || [];
 
     // Load required skills recursively
     for (const reqName of required) {
@@ -237,21 +300,21 @@ export class SkillLoaderService {
 
   /**
    * Load all matching skills for a session based on trigger + agentType + tier.
-   * Scans disk for published skills, filters by criteria, then loads via package loader.
+   * Queries DB for published skills matching criteria.
    *
    * #73: DB-driven loading
    */
   async loadForSession(options: LoadForSessionOptions): Promise<LoadedSkill[]> {
-    const { sessionId, agentType, tier = 'standard' } = options;
+    const { sessionId, trigger, agentType, tier = 'standard' } = options;
 
     const tierRank: Record<string, number> = { fast: 1, standard: 2, premium: 3 };
     const targetRank = tierRank[tier] ?? 2;
 
-    // Scan disk for published skills
-    const publishedSkills = scanPublishedSkills();
-
     const matched: LoadedSkill[] = [];
-    for (const meta of publishedSkills) {
+
+    // Load from trigger subdirectory + always/ subdirectory
+    const fileSkills = loadSkillFilesForTrigger(trigger);
+    for (const meta of fileSkills) {
       const agentTypes = meta.agentTypes || [];
       if (agentTypes.length > 0 && !agentTypes.includes(agentType)) continue;
 
