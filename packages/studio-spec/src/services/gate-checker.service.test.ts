@@ -6,43 +6,43 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const store = new Map<string, any>();
-let nextId = 1;
-
 vi.mock('@prisma/client', () => {
   return {
-    PrismaClient: class {
-      specChangeRequest = {
-        create: async ({ data }: any) => {
-          const id = `mock-${nextId++}`;
-          const record = { ...data, id, submittedAt: new Date(), appliedAt: null };
-          store.set(id, record);
-          return record;
-        },
-        findUnique: async ({ where }: any) => store.get(where.id) ?? null,
-        findFirst: async () => null,
-        update: async ({ where, data }: any) => {
-          const record = store.get(where.id);
-          if (record) Object.assign(record, data);
-          return record;
-        },
-        findMany: async () => [...store.values()],
-      };
-    },
+    PrismaClient: class {},
     Prisma: { ModelName: {} },
   };
 });
 
 import { GateCheckerService, gateCheckerService } from './gate-checker.service.js';
-import { changeApproverService } from './change-approver.service.js';
+import { changeHistoryService } from './change-history.service.js';
 import { isHarnessCheck } from '../types/gate.types.js';
 import type { SpecContent } from '../types/gate.types.js';
+import type { ChangeRecord } from '../types/change.types.js';
 
 describe('GateCheckerService', () => {
   beforeEach(() => {
-    store.clear();
-    nextId = 1;
+    changeHistoryService.clear();
   });
+
+  // Helper: 构造并保存 ChangeRecord
+  function saveChange(overrides: Partial<ChangeRecord> & { specId: string; newVersion: any }): ChangeRecord {
+    const record: ChangeRecord = {
+      // 默认值
+      level: 'L3',
+      changeTypes: [],
+      summary: '',
+      status: 'auto_approved',
+      submittedBy: 'user-001',
+      submittedAt: new Date(),
+      oldVersion: { metadata: { id: overrides.specId, title: '', status: 'draft' } },
+      // 调用者覆盖默认值
+      ...overrides,
+      // id 始终生成，不被覆盖
+      id: `mock-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    } as ChangeRecord;
+    changeHistoryService.save(record);
+    return record;
+  }
 
   // AC-001: L1 变更无需门禁验证
   it('AC-001: L1 change should have no gate', async () => {
@@ -104,14 +104,14 @@ describe('GateCheckerService', () => {
       },
     };
 
-    const submitResult = await changeApproverService.submit({
+    const submitResult = saveChange({
       specId: 'spec-gate-fail',
-      changeContent: badSpec as any,
-      submittedBy: 'user-001',
+      newVersion: badSpec as any,
+      level: 'L3',
     });
 
     const validateResult = await gateCheckerService.validate({
-      changeId: submitResult.changeId,
+      changeId: submitResult.id,
     });
 
     expect(validateResult.passed).toBe(false);
@@ -144,19 +144,19 @@ describe('GateCheckerService', () => {
       ],
     };
 
-    const submitResult = await changeApproverService.submit({
+    const submitResult = saveChange({
       specId: 'spec-gate-pass',
-      changeContent: goodSpec as any,
-      submittedBy: 'user-001',
+      newVersion: goodSpec as any,
+      level: 'L3',
     });
 
     const validateResult = await gateCheckerService.validate({
-      changeId: submitResult.changeId,
+      changeId: submitResult.id,
       checkpoints: ['spec_format', 'ac_complete'],
     });
 
     expect(validateResult.summary).toContain('通过');
-    expect(validateResult.changeId).toBe(submitResult.changeId);
+    expect(validateResult.changeId).toBe(submitResult.id);
     expect(validateResult.level).toBeDefined();
   });
 
@@ -169,15 +169,15 @@ describe('GateCheckerService', () => {
       },
     };
 
-    const submitResult = await changeApproverService.submit({
+    const submitResult = saveChange({
       specId: 'spec-custom-check',
-      changeContent: spec as any,
-      submittedBy: 'user-001',
+      newVersion: spec as any,
+      level: 'L3',
     });
 
     // 使用自定义检查点（只检查 spec_format）
     const validateResult = await gateCheckerService.validate({
-      changeId: submitResult.changeId,
+      changeId: submitResult.id,
       checkpoints: ['spec_format'],
     });
 
@@ -191,15 +191,15 @@ describe('GateCheckerService', () => {
       metadata: { id: 'spec-strict', title: 'Test' },
     };
 
-    const submitResult = await changeApproverService.submit({
+    const submitResult = saveChange({
       specId: 'spec-strict',
-      changeContent: spec as any,
-      submittedBy: 'user-001',
+      newVersion: spec as any,
+      level: 'L3',
     });
 
     // strictMode + Harness 检查（Harness 已安装可用）
     const validateResult = await gateCheckerService.validate({
-      changeId: submitResult.changeId,
+      changeId: submitResult.id,
       checkpoints: ['file_exists'],
       strictMode: true,
     });
@@ -217,14 +217,14 @@ describe('GateCheckerService', () => {
       metadata: { id: 'spec-l2-harness', title: 'Test' },
     };
 
-    const submitResult = await changeApproverService.submit({
+    const submitResult = saveChange({
       specId: 'spec-l2-harness',
-      changeContent: spec as any,
-      submittedBy: 'user-001',
+      newVersion: spec as any,
+      level: 'L1',
     });
 
     const validateResult = await gateCheckerService.validate({
-      changeId: submitResult.changeId,
+      changeId: submitResult.id,
       checkpoints: ['file_exists'],
     });
 

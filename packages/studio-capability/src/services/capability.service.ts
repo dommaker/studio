@@ -5,7 +5,7 @@
  * AS-014: 新增市场功能（发布、购买、评价）
  */
 
-import { PrismaClient, Prisma, Capability as PrismaCapability, CapabilityReview } from '@prisma/client';
+import { PrismaClient, Prisma, Capability as PrismaCapability } from '@prisma/client';
 import { logger } from '@dommaker/studio-shared';
 import { getRegistryPath } from '@dommaker/harness';
 import * as fs from 'fs';
@@ -403,107 +403,10 @@ export class CapabilityService {
   }
 
   /**
-   * 评价能力
-   */
-  async rate(input: {
-    capabilityId: string;
-    roleId: string;
-    score: number;  // 1-5
-    comment?: string;
-  }): Promise<CapabilityReview> {
-    if (input.score < 1 || input.score > 5) {
-      throw new Error('Score must be between 1 and 5');
-    }
-
-    // 检查是否已评价
-    const existing = await this.prisma.capabilityReview.findUnique({
-      where: {
-        capabilityId_roleId: {
-          capabilityId: input.capabilityId,
-          roleId: input.roleId,
-        },
-      },
-    });
-
-    if (existing) {
-      // 更新评价
-      return this.prisma.capabilityReview.update({
-        where: { id: existing.id },
-        data: {
-          score: input.score,
-          comment: input.comment,
-        },
-      });
-    }
-
-    // 创建新评价
-    const review = await this.prisma.capabilityReview.create({
-      data: {
-        capabilityId: input.capabilityId,
-        roleId: input.roleId,
-        score: input.score,
-        comment: input.comment,
-      },
-    });
-
-    // 更新能力评分
-    await this.updateRating(input.capabilityId);
-
-    logger.info(`Role ${input.roleId} rated capability ${input.capabilityId}: ${input.score}`);
-
-    return review;
-  }
-
-  /**
-   * 更新能力评分（计算平均分）
-   */
-  private async updateRating(capabilityId: string): Promise<void> {
-    const reviews = await this.prisma.capabilityReview.findMany({
-      where: { capabilityId },
-    });
-
-    if (reviews.length === 0) return;
-
-    const avgRating = reviews.reduce((sum, r) => sum + r.score, 0) / reviews.length;
-
-    await this.prisma.capability.update({
-      where: { id: capabilityId },
-      data: {
-        rating: Math.round(avgRating * 100) / 100, // 保留两位小数
-        reviewCount: reviews.length,
-        updatedAt: new Date(),
-      },
-    });
-  }
-
-  /**
-   * 获取能力评价列表
-   */
-  async getReviews(capabilityId: string, options?: {
-    page?: number;
-    limit?: number;
-  }): Promise<{ data: CapabilityReview[]; total: number }> {
-    const { page = 1, limit = 20 } = options || {};
-
-    const [data, total] = await Promise.all([
-      this.prisma.capabilityReview.findMany({
-        where: { capabilityId },
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.prisma.capabilityReview.count({ where: { capabilityId } }),
-    ]);
-
-    return { data, total };
-  }
-
-  /**
    * 获取市场统计
    */
   async getMarketStats(): Promise<{
     totalCapabilities: number;
-    totalReviews: number;
     avgRating: number;
     totalUsage: number;
     byType: Record<string, number>;
@@ -515,7 +418,6 @@ export class CapabilityService {
       },
     });
 
-    const reviews = await this.prisma.capabilityReview.findMany();
     const byType: Record<string, number> = {};
 
     for (const cap of marketCapabilities) {
@@ -529,7 +431,6 @@ export class CapabilityService {
 
     return {
       totalCapabilities: marketCapabilities.length,
-      totalReviews: reviews.length,
       avgRating: Math.round(avgRating * 100) / 100,
       totalUsage,
       byType,

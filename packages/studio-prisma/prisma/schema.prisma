@@ -82,25 +82,11 @@ model Capability {
   reviewStatus       String             @default("pending")
   usageCount         Int                @default(0)
   userApprovalStatus String             @default("pending")
-  CapabilityReview   CapabilityReview[]
 
   @@unique([name, type])
   @@index([ownershipType])
   @@index([rating])
   @@index([type])
-}
-
-model CapabilityReview {
-  id           String     @id @default(cuid())
-  capabilityId String
-  roleId       String
-  score        Int
-  comment      String?
-  createdAt    DateTime   @default(now())
-  Capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
-
-  @@unique([capabilityId, roleId])
-  @@index([capabilityId])
 }
 
 model Company {
@@ -166,31 +152,6 @@ model Execution {
   @@index([status])
   @@index([roleId])
   @@index([okrId])
-}
-
-model SignedDocument {
-  id             String         @id @default(cuid())
-  type           String
-  status         String         @default("draft")
-  title          String
-  body           String
-  attachments    String?
-  signers        String
-  reviewResult   String?
-  parentDocument String?
-  taskId         String?
-  roleIds String @default("[]")
-  createdBy      String
-  updatedBy      String
-  version        Int            @default(1)
-  archivedAt     DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-
-  @@index([createdAt])
-  @@index([status])
-  @@index([taskId])
-  @@index([type])
 }
 
 model User {
@@ -552,25 +513,6 @@ model AgentConfigVersion {
   @@unique([agentConfigId, version])
 }
 
-model SpecChangeRequest {
-  id           String    @id @default(cuid())
-  specId       String
-  level        String    // iron_law, guideline, tip
-  changeTypes String @default("[]")
-  summary      String
-  status       String    @default("pending") // pending, approved, applied, rejected
-  submittedBy  String
-  submittedAt  DateTime  @default(now())
-  appliedAt    DateTime?
-  oldVersion   Int?
-  newVersion   Int?
-  metadata     String?
-
-  @@index([specId])
-  @@index([status])
-  @@index([submittedBy])
-  @@index([submittedAt])
-}
 
 
 

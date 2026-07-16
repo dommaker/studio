@@ -4,11 +4,9 @@
 import { Router, Request, Response } from 'express';
 import {
   ChangeAnalyzerService,
-  ChangeApproverService,
   ChangeHistoryService,
   GateCheckerService,
   changeAnalyzerService,
-  changeApproverService,
   changeHistoryService,
   gateCheckerService,
 } from '@dommaker/studio-spec';
@@ -52,107 +50,8 @@ router.post('/:id/analyze-change', async (req: Request, res: Response) => {
 });
 
 // ========================================
-// 变更提交 API
+// 变更提交 API（已删除 - SpecChangeRequest 表移除）
 // ========================================
-
-/**
- * POST /api/v1/specs/:id/submit-change
- * 提交变更
- */
-router.post('/:id/submit-change', async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const { changeContent, changeNote, submittedBy } = req.body;
-
-    if (!changeContent || !submittedBy) {
-      return res.status(400).json({
-        error: 'Missing changeContent or submittedBy',
-      });
-    }
-
-    const result = await changeApproverService.submit({
-      specId: id,
-      changeContent,
-      changeNote,
-      submittedBy,
-    });
-
-    // 保存到历史
-    const record = await changeApproverService.get(result.changeId);
-    if (record) {
-      changeHistoryService.save(record);
-    }
-
-    res.json({
-      data: result,
-    });
-  } catch (error) {
-    logger.error('Failed to submit change', { error });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * POST /api/v1/specs/changes/:changeId/approve
- * 审批变更
- */
-router.post('/changes/:changeId/approve', async (req: Request, res: Response) => {
-  try {
-    const { changeId } = req.params;
-    const { approvedBy, approved, comment } = req.body;
-
-    if (!approvedBy) {
-      return res.status(400).json({
-        error: 'Missing approvedBy',
-      });
-    }
-
-    const result = await changeApproverService.approve({
-      changeId,
-      approvedBy,
-      approved: approved ?? true,
-      comment,
-    });
-
-    // 更新历史记录
-    const record = await changeApproverService.get(changeId);
-    if (record) {
-      changeHistoryService.save(record);
-    }
-
-    res.json({
-      data: result,
-    });
-  } catch (error) {
-    logger.error('Failed to approve change', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
-
-/**
- * POST /api/v1/specs/changes/:changeId/apply
- * 应用变更
- */
-router.post('/changes/:changeId/apply', async (req: Request, res: Response) => {
-  try {
-    const { changeId } = req.params;
-
-    const result = await changeApproverService.apply(changeId);
-
-    // 更新历史记录
-    const record = await changeApproverService.get(changeId);
-    if (record) {
-      changeHistoryService.save(record);
-    }
-
-    res.json({
-      data: result,
-    });
-  } catch (error) {
-    logger.error('Failed to apply change', { error: String(error) });
-    res.status(500).json({ error: 'Internal server error' });
-  }
-});
 
 /**
  * GET /api/v1/specs/changes/:changeId

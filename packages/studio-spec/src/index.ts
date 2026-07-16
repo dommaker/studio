@@ -4,7 +4,6 @@ export { SpecBypassService, getSpecBypassService } from './services/spec-bypass.
 export { SpecVersionService, getSpecVersionService } from './services/spec-version.service.js';
 export { SpecValidatorService, ArchitectureValidator, ApiValidator, AcceptanceValidator } from './services/spec-validator.service.js';
 export { ChangeAnalyzerService, changeAnalyzerService } from './services/change-analyzer.service.js';
-export { ChangeApproverService, changeApproverService } from './services/change-approver.service.js';
 export { ChangeHistoryService, changeHistoryService } from './services/change-history.service.js';
 export { GateCheckerService, gateCheckerService } from './services/gate-checker.service.js';
 
@@ -37,9 +36,6 @@ export type {
   ChangeDetail,
   ApprovalProcess,
   ChangeRecord,
-  SubmitChangeInput,
-  SubmitChangeResult,
-  ApproveChangeInput,
 } from './types/change.types.js';
 
 export type {

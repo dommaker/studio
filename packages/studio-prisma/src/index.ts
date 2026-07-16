@@ -17,12 +17,10 @@ const JSON_FIELDS: Record<string, string[]> = {
   AgentConfigVersion: ['snapshot'],
   Task: ['input', 'output', 'metadata'],
   Document: ['content'],
-  SignedDocument: ['metadata', 'approvals'],
   Countersign: ['config', 'signers'],
   DocumentFlow: ['steps'],
   RoleConfig: ['stances', 'boundSkills', 'boundConstraints', 'boundMcps', 'boundTools', 'executionParams', 'evolutionHooks', 'modelRouting'],
 
-  SpecChangeRequest: ['metadata'],
   MCPAuditLog: ['input', 'output'],
   DecisionAudit: ['evidence', 'context'],
   Incident: ['triageLog'],
