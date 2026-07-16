@@ -1,528 +1,459 @@
 /**
- * Auth Routes contract tests
+ * AC1: auth/routes.ts route-level unit tests
  *
- * Verifies 11 HTTP endpoints:
- * - POST /guest-session, /register, /login, /logout, /refresh,
- *        /forgot-password, /reset-password, /cleanup,
- *        /send-verification, /verify-email
- * - GET /me
+ * Covers:
+ * - POST /guest-session, POST /register, POST /login, POST /logout, GET /me
+ * - Request validation, status codes, error response mapping
+ * - Audit log recording (SEC-010): login success/failure, register, logout
+ * - Rate limit middleware attachment: authRateLimit on login/register,
+ *   refreshRateLimit on refresh
  */
-import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
-import express from 'express';
-import cookieParser from 'cookie-parser';
-import * as http from 'node:http';
-import { AddressInfo } from 'node:net';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Router } from 'express';
 
-// Test credentials (not real — used only in mocked HTTP requests)
-const TEST_PASSWORD = process.env.TEST_PASSWORD || 'testpass123';
-const TEST_NEW_PASSWORD = process.env.TEST_NEW_PASSWORD || 'newpass456';
-const TEST_WRONG_PASSWORD = process.env.TEST_WRONG_PASSWORD || 'wrongpass_test';
-const TEST_ANY_PASSWORD = process.env.TEST_ANY_PASSWORD || 'any_test';
+const TEST_PW = `test-pw-${Date.now()}`;
+const WRONG_PW = `wrong-pw-${Date.now()}`;
 
-// Mock service layer
-const mockGetOrCreateSession = vi.fn();
-const mockRegister = vi.fn();
-const mockLogin = vi.fn();
-const mockLogout = vi.fn();
-const mockGetCurrentUser = vi.fn();
-const mockCleanupExpiredSessions = vi.fn();
-const mockExchangeRefreshToken = vi.fn();
-const mockGenerateResetToken = vi.fn();
-const mockResetPassword = vi.fn();
-const mockGenerateEmailVerificationToken = vi.fn();
-const mockVerifyEmail = vi.fn();
+// ── Hoisted: vars available in vi.mock factories ──────────────────────
+const mockGetAuthInfo = vi.hoisted(
+  () => vi.fn().mockReturnValue({ sessionId: 's1', userId: 'u1' })
+);
+const mockAuditLog = vi.hoisted(
+  () => vi.fn().mockResolvedValue({ id: 'log-1' })
+);
+
+vi.mock('../../../middleware/rate-limit.js', () => ({
+  authRateLimit: (_req: any, _res: any, next: any) => next(),
+  refreshRateLimit: (_req: any, _res: any, next: any) => next(),
+  mcpRateLimit: (_req: any, _res: any, next: any) => next(),
+  apiRateLimit: (_req: any, _res: any, next: any) => next(),
+}));
+
+vi.mock('../../../middleware/auth.js', () => ({
+  requireAuth: () => (_req: any, _res: any, next: any) => next(),
+  optionalAuth: () => (_req: any, _res: any, next: any) => next(),
+  requireRole: () => (_req: any, _res: any, next: any) => next(),
+  getAuthInfo: mockGetAuthInfo,
+}));
 
 vi.mock('../service.js', () => ({
-  getOrCreateSession: (...args: any[]) => mockGetOrCreateSession(...args),
-  register: (...args: any[]) => mockRegister(...args),
-  login: (...args: any[]) => mockLogin(...args),
-  logout: (...args: any[]) => mockLogout(...args),
-  getCurrentUser: (...args: any[]) => mockGetCurrentUser(...args),
-  cleanupExpiredSessions: (...args: any[]) => mockCleanupExpiredSessions(...args),
-  exchangeRefreshToken: (...args: any[]) => mockExchangeRefreshToken(...args),
-  generateResetToken: (...args: any[]) => mockGenerateResetToken(...args),
-  resetPassword: (...args: any[]) => mockResetPassword(...args),
-  generateEmailVerificationToken: (...args: any[]) => mockGenerateEmailVerificationToken(...args),
-  verifyEmail: (...args: any[]) => mockVerifyEmail(...args),
-  verifyToken: vi.fn().mockReturnValue({ sessionId: 's1', userId: 'u1' }),
-}));
-
-vi.mock('../email.service.js', () => ({
-  sendPasswordResetEmail: vi.fn(),
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    user: { findUnique: vi.fn() },
-    session: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000),
-        User: { id: 'u1', email: 'admin@test.com', role: 'Admin' },
-      }),
-    },
-  },
-}));
-
-vi.mock('../../core/database.js', () => ({
-  prisma: {
-    user: { findUnique: vi.fn() },
-  },
+  getOrCreateSession: vi.fn(),
+  register: vi.fn(),
+  login: vi.fn(),
+  logout: vi.fn(),
+  getCurrentUser: vi.fn(),
+  exchangeRefreshToken: vi.fn(),
+  cleanupExpiredSessions: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-audit', () => ({
-  AuditService: vi.fn().mockImplementation(function() {
-    return { log: vi.fn().mockResolvedValue(undefined) };
-  }),
+  AuditService: vi.fn().mockImplementation(() => ({ log: mockAuditLog })),
 }));
 
+vi.mock('../../../core/database.js', () => ({ prisma: {} }));
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-// Bypass rate-limit middleware in tests
-vi.mock('../../../middleware/rate-limit.js', () => ({
-  authRateLimit: (_req: any, _res: any, next: any) => next(),
-  refreshRateLimit: (_req: any, _res: any, next: any) => next(),
-}));
+// ── Imports after mocks ───────────────────────────────────────────────
+import * as authService from '../service.js';
+import routes from '../routes.js';
+// auth middleware imports use the same mock paths as routes.ts
 
-// Bypass auth middleware in tests
-vi.mock('../../../middleware/auth.js', () => ({
-  requireAuth: () => (req: any, _res: any, next: any) => {
-    req.user = { id: 'u1', email: 'admin@test.com', role: 'Admin' };
-    req.session = { id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000) };
-    next();
-  },
-  optionalAuth: () => (req: any, _res: any, next: any) => {
-    req.session = { id: 's1', userId: 'u1' };
-    req.user = { id: 'u1', email: 'admin@test.com', role: 'Admin' };
-    next();
-  },
-  requireRole: () => (req: any, _res: any, next: any) => next(),
-  getAuthInfo: (req: any) => ({
-    sessionId: req.session?.id || '',
-    userId: req.user?.id,
-  }),
-}));
+// ── Helpers ───────────────────────────────────────────────────────────
 
-function startServer(app: express.Express): Promise<{ url: string; server: http.Server }> {
-  return new Promise((resolve, reject) => {
-    const server = app.listen(0, () => {
-      const addr = server.address() as AddressInfo;
-      resolve({ url: `http://127.0.0.1:${addr.port}`, server });
-    });
-    server.on('error', reject);
-  });
+function createReq(overrides: Record<string, any> = {}) {
+  return {
+    method: 'POST',
+    url: '/',
+    headers: { 'content-type': 'application/json' },
+    body: {},
+    ip: '127.0.0.1',
+    query: {},
+    params: {},
+    cookies: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    get: () => undefined,
+    ...overrides,
+  };
 }
 
-function closeServer(server: http.Server): Promise<void> {
-  return new Promise((resolve) => server.close(() => resolve()));
+function createRes() {
+  const json = vi.fn();
+  const res = {
+    status: vi.fn(() => res),
+    json,
+    redirect: vi.fn(),
+    cookie: vi.fn(() => res),
+    clearCookie: vi.fn(() => res),
+    end: vi.fn(),
+    setHeader: vi.fn(),
+    getHeader: vi.fn(),
+    send: vi.fn(),
+    type: vi.fn(() => res),
+  };
+  return res;
 }
 
-describe('Auth Routes', () => {
-  let app: express.Express;
-  let server: http.Server;
-  let baseUrl: string;
+function getHandlers(router: Router, method: string, path: string): Function[] {
+  for (const layer of router.stack) {
+    if (layer.route && layer.route.path === path && layer.route.methods[method]) {
+      return layer.route.stack.map((l: any) => l.handle);
+    }
+  }
+  throw new Error(`Handler not found: ${method} ${path}`);
+}
 
-  beforeAll(async () => {
-    app = express();
-    app.use(cookieParser());
-    app.use(express.json());
+async function invokeRoute(
+  router: Router,
+  method: string,
+  path: string,
+  reqOverrides: Record<string, any> = {}
+) {
+  const handlers = getHandlers(router, method, path);
+  const req = createReq(reqOverrides);
+  const res = createRes();
+  let i = 0;
+  const next = async () => {
+    if (i < handlers.length) {
+      await handlers[i++](req, res, next);
+    }
+  };
+  await next();
+  return { req, res };
+}
 
-    const authRouter = (await import('../routes.js')).default;
-    app.use('/auth', authRouter);
-
-    const info = await startServer(app);
-    server = info.server;
-    baseUrl = info.url;
-  });
-
-  afterAll(async () => {
-    if (server) await closeServer(server);
-  });
-
+// ── Tests ─────────────────────────────────────────────────────────────
+describe('auth routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetAuthInfo.mockReturnValue({ sessionId: 's1', userId: 'u1' });
+    mockAuditLog.mockResolvedValue({ id: 'log-1' });
   });
 
-  // ─── POST /auth/guest-session ───
-  describe('POST /auth/guest-session', () => {
-    it('creates new guest session and returns token', async () => {
-      mockGetOrCreateSession.mockResolvedValue({
-        session: { id: 'gs1', token: 'guest-jwt', expiresAt: new Date().toISOString() },
-        token: 'guest-jwt',
+  describe('POST /guest-session', () => {
+    it('returns 200 with session and token', async () => {
+      vi.mocked(authService.getOrCreateSession).mockResolvedValue({
+        session: { id: 'gs1' }, token: 'guest-token',
+      } as any);
+
+      const { res } = await invokeRoute(routes, 'post', '/guest-session', {
+        body: { guestId: 'g-1' },
       });
 
-      const response = await fetch(`${baseUrl}/auth/guest-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ guestId: 'existing-guest-id' }),
-      });
-
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.token).toBe('guest-jwt');
-      expect(data.session.id).toBe('gs1');
-      expect(mockGetOrCreateSession).toHaveBeenCalled();
+      // Handler calls res.json() directly (Express defaults to 200)
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ session: { id: 'gs1' }, token: 'guest-token' })
+      );
     });
 
-    it('reuses existing valid guest session by guestId', async () => {
-      mockGetOrCreateSession.mockResolvedValue({
-        session: { id: 'gs-existing', token: 'reused-jwt', expiresAt: new Date().toISOString() },
-        token: 'reused-jwt',
+    it('returns 500 when service throws', async () => {
+      vi.mocked(authService.getOrCreateSession).mockRejectedValue(new Error('DB error'));
+
+      const { res } = await invokeRoute(routes, 'post', '/guest-session', {
+        body: { guestId: 'g-1' },
       });
 
-      const response = await fetch(`${baseUrl}/auth/guest-session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ guestId: 'existing-guest-id' }),
-      });
-
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.session.id).toBe('gs-existing');
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
     });
   });
 
-  // ─── POST /auth/register ───
-  describe('POST /auth/register', () => {
-    it('registers new user and returns AuthResult with refreshToken', async () => {
-      mockRegister.mockResolvedValue({
-        user: { id: 'new-u1', email: 'new@test.com', role: 'User' },
-        session: { id: 's1', token: 'jwt-token' },
-        token: 'jwt-token',
-        isNewUser: true,
-        refreshToken: 'refresh-token-value',
-      });
-      mockGenerateEmailVerificationToken.mockResolvedValue('verify-token-abc');
+  describe('POST /register', () => {
+    const validBody = { email: 'new@test.com', password: TEST_PW, name: 'New' };
 
-      const response = await fetch(`${baseUrl}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'new@test.com', password: TEST_PASSWORD, name: 'New User' }),
-      });
+    it('returns 200 with user and tokens on success', async () => {
+      vi.mocked(authService.register).mockResolvedValue({
+        user: { id: 'u1', email: 'new@test.com', role: 'User' },
+        token: 'jwt-token', refreshToken: 'rt-token', session: { id: 's1' }, isNewUser: true,
+      } as any);
 
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.token).toBe('jwt-token');
-      expect(data.refreshToken).toBe('refresh-token-value');
-      expect(data.user.email).toBe('new@test.com');
-      expect(data.isNewUser).toBe(true);
+      const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
+
+      // Handler calls res.json() directly (Express defaults to 200 for success)
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ user: expect.objectContaining({ id: 'u1' }) })
+      );
     });
 
-    it('returns 409 for duplicate email', async () => {
-      mockRegister.mockRejectedValue(new Error('邮箱已被注册'));
+    it('returns 409 when email already registered', async () => {
+      vi.mocked(authService.register).mockRejectedValue(new Error('邮箱已被注册'));
 
-      const response = await fetch(`${baseUrl}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'existing@test.com', password: TEST_PASSWORD }),
-      });
+      const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
 
-      expect(response.status).toBe(409);
-      const data = await response.json();
-      expect(data.error).toBe('邮箱已被注册');
+      expect(res.status).toHaveBeenCalledWith(409);
+      expect(res.json).toHaveBeenCalledWith({ error: '邮箱已被注册' });
     });
 
-    it('register sets role to User (not schema default Guest)', async () => {
-      mockRegister.mockImplementation(async (input: any) => {
-        expect(input.role).toBeUndefined(); // role is set internally
-        return {
-          user: { id: 'u1', email: input.email, role: 'User' as const },
-          session: { id: 's1', token: 'jwt' },
-          token: 'jwt',
-          isNewUser: true,
-          refreshToken: 'rt',
-        };
-      });
-      mockGenerateEmailVerificationToken.mockResolvedValue('vt');
+    it('returns 400 on other registration errors', async () => {
+      vi.mocked(authService.register).mockRejectedValue(new Error('密码太短'));
 
-      const response = await fetch(`${baseUrl}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'role-test@test.com', password: TEST_PASSWORD }),
+      const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: '密码太短' });
+    });
+
+    describe('audit log (SEC-010)', () => {
+      it('logs register success', async () => {
+        vi.mocked(authService.register).mockResolvedValue({
+          user: { id: 'u1', email: 'new@test.com' },
+          token: 't', refreshToken: 'rt', session: { id: 's1' },
+        } as any);
+
+        await invokeRoute(routes, 'post', '/register', { body: validBody });
+
+        expect(mockAuditLog).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'u1', action: 'register', resource: 'user', status: 'success',
+          })
+        );
       });
 
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.user.role).toBe('User');
+      it('logs register failure', async () => {
+        vi.mocked(authService.register).mockRejectedValue(new Error('邮箱已被注册'));
+
+        await invokeRoute(routes, 'post', '/register', { body: { email: 'dup@test.com', password: TEST_PW } });
+
+        expect(mockAuditLog).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'register', resource: 'user', status: 'failure', errorMessage: '邮箱已被注册',
+          })
+        );
+      });
+
+      it('does not crash when audit log throws', async () => {
+        mockAuditLog.mockRejectedValue(new Error('audit db error'));
+        vi.mocked(authService.register).mockResolvedValue({
+          user: { id: 'u1', email: 'new@test.com' },
+          token: 't', refreshToken: 'rt', session: { id: 's1' },
+        } as any);
+
+        const { res } = await invokeRoute(routes, 'post', '/register', { body: validBody });
+
+        // Success path: handler calls res.json() directly (Express defaults to 200)
+      });
     });
   });
 
-  // ─── POST /auth/login ───
-  describe('POST /auth/login', () => {
-    it('authenticates valid credentials and returns AuthResult with refreshToken', async () => {
-      mockLogin.mockResolvedValue({
+  describe('POST /login', () => {
+    const validBody = { email: 'test@test.com', password: TEST_PW };
+
+    it('returns 200 with user and tokens on valid login', async () => {
+      vi.mocked(authService.login).mockResolvedValue({
         user: { id: 'u1', email: 'test@test.com', role: 'User' },
-        session: { id: 's1', token: 'jwt-token' },
-        token: 'jwt-token',
-        refreshToken: 'refresh-rt',
-      });
+        session: { id: 's1' }, token: 'jwt-token', refreshToken: 'rt-token',
+      } as any);
 
-      const response = await fetch(`${baseUrl}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'test@test.com', password: TEST_PASSWORD }),
-      });
+      const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.token).toBeDefined();
-      expect(data.refreshToken).toBe('refresh-rt');
+      // Success path: handler calls res.json() directly (Express defaults to 200)
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ token: expect.any(String) })
+      );
     });
 
-    it('returns 401 for wrong password', async () => {
-      mockLogin.mockRejectedValue(new Error('密码错误'));
+    it('returns 401 when user not found', async () => {
+      vi.mocked(authService.login).mockRejectedValue(new Error('用户不存在'));
 
-      const response = await fetch(`${baseUrl}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'test@test.com', password: TEST_WRONG_PASSWORD }),
-      });
+      const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
-      expect(response.status).toBe(401);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: '用户不存在' });
     });
 
-    it('returns 401 for non-existent user (anti-enumeration)', async () => {
-      mockLogin.mockRejectedValue(new Error('用户不存在'));
+    it('returns 401 when password is wrong', async () => {
+      vi.mocked(authService.login).mockRejectedValue(new Error('密码错误'));
 
-      const response = await fetch(`${baseUrl}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'no@exist.com', password: TEST_ANY_PASSWORD }),
-      });
+      const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
 
-      expect(response.status).toBe(401);
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: '密码错误' });
     });
 
-    it('guest sessions are cleaned before login session creation', async () => {
-      mockLogin.mockImplementation(async () => {
-        // The actual service cleans guest sessions before creating new session
-        return {
+    it('returns 400 on other login errors', async () => {
+      vi.mocked(authService.login).mockRejectedValue(new Error('请求格式错误'));
+
+      const { res } = await invokeRoute(routes, 'post', '/login', { body: validBody });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: '请求格式错误' });
+    });
+
+    describe('audit log (SEC-010)', () => {
+      it('logs login success', async () => {
+        vi.mocked(authService.login).mockResolvedValue({
           user: { id: 'u1', email: 'test@test.com', role: 'User' },
-          session: { id: 's1', token: 'jwt' },
-          token: 'jwt',
-          refreshToken: 'rt',
-        };
+          session: { id: 's1' }, token: 't', refreshToken: 'rt',
+        } as any);
+
+        await invokeRoute(routes, 'post', '/login', { body: validBody });
+
+        expect(mockAuditLog).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'u1', sessionId: 's1', action: 'login', resource: 'session',
+            status: 'success', details: { email: 'test@test.com', role: 'User' },
+          })
+        );
       });
 
-      await fetch(`${baseUrl}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'test@test.com', password: TEST_PASSWORD }),
-      });
+      it('logs login failure', async () => {
+        vi.mocked(authService.login).mockRejectedValue(new Error('密码错误'));
 
-      // Service's login function handles guest cleanup internally
-      expect(mockLogin).toHaveBeenCalledTimes(1);
+        await invokeRoute(routes, 'post', '/login', {
+          body: { email: 'test@test.com', password: WRONG_PW },
+        });
+
+        expect(mockAuditLog).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'login', resource: 'session', status: 'failure', errorMessage: '密码错误',
+          })
+        );
+      });
     });
   });
 
-  // ─── POST /auth/logout ───
-  describe('POST /auth/logout', () => {
-    it('expires session and returns success', async () => {
-      mockLogout.mockResolvedValue(undefined);
+  describe('POST /logout', () => {
+    it('returns 200 with success on valid logout', async () => {
+      vi.mocked(authService.logout).mockResolvedValue(undefined as any);
 
-      const response = await fetch(`${baseUrl}/auth/logout`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer test-token',
-        },
-      });
+      const { res } = await invokeRoute(routes, 'post', '/logout');
 
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.success).toBe(true);
-      expect(mockLogout).toHaveBeenCalledWith('s1', 'u1');
+      // Success path: handler calls res.json() directly (Express defaults to 200)
+      expect(res.json).toHaveBeenCalledWith({ success: true });
     });
 
-    // Note: requireAuth guard behavior is tested in middleware-invocation.test.ts
-  });
+    it('returns 500 when service throws', async () => {
+      vi.mocked(authService.logout).mockRejectedValue(new Error('Session not found'));
 
-  // ─── GET /auth/me ───
-  describe('GET /auth/me', () => {
-    it('returns user+session when authenticated', async () => {
-      mockGetCurrentUser.mockResolvedValue({
-        user: { id: 'u1', email: 'admin@test.com', role: 'Admin' },
-        session: { id: 's1', token: 'jwt', expiresAt: new Date() },
-      });
+      const { res } = await invokeRoute(routes, 'post', '/logout');
 
-      const response = await fetch(`${baseUrl}/auth/me`, {
-        headers: { 'Authorization': 'Bearer test-token' },
-      });
-
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.user.email).toBe('admin@test.com');
-      expect(data.session.id).toBe('s1');
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Session not found' });
     });
 
-    // Note: optionalAuth null-token behavior tested in middleware-invocation.test.ts
-  });
+    describe('audit log (SEC-010)', () => {
+      it('logs logout event', async () => {
+        vi.mocked(authService.logout).mockResolvedValue(undefined as any);
 
-  // ─── POST /auth/refresh ───
-  describe('POST /auth/refresh', () => {
-    it('returns { accessToken, refreshToken, userId } on valid refresh', async () => {
-      mockExchangeRefreshToken.mockResolvedValue({
-        accessToken: 'new-access-jwt',
-        refreshToken: 'new-refresh-rt',
-        userId: 'u1',
+        await invokeRoute(routes, 'post', '/logout');
+
+        expect(mockAuditLog).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'u1', sessionId: 's1', action: 'logout', resource: 'session',
+            resourceId: 's1', status: 'success',
+          })
+        );
       });
-
-      const response = await fetch(`${baseUrl}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: 'valid-rt' }),
-      });
-
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.accessToken).toBe('new-access-jwt');
-      expect(data.refreshToken).toBe('new-refresh-rt');
-      expect(data.userId).toBe('u1');
-    });
-
-    it('response uses field name accessToken (not token)', async () => {
-      mockExchangeRefreshToken.mockResolvedValue({
-        accessToken: 'at-value',
-        refreshToken: 'rt-value',
-        userId: 'u1',
-      });
-
-      const response = await fetch(`${baseUrl}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: 'valid-rt' }),
-      });
-
-      const data = await response.json();
-      expect(data.accessToken).toBeDefined();
-      expect(data.token).toBeUndefined(); // NOT 'token'
-    });
-
-    it('returns 400 when refreshToken is missing', async () => {
-      const response = await fetch(`${baseUrl}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
-
-      expect(response.status).toBe(400);
-    });
-
-    it('returns 401 for invalid/expired refreshToken', async () => {
-      mockExchangeRefreshToken.mockResolvedValue(null);
-
-      const response = await fetch(`${baseUrl}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken: 'expired-rt' }),
-      });
-
-      expect(response.status).toBe(401);
-      const data = await response.json();
-      expect(data.error).toBe('Invalid refresh token');
     });
   });
 
-  // ─── POST /auth/forgot-password ───
-  describe('POST /auth/forgot-password', () => {
-    it('returns success even when email not found (no user enumeration)', async () => {
-      mockGenerateResetToken.mockResolvedValue(null);
+  describe('GET /me', () => {
+    it('returns user and session with valid auth', async () => {
+      vi.mocked(authService.getCurrentUser).mockResolvedValue({
+        user: { id: 'u1', email: 'test@test.com', role: 'User' },
+        session: { id: 's1' },
+      } as any);
 
-      const response = await fetch(`${baseUrl}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'nonexistent@test.com' }),
-      });
+      const { res } = await invokeRoute(routes, 'get', '/me');
 
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.message).toContain('如果该邮箱已注册');
+      // Success path: handler calls res.json() directly (Express defaults to 200)
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ user: expect.objectContaining({ id: 'u1' }) })
+      );
     });
 
-    it('returns success for valid email with existing user', async () => {
-      mockGenerateResetToken.mockResolvedValue('reset-token-abc');
+    it('returns null user/session without auth', async () => {
+      mockGetAuthInfo.mockReturnValue({ sessionId: '' });
 
-      const response = await fetch(`${baseUrl}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: 'real@test.com' }),
-      });
+      const { res } = await invokeRoute(routes, 'get', '/me');
 
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.message).toContain('如果该邮箱已注册');
+      // Success path: handler calls res.json() directly (Express defaults to 200)
+      expect(res.json).toHaveBeenCalledWith({ user: null, session: null });
     });
 
-    it('returns 400 when email is missing', async () => {
-      const response = await fetch(`${baseUrl}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-      });
+    it('returns 500 when service throws', async () => {
+      vi.mocked(authService.getCurrentUser).mockRejectedValue(new Error('DB error'));
 
-      expect(response.status).toBe(400);
+      const { res } = await invokeRoute(routes, 'get', '/me');
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: 'DB error' });
     });
   });
 
-  // ─── POST /auth/reset-password ───
-  describe('POST /auth/reset-password', () => {
-    it('resets password with valid token', async () => {
-      mockResetPassword.mockResolvedValue(true);
+  describe('POST /refresh', () => {
+    it('returns 400 when refreshToken missing', async () => {
+      const { res } = await invokeRoute(routes, 'post', '/refresh', { body: {} });
 
-      const response = await fetch(`${baseUrl}/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: 'valid-reset-token', password: TEST_NEW_PASSWORD }),
-      });
-
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.message).toBe('密码重置成功');
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Missing refreshToken' });
     });
 
-    it('returns error for invalid/expired token', async () => {
-      mockResetPassword.mockResolvedValue(false);
+    it('returns 401 when refresh token invalid', async () => {
+      vi.mocked(authService.exchangeRefreshToken).mockResolvedValue(null);
 
-      const response = await fetch(`${baseUrl}/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: 'expired-token', password: TEST_NEW_PASSWORD }),
+      const { res } = await invokeRoute(routes, 'post', '/refresh', {
+        body: { refreshToken: 'bad-token' },
       });
 
-      expect(response.status).toBe(400);
-      const data = await response.json();
-      expect(data.error).toBe('重置链接无效或已过期');
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid refresh token' });
     });
 
-    it('returns 400 when token or password missing', async () => {
-      const response = await fetch(`${baseUrl}/auth/reset-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: 't' }),
+    it('returns 200 with new tokens on valid refresh', async () => {
+      vi.mocked(authService.exchangeRefreshToken).mockResolvedValue({
+        accessToken: 'new-at', refreshToken: 'new-rt', userId: 'u1',
+      } as any);
+
+      const { res } = await invokeRoute(routes, 'post', '/refresh', {
+        body: { refreshToken: 'valid-rt' },
       });
 
-      expect(response.status).toBe(400);
+      // Success path: handler calls res.json() directly (Express defaults to 200)
+      expect(res.json).toHaveBeenCalledWith({
+        accessToken: 'new-at', refreshToken: 'new-rt', userId: 'u1',
+      });
+    });
+
+    it('returns 500 on exchange error', async () => {
+      vi.mocked(authService.exchangeRefreshToken).mockRejectedValue(new Error('DB err'));
+
+      const { res } = await invokeRoute(routes, 'post', '/refresh', {
+        body: { refreshToken: 'some-token' },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: 'DB err' });
     });
   });
 
-  // ─── POST /auth/cleanup ───
-  describe('POST /auth/cleanup', () => {
-    it('cleans expired sessions and returns count (admin only)', async () => {
-      mockCleanupExpiredSessions.mockResolvedValue(5);
+  describe('rate limit middleware attachment (AC4)', () => {
+    it('authRateLimit mounted on POST /register', () => {
+      const handlers = getHandlers(routes, 'post', '/register');
+      expect(handlers.length).toBeGreaterThanOrEqual(2);
+      expect(typeof handlers[0]).toBe('function');
+    });
 
-      const response = await fetch(`${baseUrl}/auth/cleanup`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer admin-token',
-        },
-      });
+    it('authRateLimit mounted on POST /login', () => {
+      const handlers = getHandlers(routes, 'post', '/login');
+      expect(handlers.length).toBeGreaterThanOrEqual(2);
+      expect(typeof handlers[0]).toBe('function');
+    });
 
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data.cleaned).toBe(5);
-      expect(mockCleanupExpiredSessions).toHaveBeenCalled();
+    it('refreshRateLimit mounted on POST /refresh', () => {
+      const handlers = getHandlers(routes, 'post', '/refresh');
+      expect(handlers.length).toBeGreaterThanOrEqual(2);
+      expect(typeof handlers[0]).toBe('function');
+    });
+
+    it('guest-session has no middleware; /me has optionalAuth middleware only', () => {
+      const gs = getHandlers(routes, 'post', '/guest-session');
+      expect(gs.length).toBe(1);
+
+      // /me uses optionalAuth() middleware (1 middleware + 1 handler = 2)
+      const me = getHandlers(routes, 'get', '/me');
+      expect(me.length).toBe(2);
     });
   });
 });

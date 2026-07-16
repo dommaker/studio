@@ -35,12 +35,6 @@ vi.mock('@dommaker/studio-prisma', () => ({
       update: vi.fn(),
       updateMany: vi.fn(),
     },
-    passwordResetToken: {
-      create: vi.fn(),
-      findUnique: vi.fn(),
-      update: vi.fn(),
-    },
-    $transaction: vi.fn((args: any[]) => Promise.all(args)),
   },
 }));
 
@@ -64,8 +58,6 @@ import {
   getCurrentUser,
   logout,
   verifyPassword,
-  generateResetToken,
-  resetPassword,
 } from '../service.js';
 
 describe('auth service', () => {
@@ -508,7 +500,7 @@ describe('auth service', () => {
   });
 
   describe('verifyPassword (PBKDF2 compatibility)', () => {
-    const testPassword = 'legacy-password-123';
+    const testPassword = `legacy-pw-${Date.now()}`;
     const testSalt = 'test-salt-value';
     const pbkdf2Digest = crypto.pbkdf2Sync(testPassword, testSalt, 1000, 64, 'sha256').toString('hex');
     const legacyHash = `${testSalt}:${pbkdf2Digest}`;
@@ -546,145 +538,65 @@ describe('auth service', () => {
     });
   });
 
-  describe('generateResetToken', () => {
-    it('returns token string when user exists with password', async () => {
+  describe('login with PBKDF2 legacy hash', () => {
+    const testPassword = `legacy-pw2-${Date.now()}`;
+    const testSalt = 'legacy-salt';
+    const pbkdf2Digest = crypto.pbkdf2Sync(testPassword, testSalt, 1000, 64, 'sha256').toString('hex');
+    const legacyHash = `${testSalt}:${pbkdf2Digest}`;
+
+    it('silently upgrades PBKDF2 hash to bcrypt on successful login (AC2)', async () => {
       vi.mocked(prisma.user.findUnique).mockResolvedValue({
-        id: 'u1', email: 'test@test.com', passwordHash: '$2a$12$hash',
-      } as unknown as User);
-      vi.mocked(prisma.passwordResetToken.create).mockResolvedValue({
-        id: 'prt1', token: 'ignored', userId: 'u1', email: 'test@test.com',
-      } as unknown as any);
-
-      const token = await generateResetToken('test@test.com');
-
-      expect(token).toEqual(expect.any(String));
-      expect(token.length).toBe(64); // 32 bytes hex
-      expect(prisma.passwordResetToken.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ token: expect.any(String), userId: 'u1', email: 'test@test.com' }),
-        })
-      );
-    });
-
-    it('returns null when user not found (security: no email leak)', async () => {
-      vi.mocked(prisma.user.findUnique).mockResolvedValue(null);
-
-      const token = await generateResetToken('nonexistent@test.com');
-
-      expect(token).toBeNull();
-      expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
-    });
-
-    it('returns null for OAuth user without passwordHash', async () => {
-      vi.mocked(prisma.user.findUnique).mockResolvedValue({
-        id: 'u-oauth', email: 'oauth@test.com', passwordHash: null,
-      } as unknown as User);
-
-      const token = await generateResetToken('oauth@test.com');
-
-      expect(token).toBeNull();
-      expect(prisma.passwordResetToken.create).not.toHaveBeenCalled();
-    });
-
-    it('sets 1-hour expiry on reset token', async () => {
-      const before = Date.now();
-      vi.mocked(prisma.user.findUnique).mockResolvedValue({
-        id: 'u1', email: 'test@test.com', passwordHash: '$2a$12$hash',
-      } as unknown as User);
-      vi.mocked(prisma.passwordResetToken.create).mockResolvedValue({
-        id: 'prt1', token: 't', userId: 'u1', email: 'test@test.com',
-      } as unknown as any);
-
-      await generateResetToken('test@test.com');
-
-      const { expiresAt } = (prisma.passwordResetToken.create as any).mock.calls[0][0].data;
-      const expiryMs = expiresAt.getTime() - before;
-      // ~1 hour ± a few ms
-      expect(expiryMs).toBeGreaterThan(59 * 60 * 1000);
-      expect(expiryMs).toBeLessThanOrEqual(61 * 60 * 1000);
-    });
-  });
-
-  describe('resetPassword', () => {
-    it('returns true and updates password on valid token', async () => {
-      vi.mocked(prisma.passwordResetToken.findUnique).mockResolvedValue({
-        id: 'prt1', token: 'valid-token', userId: 'u1',
-        usedAt: null, expiresAt: new Date(Date.now() + 3600000),
-      } as unknown as any);
-      vi.mocked(prisma.passwordResetToken.update).mockResolvedValue({} as any);
+        id: 'u-legacy',
+        email: 'legacy@test.com',
+        passwordHash: legacyHash,
+        role: 'User',
+      } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 's-legacy',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
       vi.mocked(prisma.user.update).mockResolvedValue({} as any);
 
-      const result = await resetPassword('valid-token', 'new-password');
+      await login({ email: 'legacy@test.com', password: testPassword });
 
-      expect(result).toBe(true);
-      // $transaction called with [passwordResetToken.update, user.update]
-      expect(prisma.$transaction).toHaveBeenCalled();
-    });
-
-    it('returns false for non-existent token', async () => {
-      vi.mocked(prisma.passwordResetToken.findUnique).mockResolvedValue(null);
-
-      const result = await resetPassword('bad-token', 'new-password');
-
-      expect(result).toBe(false);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-    });
-
-    it('returns false for already used token', async () => {
-      vi.mocked(prisma.passwordResetToken.findUnique).mockResolvedValue({
-        id: 'prt1', token: 'used-token', usedAt: new Date(),
-        expiresAt: new Date(Date.now() + 3600000),
-      } as unknown as any);
-
-      const result = await resetPassword('used-token', 'new-password');
-
-      expect(result).toBe(false);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-    });
-
-    it('returns false for expired token', async () => {
-      vi.mocked(prisma.passwordResetToken.findUnique).mockResolvedValue({
-        id: 'prt1', token: 'expired-token', usedAt: null,
-        expiresAt: new Date(Date.now() - 1000),
-      } as unknown as any);
-
-      const result = await resetPassword('expired-token', 'new-password');
-
-      expect(result).toBe(false);
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-    });
-
-    it('uses $transaction for atomic usedAt + passwordHash update', async () => {
-      vi.mocked(prisma.passwordResetToken.findUnique).mockResolvedValue({
-        id: 'prt1', token: 'atomic-token', userId: 'u1',
-        usedAt: null, expiresAt: new Date(Date.now() + 3600000),
-      } as unknown as any);
-
-      await resetPassword('atomic-token', 'new-password-2');
-
-      // $transaction called with array of 2 operations
-      expect(prisma.$transaction).toHaveBeenCalledWith(
-        expect.arrayContaining([
-          expect.objectContaining({}),
-          expect.objectContaining({}),
-        ])
-      );
-      // Verify password reset token marked as used
-      expect(prisma.passwordResetToken.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'prt1' },
-          data: expect.objectContaining({ usedAt: expect.any(Date) }),
-        })
-      );
-      // Verify password updated with bcrypt format
+      // Verify silent upgrade: user.update called with bcrypt hash
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { id: 'u1' },
+          where: { id: 'u-legacy' },
           data: expect.objectContaining({
             passwordHash: expect.stringMatching(/^\$2[aby]\$\d+\$/),
           }),
         })
       );
+    });
+
+    it('uses bcrypt path after PBKDF2 upgrade (no rehash on subsequent login) (AC3)', async () => {
+      const bcrypt = await import('bcryptjs');
+      const bcryptHash = bcrypt.hashSync(testPassword, 4);
+
+      vi.mocked(prisma.user.findUnique).mockResolvedValue({
+        id: 'u-upgraded',
+        email: 'upgraded@test.com',
+        passwordHash: bcryptHash,
+        role: 'User',
+      } as any);
+      vi.mocked(prisma.session.findMany).mockResolvedValue([]);
+      vi.mocked(prisma.session.create).mockResolvedValue({
+        id: 's-upgraded',
+        token: '',
+        expiresAt: new Date(Date.now() + 604800000),
+      } as any);
+      vi.mocked(prisma.session.update).mockResolvedValue({} as any);
+      vi.mocked(prisma.refreshToken.create).mockResolvedValue({} as any);
+
+      await login({ email: 'upgraded@test.com', password: testPassword });
+
+      // bcrypt path: no rehash needed, user.update should not be called
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 });

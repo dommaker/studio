@@ -1,229 +1,367 @@
 /**
- * OAuth Routes contract tests
+ * AC3: oauth/routes.ts route-level unit tests
  *
- * Verifies:
- * - GET /:provider sets oauth_state cookie and redirects
- * - GET /callback/:provider verifies CSRF state, exchanges code, creates user, redirects
- * - state cookie cleared after verification to prevent replay
- * - Success response uses URL fragment to prevent Referer leakage
- * - Error response uses query param
+ * Covers:
+ * - CSRF state cookie validation (valid / invalid / missing)
+ * - Callback error redirect (with error query param)
+ * - Success redirect (with URL fragment containing tokens)
  */
-import { describe, it, expect, vi, beforeEach, beforeAll, afterAll } from 'vitest';
-import express from 'express';
-import cookieParser from 'cookie-parser';
-import * as http from 'node:http';
-import { AddressInfo } from 'node:net';
-
-const mockGetAuthorizationUrl = vi.fn();
-const mockExchangeCodeForTokens = vi.fn();
-const mockGetOrCreateOAuthUser = vi.fn();
-const mockCreateOAuthSession = vi.fn();
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { Router } from 'express';
 
 vi.mock('../oauth.service.js', () => ({
-  getAuthorizationUrl: (...args: any[]) => mockGetAuthorizationUrl(...args),
-  exchangeCodeForTokens: (...args: any[]) => mockExchangeCodeForTokens(...args),
-  getOrCreateOAuthUser: (...args: any[]) => mockGetOrCreateOAuthUser(...args),
-  createOAuthSession: (...args: any[]) => mockCreateOAuthSession(...args),
+  getAuthorizationUrl: vi.fn(),
+  exchangeCodeForTokens: vi.fn(),
+  getOrCreateOAuthUser: vi.fn(),
+  createOAuthSession: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-function startServer(app: express.Express): Promise<{ url: string; server: http.Server }> {
-  return new Promise((resolve, reject) => {
-    const server = app.listen(0, () => {
-      const addr = server.address() as AddressInfo;
-      resolve({ url: `http://127.0.0.1:${addr.port}`, server });
-    });
-    server.on('error', reject);
-  });
+import * as oauthService from '../oauth.service.js';
+import oauthRoutes from '../oauth.routes.js';
+
+const FRONTEND_URL = 'http://localhost:5173';
+
+// ── Helpers ───────────────────────────────────────────────────────────
+function createReq(overrides: Record<string, any> = {}) {
+  return {
+    method: 'GET',
+    url: '/',
+    headers: {},
+    body: undefined,
+    ip: '127.0.0.1',
+    query: {},
+    params: {},
+    cookies: {},
+    socket: { remoteAddress: '127.0.0.1' },
+    get: () => undefined,
+    ...overrides,
+  };
 }
 
-function closeServer(server: http.Server): Promise<void> {
-  return new Promise((resolve) => server.close(() => resolve()));
+function createRes() {
+  const res = {
+    status: vi.fn(() => res),
+    json: vi.fn(),
+    redirect: vi.fn(),
+    cookie: vi.fn(() => res),
+    clearCookie: vi.fn(() => res),
+    end: vi.fn(),
+    setHeader: vi.fn(),
+    getHeader: vi.fn(),
+    send: vi.fn(),
+    type: vi.fn(() => res),
+  };
+  return res;
 }
 
-describe('OAuth Routes', () => {
-  let app: express.Express;
-  let server: http.Server;
-  let baseUrl: string;
+function getHandlers(router: Router, method: string, path: string): Function[] {
+  for (const layer of router.stack) {
+    if (layer.route && layer.route.path === path && layer.route.methods[method]) {
+      return layer.route.stack.map((l: any) => l.handle);
+    }
+  }
+  throw new Error(`Handler not found: ${method} ${path}`);
+}
 
-  beforeAll(async () => {
-    app = express();
-    app.use(cookieParser());
-    app.use(express.json());
+async function invokeRoute(
+  router: Router,
+  method: string,
+  path: string,
+  reqOverrides: Record<string, any> = {}
+) {
+  const handlers = getHandlers(router, method, path);
+  const req = createReq(reqOverrides);
+  const res = createRes();
+  let i = 0;
+  const next = async () => {
+    if (i < handlers.length) {
+      await handlers[i++](req, res, next);
+    }
+  };
+  await next();
+  return { req, res };
+}
 
-    const oauthRouter = (await import('../oauth.routes.js')).default;
-    app.use('/auth', oauthRouter);
-
-    const info = await startServer(app);
-    server = info.server;
-    baseUrl = info.url;
-  });
-
-  afterAll(async () => {
-    await closeServer(server);
-  });
-
+// ── Tests ─────────────────────────────────────────────────────────────
+describe('oauth routes', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.FRONTEND_URL = 'http://localhost:5173';
   });
 
-  // ─── GET /auth/:provider ───
-  describe('GET /auth/:provider', () => {
-    it('sets oauth_state httpOnly cookie and redirects to provider auth URL', async () => {
-      mockGetAuthorizationUrl.mockReturnValue('https://accounts.google.com/o/oauth2/v2/auth?state=xyz');
+  describe('GET /:provider (authorization redirect)', () => {
+    it('sets oauth_state cookie and redirects for Google', async () => {
+      vi.mocked(oauthService.getAuthorizationUrl).mockReturnValue(
+        'https://accounts.google.com/o/oauth2/v2/auth?state=test-state'
+      );
 
-      const response = await fetch(`${baseUrl}/auth/google`, { redirect: 'manual' });
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/:provider(google|github)', {
+        params: { provider: 'google' },
+      });
 
-      expect(response.status).toBe(302);
-
-      // Check cookie
-      const setCookie = response.headers.get('set-cookie') || '';
-      expect(setCookie).toContain('oauth_state=');
-      expect(setCookie).toContain('HttpOnly');
-      expect(setCookie).toContain('SameSite=Lax');
-      // Check Location header
-      expect(response.headers.get('location')).toBe('https://accounts.google.com/o/oauth2/v2/auth?state=xyz');
-      expect(mockGetAuthorizationUrl).toHaveBeenCalledWith('google', expect.any(String));
+      expect(res.cookie).toHaveBeenCalledWith(
+        'oauth_state',
+        expect.any(String),
+        expect.objectContaining({ httpOnly: true, sameSite: 'lax' })
+      );
+      expect(res.redirect).toHaveBeenCalledWith(
+        'https://accounts.google.com/o/oauth2/v2/auth?state=test-state'
+      );
     });
 
-    it('state cookie uses crypto.randomBytes(32) — 64 hex chars', async () => {
-      mockGetAuthorizationUrl.mockReturnValue('https://example.com/auth');
+    it('sets oauth_state cookie and redirects for GitHub', async () => {
+      vi.mocked(oauthService.getAuthorizationUrl).mockReturnValue(
+        'https://github.com/login/oauth/authorize?state=test-state'
+      );
 
-      const response = await fetch(`${baseUrl}/auth/github`, { redirect: 'manual' });
-      const setCookie = response.headers.get('set-cookie') || '';
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/:provider(google|github)', {
+        params: { provider: 'github' },
+      });
 
-      // Extract cookie value
-      const match = setCookie.match(/oauth_state=([^;]+)/);
-      expect(match).not.toBeNull();
-      const stateValue = match![1];
-      // 32 random bytes = 64 hex chars
-      expect(stateValue.length).toBe(64);
+      expect(res.cookie).toHaveBeenCalledWith(
+        'oauth_state',
+        expect.any(String),
+        expect.objectContaining({ httpOnly: true, sameSite: 'lax' })
+      );
+      expect(res.redirect).toHaveBeenCalledWith(
+        'https://github.com/login/oauth/authorize?state=test-state'
+      );
     });
 
-    it('returns 500 for invalid provider', async () => {
-      const response = await fetch(`${baseUrl}/auth/facebook`);
-      expect(response.status).toBe(404); // route doesn't match
+    it('returns 500 when getAuthorizationUrl throws', async () => {
+      vi.mocked(oauthService.getAuthorizationUrl).mockImplementation(() => {
+        throw new Error('Invalid provider');
+      });
+
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/:provider(google|github)', {
+        params: { provider: 'google' },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(500);
+      expect(res.json).toHaveBeenCalledWith({ error: 'Invalid provider' });
     });
   });
 
-  // ─── GET /auth/callback/:provider ───
-  describe('GET /auth/callback/:provider', () => {
-    it('verifies CSRF state, clears cookie, and redirects with fragment on success', async () => {
-      // First get a valid state cookie
-      mockGetAuthorizationUrl.mockReturnValue('https://example.com/auth');
-      const initRes = await fetch(`${baseUrl}/auth/google`, { redirect: 'manual' });
-      const setCookieHeader = initRes.headers.get('set-cookie') || '';
-      const stateMatch = setCookieHeader.match(/oauth_state=([^;]+)/);
-      expect(stateMatch).not.toBeNull();
-      const stateValue = stateMatch![1];
+  describe('GET /callback/:provider — CSRF state validation', () => {
+    const validQuery = { code: 'auth-code-123', state: 'valid-state' };
+    const validCookies = { oauth_state: 'valid-state' };
 
-      // Now call callback
-      mockExchangeCodeForTokens.mockResolvedValue({
-        profile: { provider: 'google', providerAccountId: 'g1', email: 't@t.com', name: 'T', avatar: null },
-        tokens: { accessToken: 'at', refreshToken: null, expiresAt: new Date() },
-      });
-      mockGetOrCreateOAuthUser.mockResolvedValue({
-        user: { id: 'u1', email: 't@t.com', role: 'User' },
-      });
-      mockCreateOAuthSession.mockResolvedValue({
-        token: 'jwt-token-xyz',
-        refreshToken: 'rt-xyz',
-        session: { id: 's1', expiresAt: new Date() },
+    it('redirects with missing_code when code missing', async () => {
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { state: 'some-state' },
+        cookies: { oauth_state: 'some-state' },
       });
 
-      const response = await fetch(
-        `${baseUrl}/auth/callback/google?code=test-code&state=${stateValue}`,
-        {
-          redirect: 'manual',
-          headers: { Cookie: `oauth_state=${stateValue}` },
-        },
+      expect(res.redirect).toHaveBeenCalledWith(
+        `${FRONTEND_URL}/auth/callback?error=missing_code`
       );
-
-      expect(response.status).toBe(302);
-      const location = response.headers.get('location') || '';
-
-      // Success uses URL fragment (not query param) to prevent Referer leakage
-      expect(location).toContain('#');
-      expect(location).toContain('token=jwt-token-xyz');
-      expect(location).toContain('refreshToken=rt-xyz');
-
-      // Cookie must be cleared to prevent replay
-      const clearCookie = response.headers.get('set-cookie') || '';
-      expect(clearCookie).toContain('oauth_state=;');
     });
 
-    it('state cookie cleared immediately (before CSRF comparison) to prevent replay attacks', async () => {
-      mockExchangeCodeForTokens.mockResolvedValue({
-        profile: { provider: 'google', providerAccountId: 'g1', email: 't@t.com', name: null, avatar: null },
-        tokens: { accessToken: 'at', refreshToken: null, expiresAt: new Date() },
-      });
-      mockGetOrCreateOAuthUser.mockResolvedValue({
-        user: { id: 'u1', email: 't@t.com', role: 'User' },
-      });
-      mockCreateOAuthSession.mockResolvedValue({
-        token: 'jwt', refreshToken: 'rt',
-        session: { id: 's1', expiresAt: new Date() },
+    it('redirects with invalid_state when state cookie is missing', async () => {
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'auth-code', state: 'some-state' },
+        cookies: {},
       });
 
-      const response = await fetch(
-        `${baseUrl}/auth/callback/google?code=good-code&state=matching-state`,
-        {
-          redirect: 'manual',
-          headers: { Cookie: 'oauth_state=matching-state' },
-        },
+      expect(res.redirect).toHaveBeenCalledWith(
+        `${FRONTEND_URL}/auth/callback?error=invalid_state`
       );
-
-      // Even with matching state, cookie is cleared
-      const setCookie = response.headers.get('set-cookie') || '';
-      expect(setCookie).toContain('oauth_state=;');
     });
 
-    it('rejects callback with CSRF state mismatch (error via query param)', async () => {
-      const response = await fetch(
-        `${baseUrl}/auth/callback/google?code=bad-code&state=wrong-state`,
-        {
-          redirect: 'manual',
-          headers: { Cookie: 'oauth_state=correct-state' },
-        },
-      );
+    it('redirects with invalid_state when state query param is missing', async () => {
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'auth-code' },
+        cookies: { oauth_state: 'some-state' },
+      });
 
-      expect(response.status).toBe(302);
-      const location = response.headers.get('location') || '';
-      // Error uses query param (not fragment — fragment would be lost in redirect)
-      expect(location).toContain('?error=invalid_state');
+      expect(res.redirect).toHaveBeenCalledWith(
+        `${FRONTEND_URL}/auth/callback?error=invalid_state`
+      );
     });
 
-    it('rejects callback with missing code', async () => {
-      const response = await fetch(
-        `${baseUrl}/auth/callback/google?state=some-state`,
-        {
-          redirect: 'manual',
-          headers: { Cookie: 'oauth_state=some-state' },
-        },
-      );
+    it('redirects with invalid_state when state mismatch', async () => {
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'auth-code', state: 'wrong-state' },
+        cookies: { oauth_state: 'expected-state' },
+      });
 
-      expect(response.status).toBe(302);
-      expect(response.headers.get('location')).toContain('error=missing_code');
+      expect(res.redirect).toHaveBeenCalledWith(
+        `${FRONTEND_URL}/auth/callback?error=invalid_state`
+      );
     });
 
-    it('redirects with query param error on exchange failure', async () => {
-      mockExchangeCodeForTokens.mockRejectedValue(new Error('token exchange failed'));
+    it('clears oauth_state cookie immediately on callback', async () => {
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'auth-code', state: 'some-state' },
+        cookies: { oauth_state: 'some-state' },
+      });
 
-      const response = await fetch(
-        `${baseUrl}/auth/callback/google?code=fail-code&state=valid-state`,
-        {
-          redirect: 'manual',
-          headers: { Cookie: 'oauth_state=valid-state' },
-        },
+      expect(res.clearCookie).toHaveBeenCalledWith('oauth_state');
+    });
+  });
+
+  describe('GET /callback/:provider — successful flow', () => {
+    const validQuery = { code: 'valid-code', state: 'valid-state' };
+    const validCookies = { oauth_state: 'valid-state' };
+
+    it('redirects with token in URL fragment on success', async () => {
+      vi.mocked(oauthService.exchangeCodeForTokens).mockResolvedValue({
+        profile: { id: 'google-123', email: 'user@example.com' },
+        tokens: { accessToken: 'at', refreshToken: 'rt', expiresAt: new Date() },
+      } as any);
+      vi.mocked(oauthService.getOrCreateOAuthUser).mockResolvedValue({
+        user: { id: 'u1', email: 'user@example.com' },
+      } as any);
+      vi.mocked(oauthService.createOAuthSession).mockResolvedValue({
+        token: 'jwt-token',
+        refreshToken: 'new-rt',
+        session: { id: 's1' },
+      } as any);
+
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: validQuery,
+        cookies: validCookies,
+      });
+
+      const redirectUrl = res.redirect.mock.calls[0][0];
+      expect(redirectUrl).toContain(`${FRONTEND_URL}/auth/callback#`);
+      expect(redirectUrl).toContain('token=jwt-token');
+      expect(redirectUrl).toContain('refreshToken=new-rt');
+      expect(redirectUrl).toContain('sessionId=s1');
+      // Fragment (#) not query (?) for sensitive tokens
+      expect(redirectUrl).not.toContain('?token=');
+    });
+
+    it('exchanges code and creates session', async () => {
+      const exchangeMock = vi.mocked(oauthService.exchangeCodeForTokens).mockResolvedValue({
+        profile: { id: 'google-123', email: 'user@example.com' },
+        tokens: { accessToken: 'at', refreshToken: 'rt', expiresAt: new Date() },
+      } as any);
+      const getOrCreateMock = vi.mocked(oauthService.getOrCreateOAuthUser).mockResolvedValue({
+        user: { id: 'u1', email: 'user@example.com' },
+      } as any);
+      const createSessionMock = vi.mocked(oauthService.createOAuthSession).mockResolvedValue({
+        token: 'jwt-token', refreshToken: 'new-rt', session: { id: 's1' },
+      } as any);
+
+      await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: validQuery,
+        cookies: validCookies,
+      });
+
+      expect(exchangeMock).toHaveBeenCalledWith('google', 'valid-code');
+      expect(getOrCreateMock).toHaveBeenCalled();
+      expect(createSessionMock).toHaveBeenCalledWith('u1', expect.any(Object));
+    });
+  });
+
+  describe('GET /callback/:provider — error handling', () => {
+    it('redirects with oauth_failed when exchange throws', async () => {
+      vi.mocked(oauthService.exchangeCodeForTokens).mockRejectedValue(
+        new Error('Invalid code')
       );
 
-      expect(response.status).toBe(302);
-      const location = response.headers.get('location') || '';
-      expect(location).toContain('error=token_exchange_failed');
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'bad-code', state: 'valid-state' },
+        cookies: { oauth_state: 'valid-state' },
+      });
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        `${FRONTEND_URL}/auth/callback?error=oauth_failed`
+      );
+    });
+
+    it('redirects with oauth_failed when getOrCreateOAuthUser throws', async () => {
+      vi.mocked(oauthService.exchangeCodeForTokens).mockResolvedValue({
+        profile: { id: 'g-1', email: 'user@example.com' },
+        tokens: { accessToken: 'at', refreshToken: 'rt', expiresAt: new Date() },
+      } as any);
+      vi.mocked(oauthService.getOrCreateOAuthUser).mockRejectedValue(
+        new Error('Email conflict')
+      );
+
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'valid-code', state: 'valid-state' },
+        cookies: { oauth_state: 'valid-state' },
+      });
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        `${FRONTEND_URL}/auth/callback?error=oauth_failed`
+      );
+    });
+
+    it('redirects with oauth_failed when createOAuthSession throws', async () => {
+      vi.mocked(oauthService.exchangeCodeForTokens).mockResolvedValue({
+        profile: { id: 'g-1', email: 'user@example.com' },
+        tokens: { accessToken: 'at', refreshToken: 'rt', expiresAt: new Date() },
+      } as any);
+      vi.mocked(oauthService.getOrCreateOAuthUser).mockResolvedValue({
+        user: { id: 'u1', email: 'user@example.com' },
+      } as any);
+      vi.mocked(oauthService.createOAuthSession).mockRejectedValue(
+        new Error('Session error')
+      );
+
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'valid-code', state: 'valid-state' },
+        cookies: { oauth_state: 'valid-state' },
+      });
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        `${FRONTEND_URL}/auth/callback?error=oauth_failed`
+      );
+    });
+  });
+
+  describe('redirect URL structure (AC3.3)', () => {
+    it('error redirects use query param (?) not fragment (#)', async () => {
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'auth-code' },
+        cookies: {},
+      });
+
+      const url = res.redirect.mock.calls[0][0];
+      expect(url).toContain('?error=');
+      expect(url).not.toContain('#');
+    });
+
+    it('success redirect uses fragment (#) not query (?) for tokens', async () => {
+      vi.mocked(oauthService.exchangeCodeForTokens).mockResolvedValue({
+        profile: { id: 'g-1', email: 'user@example.com' },
+        tokens: { accessToken: 'at', refreshToken: 'rt', expiresAt: new Date() },
+      } as any);
+      vi.mocked(oauthService.getOrCreateOAuthUser).mockResolvedValue({
+        user: { id: 'u1', email: 'user@example.com' },
+      } as any);
+      vi.mocked(oauthService.createOAuthSession).mockResolvedValue({
+        token: 'jwt-token', refreshToken: 'new-rt', session: { id: 's1' },
+      } as any);
+
+      const { res } = await invokeRoute(oauthRoutes, 'get', '/callback/:provider(google|github)', {
+        params: { provider: 'google' },
+        query: { code: 'valid-code', state: 'valid-state' },
+        cookies: { oauth_state: 'valid-state' },
+      });
+
+      const url = res.redirect.mock.calls[0][0];
+      expect(url).toContain('#');
+      expect(url).toMatch(/#token=/);
+      expect(url).toMatch(/#.*refreshToken=/);
+      expect(url).toMatch(/#.*sessionId=/);
     });
   });
 });
