@@ -639,10 +639,6 @@ model StudioEvent {
 }
 
 
-// KE-003: User behavior distillation profiles
-  @@map("user_behavior_profile")
-}
-
 // ── AS-020: Workspace + Daemon 算力接入 ──
 
 model Workspace {
