@@ -20,7 +20,7 @@ jobs:
           node-version: '22'
       - run: npm install -g pnpm@latest
       - run: ln -s "$(pwd)/harness-src" ../harness
-      - run: cd harness-src && pnpm install && pnpm build
+      - run: cd harness-src && pnpm install --ignore-workspace && pnpm build
       - run: pnpm install
       - run: pnpm build
       - run: pnpm test
