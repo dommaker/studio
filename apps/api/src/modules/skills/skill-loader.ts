@@ -1,22 +1,19 @@
 /**
- * SkillLoader API Service — DB-driven skill loading with session lifecycle
+ * SkillLoader API Service - file-based skill loading with session lifecycle
  *
  * Wraps @dommaker/studio-skill package loader.
- * Adds: DB CRUD, session-level load/unload, tier-based tool permissions.
+ * Adds: session-level load/unload, tier-based tool permissions.
  *
- * #73: DB-driven loading
  * #75: load/unload lifecycle
  * #76: tier-based tool permission binding
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { skillLoader, type SkillDefinition, type SkillTier } from '@dommaker/studio-skill';
+import { type SkillTier } from '@dommaker/studio-skill';
 import { logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-
-type SkillTrigger = string;
 
 // ── Types ──
 
@@ -46,14 +43,7 @@ export interface UnloadSkillOptions {
   skillName: string;
 }
 
-export interface LoadForSessionOptions {
-  sessionId: string;
-  trigger: SkillTrigger;
-  agentType: string;
-  tier?: SkillTier;
-}
-
-// ── Tier → tool access mapping ──
+// ── Tier -> tool access mapping ──
 
 const TIER_TOOL_ACCESS: Record<SkillTier, Set<string>> = {
   fast: new Set(['Read', 'Glob', 'Grep', 'Bash']),
@@ -68,7 +58,6 @@ const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 
 interface SkillFrontmatter {
   name: string;
   description?: string;
-  trigger?: SkillTrigger;
   agentTypes?: string[];
   tier?: SkillTier;
   tools?: string[];
@@ -101,85 +90,15 @@ function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: stri
 
 function loadSkillFromDisk(skillName: string): { meta: SkillFrontmatter; prompt: string } | null {
   try {
-    if (!fs.existsSync(SKILLS_DIR)) return null;
-    const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name);
-    for (const trigger of triggers) {
-      const filePath = path.join(SKILLS_DIR, trigger, skillName, 'SKILL.md');
-      if (!fs.existsSync(filePath)) continue;
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      const parsed = parseFrontmatter(raw);
-      if (!parsed) continue;
-      if (parsed.meta.status && parsed.meta.status !== 'published') continue;
-      return { meta: parsed.meta, prompt: parsed.body };
-    }
-    return null;
+    const filePath = path.join(SKILLS_DIR, skillName, 'SKILL.md');
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = parseFrontmatter(raw);
+    if (!parsed) return null;
+    if (parsed.meta.status && parsed.meta.status !== 'published') return null;
+    return { meta: parsed.meta, prompt: parsed.body };
   } catch {
     return null;
-  }
-}
-
-function loadAllSkillFiles(): SkillFrontmatter[] {
-  try {
-    if (!fs.existsSync(SKILLS_DIR)) return [];
-    const results: SkillFrontmatter[] = [];
-    const triggers = fs.readdirSync(SKILLS_DIR, { withFileTypes: true })
-      .filter(d => d.isDirectory())
-      .map(d => d.name);
-    for (const trigger of triggers) {
-      const triggerDir = path.join(SKILLS_DIR, trigger);
-      const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => d.name);
-      for (const skillName of skills) {
-        const filePath = path.join(triggerDir, skillName, 'SKILL.md');
-        if (!fs.existsSync(filePath)) continue;
-        const raw = fs.readFileSync(filePath, 'utf-8');
-        const parsed = parseFrontmatter(raw);
-        if (!parsed) continue;
-        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
-        results.push(parsed.meta);
-      }
-    }
-    return results;
-  } catch {
-    return [];
-  }
-}
-
-/**
- * Load skill metadata from specific trigger subdirectories.
- * Scans the given trigger + 'always/' directories only.
- */
-function normalizeTriggerDir(trigger: string): string {
-  return trigger.replace(/_/g, '-');
-}
-
-function loadSkillFilesForTrigger(trigger: string): SkillFrontmatter[] {
-  try {
-    if (!fs.existsSync(SKILLS_DIR)) return [];
-    const results: SkillFrontmatter[] = [];
-    const dirsToScan = [normalizeTriggerDir(trigger), 'always'];
-    for (const dir of dirsToScan) {
-      const triggerDir = path.join(SKILLS_DIR, dir);
-      if (!fs.existsSync(triggerDir)) continue;
-      const skills = fs.readdirSync(triggerDir, { withFileTypes: true })
-        .filter(d => d.isDirectory())
-        .map(d => d.name);
-      for (const skillName of skills) {
-        const filePath = path.join(triggerDir, skillName, 'SKILL.md');
-        if (!fs.existsSync(filePath)) continue;
-        const raw = fs.readFileSync(filePath, 'utf-8');
-        const parsed = parseFrontmatter(raw);
-        if (!parsed) continue;
-        if (parsed.meta.status && parsed.meta.status !== 'published') continue;
-        results.push(parsed.meta);
-      }
-    }
-    return results;
-  } catch {
-    return [];
   }
 }
 
@@ -296,36 +215,6 @@ export class SkillLoaderService {
     }
 
     return existed;
-  }
-
-  /**
-   * Load all matching skills for a session based on trigger + agentType + tier.
-   * Queries DB for published skills matching criteria.
-   *
-   * #73: DB-driven loading
-   */
-  async loadForSession(options: LoadForSessionOptions): Promise<LoadedSkill[]> {
-    const { sessionId, trigger, agentType, tier = 'standard' } = options;
-
-    const tierRank: Record<string, number> = { fast: 1, standard: 2, premium: 3 };
-    const targetRank = tierRank[tier] ?? 2;
-
-    const matched: LoadedSkill[] = [];
-
-    // Load from trigger subdirectory + always/ subdirectory
-    const fileSkills = loadSkillFilesForTrigger(trigger);
-    for (const meta of fileSkills) {
-      const agentTypes = meta.agentTypes || [];
-      if (agentTypes.length > 0 && !agentTypes.includes(agentType)) continue;
-
-      const skillTier = (meta.tier || 'standard') as SkillTier;
-      if (tierRank[skillTier] > targetRank) continue;
-
-      const loaded = await this.loadSkill({ sessionId, skillName: meta.name, agentType });
-      if (loaded) matched.push(loaded);
-    }
-
-    return matched;
   }
 
   /**
