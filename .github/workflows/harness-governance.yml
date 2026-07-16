@@ -28,7 +28,7 @@ jobs:
         run: ln -s "$(pwd)/harness-src" ../harness
 
       - name: Build harness
-        run: cd harness-src && pnpm install --ignore-scripts && pnpm build
+        run: cd harness-src && pnpm install && pnpm build
 
       - name: Install dependencies
         run: pnpm install
