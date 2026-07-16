@@ -39,3 +39,22 @@ export { eventBus, StudioEventBus } from './event-bus';
 
 // 导出 MemoryStore
 export { memoryStore } from './memory-store';
+
+// 导出 FileStore (AN 运行时数据文件存储)
+export { FileStore, LockTimeoutError } from './file-store';
+export type {
+  AgentProfileData,
+  RuntimeStateData,
+  ChannelData,
+  ChannelMessageData,
+  ChannelMessageRow,
+  QueryOpts,
+  CountOpts,
+  WorkUnitEvent,
+  WorkUnitEventType,
+  WorkUnitSnapshot,
+  WorkUnitFilter,
+} from './file-store';
+
+// 导出 Stats 模块
+export * from './stats/anomaly-detector';

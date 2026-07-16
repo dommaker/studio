@@ -25,7 +25,7 @@ interface ScopeConfig {
 
 const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
   'pipeline-stages': {
-    files: ['apps/api/src/modules/channels/analyst-trigger.service.ts', 'apps/api/src/modules/channels/channel.routes.ts'],
+    files: ['apps/api/src/modules/channels/channel.routes.ts'],
     title: 'Pipeline Stages',
     knowledgeType: 'process',
   },
@@ -45,7 +45,7 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'architecture',
   },
   'knowledge-sync': {
-    files: ['apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/knowledge/routes.ts', 'apps/api/src/modules/channels/analyst-trigger.service.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/knowledge/routes.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts'],
     title: 'KnowledgeSync Service',
     knowledgeType: 'architecture',
   },

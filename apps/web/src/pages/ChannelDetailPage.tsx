@@ -1,11 +1,13 @@
-// Channel Detail Page — B1-001
+// Channel Detail Page — B1-001 + Phase 2 (AC-C3 Thread rendering)
 import { useParams, useNavigate } from 'react-router-dom';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { api } from '../api';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelWorkspaceSetting } from '../components/ChannelWorkspaceSetting';
+import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
+import type { ChannelMessage } from '../api/channel';
 
 function isToday(d: Date) {
   const now = new Date();
@@ -17,31 +19,81 @@ function isYesterday(d: Date) {
   return d.toDateString() === y.toDateString();
 }
 
+/** AC-C3: Group messages into threads (anchor + replies) */
+interface ThreadGroup {
+  anchor: ChannelMessage;
+  replies: ChannelMessage[];
+}
+
+function groupIntoThreads(messages: ChannelMessage[]): Array<ChannelMessage | ThreadGroup> {
+  const anchorMap = new Map<string, ThreadGroup>();
+  const result: Array<ChannelMessage | ThreadGroup> = [];
+
+  for (const msg of messages) {
+    if (msg.workUnitId && !msg.replyToId) {
+      // This is a thread anchor
+      const group: ThreadGroup = { anchor: msg, replies: [] };
+      anchorMap.set(msg.id, group);
+      result.push(group);
+    } else if (msg.replyToId && anchorMap.has(msg.replyToId)) {
+      // This is a thread reply
+      anchorMap.get(msg.replyToId)!.replies.push(msg);
+    } else {
+      // Regular message (no thread)
+      result.push(msg);
+    }
+  }
+
+  return result;
+}
+
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [channel, setChannel] = useState<any>(null);
-  const { messages, loading, sendMessage, sendAction, loadMore, hasMore } = useChannelMessages(id);
+  const { messages, loading, sendMessage, loadMore, hasMore, refresh } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
+  const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
 
   useEffect(() => {
     if (!id) return;
     api.get(`/channels/${id}`).then(r => setChannel(r.data.data)).catch(() => {});
   }, [id]);
 
-  const handleSend = async (content: string) => {
+  const handleSend = async (content: string, replyToId?: string) => {
     setSending(true);
     try {
-      await sendMessage(content);
+      await sendMessage(content, replyToId);
+      setReplyTo(null);
     } finally {
       setSending(false);
     }
   };
 
-  const handleAction = (messageId: string, action: string) => {
-    sendAction(messageId, action);
-  };
+  const handleAction = useCallback((_messageId: string, action: string) => {
+    if (action === 'converted') refresh();
+  }, [refresh]);
+
+  const handleReply = useCallback((message: ChannelMessage) => {
+    setReplyTo(message);
+  }, []);
+
+  const findMessage = useCallback((msgId: string) => {
+    return messages.find(m => m.id === msgId);
+  }, [messages]);
+
+  // AC-C3: Thread expand/collapse state
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+
+  const toggleThread = useCallback((anchorId: string) => {
+    setExpandedThreads(prev => {
+      const next = new Set(prev);
+      if (next.has(anchorId)) next.delete(anchorId);
+      else next.add(anchorId);
+      return next;
+    });
+  }, []);
 
   if (!id) return <div className="p-8 text-center text-gray-500">Invalid channel</div>;
 
@@ -60,7 +112,8 @@ export function ChannelDetailPage() {
             {channel?.type === 'rnd' ? '研发频道' : channel?.type === 'decision' ? '决策频道' : '系统频道'}
           </p>
         </div>
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          <ChannelMemberManager channelId={id} membersJson={channel?.members} />
           <ChannelWorkspaceSetting
             channelId={id}
             defaultWorkspaceId={channel?.defaultWorkspaceId}
@@ -78,7 +131,7 @@ export function ChannelDetailPage() {
         {!loading && messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-gray-400 text-sm">
             <p className="mb-2">发送消息开始对话</p>
-            <p className="text-xs">输入 ≥30 字并包含 @Analyst 可触发需求分析</p>
+            <p className="text-xs">@Agent 提及 Agent 创建任务</p>
           </div>
         )}
 
@@ -94,7 +147,7 @@ export function ChannelDetailPage() {
           </div>
         )}
 
-        {/* B2-002: Date separators + B2-006: collapse completed */}
+        {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads */}
         {(() => {
           let lastDate = '';
           const completed = messages.filter(m => {
@@ -104,7 +157,11 @@ export function ChannelDetailPage() {
             } catch { return false; }
           });
           const active = messages.filter(m => !completed.includes(m));
-          const display = showCompleted ? messages : [...active, ...completed.slice(-2)];
+          const visibleMessages = (showCompleted ? messages : [...active, ...completed.slice(-2)])
+            .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+          // Re-group visible messages into threads
+          const items = groupIntoThreads(visibleMessages);
 
           return (
             <>
@@ -116,32 +173,82 @@ export function ChannelDetailPage() {
                   </button>
                 </div>
               )}
-              {display.map(msg => {
-                const d = new Date(msg.createdAt);
-                const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-                const showDate = dateStr !== lastDate;
-                lastDate = dateStr;
-                return (
-                  <div key={msg.id}>
-                    {showDate && (
-                      <div className="flex items-center gap-3 my-4">
-                        <div className="flex-1 border-t border-gray-200" />
-                    <span className="text-xs text-gray-400 flex-shrink-0">
-                      {isToday(d) ? '今天' : isYesterday(d) ? '昨天' : dateStr}
-                    </span>
-                    <div className="flex-1 border-t border-gray-200" />
-                  </div>
-                )}
-                <ChannelMessageItem message={msg} onAction={handleAction} />
-              </div>
-            );
-          })}
-        </>)
+              {items.map(item => {
+                if ('anchor' in item) {
+                  // ThreadGroup
+                  const msg = item.anchor;
+                  const d = new Date(msg.createdAt);
+                  const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+                  const showDate = dateStr !== lastDate;
+                  lastDate = dateStr;
+                  const anchorId = msg.id;
+                  const expanded = expandedThreads.has(anchorId);
+
+                  return (
+                    <div key={anchorId}>
+                      {showDate && (
+                        <div className="flex items-center gap-3 my-4">
+                          <div className="flex-1 border-t border-gray-200" />
+                          <span className="text-xs text-gray-400 flex-shrink-0">
+                            {isToday(d) ? '今天' : isYesterday(d) ? '昨天' : dateStr}
+                          </span>
+                          <div className="flex-1 border-t border-gray-200" />
+                        </div>
+                      )}
+                      <ChannelMessageItem
+                        message={msg}
+                        onAction={handleAction}
+                        onReply={handleReply}
+                        findMessage={findMessage}
+                        channelId={id}
+                        isThreadAnchor
+                        threadReplyCount={item.replies.length}
+                        isExpanded={expanded}
+                        onToggleThread={() => toggleThread(anchorId)}
+                      />
+                      {expanded && item.replies.map(reply => (
+                        <ChannelMessageItem
+                          key={reply.id}
+                          message={reply}
+                          onAction={handleAction}
+                          onReply={handleReply}
+                          findMessage={findMessage}
+                          channelId={id}
+                          isThreadReply
+                        />
+                      ))}
+                    </div>
+                  );
+                } else {
+                  // Regular message
+                  const msg = item;
+                  const d = new Date(msg.createdAt);
+                  const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+                  const showDate = dateStr !== lastDate;
+                  lastDate = dateStr;
+                  return (
+                    <div key={msg.id}>
+                      {showDate && (
+                        <div className="flex items-center gap-3 my-4">
+                          <div className="flex-1 border-t border-gray-200" />
+                          <span className="text-xs text-gray-400 flex-shrink-0">
+                            {isToday(d) ? '今天' : isYesterday(d) ? '昨天' : dateStr}
+                          </span>
+                          <div className="flex-1 border-t border-gray-200" />
+                        </div>
+                      )}
+                      <ChannelMessageItem message={msg} onAction={handleAction} onReply={handleReply} findMessage={findMessage} channelId={id} />
+                    </div>
+                  );
+                }
+              })}
+            </>
+          );
         })()}
       </div>
 
       {/* Input */}
-      <ChannelInput onSend={handleSend} sending={sending} />
+      <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} />
     </div>
   );
 }

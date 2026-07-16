@@ -20,9 +20,9 @@ interface WikiDocDetail {
   executionSummary?: string;
   createdAt: string;
   updatedAt: string;
-  linkedDocs: { id: string; title: string }[];
-  wikiLinks: { id: string; title: string }[];
-  backlinks: { id: string; title: string }[];
+  linkedDocs?: { id: string; title: string }[];
+  wikiLinks?: { id: string; title: string }[];
+  backlinks?: { id: string; title: string }[];
 }
 
 const statusLabels: Record<string, string> = {
@@ -313,7 +313,7 @@ export function WikiDocPage() {
           {!editMode && (
             <div className="w-64 flex-shrink-0 space-y-4">
               {/* Linked Docs */}
-              {doc.linkedDocs.length > 0 && (
+              {(doc.linkedDocs || []).length > 0 && (
                 <div
                   className="p-3 rounded-lg"
                   style={{
@@ -325,7 +325,7 @@ export function WikiDocPage() {
                     链接的文档
                   </h3>
                   <div className="space-y-1">
-                    {doc.linkedDocs.map((ld) => (
+                    {doc.linkedDocs?.map((ld) => (
                       <Link
                         key={ld.id}
                         to={`/wiki/${ld.id}`}
@@ -350,13 +350,13 @@ export function WikiDocPage() {
                 <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
                   反向链接
                 </h3>
-                {doc.backlinks.length === 0 ? (
+                {(doc.backlinks || []).length === 0 ? (
                   <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                     暂无反向链接
                   </p>
                 ) : (
                   <div className="space-y-1">
-                    {doc.backlinks.map((bl) => (
+                    {doc.backlinks?.map((bl) => (
                       <Link
                         key={bl.id}
                         to={`/wiki/${bl.id}`}
@@ -371,7 +371,7 @@ export function WikiDocPage() {
               </div>
 
               {/* Wiki Links from [[ ]] syntax */}
-              {doc.wikiLinks.length > 0 && (
+              {(doc.wikiLinks || []).length > 0 && (
                 <div
                   className="p-3 rounded-lg"
                   style={{
@@ -383,7 +383,7 @@ export function WikiDocPage() {
                     文档内引用
                   </h3>
                   <div className="space-y-1">
-                    {doc.wikiLinks.map((wl) => (
+                    {doc.wikiLinks?.map((wl) => (
                       <Link
                         key={wl.id}
                         to={`/wiki/${wl.id}`}

@@ -2,14 +2,14 @@
  * B9-015: SessionSummaryGenerator — server-side session aggregation
  *
  * Called after batch ingest of agent events.
- * Aggregates same-session events → session:summary with filesChanged, toolsUsed, workflowType.
+ * Aggregates same-session events → session:summary with filesChanged, toolsUsed, patternType.
  */
 
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
 
-type WorkflowType =
+type PatternType =
   | 'ci_fix'
   | 'pr_review'
   | 'changelog'
@@ -29,7 +29,7 @@ interface SessionSummary {
   agentId: string;
   filesChanged: string[];
   toolsUsed: string[];
-  workflowType: WorkflowType;
+  patternType: PatternType;
   eventCount: number;
   durationMs?: number;
 }
@@ -97,15 +97,15 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
       durationMs = endEvent.timestamp.getTime() - startEvent.timestamp.getTime();
     }
 
-    // Classify workflowType
-    const workflowType = classifyWorkflow(filesChanged, toolsUsed, agentId);
+    // Classify patternType
+    const patternType = classifyPattern(filesChanged, toolsUsed, agentId);
 
     const summary: SessionSummary = {
       sessionId,
       agentId,
       filesChanged,
       toolsUsed,
-      workflowType,
+      patternType,
       eventCount: events.length,
       durationMs,
     };
@@ -121,14 +121,14 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
 
     logger.info('[SessionSummary] Generated', {
       sessionId,
-      workflowType,
+      patternType,
       filesChanged: filesChanged.length,
       toolsUsed: toolsUsed.length,
     });
 
-    // KE-001 Phase 5: suggest Skill for recurring workflows (fire-and-forget)
-    suggestSkillForWorkflow(workflowType, toolsUsed).catch((err: unknown) => {
-      logger.warn('[SessionSummary] Skill suggestion failed', { workflowType, error: String(err) });
+    // KE-001 Phase 5: suggest Skill for recurring patterns (fire-and-forget)
+    suggestSkillForPattern(patternType, toolsUsed).catch((err: unknown) => {
+      logger.warn('[SessionSummary] Skill suggestion failed', { patternType, error: String(err) });
     });
 
     return summary;
@@ -139,10 +139,10 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
 }
 
 /**
- * D3: Workflow type classification — pure rules, no LLM.
- * File paths + tool sequences + agentId → WorkflowType.
+ * D3: Pattern type classification — pure rules, no LLM.
+ * File paths + tool sequences + agentId → PatternType.
  */
-function classifyWorkflow(files: string[], tools: string[], _agentId: string): WorkflowType {
+function classifyPattern(files: string[], tools: string[], _agentId: string): PatternType {
   const fileSet = new Set(files);
   const toolSet = new Set(tools);
 
@@ -205,45 +205,45 @@ function classifyWorkflow(files: string[], tools: string[], _agentId: string): W
 }
 
 /**
- * KE-001 Phase 5: Suggest Skill for recurring workflows.
- * If a workflowType appears 3+ times and has no matching Skill, create a proposal.
+ * KE-001 Phase 5: Suggest Skill for recurring patterns.
+ * If a patternType appears 3+ times and has no matching Skill, create a proposal.
  */
-async function suggestSkillForWorkflow(workflowType: WorkflowType, toolsUsed: string[]): Promise<void> {
-  if (workflowType === 'unknown') return;
+async function suggestSkillForPattern(patternType: PatternType, toolsUsed: string[]): Promise<void> {
+  if (patternType === 'unknown') return;
 
-  // Count recent sessions of this workflow type
+  // Count recent sessions of this pattern type
   const recentSummaries = await prisma.studioEvent.count({
     where: {
       type: 'session:summary',
-      payload: { contains: `"workflowType":"${workflowType}"` },
+      payload: { contains: `"patternType":"${patternType}"` },
       timestamp: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
     },
   });
 
   if (recentSummaries < 3) return; // Not recurring enough
 
-  // Check if a Skill already exists for this workflow
-  const byCategory = skillStore.findFirst({ companyId: 'system', category: workflowType });
-  const byName = skillStore.findFirst({ companyId: 'system', name: { contains: workflowType } });
+  // Check if a Skill already exists for this pattern
+  const byCategory = skillStore.findFirst({ companyId: 'system', category: patternType });
+  const byName = skillStore.findFirst({ companyId: 'system', name: { contains: patternType } });
   const existingSource = (byCategory || byName);
   if (existingSource && ['proposal', 'extraction', 'builtin'].includes(existingSource.source)) return; // Already has a Skill
 
   // Create proposal
   skillStore.create({
     companyId: 'system',
-    name: `Workflow: ${workflowType}`.slice(0, 100),
+    name: `Pattern: ${patternType}`.slice(0, 100),
     source: 'proposal',
     status: 'draft',
-    category: workflowType,
-    description: `Recurring workflow "${workflowType}" detected (${recentSummaries} sessions in 30d). Tools: ${toolsUsed.join(', ')}`,
+    category: patternType,
+    description: `Recurring pattern "${patternType}" detected (${recentSummaries} sessions in 30d). Tools: ${toolsUsed.join(', ')}`,
     tools: JSON.stringify(toolsUsed),
     metadata: JSON.stringify({
       autoGenerated: true,
-      workflowType,
+      patternType,
       sessionCount: recentSummaries,
       trigger: 'session-summary',
     }),
   });
 
-  logger.info('[SessionSummary] Skill proposal for recurring workflow', { workflowType, sessionCount: recentSummaries });
+  logger.info('[SessionSummary] Skill proposal for recurring pattern', { patternType, sessionCount: recentSummaries });
 }

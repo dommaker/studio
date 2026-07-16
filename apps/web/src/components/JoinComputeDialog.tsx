@@ -47,7 +47,7 @@ export const JoinComputeDialog: React.FC<JoinComputeDialogProps> = ({
         </>
       ) : (
         <div>
-          <code>studio daemon start --token {token}</code>
+          <code>studio daemon start --server-url {window.location.origin} --token {token}</code>
         </div>
       )}
     </div>

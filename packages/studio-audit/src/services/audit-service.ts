@@ -92,7 +92,6 @@ export const AuditActions = {
 // ========== 常用资源类型 ==========
 
 export const AuditResources = {
-  WORKFLOW: 'workflow',
   STEP: 'step',
   TOOL: 'tool',
   ROLE: 'role',

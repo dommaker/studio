@@ -21,7 +21,6 @@ export interface BaseExecutionPhase {
 // 执行记录（后端 API 返回的数据结构，合并了原 Execution 和 Execution）
 export interface Execution {
   id: string;
-  workflowId: string;
   workflowName?: string;
   status: ExecutionStatus;
   input?: string;

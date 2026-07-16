@@ -1,18 +1,19 @@
 /**
- * PatternMiner (G-005) — 从 MCP traces + 审查历史中挖掘交互模式
+ * PatternMiner (G-005) — 从 MCP traces 中挖掘交互模式
  *
+ * 存储：KnowledgeStore (type='pattern', tags=['pattern', category])
  * 滑动窗口 N=3 挖掘工具序列模式，每日运行。
- * 未来：LLM 摘要 + 协作网络分析。
  */
 
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
+import { sharedStore } from './knowledge-bus.service.js';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
 import os from 'os';
 
 const EVENTS_DIR = process.env.EVENTS_DIR || path.join(os.homedir(), 'events');
+const fileStore = new FileStore();
 
 interface ToolTraceEvent {
   type: string;
@@ -29,12 +30,15 @@ interface ToolSequencePattern {
   avgSuccess: number;
 }
 
+function newId(): string {
+  const ts = Date.now().toString(36);
+  const rnd = Math.random().toString(36).slice(2, 8);
+  return `pat-${ts}-${rnd}`;
+}
+
 export class PatternMiner {
   private readonly windowSize = 3;
 
-  /**
-   * 每日分析：从 MCP traces 中挖掘工具使用模式
-   */
   async analyzeDaily(): Promise<number> {
     const yesterday = Date.now() - 24 * 60 * 60 * 1000;
     const traces = this.loadTracesSince(yesterday);
@@ -46,7 +50,6 @@ export class PatternMiner {
 
     const newPatterns: number[] = [];
 
-    // 1. 工具序列模式
     const seqPatterns = this.mineToolSequences(traces);
     for (const sp of seqPatterns.slice(0, 5)) {
       const name = `序列: ${sp.sequence.join(' → ')}`;
@@ -65,7 +68,6 @@ export class PatternMiner {
       newPatterns.push(p);
     }
 
-    // 2. 工具成功率模式
     const toolStats = this.computeToolStats(traces);
     for (const [tool, stats] of Object.entries(toolStats)) {
       if (stats.total < 5) continue;
@@ -87,37 +89,41 @@ export class PatternMiner {
       }
     }
 
-    // 3. B10-103: Mine UserBehaviorProfile for workflow patterns
-    const behaviorPatterns = await this.mineBehaviorProfiles(yesterday);
-    newPatterns.push(...behaviorPatterns);
+    // 清理旧模式 — 标记 7 天前的为 outdated
+    const allPatterns = sharedStore.list({ tags: ['pattern'] });
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    for (const entry of allPatterns) {
+      const data = JSON.parse((entry as any).content || '{}');
+      if (data.status === 'active' && new Date(data.observedPeriodEnd).getTime() < weekAgo) {
+        sharedStore.save({ ...entry, tags: [...(entry as any).tags.filter((t: string) => t !== 'active'), 'outdated'] } as any);
+      }
+    }
 
-    // 4. 清理旧模式
-    await prisma.interactionPattern.updateMany({
-      where: {
-        observedPeriodEnd: { lt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-        status: 'active',
-      },
-      data: { status: 'outdated' },
-    });
-
-    // S10: Push high-confidence pattern insights to #系统 channel
     if (newPatterns.length > 0) {
       try {
-        const highConfPatterns = await prisma.interactionPattern.findMany({
-          where: { status: 'active', confidence: { gte: 0.7 } },
-          orderBy: { confidence: 'desc' },
-          take: 3,
-        });
-        if (highConfPatterns.length > 0) {
+        const activePatterns = sharedStore.list({ tags: ['pattern', 'active'] })
+          .filter((e: any) => {
+            const d = JSON.parse(e.content || '{}');
+            return d.confidence >= 0.7;
+          })
+          .sort((a: any, b: any) => {
+            return (JSON.parse(b.content || '{}').confidence || 0)
+                 - (JSON.parse(a.content || '{}').confidence || 0);
+          })
+          .slice(0, 3);
+
+        if (activePatterns.length > 0) {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
-          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          const sysChannels = await fileStore.listChannels({ name: '#系统' });
+          const sysChannel = sysChannels[0] ?? null;
           if (sysChannel) {
-            const insightLines = highConfPatterns.map(p =>
-              `- **${p.name}**: ${p.insight || p.description} (置信度: ${Math.round(p.confidence * 100)}%)`
-            ).join('\n');
+            const insightLines = activePatterns.map((e: any) => {
+              const d = JSON.parse(e.content || '{}');
+              return `- **${e.title}**: ${d.insight || d.description} (置信度: ${Math.round((d.confidence || 0) * 100)}%)`;
+            }).join('\n');
             await channelMessageService.createAgentMessage(sysChannel.id, 'PatternMiner',
-              `发现 ${highConfPatterns.length} 个高置信度模式:\n${insightLines}`,
-              { meta: { cardType: 'pattern_insight', count: highConfPatterns.length } },
+              `发现 ${activePatterns.length} 个高置信度模式:\n${insightLines}`,
+              { meta: { cardType: 'pattern_insight', count: activePatterns.length } },
             );
           }
         }
@@ -128,28 +134,20 @@ export class PatternMiner {
     return newPatterns.length;
   }
 
-  /**
-   * 获取活跃模式
-   */
   async getActivePatterns(category?: string): Promise<Record<string, any>[]> {
-    const where: any = { status: 'active' };
-    if (category) where.category = category;
+    const entries = sharedStore.list({ tags: ['pattern', 'active'] });
 
-    const patterns = await prisma.interactionPattern.findMany({
-      where,
-      orderBy: [{ confidence: 'desc' }, { frequency: 'desc' }],
-      take: 20,
-    });
-
-    return patterns.map(p => ({
-      ...p,
-      pattern: JSON.parse(p.pattern),
-    }));
+    return entries
+      .map((e: any) => {
+        const d = JSON.parse(e.content || '{}');
+        if (category && d.category !== category) return null;
+        return { ...d, id: e.id, name: e.title, status: d.status || 'active' };
+      })
+      .filter(Boolean)
+      .sort((a: any, b: any) => (b?.confidence || 0) - (a?.confidence || 0) || (b?.frequency || 0) - (a?.frequency || 0))
+      .slice(0, 20);
   }
 
-  /**
-   * 格式化模式为 prompt 注入片段
-   */
   async formatForPrompt(): Promise<string> {
     const patterns = await this.getActivePatterns();
     if (patterns.length === 0) return '';
@@ -167,8 +165,6 @@ export class PatternMiner {
     return lines.join('\n') + '\n';
   }
 
-  // ── private ──
-
   private loadTracesSince(since: number): ToolTraceEvent[] {
     const filePath = path.join(EVENTS_DIR, 'studio.jsonl');
     if (!existsSync(filePath)) return [];
@@ -183,23 +179,14 @@ export class PatternMiner {
         })
         .filter((e: any) => e && e.type === 'tool:call' && e.timestamp > since && !(e.tool || '').startsWith('__'))
         .map((e: any) => ({
-          type: e.type,
-          tool: e.tool,
-          success: e.success,
-          durationMs: e.durationMs,
-          timestamp: e.timestamp,
-          riskLevel: e.riskLevel,
+          type: e.type, tool: e.tool, success: e.success,
+          durationMs: e.durationMs, timestamp: e.timestamp, riskLevel: e.riskLevel,
         }));
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }
 
   private mineToolSequences(traces: ToolTraceEvent[]): ToolSequencePattern[] {
-    // 按时间排序
     const sorted = [...traces].sort((a, b) => a.timestamp - b.timestamp);
-
-    // 滑动窗口 N=3
     const sequenceCount = new Map<string, { count: number; successes: number }>();
     for (let i = 0; i <= sorted.length - this.windowSize; i++) {
       const window = sorted.slice(i, i + this.windowSize);
@@ -210,15 +197,13 @@ export class PatternMiner {
       entry.successes += window.filter(t => t.success).length;
       sequenceCount.set(key, entry);
     }
-
-    // 按频率排序
     return Array.from(sequenceCount.entries())
       .map(([key, { count, successes }]) => ({
         sequence: key.split('|>|'),
         count,
         avgSuccess: successes / (count * this.windowSize),
       }))
-      .filter(sp => sp.count >= 3) // 至少出现 3 次
+      .filter(sp => sp.count >= 3)
       .sort((a, b) => b.count - a.count);
   }
 
@@ -246,140 +231,89 @@ export class PatternMiner {
     observedPeriodStart: Date;
     observedPeriodEnd: Date;
   }): Promise<number> {
-    const existing = await prisma.interactionPattern.findFirst({
-      where: { name: data.name, status: 'active' },
-    });
+    const entries = sharedStore.list({ tags: ['pattern', 'active'] });
+    const existing = entries.find((e: any) => e.title === data.name);
 
     if (existing) {
-      await prisma.interactionPattern.update({
-        where: { id: existing.id },
-        data: {
-          frequency: Math.round((existing.frequency + data.frequency) / 2 * 10) / 10,
-          confidence: Math.round(Math.max(existing.confidence, data.confidence) * 100) / 100,
-          observedPeriodEnd: data.observedPeriodEnd,
-        },
-      });
+      const d = JSON.parse((existing as any).content || '{}');
+      sharedStore.save({
+        ...existing,
+        content: JSON.stringify({
+          ...d,
+          frequency: Math.round((d.frequency + data.frequency) / 2 * 10) / 10,
+          confidence: Math.round(Math.max(d.confidence, data.confidence) * 100) / 100,
+          observedPeriodEnd: data.observedPeriodEnd.toISOString(),
+        }),
+      } as any);
       return 0;
     }
 
-    await prisma.interactionPattern.create({
-      data: {
-        ...data,
-        suggestion: data.suggestion || null,
-      },
-    });
+    const id = newId();
+    const ts = new Date().toISOString();
+    sharedStore.save({
+      id,
+      type: 'pattern' as any,
+      title: data.name,
+      content: JSON.stringify(data),
+      maturity: 'active' as any,
+      layer: 'project',
+      created: ts,
+      lastReferenced: ts,
+      contributors: ['pattern-miner'],
+      projects: [],
+      tags: ['pattern', 'active', data.category],
+      applicablePhases: [],
+      sourceReferences: [],
+      referencedBy: [],
+      executionResults: [],
+      consumptionMode: 'signal',
+      origin: 'agent',
+    } as any);
     return 1;
   }
 
-  /**
-   * B10-103: Mine UserBehaviorProfile entries for workflow/automation patterns.
-   * Aggregates similar behavior profiles into InteractionPattern entries.
-   */
-  private async mineBehaviorProfiles(since: number): Promise<number[]> {
-    const newPatterns: number[] = [];
-
-    try {
-      const profiles = await prisma.userBehaviorProfile.findMany({
-        where: {
-          createdAt: { gte: new Date(since) },
-          status: { notIn: ['rejected'] },
-          confidence: { gte: 0.5 },
-        },
-        orderBy: { confidence: 'desc' },
-      });
-
-      if (profiles.length === 0) return newPatterns;
-
-      // Aggregate by category + suggestedAction
-      const groups = new Map<string, typeof profiles>();
-      for (const p of profiles) {
-        const key = `${p.category}:${p.suggestedAction}`;
-        const group = groups.get(key) || [];
-        group.push(p);
-        groups.set(key, group);
-      }
-
-      for (const [key, group] of groups) {
-        if (group.length < 2) continue; // need at least 2 to form a pattern
-
-        const [category, suggestedAction] = key.split(':');
-        const avgConfidence = group.reduce((s, p) => s + p.confidence, 0) / group.length;
-        const titles = group.map(p => p.title).slice(0, 5);
-
-        const name = `行为模式: ${category} → ${suggestedAction}`;
-        const p = await this.upsertPattern({
-          name,
-          category: 'workflow',
-          description: `${group.length} 个行为模式指向 ${suggestedAction}（${titles.join(', ')}）`,
-          pattern: JSON.stringify({ category, suggestedAction, titles }),
-          frequency: group.length,
-          confidence: Math.min(avgConfidence, 0.95),
-          insight: `用户在 ${category} 类场景中反复出现相似模式，建议 ${suggestedAction}`,
-          suggestion: suggestedAction === 'create_rule' ? '考虑自动创建规则' :
-            suggestedAction === 'create_skill' ? '考虑创建 Skill 自动化' :
-            suggestedAction === 'create_automation' ? '考虑脚本自动化' : undefined,
-          observedPeriodStart: new Date(since),
-          observedPeriodEnd: new Date(),
-        });
-        newPatterns.push(p);
-      }
-    } catch (err) {
-      logger.warn('[PatternMiner] mineBehaviorProfiles failed', { error: String(err) });
-    }
-
-    return newPatterns;
-  }
-
-  /**
-   * KE-001 Phase 5: Auto-suggest Skills from high-confidence patterns.
-   * Called after analyzeDaily(). Creates Skill proposals for patterns with
-   * confidence > 0.8 && frequency >= 5 that don't already have a Skill.
-   */
   async suggestSkillsFromPatterns(): Promise<number> {
-    const highConfidence = await prisma.interactionPattern.findMany({
-      where: {
-        status: 'active',
-        confidence: { gt: 0.8 },
-        frequency: { gte: 5 },
-        category: 'tool_usage',
-      },
-      orderBy: { confidence: 'desc' },
-      take: 10,
-    });
+    const entries = sharedStore.list({ tags: ['pattern', 'active', 'tool_usage'] });
+    const highConfidence = entries
+      .filter((e: any) => {
+        const d = JSON.parse(e.content || '{}');
+        return d.confidence > 0.8 && d.frequency >= 5;
+      })
+      .sort((a: any, b: any) => {
+        return (JSON.parse(b.content || '{}').confidence || 0) - (JSON.parse(a.content || '{}').confidence || 0);
+      })
+      .slice(0, 10);
 
     if (highConfidence.length === 0) return 0;
 
     let suggested = 0;
     for (const pattern of highConfidence) {
-      // Check if a Skill with similar name already exists
+      const d = JSON.parse((pattern as any).content || '{}');
       const existing = skillStore.findFirst({
-        name: { contains: pattern.name.slice(0, 50) },
+        name: { contains: (pattern as any).title.slice(0, 50) },
         source: { in: ['proposal', 'extraction', 'builtin'] },
       });
       if (existing) continue;
 
-      // Create Skill proposal
-      const sequence = JSON.parse(pattern.pattern);
-      const tools = Array.isArray(sequence) ? sequence : [];
       skillStore.create({
         companyId: 'system',
-        name: `Auto: ${pattern.name}`.slice(0, 100),
+        name: `Auto: ${(pattern as any).title}`.slice(0, 100),
         source: 'proposal',
         status: 'draft',
-        category: pattern.category,
-        description: pattern.description,
-        tools: JSON.stringify(tools),
+        category: d.category,
+        description: d.description,
+        tools: JSON.stringify(Array.isArray(JSON.parse(d.pattern)) ? JSON.parse(d.pattern) : []),
         metadata: JSON.stringify({
-          patternId: pattern.id,
-          confidence: pattern.confidence,
-          frequency: pattern.frequency,
-          insight: pattern.insight,
-          suggestion: pattern.suggestion,
+          patternId: (pattern as any).id,
+          confidence: d.confidence,
+          frequency: d.frequency,
+          insight: d.insight,
+          suggestion: d.suggestion,
           autoGenerated: true,
         }),
       });
       suggested++;
-      logger.info('[PatternMiner] Skill proposal created', { patternName: pattern.name, confidence: pattern.confidence });
+      logger.info('[PatternMiner] Skill proposal created', { patternName: (pattern as any).title, confidence: d.confidence });
     }
 
     return suggested;

@@ -180,33 +180,7 @@
     "show": "显示",
     "hide": "隐藏"
   },
-  
-  "home": {
-    "title": "Agent Studio",
-    "subtitle": "多角色协作的 AI Agent 开发平台",
-    "commandPlaceholder": "输入指令，例如：实现用户登录功能",
-    "analyze": "分析",
-    "execute": "执行",
-    "modify": "修改流程",
-    "recentExecutions": "近期执行",
-    "startNew": "开始新任务",
-    "useLLM": "使用 LLM 智能分析",
-    "commandCenter": "指令中心",
-    "commandSubtitle": "用自然语言描述需求，AI 团队自动完成全流程",
-    "running": "正在进行",
-    "viewAll": "查看全部",
-    "feature": {
-      "intent": "意图识别",
-      "intentDesc": "AI 自动分析需求，匹配最佳执行流程",
-      "orchestration": "自动编排",
-      "orchestrationDesc": "自动调用需求、架构、开发、测试、部署",
-      "feedback": "实时反馈",
-      "feedbackDesc": "查看每个步骤的执行状态和输出结果",
-      "iteration": "快速迭代",
-      "iterationDesc": "一键执行，自动循环直到完成任务"
-    }
-  },
-  
+
   "connection": {
     "connected": "已连接",
     "disconnected": "未连接"

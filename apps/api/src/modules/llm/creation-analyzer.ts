@@ -1,4 +1,4 @@
-// 创建意图分析器 - 从自然语言生成 Skill/Workflow 配置
+// 创建意图分析器 - 从自然语言生成 Skill 配置
 // 使用 /api/v1/llm/chat（统一使用 Studio LLM 配置）
 
 import { logger } from '@dommaker/studio-shared';
@@ -43,7 +43,7 @@ async function isLLMAvailable(): Promise<boolean> {
 }
 
 export interface CreationIntent {
-  type: 'skill' | 'workflow';
+  type: 'skill';
   confidence: number;
   description: string;
 }
@@ -69,29 +69,6 @@ export interface SkillConfig {
     prompt?: string;
     steps?: string[];
   };
-}
-
-export interface WorkflowConfig {
-  name: string;
-  description: string;
-  nodes: Array<{
-    id: string;
-    type: string;
-    name: string;
-    skillId?: string;
-    config?: Record<string, unknown>;
-  }>;
-  edges: Array<{
-    source: string;
-    target: string;
-    condition?: string;
-  }>;
-  parameters: Array<{
-    name: string;
-    type: string;
-    required: boolean;
-    description: string;
-  }>;
 }
 
 // 可用工具列表
@@ -121,13 +98,11 @@ export async function analyzeCreationIntent(input: string): Promise<CreationInte
 
 // 构建 intent 分析 prompt
 function buildIntentPrompt(input: string): { messages: Record<string, unknown>[] } {
-  const systemPrompt = `你是创建意图分析器。分析用户输入，判断要创建 skill 还是 workflow。
+  const systemPrompt = `你是创建意图分析器。分析用户输入，生成 Skill 配置。
 
 规则：
 1. skill = 单个原子能力（如：分析代码、写测试、部署）
-2. workflow = 多个 skill 组合的流程（如：开发流程、CI/CD）
-3. 关键词：step/skill/技能 → skill；workflow/工作流/流程 → workflow
-4. 返回 JSON 格式：{"type":"skill或workflow","confidence":0.0-1.0,"description":"用户想创建的内容描述"}`;
+2. 返回 JSON 格式：{"type":"skill","confidence":0.0-1.0,"description":"用户想创建的内容描述"}`;
 
   return {
     messages: [
@@ -145,7 +120,7 @@ function parseIntentResponse(content: string): CreationIntent | null {
     
     const parsed = JSON.parse(jsonMatch[0]);
     return {
-      type: parsed.type === 'workflow' ? 'workflow' : 'skill',
+      type: 'skill',
       confidence: Math.min(1, Math.max(0, parsed.confidence || 0.7)),
       description: parsed.description || '',
     };
@@ -156,16 +131,6 @@ function parseIntentResponse(content: string): CreationIntent | null {
 
 // 回退到关键词匹配
 function fallbackIntentAnalysis(input: string): CreationIntent {
-  const workflowKeywords = ['workflow', '工作流', '流程', '编排'];
-  const skillKeywords = ['step', 'skill', '技能', '步骤', '能力'];
-  
-  const hasWorkflow = workflowKeywords.some(k => input.includes(k));
-  const hasSkill = skillKeywords.some(k => input.includes(k));
-  
-  if (hasWorkflow && !hasSkill) {
-    return { type: 'workflow', confidence: 0.8, description: input };
-  }
-  
   return { type: 'skill', confidence: 0.7, description: input };
 }
 
@@ -312,91 +277,4 @@ function generateKebabName(description: string): string {
   
   const translated = words.map(w => translations[w] || w.toLowerCase());
   return translated.join('-').substring(0, 30);
-}
-
-// 生成 Workflow 配置
-export async function generateWorkflowConfig(description: string): Promise<WorkflowConfig | null> {
-  const available = await isLLMAvailable();
-  if (!available) {
-    return fallbackWorkflowConfig(description);
-  }
-
-  const prompt = buildWorkflowPrompt(description);
-  const response = await callLLM(prompt.messages);
-  
-  if (!response) {
-    return fallbackWorkflowConfig(description);
-  }
-
-  return parseWorkflowResponse(response.content, description);
-}
-
-// 构建 Workflow 生成 prompt
-function buildWorkflowPrompt(description: string): { messages: Record<string, unknown>[] } {
-  const systemPrompt = `你是 Workflow 配置生成器。根据用户描述生成完整的工作流配置。
-
-返回 JSON 格式：
-{
-  "name": "workflow-id",
-  "description": "工作流描述",
-  "nodes": [
-    {"id": "node-1", "type": "skill", "name": "步骤名称", "skillId": "skill-name"}
-  ],
-  "edges": [
-    {"source": "node-1", "target": "node-2"}
-  ],
-  "parameters": [
-    {"name": "input", "type": "string", "required": true, "description": "输入"}
-  ]
-}
-
-规则：
-1. nodes 按执行顺序排列
-2. edges 连接节点
-3. 每个 node 的 skillId 要合理`;
-
-  return {
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: `描述：${description}\n\n生成配置JSON：` },
-    ],
-  };
-}
-
-// 解析 Workflow 配置响应
-function parseWorkflowResponse(content: string, fallbackDesc: string): WorkflowConfig | null {
-  try {
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return null;
-    
-    const parsed = JSON.parse(jsonMatch[0]);
-    
-    return {
-      name: parsed.name || generateKebabName(fallbackDesc),
-      description: parsed.description || fallbackDesc,
-      nodes: parsed.nodes || [],
-      edges: parsed.edges || [],
-      parameters: parsed.parameters || [],
-    };
-  } catch {
-    return null;
-  }
-}
-
-// 回退 Workflow 配置
-function fallbackWorkflowConfig(description: string): WorkflowConfig {
-  const name = generateKebabName(description);
-  
-  return {
-    name,
-    description,
-    nodes: [
-      { id: 'start', type: 'start', name: '开始' },
-      { id: 'end', type: 'end', name: '结束' },
-    ],
-    edges: [
-      { source: 'start', target: 'end' },
-    ],
-    parameters: [{ name: 'input', type: 'string', required: true, description: '输入' }],
-  };
 }

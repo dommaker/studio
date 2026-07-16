@@ -17,7 +17,6 @@ const MORE_ITEMS: DropdownItem[] = [
 ];
 
 const CONFIG_ITEMS: DropdownItem[] = [
-  { to: '/tools', icon: '🔩', label: '工具管理', i18nKey: 'nav.tools' },
   { to: '/settings', icon: '⚙️', label: '设置', i18nKey: 'nav.settings' },
 ];
 

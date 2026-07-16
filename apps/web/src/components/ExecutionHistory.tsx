@@ -1,7 +1,7 @@
 // ExecutionHistory - 执行历史面板（深色主题）
 // @ts-nocheck - This component is deprecated after routing refactor, not used anymore
 import { useState, useEffect } from 'react';
-import { useRuntimeStore, useWorkflowStore } from '../stores';
+import { useRuntimeStore } from '../stores';
 import type { Execution } from '../types';
 import '../styles/theme.css';
 
@@ -11,12 +11,11 @@ interface ExecutionHistoryProps {
 
 export function ExecutionHistory({ onClose }: ExecutionHistoryProps) {
   const { runtimeExecutions: executions, loadExecutions } = useRuntimeStore();
-  const { selectedWorkflow } = useWorkflowStore();
   const [selectedExecution, setSelectedExecution] = useState<Execution | null>(null);
 
   useEffect(() => {
-    loadExecutions(selectedWorkflow?.id);
-  }, [loadExecutions, selectedWorkflow?.id]);
+    loadExecutions();
+  }, [loadExecutions]);
 
   const getStatusColor = (status: string) => {
     switch (status) {

@@ -22,11 +22,6 @@ const COMPANY_SIZE_CONFIG = {
 router.get('/', async (req: Request, res: Response) => {
   try {
     const companies = await prisma.company.findMany({
-      include: {
-        _count: {
-          select: { Role: true },
-        },
-      },
       orderBy: { createdAt: 'desc' },
     });
 
@@ -107,20 +102,6 @@ router.get('/:companyId', async (req: Request, res: Response) => {
 
     const company = await prisma.company.findUnique({
       where: { id: companyId },
-      include: {
-        Role: {
-          select: {
-            id: true,
-            name: true,
-            type: true,
-            level: true,
-            status: true,
-          },
-        },
-        _count: {
-          select: { Role: true },
-        },
-      },
     });
 
     if (!company) {
@@ -155,16 +136,11 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
     const { companyId } = req.params;
 
     // 并行查询多个数据源
-    const [company, roles, executions] = await Promise.all([
+    const [company, executions] = await Promise.all([
       // 公司信息
       prisma.company.findUnique({
         where: { id: companyId },
         select: { id: true, name: true, size: true },
-      }),
-      // 角色统计
-      prisma.role.findMany({
-        where: { companyId },
-        select: { id: true, status: true },
       }),
       // 执行中的任务数
       prisma.execution.count({
@@ -177,10 +153,6 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
         error: { code: 'NOT_FOUND', message: `Company ${companyId} not found` },
       });
     }
-
-    // 计算统计数据
-    const totalRoles = roles.length;
-    const onlineRoles = roles.filter(r => r.status === 'active').length;
 
     // 今日完成任务数
     const todayCompletedTasks = await prisma.execution.count({
@@ -199,8 +171,6 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
           name: company.name,
           size: company.size,
         },
-        totalRoles,
-        onlineRoles,
         runningTasks: executions,
         todayCompletedTasks,
       },

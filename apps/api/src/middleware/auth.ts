@@ -247,14 +247,6 @@ export function requireRole(...roles: string[]) {
  */
 async function findResourceCreator(model: string, resourceId: string): Promise<string | null | undefined> {
   switch (model.toLowerCase()) {
-    case 'role': {
-      const r = await prisma.role.findUnique({ where: { id: resourceId }, select: { creatorId: true } });
-      return r?.creatorId ?? undefined;
-    }
-    case 'signedDocument': {
-      const r = await prisma.signedDocument.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
-      return r?.createdBy ?? undefined;
-    }
     case 'document': {
       const r = await prisma.document.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
       return r?.createdBy ?? undefined;

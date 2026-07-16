@@ -25,7 +25,7 @@ export class MCPPermissionService {
       return cached.allowed;
     }
 
-    const perm = await prisma.mCPPermission.findUnique({
+    const perm = await (prisma as any).mCPPermission.findUnique({
       where: { roleId_toolName: { roleId, toolName } },
     });
 
@@ -38,7 +38,7 @@ export class MCPPermissionService {
    * Set permission for a role×tool
    */
   async setPermission(roleId: string, toolName: string, allowed: boolean): Promise<void> {
-    await prisma.mCPPermission.upsert({
+    await (prisma as any).mCPPermission.upsert({
       where: { roleId_toolName: { roleId, toolName } },
       create: { roleId, toolName, allowed },
       update: { allowed },
@@ -53,7 +53,7 @@ export class MCPPermissionService {
    * Get all permissions for a role
    */
   async getRolePermissions(roleId: string): Promise<Array<{ toolName: string; allowed: boolean }>> {
-    const perms = await prisma.mCPPermission.findMany({
+    const perms = await (prisma as any).mCPPermission.findMany({
       where: { roleId },
       select: { toolName: true, allowed: true },
     });
@@ -77,7 +77,7 @@ export class MCPPermissionService {
       const sanitizedInput = params.input ? this.sanitizeInput(params.input) : undefined;
       const outputSummary = params.output ? this.summarizeOutput(params.output) : undefined;
 
-      await prisma.mCPAuditLog.create({
+      await (prisma as any).mCPAuditLog.create({
         data: {
           toolName: params.toolName,
           roleId: params.roleId,
@@ -109,13 +109,13 @@ export class MCPPermissionService {
     if (params.success !== undefined) where.success = params.success;
 
     const [logs, total] = await Promise.all([
-      prisma.mCPAuditLog.findMany({
+      (prisma as any).mCPAuditLog.findMany({
         where,
         take: params.limit || 50,
         skip: params.offset || 0,
         orderBy: { createdAt: 'desc' },
       }),
-      prisma.mCPAuditLog.count({ where }),
+      (prisma as any).mCPAuditLog.count({ where }),
     ]);
 
     return { logs, total };
@@ -126,7 +126,7 @@ export class MCPPermissionService {
    */
   async cleanupAudit(retentionDays = 30): Promise<number> {
     const cutoff = new Date(Date.now() - retentionDays * 86400_000);
-    const result = await prisma.mCPAuditLog.deleteMany({
+    const result = await (prisma as any).mCPAuditLog.deleteMany({
       where: { createdAt: { lt: cutoff } },
     });
     if (result.count > 0) {
@@ -170,11 +170,11 @@ export async function seedDefaultPermissions(toolNames: string[]): Promise<void>
 
   for (const roleId of systemRoles) {
     for (const toolName of toolNames) {
-      const existing = await prisma.mCPPermission.findUnique({
+      const existing = await (prisma as any).mCPPermission.findUnique({
         where: { roleId_toolName: { roleId, toolName } },
       });
       if (!existing) {
-        await prisma.mCPPermission.create({
+        await (prisma as any).mCPPermission.create({
           data: { roleId, toolName, allowed: true },
         });
         seeded++;

@@ -1,16 +1,15 @@
 /**
- * SkillLoader API Service — DB-driven skill loading with session lifecycle
+ * SkillLoader API Service - file-based skill loading with session lifecycle
  *
  * Wraps @dommaker/studio-skill package loader.
- * Adds: DB CRUD, session-level load/unload, tier-based tool permissions.
+ * Adds: session-level load/unload, tier-based tool permissions.
  *
- * #73: DB-driven loading
  * #75: load/unload lifecycle
  * #76: tier-based tool permission binding
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { skillLoader, type SkillDefinition, type SkillTier } from '@dommaker/studio-skill';
+import { type SkillTier } from '@dommaker/studio-skill';
 import { logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -44,13 +43,7 @@ export interface UnloadSkillOptions {
   skillName: string;
 }
 
-export interface LoadForSessionOptions {
-  sessionId: string;
-  agentType: string;
-  tier?: SkillTier;
-}
-
-// ── Tier → tool access mapping ──
+// ── Tier -> tool access mapping ──
 
 const TIER_TOOL_ACCESS: Record<SkillTier, Set<string>> = {
   fast: new Set(['Read', 'Glob', 'Grep', 'Bash']),
@@ -58,7 +51,7 @@ const TIER_TOOL_ACCESS: Record<SkillTier, Set<string>> = {
   premium: new Set(['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch']),
 };
 
-// ── File-based skill scanning (.md with frontmatter) ──
+// ── File-based skill loading (.md with frontmatter) ──
 
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
 
@@ -95,28 +88,17 @@ function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: stri
   return { meta: meta as unknown as SkillFrontmatter, body };
 }
 
-/**
- * Scan disk for all published skill metadata.
- * Used by loadForSession() to find matching skills before loading.
- */
-function scanPublishedSkills(): SkillFrontmatter[] {
+function loadSkillFromDisk(skillName: string): { meta: SkillFrontmatter; prompt: string } | null {
   try {
-    if (!fs.existsSync(SKILLS_DIR)) return [];
-    const results: SkillFrontmatter[] = [];
-    const entries = fs.readdirSync(SKILLS_DIR, { withFileTypes: true });
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue;
-      const filePath = path.join(SKILLS_DIR, entry.name, 'SKILL.md');
-      if (!fs.existsSync(filePath)) continue;
-      const raw = fs.readFileSync(filePath, 'utf-8');
-      const parsed = parseFrontmatter(raw);
-      if (!parsed) continue;
-      if (parsed.meta.status && parsed.meta.status !== 'published') continue;
-      results.push(parsed.meta);
-    }
-    return results;
+    const filePath = path.join(SKILLS_DIR, skillName, 'SKILL.md');
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, 'utf-8');
+    const parsed = parseFrontmatter(raw);
+    if (!parsed) return null;
+    if (parsed.meta.status && parsed.meta.status !== 'published') return null;
+    return { meta: parsed.meta, prompt: parsed.body };
   } catch {
-    return [];
+    return null;
   }
 }
 
@@ -151,25 +133,25 @@ export class SkillLoaderService {
       return state.loaded.get(skillName)!;
     }
 
-    // Load skill using package loader (handles disk reading + caching)
-    // Always try loadSingle() first to get the latest version from disk
-    let skill = skillLoader.loadSingle(skillName);
+    // Try file-based loading first
+    const fileSkill = loadSkillFromDisk(skillName);
 
-    // Fall back to cached version if not found on disk
-    if (!skill) {
-      skill = skillLoader.get(skillName);
-    }
+    let skillId: string;
+    let prompt: string;
+    let tools: string[];
+    let tier: SkillTier;
+    let required: string[];
 
-    if (!skill) {
+    if (!fileSkill) {
       logger.warn('[SkillLoader] Skill not found on disk', { skillName });
       return null;
     }
 
-    const skillId = `file:${skillName}`;
-    const prompt = skill.prompt;
-    const tools = skill.tools || [];
-    const tier = skill.tier || 'standard';
-    const required = skill.requires || [];
+    skillId = `file:${skillName}`;
+    prompt = fileSkill.prompt;
+    tools = fileSkill.meta.tools || [];
+    tier = (fileSkill.meta.tier || 'standard') as SkillTier;
+    required = fileSkill.meta.required || [];
 
     // Load required skills recursively
     for (const reqName of required) {
@@ -233,36 +215,6 @@ export class SkillLoaderService {
     }
 
     return existed;
-  }
-
-  /**
-   * Load all matching skills for a session based on trigger + agentType + tier.
-   * Scans disk for published skills, filters by criteria, then loads via package loader.
-   *
-   * #73: DB-driven loading
-   */
-  async loadForSession(options: LoadForSessionOptions): Promise<LoadedSkill[]> {
-    const { sessionId, agentType, tier = 'standard' } = options;
-
-    const tierRank: Record<string, number> = { fast: 1, standard: 2, premium: 3 };
-    const targetRank = tierRank[tier] ?? 2;
-
-    // Scan disk for published skills
-    const publishedSkills = scanPublishedSkills();
-
-    const matched: LoadedSkill[] = [];
-    for (const meta of publishedSkills) {
-      const agentTypes = meta.agentTypes || [];
-      if (agentTypes.length > 0 && !agentTypes.includes(agentType)) continue;
-
-      const skillTier = (meta.tier || 'standard') as SkillTier;
-      if (tierRank[skillTier] > targetRank) continue;
-
-      const loaded = await this.loadSkill({ sessionId, skillName: meta.name, agentType });
-      if (loaded) matched.push(loaded);
-    }
-
-    return matched;
   }
 
   /**

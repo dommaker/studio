@@ -27,19 +27,19 @@ for (const [name, description] of Object.entries(SKILL_DESCRIPTIONS)) {
   );
 }
 
-// Mock prisma
-const mockWorkUnitFindUnique = vi.fn();
-const mockWorkUnitUpdateMany = vi.fn();
-const mockWorkUnitUpdate = vi.fn();
-const mockStudioEventCreate = vi.fn().mockResolvedValue({ id: 'evt' });
+const { mockFileStore, mockStudioEventCreate } = vi.hoisted(() => ({
+  mockFileStore: {
+    getIndex: vi.fn(),
+    claimWorkUnit: vi.fn(),
+    upsertSnapshot: vi.fn(),
+    appendEvent: vi.fn(),
+    removeSnapshot: vi.fn(),
+  },
+  mockStudioEventCreate: vi.fn().mockResolvedValue({ id: 'evt' }),
+}));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   prisma: {
-    workUnit: {
-      findUnique: mockWorkUnitFindUnique,
-      updateMany: mockWorkUnitUpdateMany,
-      update: mockWorkUnitUpdate,
-    },
     skill: { findFirst: vi.fn(), findMany: vi.fn() },
     studioEvent: { create: mockStudioEventCreate },
   },
@@ -72,24 +72,28 @@ describe('AC4: claim WorkUnit auto-loads skills', () => {
     vi.clearAllMocks();
     invalidateManifestCache();
 
-    const mockPrisma = {
-      workUnit: {
-        findUnique: mockWorkUnitFindUnique,
-        updateMany: mockWorkUnitUpdateMany,
-        update: mockWorkUnitUpdate,
-      },
-    } as unknown as import('@prisma/client').PrismaClient;
-    service = new WorkUnitService(mockPrisma as never);
+    service = new WorkUnitService(undefined as never, mockFileStore as never);
   });
 
   it('loads matching skills after claim', async () => {
-    mockWorkUnitUpdateMany.mockResolvedValue({ count: 1 });
-    mockWorkUnitFindUnique.mockResolvedValue({
-      id: 'wu-1',
-      scope: '分析需求：用户认证',
+    const baseSnapshot = {
+      id: 'wu-1', status: 'unassigned', scope: '分析需求：用户认证',
+      parentId: null, type: 'task', assigneeId: null, failureType: null,
+      retryCount: 0, timeoutAt: null, channelId: null, projectPath: null,
+      metadata: null, claimedAt: null, completedAt: null,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    const claimedSnapshot = {
+      ...baseSnapshot,
       assigneeId: 'agent-1',
       status: 'active',
+    };
+    let getIndexCalls = 0;
+    mockFileStore.getIndex.mockImplementation(() => {
+      getIndexCalls++;
+      return getIndexCalls === 1 ? [baseSnapshot] : [claimedSnapshot];
     });
+    mockFileStore.claimWorkUnit.mockResolvedValue(true);
 
     const result = await service.claim('wu-1', 'agent-1');
     expect(result).toBeDefined();
@@ -99,20 +103,37 @@ describe('AC4: claim WorkUnit auto-loads skills', () => {
   });
 
   it('does not throw when no skills match', async () => {
-    mockWorkUnitUpdateMany.mockResolvedValue({ count: 1 });
-    mockWorkUnitFindUnique.mockResolvedValue({
-      id: 'wu-2',
-      scope: '完全无关的 scope 内容',
-      assigneeId: 'agent-1',
-      status: 'active',
+    const baseSnapshot = {
+      id: 'wu-2', status: 'unassigned', scope: '完全无关的 scope 内容',
+      parentId: null, type: 'task', assigneeId: null, failureType: null,
+      retryCount: 0, timeoutAt: null, channelId: null, projectPath: null,
+      metadata: null, claimedAt: null, completedAt: null,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    };
+    let getIndexCalls = 0;
+    mockFileStore.getIndex.mockImplementation(() => {
+      getIndexCalls++;
+      return getIndexCalls === 1
+        ? [baseSnapshot]
+        : [{ ...baseSnapshot, assigneeId: 'agent-1', status: 'active' }];
     });
+    mockFileStore.claimWorkUnit.mockResolvedValue(true);
 
     const result = await service.claim('wu-2', 'agent-1');
     expect(result).toBeDefined();
   });
 
   it('throws when claim fails (optimistic lock)', async () => {
-    mockWorkUnitUpdateMany.mockResolvedValue({ count: 0 });
+    mockFileStore.getIndex.mockResolvedValue([
+      {
+        id: 'wu-3', status: 'unassigned', scope: 'test',
+        parentId: null, type: 'task', assigneeId: null, failureType: null,
+        retryCount: 0, timeoutAt: null, channelId: null, projectPath: null,
+        metadata: null, claimedAt: null, completedAt: null,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      },
+    ]);
+    mockFileStore.claimWorkUnit.mockResolvedValue(false);
 
     await expect(service.claim('wu-3', 'agent-1')).rejects.toThrow('Claim failed');
   });

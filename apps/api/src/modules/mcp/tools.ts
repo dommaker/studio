@@ -93,48 +93,6 @@ const getProjectStatus: MCPTool = {
 
 // ─── 角色管理 ───
 
-const listRoles: MCPTool = {
-  name: 'listRoles',
-  description: '列出公司的所有角色',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      companyId: { type: 'string', description: '公司 ID' },
-      status: { type: 'string', description: '状态过滤' },
-    },
-    required: ['companyId'],
-  },
-  handler: async (input) => {
-    const where: Record<string, any> = { companyId: input.companyId };
-    if (input.status) where.status = input.status;
-    const roles = await prisma.role.findMany({
-      where,
-      select: { id: true, name: true, type: true, level: true, status: true },
-    });
-    return { roles, total: roles.length };
-  },
-};
-
-const getRoleMemory: MCPTool = {
-  name: 'getRoleMemory',
-  description: '获取角色的记忆内容',
-  inputSchema: {
-    type: 'object',
-    properties: {
-      roleId: { type: 'string', description: '角色 ID' },
-    },
-    required: ['roleId'],
-  },
-  handler: async (input) => {
-    const role = await prisma.role.findUnique({
-      where: { id: input.roleId },
-      select: { id: true, name: true, memory: true },
-    });
-    if (!role) throw new Error('Role not found');
-    return { roleId: role.id, name: role.name, memory: role.memory };
-  },
-};
-
 // ─── 任务管理 ───
 
 const getTaskBoard: MCPTool = {
@@ -361,24 +319,15 @@ const getTaskStats: MCPTool = {
 
 const getBalance: MCPTool = {
   name: 'getBalance',
-  description: '查询公司或角色余额',
+  description: '查询公司余额',
   inputSchema: {
     type: 'object',
     properties: {
       companyId: { type: 'string', description: '公司 ID' },
-      roleId: { type: 'string', description: '角色 ID（可选，不传则返回公司余额）' },
     },
     required: ['companyId'],
   },
   handler: async (input) => {
-    if (input.roleId) {
-      const role = await prisma.role.findUnique({
-        where: { id: input.roleId },
-        select: { id: true, name: true, salary: true, level: true },
-      });
-      if (!role) throw new Error('Role not found');
-      return { type: 'role', ...role };
-    }
     const company = await prisma.company.findUnique({
       where: { id: input.companyId },
       select: { id: true, name: true },
@@ -402,7 +351,6 @@ const createSpec: MCPTool = {
       changeType: { type: 'string', description: '变更类型' },
       impact: { type: 'string', description: '影响评估' },
       requestedBy: { type: 'string', description: '请求者' },
-      workflowId: { type: 'string', description: '关联工作流 ID' },
     },
     required: ['title', 'changes', 'changeType'],
   },
@@ -415,7 +363,6 @@ const createSpec: MCPTool = {
         changeType: input.changeType,
         impact: input.impact || 'low',
         requestedBy: input.requestedBy,
-        workflowId: input.workflowId,
         status: 'pending',
       } as any,
     });
@@ -516,14 +463,12 @@ const listSpecs: MCPTool = {
     type: 'object',
     properties: {
       status: { type: 'string', description: '状态过滤', enum: ['pending', 'approved', 'rejected', 'applied'] },
-      workflowId: { type: 'string', description: '工作流 ID' },
       limit: { type: 'number', description: '返回数量', default: 20 },
     },
   },
   handler: async (input) => {
     const where: Record<string, any> = {};
     if (input.status) where.status = input.status;
-    if (input.workflowId) where.workflowId = input.workflowId;
 
     const reviews = await prisma.specReview.findMany({
       where,
@@ -1113,9 +1058,6 @@ const allTools: RegisteredTool[] = [
   createProject,
   listProjects,
   getProjectStatus,
-  // 角色 (2)
-  listRoles,
-  getRoleMemory,
   // 任务 (5)
   getTaskBoard,
   createTask,

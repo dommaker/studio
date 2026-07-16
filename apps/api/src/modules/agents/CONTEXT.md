@@ -14,7 +14,7 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
 
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/agent-context.ts
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
 
@@ -98,8 +98,10 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
 
-<!-- STALE_SINCE: 2026-06-26 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
+
+<!-- STALE_SINCE: 2026-07-15 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-context.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/data-analyst-agent.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/types.ts
 
 ## 职责
 
@@ -120,6 +122,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
+- ✅ `f06ebafe`: agents): AgentLoop channelId filter — JSON.parse double-encode guard
 - ✅ `93f20262`: agents): tryClaim revert to direct prisma + poll-fallback cron fix
 - ✅ `a8970c03`: agents): remove redundant as WorkUnit cast in agent-loop.ts L114
 - ✅ `f83bc026`: agents): AgentLoop→WorkUnitService + TriggerScheduler singleton
@@ -139,6 +143,8 @@
 - ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
 - ✅ `309f6061`: review pipeline — diff scope + discoveredIssues exposure
 - ✅ `556051f2`: B34 behavior distillation output path + PatternMiner startup + agent-runner --verbose
+- ✅ `1c4bb9ae`: remove all hardcoded credentials — require env vars
+- ✅ `79f4a18tion output path + PatternMiner startup + agent-runner --verbose
 - ✅ `1c4bb9ae`: remove all hardcoded credentials — require env vars
 - ✅ `79f4a186`: knowledge quality gate + CPU monitoring + type fix
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

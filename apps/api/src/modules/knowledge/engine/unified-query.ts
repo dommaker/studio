@@ -188,11 +188,11 @@ export class UnifiedQuery {
     // Prisma count
     if (!filter?.sources || filter.sources.includes('prisma')) {
       if (filter?.consumptionModes?.includes('rule')) {
-        count += await prisma.businessRule.count({ where: { status: 'active' } });
+        count += this.store.list({ tags: ['rule', 'active'] }).length;
       }
       if (filter?.consumptionModes?.includes('context')) {
-        const pref = await prisma.userPreference.findFirst({ where: { userId: 'default' } });
-        if (pref) count++;
+        const prefs = this.store.list({ tags: ['preference', 'user-default'] });
+        if (prefs.length > 0) count++;
         const env = await prisma.environmentSnapshot.findFirst({ orderBy: { createdAt: 'desc' } });
         if (env) count++;
       }
@@ -216,19 +216,21 @@ export class UnifiedQuery {
     const entries: StudioEntry[] = [];
     const modes = filter.consumptionModes ?? [];
 
-    // UserPreference → context entry
+    // UserPreference → context entry (KnowledgeStore)
     if (modes.includes('context')) {
-      const pref = await prisma.userPreference.findFirst({ where: { userId: 'default' } });
-      if (pref) {
-        entries.push(this.preferenceToEntry(pref));
+      const prefEntries = this.store.list({ tags: ['preference', 'user-default'] });
+      if (prefEntries.length > 0) {
+        const prefData = JSON.parse((prefEntries[0] as any).content || '{}');
+        entries.push(this.preferenceToEntry(prefData));
       }
     }
 
-    // BusinessRule → rule entries
+    // BusinessRule → rule entries (KnowledgeStore)
     if (modes.includes('rule')) {
-      const rules = await prisma.businessRule.findMany({ where: { status: 'active' } });
-      for (const rule of rules) {
-        entries.push(this.ruleToEntry(rule));
+      const ruleEntries = this.store.list({ tags: ['rule', 'active'] });
+      for (const entry of ruleEntries) {
+        const rule = JSON.parse((entry as any).content || '{}');
+        entries.push(this.ruleToEntry({ ...rule, name: (entry as any).title }));
       }
     }
 

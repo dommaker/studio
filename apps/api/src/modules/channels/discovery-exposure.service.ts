@@ -6,7 +6,7 @@
  * Non-blocking: errors are logged but never thrown to caller.
  */
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, eventBus } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
 
 export interface DiscoveryEntry {
   source: 'analyst' | 'reviewer';
@@ -20,15 +20,20 @@ export interface DiscoveryEntry {
 
 export class DiscoveryExposureService {
   private readonly COOLDOWN_MS = 24 * 60 * 60 * 1000;
+  private fileStore: FileStore;
 
-  async expose(discoveries: DiscoveryEntry[], sourceChannelId?: string): Promise<void> {
+  constructor(fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+  }
+
+  async expose(discoveries: DiscoveryEntry[]): Promise<void> {
     if (!discoveries?.length) return;
     try {
       for (const d of discoveries) {
         if (await this.isDuplicate(d.title)) continue;
 
         // Post to #系统 channel (reuse existing channel, no new channel needed)
-        const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+        const sysChannel = (await this.fileStore.listChannels({ name: '#系统' }))[0] ?? null;
         if (!sysChannel) continue;
 
         const { channelMessageService } = await import('./channel-message.service.js');
@@ -52,13 +57,6 @@ export class DiscoveryExposureService {
           });
         } catch {}
 
-        // G33: high/critical discoveries trigger automatic @analyst for execution
-        if (d.severity === 'high' || d.severity === 'critical') {
-          this.autoTriggerAnalyst(d, sourceChannelId).catch(e =>
-            logger.warn('[DiscoveryExposure] auto-trigger failed', { error: String(e) })
-          );
-        }
-
         logger.info('[DiscoveryExposure] Exposed', { title: d.title, severity: d.severity });
       }
     } catch (e) {
@@ -66,46 +64,20 @@ export class DiscoveryExposureService {
     }
   }
 
-  /** high/critical 发现自动 @analyst → 管线执行，人只看到留痕 */
-  private async autoTriggerAnalyst(d: DiscoveryEntry, sourceChannelId?: string): Promise<void> {
-    try {
-      const channelId = sourceChannelId || (await prisma.channel.findFirst({ where: { type: 'rnd' } }))?.id;
-      if (!channelId) return;
-
-      const port = process.env.PORT || '3001';
-      const resp = await fetch(`http://127.0.0.1:${port}/api/v1/channels/${channelId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          content: `@analyst [自动发现] ${d.title}\n\n来源: 代码探索自动发现\n文件: ${d.file}\n严重度: ${d.severity}\n\n${d.description}`,
-        }),
-      });
-      const result = await resp.json() as { success: boolean };
-      if (result.success) {
-        logger.info('[DiscoveryExposure] Auto-triggered @analyst', { title: d.title });
-      }
-    } catch (e) {
-      logger.warn('[DiscoveryExposure] autoTriggerAnalyst failed', { error: String(e) });
-    }
-  }
-
   private async isDuplicate(title: string): Promise<boolean> {
     try {
       const cutoff = new Date(Date.now() - this.COOLDOWN_MS);
-      const existing = await prisma.channelMessage.findMany({
-        where: {
-          agentName: { in: ['Analyst', 'Reviewer'] },
-          createdAt: { gte: cutoff },
-        },
-        select: { meta: true },
-        orderBy: { createdAt: 'desc' },
-        take: 50,
+      const cutoffIso = cutoff.toISOString();
+      const existing = await this.fileStore.queryAllMessages({
+        agentNames: ['Analyst', 'Reviewer'],
       });
-      if (existing.length === 0) return false;
-      return existing.some(msg => {
+      // 过滤时间 + 检查 meta title 重复
+      const recent = existing.filter(m => new Date(m.createdAt).getTime() >= cutoff.getTime());
+      if (recent.length === 0) return false;
+      return recent.some(msg => {
         try {
-          const m = typeof msg.meta === 'string' ? JSON.parse(msg.meta) : msg.meta;
-          return m?.title === title;
+          const meta = typeof msg.meta === 'string' ? JSON.parse(msg.meta) : msg.meta;
+          return meta?.title === title;
         } catch { return false; }
       });
     } catch { return false; }

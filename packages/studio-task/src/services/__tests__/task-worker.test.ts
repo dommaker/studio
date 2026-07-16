@@ -154,7 +154,6 @@ describe('TaskWorker', () => {
 
       const task = {
         id: 'task-1',
-        workflowId: 'wf-1',
         executionId: 'ex-1',
         nodeId: 'node-1',
         agentType: 'solo-developer',

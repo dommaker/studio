@@ -1,6 +1,5 @@
 // RequirementsDoc edit routes — B2-009
 import { Router } from 'express';
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, findSddDocById, readSddDoc, updateSddFrontmatter } from '@dommaker/studio-shared';
 
 const router = Router();
@@ -30,11 +29,6 @@ router.put('/:id', async (req, res) => {
       logger.warn('[RequirementsDoc] SDD frontmatter update failed', { error: String(e) });
     }
   }
-  // DB async sync (non-blocking)
-  prisma.requirementsDoc.update({
-    where: { id: req.params.id },
-    data: { content, status: 'draft' },
-  }).catch((e: unknown) => logger.warn('[RequirementsDoc] DB sync failed (non-blocking)', { error: String(e) }));
   logger.info('[RequirementsDoc] Updated', { id: req.params.id });
   res.json({ success: true, data: { updated: true } });
 });

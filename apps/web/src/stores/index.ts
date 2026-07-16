@@ -4,8 +4,6 @@ export { useRuntimeStore } from './runtimeStore';
 export { useUIStore } from './uiStore';
 export { useAuthStore } from './authStore';
 export { useStepEditorStore } from './stepEditorStore';
-export { useGoalStore } from './goalStore';
-
 // 兼容：保留 useAppStore 作为组合导出
 import { useAgentStore } from './agentStore';
 import { useRuntimeStore } from './runtimeStore';

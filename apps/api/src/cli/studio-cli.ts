@@ -196,14 +196,14 @@ async function studioRun() {
       process.exit(1);
     }
 
-    // Send message (appends @Analyst automatically in the route handler)
+    // Send message (@mention → WorkUnit creation in route handler)
     const content = /@analyst/i.test(requirement) ? requirement : `${requirement} @Analyst`;
     const msgResp = await fetch(`${baseUrl}/channels/${rndChannel.id}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
     });
-    const msgResult = await msgResp.json() as { success: boolean; data?: { id: string; analystTriggered: boolean }; error?: string };
+    const msgResult = await msgResp.json() as { success: boolean; data?: { id: string }; error?: string };
 
     if (!msgResult.success) {
       console.error('Failed to submit:', msgResult.error);
@@ -1180,9 +1180,6 @@ async function main() {
       break;
     case 'channel':
       await apiCommand('channels', args.slice(1));
-      break;
-    case 'role':
-      await apiCommand('roles', args.slice(1));
       break;
     case 'task':
       await apiCommand('tasks', args.slice(1));

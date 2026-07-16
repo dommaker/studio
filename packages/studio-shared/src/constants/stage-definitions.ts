@@ -211,7 +211,7 @@ export interface StageValidationResult {
 }
 
 /**
- * 验证 Tool/Workflow 的 stage 字段
+ * 验证 Tool 的 stage 字段
  * 
  * @param stage stage 字段值
  * @param name 任务名称（用于推荐）

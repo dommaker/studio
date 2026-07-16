@@ -1,6 +1,5 @@
 // B2-008: LLM Wiki — RequirementsDoc 档案馆
 import { Router } from 'express';
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, appendChangelog, findSddDocById, updateSddFrontmatter } from '@dommaker/studio-shared';
 import { listWikiDocs, buildWikiGraph, getWikiDocById } from './wiki.service.js';
 
@@ -106,12 +105,6 @@ wikiRoutes.put('/:id', async (req, res) => {
     } catch (e) {
       logger.warn('[Wiki] SDD frontmatter update failed', { error: String(e) });
     }
-    // DB async sync (non-blocking)
-    prisma.requirementsDoc.update({
-      where: { id: req.params.id },
-      data: updateData,
-    }).catch((e: unknown) => logger.warn('[Wiki] DB sync failed (non-blocking)', { error: String(e) }));
-
     logger.info('[Wiki] Updated', { id: req.params.id });
 
     res.json({ success: true, data: { id: req.params.id, ...updateData } });

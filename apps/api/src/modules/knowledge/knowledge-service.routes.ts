@@ -207,8 +207,8 @@ knowledgeServiceRoutes.post('/inject-context', async (req, res) => {
   try {
     const { agentType, tags, maxTokens, includeRules } = req.body;
     if (!agentType) return res.status(400).json({ error: 'agentType required' });
-    const context = await knowledgeService.injectContext(agentType, { tags, maxTokens, includeRules });
-    res.json({ context });
+    const result = await knowledgeService.injectContext(agentType, { tags, maxTokens, includeRules });
+    res.json({ context: result.prompt, injectedIds: result.injectedIds });
   } catch (e: any) {
     logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
     res.status(500).json({ error: String(e) });
@@ -239,20 +239,6 @@ knowledgeServiceRoutes.post('/record-outcome', async (req, res) => {
       executionId, agentType, consumedKnowledge: consumedKnowledge || [],
       success, details: details || '', timestamp: timestamp || new Date().toISOString(), mode,
     });
-    res.status(201).json({ success: true });
-  } catch (e: any) {
-    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
-    res.status(500).json({ error: String(e) });
-  }
-});
-
-knowledgeServiceRoutes.post('/record-feedback', async (req, res) => {
-  try {
-    const { entryId, useful, reason } = req.body;
-    if (!entryId || useful === undefined) {
-      return res.status(400).json({ error: 'entryId, useful required' });
-    }
-    await knowledgeService.recordFeedback(entryId, useful, reason);
     res.status(201).json({ success: true });
   } catch (e: any) {
     logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });

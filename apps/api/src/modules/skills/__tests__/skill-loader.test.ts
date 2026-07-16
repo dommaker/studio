@@ -58,26 +58,6 @@ status: published
 ## TDD
 Write tests first`;
 
-const CONSTRAINTS_SKILL_MD = `---
-name: behaviour-constraints
-description: "Always-on constraints"
-agentTypes: [executor]
-tier: fast
-status: published
----
-## Constraints
-- No any type`;
-
-const REVIEW_SKILL_MD = `---
-name: review-skill
-description: "Review skill"
-agentTypes: [reviewer]
-tier: standard
-status: published
----
-## Review
-Read code`;
-
 describe('SkillLoaderService', () => {
   let service: SkillLoaderService;
 
@@ -200,59 +180,6 @@ status: published
     it('should return false for non-existent session', () => {
       const removed = service.unloadSkill({ sessionId: 'no-such-session', skillName: 'any' });
       expect(removed).toBe(false);
-    });
-  });
-
-  describe('loadForSession (#73 + #75)', () => {
-    it('should load matching skills from disk', async () => {
-      createSkillFile('tdd-workflow', TDD_SKILL_MD);
-      createSkillFile('behaviour-constraints', CONSTRAINTS_SKILL_MD);
-      createSkillFile('review-skill', REVIEW_SKILL_MD);
-
-      const loaded = await service.loadForSession({
-        sessionId: 'session-1',
-        agentType: 'executor',
-        tier: 'fast',
-      });
-
-      // Should match tdd-workflow + behaviour-constraints (both executor + fast tier)
-      // Should NOT match review-skill (reviewer agentType, standard tier)
-      expect(loaded).toHaveLength(2);
-      expect(loaded.map(s => s.name)).toContain('tdd-workflow');
-      expect(loaded.map(s => s.name)).toContain('behaviour-constraints');
-
-      removeSkillFile('tdd-workflow');
-      removeSkillFile('behaviour-constraints');
-      removeSkillFile('review-skill');
-    });
-
-    it('should filter by tier threshold', async () => {
-      const premiumMd = `---
-name: premium-skill
-description: "Premium"
-agentTypes: []
-tier: premium
-status: published
----
-## Premium`;
-
-      createSkillFile('premium-skill', premiumMd);
-
-      const fastLoaded = await service.loadForSession({
-        sessionId: 'session-1',
-        agentType: 'executor',
-        tier: 'fast',
-      });
-      expect(fastLoaded).toHaveLength(0);
-
-      const premiumLoaded = await service.loadForSession({
-        sessionId: 'session-2',
-        agentType: 'executor',
-        tier: 'premium',
-      });
-      expect(premiumLoaded).toHaveLength(1);
-
-      removeSkillFile('premium-skill');
     });
   });
 
@@ -410,17 +337,6 @@ This is a test skill loaded from a .md file.`;
       expect(loaded!.prompt).toContain('## Test Skill');
       expect(loaded!.tier).toBe('fast');
       expect(loaded!.skillId).toBe('file:file-skill');
-    });
-
-    it('should load from .md in loadForSession', async () => {
-      const freshService = new SkillLoaderService();
-      const loaded = await freshService.loadForSession({
-        sessionId: 'session-file',
-        agentType: 'executor',
-        tier: 'fast',
-      });
-
-      expect(loaded.some(s => s.name === 'file-skill')).toBe(true);
     });
   });
 

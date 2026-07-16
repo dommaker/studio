@@ -2,11 +2,12 @@
  * WorkUnit Service — 工作单元 CRUD + Claim + 状态机
  *
  * AS-025 §3.28c-1 Task 2-4
+ * 存储迁移: 已从 Prisma 迁移到 FileStore (Event Sourcing)
  */
 
-import { Prisma, type WorkUnit } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
-import { logger, eventBus } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkills } from '../skills/skill-selector.js';
 import { skillLoaderService } from '../skills/skill-loader.js';
@@ -36,6 +37,7 @@ export interface WorkUnitMetadata {
   startedAt?: string;         // 首次执行时间
   consecutiveStuck?: number;  // 连续无进展步数
   sessionResumes?: number;    // session 恢复次数
+  lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)
   [key: string]: unknown;     // 允许扩展字段
 }
 
@@ -46,6 +48,7 @@ export interface CreateWorkUnitInput {
   status?: string;
   channelId?: string | null;
   parentId?: string | null;
+  projectPath?: string | null;
   failureType?: string;
   retryCount?: number;
   timeoutAt?: Date | null;
@@ -59,11 +62,35 @@ export interface UpdateWorkUnitInput {
   assigneeId?: string | null;
   channelId?: string | null;
   parentId?: string | null;
+  projectPath?: string | null;
   failureType?: string | null;
   retryCount?: number;
   timeoutAt?: Date | null;
   completedAt?: Date | null;
   metadata?: WorkUnitMetadata;
+}
+
+/**
+ * WorkUnitData — 与 Prisma WorkUnit 类型兼容的平面字段（无 relations）。
+ * 日期字段使用 Date 对象（与 Prisma 行为一致），来源是 FileStore 的字符串日期。
+ */
+export interface WorkUnitData {
+  id: string;
+  parentId: string | null;
+  type: string;
+  scope: string;
+  assigneeId: string | null;
+  status: string;
+  failureType: string | null;
+  retryCount: number;
+  timeoutAt: Date | null;
+  channelId: string | null;
+  projectPath: string | null;
+  metadata: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  claimedAt: Date | null;
+  completedAt: Date | null;
 }
 
 /** Valid status transitions map */
@@ -76,40 +103,116 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   closed: ['unassigned'],
 };
 
+// ── 转换函数 ──
+
+function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
+  return {
+    id: s.id,
+    parentId: s.parentId,
+    type: s.type,
+    scope: s.scope,
+    assigneeId: s.assigneeId,
+    status: s.status,
+    failureType: s.failureType,
+    retryCount: s.retryCount,
+    timeoutAt: s.timeoutAt ? new Date(s.timeoutAt) : null,
+    channelId: s.channelId,
+    projectPath: s.projectPath,
+    metadata: s.metadata,
+    createdAt: new Date(s.createdAt),
+    updatedAt: new Date(s.updatedAt),
+    claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
+    completedAt: s.completedAt ? new Date(s.completedAt) : null,
+  };
+}
+
+function inputToSnapshot(
+  id: string,
+  input: CreateWorkUnitInput,
+  now: Date,
+): WorkUnitSnapshot {
+  const isoNow = now.toISOString();
+  return {
+    id,
+    parentId: input.parentId ?? null,
+    type: input.type ?? 'task',
+    scope: input.scope,
+    assigneeId: input.assigneeId ?? null,
+    status: input.status ?? 'unassigned',
+    failureType: input.failureType ?? null,
+    retryCount: input.retryCount ?? 0,
+    timeoutAt: input.timeoutAt?.toISOString() ?? null,
+    channelId: input.channelId ?? null,
+    projectPath: input.projectPath ?? null,
+    metadata: input.metadata ? JSON.stringify(input.metadata) : null,
+    createdAt: isoNow,
+    updatedAt: isoNow,
+    claimedAt: null,
+    completedAt: input.completedAt?.toISOString() ?? null,
+  };
+}
+
+function patchSnapshot(
+  existing: WorkUnitSnapshot,
+  input: UpdateWorkUnitInput,
+  now: Date,
+): WorkUnitSnapshot {
+  const isoNow = now.toISOString();
+  return {
+    ...existing,
+    type: input.type ?? existing.type,
+    scope: input.scope ?? existing.scope,
+    assigneeId: input.assigneeId !== undefined ? input.assigneeId : existing.assigneeId,
+    channelId: input.channelId !== undefined ? input.channelId : existing.channelId,
+    parentId: input.parentId !== undefined ? input.parentId : existing.parentId,
+    projectPath: input.projectPath !== undefined ? input.projectPath : existing.projectPath,
+    failureType: input.failureType !== undefined ? input.failureType : existing.failureType,
+    retryCount: input.retryCount ?? existing.retryCount,
+    timeoutAt: input.timeoutAt !== undefined ? input.timeoutAt?.toISOString() ?? null : existing.timeoutAt,
+    completedAt: input.completedAt !== undefined ? input.completedAt?.toISOString() ?? null : existing.completedAt,
+    metadata: input.metadata !== undefined ? JSON.stringify(input.metadata) : existing.metadata,
+    updatedAt: isoNow,
+  };
+}
+
 export class WorkUnitService {
-  constructor(private prisma: ExtendedPrismaClient) {}
+  private fileStore: FileStore;
+
+  constructor(_prisma?: ExtendedPrismaClient, fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+  }
 
   /**
    * Create a new WorkUnit.
    */
-  async create(input: CreateWorkUnitInput): Promise<WorkUnit> {
-    const wu = await this.prisma.workUnit.create({
-      data: {
-        type: input.type ?? 'task',
-        scope: input.scope,
-        assigneeId: input.assigneeId ?? null,
-        status: input.status ?? 'unassigned',
-        channelId: input.channelId ?? null,
-        parentId: input.parentId ?? null,
-        failureType: input.failureType ?? null,
-        retryCount: input.retryCount ?? 0,
-        timeoutAt: input.timeoutAt ?? null,
-        completedAt: input.completedAt ?? null,
-        metadata: input.metadata ? JSON.stringify(input.metadata) : null,
-      },
-    });
+  async create(input: CreateWorkUnitInput): Promise<WorkUnitData> {
+    const id = randomUUID();
+    const now = new Date();
+    const snapshot = inputToSnapshot(id, input, now);
+
+    // Append event
+    const event: WorkUnitEvent = {
+      type: 'created',
+      wuId: id,
+      timestamp: now.toISOString(),
+      data: snapshot as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+
+    // Upsert index snapshot
+    await this.fileStore.upsertSnapshot(snapshot);
 
     // Publish event for EVENT trigger consumers (AgentLoop, etc.)
     try {
-      eventBus.publish('workunit.created', { workunit: wu });
+      eventBus.publish('workunit.created', { workunit: snapshotToData(snapshot) });
     } catch (err) {
       logger.warn('[WorkUnit] Failed to publish workunit.created (non-blocking)', {
-        workUnitId: wu.id,
+        workUnitId: id,
         error: String(err),
       });
     }
 
-    return wu;
+    return snapshotToData(snapshot);
   }
 
   /**
@@ -120,15 +223,15 @@ export class WorkUnitService {
   async createFromMessage(
     messageId: string,
     options?: { type?: string; metadata?: WorkUnitMetadata },
-  ): Promise<WorkUnit> {
-    const message = await this.prisma.channelMessage.findUnique({ where: { id: messageId } });
-    if (!message) throw new Error(`Message ${messageId} not found`);
-    if (message.workUnitId) throw new Error(`Message already linked to WorkUnit ${message.workUnitId}`);
+  ): Promise<WorkUnitData> {
+    const found = await this.fileStore.getMessageById(messageId);
+    if (!found) throw new Error(`Message ${messageId} not found`);
+    if (found.message.workUnitId) throw new Error(`Message already linked to WorkUnit ${found.message.workUnitId}`);
 
     const wu = await this.create({
-      scope: message.content.slice(0, 500),
+      scope: found.message.content.slice(0, 500),
       type: options?.type ?? 'task',
-      channelId: message.channelId,
+      channelId: found.message.channelId,
       metadata: {
         ...options?.metadata,
         sourceMessageId: messageId,
@@ -136,11 +239,14 @@ export class WorkUnitService {
       },
     });
 
-    // Link message to WorkUnit
-    await this.prisma.channelMessage.update({
-      where: { id: messageId },
-      data: { workUnitId: wu.id },
-    });
+    // Link message to WorkUnit (append updated copy to FileStore)
+    const now = new Date().toISOString();
+    const updatedMsg: ChannelMessageData = {
+      ...found.message,
+      workUnitId: wu.id,
+      createdAt: now,
+    };
+    await this.fileStore.appendMessage(found.channelId, updatedMsg);
 
     return wu;
   }
@@ -148,8 +254,10 @@ export class WorkUnitService {
   /**
    * Get a WorkUnit by id. Returns null if not found.
    */
-  async getById(id: string): Promise<WorkUnit | null> {
-    return this.prisma.workUnit.findUnique({ where: { id } });
+  async getById(id: string): Promise<WorkUnitData | null> {
+    const snapshots = await this.fileStore.getIndex();
+    const found = snapshots.find(s => s.id === id);
+    return found ? snapshotToData(found) : null;
   }
 
   /**
@@ -165,55 +273,81 @@ export class WorkUnitService {
     timedOutBefore?: Date;
     page?: number;
     limit?: number;
-  }): Promise<{ data: WorkUnit[]; total: number }> {
+  }): Promise<{ data: WorkUnitData[]; total: number }> {
     const { type, status, assigneeId, channelId, parentId, failureType, timedOutBefore, page = 1, limit = 20 } = options ?? {};
 
-    const where: Prisma.WorkUnitWhereInput = {};
-    if (type) where.type = type;
-    if (status) where.status = status;
-    if (assigneeId) where.assigneeId = assigneeId;
-    if (channelId) where.channelId = channelId;
-    if (parentId) where.parentId = parentId;
-    if (failureType) where.failureType = failureType;
-    if (timedOutBefore) where.timeoutAt = { lte: timedOutBefore };
+    let snapshots = await this.fileStore.getIndex();
 
-    const [data, total] = await Promise.all([
-      this.prisma.workUnit.findMany({
-        where,
-        skip: (page - 1) * limit,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-      }),
-      this.prisma.workUnit.count({ where }),
-    ]);
+    // In-memory filter
+    if (type) snapshots = snapshots.filter(s => s.type === type);
+    if (status) snapshots = snapshots.filter(s => s.status === status);
+    if (assigneeId) snapshots = snapshots.filter(s => s.assigneeId === assigneeId);
+    if (channelId) snapshots = snapshots.filter(s => s.channelId === channelId);
+    if (parentId) snapshots = snapshots.filter(s => s.parentId === parentId);
+    if (failureType) snapshots = snapshots.filter(s => s.failureType === failureType);
+    if (timedOutBefore) {
+      const cutoff = timedOutBefore.getTime();
+      snapshots = snapshots.filter(s => s.timeoutAt && new Date(s.timeoutAt).getTime() <= cutoff);
+    }
 
-    return { data, total };
+    // Sort by createdAt desc
+    snapshots.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const total = snapshots.length;
+
+    // Paginate
+    const start = (page - 1) * limit;
+    const paged = snapshots.slice(start, start + limit);
+
+    return { data: paged.map(snapshotToData), total };
   }
 
   /**
    * Update a WorkUnit.
    */
-  async update(id: string, input: UpdateWorkUnitInput): Promise<WorkUnit> {
-    const data: Prisma.WorkUnitUncheckedUpdateInput = {};
-    if (input.type !== undefined) data.type = input.type;
-    if (input.scope !== undefined) data.scope = input.scope;
-    if (input.assigneeId !== undefined) data.assigneeId = input.assigneeId;
-    if (input.channelId !== undefined) data.channelId = input.channelId;
-    if (input.parentId !== undefined) data.parentId = input.parentId;
-    if (input.failureType !== undefined) data.failureType = input.failureType;
-    if (input.retryCount !== undefined) data.retryCount = input.retryCount;
-    if (input.timeoutAt !== undefined) data.timeoutAt = input.timeoutAt;
-    if (input.completedAt !== undefined) data.completedAt = input.completedAt;
-    if (input.metadata !== undefined) data.metadata = JSON.stringify(input.metadata);
+  async update(id: string, input: UpdateWorkUnitInput): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const existing = snapshots.find(s => s.id === id);
+    if (!existing) throw new Error(`WorkUnit not found: ${id}`);
 
-    return this.prisma.workUnit.update({ where: { id }, data });
+    const now = new Date();
+    const updated = patchSnapshot(existing, input, now);
+
+    // Append event
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: id,
+      timestamp: now.toISOString(),
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+
+    // Upsert index snapshot
+    await this.fileStore.upsertSnapshot(updated);
+
+    return snapshotToData(updated);
   }
 
   /**
    * Delete a WorkUnit.
    */
   async delete(id: string): Promise<void> {
-    await this.prisma.workUnit.delete({ where: { id } });
+    const snapshots = await this.fileStore.getIndex();
+    const existing = snapshots.find(s => s.id === id);
+    if (!existing) throw new Error(`WorkUnit not found: ${id}`);
+
+    const now = new Date();
+
+    // Append closed event
+    const event: WorkUnitEvent = {
+      type: 'closed',
+      wuId: id,
+      timestamp: now.toISOString(),
+    };
+    await this.fileStore.appendEvent(event);
+
+    // Remove from index
+    await this.fileStore.removeSnapshot(id);
   }
 
   /**
@@ -223,15 +357,18 @@ export class WorkUnitService {
    */
   private async checkFileConflicts(id: string, metadataRaw: string | null): Promise<string[]> {
     if (!metadataRaw) return [];
-    const metadata: WorkUnitMetadata = JSON.parse(metadataRaw);
-    const files = metadata.files;
+    const meta: WorkUnitMetadata = JSON.parse(metadataRaw);
+    const files = meta.files;
     if (!files || !Array.isArray(files) || files.length === 0) return [];
 
     const fileSet = new Set(files);
-    const activeWorkUnits = await this.prisma.workUnit.findMany({
-      where: { status: { in: ['active', 'in_review'] }, id: { not: id } },
-      select: { id: true, metadata: true },
+    const activeSnapshots = await this.fileStore.getIndex({
+      status: 'active',
     });
+    const reviewSnapshots = await this.fileStore.getIndex({
+      status: 'in_review',
+    });
+    const activeWorkUnits = [...activeSnapshots, ...reviewSnapshots].filter(s => s.id !== id);
 
     const conflicts: string[] = [];
     for (const wu of activeWorkUnits) {
@@ -246,33 +383,34 @@ export class WorkUnitService {
   }
 
   /**
-   * Claim a WorkUnit (optimistic lock).
+   * Claim a WorkUnit (optimistic lock with flock).
    * Only succeeds when assigneeId is null and status is 'unassigned'.
    * AS-025 §3.28c-5: After claim, auto-loads matching skills for the agent session.
    * @throws Error if claim fails (already claimed or invalid state)
    */
-  async claim(id: string, agentId: string): Promise<WorkUnit> {
+  async claim(id: string, agentId: string): Promise<WorkUnitData> {
     logger.info(`[WorkUnit] Claiming WorkUnit: ${id} by agent ${agentId}`);
 
-    // File conflict check before claiming
-    const wuToClaim = await this.prisma.workUnit.findUnique({ where: { id } });
+    // Read current state
+    const snapshots = await this.fileStore.getIndex();
+    const wuToClaim = snapshots.find(s => s.id === id);
     if (!wuToClaim) throw new Error('WorkUnit not found');
 
+    // File conflict check before claiming
     const conflicts = await this.checkFileConflicts(id, wuToClaim.metadata);
     if (conflicts.length > 0) {
       throw new Error(`File conflict with WorkUnit(s): ${conflicts.join(', ')}`);
     }
 
-    const result = await this.prisma.workUnit.updateMany({
-      where: { id, assigneeId: null, status: 'unassigned' },
-      data: { assigneeId: agentId, status: 'active', claimedAt: new Date() },
-    });
-
-    if (result.count === 0) {
+    // Use flock-based claim
+    const claimed = await this.fileStore.claimWorkUnit(id, agentId);
+    if (!claimed) {
       throw new Error('Claim failed');
     }
 
-    const wu = await this.prisma.workUnit.findUnique({ where: { id } });
+    // Re-read after claim
+    const afterClaim = await this.fileStore.getIndex();
+    const wu = afterClaim.find(s => s.id === id);
     if (!wu) throw new Error('WorkUnit not found');
 
     // AC4: auto-load matching skills based on scope (best-effort, non-blocking)
@@ -284,7 +422,7 @@ export class WorkUnitService {
       });
     });
 
-    return wu;
+    return snapshotToData(wu);
   }
 
   /**
@@ -315,19 +453,39 @@ export class WorkUnitService {
   /**
    * Unclaim a WorkUnit. Resets to unassigned state.
    */
-  async unclaim(id: string): Promise<WorkUnit> {
-    return this.prisma.workUnit.update({
-      where: { id },
-      data: { assigneeId: null, status: 'unassigned', claimedAt: null },
-    });
+  async unclaim(id: string): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const existing = snapshots.find(s => s.id === id);
+    if (!existing) throw new Error(`WorkUnit not found: ${id}`);
+
+    const now = new Date();
+    const updated: WorkUnitSnapshot = {
+      ...existing,
+      assigneeId: null,
+      status: 'unassigned',
+      claimedAt: null,
+      updatedAt: now.toISOString(),
+    };
+
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: id,
+      timestamp: now.toISOString(),
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+
+    return snapshotToData(updated);
   }
 
   /**
    * Transition WorkUnit status with state machine validation.
    * @throws Error if transition is not allowed
    */
-  async transitionStatus(id: string, newStatus: string): Promise<WorkUnit> {
-    const current = await this.prisma.workUnit.findUnique({ where: { id } });
+  async transitionStatus(id: string, newStatus: string): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const current = snapshots.find(s => s.id === id);
     if (!current) {
       throw new Error('WorkUnit not found');
     }
@@ -339,16 +497,28 @@ export class WorkUnitService {
       );
     }
 
-    const updateData: Prisma.WorkUnitUncheckedUpdateInput = { status: newStatus };
-    // 终态自动写入 completedAt
-    if (newStatus === 'done' || newStatus === 'closed') {
-      updateData.completedAt = new Date();
-    }
+    const now = new Date();
+    const isoNow = now.toISOString();
 
-    const updated = await this.prisma.workUnit.update({
-      where: { id },
-      data: updateData,
-    });
+    const eventType: WorkUnitEvent['type'] =
+      newStatus === 'done' || newStatus === 'closed' ? 'completed' :
+      newStatus === 'blocked' ? 'blocked' : 'updated';
+
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      status: newStatus,
+      completedAt: (newStatus === 'done' || newStatus === 'closed') ? isoNow : current.completedAt,
+      updatedAt: isoNow,
+    };
+
+    const event: WorkUnitEvent = {
+      type: eventType,
+      wuId: id,
+      timestamp: isoNow,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
 
     // Cascade: parent status aggregation on any status change that affects parent
     if (['active', 'blocked', 'done', 'closed'].includes(newStatus)) {
@@ -357,15 +527,16 @@ export class WorkUnitService {
       );
     }
 
-    return updated;
+    return snapshotToData(updated);
   }
 
   /**
    * Review passed: in_review → done. Emits workunit.review.passed.
    * Resets consecutive rejection counter.
    */
-  async reviewPassed(id: string): Promise<WorkUnit> {
-    const current = await this.prisma.workUnit.findUnique({ where: { id } });
+  async reviewPassed(id: string): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
@@ -374,25 +545,40 @@ export class WorkUnitService {
     const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
     delete metadata._consecutiveReviewRejections;
 
-    const updated = await this.prisma.workUnit.update({
-      where: { id },
-      data: { status: 'done', completedAt: new Date(), metadata: JSON.stringify(metadata) },
-    });
+    const now = new Date();
+    const isoNow = now.toISOString();
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      status: 'done',
+      metadata: JSON.stringify(metadata),
+      completedAt: isoNow,
+      updatedAt: isoNow,
+    };
+
+    const event: WorkUnitEvent = {
+      type: 'completed',
+      wuId: id,
+      timestamp: isoNow,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
 
     // Cascade: parent aggregation (best-effort)
     this.aggregateParentStatus(id).catch(err =>
       logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
     );
 
-    return updated;
+    return snapshotToData(updated);
   }
 
   /**
    * Review rejected: in_review → active (or → blocked after 3 consecutive rejections).
    * Emits workunit.review.rejected.
    */
-  async reviewRejected(id: string, reason?: string): Promise<WorkUnit> {
-    const current = await this.prisma.workUnit.findUnique({ where: { id } });
+  async reviewRejected(id: string, reason?: string): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
@@ -406,16 +592,30 @@ export class WorkUnitService {
     // 3 consecutive rejections → auto-block
     const newStatus = rejections >= 3 ? 'blocked' : 'active';
 
-    const updated = await this.prisma.workUnit.update({
-      where: { id },
-      data: { status: newStatus, metadata: JSON.stringify(metadata) },
-    });
+    const now = new Date();
+    const isoNow = now.toISOString();
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      status: newStatus,
+      metadata: JSON.stringify(metadata),
+      updatedAt: isoNow,
+    };
+
+    const eventType: WorkUnitEvent['type'] = newStatus === 'blocked' ? 'blocked' : 'updated';
+    const event: WorkUnitEvent = {
+      type: eventType,
+      wuId: id,
+      timestamp: isoNow,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
 
     if (newStatus === 'blocked') {
       logger.warn('[WorkUnit] Auto-blocked after 3 consecutive review rejections', { workUnitId: id });
     }
 
-    return updated;
+    return snapshotToData(updated);
   }
 
   /**
@@ -446,37 +646,39 @@ export class WorkUnitService {
    * Skips if parent doesn't exist.
    */
   async aggregateParentStatus(childId: string): Promise<void> {
-    const child = await this.prisma.workUnit.findUnique({
-      where: { id: childId },
-      select: { parentId: true },
-    });
+    const snapshots = await this.fileStore.getIndex();
+    const child = snapshots.find(s => s.id === childId);
     if (!child?.parentId) return;
 
-    // Re-read children right before update to avoid stale overwrites from concurrent cascades
-    const siblings = await this.prisma.workUnit.findMany({
-      where: { parentId: child.parentId },
-      select: { status: true },
-    });
+    // Re-read children right before update to avoid stale overwrites
+    const siblings = snapshots.filter(s => s.parentId === child.parentId);
     if (siblings.length === 0) return;
 
     const newStatus = this.computeAggregatedStatus(siblings.map(s => s.status));
     if (!newStatus) return;
 
-    const parent = await this.prisma.workUnit.findUnique({
-      where: { id: child.parentId },
-      select: { status: true },
-    });
+    const parent = snapshots.find(s => s.id === child.parentId);
     if (!parent || parent.status === newStatus) return;
 
     // State ordering guard: don't overwrite a parent that's already at a "later" state.
-    // Prevents concurrent cascades (e.g. c1→active then c1→done) from racing.
     const ORDER: Record<string, number> = { unassigned: 0, active: 1, blocked: 2, in_review: 3, done: 4, closed: 5 };
     if ((ORDER[parent.status] ?? 0) >= (ORDER[newStatus] ?? 0)) return;
 
-    await this.prisma.workUnit.update({
-      where: { id: child.parentId },
-      data: { status: newStatus },
-    });
+    const now = new Date().toISOString();
+    const updatedParent: WorkUnitSnapshot = {
+      ...parent,
+      status: newStatus,
+      updatedAt: now,
+    };
+
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: child.parentId,
+      timestamp: now,
+      data: updatedParent as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updatedParent);
 
     logger.info('[WorkUnit] Parent status aggregated', {
       parentId: child.parentId,
@@ -486,3 +688,5 @@ export class WorkUnitService {
   }
 
 }
+
+export type { WorkUnitSnapshot, WorkUnitFilter } from '@dommaker/studio-shared';

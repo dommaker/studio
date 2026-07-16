@@ -13,11 +13,12 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent, type ModelTier, readSddDoc, findSddDocByGoalId, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent, type ModelTier, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
+import { buildSpawnArgs } from '../cli-adapter.js';
 
 import {
   createWorktree,
@@ -401,13 +402,15 @@ export class AgentRunner implements IAgentRunner {
             }).join(' ')
           : '';
 
-        // AC1.1: Use stream-json output format
+        // AC1.1: Use stream-json output format via cli-adapter
+        const spawnArgs = buildSpawnArgs(task.provider || 'claude', {
+          worktreeDir: worktree,
+        });
         const cmd = [
           `cd "${worktree}"`,
           `&&`,
-          `claude`,
-          `--print`,
-          `--output-format stream-json`,
+          spawnArgs.command,
+          ...spawnArgs.args,
           `--verbose`,
           addDirArgs,
           sessionFlag,
@@ -433,6 +436,12 @@ export class AgentRunner implements IAgentRunner {
 
         await emitSessionStart(sessionId, task.executionId, sessionCount);
 
+        // Ensure per-Agent HOME directory exists (GAP-2)
+        const agentHome = task.parameters?.agentProfileId
+          ? path.join(os.homedir(), '.studio', 'data', 'agents', task.parameters.agentProfileId as string)
+          : `/tmp/agent-loop/${(task.parameters?.workUnitId as string) || task.executionId}`;
+        await fs.mkdir(agentHome, { recursive: true });
+
         try {
           const { stdout } = await execSh(cmd, {
             cwd: worktree,
@@ -446,8 +455,8 @@ export class AgentRunner implements IAgentRunner {
                   ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
                 },
               }),
-              // HOME isolation: per-WorkUnit so session resume finds previous session.
-              HOME: `/tmp/agent-loop/${(task.parameters?.workUnitId as string) || task.executionId}`,
+              // HOME isolation: per-Agent for session continuity (GAP-2)
+              HOME: agentHome,
             },
             timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
             maxBuffer: 10 * 1024 * 1024,
@@ -788,10 +797,14 @@ export class AgentRunner implements IAgentRunner {
       // Propagate harness config (keep — gives daemon access to harness rules)
       await propagateHarnessConfig(worktree, task.id, task.executionId, this.config.repoDir);
 
-      // Write prompt
+      // Knowledge context injection (GAP-5a: AC-5a.1, AC-5a.2, AC-5a.3)
+      const knowledgeContext = task.parameters?.knowledgeContext as string | undefined;
+      const augmentedPrompt = buildAugmentedPrompt(task.prompt, knowledgeContext);
+
+      // Write prompt (with knowledge context if present)
       const promptFile = path.join(worktree, '.daemon', 'prompt.md');
       fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
-      fsSync.writeFileSync(promptFile, task.prompt, 'utf-8');
+      fsSync.writeFileSync(promptFile, augmentedPrompt, 'utf-8');
 
       // Session management — caller provides flags via parameters
       const sessionFlags = (task.parameters?.sessionFlags as string) || '';
@@ -800,14 +813,18 @@ export class AgentRunner implements IAgentRunner {
       const agentRole = (task.parameters?.agentRole as string) || 'executor';
       const sessionId = task.executionId;
 
+      // Use cli-adapter for provider-specific spawn args
+      const spawnArgs = buildSpawnArgs(task.provider || 'claude', {
+        worktreeDir: worktree,
+        sessionId: task.parameters?.sessionId as string | undefined,
+        maxTurns: task.parameters?.maxTurns as number | undefined,
+      });
       const cmd = [
         `cd "${worktree}"`,
         `&&`,
-        `claude`,
-        `--print`,
-        `--output-format stream-json`,
+        spawnArgs.command,
+        ...spawnArgs.args,
         `--verbose`,
-        `--max-turns ${TIER_MAX_TURNS[taskTier as ModelTier] || 15}`,
         sessionFlags,
         `<`,
         `"${promptFile}"`,
@@ -824,6 +841,12 @@ export class AgentRunner implements IAgentRunner {
       const sessionStart = Date.now();
       await emitSessionStart(sessionId, task.executionId, 1);
 
+      // Ensure per-Agent HOME directory exists (GAP-2)
+      const agentHome = task.parameters?.agentProfileId
+        ? path.join(os.homedir(), '.studio', 'data', 'agents', task.parameters.agentProfileId as string)
+        : `/tmp/agent-loop/${(task.parameters?.workUnitId as string) || task.executionId}`;
+      await fs.mkdir(agentHome, { recursive: true });
+
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
@@ -839,9 +862,8 @@ export class AgentRunner implements IAgentRunner {
                 ...(task.parameters?.extraEnv as Record<string, string> || {}),
               },
             }),
-            // HOME isolation: per-WorkUnit so session resume finds previous session.
-            // Falls back to executionId when workUnitId not provided (backward compat).
-            HOME: `/tmp/agent-loop/${(task.parameters?.workUnitId as string) || task.executionId}`,
+            // HOME isolation: per-Agent for session continuity (GAP-2)
+            HOME: agentHome,
           },
           timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
@@ -956,7 +978,7 @@ export class AgentRunner implements IAgentRunner {
 
     // Resolve slug
     const slug = (task.parameters?.sddSlug as string)
-      || findSddDocByGoalId((task.parameters?.goalId as string) || '');
+      || findSddDocById((task.parameters?.goalId as string) || '');
 
     if (!slug) {
       return { contractTests: dbContractTests, testFiles: dbTestFiles };
@@ -1099,7 +1121,7 @@ export class AgentRunner implements IAgentRunner {
     const outputStyleSection = `## \u8f93\u51fa\u98ce\u683c\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
 
     const skillTier = (task.model as SkillTier) || 'standard';
-    const skillsToInject = skillLoader.load({ agentType: 'executor', tier: skillTier });
+    const skillsToInject = skillLoader.load({ tier: skillTier });
     const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
     if (session === 1 || !progress) {
@@ -1187,3 +1209,18 @@ ${skillPrompt}`;
 }
 
 export const agentRunner = new AgentRunner();
+
+/**
+ * Build augmented prompt by prepending knowledge context.
+ *
+ * Pure function — no side effects.
+ *
+ * @param basePrompt - Original prompt text
+ * @param knowledgeContext - Optional knowledge context to prepend
+ * @returns Augmented prompt with knowledge context, or original prompt if no context
+ */
+export function buildAugmentedPrompt(basePrompt: string, knowledgeContext?: string): string {
+  const trimmed = knowledgeContext?.trim();
+  if (!trimmed) return basePrompt;
+  return trimmed + '\n\n---\n\n' + basePrompt;
+}

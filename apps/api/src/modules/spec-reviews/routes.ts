@@ -22,10 +22,9 @@ const router = Router();
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { workflowId, status, limit, offset } = req.query;
-    
+    const { status, limit, offset } = req.query;
+
     const result = await specReviewService.getReviews({
-      workflowId: workflowId as string,
       status: status as string,
       limit: limit ? parseInt(limit as string) : 50,
       offset: offset ? parseInt(offset as string) : 0,
@@ -67,7 +66,6 @@ router.get('/:id', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   try {
     const {
-      workflowId,
       title,
       description,
       changes,
@@ -79,7 +77,6 @@ router.post('/', async (req: Request, res: Response) => {
     }
 
     const review = await specReviewService.createReview({
-      workflowId,
       title,
       description,
       changes,

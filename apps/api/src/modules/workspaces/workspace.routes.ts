@@ -296,4 +296,24 @@ router.get('/:id/runtimes', requireAuth(), async (req: Request, res: Response) =
   }
 });
 
+// ─── GET /api/v1/workspaces/:id ───
+
+router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: req.params.id },
+      include: { runtimes: true },
+    });
+
+    if (!workspace) {
+      return res.status(404).json({ error: 'Workspace not found' });
+    }
+
+    return res.json({ success: true, data: workspace });
+  } catch (error) {
+    logger.error({ error }, '[Workspace] Get failed');
+    return res.status(500).json({ error: 'Failed to fetch workspace', code: 'WORKSPACE_GET_ERROR' });
+  }
+});
+
 export default router;

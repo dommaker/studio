@@ -12,30 +12,18 @@ const JSON_FIELDS: Record<string, string[]> = {
   OKR: ['objectives', 'keyResults'],
   Execution: ['parameters', 'nodeExecutions', 'error'],
   Project: ['spec', 'gitInfo'],
-  Role: ['metadata'],
   Environment: ['envVars', 'mounts', 'resourceLimits'],
   AgentConfig: ['systemPrompt'],
   AgentConfigVersion: ['snapshot'],
-  Goal: ['constraints', 'context'],
-  GoalPlan: ['steps'],
-  GoalExecution: ['input', 'output', 'error'],
   Task: ['input', 'output', 'metadata'],
   Document: ['content'],
-  SignedDocument: ['metadata', 'approvals'],
   Countersign: ['config', 'signers'],
   DocumentFlow: ['steps'],
   RoleConfig: ['stances', 'boundSkills', 'boundConstraints', 'boundMcps', 'boundTools', 'executionParams', 'evolutionHooks', 'modelRouting'],
-  RoleMemoryEntry: ['metadata'],
-  Workflow: ['definition'],
 
-
-  SpecChangeRequest: ['metadata'],
   MCPAuditLog: ['input', 'output'],
   DecisionAudit: ['evidence', 'context'],
   Incident: ['triageLog'],
-  ChannelMessage: ['meta'],
-  RequirementsDoc: ['tags', 'linkedDocIds'],
-  Channel: ['discordChannelId', 'discordWebhookUrl'],
 };
 
 // Build flat lookup set: "Model.field" → true

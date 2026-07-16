@@ -111,7 +111,7 @@ export class TaskWorker {
       const eventType = event.event_type || '';
       
       // 只处理 runtime 事件
-      if (!eventType.includes('runtime.') && !eventType.includes('workflow.')) {
+      if (!eventType.includes('runtime.')) {
         return;
       }
       
@@ -307,7 +307,6 @@ ${task.prompt}
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        workflow: task.parameters?.workflow || 'wf-solo',
         inputs: { requirement: task.prompt },
         workdir: task.parameters?.workdir,
         options: {

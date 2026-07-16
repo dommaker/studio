@@ -30,13 +30,8 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
   runtimeWorkflows: [],
   runtimeExecutions: [],
   loadRuntimeWorkflows: async () => {
-    try {
-      const { data } = await runtimeWorkflowApi.list();
-      set({ runtimeWorkflows: data });
-    } catch (error) {
-      console.error('Failed to load runtime workflows:', error);
-      set({ runtimeWorkflows: [] });
-    }
+    // Workflows 功能已在 Agent Network 架构中废弃，返回空数组
+    set({ runtimeWorkflows: [] });
   },
   executeRuntimeWorkflow: async (workflowId, inputs) => {
     const { runtimeWorkflows } = get();
@@ -44,7 +39,6 @@ export const useRuntimeStore = create<RuntimeState>((set, get) => ({
 
     const execution: Execution = {
       id: `runtime-${Date.now()}`,
-      workflowId,
       workflowName: workflow?.name || workflowId,
       status: 'running',
       input: JSON.stringify(inputs),

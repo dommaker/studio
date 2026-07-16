@@ -18,8 +18,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts
 
-<!-- STALE_SINCE: 2026-06-17 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr-anomaly-detector.ts, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/project.service.ts
+
+<!-- STALE_SINCE: 2026-07-15 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr-anomaly-detector.ts, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/project.service.ts
 
 ## 职责
 
@@ -40,6 +44,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `3de4f489`: ops): code review fixes — Infinity filtering + studioEvent write
+- ✅ `c013381b`: pmo): AC-10 column index off-by-one + AC-6 test matcher
 - ✅ `9f5c871d`: okr): querySkillUsageRate count skills from disk (B59-003)
 - ✅ `a1eb8a3d`: OKR queries — rollback_rate N/A + goal_cost use StudioEvent.costUsd
 - ✅ `13cf6b7e`: deploy failure event enrichment + metricType registration

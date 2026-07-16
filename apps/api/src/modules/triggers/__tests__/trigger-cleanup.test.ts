@@ -2,11 +2,12 @@
  * AC: ac-trigger-cleanup
  *
  * Source-code verification:
- * - 3 triggers removed from default-triggers.ts (9→6)
+ * - 3 triggers removed from default-triggers.ts (9→7)
+ *   - okr-metric-sync was added back later (7 total)
  * - EVENT condition type re-added by PMO-Channel-Agent-Flow SDD AC-1
  * - subscribeEvent/unsubscribeEvent removed from trigger-scheduler.ts (replaced by registerTrigger EVENT handling)
  * - resolveTemplate/getNestedValue removed from trigger-action.ts
- * - 6 retained triggers intact
+ * - 7 retained triggers intact
  */
 
 import { describe, it, expect } from 'vitest';
@@ -17,10 +18,15 @@ const AGENTS_DIR = path.resolve(__dirname, '../../agents');
 const TRIGGERS_DIR = path.resolve(__dirname, '..');
 
 describe('Trigger cleanup verification', () => {
-  it('default triggers count is 6 (not 9)', async () => {
+  it('default triggers count is 7 (not 9)', async () => {
     const mod = await import('../../agents/default-triggers.js');
     const configs = mod.getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(6);
+    expect(configs).toHaveLength(7);
+  });
+
+  it('okr-metric-sync trigger is present', () => {
+    const content = fs.readFileSync(path.join(AGENTS_DIR, 'default-triggers.ts'), 'utf-8');
+    expect(content).toMatch(/okr-metric-sync/);
   });
 
   it('agent-discover trigger is removed', () => {
@@ -81,6 +87,7 @@ describe('Trigger cleanup verification', () => {
     expect(ids).toContain('workunit-timeout');
     expect(ids).toContain('agent-timeout');
     expect(ids).toContain('knowledge-quality-audit');
+    expect(ids).toContain('okr-metric-sync');
     expect(ids).toContain('session-knowledge-extraction');
     expect(ids).toContain('zero-consumption-audit');
     expect(ids).toContain('knowledge-synthesis');

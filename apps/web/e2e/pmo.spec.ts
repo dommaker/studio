@@ -4,27 +4,6 @@ import { test, expect } from '@playwright/test';
 const BASE_URL = 'http://localhost:5173';
 
 test.describe('PMO 模块 E2E 测试', () => {
-  
-  test('AC-007: PMO 入口显示在 CompanyHall', async ({ page }) => {
-    await page.goto(BASE_URL);
-    await page.waitForLoadState('domcontentloaded');
-    
-    // 等待 React 应用加载完成
-    await page.waitForTimeout(3000);
-    
-    // 使用 getByText 匹配 "PMO 管理"（因为 CompanyHallCard 的标题是 div，不是 heading）
-    const pmoCard = page.locator('text=PMO 管理');
-    
-    // 截图保存
-    await page.screenshot({ path: 'test-results/homepage.png', fullPage: true });
-    
-    // 验证：PMO 卡片存在
-    expect(await pmoCard.count()).toBeGreaterThan(0);
-    
-    // 验证：PMO 卡片描述正确
-    const pmoDescription = page.locator('text=OKR + 项目组合');
-    expect(await pmoDescription.count()).toBeGreaterThan(0);
-  });
 
   test('AC-008: PMO 页面显示项目列表', async ({ page }) => {
     await page.goto(`${BASE_URL}/pmo`);

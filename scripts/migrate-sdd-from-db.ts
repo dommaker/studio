@@ -1,15 +1,12 @@
 #!/usr/bin/env tsx
 /**
- * SP-004 Step 7a: RequirementsDoc DB → docs/sdd/<slug>/requirement.md 迁移
+ * [DEPRECATED] SP-004 Step 7a: RequirementsDoc DB → docs/sdd/<slug>/requirement.md 迁移
  *
- * 一次性脚本：从 Prisma 读取所有 RequirementsDoc 行，写入 SDD 文件结构。
- *
- * 运行:
- *   npx tsx scripts/migrate-sdd-from-db.ts --dry-run   # 预览，不写文件
- *   npx tsx scripts/migrate-sdd-from-db.ts --execute    # 实际写入
+ * RequirementsDoc model 已从 Prisma schema 删除。此脚本保留为历史参考。
+ * 迁移已于 SP-004 完成，SDD 文件已全部写入 docs/sdd/ 目录。
+ * 如需重新生成，请改为从 filesystem 读取 docs/sdd/**/requirement.md。
  */
 
-import { PrismaClient } from '@prisma/client';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import {
@@ -30,9 +27,8 @@ if (!DRY_RUN && !EXECUTE) {
   process.exit(1);
 }
 
-// ── DB ──
-
-const prisma = new PrismaClient();
+console.error('[DEPRECATED] RequirementsDoc model 已从 Prisma schema 删除。迁移已完成。');
+process.exit(0);
 
 // ── Helpers ──
 

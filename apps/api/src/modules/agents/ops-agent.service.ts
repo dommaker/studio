@@ -9,7 +9,7 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { prisma } from '@dommaker/studio-prisma';
 import { loadRules, type OpsRules } from './ops-rules.js';
 import { hashPassword } from '../auth/service.js';
@@ -41,10 +41,12 @@ export class OpsAgent {
   private interval: NodeJS.Timeout | null = null;
   private port: number;
   private rules: OpsRules;
+  private fileStore: FileStore;
 
-  constructor(port: number) {
+  constructor(port: number, fileStore?: FileStore) {
     this.port = port;
     this.rules = loadRules();
+    this.fileStore = fileStore ?? new FileStore();
   }
 
   // ============================================
@@ -256,8 +258,8 @@ export class OpsAgent {
         // Also check executor sessions (agentExecutor bypasses daemon)
         if (!daemonBusy) {
           try {
-            const { prisma } = await import('@dommaker/studio-prisma');
-            const runningExecs = await prisma.workUnit.count({ where: { status: 'active', parentId: { not: null } } });
+            const snapshots = await this.fileStore.getIndex({ status: 'active' });
+            const runningExecs = snapshots.filter(s => s.parentId !== null).length;
             if (runningExecs > 0) {
               daemonBusy = true;
               logger.info('[OpsAgent] Executor sessions active', { runningExecs });
@@ -277,7 +279,7 @@ export class OpsAgent {
         try {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
           const { prisma } = await import('@dommaker/studio-prisma');
-          const sysChannel = await prisma.channel.findUnique({ where: { name: '#系统' } });
+          const sysChannel = (await this.fileStore.listChannels({ name: '#系统' }))[0] ?? null;
           if (sysChannel) {
             await channelMessageService.createAgentMessage(sysChannel.id, 'OpsAgent',
               `## 🚨 API 不可达告警\n\n- **端口**: ${this.port}\n- **时间**: ${new Date().toISOString()}\n- **动作**: 已触发 systemd 重启`,
@@ -556,7 +558,7 @@ export class OpsAgent {
    */
   async ensureDefaults(): Promise<{ channels: number; admin: boolean }> {
     // Ensure default channels
-    const defaults = [
+    const defaults: Array<{ name: string; type: string }> = [
       { name: '#研发', type: 'rnd' },
       { name: '#决策', type: 'decision' },
       { name: '#系统', type: 'system' },
@@ -564,15 +566,22 @@ export class OpsAgent {
     ];
     let channelCount = 0;
     for (const d of defaults) {
-      const ch = await prisma.channel.findFirst({ where: { name: d.name } });
-      if (!ch) {
-        await prisma.channel.create({ data: d });
+      const existing = await this.fileStore.listChannels({ name: d.name });
+      if (existing.length === 0) {
+        const { randomUUID } = await import('crypto');
+        const now = new Date().toISOString();
+        await this.fileStore.createChannel({
+          id: randomUUID(), name: d.name, type: d.type,
+          defaultWorkspaceId: null, defaultPath: null,
+          discordChannelId: null, discordWebhookUrl: null,
+          members: '[]', createdAt: now, updatedAt: now,
+        });
         channelCount++;
         logger.info(`[Ops] Created channel: ${d.name}`);
       }
     }
-    const totalCh = await prisma.channel.count();
-    channelCount = channelCount || totalCh;
+    const allCh = await this.fileStore.listChannels();
+    channelCount = channelCount || allCh.length;
 
     // Ensure admin exists
     const admin = await prisma.user.findFirst({ where: { role: 'Admin' } });

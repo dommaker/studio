@@ -26,8 +26,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     capabilitiesRoutes,
     llmProxyRoutes,
     outputsRoutes,
-    toolsStdRoutes,
-    roleRoutes,
     companyRoutes,
     auditLogRoutes,
     { specReviewRoutes },
@@ -48,8 +46,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/capabilities/routes.js').then(m => m.default),
     import('./modules/llm/proxy.js').then(m => m.default),
     import('./modules/outputs/routes.js').then(m => m.default),
-    import('./modules/tools-std/routes.js').then(m => m.default),
-    import('./modules/roles/routes.js').then(m => m.default),
     import('./modules/companies/routes.js').then(m => m.default),
     import('./modules/audit-logs/routes.js').then(m => m.default),
     import('./modules/spec-reviews/routes.js') as Promise<{ specReviewRoutes: Router }>,
@@ -66,14 +62,11 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/dingtalk/routes.js').then(m => m.default),
   ]);
 
-  // Memory routes（挂载在 roles 子路径下）
-  const { default: memoryRoutes } = await import('./modules/roles/memory-routes.js') as { default: Router };
-
   // SkillHub routes (FL-025)
   const { default: skillsRoutes } = await import('./modules/skills/routes.js') as { default: Router };
 
   // Skill proposal routes
-  const { default: skillProposalRoutes } = await import('./modules/tools-std/skill-proposal-routes.js') as { default: Router };
+  const { default: skillProposalRoutes } = await import('./modules/skills/skill-proposal-routes.js') as { default: Router };
 
   // LLM Config routes (加密配置)
   const { default: llmConfigRoutes } = await import('./modules/llm/config.routes.js') as { default: Router };
@@ -166,6 +159,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Monitoring routes (MVP-2 + MVP-6)
   const { default: monitoringRoutes } = await import('./modules/monitoring/monitoring.routes.js') as { default: Router };
 
+  // Project Discovery routes (AC-D1+D3: local project scanning)
+  const { default: projectRoutes } = await import('./modules/projects/project.routes.js') as { default: Router };
+
   const auth = [requireAuth()];
 
   return [
@@ -185,14 +181,12 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/agent-instances', router: agentInstanceRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD' },
     { path: '/api/v1/triggers', router: triggerRouter, middleware: auth, comment: '3.28c-4: Trigger CRUD + status' },
     { path: '/api/v1/monitoring', router: monitoringRoutes, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
+    { path: '/api/v1/projects', router: projectRoutes, comment: 'AC-D1+D3: Local project discovery' },
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },
-    { path: '/api/v1/tools-std', router: toolsStdRoutes },
     { path: '/api/v1/skills', router: skillsRoutes, comment: 'FL-025: SkillHub' },
     { path: '/api/v1/skills/proposals', router: skillProposalRoutes },
-    { path: '/api/v1/roles', router: roleRoutes },
-    { path: '/api/v1/roles/:roleId/memory', router: memoryRoutes },
 
     // 运行时
     { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },

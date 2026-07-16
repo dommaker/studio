@@ -1,6 +1,6 @@
 // PMOPage - PMO 管理主页面（项目 + OKR）
 import { useState, useEffect } from 'react';
-import { Link, useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { api, projectApi } from '../api';
 import { channelApi, type Channel } from '../api/channel';
 import { toast } from '../utils/toast';
@@ -119,6 +119,7 @@ interface PMOPageProps {
 
 export function PMOPage({ companyId }: PMOPageProps) {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const [okrs, setOKRs] = useState<OKR[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
@@ -341,7 +342,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                     background: 'var(--bg-secondary)',
                     border: '1px solid var(--border-default)',
                   }}
-                  onClick={() => window.location.href = `/pmo/project/${project.id}`}
+                  onClick={() => navigate(`/pmo/project/${project.id}`)}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">

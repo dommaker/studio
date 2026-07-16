@@ -2,8 +2,10 @@
 
 > 此文件描述 apps/api/src/modules/wiki 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-06-14 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/wiki/wiki.routes.ts, apps/api/src/modules/wiki/wiki.service.ts
+
+<!-- STALE_SINCE: 2026-07-15 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/wiki/wiki.service.ts, apps/api/src/modules/wiki/wiki.routes.ts
 
 ## 职责
 
@@ -24,4 +26,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `5b7ec85c`: web): 修复 4 个生产崩溃 + 菜单冗余整合
 - ✅ `1c4ac168`: SP-004): 补齐 SDD 三个缺口 — Files section + Analyst 输出 + 去 DB 读

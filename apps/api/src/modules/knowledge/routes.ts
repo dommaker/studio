@@ -161,7 +161,6 @@ knowledgeRoutes.get('/', async (req, res) => {
       take: Number(limit),
       include: {
         Project: { select: { pmoNumber: true, title: true } },
-        CreatedBy: { select: { name: true, type: true } },
       },
     });
 
@@ -394,7 +393,6 @@ knowledgeRoutes.get('/detail/:documentId', async (req, res) => {
       where: { id: documentId },
       include: {
         Project: { select: { pmoNumber: true, title: true } },
-        CreatedBy: { select: { name: true, type: true } },
       },
     });
 
@@ -428,9 +426,6 @@ knowledgeRoutes.get('/:projectId', async (req, res) => {
         { type: 'asc' },
         { updatedAt: 'desc' },
       ],
-      include: {
-        CreatedBy: { select: { name: true, type: true } },
-      },
     });
 
     // 按类型分组
@@ -851,127 +846,6 @@ knowledgeRoutes.get('/gaps', async (req, res) => {
 });
 
 // ============================================
-// B10-102: UserBehaviorProfile API
-// ============================================
-
-/**
- * GET /api/v1/knowledge/behavior
- * Query: status, category, limit, offset
- */
-knowledgeRoutes.get('/behavior', async (req, res) => {
-  try {
-    const { status, category, limit = '50', offset = '0' } = req.query;
-    const where: Record<string, unknown> = {};
-    if (status) where.status = String(status);
-    if (category) where.category = String(category);
-
-    const profiles = await prisma.userBehaviorProfile.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: Math.min(Number(limit), 100),
-      skip: Number(offset),
-    });
-
-    const total = await prisma.userBehaviorProfile.count({ where });
-
-    const byCategory = await prisma.userBehaviorProfile.groupBy({
-      by: ['category'],
-      _count: true,
-    });
-
-    res.json({
-      profiles,
-      total,
-      byCategory: byCategory.reduce((acc, c) => ({ ...acc, [c.category]: c._count }), {}),
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to list behavior profiles');
-    res.status(500).json({ error: 'Failed to list behavior profiles' });
-  }
-});
-
-/**
- * PATCH /api/v1/knowledge/behavior/:id
- * Body: { status: 'confirmed' | 'rejected' | 'applied' }
- * B10-104: Feedback-driven status update
- */
-knowledgeRoutes.patch('/behavior/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status } = req.body;
-    if (!['pending', 'confirmed', 'rejected', 'applied'].includes(status)) {
-      return res.status(400).json({ error: 'Invalid status' });
-    }
-    const profile = await prisma.userBehaviorProfile.update({
-      where: { id },
-      data: { status },
-    });
-    logger.info({ id, status }, '[KnowledgeRoute] Behavior profile status updated');
-
-    // RKB Phase 2: Auto-verify matching resolutions on confirmation
-    if (status === 'confirmed' || status === 'applied') {
-      try {
-        const { resolutionService } = await import('./resolution.service.js');
-        const verified = await resolutionService.autoVerifyFromBehavior(profile.category, profile.pattern);
-        if (verified > 0) {
-          logger.info({ id, verified }, '[KnowledgeRoute] Auto-verified resolutions from behavior');
-        }
-      } catch { /* non-blocking */ }
-    }
-
-    res.json(profile);
-  } catch (error) {
-    logger.error({ error }, 'Failed to update behavior profile');
-    res.status(500).json({ error: 'Failed to update behavior profile' });
-  }
-});
-
-/**
- * GET /api/v1/knowledge/behavior/stats
- * B10-104: Feedback statistics for behavior profiles
- */
-knowledgeRoutes.get('/behavior/stats', async (req, res) => {
-  try {
-    const [total, pending, confirmed, rejected, applied] = await Promise.all([
-      prisma.userBehaviorProfile.count(),
-      prisma.userBehaviorProfile.count({ where: { status: 'pending' } }),
-      prisma.userBehaviorProfile.count({ where: { status: 'confirmed' } }),
-      prisma.userBehaviorProfile.count({ where: { status: 'rejected' } }),
-      prisma.userBehaviorProfile.count({ where: { status: 'applied' } }),
-    ]);
-
-    const byCategory = await prisma.userBehaviorProfile.groupBy({
-      by: ['category'],
-      _count: true,
-      _avg: { confidence: true },
-    });
-
-    const feedbackRate = total > 0 ? Math.round(((confirmed + rejected + applied) / total) * 100) : 0;
-    const confirmationRate = (confirmed + applied + rejected) > 0
-      ? Math.round(((confirmed + applied) / (confirmed + applied + rejected)) * 100)
-      : 0;
-
-    res.json({
-      total,
-      pending,
-      confirmed,
-      rejected,
-      applied,
-      feedbackRate,
-      confirmationRate,
-      byCategory: byCategory.map(c => ({
-        category: c.category,
-        count: c._count,
-        avgConfidence: Math.round((c._avg.confidence || 0) * 100),
-      })),
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to get behavior stats');
-    res.status(500).json({ error: 'Failed to get behavior stats' });
-  }
-});
-
-// ============================================
 // S11: Resolution browsing + unified search
 // ============================================
 
@@ -1087,50 +961,49 @@ knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) =>
       }
     }
 
-    // Search behavior profiles
+    // Search behavior profiles (KnowledgeStore)
     if (searchTypes.includes('behavior')) {
-      const profiles = await prisma.userBehaviorProfile.findMany({
-        where: {
-          OR: [
-            { title: { contains: query } },
-            { pattern: { contains: query } },
-            { evidence: { contains: query } },
-          ],
-        },
-        take: takeLimit,
-        orderBy: { confidence: 'desc' },
-      });
-      for (const p of profiles) {
+      const { sharedStore: bSearchStore } = await import('./knowledge-bus.service.js');
+      const behaviorSearchEntries = bSearchStore.list({ tags: ['behavior'] })
+        .filter((e: any) => {
+          const d = JSON.parse(e.content || '{}');
+          const title = e.title || '';
+          const pattern = d.pattern || '';
+          const evidence = d.evidence || '';
+          return title.includes(query) || pattern.includes(query) || evidence.includes(query);
+        })
+        .slice(0, takeLimit);
+      for (const e of behaviorSearchEntries) {
+        const d = JSON.parse((e as any).content || '{}');
         results.push({
           type: 'behavior',
-          id: p.id,
-          title: p.title,
-          snippet: p.pattern.slice(0, 200),
+          id: (e as any).id,
+          title: (e as any).title,
+          snippet: (d.pattern || '').slice(0, 200),
           score: 1,
         });
       }
     }
 
-    // Search interaction patterns
+    // Search interaction patterns (KnowledgeStore)
     if (searchTypes.includes('pattern')) {
-      const patterns = await prisma.interactionPattern.findMany({
-        where: {
-          OR: [
-            { name: { contains: query } },
-            { description: { contains: query } },
-            { insight: { contains: query } },
-          ],
-          status: 'active',
-        },
-        take: takeLimit,
-        orderBy: { confidence: 'desc' },
-      });
-      for (const p of patterns) {
+      const { sharedStore } = await import('./knowledge-bus.service.js');
+      const patterns = sharedStore.list({ tags: ['pattern', 'active'] })
+        .filter((e: any) => {
+          const d = JSON.parse(e.content || '{}');
+          const name = e.title || '';
+          const desc = d.description || '';
+          const insight = d.insight || '';
+          return name.includes(query) || desc.includes(query) || insight.includes(query);
+        })
+        .slice(0, takeLimit);
+      for (const e of patterns) {
+        const d = JSON.parse((e as any).content || '{}');
         results.push({
           type: 'pattern',
-          id: p.id,
-          title: p.name,
-          snippet: (p.insight || p.description).slice(0, 200),
+          id: (e as any).id,
+          title: (e as any).title,
+          snippet: (d.insight || d.description || '').slice(0, 200),
           score: 2,
         });
       }

@@ -1,6 +1,6 @@
 // OKR Service - PMO 模块核心服务
 import { prisma } from '../../core/database.js';
-import { logger } from '../../utils/logger.js';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -58,6 +58,11 @@ export function getCurrentQuarter(): string {
  * OKR 服务
  */
 export class OKRService {
+  private fileStore: FileStore;
+
+  constructor(fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+  }
   /**
    * 创建 OKR
    */
@@ -90,7 +95,7 @@ export class OKRService {
       },
     });
 
-    logger.info({ okrId: okr.id, companyId: input.companyId }, 'OKR created');
+    logger.info('OKR created', { okrId: okr.id, companyId: input.companyId });
     return okr;
   }
 
@@ -129,12 +134,11 @@ export class OKRService {
       where: { id },
       include: {
         Company: {
-          select: { name: true, adminRoleIds: true },
+          select: { name: true },
         },
         Execution: {
           select: {
             id: true,
-            workflowId: true,
             status: true,
             startTime: true,
             endTime: true,
@@ -181,7 +185,7 @@ export class OKRService {
       },
     });
 
-    logger.info({ okrId: id }, 'OKR updated');
+    logger.info('OKR updated', { okrId: id });
     return updated;
   }
 
@@ -206,7 +210,7 @@ export class OKRService {
       where: { id },
     });
 
-    logger.info({ okrId: id, executionCount }, 'OKR deleted');
+    logger.info('OKR deleted', { okrId: id, executionCount });
     return { success: true, unlinkedProjects: executionCount };
   }
 
@@ -225,47 +229,11 @@ export class OKRService {
   }
 
   /**
-   * 检查权限（是否是管理员）
+   * 检查权限（Role 功能已废弃，返回 false）
    */
-  async checkPermission(roleId: string, companyId: string): Promise<boolean> {
-    const company = await prisma.company.findUnique({
-      where: { id: companyId },
-      select: { adminRoleIds: true },
-    });
-
-    if (!company) {
-      return false;
-    }
-
-    return company.adminRoleIds.includes(roleId);
-  }
-
-  /**
-   * 初始化管理员（将 CEO 加入 adminRoleIds）
-   */
-  async initAdmin(companyId: string) {
-    // 查找 CEO 角色
-    const ceoRole = await prisma.role.findFirst({
-      where: {
-        companyId,
-        type: 'ceo',
-      },
-    });
-
-    if (!ceoRole) {
-      logger.warn({ companyId }, 'CEO role not found, cannot init admin');
-      return;
-    }
-
-    // 更新公司管理员列表
-    await prisma.company.update({
-      where: { id: companyId },
-      data: {
-        adminRoleIds: JSON.stringify([ceoRole.id]),
-      },
-    });
-
-    logger.info({ companyId, ceoRoleId: ceoRole.id }, 'Admin initialized');
+  async checkPermission(_roleId: string, _companyId: string): Promise<boolean> {
+    // Role 功能已在 Agent Network 架构中废弃
+    return false;
   }
 
   /**
@@ -300,7 +268,7 @@ export class OKRService {
       keyResults: [],
     });
     
-    logger.info({ companyId, okrId: okr.id, quarter: currentQuarter }, 'Default OKR created');
+    logger.info('Default OKR created', { companyId, okrId: okr.id, quarter: currentQuarter });
     return okr;
   }
 
@@ -333,7 +301,7 @@ export class OKRService {
       data: { progress: Math.round(avgProgress) },
     });
 
-    logger.info({ okrId, progress: Math.round(avgProgress), projectCount: activeProjects.length }, 'OKR progress updated');
+    logger.info('OKR progress updated', { okrId, progress: Math.round(avgProgress), projectCount: activeProjects.length });
     return Math.round(avgProgress);
   }
 
@@ -343,10 +311,11 @@ export class OKRService {
    * 检查数据源可用性
    */
   async checkDataSourceHealth(): Promise<Record<string, 'ok' | 'empty'>> {
-    const [studioEventCount, workUnitCount] = await Promise.all([
+    const [studioEventCount, snapshots] = await Promise.all([
       prisma.studioEvent.count(),
-      prisma.workUnit.count(),
+      this.fileStore.getIndex(),
     ]);
+    const workUnitCount = snapshots.length;
     return {
       studio_event: studioEventCount > 0 ? 'ok' : 'empty',
       execution: workUnitCount > 0 ? 'ok' : 'empty',
@@ -552,7 +521,7 @@ export class OKRService {
       })),
     });
 
-    logger.info({ okrId, results: results.map(r => r.status) }, 'KR progress synced');
+    logger.info('KR progress synced', { okrId, results: results.map(r => r.status) });
     return results;
   }
 
@@ -564,7 +533,7 @@ export class OKRService {
     const entry = kr.metricType ? OKRService.METRIC_REGISTRY[kr.metricType] : null;
 
     if (!entry) {
-      if (kr.metricType) logger.warn({ metricType: kr.metricType }, 'Unknown metricType');
+      if (kr.metricType) logger.warn('Unknown metricType', { metricType: kr.metricType });
       return null;
     }
 
@@ -576,10 +545,10 @@ export class OKRService {
   /** 执行成功率 */
   private async queryExecutionSuccessRate(days: number): Promise<number | null> {
     const since = new Date(Date.now() - days * 86400000);
-    const [total, succeeded] = await Promise.all([
-      prisma.workUnit.count({ where: { createdAt: { gte: since }, status: { not: 'unassigned' } } }),
-      prisma.workUnit.count({ where: { createdAt: { gte: since }, status: 'done' } }),
-    ]);
+    const sinceMs = since.getTime();
+    const snapshots = await this.fileStore.getIndex();
+    const total = snapshots.filter(s => new Date(s.createdAt).getTime() >= sinceMs && s.status !== 'unassigned').length;
+    const succeeded = snapshots.filter(s => new Date(s.createdAt).getTime() >= sinceMs && s.status === 'done').length;
 
     if (total === 0) return null;
     return Math.round((succeeded / total) * 100);
@@ -588,10 +557,9 @@ export class OKRService {
   /** 审查通过率 */
   private async queryReviewPassRate(days: number): Promise<number | null> {
     const since = new Date(Date.now() - days * 86400000);
-    const workUnits = await prisma.workUnit.findMany({
-      where: { createdAt: { gte: since }, status: { in: ['done', 'closed'] } },
-      select: { metadata: true },
-    });
+    const sinceMs = since.getTime();
+    const snapshots = await this.fileStore.getIndex();
+    const workUnits = snapshots.filter(s => new Date(s.createdAt).getTime() >= sinceMs && ['done', 'closed'].includes(s.status));
 
     const withReview = workUnits.filter(w => {
       try {
@@ -709,26 +677,21 @@ export class OKRService {
   }
 
   private async queryBehaviorFeedbackRate(_days: number): Promise<number | null> {
-    try {
-      const total = await prisma.userBehaviorProfile.count();
-      if (total === 0) return null;
-      const feedback = await prisma.userBehaviorProfile.count({
-        where: { status: { in: ['confirmed', 'rejected', 'applied'] } },
-      });
-      return Math.round((feedback / total) * 100);
-    } catch { return null; }
+    // UserBehaviorProfile table deleted — feedback rate metric unavailable
+    return null;
   }
 
   private async querySessionDurationAvg(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const execs = await prisma.workUnit.findMany({
-        where: { claimedAt: { gte: since }, completedAt: { not: null }, status: 'done' },
-        select: { claimedAt: true, completedAt: true },
-      });
+      const sinceMs = since.getTime();
+      const snapshots = await this.fileStore.getIndex();
+      const execs = snapshots.filter(s =>
+        s.status === 'done' && s.claimedAt && s.completedAt && new Date(s.claimedAt).getTime() >= sinceMs
+      );
       if (execs.length === 0) return null;
       const totalMs = execs.reduce((sum, e) =>
-        sum + (e.completedAt!.getTime() - e.claimedAt!.getTime()), 0);
+        sum + (new Date(e.completedAt!).getTime() - new Date(e.claimedAt!).getTime()), 0);
       return Math.round(totalMs / execs.length / 1000 / 60); // minutes
     } catch { return null; }
   }
@@ -739,10 +702,9 @@ export class OKRService {
   private async queryQueueDurationAvg(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const childUnits = await prisma.workUnit.findMany({
-        where: { createdAt: { gte: since }, parentId: { not: null } },
-        select: { parentId: true, createdAt: true, claimedAt: true },
-      });
+      const sinceMs = since.getTime();
+      const snapshots = await this.fileStore.getIndex();
+      const childUnits = snapshots.filter(s => s.parentId !== null && new Date(s.createdAt).getTime() >= sinceMs);
       if (childUnits.length === 0) return null;
 
       // Queue time = child.createdAt - parent.createdAt (approx: child.createdAt - child.claimedAt + wait)
@@ -750,7 +712,7 @@ export class OKRService {
       const waits: number[] = [];
       for (const w of childUnits) {
         if (w.claimedAt) {
-          waits.push(w.claimedAt.getTime() - w.createdAt.getTime());
+          waits.push(new Date(w.claimedAt).getTime() - new Date(w.createdAt).getTime());
         }
       }
       if (waits.length === 0) return null;
@@ -912,10 +874,12 @@ export class OKRService {
   private async queryConflictRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const [total, conflicts] = await Promise.all([
-        prisma.workUnit.count({ where: { createdAt: { gte: since }, parentId: { not: null } } }),
+      const sinceMs = since.getTime();
+      const [snapshots, conflicts] = await Promise.all([
+        this.fileStore.getIndex(),
         prisma.studioEvent.count({ where: { type: 'scheduler:conflict', timestamp: { gte: since } } }),
       ]);
+      const total = snapshots.filter(s => s.parentId !== null && new Date(s.createdAt).getTime() >= sinceMs).length;
       if (total === 0) return null;
       return Math.round((conflicts / total) * 100);
     } catch { return null; }
@@ -1046,7 +1010,7 @@ export class OKRService {
         }
       }
     } catch (e) {
-      logger.warn({ error: String(e) }, '[OKR] Recalibration failed');
+      logger.warn('[OKR] Recalibration failed', { error: String(e) });
     }
     return suggestions;
   }

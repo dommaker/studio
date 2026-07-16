@@ -24,13 +24,15 @@
 
 import { Router, type Request, type Response } from 'express';
 import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from './workunit.service.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 
 const router = Router();
-const service = new WorkUnitService(prisma);
+const fileStore = new FileStore();
+const service = new WorkUnitService(prisma, fileStore);
 
 /** GET / — list WorkUnits */
 router.get('/', async (req: Request, res: Response) => {
@@ -59,7 +61,7 @@ router.get('/', async (req: Request, res: Response) => {
 /** POST / — create WorkUnit */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { scope, type, assigneeId, status, channelId, parentId, metadata } = req.body;
+    const { scope, type, assigneeId, status, channelId, parentId, metadata, projectPath } = req.body;
 
     if (!scope || typeof scope !== 'string') {
       return res.status(400).json({
@@ -75,6 +77,7 @@ router.post('/', async (req: Request, res: Response) => {
       channelId,
       parentId,
       metadata,
+      projectPath,
     });
 
     res.status(201).json(wu);
@@ -322,10 +325,8 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
     // Need a channelId — use WorkUnit's channelId or fallback to system channel
     let channelId = wu.channelId;
     if (!channelId) {
-      const sysChannel = await prisma.channel.findFirst({
-        where: { type: 'rnd' },
-        orderBy: { createdAt: 'asc' },
-      });
+      const rndChannels = await fileStore.listChannels({ type: 'rnd' });
+      const sysChannel = rndChannels.length > 0 ? rndChannels[0] : null;
       if (!sysChannel) {
         return res.status(400).json({
           error: { code: 'NO_CHANNEL', message: 'No channel available for discussion messages' },
@@ -366,15 +367,13 @@ router.patch('/:id/messages/:messageId', async (req: Request, res: Response) => 
     }
 
     // Verify message belongs to this WorkUnit
-    const message = await prisma.channelMessage.findUnique({
-      where: { id: req.params.messageId },
-    });
-    if (!message) {
+    const found = await fileStore.getMessageById(req.params.messageId);
+    if (!found) {
       return res.status(404).json({
         error: { code: 'NOT_FOUND', message: `Message ${req.params.messageId} not found` },
       });
     }
-    if (message.workUnitId !== req.params.id) {
+    if (found.message.workUnitId !== req.params.id) {
       return res.status(400).json({
         error: { code: 'INVALID_INPUT', message: 'Message does not belong to this WorkUnit' },
       });

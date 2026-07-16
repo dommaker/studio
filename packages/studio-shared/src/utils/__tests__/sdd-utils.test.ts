@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'fs';
 import { join } from 'path';
 import {
   findSddDocById,
-  findSddDocByGoalId,
-  readSddDocByGoalId,
+  findSddDocByWorkUnitId,
+  readSddDocByWorkUnitId,
   writeSddDoc,
   toKebab,
   parseSddFrontmatter,
@@ -125,31 +125,31 @@ describe('findSddDocById', () => {
   });
 });
 
-describe('findSddDocByGoalId', () => {
-  test('finds slug by goal id', () => {
-    expect(findSddDocByGoalId('goal-xxx-001')).toBe('test-doc-1');
+describe('findSddDocByWorkUnitId', () => {
+  test('finds slug by workUnitId', () => {
+    expect(findSddDocByWorkUnitId('goal-xxx-001')).toBe('test-doc-1');
   });
 
-  test('returns null for non-existent goal id', () => {
-    expect(findSddDocByGoalId('goal-nonexistent')).toBeNull();
+  test('returns null for non-existent workUnitId', () => {
+    expect(findSddDocByWorkUnitId('goal-nonexistent')).toBeNull();
   });
 
   test('returns null when doc has no workUnitId', () => {
     // test-doc-2 has no workUnitId
-    expect(findSddDocByGoalId('goal-yyy-002')).toBeNull();
+    expect(findSddDocByWorkUnitId('goal-yyy-002')).toBeNull();
   });
 });
 
-describe('readSddDocByGoalId', () => {
-  test('reads requirement layer by goal id', () => {
-    const result = readSddDocByGoalId('goal-xxx-001', 'requirement');
+describe('readSddDocByWorkUnitId', () => {
+  test('reads requirement layer by workUnitId', () => {
+    const result = readSddDocByWorkUnitId('goal-xxx-001', 'requirement');
     expect(result).not.toBeNull();
     expect(result!.meta.id).toBe('doc-aaa-111');
     expect(result!.body).toContain('Some content');
   });
 
-  test('returns null for non-existent goal', () => {
-    expect(readSddDocByGoalId('goal-nonexistent', 'requirement')).toBeNull();
+  test('returns null for non-existent workUnitId', () => {
+    expect(readSddDocByWorkUnitId('goal-nonexistent', 'requirement')).toBeNull();
   });
 });
 

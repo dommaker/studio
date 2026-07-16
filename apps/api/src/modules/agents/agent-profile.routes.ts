@@ -11,21 +11,24 @@
 
 import { Router, type Request, type Response } from 'express';
 import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { AgentProfileService } from './agent-profile.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
 
 const router = Router();
-const service = new AgentProfileService(prisma);
+const fileStore = new FileStore();
+const service = new AgentProfileService(fileStore, prisma);
 
 /** GET / — list AgentProfiles */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { status } = req.query;
+    const { status, channelId } = req.query;
     const { page, limit } = parsePagination(req);
 
     const result = await service.list({
       status: status as string,
+      channelId: channelId as string,
       page,
       limit,
     });
@@ -41,7 +44,7 @@ router.get('/', async (req: Request, res: Response) => {
 /** POST / — create AgentProfile */
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { name, description, channels, status } = req.body;
+    const { name, description, channels, provider, status } = req.body;
 
     if (!name || typeof name !== 'string') {
       return res.status(400).json({
@@ -49,7 +52,7 @@ router.post('/', async (req: Request, res: Response) => {
       });
     }
 
-    const profile = await service.create({ name, description, channels, status });
+    const profile = await service.create({ name, description, channels, provider, status });
     res.status(201).json(profile);
   } catch (error) {
     const msg = getErrorMessage(error);

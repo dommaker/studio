@@ -25,7 +25,6 @@ import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowl
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
 import { monitorAgent } from './modules/agents/monitor-agent.service.js';
 import { auditorAgent } from './modules/agents/auditor-agent.service.js';
-import { dataAnalystAgent } from './modules/agents/data-analyst-agent.service.js';
 import { daemon } from './daemon/studio-daemon.js';
 import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';
@@ -165,7 +164,6 @@ async function start() {
     // ── 核心服务 ──
     monitorAgent.start();
     auditorAgent.start();
-    dataAnalystAgent.start();
     daemon.start();
     // ── Ops Agent: runtime health loop ──
     try {
@@ -178,12 +176,13 @@ async function start() {
 
     // ── AS-026: AgentLoop per AgentProfile ──
     try {
-      const { prisma } = await import('@dommaker/studio-prisma');
+      const { FileStore } = await import('@dommaker/studio-shared');
       const { AgentLoop } = await import('./modules/agents/agent-loop.js');
       const { registerDefaultTriggers } = await import('./modules/agents/default-triggers.js');
       const { getTriggerScheduler } = await import('./modules/triggers/trigger-registry.js');
 
-      const profiles = await prisma.agentProfile.findMany({ where: { status: 'active' } });
+      const fileStore = new FileStore();
+      const profiles = await fileStore.listProfiles({ status: 'active' });
       const registry = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
       registry.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)
       registerDefaultTriggers(registry);
@@ -207,13 +206,13 @@ async function start() {
     const { registerExecuteHandler } = await import('./modules/triggers/trigger-action.js');
     registerExecuteHandler('agent-timeout-scan', async () => {
       const { AgentInstanceService } = await import('./modules/agents/agent-instance.service.js');
-      const { prisma } = await import('@dommaker/studio-prisma');
+      const { FileStore } = await import('@dommaker/studio-shared');
       const TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
-      const threshold = new Date(Date.now() - TIMEOUT_MS);
-      const stale = await prisma.runtimeInstance.findMany({
-        where: { status: { not: 'terminated' }, lastHeartbeat: { lt: threshold } },
-      });
-      const svc = new AgentInstanceService();
+      const threshold = Date.now() - TIMEOUT_MS;
+      const fileStore = new FileStore();
+      const allStates = await fileStore.listStates();
+      const stale = allStates.filter(s => s.status !== 'terminated' && (s.lastHeartbeat ? new Date(s.lastHeartbeat).getTime() < threshold : true));
+      const svc = new AgentInstanceService(fileStore);
       for (const inst of stale) {
         await svc.terminate(inst.id).catch(err =>
           logger.warn(`[AgentTimeout] Failed to terminate ${inst.id}: ${err}`)

@@ -1,6 +1,6 @@
 // stepEditorStore.ts - Step 编辑器状态管理
 import { create } from 'zustand';
-import { stepApi, runtimeWorkflowApi } from '../api';
+import { stepApi } from '../api';
 import type { Position, Node, Edge } from '../types/canvas';
 
 export type { Position, Node, Edge };
@@ -81,26 +81,9 @@ const initialState = {
 export const useStepEditorStore = create<StepEditorState>((set, get) => ({
   ...initialState,
   
-  // 加载工具列表
+  // 加载工具列表（/tools 已废弃，返回空）
   loadTools: async () => {
-    set({ toolsLoading: true, toolsError: null });
-
-    try {
-      const { data } = await runtimeWorkflowApi.listTools();
-      const tools = (data.tools || data || []).map((t: any) => ({
-        id: t.id || t.name,
-        name: t.name,
-        description: t.description || '',
-        category: t.category || 'other',
-        type: 'tool' as const,
-        path: t.path,
-      }));
-
-      set({ tools, toolsLoading: false });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : '加载工具失败';
-      set({ toolsError: message, toolsLoading: false });
-    }
+    set({ tools: [], toolsLoading: false, toolsError: null });
   },
   
   // 加载步骤详情

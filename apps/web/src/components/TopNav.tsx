@@ -1,6 +1,6 @@
 // TopNav.tsx - 顶部导航栏组件（L1 核心功能）
 // MR-009: 移动端适配 - 添加汉堡菜单
-import { Link, useLocation } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { ThemeToggleButton } from '../contexts/ThemeContext';
 import { LanguageSwitcher } from './LanguageSwitcher';
@@ -15,7 +15,6 @@ interface TopNavProps {
 
 export function TopNav({ wsStatus = 'disconnected', onMenuClick }: TopNavProps) {
   const { t } = useTranslation();
-  const location = useLocation();
 
   return (
     <header className="nav-header flex items-center px-6 shrink-0 sticky top-0 z-40">
@@ -51,26 +50,6 @@ export function TopNav({ wsStatus = 'disconnected', onMenuClick }: TopNavProps) 
           Agent <span className="font-extrabold">Studio</span>
         </span>
       </Link>
-
-      {/* L1 核心导航（桌面端） */}
-      <nav className="ml-8 flex items-center gap-1 hide-mobile">
-        <Link
-          to="/workflows"
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            location.pathname.startsWith('/workflows') ? 'nav-tab-active' : 'nav-tab'
-          }`}
-        >
-          🔄 {t('nav.workflows', '工作流')}
-        </Link>
-        <Link
-          to="/roles"
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            location.pathname.startsWith('/roles') ? 'nav-tab-active' : 'nav-tab'
-          }`}
-        >
-          👥 {t('nav.roles', '角色')}
-        </Link>
-      </nav>
 
       {/* 工具栏 */}
       <div className="ml-auto flex items-center gap-4">

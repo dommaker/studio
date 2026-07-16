@@ -1,17 +1,48 @@
 /**
- * PreferenceObserver (G-001) — 从 MCP traces + 路由反馈中推断用户偏好
+ * PreferenceObserver (G-001) — 从 MCP traces + Channel 消息中推断用户偏好
  *
+ * 存储：KnowledgeStore (type=guideline, tags=['preference','user-default'])
  * 增量 EMA 更新，不阻塞主流程。
  * 冷启动：无历史数据时 confidence=0.3，积累 50+ 交互后提升到 0.7+
  */
 
-import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '@dommaker/studio-shared';
-import { readFileSync, existsSync } from 'fs';
-import path from 'path';
-import os from 'os';
 
-const EVENTS_DIR = process.env.EVENTS_DIR || path.join(os.homedir(), 'events');
+interface PreferenceData {
+  favoriteTools: string;         // JSON: Array<{ name: string; count: number }>
+  modelUsageRatio: string;       // JSON: Record<string, number>
+  preferredModel: string | null;
+  responseStyle: string | null;
+  activeHours: string;           // JSON: number[]
+  autoApproveThreshold: number;
+  avgMessageLength: number;
+  messageFrequency: number;
+  confidence: number;
+  lastInferredAt: string | null;
+  patternDistribution: string;   // JSON
+  recurringPatterns: string;     // JSON
+  preferredPatternTypes: string; // JSON
+}
+
+const PREFERENCE_ID = 'user-preference-default';
+
+function defaultPrefs(): PreferenceData {
+  return {
+    favoriteTools: '[]',
+    modelUsageRatio: '{}',
+    preferredModel: null,
+    responseStyle: null,
+    activeHours: '[]',
+    autoApproveThreshold: 0.7,
+    avgMessageLength: 0,
+    messageFrequency: 0,
+    confidence: 0.3,
+    lastInferredAt: null,
+    patternDistribution: '{}',
+    recurringPatterns: '[]',
+    preferredPatternTypes: '[]',
+  };
+}
 
 interface ToolCallTrace {
   tool: string;
@@ -21,26 +52,64 @@ interface ToolCallTrace {
   riskLevel?: string;
 }
 
-interface RoutingClassification {
-  taskId: string;
-  tier: 'premium' | 'standard' | 'fast';
-  result: 'success' | 'failure';
-  duration: number;
-  timestamp: number;
-}
-
 export class PreferenceObserver {
-  private readonly emaAlpha = 0.15; // EMA 平滑因子（高噪声数据用低 alpha）
-  private readonly coldStartThreshold = 50; // 低于此交互数 → cold start
+  private readonly emaAlpha = 0.15;
+  private readonly coldStartThreshold = 50;
+
+  // ── lazy import to avoid circular deps ──
+
+  private async getStore() {
+    const { sharedStore } = await import('./knowledge-bus.service.js');
+    return { store: sharedStore };
+  }
+
+  // ── KnowledgeStore read/write ──
+
+  private async readPrefs(): Promise<PreferenceData> {
+    try {
+      const { store } = await this.getStore();
+      const entries = store.list({ tags: ['preference', 'user-default'] });
+      if (entries.length > 0) {
+        const data = entries[0] as unknown as { content: string };
+        return { ...defaultPrefs(), ...JSON.parse(data.content || '{}') };
+      }
+    } catch { /* fall through to default */ }
+    return defaultPrefs();
+  }
+
+  private async writePrefs(data: PreferenceData): Promise<void> {
+    try {
+      const { store } = await this.getStore();
+      store.save({
+        id: PREFERENCE_ID,
+        type: 'guideline' as any,
+        title: '用户偏好',
+        content: JSON.stringify(data),
+        maturity: 'active' as any,
+        layer: 'project',
+        created: new Date().toISOString(),
+        lastReferenced: new Date().toISOString(),
+        contributors: ['preference-observer'],
+        projects: [],
+        tags: ['preference', 'user-default'],
+        applicablePhases: [],
+        sourceReferences: [],
+        referencedBy: [],
+        executionResults: [],
+        consumptionMode: 'context',
+        origin: 'agent',
+      } as any);
+    } catch (err) {
+      logger.warn('[PreferenceObserver] writePrefs failed', { error: String(err) });
+    }
+  }
 
   /**
-   * 从 MCP traces 更新工具偏好（每次 tool:call 写入后调用）
+   * 从 MCP traces 更新工具偏好
    */
   async updateFromToolTrace(trace: ToolCallTrace): Promise<void> {
     try {
-      const pref = await this.getOrCreatePreference();
-
-      // 更新工具频率
+      const pref = await this.readPrefs();
       const tools = JSON.parse(pref.favoriteTools) as Array<{ name: string; count: number }>;
       const existing = tools.find(t => t.name === trace.tool);
       if (existing) {
@@ -50,59 +119,10 @@ export class PreferenceObserver {
       }
       tools.sort((a, b) => b.count - a.count);
       pref.favoriteTools = JSON.stringify(tools.slice(0, 10));
+      pref.confidence = this.computeConfidence(pref.confidence);
+      pref.lastInferredAt = new Date().toISOString();
 
-      await prisma.userPreference.update({
-        where: { id: pref.id },
-        data: {
-          favoriteTools: pref.favoriteTools,
-          confidence: this.computeConfidence(pref.confidence),
-          lastInferredAt: new Date(),
-        },
-      });
-    } catch (err) {
-      /* non-blocking */
-    }
-  }
-
-  /**
-   * 从路由反馈更新模型偏好
-   */
-  async updateFromRoutingFeedback(classifications: RoutingClassification[]): Promise<void> {
-    if (classifications.length === 0) return;
-
-    try {
-      const pref = await this.getOrCreatePreference();
-      const ratio = JSON.parse(pref.modelUsageRatio) as Record<string, number>;
-
-      for (const c of classifications) {
-        ratio[c.tier] = (ratio[c.tier] || 0) + 1;
-      }
-
-      // 归一化
-      const total = Object.values(ratio).reduce((a, b) => a + b, 0);
-      for (const k of Object.keys(ratio)) {
-        ratio[k] = Math.round((ratio[k] / total) * 100) / 100;
-      }
-
-      // 找 preferredModel
-      let maxRatio = 0;
-      let preferred = pref.preferredModel;
-      for (const [tier, r] of Object.entries(ratio)) {
-        if (r > maxRatio) {
-          maxRatio = r;
-          preferred = tier;
-        }
-      }
-
-      await prisma.userPreference.update({
-        where: { id: pref.id },
-        data: {
-          preferredModel: preferred,
-          modelUsageRatio: JSON.stringify(ratio),
-          confidence: this.computeConfidence(pref.confidence),
-          lastInferredAt: new Date(),
-        },
-      });
+      await this.writePrefs(pref);
     } catch (err) {
       /* non-blocking */
     }
@@ -113,17 +133,13 @@ export class PreferenceObserver {
    */
   async updateActiveHours(messages: Array<{ createdAt: Date }>): Promise<void> {
     if (messages.length === 0) return;
-
     try {
-      const pref = await this.getOrCreatePreference();
+      const pref = await this.readPrefs();
       const hourCount = new Array(24).fill(0);
-
       for (const m of messages) {
         const hour = new Date(m.createdAt).getHours();
         hourCount[hour]++;
       }
-
-      // 取 top 8 活跃小时
       const active = hourCount
         .map((count, hour) => ({ hour, count }))
         .sort((a, b) => b.count - a.count)
@@ -131,14 +147,11 @@ export class PreferenceObserver {
         .map(h => h.hour)
         .sort((a, b) => a - b);
 
-      await prisma.userPreference.update({
-        where: { id: pref.id },
-        data: {
-          activeHours: JSON.stringify(active),
-          confidence: this.computeConfidence(pref.confidence),
-          lastInferredAt: new Date(),
-        },
-      });
+      pref.activeHours = JSON.stringify(active);
+      pref.confidence = this.computeConfidence(pref.confidence);
+      pref.lastInferredAt = new Date().toISOString();
+
+      await this.writePrefs(pref);
     } catch (err) {
       /* non-blocking */
     }
@@ -149,28 +162,22 @@ export class PreferenceObserver {
    */
   async updateResponseStyle(messages: Array<{ content: string; createdAt?: Date | string }>): Promise<void> {
     if (messages.length === 0) return;
-
     try {
       const lengths = messages.map(m => m.content.length);
       const avg = lengths.reduce((a, b) => a + b, 0) / lengths.length;
-
       let style: string;
       if (avg < 50) style = 'concise';
       else if (avg <= 200) style = 'balanced';
       else style = 'detailed';
 
-      const pref = await this.getOrCreatePreference();
+      const pref = await this.readPrefs();
+      pref.responseStyle = style;
+      pref.avgMessageLength = Math.round(avg);
+      pref.messageFrequency = this.estimateFrequency(messages);
+      pref.confidence = this.computeConfidence(pref.confidence);
+      pref.lastInferredAt = new Date().toISOString();
 
-      await prisma.userPreference.update({
-        where: { id: pref.id },
-        data: {
-          responseStyle: style,
-          avgMessageLength: Math.round(avg),
-          messageFrequency: this.estimateFrequency(messages),
-          confidence: this.computeConfidence(pref.confidence),
-          lastInferredAt: new Date(),
-        },
-      });
+      await this.writePrefs(pref);
     } catch (err) {
       /* non-blocking */
     }
@@ -180,39 +187,31 @@ export class PreferenceObserver {
    * 从知识确认率推断自动审批阈值
    */
   async updateAutoApproveThreshold(confirmed: number, rejected: number): Promise<void> {
-    if (confirmed + rejected < 5) return; // 样本不够
-
+    if (confirmed + rejected < 5) return;
     try {
       const rate = confirmed / (confirmed + rejected);
       let threshold: number;
-
-      if (rate > 0.8) threshold = 0.5; // 大部分确认 → 可降低阈值
+      if (rate > 0.8) threshold = 0.5;
       else if (rate > 0.5) threshold = 0.7;
-      else threshold = 0.85; // 大部分拒绝 → 保持高标准
+      else threshold = 0.85;
 
-      const pref = await this.getOrCreatePreference();
+      const pref = await this.readPrefs();
+      pref.autoApproveThreshold = Math.round(threshold * 100) / 100;
+      pref.lastInferredAt = new Date().toISOString();
 
-      await prisma.userPreference.update({
-        where: { id: pref.id },
-        data: {
-          autoApproveThreshold: Math.round(threshold * 100) / 100,
-          lastInferredAt: new Date(),
-        },
-      });
+      await this.writePrefs(pref);
     } catch (err) {
       /* non-blocking */
     }
   }
 
   /**
-   * 获取当前偏好（供 Harness prompt injection 使用）
+   * 获取当前偏好（供 prompt injection 使用）
    */
   async getPreferences(): Promise<Record<string, any> | null> {
     try {
-      const pref = await prisma.userPreference.findFirst({
-        where: { userId: 'default' },
-      });
-      if (!pref || pref.confidence < 0.4) return null;
+      const pref = await this.readPrefs();
+      if (pref.confidence < 0.3) return null;
 
       return {
         preferredModel: pref.preferredModel,
@@ -248,35 +247,32 @@ export class PreferenceObserver {
   }
 
   /**
-   * 从 workflow_report 更新工作流偏好 (B9-025)
+   * 从 pattern_report 更新交互模式偏好 (B9-025)
    */
-  async updateFromWorkflowReport(distribution: Record<string, number>, recurring: Array<{ type: string; count: number; successRate: number; lastSeen: string }>): Promise<void> {
+  async updateFromPatternReport(
+    distribution: Record<string, number>,
+    recurring: Array<{ type: string; count: number; successRate: number; lastSeen: string }>,
+  ): Promise<void> {
     try {
-      const pref = await this.getOrCreatePreference();
-
-      // Merge distribution with existing
-      const existing = (pref as any).workflowDistribution ? JSON.parse((pref as any).workflowDistribution) as Record<string, number> : {};
+      const pref = await this.readPrefs();
+      const existing = JSON.parse(pref.patternDistribution) as Record<string, number>;
       for (const [k, v] of Object.entries(distribution)) {
         existing[k] = (existing[k] || 0) + v;
       }
 
-      // High-frequency types (>= 5 in a week)
       const preferred = Object.entries(existing)
         .filter(([_, count]) => count >= 5)
         .sort((a, b) => b[1] - a[1])
         .map(([type]) => type)
         .slice(0, 5);
 
-      await (prisma as any).userPreference.update({
-        where: { id: pref.id },
-        data: {
-          workflowDistribution: JSON.stringify(existing),
-          recurringWorkflows: JSON.stringify(recurring),
-          preferredWorkflowTypes: JSON.stringify(preferred),
-          confidence: this.computeConfidence(pref.confidence),
-          lastInferredAt: new Date(),
-        },
-      });
+      pref.patternDistribution = JSON.stringify(existing);
+      pref.recurringPatterns = JSON.stringify(recurring);
+      pref.preferredPatternTypes = JSON.stringify(preferred);
+      pref.confidence = this.computeConfidence(pref.confidence);
+      pref.lastInferredAt = new Date().toISOString();
+
+      await this.writePrefs(pref);
     } catch (err) {
       /* non-blocking */
     }
@@ -284,23 +280,7 @@ export class PreferenceObserver {
 
   // ── private ──
 
-  private async getOrCreatePreference() {
-    let pref = await prisma.userPreference.findFirst({
-      where: { userId: 'default' },
-    });
-    if (!pref) {
-      pref = await prisma.userPreference.create({
-        data: {
-          userId: 'default',
-          confidence: 0.3,
-        },
-      });
-    }
-    return pref;
-  }
-
   private computeConfidence(current: number): number {
-    // EMA 平滑递增到足够交互后提升
     const next = current + (1 - current) * this.emaAlpha;
     return Math.round(next * 1000) / 1000;
   }
@@ -315,8 +295,7 @@ export class PreferenceObserver {
 
     const spanMs = timestamps[timestamps.length - 1] - timestamps[0];
     const spanHours = spanMs / 3600000;
-    if (spanHours < 0.1) return messages.length; // avoid division by very small numbers
-
+    if (spanHours < 0.1) return messages.length;
     return Math.round((messages.length / spanHours) * 10) / 10;
   }
 }

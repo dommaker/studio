@@ -9,7 +9,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
+import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { skillStore } from '../skills/skill-store.js';
@@ -30,6 +31,11 @@ interface Suggestion {
 
 export class AuditorAgent {
   private interval: NodeJS.Timeout | null = null;
+  private fileStore: FileStore;
+
+  constructor(fileStore?: FileStore) {
+    this.fileStore = fileStore ?? new FileStore();
+  }
 
   start(): void {
     if (this.interval) return;
@@ -52,9 +58,10 @@ export class AuditorAgent {
       const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
       // 1. 过去 24h 的执行统计（含 agentType 用于 3D 分析）
-      const recentExecs = await prisma.workUnit.findMany({
-        where: { completedAt: { gte: yesterday }, parentId: { not: null } },
-        select: { id: true, parentId: true, status: true, metadata: true },
+      const allSnapshots = await this.fileStore.getIndex();
+      const recentExecs = allSnapshots.filter(s => {
+        if (!s.completedAt || !s.parentId) return false;
+        return new Date(s.completedAt).getTime() >= yesterday.getTime();
       });
       const total = recentExecs.length;
       const failed = recentExecs.filter(e => e.status === 'closed').length;
@@ -77,10 +84,12 @@ export class AuditorAgent {
         perType.set(errorType, (perType.get(errorType) || 0) + 1);
       }
 
-      // 3. 最近 24h 的审计事件统计
-      const auditCount = await prisma.decisionAudit.count({
-        where: { createdAt: { gte: yesterday } },
-      });
+      // 3. 最近 24h 的审计事件统计 (KnowledgeStore)
+      const { sharedStore: auditStore } = await import('../knowledge/knowledge-bus.service.js');
+      const auditEntries = auditStore.list({ tags: ['audit'] });
+      const auditCount = auditEntries.filter((e: any) =>
+        new Date(e.created).getTime() >= yesterday.getTime()
+      ).length;
 
       // 4. Agent-type × tier 3D 交叉分析
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -109,11 +118,15 @@ export class AuditorAgent {
       }
 
       // 5. WorkUnit 状态分布
-      const goalStats = await prisma.workUnit.groupBy({
-        by: ['status'],
-        where: { updatedAt: { gte: yesterday }, type: 'task', parentId: null },
-        _count: true,
+      const filteredForGroup = allSnapshots.filter(s => {
+        if (!s.parentId || s.type !== 'task') return false;
+        return new Date(s.updatedAt).getTime() >= yesterday.getTime();
       });
+      const statusCounts = new Map<string, number>();
+      for (const s of filteredForGroup) {
+        statusCounts.set(s.status, (statusCounts.get(s.status) || 0) + 1);
+      }
+      const goalStats = [...statusCounts.entries()].map(([status, _count]) => ({ status, _count }));
 
       const summary = [
         `## 📊 每日审计 — ${now.toISOString().slice(0, 10)}`,
@@ -721,56 +734,43 @@ export class AuditorAgent {
                 detail: `OKR "${okr.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，趋势${trend < 0 ? '恶化中' : '未改善'}。建议触发深度根因分析`,
               });
 
-              // AS-018 PROPOSE: critical → root cause analysis + draft WorkUnit
-              try {
-                const diagnosis = await this.diagnoseRootCause(okr.id, kr.title, 'critical');
-                if (diagnosis) {
-                  const preCheck = await this.preCheckProposal({
-                    suggestedFix: diagnosis.suggestedFix,
-                    confidence: diagnosis.confidence,
-                  });
-                  if (preCheck.status !== 'blocked') {
-                    const wu = await prisma.workUnit.create({
-                      data: {
-                        scope: `[OKR优化] ${kr.title}: ${diagnosis.suggestedFix.substring(0, 80)}`,
-                        type: 'okr_proposal',
-                        status: 'unassigned',
-                        metadata: JSON.stringify({
-                          description: JSON.stringify({
-                            rootCause: diagnosis.rootCause,
-                            suggestedFix: diagnosis.suggestedFix,
-                            expectedImprovement: diagnosis.expectedImprovement,
-                            confidence: diagnosis.confidence,
-                            preCheck,
-                            okrId: okr.id,
-                            krId: kr.id,
-                          }),
-                          priority: 'high',
-                          companyId: okr.companyId,
-                          context: { source: 'okr-optimization', okrId: okr.id },
-                        }),
-                      },
-                    });
+              // 纯代码创建 okr_proposal WorkUnit（不调 LLM）
+              // Agent 领取后自行诊断，有完整系统上下文
+              const now = new Date().toISOString();
+              const wuId = `okr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+              const metadata = {
+                okrId: okr.id,
+                krId: kr.id,
+                krTitle: kr.title,
+                attainment: ratio,
+                trend: trend < 0 ? 'down' : 'stable',
+                currentValue: latest.value,
+                targetValue: kr.target,
+                historyCount: history.length,
+              };
 
-                    const icon = preCheck.status === 'warning' ? '⚠️' : '✅';
-                    await this.postToSystemChannel(
-                      `### OKR 优化提案 ${icon}\n\n` +
-                      `**KR**: ${kr.title} (达成率 ${Math.round(ratio * 100)}%)\n` +
-                      `**根因**: ${diagnosis.rootCause}\n` +
-                      `**建议**: ${diagnosis.suggestedFix}\n` +
-                      `**预期改善**: ${diagnosis.expectedImprovement}\n` +
-                      `**置信度**: ${Math.round(diagnosis.confidence * 100)}%\n` +
-                      (preCheck.reasons.length > 0 ? `**注意**: ${preCheck.reasons.join('; ')}\n` : '') +
-                      `\nDraft WorkUnit 已创建: ${wu.id}`
-                    );
-                    logger.info('[Auditor] OKR proposal created', { okrId: okr.id, kr: kr.title, workUnitId: wu.id });
-                  } else {
-                    logger.info('[Auditor] OKR proposal blocked', { kr: kr.title, reasons: preCheck.reasons });
-                  }
-                }
-              } catch (e) {
-                logger.warn('[Auditor] OKR propose failed', { kr: kr.title, error: String(e) });
-              }
+              // 创建 WorkUnit（通过 fileStore.upsertSnapshot）
+              try {
+                const snapshot = {
+                  id: wuId,
+                  parentId: null,
+                  type: 'okr_proposal',
+                  scope: `[OKR优化] ${kr.title}: 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})`,
+                  assigneeId: null,
+                  status: 'unassigned' as const,
+                  failureType: null,
+                  retryCount: 0,
+                  timeoutAt: null,
+                  channelId: null,
+                  projectPath: null,
+                  metadata: JSON.stringify(metadata),
+                  createdAt: now,
+                  updatedAt: now,
+                  claimedAt: null,
+                  completedAt: null,
+                };
+                await this.fileStore.upsertSnapshot(snapshot);
+              } catch {}
             } else if (ratio < 0.8) {
               suggestions.push({
                 type: 'circuit_fix',
@@ -1026,9 +1026,8 @@ export class AuditorAgent {
     if (suggestions.length === 0) return;
 
     try {
-      const channel = await prisma.channel.findUnique({ where: { name: SYSTEM_CHANNEL_NAME } });
+      const channel = (await this.fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
       if (!channel) {
-        logger.warn('[AuditorAgent] System channel not found for suggestion cards');
         return;
       }
 
@@ -1057,8 +1056,7 @@ export class AuditorAgent {
       // 2. Push bell notifications to all users
       try {
         const notifService = new NotificationService(prisma as any);
-        const users = await prisma.role.findMany({
-          where: { type: 'user' },
+        const users = await prisma.user.findMany({
           select: { id: true },
           take: 10,
         });
@@ -1097,14 +1095,26 @@ export class AuditorAgent {
         successRate: s.total > 0 ? Math.round((1 - s.failed / s.total) * 100) : 100,
       }));
 
-      await prisma.decisionAudit.create({
-        data: {
-          entityType: 'model_tier',
-          entityId: `daily-${new Date().toISOString().slice(0, 10)}`,
-          eventType: 'tier_success_rate',
-          summary: JSON.stringify(stats),
-        },
-      });
+      const { sharedStore: tierStatsStore } = await import('../knowledge/knowledge-bus.service.js');
+      tierStatsStore.save({
+        id: `tier-stats-${new Date().toISOString().slice(0, 10)}`,
+        type: 'guideline' as any,
+        title: 'tier_success_rate',
+        content: JSON.stringify(stats),
+        maturity: 'active' as any,
+        layer: 'project',
+        created: new Date().toISOString(),
+        lastReferenced: new Date().toISOString(),
+        contributors: ['auditor-agent'],
+        projects: [],
+        tags: ['audit', 'tier_stats'],
+        applicablePhases: [],
+        sourceReferences: [],
+        referencedBy: [],
+        executionResults: [],
+        consumptionMode: 'reference' as any,
+        origin: 'agent' as any,
+      } as any);
 
       logger.info('[AuditorAgent] Tier stats saved', { tiers: stats.length });
     } catch (err) {
@@ -1436,7 +1446,7 @@ export class AuditorAgent {
 
   private async postToSystemChannel(content: string): Promise<void> {
     try {
-      const channel = await prisma.channel.findUnique({ where: { name: SYSTEM_CHANNEL_NAME } });
+      const channel = (await this.fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
       if (!channel) {
         logger.warn('[AuditorAgent] System channel not found');
         return;
@@ -1455,89 +1465,6 @@ export class AuditorAgent {
   }
 
   // ── B8: OKR 驱动闭环 ──
-
-  /**
-   * 根因诊断 + 优化提案 (每周/按需触发)
-   */
-  async diagnoseRootCause(okrId: string, krTitle: string, trigger: 'weekly' | 'critical' = 'weekly'): Promise<{
-    rootCause: string;
-    suggestedFix: string;
-    expectedImprovement: string;
-    confidence: number;  // 0-1
-  } | null> {
-    try {
-      const okr = await prisma.oKR.findUnique({ where: { id: okrId } });
-      if (!okr) return null;
-      const krs: any[] = typeof okr.keyResults === 'string' ? JSON.parse(okr.keyResults) : okr.keyResults;
-      const kr = krs.find((k: any) => k.title === krTitle);
-      if (!kr || !kr.metricType) return null;
-
-      // 聚合信号
-      const signals = await this.aggregateDiagnosticSignals();
-
-      // 构建 LLM 根因分析 prompt
-      const prompt = [
-        `你是系统优化分析师。管线 OKR KR "${krTitle}" 当前值 ${kr.current || '?'}，目标值 ${kr.target}${kr.unit || ''}。`,
-        kr.current && kr.target ? `达成率: ${Math.round(kr.current / kr.target * 100)}%。` : '',
-        '',
-        '### 近期数据',
-        ...signals,
-        '',
-        '### 要求',
-        '请分析：',
-        '1. 核心瓶颈是什么？（引用数据来源）',
-        '2. 建议的优化方案（具体到代码层面，不空泛）',
-        '3. 预期改善效果（量化估计）',
-        '4. 置信度 (high/medium/low)',
-        '',
-        '返回 JSON: {"rootCause": "...", "suggestedFix": "...", "expectedImprovement": "...", "confidence": "high|medium|low"}',
-      ].filter(Boolean).join('\n');
-
-      const result = await modelGateway.promptJson<{
-        rootCause: string;
-        suggestedFix: string;
-        expectedImprovement: string;
-        confidence: string;
-      }>(prompt, '你是系统优化分析师。基于数据找瓶颈，给具体优化方案。');
-
-      const confidenceMap: Record<string, number> = { high: 0.8, medium: 0.5, low: 0.3 };
-      return {
-        rootCause: result.rootCause,
-        suggestedFix: result.suggestedFix,
-        expectedImprovement: result.expectedImprovement,
-        confidence: confidenceMap[result.confidence] || 0.5,
-      };
-    } catch (e) {
-      logger.warn('[AuditorAgent] diagnoseRootCause failed', { error: String(e) });
-      return null;
-    }
-  }
-
-  /**
-   * 聚合诊断信号
-   */
-  private async aggregateDiagnosticSignals(): Promise<string[]> {
-    const signals: string[] = [];
-    const since = new Date(Date.now() - 7 * 86400000);
-
-    try {
-      // KnowledgeService patterns via getStats
-      const stats = knowledgeService.getStats();
-      if (stats.total && stats.total > 0) {
-        const entries = Object.entries(stats).filter(([k]) => k !== 'total')
-          .map(([k, v]) => `${k}:${v}`).join(', ');
-        signals.push(`- KnowledgeService 统计: ${entries || 'empty'} (total: ${stats.total})`);
-      }
-    } catch { /* non-blocking */ }
-
-    try {
-      // RKB patterns
-      const resolutions = await prisma.resolution.count({ where: { status: 'canonical' } });
-      signals.push(`- RKB 已知解法: ${resolutions} 条 canonical`);
-    } catch { /* non-blocking */ }
-
-    return signals;
-  }
 
   /**
    * 提案预检 — 轻量可行性校验
@@ -1568,12 +1495,13 @@ export class AuditorAgent {
 
     // 3. 检查重复提案
     try {
-      const recentWorkUnits = await prisma.workUnit.findMany({
-        where: {
-          scope: { contains: proposal.suggestedFix.substring(0, 30) },
-          type: 'okr_proposal',
-          createdAt: { gte: new Date(Date.now() - 14 * 86400000) },
-        },
+      const allWuSnapshots = await this.fileStore.getIndex();
+      const cutoff = new Date(Date.now() - 14 * 86400000);
+      const recentWorkUnits = allWuSnapshots.filter(s => {
+        if (s.type !== 'okr_proposal') return false;
+        if (new Date(s.createdAt).getTime() < cutoff.getTime()) return false;
+        if (!s.scope || !s.scope.includes(proposal.suggestedFix.substring(0, 30))) return false;
+        return true;
       });
       if (recentWorkUnits.length > 0) {
         reasons.push(`最近 14 天内已有 ${recentWorkUnits.length} 个相似 WorkUnit，建议检查是否需要重新提案`);

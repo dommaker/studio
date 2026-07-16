@@ -1,28 +1,44 @@
 // Discussion Space service test (AS-025 §5.16)
 // Tests: ChannelMessage.workUnitId grouping — list/create/patch
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from '../../channels/channel-message.service.js';
 
 let channelId: string;
+let tmpDir: string;
 
 describe('Discussion Space (ChannelMessage.workUnitId)', () => {
   const cleanupIds: string[] = [];
 
   beforeAll(async () => {
-    const channel = await prisma.channel.create({
-      data: { name: `#test-discussion-${Date.now()}`, type: 'rnd' },
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discussion-test-'));
+    const testFs = new FileStore(tmpDir);
+    channelMessageService.setFileStore(testFs);
+
+    const id = `test-discussion-${Date.now()}`;
+    channelId = id;
+    await testFs.createChannel({
+      id,
+      name: `#test-discussion-${Date.now()}`,
+      type: 'rnd',
+      defaultWorkspaceId: null,
+      defaultPath: null,
+      discordChannelId: null,
+      discordWebhookUrl: null,
+      members: '[]',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     });
-    channelId = channel.id;
   });
 
   afterAll(async () => {
-    await prisma.channelMessage.deleteMany({ where: { channelId } });
-    await prisma.channel.deleteMany({ where: { id: channelId } });
-  });
-
-  beforeEach(async () => {
-    await prisma.channelMessage.deleteMany({ where: { channelId } });
+    channelMessageService.setFileStore(new FileStore()); // restore default
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   // ── createMessage with workUnitId ──

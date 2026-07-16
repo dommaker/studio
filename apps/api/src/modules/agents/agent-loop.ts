@@ -1,14 +1,22 @@
 // AgentLoop — observe→resolveTarget→agentStep→recordResult decision loop (AS-025)
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
 // Knowledge search analysis preserved as module-level exports.
-import { logger, parseStreamEvents, extractToolCalls } from '@dommaker/studio-shared';
+import { execSync } from 'child_process';
+import { logger, parseStreamEvents, extractToolCalls, FileStore, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { randomUUID } from 'crypto';
+import { appendFileSync, existsSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 import { prisma } from '@dommaker/studio-prisma';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
-import { WorkUnitService, type WorkUnitMetadata } from '../workunit/workunit.service.js';
-import type { WorkUnit, AgentProfile, ChannelMessage } from '@prisma/client';
+import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
+import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../triggers/trigger-registry.js';
+import { knowledgeService } from '../knowledge/knowledge-service.js';
+
+/** Threshold for input_tokens before session truncation (100K) */
+const SESSION_TOKEN_LIMIT = 100_000;
 
 /** Result of analyzing agent log for knowledge search behavior */
 export interface KnowledgeSearchAnalysis {
@@ -26,15 +34,15 @@ export interface StepResult {
 
 /** Observation collected from DB */
 interface Observations {
-  myActive: WorkUnit[];
-  unassigned: WorkUnit[];
-  newReplies: ChannelMessage[];
+  myActive: WorkUnitData[];
+  unassigned: WorkUnitData[];
+  newReplies: ChannelMessageData[];
 }
 
 /** Resolved target for agentStep */
 interface Target {
-  workUnit: WorkUnit;
-  newReplies?: ChannelMessage[];
+  workUnit: WorkUnitData;
+  newReplies?: ChannelMessageData[];
 }
 
 interface RuntimeInstanceRow {
@@ -43,23 +51,27 @@ interface RuntimeInstanceRow {
   sessionId: string | null;
   status: string;
   currentWorkUnitId: string | null;
-  startedAt: Date;
-  terminatedAt: Date | null;
+  startedAt: string;
+  terminatedAt: string | null;
   metadata: string | null;
+  lastHeartbeat: string | null;
 }
 
 export class AgentLoop {
-  private role: AgentProfile;
+  private role: AgentProfileData;
   private workUnitService: WorkUnitService;
+  private fileStore: FileStore;
   private instance: RuntimeInstanceRow | null = null;
   private acceptedTypes: string[] = [];
   private alive = false;
   private myChannels: string[] = [];
   private triggerId: string | null = null;
+  private loopPromise: Promise<void> | null = null;
 
-  constructor(role: AgentProfile) {
+  constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
-    this.workUnitService = new WorkUnitService(prisma);
+    this.fileStore = fileStore ?? new FileStore();
+    this.workUnitService = new WorkUnitService(undefined, this.fileStore);
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
     // W-4 fix: parse channels from role.channels JSON
     try {
@@ -72,9 +84,38 @@ export class AgentLoop {
 
   /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle */
   async start(): Promise<void> {
-    this.instance = await prisma.runtimeInstance.create({
-      data: { roleId: this.role.id, status: 'idle' },
-    }) as RuntimeInstanceRow;
+    // AC-4.5: Health probe — verify Claude CLI is available
+    try {
+      execSync('claude --version', { timeout: 5000 });
+    } catch {
+      logger.error('[AgentLoop] Claude CLI not available');
+      return;
+    }
+
+    // AC-4.6: Detect and clean up stale previous instances for this role
+    const allStates = await this.fileStore.listStates();
+    const stalePrev = allStates.find(s => s.roleId === this.role.id && s.pid && !isProcessAlive(s.pid));
+    if (stalePrev) {
+      logger.info(`[AgentLoop] Cleaning up stale instance ${stalePrev.id} (PID ${stalePrev.pid})`);
+      await this.fileStore.updateState(stalePrev.id, { status: 'terminated' }).catch(() => {});
+    }
+
+    const now = new Date().toISOString();
+    const instanceId = randomUUID();
+    const state: RuntimeStateData = {
+      id: instanceId,
+      roleId: this.role.id,
+      sessionId: null,
+      status: 'idle',
+      currentWorkUnitId: null,
+      startedAt: now,
+      terminatedAt: null,
+      lastHeartbeat: null,
+      metadata: null,
+      pid: process.pid,
+    };
+    await this.fileStore.createState(instanceId, state);
+    this.instance = state;
 
     this.alive = true;
     logger.info(`[AgentLoop] Started for role ${this.role.name} (instance=${this.instance.id})`);
@@ -102,7 +143,7 @@ export class AgentLoop {
     });
 
     // Main loop (non-blocking — fire and forget like original)
-    this.runLoop().catch(err =>
+    this.loopPromise = this.runLoop().catch(err =>
       logger.error(`[AgentLoop] Loop failed for ${this.role.name}: ${err.message}`)
     );
   }
@@ -117,10 +158,7 @@ export class AgentLoop {
         if (!target) {
           // No work available → back to idle (fix: status stays correct after task completion)
           if (this.instance) {
-            await prisma.runtimeInstance.update({
-              where: { id: this.instance.id },
-              data: { status: 'idle', currentWorkUnitId: null },
-            }).catch(() => {});
+            await this.fileStore.updateState(this.instance.id, { status: 'idle', currentWorkUnitId: null }).catch(() => {});
           }
           await sleep(15_000);
           continue;
@@ -130,9 +168,8 @@ export class AgentLoop {
         if (target.workUnit.status === 'unassigned') {
           try {
             await this.workUnitService.claim(target.workUnit.id, this.instance!.id);
-            target.workUnit = await prisma.workUnit.findUniqueOrThrow({
-              where: { id: target.workUnit.id },
-            });
+            const afterClaim = await this.workUnitService.getById(target.workUnit.id);
+            if (afterClaim) target.workUnit = afterClaim;
           } catch {
             await sleep(1_000);
             continue;
@@ -141,9 +178,10 @@ export class AgentLoop {
 
         // Update heartbeat + status=active (fix: monitoring.active was always 0)
         if (this.instance) {
-          await prisma.runtimeInstance.update({
-            where: { id: this.instance.id },
-            data: { lastHeartbeat: new Date(), currentWorkUnitId: target.workUnit.id, status: 'active' },
+          await this.fileStore.updateState(this.instance.id, {
+            lastHeartbeat: new Date().toISOString(),
+            currentWorkUnitId: target.workUnit.id,
+            status: 'active',
           }).catch(() => {});
         }
 
@@ -165,48 +203,53 @@ export class AgentLoop {
       getTriggerScheduler().unregisterTrigger(this.triggerId);
     }
     if (this.instance) {
-      prisma.runtimeInstance.update({
-        where: { id: this.instance.id },
-        data: { status: 'terminated', terminatedAt: new Date() },
+      this.fileStore.updateState(this.instance.id, {
+        status: 'terminated',
+        terminatedAt: new Date().toISOString(),
       }).catch(err => logger.error(`[AgentLoop] Failed to terminate instance: ${err.message}`));
+    }
+  }
+
+  /** Wait for the runLoop promise to fully settle (for test cleanup) */
+  async waitForStop(): Promise<void> {
+    if (this.loopPromise) {
+      try { await this.loopPromise; } catch { /* loop errors already logged */ }
     }
   }
 
   /** Observe: collect state from DB (zero token) */
   private async observe(): Promise<Observations> {
-    const myActive = await prisma.workUnit.findMany({
-      where: {
-        assigneeId: this.instance?.id,
-        status: { in: ['active', 'blocked'] },
-      },
-    });
-
-    const unassigned = await prisma.workUnit.findMany({
-      where: {
-        status: 'unassigned',
-        channelId: this.myChannels.length > 0 ? { in: this.myChannels } : undefined,
-        type: this.acceptedTypes.length > 0 ? { in: this.acceptedTypes } : undefined,
-      },
-      orderBy: { createdAt: 'asc' },
-      take: 5,
-    });
-
     // W-6 fix: batch query for newReplies instead of N+1
+    const myActive = (await this.workUnitService.list({
+      assigneeId: this.instance?.id,
+    })).data.filter(wu => wu.status === 'active' || wu.status === 'blocked');
+
+    const allSnapshots = await this.fileStore.getIndex();
+    const unassigned = allSnapshots.filter(s => {
+      if (s.status !== 'unassigned') return false;
+      if (this.myChannels.length > 0 && s.channelId && !this.myChannels.includes(s.channelId)) return false;
+      if (this.acceptedTypes.length > 0 && !this.acceptedTypes.includes(s.type)) return false;
+      return true;
+    }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      .slice(0, 5)
+      .map(s => ({
+        id: s.id, parentId: s.parentId, type: s.type, scope: s.scope,
+        assigneeId: s.assigneeId, status: s.status, failureType: s.failureType,
+        retryCount: s.retryCount, timeoutAt: s.timeoutAt ? new Date(s.timeoutAt) : null,
+        channelId: s.channelId, projectPath: s.projectPath, metadata: s.metadata,
+        createdAt: new Date(s.createdAt), updatedAt: new Date(s.updatedAt),
+        claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
+        completedAt: s.completedAt ? new Date(s.completedAt) : null,
+      }));
+
     const activeWuIds = myActive.map(wu => wu.id);
     const allReplies = activeWuIds.length > 0
-      ? await prisma.channelMessage.findMany({
-          where: {
-            workUnitId: { in: activeWuIds },
-            authorType: 'human',
-            // Filter by createdAt > updatedAt per WU — done in memory after batch fetch
-          },
-        }).then(msgs => {
-          // Filter: only messages created after their WU's last update
-          const wuUpdatedAt = new Map(myActive.map(wu => [wu.id, wu.updatedAt]));
-          return msgs.filter(msg => {
-            const updatedAt = wuUpdatedAt.get(msg.workUnitId);
-            return updatedAt && msg.createdAt > updatedAt;
-          });
+      ? (await this.fileStore.queryAllMessages({
+          workUnitIds: activeWuIds,
+          authorType: 'human',
+        })).filter(msg => {
+          const wu = myActive.find(w => w.id === msg.workUnitId);
+          return wu && new Date(msg.createdAt).getTime() > wu.updatedAt.getTime();
         })
       : [];
 
@@ -222,28 +265,46 @@ export class AgentLoop {
       ? buildReplyPrompt(wu, target.newReplies)
       : buildContinuePrompt(wu);
 
-    // Session management — metadata updates returned for atomic write in recordResult
-    let sessionFlags: string;
-    const metadataUpdates: Partial<WorkUnitMetadata> = {};
-    if (metadata.sessionId) {
-      sessionFlags = `--resume ${metadata.sessionId}`;
-      metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
-    } else {
-      const newId = randomUUID();
-      sessionFlags = `--session-id ${newId}`;
-      metadataUpdates.sessionId = newId;
-      metadataUpdates.startedAt = new Date().toISOString();
+    // GAP-5: Knowledge injection — non-blocking
+    let knowledgeContext = '';
+    try {
+      const ctx = await knowledgeService.injectContext(wu.type, {
+        tags: [wu.type],
+      });
+      knowledgeContext = ctx.prompt;
+    } catch {
+      // Non-blocking: agent continues without knowledge context
     }
 
+    // Session management — per-Agent session (GAP-2: RuntimeInstance.sessionId)
+    const metadataUpdates: Partial<WorkUnitMetadata> = {};
+    const agentSessionId = this.instance?.sessionId;
+    if (!agentSessionId) {
+      const newId = randomUUID();
+      metadataUpdates.sessionId = newId;
+      metadataUpdates.startedAt = new Date().toISOString();
+      // Persist sessionId to RuntimeInstance for cross-WorkUnit continuity
+      if (this.instance) {
+        await this.fileStore.updateState(this.instance.id, { sessionId: newId });
+        this.instance.sessionId = newId;
+      }
+    } else {
+      metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
+    }
+
+    // AgentTask with new interface: provider, sessionId, maxTurns, knowledgeContext
     const task: AgentTask = {
       id: wu.id,
       executionId: `${wu.id}-${Date.now()}`,
-      agentType: 'claude',
+      provider: (this.role.provider as 'claude' | 'codex' | 'opencode' | 'openclaw') || 'claude',
       prompt,
       parameters: {
-        sessionFlags,
+        sessionId: agentSessionId ?? undefined,
+        maxTurns: 50,
+        knowledgeContext: knowledgeContext || undefined,
         agentRole: 'executor',
         workUnitId: wu.id,
+        agentProfileId: this.role.id,
         extraEnv: {
           STUDIO_WORKUNIT_ID: wu.id,
           STUDIO_CHANNEL_ID: wu.channelId ?? '',
@@ -256,6 +317,26 @@ export class AgentLoop {
     try {
       const result: ExecutionResult = await agentRunner.executeLightweight(task);
       const stepResult = parseAgentOutput(result.outputText ?? '');
+
+      // T-1.1: Record tool:call events for PatternMiner data source
+      if (result.outputText) {
+        try {
+          writeToolCallEvents(result.outputText, join(DEFAULT_EVENTS_DIR, 'studio.jsonl'));
+        } catch { /* non-blocking */ }
+      }
+
+      // GAP-6: recordOutcome + extractFromExecution (non-blocking)
+      this.recordExecutionOutcome(wu, result).catch(() => {});
+
+      // Session truncation: detect input_tokens exceeding threshold
+      this.checkSessionTruncation(result.outputText, metadataUpdates);
+
+      // AC-4.3/4.4: Cache tracking — extract input_tokens from result events
+      const tokens = extractInputTokens(result.outputText ?? '');
+      if (tokens !== null) {
+        metadataUpdates.lastInputTokens = tokens;
+      }
+
       return { ...stepResult, metadataUpdates };
     } catch (err) {
       // W-3 fix: executeLightweight failure returns error result instead of throwing
@@ -270,10 +351,65 @@ export class AgentLoop {
     }
   }
 
+  /** Record execution outcome to knowledge service (GAP-6, non-blocking) */
+  private async recordExecutionOutcome(wu: WorkUnitData, result: ExecutionResult): Promise<void> {
+    try {
+      await knowledgeService.recordOutcome({
+        executionId: wu.id,
+        agentType: 'claude',
+        consumedKnowledge: [],
+        success: result.success,
+        details: result.outputText?.slice(0, 500) ?? '',
+        timestamp: new Date().toISOString(),
+      });
+    } catch {
+      // Non-blocking
+    }
+    try {
+      await knowledgeService.extractFromExecution({
+        task: wu.scope ?? '',
+        diff: result.outputText ?? '',
+        success: result.success,
+        duration: result.totalDurationMs ?? 0,
+        agentType: 'claude',
+        consumedKnowledge: [],
+      });
+    } catch {
+      // Non-blocking
+    }
+  }
+
+  /** Check execution output for input_tokens exceeding threshold, reset session if needed */
+  private checkSessionTruncation(outputText: string | undefined, metadataUpdates: Partial<WorkUnitMetadata>): void {
+    if (!outputText || !this.instance) return;
+    try {
+      // Parse stream JSON events for usage data
+      const lines = outputText.split('\n').filter(l => l.trim());
+      for (const line of lines) {
+        try {
+          const event = JSON.parse(line) as Record<string, unknown>;
+          if (event.type === 'usage' && typeof event.input_tokens === 'number') {
+            const inputTokens = event.input_tokens as number;
+            if (inputTokens > SESSION_TOKEN_LIMIT) {
+              logger.info(`[AgentLoop] Session truncation: ${inputTokens} tokens exceeds limit ${SESSION_TOKEN_LIMIT}`);
+              this.instance.sessionId = null;
+              this.fileStore.updateState(this.instance.id, { sessionId: null }).catch(() => {});
+              delete metadataUpdates.sessionId;
+            }
+          }
+        } catch {
+          // Skip non-JSON lines
+        }
+      }
+    } catch {
+      // Non-blocking
+    }
+  }
+
   /** Record result: monitoring checkpoints + state transitions (zero token) */
   private async recordResult(target: Target, result: StepResult): Promise<void> {
     const wuId = target.workUnit.id;
-    const wu = await prisma.workUnit.findUnique({ where: { id: wuId } });
+    const wu = await this.workUnitService.getById(wuId);
     if (!wu) return;
 
     const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
@@ -282,9 +418,8 @@ export class AgentLoop {
 
     // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
     // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
-    await prisma.workUnit.update({
-      where: { id: wuId },
-      data: { metadata: JSON.stringify({ ...metadata, ...result.metadataUpdates, stepCount, consecutiveStuck }) },
+    await this.workUnitService.update(wuId, {
+      metadata: { ...metadata, ...result.metadataUpdates, stepCount, consecutiveStuck },
     });
 
     // Monitoring: step limit
@@ -329,18 +464,24 @@ export class AgentLoop {
 
   /** Post message directly to discussion space (no EventBus) */
   private async postToDiscussionSpace(workUnitId: string, content: string): Promise<void> {
-    const wu = await prisma.workUnit.findUnique({ where: { id: workUnitId } });
+    const wu = await this.workUnitService.getById(workUnitId);
     if (!wu?.channelId) return;
 
-    await prisma.channelMessage.create({
-      data: {
-        content,
-        workUnitId,
-        channelId: wu.channelId,
-        authorType: 'agent',
-        agentName: this.role.name,
-      },
-    });
+    const anchor = await findAnchorMessage(workUnitId, this.fileStore);
+
+    const now = new Date().toISOString();
+    const msg: ChannelMessageData = {
+      id: randomUUID(),
+      channelId: wu.channelId,
+      authorType: 'agent',
+      agentName: this.role.name,
+      content,
+      replyToId: anchor?.id ?? null,
+      meta: '{}',
+      workUnitId,
+      createdAt: now,
+    };
+    await this.fileStore.appendMessage(wu.channelId, msg);
   }
 
   /** Parse accepted WorkUnit types from role description */
@@ -352,6 +493,42 @@ export class AgentLoop {
 }
 
 // ─── Exported pure functions (testable) ───
+
+/** Extract input_tokens from stream-json result events */
+export function extractInputTokens(outputText: string): number | null {
+  const lines = outputText.split('\n');
+  for (const line of lines) {
+    try {
+      const event = JSON.parse(line) as Record<string, unknown>;
+      if (event.type === 'result' && typeof event.input_tokens === 'number') {
+        return event.input_tokens as number;
+      }
+    } catch {
+      // Skip non-JSON lines
+    }
+  }
+  return null;
+}
+
+/** Check if a process is alive by sending signal 0 */
+export function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Find the anchor message (first message, no replyToId) for a WorkUnit */
+export async function findAnchorMessage(workUnitId: string, fileStore?: FileStore): Promise<ChannelMessageData | null> {
+  const fs = fileStore ?? new FileStore();
+  const messages = await fs.queryAllMessages({ workUnitId });
+  const anchors = messages
+    .filter(m => !m.replyToId)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  return anchors[0] ?? null;
+}
 
 /** Resolve target from observations (pure code, zero LLM) */
 export function resolveTarget(obs: Observations): Target | null {
@@ -408,7 +585,7 @@ function sleep(ms: number): Promise<void> {
 
 // ─── Prompt builders ───
 
-function buildContinuePrompt(wu: WorkUnit): string {
+function buildContinuePrompt(wu: WorkUnitData): string {
   return `## 当前工作
 
 ${wu.scope}
@@ -418,10 +595,12 @@ ${wu.scope}
 继续上次工作。每步结束后输出：
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
-  ACTION: NEED_INPUT:<需要什么>   需要人类输入`;
+  ACTION: NEED_INPUT:<需要什么>   需要人类输入
+
+当做出设计决策（选型、架构选择、方案取舍）时，用 Write 工具追加到 ~/.studio/knowledge/decision-YYYY-MM-DD.md 记录：话题、候选方案、选择、理由。`;
 }
 
-function buildReplyPrompt(wu: WorkUnit, replies: ChannelMessage[]): string {
+function buildReplyPrompt(wu: WorkUnitData, replies: ChannelMessageData[]): string {
   const replyText = replies.map(r => r.content).join('\n');
   return `## 当前工作
 
@@ -496,4 +675,37 @@ export function extractKnowledgeEntryIds(analysis: KnowledgeSearchAnalysis): str
     }
   }
   return Array.from(new Set(ids));
+}
+
+// ─── tool:call event recording ───
+
+const DEFAULT_EVENTS_DIR = join(homedir(), 'events');
+
+/**
+ * Write tool:call events extracted from stream-json output to a JSONL file.
+ * Returns the count of tool calls written.
+ * T-1.1: Wiring tool:call recording for PatternMiner data source.
+ */
+export function writeToolCallEvents(outputText: string, filePath: string): number {
+  const events = parseStreamEvents(outputText);
+  const toolCalls = extractToolCalls(events);
+  if (toolCalls.length === 0) return 0;
+
+  const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+
+  const now = Date.now();
+  for (const call of toolCalls) {
+    const event = JSON.stringify({
+      type: 'tool:call',
+      tool: call.name,
+      success: true,
+      durationMs: 0,
+      timestamp: now,
+      caller: 'agent-loop',
+    });
+    appendFileSync(filePath, event + '\n', 'utf-8');
+  }
+
+  return toolCalls.length;
 }

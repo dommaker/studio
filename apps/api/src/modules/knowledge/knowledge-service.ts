@@ -202,6 +202,8 @@ export interface ExtractionResult {
   duration: number;
   agentType: string;
   consumedKnowledge: string[];
+  /** 来源 execution ID，用于 AC-3.2 来源追溯 */
+  sourceExecutionId?: string;
 }
 
 export interface ExecutionOutcome {
@@ -212,6 +214,11 @@ export interface ExecutionOutcome {
   details: string;
   timestamp: string;
   mode?: 'external_agent' | 'channel';
+}
+
+export interface InjectContextResult {
+  prompt: string;
+  injectedIds: string[];
 }
 
 export interface InjectOpts {
@@ -327,12 +334,35 @@ export class KnowledgeService {
       result.consumedKnowledge.length > 0 ? `Consumed: ${result.consumedKnowledge.join(', ')}` : '',
     ].filter(Boolean).join('\n');
 
-    await this.recordPattern({
-      type: result.success ? 'pattern' : 'failure',
-      title,
-      content,
-      tags: ['execution', result.agentType],
-    });
+    // AC-3.1: Failure → mark for review with need_review tag
+    const tags = ['execution', result.agentType];
+    if (!result.success) {
+      tags.push('need_review');
+    }
+
+    // AC-3.3: Dedup — check if existing published entry on same topic exists
+    const allEntries = this.store.list({});
+    const existingSameTopic = allEntries.find((e: any) =>
+      e.title && e.title.startsWith(`[Exec] ${result.agentType}:`) &&
+      e.title.includes(result.task.slice(0, 40))
+    );
+
+    if (existingSameTopic) {
+      // Merge: update existing entry with new content
+      const mergedContent = `${existingSameTopic.content}\n\n---\n${content}`;
+      const updatedRefs = [
+        ...(existingSameTopic.sourceReferences || []),
+        { source: `execution:${result.agentType}`, timestamp: new Date().toISOString() },
+      ];
+      this.store.save({ ...existingSameTopic, content: mergedContent, sourceReferences: updatedRefs.slice(-20) });
+    } else {
+      await this.recordPattern({
+        type: result.success ? 'pattern' : 'failure',
+        title,
+        content,
+        tags,
+      });
+    }
 
     // Record outcome for consumed knowledge entries
     if (result.consumedKnowledge.length > 0) {
@@ -371,7 +401,8 @@ export class KnowledgeService {
       }
 
       // Validate entry quality — mark low_quality instead of rejecting
-      const tags: string[] = [entry.type];
+      // Merge input tags (e.g., need_review) with type-derived tags
+      const tags: string[] = [entry.type, ...(entry.tags || []).filter(t => t !== entry.type)];
       const knowledgeType = ENTRY_TYPE_MAP[entry.type] || 'guideline';
       const issues = this.linter.validateEntry({
         title: entry.title || '',
@@ -466,32 +497,35 @@ export class KnowledgeService {
 
   // ═══════════ Consume (read knowledge) ════════════
 
-  async injectContext(agentType: string, _opts?: InjectOpts): Promise<string> {
+  async injectContext(agentType: string, _opts?: InjectOpts): Promise<InjectContextResult> {
     const sections: string[] = [];
     const injectedIds: string[] = [];
 
     // 1. rule — full content injection (constraints must be followed)
-    const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType });
-    if (rules.length) {
-      const lines = rules.map((r: any) => `- ${stripFormat(r.content)}`);
+    const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType, status: 'published' });
+    const filteredRules = (rules || []).filter((r: any) => r.sourceReference && r.status !== 'stale');
+    if (filteredRules.length) {
+      const lines = filteredRules.map((r: any) => `- ${stripFormat(r.content)}`);
       sections.push(`## 系统约束\n${lines.join('\n')}`);
-      injectedIds.push(...rules.map((r: any) => r.id));
+      injectedIds.push(...filteredRules.map((r: any) => r.id));
     }
 
     // 2. context — full content injection (preferences + environment)
-    const context = await this.query.queryEntries({ consumptionModes: ['context'] });
-    if (context.length) {
-      const lines = context.map((c: any) => `- ${stripFormat(c.content)}`);
+    const context = await this.query.queryEntries({ consumptionModes: ['context'], status: 'published' });
+    const filteredContext = (context || []).filter((c: any) => c.sourceReference && c.status !== 'stale');
+    if (filteredContext.length) {
+      const lines = filteredContext.map((c: any) => `- ${stripFormat(c.content)}`);
       sections.push(`## 上下文\n${lines.join('\n')}`);
-      injectedIds.push(...context.map((c: any) => c.id));
+      injectedIds.push(...filteredContext.map((c: any) => c.id));
     }
 
     // 3. signal — index injection (informational)
     const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
-    if (signals.length) {
-      const lines = signals.map((s: any) => `- [${s.id}] ${s.summary}`);
+    const filteredSignals = (signals || []).filter((s: any) => s.status !== 'stale');
+    if (filteredSignals.length) {
+      const lines = filteredSignals.map((s: any) => `- [${s.id}] ${s.summary}`);
       sections.push(`## 近期信号\n${lines.join('\n')}`);
-      injectedIds.push(...signals.map((s: any) => s.id));
+      injectedIds.push(...filteredSignals.map((s: any) => s.id));
     }
 
     // 4. reference — hint only
@@ -507,7 +541,7 @@ export class KnowledgeService {
       }
     }
 
-    return sections.join('\n\n');
+    return { prompt: sections.join('\n\n'), injectedIds };
   }
 
   /**
@@ -832,10 +866,6 @@ export class KnowledgeService {
     }
 
     this.eventEmitter.emit('knowledge', { type: 'recordOutcome', data: { executionId: outcome.executionId, success: outcome.success } });
-  }
-
-  async recordFeedback(_entryId: string, _useful: boolean, _reason?: string): Promise<void> {
-    // Phase 5: human feedback
   }
 
   /**

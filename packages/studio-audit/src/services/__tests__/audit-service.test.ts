@@ -54,7 +54,6 @@ describe('AuditService', () => {
   // ============================================
   describe('AuditResources', () => {
     it('包含常用资源类型', () => {
-      expect(AuditResources.WORKFLOW).toBe('workflow');
       expect(AuditResources.ROLE).toBe('role');
       expect(AuditResources.COMPANY).toBe('company');
     });
@@ -68,12 +67,12 @@ describe('AuditService', () => {
       mockPrisma.auditLog.create.mockResolvedValue({
         id: 'audit-123',
         action: 'create',
-        resource: 'workflow',
+        resource: 'task',
       });
 
       const result = await service.log({
         action: 'create',
-        resource: 'workflow',
+        resource: 'task',
         userId: 'user-1',
       });
 
@@ -90,7 +89,7 @@ describe('AuditService', () => {
 
       const result = await service.log({
         action: 'create',
-        resource: 'workflow',
+        resource: 'task',
         status: 'failure',
         errorMessage: 'Something went wrong',
       });
@@ -139,7 +138,7 @@ describe('AuditService', () => {
       mockPrisma.auditLog.createMany.mockResolvedValue({ count: 3 });
 
       const result = await service.logBatch([
-        { action: 'create', resource: 'workflow' },
+        { action: 'create', resource: 'capability' },
         { action: 'update', resource: 'role' },
         { action: 'delete', resource: 'task' },
       ]);

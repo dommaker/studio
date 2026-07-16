@@ -21,8 +21,8 @@ import {
 } from '../types/gate.types.js';
 
 import { ChangeLevel, ChangeRecord, SpecContent } from '../types/change.types.js';
-import { changeApproverService } from './change-approver.service.js';
 import { changeAnalyzerService } from './change-analyzer.service.js';
+import { changeHistoryService } from './change-history.service.js';
 import { logger } from '@dommaker/studio-shared';
 
 /**
@@ -55,7 +55,7 @@ export class GateCheckerService {
     const { changeId, checkpoints, harnessConfigs, strictMode } = input;
 
     // 1. 获取变更记录
-    const change = await changeApproverService.get(changeId);
+    const change = changeHistoryService.get(changeId);
     if (!change) {
       throw new Error(`变更记录不存在: ${changeId}`);
     }

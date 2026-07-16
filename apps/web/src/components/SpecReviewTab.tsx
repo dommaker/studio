@@ -18,7 +18,6 @@ export interface SpecChange {
 
 export interface SpecReview {
   id: string;
-  workflowId: string;
   changes: SpecChange[];
   approvals: {
     architect: { approved: boolean; reviewer?: string; comment?: string; timestamp?: string };
@@ -30,7 +29,7 @@ export interface SpecReview {
 }
 
 interface SpecReviewTabProps {
-  workflowId: string;
+  projectId: string;
   workflowName?: string;
 }
 
@@ -50,7 +49,7 @@ const IMPACT_CONFIG = {
   low: { label: '低影响', color: '#4CAF50', bg: 'rgba(76, 175, 80, 0.1)' },
 };
 
-export function SpecReviewTab({ workflowId }: SpecReviewTabProps) {
+export function SpecReviewTab({ projectId }: SpecReviewTabProps) {
   const [reviews, setReviews] = useState<SpecReview[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReview, setSelectedReview] = useState<SpecReview | null>(null);
@@ -59,13 +58,13 @@ export function SpecReviewTab({ workflowId }: SpecReviewTabProps) {
 
   useEffect(() => {
     loadReviews();
-  }, [workflowId]);
+  }, [projectId]);
 
   const loadReviews = async () => {
     setLoading(true);
     try {
       const apiBase = getApiBase();
-      const response = await fetch(`${apiBase}/spec-reviews?workflowId=${workflowId}`);
+      const response = await fetch(`${apiBase}/spec-reviews`);
       
       if (!response.ok) {
         // 如果 API 不存在，显示模拟数据

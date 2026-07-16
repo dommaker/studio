@@ -4,7 +4,7 @@ import type { ExportOptions, AuditLog } from '../types';
 const mockLogs: AuditLog[] = [
   { id: '1', companyId: '1', action: 'create', actor: 'Alice', target: 'role-1', details: 'Created role', timestamp: new Date('2026-01-15') },
   { id: '2', companyId: '1', action: 'update', actor: 'Bob', target: 'task-5', details: 'Updated task', timestamp: new Date('2026-02-10') },
-  { id: '3', companyId: '1', action: 'delete', actor: 'Alice', target: 'workflow-2', details: 'Deleted workflow', timestamp: new Date('2026-03-01') },
+  { id: '3', companyId: '1', action: 'delete', actor: 'Alice', target: 'task-7', details: 'Deleted task', timestamp: new Date('2026-03-01') },
 ];
 
 const companies = { '1': 'Company A', 'empty': 'Empty Co' };

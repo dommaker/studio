@@ -1,6 +1,6 @@
 // studio-agent 类型定义
 
-export type AgentCategory = 'llm' | 'tool' | 'workflow' | 'processor' | 'connector' | 'custom';
+export type AgentCategory = 'llm' | 'tool' | 'processor' | 'connector' | 'custom';
 
 export interface JSONSchema {
   type?: string;
@@ -64,4 +64,23 @@ export interface AgentCapabilities {
   canReview: boolean;
   canTest: boolean;
   canDeploy: boolean;
+}
+
+export interface AgentPersonaConstraints {
+  max_concurrent_tasks: number;
+  requires_approval: boolean;
+  can_delegate: boolean;
+  can_spawn_agents: boolean;
+}
+
+export interface AgentPersona {
+  id: string;
+  name: string;
+  description: string;
+  templates: string[];
+  capabilities: string[];
+  skills: string[];
+  tools: string[];
+  constraints: AgentPersonaConstraints;
+  persona: string;
 }

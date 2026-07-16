@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-03
+> 最后更新: 2026-07-16
 
 ---
 
@@ -66,8 +66,6 @@
 | architecture-validator | packages/studio-spec/src/services/architecture-validator.ts | 架构层验证器 |
 | change-analyzer.service.test | packages/studio-spec/src/services/change-analyzer.service.test.ts | ChangeAnalyzerService 单元测试 |
 | change-analyzer.service | packages/studio-spec/src/services/change-analyzer.service.ts | 变更分析服务 |
-| change-approver.service.test | packages/studio-spec/src/services/change-approver.service.test.ts | ChangeApproverService 单元测试 |
-| change-approver.service | packages/studio-spec/src/services/change-approver.service.ts | 变更审批服务 |
 | change-history.service.test | packages/studio-spec/src/services/change-history.service.test.ts | ChangeHistoryService 单元测试 |
 | change-history.service | packages/studio-spec/src/services/change-history.service.ts | 变更历史服务 |
 | gate-checker.service.test | packages/studio-spec/src/services/gate-checker.service.test.ts | GateCheckerService 单元测试 |
@@ -88,14 +86,11 @@
 | types | packages/studio-task/src/types.ts | CLI 命令选项和输出类型 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
-| agent-context | apps/api/src/modules/agents/agent-context.ts | buildAgentContext — 统一 Agent 上下文构建器 |
 | auditor-agent.service | apps/api/src/modules/agents/auditor-agent.service.ts | Auditor Agent — 跨任务审计 + 周期洞察 |
-| deploy-agent.service | apps/api/src/modules/agents/deploy-agent.service.ts | Deploy Agent — merge to master, push, deploy, cleanup |
 | knowledge-agent.service | apps/api/src/modules/agents/knowledge-agent.service.ts | Knowledge Agent - 从执行结果中异步提取知识 |
 | monitor-agent.service | apps/api/src/modules/agents/monitor-agent.service.ts | Monitor Agent - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
 | ops-agent.service | apps/api/src/modules/agents/ops-agent.service.ts | Ops Agent — 系统生命周期守护 |
 | ops-rules | apps/api/src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
-| post-eval-agent.service | apps/api/src/modules/agents/post-eval-agent.service.ts | PostEval Agent — 交付完整性审计 (2026-05-21) |
 | requirement-gate | apps/api/src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
 | review-agent.service | apps/api/src/modules/agents/review-agent.service.ts | Review Agent - 多立场代码审查 + G33 非阻断发现自动曝光 |
 | review-report | apps/api/src/modules/agents/review-report.ts | 审查报告类型定义 |
@@ -109,7 +104,6 @@
 | service | apps/api/src/modules/auth/service.ts | 认证服务 - Auth Service |
 | routes | apps/api/src/modules/builtin-tools/routes.ts | builtin-tools/routes.ts — Built-in Toolset (HZ-026) |
 | routes | apps/api/src/modules/capabilities/routes.ts | 从 YAML 文件读取 stage 字段 |
-| analyst-trigger.service | apps/api/src/modules/channels/analyst-trigger.service.ts | Q7: 按 `## ` 标题分割知识文档，选取与需求关键词匹配的段落 |
 | channel-init | apps/api/src/modules/channels/channel-init.ts | Seed default channels on startup (B1-001) |
 | channel-message.service | apps/api/src/modules/channels/channel-message.service.ts | ChannelMessage Service — centralized message creation + event publishing |
 | channel.routes | apps/api/src/modules/channels/channel.routes.ts | Channel Routes — B1-001/B1-002/B1-009/B1-011 |
@@ -123,9 +117,6 @@
 | event.routes | apps/api/src/modules/events/event.routes.ts | G30: StudioEvent API Endpoints |
 | sse.routes | apps/api/src/modules/events/sse.routes.ts | HZ-028: Event Stream (SSE) |
 | routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
-| agent-event-listener | apps/api/src/modules/goals/agent-event-listener.ts | Agent Event Listener - 监听 AgentExecutor 的 Redis 事件 |
-| goal-scheduler | apps/api/src/modules/goals/goal-scheduler.ts | Goal Scheduler - 轮询 executing 状态的 Goal，调度可执行的 step |
-| goal.service | apps/api/src/modules/goals/goal.service.ts | Goal Service - Goal 驱动架构核心 |
 | routes | apps/api/src/modules/goals/routes.ts | Goal API 路由 - Goal 驱动架构 |
 | evolution.service | apps/api/src/modules/harness/evolution.service.ts | Constraint Evolution Service — 约束规则进化 |
 | iron-laws.routes | apps/api/src/modules/harness/iron-laws.routes.ts | Iron Laws API — 从 runtime-proxy 迁移 (2026-05-14) |
@@ -156,45 +147,33 @@
 | server | apps/api/src/modules/mcp/server.ts | MCP Server - Model Context Protocol 服务器 |
 | tool-registry | apps/api/src/modules/mcp/tool-registry.ts | MCP Tool Registry — dynamic registration, health, rate limiting |
 | tools | apps/api/src/modules/mcp/tools.ts | MCP Tools 定义 — 含 createWorkUnit (PMO→Channel→Agent) |
-| init-trace | apps/api/src/modules/monitoring/init-trace.ts | ⑨: Trace pipeline initialization |
-| trace-pipeline.service | apps/api/src/modules/monitoring/trace-pipeline.service.ts | TracePipelineService — ⑨ 修复 |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | notify.service | apps/api/src/modules/outbound-notify/notify.service.ts | NotifyService - 通知服务 |
 | routes | apps/api/src/modules/outbound-notify/routes.ts | Notify API 路由 |
 | routes | apps/api/src/modules/outputs/routes.ts | 产出文档 API - 存储和展示执行结果 |
-| pipeline-dashboard.routes | apps/api/src/modules/pipeline-dashboard/pipeline-dashboard.routes.ts | Dogfood Status Dashboard — GET /api/v1/dogfood/status |
 | okr.service | apps/api/src/modules/pmo/okr.service.ts | 🆕 AS-016: 获取当前季度 |
 | project.service | apps/api/src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 + publish() → Channel + getLinkedSDDs() |
 | routes | apps/api/src/modules/pmo/routes.ts | PMO API — 项目 CRUD + POST publish + GET sdd 关联查询 |
-| memory-routes | apps/api/src/modules/roles/memory-routes.ts | Role Memory API 路由 |
-| memory.service | apps/api/src/modules/roles/memory.service.ts | MemoryService - 角色记忆管理 |
-| role-config.service | apps/api/src/modules/roles/role-config.service.ts | RoleConfig Service — 可进化角色配置的 CRUD + 初始化 |
-| role.service | apps/api/src/modules/roles/role.service.ts | Role Service — 角色管理 |
-| role.types | apps/api/src/modules/roles/role.types.ts | Role memory types — used by memory.service.ts |
 | routes | apps/api/src/modules/roles/routes.ts | Role API 路由 |
 | routes | apps/api/src/modules/runtime-config/routes.ts | GET /api/v1/runtime-config |
 | routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/spec-reviews/routes.ts | Spec 审查 API 路由 |
 | spec-review.service | apps/api/src/modules/spec-reviews/spec-review.service.ts | Spec 审查服务 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
-| routes | apps/api/src/modules/tools-std/routes.ts | skills/routes.ts - Tool 管理 API（tools/std 目录） |
-| skill-extraction.service | apps/api/src/modules/tools-std/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
-| skill-proposal-routes | apps/api/src/modules/tools-std/skill-proposal-routes.ts | Skill Proposal API 路由 |
+| skill-extraction.service | apps/api/src/modules/skills/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
+| skill-proposal-routes | apps/api/src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | apps/api/src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
 | channel | apps/web/src/api/channel.ts | Channel API — list + publish 发布 |
-| examples | apps/web/src/data/examples.ts | 预置示例工作流 |
 | useCapabilities | apps/web/src/hooks/useCapabilities.ts | 获取 Stage 分类数据（UI-001） |
 | useChannelEvents | apps/web/src/hooks/useChannelEvents.ts | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
 | useCompanyId | apps/web/src/hooks/useCompanyId.ts | useCompanyId - 统一获取公司 ID |
-| useCompanyStats | apps/web/src/hooks/useCompanyStats.ts | useCompanyStats - 公司大厅统计数据 Hook |
-| useDashboardData | apps/web/src/hooks/useDashboardData.ts | useDashboardData - 首页聚合数据 Hook（优化首屏加载） |
+
 | useGlobalModals | apps/web/src/hooks/useGlobalModals.ts | 全局弹窗状态 hook |
 | useWebSocket | apps/web/src/hooks/useWebSocket.ts | WebSocket 连接管理 Hook（P2-4） |
 | useWebSocketHandlers | apps/web/src/hooks/useWebSocketHandlers.ts | WebSocket 事件处理 hook |
 | agentStore | apps/web/src/stores/agentStore.ts | agentStore |
 | authStore | apps/web/src/stores/authStore.ts | 认证状态管理 - Auth Store (Zustand) |
-| goalStore | apps/web/src/stores/goalStore.ts | goalStore |
 | runtimeStore | apps/web/src/stores/runtimeStore.ts | runtimeStore |
 | stepEditorStore | apps/web/src/stores/stepEditorStore.ts | stepEditorStore.ts - Step 编辑器状态管理 |
 | uiStore | apps/web/src/stores/uiStore.ts | uiStore |
@@ -209,7 +188,6 @@
 | toast | apps/web/src/utils/toast.ts | Lightweight toast notification system (zero dependencies) |
 
 | session-summary-generator | apps/api/src/modules/events/session-summary-generator.ts | B9-015: SessionSummaryGenerator — server-side session aggregation |
-| workflowEditorStore | apps/web/src/stores/workflowEditorStore.ts | workflowEditorStore.ts - Workflow 编辑器状态管理 |
 | output-capture | packages/studio-agent/src/services/output-capture.ts | Output Capture — 进度读取 + 输出文件收集 + session 指标记录 |
 | session-manager | packages/studio-agent/src/services/session-manager.ts | Session Manager — Agent 执行器核心（session loop + async spawn） |
 | worktree-resolver | packages/studio-agent/src/services/worktree-resolver.ts | Worktree Resolver — git worktree 创建 + harness 配置传播 + 文件桥 |
@@ -217,21 +195,6 @@
 | provider-registry | packages/studio-shared/src/llm/provider-registry.ts | Provider Registry — LLM provider 注册/查询 |
 | usage-tracker | packages/studio-shared/src/llm/usage-tracker.ts | Usage Tracker — token/cost 用量统计 |
 | user-behavior | packages/studio-shared/src/types/user-behavior.ts | User Behavior Profile types — KE-003 |
-| analyst-executor | apps/api/src/modules/channels/analyst-executor.ts | Analyst Executor — Claude Code 执行 + 输出验证 |
-| analyst-knowledge | apps/api/src/modules/channels/analyst-knowledge.ts | Analyst Knowledge — 知识加载、保存、段落筛选 |
-| analyst-prompt | apps/api/src/modules/channels/analyst-prompt.ts | Analyst Prompt — prompt 构建逻辑 |
-| conversation-converter | apps/api/src/modules/channels/conversation-converter.ts | Conversation → Pipeline Conversion (AS-020 §6.6 P10) |
-| conversation-handler | apps/api/src/modules/channels/conversation-handler.ts | ConversationHandler — Channel conversation mode (AS-020 §6.4) |
-| event-handler | apps/api/src/modules/goals/event-handler.ts | Event Handler — Agent 事件核心处理逻辑 |
-| goal-crud | apps/api/src/modules/goals/goal-crud.ts | Goal CRUD — 创建/读取/更新/删除操作 |
-| goal-lifecycle | apps/api/src/modules/goals/goal-lifecycle.ts | Goal Lifecycle — 状态转换（pending→executing→succeeded/failed） |
-| goal-review | apps/api/src/modules/goals/goal-review.ts | Goal Review — 审查集成 + 成功处理 + 部署 |
-| knowledge-promoter | apps/api/src/modules/goals/knowledge-promoter.ts | Knowledge Promoter — 知识引用记录 + 完成后知识提取 |
-| review-orchestrator | apps/api/src/modules/goals/review-orchestrator.ts | Review Orchestrator — 审查循环管理 |
-| scheduler-dispatch | apps/api/src/modules/goals/scheduler-dispatch.ts | Scheduler Dispatch — dispatchStep 核心逻辑 + DispatchContext |
-| scheduler-integration | apps/api/src/modules/goals/scheduler-integration.ts | Scheduler Integration — GoalScheduler 类的生命周期和调度循环 |
-| scheduler-prompt | apps/api/src/modules/goals/scheduler-prompt.ts | Scheduler Prompt — prompt 构建、上下文收集、Integration 代码执行 |
-| scheduler-queue | apps/api/src/modules/goals/scheduler-queue.ts | Scheduler Queue — 路由分类、资源管理、队列管理 |
 | skill-loader | apps/api/src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
 | daemon-routes | apps/api/src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
 | discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
@@ -244,10 +207,8 @@
 | agent-runner | packages/studio-agent/src/services/agent-runner.ts | Agent Runner — unified executor merging AgentExecutor + TaskExecutor |
 | spawn-claude-cli | packages/studio-shared/src/llm/spawn-claude-cli.ts | CLI Spawn 环境变量构造 |
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
-| data-analyst-agent.service | apps/api/src/modules/agents/data-analyst-agent.service.ts | DataAnalyst Agent — 每日数据分析 (LLM) |
 | oauth.routes | apps/api/src/modules/auth/oauth.routes.ts | GET /auth/:provider |
 | oauth.service | apps/api/src/modules/auth/oauth.service.ts | OAuth 2.0 service for Google and GitHub providers. |
-| analyst-fact-verification | apps/api/src/modules/channels/analyst-fact-verification.ts | Analyst Fact Verification — 事实验证层 (D6) |
 | failure-classifier | apps/api/src/modules/goals/failure-classifier.ts | Failure classifier — pattern matching on error messages |
 | prompt-builder | apps/api/src/modules/knowledge/consumers/prompt-builder.ts | Unified knowledge injection entry point. |
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
@@ -267,14 +228,6 @@
 | agent-profile.service | apps/api/src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | apps/api/src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
 | email.service | apps/api/src/modules/auth/email.service.ts | 邮件服务 - Email Service |
-| acgroup-tier | apps/api/src/modules/channels/acgroup-tier.ts | AC Group modelTier inheritance. |
-| analyst-prescan | apps/api/src/modules/channels/analyst-prescan.ts | Analyst PreScan — Rule-based code scope detection (0 LLM tokens) |
-| analyst-scout | apps/api/src/modules/channels/analyst-scout.ts | Analyst Scout — Parallel code exploration sessions |
-| analyst-synthesizer | apps/api/src/modules/channels/analyst-synthesizer.ts | Analyst Synthesizer — Combines Scout reports into RequirementsDoc prompt |
-| contract-test-red-check | apps/api/src/modules/channels/contract-test-red-check.ts | Contract Test RED Check — Layer 4: 执行测试验证 RED 状态 |
-| contract-test-validator | apps/api/src/modules/channels/contract-test-validator.ts | Contract Test Validator — Layer 1-3 质量检查 |
-| multi-repo-split | apps/api/src/modules/channels/multi-repo-split.ts | P3: Multi-repo WorkUnit splitting |
-| sdd-verification | apps/api/src/modules/channels/sdd-verification.ts | SP-004: SDD read path verification (non-blocking enrichment) |
 | eval-case-store | apps/api/src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
 | improver-scheduler.service | apps/api/src/modules/knowledge/improver-scheduler.service.ts | ImproverScheduler — 自文档化调度器 |
 | monitoring.routes | apps/api/src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
@@ -298,3 +251,13 @@
 | workunit | apps/web/src/api/workunit.ts | WorkUnit API — Agent Network §3.28c-1 |
 | workunitStore | apps/web/src/stores/workunitStore.ts | WorkUnit Store — Agent Network §3.28c-1 |
 | data | src/data.ts | data |
+| cli-adapter | packages/studio-agent/src/cli-adapter.ts | CLI Adapter — translate common spawn params to provider-specific args |
+| registry | packages/studio-agent/src/registry.ts | Agent Persona 注册表 |
+| file-store | packages/studio-shared/src/file-store.ts | FileStore — AN 运行时数据文件存储基类 |
+| anomaly-detector | packages/studio-shared/src/stats/anomaly-detector.ts | 计算数组的均值和标准差（总体标准差） |
+| system-health | apps/api/src/modules/agents/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
+| convert-to-task.service | apps/api/src/modules/channels/convert-to-task.service.ts | AC-E2: Convert to Task Service |
+| message-routing | apps/api/src/modules/channels/message-routing.ts | Message routing logic for channel messages (AC-B1-B4). |
+| okr-anomaly-detector | apps/api/src/modules/pmo/okr-anomaly-detector.ts | okr-anomaly-detector |
+| project-discovery.service | apps/api/src/modules/projects/project-discovery.service.ts | AC-D1+D3: Project Discovery Service |
+| project.routes | apps/api/src/modules/projects/project.routes.ts | AC-D3: Project Discovery API |
