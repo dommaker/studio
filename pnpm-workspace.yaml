@@ -8,8 +8,7 @@ allowBuilds:
   esbuild: true
   prisma: true
 
-minimumReleaseAgeExclude:
-  - '@dommaker/harness'
+minimumReleaseAge: 0
 
 catalog:
   '@fastify/cors': ^8.4.0
@@ -21,5 +20,4 @@ catalog:
   vitest: ^1.0.0
   zod: ^3.22.0
 
-overrides:
-  '@dommaker/harness': link:../harness
+overrides: {}
