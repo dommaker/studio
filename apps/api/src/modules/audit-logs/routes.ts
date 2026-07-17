@@ -2,13 +2,13 @@
 import { Router, Request, Response } from 'express';
 import { AuditService, AuditActions, AuditResources } from '@dommaker/studio-audit';
 import { logger } from '../../utils/logger.js';
-import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { formatPaginatedResponse } from '../../utils/pagination.js';
 import { createLazyService } from '../../utils/services.js';
 
 const router = Router();
 
-const getAuditService = createLazyService(() => new AuditService(prisma));
+const getAuditService = createLazyService(() => new AuditService(new FileStore()));
 
 // ========== API 路由 ==========
 

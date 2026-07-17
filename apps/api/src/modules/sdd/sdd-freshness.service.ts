@@ -230,11 +230,11 @@ export class SddFreshnessService {
     changedFiles: string[],
     gitDiff: string,
   ): Promise<SddChangePlan[]> {
-    const slugs = listSddDocs();
+    const slugs = await listSddDocs();
     const plans: SddChangePlan[] = [];
 
     for (const slug of slugs) {
-      const doc = readSddDoc(slug, 'requirement');
+      const doc = await readSddDoc(slug, 'requirement');
       if (!doc) continue;
 
       const trackedFiles = parseFilesSection(doc.body);
@@ -292,7 +292,7 @@ export class SddFreshnessService {
         `- **Layers patched**: ${layersToPatch.join(', ')}`,
       ].join('\n');
 
-      appendChangelog(plan.slug, changelogEntry);
+      await appendChangelog(plan.slug, changelogEntry);
     }
   }
 
@@ -323,7 +323,7 @@ export class SddFreshnessService {
     gitDiff: string,
     plan: SddChangePlan,
   ): Promise<void> {
-    const doc = readSddDoc(slug, layer);
+    const doc = await readSddDoc(slug, layer);
     if (!doc) {
       logger.warn(
         `[SddFreshness] ${slug}/${layer}.md not found, skipping patch`,
@@ -343,7 +343,7 @@ export class SddFreshnessService {
     const newMeta = this.bumpVersion(doc.meta, layer, plan.level);
 
     // Write back
-    writeSddDoc(slug, layer, newMeta, patchedBody);
+    await writeSddDoc(slug, layer, newMeta, patchedBody);
 
     logger.info(
       `[SddFreshness] ${slug}/${layer}.md patched → v${newMeta.version}`,

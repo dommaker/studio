@@ -8,6 +8,28 @@
  * - matchResolutions: Prisma delegation
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+
+// ── Mock FileStore to intercept appendJsonl calls ──
+const { mockAppendJsonl } = vi.hoisted(() => ({
+  mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    FileStore: vi.fn().mockImplementation(() => ({
+      appendJsonl: mockAppendJsonl,
+      readJsonl: vi.fn().mockResolvedValue([]),
+      readJson: vi.fn().mockResolvedValue(null),
+      writeJson: vi.fn().mockResolvedValue(undefined),
+      readDoc: vi.fn().mockResolvedValue(null),
+      writeDoc: vi.fn().mockResolvedValue(undefined),
+      listDocs: vi.fn().mockResolvedValue([]),
+    })),
+  };
+});
+
 import { KnowledgeService } from '../knowledge-service.js';
 import type { PatternEntry, IncidentEntry, TrendEntry } from '../knowledge-service.js';
 
@@ -746,7 +768,8 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
     });
 
     it('skips when no diff and no task', async () => {
-      const { ks, prisma } = createKS();
+      const { ks } = createKS();
+      mockAppendJsonl.mockClear();
       await ks.extractFromExecution({
         task: '',
         diff: '',
@@ -756,7 +779,7 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
         consumedKnowledge: [],
       });
       // Should not create any events
-      expect(prisma.studioEvent.create).not.toHaveBeenCalled();
+      expect(mockAppendJsonl).not.toHaveBeenCalled();
     });
 
     it('records consumption for consumed knowledge entries', async () => {
@@ -776,7 +799,8 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
 
   describe('recordOutcome', () => {
     it('creates StudioEvent with success type', async () => {
-      const { ks, prisma } = createKS();
+      const { ks } = createKS();
+      mockAppendJsonl.mockClear();
       await ks.recordOutcome({
         executionId: 'exec-1',
         agentType: 'executor',
@@ -786,18 +810,18 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
         timestamp: new Date().toISOString(),
         mode: 'pipeline',
       });
-      expect(prisma.studioEvent.create).toHaveBeenCalledWith(
+      expect(mockAppendJsonl).toHaveBeenCalledWith(
+        expect.any(String),
         expect.objectContaining({
-          data: expect.objectContaining({
-            type: 'knowledge:outcome:success',
-            source: 'executor',
-          }),
+          type: 'knowledge:outcome:success',
+          source: 'executor',
         }),
       );
     });
 
     it('creates StudioEvent with failure type', async () => {
-      const { ks, prisma } = createKS();
+      const { ks } = createKS();
+      mockAppendJsonl.mockClear();
       await ks.recordOutcome({
         executionId: 'exec-1',
         agentType: 'executor',
@@ -807,11 +831,10 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
         timestamp: new Date().toISOString(),
         mode: 'pipeline',
       });
-      expect(prisma.studioEvent.create).toHaveBeenCalledWith(
+      expect(mockAppendJsonl).toHaveBeenCalledWith(
+        expect.any(String),
         expect.objectContaining({
-          data: expect.objectContaining({
-            type: 'knowledge:outcome:failure',
-          }),
+          type: 'knowledge:outcome:failure',
         }),
       );
     });
@@ -847,9 +870,9 @@ describe('KnowledgeService Phase 3: Feedback loop behavior', () => {
       );
     });
 
-    it('non-blocking: does not throw when prisma fails', async () => {
-      const { ks, prisma } = createKS();
-      (prisma.studioEvent.create as any).mockRejectedValueOnce(new Error('DB down'));
+    it('non-blocking: does not throw when appendJsonl fails', async () => {
+      const { ks } = createKS();
+      mockAppendJsonl.mockRejectedValueOnce(new Error('DB down'));
       await expect(ks.recordOutcome({
         executionId: 'exec-1',
         agentType: 'executor',

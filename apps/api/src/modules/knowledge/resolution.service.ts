@@ -6,7 +6,7 @@
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-bus.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -19,6 +19,8 @@ import type {
 } from '@dommaker/studio-shared';
 
 const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'knowledge', 'resolutions');
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 export class ResolutionService {
   private static instance: ResolutionService;
@@ -107,16 +109,15 @@ export class ResolutionService {
         // GAP-06: Record consumption event for D6 flywheel
         // Resolution is in Prisma DB (not KnowledgeStore), so we write StudioEvent directly
         // instead of going through recordReference (which only works on KnowledgeStore entries)
-        prisma.studioEvent.create({
-          data: {
-            type: 'knowledge:consumption',
-            source: 'resolution-match',
-            payload: JSON.stringify({
-              resolutionIds: matched.map(r => r.id),
-              pattern: errorMessage.slice(0, 200),
-              count: matched.length,
-            }),
-          },
+        fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+          type: 'knowledge:consumption',
+          source: 'resolution-match',
+          payload: JSON.stringify({
+            resolutionIds: matched.map(r => r.id),
+            pattern: errorMessage.slice(0, 200),
+            count: matched.length,
+          }),
+          createdAt: new Date().toISOString(),
         }).catch((e: any) => {
           logger.warn('[ResolutionService] consumption event failed', { error: String(e) });
         });

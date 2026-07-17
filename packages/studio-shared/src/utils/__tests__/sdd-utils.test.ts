@@ -20,15 +20,14 @@ import {
 
 const TEST_SDD_DIR = join('/tmp', `sdd-utils-test-${Date.now()}`);
 
-// Override SDD_DIR for tests
 const origEnv = process.env.SDD_DIR;
 
-beforeAll(() => {
+beforeAll(async () => {
   process.env.SDD_DIR = TEST_SDD_DIR;
   mkdirSync(TEST_SDD_DIR, { recursive: true });
 
   // Create test docs
-  writeSddDoc('test-doc-1', 'requirement', {
+  await writeSddDoc('test-doc-1', 'requirement', {
     id: 'doc-aaa-111',
     workUnitId: 'goal-xxx-001',
     slug: 'test-doc-1',
@@ -44,7 +43,7 @@ beforeAll(() => {
     updatedAt: '2026-01-01T00:00:00Z',
   }, '## Requirement\n\nSome content');
 
-  writeSddDoc('test-doc-2', 'requirement', {
+  await writeSddDoc('test-doc-2', 'requirement', {
     id: 'doc-bbb-222',
     slug: 'test-doc-2',
     title: 'Test Doc 2',
@@ -112,64 +111,64 @@ describe('stringifySddFrontmatter', () => {
 });
 
 describe('findSddDocById', () => {
-  test('finds slug by doc id', () => {
-    expect(findSddDocById('doc-aaa-111')).toBe('test-doc-1');
+  test('finds slug by doc id', async () => {
+    await expect(findSddDocById('doc-aaa-111')).resolves.toBe('test-doc-1');
   });
 
-  test('finds second doc by id', () => {
-    expect(findSddDocById('doc-bbb-222')).toBe('test-doc-2');
+  test('finds second doc by id', async () => {
+    await expect(findSddDocById('doc-bbb-222')).resolves.toBe('test-doc-2');
   });
 
-  test('returns null for non-existent id', () => {
-    expect(findSddDocById('doc-nonexistent')).toBeNull();
+  test('returns null for non-existent id', async () => {
+    await expect(findSddDocById('doc-nonexistent')).resolves.toBeNull();
   });
 });
 
 describe('findSddDocByWorkUnitId', () => {
-  test('finds slug by workUnitId', () => {
-    expect(findSddDocByWorkUnitId('goal-xxx-001')).toBe('test-doc-1');
+  test('finds slug by workUnitId', async () => {
+    await expect(findSddDocByWorkUnitId('goal-xxx-001')).resolves.toBe('test-doc-1');
   });
 
-  test('returns null for non-existent workUnitId', () => {
-    expect(findSddDocByWorkUnitId('goal-nonexistent')).toBeNull();
+  test('returns null for non-existent workUnitId', async () => {
+    await expect(findSddDocByWorkUnitId('goal-nonexistent')).resolves.toBeNull();
   });
 
-  test('returns null when doc has no workUnitId', () => {
+  test('returns null when doc has no workUnitId', async () => {
     // test-doc-2 has no workUnitId
-    expect(findSddDocByWorkUnitId('goal-yyy-002')).toBeNull();
+    await expect(findSddDocByWorkUnitId('goal-yyy-002')).resolves.toBeNull();
   });
 });
 
 describe('readSddDocByWorkUnitId', () => {
-  test('reads requirement layer by workUnitId', () => {
-    const result = readSddDocByWorkUnitId('goal-xxx-001', 'requirement');
+  test('reads requirement layer by workUnitId', async () => {
+    const result = await readSddDocByWorkUnitId('goal-xxx-001', 'requirement');
     expect(result).not.toBeNull();
     expect(result!.meta.id).toBe('doc-aaa-111');
     expect(result!.body).toContain('Some content');
   });
 
-  test('returns null for non-existent workUnitId', () => {
-    expect(readSddDocByWorkUnitId('goal-nonexistent', 'requirement')).toBeNull();
+  test('returns null for non-existent workUnitId', async () => {
+    await expect(readSddDocByWorkUnitId('goal-nonexistent', 'requirement')).resolves.toBeNull();
   });
 });
 
 describe('listSddDocs', () => {
-  test('lists all doc directories', () => {
-    const docs = listSddDocs();
+  test('lists all doc directories', async () => {
+    const docs = await listSddDocs();
     expect(docs).toContain('test-doc-1');
     expect(docs).toContain('test-doc-2');
   });
 });
 
 describe('readSddDoc', () => {
-  test('reads existing doc', () => {
-    const result = readSddDoc('test-doc-1', 'requirement');
+  test('reads existing doc', async () => {
+    const result = await readSddDoc('test-doc-1', 'requirement');
     expect(result).not.toBeNull();
     expect(result!.meta.title).toBe('Test Doc 1');
   });
 
-  test('returns null for non-existent doc', () => {
-    expect(readSddDoc('nonexistent', 'requirement')).toBeNull();
+  test('returns null for non-existent doc', async () => {
+    await expect(readSddDoc('nonexistent', 'requirement')).resolves.toBeNull();
   });
 });
 
@@ -181,8 +180,8 @@ describe('appendChangelog', () => {
     rmSync(CL_DIR, { recursive: true, force: true });
   });
 
-  test('creates new CHANGELOG.md with header when file does not exist', () => {
-    appendChangelog(CL_SLUG, 'First entry');
+  test('creates new CHANGELOG.md with header when file does not exist', async () => {
+    await appendChangelog(CL_SLUG, 'First entry');
     const content = readFileSync(join(CL_DIR, 'CHANGELOG.md'), 'utf-8');
     expect(content).toContain('# CHANGELOG');
     expect(content).toContain('## ');
@@ -195,8 +194,8 @@ describe('appendChangelog', () => {
     expect(content).toMatch(/## \d{4}-\d{2}-\d{2}T[\d:.]+Z\n\nFirst entry\n/);
   });
 
-  test('multiple entries append (not overwrite)', () => {
-    appendChangelog(CL_SLUG, 'Second entry');
+  test('multiple entries append (not overwrite)', async () => {
+    await appendChangelog(CL_SLUG, 'Second entry');
     const content = readFileSync(join(CL_DIR, 'CHANGELOG.md'), 'utf-8');
     expect(content).toContain('First entry');
     expect(content).toContain('Second entry');
@@ -205,9 +204,9 @@ describe('appendChangelog', () => {
     expect(headerCount).toBe(2);
   });
 
-  test('creates directory if it does not exist', () => {
+  test('creates directory if it does not exist', async () => {
     const newSlug = `changelog-mkdir-${Date.now()}`;
-    appendChangelog(newSlug, 'Dir created');
+    await appendChangelog(newSlug, 'Dir created');
     expect(existsSync(join(TEST_SDD_DIR, newSlug, 'CHANGELOG.md'))).toBe(true);
     rmSync(join(TEST_SDD_DIR, newSlug), { recursive: true, force: true });
   });
@@ -420,47 +419,47 @@ describe('parseTaskDocTestFiles', () => {
 });
 
 describe('findSddDocs', () => {
-  test('returns all docs when no filter', () => {
-    const results = findSddDocs();
+  test('returns all docs when no filter', async () => {
+    const results = await findSddDocs();
     expect(results.length).toBeGreaterThanOrEqual(2);
     const ids = results.map(r => r.id);
     expect(ids).toContain('doc-aaa-111');
     expect(ids).toContain('doc-bbb-222');
   });
 
-  test('filters by status', () => {
-    const results = findSddDocs({ status: 'draft' });
+  test('filters by status', async () => {
+    const results = await findSddDocs({ status: 'draft' });
     expect(results.length).toBeGreaterThanOrEqual(2);
     for (const r of results) {
       expect(r.status).toBe('draft');
     }
   });
 
-  test('returns empty for non-matching status', () => {
-    const results = findSddDocs({ status: 'done' });
+  test('returns empty for non-matching status', async () => {
+    const results = await findSddDocs({ status: 'done' });
     expect(results).toEqual([]);
   });
 
-  test('filters by workUnitId', () => {
-    const results = findSddDocs({ workUnitId: 'goal-xxx-001' });
+  test('filters by workUnitId', async () => {
+    const results = await findSddDocs({ workUnitId: 'goal-xxx-001' });
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe('doc-aaa-111');
     expect(results[0].workUnitId).toBe('goal-xxx-001');
   });
 
-  test('returns empty for non-matching workUnitId', () => {
-    const results = findSddDocs({ workUnitId: 'goal-nonexistent' });
+  test('returns empty for non-matching workUnitId', async () => {
+    const results = await findSddDocs({ workUnitId: 'goal-nonexistent' });
     expect(results).toEqual([]);
   });
 
-  test('filters by both status and workUnitId', () => {
-    const results = findSddDocs({ status: 'draft', workUnitId: 'goal-xxx-001' });
+  test('filters by both status and workUnitId', async () => {
+    const results = await findSddDocs({ status: 'draft', workUnitId: 'goal-xxx-001' });
     expect(results).toHaveLength(1);
     expect(results[0].id).toBe('doc-aaa-111');
   });
 
-  test('returns empty when status+workUnitId combo does not match', () => {
-    const results = findSddDocs({ status: 'done', workUnitId: 'goal-xxx-001' });
+  test('returns empty when status+workUnitId combo does not match', async () => {
+    const results = await findSddDocs({ status: 'done', workUnitId: 'goal-xxx-001' });
     expect(results).toEqual([]);
   });
 });
@@ -468,8 +467,8 @@ describe('findSddDocs', () => {
 describe('updateSddFrontmatter', () => {
   const UPDATE_SLUG = `update-test-${Date.now()}`;
 
-  beforeAll(() => {
-    writeSddDoc(UPDATE_SLUG, 'requirement', {
+  beforeAll(async () => {
+    await writeSddDoc(UPDATE_SLUG, 'requirement', {
       id: 'doc-update-001',
       slug: UPDATE_SLUG,
       title: 'Update Test Doc',
@@ -490,10 +489,10 @@ describe('updateSddFrontmatter', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  test('merges patch into existing frontmatter', () => {
-    updateSddFrontmatter(UPDATE_SLUG, { status: 'confirmed', title: 'Updated Title' });
+  test('merges patch into existing frontmatter', async () => {
+    await updateSddFrontmatter(UPDATE_SLUG, { status: 'confirmed', title: 'Updated Title' });
 
-    const doc = readSddDoc(UPDATE_SLUG, 'requirement');
+    const doc = await readSddDoc(UPDATE_SLUG, 'requirement');
     expect(doc).not.toBeNull();
     expect(doc!.meta.status).toBe('confirmed');
     expect(doc!.meta.title).toBe('Updated Title');
@@ -502,35 +501,35 @@ describe('updateSddFrontmatter', () => {
     expect(doc!.meta.tier).toBe('standard');
   });
 
-  test('preserves body content after update', () => {
-    const doc = readSddDoc(UPDATE_SLUG, 'requirement');
+  test('preserves body content after update', async () => {
+    const doc = await readSddDoc(UPDATE_SLUG, 'requirement');
     expect(doc).not.toBeNull();
     expect(doc!.body).toContain('Original body content');
   });
 
-  test('updates numeric fields', () => {
-    updateSddFrontmatter(UPDATE_SLUG, { version: 2, requirementVersion: 2 });
+  test('updates numeric fields', async () => {
+    await updateSddFrontmatter(UPDATE_SLUG, { version: 2, requirementVersion: 2 });
 
-    const doc = readSddDoc(UPDATE_SLUG, 'requirement');
+    const doc = await readSddDoc(UPDATE_SLUG, 'requirement');
     expect(doc!.meta.version).toBe(2);
     expect(doc!.meta.requirementVersion).toBe(2);
     // Other fields unchanged
     expect(doc!.meta.status).toBe('confirmed');
   });
 
-  test('throws for non-existent slug', () => {
-    expect(() => updateSddFrontmatter('nonexistent-slug', { status: 'done' }))
-      .toThrow('SDD doc not found');
+  test('throws for non-existent slug', async () => {
+    await expect(updateSddFrontmatter('nonexistent-slug', { status: 'done' }))
+      .rejects.toThrow('SDD doc not found');
   });
 
-  test('throws for file without frontmatter', () => {
+  test('throws for file without frontmatter', async () => {
     const badSlug = `bad-frontmatter-${Date.now()}`;
     const dir = join(TEST_SDD_DIR, badSlug);
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, 'requirement.md'), 'No frontmatter here', 'utf-8');
 
-    expect(() => updateSddFrontmatter(badSlug, { status: 'done' }))
-      .toThrow('Invalid frontmatter');
+    await expect(updateSddFrontmatter(badSlug, { status: 'done' }))
+      .rejects.toThrow('Invalid frontmatter');
 
     rmSync(dir, { recursive: true, force: true });
   });

@@ -14,6 +14,8 @@ import os from 'node:os';
 import {
   FileStore,
   LockTimeoutError,
+  parseFrontmatter,
+  serializeFrontmatter,
   type AgentProfileData,
   type RuntimeStateData,
   type ChannelData,
@@ -443,6 +445,331 @@ describe('FileStore', () => {
         const successCount = results.filter(r => r).length;
         expect(successCount).toBe(1);
       });
+    });
+  });
+
+  describe('FileStore Markdown', () => {
+    let store: FileStore;
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = createTempDir();
+      store = new FileStore(tmpDir);
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    // ── readDoc ──
+
+    it('should read a markdown file and return parsed meta and body', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      await store.writeDoc(mdDir, 'test', { title: 'Hello', version: 1 }, 'This is the body content.');
+
+      const result = await store.readDoc(mdDir, 'test');
+      expect(result).not.toBeNull();
+      expect(result!.meta).toEqual({ title: 'Hello', version: 1 });
+      expect(result!.body).toBe('This is the body content.');
+    });
+
+    it('should return null when file does not exist', async () => {
+      const result = await store.readDoc(path.join(tmpDir, 'docs'), 'nonexistent');
+      expect(result).toBeNull();
+    });
+
+    it('should return empty meta when file has no frontmatter', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      fs.mkdirSync(mdDir, { recursive: true });
+      fs.writeFileSync(path.join(mdDir, 'nofm.md'), 'Just body content without frontmatter.');
+
+      const result = await store.readDoc(mdDir, 'nofm');
+      expect(result).not.toBeNull();
+      expect(result!.meta).toEqual({});
+      expect(result!.body).toBe('Just body content without frontmatter.');
+    });
+
+    it('should handle special characters in frontmatter', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      await store.writeDoc(mdDir, 'special', {
+        title: 'Title with "quotes" and : colons',
+        tags: ['a', 'b', 'c'],
+      }, 'body');
+
+      const result = await store.readDoc(mdDir, 'special');
+      expect(result!.meta.title).toBe('Title with "quotes" and : colons');
+      expect(result!.meta.tags).toEqual(['a', 'b', 'c']);
+    });
+
+    it('should handle multi-line array values in frontmatter', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      await store.writeDoc(mdDir, 'multi', { linkedDocIds: ['a', 'b', 'c'], tags: [] }, 'body');
+      const result = await store.readDoc(mdDir, 'multi');
+      expect(result!.meta.linkedDocIds).toEqual(['a', 'b', 'c']);
+    });
+
+    // ── writeDoc ──
+
+    it('should write a markdown file with frontmatter that roundtrips with readDoc', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      const meta = { slug: 'my-doc', status: 'draft', version: 3 };
+      const body = '## Section\n\nContent here.';
+
+      await store.writeDoc(mdDir, 'roundtrip', meta, body);
+      const result = await store.readDoc(mdDir, 'roundtrip');
+      expect(result!.meta).toEqual(meta);
+      expect(result!.body).toBe(body);
+    });
+
+    it('should auto-create directory when writing', async () => {
+      const mdDir = path.join(tmpDir, 'nested', 'deep', 'docs');
+      await store.writeDoc(mdDir, 'autocreate', { author: 'test' }, 'auto-created dir');
+      expect(fs.existsSync(path.join(mdDir, 'autocreate.md'))).toBe(true);
+    });
+
+    // ── parseFrontmatter (pure function) ──
+
+    it('should parse valid frontmatter from content string', () => {
+      const content = '---\ntitle: "Test"\nversion: 1\n---\n\nBody text.';
+      const result = parseFrontmatter(content);
+      expect(result).not.toBeNull();
+      expect(result!.meta.title).toBe('Test');
+      expect(result!.meta.version).toBe(1);
+      expect(result!.body).toBe('Body text.');
+    });
+
+    it('should return null for content without --- fence', () => {
+      const result = parseFrontmatter('Just plain markdown, no frontmatter.');
+      expect(result).toBeNull();
+    });
+
+    // ── serializeFrontmatter (pure function) ──
+
+    it('should serialize meta and body back to parseable markdown', () => {
+      const meta = { title: 'Roundtrip Test', version: 5, tags: ['a', 'b'] };
+      const body = 'Body content.';
+      const serialized = serializeFrontmatter(meta, body);
+      const parsed = parseFrontmatter(serialized);
+      expect(parsed).not.toBeNull();
+      expect(parsed!.meta.title).toBe('Roundtrip Test');
+      expect(parsed!.meta.version).toBe(5);
+      expect(parsed!.meta.tags).toEqual(['a', 'b']);
+      expect(parsed!.body).toBe('Body content.');
+    });
+  });
+
+  describe('FileStore Index', () => {
+    let store: FileStore;
+    let tmpDir: string;
+
+    beforeEach(() => { tmpDir = createTempDir(); store = new FileStore(tmpDir); });
+    afterEach(() => { if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+    async function seedDocs(dir: string): Promise<void> {
+      await store.writeDoc(dir, 'doc-a', { id: 'a1', type: 'guideline', title: 'Alpha', status: 'stable' }, 'A');
+      await store.writeDoc(dir, 'doc-b', { id: 'b2', type: 'architecture', title: 'Beta', status: 'draft' }, 'B');
+      await store.writeDoc(dir, 'doc-c', { id: 'c3', type: 'guideline', title: 'Gamma', status: 'stable' }, 'C');
+    }
+
+    it('should build _index.md with filename|field1|field2 format', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id', 'type', 'title', 'status']);
+      const idx = fs.readFileSync(path.join(d, '_index.md'), 'utf-8');
+      expect(idx).toContain('doc-a');
+      expect(idx).toContain('|a1|');
+      expect(idx).toContain('|guideline|');
+    });
+
+    it('should generate header-only index for empty directory', async () => {
+      const d = path.join(tmpDir, 'empty');
+      fs.mkdirSync(d, { recursive: true });
+      await store.buildIndex(d, ['id', 'type']);
+      const idx = fs.readFileSync(path.join(d, '_index.md'), 'utf-8');
+      expect(idx.split('\n').filter(l => l.trim() && !l.startsWith('#'))).toHaveLength(0);
+    });
+
+    it('should output empty string for missing fields', async () => {
+      const d = path.join(tmpDir, 'p');
+      await store.writeDoc(d, 'pdoc', { id: 'p1' }, 'c');
+      await store.buildIndex(d, ['id', 'type']);
+      expect(fs.readFileSync(path.join(d, '_index.md'), 'utf-8')).toContain('pdoc.md|p1|');
+    });
+
+    it('should return matching filenames for field=value query', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id', 'type', 'title', 'status']);
+      const r = await store.queryIndex(d, 'type', 'guideline');
+      expect(r).toHaveLength(2);
+      expect(r).toContain('doc-a');
+      expect(r).toContain('doc-c');
+    });
+
+    it('should return empty array when no match', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id', 'type']);
+      expect(await store.queryIndex(d, 'type', 'nope')).toEqual([]);
+    });
+
+    it('should list docs from _index.md', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id']);
+      expect(await store.listDocs(d)).toHaveLength(3);
+    });
+
+    it('should fallback to directory scan when _index.md missing', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      expect(await store.listDocs(d)).toHaveLength(3);
+    });
+
+    it('should return empty array for empty dir', async () => {
+      const d = path.join(tmpDir, 'e');
+      fs.mkdirSync(d, { recursive: true });
+      expect(await store.listDocs(d)).toEqual([]);
+    });
+
+    it('should return filename when field matches', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id', 'type']);
+      expect(await store.findByField(d, 'id', 'b2')).toBe('doc-b');
+    });
+
+    it('should return null when field does not match', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id']);
+      expect(await store.findByField(d, 'id', 'nope')).toBeNull();
+    });
+  });
+
+  describe('FileStore Version', () => {
+    let store: FileStore;
+    let tmpDir: string;
+
+    beforeEach(() => { tmpDir = createTempDir(); store = new FileStore(tmpDir); });
+    afterEach(() => { if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+    it('should increment version and write changeType/changeDesc', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.writeDoc(d, 'v', { version: 3, title: 'T' }, 'body');
+      await store.bumpVersion(d, 'v', 'L2', 'design updated');
+      const doc = await store.readDoc(d, 'v');
+      expect(doc!.meta.version).toBe(4);
+      expect(doc!.meta.changeType).toBe('L2');
+      expect(doc!.meta.changeDesc).toBe('design updated');
+    });
+
+    it('should init version to 1 when non-numeric', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.writeDoc(d, 'nv', { title: 'NV' }, 'body');
+      await store.bumpVersion(d, 'nv', 'L1', 'first');
+      expect((await store.readDoc(d, 'nv'))!.meta.version).toBe(1);
+    });
+
+    it('should throw when doc does not exist', async () => {
+      await expect(store.bumpVersion(path.join(tmpDir, 'sdd'), 'x', 'L1', 'x')).rejects.toThrow();
+    });
+
+    it('should append changelog with ISO timestamp', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.writeDoc(d, 't', { version: 1 }, 'body');
+      await store.appendChangelog(d, 't', 'Initial.');
+      const c = fs.readFileSync(path.join(d, 't', 'CHANGELOG.md'), 'utf-8');
+      expect(c).toContain('# CHANGELOG');
+      expect(c).toContain('Initial.');
+    });
+
+    it('should auto-create CHANGELOG when not exists', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.appendChangelog(d, 'nd', 'First.');
+      const c = fs.readFileSync(path.join(d, 'nd', 'CHANGELOG.md'), 'utf-8');
+      expect(c).toContain('# CHANGELOG');
+    });
+
+    it('should not overwrite old entries on multiple appends', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.writeDoc(d, 'me', { version: 1 }, 'body');
+      await store.appendChangelog(d, 'me', 'E1.');
+      await store.appendChangelog(d, 'me', 'E2.');
+      const c = fs.readFileSync(path.join(d, 'me', 'CHANGELOG.md'), 'utf-8');
+      expect(c).toContain('E1.');
+      expect(c).toContain('E2.');
+    });
+  });
+
+  // ─── AC-A1: public json/jsonl methods ───
+
+  describe('FileStore public JSON/JSONL methods', () => {
+    it('should allow external call to appendJsonl', async () => {
+      const fp = path.join(tmpDir, 'public-append.jsonl');
+      await store.appendJsonl(fp, { id: '1', msg: 'hello' });
+      const lines = fs.readFileSync(fp, 'utf-8').trim().split('\n');
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]).msg).toBe('hello');
+    });
+
+    it('should allow external call to readJsonl<T>', async () => {
+      const fp = path.join(tmpDir, 'public-read.jsonl');
+      fs.writeFileSync(fp, JSON.stringify({ id: '1' }) + '\n' + JSON.stringify({ id: '2' }) + '\n');
+      const rows = await store.readJsonl<{ id: string }>(fp);
+      expect(rows).toHaveLength(2);
+      expect(rows[0].id).toBe('1');
+    });
+
+    it('should skip corrupt lines in readJsonl', async () => {
+      const fp = path.join(tmpDir, 'public-corrupt.jsonl');
+      fs.writeFileSync(fp, JSON.stringify({ id: '1' }) + '\nNOT-JSON\n' + JSON.stringify({ id: '2' }) + '\n');
+      const rows = await store.readJsonl<{ id: string }>(fp);
+      expect(rows).toHaveLength(2);
+    });
+
+    it('should return empty array for non-existent jsonl file', async () => {
+      const rows = await store.readJsonl<unknown>(path.join(tmpDir, 'nope.jsonl'));
+      expect(rows).toEqual([]);
+    });
+
+    it('should allow external call to readJson<T>', async () => {
+      const fp = path.join(tmpDir, 'public-read.json');
+      fs.writeFileSync(fp, JSON.stringify({ key: 'val' }));
+      const data = await store.readJson<{ key: string }>(fp);
+      expect(data).not.toBeNull();
+      expect(data!.key).toBe('val');
+    });
+
+    it('should return null for non-existent json file', async () => {
+      const data = await store.readJson<unknown>(path.join(tmpDir, 'nope.json'));
+      expect(data).toBeNull();
+    });
+
+    it('should return null for corrupt json file', async () => {
+      const fp = path.join(tmpDir, 'corrupt.json');
+      fs.writeFileSync(fp, '{bad json');
+      const data = await store.readJson<unknown>(fp);
+      expect(data).toBeNull();
+    });
+
+    it('should allow external call to writeJson', async () => {
+      const fp = path.join(tmpDir, 'sub', 'public-write.json');
+      await store.writeJson(fp, { created: true, count: 42 });
+      const raw = fs.readFileSync(fp, 'utf-8');
+      const parsed = JSON.parse(raw);
+      expect(parsed.created).toBe(true);
+      expect(parsed.count).toBe(42);
+    });
+
+    it('should overwrite existing json with writeJson', async () => {
+      const fp = path.join(tmpDir, 'public-overwrite.json');
+      await store.writeJson(fp, { v: 1 });
+      await store.writeJson(fp, { v: 2 });
+      const data = await store.readJson<{ v: number }>(fp);
+      expect(data!.v).toBe(2);
     });
   });
 });

@@ -4,9 +4,8 @@
  * 启动时 + 每 24h 自动拍摄环境快照，diff 变更并维护已知限制清单。
  */
 
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
-import { readFileSync, existsSync } from 'fs';
+import { logger, FileStore } from '@dommaker/studio-shared';
+import * as fs from 'fs';
 import os from 'os';
 import path from 'path';
 
@@ -27,11 +26,18 @@ interface SnapshotData {
   knownLimitations: any[];
 }
 
+const SNAPSHOTS_DIR = path.join(os.homedir(), '.studio', 'snapshots');
+
 export class EnvSnapper {
   private timer: NodeJS.Timeout | null = null;
+  private fileStore: FileStore;
+
+  constructor() {
+    this.fileStore = new FileStore();
+  }
 
   /**
-   * 拍摄环境快照并写入 DB
+   * 拍摄环境快照并写入文件
    */
   async snapshot(takenBy: 'auto' | 'manual' = 'auto'): Promise<string> {
     try {
@@ -49,38 +55,28 @@ export class EnvSnapper {
         diffSummary = diffs.join('; ') || 'no changes';
       }
 
-      const snap = await prisma.environmentSnapshot.create({
-        data: {
-          hostname: data.hostname,
-          platform: data.platform,
-          nodeVersion: data.nodeVersion,
-          cpuCores: data.cpuCores,
-          totalMemGB: data.totalMemGB,
-          apiPort: data.apiPort,
-          webPort: data.webPort,
-          nodeEnv: data.nodeEnv,
-          dbPath: data.dbPath,
-          nginxConfig: data.nginxConfig || null,
-          serviceManager: data.serviceManager || null,
-          tunnelType: data.tunnelType || null,
-          keyDependencies: data.keyDependencies,
-          knownLimitations: JSON.stringify(data.knownLimitations),
-          takenAt: new Date(),
-          takenBy,
-          diffFromPrev: diffSummary || null,
-        },
-      });
+      const now = new Date();
+      const ts = `${now.getFullYear()}-${(now.getMonth()+1).toString().padStart(2,'0')}-${now.getDate().toString().padStart(2,'0')}T${now.getHours().toString().padStart(2,'0')}${now.getMinutes().toString().padStart(2,'0')}${now.getSeconds().toString().padStart(2,'0')}Z`;
+
+      const snapshotData = {
+        ...data,
+        takenAt: now.toISOString(),
+        takenBy,
+        diffFromPrev: diffSummary || null,
+      };
+
+      await this.fileStore.writeJson(path.join(SNAPSHOTS_DIR, `${ts}.json`), snapshotData);
 
       // 清理旧快照（保留最近 30 条）
       await this.cleanupOld(30);
 
       logger.info('[EnvSnapper] Snapshot taken', {
-        snapId: snap.id,
+        snapId: ts,
         diff: diffSummary || 'initial',
         nodeEnv: data.nodeEnv,
       });
 
-      return snap.id;
+      return ts;
     } catch (err) {
       logger.error('[EnvSnapper] Snapshot failed', { error: String(err) });
       return '';
@@ -119,28 +115,18 @@ export class EnvSnapper {
    */
   async getLatest(): Promise<Record<string, any> | null> {
     try {
-      const snap = await prisma.environmentSnapshot.findFirst({
-        orderBy: { takenAt: 'desc' },
-      });
-      if (!snap) return null;
+      const latestFile = await this.getLatestSnapshotPath();
+      if (!latestFile) return null;
 
-      return {
-        hostname: snap.hostname,
-        platform: snap.platform,
-        nodeVersion: snap.nodeVersion,
-        cpuCores: snap.cpuCores,
-        totalMemGB: snap.totalMemGB,
-        apiPort: snap.apiPort,
-        webPort: snap.webPort,
-        nodeEnv: snap.nodeEnv,
-        dbPath: snap.dbPath,
-        keyDependencies: JSON.parse(snap.keyDependencies),
-        knownLimitations: JSON.parse(snap.knownLimitations),
-        nginxConfig: snap.nginxConfig,
-        tunnelType: snap.tunnelType,
-        takenAt: snap.takenAt,
-        diffFromPrev: snap.diffFromPrev,
-      };
+      const data = await this.fileStore.readJson<Record<string, any>>(path.join(SNAPSHOTS_DIR, latestFile));
+      if (!data) return null;
+
+      // 兼容：keyDependencies 在 JSON 中是字符串，formatForPrompt 需要对象
+      if (typeof data.keyDependencies === 'string') {
+        try { data.keyDependencies = JSON.parse(data.keyDependencies); } catch { /* keep string */ }
+      }
+
+      return data;
     } catch {
       return null;
     }
@@ -151,23 +137,19 @@ export class EnvSnapper {
    */
   async addKnownLimitation(issue: string, since?: string): Promise<void> {
     try {
-      const latest = await prisma.environmentSnapshot.findFirst({
-        orderBy: { takenAt: 'desc' },
-        select: { id: true, knownLimitations: true },
-      });
-      if (!latest) return;
+      const latestFile = await this.getLatestSnapshotPath();
+      if (!latestFile) return;
 
-      const limitations = JSON.parse(latest.knownLimitations) as any[];
-      // 去重
+      const data = await this.fileStore.readJson<any>(path.join(SNAPSHOTS_DIR, latestFile));
+      if (!data) return;
+
+      const limitations = data.knownLimitations || [];
       if (limitations.some(l => l.issue === issue)) return;
 
       limitations.push({ issue, since: since || new Date().toISOString().split('T')[0] });
+      data.knownLimitations = limitations;
 
-      await prisma.environmentSnapshot.update({
-        where: { id: latest.id },
-        data: { knownLimitations: JSON.stringify(limitations) },
-      });
-
+      await this.fileStore.writeJson(path.join(SNAPSHOTS_DIR, latestFile), data);
       logger.info(`[EnvSnapper] Added known limitation: ${issue}`);
     } catch (err) {
       logger.error('[EnvSnapper] Failed to add limitation', { error: String(err) });
@@ -179,20 +161,18 @@ export class EnvSnapper {
    */
   async removeKnownLimitation(issue: string): Promise<void> {
     try {
-      const latest = await prisma.environmentSnapshot.findFirst({
-        orderBy: { takenAt: 'desc' },
-        select: { id: true, knownLimitations: true },
-      });
-      if (!latest) return;
+      const latestFile = await this.getLatestSnapshotPath();
+      if (!latestFile) return;
 
-      const limitations = JSON.parse(latest.knownLimitations) as any[];
+      const data = await this.fileStore.readJson<any>(path.join(SNAPSHOTS_DIR, latestFile));
+      if (!data) return;
+
+      const limitations = data.knownLimitations || [];
       const filtered = limitations.filter(l => l.issue !== issue);
 
       if (filtered.length < limitations.length) {
-        await prisma.environmentSnapshot.update({
-          where: { id: latest.id },
-          data: { knownLimitations: JSON.stringify(filtered) },
-        });
+        data.knownLimitations = filtered;
+        await this.fileStore.writeJson(path.join(SNAPSHOTS_DIR, latestFile), data);
         logger.info(`[EnvSnapper] Removed known limitation: ${issue}`);
       }
     } catch (err) {
@@ -235,7 +215,7 @@ export class EnvSnapper {
     // 读取 harpress 版本
     try {
       const harnessPkg = JSON.parse(
-        readFileSync(
+        fs.readFileSync(
           path.join(process.env.PROJECT_ROOT || '/root/projects/agent-studio', 'node_modules', '@dommaker', 'harness', 'package.json'),
           'utf-8',
         ),
@@ -246,7 +226,7 @@ export class EnvSnapper {
     // prisma 版本
     try {
       const prismaPkg = JSON.parse(
-        readFileSync(
+        fs.readFileSync(
           path.join(process.env.PROJECT_ROOT || '/root/projects/agent-studio', 'node_modules', '@prisma/client', 'package.json'),
           'utf-8',
         ),
@@ -258,8 +238,8 @@ export class EnvSnapper {
     let nginxConfig: string | undefined;
     try {
       const nginxPath = '/etc/nginx/sites-enabled/agent-studio';
-      if (existsSync(nginxPath)) {
-        const nginxContent = readFileSync(nginxPath, 'utf-8');
+      if (fs.existsSync(nginxPath)) {
+        const nginxContent = fs.readFileSync(nginxPath, 'utf-8');
         const serverName = nginxContent.match(/server_name\s+([^;]+);/)?.[1] || 'unknown';
         const listen = nginxContent.match(/listen\s+([^;]+);/)?.[1] || 'unknown';
         nginxConfig = `listen=${listen},server_name=${serverName}`;
@@ -302,6 +282,18 @@ export class EnvSnapper {
     return lims;
   }
 
+  /** 获取最新快照文件名 */
+  private async getLatestSnapshotPath(): Promise<string | null> {
+    try {
+      await fs.promises.mkdir(SNAPSHOTS_DIR, { recursive: true });
+      const files = await fs.promises.readdir(SNAPSHOTS_DIR);
+      const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse();
+      return jsonFiles.length > 0 ? jsonFiles[0] : null;
+    } catch {
+      return null;
+    }
+  }
+
   private async getLatestSnapshot(): Promise<SnapshotData | null> {
     const snap = await this.getLatest();
     if (!snap) return null;
@@ -310,15 +302,15 @@ export class EnvSnapper {
 
   private async cleanupOld(keepCount: number): Promise<void> {
     try {
-      const snapshots = await prisma.environmentSnapshot.findMany({
-        orderBy: { takenAt: 'desc' },
-        select: { id: true },
-        skip: keepCount,
-      });
-      if (snapshots.length > 0) {
-        await prisma.environmentSnapshot.deleteMany({
-          where: { id: { in: snapshots.map(s => s.id) } },
-        });
+      await fs.promises.mkdir(SNAPSHOTS_DIR, { recursive: true });
+      const files = await fs.promises.readdir(SNAPSHOTS_DIR);
+      const jsonFiles = files.filter(f => f.endsWith('.json')).sort();
+
+      if (jsonFiles.length > keepCount) {
+        const toDelete = jsonFiles.slice(0, jsonFiles.length - keepCount);
+        for (const f of toDelete) {
+          await fs.promises.unlink(path.join(SNAPSHOTS_DIR, f));
+        }
       }
     } catch { /* non-blocking */ }
   }

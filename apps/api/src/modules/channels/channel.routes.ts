@@ -371,10 +371,10 @@ router.delete('/:id', async (req, res) => {
   // SDD frontmatters for migrated docs (non-blocking)
   try {
     const { listSddDocs } = await import('@dommaker/studio-shared');
-    for (const slug of listSddDocs()) {
-      const sdd = readSddDoc(slug, 'requirement');
+    for (const slug of await listSddDocs()) {
+      const sdd = await readSddDoc(slug, 'requirement');
       if (sdd?.meta.sourceChannelId === channel.id) {
-        try { updateSddFrontmatter(slug, { sourceChannelId: rndChannel.id, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
+        try { await updateSddFrontmatter(slug, { sourceChannelId: rndChannel.id, updatedAt: new Date().toISOString() }); } catch { /* non-blocking */ }
       }
     }
   } catch { /* non-blocking */ }

@@ -2,13 +2,16 @@
  * SDD 工具函数 — frontmatter 解析 + slug 生成
  *
  * SP-004: SDD 知识架构 Step 1
+ * Phase 4 (spec-2a): 底层 I/O 下沉到 FileStore，函数改为 async。
  *
  * SDD 文档结构：docs/sdd/<slug>/{requirement,design,task}.md
  * 每个文件头部有 YAML frontmatter，包含文档元数据。
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'fs';
-import { join, dirname } from 'path';
+import { join } from 'path';
+import { FileStore, parseFrontmatter } from '../file-store';
+
+const store = new FileStore();
 
 // ── Types ──
 
@@ -93,43 +96,16 @@ export function toKebab(text: string): string {
   return result || `doc-${Date.now()}`;
 }
 
-// ── Frontmatter 解析 ──
+// ── Frontmatter 解析（包装 FileStore 纯函数） ──
 
 /**
  * 解析 SDD markdown 文件的 YAML frontmatter。
- * 简化实现：逐行解析 key: value，支持字符串、数字、数组。
+ * 底层调用 FileStore.parseFrontmatter，上层做 SddFrontmatter 类型断言。
  */
 export function parseSddFrontmatter(content: string): { meta: Partial<SddFrontmatter>; body: string } | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return null;
-
-  const yaml = match[1];
-  const body = match[2].trim();
-  const meta: Record<string, unknown> = {};
-
-  for (const line of yaml.split('\n')) {
-    const kv = line.match(/^(\w+):\s*(.+)$/);
-    if (!kv) continue;
-    const [, key, val] = kv;
-
-    // 数组：[a, b, c]
-    if (val.startsWith('[') && val.endsWith(']')) {
-      meta[key] = val.slice(1, -1)
-        .split(',')
-        .map(s => s.trim().replace(/^["']|["']$/g, ''))
-        .filter(Boolean);
-    }
-    // 数字
-    else if (/^\d+$/.test(val)) {
-      meta[key] = parseInt(val, 10);
-    }
-    // 字符串（去引号）
-    else {
-      meta[key] = val.replace(/^["']|["']$/g, '');
-    }
-  }
-
-  return { meta: meta as Partial<SddFrontmatter>, body };
+  const result = parseFrontmatter(content);
+  if (!result) return null;
+  return { meta: result.meta as Partial<SddFrontmatter>, body: result.body };
 }
 
 /**
@@ -170,111 +146,75 @@ export function stringifySddFrontmatter(fm: Partial<SddFrontmatter>): string {
   return `---\n${lines.join('\n')}\n---`;
 }
 
-// ── 文件读写 ──
+// ── 文件读写（async，底层委托 FileStore.readDoc/writeDoc） ──
 
 function getSddBaseDir(): string {
   if (process.env.SDD_DIR) return process.env.SDD_DIR;
-  // 绝对路径：防止 worktree CWD 导致解析到错误位置
   const repoDir = process.env.REPO_DIR || '/root/projects/studio';
   return join(repoDir, 'docs/sdd');
 }
 
 /**
  * 读取 SDD 文档（requirement/design/task）。
- * @param slug - 目录名
- * @param layer - 'requirement' | 'design' | 'task'
- * @returns 解析后的 frontmatter + body，文件不存在返回 null
  */
-export function readSddDoc(slug: string, layer: 'requirement' | 'design' | 'task'): { meta: Partial<SddFrontmatter>; body: string } | null {
-  const filePath = join(getSddBaseDir(), slug, `${layer}.md`);
-  if (!existsSync(filePath)) return null;
-  const content = readFileSync(filePath, 'utf-8');
-  return parseSddFrontmatter(content);
+export async function readSddDoc(slug: string, layer: 'requirement' | 'design' | 'task'): Promise<{ meta: Partial<SddFrontmatter>; body: string } | null> {
+  const doc = await store.readDoc(getSddBaseDir(), `${slug}/${layer}`);
+  if (!doc) return null;
+  return { meta: doc.meta as Partial<SddFrontmatter>, body: doc.body };
 }
 
 /**
  * 写入 SDD 文档。
  */
-export function writeSddDoc(slug: string, layer: 'requirement' | 'design' | 'task', frontmatter: Partial<SddFrontmatter>, body: string): void {
-  const dir = join(getSddBaseDir(), slug);
-  mkdirSync(dir, { recursive: true });
-
-  const filePath = join(dir, `${layer}.md`);
-  const content = `${stringifySddFrontmatter(frontmatter)}\n\n${body}`;
-  writeFileSync(filePath, content, 'utf-8');
+export async function writeSddDoc(slug: string, layer: 'requirement' | 'design' | 'task', frontmatter: Partial<SddFrontmatter>, body: string): Promise<void> {
+  await store.writeDoc(getSddBaseDir(), `${slug}/${layer}`, frontmatter as Record<string, unknown>, body);
 }
 
 /**
- * 列出所有 SDD 文档目录。
+ * 列出所有 SDD 文档目录（扫描子目录，非 flat .md 文件）。
  */
-export function listSddDocs(): string[] {
+export async function listSddDocs(): Promise<string[]> {
+  // SDD 使用嵌套目录结构（每 slug 一个目录），与 listDocs（flat .md 文件）不兼容
+  // 使用 store.readDoc 的 index fallback 逻辑：无 _index.md 时用 listDocs 降级扫描目录。
+  // listDocs 降级只扫描 .md 文件，不识别子目录。这里直接用 readdir。
+  const fs = await import('node:fs/promises');
   const base = getSddBaseDir();
-  if (!existsSync(base)) return [];
-  return readdirSync(base, { withFileTypes: true })
-    .filter(d => d.isDirectory())
-    .map(d => d.name);
+  try {
+    const entries = await fs.readdir(base, { withFileTypes: true });
+    return entries.filter(e => e.isDirectory()).map(e => e.name);
+  } catch {
+    return [];
+  }
 }
 
-// ── 按 ID 查找 ──
+// ── 按 ID 查找（扫描所有 slug，读 requirement.md 匹配 frontmatter） ──
 
-/**
- * 通过 doc id 查找 SDD 文档 slug。
- * 扫描所有 SDD 目录的 requirement.md frontmatter 匹配 id 字段。
- */
-export function findSddDocById(id: string): string | null {
-  const slugs = listSddDocs();
+export async function findSddDocById(id: string): Promise<string | null> {
+  const slugs = await listSddDocs();
   for (const slug of slugs) {
-    const doc = readSddDoc(slug, 'requirement');
+    const doc = await readSddDoc(slug, 'requirement');
     if (doc?.meta.id === id) return slug;
   }
   return null;
 }
 
-/**
- * 通过 workUnitId 查找 SDD 文档 slug。
- * 扫描所有 SDD 目录的 requirement.md frontmatter 匹配 workUnitId 字段。
- */
-export function findSddDocByWorkUnitId(workUnitId: string): string | null {
-  const slugs = listSddDocs();
+export async function findSddDocByWorkUnitId(workUnitId: string): Promise<string | null> {
+  const slugs = await listSddDocs();
   for (const slug of slugs) {
-    const doc = readSddDoc(slug, 'requirement');
+    const doc = await readSddDoc(slug, 'requirement');
     if (doc?.meta.workUnitId === workUnitId) return slug;
   }
   return null;
 }
 
-/**
- * 通过 workUnitId 读取 SDD 文档指定层。
- * 组合 findSddDocByWorkUnitId + readSddDoc。
- */
-export function readSddDocByWorkUnitId(workUnitId: string, layer: 'requirement' | 'design' | 'task'): { meta: Partial<SddFrontmatter>; body: string } | null {
-  const slug = findSddDocByWorkUnitId(workUnitId);
+export async function readSddDocByWorkUnitId(workUnitId: string, layer: 'requirement' | 'design' | 'task'): Promise<{ meta: Partial<SddFrontmatter>; body: string } | null> {
+  const slug = await findSddDocByWorkUnitId(workUnitId);
   if (!slug) return null;
   return readSddDoc(slug, layer);
 }
 
-// ── Task.md 内容解析（SP-004 Step 5） ──
+// ── Task.md 内容解析（SP-004 Step 5，纯函数，不变） ──
 
-/**
- * 从 SDD task.md body 中解析 contractTests。
- *
- * 期望格式：
- * ```
- * ## Contract Tests
- *
- * ### <file-path-1>
- * ```typescript
- * // test code
- * ```
- *
- * ### <file-path-2>
- * ```typescript
- * // test code
- * ```
- * ```
- *
- * 解析逻辑：每个 H3 标题是文件路径，后续代码块是文件内容。
- */
 export function parseTaskDocContractTests(body: string): Array<{ file: string; content: string }> {
   const results: Array<{ file: string; content: string }> = [];
   const lines = body.split('\n');
@@ -285,27 +225,22 @@ export function parseTaskDocContractTests(body: string): Array<{ file: string; c
   let inCodeBlock = false;
 
   for (const line of lines) {
-    // H2: section boundary
     const h2 = line.match(/^##\s+(.+)/);
     if (h2) {
-      // Flush previous file
       if (currentFile && currentContent.length > 0) {
         results.push({ file: currentFile, content: currentContent.join('\n') });
       }
       currentFile = null;
       currentContent = [];
       inCodeBlock = false;
-
       inContractSection = h2[1].trim().includes('Contract Tests') || h2[1].trim().includes('契约测试');
       continue;
     }
 
     if (!inContractSection) continue;
 
-    // H3: file path
     const h3 = line.match(/^###\s+(.+)/);
     if (h3) {
-      // Flush previous file
       if (currentFile && currentContent.length > 0) {
         results.push({ file: currentFile, content: currentContent.join('\n') });
       }
@@ -315,25 +250,20 @@ export function parseTaskDocContractTests(body: string): Array<{ file: string; c
       continue;
     }
 
-    // Code fence tracking
     if (/^```/.test(line)) {
       if (inCodeBlock) {
-        // End of code block — content already captured
         inCodeBlock = false;
       } else {
-        // Start of code block — begin capturing
         inCodeBlock = true;
       }
       continue;
     }
 
-    // Capture code content
     if (currentFile && inCodeBlock) {
       currentContent.push(line);
     }
   }
 
-  // Flush last file
   if (currentFile && currentContent.length > 0) {
     results.push({ file: currentFile, content: currentContent.join('\n') });
   }
@@ -341,17 +271,6 @@ export function parseTaskDocContractTests(body: string): Array<{ file: string; c
   return results;
 }
 
-/**
- * 从 SDD task.md body 中解析 testFiles。
- *
- * 期望格式：
- * ```
- * ## Test Files
- *
- * - path/to/test1.test.ts
- * - path/to/test2.test.ts
- * ```
- */
 export function parseTaskDocTestFiles(body: string): string[] {
   const lines = body.split('\n');
   const results: string[] = [];
@@ -359,24 +278,18 @@ export function parseTaskDocTestFiles(body: string): string[] {
   let inTestFilesSection = false;
 
   for (const line of lines) {
-    // H2: section boundary
     const h2 = line.match(/^##\s+(.+)/);
     if (h2) {
-      if (inTestFilesSection) {
-        // Exiting Test Files section
-        inTestFilesSection = false;
-      }
+      if (inTestFilesSection) inTestFilesSection = false;
       inTestFilesSection = h2[1].trim().includes('Test Files') || h2[1].trim().includes('测试文件');
       continue;
     }
 
     if (!inTestFilesSection) continue;
 
-    // Parse "- path" list items
     const item = line.match(/^-\s+(.+)/);
     if (item) {
       const path = item[1].trim();
-      // Strip inline code backticks
       const cleanPath = path.replace(/^`|`$/g, '');
       if (cleanPath) results.push(cleanPath);
     }
@@ -385,73 +298,40 @@ export function parseTaskDocTestFiles(body: string): string[] {
   return results;
 }
 
-/**
- * 追加 CHANGELOG 条目。
- */
-export function appendChangelog(slug: string, entry: string): void {
-  const dir = join(getSddBaseDir(), slug);
-  mkdirSync(dir, { recursive: true });
+// ── CHANGELOG（委托 FileStore） ──
 
-  const filePath = join(dir, 'CHANGELOG.md');
-  const timestamp = new Date().toISOString();
-  const newEntry = `\n## ${timestamp}\n\n${entry}\n`;
-
-  if (existsSync(filePath)) {
-    const existing = readFileSync(filePath, 'utf-8');
-    writeFileSync(filePath, existing + newEntry, 'utf-8');
-  } else {
-    writeFileSync(filePath, `# CHANGELOG\n${newEntry}`, 'utf-8');
-  }
+export async function appendChangelog(slug: string, entry: string): Promise<void> {
+  await store.appendChangelog(getSddBaseDir(), slug, entry);
 }
 
 // ── SddRepository 查询/更新 ──
 
-/**
- * 查找 SDD 文档列表，支持按 status 和 goalId 过滤。
- *
- * @param filter - 可选过滤条件
- * @param filter.status - 按文档状态过滤
- * @param filter.workUnitId - 按关联 WorkUnit ID 过滤
- * @returns 匹配的 frontmatter 数组
- */
-export function findSddDocs(filter?: { status?: string; workUnitId?: string }): Array<Partial<SddFrontmatter>> {
-  const slugs = listSddDocs();
+export async function findSddDocs(filter?: { status?: string; workUnitId?: string }): Promise<Array<Partial<SddFrontmatter>>> {
+  const slugs = await listSddDocs();
   const results: Array<Partial<SddFrontmatter>> = [];
 
   for (const slug of slugs) {
-    const doc = readSddDoc(slug, 'requirement');
+    const doc = await readSddDoc(slug, 'requirement');
     if (!doc) continue;
-
     if (filter?.status && doc.meta.status !== filter.status) continue;
     if (filter?.workUnitId && doc.meta.workUnitId !== filter.workUnitId) continue;
-
     results.push(doc.meta);
   }
 
   return results;
 }
 
-/**
- * 更新 SDD requirement.md 的 frontmatter（合并 patch）。
- *
- * @param slug - 目录名
- * @param patch - 要合并的 frontmatter 字段
- */
-export function updateSddFrontmatter(slug: string, patch: Partial<SddFrontmatter>): void {
+export async function updateSddFrontmatter(slug: string, patch: Partial<SddFrontmatter>): Promise<void> {
   const baseDir = process.env.SDD_DIR || 'docs/sdd';
-  const filePath = join(baseDir, slug, 'requirement.md');
-
-  if (!existsSync(filePath)) {
-    throw new Error(`SDD doc not found: ${filePath}`);
+  const doc = await store.readDoc(baseDir, `${slug}/requirement`);
+  if (!doc) throw new Error(`SDD doc not found: ${baseDir}/${slug}/requirement.md`);
+  // 区分"空 frontmatter"和"无 frontmatter fence"：无 fence 时 meta 为 {} 且 body 不含 YAML
+  if (Object.keys(doc.meta).length === 0 && !doc.body.startsWith('---')) {
+    // 检查原始文件是否有 frontmatter fence
+    const rawParsed = parseFrontmatter(doc.body);
+    if (!rawParsed) throw new Error(`Invalid frontmatter in: ${baseDir}/${slug}/requirement.md`);
   }
 
-  const content = readFileSync(filePath, 'utf-8');
-  const parsed = parseSddFrontmatter(content);
-  if (!parsed) {
-    throw new Error(`Invalid frontmatter in: ${filePath}`);
-  }
-
-  const merged = { ...parsed.meta, ...patch };
-  const newContent = `${stringifySddFrontmatter(merged)}\n\n${parsed.body}`;
-  writeFileSync(filePath, newContent, 'utf-8');
+  const merged = { ...doc.meta, ...patch };
+  await store.writeDoc(baseDir, `${slug}/requirement`, merged, doc.body);
 }

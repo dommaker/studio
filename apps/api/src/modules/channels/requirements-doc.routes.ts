@@ -12,9 +12,9 @@ router.put('/:id', async (req, res) => {
   }
 
   // SP-004: SDD-only read
-  const slug = findSddDocById(req.params.id);
+  const slug = await findSddDocById(req.params.id);
   if (!slug) return res.status(404).json({ success: false, error: 'RequirementsDoc not found' });
-  const sddDoc = readSddDoc(slug, 'requirement');
+  const sddDoc = await readSddDoc(slug, 'requirement');
   const status = sddDoc?.meta.status ?? 'draft';
 
   if (status === 'confirmed' || status === 'done') {
@@ -24,7 +24,7 @@ router.put('/:id', async (req, res) => {
   // SP-004: SDD primary, DB fire-and-forget
   if (slug) {
     try {
-      updateSddFrontmatter(slug, { status: 'draft', updatedAt: new Date().toISOString() });
+      await updateSddFrontmatter(slug, { status: 'draft', updatedAt: new Date().toISOString() });
     } catch (e) {
       logger.warn('[RequirementsDoc] SDD frontmatter update failed', { error: String(e) });
     }

@@ -418,7 +418,7 @@ function findContractTestsSection(sections: H2Section[]): H2Section | null {
   return null;
 }
 
-function splitDoc(baseDir: string, slug: string, dryRun: boolean): SplitResult {
+async function splitDoc(baseDir: string, slug: string, dryRun: boolean): Promise<SplitResult> {
   const filePath = join(baseDir, slug, 'requirement.md');
   if (!existsSync(filePath)) {
     return { slug, skipped: true, reason: 'no requirement.md', designGroups: 0, hasContractTests: false, requirementLinesBefore: 0, requirementLinesAfter: 0 };
@@ -479,16 +479,16 @@ function splitDoc(baseDir: string, slug: string, dryRun: boolean): SplitResult {
 
   if (!dryRun) {
     // Write requirement.md (overwrite with stripped content)
-    writeSddDoc(slug, 'requirement', meta as Partial<SddFrontmatter>, newRequirementBody);
+    await writeSddDoc(slug, 'requirement', meta as Partial<SddFrontmatter>, newRequirementBody);
 
     // Write design.md (if has content)
     if (designBody) {
-      writeSddDoc(slug, 'design', meta as Partial<SddFrontmatter>, designBody);
+      await writeSddDoc(slug, 'design', meta as Partial<SddFrontmatter>, designBody);
     }
 
     // Write task.md (if has content)
     if (taskBody) {
-      writeSddDoc(slug, 'task', meta as Partial<SddFrontmatter>, taskBody);
+      await writeSddDoc(slug, 'task', meta as Partial<SddFrontmatter>, taskBody);
     }
   }
 

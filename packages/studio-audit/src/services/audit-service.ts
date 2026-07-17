@@ -1,19 +1,45 @@
 /**
  * Audit Service - 审计日志服务 (AR-012)
- * 
+ *
  * 负责记录和查询审计日志
- * 
+ *
  * 核心功能：
  * - 记录操作日志（谁在什么时候做了什么）
  * - 查询审计日志（支持多种过滤条件）
  * - 统计分析（操作频率、错误率等）
  */
 
-import { AuditLog, Prisma } from '@prisma/client';
-import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import fs from 'node:fs';
+
+// ========== 常量 ==========
+
+const AUDIT_JSONL_PATH = path.join(os.homedir(), '.studio', 'logs', 'audit.jsonl');
 
 // ========== 类型定义 ==========
+
+/** JSONL 行类型（替换 Prisma AuditLog 类型） */
+interface AuditLogRow {
+  id: string;
+  userId?: string;
+  roleId?: string;
+  companyId?: string;
+  ipAddress?: string;
+  userAgent?: string;
+  action: string;
+  resource: string;
+  resourceId?: string;
+  details?: string | null;
+  changes?: string | null;
+  status: string;
+  errorCode?: string;
+  errorMessage?: string;
+  sessionId?: string;
+  requestId?: string;
+  createdAt: string; // ISO 8601
+}
 
 export interface AuditLogInput {
   // 谁
@@ -22,12 +48,12 @@ export interface AuditLogInput {
   companyId?: string;
   ipAddress?: string;
   userAgent?: string;
-  
+
   // 做了什么
   action: string;
   resource: string;
   resourceId?: string;
-  
+
   // 详情
   details?: Record<string, any>;
   changes?: {
@@ -35,12 +61,12 @@ export interface AuditLogInput {
     after?: Record<string, any>;
     fields?: string[];
   };
-  
+
   // 结果
   status?: 'success' | 'partial' | 'failure';
   errorCode?: string;
   errorMessage?: string;
-  
+
   // 上下文
   sessionId?: string;
   requestId?: string;
@@ -54,7 +80,7 @@ export interface AuditLogQuery {
   resource?: string;
   resourceId?: string;
   status?: string;
-  anonymousId?: string;  // 🆕 SEC-009
+  anonymousId?: string;  // SEC-009
   startTime?: Date;
   endTime?: Date;
   page?: number;
@@ -105,38 +131,47 @@ export const AuditResources = {
   AUDIT_LOG: 'audit_log',
 } as const;
 
+// ========== 工具函数 ==========
+
+function generateAuditId(): string {
+  return `audit_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+function buildRow(input: AuditLogInput): AuditLogRow {
+  return {
+    id: generateAuditId(),
+    userId: input.userId,
+    roleId: input.roleId,
+    companyId: input.companyId,
+    ipAddress: input.ipAddress,
+    userAgent: input.userAgent,
+    action: input.action,
+    resource: input.resource,
+    resourceId: input.resourceId,
+    details: input.details ? JSON.stringify(input.details) : null,
+    changes: input.changes ? JSON.stringify(input.changes) : null,
+    status: input.status || 'success',
+    errorCode: input.errorCode,
+    errorMessage: input.errorMessage,
+    sessionId: input.sessionId,
+    requestId: input.requestId,
+    createdAt: new Date().toISOString(),
+  };
+}
+
 // ========== 审计服务 ==========
 
 export class AuditService {
-  constructor(private prisma: ExtendedPrismaClient) {}
+  constructor(private fileStore: FileStore) {}
 
   /**
    * 记录审计日志
    */
-  async log(input: AuditLogInput): Promise<AuditLog> {
+  async log(input: AuditLogInput): Promise<void> {
     try {
-      const log = await this.prisma.auditLog.create({
-        data: {
-          userId: input.userId,
-          roleId: input.roleId,
-          companyId: input.companyId,
-          ipAddress: input.ipAddress,
-          userAgent: input.userAgent,
-          action: input.action,
-          resource: input.resource,
-          resourceId: input.resourceId,
-          details: input.details ? JSON.stringify(input.details) : null,
-          changes: input.changes ? JSON.stringify(input.changes) : null,
-          status: input.status || 'success',
-          errorCode: input.errorCode,
-          errorMessage: input.errorMessage,
-          sessionId: input.sessionId,
-          requestId: input.requestId,
-        },
-      });
-
-      logger.info(`Audit log created: ${log.id}`, { action: input.action, resource: input.resource });
-      return log;
+      const entry = buildRow(input);
+      await this.fileStore.appendJsonl(AUDIT_JSONL_PATH, entry);
+      logger.info(`Audit log created: ${entry.id}`, { action: input.action, resource: input.resource });
     } catch (error) {
       logger.error('Failed to create audit log', { error });
       throw error;
@@ -148,27 +183,12 @@ export class AuditService {
    */
   async logBatch(inputs: AuditLogInput[]): Promise<number> {
     try {
-      const result = await this.prisma.auditLog.createMany({
-        data: inputs.map(input => ({
-          userId: input.userId,
-          roleId: input.roleId,
-          companyId: input.companyId,
-          ipAddress: input.ipAddress,
-          userAgent: input.userAgent,
-          action: input.action,
-          resource: input.resource,
-          resourceId: input.resourceId,
-          details: input.details ? JSON.stringify(input.details) : null,
-          changes: input.changes ? JSON.stringify(input.changes) : null,
-          status: input.status || 'success',
-          errorCode: input.errorCode,
-          errorMessage: input.errorMessage,
-          sessionId: input.sessionId,
-          requestId: input.requestId,
-        })),
-      });
-
-      return result.count;
+      for (const input of inputs) {
+        const entry = buildRow(input);
+        await this.fileStore.appendJsonl(AUDIT_JSONL_PATH, entry);
+      }
+      logger.info(`Batch audit logs created: ${inputs.length}`);
+      return inputs.length;
     } catch (error) {
       logger.error('Failed to create batch audit logs', { count: inputs.length });
       throw error;
@@ -179,7 +199,7 @@ export class AuditService {
    * 查询审计日志
    */
   async query(query: AuditLogQuery): Promise<{
-    data: AuditLog[];
+    data: AuditLogRow[];
     total: number;
     page: number;
     limit: number;
@@ -188,36 +208,37 @@ export class AuditService {
     const limit = query.limit || 50;
     const skip = (page - 1) * limit;
 
-    const where: any = {};
+    const rows = await this.fileStore.readJsonl<AuditLogRow>(AUDIT_JSONL_PATH);
 
-    if (query.userId) where.userId = query.userId;
-    if (query.roleId) where.roleId = query.roleId;
-    if (query.companyId) where.companyId = query.companyId;
-    if (query.action) where.action = query.action;
-    if (query.resource) where.resource = query.resource;
-    if (query.resourceId) where.resourceId = query.resourceId;
-    if (query.status) where.status = query.status;
-    
+    let filtered = rows;
+
+    if (query.userId) filtered = filtered.filter(r => r.userId === query.userId);
+    if (query.roleId) filtered = filtered.filter(r => r.roleId === query.roleId);
+    if (query.companyId) filtered = filtered.filter(r => r.companyId === query.companyId);
+    if (query.action) filtered = filtered.filter(r => r.action === query.action);
+    if (query.resource) filtered = filtered.filter(r => r.resource === query.resource);
+    if (query.resourceId) filtered = filtered.filter(r => r.resourceId === query.resourceId);
+    if (query.status) filtered = filtered.filter(r => r.status === query.status);
+
     // SEC-009: 按 anonymousId 搜索（details 存储为 JSON string）
     if (query.anonymousId) {
-      where.details = { contains: query.anonymousId };
+      filtered = filtered.filter(r => JSON.stringify(r.details).includes(query.anonymousId!));
     }
 
     if (query.startTime || query.endTime) {
-      where.createdAt = {};
-      if (query.startTime) where.createdAt.gte = query.startTime;
-      if (query.endTime) where.createdAt.lte = query.endTime;
+      filtered = filtered.filter(r => {
+        const t = new Date(r.createdAt).getTime();
+        if (query.startTime && t < query.startTime.getTime()) return false;
+        if (query.endTime && t > query.endTime.getTime()) return false;
+        return true;
+      });
     }
 
-    const [data, total] = await Promise.all([
-      this.prisma.auditLog.findMany({
-        where,
-        orderBy: { createdAt: 'desc' },
-        skip,
-        take: limit,
-      }),
-      this.prisma.auditLog.count({ where }),
-    ]);
+    // 按 createdAt 降序
+    filtered.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const total = filtered.length;
+    const data = filtered.slice(skip, skip + limit);
 
     return { data, total, page, limit };
   }
@@ -225,10 +246,9 @@ export class AuditService {
   /**
    * 获取单条审计日志
    */
-  async getById(id: string): Promise<AuditLog | null> {
-    return this.prisma.auditLog.findUnique({
-      where: { id },
-    });
+  async getById(id: string): Promise<AuditLogRow | null> {
+    const rows = await this.fileStore.readJsonl<AuditLogRow>(AUDIT_JSONL_PATH);
+    return rows.find(r => r.id === id) || null;
   }
 
   /**
@@ -240,70 +260,73 @@ export class AuditService {
     userId?: string;
     companyId?: string;
   } = {}): Promise<AuditLogStats> {
-    const where: any = {};
+    const rows = await this.fileStore.readJsonl<AuditLogRow>(AUDIT_JSONL_PATH);
+
+    let filtered = rows;
 
     if (query.startTime || query.endTime) {
-      where.createdAt = {};
-      if (query.startTime) where.createdAt.gte = query.startTime;
-      if (query.endTime) where.createdAt.lte = query.endTime;
+      filtered = filtered.filter(r => {
+        const t = new Date(r.createdAt).getTime();
+        if (query.startTime && t < query.startTime.getTime()) return false;
+        if (query.endTime && t > query.endTime.getTime()) return false;
+        return true;
+      });
     }
-    if (query.userId) where.userId = query.userId;
-    if (query.companyId) where.companyId = query.companyId;
+    if (query.userId) filtered = filtered.filter(r => r.userId === query.userId);
+    if (query.companyId) filtered = filtered.filter(r => r.companyId === query.companyId);
 
-    // 总数和成功/失败数
-    const [totalLogs, successCount, failureCount] = await Promise.all([
-      this.prisma.auditLog.count({ where }),
-      this.prisma.auditLog.count({ where: { ...where, status: 'success' } }),
-      this.prisma.auditLog.count({ where: { ...where, status: 'failure' } }),
-    ]);
+    const totalLogs = filtered.length;
+    const successCount = filtered.filter(r => r.status === 'success').length;
+    const failureCount = filtered.filter(r => r.status === 'failure').length;
 
     // Top 操作类型
-    const topActions = await this.prisma.auditLog.groupBy({
-      by: ['action'],
-      where,
-      _count: { action: true },
-      orderBy: { _count: { action: 'desc' } },
-      take: 10,
-    }).then(results => results.map(r => ({ action: r.action, count: r._count.action })));
+    const actionCount = new Map<string, number>();
+    for (const r of filtered) {
+      actionCount.set(r.action, (actionCount.get(r.action) || 0) + 1);
+    }
+    const topActions = [...actionCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([action, count]) => ({ action, count }));
 
     // Top 资源类型
-    const topResources = await this.prisma.auditLog.groupBy({
-      by: ['resource'],
-      where,
-      _count: { resource: true },
-      orderBy: { _count: { resource: 'desc' } },
-      take: 10,
-    }).then(results => results.map(r => ({ resource: r.resource, count: r._count.resource })));
+    const resourceCount = new Map<string, number>();
+    for (const r of filtered) {
+      resourceCount.set(r.resource, (resourceCount.get(r.resource) || 0) + 1);
+    }
+    const topResources = [...resourceCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([resource, count]) => ({ resource, count }));
 
     // Top 用户
-    const topUsers = await this.prisma.auditLog.groupBy({
-      by: ['userId'],
-      where: { ...where, userId: { not: null } },
-      _count: { userId: true },
-      orderBy: { _count: { userId: 'desc' } },
-      take: 10,
-    }).then(results => results.filter(r => r.userId).map(r => ({ userId: r.userId!, count: r._count.userId })));
+    const userCount = new Map<string, number>();
+    for (const r of filtered) {
+      if (r.userId) {
+        userCount.set(r.userId, (userCount.get(r.userId) || 0) + 1);
+      }
+    }
+    const topUsers = [...userCount.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 10)
+      .map(([userId, count]) => ({ userId, count }));
 
     // 每日统计（最近 30 天）
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgoTime = thirtyDaysAgo.getTime();
 
-    const dailyLogs = await this.prisma.$queryRaw<Array<{ date: Date; count: bigint }>>`
-      SELECT DATE("createdAt") as date, COUNT(*) as count
-      FROM "AuditLog"
-      WHERE "createdAt" >= ${thirtyDaysAgo}
-        ${query.userId ? Prisma.sql`AND "userId" = ${query.userId}` : Prisma.empty}
-        ${query.companyId ? Prisma.sql`AND "companyId" = ${query.companyId}` : Prisma.empty}
-      GROUP BY DATE("createdAt")
-      ORDER BY date DESC
-    `;
-
-    const dailyStats = dailyLogs
-      .filter(row => row.date != null)
-      .map(row => ({
-        date: new Date(row.date).toISOString().split('T')[0],
-        count: Number(row.count),
-      }));
+    const dayCount = new Map<string, number>();
+    for (const r of filtered) {
+      const t = new Date(r.createdAt).getTime();
+      if (t >= thirtyDaysAgoTime) {
+        const date = r.createdAt.split('T')[0];
+        dayCount.set(date, (dayCount.get(date) || 0) + 1);
+      }
+    }
+    const dailyStats = [...dayCount.entries()]
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([date, count]) => ({ date, count }));
 
     return {
       totalLogs,
@@ -322,21 +345,25 @@ export class AuditService {
   async cleanup(retentionDays: number = 90): Promise<number> {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+    const cutoffTime = cutoffDate.getTime();
 
-    const result = await this.prisma.auditLog.deleteMany({
-      where: {
-        createdAt: { lt: cutoffDate },
-      },
-    });
+    const rows = await this.fileStore.readJsonl<AuditLogRow>(AUDIT_JSONL_PATH);
+    const filtered = rows.filter(r => new Date(r.createdAt).getTime() >= cutoffTime);
+    const deletedCount = rows.length - filtered.length;
 
-    logger.info('Audit logs cleaned up', { deletedCount: result.count, retentionDays });
-    return result.count;
+    // 重写 jsonl 文件（移除过期行）
+    const content = filtered.map(r => JSON.stringify(r)).join('\n') + '\n';
+    await fs.promises.mkdir(path.dirname(AUDIT_JSONL_PATH), { recursive: true });
+    await fs.promises.writeFile(AUDIT_JSONL_PATH, content, 'utf-8');
+
+    logger.info('Audit logs cleaned up', { deletedCount, retentionDays });
+    return deletedCount;
   }
 
   /**
    * 导出审计日志
    */
-  async export(query: AuditLogQuery): Promise<AuditLog[]> {
+  async export(query: AuditLogQuery): Promise<AuditLogRow[]> {
     const { data } = await this.query({ ...query, limit: 10000 });
     return data;
   }

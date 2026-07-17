@@ -66,7 +66,7 @@ wikiRoutes.put('/:id', async (req, res) => {
     const { content, title, linkedDocIds } = req.body;
 
     // SP-004: SDD-only read for existence check
-    const slug = findSddDocById(req.params.id);
+    const slug = await findSddDocById(req.params.id);
     if (!slug) {
       return res.status(404).json({ success: false, error: 'Document not found' });
     }
@@ -99,9 +99,9 @@ wikiRoutes.put('/:id', async (req, res) => {
       const sddPatch: Record<string, unknown> = { updatedAt: new Date().toISOString() };
       if (title !== undefined) sddPatch.title = title.trim();
       if (linkedDocIds !== undefined) sddPatch.linkedDocIds = linkedDocIds;
-      updateSddFrontmatter(slug, sddPatch);
+      await updateSddFrontmatter(slug, sddPatch);
       const fields = Object.keys(updateData).join(', ');
-      appendChangelog(slug, `Wiki doc updated (${fields})`);
+      await appendChangelog(slug, `Wiki doc updated (${fields})`);
     } catch (e) {
       logger.warn('[Wiki] SDD frontmatter update failed', { error: String(e) });
     }

@@ -155,7 +155,7 @@ export class FileStore {
   }
 
   /** 读取 JSON 文件，不存在或损坏返回 null */
-  private async readJson<T>(filePath: string): Promise<T | null> {
+  public async readJson<T>(filePath: string): Promise<T | null> {
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       try {
@@ -170,19 +170,19 @@ export class FileStore {
   }
 
   /** 写入 JSON 文件 */
-  private async writeJson(filePath: string, data: unknown): Promise<void> {
+  public async writeJson(filePath: string, data: unknown): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
     await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
   }
 
   /** 追加一行 JSONL */
-  private async appendJsonl(filePath: string, data: unknown): Promise<void> {
+  public async appendJsonl(filePath: string, data: unknown): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
     await fs.promises.appendFile(filePath, JSON.stringify(data) + '\n', 'utf-8');
   }
 
   /** 读取全部 JSONL 行（跳过解析失败的行） */
-  private async readJsonl<T>(filePath: string): Promise<T[]> {
+  public async readJsonl<T>(filePath: string): Promise<T[]> {
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const lines = content.split('\n').filter(l => l.trim().length > 0);
@@ -689,6 +689,127 @@ export class FileStore {
     const filtered = snapshots.filter(s => s.id !== id);
     await this.writeJson(this.indexPath, filtered);
   }
+
+  // ═══════════════════════
+  // Markdown 读写（Phase 1: spec-2a filestore-unification）
+  // ═══════════════════════
+
+  /**
+   * 读取 markdown 文件，解析 frontmatter + body。
+   * 文件不存在返回 null。
+   */
+  async readDoc(dir: string, key: string): Promise<{ meta: Record<string, unknown>; body: string } | null> {
+    const filePath = path.join(dir, `${key}.md`);
+    try {
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const parsed = parseFrontmatter(content);
+      // 无 frontmatter fence → 整文件视为 body，meta 为空
+      if (!parsed) return { meta: {}, body: content.trim() };
+      return parsed;
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  /**
+   * 写入 markdown 文件（含 YAML frontmatter）。
+   * 目录不存在时自动创建。
+   */
+  async writeDoc(dir: string, key: string, meta: Record<string, unknown>, body: string): Promise<void> {
+    const filePath = path.join(dir, `${key}.md`);
+    await this.ensureDir(path.dirname(filePath));
+    const content = serializeFrontmatter(meta, body);
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+  }
+
+  // ═══ 索引管理 ═══
+
+  async buildIndex(dir: string, fields: string[]): Promise<void> {
+    await this.ensureDir(dir);
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith('.md') && e.name !== '_index.md').map(e => e.name);
+    const header = `# Directory Index\n# Auto-generated\n# Total: ${mdFiles.length} entries\n#\n# filename|${fields.join('|')}`;
+    const dataLines: string[] = [];
+    for (const filename of mdFiles) {
+      const doc = await this.readDoc(dir, filename.replace(/\.md$/, ''));
+      const values = fields.map(f => {
+        const v = doc?.meta[f];
+        if (v === undefined || v === null) return '';
+        if (Array.isArray(v)) return (v as string[]).join(';');
+        return String(v);
+      });
+      dataLines.push(`${filename}|${values.join('|')}`);
+    }
+    await fs.promises.writeFile(path.join(dir, '_index.md'), header + '\n' + dataLines.join('\n') + '\n', 'utf-8');
+  }
+
+  async queryIndex(dir: string, field: string, value: string): Promise<string[]> {
+    try {
+      const content = await fs.promises.readFile(path.join(dir, '_index.md'), 'utf-8');
+      const headerLine = content.split('\n').find(l => l.startsWith('# filename|'));
+      if (!headerLine) return [];
+      const columns = headerLine.replace(/^#\s*/, '').split('|');
+      const fieldIndex = columns.indexOf(field);
+      if (fieldIndex === -1) return [];
+      return content.split('\n').filter(l => l.trim() && !l.startsWith('#'))
+        .filter(l => l.split('|')[fieldIndex] === value)
+        .map(l => l.split('|')[0].replace(/\.md$/, ''));
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return [];
+      throw err;
+    }
+  }
+
+  async listDocs(dir: string): Promise<string[]> {
+    try {
+      const content = await fs.promises.readFile(path.join(dir, '_index.md'), 'utf-8');
+      return content.split('\n').filter(l => l.trim() && !l.startsWith('#'))
+        .map(l => l.split('|')[0].replace(/\.md$/, ''));
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') {
+        try {
+          const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+          return entries.filter(e => e.isFile() && e.name.endsWith('.md') && e.name !== '_index.md')
+            .map(e => e.name.replace(/\.md$/, ''));
+        } catch { return []; }
+      }
+      throw err;
+    }
+  }
+
+  async findByField(dir: string, field: string, value: string): Promise<string | null> {
+    const results = await this.queryIndex(dir, field, value);
+    return results.length > 0 ? results[0] : null;
+  }
+
+  // ═══ 版本管理 ═══
+
+  async bumpVersion(dir: string, key: string, changeType: string, changeDesc: string): Promise<void> {
+    const doc = await this.readDoc(dir, key);
+    if (!doc) throw new Error(`Document not found: ${dir}/${key}`);
+    const currentVersion = typeof doc.meta.version === 'number' ? doc.meta.version : 0;
+    doc.meta.version = currentVersion + 1;
+    doc.meta.changeType = changeType;
+    doc.meta.changeDesc = changeDesc;
+    doc.meta.updatedAt = new Date().toISOString();
+    await this.writeDoc(dir, key, doc.meta, doc.body);
+  }
+
+  async appendChangelog(dir: string, key: string, entry: string): Promise<void> {
+    const changelogDir = path.join(dir, key);
+    await this.ensureDir(changelogDir);
+    const filePath = path.join(changelogDir, 'CHANGELOG.md');
+    const newEntry = `\n## ${new Date().toISOString()}\n\n${entry}\n`;
+    try {
+      const existing = await fs.promises.readFile(filePath, 'utf-8');
+      await fs.promises.writeFile(filePath, existing + newEntry, 'utf-8');
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') {
+        await fs.promises.writeFile(filePath, `# CHANGELOG\n${newEntry}`, 'utf-8');
+      } else { throw err; }
+    }
+  }
 }
 
 // ─── 工具函数 ───
@@ -710,4 +831,65 @@ function applyFilter(snapshots: WorkUnitSnapshot[], filter?: WorkUnitFilter): Wo
     if (filter.channelId && s.channelId !== filter.channelId) return false;
     return true;
   });
+}
+
+// ─── 通用 Markdown / Frontmatter ───
+
+/**
+ * 解析 markdown 文件的 YAML frontmatter。
+ * 泛化版 parseSddFrontmatter：meta 使用 Record<string, unknown> 而非 SDD 专用类型。
+ */
+export function parseFrontmatter(content: string): { meta: Record<string, unknown>; body: string } | null {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) return null;
+
+  const yaml = match[1];
+  const body = match[2].trim();
+  const meta: Record<string, unknown> = {};
+
+  for (const line of yaml.split('\n')) {
+    const kv = line.match(/^(\w+):\s*(.+)$/);
+    if (!kv) continue;
+    const [, key, val] = kv;
+
+    // 数组：[a, b, c]
+    if (val.startsWith('[') && val.endsWith(']')) {
+      meta[key] = val.slice(1, -1)
+        .split(',')
+        .map(s => s.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean);
+    }
+    // 数字
+    else if (/^\d+$/.test(val)) {
+      meta[key] = parseInt(val, 10);
+    }
+    // 字符串（去引号）
+    else {
+      meta[key] = val.replace(/^["']|["']$/g, '');
+    }
+  }
+
+  return { meta, body };
+}
+
+/**
+ * 序列化 meta + body 为 markdown 文件内容（含 YAML frontmatter）。
+ */
+export function serializeFrontmatter(meta: Record<string, unknown>, body: string): string {
+  const lines: string[] = [];
+
+  for (const [key, val] of Object.entries(meta)) {
+    if (val === undefined || val === null) continue;
+    if (Array.isArray(val)) {
+      if (val.length > 0) {
+        lines.push(`${key}: [${val.map(v => `"${String(v)}"`).join(', ')}]`);
+      }
+    } else if (typeof val === 'number') {
+      lines.push(`${key}: ${val}`);
+    } else {
+      lines.push(`${key}: "${String(val)}"`);
+    }
+  }
+
+  return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }

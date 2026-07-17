@@ -78,15 +78,15 @@ function parseLinkedDocIds(val: unknown): string[] {
  * List wiki documents with optional search/status filters.
  * SDD-only reads.
  */
-export function listWikiDocs(filters: {
+export async function listWikiDocs(filters: {
   search?: string;
   status?: string;
-}): WikiListItem[] {
-  const slugs = listSddDocs();
+}): Promise<WikiListItem[]> {
+  const slugs = await listSddDocs();
   const docs: WikiListItem[] = [];
 
   for (const slug of slugs) {
-    const doc = readSddDoc(slug, 'requirement');
+    const doc = await readSddDoc(slug, 'requirement');
     if (!doc?.meta.id) continue;
 
     const meta = doc.meta;
@@ -129,17 +129,17 @@ export function listWikiDocs(filters: {
  * Build wiki graph (nodes + edges) from SDD files.
  * SDD-only reads.
  */
-export function buildWikiGraph(): {
+export async function buildWikiGraph(): Promise<{
   nodes: WikiGraphNode[];
   edges: WikiGraphEdge[];
-} {
-  const slugs = listSddDocs();
+}> {
+  const slugs = await listSddDocs();
   const nodes: WikiGraphNode[] = [];
   const docIdSet = new Set<string>();
   const docsMeta: { id: string; linkedDocIds: string[] }[] = [];
 
   for (const slug of slugs) {
-    const doc = readSddDoc(slug, 'requirement');
+    const doc = await readSddDoc(slug, 'requirement');
     if (!doc?.meta.id) continue;
 
     const node: WikiGraphNode = {
@@ -171,13 +171,13 @@ export function buildWikiGraph(): {
  * Get wiki document by ID with all 3 layers + link resolution.
  * SDD-only reads.
  */
-export function getWikiDocById(id: string): WikiDocDetail | null {
-  const slug = findSddDocById(id);
+export async function getWikiDocById(id: string): Promise<WikiDocDetail | null> {
+  const slug = await findSddDocById(id);
   if (!slug) return null;
 
-  const req = readSddDoc(slug, 'requirement');
-  const design = readSddDoc(slug, 'design');
-  const task = readSddDoc(slug, 'task');
+  const req = await readSddDoc(slug, 'requirement');
+  const design = await readSddDoc(slug, 'design');
+  const task = await readSddDoc(slug, 'task');
 
   if (!req) return null;
 
@@ -187,9 +187,9 @@ export function getWikiDocById(id: string): WikiDocDetail | null {
   // Resolve linked docs to { id, title }
   const linkedDocs: { id: string; title: string }[] = [];
   for (const linkedId of linkedDocIds) {
-    const linkedSlug = findSddDocById(linkedId);
+    const linkedSlug = await findSddDocById(linkedId);
     if (linkedSlug) {
-      const linkedReq = readSddDoc(linkedSlug, 'requirement');
+      const linkedReq = await readSddDoc(linkedSlug, 'requirement');
       if (linkedReq?.meta.title) {
         linkedDocs.push({ id: linkedId, title: linkedReq.meta.title });
       }
@@ -198,10 +198,10 @@ export function getWikiDocById(id: string): WikiDocDetail | null {
 
   // Compute backlinks: docs whose linkedDocIds point to this doc
   const backlinks: { id: string; title: string }[] = [];
-  const allSlugs = listSddDocs();
+  const allSlugs = await listSddDocs();
   for (const otherSlug of allSlugs) {
     if (otherSlug === slug) continue;
-    const otherReq = readSddDoc(otherSlug, 'requirement');
+    const otherReq = await readSddDoc(otherSlug, 'requirement');
     if (!otherReq?.meta.id) continue;
     const otherLinkedIds = parseLinkedDocIds(otherReq.meta.linkedDocIds);
     if (otherLinkedIds.includes(id)) {
@@ -220,8 +220,8 @@ export function getWikiDocById(id: string): WikiDocDetail | null {
     if (seenWikiLinks.has(linkRef)) continue;
     seenWikiLinks.add(linkRef);
     // Try resolving as doc ID first, then as slug
-    const linkedSlug = findSddDocById(linkRef) ?? linkRef;
-    const linkedReq = readSddDoc(linkedSlug, 'requirement');
+    const linkedSlug = await findSddDocById(linkRef) ?? linkRef;
+    const linkedReq = await readSddDoc(linkedSlug, 'requirement');
     if (linkedReq?.meta.id && linkedReq.meta.id !== id) {
       wikiLinks.push({ id: linkedReq.meta.id, title: linkedReq.meta.title ?? linkedSlug });
     }

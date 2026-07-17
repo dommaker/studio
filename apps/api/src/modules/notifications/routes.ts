@@ -4,13 +4,12 @@
 
 import { Router, Request, Response } from 'express';
 import { NotificationService } from '@dommaker/studio-notification';
-import { prisma } from '../../core/database.js';
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import { createLazyService } from '../../utils/services.js';
 
 const router = Router();
 
-const getNotificationService = createLazyService(() => new NotificationService(prisma));
+const getNotificationService = createLazyService(() => new NotificationService(new FileStore()));
 
 /**
  * GET /api/v1/notifications
