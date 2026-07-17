@@ -13,10 +13,12 @@ import * as authService from "./service.js";
 import { sendPasswordResetEmail } from "./email.service.js";
 import { AuditService } from "@dommaker/studio-audit"; // 🆕 SEC-010
 import { FileStore, logger } from "@dommaker/studio-shared";
-import { prisma } from "../../core/database.js";
+import * as path from "node:path";
+import * as os from "node:os";
 
 const router = Router();
 const auditService = new AuditService(new FileStore()); // 🆕 SEC-010
+const fileStore = new FileStore();
 
 /**
  * POST /api/v1/auth/guest-session
@@ -291,9 +293,7 @@ router.post("/send-verification", requireAuth(), async (req, res) => {
       return;
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: authInfo.userId },
-    });
+    const user = await fileStore.readJson<any>(path.join(os.homedir(), '.studio', 'data', 'users', `${authInfo.userId}.json`));
     if (!user) {
       res.status(404).json({ error: "用户不存在" });
       return;

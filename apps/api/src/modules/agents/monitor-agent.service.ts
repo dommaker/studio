@@ -13,7 +13,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
@@ -197,12 +196,22 @@ export class MonitorAgent {
     const alerts: MonitorAlert[] = [];
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
 
-    const recentTasks = await prisma.task.findMany({
-      where: { startedAt: { gte: oneHourAgo }, status: { in: ['completed', 'failed'] } },
-      select: { id: true, status: true, projectId: true, name: true },
-      orderBy: { startedAt: 'desc' },
-      take: 20,
-    });
+    // Read recent tasks from FileStore
+    const tasksDir = path.join(os.homedir(), '.studio', 'data', 'tasks');
+    let allTasks: any[] = [];
+    try {
+      const entries = await fs.promises.readdir(tasksDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isFile() || !e.name.endsWith('.json')) continue;
+        const t = await this.fileStore.readJson<any>(path.join(tasksDir, e.name));
+        if (t) allTasks.push(t);
+      }
+    } catch { /* no tasks dir */ }
+    const recentTasks = allTasks
+      .filter(t => t.startedAt && new Date(t.startedAt) >= oneHourAgo && ['completed', 'failed'].includes(t.status))
+      .map(t => ({ id: t.id, status: t.status, projectId: t.projectId, name: t.name }))
+      .sort((a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime())
+      .slice(0, 20);
 
     if (recentTasks.length < FAILURE_THRESHOLD) return alerts;
 
@@ -992,14 +1001,16 @@ export class MonitorAgent {
         }
       } catch { /* ignore */ }
 
-      // 6. DB connection check
+      // 6. Storage health check
       try {
-        await prisma.$queryRaw`SELECT 1`;
+        const probeFile = path.join(os.homedir(), '.studio', 'data', '_monitor_probe');
+        await fs.promises.writeFile(probeFile, Date.now().toString());
+        await fs.promises.unlink(probeFile);
       } catch {
         anomalies.push({
           type: 'ext_dependency',
           severity: 'critical',
-          message: 'Database connection failed',
+          message: 'Storage access failed',
         });
       }
     } catch (e) {
@@ -1586,12 +1597,23 @@ export class MonitorAgent {
         logger.warn('[MonitorAgent] TTL: ChannelMessage skipped with error', { error: String(e) });
       }
 
-      // 1b. Delete expired Session records
+      // 1b. Delete expired Session records (FileStore)
       try {
-        const deleted = await prisma.session.deleteMany({
-          where: { expiresAt: { lt: new Date() } },
-        });
-        logger.info('[MonitorAgent] TTL: Session cleaned', { deleted: deleted.count });
+        const sessionsDir = path.join(os.homedir(), '.studio', 'data', 'sessions');
+        let deleted = 0;
+        const now = new Date();
+        try {
+          const entries = await fs.promises.readdir(sessionsDir, { withFileTypes: true });
+          for (const e of entries) {
+            if (!e.isFile() || !e.name.endsWith('.json')) continue;
+            const session = await this.fileStore.readJson<any>(path.join(sessionsDir, e.name));
+            if (session && new Date(session.expiresAt) < now) {
+              await fs.promises.unlink(path.join(sessionsDir, e.name));
+              deleted++;
+            }
+          }
+        } catch { /* no sessions dir */ }
+        if (deleted > 0) logger.info('[MonitorAgent] TTL: Session cleaned', { deleted });
       } catch (e) {
         logger.warn('[MonitorAgent] TTL: Session cleanup failed', { error: String(e) });
       }
@@ -1609,13 +1631,8 @@ export class MonitorAgent {
         logger.warn('[MonitorAgent] TTL: WorkUnit cleanup failed', { error: String(e) });
       }
 
-      // 4. VACUUM to reclaim disk space
-      try {
-        await prisma.$executeRawUnsafe('VACUUM');
-        logger.info('[MonitorAgent] TTL: VACUUM completed');
-      } catch (e) {
-        logger.warn('[MonitorAgent] TTL: VACUUM failed (non-fatal)', { error: String(e) });
-      }
+      // 4. FileStore disk check (no VACUUM needed for file-based storage)
+      logger.info('[MonitorAgent] TTL: disk cleanup completed (FileStore — no VACUUM needed)');
 
       // 5. Truncate ~/events/studio.jsonl keeping only last 7 days
       try {

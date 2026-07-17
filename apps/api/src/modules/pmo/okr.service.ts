@@ -1,6 +1,5 @@
 // OKR Service - PMO 模块核心服务
 import { logger, FileStore, parseFrontmatter } from '@dommaker/studio-shared';
-import { prisma } from '../../core/database.js';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -394,9 +393,18 @@ export class OKRService {
    * 更新 OKR 进度（基于关联项目）
    */
   async updateProgress(okrId: string): Promise<number> {
-    const projects = await prisma.project.findMany({
-      where: { okrId },
-      select: { progress: true, status: true },
+    const projectsDir = path.join(os.homedir(), '.studio', 'projects');
+    let allProjects: any[] = [];
+    try {
+      const entries = await fs.promises.readdir(projectsDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isFile() || !e.name.endsWith('.json')) continue;
+        const data = await fileStore.readJson<any>(path.join(projectsDir, e.name));
+        if (data) allProjects.push(data);
+      }
+    } catch { /* no projects dir */ }
+    const projects = allProjects.filter((p: any) => p.okrId === okrId)
+      .map((p: any) => ({ progress: p.progress ?? 0, status: p.status }));
     });
 
     if (projects.length === 0) {

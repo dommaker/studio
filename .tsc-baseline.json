@@ -1,24 +1,3151 @@
 {
   "apps/api": [
     {
-      "file": "apps/api/src/modules/agents/routes.ts",
-      "line": 16,
-      "code": "TS2554"
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 408,
+      "code": "TS1068"
     },
     {
       "file": "apps/api/src/modules/pmo/okr.service.ts",
-      "line": 398,
-      "code": "TS2353"
+      "line": 410,
+      "code": "TS1005"
     },
     {
-      "file": "apps/api/src/modules/workspaces/workspace.routes.ts",
-      "line": 197,
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 410,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 410,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 440,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 447,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 447,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 448,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 451,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 452,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 455,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 461,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 461,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 461,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 461,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 470,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 470,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 603,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 603,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 603,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 603,
+      "code": "TS1011"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 604,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 604,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 605,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 605,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 606,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 606,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 606,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 606,
+      "code": "TS1109"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 606,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 606,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 607,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 607,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 607,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 607,
+      "code": "TS1109"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 607,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 607,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 609,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 609,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 611,
+      "code": "TS1359"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 611,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 611,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 611,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 633,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 633,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 633,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 634,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 634,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 634,
+      "code": "TS1136"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 666,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 671,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 671,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 671,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 671,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 672,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 672,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 673,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 673,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 675,
+      "code": "TS1003"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 680,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 680,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 680,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 686,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 686,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 686,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 686,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 687,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 687,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 688,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 688,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 689,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 689,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 690,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 690,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 691,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 691,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 693,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 693,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 695,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 698,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 698,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 698,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 698,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 699,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 699,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 700,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 700,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 701,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 701,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 702,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 702,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 704,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 709,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 711,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 711,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 711,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 711,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 713,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 716,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 718,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 718,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 723,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 723,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 723,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 723,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 724,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 725,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 725,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 726,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 726,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 727,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 727,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 728,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 728,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 728,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 728,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 731,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 731,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 731,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 731,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 732,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 733,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 733,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 734,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 734,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 735,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 735,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 736,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 736,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 737,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 737,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 737,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 737,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 738,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 738,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 739,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 740,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 742,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 742,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 742,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 742,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 743,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 744,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 744,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 745,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 746,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 746,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 747,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 748,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 748,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 751,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 751,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 751,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 752,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 752,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 752,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 752,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 755,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 755,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 755,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 755,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 756,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 757,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 757,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 758,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 758,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 759,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 760,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 760,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 761,
+      "code": "TS1359"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 761,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 761,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 761,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 770,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 770,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 773,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 773,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 773,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 773,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 773,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 774,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 774,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 775,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 776,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 778,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 778,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 778,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 778,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 779,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 780,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 780,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 781,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 781,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 782,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 782,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 783,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 783,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 783,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 783,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 786,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 786,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 786,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 786,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 787,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 788,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 788,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 789,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 789,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 790,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 790,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 790,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 790,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 791,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 796,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 797,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 797,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 798,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 798,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 798,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 798,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 802,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 802,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 802,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 802,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 803,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 804,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 804,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 805,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 805,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 806,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 806,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 806,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 806,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 807,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 813,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 814,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 814,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 815,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 815,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 815,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 815,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 818,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 818,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 818,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 818,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 819,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 820,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 820,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 821,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 821,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 822,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 822,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 822,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 822,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 823,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 825,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 826,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 826,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 827,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 827,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 827,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 827,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 830,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 830,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 830,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 830,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 832,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 832,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 835,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 835,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 835,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 835,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 836,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 837,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 837,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 838,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 838,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 839,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 839,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 840,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 842,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 843,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 843,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 843,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 843,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 844,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 845,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 846,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 846,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 847,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 847,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 847,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 847,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 853,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 853,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 853,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 853,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 854,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 855,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 855,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 856,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 856,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 857,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 857,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 858,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 858,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 859,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 859,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 859,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 859,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 861,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 861,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 861,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 861,
+      "code": "TS1109"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 861,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 861,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 862,
+      "code": "TS1359"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 862,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 862,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 862,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 867,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 867,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 867,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 867,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 867,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 868,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 868,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 869,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 869,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 869,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 869,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 873,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 873,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 873,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 873,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 874,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 875,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 875,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 876,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 876,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 877,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 877,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 877,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 877,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 878,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 880,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 881,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 881,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 882,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 882,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 882,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 882,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 886,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 886,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 886,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 886,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 887,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 888,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 888,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 889,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 889,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 890,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 890,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 891,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 891,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 891,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 891,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 895,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 895,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 895,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 895,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 896,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 897,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 897,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 898,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 898,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 899,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 899,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 900,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 900,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 901,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 901,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 901,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 901,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 902,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 902,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 903,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 904,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 907,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 907,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 907,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 907,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 908,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 909,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 909,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 910,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 910,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 911,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 911,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 912,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 912,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 912,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 912,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 918,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 918,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 918,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 918,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 919,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 920,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 920,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 921,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 921,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 922,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 922,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 922,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 922,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 923,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 925,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 926,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 926,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 927,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 927,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 927,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 927,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 931,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 931,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 931,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 931,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 932,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 933,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 933,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 934,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 934,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 935,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 935,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 936,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 936,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 936,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 936,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 940,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 940,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 940,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 940,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 941,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 943,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 943,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 944,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 944,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 945,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 946,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 946,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 947,
+      "code": "TS1359"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 947,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 947,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 947,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 952,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 952,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 953,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 953,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 953,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 953,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 953,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 955,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 955,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 956,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 956,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 957,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 957,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 958,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 958,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 959,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 960,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 963,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 963,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 963,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 963,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 964,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 965,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 965,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 966,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 966,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 967,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 967,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 968,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 968,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 968,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 968,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 972,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 972,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 972,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 972,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 973,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 974,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 974,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 975,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 975,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 976,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 978,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 979,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 979,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 979,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 979,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 980,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 982,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 983,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 983,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 983,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 983,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 984,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 984,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 985,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 985,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 986,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 986,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 986,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 986,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 992,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 992,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 992,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 992,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 993,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 994,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 994,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 995,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 995,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 996,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 996,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 996,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 996,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 997,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 997,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 998,
+      "code": "TS1359"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 998,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 998,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 998,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1004,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1004,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1004,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1005,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1005,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1005,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1005,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1009,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1009,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1009,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1009,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1010,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1011,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1011,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1012,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1012,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1013,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1016,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1017,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1017,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1018,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1018,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1019,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1019,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1019,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1019,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1020,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1020,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1021,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1022,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1027,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1027,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1027,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1055,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1055,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1055,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1056,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1056,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1059,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1060,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1060,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1064,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1064,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1064,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1065,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1066,
+      "code": "TS1011"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1066,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1067,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1068,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1070,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1070,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1070,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1070,
+      "code": "TS1109"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1070,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1070,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1071,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1071,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1071,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1074,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1074,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1074,
+      "code": "TS1136"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1125,
+      "code": "TS1128"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1128,
+      "code": "TS1434"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1128,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1128,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1128,
+      "code": "TS1011"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1129,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1129,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1129,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1129,
+      "code": "TS1109"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1129,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1129,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1130,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1131,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1131,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1132,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1132,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1133,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1133,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1133,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1133,
+      "code": "TS1109"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1133,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1133,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1135,
+      "code": "TS1359"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1135,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1135,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1135,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1148,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1151,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1151,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1151,
+      "code": "TS1005"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 1153,
+      "code": "TS1128"
+    }
+  ],
+  "packages/studio-agent": [
+    {
+      "file": "packages/studio-agent/src/services/worktree-resolver.ts",
+      "line": 119,
       "code": "TS2339"
     }
   ],
   "_meta": {
-    "generated": "2026-07-17T17:12:00.990Z",
-    "totalErrors": 3,
-    "commit": "b85449b132a135ca34aae51b226c057d7dbe3bc5"
+    "generated": "2026-07-17T17:21:51.583Z",
+    "totalErrors": 628,
+    "commit": "1773bfdf131d73c589db0ae76fb17664e4d903cb"
   }
 }
