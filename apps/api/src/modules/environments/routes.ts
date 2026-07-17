@@ -1,22 +1,32 @@
 // environments/routes.ts — Environment Manager CRUD (HZ-023)
 import { Router, Request, Response } from 'express';
-import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
 import { logger } from '../../utils/logger.js';
 
 const router = Router();
+
+const ENVIRONMENTS_JSON = path.join(os.homedir(), '.studio', 'environments.json');
+const fileStore = new FileStore();
+
+async function readEnvironments(): Promise<any[]> {
+  const data = await fileStore.readJson<any[]>(ENVIRONMENTS_JSON);
+  return data || [];
+}
+
+async function writeEnvironments(envs: any[]): Promise<void> {
+  await fileStore.writeJson(ENVIRONMENTS_JSON, envs);
+}
 
 // GET /api/v1/environments — 列表
 router.get('/', async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
-    const where = status ? { status } : {};
+    const environments = await readEnvironments();
+    const filtered = status ? environments.filter(e => e.status === status) : environments;
 
-    const environments = await prisma.environment.findMany({
-      where,
-      orderBy: { name: 'asc' },
-    });
-
-    res.json({ data: environments, total: environments.length });
+    res.json({ data: filtered, total: filtered.length });
   } catch (error) {
     logger.error({ error }, 'Failed to list environments');
     res.status(500).json({ error: 'Failed to list environments' });
@@ -26,7 +36,8 @@ router.get('/', async (req: Request, res: Response) => {
 // GET /api/v1/environments/:id — 详情
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const env = await prisma.environment.findUnique({ where: { id: req.params.id } });
+    const environments = await readEnvironments();
+    const env = environments.find(e => e.id === req.params.id);
     if (!env) return res.status(404).json({ error: 'Environment not found' });
     res.json(env);
   } catch (error) {
@@ -42,25 +53,34 @@ router.post('/', async (req: Request, res: Response) => {
 
     if (!name) return res.status(400).json({ error: 'name is required' });
 
-    const env = await prisma.environment.create({
-      data: {
-        name,
-        description,
-        dockerImage: dockerImage || 'node:20-slim',
-        dependencies: dependencies || [],
-        envVars: envVars || {},
-        networkMode: networkMode || 'bridge',
-        mounts: mounts || [],
-        resourceLimits: resourceLimits || {},
-      },
-    });
+    const environments = await readEnvironments();
+    const existing = environments.find(e => e.name === name);
+    if (existing) {
+      return res.status(409).json({ error: `Environment "${name}" already exists` });
+    }
+
+    const now = new Date().toISOString();
+    const env = {
+      id: `env_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+      name,
+      description: description || null,
+      dockerImage: dockerImage || 'node:20-slim',
+      dependencies: dependencies || [],
+      envVars: envVars || {},
+      networkMode: networkMode || 'bridge',
+      mounts: mounts || [],
+      resourceLimits: resourceLimits || {},
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    environments.push(env);
+    await writeEnvironments(environments);
 
     logger.info({ envId: env.id, name }, 'Environment created');
     res.status(201).json(env);
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
-      return res.status(409).json({ error: `Environment "${req.body.name}" already exists` });
-    }
+  } catch (error) {
     logger.error({ error }, 'Failed to create environment');
     res.status(500).json({ error: 'Failed to create environment' });
   }
@@ -71,27 +91,30 @@ router.patch('/:id', async (req: Request, res: Response) => {
   try {
     const { name, description, dockerImage, dependencies, envVars, networkMode, mounts, resourceLimits, status } = req.body;
 
-    const env = await prisma.environment.update({
-      where: { id: req.params.id },
-      data: {
-        ...(name !== undefined && { name }),
-        ...(description !== undefined && { description }),
-        ...(dockerImage !== undefined && { dockerImage }),
-        ...(dependencies !== undefined && { dependencies }),
-        ...(envVars !== undefined && { envVars }),
-        ...(networkMode !== undefined && { networkMode }),
-        ...(mounts !== undefined && { mounts }),
-        ...(resourceLimits !== undefined && { resourceLimits }),
-        ...(status !== undefined && { status }),
-      },
-    });
+    const environments = await readEnvironments();
+    const idx = environments.findIndex(e => e.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Environment not found' });
 
-    logger.info({ envId: env.id }, 'Environment updated');
-    res.json(env);
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
-      return res.status(404).json({ error: 'Environment not found' });
-    }
+    const updated = {
+      ...environments[idx],
+      ...(name !== undefined && { name }),
+      ...(description !== undefined && { description }),
+      ...(dockerImage !== undefined && { dockerImage }),
+      ...(dependencies !== undefined && { dependencies }),
+      ...(envVars !== undefined && { envVars }),
+      ...(networkMode !== undefined && { networkMode }),
+      ...(mounts !== undefined && { mounts }),
+      ...(resourceLimits !== undefined && { resourceLimits }),
+      ...(status !== undefined && { status }),
+      updatedAt: new Date().toISOString(),
+    };
+
+    environments[idx] = updated;
+    await writeEnvironments(environments);
+
+    logger.info({ envId: updated.id }, 'Environment updated');
+    res.json(updated);
+  } catch (error) {
     logger.error({ error }, 'Failed to update environment');
     res.status(500).json({ error: 'Failed to update environment' });
   }
@@ -100,13 +123,16 @@ router.patch('/:id', async (req: Request, res: Response) => {
 // DELETE /api/v1/environments/:id — 删除
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    await prisma.environment.delete({ where: { id: req.params.id } });
+    const environments = await readEnvironments();
+    const idx = environments.findIndex(e => e.id === req.params.id);
+    if (idx === -1) return res.status(404).json({ error: 'Environment not found' });
+
+    environments.splice(idx, 1);
+    await writeEnvironments(environments);
+
     logger.info({ envId: req.params.id }, 'Environment deleted');
     res.status(204).end();
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
-      return res.status(404).json({ error: 'Environment not found' });
-    }
+  } catch (error) {
     logger.error({ error }, 'Failed to delete environment');
     res.status(500).json({ error: 'Failed to delete environment' });
   }
@@ -138,13 +164,25 @@ router.post('/seed-defaults', async (_req: Request, res: Response) => {
       },
     ];
 
+    const environments = await readEnvironments();
+    const existingNames = new Set(environments.map(e => e.name));
     const created = [];
+
     for (const def of defaults) {
-      const existing = await prisma.environment.findUnique({ where: { name: def.name } });
-      if (!existing) {
-        const env = await prisma.environment.create({ data: def as any });
-        created.push(env);
+      if (!existingNames.has(def.name)) {
+        const now = new Date().toISOString();
+        created.push({
+          id: `env_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+          ...def,
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        });
       }
+    }
+
+    if (created.length > 0) {
+      await writeEnvironments([...environments, ...created]);
     }
 
     logger.info({ count: created.length }, 'Default environments seeded');
