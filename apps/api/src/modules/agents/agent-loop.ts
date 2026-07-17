@@ -7,7 +7,6 @@ import { randomUUID } from 'crypto';
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
-import { prisma } from '@dommaker/studio-prisma';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';

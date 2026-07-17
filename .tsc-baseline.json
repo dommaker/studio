@@ -1,7 +1,24 @@
 {
+  "apps/api": [
+    {
+      "file": "apps/api/src/modules/agents/routes.ts",
+      "line": 16,
+      "code": "TS2554"
+    },
+    {
+      "file": "apps/api/src/modules/pmo/okr.service.ts",
+      "line": 398,
+      "code": "TS2353"
+    },
+    {
+      "file": "apps/api/src/modules/workspaces/workspace.routes.ts",
+      "line": 197,
+      "code": "TS2339"
+    }
+  ],
   "_meta": {
-    "generated": "2026-06-29T07:58:21.610Z",
-    "totalErrors": 0,
-    "commit": "374f2aee633666282e0b510ac4035478cbafc62e"
+    "generated": "2026-07-17T17:12:00.990Z",
+    "totalErrors": 3,
+    "commit": "b85449b132a135ca34aae51b226c057d7dbe3bc5"
   }
 }

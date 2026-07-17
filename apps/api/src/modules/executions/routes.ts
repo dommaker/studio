@@ -1,6 +1,5 @@
 // Execution API 路由
 import { Router, Request, Response } from 'express';
-import { prisma } from '../../core/database.js'; // still needed for task operations
 import { eventStore } from '../../core/event-store.js';
 import { v4 as uuidv4 } from 'uuid';
 import * as os from 'os';
@@ -9,7 +8,20 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 
 const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const TASKS_DIR = path.join(os.homedir(), '.studio', 'data', 'tasks');
 const fileStore = new FileStore();
+
+async function findTaskByExecutionId(executionId: string): Promise<{ id: string; status: string } | null> {
+  try {
+    const entries = await fs.promises.readdir(TASKS_DIR, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.json')) continue;
+      const task = await fileStore.readJson<any>(path.join(TASKS_DIR, e.name));
+      if (task && task.executionId === executionId) return task;
+    }
+  } catch { /* dir may not exist */ }
+  return null;
+}
 
 const router = Router();
 
@@ -133,20 +145,18 @@ router.post('/events', async (req: Request, res: Response) => {
         
         logger.info(`[Execution Sync] Updated ${studioExecution.id} to ${newStatus} (runtime event: ${eventType})`);
         
-        // 🆕 如果任务完成，更新 Task.status
+        // 如果任务完成，更新 Task.status（FileStore）
         if (newStatus === 'completed' || newStatus === 'failed') {
-          const task = await prisma.task.findFirst({
-            where: { executionId: studioExecution.id },
-          });
+          const task = await findTaskByExecutionId(studioExecution.id);
 
           if (task) {
-            await prisma.task.update({
-              where: { id: task.id },
-              data: {
-                status: newStatus === 'completed' ? 'completed' : 'failed',
-                completedAt: new Date(),
-              },
-            });
+            const fullTask = await fileStore.readJson<any>(path.join(TASKS_DIR, `${task.id}.json`));
+            if (fullTask) {
+              fullTask.status = newStatus === 'completed' ? 'completed' : 'failed';
+              fullTask.completedAt = new Date().toISOString();
+              fullTask.updatedAt = new Date().toISOString();
+              await fileStore.writeJson(path.join(TASKS_DIR, `${task.id}.json`), fullTask);
+            }
 
             logger.info(`[Task Sync] Updated task ${task.id} to ${newStatus}`);
           }

@@ -295,9 +295,32 @@ export interface KnowledgeServiceDeps {
   lifecycle: KnowledgeLifecycle;
   ingest: KnowledgeIngest;
   linter: KnowledgeLinter;
-  prisma: any; // PrismaClient
   query: any;  // UnifiedQuery
   eventEmitter: any; // EventEmitter
+}
+
+// ── Resolution FileStore helpers ──
+
+const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'resolutions');
+
+async function ensureDir(dir: string): Promise<void> {
+  await fs.promises.mkdir(dir, { recursive: true });
+}
+
+async function listResolutions(): Promise<any[]> {
+  try {
+    const entries = await fs.promises.readdir(RESOLUTIONS_DIR, { withFileTypes: true });
+    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
+    const results: any[] = [];
+    for (const f of files) {
+      const data = await fileStore.readJson<any>(path.join(RESOLUTIONS_DIR, f.name));
+      if (data) results.push(data);
+    }
+    return results;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
 }
 
 // ── KnowledgeService ─────────────────────────────────────────
@@ -307,7 +330,6 @@ export class KnowledgeService {
   private lifecycle: KnowledgeLifecycle;
   private ingest: KnowledgeIngest;
   private linter: KnowledgeLinter;
-  private prisma: any;
   private query: any;
   private eventEmitter: any;
 
@@ -316,7 +338,6 @@ export class KnowledgeService {
     this.lifecycle = deps.lifecycle;
     this.ingest = deps.ingest;
     this.linter = deps.linter;
-    this.prisma = deps.prisma;
     this.query = deps.query;
     this.eventEmitter = deps.eventEmitter;
   }
@@ -746,10 +767,10 @@ export class KnowledgeService {
 
   async matchResolutions(problem: string): Promise<MatchResolutionResult> {
     try {
-      const candidates = await this.prisma.resolution.findMany({
-        where: { status: { in: ['verified', 'canonical'] } },
-        orderBy: { verifyCount: 'desc' },
-      });
+      const all = await listResolutions();
+      const candidates = all
+        .filter((r: any) => r.status === 'verified' || r.status === 'canonical')
+        .sort((a: any, b: any) => (b.verifyCount || 0) - (a.verifyCount || 0));
 
       const matched: Resolution[] = [];
       const lowerMsg = problem.toLowerCase();
@@ -778,8 +799,8 @@ export class KnowledgeService {
             status: row.status,
             verifyCount: row.verifyCount || 0,
             tags: row.tags ? (typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags) : [],
-            createdAt: row.createdAt?.toISOString?.() || '',
-            updatedAt: row.updatedAt?.toISOString?.() || '',
+            createdAt: row.createdAt || '',
+            updatedAt: row.updatedAt || '',
           });
         }
       }
@@ -937,19 +958,27 @@ export class KnowledgeService {
 
   async createResolution(input: CreateResolutionInput): Promise<void> {
     try {
-      const existing = await this.prisma.resolution.findFirst({ where: { pattern: input.pattern } });
+      const all = await listResolutions();
+      const existing = all.find((r: any) => r.pattern === input.pattern);
       if (existing) return;
-      await this.prisma.resolution.create({
-        data: {
-          pattern: input.pattern,
-          errorClass: input.errorClass || 'unknown',
-          layer: input.layer || 'L5_error_fix',
-          title: input.title || input.pattern.slice(0, 100),
-          fix: input.fix,
-          status: 'pending',
-          tags: input.tags ? JSON.stringify(input.tags) : '[]',
-        },
-      });
+
+      const id = `res_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+      const now = new Date().toISOString();
+      const resolution = {
+        id,
+        pattern: input.pattern,
+        errorClass: input.errorClass || 'unknown',
+        layer: input.layer || 'L5_error_fix',
+        title: input.title || input.pattern.slice(0, 100),
+        fix: input.fix,
+        status: 'pending',
+        tags: input.tags ? JSON.stringify(input.tags) : '[]',
+        verifyCount: 0,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await ensureDir(RESOLUTIONS_DIR);
+      await fileStore.writeJson(path.join(RESOLUTIONS_DIR, `${id}.json`), resolution);
     } catch {
       // best-effort
     }
@@ -1038,20 +1067,20 @@ export class KnowledgeService {
    */
   async verifyResolution(id: string): Promise<void> {
     try {
-      const row = await this.prisma.resolution.findUnique({ where: { id } });
+      const row = await fileStore.readJson<any>(path.join(RESOLUTIONS_DIR, `${id}.json`));
       if (!row) return;
 
-      const newCount = row.verifyCount + 1;
+      const newCount = (row.verifyCount || 0) + 1;
       const newStatus = newCount >= 3 ? 'canonical' : (newCount >= 1 ? 'verified' : 'pending');
 
-      await this.prisma.resolution.update({
-        where: { id },
-        data: {
-          verifyCount: newCount,
-          status: newStatus,
-          lastVerifiedAt: new Date(),
-        },
-      });
+      const updated = {
+        ...row,
+        verifyCount: newCount,
+        status: newStatus,
+        lastVerifiedAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      await fileStore.writeJson(path.join(RESOLUTIONS_DIR, `${id}.json`), updated);
     } catch {
       // best-effort
     }
@@ -1082,7 +1111,6 @@ function stripFormat(text: string): string {
 // ── Singleton ────────────────────────────────────────────────
 
 import { EventEmitter } from 'events';
-import { prisma } from '@dommaker/studio-prisma';
 import {
   sharedStore,
   sharedLifecycle,
@@ -1096,7 +1124,6 @@ export const knowledgeService = new KnowledgeService({
   lifecycle: sharedLifecycle,
   ingest: sharedIngest,
   linter: sharedLinter,
-  prisma,
   query: sharedQuery,
   eventEmitter: new EventEmitter(),
 });

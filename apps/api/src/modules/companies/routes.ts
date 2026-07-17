@@ -1,16 +1,51 @@
 /**
  * Company API 路由
+ *
+ * 存储迁移: Prisma → FileStore (~/.studio/data/companies/)
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '../../core/database.js';
-import { logger } from '../../utils/logger.js';
 import { FileStore } from '@dommaker/studio-shared';
+import { logger } from '../../utils/logger.js';
 import * as os from 'os';
 import * as path from 'path';
+import * as fs from 'node:fs';
 
+const COMPANIES_DIR = path.join(os.homedir(), '.studio', 'data', 'companies');
 const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
 const fileStore = new FileStore();
+
+interface CompanyRecord {
+  id: string;
+  name: string;
+  size: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function companyPath(id: string): string {
+  return path.join(COMPANIES_DIR, `${id}.json`);
+}
+
+async function ensureDir(dir: string): Promise<void> {
+  await fs.promises.mkdir(dir, { recursive: true });
+}
+
+async function listCompanies(): Promise<CompanyRecord[]> {
+  try {
+    const entries = await fs.promises.readdir(COMPANIES_DIR, { withFileTypes: true });
+    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
+    const companies: CompanyRecord[] = [];
+    for (const f of files) {
+      const data = await fileStore.readJson<CompanyRecord>(path.join(COMPANIES_DIR, f.name));
+      if (data) companies.push(data);
+    }
+    return companies;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+}
 
 const router = Router();
 
@@ -27,10 +62,8 @@ const COMPANY_SIZE_CONFIG = {
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const companies = await prisma.company.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
-
+    const companies = await listCompanies();
+    companies.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
     res.json({ data: companies });
   } catch (error) {
     logger.error({ error }, 'Failed to list companies');
@@ -48,12 +81,11 @@ router.post('/', async (req: Request, res: Response) => {
   try {
     const { name } = req.body;
 
-    const company = await prisma.company.create({
-      data: {
-        name,
-        size: 'custom',
-      },
-    });
+    const id = `company_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const now = new Date().toISOString();
+    const company: CompanyRecord = { id, name, size: 'custom', createdAt: now, updatedAt: now };
+    await ensureDir(COMPANIES_DIR);
+    await fileStore.writeJson(companyPath(id), company);
 
     // 🆕 AS-016: 自动创建默认 OKR
     const { okrService } = await import('../pmo/okr.service');
@@ -82,12 +114,12 @@ router.patch('/:companyId', async (req: Request, res: Response) => {
     const { companyId } = req.params;
     const { name } = req.body;
 
-    const company = await prisma.company.update({
-      where: { id: companyId },
-      data: {
-        name,
-      },
-    });
+    const existing = await fileStore.readJson<CompanyRecord>(companyPath(companyId));
+    if (!existing) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: `Company ${companyId} not found` } });
+    }
+    const company: CompanyRecord = { ...existing, name, updatedAt: new Date().toISOString() };
+    await fileStore.writeJson(companyPath(companyId), company);
 
     res.json(company);
   } catch (error) {
@@ -106,9 +138,7 @@ router.get('/:companyId', async (req: Request, res: Response) => {
   try {
     const { companyId } = req.params;
 
-    const company = await prisma.company.findUnique({
-      where: { id: companyId },
-    });
+    const company = await fileStore.readJson<CompanyRecord>(companyPath(companyId));
 
     if (!company) {
       return res.status(404).json({
@@ -143,11 +173,8 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
 
     // 并行查询多个数据源
     const [company, executions] = await Promise.all([
-      // 公司信息
-      prisma.company.findUnique({
-        where: { id: companyId },
-        select: { id: true, name: true, size: true },
-      }),
+      // 公司信息（FileStore）
+      fileStore.readJson<CompanyRecord>(companyPath(companyId)),
       // 执行中的任务数
       (async () => {
         const execs = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);

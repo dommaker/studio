@@ -1,17 +1,33 @@
 /**
  * Knowledge Import API - 冷启动导入
  *
+ * 存储迁移: Prisma → FileStore
+ *
  * POST /knowledge/import/scan     — 扫描目录，返回可导入的文件列表
  * POST /knowledge/import/execute  — 导入选中的文件为知识条目
  * GET  /knowledge/import/status   — 获取导入状态（进行中的导入任务）
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from "path";
 import * as os from "os";
+
+const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
+const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+const fileStore = new FileStore();
+
+async function projectExists(projectId: string): Promise<{ id: string; companyId: string | null; title: string; gitRepo: string | null } | null> {
+  try {
+    const proj = await fileStore.readJson<{
+      id: string; companyId: string | null; title: string; gitRepo: string | null;
+    }>(path.join(PROJECTS_DIR, `${projectId}.json`));
+    return proj;
+  } catch {
+    return null;
+  }
+}
 
 export const knowledgeImportRoutes = Router();
 
@@ -80,11 +96,8 @@ knowledgeImportRoutes.post('/scan', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'projectId is required' });
     }
 
-    // 验证项目存在
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, companyId: true, title: true, gitRepo: true },
-    });
+    // 验证项目存在（FileStore）
+    const project = await projectExists(projectId);
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -218,10 +231,7 @@ knowledgeImportRoutes.post('/execute', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'projectId and files are required' });
     }
 
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { id: true, companyId: true },
-    });
+    const project = await projectExists(projectId);
 
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -264,20 +274,26 @@ knowledgeImportRoutes.post('/execute', async (req: Request, res: Response) => {
         const title = file.title || fileName.replace(/\.[^.]+$/, '');
         const tags = file.tags || inferTags(fileName, resolvedPath);
 
-        const document = await prisma.document.create({
-          data: {
-            projectId,
-            companyId: project.companyId,
-            type: docType,
-            title,
-            content,
-            filePath: resolvedPath,
-            tags,
-            status: 'active',
-          },
-        });
+        // Create document via FileStore
+        const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        const now = new Date().toISOString();
+        const doc = {
+          id: docId,
+          projectId,
+          companyId: project.companyId,
+          type: docType,
+          title,
+          content,
+          filePath: resolvedPath,
+          tags,
+          status: 'active',
+          createdAt: now,
+          updatedAt: now,
+        };
+        await fs.promises.mkdir(DOCUMENTS_DIR, { recursive: true });
+        await fileStore.writeJson(path.join(DOCUMENTS_DIR, `${docId}.json`), doc);
 
-        results.push({ path: file.path, status: 'imported', documentId: document.id });
+        results.push({ path: file.path, status: 'imported', documentId: doc.id });
       } catch (err) {
         results.push({ path: file.path, status: 'error', error: String(err) });
       }

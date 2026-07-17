@@ -8,10 +8,11 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
+
+const fileStore = new FileStore();
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { skillStore } from '../skills/skill-store.js';
 
@@ -1076,21 +1077,25 @@ export class AuditorAgent {
 
       // 2. Push bell notifications to all users
       try {
-        const notifService = new NotificationService(prisma as any);
-        const users = await prisma.user.findMany({
-          select: { id: true },
-          take: 10,
-        });
-        for (const user of users) {
+        const notifService = new NotificationService(fileStore);
+        // Read users from FileStore
+        const usersDir = path.join(os.homedir(), '.studio', 'data', 'users');
+        let userIds: string[] = [];
+        try {
+          const entries = await fs.promises.readdir(usersDir, { withFileTypes: true });
+          const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
+          userIds = files.slice(0, 10).map(f => f.name.replace(/\.json$/, ''));
+        } catch { /* no users dir */ }
+        for (const uid of userIds) {
           await notifService.create({
-            userId: user.id,
+            userId: uid,
             type: 'auditor_suggestion',
             title: `审计建议 (${suggestions.length} 项)`,
             content: suggestions.map(s => s.detail).join(' | '),
             link: `/channels/${channel.id}`,
           });
         }
-        logger.info('[AuditorAgent] Push notifications sent', { users: users.length, suggestions: suggestions.length });
+        logger.info('[AuditorAgent] Push notifications sent', { users: userIds.length, suggestions: suggestions.length });
       } catch (notifErr: any) {
         logger.warn('[AuditorAgent] Bell notification failed (non-blocking)', { error: String(notifErr) });
       }
@@ -1505,7 +1510,17 @@ export class AuditorAgent {
     try {
       let similar: any = null;
       try {
-        const allRes = await knowledgeService.listResolutions?.() || [];
+        const RES_DIR = path.join(os.homedir(), '.studio', 'data', 'resolutions');
+        let allRes: any[] = [];
+        try {
+          const entries = await fs.promises.readdir(RES_DIR, { withFileTypes: true });
+          for (const e of entries) {
+            if (e.isFile() && e.name.endsWith('.json')) {
+              const data = await fileStore.readJson<any>(path.join(RES_DIR, e.name));
+              if (data) allRes.push(data);
+            }
+          }
+        } catch { /* no resolutions dir */ }
         similar = allRes.find((r: any) =>
           (r.status === 'pending' || r.status === 'canonical') &&
           r.fix && r.fix.includes(proposal.suggestedFix.substring(0, 50))

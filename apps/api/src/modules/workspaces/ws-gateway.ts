@@ -6,8 +6,14 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, Server as HttpServer } from 'http';
 import crypto from 'crypto';
-import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+const fileStore = new FileStore();
+const WORKSPACE_TOKENS_DIR = path.join(os.homedir(), '.studio', 'data', 'workspace-tokens');
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'data', 'workspaces');
 
 // ── Types ──
 
@@ -57,10 +63,7 @@ async function verifyWorkspaceToken(
   try {
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-    const workspaceToken = await prisma.workspaceToken.findUnique({
-      where: { tokenHash },
-      include: { workspaces: true },
-    });
+    const workspaceToken = await fileStore.readJson<any>(path.join(WORKSPACE_TOKENS_DIR, `${tokenHash}.json`));
 
     if (!workspaceToken) {
       return { valid: false, reason: 'Invalid workspace token' };
@@ -70,9 +73,14 @@ async function verifyWorkspaceToken(
       return { valid: false, reason: 'Workspace token has been revoked' };
     }
 
-    const workspace = workspaceToken.workspaces.find(w => w.id === workspaceId);
-    if (!workspace) {
+    // Verify workspace exists and belongs to this token
+    if (workspaceToken.workspaceId !== workspaceId) {
       return { valid: false, reason: 'Workspace not found for this token' };
+    }
+
+    const workspace = await fileStore.readJson<any>(path.join(WORKSPACES_DIR, `${workspaceId}.json`));
+    if (!workspace) {
+      return { valid: false, reason: 'Workspace not found' };
     }
 
     return { valid: true };
@@ -86,10 +94,13 @@ async function verifyWorkspaceToken(
 
 async function updateHeartbeat(workspaceId: string, status: string): Promise<void> {
   try {
-    await prisma.workspace.update({
-      where: { id: workspaceId },
-      data: { status, lastHeartbeat: new Date() },
-    });
+    const ws = await fileStore.readJson<any>(path.join(WORKSPACES_DIR, `${workspaceId}.json`));
+    if (ws) {
+      ws.status = status;
+      ws.lastHeartbeat = new Date().toISOString();
+      ws.updatedAt = new Date().toISOString();
+      await fileStore.writeJson(path.join(WORKSPACES_DIR, `${workspaceId}.json`), ws);
+    }
   } catch (err) {
     logger.warn({ err, workspaceId }, '[WsGateway] Failed to update heartbeat');
   }
