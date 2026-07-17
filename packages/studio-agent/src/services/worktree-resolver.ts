@@ -9,9 +9,10 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
-import { prisma } from '@dommaker/studio-prisma';
+
+const fileStore = new FileStore();
 
 import type { AgentTask } from './session-manager.js';
 import { execSync } from 'child_process';
@@ -106,13 +107,22 @@ export async function resolveWorkspace(opts: {
     logger.info('[WorktreeResolver] hasWorktree=true, skipping VPS workspace, creating git worktree');
   } else {
     try {
-      const workspace = await prisma.workspace.findFirst({
-        where: { name: 'VPS', tokenId: null },
-        orderBy: { updatedAt: 'desc' },
-      });
-      if (workspace?.workspaceRoot && fsSync.existsSync(workspace.workspaceRoot)) {
-        logger.info('[WorktreeResolver] Using workspace from DB', { workspaceId: workspace.id, workspaceRoot: workspace.workspaceRoot });
-        return workspace.workspaceRoot;
+      // Look up VPS workspace from FileStore
+      let ws: { id: string; workspaceRoot?: string; updatedAt?: string } | null = null;
+      try {
+        const wsDir = path.join(os.homedir(), '.studio', 'data', 'workspaces');
+        const entries = await fs.readdir(wsDir, { withFileTypes: true });
+        for (const e of entries) {
+          if (!e.isFile() || !e.name.endsWith('.json')) continue;
+          const data = await fileStore.readJson<any>(path.join(wsDir, e.name));
+          if (data && data.name === 'VPS' && !data.tokenId) {
+            if (!ws || new Date(data.updatedAt) > new Date(ws.updatedAt)) ws = data;
+          }
+        }
+      } catch { /* no workspace dir */ }
+      if (ws?.workspaceRoot && fsSync.existsSync(ws.workspaceRoot)) {
+        logger.info('[WorktreeResolver] Using workspace from FileStore', { workspaceId: ws.id, workspaceRoot: ws.workspaceRoot });
+        return ws.workspaceRoot;
       }
     } catch (e) {
       logger.warn('[WorktreeResolver] DB workspace query failed, falling back to createWorktree', { error: String(e) });

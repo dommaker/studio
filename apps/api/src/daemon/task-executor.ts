@@ -10,12 +10,14 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger, getModelForTier, type ModelTier, parseStreamLine as parseStreamLineShared, extractFilePath, type StreamEvent } from '@dommaker/studio-shared';
-import { prisma } from '@dommaker/studio-prisma';
+import { logger, getModelForTier, type ModelTier, parseStreamLine as parseStreamLineShared, extractFilePath, type StreamEvent, FileStore } from '@dommaker/studio-shared';
 import { buildSpawnArgs, type AgentCliParams } from './cli-adapter.js';
 import type { ProviderName } from './cli-scanner.js';
 import type { ClaimedTask } from './claim-loop.js';
 import type { DetectedRuntime } from './cli-scanner.js';
+
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 export interface TaskExecutorConfig {
   serverUrl: string;
@@ -240,13 +242,11 @@ export class TaskExecutor {
     const tool = parsed.tool ?? 'unknown';
     const input = (parsed.input ?? {}) as Record<string, unknown>;
 
-    prisma.studioEvent.create({
-      data: {
-        type: 'tool:call',
-        source: 'executor',
-        payload: JSON.stringify({ tool, input, sessionId }),
-        timestamp: new Date(),
-      },
+    fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'tool:call',
+      source: 'executor',
+      payload: JSON.stringify({ tool, input, sessionId }),
+      createdAt: new Date().toISOString(),
     }).catch((err: unknown) => {
       logger.warn('[TaskExecutor] tool:call event write failed', { taskId: task.id, error: String(err) });
     });
@@ -254,13 +254,11 @@ export class TaskExecutor {
     // Use shared extractFilePath (replaces hardcoded tool name list)
     const filePath = extractFilePath(tool, input);
     if (filePath) {
-      prisma.studioEvent.create({
-        data: {
-          type: 'file:change',
-          source: 'executor',
-          payload: JSON.stringify({ path: filePath, sessionId }),
-          timestamp: new Date(),
-        },
+      fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: 'file:change',
+        source: 'executor',
+        payload: JSON.stringify({ path: filePath, sessionId }),
+        createdAt: new Date().toISOString(),
       }).catch((err: unknown) => {
         logger.warn('[TaskExecutor] file:change event write failed', { taskId: task.id, error: String(err) });
       });

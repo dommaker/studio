@@ -7,9 +7,12 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger } from '@dommaker/studio-shared';
+import * as os from 'os';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { parseSessionMetrics } from '@dommaker/studio-shared/harness';
-import { prisma } from '@dommaker/studio-prisma';
+
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 // .progress.json 结构
 export interface ProgressReport {
@@ -100,30 +103,29 @@ export async function recordSessionMetrics(opts: {
           modelName: opts.streamUsage.model || parsed.modelName,
         }
       : parsed;
-    await prisma.studioEvent.create({
-      data: {
-        type: 'agent_session',
-        source: 'agent-executor',
-        executionId: opts.executionId,
-        agentRole: opts.agentRole,
-        modelTier: opts.modelTier,
-        modelName: metrics.modelName,
-        stage: opts.stage,
-        sessionCount: opts.sessionCount,
-        isContinued: !opts.isFirstSession,
-        durationMs: opts.sessionMs,
-        numTurns: metrics.numTurns,
-        promptSize: opts.promptSize,
-        tokenInput: metrics.tokenInput,
-        tokenOutput: metrics.tokenOutput,
-        tokenCacheRead: metrics.tokenCacheRead,
-        tokenCacheWrite: metrics.tokenCacheWrite,
-        costUsd: metrics.costUsd,
-        serviceTier: metrics.serviceTier,
-        constraintHash: opts.constraintHash,
-        constraintSize: opts.constraintSize,
-        payload: JSON.stringify({ stdout: opts.stdout.slice(0, 2000) }),
-      },
+    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'agent_session',
+      source: 'agent-executor',
+      executionId: opts.executionId,
+      agentRole: opts.agentRole,
+      modelTier: opts.modelTier,
+      modelName: metrics.modelName,
+      stage: opts.stage,
+      sessionCount: opts.sessionCount,
+      isContinued: !opts.isFirstSession,
+      durationMs: opts.sessionMs,
+      numTurns: metrics.numTurns,
+      promptSize: opts.promptSize,
+      tokenInput: metrics.tokenInput,
+      tokenOutput: metrics.tokenOutput,
+      tokenCacheRead: metrics.tokenCacheRead,
+      tokenCacheWrite: metrics.tokenCacheWrite,
+      costUsd: metrics.costUsd,
+      serviceTier: metrics.serviceTier,
+      constraintHash: opts.constraintHash,
+      constraintSize: opts.constraintSize,
+      payload: JSON.stringify({ stdout: opts.stdout.slice(0, 2000) }),
+      createdAt: new Date().toISOString(),
     });
   } catch (metricErr) {
     logger.warn('[OutputCapture] Failed to record session metrics', { error: String(metricErr) });
@@ -135,12 +137,11 @@ export async function recordSessionMetrics(opts: {
  */
 export async function emitSessionStart(sessionId: string, executionId: string, sessionCount: number): Promise<void> {
   try {
-    await prisma.studioEvent.create({
-      data: {
-        type: 'session:start',
-        source: 'agent-executor',
-        payload: JSON.stringify({ sessionId, agentId: executionId, executionId, sessionCount }),
-      },
+    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'session:start',
+      source: 'agent-executor',
+      payload: JSON.stringify({ sessionId, agentId: executionId, executionId, sessionCount }),
+      createdAt: new Date().toISOString(),
     });
   } catch { /* non-blocking */ }
 }
@@ -150,12 +151,11 @@ export async function emitSessionStart(sessionId: string, executionId: string, s
  */
 export async function emitSessionEnd(sessionId: string, executionId: string, sessionCount: number): Promise<void> {
   try {
-    await prisma.studioEvent.create({
-      data: {
-        type: 'session:end',
-        source: 'agent-executor',
-        payload: JSON.stringify({ sessionId, agentId: executionId, executionId, sessionCount }),
-      },
+    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'session:end',
+      source: 'agent-executor',
+      payload: JSON.stringify({ sessionId, agentId: executionId, executionId, sessionCount }),
+      createdAt: new Date().toISOString(),
     });
   } catch { /* non-blocking */ }
 }
@@ -165,13 +165,12 @@ export async function emitSessionEnd(sessionId: string, executionId: string, ses
  */
 export async function emitToolCall(toolName: string, input: unknown, sessionId: string, executionId: string): Promise<void> {
   try {
-    await prisma.studioEvent.create({
-      data: {
-        type: 'tool:call',
-        source: 'agent-executor',
-        executionId,
-        payload: JSON.stringify({ tool: toolName, input, sessionId }),
-      },
+    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'tool:call',
+      source: 'agent-executor',
+      executionId,
+      payload: JSON.stringify({ tool: toolName, input, sessionId }),
+      createdAt: new Date().toISOString(),
     });
   } catch { /* non-blocking */ }
 }
@@ -181,13 +180,12 @@ export async function emitToolCall(toolName: string, input: unknown, sessionId: 
  */
 export async function emitFileChange(filePath: string, sessionId: string, executionId: string): Promise<void> {
   try {
-    await prisma.studioEvent.create({
-      data: {
-        type: 'file:change',
-        source: 'agent-executor',
-        executionId,
-        payload: JSON.stringify({ path: filePath, sessionId }),
-      },
+    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'file:change',
+      source: 'agent-executor',
+      executionId,
+      payload: JSON.stringify({ path: filePath, sessionId }),
+      createdAt: new Date().toISOString(),
     });
   } catch { /* non-blocking */ }
 }

@@ -9,10 +9,56 @@
  * 知识成熟度：draft → verified → proven → archived (与 harness 对齐)
  */
 
-import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway } from '@dommaker/studio-shared';
+import { logger, modelGateway, FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'node:fs';
 import type { MaturityLevel } from '@dommaker/harness';
 import { knowledgeBus } from './knowledge-bus.service.js';
+
+const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
+const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+
+interface DocRecord {
+  id: string; projectId: string; companyId: string; type: string;
+  title: string; content: string; tags: string[]; status: string;
+  version: number; updatedAt: string; createdAt: string;
+}
+
+async function listDocs(): Promise<DocRecord[]> {
+  try {
+    const entries = await fs.promises.readdir(DOCUMENTS_DIR, { withFileTypes: true });
+    const docs: DocRecord[] = [];
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.json')) continue;
+      const d = await fileStore.readJson<DocRecord>(path.join(DOCUMENTS_DIR, e.name));
+      if (d) docs.push(d);
+    }
+    return docs;
+  } catch { return []; }
+}
+
+async function getDoc(id: string): Promise<DocRecord | null> {
+  return fileStore.readJson<DocRecord>(path.join(DOCUMENTS_DIR, `${id}.json`));
+}
+
+async function saveDoc(doc: DocRecord): Promise<void> {
+  await fs.promises.mkdir(DOCUMENTS_DIR, { recursive: true });
+  await fileStore.writeJson(path.join(DOCUMENTS_DIR, `${doc.id}.json`), doc);
+}
+
+async function listProjects(): Promise<any[]> {
+  try {
+    const entries = await fs.promises.readdir(PROJECTS_DIR, { withFileTypes: true });
+    const projects: any[] = [];
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.json')) continue;
+      const p = await fileStore.readJson<any>(path.join(PROJECTS_DIR, e.name));
+      if (p) projects.push(p);
+    }
+    return projects;
+  } catch { return []; }
+}
 
 // ─── 类型 ───
 
@@ -22,6 +68,9 @@ export interface EvolutionResult {
   newMaturity: MaturityLevel;
   reason: string;
 }
+
+const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const fileStore = new FileStore();
 
 // ─── Knowledge Evolution Service ───
 
@@ -35,9 +84,8 @@ export class KnowledgeEvolutionService {
     const results: EvolutionResult[] = [];
 
     // 获取执行记录
-    const execution = await prisma.execution.findUnique({
-      where: { id: executionId },
-    });
+    const allExecs = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    const execution = allExecs.find((e: any) => e.id === executionId) || null;
 
     if (!execution || !execution.error) return results;
 
@@ -60,23 +108,16 @@ export class KnowledgeEvolutionService {
         if (!validTypes.includes(entry.type)) entry.type = 'execution';
         if (!Array.isArray(entry.tags)) entry.tags = [];
         // 检查是否已存在相似文档
-        const existing = await prisma.document.findFirst({
-          where: {
-            projectId,
-            title: { contains: entry.title?.slice(0, 20) } as any,
-            status: 'active',
-          },
-        });
+        const allDocs = await listDocs();
+        const existing = allDocs.find(d =>
+          d.projectId === projectId && d.status === 'active' && d.title.includes(entry.title?.slice(0, 20) || '')
+        );
 
         if (existing) {
           // 更新现有条目：增加引用计数
-          await prisma.document.update({
-            where: { id: existing.id },
-            data: {
-              updatedAt: new Date(),
-              version: { increment: 1 },
-            },
-          });
+          existing.updatedAt = new Date().toISOString();
+          existing.version = (existing.version || 0) + 1;
+          await saveDoc(existing);
           results.push({
             documentId: existing.id,
             previousMaturity: 'verified',
@@ -85,17 +126,20 @@ export class KnowledgeEvolutionService {
           });
         } else {
           // 创建新条目
-          const doc = await prisma.document.create({
-            data: {
-              projectId,
-              companyId,
-              type: entry.type || 'execution',
-              title: entry.title || 'Extracted knowledge',
-              content: entry.content || '',
-              tags: entry.tags || [],
-              status: 'active',
-            },
-          });
+          const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          const now = new Date().toISOString();
+          const doc: DocRecord = {
+            id: docId, projectId, companyId,
+            type: entry.type || 'execution',
+            title: entry.title || 'Extracted knowledge',
+            content: entry.content || '',
+            tags: entry.tags || [],
+            status: 'active',
+            version: 1,
+            createdAt: now,
+            updatedAt: now,
+          };
+          await saveDoc(doc);
           results.push({
             documentId: doc.id,
             previousMaturity: 'draft',
@@ -128,11 +172,10 @@ export class KnowledgeEvolutionService {
   async mesoEvolution(projectId: string): Promise<EvolutionResult[]> {
     const results: EvolutionResult[] = [];
 
-    // 获取项目的所有活跃文档
-    const docs = await prisma.document.findMany({
-      where: { projectId, status: 'active' },
-      orderBy: { updatedAt: 'desc' },
-    });
+    // 获取项目的所有活跃文档 (FileStore)
+    const allDocs2 = await listDocs();
+    const docs = allDocs2.filter(d => d.projectId === projectId && d.status === 'active')
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
 
     // 按类型分组
     const byType: Record<string, typeof docs> = {};
@@ -161,19 +204,22 @@ export class KnowledgeEvolutionService {
           if (analysis?.pattern) {
             logger.info('Pattern identified in meso evolution', { projectId, type, pattern: analysis.pattern });
             // Gap 2: 写入结果
-            const project = await prisma.project.findUnique({ where: { id: projectId }, select: { companyId: true } });
-            if (project?.companyId) {
-              const doc = await prisma.document.create({
-                data: {
-                  projectId, companyId: project.companyId,
-                  type: type as any,
-                  title: `[Pattern] ${analysis.pattern}`,
-                  content: analysis.recommendation || `跨 ${typeDocs.length} 个文档的公共模式`,
-                  status: 'active', version: 1,
-                  tags: JSON.stringify(['meso-evolution', type]),
-                },
-              });
-              results.push({ documentId: doc.id, previousMaturity: 'draft', newMaturity: 'verified', reason: 'meso pattern identified' });
+            const proj = await fileStore.readJson<any>(path.join(PROJECTS_DIR, `${projectId}.json`));
+            if (proj?.companyId) {
+              const docId2 = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+              const now2 = new Date().toISOString();
+              const doc2: DocRecord = {
+                id: docId2, projectId, companyId: proj.companyId,
+                type: type as any,
+                title: `[Pattern] ${analysis.pattern}`,
+                content: analysis.recommendation || `跨 ${typeDocs.length} 个文档的公共模式`,
+                status: 'active', version: 1,
+                tags: ['meso-evolution', type],
+                createdAt: now2,
+                updatedAt: now2,
+              };
+              await saveDoc(doc2);
+              results.push({ documentId: doc2.id, previousMaturity: 'draft', newMaturity: 'verified', reason: 'meso pattern identified' });
 
               // B13-008: 飞轮接桥 — mesoEvolution 模式写入 KnowledgeBus
               knowledgeBus.recordPattern({
@@ -203,10 +249,8 @@ export class KnowledgeEvolutionService {
     const insights: string[] = [];
 
     // 获取公司所有项目
-    const projects = await prisma.project.findMany({
-      where: { companyId },
-      select: { id: true, title: true },
-    });
+    const allProjects = await listProjects();
+    const projects = allProjects.filter(p => p.companyId === companyId).map(p => ({ id: p.id, title: p.title }));
 
     if (projects.length < 2) {
       return { insights: ['Need at least 2 projects for macro evolution'] };
@@ -215,11 +259,13 @@ export class KnowledgeEvolutionService {
     // 统计各项目的知识分布
     const projectStats = await Promise.all(
       projects.map(async (p) => {
-        const docs = await prisma.document.groupBy({
-          by: ['type'],
-          where: { projectId: p.id, status: 'active' },
-          _count: true,
-        });
+        const projDocs = await listDocs();
+        const projActive = projDocs.filter(d => d.projectId === p.id && d.status === 'active');
+        const typeGroups: Record<string, number> = {};
+        for (const d of projActive) {
+          typeGroups[d.type] = (typeGroups[d.type] || 0) + 1;
+        }
+        const docs = Object.entries(typeGroups).map(([type, _count]) => ({ type, _count }));
         return { project: p, stats: docs };
       })
     );
@@ -242,22 +288,23 @@ export class KnowledgeEvolutionService {
           const sourceProject = projectStats.find(s => s.stats.some(st => st.type === missingType));
           if (sourceProject) {
             try {
-              const sourceDoc = await prisma.document.findFirst({
-                where: { projectId: sourceProject.project.id, type: missingType as any, status: 'active' },
-                orderBy: { updatedAt: 'desc' },
-              });
+              const allDocsM = await listDocs();
+              const sourceDoc = allDocsM
+                .filter(d => d.projectId === sourceProject.project.id && d.type === (missingType as any) && d.status === 'active')
+                .sort((a: DocRecord, b: DocRecord) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null;
               if (sourceDoc) {
-                await prisma.document.create({
-                  data: {
-                    projectId: ps.project.id,
-                    companyId,
-                    type: missingType as any,
-                    title: `[Shared] ${sourceDoc.title}`,
-                    content: `跨项目知识迁移，源自项目 ${sourceProject.project.title}:\n\n${sourceDoc.content?.slice(0, 2000) || ''}`,
-                    status: 'active', version: 1,
-                    tags: JSON.stringify(['macro-evolution', 'cross-project', missingType]),
-                  },
-                });
+                const did = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+                const dn = new Date().toISOString();
+                const md: DocRecord = {
+                  id: did, projectId: ps.project.id, companyId,
+                  type: missingType as any,
+                  title: `[Shared] ${sourceDoc.title}`,
+                  content: `跨项目知识迁移，源自项目 ${sourceProject.project.title}:\n\n${(sourceDoc as any).content?.slice(0, 2000) || ''}`,
+                  status: 'active', version: 1,
+                  tags: ['macro-evolution', 'cross-project', missingType],
+                  createdAt: dn, updatedAt: dn,
+                };
+                await saveDoc(md);
                 insights.push(`  → 已为 "${ps.project.title}" 创建 ${missingType} 文档`);
               }
             } catch (e) {
@@ -281,28 +328,22 @@ export class KnowledgeEvolutionService {
     let skip = 0;
 
     // eslint-disable-next-line no-constant-condition
-    while (true) {
-      const docs = await prisma.document.findMany({
-        where: { status: 'active' },
-        select: { id: true, type: true, updatedAt: true },
-        skip,
-        take: BATCH_SIZE,
-        orderBy: { updatedAt: 'asc' },
-      });
+    const allActive = (await listDocs()).filter(d => d.status === 'active')
+      .sort((a, b) => new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime());
+    while (skip < allActive.length) {
+      const docs = allActive.slice(skip, skip + BATCH_SIZE).map(d => ({ id: d.id, type: d.type, updatedAt: d.updatedAt }));
 
       if (docs.length === 0) break;
 
       for (const doc of docs) {
-        const daysSinceUpdate = (now.getTime() - doc.updatedAt.getTime()) / (1000 * 60 * 60 * 24);
+        const daysSinceUpdate = (now.getTime() - new Date(doc.updatedAt).getTime()) / (1000 * 60 * 60 * 24);
 
         // 根据类型确定衰减天数
         const decayDays = doc.type === 'execution' ? 30 : doc.type === 'meeting' ? 60 : 90;
 
         if (daysSinceUpdate > decayDays) {
-          await prisma.document.update({
-            where: { id: doc.id },
-            data: { status: 'archived', archivedAt: now },
-          });
+          const decayDoc = await getDoc(doc.id);
+          if (decayDoc) { decayDoc.status = 'archived'; (decayDoc as any).archivedAt = now.toISOString(); decayDoc.updatedAt = now.toISOString(); await saveDoc(decayDoc); }
           results.push({
             documentId: doc.id,
             previousMaturity: 'proven',
@@ -323,16 +364,16 @@ export class KnowledgeEvolutionService {
    * 获取知识库健康指标
    */
   async getHealthMetrics(companyId: string): Promise<Record<string, any>> {
-    const [total, active, archived, byType] = await Promise.all([
-      prisma.document.count({ where: { companyId } }),
-      prisma.document.count({ where: { companyId, status: 'active' } }),
-      prisma.document.count({ where: { companyId, status: 'archived' } }),
-      prisma.document.groupBy({
-        by: ['type'],
-        where: { companyId, status: 'active' },
-        _count: true,
-      }),
-    ]);
+    const allDocs = await listDocs();
+    const coDocs = allDocs.filter(d => d.companyId === companyId);
+    const total = coDocs.length;
+    const active = coDocs.filter(d => d.status === 'active').length;
+    const archived = coDocs.filter(d => d.status === 'archived').length;
+    const typeMap: Record<string, number> = {};
+    for (const d of coDocs) {
+      if (d.status === 'active') typeMap[d.type] = (typeMap[d.type] || 0) + 1;
+    }
+    const byType = Object.entries(typeMap).map(([type, _count]) => ({ type, _count }));
 
     const typeDistribution: Record<string, number> = {};
     for (const item of byType) {

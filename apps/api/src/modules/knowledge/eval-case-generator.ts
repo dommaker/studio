@@ -5,7 +5,6 @@
  * 飞轮：失败 → eval case → harness 改进 → 回归验证 → 标记饱和。
  */
 
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { listEvalCases, createEvalCase, updateEvalCase } from './eval-case-store.js';

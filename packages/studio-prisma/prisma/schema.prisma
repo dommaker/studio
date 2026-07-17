@@ -7,151 +7,12 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// SQLite 不支持数组类型，String[] 和 Float[] 字段
-// 改为 String（JSON 序列化存储），应用层做 parse/stringify
-
-model Agent {
-  id           String         @id @default(cuid())
-  name         String
-  version      String
-  description  String?
-  category     String
-  icon         String?
-  tags String @default("[]")
-  inputSchema  String
-  outputSchema String
-  configSchema String
-  endpoint     String?
-  timeout      Int            @default(1800)
-  retryPolicy  String?
-  rateLimit    String?
-  metadata     String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  @@unique([id, version])
-  @@index([category])
-}
-
-model AuditLog {
-  id           String   @id @default(cuid())
-  userId       String?
-  roleId       String?
-  companyId    String?
-  ipAddress    String?
-  userAgent    String?
-  createdAt    DateTime @default(now())
-  action       String
-  resource     String
-  resourceId   String?
-  details      String?
-  changes      String?
-  status       String   @default("success")
-  errorCode    String?
-  errorMessage String?
-  sessionId    String?
-  requestId    String?
-  
-  User         User?    @relation("UserAuditLogs", fields: [userId], references: [id])
-
-  @@index([action])
-  @@index([companyId])
-  @@index([createdAt])
-  @@index([resourceId])
-  @@index([resource])
-  @@index([roleId])
-  @@index([status])
-  @@index([userId])
-}
-
-model Capability {
-  id                 String             @id @default(cuid())
-  name               String
-  type               String
-  cost               Int                @default(1000)
-  description        String?
-  metadata           String?
-  status             String             @default("active")
-  createdAt          DateTime           @default(now())
-  updatedAt          DateTime           @updatedAt
-  autoTestStatus     String             @default("pending")
-  ownerId            String?
-  ownershipType      String             @default("private")
-  price              Int                @default(0)
-  rating             Float              @default(0)
-  reviewCount        Int                @default(0)
-  reviewStatus       String             @default("pending")
-  usageCount         Int                @default(0)
-  userApprovalStatus String             @default("pending")
-
-  @@unique([name, type])
-  @@index([ownershipType])
-  @@index([rating])
-  @@index([type])
-}
-
 model Company {
-  id           String         @id @default(cuid())
+  id           String    @id @default(cuid())
   name         String
-  size         String         @default("small")
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  OKR          OKR[]
-  Documents    Document[]
-  projects     Project[]
-}
-
-model OKR {
-  id         String      @id @default(cuid())
-  companyId  String
-  title      String
-  objectives String
-  keyResults String
-  quarter    String
-  status     String      @default("active")
-  progress   Float       @default(0)
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
-  Execution  Execution[]
-  Company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  Project    Project[]
-
-  @@unique([companyId, quarter])
-  @@index([companyId])
-  @@index([status])
-  @@index([quarter])
-  @@map("okr")
-}
-
-model KRHistory {
-  id        String   @id @default(cuid())
-  krId      String
-  okrId     String
-  value     Float
-  status    String
-  timestamp DateTime @default(now())
-
-  @@index([okrId, krId])
-  @@index([timestamp])
-}
-
-model Execution {
-  id             String    @id @default(cuid())
-  status         String    @default("pending")
-  startTime      DateTime?
-  endTime        DateTime?
-  parameters     String?
-  nodeExecutions String?
-  error          String?
-  roleId         String?
-  okrId          String?
-  createdAt      DateTime  @default(now())
-  OKR            OKR?      @relation(fields: [okrId], references: [id])
-  Task           Task?
-
-  @@index([createdAt])
-  @@index([status])
-  @@index([roleId])
-  @@index([okrId])
+  size         String    @default("small")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model User {
@@ -165,11 +26,9 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  // 关联
   sessions                Session[]
   refreshTokens           RefreshToken[]
   oauthAccounts           OAuthAccount[]
-  auditLogs               AuditLog[] @relation("UserAuditLogs")
   passwordResetTokens     PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
 }
@@ -177,15 +36,15 @@ model User {
 model Session {
   id        String    @id @default(cuid())
   userId    String?
-  token     String    @unique // JWT
-  guestId   String?   // Guest Session 的临时 ID
+  token     String    @unique
+  guestId   String?
   ipAddress String?
   userAgent String?
   expiresAt DateTime
   createdAt DateTime  @default(now())
-  
+
   User      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@index([userId])
   @@index([token])
   @@index([expiresAt])
@@ -255,392 +114,6 @@ model EmailVerificationToken {
   @@index([email])
 }
 
-model SpecReview {
-  id                 String               @id @default(cuid())
-  title              String
-  description        String?
-  changes            String
-  changeType         String
-  impact             String
-  status             String               @default("pending")
-  approvals          String
-  requestedBy        String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  reviewedAt         DateTime?
-  reviewedBy         String?
-  comment            String?
-  SpecBypass         SpecBypass?
-  SpecReviewApproval SpecReviewApproval[]
-  SpecVersions       SpecVersion[]
-
-  @@index([status])
-  @@index([changeType])
-  @@index([createdAt])
-}
-
-model SpecReviewApproval {
-  id           String     @id @default(cuid())
-  reviewId     String
-  role         String
-  reviewerId   String
-  reviewerName String
-  approved     Boolean
-  comment      String?
-  createdAt    DateTime   @default(now())
-  SpecReview   SpecReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-
-  @@unique([reviewId, role])
-  @@index([reviewId])
-  @@index([reviewerId])
-}
-
-model SpecBypass {
-  id            String      @id @default(cuid())
-  specReviewId  String?     @unique
-  reason        String
-  urgency       String
-  requestedBy   String
-  requestedName String?
-  approvedBy    String?
-  approvedName  String?
-  status        String      @default("pending")
-  reviewedAt    DateTime?
-  completedAt   DateTime?
-  comment       String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  specReview    SpecReview? @relation(fields: [specReviewId], references: [id])
-
-  @@index([status])
-  @@index([requestedBy])
-  @@index([approvedBy])
-  @@index([createdAt])
-}
-
-model SpecVersion {
-  id          String     @id @default(cuid())
-  reviewId    String
-  version     Int
-  content     String
-  diff        String?
-  changeType  String
-  changeDesc  String?
-  createdBy   String
-  createdName String?
-  createdAt   DateTime   @default(now())
-  review      SpecReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-
-  @@unique([reviewId, version])
-  @@index([reviewId])
-  @@index([version])
-  @@index([createdBy])
-  @@index([createdAt])
-}
-
-model Notification {
-  id        String    @id @default(cuid())
-  userId    String
-  type      String
-  title     String
-  content   String
-  link      String?
-  read      Boolean   @default(false)
-  createdAt DateTime  @default(now())
-  readAt    DateTime?
-
-  @@index([userId])
-  @@index([read])
-  @@index([createdAt])
-}
-
-model Project {
-  id             String    @id @default(cuid())
-  pmoNumber      String    @unique
-  title          String
-  description    String?
-  requirement    String?
-  companyId      String
-  okrId          String?
-  status         String    @default("pending")
-  priority       String    @default("medium")
-  gitBranch      String?
-  gitRepo        String?
-  workspaceRepoId String?
-  workspaceRepo  WorkspaceRepo? @relation(fields: [workspaceRepoId], references: [id])
-  progress       Int       @default(0)
-  specFilePath   String?   // 🆕 FL-022: Spec 文档路径
-  specVersion    Int?      @default(1)  // 🆕 FL-022: Spec 版本号
-  requirementsDocId String?  // A4: bidirectional link to RequirementsDoc
-  dependsOnPmoId  String?      // O3e: PMO number this project depends on
-  startedAt      DateTime?
-  completedAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  Tasks          Task[]
-  Documents      Document[] // 🆕 知识库文档关联
-  Company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  okr            OKR?      @relation(fields: [okrId], references: [id])
-
-  @@unique([companyId, pmoNumber])
-  @@index([companyId])
-  @@index([status])
-  @@index([pmoNumber])
-  @@map("project")
-}
-
-// 🆕 公司知识库文档
-model Document {
-  id              String    @id @default(cuid())
-  projectId       String    // 关联 PMO 项目
-  companyId       String    // 公司 ID
-  
-  // 文档属性
-  type            String    // requirement/design/spec/execution/meeting/archive
-  title           String
-  content         String?   // 文档内容（Markdown）
-  filePath        String?   // 文件路径（可选）
-  
-  // 元数据
-  version         Int       @default(1)
-  status          String    @default("active")  // active/archived/deleted
-  tags String @default("[]")  // 标签
-  
-  // 作者信息
-  createdBy       String?   // 创建者角色 ID
-  updatedBy       String?   // 最后更新者
-  
-  // 时间
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  archivedAt      DateTime?
-  
-  // 关联
-  Project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  Company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
-  @@unique([projectId, type, version])
-  @@index([projectId])
-  @@index([companyId])
-  @@index([type])
-  @@index([status])
-  @@index([companyId, status, type])
-  @@map("document")
-}
-
-model Task {
-  id                 String     @id @default(cuid())
-  projectId          String
-  name               String
-  description        String?
-  assignee           String
-  priority           String     @default("P2")
-  status             String     @default("pending")
-  claimedBy          String?
-  claimedAt          DateTime?
-  dependsOn String @default("[]")
-  acceptanceCriteria String @default("[]")
-  executionId        String?    @unique
-  estimatedHours     Int?
-  startedAt          DateTime?
-  completedAt        DateTime?
-  testEvidence       String?    // 🆕 AS-006: 测试证据路径
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
-  Execution          Execution? @relation(fields: [executionId], references: [id])
-  Project            Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([assignee])
-  @@index([priority])
-  @@index([status])
-  @@index([projectId])
-  @@index([claimedBy])
-  @@index([projectId, status])
-}
-
-model Environment {
-  id               String   @id @default(cuid())
-  name             String   @unique
-  description      String?
-  dockerImage      String   @default("node:20-slim")
-  dependencies     String @default("[]")
-  envVars          String     @default("{}")
-  networkMode      String   @default("bridge")
-  mounts           String     @default("[]")
-  resourceLimits   String     @default("{}")
-  status           String   @default("active") // active, deprecated
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
-
-  agentConfigs     AgentConfig[]
-
-  @@index([status])
-}
-
-model AgentConfig {
-  id             String        @id @default(cuid())
-  name           String        @unique
-  description    String?
-  model          String        @default("claude-sonnet-4-6")
-  systemPrompt   String        @default("")
-  tools          String      @default("[]")
-  environmentId  String?
-  maxTokens      Int           @default(4096)
-  temperature    Float         @default(0.7)
-  status         String        @default("active") // active, deprecated
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-
-  environment    Environment?          @relation(fields: [environmentId], references: [id], onDelete: SetNull)
-  versions       AgentConfigVersion[]
-
-  @@index([status])
-  @@index([environmentId])
-}
-
-model AgentConfigVersion {
-  id             String       @id @default(cuid())
-  agentConfigId  String
-  version        Int
-  snapshot       String
-  changedBy      String       @default("system")
-  changeReason   String?
-  createdAt      DateTime     @default(now())
-
-  agentConfig    AgentConfig  @relation(fields: [agentConfigId], references: [id], onDelete: Cascade)
-
-  @@index([agentConfigId])
-  @@unique([agentConfigId, version])
-}
-
-
-
-
-
-model Incident {
-  id             String   @id
-  type           String   // service_down | resource_critical | ext_dependency | zombie
-  severity       String   // critical | warning
-  status         String   @default("diagnosing") // diagnosing | fixing | resolved | escalated
-  detectedAt     DateTime @default(now())
-  resolvedAt     DateTime?
-  resolution     String?
-  triageLog      String   @default("[]") // JSON [{time, phase, action, result}]
-  escalatedTo    String?
-  pitfallCreated String?
-
-  @@index([status])
-  @@index([detectedAt])
-}
-
-// ── 知识库五大缺口 (G-001~005, 2026-05-19) ──
-
-
-
-model EnvironmentSnapshot {
-  id          String   @id @default(cuid())
-
-  // 系统层
-  hostname    String
-  platform    String
-  nodeVersion String
-  cpuCores    Int
-  totalMemGB  Float
-
-  // 服务层
-  apiPort     Int
-  webPort     Int
-  nodeEnv     String
-  dbPath      String
-
-  // 部署层
-  nginxConfig    String?
-  serviceManager String?
-  tunnelType     String?
-
-  // 依赖层
-  keyDependencies String  @default("{}") // {"harness":"0.13.0","prisma":"5.x"}
-
-  // 已知限制
-  knownLimitations String @default("[]") // [{"issue":"...","since":"..."}]
-
-  takenAt     DateTime
-  takenBy     String   @default("auto") // auto | manual
-  diffFromPrev String? // 与上次快照的差异摘要
-
-  createdAt   DateTime @default(now())
-
-  @@index([takenAt])
-}
-
-
-// ── 管线指标 (B1-016) ──
-
-// ── 知识进化: Resolution Knowledge Base (2026-05-23) ──
-// L3~L6 运维配置类知识 — 错误模式 → 已知解法映射
-
-model Resolution {
-  id          String   @id @default(cuid())
-  pattern     String   // 错误匹配模式 (regex 或关键词子串)
-  errorClass  String   // 对应 ErrorClass: permission_error | config_error | ...
-  layer       String   @default("L5_error_fix") // L3_tool_behavior | L4_env_config | L5_error_fix | L6_causality
-  title       String   // 人类可读标题
-  fix         String   // 解法描述 (Markdown, 可直接注入 Agent prompt)
-  status      String   @default("pending")    // pending | verified | canonical | deprecated
-  verifyCount Int      @default(0)            // 验证次数 (>=3 → canonical)
-  verifiedAt  DateTime?                       // 首次验证时间
-  sourceGoalId String?                        // 首次发现的 Goal
-  tags        String   @default("[]")         // JSON: ["cli","root","permission"]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@index([errorClass])
-  @@index([layer])
-  @@index([status])
-  @@index([verifyCount])
-}
-
-// ── 管线指标 (B1-016) ──
-
-// ── G30: Unified StudioEvent Table ──
-
-model StudioEvent {
-  id        String   @id @default(cuid())
-  type      String
-  source    String
-  timestamp DateTime @default(now())
-  payload   String
-
-  // Pipeline execution metrics (observability)
-  executionId    String?
-  agentRole      String?
-  modelTier      String?
-  modelName      String?
-  stage          String?
-  sessionCount   Int?
-  isContinued    Boolean?
-  durationMs     Int?
-  numTurns       Int?
-  promptSize     Int?
-  tokenInput     Int?
-  tokenOutput    Int?
-  tokenCacheRead Int?
-  tokenCacheWrite Int?
-  costUsd        Float?
-  serviceTier    String?
-  constraintHash String?
-  constraintSize Int?
-  precipitated   Boolean  @default(false) // G31: 知识沉淀标记，清理前必须为 true
-
-  @@index([type])
-  @@index([timestamp])
-  @@index([executionId])
-  @@index([agentRole])
-}
-
-
-// ── AS-020: Workspace + Daemon 算力接入 ──
-
 model Workspace {
   id            String   @id @default(cuid())
   name          String
@@ -666,18 +139,16 @@ model WorkspaceRepo {
   id            String    @id @default(cuid())
   workspaceId   String
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  path          String    // 相对于 workspaceRoot
-  name          String    // 目录名
-  category      String?   // 分类目录（如 backend/fe）
-  description   String?   // 仓库描述
+  path          String
+  name          String
+  category      String?
+  description   String?
   defaultBranch String    @default("main")
-  remoteUrl     String?   // git remote origin URL
-  status        String    @default("active") // active | unavailable
+  remoteUrl     String?
+  status        String    @default("active")
   lastSyncedAt  DateTime
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-
-  projects      Project[]
 
   @@unique([workspaceId, path])
   @@index([workspaceId])
@@ -743,5 +214,3 @@ model WorkspaceEvent {
   metadata    String?
   createdAt   DateTime   @default(now())
 }
-
-

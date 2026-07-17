@@ -3,7 +3,10 @@
  * Wraps Prisma (structured data) + KnowledgeStore (narrative knowledge).
  * Consumer-facing API: buildKnowledgeContext, Studio UI, search.
  */
-import { prisma } from '@dommaker/studio-prisma';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { FileStore } from '@dommaker/studio-shared';
 import { FileKnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeEntry as HarnessEntry, QueryFilter as HarnessFilter } from '@dommaker/harness';
@@ -193,8 +196,12 @@ export class UnifiedQuery {
       if (filter?.consumptionModes?.includes('context')) {
         const prefs = this.store.list({ tags: ['preference', 'user-default'] });
         if (prefs.length > 0) count++;
-        const env = await prisma.environmentSnapshot.findFirst({ orderBy: { createdAt: 'desc' } });
-        if (env) count++;
+        const snapshotsDir = path.join(os.homedir(), '.studio', 'snapshots');
+        try {
+          const files = await fs.promises.readdir(snapshotsDir);
+          const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse();
+          if (jsonFiles.length > 0) count++;
+        } catch { /* no snapshots */ }
       }
     }
 
@@ -234,11 +241,20 @@ export class UnifiedQuery {
       }
     }
 
-    // EnvironmentSnapshot → context entry
+    // EnvironmentSnapshot → context entry (from ~/.studio/snapshots/)
     if (modes.includes('context')) {
-      const env = await prisma.environmentSnapshot.findFirst({ orderBy: { createdAt: 'desc' } });
-      if (env) {
-        entries.push(this.envToEntry(env));
+      const snapshotsDir = path.join(os.homedir(), '.studio', 'snapshots');
+      let latestSnapshot: any = null;
+      try {
+        const files = await fs.promises.readdir(snapshotsDir);
+        const jsonFiles = files.filter(f => f.endsWith('.json')).sort().reverse();
+        if (jsonFiles.length > 0) {
+          const fileStore = new FileStore();
+          latestSnapshot = await fileStore.readJson<any>(path.join(snapshotsDir, jsonFiles[0]));
+        }
+      } catch { /* no snapshots */ }
+      if (latestSnapshot) {
+        entries.push(this.envToEntry(latestSnapshot));
       }
     }
 

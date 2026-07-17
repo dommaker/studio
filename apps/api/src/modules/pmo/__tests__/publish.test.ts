@@ -1,15 +1,15 @@
-// AC-5: PMO Publish API tests
+// AC-5: PMO Publish API tests — Spec 3 FileStore 版本
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
-  mockProjectFindUnique,
-  mockProjectUpdate,
+  mockReadJson,
+  mockWriteJson,
   mockCreateHumanMessage,
   mockUpdateMessageMeta,
   mockWuCreate,
 } = vi.hoisted(() => ({
-  mockProjectFindUnique: vi.fn(),
-  mockProjectUpdate: vi.fn(),
+  mockReadJson: vi.fn(),
+  mockWriteJson: vi.fn().mockResolvedValue(undefined),
   mockCreateHumanMessage: vi.fn().mockResolvedValue({
     id: 'msg-1',
     channelId: 'ch-1',
@@ -33,47 +33,79 @@ const {
   }),
 }));
 
-// Mock prisma
-vi.mock('../../../core/database.js', () => ({
-  prisma: {
-    project: {
-      findUnique: mockProjectFindUnique,
-      update: mockProjectUpdate,
-    },
-  },
+// Mock FileStore
+vi.mock('@dommaker/studio-shared', () => ({
+  FileStore: vi.fn().mockImplementation(() => ({
+    readJson: mockReadJson,
+    writeJson: mockWriteJson,
+    readJsonl: vi.fn().mockResolvedValue([]),
+  })),
 }));
+
+// Mock fs
+vi.mock('node:fs', async () => {
+  const actual = await vi.importActual('node:fs');
+  return {
+    ...(actual as object),
+    promises: {
+      readdir: vi.fn().mockResolvedValue([]),
+      unlink: vi.fn().mockResolvedValue(undefined),
+      mkdir: vi.fn().mockResolvedValue(undefined),
+    },
+    existsSync: vi.fn().mockReturnValue(false),
+    readFileSync: vi.fn().mockReturnValue(''),
+  };
+});
 
 // Mock channelMessageService
 vi.mock('../../channels/channel-message.service.js', () => ({
   channelMessageService: {
-    createHumanMessage: mockCreateHumanMessage,
-    updateMessageMeta: mockUpdateMessageMeta,
+    createHumanMessage: (...args: unknown[]) => mockCreateHumanMessage(...args),
+    updateMessageMeta: (...args: unknown[]) => mockUpdateMessageMeta(...args),
   },
 }));
 
 // Mock WorkUnitService
 vi.mock('../../workunit/workunit.service.js', () => ({
   WorkUnitService: vi.fn().mockImplementation(() => ({
-    create: mockWuCreate,
+    create: (...args: unknown[]) => mockWuCreate(...args),
   })),
+}));
+
+vi.mock('../../utils/logger.js', () => ({
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
 import { projectService } from '../project.service.js';
 
+function sampleProject(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'proj-1',
+    pmoNumber: 'PM-001',
+    title: 'Test Project',
+    description: null,
+    requirement: 'Test requirement',
+    companyId: null,
+    okrId: null,
+    status: 'pending',
+    priority: 'normal',
+    progress: 0,
+    gitBranch: null,
+    gitRepo: null,
+    specFilePath: null,
+    requirementsDocId: null,
+    startedAt: null,
+    completedAt: null,
+    createdAt: '2026-07-15T00:00:00.000Z',
+    updatedAt: '2026-07-15T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
 describe('AC-5: PMO Publish API', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProjectFindUnique.mockResolvedValue({
-      id: 'proj-1',
-      pmoNumber: 'PM-001',
-      title: 'Test Project',
-      requirement: 'Test requirement',
-      status: 'pending',
-    });
-    mockProjectUpdate.mockResolvedValue({
-      id: 'proj-1',
-      status: 'active',
-    });
+    mockReadJson.mockResolvedValue(sampleProject());
   });
 
   it('pending PMO publish creates ChannelMessage + WorkUnit + status→active', async () => {
@@ -92,12 +124,7 @@ describe('AC-5: PMO Publish API', () => {
   });
 
   it('non-pending PMO → error', async () => {
-    mockProjectFindUnique.mockResolvedValue({
-      id: 'proj-1',
-      status: 'active',
-      pmoNumber: 'PM-001',
-      title: 'Active',
-    });
+    mockReadJson.mockResolvedValue(sampleProject({ status: 'active' }));
 
     await expect(
       projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' })
@@ -105,7 +132,7 @@ describe('AC-5: PMO Publish API', () => {
   });
 
   it('project not found → error', async () => {
-    mockProjectFindUnique.mockResolvedValue(null);
+    mockReadJson.mockResolvedValue(null);
 
     await expect(
       projectService.publish({ projectId: 'nope', channelId: 'ch-1' })
@@ -138,12 +165,10 @@ describe('AC-5: PMO Publish API', () => {
   it('PMO status transitions to active', async () => {
     await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
 
-    // updateStatus internally calls prisma.project.update
-    expect(mockProjectUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: 'proj-1' },
-        data: expect.objectContaining({ status: 'active' }),
-      })
+    // publish calls updateStatus which calls writeJson with status='active'
+    expect(mockWriteJson).toHaveBeenCalledWith(
+      expect.stringContaining('proj-1'),
+      expect.objectContaining({ status: 'active' })
     );
   });
 });

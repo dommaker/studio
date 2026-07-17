@@ -1,7 +1,6 @@
 // Channel Routes — B1-001/B1-002/B1-009/B1-011
 import { Router } from 'express';
 import { randomUUID } from 'crypto';
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, readSddDoc, updateSddFrontmatter, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { routeMessage } from './message-routing.js';

@@ -5,8 +5,12 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, memoryStore } from '@dommaker/studio-shared';
-import { prisma } from '@dommaker/studio-prisma';
+import { logger, memoryStore, FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
+
+const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const fileStore = new FileStore();
 
 // 重试配置
 export const RETRY_CONFIG = {
@@ -358,19 +362,16 @@ export class TaskQueue {
     startTime: Date | null;
     createdAt: Date;
   }>> {
-    const executions = await prisma.execution.findMany({
-      where: {
-        roleId,
-        status: { in: ['pending', 'running', 'in_progress'] },
-      },
-      orderBy: { createdAt: 'desc' },
-      select: {
-        id: true,
-        status: true,
-        startTime: true,
-        createdAt: true,
-      },
-    });
+    const allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    const executions = allRows
+      .filter((e: any) => e.roleId === roleId && ['pending', 'running', 'in_progress'].includes(e.status))
+      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map((e: any) => ({
+        id: e.id,
+        status: e.status,
+        startTime: e.startTime ? new Date(e.startTime) : null,
+        createdAt: new Date(e.createdAt),
+      }));
 
     return executions.map(e => ({
       id: e.id,

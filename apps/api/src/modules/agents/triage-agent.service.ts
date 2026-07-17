@@ -1,14 +1,17 @@
 // Triage Agent Service — incident response: diagnose → classify → act → resolve/escalate
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
 import { classifySystemError } from '../triage/error-class.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import type { SystemTriageResult } from '../triage/error-class.js';
 import type { TriageIncidentInput, TriageLogEntry } from './types.js';
+import * as path from 'path';
+import * as os from 'os';
+import * as fs from 'fs';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;
 const FIX_COOLDOWN_MS = 30_000; // 30s between attempts
+const INCIDENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'incidents.jsonl');
 
 interface PhaseResult {
   success: boolean;
@@ -32,17 +35,17 @@ class TriageAgent {
     const startedAt = Date.now();
     const incidentId = `I-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6)}`;
 
-    const incident = await prisma.incident.create({
-      data: {
-        id: incidentId,
-        type: input.type,
-        severity: input.severity,
-        status: 'diagnosing',
-        triageLog: '[]',
-      },
+    await this.fileStore.appendJsonl(INCIDENTS_JSONL, {
+      id: incidentId,
+      type: input.type,
+      severity: input.severity,
+      status: 'diagnosing',
+      triageLog: '[]',
+      detectedAt: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
     });
 
-    eventBus.publish('incident.created', { incident });
+    eventBus.publish('incident.created', { incidentId, type: input.type, severity: input.severity });
     logger.info('[TriageAgent] Incident created', { incidentId, type: input.type });
 
     const triageLog: TriageLogEntry[] = [];
@@ -392,14 +395,11 @@ class TriageAgent {
       result: resolution,
     });
 
-    await prisma.incident.update({
-      where: { id: incidentId },
-      data: {
-        status: 'resolved',
-        resolvedAt: new Date(),
-        resolution,
-        triageLog: JSON.stringify(triageLog),
-      },
+    await this.updateIncident(incidentId, {
+      status: 'resolved',
+      resolvedAt: new Date().toISOString(),
+      resolution,
+      triageLog: JSON.stringify(triageLog),
     });
 
     eventBus.publish('incident.resolved', { incidentId, resolution });
@@ -440,14 +440,11 @@ class TriageAgent {
       result: triage ? `${triage.errorClass} / ${triage.recommendedAction}` : 'Max attempts exhausted',
     });
 
-    await prisma.incident.update({
-      where: { id: incidentId },
-      data: {
-        status: 'escalated',
-        escalatedTo: 'human',
-        resolution: 'Escalated to human for manual intervention',
-        triageLog: JSON.stringify(triageLog),
-      },
+    await this.updateIncident(incidentId, {
+      status: 'escalated',
+      escalatedTo: 'human',
+      resolution: 'Escalated to human for manual intervention',
+      triageLog: JSON.stringify(triageLog),
     });
 
     eventBus.publish('incident.escalated', { incidentId, triage });
@@ -467,14 +464,11 @@ class TriageAgent {
       result: reason,
     });
 
-    await prisma.incident.update({
-      where: { id: incidentId },
-      data: {
-        status: 'escalated',
-        escalatedTo: 'human',
-        resolution: reason,
-        triageLog: JSON.stringify(triageLog),
-      },
+    await this.updateIncident(incidentId, {
+      status: 'escalated',
+      escalatedTo: 'human',
+      resolution: reason,
+      triageLog: JSON.stringify(triageLog),
     });
 
     eventBus.publish('incident.escalated', { incidentId, reason });
@@ -488,12 +482,19 @@ class TriageAgent {
     return Date.now() - startedAt > MAX_TRIAGE_TIME_MS;
   }
 
+  private async updateIncident(incidentId: string, patch: Record<string, any>): Promise<void> {
+    const rows = await this.fileStore.readJsonl<any>(INCIDENTS_JSONL);
+    const idx = rows.findIndex((r: any) => r.id === incidentId);
+    if (idx !== -1) {
+      rows[idx] = { ...rows[idx], ...patch };
+      await fs.promises.mkdir(path.dirname(INCIDENTS_JSONL), { recursive: true });
+      await fs.promises.writeFile(INCIDENTS_JSONL, rows.map((r: any) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+    }
+  }
+
   private async appendLog(incidentId: string, triageLog: TriageLogEntry[]): Promise<void> {
     try {
-      await prisma.incident.update({
-        where: { id: incidentId },
-        data: { triageLog: JSON.stringify(triageLog) },
-      });
+      await this.updateIncident(incidentId, { triageLog: JSON.stringify(triageLog) });
     } catch {
       // Non-fatal: log update failure shouldn't abort triage
     }

@@ -9,11 +9,47 @@
 
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
-import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth } from '../../middleware/auth.js';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
 
+const fileStore = new FileStore();
+const TOKENS_DIR = path.join(os.homedir(), '.studio', 'data', 'workspace-tokens');
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'data', 'workspaces');
 const router = Router();
+
+async function ensureDir(): Promise<void> {
+  await fs.promises.mkdir(TOKENS_DIR, { recursive: true });
+}
+
+async function listTokens(): Promise<any[]> {
+  try {
+    const entries = await fs.promises.readdir(TOKENS_DIR, { withFileTypes: true });
+    const results: any[] = [];
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.json')) continue;
+      const data = await fileStore.readJson<any>(path.join(TOKENS_DIR, e.name));
+      if (data) results.push(data);
+    }
+    return results;
+  } catch { return []; }
+}
+
+async function countWorkspacesForToken(tokenId: string): Promise<number> {
+  try {
+    const entries = await fs.promises.readdir(WORKSPACES_DIR, { withFileTypes: true });
+    let count = 0;
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.json')) continue;
+      const ws = await fileStore.readJson<any>(path.join(WORKSPACES_DIR, e.name));
+      if (ws && ws.tokenId === tokenId) count++;
+    }
+    return count;
+  } catch { return 0; }
+}
 
 // ─── Helper: generate st_mach_ token ───
 
@@ -59,24 +95,33 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
     // Generate plaintext token
     const plaintextToken = generateToken();
 
-    // Hash token for storage (SHA-256, deterministic for DB lookup)
+    // Hash token for storage (SHA-256, deterministic for lookup)
     const tokenHash = hashToken(plaintextToken);
 
-    const workspaceToken = await prisma.workspaceToken.create({
-      data: {
-        name: name.trim(),
-        tokenHash,
-        permissions: JSON.stringify(permissions),
-      },
-    });
+    // Create both by-id and by-hash files for dual-lookup compatibility
+    const tokenId = `wt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const now = new Date().toISOString();
+    const tokenData = {
+      id: tokenId,
+      name: name.trim(),
+      tokenHash,
+      permissions: JSON.stringify(permissions),
+      revokedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await ensureDir();
+    await fileStore.writeJson(path.join(TOKENS_DIR, `${tokenId}.json`), tokenData);
+    // Also index by hash for auth lookups
+    await fileStore.writeJson(path.join(TOKENS_DIR, `${tokenHash}.json`), tokenData);
 
-    logger.info({ tokenId: workspaceToken.id, name: workspaceToken.name }, '[WorkspaceToken] Created');
+    logger.info({ tokenId, name: tokenData.name }, '[WorkspaceToken] Created');
 
     return res.status(201).json({
       success: true,
       data: {
-        id: workspaceToken.id,
-        name: workspaceToken.name,
+        id: tokenData.id,
+        name: tokenData.name,
         permissions,
         token: plaintextToken, // Only returned once
       },
@@ -95,22 +140,25 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
 
 router.get('/', requireAuth(), async (_req: Request, res: Response) => {
   try {
-    const tokens = await prisma.workspaceToken.findMany({
-      orderBy: { createdAt: 'desc' },
-      include: {
-        _count: { select: { workspaces: true } },
-      },
+    const allTokens = await listTokens();
+    // Dedup by ID (both id.json and hash.json files exist)
+    const seen = new Set<string>();
+    const tokens = allTokens.filter(t => {
+      if (seen.has(t.id)) return false;
+      seen.add(t.id);
+      return true;
     });
+    tokens.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    const masked = tokens.map(t => ({
+    const masked = await Promise.all(tokens.map(async t => ({
       id: t.id,
       name: t.name,
-      permissions: JSON.parse(t.permissions),
+      permissions: JSON.parse(t.permissions || '[]'),
       tokenHash: maskToken(t.tokenHash),
       createdAt: t.createdAt,
       revokedAt: t.revokedAt,
-      workspaceCount: t._count.workspaces,
-    }));
+      workspaceCount: await countWorkspacesForToken(t.id),
+    })));
 
     return res.json({
       success: true,
@@ -133,7 +181,7 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const token = await prisma.workspaceToken.findUnique({ where: { id } });
+    const token = await fileStore.readJson<any>(path.join(TOKENS_DIR, `${id}.json`));
     if (!token) {
       return res.status(404).json({
         error: 'Workspace token not found',
@@ -148,19 +196,23 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
       });
     }
 
-    const revoked = await prisma.workspaceToken.update({
-      where: { id },
-      data: { revokedAt: new Date() },
-    });
+    const now = new Date().toISOString();
+    token.revokedAt = now;
+    token.updatedAt = now;
+    await fileStore.writeJson(path.join(TOKENS_DIR, `${id}.json`), token);
+    // Also update hash-indexed copy
+    if (token.tokenHash) {
+      await fileStore.writeJson(path.join(TOKENS_DIR, `${token.tokenHash}.json`), token);
+    }
 
-    logger.info({ tokenId: id, name: revoked.name }, '[WorkspaceToken] Revoked');
+    logger.info({ tokenId: id, name: token.name }, '[WorkspaceToken] Revoked');
 
     return res.json({
       success: true,
       data: {
-        id: revoked.id,
-        name: revoked.name,
-        revokedAt: revoked.revokedAt,
+        id: token.id,
+        name: token.name,
+        revokedAt: token.revokedAt,
       },
     });
   } catch (error) {

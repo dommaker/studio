@@ -2,24 +2,81 @@
  * 认证中间件 - Auth Middleware
  * SEC-001: 用户认证系统
  * SEC-009: 匿名用户识别
+ *
+ * 存储迁移: Prisma → FileStore
  */
 
 import { Request, Response, NextFunction } from 'express';
-import { User, Session, Workspace, WorkspaceToken } from '@prisma/client';
-import { prisma } from '@dommaker/studio-prisma';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../utils/logger.js';
 import { verifyToken } from '../modules/auth/service.js';
 import crypto from 'crypto';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+const fileStore = new FileStore();
+const SESSIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'sessions');
+const USERS_DIR = path.join(os.homedir(), '.studio', 'data', 'users');
+const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
+const WORKSPACE_TOKENS_DIR = path.join(os.homedir(), '.studio', 'data', 'workspace-tokens');
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'data', 'workspaces');
+
+// ─── 本地类型（替代 Prisma model 类型） ───
+
+export interface UserData {
+  id: string;
+  email: string;
+  passwordHash?: string | null;
+  name?: string | null;
+  avatar?: string | null;
+  role: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SessionData {
+  id: string;
+  userId: string;
+  token: string;
+  guestId?: string | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  expiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceData {
+  id: string;
+  name: string;
+  slug: string;
+  status: string;
+  currentTask?: string | null;
+  lastHeartbeat?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WorkspaceTokenData {
+  id: string;
+  tokenHash: string;
+  workspaceId: string;
+  name?: string | null;
+  revokedAt?: string | null;
+  lastUsedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
 
 // 扩展 Request 类型
 declare global {
   namespace Express {
     interface Request {
-      user?: User | null;
-      session?: Session | null;
+      user?: UserData | null;
+      session?: SessionData | null;
       anonymousId?: string;  // 🆕 SEC-009: 匿名用户标识
-      workspace?: Workspace | null;
-      workspaceToken?: WorkspaceToken | null;
+      workspace?: WorkspaceData | null;
+      workspaceToken?: WorkspaceTokenData | null;
     }
   }
 }
@@ -28,11 +85,21 @@ declare global {
  * 扩展请求，添加 auth 信息
  */
 export interface AuthRequest extends Request {
-  user?: User | null;
-  session?: Session | null;
+  user?: UserData | null;
+  session?: SessionData | null;
   anonymousId?: string;  // 🆕 SEC-009
-  workspace?: Workspace | null;
-  workspaceToken?: WorkspaceToken | null;
+  workspace?: WorkspaceData | null;
+  workspaceToken?: WorkspaceTokenData | null;
+}
+
+// ─── 内部查询工具 ───
+
+async function findSessionWithUser(sessionId: string): Promise<(SessionData & { User: UserData }) | null> {
+  const session = await fileStore.readJson<SessionData>(path.join(SESSIONS_DIR, `${sessionId}.json`));
+  if (!session) return null;
+  const user = await fileStore.readJson<UserData>(path.join(USERS_DIR, `${session.userId}.json`));
+  if (!user) return null;
+  return { ...session, User: user };
 }
 
 /**
@@ -115,20 +182,17 @@ export function optionalAuth() {
         return next();
       }
       
-      // 查询 Session
-      const session = await prisma.session.findUnique({
-        where: { id: payload.sessionId },
-        include: { User: true },
-      });
-      
-      if (!session || session.expiresAt < new Date()) {
+      // 查询 Session（FileStore）
+      const session = await findSessionWithUser(payload.sessionId);
+
+      if (!session || new Date(session.expiresAt) < new Date()) {
         return next();
       }
-      
+
       // 附加到请求
       authReq.user = session.User;
       authReq.session = session;
-      
+
       next();
     } catch (error) {
       // 错误时不阻塞，继续执行
@@ -140,28 +204,28 @@ export function optionalAuth() {
 /**
  * 强制认证 - 要求登录
  * 未登录返回 401
- * 
+ *
  * 🆕 SEC-009: 登录用户也会生成 anonymousId（备用）
  */
 export function requireAuth() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
-    
+
     // 🆕 SEC-009: 始终生成匿名标识
     const ip = getClientIP(req);
     const ua = req.headers['user-agent'] || 'unknown';
     authReq.anonymousId = generateAnonymousId(ip, ua);
-    
+
     try {
       const token = parseAuthHeader(req);
-      
+
       if (!token) {
         return res.status(401).json({
           error: '未登录',
           code: 'UNAUTHORIZED',
         });
       }
-      
+
       const payload = verifyToken(token);
       if (!payload) {
         return res.status(401).json({
@@ -169,27 +233,24 @@ export function requireAuth() {
           code: 'TOKEN_EXPIRED',
         });
       }
-      
-      // 查询 Session
-      const session = await prisma.session.findUnique({
-        where: { id: payload.sessionId },
-        include: { User: true },
-      });
-      
+
+      // 查询 Session（FileStore）
+      const session = await findSessionWithUser(payload.sessionId);
+
       if (!session) {
         return res.status(401).json({
           error: 'Session 不存在',
           code: 'SESSION_NOT_FOUND',
         });
       }
-      
-      if (session.expiresAt < new Date()) {
+
+      if (new Date(session.expiresAt) < new Date()) {
         return res.status(401).json({
           error: '登录已过期，请重新登录',
           code: 'SESSION_EXPIRED',
         });
       }
-      
+
       // 附加到请求
       authReq.user = session.User;
       authReq.session = session;
@@ -242,13 +303,13 @@ export function requireRole(...roles: string[]) {
 }
 
 /**
- * 类型安全地查询资源创建者
+ * 类型安全地查询资源创建者（FileStore）
  * 各模型使用对应的 creatorId / createdBy 字段
  */
 async function findResourceCreator(model: string, resourceId: string): Promise<string | null | undefined> {
   switch (model.toLowerCase()) {
     case 'document': {
-      const r = await prisma.document.findUnique({ where: { id: resourceId }, select: { createdBy: true } });
+      const r = await fileStore.readJson<{ createdBy?: string | null }>(path.join(DOCUMENTS_DIR, `${resourceId}.json`));
       return r?.createdBy ?? undefined;
     }
     default:
@@ -352,10 +413,8 @@ export function workspaceAuth() {
       // Hash incoming token to compare with stored hash
       const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-      const workspaceToken = await prisma.workspaceToken.findUnique({
-        where: { tokenHash },
-        include: { workspaces: true },
-      });
+      // 查询 WorkspaceToken（FileStore）
+      const workspaceToken = await fileStore.readJson<WorkspaceTokenData>(path.join(WORKSPACE_TOKENS_DIR, `${tokenHash}.json`));
 
       if (!workspaceToken) {
         return res.status(401).json({
@@ -371,8 +430,8 @@ export function workspaceAuth() {
         });
       }
 
-      // Find workspace associated with this token
-      const workspace = workspaceToken.workspaces[0];
+      // Find workspace associated with this token (FileStore)
+      const workspace = await fileStore.readJson<WorkspaceData>(path.join(WORKSPACES_DIR, `${workspaceToken.workspaceId}.json`));
       if (!workspace) {
         return res.status(401).json({
           error: 'No workspace registered for this token',

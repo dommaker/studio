@@ -1,12 +1,16 @@
 /**
- * Seed 4 built-in Skills into the Skill table (D6).
+ * Seed 4 built-in Skills into FileStore (D6).
  *
  * Usage: npx tsx apps/api/src/scripts/seed-skills.ts
  */
 
-import { PrismaClient } from '@prisma/client';
+import { FileStore } from '@dommaker/studio-shared';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
-const prisma = new PrismaClient();
+const fileStore = new FileStore();
+const SKILLS_DIR = path.join(os.homedir(), '.studio', 'data', 'skills');
 
 const BUILTIN_SKILLS = [
   {
@@ -98,40 +102,46 @@ const BUILTIN_SKILLS = [
 async function seedSkills() {
   console.log('Seeding built-in Skills...');
 
+  await fs.promises.mkdir(SKILLS_DIR, { recursive: true });
+
   for (const skill of BUILTIN_SKILLS) {
-    await (prisma as any).skill.upsert({
-      where: {
-        companyId_name: { companyId: 'system', name: skill.name },
-      },
-      create: {
-        companyId: 'system',
-        name: skill.name,
-        description: skill.description,
-        source: 'builtin',
-        status: 'published',
-        trigger: skill.trigger,
-        agentTypes: skill.agentTypes,
-        tier: skill.tier,
-        prompt: skill.prompt,
-        isBuiltin: true,
-      },
-      update: {
-        description: skill.description,
-        trigger: skill.trigger,
-        agentTypes: skill.agentTypes,
-        tier: skill.tier,
-        prompt: skill.prompt,
-        status: 'published',
-        isBuiltin: true,
-      },
-    });
+    const fileName = `${skill.name}.json`;
+    const filePath = path.join(SKILLS_DIR, fileName);
+    const now = new Date().toISOString();
+
+    let existing: any = null;
+    try { existing = await fileStore.readJson<any>(filePath); } catch { /* new file */ }
+
+    const record = {
+      ...(existing || {}),
+      companyId: 'system',
+      name: skill.name,
+      description: skill.description,
+      source: 'builtin',
+      status: 'published',
+      trigger: skill.trigger,
+      agentTypes: skill.agentTypes,
+      tier: skill.tier,
+      prompt: skill.prompt,
+      isBuiltin: true,
+      createdAt: existing?.createdAt || now,
+      updatedAt: now,
+    };
+    await fileStore.writeJson(filePath, record);
     console.log(`  ✓ ${skill.name}`);
   }
 
-  const count = await (prisma as any).skill.count({ where: { isBuiltin: true } });
-  console.log(`\nDone. ${count} built-in skills in DB.`);
+  // Count builtin skills
+  let count = 0;
+  try {
+    const entries = await fs.promises.readdir(SKILLS_DIR, { withFileTypes: true });
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.json')) continue;
+      const s = await fileStore.readJson<any>(path.join(SKILLS_DIR, e.name));
+      if (s && s.isBuiltin) count++;
+    }
+  } catch { /* no skills dir */ }
+  console.log(`\nDone. ${count} built-in skills in FileStore.`);
 }
 
-seedSkills()
-  .catch(console.error)
-  .finally(() => prisma.$disconnect());
+seedSkills().catch(console.error);

@@ -6,9 +6,13 @@
  * - 每周执行 meso evolution（项目级模式识别）
  */
 
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import { knowledgeEvolution } from './evolution.service.js';
-import { prisma } from '@dommaker/studio-prisma';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
+
+const fileStore = new FileStore();
 
 const DECAY_INTERVAL_MS = 24 * 60 * 60 * 1000;    // 24 小时
 const MESO_INTERVAL_MS = 7 * 24 * 60 * 60 * 1000;  // 7 天
@@ -54,11 +58,17 @@ export function startEvolutionScheduler(): void {
   // 每周执行 meso evolution（对所有活跃项目）
   mesoTimer = setInterval(async () => {
     try {
-      const projects = await prisma.project.findMany({
-        where: { status: 'active' },
-        select: { id: true },
-        take: 20,
-      });
+      const projectsDir = path.join(os.homedir(), '.studio', 'projects');
+      let activeProjects: { id: string }[] = [];
+      try {
+        const entries = await fs.promises.readdir(projectsDir, { withFileTypes: true });
+        for (const e of entries) {
+          if (!e.isFile() || !e.name.endsWith('.json')) continue;
+          const data = await fileStore.readJson<any>(path.join(projectsDir, e.name));
+          if (data && data.status === 'active') activeProjects.push({ id: data.id });
+        }
+      } catch { /* no projects dir */ }
+      const projects = activeProjects.slice(0, 20);
 
       let totalPatterns = 0;
       for (const project of projects) {

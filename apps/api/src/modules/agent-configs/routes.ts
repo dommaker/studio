@@ -1,41 +1,65 @@
 // agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025)
 import { Router, Request, Response } from 'express';
-import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { logger } from '../../utils/logger.js';
 
 const router = Router();
 
-/** Helper: create a version snapshot before updating */
-async function createVersionSnapshot(configId: string, changedBy?: string, reason?: string) {
-  const config = await prisma.agentConfig.findUnique({ where: { id: configId } });
-  if (!config) return;
+const AGENTS_DIR = path.join(os.homedir(), '.studio', 'agents');
+const ENVIRONMENTS_JSON = path.join(os.homedir(), '.studio', 'environments.json');
+const fileStore = new FileStore();
 
-  const lastVersion = await prisma.agentConfigVersion.findFirst({
-    where: { agentConfigId: configId },
-    orderBy: { version: 'desc' },
-    select: { version: true },
-  });
+/** Helper: resolve environmentId to name from environments.json */
+async function getEnvironmentName(envId: string): Promise<string | null> {
+  const envs = await fileStore.readJson<any[]>(ENVIRONMENTS_JSON);
+  if (!envs) return null;
+  const env = envs.find((e: any) => e.id === envId);
+  return env?.name || null;
+}
+
+async function environmentExists(envId: string): Promise<boolean> {
+  const name = await getEnvironmentName(envId);
+  return name !== null;
+}
+
+/** Helper: create a version snapshot before updating */
+async function createVersionSnapshot(agentId: string, changedBy?: string, reason?: string) {
+  const agentPath = path.join(AGENTS_DIR, `${agentId}.json`);
+  const agentData = await fileStore.readJson<any>(agentPath);
+  if (!agentData) return;
+
+  const versionsPath = path.join(AGENTS_DIR, agentId, 'versions.jsonl');
+  // Read existing versions to get last version number
+  let lastVersion = 0;
+  try {
+    const versions = await fileStore.readJsonl<any>(versionsPath);
+    if (versions.length > 0) {
+      lastVersion = versions[versions.length - 1].version;
+    }
+  } catch {}
 
   const snapshot = {
-    name: config.name,
-    description: config.description,
-    model: config.model,
-    systemPrompt: config.systemPrompt,
-    tools: config.tools,
-    environmentId: config.environmentId,
-    maxTokens: config.maxTokens,
-    temperature: config.temperature,
-    status: config.status,
+    name: agentData.name,
+    description: agentData.description,
+    model: agentData.model,
+    systemPrompt: agentData.systemPrompt,
+    tools: agentData.tools,
+    environment: agentData.environment,
+    maxTokens: agentData.maxTokens || agentData.config?.maxTokens,
+    temperature: agentData.temperature || agentData.config?.temperature,
+    status: agentData.status,
   };
 
-  await prisma.agentConfigVersion.create({
-    data: {
-      agentConfigId: configId,
-      version: (lastVersion?.version ?? 0) + 1,
-      snapshot: JSON.stringify(snapshot),
-      changedBy: changedBy || 'system',
-      changeReason: reason,
-    },
+  await fileStore.appendJsonl(versionsPath, {
+    agentConfigId: agentId,
+    version: lastVersion + 1,
+    snapshot: JSON.stringify(snapshot),
+    changedBy: changedBy || 'system',
+    changeReason: reason,
+    createdAt: new Date().toISOString(),
   });
 }
 
@@ -43,15 +67,22 @@ async function createVersionSnapshot(configId: string, changedBy?: string, reaso
 router.get('/', async (req: Request, res: Response) => {
   try {
     const status = req.query.status as string | undefined;
-    const where = status ? { status } : {};
+    const results: any[] = [];
 
-    const configs = await prisma.agentConfig.findMany({
-      where,
-      include: { environment: { select: { id: true, name: true, dockerImage: true } } },
-      orderBy: { name: 'asc' },
-    });
+    await fs.promises.mkdir(AGENTS_DIR, { recursive: true });
+    const entries = await fs.promises.readdir(AGENTS_DIR, { withFileTypes: true });
 
-    res.json({ data: configs, total: configs.length });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+      const agentPath = path.join(AGENTS_DIR, entry.name);
+      const agentData = await fileStore.readJson<any>(agentPath);
+      if (agentData && (!status || agentData.status === status)) {
+        results.push(agentData);
+      }
+    }
+
+    results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+    res.json({ data: results, total: results.length });
   } catch (error) {
     logger.error({ error }, 'Failed to list agent configs');
     res.status(500).json({ error: 'Failed to list agent configs' });
@@ -61,10 +92,8 @@ router.get('/', async (req: Request, res: Response) => {
 // GET /api/v1/agent-configs/:id — 详情
 router.get('/:id', async (req: Request, res: Response) => {
   try {
-    const config = await prisma.agentConfig.findUnique({
-      where: { id: req.params.id },
-      include: { environment: true },
-    });
+    const agentPath = path.join(AGENTS_DIR, `${req.params.id}.json`);
+    const config = await fileStore.readJson<any>(agentPath);
     if (!config) return res.status(404).json({ error: 'Agent config not found' });
     res.json(config);
   } catch (error) {
@@ -80,34 +109,42 @@ router.post('/', async (req: Request, res: Response) => {
 
     if (!name) return res.status(400).json({ error: 'name is required' });
 
+    // Resolve environmentId to name string
+    let envName: string | null = null;
     if (environmentId) {
-      const env = await prisma.environment.findUnique({ where: { id: environmentId } });
-      if (!env) return res.status(400).json({ error: 'Environment not found' });
+      envName = await getEnvironmentName(environmentId);
+      if (!envName) return res.status(400).json({ error: 'Environment not found' });
     }
 
-    const config = await prisma.agentConfig.create({
-      data: {
-        name,
-        description,
-        model: model || 'claude-sonnet-4-6',
-        systemPrompt: systemPrompt || '',
-        tools: tools || [],
-        environmentId: environmentId || null,
+    const id = `agent_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    const now = new Date().toISOString();
+
+    const agentData = {
+      id,
+      name,
+      description: description || null,
+      model: model || 'claude-sonnet-4-6',
+      systemPrompt: systemPrompt || '',
+      tools: tools || [],
+      environment: envName,
+      config: {
         maxTokens: maxTokens || 4096,
         temperature: temperature ?? 0.7,
       },
-      include: { environment: { select: { id: true, name: true } } },
-    });
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const agentPath = path.join(AGENTS_DIR, `${id}.json`);
+    await fileStore.writeJson(agentPath, agentData);
 
     // Create initial version
-    await createVersionSnapshot(config.id, 'system', 'Initial creation');
+    await createVersionSnapshot(id, 'system', 'Initial creation');
 
-    logger.info({ configId: config.id, name }, 'Agent config created');
-    res.status(201).json(config);
-  } catch (error: any) {
-    if (error?.code === 'P2002') {
-      return res.status(409).json({ error: `Agent config "${req.body.name}" already exists` });
-    }
+    logger.info({ configId: id, name }, 'Agent config created');
+    res.status(201).json(agentData);
+  } catch (error) {
     logger.error({ error }, 'Failed to create agent config');
     res.status(500).json({ error: 'Failed to create agent config' });
   }
@@ -118,36 +155,47 @@ router.patch('/:id', async (req: Request, res: Response) => {
   try {
     const { name, description, model, systemPrompt, tools, environmentId, maxTokens, temperature, status, changedBy, changeReason } = req.body;
 
-    if (environmentId) {
-      const env = await prisma.environment.findUnique({ where: { id: environmentId } });
-      if (!env) return res.status(400).json({ error: 'Environment not found' });
+    const agentPath = path.join(AGENTS_DIR, `${req.params.id}.json`);
+    const existing = await fileStore.readJson<any>(agentPath);
+    if (!existing) return res.status(404).json({ error: 'Agent config not found' });
+
+    // Resolve environmentId to name if provided
+    let envName = existing.environment;
+    if (environmentId !== undefined) {
+      if (environmentId) {
+        envName = await getEnvironmentName(environmentId);
+        if (!envName) return res.status(400).json({ error: 'Environment not found' });
+      } else {
+        envName = null;
+      }
     }
 
     // Snapshot before update
     await createVersionSnapshot(req.params.id, changedBy, changeReason);
 
-    const config = await prisma.agentConfig.update({
-      where: { id: req.params.id },
-      data: {
-        ...(name !== undefined && { name }),
-        ...(description !== undefined && { description }),
-        ...(model !== undefined && { model }),
-        ...(systemPrompt !== undefined && { systemPrompt }),
-        ...(tools !== undefined && { tools }),
-        ...(environmentId !== undefined && { environmentId }),
-        ...(maxTokens !== undefined && { maxTokens }),
-        ...(temperature !== undefined && { temperature }),
-        ...(status !== undefined && { status }),
-      },
-      include: { environment: { select: { id: true, name: true } } },
-    });
+    // Merge patch
+    const updatedConfig = { ...(existing.config || {}) };
+    if (maxTokens !== undefined) updatedConfig.maxTokens = maxTokens;
+    if (temperature !== undefined) updatedConfig.temperature = temperature;
+
+    const config = {
+      ...existing,
+      ...(name !== undefined && { name }),
+      ...(description !== undefined && { description }),
+      ...(model !== undefined && { model }),
+      ...(systemPrompt !== undefined && { systemPrompt }),
+      ...(tools !== undefined && { tools }),
+      ...(environmentId !== undefined && { environment: envName }),
+      ...((maxTokens !== undefined || temperature !== undefined) && { config: updatedConfig }),
+      ...(status !== undefined && { status }),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await fileStore.writeJson(agentPath, config);
 
     logger.info({ configId: config.id }, 'Agent config updated');
     res.json(config);
-  } catch (error: any) {
-    if (error?.code === 'P2025') {
-      return res.status(404).json({ error: 'Agent config not found' });
-    }
+  } catch (error) {
     logger.error({ error }, 'Failed to update agent config');
     res.status(500).json({ error: 'Failed to update agent config' });
   }
@@ -156,11 +204,12 @@ router.patch('/:id', async (req: Request, res: Response) => {
 // DELETE /api/v1/agent-configs/:id — 删除
 router.delete('/:id', async (req: Request, res: Response) => {
   try {
-    await prisma.agentConfig.delete({ where: { id: req.params.id } });
+    const agentPath = path.join(AGENTS_DIR, `${req.params.id}.json`);
+    await fs.promises.unlink(agentPath);
     logger.info({ configId: req.params.id }, 'Agent config deleted');
     res.status(204).end();
   } catch (error: any) {
-    if (error?.code === 'P2025') {
+    if (error?.code === 'ENOENT') {
       return res.status(404).json({ error: 'Agent config not found' });
     }
     logger.error({ error }, 'Failed to delete agent config');
@@ -171,10 +220,9 @@ router.delete('/:id', async (req: Request, res: Response) => {
 // GET /api/v1/agent-configs/:id/versions — 版本历史
 router.get('/:id/versions', async (req: Request, res: Response) => {
   try {
-    const versions = await prisma.agentConfigVersion.findMany({
-      where: { agentConfigId: req.params.id },
-      orderBy: { version: 'desc' },
-    });
+    const versionsPath = path.join(AGENTS_DIR, req.params.id, 'versions.jsonl');
+    const versions = await fileStore.readJsonl<any>(versionsPath);
+    versions.sort((a, b) => (b.version || 0) - (a.version || 0));
 
     res.json({ data: versions, total: versions.length });
   } catch (error) {
@@ -187,10 +235,12 @@ router.get('/:id/versions', async (req: Request, res: Response) => {
 router.post('/:id/rollback/:versionId', async (req: Request, res: Response) => {
   try {
     const { id, versionId } = req.params;
+    const versionNum = parseInt(versionId, 10);
+    if (isNaN(versionNum)) return res.status(400).json({ error: 'Invalid version number' });
 
-    const version = await prisma.agentConfigVersion.findFirst({
-      where: { id: versionId, agentConfigId: id },
-    });
+    const versionsPath = path.join(AGENTS_DIR, id, 'versions.jsonl');
+    const versions = await fileStore.readJsonl<any>(versionsPath);
+    const version = versions.find((v: any) => v.version === versionNum);
     if (!version) return res.status(404).json({ error: 'Version not found' });
 
     const snapshot = JSON.parse(version.snapshot || '{}') as Record<string, any>;
@@ -199,24 +249,30 @@ router.post('/:id/rollback/:versionId', async (req: Request, res: Response) => {
     await createVersionSnapshot(id, 'system', `Rollback to version ${version.version}`);
 
     // Apply snapshot
-    const config = await prisma.agentConfig.update({
-      where: { id },
-      data: {
-        name: snapshot.name,
-        description: snapshot.description,
-        model: snapshot.model,
-        systemPrompt: snapshot.systemPrompt,
-        tools: snapshot.tools,
-        environmentId: snapshot.environmentId,
-        maxTokens: snapshot.maxTokens,
-        temperature: snapshot.temperature,
-        status: snapshot.status,
+    const agentPath = path.join(AGENTS_DIR, `${id}.json`);
+    const existing = await fileStore.readJson<any>(agentPath);
+    if (!existing) return res.status(404).json({ error: 'Agent config not found' });
+
+    const updated = {
+      ...existing,
+      name: snapshot.name,
+      description: snapshot.description,
+      model: snapshot.model,
+      systemPrompt: snapshot.systemPrompt,
+      tools: snapshot.tools,
+      environment: snapshot.environment,
+      config: {
+        ...(snapshot.maxTokens != null && { maxTokens: snapshot.maxTokens }),
+        ...(snapshot.temperature != null && { temperature: snapshot.temperature }),
       },
-      include: { environment: { select: { id: true, name: true } } },
-    });
+      status: snapshot.status,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await fileStore.writeJson(agentPath, updated);
 
     logger.info({ configId: id, rolledBackTo: version.version }, 'Agent config rolled back');
-    res.json(config);
+    res.json(updated);
   } catch (error) {
     logger.error({ error }, 'Failed to rollback agent config');
     res.status(500).json({ error: 'Failed to rollback' });

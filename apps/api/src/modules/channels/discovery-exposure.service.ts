@@ -5,7 +5,6 @@
  * Posts discovery cards to #系统 channel (no separate channel needed).
  * Non-blocking: errors are logged but never thrown to caller.
  */
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
 
 export interface DiscoveryEntry {

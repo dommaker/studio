@@ -1,21 +1,9 @@
 // studio-spec 入口
 
-export { SpecBypassService, getSpecBypassService } from './services/spec-bypass.service.js';
-export { SpecVersionService, getSpecVersionService } from './services/spec-version.service.js';
 export { SpecValidatorService, ArchitectureValidator, ApiValidator, AcceptanceValidator } from './services/spec-validator.service.js';
 export { ChangeAnalyzerService, changeAnalyzerService } from './services/change-analyzer.service.js';
 export { ChangeHistoryService, changeHistoryService } from './services/change-history.service.js';
 export { GateCheckerService, gateCheckerService } from './services/gate-checker.service.js';
-
-export type {
-  CreateBypassInput,
-  ApproveBypassInput,
-} from './services/spec-bypass.service.js';
-
-export type {
-  CreateVersionInput,
-  VersionDiff,
-} from './services/spec-version.service.js';
 
 export type {
   ValidateSpecInput,

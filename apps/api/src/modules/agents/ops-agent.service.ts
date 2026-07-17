@@ -10,7 +10,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { prisma } from '@dommaker/studio-prisma';
 import { loadRules, type OpsRules } from './ops-rules.js';
 import { hashPassword } from '../auth/service.js';
 
@@ -71,8 +70,11 @@ export class OpsAgent {
       if (dbExists) {
         // Try a simple query to verify schema matches
         try {
-          await prisma.$queryRaw`SELECT 1`;
-          add({ name: 'db-schema', passed: true, message: `DB schema OK (${dbPath})`, critical: true });
+          // Storage health check via FileStore
+          const probeFile = path.join(os.homedir(), '.studio', 'data', '_health_probe');
+          await fs.promises.writeFile(probeFile, Date.now().toString());
+          await fs.promises.unlink(probeFile);
+          add({ name: 'storage', passed: true, message: `FileStore OK (${dbPath})`, critical: true });
         } catch {
           add({
             name: 'db-schema', passed: false, critical: true,
@@ -278,7 +280,6 @@ export class OpsAgent {
         // Push alert to #系统 Channel
         try {
           const { channelMessageService } = await import('../channels/channel-message.service.js');
-          const { prisma } = await import('@dommaker/studio-prisma');
           const sysChannel = (await this.fileStore.listChannels({ name: '#系统' }))[0] ?? null;
           if (sysChannel) {
             await channelMessageService.createAgentMessage(sysChannel.id, 'OpsAgent',
@@ -462,18 +463,19 @@ export class OpsAgent {
    */
   private async emitProxyRestartExhaustedAlert(synSentCount: number): Promise<void> {
     try {
-      await prisma.studioEvent.create({
-        data: {
-          type: 'proxy_restart_exhausted',
-          source: 'ops-agent',
-          payload: JSON.stringify({
-            proxyPort: 1080,
-            synSentCount,
-            restartsThisHour: this.proxyRestartCount,
-            windowStart: new Date(this.proxyRestartWindowStart).toISOString(),
-            timestamp: Date.now(),
-          }),
-        },
+      const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+      const fs = new FileStore();
+      await fs.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: 'proxy_restart_exhausted',
+        source: 'ops-agent',
+        payload: JSON.stringify({
+          proxyPort: 1080,
+          synSentCount,
+          restartsThisHour: this.proxyRestartCount,
+          windowStart: new Date(this.proxyRestartWindowStart).toISOString(),
+          timestamp: Date.now(),
+        }),
+        createdAt: new Date().toISOString(),
       });
     } catch (e) {
       logger.warn('[OpsAgent] Failed to emit proxy alert', { error: String(e) });
@@ -583,22 +585,36 @@ export class OpsAgent {
     const allCh = await this.fileStore.listChannels();
     channelCount = channelCount || allCh.length;
 
-    // Ensure admin exists
-    const admin = await prisma.user.findFirst({ where: { role: 'Admin' } });
-    if (!admin) {
+    // Ensure admin exists (FileStore)
+    const usersDir = path.join(os.homedir(), '.studio', 'data', 'users');
+    let adminExists = false;
+    try {
+      const entries = await fs.promises.readdir(usersDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isFile() || !e.name.endsWith('.json')) continue;
+        const u = await this.fileStore.readJson<any>(path.join(usersDir, e.name));
+        if (u && u.role === 'Admin') { adminExists = true; break; }
+      }
+    } catch { /* no users dir */ }
+
+    if (!adminExists) {
       const adminPassword = process.env.ADMIN_PASSWORD;
       if (!adminPassword) {
         logger.warn('[Ops] No admin user found and ADMIN_PASSWORD not set — skipping auto-creation. Run: ADMIN_PASSWORD=<pwd> npx tsx scripts/seed-admin.ts');
       } else {
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@localhost';
-        await prisma.user.create({
-          data: { email: adminEmail, passwordHash: hashPassword(adminPassword), name: 'Admin', role: 'Admin' },
+        const now = new Date().toISOString();
+        const adminId = `user_admin_${Date.now()}`;
+        await fs.promises.mkdir(usersDir, { recursive: true });
+        await this.fileStore.writeJson(path.join(usersDir, `${adminId}.json`), {
+          id: adminId, email: adminEmail, passwordHash: hashPassword(adminPassword),
+          name: 'Admin', role: 'Admin', createdAt: now, updatedAt: now,
         });
         logger.info(`[Ops] Created default admin user (${adminEmail})`);
       }
     }
 
-    return { channels: channelCount, admin: !!admin };
+    return { channels: channelCount, admin: adminExists };
   }
 }
 

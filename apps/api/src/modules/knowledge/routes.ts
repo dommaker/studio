@@ -12,8 +12,8 @@
  */
 
 import { Router } from 'express';
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '../../utils/logger.js';
+import { FileStore, logger } from '@dommaker/studio-shared';
+import { resolutionService } from './resolution.service.js';
 import { getModelForTier } from '@dommaker/studio-shared';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { upsertKnowledge } from './knowledge-bus.service.js';
@@ -22,6 +22,50 @@ import { knowledgeSync } from './knowledge-sync.service.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+
+const fileStore = new FileStore();
+const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
+const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+
+// ─── Document FileStore helpers ───
+
+interface DocRecord {
+  id: string; projectId: string; companyId: string; type: string;
+  title: string; content: string; filePath?: string; tags: string[];
+  status: string; version: number; createdBy?: string; updatedBy?: string;
+  archivedAt?: string; createdAt: string; updatedAt: string;
+}
+
+async function listDocs(): Promise<DocRecord[]> {
+  try {
+    const entries = await fs.promises.readdir(DOCUMENTS_DIR, { withFileTypes: true });
+    const docs: DocRecord[] = [];
+    for (const e of entries) {
+      if (!e.isFile() || !e.name.endsWith('.json')) continue;
+      const d = await fileStore.readJson<DocRecord>(path.join(DOCUMENTS_DIR, e.name));
+      if (d) docs.push(d);
+    }
+    return docs;
+  } catch { return []; }
+}
+
+async function getDoc(id: string): Promise<DocRecord | null> {
+  return fileStore.readJson<DocRecord>(path.join(DOCUMENTS_DIR, `${id}.json`));
+}
+
+async function saveDoc(doc: DocRecord): Promise<void> {
+  await fs.promises.mkdir(DOCUMENTS_DIR, { recursive: true });
+  await fileStore.writeJson(path.join(DOCUMENTS_DIR, `${doc.id}.json`), doc);
+}
+
+async function getProject(projectId: string): Promise<any | null> {
+  return fileStore.readJson<any>(path.join(PROJECTS_DIR, `${projectId}.json`));
+}
+
+async function findProjectPmoNumber(projectId: string): Promise<{ pmoNumber?: string; title?: string } | null> {
+  const p = await getProject(projectId);
+  return p ? { pmoNumber: p.pmoNumber, title: p.title } : null;
+}
 
 export const knowledgeRoutes = Router();
 
@@ -73,46 +117,44 @@ knowledgeInternalRoutes.post('/upsert', async (req, res) => {
       source: source as KnowledgeSource | undefined,
     });
 
-    // 2. Sync to Prisma Document (Studio UI projection)
+    // 2. Sync to FileStore Document (Studio UI projection)
     let docResult: { action: string; docId: string } = { action: 'skipped', docId: '' };
     try {
-      // Resolve projectId/companyId
       let projectId = reqProjectId;
       let companyId = reqCompanyId;
       if (!projectId || !companyId) {
-        const project = await prisma.project.findFirst({ select: { id: true, companyId: true } });
-        if (project) {
-          projectId = projectId || project.id;
-          companyId = companyId || project.companyId;
+        const allDocs = await listDocs();
+        const firstDoc = allDocs[0];
+        if (firstDoc) {
+          projectId = projectId || firstDoc.projectId;
+          companyId = companyId || firstDoc.companyId;
         }
       }
       if (!projectId || !companyId) {
-        logger.warn({ scope }, '[KnowledgeRoute] No project/company found, skipping Prisma sync');
+        logger.warn( '[KnowledgeRoute] No project/company found, skipping Document sync');
       } else {
-        // Find existing Document by title+type for dedup
-        const existing = await prisma.document.findFirst({
-          where: { title, type: 'design', projectId },
-          orderBy: { version: 'desc' },
-        });
+        const allDocs2 = await listDocs();
+        const existing = allDocs2.find(d => d.title === title && d.type === 'design' && d.projectId === projectId);
         if (existing) {
-          await prisma.document.update({
-            where: { id: existing.id },
-            data: { content, version: existing.version + 1 },
-          });
+          existing.content = content;
+          existing.version = (existing.version || 0) + 1;
+          existing.updatedAt = new Date().toISOString();
+          await saveDoc(existing);
           docResult = { action: 'updated', docId: existing.id };
         } else {
-          const doc = await prisma.document.create({
-            data: {
-              projectId, companyId, type: 'design', title, content,
-              tags: JSON.stringify([scope, 'design-doc']),
-              status: 'active', version: 1,
-            },
-          });
+          const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          const now = new Date().toISOString();
+          const doc: DocRecord = {
+            id: docId, projectId, companyId, type: 'design', title, content,
+            tags: [scope, 'design-doc'], status: 'active', version: 1,
+            createdAt: now, updatedAt: now,
+          };
+          await saveDoc(doc);
           docResult = { action: 'created', docId: doc.id };
         }
       }
     } catch (e: any) {
-      logger.warn({ error: String(e) }, '[KnowledgeRoute] Prisma sync failed (non-blocking)');
+      logger.warn( '[KnowledgeRoute] Document sync failed (non-blocking)');
     }
 
     res.json({
@@ -120,7 +162,7 @@ knowledgeInternalRoutes.post('/upsert', async (req, res) => {
       prismaDocument: docResult,
     });
   } catch (e: any) {
-    logger.error({ error: String(e) }, '[KnowledgeRoute] Upsert failed');
+    logger.error( '[KnowledgeRoute] Upsert failed');
     res.status(500).json({ error: String(e) });
   }
 });
@@ -144,44 +186,42 @@ knowledgeRoutes.get('/', async (req, res) => {
       return;
     }
 
-    const where: Record<string, unknown> = { companyId: String(companyId) };
-    if (type) where.type = String(type);
-    if (status) where.status = String(status);
+    let allDocs = await listDocs();
+    const coId = String(companyId);
+    allDocs = allDocs.filter(d => d.companyId === coId);
+    if (type) allDocs = allDocs.filter(d => d.type === String(type));
+    if (status) allDocs = allDocs.filter(d => d.status === String(status));
     if (search) {
-      where.OR = [
-        { title: { contains: String(search) } },
-        { content: { contains: String(search) } },
-      ];
+      const q = String(search).toLowerCase();
+      allDocs = allDocs.filter(d => d.title.toLowerCase().includes(q) || d.content.toLowerCase().includes(q));
     }
+    allDocs.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    const total = allDocs.length;
+    const p = Number(page);
+    const l = Number(limit);
+    const documents = allDocs.slice((p - 1) * l, p * l);
 
-    const documents = await prisma.document.findMany({
-      where,
-      orderBy: { updatedAt: 'desc' },
-      skip: (Number(page) - 1) * Number(limit),
-      take: Number(limit),
-      include: {
-        Project: { select: { pmoNumber: true, title: true } },
-      },
-    });
-
-    const total = await prisma.document.count({ where });
+    // Enrich with project PMO number
+    const enriched = await Promise.all(documents.map(async d => {
+      const proj = await findProjectPmoNumber(d.projectId);
+      return { ...d, Project: proj };
+    }));
 
     // 统计各类型数量
-    const stats = await prisma.document.groupBy({
-      by: ['type'],
-      where: { companyId: String(companyId) },
-      _count: true,
-    });
+    const typeCounts: Record<string, number> = {};
+    for (const d of allDocs) {
+      typeCounts[d.type] = (typeCounts[d.type] || 0) + 1;
+    }
 
     res.json({
-      documents,
+      documents: enriched,
       total,
-      page: Number(page),
-      limit: Number(limit),
-      stats: stats.reduce((acc, s) => ({ ...acc, [s.type]: s._count }), {}),
+      page: p,
+      limit: l,
+      stats: typeCounts,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to list knowledge');
+    logger.error('Failed to list knowledge');
     res.status(500).json({ error: 'Failed to list knowledge' });
   }
 });
@@ -261,7 +301,7 @@ knowledgeRoutes.get('/requirements', async (req, res) => {
 
     res.json({ docs, total: docs.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to list requirements');
+    logger.error('Failed to list requirements');
     res.status(500).json({ error: 'Failed to list requirements' });
   }
 });
@@ -334,7 +374,7 @@ knowledgeRoutes.post('/read-file', async (req, res) => {
     // 读取文件内容
     const content = fs.readFileSync(resolvedPath, 'utf-8');
     
-    logger.info({ filePath, resolvedPath }, 'File read via API');
+    logger.info( 'File read via API');
     
     res.json({ 
       content, 
@@ -343,7 +383,7 @@ knowledgeRoutes.post('/read-file', async (req, res) => {
       ext,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to read file');
+    logger.error('Failed to read file');
     res.status(500).json({ error: 'Failed to read file' });
   }
 });
@@ -376,7 +416,7 @@ knowledgeRoutes.get('/file', async (req, res) => {
     const content = fs.readFileSync(resolvedPath, 'utf-8');
     res.json({ content, path: resolvedPath });
   } catch (error) {
-    logger.error({ error }, 'Failed to read file');
+    logger.error('Failed to read file');
     res.status(500).json({ error: 'Failed to read file' });
   }
 });
@@ -389,21 +429,17 @@ knowledgeRoutes.get('/detail/:documentId', async (req, res) => {
   try {
     const { documentId } = req.params;
 
-    const document = await prisma.document.findUnique({
-      where: { id: documentId },
-      include: {
-        Project: { select: { pmoNumber: true, title: true } },
-      },
-    });
+    const document = await getDoc(documentId);
 
     if (!document) {
       res.status(404).json({ error: 'Document not found' });
       return;
     }
 
-    res.json(document);
+    const proj = await findProjectPmoNumber(document.projectId);
+    res.json({ ...document, Project: proj });
   } catch (error) {
-    logger.error({ error }, 'Failed to get document detail');
+    logger.error('Failed to get document detail');
     res.status(500).json({ error: 'Failed to get document detail' });
   }
 });
@@ -417,16 +453,14 @@ knowledgeRoutes.get('/:projectId', async (req, res) => {
     const { projectId } = req.params;
     const { type } = req.query;
 
-    const where: Record<string, unknown> = { projectId };
-    if (type) where.type = String(type);
-
-    const documents = await prisma.document.findMany({
-      where,
-      orderBy: [
-        { type: 'asc' },
-        { updatedAt: 'desc' },
-      ],
+    let docs = await listDocs();
+    docs = docs.filter(d => d.projectId === projectId);
+    if (type) docs = docs.filter(d => d.type === String(type));
+    docs.sort((a, b) => {
+      if (a.type !== b.type) return a.type.localeCompare(b.type);
+      return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
+    const documents = docs;
 
     // 按类型分组
     const byType = documents.reduce((acc, doc) => {
@@ -446,7 +480,7 @@ knowledgeRoutes.get('/:projectId', async (req, res) => {
 
     res.json({ documents, byType, stats });
   } catch (error) {
-    logger.error({ error }, 'Failed to list project documents');
+    logger.error('Failed to list project documents');
     res.status(500).json({ error: 'Failed to list project documents' });
   }
 });
@@ -465,35 +499,28 @@ knowledgeRoutes.post('/:projectId', async (req, res) => {
       return;
     }
 
-    // 获取项目信息
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { companyId: true },
-    });
+    // 获取项目信息 (FileStore)
+    const project = await getProject(projectId);
 
     if (!project) {
       res.status(404).json({ error: 'Project not found' });
       return;
     }
 
-    const document = await prisma.document.create({
-      data: {
-        projectId,
-        companyId: project.companyId,
-        type,
-        title,
-        content,
-        filePath,
-        tags: tags || [],
-        createdBy,
-      },
-    });
+    const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const now = new Date().toISOString();
+    const document: DocRecord = {
+      id: docId, projectId, companyId: project.companyId || '', type, title,
+      content: content || '', filePath, tags: tags || [], status: 'active', version: 1,
+      createdBy, createdAt: now, updatedAt: now,
+    };
+    await saveDoc(document);
 
-    logger.info({ documentId: document.id, projectId }, 'Document created');
+    logger.info('Document created');
 
     res.status(201).json(document);
   } catch (error) {
-    logger.error({ error }, 'Failed to create document');
+    logger.error('Failed to create document');
     res.status(500).json({ error: 'Failed to create document' });
   }
 });
@@ -507,23 +534,23 @@ knowledgeRoutes.put('/:documentId', async (req, res) => {
     const { documentId } = req.params;
     const { title, content, filePath, tags, updatedBy } = req.body;
 
-    const document = await prisma.document.update({
-      where: { id: documentId },
-      data: {
-        title,
-        content,
-        filePath,
-        tags,
-        updatedBy,
-        version: { increment: 1 },
-      },
-    });
+    const existing = await getDoc(documentId);
+    if (!existing) { res.status(404).json({ error: 'Document not found' }); return; }
+    if (title !== undefined) existing.title = title;
+    if (content !== undefined) existing.content = content;
+    if (filePath !== undefined) existing.filePath = filePath;
+    if (tags !== undefined) existing.tags = tags;
+    existing.updatedBy = updatedBy;
+    existing.version = (existing.version || 0) + 1;
+    existing.updatedAt = new Date().toISOString();
+    await saveDoc(existing);
+    const document = existing;
 
-    logger.info({ documentId }, 'Document updated');
+    logger.info( 'Document updated');
 
     res.json(document);
   } catch (error) {
-    logger.error({ error }, 'Failed to update document');
+    logger.error('Failed to update document');
     res.status(500).json({ error: 'Failed to update document' });
   }
 });
@@ -536,19 +563,19 @@ knowledgeRoutes.post('/:documentId/archive', async (req, res) => {
   try {
     const { documentId } = req.params;
 
-    const document = await prisma.document.update({
-      where: { id: documentId },
-      data: {
-        status: 'archived',
-        archivedAt: new Date(),
-      },
-    });
+    const existing = await getDoc(documentId);
+    if (!existing) { res.status(404).json({ error: 'Document not found' }); return; }
+    existing.status = 'archived';
+    existing.archivedAt = new Date().toISOString();
+    existing.updatedAt = new Date().toISOString();
+    await saveDoc(existing);
+    const document = existing;
 
-    logger.info({ documentId }, 'Document archived');
+    logger.info( 'Document archived');
 
     res.json(document);
   } catch (error) {
-    logger.error({ error }, 'Failed to archive document');
+    logger.error('Failed to archive document');
     res.status(500).json({ error: 'Failed to archive document' });
   }
 });
@@ -561,11 +588,11 @@ knowledgeRoutes.post('/:documentId/archive', async (req, res) => {
 knowledgeRoutes.post('/:documentId/approve', async (req, res) => {
   try {
     const { documentId } = req.params;
-    const doc = await prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'validated' },
-    });
-    logger.info({ documentId }, 'Knowledge entry approved');
+    const doc = await getDoc(documentId);
+    if (!doc) { res.status(404).json({ error: 'Document not found' }); return; }
+    doc.status = 'validated'; doc.updatedAt = new Date().toISOString();
+    await saveDoc(doc);
+    logger.info( 'Knowledge entry approved');
     res.json(doc);
   } catch (error) {
     res.status(500).json({ error: 'Failed to approve' });
@@ -575,11 +602,11 @@ knowledgeRoutes.post('/:documentId/approve', async (req, res) => {
 knowledgeRoutes.post('/:documentId/reject', async (req, res) => {
   try {
     const { documentId } = req.params;
-    const doc = await prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'rejected' },
-    });
-    logger.info({ documentId }, 'Knowledge entry rejected');
+    const doc = await getDoc(documentId);
+    if (!doc) { res.status(404).json({ error: 'Document not found' }); return; }
+    doc.status = 'rejected'; doc.updatedAt = new Date().toISOString();
+    await saveDoc(doc);
+    logger.info( 'Knowledge entry rejected');
     res.json(doc);
   } catch (error) {
     res.status(500).json({ error: 'Failed to reject' });
@@ -594,16 +621,14 @@ knowledgeRoutes.delete('/:documentId', async (req, res) => {
   try {
     const { documentId } = req.params;
 
-    await prisma.document.update({
-      where: { id: documentId },
-      data: { status: 'deleted' },
-    });
+    const doc = await getDoc(documentId);
+    if (doc) { doc.status = 'deleted'; doc.updatedAt = new Date().toISOString(); await saveDoc(doc); }
 
-    logger.info({ documentId }, 'Document deleted');
+    logger.info( 'Document deleted');
 
     res.json({ success: true });
   } catch (error) {
-    logger.error({ error }, 'Failed to delete document');
+    logger.error('Failed to delete document');
     res.status(500).json({ error: 'Failed to delete document' });
   }
 });
@@ -637,7 +662,7 @@ knowledgeRoutes.get('/export', async (req, res) => {
     }
     res.send(content);
   } catch (error) {
-    logger.error({ error }, 'Failed to export knowledge');
+    logger.error('Failed to export knowledge');
     res.status(500).json({ error: 'Failed to export knowledge' });
   }
 });
@@ -703,7 +728,7 @@ knowledgeRoutes.post('/ask', async (req, res) => {
 
     res.json({ answer, sources });
   } catch (error) {
-    logger.error({ error }, 'Knowledge ask failed');
+    logger.error('Knowledge ask failed');
     res.status(500).json({ error: 'Knowledge ask failed' });
   }
 });
@@ -727,7 +752,7 @@ knowledgeRoutes.post('/evolution/micro', async (req, res) => {
     const results = await knowledgeEvolution.microEvolution(executionId, projectId, companyId);
     return res.json({ results, total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Micro evolution failed');
+    logger.error('Micro evolution failed');
     return res.status(500).json({ error: 'Micro evolution failed' });
   }
 });
@@ -745,7 +770,7 @@ knowledgeRoutes.post('/evolution/meso', async (req, res) => {
     const results = await knowledgeEvolution.mesoEvolution(projectId);
     return res.json({ results, total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Meso evolution failed');
+    logger.error('Meso evolution failed');
     return res.status(500).json({ error: 'Meso evolution failed' });
   }
 });
@@ -763,7 +788,7 @@ knowledgeRoutes.post('/evolution/macro', async (req, res) => {
     const result = await knowledgeEvolution.macroEvolution(companyId);
     return res.json(result);
   } catch (error) {
-    logger.error({ error }, 'Macro evolution failed');
+    logger.error('Macro evolution failed');
     return res.status(500).json({ error: 'Macro evolution failed' });
   }
 });
@@ -777,7 +802,7 @@ knowledgeRoutes.post('/evolution/decay', async (req, res) => {
     const results = await knowledgeEvolution.decayCheck();
     return res.json({ results, total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Decay check failed');
+    logger.error('Decay check failed');
     return res.status(500).json({ error: 'Decay check failed' });
   }
 });
@@ -795,7 +820,7 @@ knowledgeRoutes.get('/evolution/health', async (req, res) => {
     const metrics = await knowledgeEvolution.getHealthMetrics(companyId);
     return res.json(metrics);
   } catch (error) {
-    logger.error({ error }, 'Failed to get health metrics');
+    logger.error('Failed to get health metrics');
     return res.status(500).json({ error: 'Failed to get health metrics' });
   }
 });
@@ -825,7 +850,7 @@ knowledgeRoutes.get('/gaps/:type', async (req, res) => {
     });
     return res.json({ type, data, total: data.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to query knowledge gaps');
+    logger.error('Failed to query knowledge gaps');
     return res.status(500).json({ error: 'Failed to query knowledge gaps' });
   }
 });
@@ -840,7 +865,7 @@ knowledgeRoutes.get('/gaps', async (req, res) => {
     const stats = await knowledgeQuery.getStats();
     return res.json(stats);
   } catch (error) {
-    logger.error({ error }, 'Failed to get knowledge gap stats');
+    logger.error('Failed to get knowledge gap stats');
     return res.status(500).json({ error: 'Failed to get knowledge gap stats' });
   }
 });
@@ -868,27 +893,32 @@ knowledgeRoutes.get('/resolutions', async (req, res) => {
       ];
     }
 
-    const resolutions = await prisma.resolution.findMany({
-      where,
-      orderBy: [{ verifyCount: 'desc' }, { createdAt: 'desc' }],
-      take: Math.min(Number(limit), 100),
-      skip: Number(offset),
-    });
+    const allResolutions = await resolutionService.listPending(); // TODO: add search support to resolutionService
+    // Simple in-memory filter for search
+    let resolutions = allResolutions;
+    if (search) {
+      const q = String(search).toLowerCase();
+      resolutions = resolutions.filter((r: any) =>
+        (r.title && r.title.toLowerCase().includes(q)) ||
+        (r.fix && r.fix.toLowerCase().includes(q)) ||
+        (r.pattern && r.pattern.toLowerCase().includes(q))
+      );
+    }
+    const total = allResolutions.length; // FIXME: count after filter, not before search
+    resolutions = resolutions.slice(Number(offset), Number(offset) + Math.min(Number(limit), 100));
 
-    const total = await prisma.resolution.count({ where });
-
-    const byStatus = await prisma.resolution.groupBy({
-      by: ['status'],
-      _count: true,
-    });
+    const byStatus: Record<string, number> = {};
+    for (const r of allResolutions) {
+      byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    }
 
     res.json({
       resolutions,
-      total,
-      byStatus: byStatus.reduce((acc, s) => ({ ...acc, [s.status]: s._count }), {}),
+      total: resolutions.length,
+      byStatus,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to list resolutions');
+    logger.error('Failed to list resolutions');
     res.status(500).json({ error: 'Failed to list resolutions' });
   }
 });
@@ -910,19 +940,14 @@ knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) =>
 
     const results: Array<{ type: string; id: string; title: string; snippet: string; score: number }> = [];
 
-    // Search documents
+    // Search documents (FileStore)
     if (searchTypes.includes('document')) {
-      const docs = await prisma.document.findMany({
-        where: {
-          OR: [
-            { title: { contains: query } },
-            { content: { contains: query } },
-          ],
-        },
-        take: takeLimit,
-        orderBy: { updatedAt: 'desc' },
-      });
-      for (const d of docs) {
+      const allDocs = await listDocs();
+      const matched = allDocs
+        .filter(d => d.title.toLowerCase().includes(query) || d.content.toLowerCase().includes(query))
+        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        .slice(0, takeLimit);
+      for (const d of matched) {
         const titleLower = d.title.toLowerCase();
         const score = titleLower.includes(query) ? 3 : 1;
         results.push({
@@ -937,17 +962,12 @@ knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) =>
 
     // Search resolutions
     if (searchTypes.includes('resolution')) {
-      const resolutions = await prisma.resolution.findMany({
-        where: {
-          OR: [
-            { title: { contains: query } },
-            { fix: { contains: query } },
-            { pattern: { contains: query } },
-          ],
-        },
-        take: takeLimit,
-        orderBy: { verifyCount: 'desc' },
-      });
+      const allRes = await resolutionService.listPending(); // FIXME: need listAll or search method
+      const resolutions = allRes.filter((r: any) =>
+        (r.title && r.title.toLowerCase().includes(query.toLowerCase())) ||
+        (r.fix && r.fix.toLowerCase().includes(query.toLowerCase())) ||
+        (r.pattern && r.pattern.toLowerCase().includes(query.toLowerCase()))
+      ).slice(0, takeLimit);
       for (const r of resolutions) {
         const titleLower = r.title.toLowerCase();
         const score = titleLower.includes(query) ? 3 : 1;
@@ -1031,7 +1051,7 @@ knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) =>
 
     res.json({ results: results.slice(0, takeLimit), total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Knowledge search failed');
+    logger.error('Knowledge search failed');
     res.status(500).json({ error: 'Knowledge search failed' });
   }
 });
@@ -1050,7 +1070,7 @@ knowledgeRoutes.get('/resolution/density', async (_req, res) => {
     const density = await resolutionService.getDensityScore();
     res.json(density);
   } catch (error) {
-    logger.error({ error }, 'Failed to get density score');
+    logger.error('Failed to get density score');
     res.status(500).json({ error: 'Failed to get density score' });
   }
 });
@@ -1065,7 +1085,7 @@ knowledgeRoutes.get('/resolution/cross-session', async (_req, res) => {
     const stats = await resolutionService.getCrossSessionStats();
     res.json(stats);
   } catch (error) {
-    logger.error({ error }, 'Failed to get cross-session stats');
+    logger.error('Failed to get cross-session stats');
     res.status(500).json({ error: 'Failed to get cross-session stats' });
   }
 });
@@ -1096,10 +1116,10 @@ knowledgeInternalRoutes.post('/extract-text', async (req, res) => {
     // Fire-and-forget: spawn extraction in background
     const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
     knowledgeAgent.extractFromText(content, source, layer).catch(err => {
-      logger.error({ source, error: String(err) }, '[KnowledgeRoutes] Text extraction failed');
+      logger.error('[KnowledgeRoutes] Text extraction failed');
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to queue text extraction');
+    logger.error('Failed to queue text extraction');
     res.status(500).json({ error: 'Failed to queue text extraction' });
   }
 });
@@ -1125,10 +1145,10 @@ knowledgeInternalRoutes.post('/extract-behavior', async (req, res) => {
 
     const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
     knowledgeAgent.extractUserBehavior(content, source, threshold).catch(err => {
-      logger.error({ source, error: String(err) }, '[KnowledgeRoutes] Behavior extraction failed');
+      logger.error('[KnowledgeRoutes] Behavior extraction failed');
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to queue behavior extraction');
+    logger.error('Failed to queue behavior extraction');
     res.status(500).json({ error: 'Failed to queue behavior extraction' });
   }
 });
@@ -1247,7 +1267,7 @@ knowledgeRoutes.get('/unified', async (req, res) => {
       limit: req.query.limit ? Math.min(Number(req.query.limit), 100) : 50,
       offset: req.query.offset ? Number(req.query.offset) : 0,
       sortBy: req.query.sortBy as any || 'lastReferenced',
-      sources: ['store' as const, 'prisma' as const],
+      sources: ['store' as const],
     };
     const result = await uq.listEntries(filter);
     res.json(result);

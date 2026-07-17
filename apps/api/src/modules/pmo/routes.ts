@@ -2,13 +2,17 @@
 import { Router, Request, Response } from 'express';
 import { okrService, OKRService } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand } from './project.service.js';
-import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
 import { requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'node:fs';
 
 const router = Router();
+const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
 
 // ============================================
 // Project API（GEN-005）
@@ -20,19 +24,12 @@ const router = Router();
  */
 router.get('/project', async (req: Request, res: Response) => {
   try {
-    const companyId = req.query.companyId as string;
     const status = req.query.status as string | undefined;
     const priority = req.query.priority as string | undefined;
     const okrId = req.query.okrId as string | undefined;
     const limit = parseInt(req.query.limit as string) || 20;
 
-    if (!companyId) {
-      return res.status(400).json({
-        error: { code: 'MISSING_COMPANY_ID', message: 'companyId is required' },
-      });
-    }
-
-    const projects = await projectService.list(companyId, {
+    const projects = await projectService.list({
       status,
       priority,
       okrId,
@@ -56,9 +53,9 @@ router.post('/project', async (req: Request, res: Response) => {
   try {
     const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo } = req.body;
 
-    if (!companyId || !title) {
+    if (!title) {
       return res.status(400).json({
-        error: { code: 'MISSING_FIELDS', message: 'companyId and title are required' },
+        error: { code: 'MISSING_FIELDS', message: 'title is required' },
       });
     }
 
@@ -111,16 +108,9 @@ router.get('/project/:id', async (req: Request, res: Response) => {
  */
 router.get('/project/by-pmo/:pmoNumber', async (req: Request, res: Response) => {
   try {
-    const companyId = req.query.companyId as string;
     const pmoNumber = req.params.pmoNumber;
 
-    if (!companyId) {
-      return res.status(400).json({
-        error: { code: 'MISSING_COMPANY_ID', message: 'companyId is required' },
-      });
-    }
-
-    const project = await projectService.getByPmoNumber(companyId, pmoNumber);
+    const project = await projectService.getByPmoNumber(pmoNumber);
 
     if (!project) {
       return res.status(404).json({
@@ -431,20 +421,11 @@ router.put('/okr/:id', async (req: Request, res: Response) => {
     const okrId = req.params.id;
 
     // 获取 OKR 以检查权限
-    const okr = await prisma.oKR.findUnique({
-      where: { id: okrId },
-      select: { companyId: true },
-    });
-
-    if (!okr) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: 'OKR not found' },
-      });
-    }
+    const okr: any = await okrService.get(okrId);
 
     // 权限检查
     if (roleId) {
-      const isAdmin = await okrService.checkPermission(roleId, okr.companyId);
+      const isAdmin = await okrService.checkPermission(roleId, okr.companyId as string);
       if (!isAdmin) {
         return res.status(403).json({
           error: { code: 'FORBIDDEN', message: 'Only admins can update OKR' },
@@ -473,20 +454,11 @@ router.delete('/okr/:id', requireRole('Admin'), async (req: Request, res: Respon
     const okrId = req.params.id;
 
     // 获取 OKR 以检查权限
-    const okr = await prisma.oKR.findUnique({
-      where: { id: okrId },
-      select: { companyId: true },
-    });
-
-    if (!okr) {
-      return res.status(404).json({
-        error: { code: 'NOT_FOUND', message: 'OKR not found' },
-      });
-    }
+    const okr: any = await okrService.get(okrId);
 
     // 权限检查
     if (roleId) {
-      const isAdmin = await okrService.checkPermission(roleId, okr.companyId);
+      const isAdmin = await okrService.checkPermission(roleId, okr.companyId as string);
       if (!isAdmin) {
         return res.status(403).json({
           error: { code: 'FORBIDDEN', message: 'Only admins can delete OKR' },
@@ -540,13 +512,12 @@ router.get('/projects', async (req: Request, res: Response) => {
     const executions = runtimeData.data;
 
     // 获取数据库中的 Execution 记录（补充 okrId）
-    const dbExecutions = await prisma.execution.findMany({
-      where: {
-        ...where,
-      },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
-    });
+    const fileStore = new FileStore();
+    let allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    if (where.okrId) allRows = allRows.filter((r: any) => r.okrId === where.okrId);
+    if (where.status) allRows = allRows.filter((r: any) => r.status === where.status);
+    allRows.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const dbExecutions = allRows.slice(0, limit);
 
     // 合并数据
     const projects = executions.map((exec) => {
@@ -580,27 +551,20 @@ router.put('/projects/:id/okr', async (req: Request, res: Response) => {
     const { okrId } = req.body;
 
     // 获取 Execution
-    const execution = await prisma.execution.findUnique({
-      where: { id: executionId },
-    });
+    const fileStore = new FileStore();
+    const allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    const execution = allRows.find((r: any) => r.id === executionId);
 
     if (!execution) {
-      // Execution 可能不存在于数据库，先创建
-      const newExecution = await prisma.execution.create({
-        data: {
-          id: executionId,
-          roleId: null,
-          okrId,
-        },
-      });
-      return res.json(newExecution);
+      // Execution may not exist yet, create new row
+      await fileStore.appendJsonl(EXECUTIONS_JSONL, { id: executionId, roleId: null, okrId });
+      return res.json({ id: executionId, roleId: null, okrId });
     }
 
-    // 更新 OKR 关联
-    const updated = await prisma.execution.update({
-      where: { id: executionId },
-      data: { okrId },
-    });
+    // 更新 OKR 关联 — read-modify-write
+    const updated = { ...execution, okrId };
+    const content = allRows.map(r => JSON.stringify(r)).join('\n') + '\n';
+    await fs.promises.writeFile(EXECUTIONS_JSONL, content, 'utf-8');
 
     res.json(updated);
   } catch (error) {
@@ -624,7 +588,7 @@ router.get('/health', async (_req: Request, res: Response) => {
     const snapshots = await fileStore.getIndex();
     const activeWorkUnits = snapshots.filter(s => s.status === 'active').length;
     const pendingWorkUnits = snapshots.filter(s => s.status === 'unassigned').length;
-    const recentEvents = await prisma.studioEvent.findMany({ orderBy: { timestamp: 'desc' }, take: 20 });
+    const recentEvents = await fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
     res.json({
       activeWorkUnits,
       pendingWorkUnits,

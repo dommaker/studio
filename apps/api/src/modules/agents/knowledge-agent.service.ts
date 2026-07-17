@@ -10,7 +10,6 @@ import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/
 import type { DecisionRecord } from '@dommaker/harness';
 import { sharedStore, sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
 import { validateKnowledgeForm, writeTrendData } from '../knowledge/knowledge-service.js';
-import { prisma } from '@dommaker/studio-prisma';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -18,6 +17,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { KnowledgeExtraction } from './types.js';
+
+const fileStore = new FileStore();
 
 const execAsync = promisify(exec);
 const sharedLinter = new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore));
@@ -254,8 +255,8 @@ ${diff?.substring(0, 4000) || '无 diff'}
       // Part D: Resolve PMO number for knowledge tagging
       let pmoTag = '';
       try {
-        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { pmoNumber: true } });
-        if (project?.pmoNumber) pmoTag = `pmo:${project.pmoNumber}`;
+        const projData = await fileStore.readJson<{ pmoNumber: string }>(path.join(os.homedir(), '.studio', 'projects', `${projectId}.json`));
+        if (projData?.pmoNumber) pmoTag = `pmo:${projData.pmoNumber}`;
       } catch { /* best-effort */ }
 
       const prompt = `## 审查结果
@@ -378,8 +379,8 @@ ${completionOutput.sessionCount || '?'}
       // Part D: Resolve PMO number for knowledge tagging
       let pmoTag = '';
       try {
-        const project = await prisma.project.findUnique({ where: { id: projectId }, select: { pmoNumber: true } });
-        if (project?.pmoNumber) pmoTag = `pmo:${project.pmoNumber}`;
+        const projData = await fileStore.readJson<{ pmoNumber: string }>(path.join(os.homedir(), '.studio', 'projects', `${projectId}.json`));
+        if (projData?.pmoNumber) pmoTag = `pmo:${projData.pmoNumber}`;
       } catch { /* best-effort */ }
 
       const prompt = `## 部署结果

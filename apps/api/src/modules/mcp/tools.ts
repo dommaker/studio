@@ -5,15 +5,60 @@
  * FL-026: 使用 MCPToolRegistry 动态注册，替代静态数组。
  */
 
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { toolRegistry, type RegisteredTool } from './tool-registry.js';
 import { mcpPermissionService } from './permission.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 // ─── 类型（向后兼容） ───
 
 export type MCPTool = RegisteredTool;
+
+// ─── FileStore 存储路径 ───
+
+const fileStore = new FileStore();
+const TASKS_DIR = path.join(os.homedir(), '.studio', 'data', 'tasks');
+const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
+const SPEC_REVIEWS_DIR = path.join(os.homedir(), '.studio', 'data', 'spec-reviews');
+const COMPANIES_DIR = path.join(os.homedir(), '.studio', 'data', 'companies');
+
+// ─── 通用 FileStore 工具 ───
+
+function generateId(): string {
+  return `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+async function ensureDir(dir: string): Promise<void> {
+  await fs.promises.mkdir(dir, { recursive: true });
+}
+
+async function listJsonFiles<T>(dir: string): Promise<T[]> {
+  try {
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
+    const results: T[] = [];
+    for (const f of files) {
+      const data = await fileStore.readJson<T>(path.join(dir, f.name));
+      if (data) results.push(data);
+    }
+    return results;
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
+    throw err;
+  }
+}
+
+async function getEntity<T>(dir: string, id: string): Promise<T | null> {
+  return fileStore.readJson<T>(path.join(dir, `${id}.json`));
+}
+
+async function writeEntity(dir: string, id: string, data: unknown): Promise<void> {
+  await ensureDir(dir);
+  await fileStore.writeJson(path.join(dir, `${id}.json`), data);
+}
 
 // ─── PMO 项目管理 ───
 
@@ -23,22 +68,18 @@ const createProject: MCPTool = {
   inputSchema: {
     type: 'object',
     properties: {
-      companyId: { type: 'string', description: '公司 ID' },
       title: { type: 'string', description: '项目标题' },
       description: { type: 'string', description: '项目描述' },
       requirement: { type: 'string', description: '需求描述' },
     },
-    required: ['companyId', 'title'],
+    required: ['title'],
   },
   handler: async (input) => {
-    const pmoNumber = `PMO-${Date.now().toString(36).toUpperCase()}`;
-    const project = await prisma.project.create({
-      data: {
-        companyId: input.companyId,
-        title: input.title,
-        pmoNumber,
-        status: 'active',
-      },
+    const { projectService } = await import('../pmo/project.service.js');
+    const project = await projectService.create({
+      title: input.title,
+      description: input.description,
+      requirement: input.requirement,
     });
     return { projectId: project.id, pmoNumber: project.pmoNumber };
   },
@@ -46,24 +87,20 @@ const createProject: MCPTool = {
 
 const listProjects: MCPTool = {
   name: 'listProjects',
-  description: '列出公司的所有项目',
+  description: '列出所有项目',
   inputSchema: {
     type: 'object',
     properties: {
-      companyId: { type: 'string', description: '公司 ID' },
       status: { type: 'string', description: '状态过滤' },
       limit: { type: 'number', description: '返回数量限制' },
     },
-    required: ['companyId'],
+    required: [],
   },
   handler: async (input) => {
-    const where: Record<string, any> = { companyId: input.companyId };
-    if (input.status) where.status = input.status;
-    const projects = await prisma.project.findMany({
-      where,
-      take: input.limit || 50,
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, pmoNumber: true, title: true, status: true, createdAt: true },
+    const { projectService } = await import('../pmo/project.service.js');
+    const projects = await projectService.list({
+      status: input.status,
+      limit: input.limit || 50,
     });
     return { projects, total: projects.length };
   },
@@ -80,12 +117,8 @@ const getProjectStatus: MCPTool = {
     required: ['projectId'],
   },
   handler: async (input) => {
-    const project = await prisma.project.findUnique({
-      where: { id: input.projectId },
-      include: {
-        Documents: { select: { id: true, type: true, title: true, status: true } },
-      },
-    });
+    const { projectService } = await import('../pmo/project.service.js');
+    const project = await projectService.get(input.projectId);
     if (!project) throw new Error('Project not found');
     return project;
   },
@@ -93,7 +126,27 @@ const getProjectStatus: MCPTool = {
 
 // ─── 角色管理 ───
 
-// ─── 任务管理 ───
+// ─── 任务管理（FileStore） ───
+
+interface TaskData {
+  id: string;
+  projectId: string;
+  name: string;
+  assignee: string;
+  description?: string;
+  priority: string;
+  status: string;
+  dependsOn: string[];
+  acceptanceCriteria: string[];
+  estimatedHours?: number;
+  claimedBy?: string;
+  claimedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+  testEvidence?: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 const getTaskBoard: MCPTool = {
   name: 'getTaskBoard',
@@ -106,20 +159,32 @@ const getTaskBoard: MCPTool = {
     },
   },
   handler: async (input) => {
-    const where: Record<string, any> = {};
-    if (input.projectId) where.projectId = input.projectId;
-    if (input.status) where.status = input.status;
-    const tasks = await prisma.task.findMany({
-      where,
-      take: 50,
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, status: true, assignee: true, createdAt: true },
-    });
-    return { tasks, total: tasks.length };
+    let tasks = await listJsonFiles<TaskData>(TASKS_DIR);
+    if (input.projectId) tasks = tasks.filter(t => t.projectId === input.projectId);
+    if (input.status) tasks = tasks.filter(t => t.status === input.status);
+    tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const subset = tasks.slice(0, 50).map(t => ({
+      id: t.id, name: t.name, status: t.status, assignee: t.assignee, createdAt: t.createdAt,
+    }));
+    return { tasks: subset, total: subset.length };
   },
 };
 
-// ─── 知识库 ───
+// ─── 知识库（FileStore） ───
+
+interface DocumentData {
+  id: string;
+  projectId: string;
+  companyId: string;
+  title: string;
+  content: string;
+  type: string;
+  tags: string[];
+  filePath?: string;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 const queryKnowledge: MCPTool = {
   name: 'queryKnowledge',
@@ -135,21 +200,20 @@ const queryKnowledge: MCPTool = {
     required: ['companyId'],
   },
   handler: async (input) => {
-    const where: Record<string, any> = { companyId: input.companyId, status: 'active' };
-    if (input.type) where.type = input.type;
+    let docs = await listJsonFiles<DocumentData>(DOCUMENTS_DIR);
+    docs = docs.filter(d => d.companyId === input.companyId && d.status === 'active');
+    if (input.type) docs = docs.filter(d => d.type === input.type);
     if (input.search) {
-      where.OR = [
-        { title: { contains: input.search, mode: 'insensitive' } },
-        { content: { contains: input.search, mode: 'insensitive' } },
-      ];
+      const q = input.search.toLowerCase();
+      docs = docs.filter(d =>
+        d.title.toLowerCase().includes(q) || d.content.toLowerCase().includes(q)
+      );
     }
-    const docs = await prisma.document.findMany({
-      where,
-      take: input.limit || 10,
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true, title: true, type: true, content: true, tags: true, updatedAt: true },
-    });
-    return { documents: docs, total: docs.length };
+    docs.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    const subset = docs.slice(0, input.limit || 10).map(d => ({
+      id: d.id, title: d.title, type: d.type, content: d.content, tags: d.tags, updatedAt: d.updatedAt,
+    }));
+    return { documents: subset, total: subset.length };
   },
 };
 
@@ -169,22 +233,26 @@ const extractKnowledge: MCPTool = {
     required: ['projectId', 'companyId', 'title', 'content', 'type'],
   },
   handler: async (input) => {
-    const doc = await prisma.document.create({
-      data: {
-        projectId: input.projectId,
-        companyId: input.companyId,
-        title: input.title,
-        content: input.content,
-        type: input.type,
-        tags: input.tags || [],
-        status: 'active',
-      },
-    });
+    const id = `doc_${generateId()}`;
+    const now = new Date().toISOString();
+    const doc: DocumentData = {
+      id,
+      projectId: input.projectId,
+      companyId: input.companyId,
+      title: input.title,
+      content: input.content,
+      type: input.type,
+      tags: input.tags || [],
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await writeEntity(DOCUMENTS_DIR, id, doc);
     return { documentId: doc.id, title: doc.title };
   },
 };
 
-// ─── 任务管理 ───
+// ─── 任务管理（续） ───
 
 const createTask: MCPTool = {
   name: 'createTask',
@@ -205,19 +273,23 @@ const createTask: MCPTool = {
     required: ['projectId', 'name', 'assignee'],
   },
   handler: async (input) => {
-    const task = await prisma.task.create({
-      data: {
-        projectId: input.projectId,
-        name: input.name,
-        assignee: input.assignee,
-        description: input.description,
-        priority: input.priority || 'P2',
-        // meetingId removed — not in Task schema
-        dependsOn: input.dependsOn || [],
-        acceptanceCriteria: input.acceptanceCriteria || [],
-        estimatedHours: input.estimatedHours,
-      },
-    });
+    const id = `task_${generateId()}`;
+    const now = new Date().toISOString();
+    const task: TaskData = {
+      id,
+      projectId: input.projectId,
+      name: input.name,
+      assignee: input.assignee,
+      description: input.description,
+      priority: input.priority || 'P2',
+      status: 'pending',
+      dependsOn: input.dependsOn || [],
+      acceptanceCriteria: input.acceptanceCriteria || [],
+      estimatedHours: input.estimatedHours,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await writeEntity(TASKS_DIR, id, task);
     return { taskId: task.id, name: task.name, assignee: task.assignee, priority: task.priority };
   },
 };
@@ -234,14 +306,18 @@ const assignTask: MCPTool = {
     required: ['taskId', 'roleId'],
   },
   handler: async (input) => {
-    const task = await prisma.task.findUnique({ where: { id: input.taskId } });
+    const task = await getEntity<TaskData>(TASKS_DIR, input.taskId);
     if (!task) throw new Error('Task not found');
     if (task.status !== 'pending') throw new Error(`Task is not pending (current: ${task.status})`);
 
-    const updated = await prisma.task.update({
-      where: { id: input.taskId },
-      data: { claimedBy: input.roleId, claimedAt: new Date(), status: 'claimed' },
-    });
+    const updated: TaskData = {
+      ...task,
+      claimedBy: input.roleId,
+      claimedAt: new Date().toISOString(),
+      status: 'claimed',
+      updatedAt: new Date().toISOString(),
+    };
+    await writeEntity(TASKS_DIR, input.taskId, updated);
     return { taskId: updated.id, status: updated.status, claimedBy: updated.claimedBy };
   },
 };
@@ -259,24 +335,18 @@ const updateTaskStatus: MCPTool = {
     required: ['taskId', 'status'],
   },
   handler: async (input) => {
-    const existing = await prisma.task.findUnique({
-      where: { id: input.taskId },
-      select: { id: true, status: true },
-    });
+    const existing = await getEntity<TaskData>(TASKS_DIR, input.taskId);
     if (!existing) throw new Error(`Task not found: ${input.taskId}`);
 
-    const updateData: Record<string, any> = { status: input.status };
-    if (input.status === 'in_progress') updateData.startedAt = new Date();
+    const now = new Date().toISOString();
+    const updated: TaskData = { ...existing, status: input.status, updatedAt: now };
+    if (input.status === 'in_progress') updated.startedAt = now;
     if (input.status === 'completed') {
-      updateData.completedAt = new Date();
-      if (input.testEvidence) updateData.testEvidence = input.testEvidence;
+      updated.completedAt = now;
+      if (input.testEvidence) updated.testEvidence = input.testEvidence;
     }
-
-    const task = await prisma.task.update({
-      where: { id: input.taskId },
-      data: updateData,
-    });
-    return { taskId: task.id, status: task.status };
+    await writeEntity(TASKS_DIR, input.taskId, updated);
+    return { taskId: updated.id, status: updated.status };
   },
 };
 
@@ -290,21 +360,16 @@ const getTaskStats: MCPTool = {
     },
   },
   handler: async (input) => {
-    const where: Record<string, any> = {};
-    if (input.projectId) where.projectId = input.projectId;
-
-    const [byStatus, total] = await Promise.all([
-      prisma.task.groupBy({ by: ['status'], where, _count: true }),
-      prisma.task.count({ where }),
-    ]);
+    let tasks = await listJsonFiles<TaskData>(TASKS_DIR);
+    if (input.projectId) tasks = tasks.filter(t => t.projectId === input.projectId);
 
     const statusMap: Record<string, number> = {};
-    for (const row of byStatus) {
-      statusMap[row.status] = row._count;
+    for (const t of tasks) {
+      statusMap[t.status] = (statusMap[t.status] || 0) + 1;
     }
 
     return {
-      total,
+      total: tasks.length,
       pending: statusMap['pending'] || 0,
       claimed: statusMap['claimed'] || 0,
       in_progress: statusMap['in_progress'] || 0,
@@ -317,6 +382,11 @@ const getTaskStats: MCPTool = {
 
 // ─── 经济系统 ───
 
+interface CompanyData {
+  id: string;
+  name: string;
+}
+
 const getBalance: MCPTool = {
   name: 'getBalance',
   description: '查询公司余额',
@@ -328,16 +398,36 @@ const getBalance: MCPTool = {
     required: ['companyId'],
   },
   handler: async (input) => {
-    const company = await prisma.company.findUnique({
-      where: { id: input.companyId },
-      select: { id: true, name: true },
-    });
+    const company = await getEntity<CompanyData>(COMPANIES_DIR, input.companyId);
     if (!company) throw new Error('Company not found');
     return { type: 'company', ...company };
   },
 };
 
-// ─── 规格审查 ───
+// ─── 规格审查（FileStore） ───
+
+interface SpecReviewData {
+  id: string;
+  title: string;
+  description?: string;
+  changes: Array<Record<string, unknown>>;
+  changeType: string;
+  impact: string;
+  requestedBy?: string;
+  status: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  approvals: Array<{
+    role: string;
+    reviewerId: string;
+    reviewerName: string;
+    approved: boolean;
+    comment?: string;
+    createdAt: string;
+  }>;
+  createdAt: string;
+  updatedAt: string;
+}
 
 const createSpec: MCPTool = {
   name: 'createSpec',
@@ -355,17 +445,22 @@ const createSpec: MCPTool = {
     required: ['title', 'changes', 'changeType'],
   },
   handler: async (input) => {
-    const review = await prisma.specReview.create({
-      data: {
-        title: input.title,
-        description: input.description,
-        changes: input.changes,
-        changeType: input.changeType,
-        impact: input.impact || 'low',
-        requestedBy: input.requestedBy,
-        status: 'pending',
-      } as any,
-    });
+    const id = `spec_${generateId()}`;
+    const now = new Date().toISOString();
+    const review: SpecReviewData = {
+      id,
+      title: input.title,
+      description: input.description,
+      changes: input.changes,
+      changeType: input.changeType,
+      impact: input.impact || 'low',
+      requestedBy: input.requestedBy,
+      status: 'pending',
+      approvals: [],
+      createdAt: now,
+      updatedAt: now,
+    };
+    await writeEntity(SPEC_REVIEWS_DIR, id, review);
     return { reviewId: review.id, title: review.title, status: review.status };
   },
 };
@@ -386,49 +481,38 @@ const approveSpec: MCPTool = {
     required: ['reviewId', 'role', 'reviewerId', 'reviewerName', 'approved'],
   },
   handler: async (input) => {
-    const review = await prisma.specReview.findUnique({ where: { id: input.reviewId } });
+    const review = await getEntity<SpecReviewData>(SPEC_REVIEWS_DIR, input.reviewId);
     if (!review) throw new Error('SpecReview not found');
     if (review.status !== 'pending') throw new Error(`Review already ${review.status}`);
 
-    // 创建审批记录
-    await prisma.specReviewApproval.create({
-      data: {
-        reviewId: input.reviewId,
-        role: input.role,
-        reviewerId: input.reviewerId,
-        reviewerName: input.reviewerName,
-        approved: input.approved,
-        comment: input.comment,
-      },
-    });
-
-    // 检查是否满足审批条件
-    const approvals = await prisma.specReviewApproval.findMany({
-      where: { reviewId: input.reviewId },
-    });
+    const now = new Date().toISOString();
+    const approval = {
+      role: input.role,
+      reviewerId: input.reviewerId,
+      reviewerName: input.reviewerName,
+      approved: input.approved,
+      comment: input.comment,
+      createdAt: now,
+    };
+    const approvals = [...review.approvals, approval];
     const approvedCount = approvals.filter(a => a.approved).length;
     const rejectedCount = approvals.filter(a => !a.approved).length;
 
     let newStatus = 'pending';
     if (rejectedCount > 0) {
       newStatus = 'rejected';
-    } else if (approvedCount >= 1) { // 简化：单人审批即可
+    } else if (approvedCount >= 1) {
       newStatus = 'approved';
     }
 
-    const updated = await prisma.specReview.update({
-      where: { id: input.reviewId },
-      data: {
-        status: newStatus,
-        approvals: approvals.map(a => ({
-          role: a.role,
-          reviewerName: a.reviewerName,
-          approved: a.approved,
-          comment: a.comment,
-        })) as any,
-        ...(newStatus !== 'pending' ? { reviewedAt: new Date(), reviewedBy: input.reviewerName } : {}),
-      },
-    });
+    const updated: SpecReviewData = {
+      ...review,
+      status: newStatus,
+      approvals,
+      ...(newStatus !== 'pending' ? { reviewedAt: now, reviewedBy: input.reviewerName } : {}),
+      updatedAt: now,
+    };
+    await writeEntity(SPEC_REVIEWS_DIR, input.reviewId, updated);
 
     return { reviewId: updated.id, status: updated.status, approvedCount, rejectedCount };
   },
@@ -445,14 +529,19 @@ const getSpecStatus: MCPTool = {
     required: ['reviewId'],
   },
   handler: async (input) => {
-    const review = await prisma.specReview.findUnique({
-      where: { id: input.reviewId },
-      include: {
-        SpecReviewApproval: { select: { role: true, reviewerName: true, approved: true, comment: true, createdAt: true } },
-      },
-    });
+    const review = await getEntity<SpecReviewData>(SPEC_REVIEWS_DIR, input.reviewId);
     if (!review) throw new Error('SpecReview not found');
-    return review;
+    const { SpecReviewApproval } = review as unknown as { SpecReviewApproval?: unknown };
+    return {
+      ...review,
+      SpecReviewApproval: SpecReviewApproval ?? review.approvals.map(a => ({
+        role: a.role,
+        reviewerName: a.reviewerName,
+        approved: a.approved,
+        comment: a.comment,
+        createdAt: a.createdAt,
+      })),
+    };
   },
 };
 
@@ -467,16 +556,13 @@ const listSpecs: MCPTool = {
     },
   },
   handler: async (input) => {
-    const where: Record<string, any> = {};
-    if (input.status) where.status = input.status;
-
-    const reviews = await prisma.specReview.findMany({
-      where,
-      take: input.limit || 20,
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, title: true, changeType: true, status: true, requestedBy: true, createdAt: true },
-    });
-    return { reviews, total: reviews.length };
+    let reviews = await listJsonFiles<SpecReviewData>(SPEC_REVIEWS_DIR);
+    if (input.status) reviews = reviews.filter(r => r.status === input.status);
+    reviews.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const subset = reviews.slice(0, input.limit || 20).map(r => ({
+      id: r.id, title: r.title, changeType: r.changeType, status: r.status, requestedBy: r.requestedBy, createdAt: r.createdAt,
+    }));
+    return { reviews: subset, total: subset.length };
   },
 };
 
@@ -602,18 +688,22 @@ const storeKnowledge: MCPTool = {
     required: ['projectId', 'companyId', 'title', 'content', 'type'],
   },
   handler: async (input) => {
-    const doc = await prisma.document.create({
-      data: {
-        projectId: input.projectId,
-        companyId: input.companyId,
-        title: input.title,
-        content: input.content,
-        type: input.type,
-        tags: input.tags || [],
-        filePath: input.filePath,
-        status: 'active',
-      },
-    });
+    const id = `doc_${generateId()}`;
+    const now = new Date().toISOString();
+    const doc: DocumentData = {
+      id,
+      projectId: input.projectId,
+      companyId: input.companyId,
+      title: input.title,
+      content: input.content,
+      type: input.type,
+      tags: input.tags || [],
+      filePath: input.filePath,
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    };
+    await writeEntity(DOCUMENTS_DIR, id, doc);
     return { documentId: doc.id, title: doc.title, type: doc.type };
   },
 };
@@ -633,29 +723,20 @@ const searchKnowledge: MCPTool = {
     required: ['companyId', 'query'],
   },
   handler: async (input) => {
-    const where: Record<string, any> = {
-      companyId: input.companyId,
-      status: 'active',
-      OR: [
-        { title: { contains: input.query, mode: 'insensitive' } },
-        { content: { contains: input.query, mode: 'insensitive' } },
-      ],
-    };
-    if (input.type) where.type = input.type;
-    if (input.projectId) where.projectId = input.projectId;
-
-    // 先不查 content 列，避免大字段传输
-    const docs = await prisma.document.findMany({
-      where,
-      take: input.limit || 10,
-      orderBy: { updatedAt: 'desc' },
-      select: { id: true, title: true, type: true, tags: true, projectId: true, updatedAt: true },
-    });
-
-    return {
-      documents: docs,
-      total: docs.length,
-    };
+    let docs = await listJsonFiles<DocumentData>(DOCUMENTS_DIR);
+    const q = input.query.toLowerCase();
+    docs = docs.filter(d =>
+      d.companyId === input.companyId &&
+      d.status === 'active' &&
+      (d.title.toLowerCase().includes(q) || d.content.toLowerCase().includes(q))
+    );
+    if (input.type) docs = docs.filter(d => d.type === input.type);
+    if (input.projectId) docs = docs.filter(d => d.projectId === input.projectId);
+    docs.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
+    const subset = docs.slice(0, input.limit || 10).map(d => ({
+      id: d.id, title: d.title, type: d.type, tags: d.tags, projectId: d.projectId, updatedAt: d.updatedAt,
+    }));
+    return { documents: subset, total: subset.length };
   },
 };
 
@@ -670,20 +751,17 @@ const getMaturity: MCPTool = {
     required: ['companyId'],
   },
   handler: async (input) => {
-    const [total, active, archived, byType] = await Promise.all([
-      prisma.document.count({ where: { companyId: input.companyId } }),
-      prisma.document.count({ where: { companyId: input.companyId, status: 'active' } }),
-      prisma.document.count({ where: { companyId: input.companyId, status: 'archived' } }),
-      prisma.document.groupBy({
-        by: ['type'],
-        where: { companyId: input.companyId, status: 'active' },
-        _count: true,
-      }),
-    ]);
+    const docs = await listJsonFiles<DocumentData>(DOCUMENTS_DIR);
+    const companyDocs = docs.filter(d => d.companyId === input.companyId);
+    const total = companyDocs.length;
+    const active = companyDocs.filter(d => d.status === 'active').length;
+    const archived = companyDocs.filter(d => d.status === 'archived').length;
 
     const typeDistribution: Record<string, number> = {};
-    for (const item of byType) {
-      typeDistribution[item.type] = item._count;
+    for (const d of companyDocs) {
+      if (d.status === 'active') {
+        typeDistribution[d.type] = (typeDistribution[d.type] || 0) + 1;
+      }
     }
 
     return {
@@ -710,13 +788,13 @@ const systemHealth: MCPTool = {
   },
   handler: async () => {
     const { sharedStore, checkDocumentFreshness } = await import('../knowledge/knowledge-bus.service.js');
-    const fs = await import('fs');
-    const os = await import('os');
-    const path = await import('path');
+    const fsMod = await import('fs');
+    const osMod = await import('os');
+    const pathMod = await import('path');
 
     // 1. 系统资源
     const mem = process.memoryUsage();
-    const cpu = os.loadavg();
+    const cpu = osMod.loadavg();
     const uptime = process.uptime();
 
     // 2. 知识库统计
@@ -736,12 +814,11 @@ const systemHealth: MCPTool = {
     // 4. events-daemon 探活
     let eventsDaemonAlive = false;
     try {
-      const eventsDir = path.join(os.homedir(), 'events');
-      if (fs.existsSync(eventsDir)) {
-        const files = fs.readdirSync(eventsDir).filter(f => f.endsWith('.jsonl'));
-        // events-daemon 每 2s 更新文件指针 → 如果最近 30s 内有事件文件被写入过，daemon 在线
+      const eventsDir = pathMod.join(osMod.homedir(), 'events');
+      if (fsMod.existsSync(eventsDir)) {
+        const files = fsMod.readdirSync(eventsDir).filter(f => f.endsWith('.jsonl'));
         for (const f of files.slice(0, 3)) {
-          const stat = fs.statSync(path.join(eventsDir, f));
+          const stat = fsMod.statSync(pathMod.join(eventsDir, f));
           if (Date.now() - stat.mtimeMs < 30_000) {
             eventsDaemonAlive = true;
             break;
@@ -788,12 +865,12 @@ const emitEvent: MCPTool = {
     required: ['eventType', 'message'],
   },
   handler: async (input) => {
-    const fs = await import('fs');
-    const path = await import('path');
-    const os = await import('os');
+    const fsMod = await import('fs');
+    const pathMod = await import('path');
+    const osMod = await import('os');
 
-    const eventsDir = path.join(os.homedir(), 'events');
-    try { if (!fs.existsSync(eventsDir)) fs.mkdirSync(eventsDir, { recursive: true }); } catch { /* best-effort */ }
+    const eventsDir = pathMod.join(osMod.homedir(), 'events');
+    try { if (!fsMod.existsSync(eventsDir)) fsMod.mkdirSync(eventsDir, { recursive: true }); } catch { /* best-effort */ }
 
     const event = {
       type: input.eventType,
@@ -804,7 +881,7 @@ const emitEvent: MCPTool = {
     };
 
     try {
-      fs.appendFileSync(path.join(eventsDir, 'studio.jsonl'), JSON.stringify(event) + '\n');
+      fsMod.appendFileSync(pathMod.join(eventsDir, 'studio.jsonl'), JSON.stringify(event) + '\n');
     } catch { /* non-blocking */ }
 
     return {
@@ -829,8 +906,8 @@ const publishPackage: MCPTool = {
   },
   handler: async (input) => {
     const { execSync } = await import('child_process');
-    const path = await import('path');
-    const fs = await import('fs');
+    const pathMod = await import('path');
+    const fsMod = await import('fs');
     const steps: Array<{ step: string; status: 'ok' | 'fail' | 'skip'; output?: string }> = [];
     const pkgPath = input.packagePath;
     const dryRun = input.dryRun === 'true';
@@ -839,16 +916,15 @@ const publishPackage: MCPTool = {
     let repoUrl = '';
     try {
       const remoteUrl = execSync('git remote get-url origin', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }).trim();
-      // Extract owner/repo from: https://github.com/owner/repo.git, git@github.com:owner/repo.git, etc.
       const m = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/\s.]+?)(?:\.git)?$/);
       if (m) repoUrl = `https://github.com/${m[1]}/${m[2]}`;
-    } catch { /* no remote — skip release URL */ }
+    } catch { /* no remote */ }
 
     // 1. 验证路径
-    if (!fs.existsSync(path.join(pkgPath, 'package.json'))) {
+    if (!fsMod.existsSync(pathMod.join(pkgPath, 'package.json'))) {
       return { success: false, error: `Not a package: ${pkgPath}`, steps };
     }
-    const pkgJson = JSON.parse(fs.readFileSync(path.join(pkgPath, 'package.json'), 'utf-8'));
+    const pkgJson = JSON.parse(fsMod.readFileSync(pathMod.join(pkgPath, 'package.json'), 'utf-8'));
     const pkgName = pkgJson.name;
     const pkgVersion = pkgJson.version;
     steps.push({ step: `package: ${pkgName}@${pkgVersion}`, status: 'ok' });
@@ -875,15 +951,14 @@ const publishPackage: MCPTool = {
       return { success: false, error: 'TypeScript compilation failed', steps, compileErrors: errMsg.slice(0, 1000) };
     }
 
-    // 4. Verify dist integrity — check known critical files
+    // 4. Verify dist integrity
     const criticalFiles = ['dist/core/constraints/prompt-injection.js', 'dist/knowledge/doctor.js', 'dist/index.js'];
     const missing: string[] = [];
     for (const f of criticalFiles) {
-      if (!fs.existsSync(path.join(pkgPath, f))) missing.push(f);
+      if (!fsMod.existsSync(pathMod.join(pkgPath, f))) missing.push(f);
     }
     if (missing.length > 0) {
       steps.push({ step: `dist verify: ${missing.length} missing`, status: 'fail', output: missing.join(', ') });
-      // Allow proceed with warning — not all packages have doctor.js
     } else {
       steps.push({ step: 'dist verify: all critical files present', status: 'ok' });
     }
@@ -913,7 +988,7 @@ const publishPackage: MCPTool = {
     }
 
     // 6. Git commit + tag
-    const updatedPkg = JSON.parse(fs.readFileSync(path.join(pkgPath, 'package.json'), 'utf-8'));
+    const updatedPkg = JSON.parse(fsMod.readFileSync(pathMod.join(pkgPath, 'package.json'), 'utf-8'));
     const newVersion = updatedPkg.version;
     const tag = `v${newVersion}`;
 
@@ -926,7 +1001,7 @@ const publishPackage: MCPTool = {
       return { success: false, error: `git commit/tag failed: ${e.message}`, steps };
     }
 
-    // 7. Git push (detect default branch)
+    // 7. Git push
     try {
       const branch = (() => {
         try { return execSync('git rev-parse --abbrev-ref HEAD', { cwd: pkgPath, encoding: 'utf-8', stdio: 'pipe', timeout: 5_000 }).trim(); }
@@ -945,7 +1020,6 @@ const publishPackage: MCPTool = {
       steps.push({ step: `npm: published ${pkgName}@${newVersion}`, status: 'ok', output: pubOut.trim() });
     } catch (e: any) {
       const errMsg = e.stderr || e.message || String(e);
-      // If "already exists" → not a failure, just already published
       if (errMsg.includes('previously published') || errMsg.includes('EPUBLISHCONFLICT')) {
         steps.push({ step: `npm: ${pkgName}@${newVersion} already published`, status: 'ok' });
       } else {
@@ -960,7 +1034,6 @@ const publishPackage: MCPTool = {
       });
       steps.push({ step: `gh release: ${tag}`, status: 'ok', output: ghOut.trim() });
     } catch (e: any) {
-      // Release failure is non-fatal — package is already published
       steps.push({ step: `gh release: failed (non-fatal)`, status: 'fail', output: String(e.message || e).slice(0, 200) });
     }
 
@@ -992,8 +1065,8 @@ const loadSkill: MCPTool = {
     const { skillName } = input;
 
     // [Skill Discovery] Log Agent's skill selection
-    const { logger } = await import('@dommaker/studio-shared');
-    logger.info(`[SkillDiscovery] Agent selected skill: ${skillName}`);
+    const { logger: log } = await import('@dommaker/studio-shared');
+    log.info(`[SkillDiscovery] Agent selected skill: ${skillName}`);
 
     // 1. Try package SkillLoader (sync, cached, includes hardcoded + DB skills)
     const { skillLoader } = await import('@dommaker/studio-skill');
@@ -1033,7 +1106,7 @@ const createWorkUnit: MCPTool = {
     required: ['type', 'scope'],
   },
   handler: async (input) => {
-    const workUnitService = new WorkUnitService(prisma);
+    const workUnitService = new WorkUnitService(undefined, fileStore);
     const workunit = await workUnitService.create({
       type: input.type,
       scope: input.scope,

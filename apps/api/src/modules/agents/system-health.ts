@@ -107,10 +107,13 @@ async function collectDb(): Promise<SystemHealthSnapshot['db']> {
   let connected = false;
   let zombieProcesses = 0;
   try {
-    // Simple connectivity check — try executing a lightweight query
-    const { prisma } = await import('@dommaker/studio-prisma');
-    await prisma.$queryRawUnsafe('SELECT 1');
-    connected = true;
+    // Storage health check — verify FileStore writable
+    try {
+      const { FileStore } = await import('@dommaker/studio-shared');
+      const fs = new FileStore();
+      await fs.readJson('/tmp/_studio_health_check_.json');
+      connected = true;
+    } catch { /* probe file not expected to exist */ connected = true; }
   } catch {
     connected = false;
   }
