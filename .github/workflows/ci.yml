@@ -25,7 +25,7 @@ jobs:
       - run: cd harness-src && pnpm install --ignore-workspace && pnpm build
       - run: pnpm install
       - run: pnpm build
-      - run: pnpm test
+      - run: pnpm test -- --no-file-parallelism
       - name: Governance
         run: npx harness check && npx harness sync-docs --check
         continue-on-error: true
