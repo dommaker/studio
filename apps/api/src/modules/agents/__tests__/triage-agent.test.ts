@@ -1,47 +1,44 @@
-// TriageAgent + MonitorAgent integration test (mocked Prisma)
+// TriageAgent + MonitorAgent integration test
 import { describe, it, expect, vi, afterAll, beforeEach } from 'vitest';
 
-// In-memory incident store for mock Prisma
-const incidentStore = new Map<string, any>();
+// In-memory incident store for mock FileStore (replaces mock Prisma)
+const incidentStore: any[] = [];
+
+const mockFileStore = {
+  appendJsonl: vi.fn((_path: string, data: any) => {
+    incidentStore.push(data);
+    return Promise.resolve();
+  }),
+  readJsonl: vi.fn(() => {
+    return Promise.resolve(incidentStore); // return reference, not copy — so updates are visible
+  }),
+  getIndex: vi.fn().mockResolvedValue([]),
+  readJson: vi.fn().mockResolvedValue(null),
+  writeJson: vi.fn().mockResolvedValue(undefined),
+};
+
+// Mock fs.promises to no-op (FileStore writeFile calls go to real fs, mocked here)
+vi.mock('fs', async () => {
+  const actual = await vi.importActual('fs') as any;
+  return {
+    ...actual,
+    promises: {
+      ...actual.promises,
+      writeFile: vi.fn().mockResolvedValue(undefined),
+      mkdir: vi.fn().mockResolvedValue(undefined),
+    },
+  };
+});
+
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    FileStore: vi.fn().mockImplementation(() => mockFileStore),
+  };
+});
 
 const mockPrisma = {
-  incident: {
-    create: vi.fn(({ data }: { data: any }) => {
-      const incident = { ...data };
-      // Prisma auto-deserializes JSON fields - simulate for triageLog
-      if (typeof incident.triageLog === 'string') {
-        try { incident.triageLog = JSON.parse(incident.triageLog); } catch { /* keep as string */ }
-      }
-      incidentStore.set(data.id, incident);
-      return incident;
-    }),
-    update: vi.fn(({ where, data }: { where: any; data: any }) => {
-      const existing = incidentStore.get(where.id);
-      if (existing) {
-        const updated = { ...existing, ...data };
-        // Prisma auto-deserializes JSON fields - simulate for triageLog
-        if (typeof updated.triageLog === 'string') {
-          try { updated.triageLog = JSON.parse(updated.triageLog); } catch { /* keep as string */ }
-        }
-        incidentStore.set(where.id, updated);
-        return updated;
-      }
-      return null;
-    }),
-    findUnique: vi.fn(({ where }: { where: any }) => {
-      const incident = incidentStore.get(where.id);
-      return incident ? { ...incident } : null;
-    }),
-    deleteMany: vi.fn(({ where }: { where?: any }) => {
-      if (where?.id) {
-        const existed = incidentStore.delete(where.id);
-        return { count: existed ? 1 : 0 };
-      }
-      const count = incidentStore.size;
-      incidentStore.clear();
-      return { count };
-    }),
-  },
   task: {
     findMany: vi.fn().mockResolvedValue([]),
   },
@@ -60,19 +57,18 @@ const mockPrisma = {
 
 vi.mock('@dommaker/studio-prisma', () => ({ prisma: mockPrisma }));
 
-// Use dynamic import after mock setup (avoids vi.mock hoisting issues)
-const { prisma } = await import('@dommaker/studio-prisma');
+// Use dynamic import after mock setup
 const { triageAgent } = await import('../triage-agent.service.js');
 const { monitorAgent } = await import('../monitor-agent.service.js');
 
 describe('TriageAgent + MonitorAgent', () => {
   beforeEach(() => {
-    incidentStore.clear();
+    incidentStore.length = 0;
     vi.clearAllMocks();
   });
 
   afterAll(async () => {
-    incidentStore.clear();
+    incidentStore.length = 0;
   });
 
   // ── systemHealthCheck ──
@@ -98,6 +94,16 @@ describe('TriageAgent + MonitorAgent', () => {
   // ── handleAlert cross-execution ──
 
   describe('TriageAgent.handleAlert()', () => {
+    // Helper: find incident from in-memory store
+    function findIncident(id: string): any {
+      return incidentStore.find((i: any) => i.id === id) || null;
+    }
+    // Helper: remove incident from in-memory store
+    function removeIncident(id: string): void {
+      const idx = incidentStore.findIndex((i: any) => i.id === id);
+      if (idx !== -1) incidentStore.splice(idx, 1);
+    }
+
     it('creates an Incident record with valid ID format', async () => {
       // Use resource_critical - avoids ACT phase (resolves immediately as minor)
       const result = await triageAgent.handleAlert({
@@ -108,14 +114,12 @@ describe('TriageAgent + MonitorAgent', () => {
 
       expect(result.incidentId).toMatch(/^I-\d{8}-/);
 
-      const incident = await prisma.incident.findUnique({
-        where: { id: result.incidentId },
-      });
+      const incident = findIncident(result.incidentId);
       expect(incident).not.toBeNull();
       expect(incident!.type).toBe('resource_critical');
       expect(incident!.severity).toBe('warning');
 
-      await prisma.incident.deleteMany({ where: { id: result.incidentId } });
+      removeIncident(result.incidentId);
     });
 
     it('reaches terminal state (resolved or escalated)', async () => {
@@ -125,9 +129,7 @@ describe('TriageAgent + MonitorAgent', () => {
         message: 'Test: disk at 91%',
       });
 
-      const incident = await prisma.incident.findUnique({
-        where: { id: result.incidentId },
-      });
+      const incident = findIncident(result.incidentId);
       expect(incident).not.toBeNull();
       expect(['resolved', 'escalated']).toContain(incident!.status);
 
@@ -138,7 +140,7 @@ describe('TriageAgent + MonitorAgent', () => {
         expect(incident!.escalatedTo).toBe('human');
       }
 
-      await prisma.incident.deleteMany({ where: { id: result.incidentId } });
+      removeIncident(result.incidentId);
     });
 
     it('writes structured triageLog as JSON array', { timeout: 30000 }, async () => {
@@ -148,11 +150,11 @@ describe('TriageAgent + MonitorAgent', () => {
         message: 'Disk at 95%',
       });
 
-      const incident = await prisma.incident.findUnique({
-        where: { id: result.incidentId },
-      });
-      // Mock Prisma auto-deserializes JSON fields - triageLog is already an array
-      const logs = incident!.triageLog as unknown as Record<string, unknown>[];
+      const incident = findIncident(result.incidentId);
+      // triageLog is stored as JSON string in jsonl; updateIncident writes it back as string
+      const logs = typeof incident!.triageLog === 'string'
+        ? JSON.parse(incident!.triageLog)
+        : incident!.triageLog;
       expect(Array.isArray(logs)).toBe(true);
       expect(logs.length).toBeGreaterThan(0);
       for (const entry of logs) {
@@ -162,7 +164,7 @@ describe('TriageAgent + MonitorAgent', () => {
         expect(entry).toHaveProperty('time');
       }
 
-      await prisma.incident.deleteMany({ where: { id: result.incidentId } });
+      removeIncident(result.incidentId);
     });
 
     it('includes diagnose and classify phases in triageLog', async () => {
@@ -172,17 +174,16 @@ describe('TriageAgent + MonitorAgent', () => {
         message: 'Disk at 93%',
       });
 
-      const incident = await prisma.incident.findUnique({
-        where: { id: result.incidentId },
-      });
-      // Mock Prisma auto-deserializes JSON fields - triageLog is already an array
-      const logs = incident!.triageLog as unknown as Record<string, unknown>[];
+      const incident = findIncident(result.incidentId);
+      const logs = typeof incident!.triageLog === 'string'
+        ? JSON.parse(incident!.triageLog)
+        : incident!.triageLog;
       const phases = logs.map((l: any) => l.phase);
       expect(phases).toContain('diagnose');
       expect(phases).toContain('classify');
       expect(phases.some((p: string) => p === 'resolve' || p === 'escalate')).toBe(true);
 
-      await prisma.incident.deleteMany({ where: { id: result.incidentId } });
+      removeIncident(result.incidentId);
     });
 
     // ── 执行级事件处理 (FL-037 Phase 1) ──
@@ -197,14 +198,12 @@ describe('TriageAgent + MonitorAgent', () => {
 
       expect(result.incidentId).toMatch(/^I-\d{8}-/);
 
-      const incident = await prisma.incident.findUnique({
-        where: { id: result.incidentId },
-      });
+      const incident = findIncident(result.incidentId);
       expect(incident).not.toBeNull();
       expect(incident!.type).toBe('execution_stuck');
       expect(['resolved', 'escalated']).toContain(incident!.status);
 
-      await prisma.incident.deleteMany({ where: { id: result.incidentId } });
+      removeIncident(result.incidentId);
     });
 
     it('handles execution_session_exhausted and escalates to human', { timeout: 30000 }, async () => {
@@ -214,14 +213,12 @@ describe('TriageAgent + MonitorAgent', () => {
         message: 'Test: 5 sessions exhausted',
       });
 
-      const incident = await prisma.incident.findUnique({
-        where: { id: result.incidentId },
-      });
+      const incident = findIncident(result.incidentId);
       expect(incident!.type).toBe('execution_session_exhausted');
       // session_exhausted has no auto-fix -> should escalate
       expect(incident!.escalatedTo).toBe('human');
 
-      await prisma.incident.deleteMany({ where: { id: result.incidentId } });
+      removeIncident(result.incidentId);
     });
   });
 

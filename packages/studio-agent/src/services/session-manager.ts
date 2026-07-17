@@ -15,7 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractResult, extractToolCalls, extractFilePath } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
@@ -100,6 +100,8 @@ export interface PrerequisiteCheck {
 
 const DEFAULT_SESSION_TIMEOUT = 30; // 分钟
 const DEFAULT_MAX_SESSIONS = 5;
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 /** 策略切换指令 — 逐级升级 */
 const STRATEGY_HINTS: Record<number, string> = {
@@ -392,28 +394,26 @@ export class AgentExecutor {
             logger.warn('[AgentExecutor] Claude Code returned error', { taskId: task.id, executionId: task.executionId, session: sessionCount, text: text.slice(0, 200) });
           }
 
-          // D4: Emit tool:call and file:change events
+          // D4: Emit tool:call and file:change events via JSONL
           // AS-021 #2: Include sessionId so session-summary-generator can correlate events
           const toolCalls = extractToolCalls(events);
           for (const tool of toolCalls) {
             try {
-              await prisma.studioEvent.create({
-                data: {
-                  type: 'tool:call',
-                  source: 'agent-executor',
-                  executionId: task.executionId,
-                  payload: JSON.stringify({ tool: tool.name, input: tool.input, sessionId }),
-                },
+              await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+                type: 'tool:call',
+                source: 'agent-executor',
+                executionId: task.executionId,
+                payload: JSON.stringify({ tool: tool.name, input: tool.input, sessionId }),
+                createdAt: new Date().toISOString(),
               });
               const filePath = extractFilePath(tool.name, tool.input);
               if (filePath) {
-                await prisma.studioEvent.create({
-                  data: {
-                    type: 'file:change',
-                    source: 'agent-executor',
-                    executionId: task.executionId,
-                    payload: JSON.stringify({ path: filePath, action: 'write', sessionId }),
-                  },
+                await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+                  type: 'file:change',
+                  source: 'agent-executor',
+                  executionId: task.executionId,
+                  payload: JSON.stringify({ path: filePath, action: 'write', sessionId }),
+                  createdAt: new Date().toISOString(),
                 });
               }
             } catch { /* non-blocking */ }
