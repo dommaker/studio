@@ -405,7 +405,6 @@ export class OKRService {
     } catch { /* no projects dir */ }
     const projects = allProjects.filter((p: any) => p.okrId === okrId)
       .map((p: any) => ({ progress: p.progress ?? 0, status: p.status }));
-    });
 
     if (projects.length === 0) {
       return 0;
