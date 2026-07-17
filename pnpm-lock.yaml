@@ -703,7 +703,7 @@ packages:
     resolution: {integrity: sha512-QxULHAm7cNu72w97JUNCBFODFaXpbDg+dP8b/oWFAZ2MTRppA3U00Y2L1HqaS4J6yBqxwa/Y3nMBaxVKbB/NsA==}
     engines: {node: '>=20.19.0'}
 
-  '@dommaker/harness@0.16.0':
+  '@dommaker/harness@0.16.1':
     resolution: {integrity: sha512-W9qNhD7bjYkKgbGSdZoDW2fL8ejLNtf/N/qpU85GUnwDykhFaU+J0UFAmypdIsw/rdZ+xm8fg+amaR9+d3+5iQ==}
     engines: {node: '>=18.0.0'}
     hasBin: true
@@ -1930,7 +1930,7 @@ packages:
 
   busboy@1.6.0:
     resolution: {integrity: sha512-8SFQbg/0hQ9xy3UNTB0YEnsNBbWfhf7RtnzpL7TkBiTBRfrQ9Fxcnz7VJsleJpyp6rVLvXiuORqjlHi5q+PYuA==}
-    engines: {node: '>=10.16.0'}
+    engines: {node: '>=10.16.1'}
 
   bytes@3.1.2:
     resolution: {integrity: sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg==}
@@ -3956,7 +3956,7 @@ snapshots:
 
   '@csstools/css-tokenizer@4.0.0': {}
 
-  '@dommaker/harness@0.16.0':
+  '@dommaker/harness@0.16.1':
     dependencies:
       chalk: 4.1.2
       commander: 12.1.0
