@@ -226,7 +226,7 @@ function buildFrontmatter(group: TopicGroup): Partial<SddFrontmatter> {
 
 // ── Main ──
 
-function main(): void {
+async function main(): Promise<void> {
   console.log(`\n=== Historical Knowledge → SDD Seed ===`);
   console.log(`Mode: ${DRY_RUN ? 'DRY RUN' : 'EXECUTE'}`);
   console.log(`Knowledge dir: ${KNOWLEDGE_DIR}`);
@@ -275,10 +275,10 @@ function main(): void {
     const fm = buildFrontmatter(group);
     const body = buildRequirementBody(group);
 
-    writeSddDoc(slug, 'requirement', fm, body);
+    await writeSddDoc(slug, 'requirement', fm, body);
     console.log(`  [OK] ${slug}/requirement.md (${group.entries.length} entries)`);
 
-    appendChangelog(slug, `Initial seed: ${group.entries.length} historical ${group.topic} entries extracted from knowledge store.`);
+    await appendChangelog(slug, `Initial seed: ${group.entries.length} historical ${group.topic} entries extracted from knowledge store.`);
     console.log(`  [OK] ${slug}/CHANGELOG.md`);
   }
 

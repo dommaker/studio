@@ -31,9 +31,9 @@ function buildEntry(meta: { status?: string; sourceChannelId?: string; createdAt
   return lines.join('\n');
 }
 
-export function patchSddChangelogs(dryRun: boolean, sddDir?: string): PatchResult[] {
+export async function patchSddChangelogs(dryRun: boolean, sddDir?: string): Promise<PatchResult[]> {
   const baseDir = sddDir || process.env.SDD_DIR || 'docs/sdd';
-  const slugs = listSddDocs();
+  const slugs = await listSddDocs();
   const results: PatchResult[] = [];
 
   for (const slug of slugs) {
@@ -52,7 +52,7 @@ export function patchSddChangelogs(dryRun: boolean, sddDir?: string): PatchResul
     }
 
     // Read requirement frontmatter
-    const doc = readSddDoc(slug, 'requirement');
+    const doc = await readSddDoc(slug, 'requirement');
     if (!doc) {
       results.push({ slug, action: 'skipped-no-requirement' });
       continue;
@@ -69,7 +69,7 @@ export function patchSddChangelogs(dryRun: boolean, sddDir?: string): PatchResul
     });
 
     if (!dryRun) {
-      appendChangelog(slug, entry);
+      await appendChangelog(slug, entry);
     }
 
     results.push({ slug, action: 'created' });

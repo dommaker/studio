@@ -131,7 +131,7 @@ async function main() {
       console.log(`[dry-run] ${slug}/requirement.md  (title="${doc.title}", id=${doc.id})`);
       written++;
     } else {
-      writeSddDoc(slug, 'requirement', frontmatter, body);
+      await writeSddDoc(slug, 'requirement', frontmatter, body);
       console.log(`[wrote] ${slug}/requirement.md`);
       written++;
     }

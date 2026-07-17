@@ -2,9 +2,9 @@
  * 通知服务
  */
 
-import { prisma } from '@dommaker/studio-prisma';
-import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
+import * as path from 'node:path';
+import * as os from 'node:os';
 
 export interface CreateNotificationInput {
   userId: string;
@@ -14,81 +14,170 @@ export interface CreateNotificationInput {
   link?: string;
 }
 
+const NOTIFICATIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'notifications.jsonl');
+
+interface NotificationRow {
+  id: string;
+  userId?: string;
+  type?: string;
+  title?: string;
+  content?: string;
+  link?: string;
+  createdAt?: string;
+  deleted?: boolean;
+  deletedAt?: string;
+}
+
 export class NotificationService {
-  constructor(private prisma: ExtendedPrismaClient) {}
+  constructor(private fileStore: FileStore) {}
 
   /**
    * 创建通知
    */
   async create(input: CreateNotificationInput) {
-    const notification = await this.prisma.notification.create({
-      data: {
-        id: this.generateId(),
-        userId: input.userId,
-        type: input.type,
-        title: input.title,
-        content: input.content,
-        link: input.link,
-      },
-    });
-    
-    logger.info(`Notification created: ${notification.id}, userId=${input.userId}, type=${input.type}`);
-    
-    return notification;
+    const entry: NotificationRow = {
+      id: this.generateId(),
+      userId: input.userId,
+      type: input.type,
+      title: input.title,
+      content: input.content,
+      link: input.link,
+      createdAt: new Date().toISOString(),
+    };
+    await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, entry);
+    logger.info(`Notification created: ${entry.id}, userId=${input.userId}, type=${input.type}`);
+    return entry;
   }
-  
+
   /**
    * 获取用户通知列表
    */
   async getUserNotifications(userId: string, options?: { unreadOnly?: boolean; limit?: number }) {
-    const where: any = { userId };
-    
-    if (options?.unreadOnly) {
-      where.read = false;
+    const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
+
+    // Group rows by id to build latest state per notification
+    const byId = new Map<string, NotificationRow[]>();
+    for (const row of rows) {
+      const existing = byId.get(row.id) || [];
+      existing.push(row);
+      byId.set(row.id, existing);
     }
-    
-    return this.prisma.notification.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      take: options?.limit || 50,
-    });
+
+    const results: Array<{
+      id: string;
+      userId: string;
+      type: string;
+      title: string;
+      content: string;
+      link: string | null;
+      createdAt: Date;
+      read: boolean;
+      readAt: Date | null;
+    }> = [];
+
+    for (const [, entries] of byId) {
+      // Latest non-deleted entry carries the notification data
+      const nonDeleted = entries.filter(e => !e.deleted);
+      if (nonDeleted.length === 0) continue;
+
+      const lastData = nonDeleted[nonDeleted.length - 1];
+      if (lastData.userId !== userId) continue;
+
+      const hasTombstone = entries.some(e => e.deleted === true);
+      const tombstone = entries.find(e => e.deleted === true);
+
+      results.push({
+        id: lastData.id,
+        userId: lastData.userId!,
+        type: lastData.type!,
+        title: lastData.title!,
+        content: lastData.content!,
+        link: lastData.link || null,
+        createdAt: new Date(lastData.createdAt!),
+        read: hasTombstone,
+        readAt: hasTombstone && tombstone?.deletedAt ? new Date(tombstone.deletedAt) : null,
+      });
+    }
+
+    // Sort by createdAt desc
+    results.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    if (options?.unreadOnly) {
+      return results.filter(r => !r.read).slice(0, options?.limit || 50);
+    }
+
+    return results.slice(0, options?.limit || 50);
   }
-  
+
   /**
-   * 标记已读
+   * 标记已读 — 追加 tombstone 行
    */
   async markAsRead(notificationId: string, userId: string) {
-    return this.prisma.notification.updateMany({
-      where: { id: notificationId, userId },
-      data: { 
-        read: true, 
-        readAt: new Date() 
-      },
+    await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, {
+      id: notificationId,
+      deleted: true,
+      deletedAt: new Date().toISOString(),
     });
   }
-  
+
   /**
    * 标记全部已读
    */
   async markAllAsRead(userId: string) {
-    return this.prisma.notification.updateMany({
-      where: { userId, read: false },
-      data: { 
-        read: true, 
-        readAt: new Date() 
-      },
-    });
+    const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
+
+    // Resolve active notifications for user
+    const byId = new Map<string, NotificationRow[]>();
+    for (const row of rows) {
+      const existing = byId.get(row.id) || [];
+      existing.push(row);
+      byId.set(row.id, existing);
+    }
+
+    const activeIds: string[] = [];
+    for (const [id, entries] of byId) {
+      const nonDeleted = entries.filter(e => !e.deleted);
+      if (nonDeleted.length === 0) continue;
+      const lastData = nonDeleted[nonDeleted.length - 1];
+      if (lastData.userId === userId) {
+        activeIds.push(id);
+      }
+    }
+
+    for (const id of activeIds) {
+      await this.fileStore.appendJsonl(NOTIFICATIONS_JSONL, {
+        id,
+        deleted: true,
+        deletedAt: new Date().toISOString(),
+      });
+    }
   }
-  
+
   /**
    * 获取未读数量
    */
-  async getUnreadCount(userId: string) {
-    return this.prisma.notification.count({
-      where: { userId, read: false },
-    });
+  async getUnreadCount(userId: string): Promise<number> {
+    const rows = await this.fileStore.readJsonl<NotificationRow>(NOTIFICATIONS_JSONL);
+
+    const byId = new Map<string, NotificationRow[]>();
+    for (const row of rows) {
+      const existing = byId.get(row.id) || [];
+      existing.push(row);
+      byId.set(row.id, existing);
+    }
+
+    let count = 0;
+    for (const [, entries] of byId) {
+      const nonDeleted = entries.filter(e => !e.deleted);
+      if (nonDeleted.length === 0) continue;
+      const lastData = nonDeleted[nonDeleted.length - 1];
+      if (lastData.userId === userId) {
+        count++;
+      }
+    }
+    return count;
   }
-  
+
   /**
    * 生成 ID
    */
@@ -98,4 +187,4 @@ export class NotificationService {
 }
 
 // 单例实例
-export const notificationService = new NotificationService(prisma as any);
+export const notificationService = new NotificationService(new FileStore());

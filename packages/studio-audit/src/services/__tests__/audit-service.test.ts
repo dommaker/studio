@@ -1,7 +1,7 @@
 // @ts-nocheck
 /**
  * AuditService 测试
- * 
+ *
  * 覆盖 7 个核心方法：
  * - log
  * - logBatch
@@ -10,31 +10,59 @@
  * - getStats
  * - cleanup
  * - export
+ *
+ * 改用 FileStore 后验证实际文件 IO：
+ * 1. mock os.homedir() 重定向到临时目录
+ * 2. 用 fs.writeFileSync 预填充 audit.jsonl
+ * 3. 验证 log() / logBatch() 写入文件内容
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterAll } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { FileStore } from '@dommaker/studio-shared';
 import { AuditService, AuditActions, AuditResources } from '../audit-service';
 
-// Mock Prisma Client
-const mockPrisma = {
-  auditLog: {
-    create: vi.fn(),
-    createMany: vi.fn(),
-    findMany: vi.fn(),
-    findUnique: vi.fn(),
-    count: vi.fn(),
-    deleteMany: vi.fn(),
-    groupBy: vi.fn(),
-  },
-  $queryRaw: vi.fn(),
-};
+// vi.hoisted 在模块导入前执行，确保 tempDir 在 audit-service.ts 评估前就存在
+const tempDir = vi.hoisted(() => {
+  const _fs = require('node:fs') as typeof import('node:fs');
+  return _fs.mkdtempSync('/tmp/audit-test-');
+});
+
+vi.mock('node:os', () => ({
+  homedir: () => tempDir,
+}));
+
+const jsonlDir = path.join(tempDir, '.studio', 'logs');
+const jsonlPath = path.join(jsonlDir, 'audit.jsonl');
+
+/** 写预填充行到 audit.jsonl */
+function writeFixture(rows: Record<string, unknown>[]): void {
+  fs.mkdirSync(jsonlDir, { recursive: true });
+  const content = rows.map(r => JSON.stringify(r)).join('\n') + '\n';
+  fs.writeFileSync(jsonlPath, content, 'utf-8');
+}
+
+/** 解析 audit.jsonl 所有行 */
+function readLines(): Record<string, unknown>[] {
+  try {
+    const content = fs.readFileSync(jsonlPath, 'utf-8');
+    return content.split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
+  } catch {
+    return [];
+  }
+}
 
 describe('AuditService', () => {
   let service: AuditService;
+  let fileStore: FileStore;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    service = new AuditService(mockPrisma as any);
+    // 清理可能存在的旧数据
+    try { fs.rmSync(jsonlDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    fileStore = new FileStore();
+    service = new AuditService(fileStore);
   });
 
   // ============================================
@@ -64,46 +92,36 @@ describe('AuditService', () => {
   // ============================================
   describe('log', () => {
     it('正常记录审计日志', async () => {
-      mockPrisma.auditLog.create.mockResolvedValue({
-        id: 'audit-123',
-        action: 'create',
-        resource: 'task',
-      });
-
-      const result = await service.log({
+      await service.log({
         action: 'create',
         resource: 'task',
         userId: 'user-1',
       });
 
-      expect(result.id).toContain('audit');
-      expect(mockPrisma.auditLog.create).toHaveBeenCalled();
+      const lines = readLines();
+      expect(lines).toHaveLength(1);
+      expect(lines[0].action).toBe('create');
+      expect(lines[0].resource).toBe('task');
+      expect(lines[0].userId).toBe('user-1');
+      expect(lines[0].id).toContain('audit_');
+      expect(lines[0].createdAt).toBeDefined();
     });
 
     it('记录失败操作', async () => {
-      mockPrisma.auditLog.create.mockResolvedValue({
-        id: 'audit-123',
-        status: 'failure',
-        errorMessage: 'Something went wrong',
-      });
-
-      const result = await service.log({
+      await service.log({
         action: 'create',
         resource: 'task',
         status: 'failure',
         errorMessage: 'Something went wrong',
       });
 
-      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({ status: 'failure' }),
-        })
-      );
+      const lines = readLines();
+      expect(lines).toHaveLength(1);
+      expect(lines[0].status).toBe('failure');
+      expect(lines[0].errorMessage).toBe('Something went wrong');
     });
 
-    it('记录变更详情', async () => {
-      mockPrisma.auditLog.create.mockResolvedValue({ id: 'audit-123' });
-
+    it('序列化 details 和 changes', async () => {
       await service.log({
         action: 'update',
         resource: 'role',
@@ -112,21 +130,20 @@ describe('AuditService', () => {
           after: { level: 2 },
           fields: ['level'],
         },
+        details: { reason: 'promotion' },
       });
 
-      // changes 字段存储为 JSON string（B0-011: String? 字段统一序列化）
-      expect(mockPrisma.auditLog.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          data: expect.objectContaining({
-            changes: JSON.stringify({
-              before: { level: 1 },
-              after: { level: 2 },
-              fields: ['level'],
-            }),
-            details: null,
-          }),
-        })
-      );
+      const lines = readLines();
+      expect(lines).toHaveLength(1);
+      // changes 字段已序列化为 JSON 字符串
+      expect(typeof lines[0].changes).toBe('string');
+      expect(JSON.parse(lines[0].changes as string)).toEqual({
+        before: { level: 1 },
+        after: { level: 2 },
+        fields: ['level'],
+      });
+      expect(typeof lines[0].details).toBe('string');
+      expect(JSON.parse(lines[0].details as string)).toEqual({ reason: 'promotion' });
     });
   });
 
@@ -135,16 +152,16 @@ describe('AuditService', () => {
   // ============================================
   describe('logBatch', () => {
     it('批量记录日志', async () => {
-      mockPrisma.auditLog.createMany.mockResolvedValue({ count: 3 });
-
-      const result = await service.logBatch([
+      const count = await service.logBatch([
         { action: 'create', resource: 'capability' },
         { action: 'update', resource: 'role' },
         { action: 'delete', resource: 'task' },
       ]);
 
-      expect(result).toBe(3);
-      expect(mockPrisma.auditLog.createMany).toHaveBeenCalled();
+      expect(count).toBe(3);
+      const lines = readLines();
+      expect(lines).toHaveLength(3);
+      expect(lines.map(l => l.action)).toEqual(['create', 'update', 'delete']);
     });
   });
 
@@ -152,59 +169,66 @@ describe('AuditService', () => {
   // AC-005: query
   // ============================================
   describe('query', () => {
-    it('查询审计日志', async () => {
-      const mockLogs = [
-        { id: 'audit-1', action: 'create' },
-        { id: 'audit-2', action: 'update' },
-      ];
-
-      mockPrisma.auditLog.findMany.mockResolvedValue(mockLogs);
-      mockPrisma.auditLog.count.mockResolvedValue(2);
+    it('全部查询返回所有行', async () => {
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', userId: 'u1', status: 'success', createdAt: new Date().toISOString() },
+        { id: 'a2', action: 'update', resource: 'role', userId: 'u2', status: 'success', createdAt: new Date().toISOString() },
+        { id: 'a3', action: 'delete', resource: 'company', userId: 'u1', status: 'failure', createdAt: new Date().toISOString() },
+      ]);
 
       const result = await service.query({});
 
-      expect(result.data.length).toBe(2);
+      expect(result.data).toHaveLength(3);
+      expect(result.total).toBe(3);
+    });
+
+    it('按 userId 过滤', async () => {
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', userId: 'u1', status: 'success', createdAt: new Date().toISOString() },
+        { id: 'a2', action: 'update', resource: 'role', userId: 'u2', status: 'success', createdAt: new Date().toISOString() },
+        { id: 'a3', action: 'delete', resource: 'company', userId: 'u1', status: 'failure', createdAt: new Date().toISOString() },
+      ]);
+
+      const result = await service.query({ userId: 'u1' });
+
+      expect(result.data).toHaveLength(2);
       expect(result.total).toBe(2);
+      result.data.forEach(r => expect(r.userId).toBe('u1'));
     });
 
-    it('按用户查询', async () => {
-      mockPrisma.auditLog.findMany.mockResolvedValue([]);
-      mockPrisma.auditLog.count.mockResolvedValue(0);
+    it('按时间范围过滤', async () => {
+      const now = Date.now();
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', userId: 'u1', status: 'success', createdAt: new Date(now - 86400000).toISOString() },  // 1 day ago
+        { id: 'a2', action: 'update', resource: 'role', userId: 'u2', status: 'success', createdAt: new Date(now - 3600000).toISOString() },   // 1 hour ago
+        { id: 'a3', action: 'delete', resource: 'company', userId: 'u1', status: 'failure', createdAt: new Date(now - 7 * 86400000).toISOString() },  // 7 days ago
+      ]);
 
-      await service.query({ userId: 'user-1' });
+      const startTime = new Date(now - 2 * 86400000);
+      const endTime = new Date(now);
+      const result = await service.query({ startTime, endTime });
 
-      expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { userId: 'user-1' } })
-      );
-    });
-
-    it('按时间范围查询', async () => {
-      mockPrisma.auditLog.findMany.mockResolvedValue([]);
-      mockPrisma.auditLog.count.mockResolvedValue(0);
-
-      const startTime = new Date('2026-01-01');
-      const endTime = new Date('2026-04-01');
-
-      await service.query({ startTime, endTime });
-
-      expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { createdAt: { gte: startTime, lte: endTime } },
-        })
-      );
+      expect(result.data).toHaveLength(2);
     });
 
     it('分页查询', async () => {
-      mockPrisma.auditLog.findMany.mockResolvedValue([]);
-      mockPrisma.auditLog.count.mockResolvedValue(100);
+      const entries = Array.from({ length: 10 }, (_, i) => ({
+        id: `a${i}`,
+        action: 'create',
+        resource: 'task',
+        userId: 'u1',
+        status: 'success',
+        createdAt: new Date(Date.now() - i * 60000).toISOString(),
+      }));
+      writeFixture(entries);
 
-      const result = await service.query({ page: 2, limit: 20 });
+      const result = await service.query({ page: 2, limit: 3 });
 
       expect(result.page).toBe(2);
-      expect(result.limit).toBe(20);
-      expect(mockPrisma.auditLog.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ skip: 20, take: 20 })
-      );
+      expect(result.limit).toBe(3);
+      // 降序排列，第 2 页取索引 3~5（0-based）
+      expect(result.data).toHaveLength(3);
+      expect(result.total).toBe(10);
     });
   });
 
@@ -212,19 +236,23 @@ describe('AuditService', () => {
   // AC-006: getById
   // ============================================
   describe('getById', () => {
-    it('获取单条日志', async () => {
-      mockPrisma.auditLog.findUnique.mockResolvedValue({
-        id: 'audit-1',
-        action: 'create',
-      });
+    it('根据 ID 获取条目', async () => {
+      writeFixture([
+        { id: 'target-id', action: 'create', resource: 'task', userId: 'u1', status: 'success', createdAt: new Date().toISOString() },
+        { id: 'other-id', action: 'update', resource: 'role', userId: 'u2', status: 'success', createdAt: new Date().toISOString() },
+      ]);
 
-      const result = await service.getById('audit-1');
+      const result = await service.getById('target-id');
 
-      expect(result?.id).toBe('audit-1');
+      expect(result).not.toBeNull();
+      expect(result!.id).toBe('target-id');
+      expect(result!.action).toBe('create');
     });
 
-    it('日志不存在返回 null', async () => {
-      mockPrisma.auditLog.findUnique.mockResolvedValue(null);
+    it('ID 不存在返回 null', async () => {
+      writeFixture([
+        { id: 'some-id', action: 'create', resource: 'task', userId: 'u1', status: 'success', createdAt: new Date().toISOString() },
+      ]);
 
       const result = await service.getById('nonexistent');
 
@@ -236,28 +264,38 @@ describe('AuditService', () => {
   // AC-007: getStats
   // ============================================
   describe('getStats', () => {
-    it('获取统计信息', async () => {
-      mockPrisma.auditLog.count.mockResolvedValue(100);
-      mockPrisma.auditLog.groupBy.mockResolvedValue([]);
-      mockPrisma.$queryRaw.mockResolvedValue([]);
+    it('计算总数 / 成功数 / 失败数', async () => {
+      const today = new Date().toISOString();
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', userId: 'u1', status: 'success', createdAt: today },
+        { id: 'a2', action: 'update', resource: 'role', userId: 'u1', status: 'success', createdAt: today },
+        { id: 'a3', action: 'delete', resource: 'task', userId: 'u1', status: 'failure', createdAt: today },
+        { id: 'a4', action: 'create', resource: 'company', userId: 'u2', status: 'failure', createdAt: today },
+        { id: 'a5', action: 'execute', resource: 'tool', userId: 'u1', status: 'success', createdAt: today },
+      ]);
 
-      const result = await service.getStats();
+      const stats = await service.getStats();
 
-      expect(result.totalLogs).toBe(100);
+      expect(stats.totalLogs).toBe(5);
+      expect(stats.successCount).toBe(3);
+      expect(stats.failureCount).toBe(2);
     });
 
-    it('统计成功和失败数', async () => {
-      mockPrisma.auditLog.count
-        .mockResolvedValueOnce(100)  // total
-        .mockResolvedValueOnce(80)   // success
-        .mockResolvedValueOnce(20);  // failure
-      mockPrisma.auditLog.groupBy.mockResolvedValue([]);
-      mockPrisma.$queryRaw.mockResolvedValue([]);
+    it('topActions / topResources / topUsers 正确聚合', async () => {
+      const today = new Date().toISOString();
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', userId: 'u1', status: 'success', createdAt: today },
+        { id: 'a2', action: 'create', resource: 'role', userId: 'u2', status: 'success', createdAt: today },
+        { id: 'a3', action: 'create', resource: 'task', userId: 'u1', status: 'success', createdAt: today },
+        { id: 'a4', action: 'update', resource: 'role', userId: 'u2', status: 'success', createdAt: today },
+        { id: 'a5', action: 'delete', resource: 'company', userId: 'u3', status: 'success', createdAt: today },
+      ]);
 
-      const result = await service.getStats();
+      const stats = await service.getStats();
 
-      expect(result.successCount).toBe(80);
-      expect(result.failureCount).toBe(20);
+      expect(stats.topActions[0]).toEqual({ action: 'create', count: 3 });
+      expect(stats.topResources[0]).toEqual({ resource: 'task', count: 2 });
+      expect(stats.topUsers[0]).toEqual({ userId: 'u1', count: 2 });
     });
   });
 
@@ -265,27 +303,36 @@ describe('AuditService', () => {
   // AC-008: cleanup
   // ============================================
   describe('cleanup', () => {
-    it('清理过期日志', async () => {
-      mockPrisma.auditLog.deleteMany.mockResolvedValue({ count: 50 });
+    it('删除超过保留天数的条目', async () => {
+      const now = Date.now();
+      writeFixture([
+        { id: 'old-1', action: 'create', resource: 'task', status: 'success', createdAt: new Date(now - 60 * 86400000).toISOString() },
+        { id: 'old-2', action: 'update', resource: 'role', status: 'success', createdAt: new Date(now - 50 * 86400000).toISOString() },
+        { id: 'recent', action: 'delete', resource: 'company', status: 'success', createdAt: new Date(now - 5 * 86400000).toISOString() },
+      ]);
 
-      const result = await service.cleanup(90);
+      const deletedCount = await service.cleanup(30);
 
-      expect(result).toBe(50);
-      expect(mockPrisma.auditLog.deleteMany).toHaveBeenCalled();
+      expect(deletedCount).toBe(2);
+
+      const remaining = readLines();
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].id).toBe('recent');
     });
 
     it('自定义保留天数', async () => {
-      mockPrisma.auditLog.deleteMany.mockResolvedValue({ count: 100 });
+      const now = Date.now();
+      writeFixture([
+        { id: 'old', action: 'create', resource: 'task', status: 'success', createdAt: new Date(now - 10 * 86400000).toISOString() },
+        { id: 'new', action: 'update', resource: 'role', status: 'success', createdAt: new Date(now - 1 * 86400000).toISOString() },
+      ]);
 
-      await service.cleanup(30);
+      const deletedCount = await service.cleanup(7);
 
-      expect(mockPrisma.auditLog.deleteMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            createdAt: expect.any(Object),
-          }),
-        })
-      );
+      expect(deletedCount).toBe(1);
+      const remaining = readLines();
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0].id).toBe('new');
     });
   });
 
@@ -293,18 +340,24 @@ describe('AuditService', () => {
   // AC-009: export
   // ============================================
   describe('export', () => {
-    it('导出审计日志', async () => {
-      const mockLogs = [
-        { id: 'audit-1' },
-        { id: 'audit-2' },
-      ];
+    it('导出过滤后的数据', async () => {
+      writeFixture([
+        { id: 'a1', action: 'create', resource: 'task', companyId: 'c1', status: 'success', createdAt: new Date().toISOString() },
+        { id: 'a2', action: 'update', resource: 'role', companyId: 'c2', status: 'success', createdAt: new Date().toISOString() },
+        { id: 'a3', action: 'delete', resource: 'company', companyId: 'c1', status: 'failure', createdAt: new Date().toISOString() },
+      ]);
 
-      mockPrisma.auditLog.findMany.mockResolvedValue(mockLogs);
-      mockPrisma.auditLog.count.mockResolvedValue(2);
+      const result = await service.export({ companyId: 'c1' });
 
-      const result = await service.export({ companyId: 'company-1' });
-
-      expect(result.length).toBe(2);
+      expect(result).toHaveLength(2);
+      result.forEach(r => expect(r.companyId).toBe('c1'));
     });
+  });
+
+  // ============================================
+  // 清理临时目录
+  // ============================================
+  afterAll(() => {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* ignore */ }
   });
 });
