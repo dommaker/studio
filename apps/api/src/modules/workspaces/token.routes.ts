@@ -120,8 +120,8 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
     return res.status(201).json({
       success: true,
       data: {
-        id: workspaceToken.id,
-        name: workspaceToken.name,
+        id: tokenData.id,
+        name: tokenData.name,
         permissions,
         token: plaintextToken, // Only returned once
       },

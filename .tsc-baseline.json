@@ -204,31 +204,11 @@
       "file": "apps/api/src/modules/knowledge/routes.ts",
       "line": 1151,
       "code": "TS2345"
-    },
-    {
-      "file": "apps/api/src/modules/pmo/okr.service.ts",
-      "line": 402,
-      "code": "TS2663"
-    },
-    {
-      "file": "apps/api/src/modules/workspaces/token.routes.ts",
-      "line": 123,
-      "code": "TS2304"
-    },
-    {
-      "file": "apps/api/src/modules/workspaces/token.routes.ts",
-      "line": 124,
-      "code": "TS2304"
-    },
-    {
-      "file": "apps/api/src/modules/workspaces/workspace.routes.ts",
-      "line": 197,
-      "code": "TS2339"
     }
   ],
   "_meta": {
-    "generated": "2026-07-17T18:23:30.442Z",
-    "totalErrors": 45,
-    "commit": "41165c6031082937a4eec720b1b3e1464346dcbe"
+    "generated": "2026-07-17T18:28:39.888Z",
+    "totalErrors": 41,
+    "commit": "1ac014a8cc94dc3ffee7f195993855be411f6e3f"
   }
 }

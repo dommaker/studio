@@ -399,7 +399,7 @@ export class OKRService {
       const entries = await fs.promises.readdir(projectsDir, { withFileTypes: true });
       for (const e of entries) {
         if (!e.isFile() || !e.name.endsWith('.json')) continue;
-        const data = await fileStore.readJson<any>(path.join(projectsDir, e.name));
+        const data = await this.fileStore.readJson<any>(path.join(projectsDir, e.name));
         if (data) allProjects.push(data);
       }
     } catch { /* no projects dir */ }

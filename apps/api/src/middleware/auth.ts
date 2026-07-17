@@ -51,6 +51,8 @@ export interface WorkspaceData {
   name: string;
   slug: string;
   status: string;
+  currentTask?: string | null;
+  lastHeartbeat?: string | null;
   createdAt: string;
   updatedAt: string;
 }
