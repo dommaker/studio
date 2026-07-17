@@ -28,6 +28,7 @@ export default defineWorkspace([
       environment: 'jsdom',
       setupFiles: ['./apps/web/src/test/setup.ts'],
     },
+    esbuild: { jsx: 'automatic' },
   },
   // apps/api 测试（排除 daemon — 需 Claude CLI + git worktree）
   {
