@@ -689,6 +689,39 @@ export class FileStore {
     const filtered = snapshots.filter(s => s.id !== id);
     await this.writeJson(this.indexPath, filtered);
   }
+
+  // ═══════════════════════
+  // Markdown 读写（Phase 1: spec-2a filestore-unification）
+  // ═══════════════════════
+
+  /**
+   * 读取 markdown 文件，解析 frontmatter + body。
+   * 文件不存在返回 null。
+   */
+  async readDoc(dir: string, key: string): Promise<{ meta: Record<string, unknown>; body: string } | null> {
+    const filePath = path.join(dir, `${key}.md`);
+    try {
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const parsed = parseFrontmatter(content);
+      // 无 frontmatter fence → 整文件视为 body，meta 为空
+      if (!parsed) return { meta: {}, body: content.trim() };
+      return parsed;
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return null;
+      throw err;
+    }
+  }
+
+  /**
+   * 写入 markdown 文件（含 YAML frontmatter）。
+   * 目录不存在时自动创建。
+   */
+  async writeDoc(dir: string, key: string, meta: Record<string, unknown>, body: string): Promise<void> {
+    await this.ensureDir(dir);
+    const filePath = path.join(dir, `${key}.md`);
+    const content = serializeFrontmatter(meta, body);
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+  }
 }
 
 // ─── 工具函数 ───
@@ -710,4 +743,65 @@ function applyFilter(snapshots: WorkUnitSnapshot[], filter?: WorkUnitFilter): Wo
     if (filter.channelId && s.channelId !== filter.channelId) return false;
     return true;
   });
+}
+
+// ─── 通用 Markdown / Frontmatter ───
+
+/**
+ * 解析 markdown 文件的 YAML frontmatter。
+ * 泛化版 parseSddFrontmatter：meta 使用 Record<string, unknown> 而非 SDD 专用类型。
+ */
+export function parseFrontmatter(content: string): { meta: Record<string, unknown>; body: string } | null {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) return null;
+
+  const yaml = match[1];
+  const body = match[2].trim();
+  const meta: Record<string, unknown> = {};
+
+  for (const line of yaml.split('\n')) {
+    const kv = line.match(/^(\w+):\s*(.+)$/);
+    if (!kv) continue;
+    const [, key, val] = kv;
+
+    // 数组：[a, b, c]
+    if (val.startsWith('[') && val.endsWith(']')) {
+      meta[key] = val.slice(1, -1)
+        .split(',')
+        .map(s => s.trim().replace(/^["']|["']$/g, ''))
+        .filter(Boolean);
+    }
+    // 数字
+    else if (/^\d+$/.test(val)) {
+      meta[key] = parseInt(val, 10);
+    }
+    // 字符串（去引号）
+    else {
+      meta[key] = val.replace(/^["']|["']$/g, '');
+    }
+  }
+
+  return { meta, body };
+}
+
+/**
+ * 序列化 meta + body 为 markdown 文件内容（含 YAML frontmatter）。
+ */
+export function serializeFrontmatter(meta: Record<string, unknown>, body: string): string {
+  const lines: string[] = [];
+
+  for (const [key, val] of Object.entries(meta)) {
+    if (val === undefined || val === null) continue;
+    if (Array.isArray(val)) {
+      if (val.length > 0) {
+        lines.push(`${key}: [${val.map(v => `"${String(v)}"`).join(', ')}]`);
+      }
+    } else if (typeof val === 'number') {
+      lines.push(`${key}: ${val}`);
+    } else {
+      lines.push(`${key}: "${String(val)}"`);
+    }
+  }
+
+  return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }

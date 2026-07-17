@@ -14,6 +14,8 @@ import os from 'node:os';
 import {
   FileStore,
   LockTimeoutError,
+  parseFrontmatter,
+  serializeFrontmatter,
   type AgentProfileData,
   type RuntimeStateData,
   type ChannelData,
@@ -443,6 +445,118 @@ describe('FileStore', () => {
         const successCount = results.filter(r => r).length;
         expect(successCount).toBe(1);
       });
+    });
+  });
+
+  describe('FileStore Markdown', () => {
+    let store: FileStore;
+    let tmpDir: string;
+
+    beforeEach(() => {
+      tmpDir = createTempDir();
+      store = new FileStore(tmpDir);
+    });
+
+    afterEach(() => {
+      if (fs.existsSync(tmpDir)) {
+        fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+
+    // ── readDoc ──
+
+    it('should read a markdown file and return parsed meta and body', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      await store.writeDoc(mdDir, 'test', { title: 'Hello', version: 1 }, 'This is the body content.');
+
+      const result = await store.readDoc(mdDir, 'test');
+      expect(result).not.toBeNull();
+      expect(result!.meta).toEqual({ title: 'Hello', version: 1 });
+      expect(result!.body).toBe('This is the body content.');
+    });
+
+    it('should return null when file does not exist', async () => {
+      const result = await store.readDoc(path.join(tmpDir, 'docs'), 'nonexistent');
+      expect(result).toBeNull();
+    });
+
+    it('should return empty meta when file has no frontmatter', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      fs.mkdirSync(mdDir, { recursive: true });
+      fs.writeFileSync(path.join(mdDir, 'nofm.md'), 'Just body content without frontmatter.');
+
+      const result = await store.readDoc(mdDir, 'nofm');
+      expect(result).not.toBeNull();
+      expect(result!.meta).toEqual({});
+      expect(result!.body).toBe('Just body content without frontmatter.');
+    });
+
+    it('should handle special characters in frontmatter', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      await store.writeDoc(mdDir, 'special', {
+        title: 'Title with "quotes" and : colons',
+        tags: ['a', 'b', 'c'],
+      }, 'body');
+
+      const result = await store.readDoc(mdDir, 'special');
+      expect(result!.meta.title).toBe('Title with "quotes" and : colons');
+      expect(result!.meta.tags).toEqual(['a', 'b', 'c']);
+    });
+
+    it('should handle multi-line array values in frontmatter', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      await store.writeDoc(mdDir, 'multi', { linkedDocIds: ['a', 'b', 'c'], tags: [] }, 'body');
+      const result = await store.readDoc(mdDir, 'multi');
+      expect(result!.meta.linkedDocIds).toEqual(['a', 'b', 'c']);
+    });
+
+    // ── writeDoc ──
+
+    it('should write a markdown file with frontmatter that roundtrips with readDoc', async () => {
+      const mdDir = path.join(tmpDir, 'docs');
+      const meta = { slug: 'my-doc', status: 'draft', version: 3 };
+      const body = '## Section\n\nContent here.';
+
+      await store.writeDoc(mdDir, 'roundtrip', meta, body);
+      const result = await store.readDoc(mdDir, 'roundtrip');
+      expect(result!.meta).toEqual(meta);
+      expect(result!.body).toBe(body);
+    });
+
+    it('should auto-create directory when writing', async () => {
+      const mdDir = path.join(tmpDir, 'nested', 'deep', 'docs');
+      await store.writeDoc(mdDir, 'autocreate', { author: 'test' }, 'auto-created dir');
+      expect(fs.existsSync(path.join(mdDir, 'autocreate.md'))).toBe(true);
+    });
+
+    // ── parseFrontmatter (pure function) ──
+
+    it('should parse valid frontmatter from content string', () => {
+      const content = '---\ntitle: "Test"\nversion: 1\n---\n\nBody text.';
+      const result = parseFrontmatter(content);
+      expect(result).not.toBeNull();
+      expect(result!.meta.title).toBe('Test');
+      expect(result!.meta.version).toBe(1);
+      expect(result!.body).toBe('Body text.');
+    });
+
+    it('should return null for content without --- fence', () => {
+      const result = parseFrontmatter('Just plain markdown, no frontmatter.');
+      expect(result).toBeNull();
+    });
+
+    // ── serializeFrontmatter (pure function) ──
+
+    it('should serialize meta and body back to parseable markdown', () => {
+      const meta = { title: 'Roundtrip Test', version: 5, tags: ['a', 'b'] };
+      const body = 'Body content.';
+      const serialized = serializeFrontmatter(meta, body);
+      const parsed = parseFrontmatter(serialized);
+      expect(parsed).not.toBeNull();
+      expect(parsed!.meta.title).toBe('Roundtrip Test');
+      expect(parsed!.meta.version).toBe(5);
+      expect(parsed!.meta.tags).toEqual(['a', 'b']);
+      expect(parsed!.body).toBe('Body content.');
     });
   });
 });
