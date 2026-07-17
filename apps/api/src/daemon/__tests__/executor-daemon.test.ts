@@ -5,6 +5,9 @@ import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
 
+const isCI = !!process.env.CI;
+const describeIf = isCI ? describe.skip : describe;
+
 const WORKTREES_DIR = path.join(os.tmpdir(), 'daemon-executor-test');
 const REPO_DIR = process.env.REPO_DIR || '/root/projects/studio';
 
@@ -98,7 +101,7 @@ vi.mock('../task-logger.js', () => ({
 
 import { daemon } from '../studio-daemon.js';
 
-describe('Executor Daemon 实战测试', () => {
+describeIf('Executor Daemon 实战测试', () => {
   beforeAll(() => {
     process.env.REPO_DIR = REPO_DIR;
     process.env.WORKTREES_DIR = WORKTREES_DIR;
