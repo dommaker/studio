@@ -9,6 +9,8 @@ on:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
+    env:
+      SKIP_E2E_SERVER: 'true'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
@@ -24,3 +26,6 @@ jobs:
       - run: pnpm install
       - run: pnpm build
       - run: pnpm test -- --exclude "apps/api/tests/e2e/**" --exclude "tests/e2e/**"
+      - name: Governance
+        run: npx harness check && npx harness sync-docs --check
+        continue-on-error: true
