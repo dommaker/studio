@@ -91,6 +91,11 @@ beforeEach(async () => {
   generatePmoNumber = mod.generatePmoNumber;
 });
 
+// ── Helper: create Dir-like objects for readdir mock ──
+function dirEnt(name: string) {
+  return { name, isFile: () => name.endsWith('.json'), isDirectory: () => false } as unknown as fs.Dirent;
+}
+
 // ── Helper: create a sample project ──
 function sampleProject(overrides: Record<string, unknown> = {}) {
   return {
@@ -146,10 +151,7 @@ describe('ProjectService — FileStore 迁移', () => {
 
     it('PMO 号递增', async () => {
       // Existing project with PM-003 → new should be PM-004
-      mockReadDir.mockResolvedValue([
-        { name: 'proj-001.json', isDirectory: () => false },
-        { name: 'proj-002.json', isDirectory: () => false },
-      ] as unknown as fs.Dirent[]);
+      mockReadDir.mockResolvedValue([dirEnt('proj-001.json'), dirEnt('proj-002.json')]);
       mockReadJson
         .mockResolvedValueOnce(sampleProject({ id: 'proj-001', pmoNumber: 'PM-001' }))
         .mockResolvedValueOnce(sampleProject({ id: 'proj-002', pmoNumber: 'PM-003' }));
@@ -188,9 +190,7 @@ describe('ProjectService — FileStore 迁移', () => {
   // ── AC-1.2: getByPmoNumber ──
   describe('getByPmoNumber', () => {
     it('按 PMO 号查找 → 找到匹配项目', async () => {
-      mockReadDir.mockResolvedValue([
-        { name: 'proj-001.json', isDirectory: () => false },
-      ] as unknown as fs.Dirent[]);
+      mockReadDir.mockResolvedValue([dirEnt('proj-001.json')]);
       mockReadJson.mockResolvedValue(sampleProject());
 
       const result = await projectService.getByPmoNumber('PM-001');
@@ -201,7 +201,7 @@ describe('ProjectService — FileStore 迁移', () => {
 
     it('PMO 号不存在 → 返回 null', async () => {
       mockReadDir.mockResolvedValue([
-        { name: 'proj-001.json', isDirectory: () => false },
+        dirEnt('proj-001.json'),
       ] as unknown as fs.Dirent[]);
       mockReadJson.mockResolvedValue(sampleProject({ pmoNumber: 'PM-002' }));
 
@@ -215,8 +215,8 @@ describe('ProjectService — FileStore 迁移', () => {
   describe('list', () => {
     it('无过滤条件 → 返回所有项目', async () => {
       mockReadDir.mockResolvedValue([
-        { name: 'proj-001.json', isDirectory: () => false, parentPath: PROJECTS_DIR },
-        { name: 'proj-002.json', isDirectory: () => false, parentPath: PROJECTS_DIR },
+        dirEnt('proj-001.json'),
+        dirEnt('proj-002.json'),
       ] as unknown as fs.Dirent[]);
       mockReadJson
         .mockResolvedValueOnce(sampleProject({ id: 'proj-001' }))
@@ -229,8 +229,8 @@ describe('ProjectService — FileStore 迁移', () => {
 
     it('按 status 过滤 → 只返回匹配项目', async () => {
       mockReadDir.mockResolvedValue([
-        { name: 'proj-001.json', isDirectory: () => false, parentPath: PROJECTS_DIR },
-        { name: 'proj-002.json', isDirectory: () => false, parentPath: PROJECTS_DIR },
+        dirEnt('proj-001.json'),
+        dirEnt('proj-002.json'),
       ] as unknown as fs.Dirent[]);
       mockReadJson
         .mockResolvedValueOnce(sampleProject({ id: 'proj-001' }))
@@ -409,8 +409,8 @@ describe('generatePmoNumber', () => {
 
   it('递增 → 返回 PM-00X', async () => {
     mockReadDir.mockResolvedValue([
-      { name: 'proj-001.json', isDirectory: () => false, parentPath: PROJECTS_DIR },
-      { name: 'proj-002.json', isDirectory: () => false, parentPath: PROJECTS_DIR },
+      dirEnt('proj-001.json'),
+      dirEnt('proj-002.json'),
     ] as unknown as fs.Dirent[]);
     mockReadJson
       .mockResolvedValueOnce(sampleProject({ id: 'proj-001', pmoNumber: 'PM-001' }))

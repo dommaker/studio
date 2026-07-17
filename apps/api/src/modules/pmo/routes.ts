@@ -24,19 +24,12 @@ const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-e
  */
 router.get('/project', async (req: Request, res: Response) => {
   try {
-    const companyId = req.query.companyId as string;
     const status = req.query.status as string | undefined;
     const priority = req.query.priority as string | undefined;
     const okrId = req.query.okrId as string | undefined;
     const limit = parseInt(req.query.limit as string) || 20;
 
-    if (!companyId) {
-      return res.status(400).json({
-        error: { code: 'MISSING_COMPANY_ID', message: 'companyId is required' },
-      });
-    }
-
-    const projects = await projectService.list(companyId, {
+    const projects = await projectService.list({
       status,
       priority,
       okrId,
@@ -60,9 +53,9 @@ router.post('/project', async (req: Request, res: Response) => {
   try {
     const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo } = req.body;
 
-    if (!companyId || !title) {
+    if (!title) {
       return res.status(400).json({
-        error: { code: 'MISSING_FIELDS', message: 'companyId and title are required' },
+        error: { code: 'MISSING_FIELDS', message: 'title is required' },
       });
     }
 
@@ -115,16 +108,9 @@ router.get('/project/:id', async (req: Request, res: Response) => {
  */
 router.get('/project/by-pmo/:pmoNumber', async (req: Request, res: Response) => {
   try {
-    const companyId = req.query.companyId as string;
     const pmoNumber = req.params.pmoNumber;
 
-    if (!companyId) {
-      return res.status(400).json({
-        error: { code: 'MISSING_COMPANY_ID', message: 'companyId is required' },
-      });
-    }
-
-    const project = await projectService.getByPmoNumber(companyId, pmoNumber);
+    const project = await projectService.getByPmoNumber(pmoNumber);
 
     if (!project) {
       return res.status(404).json({

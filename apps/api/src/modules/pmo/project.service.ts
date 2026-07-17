@@ -1,18 +1,24 @@
 /**
  * Project Service - PMO 项目管理
- * 
+ *
  * GEN-005: PMO 号生成 + 项目 CRUD
+ * Spec 3: 迁移到 FileStore (~/.studio/projects/{id}.json)
  */
 
-import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+
+const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
+
+const fileStore = new FileStore();
 
 export interface CreateProjectInput {
-  companyId: string;
+  companyId?: string;
   title: string;
   description?: string;
   requirement?: string;
@@ -20,7 +26,7 @@ export interface CreateProjectInput {
   priority?: string;
   gitBranch?: string;
   gitRepo?: string;
-  requirementsDocId?: string;  // A4: bidirectional link to RequirementsDoc
+  requirementsDocId?: string;
 }
 
 export interface UpdateProjectInput {
@@ -33,8 +39,8 @@ export interface UpdateProjectInput {
   progress?: number;
   gitBranch?: string;
   gitRepo?: string;
-  startedAt?: Date;
-  completedAt?: Date;
+  startedAt?: string | null;
+  completedAt?: string | null;
 }
 
 export interface ProjectListOptions {
@@ -45,13 +51,31 @@ export interface ProjectListOptions {
   offset?: number;
 }
 
+export interface ProjectData {
+  id: string;
+  pmoNumber: string;
+  title: string;
+  description: string | null;
+  requirement: string | null;
+  companyId: string | null;
+  okrId: string | null;
+  status: string;
+  priority: string;
+  progress: number;
+  gitBranch: string | null;
+  gitRepo: string | null;
+  specFilePath: string | null;
+  requirementsDocId: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ============================================
 // FL-018: Project 状态机
 // ============================================
 
-/**
- * Project 状态常量
- */
 export const PROJECT_STATUS = {
   PENDING: 'pending',
   ACTIVE: 'active',
@@ -62,84 +86,85 @@ export const PROJECT_STATUS = {
 
 export type ProjectStatus = typeof PROJECT_STATUS[keyof typeof PROJECT_STATUS];
 
-/**
- * 状态转换规则
- * 
- * pending → active（任务开始执行）
- * active → in_review（所有任务完成）
- * in_review → completed（PR merged）
- * * → cancelled（手动取消）
- */
 const VALID_TRANSITIONS: Record<string, string[]> = {
   [PROJECT_STATUS.PENDING]: [PROJECT_STATUS.ACTIVE, PROJECT_STATUS.CANCELLED],
   [PROJECT_STATUS.ACTIVE]: [PROJECT_STATUS.IN_REVIEW, PROJECT_STATUS.CANCELLED],
   [PROJECT_STATUS.IN_REVIEW]: [PROJECT_STATUS.COMPLETED, PROJECT_STATUS.CANCELLED],
-  [PROJECT_STATUS.COMPLETED]: [], // 终态，不可转换
-  [PROJECT_STATUS.CANCELLED]: [PROJECT_STATUS.PENDING], // 可恢复
+  [PROJECT_STATUS.COMPLETED]: [],
+  [PROJECT_STATUS.CANCELLED]: [PROJECT_STATUS.PENDING],
 };
 
-/**
- * 验证状态转换是否合法
- */
 export function validateTransition(currentStatus: string, newStatus: string): boolean {
   const allowed = VALID_TRANSITIONS[currentStatus] || [];
   return allowed.includes(newStatus);
 }
 
 // ============================================
-// PMO 号生成
+// 内部工具
 // ============================================
 
-/**
- * 生成 PMO 号（3 位数字）
- * 
- * 格式：PM-001
- * 生成规则：公司内唯一，自动递增
- */
-export async function generatePmoNumber(companyId: string): Promise<string> {
-  const latestProject = await prisma.project.findFirst({
-    where: { companyId },
-    orderBy: { createdAt: 'desc' },
-  });
+function projectPath(projectId: string): string {
+  return path.join(PROJECTS_DIR, `${projectId}.json`);
+}
 
-  let nextNumber = 1;
-  if (latestProject) {
-    const match = latestProject.pmoNumber.match(/PM-(\d+)/);
+function generateId(): string {
+  return `proj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+
+async function readAllProjects(): Promise<ProjectData[]> {
+  try {
+    const dirents = await fs.promises.readdir(PROJECTS_DIR, { withFileTypes: true });
+    const files = dirents.filter(d => d.isFile() && d.name.endsWith('.json'));
+    const projects: ProjectData[] = [];
+    for (const f of files) {
+      const data = await fileStore.readJson<ProjectData>(path.join(PROJECTS_DIR, f.name));
+      if (data) projects.push(data);
+    }
+    return projects;
+  } catch (err: unknown) {
+    if (isErrnoError(err) && err.code === 'ENOENT') return [];
+    throw err;
+  }
+}
+
+function isErrnoError(err: unknown): err is NodeJS.ErrnoException {
+  return err instanceof Error && 'code' in err;
+}
+
+// ============================================
+// PMO 号生成（全局递增）
+// ============================================
+
+export async function generatePmoNumber(): Promise<string> {
+  const projects = await readAllProjects();
+
+  let maxNum = 0;
+  for (const proj of projects) {
+    const match = proj.pmoNumber?.match(/PM-(\d+)/);
     if (match) {
-      nextNumber = parseInt(match[1]) + 1;
+      const num = parseInt(match[1]);
+      if (num > maxNum) maxNum = num;
     }
   }
 
+  const nextNumber = maxNum + 1;
   const pmoNumber = `PM-${nextNumber.toString().padStart(3, '0')}`;
-  logger.info({ companyId, pmoNumber }, 'Generated PMO number');
+  logger.info({ pmoNumber }, 'Generated PMO number');
 
   return pmoNumber;
 }
 
-/**
- * 解析 CEO 指令中的 PMO 号
- * 
- * 支持格式：
- * - @PM-001 → 关联已有项目
- * - #新项目 → 明确创建新项目
- * - 无标记 → 默认创建新项目
- */
 export function parsePmoNumberFromCommand(command: string): {
   type: 'link' | 'create' | 'auto';
   pmoNumber?: string;
 } {
-  // 检测 @PM-xxx → 关联已有项目
   const linkMatch = command.match(/@PM-(\d{3})/);
   if (linkMatch) {
     return { type: 'link', pmoNumber: `PM-${linkMatch[1]}` };
   }
-
-  // 检测 #新项目 → 明确创建新项目
   if (command.includes('#新项目')) {
     return { type: 'create' };
   }
-
-  // 无标记 → 自动创建新项目
   return { type: 'auto' };
 }
 
@@ -148,130 +173,95 @@ export function parsePmoNumberFromCommand(command: string): {
 // ============================================
 
 export const projectService = {
-  /**
-   * 创建项目（自动生成 PMO 号）
-   */
   async create(input: CreateProjectInput) {
-    const pmoNumber = await generatePmoNumber(input.companyId);
+    const pmoNumber = await generatePmoNumber();
+    const id = generateId();
+    const now = new Date().toISOString();
 
-    const project = await prisma.project.create({
-      data: {
-        pmoNumber,
-        title: input.title,
-        description: input.description,
-        requirement: input.requirement,
-        companyId: input.companyId,
-        okrId: input.okrId,
-        priority: input.priority || 'normal',
-        gitBranch: input.gitBranch,
-        gitRepo: input.gitRepo,
-        requirementsDocId: input.requirementsDocId,
-        status: 'pending',
-        progress: 0,
-      },
-      include: {
-        Company: true,
-        okr: true,  // 🔧 修复：Prisma 字段名是 okr（小写）
-      },
-    });
+    const project: ProjectData = {
+      id,
+      pmoNumber,
+      title: input.title,
+      description: input.description || null,
+      requirement: input.requirement || null,
+      companyId: input.companyId || null,
+      okrId: input.okrId || null,
+      status: 'pending',
+      priority: input.priority || 'normal',
+      progress: 0,
+      gitBranch: input.gitBranch || null,
+      gitRepo: input.gitRepo || null,
+      specFilePath: null,
+      requirementsDocId: input.requirementsDocId || null,
+      startedAt: null,
+      completedAt: null,
+      createdAt: now,
+      updatedAt: now,
+    };
 
-    logger.info({ projectId: project.id, pmoNumber }, 'Project created');
+    await fileStore.writeJson(projectPath(id), project);
+    logger.info({ projectId: id, pmoNumber }, 'Project created');
     return project;
   },
 
-  /**
-   * 获取项目详情
-   * 
-   * 🆕 FL-021: 包含 Meeting 关联（历史追溯）
-   */
-  async get(projectId: string) {
-    return prisma.project.findUnique({
-      where: { id: projectId },
-      select: {
-        id: true,
-        pmoNumber: true,
-        title: true,
-        description: true,
-        requirement: true,
-        status: true,
-        priority: true,
-        progress: true,
-        gitBranch: true,
-        gitRepo: true,
-        startedAt: true,
-        completedAt: true,
-        createdAt: true,
-        updatedAt: true,
-        Company: { select: { id: true, name: true, size: true } },
-        okr: { select: { id: true, title: true, quarter: true } },
-      },
-    });
+  async get(projectId: string): Promise<ProjectData | null> {
+    return fileStore.readJson<ProjectData>(projectPath(projectId));
   },
 
-  /**
-   * 通过 PMO 号获取项目
-   */
-  async getByPmoNumber(companyId: string, pmoNumber: string) {
-    return prisma.project.findUnique({
-      where: {
-        companyId_pmoNumber: { companyId, pmoNumber },
-      },
-      include: {
-        Company: true,
-        okr: true,
-      },
-    });
+  async getByPmoNumber(pmoNumber: string): Promise<ProjectData | null> {
+    const projects = await readAllProjects();
+    return projects.find(p => p.pmoNumber === pmoNumber) || null;
   },
 
-  /**
-   * 获取项目列表
-   */
-  async list(companyId: string, options: ProjectListOptions = {}) {
-    return prisma.project.findMany({
-      where: {
-        companyId,
-        ...(options.status && { status: options.status }),
-        ...(options.priority && { priority: options.priority }),
-        ...(options.okrId && { okrId: options.okrId }),
-      },
-      orderBy: { createdAt: 'desc' },
-      take: options.limit || 20,
-      skip: options.offset || 0,
-      include: {
-        okr: true,
-      },
-    });
+  async list(options: ProjectListOptions = {}): Promise<ProjectData[]> {
+    let projects = await readAllProjects();
+
+    if (options.status) {
+      projects = projects.filter(p => p.status === options.status);
+    }
+    if (options.priority) {
+      projects = projects.filter(p => p.priority === options.priority);
+    }
+    if (options.okrId) {
+      projects = projects.filter(p => p.okrId === options.okrId);
+    }
+
+    // Sort by createdAt desc
+    projects.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    const offset = options.offset || 0;
+    const limit = options.limit || 20;
+    return projects.slice(offset, offset + limit);
   },
 
-  /**
-   * 更新项目
-   */
-  async update(projectId: string, input: UpdateProjectInput) {
-    const project = await prisma.project.update({
-      where: { id: projectId },
-      data: input,
-      include: {
-        Company: true,
-        okr: true,
-      },
-    });
+  async update(projectId: string, input: UpdateProjectInput): Promise<ProjectData> {
+    const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
+    if (!current) {
+      throw new Error('Project not found');
+    }
 
+    const updated: ProjectData = {
+      ...current,
+      ...input,
+      id: current.id, // never change id
+      pmoNumber: current.pmoNumber, // never change PMO number
+      createdAt: current.createdAt, // preserve
+      updatedAt: new Date().toISOString(),
+    };
+
+    await fileStore.writeJson(projectPath(projectId), updated);
     logger.info({ projectId, updates: input }, 'Project updated');
-    return project;
+    return updated;
   },
 
-  /**
-   * 更新项目状态（FL-018: 状态机验证）
-   */
   async updateStatus(projectId: string, status: string, skipValidation = false) {
     const now = new Date();
-    const current = await prisma.project.findUnique({ where: { id: projectId } });
+    const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
 
     if (!current) {
       throw new Error('Project not found');
     }
 
-    // 验证状态转换是否合法
     if (!skipValidation && !validateTransition(current.status, status)) {
       logger.warn({ projectId, currentStatus: current.status, newStatus: status }, 'Invalid status transition');
       throw new Error(`Invalid status transition: ${current.status} → ${status}`);
@@ -279,12 +269,11 @@ export const projectService = {
 
     const updateData: Record<string, unknown> = { status };
 
-    // 自动更新时间戳
     if (status === PROJECT_STATUS.ACTIVE && !current.startedAt) {
-      updateData.startedAt = now;
+      updateData.startedAt = now.toISOString();
     }
     if (status === PROJECT_STATUS.COMPLETED) {
-      updateData.completedAt = now;
+      updateData.completedAt = now.toISOString();
       updateData.progress = 100;
     }
 
@@ -292,15 +281,11 @@ export const projectService = {
     return this.update(projectId, updateData);
   },
 
-  /**
-   * 尝试激活项目（pending → active）
-   * 用于任务领取/会议结束时触发
-   */
   async tryActivate(projectId: string): Promise<boolean> {
-    const current = await prisma.project.findUnique({ where: { id: projectId } });
-    
+    const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
+
     if (!current || current.status !== PROJECT_STATUS.PENDING) {
-      return false; // 不是 pending 状态，不触发
+      return false;
     }
 
     await this.updateStatus(projectId, PROJECT_STATUS.ACTIVE, true);
@@ -308,71 +293,49 @@ export const projectService = {
     return true;
   },
 
-  /**
-   * 删除项目（仅 pending/cancelled 状态）
-   */
   async delete(projectId: string) {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      select: { status: true },
-    });
+    const current = await fileStore.readJson<ProjectData>(projectPath(projectId));
 
-    if (!project) {
+    if (!current) {
       throw new Error('Project not found');
     }
 
-    if (project.status !== 'pending' && project.status !== 'cancelled') {
+    if (current.status !== 'pending' && current.status !== 'cancelled') {
       throw new Error('Can only delete pending or cancelled projects');
     }
 
-    await prisma.project.delete({
-      where: { id: projectId },
-    });
-
+    await fs.promises.unlink(projectPath(projectId));
     logger.info({ projectId }, 'Project deleted');
     return { success: true };
   },
 
-  /**
-   * 计算项目进度（基于 Task 完成比例）
-   */
   async calculateProgress(projectId: string): Promise<number> {
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-    });
-
+    const project = await fileStore.readJson<ProjectData>(projectPath(projectId));
     if (!project) {
       return 0;
     }
 
-    const [total, completed] = await Promise.all([
-      prisma.task.count({ where: { projectId } }),
-      prisma.task.count({ where: { projectId, status: 'completed' } }),
-    ]);
+    const tasksPath = path.join(PROJECTS_DIR, projectId, 'tasks.jsonl');
+    const tasks = await fileStore.readJsonl<{ status?: string }>(tasksPath);
 
-    if (total === 0) {
+    if (tasks.length === 0) {
       return project.progress;
     }
 
-    return Math.round((completed / total) * 100);
+    const completed = tasks.filter(t => t.status === 'completed').length;
+    return Math.round((completed / tasks.length) * 100);
   },
 
-  /**
-   * 发布 PMO 项目到 Channel
-   * 创建 ChannelMessage + 分析 WorkUnit，状态 pending → active
-   */
   async publish(input: { projectId: string; channelId: string }) {
     const project = await this.get(input.projectId);
     if (!project) throw new Error('Project not found');
     if (project.status !== 'pending') throw new Error('Project must be pending to publish');
 
-    // 1. 创建 ChannelMessage
     const content = `📋 ${project.pmoNumber}: ${project.title}\n\n${project.requirement || ''}`;
     const message = await channelMessageService.createHumanMessage(input.channelId, content);
     await channelMessageService.updateMessageMeta(message.id, { pmoId: project.id });
 
-    // 2. 创建分析 WorkUnit
-    const workUnitService = new WorkUnitService(prisma);
+    const workUnitService = new WorkUnitService();
     const workUnit = await workUnitService.create({
       type: 'analysis',
       scope: `分析需求 ${project.pmoNumber}: ${project.title}\n\n${project.requirement || ''}`,
@@ -380,16 +343,11 @@ export const projectService = {
       metadata: { pmoId: project.id, pmoNumber: project.pmoNumber },
     });
 
-    // 3. 更新 PMO 状态
     const updatedProject = await this.updateStatus(input.projectId, 'active');
 
     return { message, workUnit, project: updatedProject };
   },
 
-  /**
-   * 查询与 PMO 关联的 SDD 条目
-   * 读 SDD 索引文件，按 pmoNumber 过滤
-   */
   async getLinkedSDDs(projectId: string): Promise<{ sddEntries: Array<{ slug: string; pmoNumber: string; status: string; title: string; tags: string }> }> {
     const project = await this.get(projectId);
     if (!project) throw new Error('Project not found');
@@ -416,5 +374,5 @@ export const projectService = {
       });
 
     return { sddEntries: entries };
-  }
+  },
 };
