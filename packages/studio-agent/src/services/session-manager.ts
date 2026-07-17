@@ -17,7 +17,6 @@ import * as fsSync from 'fs';
 import * as os from 'os';
 import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
-import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
 
@@ -469,10 +468,24 @@ export class AgentExecutor {
 
           // RKB: 查询已知解法 — 错误模式 → Resolution 映射
           try {
-            const resolutions = await prisma.resolution.findMany({
-              where: { status: { in: ['verified', 'canonical'] } },
-              orderBy: { verifyCount: 'desc' },
-            });
+            const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+            const allKeys = await fileStore.listDocs(knowledgeDir);
+            const resKeys = allKeys.filter((k: string) => k.startsWith('resolution-'));
+            const resolutions: any[] = [];
+            for (const key of resKeys) {
+              const doc = await fileStore.readDoc(knowledgeDir, key);
+              if (doc && (doc.meta.maturity === 'verified' || doc.meta.maturity === 'canonical')) {
+                resolutions.push({
+                  id: key.replace('resolution-', ''),
+                  pattern: doc.meta.pattern || '',
+                  title: doc.meta.title || '',
+                  fix: (doc.body || '').replace(/^#.*\n/, '').replace(/^## Solution\n/, '').trim(),
+                  verifyCount: doc.meta.verifyCount || 0,
+                  status: doc.meta.maturity,
+                });
+              }
+            }
+            resolutions.sort((a: any, b: any) => (b.verifyCount || 0) - (a.verifyCount || 0));
             const matched: string[] = [];
             const lowerMsg = errMsg.toLowerCase();
             for (const r of resolutions) {

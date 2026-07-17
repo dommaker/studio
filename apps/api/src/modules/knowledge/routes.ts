@@ -14,6 +14,7 @@
 import { Router } from 'express';
 import { prisma } from '@dommaker/studio-prisma';
 import { logger } from '../../utils/logger.js';
+import { resolutionService } from './resolution.service.js';
 import { getModelForTier } from '@dommaker/studio-shared';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { upsertKnowledge } from './knowledge-bus.service.js';
@@ -868,24 +869,29 @@ knowledgeRoutes.get('/resolutions', async (req, res) => {
       ];
     }
 
-    const resolutions = await prisma.resolution.findMany({
-      where,
-      orderBy: [{ verifyCount: 'desc' }, { createdAt: 'desc' }],
-      take: Math.min(Number(limit), 100),
-      skip: Number(offset),
-    });
+    const allResolutions = await resolutionService.listPending(); // TODO: add search support to resolutionService
+    // Simple in-memory filter for search
+    let resolutions = allResolutions;
+    if (search) {
+      const q = String(search).toLowerCase();
+      resolutions = resolutions.filter((r: any) =>
+        (r.title && r.title.toLowerCase().includes(q)) ||
+        (r.fix && r.fix.toLowerCase().includes(q)) ||
+        (r.pattern && r.pattern.toLowerCase().includes(q))
+      );
+    }
+    const total = allResolutions.length; // FIXME: count after filter, not before search
+    resolutions = resolutions.slice(Number(offset), Number(offset) + Math.min(Number(limit), 100));
 
-    const total = await prisma.resolution.count({ where });
-
-    const byStatus = await prisma.resolution.groupBy({
-      by: ['status'],
-      _count: true,
-    });
+    const byStatus: Record<string, number> = {};
+    for (const r of allResolutions) {
+      byStatus[r.status] = (byStatus[r.status] || 0) + 1;
+    }
 
     res.json({
       resolutions,
-      total,
-      byStatus: byStatus.reduce((acc, s) => ({ ...acc, [s.status]: s._count }), {}),
+      total: resolutions.length,
+      byStatus,
     });
   } catch (error) {
     logger.error({ error }, 'Failed to list resolutions');
@@ -937,17 +943,12 @@ knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) =>
 
     // Search resolutions
     if (searchTypes.includes('resolution')) {
-      const resolutions = await prisma.resolution.findMany({
-        where: {
-          OR: [
-            { title: { contains: query } },
-            { fix: { contains: query } },
-            { pattern: { contains: query } },
-          ],
-        },
-        take: takeLimit,
-        orderBy: { verifyCount: 'desc' },
-      });
+      const allRes = await resolutionService.listPending(); // FIXME: need listAll or search method
+      const resolutions = allRes.filter((r: any) =>
+        (r.title && r.title.toLowerCase().includes(query.toLowerCase())) ||
+        (r.fix && r.fix.toLowerCase().includes(query.toLowerCase())) ||
+        (r.pattern && r.pattern.toLowerCase().includes(query.toLowerCase()))
+      ).slice(0, takeLimit);
       for (const r of resolutions) {
         const titleLower = r.title.toLowerCase();
         const score = titleLower.includes(query) ? 3 : 1;

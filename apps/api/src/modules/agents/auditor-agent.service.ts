@@ -17,6 +17,7 @@ import { skillStore } from '../skills/skill-store.js';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 const SYSTEM_CHANNEL_NAME = '#系统';
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), 'events', 'studio.jsonl');
 
 interface Suggestion {
   type: 'skill_weight' | 'skill_status' | 'param_tuning' | 'prompt_optimization'
@@ -682,21 +683,34 @@ export class AuditorAgent {
       // Circuit 7: OKR 达成率 (B8 OKR 驱动闭环)
       try {
         const { okrService } = await import('../pmo/okr.service.js');
-        const okrs = await prisma.oKR.findMany({ where: { status: 'active' } });
+        // Read OKR files from ~/.studio/okr/
+        const okrDir = path.join(os.homedir(), '.studio', 'okr');
+        const okrKeys = await this.fileStore.listDocs(okrDir);
+        const okrs: any[] = [];
+        for (const key of okrKeys) {
+          const doc = await this.fileStore.readDoc(okrDir, key);
+          if (doc && doc.meta.status === 'active') {
+            okrs.push({ id: doc.meta.id, meta: doc.meta, body: doc.body });
+          }
+        }
         for (const okr of okrs) {
-          const krs: any[] = typeof okr.keyResults === 'string' ? JSON.parse(okr.keyResults) : okr.keyResults;
+          const krs: any[] = typeof (okr as any).meta.keyResults === 'string' ? JSON.parse((okr as any).meta.keyResults) : ((okr as any).meta.keyResults as any[]) || [];
           for (const kr of krs) {
             if (!kr.metricType || !kr.target || kr.target <= 0) continue;
 
             const ds = okrService ? 'ok' : 'empty'; // service exists
             if (!ds) continue;
 
-            // Query KR history for trend
-            const history = await prisma.kRHistory.findMany({
-              where: { okrId: okr.id, krId: kr.id },
-              orderBy: { timestamp: 'desc' },
-              take: 7,
-            });
+            // Query KR history for trend from ~/.studio/okr/kr-history.jsonl
+            let allHistory: any[] = [];
+            try {
+              const krHistoryPath = path.join(os.homedir(), '.studio', 'okr', 'kr-history.jsonl');
+              allHistory = await this.fileStore.readJsonl<any>(krHistoryPath);
+            } catch { /* no history yet */ }
+            const history = allHistory
+              .filter((h: any) => h.okrId === okr.id && h.krId === kr.id)
+              .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+              .slice(0, 7);
 
             const latest = history[0];
             if (!latest) continue;
@@ -706,7 +720,7 @@ export class AuditorAgent {
                 type: 'circuit_fix',
                 risk: 'low',
                 agentType: 'auditor',
-                detail: `OKR "${okr.title}" KR "${kr.title}": 数据暂不可用 (metricType: ${kr.metricType})`,
+                detail: `OKR "${okr.meta.title}" KR "${kr.title}": 数据暂不可用 (metricType: ${kr.metricType})`,
               });
               continue;
             }
@@ -716,7 +730,7 @@ export class AuditorAgent {
                 type: 'circuit_fix',
                 risk: 'low',
                 agentType: 'auditor',
-                detail: `OKR "${okr.title}" KR "${kr.title}": 数据已过期`,
+                detail: `OKR "${okr.meta.title}" KR "${kr.title}": 数据已过期`,
               });
               continue;
             }
@@ -731,7 +745,7 @@ export class AuditorAgent {
                 type: 'circuit_fix',
                 risk: 'high',
                 agentType: 'auditor',
-                detail: `OKR "${okr.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，趋势${trend < 0 ? '恶化中' : '未改善'}。建议触发深度根因分析`,
+                detail: `OKR "${okr.meta.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，趋势${trend < 0 ? '恶化中' : '未改善'}。建议触发深度根因分析`,
               });
 
               // 纯代码创建 okr_proposal WorkUnit（不调 LLM）
@@ -776,7 +790,7 @@ export class AuditorAgent {
                 type: 'circuit_fix',
                 risk: 'low',
                 agentType: 'auditor',
-                detail: `OKR "${okr.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，低于目标`,
+                detail: `OKR "${okr.meta.title}" KR "${kr.title}": 达成率 ${Math.round(ratio * 100)}% (${latest.value}/${kr.target}${kr.unit || ''})，低于目标`,
               });
             }
 
@@ -787,7 +801,7 @@ export class AuditorAgent {
                 type: 'circuit_fix',
                 risk: 'low',
                 agentType: 'auditor',
-                detail: `OKR "${okr.title}" KR "${kr.title}": 当前实际 ${latest.value}${kr.unit || ''} 已超过目标 ${kr.target}${kr.unit || ''} (${Math.round(ratio * 100)}%)。建议上调 target 至 >= ${suggested}${kr.unit || ''}`,
+                detail: `OKR "${okr.meta.title}" KR "${kr.title}": 当前实际 ${latest.value}${kr.unit || ''} 已超过目标 ${kr.target}${kr.unit || ''} (${Math.round(ratio * 100)}%)。建议上调 target 至 >= ${suggested}${kr.unit || ''}`,
               });
             }
           }
@@ -843,9 +857,14 @@ export class AuditorAgent {
     try {
       // Skip if insufficient active sessions (4-week window)
       const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 3600_000);
-      const activeSessionCount = await prisma.studioEvent.count({
-        where: { type: 'session:summary', timestamp: { gte: fourWeeksAgo } },
-      });
+      // Read studio events from JSONL
+      let activeSessionCount = 0;
+      try {
+        const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        activeSessionCount = allEvents.filter(
+          (e: any) => e.type === 'session:summary' && new Date(e.timestamp).getTime() >= fourWeeksAgo.getTime()
+        ).length;
+      } catch { activeSessionCount = 0; }
 
       if (activeSessionCount < 5) {
         logger.info('[AuditorAgent] Skipping skill audit — insufficient active sessions', { activeSessionCount });
@@ -894,13 +913,15 @@ export class AuditorAgent {
 
           // skill_retire: deprecated + 0 recent usage → physical delete
           if (skill.status === 'deprecated') {
-            const recentUsage = await prisma.studioEvent.count({
-              where: {
-                type: 'skill:used',
-                timestamp: { gte: fourWeeksAgo },
-                payload: { contains: skill.id },
-              },
-            });
+            let recentUsage = 0;
+            try {
+              const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+              recentUsage = allEvents.filter(
+                (e: any) => e.type === 'skill:used'
+                  && new Date(e.timestamp).getTime() >= fourWeeksAgo.getTime()
+                  && String(e.payload || '').includes(skill.id)
+              ).length;
+            } catch { recentUsage = 0; }
             if (recentUsage === 0) {
               suggestions.push({
                 type: 'skill_status',
@@ -1482,12 +1503,14 @@ export class AuditorAgent {
 
     // 2. RKB 历史: 类似提案之前失败过?
     try {
-      const similar = await prisma.resolution.findFirst({
-        where: {
-          status: { in: ['pending', 'canonical'] },
-          fix: { contains: proposal.suggestedFix.substring(0, 50) },
-        },
-      });
+      let similar: any = null;
+      try {
+        const allRes = await knowledgeService.listResolutions?.() || [];
+        similar = allRes.find((r: any) =>
+          (r.status === 'pending' || r.status === 'canonical') &&
+          r.fix && r.fix.includes(proposal.suggestedFix.substring(0, 50))
+        ) || null;
+      } catch { /* non-blocking */ }
       if (similar && similar.status === 'pending') {
         reasons.push(`类似方案 "${similar.title}" 仍在 pending 状态，建议等待验证结果`);
       }

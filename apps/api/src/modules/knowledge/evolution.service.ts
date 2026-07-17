@@ -10,7 +10,9 @@
  */
 
 import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway } from '@dommaker/studio-shared';
+import { logger, modelGateway, FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
 import type { MaturityLevel } from '@dommaker/harness';
 import { knowledgeBus } from './knowledge-bus.service.js';
 
@@ -22,6 +24,9 @@ export interface EvolutionResult {
   newMaturity: MaturityLevel;
   reason: string;
 }
+
+const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const fileStore = new FileStore();
 
 // ─── Knowledge Evolution Service ───
 
@@ -35,9 +40,8 @@ export class KnowledgeEvolutionService {
     const results: EvolutionResult[] = [];
 
     // 获取执行记录
-    const execution = await prisma.execution.findUnique({
-      where: { id: executionId },
-    });
+    const allExecs = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    const execution = allExecs.find((e: any) => e.id === executionId) || null;
 
     if (!execution || !execution.error) return results;
 

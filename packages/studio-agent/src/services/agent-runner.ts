@@ -13,9 +13,8 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent, type ModelTier, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
+import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent, type ModelTier, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles, FileStore } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
-import { prisma } from '@dommaker/studio-prisma';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
 import { buildSpawnArgs } from '../cli-adapter.js';
@@ -73,6 +72,8 @@ export function getSessionTimeout(tier?: string): number {
 }
 
 const DEFAULT_MAX_SESSIONS = 5;
+
+const fileStore = new FileStore();
 
 /** Files excluded from mtime check (agent writes these regardless of real progress) */
 const MTIME_EXCLUDED_FILES = new Set(['.progress.json', '.agent.log']);
@@ -550,10 +551,24 @@ export class AgentRunner implements IAgentRunner {
 
           // RKB: query known resolutions
           try {
-            const resolutions = await prisma.resolution.findMany({
-              where: { status: { in: ['verified', 'canonical'] } },
-              orderBy: { verifyCount: 'desc' },
-            });
+            const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+            const allKeys = await fileStore.listDocs(knowledgeDir);
+            const resKeys = allKeys.filter((k: string) => k.startsWith('resolution-'));
+            const resolutions: any[] = [];
+            for (const key of resKeys) {
+              const doc = await fileStore.readDoc(knowledgeDir, key);
+              if (doc && (doc.meta.maturity === 'verified' || doc.meta.maturity === 'canonical')) {
+                resolutions.push({
+                  id: key.replace('resolution-', ''),
+                  pattern: doc.meta.pattern || '',
+                  title: doc.meta.title || '',
+                  fix: (doc.body || '').replace(/^#.*\n/, '').replace(/^## Solution\n/, '').trim(),
+                  verifyCount: doc.meta.verifyCount || 0,
+                  status: doc.meta.maturity,
+                });
+              }
+            }
+            resolutions.sort((a: any, b: any) => (b.verifyCount || 0) - (a.verifyCount || 0));
             const matched: string[] = [];
             const lowerMsg = errMsg.toLowerCase();
             for (const r of resolutions) {

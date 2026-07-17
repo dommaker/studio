@@ -7,10 +7,14 @@
  *
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, modelGateway, recordDecision, FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
 import { skillStore } from './skill-store.js';
 import { proposalStore } from './proposal-store.js';
+
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 export interface ExtractedSkillProposal {
   id: string;
@@ -156,12 +160,11 @@ export class SkillExtractionService {
     });
 
     // S3 Gap 3c: emit skill_created for knowledge_skill_created metric
-    prisma.studioEvent.create({
-      data: {
-        type: 'knowledge:skill_created',
-        source: 'skill-extraction',
-        payload: JSON.stringify({ skillName: proposal.name, skillId: skill.id }),
-      },
+    fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'knowledge:skill_created',
+      source: 'skill-extraction',
+      payload: JSON.stringify({ skillName: proposal.name, skillId: skill.id }),
+      createdAt: new Date().toISOString(),
     }).catch(() => {});
 
     if (autoPublish) {

@@ -1,7 +1,6 @@
 // Agent API 路由
 import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
-import { prisma } from '../../core/database.js';
 import { reviewAgent } from './review-agent.service.js';
 import { requireNotGuest, requireRole } from '../../middleware/auth.js';
 import { eventStore } from '../../core/event-store.js';
@@ -14,7 +13,7 @@ let registry: InstanceType<typeof AgentRegistry>;
 
 async function initRegistry() {
   if (!registry) {
-    registry = new AgentRegistry(prisma, eventStore);
+    registry = new AgentRegistry(eventStore);
   }
   return registry;
 }

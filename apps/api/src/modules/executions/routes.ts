@@ -1,11 +1,15 @@
 // Execution API 路由
 import { Router, Request, Response } from 'express';
-import { prisma } from '../../core/database.js';
+import { prisma } from '../../core/database.js'; // still needed for task operations
 import { eventStore } from '../../core/event-store.js';
-import { logger } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
 import * as os from 'os';
 import * as path from 'path';
+import { FileStore, logger } from '@dommaker/studio-shared';
+import * as fs from 'fs';
+
+const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const fileStore = new FileStore();
 
 const router = Router();
 
@@ -32,16 +36,15 @@ router.get('/', async (req: Request, res: Response) => {
       where.status = status;
     }
 
-    const [executions, total] = await Promise.all([
-      prisma.execution.findMany({
-        where,
-        skip: (parseInt(page as string) - 1) * parseInt(limit as string),
-        take: parseInt(limit as string),
-        orderBy: { createdAt: 'desc' },
-        include: {}
-      }),
-      prisma.execution.count({ where }),
-    ]);
+    const allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    let filtered = allRows;
+    if (status) filtered = filtered.filter((e: any) => e.status === status);
+    filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const total = filtered.length;
+    const executions = filtered.slice(
+      (parseInt(page as string) - 1) * parseInt(limit as string),
+      (parseInt(page as string) - 1) * parseInt(limit as string) + parseInt(limit as string)
+    );
 
     // 计算每个执行的进度
     const executionsWithProgress = executions.map(exec => {
@@ -101,33 +104,32 @@ router.post('/events', async (req: Request, res: Response) => {
       
       // 从 executionId（runtime UUID）查找对应的 Studio Execution
       // 由于 SQLite JSON 查询限制，改用内存过滤
-      const allExecutions = await prisma.execution.findMany({
-        where: { status: 'running' },
-        select: { id: true, parameters: true },
+      const allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+      const studioExecution = allRows.find((e: any) => {
+        const params = (typeof e.parameters === 'string' ? JSON.parse(e.parameters) : e.parameters) || {};
+        return e.status === 'running' && params.runtimeExecutionId === executionId;
       });
-      
-      const studioExecution = allExecutions.find(e => {
-        const params = e.parameters as unknown as Record<string, unknown> | null;
-        return params?.runtimeExecutionId === executionId;
-      });
-      
+
       if (studioExecution) {
-        const newStatus = eventType.includes('completed') ? 'completed' : 
+        const newStatus = eventType.includes('completed') ? 'completed' :
                          eventType.includes('failed') ? 'failed' : 'running';
-        
-        const updated = await prisma.execution.update({
-          where: { id: studioExecution.id },
-          data: {
+
+        // Update in-memory row and rewrite file
+        const idx = allRows.findIndex((e: any) => e.id === studioExecution.id);
+        if (idx !== -1) {
+          allRows[idx] = {
+            ...allRows[idx],
             status: newStatus,
-            endTime: newStatus !== 'running' ? new Date() : undefined,
-            error: error ? { message: error } as any : undefined,
-            parameters: {
-              ...((studioExecution.parameters as unknown as Record<string, unknown>) || {}),
+            endTime: newStatus !== 'running' ? new Date().toISOString() : undefined,
+            parameters: JSON.stringify({
+              ...((typeof studioExecution.parameters === 'string' ? JSON.parse(studioExecution.parameters) : studioExecution.parameters) || {}),
               outputs,
               runtimeStatus: newStatus,
-            } as any,
-          },
-        });
+            }),
+          };
+          await fs.promises.mkdir(path.dirname(EXECUTIONS_JSONL), { recursive: true });
+          await fs.promises.writeFile(EXECUTIONS_JSONL, allRows.map((r: any) => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+        }
         
         logger.info(`[Execution Sync] Updated ${studioExecution.id} to ${newStatus} (runtime event: ${eventType})`);
         
@@ -170,9 +172,8 @@ router.get('/:executionId', async (req: Request, res: Response) => {
   try {
     const { executionId } = req.params;
 
-    const execution = await prisma.execution.findUnique({
-      where: { id: executionId },
-    });
+    const allExecutions = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    const execution = allExecutions.find((e: any) => e.id === executionId) || null;
 
     if (!execution) {
       return res.status(404).json({
@@ -229,9 +230,8 @@ router.post('/:executionId/archive', async (req: Request, res: Response) => {
     const path = await import('path');
 
     // 获取执行详情
-    const execution = await prisma.execution.findUnique({
-      where: { id: executionId },
-    });
+    const allExecutions = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    const execution = allExecutions.find((e: any) => e.id === executionId) || null;
 
     if (!execution) {
       return res.status(404).json({

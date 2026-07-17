@@ -5,6 +5,12 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../../core/database.js';
 import { logger } from '../../utils/logger.js';
+import { FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
+
+const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const fileStore = new FileStore();
 
 const router = Router();
 
@@ -143,9 +149,10 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
         select: { id: true, name: true, size: true },
       }),
       // 执行中的任务数
-      prisma.execution.count({
-        where: { status: 'running' },
-      }),
+      (async () => {
+        const execs = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+        return execs.filter((e: any) => e.status === 'running').length;
+      })(),
     ]);
 
     if (!company) {
@@ -155,14 +162,11 @@ router.get('/:companyId/hall-stats', async (req: Request, res: Response) => {
     }
 
     // 今日完成任务数
-    const todayCompletedTasks = await prisma.execution.count({
-      where: {
-        status: 'completed',
-        endTime: {
-          gte: new Date(new Date().setHours(0, 0, 0, 0)),
-        },
-      },
-    });
+    const allExecs = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
+    const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
+    const todayCompletedTasks = allExecs.filter((e: any) =>
+      e.status === 'completed' && e.endTime && new Date(e.endTime) >= todayStart
+    ).length;
 
     res.json({
       data: {

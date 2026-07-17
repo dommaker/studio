@@ -8,9 +8,8 @@
  * #76: tier-based tool permission binding
  */
 
-import { prisma } from '@dommaker/studio-prisma';
 import { type SkillTier } from '@dommaker/studio-skill';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -115,6 +114,9 @@ function getOrCreateSession(sessionId: string, agentType: string): SessionSkillS
   return state;
 }
 
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
+
 // ── Service ──
 
 export class SkillLoaderService {
@@ -172,12 +174,11 @@ export class SkillLoaderService {
     state.loaded.set(skillName, loaded);
 
     // S3 Gap 3c: emit skill_used for knowledge_skill_usage_rate metric
-    prisma.studioEvent.create({
-      data: {
-        type: 'knowledge:skill_used',
-        source: 'skill-loader',
-        payload: JSON.stringify({ skillName, skillId }),
-      },
+    fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'knowledge:skill_used',
+      source: 'skill-loader',
+      payload: JSON.stringify({ skillName, skillId }),
+      createdAt: new Date().toISOString(),
     }).catch(() => {});
 
     logger.info('[SkillLoader] Loaded skill', {

@@ -9,9 +9,13 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
 import { generateSessionSummary } from './session-summary-generator.js';
+
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 const router = Router();
 
@@ -37,13 +41,13 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'type and source are required' });
     }
 
-    const event = await prisma.studioEvent.create({
-      data: {
-        type,
-        source,
-        payload: typeof payload === 'string' ? payload : JSON.stringify(payload ?? {}),
-      },
-    });
+    const event = {
+      type,
+      source,
+      payload: typeof payload === 'string' ? payload : JSON.stringify(payload ?? {}),
+      createdAt: new Date().toISOString(),
+    };
+    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, event);
 
     res.status(201).json(event);
   } catch (error: any) {
@@ -73,11 +77,17 @@ router.get('/', async (req: Request, res: Response) => {
       where.timestamp = { gte: new Date(since) };
     }
 
-    const events = await prisma.studioEvent.findMany({
-      where,
-      orderBy: { timestamp: 'desc' },
-      take: limit,
-    });
+    const allEvents = await fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+    let filtered = allEvents;
+    if (typeof type === 'string' && type) {
+      filtered = filtered.filter((e: any) => e.type === type);
+    }
+    if (typeof since === 'string' && since) {
+      const sinceDate = new Date(since);
+      filtered = filtered.filter((e: any) => new Date(e.createdAt) >= sinceDate);
+    }
+    filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const events = filtered.slice(0, limit);
 
     res.json({ events, total: events.length });
   } catch (error: any) {
@@ -119,24 +129,20 @@ router.post('/agent-events', async (req: Request, res: Response) => {
     }
 
     // Batch insert — map AgentEvent → StudioEvent
-    const created = await prisma.$transaction(
-      events.map((e) =>
-        prisma.studioEvent.create({
-          data: {
-            type: e.type,
-            source: e.agentId,
-            timestamp: new Date(e.timestamp),
-            payload: JSON.stringify({
-              sessionId: e.sessionId,
-              ...(typeof e.payload === 'object' && e.payload !== null ? e.payload : {}),
-            }),
-          },
-        })
-      )
-    );
+    for (const e of events) {
+      await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: e.type,
+        source: e.agentId,
+        payload: JSON.stringify({
+          sessionId: e.sessionId,
+          ...(typeof e.payload === 'object' && e.payload !== null ? e.payload : {}),
+        }),
+        createdAt: new Date(e.timestamp).toISOString(),
+      });
+    }
 
-    logger.info('[AgentEvents] Batch ingested', { count: created.length, agentId: events[0].agentId });
-    res.status(201).json({ ingested: created.length });
+    logger.info('[AgentEvents] Batch ingested', { count: events.length, agentId: events[0].agentId });
+    res.status(201).json({ ingested: events.length });
 
     // B9-015: fire-and-forget session:summary generation on session:end
     const sessionEndEvents = events.filter((e) => e.type === 'session:end');

@@ -462,18 +462,19 @@ export class OpsAgent {
    */
   private async emitProxyRestartExhaustedAlert(synSentCount: number): Promise<void> {
     try {
-      await prisma.studioEvent.create({
-        data: {
-          type: 'proxy_restart_exhausted',
-          source: 'ops-agent',
-          payload: JSON.stringify({
-            proxyPort: 1080,
-            synSentCount,
-            restartsThisHour: this.proxyRestartCount,
-            windowStart: new Date(this.proxyRestartWindowStart).toISOString(),
-            timestamp: Date.now(),
-          }),
-        },
+      const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+      const fs = new FileStore();
+      await fs.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: 'proxy_restart_exhausted',
+        source: 'ops-agent',
+        payload: JSON.stringify({
+          proxyPort: 1080,
+          synSentCount,
+          restartsThisHour: this.proxyRestartCount,
+          windowStart: new Date(this.proxyRestartWindowStart).toISOString(),
+          timestamp: Date.now(),
+        }),
+        createdAt: new Date().toISOString(),
       });
     } catch (e) {
       logger.warn('[OpsAgent] Failed to emit proxy alert', { error: String(e) });

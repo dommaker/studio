@@ -5,9 +5,13 @@
  * Aggregates same-session events → session:summary with filesChanged, toolsUsed, patternType.
  */
 
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
 import { skillStore } from '../skills/skill-store.js';
+
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 type PatternType =
   | 'ci_fix'
@@ -41,12 +45,10 @@ interface SessionSummary {
 export async function generateSessionSummary(sessionId: string): Promise<SessionSummary | null> {
   try {
     // Fetch all events for this session
-    const events = await prisma.studioEvent.findMany({
-      where: {
-        payload: { contains: sessionId },
-      },
-      orderBy: { timestamp: 'asc' },
-    });
+    const allEvents = await fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+    const events = allEvents
+      .filter((e: any) => e.payload && typeof e.payload === 'string' && e.payload.includes(sessionId))
+      .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
     if (events.length === 0) return null;
 
@@ -94,7 +96,7 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
     // Duration from session:start/end timestamps
     let durationMs: number | undefined;
     if (startEvent && endEvent) {
-      durationMs = endEvent.timestamp.getTime() - startEvent.timestamp.getTime();
+      durationMs = new Date(endEvent.createdAt).getTime() - new Date(startEvent.createdAt).getTime();
     }
 
     // Classify patternType
@@ -111,12 +113,11 @@ export async function generateSessionSummary(sessionId: string): Promise<Session
     };
 
     // Store as StudioEvent
-    await prisma.studioEvent.create({
-      data: {
-        type: 'session:summary',
-        source: agentId,
-        payload: JSON.stringify(summary),
-      },
+    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'session:summary',
+      source: agentId,
+      payload: JSON.stringify(summary),
+      createdAt: new Date().toISOString(),
     });
 
     logger.info('[SessionSummary] Generated', {
@@ -212,13 +213,12 @@ async function suggestSkillForPattern(patternType: PatternType, toolsUsed: strin
   if (patternType === 'unknown') return;
 
   // Count recent sessions of this pattern type
-  const recentSummaries = await prisma.studioEvent.count({
-    where: {
-      type: 'session:summary',
-      payload: { contains: `"patternType":"${patternType}"` },
-      timestamp: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
-    },
-  });
+  const allSummariesEvents = await fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+  const recentSummaries = allSummariesEvents.filter((e: any) =>
+    e.type === 'session:summary' &&
+    typeof e.payload === 'string' && e.payload.includes(`"patternType":"${patternType}"`) &&
+    new Date(e.createdAt).getTime() >= Date.now() - 30 * 24 * 60 * 60 * 1000
+  ).length;
 
   if (recentSummaries < 3) return; // Not recurring enough
 

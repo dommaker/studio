@@ -29,6 +29,7 @@ const CHECK_INTERVAL = 5 * 60_000; // 5 min
 const FAILURE_THRESHOLD = 3;
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 const HEARTBEAT_FILE = path.join(os.homedir(), '.studio', 'heartbeats.json');
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), 'events', 'studio.jsonl');
 
 // NA Step 7: 告警阈值
 const PROGRESS_STAGNATION_WARN = 3;  // 连续 3 次无进展 → Level 1
@@ -515,12 +516,18 @@ export class MonitorAgent {
     const alerts: MonitorAlert[] = [];
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'deploy_push_failed', timestamp: { gte: oneHourAgo } },
-        select: { id: true, payload: true, timestamp: true },
-        orderBy: { timestamp: 'desc' },
-        take: 5,
-      });
+      let events: Array<{ payload: string | null; timestamp: Date }> = [];
+      try {
+        const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        events = allEvents
+          .filter((e: any) => e.type === 'deploy_push_failed' && e.timestamp && new Date(e.timestamp).getTime() >= oneHourAgo.getTime())
+          .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          .slice(0, 5)
+          .map((e: any) => ({
+            payload: typeof e.payload === 'string' ? e.payload : JSON.stringify(e.payload),
+            timestamp: new Date(e.timestamp),
+          }));
+      } catch { /* no events file */ }
       for (const event of events) {
         let details: any = {};
         try { details = JSON.parse(event.payload || '{}'); } catch {}
@@ -528,7 +535,7 @@ export class MonitorAgent {
           source: 'deploy_push_failed',
           level: 'critical',
           message: `Deploy push failed: ${details.error || 'unknown error'} (branch: ${details.branch || '?'})`,
-          timestamp: new Date(event.timestamp).getTime(),
+          timestamp: event.timestamp.getTime(),
         });
       }
     } catch (e) {
@@ -545,12 +552,18 @@ export class MonitorAgent {
     const alerts: MonitorAlert[] = [];
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'proxy_restart_exhausted', timestamp: { gte: oneHourAgo } },
-        select: { id: true, payload: true, timestamp: true },
-        orderBy: { timestamp: 'desc' },
-        take: 3,
-      });
+      let events: Array<{ payload: string | null; timestamp: Date }> = [];
+      try {
+        const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        events = allEvents
+          .filter((e: any) => e.type === 'proxy_restart_exhausted' && e.timestamp && new Date(e.timestamp).getTime() >= oneHourAgo.getTime())
+          .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+          .slice(0, 3)
+          .map((e: any) => ({
+            payload: typeof e.payload === 'string' ? e.payload : JSON.stringify(e.payload),
+            timestamp: new Date(e.timestamp),
+          }));
+      } catch { /* no events file */ }
       for (const event of events) {
         let details: any = {};
         try { details = JSON.parse(event.payload || '{}'); } catch {}
@@ -1093,13 +1106,13 @@ export class MonitorAgent {
         }
       } catch { lines.push('### 会话活动\n(数据源不可用)'); }
 
-      // 1b. Pattern detection (7-day window, from StudioEvent session:summary)
+      // 1b. Pattern detection (7-day window, from studio.jsonl session:summary)
       try {
         const weekAgo = new Date(now - 7 * 24 * 3600_000);
-        const summaryEvents = await prisma.studioEvent.findMany({
-          where: { type: 'session:summary', timestamp: { gte: weekAgo } },
-          select: { payload: true },
-        });
+        const allStudioEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        const summaryEvents = allStudioEvents
+          .filter((e: any) => e.type === 'session:summary' && e.timestamp && new Date(e.timestamp).getTime() >= weekAgo.getTime())
+          .map((e: any) => ({ payload: e.payload || null }));
 
         if (summaryEvents.length >= 5) {
           const typeCounts: Record<string, { count: number; successCount: number }> = {};
@@ -1138,12 +1151,12 @@ export class MonitorAgent {
             lastSeen: today,
           }));
 
-          prisma.studioEvent.create({
-            data: {
-              type: 'pattern_report',
-              source: 'monitor',
-              payload: JSON.stringify({ distribution, recurring: recurringData, date: today }),
-            },
+          this.fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+            type: 'pattern_report',
+            source: 'monitor',
+            payload: JSON.stringify({ distribution, recurring: recurringData, date: today }),
+            timestamp: new Date().toISOString(),
+            precipitated: false,
           }).catch((e: any) => { logger.warn('[MonitorAgent] pattern_report event failed', { error: String(e) }); });
 
           preferenceObserver.updateFromPatternReport(distribution, recurringData).catch((e) => {
@@ -1180,14 +1193,13 @@ export class MonitorAgent {
 
       // 4b. Knowledge consumption hit rate (24h)
       try {
-        const consumptionEvents = await prisma.studioEvent.findMany({
-          where: { type: 'knowledge:consumption', timestamp: { gte: since } },
-          select: { source: true, payload: true },
-        });
-        const searchHitEvents = await prisma.studioEvent.findMany({
-          where: { type: 'knowledge:search_hit', timestamp: { gte: since } },
-          select: { payload: true },
-        });
+        const allStudioEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        const consumptionEvents = allStudioEvents
+          .filter((e: any) => e.type === 'knowledge:consumption' && e.timestamp && new Date(e.timestamp).getTime() >= since.getTime())
+          .map((e: any) => ({ source: e.source || '', payload: e.payload || null }));
+        const searchHitEvents = allStudioEvents
+          .filter((e: any) => e.type === 'knowledge:search_hit' && e.timestamp && new Date(e.timestamp).getTime() >= since.getTime())
+          .map((e: any) => ({ payload: e.payload || null }));
 
         if (consumptionEvents.length > 0 || searchHitEvents.length > 0) {
           lines.push('', '### 知识消费（24h）');
@@ -1309,11 +1321,11 @@ export class MonitorAgent {
       if (new Date(now).getDay() === 0) {
         try {
           const weekAgoForProfile = new Date(now - 7 * 24 * 3600_000);
-          const weeklyEvents = await prisma.studioEvent.findMany({
-            where: { type: { in: ['pattern_report', 'workflow_report'] }, timestamp: { gte: weekAgoForProfile } },
-            select: { payload: true },
-            orderBy: { timestamp: 'desc' },
-          });
+          const allStudioEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+          const weeklyEvents = allStudioEvents
+            .filter((e: any) => ['pattern_report', 'workflow_report'].includes(e.type) && e.timestamp && new Date(e.timestamp).getTime() >= weekAgoForProfile.getTime())
+            .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+            .map((e: any) => ({ payload: e.payload || null }));
 
           if (weeklyEvents.length > 0) {
             const merged: Record<string, number> = {};
@@ -1358,12 +1370,12 @@ export class MonitorAgent {
       } catch (e: any) { logger.warn('[MonitorAgent] DailyReflection channel post failed', { error: String(e) }); }
 
       // G30: Record daily reflection event
-      prisma.studioEvent.create({
-        data: {
-          type: 'daily_reflection',
-          source: 'monitor',
-          payload: JSON.stringify({ date: today, summaryLength: content.length }),
-        },
+      this.fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: 'daily_reflection',
+        source: 'monitor',
+        payload: JSON.stringify({ date: today, summaryLength: content.length }),
+        timestamp: new Date().toISOString(),
+        precipitated: false,
       }).catch((e: any) => { logger.warn('[MonitorAgent] StudioEvent failed', { error: String(e) }); });
 
       // Discord alert (fire-and-forget, channel configured via DISCORD_DAILY_CHANNEL)
@@ -1390,10 +1402,10 @@ export class MonitorAgent {
   async observePattern(): Promise<{ distribution: Record<string, number>; recurring: Array<{ type: string; count: number; successRate: number }> } | null> {
     try {
       const weekAgo = new Date(Date.now() - 7 * 24 * 3600_000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'session:summary', timestamp: { gte: weekAgo } },
-        select: { payload: true },
-      });
+      const allStudioEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+      const events = allStudioEvents
+        .filter((e: any) => e.type === 'session:summary' && e.timestamp && new Date(e.timestamp).getTime() >= weekAgo.getTime())
+        .map((e: any) => ({ payload: e.payload || null }));
       if (events.length < 3) return null;
 
       const typeCounts: Record<string, { count: number; successCount: number }> = {};
@@ -1415,12 +1427,12 @@ export class MonitorAgent {
         .map(([pt, s]) => ({ type: pt, count: s.count, successRate: Math.round((s.successCount / s.count) * 100) / 100 }));
 
       const today = new Date().toISOString().split('T')[0];
-      await prisma.studioEvent.create({
-        data: {
-          type: 'pattern_report',
-          source: 'monitor',
-          payload: JSON.stringify({ distribution, recurring, date: today }),
-        },
+      await this.fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: 'pattern_report',
+        source: 'monitor',
+        payload: JSON.stringify({ distribution, recurring, date: today }),
+        timestamp: new Date().toISOString(),
+        precipitated: false,
       });
 
       await preferenceObserver.updateFromPatternReport(distribution, recurring.map(r => ({ ...r, lastSeen: today })));
@@ -1462,35 +1474,36 @@ export class MonitorAgent {
     try {
       const cutoff = new Date(Date.now() - 7 * 24 * 3600_000);
       const oldCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
-      // 只处理 7d~30d 之间的未沉淀事件（<7d 留给 dailyReflection，>30d 即将清理）
-      const events = await prisma.studioEvent.findMany({
-        where: {
-          precipitated: false,
-          timestamp: { gte: oldCutoff, lt: cutoff },
-        },
-        orderBy: { timestamp: 'asc' },
-        take: 200,
-      });
-      if (events.length === 0) {
+
+      const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+      const unmarked = allEvents.filter((e: any) =>
+        !e.precipitated
+        && e.timestamp
+        && new Date(e.timestamp).getTime() >= oldCutoff.getTime()
+        && new Date(e.timestamp).getTime() < cutoff.getTime()
+      );
+
+      if (unmarked.length === 0) {
         logger.info('[MonitorAgent] Precipitate: no unprompted StudioEvents');
         return true;
       }
 
-      // 按 type 聚合
-      const byType: Record<string, typeof events> = {};
-      for (const e of events) {
-        const key = e.type || 'unknown';
-        if (!byType[key]) byType[key] = [];
-        byType[key].push(e);
-      }
-
-      // 标记已沉淀
-      const ids = events.map(e => e.id);
-      await prisma.studioEvent.updateMany({
-        where: { id: { in: ids } },
-        data: { precipitated: true },
+      // Mark as precipitated in the JSONL file
+      const updatedEvents = allEvents.map((e: any) => {
+        const isMatch = !e.precipitated
+          && e.timestamp
+          && new Date(e.timestamp).getTime() >= oldCutoff.getTime()
+          && new Date(e.timestamp).getTime() < cutoff.getTime();
+        return isMatch ? { ...e, precipitated: true } : e;
       });
-      logger.info('[MonitorAgent] Precipitate StudioEvent: marked', { count: ids.length });
+
+      await fs.promises.writeFile(
+        STUDIO_EVENTS_JSONL,
+        updatedEvents.map((e: any) => JSON.stringify(e)).join('\n') + '\n',
+        'utf-8',
+      );
+
+      logger.info('[MonitorAgent] Precipitate StudioEvent: marked', { count: unmarked.length });
       return true;
     } catch (e) {
       logger.warn('[MonitorAgent] Precipitate StudioEvent failed', { error: String(e) });
@@ -1640,10 +1653,17 @@ export class MonitorAgent {
       if (gate.studioEvent !== false) {
         try {
           const eventCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
-          const deleted = await prisma.studioEvent.deleteMany({
-            where: { precipitated: true, timestamp: { lt: eventCutoff } },
-          });
-          logger.info('[MonitorAgent] TTL: StudioEvent cleaned', { deleted: deleted.count });
+          const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+          const filtered = allEvents.filter((e: any) =>
+            !(e.precipitated && e.timestamp && new Date(e.timestamp).getTime() < eventCutoff.getTime())
+          );
+          await fs.promises.writeFile(
+            STUDIO_EVENTS_JSONL,
+            filtered.map((e: any) => JSON.stringify(e)).join('\n') + '\n',
+            'utf-8',
+          );
+          const deleted = allEvents.length - filtered.length;
+          logger.info('[MonitorAgent] TTL: StudioEvent cleaned', { deleted });
         } catch (e) {
           logger.warn('[MonitorAgent] TTL: StudioEvent cleanup failed', { error: String(e) });
         }
