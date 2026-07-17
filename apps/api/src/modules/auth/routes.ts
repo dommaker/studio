@@ -12,11 +12,11 @@ import {
 import * as authService from "./service.js";
 import { sendPasswordResetEmail } from "./email.service.js";
 import { AuditService } from "@dommaker/studio-audit"; // 🆕 SEC-010
+import { FileStore, logger } from "@dommaker/studio-shared";
 import { prisma } from "../../core/database.js";
-import { logger } from "@dommaker/studio-shared";
 
 const router = Router();
-const auditService = new AuditService(prisma); // 🆕 SEC-010
+const auditService = new AuditService(new FileStore()); // 🆕 SEC-010
 
 /**
  * POST /api/v1/auth/guest-session

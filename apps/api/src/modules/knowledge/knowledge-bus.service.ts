@@ -22,11 +22,13 @@
 import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeSubsystem, DecisionRecord } from '@dommaker/harness';
-import { prisma } from '@dommaker/studio-prisma';
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
+
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 // KE-002 P0: unified absolute path for knowledge storage
 export const UNIFIED_KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowledge');
@@ -72,12 +74,11 @@ export const sharedLinter = new KnowledgeLinter(sharedStore, new ReferenceTracke
 // Cast needed: onReference added in harness 0.13.4+, npm version may lag
 let _consumptionCallbackRegistered = false;
 (sharedLifecycle as any).onReference?.((event: { entryId: string; contributor: string; timestamp: string }) => {
-  prisma.studioEvent.create({
-    data: {
-      type: 'knowledge:consumption',
-      source: event.contributor,
-      payload: JSON.stringify({ entryId: event.entryId, timestamp: event.timestamp }),
-    },
+  fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+    type: 'knowledge:consumption',
+    source: event.contributor,
+    payload: JSON.stringify({ entryId: event.entryId, timestamp: event.timestamp }),
+    createdAt: new Date().toISOString(),
   }).catch((e: any) => {
     logger.warn('[KnowledgeBus] consumption event failed', { error: String(e) });
   });
@@ -95,14 +96,14 @@ export async function verifyConsumptionChain(): Promise<boolean> {
   try {
     if (!_consumptionCallbackRegistered) return false;
     // Write a probe event directly to confirm DB is writable
-    const probe = await prisma.studioEvent.create({
-      data: {
-        type: 'knowledge:probe',
-        source: 'startup',
-        payload: JSON.stringify({ ts: Date.now(), purpose: 'chain-integrity-check' }),
-      },
+    const probeId = `probe_${Date.now()}`;
+    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      type: 'knowledge:probe',
+      source: 'startup',
+      payload: JSON.stringify({ ts: Date.now(), purpose: 'chain-integrity-check' }),
+      createdAt: new Date().toISOString(),
     });
-    logger.info('[KnowledgeBus] Consumption chain probe OK', { probeId: probe.id });
+    logger.info('[KnowledgeBus] Consumption chain probe OK', { probeId });
     return true;
   } catch (e: any) {
     logger.error('[KnowledgeBus] Consumption chain probe FAILED', { error: String(e) });
@@ -150,12 +151,11 @@ export class KnowledgeBus {
         if (!content.includes('root_cause') || !content.includes('fix_action')) {
           const msg = 'Triage entry must include root_cause and fix_action';
           logger.warn(`[KnowledgeBus] ${msg}`, { title: entry.title });
-          prisma.studioEvent.create({
-            data: {
-              type: 'knowledge:quality_gate',
-              source: 'knowledge-bus',
-              payload: JSON.stringify({ skipped: true, reason: msg, entryType: entry.type }),
-            },
+          fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+            type: 'knowledge:quality_gate',
+            source: 'knowledge-bus',
+            payload: JSON.stringify({ skipped: true, reason: msg, entryType: entry.type }),
+            createdAt: new Date().toISOString(),
           }).catch(() => {});
           throw new Error(msg);
         }
@@ -167,12 +167,11 @@ export class KnowledgeBus {
       const blockers = issues.filter(i => i.severity === 'high');
       if (blockers.length > 0) {
         logger.warn('[KnowledgeBus] Entry rejected by quality gate', { title: entry.title, issues: blockers.map(i => i.description) });
-        prisma.studioEvent.create({
-          data: {
-            type: 'knowledge:quality_gate',
-            source: 'knowledge-bus',
-            payload: JSON.stringify({ skipped: true, reason: blockers.map(i => i.description).join('; '), entryType: entry.type }),
-          },
+        fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+          type: 'knowledge:quality_gate',
+          source: 'knowledge-bus',
+          payload: JSON.stringify({ skipped: true, reason: blockers.map(i => i.description).join('; '), entryType: entry.type }),
+          createdAt: new Date().toISOString(),
         }).catch(() => {});
         return;
       }
@@ -199,12 +198,11 @@ export class KnowledgeBus {
       }
 
       // S3 Gap 3d: emit entry_created for knowledge_growth_rate metric
-      prisma.studioEvent.create({
-        data: {
-          type: 'knowledge:entry_created',
-          source: 'knowledge-bus',
-          payload: JSON.stringify({ entryType: entry.type, title: entry.title }),
-        },
+      fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: 'knowledge:entry_created',
+        source: 'knowledge-bus',
+        payload: JSON.stringify({ entryType: entry.type, title: entry.title }),
+        createdAt: new Date().toISOString(),
       }).catch(() => {});
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to record pattern', { error: String(e) });
@@ -482,17 +480,16 @@ export class KnowledgeBus {
       // D6 flywheel: record search hit rate with scores
       if (scored.length > 0) {
         const avgScore = scored.reduce((s, r) => s + r.score, 0) / scored.length;
-        prisma.studioEvent.create({
-          data: {
-            type: 'knowledge:search_hit',
-            source: 'search',
-            payload: JSON.stringify({
-              query: query.slice(0, 200),
-              hitCount: scored.length,
-              avgScore: Math.round(avgScore * 100) / 100,
-              entryIds: scored.map(r => r.id),
-            }),
-          },
+        fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+          type: 'knowledge:search_hit',
+          source: 'search',
+          payload: JSON.stringify({
+            query: query.slice(0, 200),
+            hitCount: scored.length,
+            avgScore: Math.round(avgScore * 100) / 100,
+            entryIds: scored.map(r => r.id),
+          }),
+          createdAt: new Date().toISOString(),
         }).catch((e: any) => {
           logger.warn('[KnowledgeBus] search_hit event failed', { error: String(e) });
         });

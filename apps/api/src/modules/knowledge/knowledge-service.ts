@@ -26,7 +26,7 @@ import type {
   MaturityLevel,
   KnowledgeSubsystem,
 } from '@dommaker/harness';
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-bus.service.js';
 import { execFile } from 'child_process';
@@ -58,6 +58,8 @@ const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
 // ── Data layer: trends directory ──
 
 const DATA_TRENDS_DIR = path.join(os.homedir(), '.studio', 'data', 'trends');
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const fileStore = new FileStore();
 
 /**
  * 写入趋势数据到 data/trends/ 目录。
@@ -373,11 +375,10 @@ export class KnowledgeService {
 
     // B59-002: persist to StudioEvent for OKR queryKnowledgeQualityGatePassRate
     try {
-      await this.prisma.studioEvent.create({
-        data: {
-          type: 'extractFromExecution',
-          payload: JSON.stringify({ agentType: result.agentType, success: result.success }),
-        },
+      await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: 'extractFromExecution',
+        payload: JSON.stringify({ agentType: result.agentType, success: result.success }),
+        createdAt: new Date().toISOString(),
       });
     } catch (e) {
       logger.warn('[KnowledgeService] Failed to persist extractFromExecution event', { error: String(e) });
@@ -822,12 +823,11 @@ export class KnowledgeService {
 
     // O2-KR1: 发射 consumption 事件供 OKR metric 采集
     if (entryIds.length > 0) {
-      this.prisma.studioEvent.create({
-        data: {
-          type: 'knowledge:consumption',
-          source: context,
-          payload: JSON.stringify({ entryIds, count: entryIds.length }),
-        },
+      fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: 'knowledge:consumption',
+        source: context,
+        payload: JSON.stringify({ entryIds, count: entryIds.length }),
+        createdAt: new Date().toISOString(),
       }).catch(() => {});
     }
   }
@@ -835,19 +835,18 @@ export class KnowledgeService {
   async recordOutcome(outcome: ExecutionOutcome): Promise<void> {
     // Close the feedback loop: record execution outcome as StudioEvent
     try {
-      await this.prisma.studioEvent.create({
-        data: {
-          type: `knowledge:outcome:${outcome.success ? 'success' : 'failure'}`,
-          source: outcome.agentType,
-          payload: JSON.stringify({
-            executionId: outcome.executionId,
-            agentType: outcome.agentType,
-            success: outcome.success,
-            details: outcome.details?.slice(0, 500),
-            consumedKnowledge: outcome.consumedKnowledge,
-            mode: outcome.mode,
-          }),
-        },
+      await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+        type: `knowledge:outcome:${outcome.success ? 'success' : 'failure'}`,
+        source: outcome.agentType,
+        payload: JSON.stringify({
+          executionId: outcome.executionId,
+          agentType: outcome.agentType,
+          success: outcome.success,
+          details: outcome.details?.slice(0, 500),
+          consumedKnowledge: outcome.consumedKnowledge,
+          mode: outcome.mode,
+        }),
+        createdAt: new Date().toISOString(),
       });
     } catch { /* non-blocking */ }
 
