@@ -1,13 +1,14 @@
 /**
- * UnifiedQuery — dual-store unified query tests
- * Phase 2: Prisma (structured) + KnowledgeStore (narrative) → single query entry
+ * UnifiedQuery - dual-store unified query tests
+ * Phase 2: Prisma (structured) + KnowledgeStore (narrative) -> single query entry
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Mock Prisma
+// Mock Prisma - only environmentSnapshot is still read from Prisma by the SUT.
+// UserPreference and BusinessRule are now read from KnowledgeStore.
 const mockPrisma = {
   userPreference: { findFirst: vi.fn() },
   businessRule: { findMany: vi.fn(), count: vi.fn() },
@@ -25,6 +26,52 @@ vi.mock('../knowledge-bus.service.js', () => ({
 const { UnifiedQuery } = await import('../unified-query.js');
 const { FileKnowledgeStore } = await import('@dommaker/harness');
 
+// ── Helpers: write preference/rule data to KnowledgeStore ──
+
+function savePreference(store: any, pref: Record<string, unknown>) {
+  store.save({
+    id: `pref-${Math.random().toString(36).slice(2, 8)}`,
+    type: 'guideline',
+    title: '用户偏好',
+    content: JSON.stringify(pref),
+    maturity: 'active',
+    layer: 'system',
+    created: '2026-06-04T00:00:00Z',
+    lastReferenced: '2026-06-04T00:00:00Z',
+    contributors: [],
+    projects: [],
+    tags: ['preference', 'user-default'],
+    applicablePhases: [],
+    sourceReferences: [],
+    referencedBy: [],
+    executionResults: [],
+    consumptionMode: 'reference',
+    origin: 'system',
+  });
+}
+
+function saveRule(store: any, rule: Record<string, unknown>, title: string) {
+  store.save({
+    id: `rule-${title}-${Math.random().toString(36).slice(2, 8)}`,
+    type: 'guideline',
+    title,
+    content: JSON.stringify(rule),
+    maturity: 'active',
+    layer: 'system',
+    created: '2026-06-04T00:00:00Z',
+    lastReferenced: '2026-06-04T00:00:00Z',
+    contributors: [],
+    projects: [],
+    tags: ['rule', 'active'],
+    applicablePhases: [],
+    sourceReferences: [],
+    referencedBy: [],
+    executionResults: [],
+    consumptionMode: 'reference',
+    origin: 'system',
+  });
+}
+
 describe('UnifiedQuery', () => {
   let uq: InstanceType<typeof UnifiedQuery>;
   let testDir: string;
@@ -41,9 +88,10 @@ describe('UnifiedQuery', () => {
   });
 
   describe('queryEntries', () => {
-    describe('Prisma → KnowledgeEntry', () => {
+    describe('Prisma -> KnowledgeEntry', () => {
       it('should convert UserPreference to KnowledgeEntry with context mode', async () => {
-        mockPrisma.userPreference.findFirst.mockResolvedValue({
+        // UserPreference is now read from KnowledgeStore, not Prisma
+        savePreference((uq as any).store, {
           id: 'pref-1',
           userId: 'default',
           preferredModel: 'premium',
@@ -52,6 +100,7 @@ describe('UnifiedQuery', () => {
           confidence: 0.8,
           updatedAt: new Date('2026-06-04'),
         });
+        mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
         const entries = await uq.queryEntries({ consumptionModes: ['context'] });
 
@@ -65,19 +114,18 @@ describe('UnifiedQuery', () => {
       });
 
       it('should convert BusinessRule to KnowledgeEntry with rule mode', async () => {
-        mockPrisma.businessRule.findMany.mockResolvedValue([
-          {
-            id: 'rule-1',
-            name: 'no_redis',
-            category: 'constraint',
-            description: '禁止 Redis 依赖',
-            condition: 'all code',
-            action: 'reject redis imports',
-            affects: '["executor","reviewer"]',
-            status: 'active',
-            updatedAt: new Date('2026-06-04'),
-          },
-        ]);
+        // BusinessRule is now read from KnowledgeStore, not Prisma
+        saveRule((uq as any).store, {
+          id: 'rule-1',
+          name: 'no_redis',
+          category: 'constraint',
+          description: '禁止 Redis 依赖',
+          condition: 'all code',
+          action: 'reject redis imports',
+          affects: '["executor","reviewer"]',
+          status: 'active',
+          updatedAt: new Date('2026-06-04'),
+        }, 'no_redis');
 
         const entries = await uq.queryEntries({ consumptionModes: ['rule'] });
 
@@ -89,6 +137,7 @@ describe('UnifiedQuery', () => {
       });
 
       it('should convert EnvironmentSnapshot to KnowledgeEntry with context mode', async () => {
+        // EnvironmentSnapshot is still read from Prisma
         mockPrisma.environmentSnapshot.findFirst.mockResolvedValue({
           id: 'env-1',
           hostname: 'prod-server',
@@ -110,8 +159,6 @@ describe('UnifiedQuery', () => {
       });
 
       it('should return empty when no Prisma data exists', async () => {
-        mockPrisma.userPreference.findFirst.mockResolvedValue(null);
-        mockPrisma.businessRule.findMany.mockResolvedValue([]);
         mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
         const entries = await uq.queryEntries({ consumptionModes: ['rule', 'context'] });
@@ -122,12 +169,18 @@ describe('UnifiedQuery', () => {
 
     describe('agent filtering', () => {
       it('should filter by applicableAgents', async () => {
-        mockPrisma.businessRule.findMany.mockResolvedValue([
-          { id: 'r1', name: 'global_rule', category: 'constraint', description: 'desc', affects: '[]', status: 'active', updatedAt: new Date() },
-          { id: 'r2', name: 'executor_rule', category: 'constraint', description: 'desc', affects: '["executor"]', status: 'active', updatedAt: new Date() },
-          { id: 'r3', name: 'reviewer_rule', category: 'constraint', description: 'desc', affects: '["reviewer"]', status: 'active', updatedAt: new Date() },
-        ]);
-        mockPrisma.userPreference.findFirst.mockResolvedValue(null);
+        saveRule((uq as any).store, {
+          id: 'r1', category: 'constraint', description: 'desc',
+          affects: '[]', status: 'active', updatedAt: new Date(),
+        }, 'global_rule');
+        saveRule((uq as any).store, {
+          id: 'r2', category: 'constraint', description: 'desc',
+          affects: '["executor"]', status: 'active', updatedAt: new Date(),
+        }, 'executor_rule');
+        saveRule((uq as any).store, {
+          id: 'r3', category: 'constraint', description: 'desc',
+          affects: '["reviewer"]', status: 'active', updatedAt: new Date(),
+        }, 'reviewer_rule');
         mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
         const entries = await uq.queryEntries({ consumptionModes: ['rule'], agentType: 'executor' });
@@ -138,10 +191,10 @@ describe('UnifiedQuery', () => {
       });
 
       it('should include global entries (empty applicableAgents) for all agents', async () => {
-        mockPrisma.businessRule.findMany.mockResolvedValue([
-          { id: 'r1', name: 'global', category: 'c', description: 'd', affects: '[]', status: 'active', updatedAt: new Date() },
-        ]);
-        mockPrisma.userPreference.findFirst.mockResolvedValue(null);
+        saveRule((uq as any).store, {
+          id: 'r1', category: 'c', description: 'd',
+          affects: '[]', status: 'active', updatedAt: new Date(),
+        }, 'global');
         mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
         const entries = await uq.queryEntries({ consumptionModes: ['rule'], agentType: 'analyst' });
@@ -243,10 +296,12 @@ describe('UnifiedQuery', () => {
     });
 
     it('should include Prisma entries when sources include prisma', async () => {
-      mockPrisma.businessRule.findMany.mockResolvedValue([
-        { id: 'r1', name: 'test_rule', category: 'c', description: 'd', affects: '[]', status: 'active', updatedAt: new Date() },
-      ]);
-      mockPrisma.userPreference.findFirst.mockResolvedValue(null);
+      // BusinessRule is now read from KnowledgeStore by prismaToEntries,
+      // and the returned entries are tagged with source: 'prisma'.
+      saveRule((uq as any).store, {
+        id: 'r1', category: 'c', description: 'd',
+        affects: '[]', status: 'active', updatedAt: new Date(),
+      }, 'test_rule');
       mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
       const result = await uq.listEntries({ sources: ['prisma', 'store'], consumptionModes: ['rule'] });
@@ -257,23 +312,34 @@ describe('UnifiedQuery', () => {
 
   describe('count', () => {
     it('should count Prisma entries', async () => {
-      mockPrisma.businessRule.findMany.mockResolvedValue([{ id: 'r1' }, { id: 'r2' }]);
-      mockPrisma.businessRule.count.mockResolvedValue(2);
-      mockPrisma.userPreference.findFirst.mockResolvedValue(null);
+      // count() reads rules from KnowledgeStore via store.list({ tags: ['rule', 'active'] })
+      saveRule((uq as any).store, {
+        id: 'r1', category: 'c', description: 'd',
+        affects: '[]', status: 'active', updatedAt: new Date(),
+      }, 'rule_a');
+      saveRule((uq as any).store, {
+        id: 'r2', category: 'c', description: 'd',
+        affects: '[]', status: 'active', updatedAt: new Date(),
+      }, 'rule_b');
       mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
-      const count = await uq.count({ consumptionModes: ['rule'] });
+      // Use sources: ['prisma'] to avoid double-counting via store source
+      const count = await uq.count({ consumptionModes: ['rule'], sources: ['prisma'] });
 
       expect(count).toBe(2);
     });
 
     it('should count context entries (preference + env)', async () => {
-      mockPrisma.businessRule.findMany.mockResolvedValue([]);
-      mockPrisma.businessRule.count.mockResolvedValue(0);
-      mockPrisma.userPreference.findFirst.mockResolvedValue({ id: 'p1' });
+      // preference from KnowledgeStore + env from Prisma
+      savePreference((uq as any).store, {
+        id: 'p1',
+        preferredModel: 'test',
+        updatedAt: new Date(),
+      });
       mockPrisma.environmentSnapshot.findFirst.mockResolvedValue({ id: 'e1', createdAt: new Date() });
 
-      const count = await uq.count({ consumptionModes: ['context'] });
+      // Use sources: ['prisma'] to avoid double-counting via store source
+      const count = await uq.count({ consumptionModes: ['context'], sources: ['prisma'] });
 
       expect(count).toBe(2);
     });

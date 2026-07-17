@@ -2,17 +2,41 @@
  * Channel API 测试 — B2 Channel UI 后端
  *
  * 覆盖: CRUD、消息发送、SSE 事件发布、卡片 action、RequirementsDoc 编辑
+ *
+ * 集成测试性质: 依赖运行中的 API 服务器 + Prisma 数据库。
+ * CI 中无运行服务器时自动 skip;本地/e2e 环境有服务器时自动运行。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { prisma } from '../src/core/database.js';
 
 const BASE = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13001'}/api/v1`;
 
+// 检测 API 服务器是否可用(CI 中可能未启动)
+async function checkServerAvailable(): Promise<boolean> {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2000);
+    try {
+      const res = await fetch(`${BASE.replace('/api/v1', '')}/health`, { signal: ctrl.signal });
+      return res.ok;
+    } finally {
+      clearTimeout(t);
+    }
+  } catch {
+    return false;
+  }
+}
+
+const serverAvailable = await checkServerAvailable();
+
 const TEST_CHANNEL = `test-channel-${Date.now()}`;
 let channelId: string;
 let authToken: string;
 
-describe('Channel API', () => {
+// 集成测试: 依赖运行中的 API 服务器 + Prisma 数据库。
+// CI 中默认不启动 API 服务器,检测到服务器不可用时自动 skip。
+// 本地或 e2e 环境启动服务器后自动运行。
+describe.skipIf(!serverAvailable)('Channel API', () => {
   beforeAll(async () => {
     // Get auth token for endpoints that require it
     try {

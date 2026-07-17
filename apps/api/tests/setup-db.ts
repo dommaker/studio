@@ -19,9 +19,9 @@ const dbPath = testDbPath;
 const prismaDir = resolve(__dirname, '../../../packages/studio-prisma');
 const schemaPath = resolve(prismaDir, 'prisma/schema.prisma');
 
-// Don't recreate if DB already exists — vitest runs setup once per session
-// with maxConcurrency: 1.
-if (!existsSync(dbPath)) {
+// In CI, always recreate DB (prevents corrupted DB from previous run).
+// Locally, reuse existing DB for faster iterations.
+if (process.env.CI || !existsSync(dbPath)) {
   // Delete stale journal files to avoid SQLITE_READONLY_DBMOVED.
   try { unlinkSync(dbPath); } catch { /* ignore */ }
   try { unlinkSync(dbPath + '-journal'); } catch { /* ignore */ }

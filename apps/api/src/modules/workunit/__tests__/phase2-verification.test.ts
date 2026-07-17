@@ -170,26 +170,37 @@ describe('Phase 2 Verification Scenarios', () => {
     const review = await service.create({ scope: 'Auth review', parentId: parent.id });
     testIds.push(analysis.id, impl.id, review.id);
 
+    // Wait for fire-and-forget aggregateParentStatus to settle.
+    // transitionStatus triggers async aggregateParentStatus (no await) whose upsertSnapshot
+    // is an unlocked read-modify-write; without flushing, concurrent writes corrupt index.json.
+    const flushAsync = () => new Promise(r => setTimeout(r, 50));
+
     // Children complete sequentially
     await service.transitionStatus(analysis.id, 'active');
+    await flushAsync();
     await service.transitionStatus(analysis.id, 'in_review');
     await service.transitionStatus(analysis.id, 'done');
+    await flushAsync();
 
     // impl unblocks (manually — unlockDependents removed in Agent Loop rewrite)
     await service.transitionStatus(impl.id, 'active');
+    await flushAsync();
     const implAfter = await service.getById(impl.id);
     expect(implAfter!.status).toBe('active');
 
     await service.transitionStatus(impl.id, 'in_review');
     await service.transitionStatus(impl.id, 'done');
+    await flushAsync();
 
     // review unblocks
     await service.transitionStatus(review.id, 'active');
+    await flushAsync();
     const reviewAfter = await service.getById(review.id);
     expect(reviewAfter!.status).toBe('active');
 
     await service.transitionStatus(review.id, 'in_review');
     await service.transitionStatus(review.id, 'done');
+    await flushAsync();
 
     // Parent aggregation: all children done → in_review
     await service.aggregateParentStatus(review.id);

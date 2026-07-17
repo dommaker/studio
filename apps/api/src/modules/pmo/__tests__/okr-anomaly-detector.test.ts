@@ -116,7 +116,10 @@ describe('detectAnomalies', () => {
     const { detectAnomalies } = await import('../okr-anomaly-detector');
     // Import the source file and check for LLM keywords
     const fs = await import('fs');
-    const content = fs.readFileSync('/root/projects/studio/apps/api/src/modules/pmo/okr-anomaly-detector.ts', 'utf-8');
+    const path = await import('path');
+    const { fileURLToPath } = await import('url');
+    const __dirname = path.dirname(fileURLToPath(import.meta.url));
+    const content = fs.readFileSync(path.resolve(__dirname, '../okr-anomaly-detector.ts'), 'utf-8');
     expect(content).not.toMatch(/modelGateway|openai|anthropic|deepseek|promptJson|prompt\(/);
   });
 });

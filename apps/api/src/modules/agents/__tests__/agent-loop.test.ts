@@ -111,6 +111,8 @@ describe('AgentLoop', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // mockImplementation from prior test persists through clearAllMocks; reset explicitly
+    mockExecSync.mockReturnValue('Claude Code CLI version 1.0.0');
     testDir = path.join(os.tmpdir(), `agent-loop-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
     fileStore = new FileStore(testDir);
   });
@@ -118,10 +120,15 @@ describe('AgentLoop', () => {
   afterEach(async () => {
     if (agentLoop) {
       agentLoop.stop();
-      await agentLoop.waitForStop();
+      // runLoop 内部有 sleep(15_000)，waitForStop 可能需要等 sleep 完成
+      // 给 2 秒超时，超时后直接继续（runLoop 会在后台退出，loopPromise 有 .catch 不会泄漏）
+      await Promise.race([
+        agentLoop.waitForStop(),
+        new Promise(resolve => setTimeout(resolve, 2000)),
+      ]);
     }
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  });
+  }, 5000);
 
   describe('start()', () => {
     it('creates RuntimeInstance with idle status', async () => {

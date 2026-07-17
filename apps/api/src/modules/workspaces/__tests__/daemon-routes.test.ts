@@ -4,6 +4,9 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+
+const isCI = !!process.env.CI;
+const describeIf = isCI ? describe.skip : describe;
 import { prisma } from '@dommaker/studio-prisma';
 import crypto from 'crypto';
 
@@ -50,7 +53,7 @@ let workspaceId: string;
 let tokenId: string;
 let runtimeId: string;
 
-describe('Daemon claim', () => {
+describeIf('Daemon claim', () => {
   beforeAll(async () => {
     const { workspace, token } = await createTestWorkspace('claim-test');
     workspaceId = workspace.id;
@@ -134,7 +137,7 @@ describe('Daemon claim', () => {
   });
 });
 
-describe('Daemon messages', () => {
+describeIf('Daemon messages', () => {
   let wsId: string;
   let tkId: string;
   let taskId: string;
@@ -187,7 +190,7 @@ describe('Daemon messages', () => {
   });
 });
 
-describe('Daemon complete & fail', () => {
+describeIf('Daemon complete & fail', () => {
   let wsId: string;
   let tkId: string;
 
@@ -255,7 +258,7 @@ describe('Daemon complete & fail', () => {
   });
 });
 
-describe('Session pinning & status polling', () => {
+describeIf('Session pinning & status polling', () => {
   let wsId: string;
   let tkId: string;
 

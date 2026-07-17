@@ -3,12 +3,182 @@
  * SEC-010: 关键操作审计记录
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { AuditService, AuditLogInput } from '@dommaker/studio-audit';
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
-const auditService = new AuditService(prisma);
+// ========== In-memory mock store ==========
+type MockAuditLog = {
+  id: string;
+  userId: string | null;
+  roleId: string | null;
+  companyId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  action: string;
+  resource: string;
+  resourceId: string | null;
+  details: string | null;
+  changes: string | null;
+  status: string;
+  errorCode: string | null;
+  errorMessage: string | null;
+  sessionId: string | null;
+  requestId: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+const store: MockAuditLog[] = [];
+let idCounter = 0;
+
+function applyWhere(result: MockAuditLog[], where: Record<string, unknown>): MockAuditLog[] {
+  if (!where) return result;
+  for (const wkey of Object.keys(where)) {
+    const wval = where[wkey];
+    if (wval === undefined) continue;
+    if (wval === null) {
+      result = result.filter(l => l[wkey as keyof MockAuditLog] === null);
+      continue;
+    }
+    if (typeof wval === 'object') {
+      // Handle { contains: string } for string fields
+      const v = wval as { contains?: unknown; in?: unknown[]; not?: unknown; gte?: unknown; lte?: unknown; lt?: unknown };
+      if (v.contains !== undefined && typeof v.contains === 'string') {
+        result = result.filter(l => {
+          const field = l[wkey as keyof MockAuditLog];
+          return typeof field === 'string' && field.includes(v.contains as string);
+        });
+        continue;
+      }
+      if (v.in !== undefined && Array.isArray(v.in)) {
+        result = result.filter(l => v.in.includes(l[wkey as keyof MockAuditLog]));
+        continue;
+      }
+      if (v.not !== undefined) {
+        result = result.filter(l => l[wkey as keyof MockAuditLog] !== v.not);
+        continue;
+      }
+      // Skip complex date range filters (createdAt gte/lte)
+      continue;
+    }
+    // Primitive equality
+    result = result.filter(l => l[wkey as keyof MockAuditLog] === wval);
+  }
+  return result;
+}
+
+const mockPrismaClient = vi.hoisted(() => ({
+  auditLog: {
+    create: vi.fn(async ({ data }: { data: Record<string, unknown> }): Promise<MockAuditLog> => {
+      const log: MockAuditLog = {
+        id: `log-${++idCounter}`,
+        userId: (data.userId as string | null | undefined) ?? null,
+        roleId: (data.roleId as string | null | undefined) ?? null,
+        companyId: (data.companyId as string | null | undefined) ?? null,
+        ipAddress: (data.ipAddress as string | null | undefined) ?? null,
+        userAgent: (data.userAgent as string | null | undefined) ?? null,
+        action: data.action as string,
+        resource: data.resource as string,
+        resourceId: (data.resourceId as string | null | undefined) ?? null,
+        details: (data.details as string | null | undefined) ?? null,
+        changes: (data.changes as string | null | undefined) ?? null,
+        status: (data.status as string) || 'success',
+        errorCode: (data.errorCode as string | null | undefined) ?? null,
+        errorMessage: (data.errorMessage as string | null | undefined) ?? null,
+        sessionId: (data.sessionId as string | null | undefined) ?? null,
+        requestId: (data.requestId as string | null | undefined) ?? null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      store.push(log);
+      return log;
+    }),
+    createMany: vi.fn(async ({ data }: { data: Record<string, unknown> | Record<string, unknown>[] }): Promise<{ count: number }> => {
+      const items = Array.isArray(data) ? data : [data];
+      for (const item of items) {
+        store.push({
+          id: `log-${++idCounter}`,
+          userId: (item.userId as string | null | undefined) ?? null,
+          roleId: (item.roleId as string | null | undefined) ?? null,
+          companyId: (item.companyId as string | null | undefined) ?? null,
+          ipAddress: (item.ipAddress as string | null | undefined) ?? null,
+          userAgent: (item.userAgent as string | null | undefined) ?? null,
+          action: item.action as string,
+          resource: item.resource as string,
+          resourceId: (item.resourceId as string | null | undefined) ?? null,
+          details: (item.details as string | null | undefined) ?? null,
+          changes: (item.changes as string | null | undefined) ?? null,
+          status: (item.status as string) || 'success',
+          errorCode: (item.errorCode as string | null | undefined) ?? null,
+          errorMessage: (item.errorMessage as string | null | undefined) ?? null,
+          sessionId: (item.sessionId as string | null | undefined) ?? null,
+          requestId: (item.requestId as string | null | undefined) ?? null,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+      }
+      return { count: items.length };
+    }),
+    findMany: vi.fn(async ({ where, skip = 0, take = 50 }: { where?: Record<string, unknown>; skip?: number; take?: number }): Promise<MockAuditLog[]> => {
+      let result = applyWhere(store.slice(), where || {});
+      result.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      return result.slice(skip, skip + take);
+    }),
+    count: vi.fn(async ({ where }: { where?: Record<string, unknown> } = {}): Promise<number> => {
+      return applyWhere(store.slice(), where || {}).length;
+    }),
+    groupBy: vi.fn(async ({ by, where = {} }: { by: string[]; where?: Record<string, unknown> }): Promise<Array<Record<string, unknown> & { _count: Record<string, number> }>> => {
+      const key = by[0];
+      let result = applyWhere(store.slice(), where);
+      const groups = new Map<string, number>();
+      for (const log of result) {
+        const v = log[key as keyof MockAuditLog];
+        if (v === null || v === undefined) continue;
+        const k = String(v);
+        groups.set(k, (groups.get(k) || 0) + 1);
+      }
+      return Array.from(groups.entries())
+        .map(([k, count]) => ({ [key]: k, _count: { [key]: count } }))
+        .sort((a, b) => b._count[key] - a._count[key])
+        .slice(0, 10);
+    }),
+    deleteMany: vi.fn(async ({ where = {} }: { where?: Record<string, unknown> } = {}): Promise<{ count: number }> => {
+      const before = store.length;
+      const ids = (where.id as { in?: string[] } | undefined)?.in;
+      const cutoff = (where.createdAt as { lt?: Date } | undefined)?.lt;
+      if (ids) {
+        for (let i = store.length - 1; i >= 0; i--) {
+          if (ids.includes(store[i].id)) store.splice(i, 1);
+        }
+      } else if (cutoff) {
+        for (let i = store.length - 1; i >= 0; i--) {
+          if (store[i].createdAt < cutoff) store.splice(i, 1);
+        }
+      }
+      return { count: before - store.length };
+    }),
+    findUnique: vi.fn(async ({ where }: { where: { id: string } }): Promise<MockAuditLog | null> => {
+      return store.find(l => l.id === where.id) || null;
+    }),
+  },
+  $disconnect: vi.fn(async (): Promise<void> => {}),
+  $queryRaw: vi.fn(async (): Promise<unknown[]> => []),
+}));
+
+vi.mock('@dommaker/studio-prisma', () => ({
+  PrismaClient: vi.fn(() => mockPrismaClient),
+  prisma: mockPrismaClient,
+  // Re-export Prisma namespace bits used by AuditService for SQL helpers.
+  Prisma: {
+    sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({ strings, values }),
+    empty: { strings: [], values: [] },
+  },
+}));
+
+import { PrismaClient } from '@dommaker/studio-prisma';
+
+const prisma = new PrismaClient() as unknown as typeof mockPrismaClient;
+const auditService = new AuditService(prisma as never);
 
 /** details/changes 字段存储为 JSON 字符串，读取时需反序列化 */
 const parseJson = (str: string | null): Record<string, any> | null => {

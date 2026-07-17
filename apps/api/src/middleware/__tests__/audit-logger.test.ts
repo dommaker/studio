@@ -105,8 +105,8 @@ describe('isCriticalOperation', () => {
     expect(isCriticalOperation(req)).toBe(true);
   });
 
-  it('returns true for workflow paths', () => {
-    const req = { method: 'PUT', path: '/api/v1/workflows/wf-1' } as Request;
+  it('returns true for executions paths', () => {
+    const req = { method: 'PUT', path: '/api/v1/executions/wf-1' } as Request;
     expect(isCriticalOperation(req)).toBe(true);
   });
 

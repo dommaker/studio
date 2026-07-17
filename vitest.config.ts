@@ -37,7 +37,7 @@ export default defineConfig({
     },
   },
   esbuild: {
-    // Ensure TypeScript is properly handled
+    jsx: 'automatic',
     tsconfigRaw: {
       compilerOptions: {
         module: 'ESNext',

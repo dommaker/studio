@@ -116,6 +116,8 @@ describe('FileStore', () => {
     it('should update a profile', async () => {
       const profile = makeProfile('p1');
       await store.createProfile(profile);
+      // Ensure updatedAt timestamp advances (CI SSD can complete both ops within same ms)
+      await new Promise(resolve => setTimeout(resolve, 10));
       await store.updateProfile('p1', { description: 'updated desc' });
       const loaded = await store.getProfile('p1');
       expect(loaded?.description).toBe('updated desc');
