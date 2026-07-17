@@ -1,5 +1,8 @@
-import { prisma } from '@dommaker/studio-prisma';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger, zScoreTest, detectTrend, detectDelta, rollingBaseline } from '@dommaker/studio-shared';
+import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
 
 interface AnomalyReport {
   anomalies: AnomalyItem[];
@@ -26,12 +29,22 @@ export async function detectAnomalies(): Promise<AnomalyReport> {
   const now = new Date();
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const anomalies: AnomalyItem[] = [];
+  const STUDIO_DIR = path.join(os.homedir(), '.studio');
+  const STUDIO_EVENTS_JSONL = path.join(STUDIO_DIR, 'logs', 'studio-events.jsonl');
+  const KR_HISTORY_DIR = path.join(STUDIO_DIR, 'okr');
+  const fileStore = new FileStore();
 
   try {
-    const records = await prisma.kRHistory.findMany({
-      where: { timestamp: { gte: sevenDaysAgo } },
-      orderBy: { timestamp: 'asc' },
-    });
+    let records: any[] = [];
+    try {
+      const files = await fs.promises.readdir(KR_HISTORY_DIR);
+      const historyFiles = files.filter(f => f.endsWith('-history.jsonl'));
+      for (const f of historyFiles) {
+        const rows = await fileStore.readJsonl<any>(path.join(KR_HISTORY_DIR, f));
+        records.push(...rows);
+      }
+      records = records.filter((r: any) => new Date(r.timestamp).getTime() >= sevenDaysAgo.getTime());
+    } catch { records = []; }
 
     if (!records || records.length === 0) {
       return {
@@ -132,12 +145,11 @@ export async function detectAnomalies(): Promise<AnomalyReport> {
     // Write anomaly events to studioEvent
     for (const anomaly of anomalies) {
       try {
-        await prisma.studioEvent.create({
-          data: {
-            type: 'metric:anomaly',
-            source: 'okr-anomaly-detector',
-            payload: JSON.stringify(anomaly),
-          },
+        await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+          type: 'metric:anomaly',
+          source: 'okr-anomaly-detector',
+          payload: JSON.stringify(anomaly),
+          createdAt: new Date().toISOString(),
         });
       } catch {
         // Non-blocking: event write failure doesn't stop scan

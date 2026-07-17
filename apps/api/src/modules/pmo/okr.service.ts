@@ -1,9 +1,18 @@
 // OKR Service - PMO 模块核心服务
+import { logger, FileStore, parseFrontmatter } from '@dommaker/studio-shared';
 import { prisma } from '../../core/database.js';
-import { logger, FileStore } from '@dommaker/studio-shared';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+
+// ─── 路径常量 ───
+const STUDIO_DIR = path.join(os.homedir(), '.studio');
+const OKR_DIR = path.join(STUDIO_DIR, 'okr');
+const KR_HISTORY_JSONL = path.join(STUDIO_DIR, 'okr', 'kr-history.jsonl');
+const EXECUTIONS_JSONL = path.join(STUDIO_DIR, 'logs', 'executions.jsonl');
+const STUDIO_EVENTS_JSONL = path.join(STUDIO_DIR, 'logs', 'studio-events.jsonl');
+const INCIDENTS_JSONL = path.join(STUDIO_DIR, 'logs', 'incidents.jsonl');
+const RESOLUTIONS_DIR = path.join(STUDIO_DIR, 'knowledge', 'resolutions');
 
 export interface OKRObjective {
   id: string;
@@ -18,8 +27,8 @@ export interface OKRKeyResult {
   target: number;
   current: number;
   unit: string;
-  metricType?: string;     // 🆕 B8: 度量类型 e.g. "pipeline_duration_p90", "cache_hit_rate"
-  queryParams?: Record<string, unknown>;  // 🆕 B8: 查询参数 e.g. { days: 7 }
+  metricType?: string;     // B8: 度量类型 e.g. "pipeline_duration_p90", "cache_hit_rate"
+  queryParams?: Record<string, unknown>;  // B8: 查询参数 e.g. { days: 7 }
 }
 
 export interface KRActual {
@@ -29,7 +38,7 @@ export interface KRActual {
 }
 
 export interface CreateOKRInput {
-  companyId: string;
+  companyId?: string;   // kept for backward compat
   title: string;
   objectives: OKRObjective[];
   keyResults: OKRKeyResult[];
@@ -44,7 +53,7 @@ export interface UpdateOKRInput {
 }
 
 /**
- * 🆕 AS-016: 获取当前季度
+ * 获取当前季度
  */
 export function getCurrentQuarter(): string {
   const now = new Date();
@@ -52,6 +61,28 @@ export function getCurrentQuarter(): string {
   const month = now.getMonth();
   const quarter = Math.floor(month / 3) + 1;
   return `${year}-Q${quarter}`;
+}
+
+/** JSONL 行事件 */
+interface StudioEventRow {
+  type: string;
+  timestamp: string;
+  payload?: string;
+}
+
+interface ExecutionRow {
+  id: string;
+  okrId?: string | null;
+  status?: string;
+  startTime?: string;
+  endTime?: string;
+  createdAt?: string;
+  progress?: number;
+}
+
+interface IncidentRow {
+  id: string;
+  detectedAt?: string;
 }
 
 /**
@@ -63,155 +94,236 @@ export class OKRService {
   constructor(fileStore?: FileStore) {
     this.fileStore = fileStore ?? new FileStore();
   }
+
+  // ─── FileStore 辅助方法 ───
+
+  private async readOKR(quarter: string): Promise<{ meta: Record<string, unknown>; body: string } | null> {
+    return this.fileStore.readDoc(OKR_DIR, quarter);
+  }
+
+  /** 遍历所有 OKR 文件找到指定 id 对应的 quarter key */
+  private async findOKRKey(id: string): Promise<string | null> {
+    const keys = await this.fileStore.listDocs(OKR_DIR);
+    for (const key of keys) {
+      const doc = await this.fileStore.readDoc(OKR_DIR, key);
+      if (doc && doc.meta.id === id) return key;
+    }
+    return null;
+  }
+
+  /** 从 studio 事件 jsonl 中按 type 和时间范围过滤 */
+  private async readEvents(type: string, since: Date): Promise<StudioEventRow[]> {
+    const rows = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
+    return rows.filter(r => r.type === type && new Date(r.timestamp).getTime() >= since.getTime());
+  }
+
+  /** 解析 meta 中的 objectives/keyResults JSON 字符串 */
+  private parseOKRMeta(meta: Record<string, unknown>): { objectives: OKRObjective[]; keyResults: OKRKeyResult[] } {
+    const objectives: OKRObjective[] = typeof meta.objectives === 'string'
+      ? JSON.parse(meta.objectives) : (meta.objectives as OKRObjective[] || []);
+    const keyResults: OKRKeyResult[] = typeof meta.keyResults === 'string'
+      ? JSON.parse(meta.keyResults) : (meta.keyResults as OKRKeyResult[] || []);
+    return { objectives, keyResults };
+  }
+
   /**
    * 创建 OKR
    */
   async create(input: CreateOKRInput) {
     // 检查是否已存在相同 quarter 的 OKR
-    const existing = await prisma.oKR.findUnique({
-      where: {
-        companyId_quarter: {
-          companyId: input.companyId,
-          quarter: input.quarter,
-        },
-      },
-    });
-
+    const existing = await this.readOKR(input.quarter);
     if (existing) {
       throw new Error(`OKR for quarter ${input.quarter} already exists`);
     }
 
     // 计算初始进度
     const progress = this.calculateProgress(input.keyResults);
+    const id = `okr_${Date.now()}`;
+    const now = new Date().toISOString();
 
-    const okr = await prisma.oKR.create({
-      data: {
-        companyId: input.companyId,
-        title: input.title,
-        objectives: JSON.parse(JSON.stringify(input.objectives)),
-        keyResults: JSON.parse(JSON.stringify(input.keyResults)),
-        quarter: input.quarter,
-        progress,
-      },
-    });
+    const meta: Record<string, unknown> = {
+      id,
+      status: 'active',
+      progress,
+      title: input.title,
+      quarter: input.quarter,
+      companyId: input.companyId || '',
+      createdAt: now,
+      updatedAt: now,
+      objectives: JSON.stringify(input.objectives),
+      keyResults: JSON.stringify(input.keyResults),
+    };
 
-    logger.info('OKR created', { okrId: okr.id, companyId: input.companyId });
-    return okr;
+    const body = `## OKR: ${input.title}\n\nQuarter: ${input.quarter}\n\n### Objectives\n${
+      input.objectives.map(o => `- ${o.title}`).join('\n')
+    }\n\n### Key Results\n${
+      input.keyResults.map(kr => `- ${kr.title}: ${kr.current}/${kr.target} ${kr.unit}`).join('\n')
+    }`;
+
+    await this.fileStore.writeDoc(OKR_DIR, input.quarter, meta, body);
+
+    logger.info('OKR created', { okrId: id, quarter: input.quarter });
+    return { id, ...meta, objectives: input.objectives, keyResults: input.keyResults };
   }
 
   /**
    * 获取 OKR 列表
    */
   async list(companyId: string, options?: { status?: string }) {
-    const where: Record<string, unknown> = { companyId };
-    if (options?.status) {
-      where.status = options.status;
+    const keys = await this.fileStore.listDocs(OKR_DIR);
+    const docs: { meta: Record<string, unknown>; body: string; key: string }[] = [];
+
+    for (const key of keys) {
+      const doc = await this.fileStore.readDoc(OKR_DIR, key);
+      if (!doc) continue;
+      if (doc.meta.companyId !== companyId) continue;
+      if (options?.status && doc.meta.status !== options.status) continue;
+      docs.push({ ...doc, key });
     }
 
-    const okrs = await prisma.oKR.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        _count: {
-          select: { Execution: true },
-        },
-      },
-    });
+    // orderBy createdAt desc
+    docs.sort((a, b) => new Date(b.meta.createdAt as string).getTime() - new Date(a.meta.createdAt as string).getTime());
 
-    return okrs.map(okr => ({
-      ...okr,
-      objectives: typeof okr.objectives === 'string' ? JSON.parse(okr.objectives) : okr.objectives,
-      keyResults: typeof okr.keyResults === 'string' ? JSON.parse(okr.keyResults) : okr.keyResults,
-      projectCount: okr._count.Execution,
-    }));
+    // 批量读取 executions jsonl 计算每个 OKR 的项目数
+    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
+    const execCountByOkr = new Map<string, number>();
+    for (const e of allExecs) {
+      if (e.okrId) {
+        execCountByOkr.set(e.okrId, (execCountByOkr.get(e.okrId) || 0) + 1);
+      }
+    }
+
+    return docs.map(d => {
+      const parsed = this.parseOKRMeta(d.meta);
+      return {
+        id: d.meta.id,
+        companyId: d.meta.companyId,
+        title: d.meta.title,
+        quarter: d.meta.quarter,
+        status: d.meta.status,
+        progress: d.meta.progress,
+        objectives: parsed.objectives,
+        keyResults: parsed.keyResults,
+        createdAt: d.meta.createdAt,
+        updatedAt: d.meta.updatedAt,
+        projectCount: execCountByOkr.get(d.meta.id as string) || 0,
+      };
+    });
   }
 
   /**
    * 获取 OKR 详情
    */
   async get(id: string) {
-    const okr = await prisma.oKR.findUnique({
-      where: { id },
-      include: {
-        Company: {
-          select: { name: true },
-        },
-        Execution: {
-          select: {
-            id: true,
-            status: true,
-            startTime: true,
-            endTime: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
-      },
-    });
-
-    if (!okr) {
+    const key = await this.findOKRKey(id);
+    if (!key) {
       throw new Error('OKR not found');
     }
+    const doc = await this.readOKR(key);
+    if (!doc) throw new Error('OKR not found');
 
-    return okr;
+    const parsed = this.parseOKRMeta(doc.meta);
+    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
+    const recentExecs = allExecs
+      .filter(e => e.okrId === id)
+      .sort((a, b) => new Date(b.createdAt || '').getTime() - new Date(a.createdAt || '').getTime())
+      .slice(0, 10)
+      .map(e => ({ id: e.id, status: e.status, startTime: e.startTime, endTime: e.endTime }));
+
+    return {
+      id: doc.meta.id,
+      companyId: doc.meta.companyId,
+      title: doc.meta.title,
+      quarter: doc.meta.quarter,
+      status: doc.meta.status,
+      progress: doc.meta.progress,
+      objectives: parsed.objectives,
+      keyResults: parsed.keyResults,
+      createdAt: doc.meta.createdAt,
+      updatedAt: doc.meta.updatedAt,
+      Company: null,
+      Execution: recentExecs,
+      _count: { Execution: allExecs.filter(e => e.okrId === id).length },
+    };
   }
 
   /**
    * 更新 OKR
    */
   async update(id: string, input: UpdateOKRInput) {
-    const okr = await prisma.oKR.findUnique({
-      where: { id },
-    });
-
-    if (!okr) {
+    const key = await this.findOKRKey(id);
+    if (!key) {
       throw new Error('OKR not found');
     }
+    const doc = await this.readOKR(key);
+    if (!doc) throw new Error('OKR not found');
 
-    // 如果更新了 keyResults，重新计算进度
-    let progress = okr.progress;
+    const parsed = this.parseOKRMeta(doc.meta);
+    let progress = doc.meta.progress as number;
+    let updatedKR = parsed.keyResults;
+    let updatedObj = parsed.objectives;
+
     if (input.keyResults) {
+      updatedKR = input.keyResults;
       progress = this.calculateProgress(input.keyResults);
     }
+    if (input.objectives) {
+      updatedObj = input.objectives;
+    }
 
-    const updated = await prisma.oKR.update({
-      where: { id },
-      data: {
-        title: input.title,
-        objectives: input.objectives ? JSON.parse(JSON.stringify(input.objectives)) : undefined,
-        keyResults: input.keyResults ? JSON.parse(JSON.stringify(input.keyResults)) : undefined,
-        status: input.status,
-        progress,
-      },
-    });
+    const now = new Date().toISOString();
+    const meta: Record<string, unknown> = {
+      ...doc.meta,
+      title: input.title ?? doc.meta.title,
+      status: input.status ?? doc.meta.status,
+      progress,
+      objectives: JSON.stringify(updatedObj),
+      keyResults: JSON.stringify(updatedKR),
+      updatedAt: now,
+    };
+
+    const bodyLines: string[] = [];
+    bodyLines.push(`## OKR: ${meta.title}\n`);
+    bodyLines.push(`Quarter: ${meta.quarter}\n`);
+    bodyLines.push('### Objectives');
+    for (const o of updatedObj) {
+      bodyLines.push(`- ${o.title}`);
+    }
+    bodyLines.push('');
+    bodyLines.push('### Key Results');
+    for (const kr of updatedKR) {
+      bodyLines.push(`- ${kr.title}: ${kr.current}/${kr.target} ${kr.unit}`);
+    }
+
+    await this.fileStore.writeDoc(OKR_DIR, key, meta, bodyLines.join('\n'));
 
     logger.info('OKR updated', { okrId: id });
-    return updated;
+    return { id, ...meta, objectives: updatedObj, keyResults: updatedKR };
   }
 
   /**
    * 删除 OKR
    */
   async delete(id: string) {
-    // 检查是否有关联的项目
-    const executionCount = await prisma.execution.count({
-      where: { okrId: id },
-    });
-
-    if (executionCount > 0) {
-      // 不删除关联项目，只是解除关联
-      await prisma.execution.updateMany({
-        where: { okrId: id },
-        data: { okrId: null },
-      });
+    const key = await this.findOKRKey(id);
+    if (!key) {
+      throw new Error('OKR not found');
     }
 
-    await prisma.oKR.delete({
-      where: { id },
-    });
+    // 从 executions jsonl 中解除关联
+    const allExecs = await this.fileStore.readJsonl<ExecutionRow>(EXECUTIONS_JSONL);
+    const linked = allExecs.filter(e => e.okrId === id);
+    if (linked.length > 0) {
+      const updated = allExecs.map(e => e.okrId === id ? { ...e, okrId: null } : e);
+      await fs.promises.mkdir(path.dirname(EXECUTIONS_JSONL), { recursive: true });
+      await fs.promises.writeFile(EXECUTIONS_JSONL, updated.map(e => JSON.stringify(e)).join('\n') + '\n', 'utf-8');
+    }
 
-    logger.info('OKR deleted', { okrId: id, executionCount });
-    return { success: true, unlinkedProjects: executionCount };
+    // 删除 OKR 文件
+    await fs.promises.unlink(path.join(OKR_DIR, `${key}.md`));
+
+    logger.info('OKR deleted', { okrId: id, executionCount: linked.length });
+    return { success: true, unlinkedProjects: linked.length };
   }
 
   /**
@@ -237,29 +349,35 @@ export class OKRService {
   }
 
   /**
-   * 🆕 AS-016: 获取公司当前季度默认 OKR
+   * 获取公司当前季度默认 OKR
    */
   async getDefaultOKR(companyId: string): Promise<string | null> {
     const currentQuarter = getCurrentQuarter();
-    
-    const okr = await prisma.oKR.findFirst({
-      where: { 
-        companyId,
-        quarter: currentQuarter,
-        status: 'active',
-      },
-      orderBy: { createdAt: 'desc' },
-    });
-    
-    return okr?.id || null;
+    const keys = await this.fileStore.listDocs(OKR_DIR);
+
+    let latest: string | null = null;
+    let latestTs = 0;
+
+    for (const key of keys) {
+      const doc = await this.fileStore.readDoc(OKR_DIR, key);
+      if (doc && doc.meta.companyId === companyId && doc.meta.quarter === currentQuarter && doc.meta.status === 'active') {
+        const ts = new Date(doc.meta.createdAt as string).getTime();
+        if (ts > latestTs) {
+          latest = doc.meta.id as string;
+          latestTs = ts;
+        }
+      }
+    }
+
+    return latest;
   }
 
   /**
-   * 🆕 AS-016: 创建默认 OKR（公司创建时）
+   * 创建默认 OKR（公司创建时）
    */
   async createDefaultOKR(companyId: string): Promise<{ id: string; title: string; quarter: string }> {
     const currentQuarter = getCurrentQuarter();
-    
+
     const okr = await this.create({
       companyId,
       title: `${currentQuarter} 默认 OKR`,
@@ -267,13 +385,13 @@ export class OKRService {
       objectives: [{ id: '1', title: '季度目标' }],
       keyResults: [],
     });
-    
-    logger.info('Default OKR created', { companyId, okrId: okr.id, quarter: currentQuarter });
-    return okr;
+
+    logger.info('Default OKR created', { companyId, okrId: okr.id as string, quarter: currentQuarter });
+    return { id: okr.id as string, title: (okr as any).title as string, quarter: (okr as any).quarter as string };
   }
 
   /**
-   * 🆕 AS-016: 更新 OKR 进度（基于关联项目）
+   * 更新 OKR 进度（基于关联项目）
    */
   async updateProgress(okrId: string): Promise<number> {
     const projects = await prisma.project.findMany({
@@ -295,14 +413,22 @@ export class OKRService {
     }
 
     const avgProgress = activeProjects.reduce((sum, p) => sum + p.progress, 0) / activeProjects.length;
+    const rounded = Math.round(avgProgress);
 
-    await prisma.oKR.update({
-      where: { id: okrId },
-      data: { progress: Math.round(avgProgress) },
-    });
+    // 更新 OKR 文件中的进度
+    const key = await this.findOKRKey(okrId);
+    if (key) {
+      const doc = await this.readOKR(key);
+      if (doc) {
+        doc.meta.progress = rounded;
+        doc.meta.updatedAt = new Date().toISOString();
+        const body = doc.body;
+        await this.fileStore.writeDoc(OKR_DIR, key, doc.meta, body);
+      }
+    }
 
-    logger.info('OKR progress updated', { okrId, progress: Math.round(avgProgress), projectCount: activeProjects.length });
-    return Math.round(avgProgress);
+    logger.info('OKR progress updated', { okrId, progress: rounded, projectCount: activeProjects.length });
+    return rounded;
   }
 
   // ── B8: OKR 驱动闭环 ──
@@ -311,14 +437,13 @@ export class OKRService {
    * 检查数据源可用性
    */
   async checkDataSourceHealth(): Promise<Record<string, 'ok' | 'empty'>> {
-    const [studioEventCount, snapshots] = await Promise.all([
-      prisma.studioEvent.count(),
+    const [studioEvents, snapshots] = await Promise.all([
+      this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL),
       this.fileStore.getIndex(),
     ]);
-    const workUnitCount = snapshots.length;
     return {
-      studio_event: studioEventCount > 0 ? 'ok' : 'empty',
-      execution: workUnitCount > 0 ? 'ok' : 'empty',
+      studio_event: studioEvents.length > 0 ? 'ok' : 'empty',
+      execution: snapshots.length > 0 ? 'ok' : 'empty',
     };
   }
 
@@ -469,7 +594,6 @@ export class OKRService {
    */
   async syncKRProgress(okrId: string): Promise<KRActual[]> {
     const okr = await this.get(okrId);
-    // Prisma SQLite auto-parses JSON strings — handle both cases
     const raw = okr.keyResults;
     const krs: OKRKeyResult[] = typeof raw === 'string' ? JSON.parse(raw) : raw;
     const results: KRActual[] = [];
@@ -503,23 +627,31 @@ export class OKRService {
       const progress = this.calculateProgress(krs.filter(k =>
         results.some(r => r.status === 'ok' && r.value !== null)
       ));
-      await prisma.oKR.update({
-        where: { id: okrId },
-        data: { keyResults: JSON.stringify(krs), progress },
-      });
+      // 更新 OKR 文件
+      const key = await this.findOKRKey(okrId);
+      if (key) {
+        const doc = await this.readOKR(key);
+        if (doc) {
+          doc.meta.keyResults = JSON.stringify(krs);
+          doc.meta.progress = progress;
+          doc.meta.updatedAt = new Date().toISOString();
+          await this.fileStore.writeDoc(OKR_DIR, key, doc.meta, doc.body);
+        }
+      }
     }
 
-    // 写 KRHistory 记录
+    // 写 KRHistory 记录 (append to jsonl)
     const now = new Date();
-    await prisma.kRHistory.createMany({
-      data: results.map(r => ({
-        krId: krs.find(k => k.current === r.value || r.value === null)?.id || 'unknown',
+    for (const r of results) {
+      const matchedKr = krs.find(k => k.current === r.value || r.value === null);
+      await this.fileStore.appendJsonl(KR_HISTORY_JSONL, {
+        krId: matchedKr?.id || 'unknown',
         okrId,
         value: r.value ?? 0,
         status: r.status,
-        timestamp: now,
-      })),
-    });
+        timestamp: now.toISOString(),
+      });
+    }
 
     logger.info('KR progress synced', { okrId, results: results.map(r => r.status) });
     return results;
@@ -591,10 +723,9 @@ export class OKRService {
   private async queryKnowledgeConsumptionHitRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const [injected, consumed] = await Promise.all([
-        prisma.studioEvent.count({ where: { type: 'knowledge:injected', timestamp: { gte: since } } }),
-        prisma.studioEvent.count({ where: { type: 'knowledge:consumption', timestamp: { gte: since } } }),
-      ]);
+      const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
+      const injected = events.filter(e => e.type === 'knowledge:injected' && new Date(e.timestamp).getTime() >= since.getTime()).length;
+      const consumed = events.filter(e => e.type === 'knowledge:consumption' && new Date(e.timestamp).getTime() >= since.getTime()).length;
       if (injected === 0) return null;
       return Math.round((consumed / injected) * 100);
     } catch { return null; }
@@ -602,15 +733,36 @@ export class OKRService {
 
   private async queryResolutionCount(_days: number): Promise<number | null> {
     try {
-      return await prisma.resolution.count();
+      let count = 0;
+      try {
+        const entries = await fs.promises.readdir(RESOLUTIONS_DIR, { withFileTypes: true });
+        count = entries.filter(e => e.isFile() && e.name.endsWith('.md')).length;
+      } catch {
+        // dir may not exist
+      }
+      return count;
     } catch { return null; }
   }
 
   private async queryResolutionVerifyRate(_days: number): Promise<number | null> {
     try {
-      const total = await prisma.resolution.count();
+      let total = 0;
+      let verified = 0;
+      try {
+        const entries = await fs.promises.readdir(RESOLUTIONS_DIR, { withFileTypes: true });
+        for (const entry of entries) {
+          if (!entry.isFile() || !entry.name.endsWith('.md')) continue;
+          total++;
+          try {
+            const content = await fs.promises.readFile(path.join(RESOLUTIONS_DIR, entry.name), 'utf-8');
+            const parsed = parseFrontmatter(content);
+            if (parsed && parsed.meta.maturity === 'verified') verified++;
+          } catch { /* skip unreadable */ }
+        }
+      } catch {
+        // dir may not exist
+      }
       if (total === 0) return null;
-      const verified = await prisma.resolution.count({ where: { status: 'verified' } });
       return Math.round((verified / total) * 100);
     } catch { return null; }
   }
@@ -618,22 +770,19 @@ export class OKRService {
   private async queryIncidentCount(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      return await prisma.incident.count({ where: { detectedAt: { gte: since } } });
+      const incidents = await this.fileStore.readJsonl<IncidentRow>(INCIDENTS_JSONL);
+      return incidents.filter(i => i.detectedAt && new Date(i.detectedAt).getTime() >= since.getTime()).length;
     } catch { return null; }
   }
 
   private async queryDeploySuccessRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'deploy.completed', timestamp: { gte: since } },
-        select: { payload: true },
-      });
+      const events = await this.readEvents('deploy.completed', since);
       if (events.length === 0) return null;
       const success = events.filter(e => {
         try {
-          const p = JSON.parse(e.payload);
-          // T3: top-level success (current format) with backward compat for result.success
+          const p = JSON.parse(e.payload!);
           return typeof p.success === 'boolean' ? p.success : p.result?.success;
         } catch { return false; }
       }).length;
@@ -645,14 +794,11 @@ export class OKRService {
   private async queryDeployFailureRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'deploy.completed', timestamp: { gte: since } },
-        select: { payload: true },
-      });
+      const events = await this.readEvents('deploy.completed', since);
       if (events.length === 0) return null;
       const failures = events.filter(e => {
         try {
-          const p = JSON.parse(e.payload);
+          const p = JSON.parse(e.payload!);
           const success = typeof p.success === 'boolean' ? p.success : p.result?.success;
           return success === false;
         } catch { return false; }
@@ -664,13 +810,10 @@ export class OKRService {
   private async queryAnalystAccuracy(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'knowledge:analyst_accuracy', timestamp: { gte: since } },
-        select: { payload: true },
-      });
+      const events = await this.readEvents('knowledge:analyst_accuracy', since);
       if (events.length === 0) return null;
       const accurate = events.filter(e => {
-        try { return JSON.parse(e.payload).accurate; } catch { return false; }
+        try { return JSON.parse(e.payload!).accurate; } catch { return false; }
       }).length;
       return Math.round((accurate / events.length) * 100);
     } catch { return null; }
@@ -707,8 +850,6 @@ export class OKRService {
       const childUnits = snapshots.filter(s => s.parentId !== null && new Date(s.createdAt).getTime() >= sinceMs);
       if (childUnits.length === 0) return null;
 
-      // Queue time = child.createdAt - parent.createdAt (approx: child.createdAt - child.claimedAt + wait)
-      // Simpler: child.claimedAt - child.createdAt (time from creation to claim = queue time)
       const waits: number[] = [];
       for (const w of childUnits) {
         if (w.claimedAt) {
@@ -724,13 +865,10 @@ export class OKRService {
   private async queryKnowledgeQualityGatePassRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'extractFromExecution', timestamp: { gte: since } },
-        select: { payload: true },
-      });
+      const events = await this.readEvents('extractFromExecution', since);
       if (events.length === 0) return null;
       const success = events.filter(e => {
-        try { return JSON.parse(e.payload).success; } catch { return false; }
+        try { return JSON.parse(e.payload!).success; } catch { return false; }
       }).length;
       return Math.round((success / events.length) * 100);
     } catch { return null; }
@@ -749,10 +887,9 @@ export class OKRService {
   private async queryKnowledgeSearchHitRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const [searches, hits] = await Promise.all([
-        prisma.studioEvent.count({ where: { type: 'knowledge:search', timestamp: { gte: since } } }),
-        prisma.studioEvent.count({ where: { type: 'knowledge:search_hit', timestamp: { gte: since } } }),
-      ]);
+      const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
+      const searches = events.filter(e => e.type === 'knowledge:search' && new Date(e.timestamp).getTime() >= since.getTime()).length;
+      const hits = events.filter(e => e.type === 'knowledge:search_hit' && new Date(e.timestamp).getTime() >= since.getTime()).length;
       if (searches === 0) return null;
       return Math.round((hits / searches) * 100);
     } catch { return null; }
@@ -773,13 +910,10 @@ export class OKRService {
   private async queryDedupHitRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'knowledge:quality_gate', timestamp: { gte: since } },
-        select: { payload: true },
-      });
+      const events = await this.readEvents('knowledge:quality_gate', since);
       if (events.length === 0) return null;
       const skipped = events.filter(e => {
-        try { return JSON.parse(e.payload).skipped; } catch { return false; }
+        try { return JSON.parse(e.payload!).skipped; } catch { return false; }
       }).length;
       return Math.round((skipped / events.length) * 100);
     } catch { return null; }
@@ -789,17 +923,15 @@ export class OKRService {
   private async querySkillCreated(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.count({
-        where: { type: 'knowledge:skill_created', timestamp: { gte: since } },
-      });
-      return events || 0;
+      const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
+      return events.filter(e => e.type === 'knowledge:skill_created' && new Date(e.timestamp).getTime() >= since.getTime()).length;
     } catch { return null; }
   }
 
   /** Knowledge O3-KR2: Skill 使用率 (used / total published on disk) */
   private async querySkillUsageRate(days: number): Promise<number | null> {
     try {
-      // B59-003: count published skills from disk (no StudioEvent needed)
+      // count published skills from disk (no StudioEvent needed)
       const skillsDir = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
       let total = 0;
       try {
@@ -813,7 +945,8 @@ export class OKRService {
       if (total === 0) return null;
 
       const since = new Date(Date.now() - days * 86400000);
-      const used = await prisma.studioEvent.count({ where: { type: 'knowledge:skill_used', timestamp: { gte: since } } });
+      const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
+      const used = events.filter(e => e.type === 'knowledge:skill_used' && new Date(e.timestamp).getTime() >= since.getTime()).length;
       return Math.round((used / total) * 100);
     } catch { return null; }
   }
@@ -822,10 +955,8 @@ export class OKRService {
   private async queryKnowledgeGrowthRate(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const count = await prisma.studioEvent.count({
-        where: { type: 'knowledge:entry_created', timestamp: { gte: since } },
-      });
-      return count || 0;
+      const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
+      return events.filter(e => e.type === 'knowledge:entry_created' && new Date(e.timestamp).getTime() >= since.getTime()).length;
     } catch { return null; }
   }
 
@@ -833,14 +964,13 @@ export class OKRService {
   private async queryExecutionImprovement(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: { startsWith: 'knowledge:outcome' }, timestamp: { gte: since } },
-        select: { type: true, payload: true },
-      });
-      if (events.length === 0) return null;
-      // Compare success rate of executions that consumed knowledge vs baseline
-      const withKnowledge = events.filter(e => {
-        try { return JSON.parse(e.payload).consumedKnowledge?.length > 0; } catch { return false; }
+      const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
+      const filtered = events.filter(e =>
+        e.type.startsWith('knowledge:outcome') && new Date(e.timestamp).getTime() >= since.getTime()
+      );
+      if (filtered.length === 0) return null;
+      const withKnowledge = filtered.filter(e => {
+        try { return JSON.parse(e.payload!).consumedKnowledge?.length > 0; } catch { return false; }
       });
       if (withKnowledge.length === 0) return null;
       const successWithKnowledge = withKnowledge.filter(e => e.type.includes('success')).length;
@@ -854,15 +984,12 @@ export class OKRService {
   private async queryMaxConcurrent(days: number): Promise<number | null> {
     try {
       const since = new Date(Date.now() - days * 86400000);
-      const events = await prisma.studioEvent.findMany({
-        where: { type: 'scheduler:parallel', timestamp: { gte: since } },
-        select: { payload: true },
-      });
+      const events = await this.readEvents('scheduler:parallel', since);
       if (events.length === 0) return null;
       let max = 0;
       for (const e of events) {
         try {
-          const p = JSON.parse(e.payload);
+          const p = JSON.parse(e.payload!);
           if (p.concurrent > max) max = p.concurrent;
         } catch { /* skip */ }
       }
@@ -875,10 +1002,11 @@ export class OKRService {
     try {
       const since = new Date(Date.now() - days * 86400000);
       const sinceMs = since.getTime();
-      const [snapshots, conflicts] = await Promise.all([
+      const [snapshots, events] = await Promise.all([
         this.fileStore.getIndex(),
-        prisma.studioEvent.count({ where: { type: 'scheduler:conflict', timestamp: { gte: since } } }),
+        this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL),
       ]);
+      const conflicts = events.filter(e => e.type === 'scheduler:conflict' && new Date(e.timestamp).getTime() >= sinceMs).length;
       const total = snapshots.filter(s => s.parentId !== null && new Date(s.createdAt).getTime() >= sinceMs).length;
       if (total === 0) return null;
       return Math.round((conflicts / total) * 100);

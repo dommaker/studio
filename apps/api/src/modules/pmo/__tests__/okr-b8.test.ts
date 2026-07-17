@@ -55,29 +55,43 @@ describe('B8 OKR Service', () => {
     await seedWorkUnit({ parentId: g1, scope: 'step-0', status: 'done' });
 
     // 4. OKR fixture — for syncKRProgress + recalibration
-    const okr = await prisma.oKR.create({
-      data: {
-        companyId: testCompanyId,
-        title: 'Agent Network OKR Test',
-        quarter: '2026-Q2',
-        objectives: JSON.stringify([{ id: 'o1', title: 'Execution Quality' }]),
-        keyResults: JSON.stringify([
-          { id: 'kr-exec', objectiveId: 'o1', title: '执行成功率', target: 80, current: 0, unit: '%', metricType: 'execution_success_rate' },
-          { id: 'kr-review', objectiveId: 'o1', title: 'Review 通过率', target: 90, current: 0, unit: '%', metricType: 'review_pass_rate' },
-          { id: 'kr-deploy', objectiveId: 'o1', title: '部署成功率', target: 95, current: 0, unit: '%', metricType: 'deploy_success_rate' },
-          { id: 'kr-incident', objectiveId: 'o1', title: '事件数', target: 5, current: 0, unit: 'count', metricType: 'incident_count' },
-        ]),
-        progress: 0,
-      },
-    });
-    seededOkrId = okr.id;
+    const quarter = '2026-Q2';
+    const okrDir = path.join(os.homedir(), '.studio', 'okr');
+    fs.mkdirSync(okrDir, { recursive: true });
+    const okrFilePath = path.join(okrDir, `${quarter}.md`);
+    const okrId = 'okr-seeded';
+    // Write OKR as markdown file (format expected by migrated service)
+    const okrMeta = [
+      '---',
+      `id: "${okrId}"`,
+      'status: "active"',
+      `title: "Agent Network OKR Test"`,
+      `quarter: "2026-Q2"`,
+      'progress: 0',
+      `createdAt: "${new Date().toISOString()}"`,
+      `updatedAt: "${new Date().toISOString()}"`,
+      `objectives: '[{"id":"o1","title":"Execution Quality"}]'`,
+      `keyResults: '[{"id":"kr-exec","objectiveId":"o1","title":"执行成功率","target":80,"current":0,"unit":"%","metricType":"execution_success_rate"},{"id":"kr-review","objectiveId":"o1","title":"Review 通过率","target":90,"current":0,"unit":"%","metricType":"review_pass_rate"},{"id":"kr-deploy","objectiveId":"o1","title":"部署成功率","target":95,"current":0,"unit":"%","metricType":"deploy_success_rate"},{"id":"kr-incident","objectiveId":"o1","title":"事件数","target":5,"current":0,"unit":"count","metricType":"incident_count"}]'`,
+      '---',
+      '',
+      '# Agent Network OKR Test',
+      '',
+      '## Objectives',
+      '- o1: Execution Quality',
+      '',
+      '## Key Results',
+      '- kr-exec: 执行成功率 (80%)',
+      '- kr-review: Review 通过率 (90%)',
+      '- kr-deploy: 部署成功率 (95%)',
+      '- kr-incident: 事件数 (5)',
+    ].join('\n');
+    fs.writeFileSync(okrFilePath, okrMeta);
+    seededOkrId = okrId;
   });
 
   afterAll(async () => {
-    // Cleanup seeded data (order matters for FK constraints)
-    await prisma.kRHistory.deleteMany({ where: { okrId: seededOkrId } });
-    await prisma.oKR.deleteMany({ where: { id: seededOkrId } });
-    // FileStore cleanup
+    // Cleanup seeded data
+    try { fs.unlinkSync(path.join(os.homedir(), '.studio', 'okr', '2026-Q2.md')); } catch {}
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
