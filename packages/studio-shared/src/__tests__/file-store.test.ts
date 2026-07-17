@@ -703,4 +703,73 @@ describe('FileStore', () => {
       expect(c).toContain('E2.');
     });
   });
+
+  // ─── AC-A1: public json/jsonl methods ───
+
+  describe('FileStore public JSON/JSONL methods', () => {
+    it('should allow external call to appendJsonl', async () => {
+      const fp = path.join(tmpDir, 'public-append.jsonl');
+      await store.appendJsonl(fp, { id: '1', msg: 'hello' });
+      const lines = fs.readFileSync(fp, 'utf-8').trim().split('\n');
+      expect(lines).toHaveLength(1);
+      expect(JSON.parse(lines[0]).msg).toBe('hello');
+    });
+
+    it('should allow external call to readJsonl<T>', async () => {
+      const fp = path.join(tmpDir, 'public-read.jsonl');
+      fs.writeFileSync(fp, JSON.stringify({ id: '1' }) + '\n' + JSON.stringify({ id: '2' }) + '\n');
+      const rows = await store.readJsonl<{ id: string }>(fp);
+      expect(rows).toHaveLength(2);
+      expect(rows[0].id).toBe('1');
+    });
+
+    it('should skip corrupt lines in readJsonl', async () => {
+      const fp = path.join(tmpDir, 'public-corrupt.jsonl');
+      fs.writeFileSync(fp, JSON.stringify({ id: '1' }) + '\nNOT-JSON\n' + JSON.stringify({ id: '2' }) + '\n');
+      const rows = await store.readJsonl<{ id: string }>(fp);
+      expect(rows).toHaveLength(2);
+    });
+
+    it('should return empty array for non-existent jsonl file', async () => {
+      const rows = await store.readJsonl<unknown>(path.join(tmpDir, 'nope.jsonl'));
+      expect(rows).toEqual([]);
+    });
+
+    it('should allow external call to readJson<T>', async () => {
+      const fp = path.join(tmpDir, 'public-read.json');
+      fs.writeFileSync(fp, JSON.stringify({ key: 'val' }));
+      const data = await store.readJson<{ key: string }>(fp);
+      expect(data).not.toBeNull();
+      expect(data!.key).toBe('val');
+    });
+
+    it('should return null for non-existent json file', async () => {
+      const data = await store.readJson<unknown>(path.join(tmpDir, 'nope.json'));
+      expect(data).toBeNull();
+    });
+
+    it('should return null for corrupt json file', async () => {
+      const fp = path.join(tmpDir, 'corrupt.json');
+      fs.writeFileSync(fp, '{bad json');
+      const data = await store.readJson<unknown>(fp);
+      expect(data).toBeNull();
+    });
+
+    it('should allow external call to writeJson', async () => {
+      const fp = path.join(tmpDir, 'sub', 'public-write.json');
+      await store.writeJson(fp, { created: true, count: 42 });
+      const raw = fs.readFileSync(fp, 'utf-8');
+      const parsed = JSON.parse(raw);
+      expect(parsed.created).toBe(true);
+      expect(parsed.count).toBe(42);
+    });
+
+    it('should overwrite existing json with writeJson', async () => {
+      const fp = path.join(tmpDir, 'public-overwrite.json');
+      await store.writeJson(fp, { v: 1 });
+      await store.writeJson(fp, { v: 2 });
+      const data = await store.readJson<{ v: number }>(fp);
+      expect(data!.v).toBe(2);
+    });
+  });
 });

@@ -155,7 +155,7 @@ export class FileStore {
   }
 
   /** 读取 JSON 文件，不存在或损坏返回 null */
-  private async readJson<T>(filePath: string): Promise<T | null> {
+  public async readJson<T>(filePath: string): Promise<T | null> {
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       try {
@@ -170,19 +170,19 @@ export class FileStore {
   }
 
   /** 写入 JSON 文件 */
-  private async writeJson(filePath: string, data: unknown): Promise<void> {
+  public async writeJson(filePath: string, data: unknown): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
     await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
   }
 
   /** 追加一行 JSONL */
-  private async appendJsonl(filePath: string, data: unknown): Promise<void> {
+  public async appendJsonl(filePath: string, data: unknown): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
     await fs.promises.appendFile(filePath, JSON.stringify(data) + '\n', 'utf-8');
   }
 
   /** 读取全部 JSONL 行（跳过解析失败的行） */
-  private async readJsonl<T>(filePath: string): Promise<T[]> {
+  public async readJsonl<T>(filePath: string): Promise<T[]> {
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const lines = content.split('\n').filter(l => l.trim().length > 0);
