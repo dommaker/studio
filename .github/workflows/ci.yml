@@ -13,16 +13,10 @@ jobs:
       SKIP_E2E_SERVER: 'true'
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
-        with:
-          repository: dommaker/harness
-          path: harness-src
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
       - run: npm install -g pnpm@latest
-      - run: ln -s "$(pwd)/harness-src" ../harness
-      - run: cd harness-src && pnpm install --ignore-workspace && pnpm build
       - run: pnpm install
       - run: pnpm build
       # vitest teardown crashes native modules (SIGABRT), but all tests pass.

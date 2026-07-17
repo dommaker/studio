@@ -17,9 +17,3 @@ catalog:
   typescript: ^5.3.0
   vitest: ^1.0.0
   zod: ^3.22.0
-
-minimumReleaseAgeExclude:
-  - '@dommaker/harness'
-
-overrides:
-  '@dommaker/harness': link:../harness
