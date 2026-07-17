@@ -25,7 +25,7 @@ jobs:
       - run: cd harness-src && pnpm install --ignore-workspace && pnpm build
       - run: pnpm install
       - run: pnpm build
-      - run: pnpm test -- --maxWorkers=1
+      - run: pnpm test -- --pool=forks --maxWorkers=1
       - name: Governance
         run: npx harness check && npx harness sync-docs --check
         continue-on-error: true
