@@ -722,6 +722,94 @@ export class FileStore {
     const content = serializeFrontmatter(meta, body);
     await fs.promises.writeFile(filePath, content, 'utf-8');
   }
+
+  // ═══ 索引管理 ═══
+
+  async buildIndex(dir: string, fields: string[]): Promise<void> {
+    await this.ensureDir(dir);
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    const mdFiles = entries.filter(e => e.isFile() && e.name.endsWith('.md') && e.name !== '_index.md').map(e => e.name);
+    const header = `# Directory Index\n# Auto-generated\n# Total: ${mdFiles.length} entries\n#\n# filename|${fields.join('|')}`;
+    const dataLines: string[] = [];
+    for (const filename of mdFiles) {
+      const doc = await this.readDoc(dir, filename.replace(/\.md$/, ''));
+      const values = fields.map(f => {
+        const v = doc?.meta[f];
+        if (v === undefined || v === null) return '';
+        if (Array.isArray(v)) return (v as string[]).join(';');
+        return String(v);
+      });
+      dataLines.push(`${filename}|${values.join('|')}`);
+    }
+    await fs.promises.writeFile(path.join(dir, '_index.md'), header + '\n' + dataLines.join('\n') + '\n', 'utf-8');
+  }
+
+  async queryIndex(dir: string, field: string, value: string): Promise<string[]> {
+    try {
+      const content = await fs.promises.readFile(path.join(dir, '_index.md'), 'utf-8');
+      const headerLine = content.split('\n').find(l => l.startsWith('# filename|'));
+      if (!headerLine) return [];
+      const columns = headerLine.replace(/^#\s*/, '').split('|');
+      const fieldIndex = columns.indexOf(field);
+      if (fieldIndex === -1) return [];
+      return content.split('\n').filter(l => l.trim() && !l.startsWith('#'))
+        .filter(l => l.split('|')[fieldIndex] === value)
+        .map(l => l.split('|')[0].replace(/\.md$/, ''));
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return [];
+      throw err;
+    }
+  }
+
+  async listDocs(dir: string): Promise<string[]> {
+    try {
+      const content = await fs.promises.readFile(path.join(dir, '_index.md'), 'utf-8');
+      return content.split('\n').filter(l => l.trim() && !l.startsWith('#'))
+        .map(l => l.split('|')[0].replace(/\.md$/, ''));
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') {
+        try {
+          const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+          return entries.filter(e => e.isFile() && e.name.endsWith('.md') && e.name !== '_index.md')
+            .map(e => e.name.replace(/\.md$/, ''));
+        } catch { return []; }
+      }
+      throw err;
+    }
+  }
+
+  async findByField(dir: string, field: string, value: string): Promise<string | null> {
+    const results = await this.queryIndex(dir, field, value);
+    return results.length > 0 ? results[0] : null;
+  }
+
+  // ═══ 版本管理 ═══
+
+  async bumpVersion(dir: string, key: string, changeType: string, changeDesc: string): Promise<void> {
+    const doc = await this.readDoc(dir, key);
+    if (!doc) throw new Error(`Document not found: ${dir}/${key}`);
+    const currentVersion = typeof doc.meta.version === 'number' ? doc.meta.version : 0;
+    doc.meta.version = currentVersion + 1;
+    doc.meta.changeType = changeType;
+    doc.meta.changeDesc = changeDesc;
+    doc.meta.updatedAt = new Date().toISOString();
+    await this.writeDoc(dir, key, doc.meta, doc.body);
+  }
+
+  async appendChangelog(dir: string, key: string, entry: string): Promise<void> {
+    const changelogDir = path.join(dir, key);
+    await this.ensureDir(changelogDir);
+    const filePath = path.join(changelogDir, 'CHANGELOG.md');
+    const newEntry = `\n## ${new Date().toISOString()}\n\n${entry}\n`;
+    try {
+      const existing = await fs.promises.readFile(filePath, 'utf-8');
+      await fs.promises.writeFile(filePath, existing + newEntry, 'utf-8');
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') {
+        await fs.promises.writeFile(filePath, `# CHANGELOG\n${newEntry}`, 'utf-8');
+      } else { throw err; }
+    }
+  }
 }
 
 // ─── 工具函数 ───

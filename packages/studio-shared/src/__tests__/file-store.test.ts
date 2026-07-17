@@ -559,4 +559,148 @@ describe('FileStore', () => {
       expect(parsed!.body).toBe('Body content.');
     });
   });
+
+  describe('FileStore Index', () => {
+    let store: FileStore;
+    let tmpDir: string;
+
+    beforeEach(() => { tmpDir = createTempDir(); store = new FileStore(tmpDir); });
+    afterEach(() => { if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+    async function seedDocs(dir: string): Promise<void> {
+      await store.writeDoc(dir, 'doc-a', { id: 'a1', type: 'guideline', title: 'Alpha', status: 'stable' }, 'A');
+      await store.writeDoc(dir, 'doc-b', { id: 'b2', type: 'architecture', title: 'Beta', status: 'draft' }, 'B');
+      await store.writeDoc(dir, 'doc-c', { id: 'c3', type: 'guideline', title: 'Gamma', status: 'stable' }, 'C');
+    }
+
+    it('should build _index.md with filename|field1|field2 format', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id', 'type', 'title', 'status']);
+      const idx = fs.readFileSync(path.join(d, '_index.md'), 'utf-8');
+      expect(idx).toContain('doc-a');
+      expect(idx).toContain('|a1|');
+      expect(idx).toContain('|guideline|');
+    });
+
+    it('should generate header-only index for empty directory', async () => {
+      const d = path.join(tmpDir, 'empty');
+      fs.mkdirSync(d, { recursive: true });
+      await store.buildIndex(d, ['id', 'type']);
+      const idx = fs.readFileSync(path.join(d, '_index.md'), 'utf-8');
+      expect(idx.split('\n').filter(l => l.trim() && !l.startsWith('#'))).toHaveLength(0);
+    });
+
+    it('should output empty string for missing fields', async () => {
+      const d = path.join(tmpDir, 'p');
+      await store.writeDoc(d, 'pdoc', { id: 'p1' }, 'c');
+      await store.buildIndex(d, ['id', 'type']);
+      expect(fs.readFileSync(path.join(d, '_index.md'), 'utf-8')).toContain('pdoc.md|p1|');
+    });
+
+    it('should return matching filenames for field=value query', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id', 'type', 'title', 'status']);
+      const r = await store.queryIndex(d, 'type', 'guideline');
+      expect(r).toHaveLength(2);
+      expect(r).toContain('doc-a');
+      expect(r).toContain('doc-c');
+    });
+
+    it('should return empty array when no match', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id', 'type']);
+      expect(await store.queryIndex(d, 'type', 'nope')).toEqual([]);
+    });
+
+    it('should list docs from _index.md', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id']);
+      expect(await store.listDocs(d)).toHaveLength(3);
+    });
+
+    it('should fallback to directory scan when _index.md missing', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      expect(await store.listDocs(d)).toHaveLength(3);
+    });
+
+    it('should return empty array for empty dir', async () => {
+      const d = path.join(tmpDir, 'e');
+      fs.mkdirSync(d, { recursive: true });
+      expect(await store.listDocs(d)).toEqual([]);
+    });
+
+    it('should return filename when field matches', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id', 'type']);
+      expect(await store.findByField(d, 'id', 'b2')).toBe('doc-b');
+    });
+
+    it('should return null when field does not match', async () => {
+      const d = path.join(tmpDir, 'kb');
+      await seedDocs(d);
+      await store.buildIndex(d, ['id']);
+      expect(await store.findByField(d, 'id', 'nope')).toBeNull();
+    });
+  });
+
+  describe('FileStore Version', () => {
+    let store: FileStore;
+    let tmpDir: string;
+
+    beforeEach(() => { tmpDir = createTempDir(); store = new FileStore(tmpDir); });
+    afterEach(() => { if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+    it('should increment version and write changeType/changeDesc', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.writeDoc(d, 'v', { version: 3, title: 'T' }, 'body');
+      await store.bumpVersion(d, 'v', 'L2', 'design updated');
+      const doc = await store.readDoc(d, 'v');
+      expect(doc!.meta.version).toBe(4);
+      expect(doc!.meta.changeType).toBe('L2');
+      expect(doc!.meta.changeDesc).toBe('design updated');
+    });
+
+    it('should init version to 1 when non-numeric', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.writeDoc(d, 'nv', { title: 'NV' }, 'body');
+      await store.bumpVersion(d, 'nv', 'L1', 'first');
+      expect((await store.readDoc(d, 'nv'))!.meta.version).toBe(1);
+    });
+
+    it('should throw when doc does not exist', async () => {
+      await expect(store.bumpVersion(path.join(tmpDir, 'sdd'), 'x', 'L1', 'x')).rejects.toThrow();
+    });
+
+    it('should append changelog with ISO timestamp', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.writeDoc(d, 't', { version: 1 }, 'body');
+      await store.appendChangelog(d, 't', 'Initial.');
+      const c = fs.readFileSync(path.join(d, 't', 'CHANGELOG.md'), 'utf-8');
+      expect(c).toContain('# CHANGELOG');
+      expect(c).toContain('Initial.');
+    });
+
+    it('should auto-create CHANGELOG when not exists', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.appendChangelog(d, 'nd', 'First.');
+      const c = fs.readFileSync(path.join(d, 'nd', 'CHANGELOG.md'), 'utf-8');
+      expect(c).toContain('# CHANGELOG');
+    });
+
+    it('should not overwrite old entries on multiple appends', async () => {
+      const d = path.join(tmpDir, 'sdd');
+      await store.writeDoc(d, 'me', { version: 1 }, 'body');
+      await store.appendChangelog(d, 'me', 'E1.');
+      await store.appendChangelog(d, 'me', 'E2.');
+      const c = fs.readFileSync(path.join(d, 'me', 'CHANGELOG.md'), 'utf-8');
+      expect(c).toContain('E1.');
+      expect(c).toContain('E2.');
+    });
+  });
 });
