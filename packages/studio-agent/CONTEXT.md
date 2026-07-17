@@ -3,6 +3,9 @@
 > 最后更新: 2026-05-05
 > Agent 执行器 — session loop 模型 + git worktree 隔离 + 文件桥上下文传递
 
+<!-- STALE_SINCE: 2026-07-17 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/package.json
+
 ## 职责
 
 Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude Code → session loop 监控 → 完成判定。
@@ -87,3 +90,8 @@ worktree/
 | `maxSessions` | 5 | 最大 session 循环次数 |
 | `heartbeatIntervalMinutes` | 5 | 心跳间隔 |
 | `dockerImage` | claude-code:fast | Claude Code Docker 镜像 |
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ `da1d7696`: ci): governance continue-on-error + fix vitest watch mode

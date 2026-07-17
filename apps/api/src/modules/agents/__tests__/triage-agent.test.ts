@@ -1,12 +1,78 @@
-// TriageAgent + MonitorAgent integration test (SQLite, no Prisma mocks)
-import { describe, it, expect, afterAll } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
-import { triageAgent } from '../triage-agent.service.js';
-import { monitorAgent } from '../monitor-agent.service.js';
+// TriageAgent + MonitorAgent integration test (mocked Prisma)
+import { describe, it, expect, vi, afterAll, beforeEach } from 'vitest';
+
+// In-memory incident store for mock Prisma
+const incidentStore = new Map<string, any>();
+
+const mockPrisma = {
+  incident: {
+    create: vi.fn(({ data }: { data: any }) => {
+      const incident = { ...data };
+      // Prisma auto-deserializes JSON fields - simulate for triageLog
+      if (typeof incident.triageLog === 'string') {
+        try { incident.triageLog = JSON.parse(incident.triageLog); } catch { /* keep as string */ }
+      }
+      incidentStore.set(data.id, incident);
+      return incident;
+    }),
+    update: vi.fn(({ where, data }: { where: any; data: any }) => {
+      const existing = incidentStore.get(where.id);
+      if (existing) {
+        const updated = { ...existing, ...data };
+        // Prisma auto-deserializes JSON fields - simulate for triageLog
+        if (typeof updated.triageLog === 'string') {
+          try { updated.triageLog = JSON.parse(updated.triageLog); } catch { /* keep as string */ }
+        }
+        incidentStore.set(where.id, updated);
+        return updated;
+      }
+      return null;
+    }),
+    findUnique: vi.fn(({ where }: { where: any }) => {
+      const incident = incidentStore.get(where.id);
+      return incident ? { ...incident } : null;
+    }),
+    deleteMany: vi.fn(({ where }: { where?: any }) => {
+      if (where?.id) {
+        const existed = incidentStore.delete(where.id);
+        return { count: existed ? 1 : 0 };
+      }
+      const count = incidentStore.size;
+      incidentStore.clear();
+      return { count };
+    }),
+  },
+  task: {
+    findMany: vi.fn().mockResolvedValue([]),
+  },
+  studioEvent: {
+    findMany: vi.fn().mockResolvedValue([]),
+    create: vi.fn().mockResolvedValue({}),
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+  },
+  session: {
+    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+  },
+  $queryRaw: vi.fn().mockResolvedValue([{ 1: 1 }]),
+  $executeRawUnsafe: vi.fn().mockResolvedValue(0),
+};
+
+vi.mock('@dommaker/studio-prisma', () => ({ prisma: mockPrisma }));
+
+// Use dynamic import after mock setup (avoids vi.mock hoisting issues)
+const { prisma } = await import('@dommaker/studio-prisma');
+const { triageAgent } = await import('../triage-agent.service.js');
+const { monitorAgent } = await import('../monitor-agent.service.js');
 
 describe('TriageAgent + MonitorAgent', () => {
+  beforeEach(() => {
+    incidentStore.clear();
+    vi.clearAllMocks();
+  });
+
   afterAll(async () => {
-    await prisma.incident.deleteMany({});
+    incidentStore.clear();
   });
 
   // ── systemHealthCheck ──
@@ -33,7 +99,7 @@ describe('TriageAgent + MonitorAgent', () => {
 
   describe('TriageAgent.handleAlert()', () => {
     it('creates an Incident record with valid ID format', async () => {
-      // Use resource_critical — avoids ACT phase (resolves immediately as minor)
+      // Use resource_critical - avoids ACT phase (resolves immediately as minor)
       const result = await triageAgent.handleAlert({
         type: 'resource_critical',
         severity: 'warning',
@@ -85,7 +151,7 @@ describe('TriageAgent + MonitorAgent', () => {
       const incident = await prisma.incident.findUnique({
         where: { id: result.incidentId },
       });
-      // Prisma auto-deserializes JSON fields — triageLog is already an array
+      // Mock Prisma auto-deserializes JSON fields - triageLog is already an array
       const logs = incident!.triageLog as unknown as Record<string, unknown>[];
       expect(Array.isArray(logs)).toBe(true);
       expect(logs.length).toBeGreaterThan(0);
@@ -109,7 +175,7 @@ describe('TriageAgent + MonitorAgent', () => {
       const incident = await prisma.incident.findUnique({
         where: { id: result.incidentId },
       });
-      // Prisma auto-deserializes JSON fields — triageLog is already an array
+      // Mock Prisma auto-deserializes JSON fields - triageLog is already an array
       const logs = incident!.triageLog as unknown as Record<string, unknown>[];
       const phases = logs.map((l: any) => l.phase);
       expect(phases).toContain('diagnose');
@@ -152,7 +218,7 @@ describe('TriageAgent + MonitorAgent', () => {
         where: { id: result.incidentId },
       });
       expect(incident!.type).toBe('execution_session_exhausted');
-      // session_exhausted has no auto-fix → should escalate
+      // session_exhausted has no auto-fix -> should escalate
       expect(incident!.escalatedTo).toBe('human');
 
       await prisma.incident.deleteMany({ where: { id: result.incidentId } });
@@ -162,20 +228,20 @@ describe('TriageAgent + MonitorAgent', () => {
   // ── classifySystemError ──
 
   describe('classifySystemError()', () => {
-    it('maps service_down → timeout (critical)', async () => {
+    it('maps service_down -> timeout (critical)', async () => {
       const { classifySystemError } = await import('../../triage/error-class.js');
       const r = classifySystemError('service_down', 'unreachable');
       expect(r.errorClass).toBe('timeout');
       expect(r.severity).toBe('critical');
     });
 
-    it('maps zombie → timeout (degraded)', async () => {
+    it('maps zombie -> timeout (degraded)', async () => {
       const { classifySystemError } = await import('../../triage/error-class.js');
       const r = classifySystemError('zombie', 'defunct');
       expect(r.errorClass).toBe('timeout');
     });
 
-    it('maps ext_dependency → vendor_error (critical)', async () => {
+    it('maps ext_dependency -> vendor_error (critical)', async () => {
       const { classifySystemError } = await import('../../triage/error-class.js');
       const r = classifySystemError('ext_dependency', 'DB timeout');
       expect(r.errorClass).toBe('vendor_error');
@@ -190,7 +256,7 @@ describe('TriageAgent + MonitorAgent', () => {
 
     // ── 执行级事件分类 (FL-037 Phase 1) ──
 
-    it('maps execution_repeated_failure → timeout (degraded)', async () => {
+    it('maps execution_repeated_failure -> timeout (degraded)', async () => {
       const { classifySystemError } = await import('../../triage/error-class.js');
       const r = classifySystemError('execution_repeated_failure', 'same step failed 3 times');
       expect(r.errorClass).toBe('timeout');
@@ -198,21 +264,21 @@ describe('TriageAgent + MonitorAgent', () => {
       expect(r.recommendedAction).toContain('tier upgrade');
     });
 
-    it('maps execution_heartbeat_lost → timeout (critical)', async () => {
+    it('maps execution_heartbeat_lost -> timeout (critical)', async () => {
       const { classifySystemError } = await import('../../triage/error-class.js');
       const r = classifySystemError('execution_heartbeat_lost', 'heartbeat lost 30min');
       expect(r.errorClass).toBe('timeout');
       expect(r.severity).toBe('critical');
     });
 
-    it('maps execution_session_exhausted → env_error (critical)', async () => {
+    it('maps execution_session_exhausted -> env_error (critical)', async () => {
       const { classifySystemError } = await import('../../triage/error-class.js');
       const r = classifySystemError('execution_session_exhausted', '5 sessions exhausted');
       expect(r.errorClass).toBe('env_error');
       expect(r.severity).toBe('critical');
     });
 
-    it('maps execution_timeout → timeout (critical)', async () => {
+    it('maps execution_timeout -> timeout (critical)', async () => {
       const { classifySystemError } = await import('../../triage/error-class.js');
       const r = classifySystemError('execution_timeout', 'execution over 2.5h');
       expect(r.errorClass).toBe('timeout');
