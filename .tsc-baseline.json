@@ -1,26 +1,6 @@
 {
   "apps/api": [
     {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 213,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/agents/monitor-agent.service.ts",
-      "line": 213,
-      "code": "TS2339"
-    },
-    {
-      "file": "apps/api/src/modules/agents/ops-agent.service.ts",
-      "line": 617,
-      "code": "TS2304"
-    },
-    {
-      "file": "apps/api/src/modules/knowledge/evolution.service.ts",
-      "line": 339,
-      "code": "TS2339"
-    },
-    {
       "file": "apps/api/src/modules/knowledge/routes.ts",
       "line": 134,
       "code": "TS2345"
@@ -207,8 +187,8 @@
     }
   ],
   "_meta": {
-    "generated": "2026-07-17T18:28:39.888Z",
-    "totalErrors": 41,
-    "commit": "1ac014a8cc94dc3ffee7f195993855be411f6e3f"
+    "generated": "2026-07-17T18:33:03.505Z",
+    "totalErrors": 37,
+    "commit": "0d1ef570e7ae7e5117f2d5a86fc2b5fac4d155f2"
   }
 }

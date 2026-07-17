@@ -209,7 +209,7 @@ export class MonitorAgent {
     } catch { /* no tasks dir */ }
     const recentTasks = allTasks
       .filter(t => t.startedAt && new Date(t.startedAt) >= oneHourAgo && ['completed', 'failed'].includes(t.status))
-      .map(t => ({ id: t.id, status: t.status, projectId: t.projectId, name: t.name }))
+      .map(t => ({ id: t.id, status: t.status, projectId: t.projectId, name: t.name, startedAt: t.startedAt }))
       .sort((a, b) => new Date(b.startedAt || 0).getTime() - new Date(a.startedAt || 0).getTime())
       .slice(0, 20);
 

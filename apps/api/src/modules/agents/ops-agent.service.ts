@@ -614,7 +614,7 @@ export class OpsAgent {
       }
     }
 
-    return { channels: channelCount, admin: !!admin };
+    return { channels: channelCount, admin: adminExists };
   }
 }
 

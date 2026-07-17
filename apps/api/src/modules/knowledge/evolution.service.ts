@@ -336,7 +336,7 @@ export class KnowledgeEvolutionService {
       if (docs.length === 0) break;
 
       for (const doc of docs) {
-        const daysSinceUpdate = (now.getTime() - doc.updatedAt.getTime()) / (1000 * 60 * 60 * 24);
+        const daysSinceUpdate = (now.getTime() - new Date(doc.updatedAt).getTime()) / (1000 * 60 * 60 * 24);
 
         // 根据类型确定衰减天数
         const decayDays = doc.type === 'execution' ? 30 : doc.type === 'meeting' ? 60 : 90;
