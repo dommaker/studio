@@ -8,6 +8,9 @@ allowBuilds:
   esbuild: true
   prisma: true
 
+minimumReleaseAgeExclude:
+  - '@dommaker/harness'
+
 catalog:
   '@fastify/cors': ^8.4.0
   '@prisma/client': ^5.7.0
