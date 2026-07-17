@@ -63,6 +63,48 @@ vi.mock('../task-logger.js', () => ({
   classifyTaskError: vi.fn(() => 'unknown'),
 }));
 
+// Mock @dommaker/studio-agent: SessionManager.runTask 委托给 agentRunner.executeLightweight
+// 模拟 Claude 根据 prompt 内容修改文件，返回成功结果
+vi.mock('@dommaker/studio-agent', () => ({
+  agentRunner: {
+    executeLightweight: vi.fn(async (task: {
+      prompt: string;
+      executionId: string;
+      parameters?: { worktree?: string };
+    }) => {
+      const prompt = task.prompt || '';
+      const wt = task.parameters?.worktree || '';
+
+      if (wt) {
+        // Simulate counter.ts modifications
+        if (prompt.includes('export let count = 1')) {
+          fs.writeFileSync(path.join(wt, 'src', 'counter.ts'), 'export let count = 1;\n');
+        } else if (prompt.includes('count = 2') || prompt.includes('\u6539\u6210 2')) {
+          fs.writeFileSync(path.join(wt, 'src', 'counter.ts'), 'export let count = 2;\n');
+        }
+
+        // Simulate version.ts modifications
+        if (prompt.includes('"1.1"')) {
+          fs.writeFileSync(path.join(wt, 'src', 'version.ts'), 'export const VERSION = "1.1";\n');
+        } else if (prompt.includes('"1.2"')) {
+          fs.writeFileSync(path.join(wt, 'src', 'version.ts'), 'export const VERSION = "1.2";\n');
+        }
+      }
+
+      return {
+        success: true,
+        worktree: wt,
+        outputFiles: [],
+        logFile: '',
+        sessionCount: 1,
+        totalDurationMs: 100,
+        sessionIds: [task.executionId],
+        outputText: 'DONE',
+      };
+    }),
+  },
+}));
+
 import { SessionManager } from '../session-manager.js';
 
 describe('Session 过期自动重建', () => {
