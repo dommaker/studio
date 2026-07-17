@@ -283,7 +283,7 @@ export class AgentRunner implements IAgentRunner {
       });
 
       // SP-004 Step 5: resolve contractTests + testFiles from SDD task layer (fallback DB)
-      const sddTaskData = this.resolveSddTaskData(task);
+      const sddTaskData = await this.resolveSddTaskData(task);
       const contractTests = sddTaskData.contractTests;
       const testFiles = sddTaskData.testFiles;
 
@@ -968,24 +968,24 @@ export class AgentRunner implements IAgentRunner {
    *   ## Test Files
    *   - <path>
    */
-  private resolveSddTaskData(task: AgentTask): {
+  private async resolveSddTaskData(task: AgentTask): Promise<{
     contractTests: Array<{ file: string; content: string }> | undefined;
     testFiles: string[];
-  } {
+  }> {
     // DB fallback values
     const dbContractTests = task.parameters?.contractTests as Array<{ file: string; content: string }> | undefined;
     const dbTestFiles: string[] = [];
 
     // Resolve slug
     const slug = (task.parameters?.sddSlug as string)
-      || findSddDocById((task.parameters?.goalId as string) || '');
+      || await findSddDocById((task.parameters?.goalId as string) || '');
 
     if (!slug) {
       return { contractTests: dbContractTests, testFiles: dbTestFiles };
     }
 
     try {
-      const taskDoc = readSddDoc(slug, 'task');
+      const taskDoc = await readSddDoc(slug, 'task');
       if (!taskDoc) {
         return { contractTests: dbContractTests, testFiles: dbTestFiles };
       }

@@ -39,26 +39,26 @@ describe('resolveSddTaskData', () => {
     runner = new AgentRunner();
   });
 
-  test('returns DB contractTests when no slug available', () => {
-    mockFindSddDocById.mockReturnValue(null);
+  test('returns DB contractTests when no slug available', async () => {
+    mockFindSddDocById.mockResolvedValue(null);
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ contractTests: dbTests });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     expect(result.contractTests).toEqual(dbTests);
     expect(result.testFiles).toEqual([]);
   });
 
-  test('returns DB values when SDD file not found', () => {
-    mockReadSddDoc.mockReturnValue(null);
+  test('returns DB values when SDD file not found', async () => {
+    mockReadSddDoc.mockResolvedValue(null);
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ contractTests: dbTests, sddSlug: 'nonexistent-slug' });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     expect(result.contractTests).toEqual(dbTests);
     expect(result.testFiles).toEqual([]);
   });
 
-  test('reads contractTests from SDD task.md', () => {
-    mockReadSddDoc.mockReturnValue({
+  test('reads contractTests from SDD task.md', async () => {
+    mockReadSddDoc.mockResolvedValue({
       meta: { id: 'test-doc', slug: 'sdd-contract-test' },
       body: [
         '## Contract Tests',
@@ -72,14 +72,14 @@ describe('resolveSddTaskData', () => {
     });
 
     const task = makeTask({ sddSlug: 'sdd-contract-test' });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     expect(result.contractTests).toHaveLength(1);
     expect(result.contractTests[0].file).toBe('__tests__/auth.test.ts');
     expect(result.contractTests[0].content).toContain('auth test');
   });
 
-  test('reads testFiles from SDD task.md', () => {
-    mockReadSddDoc.mockReturnValue({
+  test('reads testFiles from SDD task.md', async () => {
+    mockReadSddDoc.mockResolvedValue({
       meta: { id: 'test-doc-2', slug: 'sdd-testfiles' },
       body: [
         '## Test Files',
@@ -90,12 +90,12 @@ describe('resolveSddTaskData', () => {
     });
 
     const task = makeTask({ sddSlug: 'sdd-testfiles' });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     expect(result.testFiles).toEqual(['__tests__/auth.test.ts', '__tests__/session.test.ts']);
   });
 
-  test('SDD values take precedence over DB when both exist', () => {
-    mockReadSddDoc.mockReturnValue({
+  test('SDD values take precedence over DB when both exist', async () => {
+    mockReadSddDoc.mockResolvedValue({
       meta: { id: 'test-doc-3', slug: 'sdd-precedence' },
       body: [
         '## Contract Tests',
@@ -113,29 +113,29 @@ describe('resolveSddTaskData', () => {
 
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ sddSlug: 'sdd-precedence', contractTests: dbTests });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     // SDD values should win
     expect(result.contractTests).toHaveLength(1);
     expect(result.contractTests[0].file).toBe('__tests__/sdd.test.ts');
     expect(result.testFiles).toEqual(['__tests__/regression.test.ts']);
   });
 
-  test('falls back to DB contractTests when SDD has no Contract Tests section', () => {
-    mockReadSddDoc.mockReturnValue({
+  test('falls back to DB contractTests when SDD has no Contract Tests section', async () => {
+    mockReadSddDoc.mockResolvedValue({
       meta: { id: 'test-doc-4', slug: 'sdd-no-contract' },
       body: '## Other Section\n\nSome content.',
     });
 
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ sddSlug: 'sdd-no-contract', contractTests: dbTests });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     expect(result.contractTests).toEqual(dbTests);
     expect(result.testFiles).toEqual([]);
   });
 
-  test('resolves slug from task.parameters.goalId via findSddDocById', () => {
-    mockFindSddDocById.mockReturnValue('sdd-by-goal');
-    mockReadSddDoc.mockReturnValue({
+  test('resolves slug from task.parameters.goalId via findSddDocById', async () => {
+    mockFindSddDocById.mockResolvedValue('sdd-by-goal');
+    mockReadSddDoc.mockResolvedValue({
       meta: { id: 'test-doc-5', slug: 'sdd-by-goal' },
       body: [
         '## Contract Tests',
@@ -152,29 +152,29 @@ describe('resolveSddTaskData', () => {
     });
 
     const task = makeTask({ goalId: 'goal-abc-123' });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     expect(result.contractTests).toHaveLength(1);
     expect(result.contractTests[0].file).toBe('__tests__/goal.test.ts');
     expect(result.testFiles).toEqual(['__tests__/existing.test.ts']);
   });
 
-  test('returns empty when both SDD and DB have no contractTests', () => {
-    mockReadSddDoc.mockReturnValue({
+  test('returns empty when both SDD and DB have no contractTests', async () => {
+    mockReadSddDoc.mockResolvedValue({
       meta: { id: 'test-doc-6', slug: 'sdd-empty' },
       body: '## Implementation Notes\n\nSome notes.',
     });
 
     const task = makeTask({ sddSlug: 'sdd-empty' });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     expect(result.contractTests).toBeUndefined();
     expect(result.testFiles).toEqual([]);
   });
 
-  test('handles readSddDoc throwing error gracefully', () => {
-    mockReadSddDoc.mockImplementation(() => { throw new Error('read error'); });
+  test('handles readSddDoc throwing error gracefully', async () => {
+    mockReadSddDoc.mockRejectedValue(new Error('read error'));
     const dbTests = [{ file: '__tests__/db.test.ts', content: 'it("db", () => {})' }];
     const task = makeTask({ sddSlug: 'error-slug', contractTests: dbTests });
-    const result = (runner as any).resolveSddTaskData(task);
+    const result = await (runner as any).resolveSddTaskData(task);
     expect(result.contractTests).toEqual(dbTests);
     expect(result.testFiles).toEqual([]);
   });
