@@ -131,7 +131,7 @@ knowledgeInternalRoutes.post('/upsert', async (req, res) => {
         }
       }
       if (!projectId || !companyId) {
-        logger.warn({ scope }, '[KnowledgeRoute] No project/company found, skipping Document sync');
+        logger.warn( '[KnowledgeRoute] No project/company found, skipping Document sync');
       } else {
         const allDocs2 = await listDocs();
         const existing = allDocs2.find(d => d.title === title && d.type === 'design' && d.projectId === projectId);
@@ -154,7 +154,7 @@ knowledgeInternalRoutes.post('/upsert', async (req, res) => {
         }
       }
     } catch (e: any) {
-      logger.warn({ error: String(e) }, '[KnowledgeRoute] Document sync failed (non-blocking)');
+      logger.warn( '[KnowledgeRoute] Document sync failed (non-blocking)');
     }
 
     res.json({
@@ -162,7 +162,7 @@ knowledgeInternalRoutes.post('/upsert', async (req, res) => {
       prismaDocument: docResult,
     });
   } catch (e: any) {
-    logger.error({ error: String(e) }, '[KnowledgeRoute] Upsert failed');
+    logger.error( '[KnowledgeRoute] Upsert failed');
     res.status(500).json({ error: String(e) });
   }
 });
@@ -221,7 +221,7 @@ knowledgeRoutes.get('/', async (req, res) => {
       stats: typeCounts,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to list knowledge');
+    logger.error('Failed to list knowledge');
     res.status(500).json({ error: 'Failed to list knowledge' });
   }
 });
@@ -301,7 +301,7 @@ knowledgeRoutes.get('/requirements', async (req, res) => {
 
     res.json({ docs, total: docs.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to list requirements');
+    logger.error('Failed to list requirements');
     res.status(500).json({ error: 'Failed to list requirements' });
   }
 });
@@ -374,7 +374,7 @@ knowledgeRoutes.post('/read-file', async (req, res) => {
     // 读取文件内容
     const content = fs.readFileSync(resolvedPath, 'utf-8');
     
-    logger.info({ filePath, resolvedPath }, 'File read via API');
+    logger.info( 'File read via API');
     
     res.json({ 
       content, 
@@ -383,7 +383,7 @@ knowledgeRoutes.post('/read-file', async (req, res) => {
       ext,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to read file');
+    logger.error('Failed to read file');
     res.status(500).json({ error: 'Failed to read file' });
   }
 });
@@ -416,7 +416,7 @@ knowledgeRoutes.get('/file', async (req, res) => {
     const content = fs.readFileSync(resolvedPath, 'utf-8');
     res.json({ content, path: resolvedPath });
   } catch (error) {
-    logger.error({ error }, 'Failed to read file');
+    logger.error('Failed to read file');
     res.status(500).json({ error: 'Failed to read file' });
   }
 });
@@ -439,7 +439,7 @@ knowledgeRoutes.get('/detail/:documentId', async (req, res) => {
     const proj = await findProjectPmoNumber(document.projectId);
     res.json({ ...document, Project: proj });
   } catch (error) {
-    logger.error({ error }, 'Failed to get document detail');
+    logger.error('Failed to get document detail');
     res.status(500).json({ error: 'Failed to get document detail' });
   }
 });
@@ -480,7 +480,7 @@ knowledgeRoutes.get('/:projectId', async (req, res) => {
 
     res.json({ documents, byType, stats });
   } catch (error) {
-    logger.error({ error }, 'Failed to list project documents');
+    logger.error('Failed to list project documents');
     res.status(500).json({ error: 'Failed to list project documents' });
   }
 });
@@ -516,11 +516,11 @@ knowledgeRoutes.post('/:projectId', async (req, res) => {
     };
     await saveDoc(document);
 
-    logger.info({ documentId: docId, projectId }, 'Document created');
+    logger.info('Document created');
 
     res.status(201).json(document);
   } catch (error) {
-    logger.error({ error }, 'Failed to create document');
+    logger.error('Failed to create document');
     res.status(500).json({ error: 'Failed to create document' });
   }
 });
@@ -546,11 +546,11 @@ knowledgeRoutes.put('/:documentId', async (req, res) => {
     await saveDoc(existing);
     const document = existing;
 
-    logger.info({ documentId }, 'Document updated');
+    logger.info( 'Document updated');
 
     res.json(document);
   } catch (error) {
-    logger.error({ error }, 'Failed to update document');
+    logger.error('Failed to update document');
     res.status(500).json({ error: 'Failed to update document' });
   }
 });
@@ -571,11 +571,11 @@ knowledgeRoutes.post('/:documentId/archive', async (req, res) => {
     await saveDoc(existing);
     const document = existing;
 
-    logger.info({ documentId }, 'Document archived');
+    logger.info( 'Document archived');
 
     res.json(document);
   } catch (error) {
-    logger.error({ error }, 'Failed to archive document');
+    logger.error('Failed to archive document');
     res.status(500).json({ error: 'Failed to archive document' });
   }
 });
@@ -592,7 +592,7 @@ knowledgeRoutes.post('/:documentId/approve', async (req, res) => {
     if (!doc) { res.status(404).json({ error: 'Document not found' }); return; }
     doc.status = 'validated'; doc.updatedAt = new Date().toISOString();
     await saveDoc(doc);
-    logger.info({ documentId }, 'Knowledge entry approved');
+    logger.info( 'Knowledge entry approved');
     res.json(doc);
   } catch (error) {
     res.status(500).json({ error: 'Failed to approve' });
@@ -606,7 +606,7 @@ knowledgeRoutes.post('/:documentId/reject', async (req, res) => {
     if (!doc) { res.status(404).json({ error: 'Document not found' }); return; }
     doc.status = 'rejected'; doc.updatedAt = new Date().toISOString();
     await saveDoc(doc);
-    logger.info({ documentId }, 'Knowledge entry rejected');
+    logger.info( 'Knowledge entry rejected');
     res.json(doc);
   } catch (error) {
     res.status(500).json({ error: 'Failed to reject' });
@@ -624,11 +624,11 @@ knowledgeRoutes.delete('/:documentId', async (req, res) => {
     const doc = await getDoc(documentId);
     if (doc) { doc.status = 'deleted'; doc.updatedAt = new Date().toISOString(); await saveDoc(doc); }
 
-    logger.info({ documentId }, 'Document deleted');
+    logger.info( 'Document deleted');
 
     res.json({ success: true });
   } catch (error) {
-    logger.error({ error }, 'Failed to delete document');
+    logger.error('Failed to delete document');
     res.status(500).json({ error: 'Failed to delete document' });
   }
 });
@@ -662,7 +662,7 @@ knowledgeRoutes.get('/export', async (req, res) => {
     }
     res.send(content);
   } catch (error) {
-    logger.error({ error }, 'Failed to export knowledge');
+    logger.error('Failed to export knowledge');
     res.status(500).json({ error: 'Failed to export knowledge' });
   }
 });
@@ -728,7 +728,7 @@ knowledgeRoutes.post('/ask', async (req, res) => {
 
     res.json({ answer, sources });
   } catch (error) {
-    logger.error({ error }, 'Knowledge ask failed');
+    logger.error('Knowledge ask failed');
     res.status(500).json({ error: 'Knowledge ask failed' });
   }
 });
@@ -752,7 +752,7 @@ knowledgeRoutes.post('/evolution/micro', async (req, res) => {
     const results = await knowledgeEvolution.microEvolution(executionId, projectId, companyId);
     return res.json({ results, total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Micro evolution failed');
+    logger.error('Micro evolution failed');
     return res.status(500).json({ error: 'Micro evolution failed' });
   }
 });
@@ -770,7 +770,7 @@ knowledgeRoutes.post('/evolution/meso', async (req, res) => {
     const results = await knowledgeEvolution.mesoEvolution(projectId);
     return res.json({ results, total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Meso evolution failed');
+    logger.error('Meso evolution failed');
     return res.status(500).json({ error: 'Meso evolution failed' });
   }
 });
@@ -788,7 +788,7 @@ knowledgeRoutes.post('/evolution/macro', async (req, res) => {
     const result = await knowledgeEvolution.macroEvolution(companyId);
     return res.json(result);
   } catch (error) {
-    logger.error({ error }, 'Macro evolution failed');
+    logger.error('Macro evolution failed');
     return res.status(500).json({ error: 'Macro evolution failed' });
   }
 });
@@ -802,7 +802,7 @@ knowledgeRoutes.post('/evolution/decay', async (req, res) => {
     const results = await knowledgeEvolution.decayCheck();
     return res.json({ results, total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Decay check failed');
+    logger.error('Decay check failed');
     return res.status(500).json({ error: 'Decay check failed' });
   }
 });
@@ -820,7 +820,7 @@ knowledgeRoutes.get('/evolution/health', async (req, res) => {
     const metrics = await knowledgeEvolution.getHealthMetrics(companyId);
     return res.json(metrics);
   } catch (error) {
-    logger.error({ error }, 'Failed to get health metrics');
+    logger.error('Failed to get health metrics');
     return res.status(500).json({ error: 'Failed to get health metrics' });
   }
 });
@@ -850,7 +850,7 @@ knowledgeRoutes.get('/gaps/:type', async (req, res) => {
     });
     return res.json({ type, data, total: data.length });
   } catch (error) {
-    logger.error({ error }, 'Failed to query knowledge gaps');
+    logger.error('Failed to query knowledge gaps');
     return res.status(500).json({ error: 'Failed to query knowledge gaps' });
   }
 });
@@ -865,7 +865,7 @@ knowledgeRoutes.get('/gaps', async (req, res) => {
     const stats = await knowledgeQuery.getStats();
     return res.json(stats);
   } catch (error) {
-    logger.error({ error }, 'Failed to get knowledge gap stats');
+    logger.error('Failed to get knowledge gap stats');
     return res.status(500).json({ error: 'Failed to get knowledge gap stats' });
   }
 });
@@ -918,7 +918,7 @@ knowledgeRoutes.get('/resolutions', async (req, res) => {
       byStatus,
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to list resolutions');
+    logger.error('Failed to list resolutions');
     res.status(500).json({ error: 'Failed to list resolutions' });
   }
 });
@@ -1051,7 +1051,7 @@ knowledgeRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) =>
 
     res.json({ results: results.slice(0, takeLimit), total: results.length });
   } catch (error) {
-    logger.error({ error }, 'Knowledge search failed');
+    logger.error('Knowledge search failed');
     res.status(500).json({ error: 'Knowledge search failed' });
   }
 });
@@ -1070,7 +1070,7 @@ knowledgeRoutes.get('/resolution/density', async (_req, res) => {
     const density = await resolutionService.getDensityScore();
     res.json(density);
   } catch (error) {
-    logger.error({ error }, 'Failed to get density score');
+    logger.error('Failed to get density score');
     res.status(500).json({ error: 'Failed to get density score' });
   }
 });
@@ -1085,7 +1085,7 @@ knowledgeRoutes.get('/resolution/cross-session', async (_req, res) => {
     const stats = await resolutionService.getCrossSessionStats();
     res.json(stats);
   } catch (error) {
-    logger.error({ error }, 'Failed to get cross-session stats');
+    logger.error('Failed to get cross-session stats');
     res.status(500).json({ error: 'Failed to get cross-session stats' });
   }
 });
@@ -1116,10 +1116,10 @@ knowledgeInternalRoutes.post('/extract-text', async (req, res) => {
     // Fire-and-forget: spawn extraction in background
     const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
     knowledgeAgent.extractFromText(content, source, layer).catch(err => {
-      logger.error({ source, error: String(err) }, '[KnowledgeRoutes] Text extraction failed');
+      logger.error('[KnowledgeRoutes] Text extraction failed');
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to queue text extraction');
+    logger.error('Failed to queue text extraction');
     res.status(500).json({ error: 'Failed to queue text extraction' });
   }
 });
@@ -1145,10 +1145,10 @@ knowledgeInternalRoutes.post('/extract-behavior', async (req, res) => {
 
     const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
     knowledgeAgent.extractUserBehavior(content, source, threshold).catch(err => {
-      logger.error({ source, error: String(err) }, '[KnowledgeRoutes] Behavior extraction failed');
+      logger.error('[KnowledgeRoutes] Behavior extraction failed');
     });
   } catch (error) {
-    logger.error({ error }, 'Failed to queue behavior extraction');
+    logger.error('Failed to queue behavior extraction');
     res.status(500).json({ error: 'Failed to queue behavior extraction' });
   }
 });
