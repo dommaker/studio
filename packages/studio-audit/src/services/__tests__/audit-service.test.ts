@@ -29,9 +29,13 @@ const tempDir = vi.hoisted(() => {
   return _fs.mkdtempSync('/tmp/audit-test-');
 });
 
-vi.mock('node:os', () => ({
-  homedir: () => tempDir,
-}));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return {
+    ...actual,
+    homedir: () => tempDir,
+  };
+});
 
 const jsonlDir = path.join(tempDir, '.studio', 'logs');
 const jsonlPath = path.join(jsonlDir, 'audit.jsonl');
