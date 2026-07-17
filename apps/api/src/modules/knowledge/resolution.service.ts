@@ -3,9 +3,10 @@
  *
  * L3~L6 运维配置类知识：错误模式 → 已知解法。
  * 供 agent-executor (重试时注入) 和 Auditor (日审自动创建) 使用。
+ *
+ * Storage: ~/.studio/knowledge/resolution-{id}.md (frontmatter + body)
  */
 
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-bus.service.js';
 import * as fs from 'fs';
@@ -18,9 +19,81 @@ import type {
   MatchResolutionResult,
 } from '@dommaker/studio-shared';
 
-const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'knowledge', 'resolutions');
+const KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowledge');
 const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
 const fileStore = new FileStore();
+
+// ── Helpers ──
+
+function resolutionFromDoc(id: string, meta: Record<string, any>, body: string): any {
+  const tags = Array.isArray(meta.tags) ? meta.tags :
+    (typeof meta.tags === 'string' ? meta.tags.split(';').filter(Boolean) : []);
+  const fixMatch = body.match(/## Solution\n\n([\s\S]*)$/);
+  const fix = fixMatch ? fixMatch[1].trim() : body.replace(/^# .*\n/, '').trim();
+  return {
+    id,
+    pattern: meta.pattern || '',
+    errorClass: meta.errorClass || '',
+    layer: meta.layer || 'L3_tool_behavior',
+    title: meta.title || '',
+    fix,
+    status: meta.maturity || 'pending',
+    maturity: meta.maturity || 'pending',
+    verifyCount: meta.verifyCount || 0,
+    verifiedAt: meta.verifiedAt || null,
+    sourceGoalId: meta.sourceGoalId ? String(meta.sourceGoalId) : undefined,
+    tags,
+    createdAt: meta.createdAt || new Date().toISOString(),
+    updatedAt: meta.updatedAt || new Date().toISOString(),
+  };
+}
+
+function generateId(): string {
+  return `res_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+}
+
+/** Scan all resolution-*.md files in knowledge dir */
+async function scanResolutions(): Promise<any[]> {
+  const keys = await fileStore.listDocs(KNOWLEDGE_DIR);
+  const resKeys = keys.filter(k => k.startsWith('resolution-'));
+  const results: any[] = [];
+  for (const key of resKeys) {
+    const doc = await fileStore.readDoc(KNOWLEDGE_DIR, key);
+    if (doc) {
+      const id = key.replace('resolution-', '');
+      results.push(resolutionFromDoc(id, doc.meta, doc.body));
+    }
+  }
+  return results;
+}
+
+/** Write resolution to knowledge md file */
+async function writeResolution(data: {
+  id: string; pattern: string; errorClass: string; layer: string;
+  title: string; fix: string; status?: string; verifyCount?: number;
+  sourceGoalId?: string; tags?: string[]; verifiedAt?: string;
+  createdAt?: string; updatedAt?: string;
+}): Promise<void> {
+  const meta: Record<string, any> = {
+    type: 'resolution',
+    pattern: data.pattern,
+    errorClass: data.errorClass,
+    layer: data.layer,
+    title: data.title,
+    maturity: data.status || 'pending',
+    verifyCount: data.verifyCount || 0,
+    tags: data.tags || [],
+    createdAt: data.createdAt || new Date().toISOString(),
+    updatedAt: data.updatedAt || new Date().toISOString(),
+  };
+  if (data.sourceGoalId) meta.sourceGoalId = data.sourceGoalId;
+  if (data.verifiedAt) meta.verifiedAt = data.verifiedAt;
+
+  const body = `# ${data.title}\n\n## Solution\n\n${data.fix}`;
+  await fileStore.writeDoc(KNOWLEDGE_DIR, `resolution-${data.id}`, meta, body);
+}
+
+// ── Service ──
 
 export class ResolutionService {
   private static instance: ResolutionService;
@@ -34,24 +107,16 @@ export class ResolutionService {
 
   /**
    * 匹配错误消息 → 已知解法
-   *
-   * 两层匹配：
-   * 1. 精确 regex 匹配 (pattern 是有效 regex 时)
-   * 2. 子串包含匹配 (pattern 在 errorMessage 中)
-   *
-   * 只返回 verified/canonical status 的解法。
    */
   async matchResolutions(input: MatchResolutionInput): Promise<MatchResolutionResult> {
     const { errorMessage, errorClass } = input;
 
     try {
-      const candidates = await prisma.resolution.findMany({
-        where: {
-          status: { in: ['verified', 'canonical'] },
-          ...(errorClass ? { errorClass } : {}),
-        },
-        orderBy: { verifyCount: 'desc' },
-      });
+      const all = await scanResolutions();
+      const candidates = all.filter((r: any) =>
+        (r.maturity === 'verified' || r.maturity === 'canonical') &&
+        (!errorClass || r.errorClass === errorClass)
+      );
 
       const matched: Resolution[] = [];
       const lowerMsg = errorMessage.toLowerCase();
@@ -60,17 +125,11 @@ export class ResolutionService {
         const pattern = row.pattern;
         let isMatch = false;
 
-        // Try regex first
         try {
           const re = new RegExp(pattern, 'i');
-          if (re.test(errorMessage)) {
-            isMatch = true;
-          }
+          if (re.test(errorMessage)) isMatch = true;
         } catch {
-          // Not a valid regex, fall back to substring match
-          if (lowerMsg.includes(pattern.toLowerCase())) {
-            isMatch = true;
-          }
+          if (lowerMsg.includes(pattern.toLowerCase())) isMatch = true;
         }
 
         if (isMatch) {
@@ -81,13 +140,13 @@ export class ResolutionService {
             layer: row.layer as Resolution['layer'],
             title: row.title,
             fix: row.fix,
-            status: row.status as Resolution['status'],
+            status: row.maturity as Resolution['status'],
             verifyCount: row.verifyCount,
-            verifiedAt: row.verifiedAt?.toISOString(),
-            sourceGoalId: row.sourceGoalId ?? undefined,
-            tags: this.parseTags(row.tags),
-            createdAt: row.createdAt.toISOString(),
-            updatedAt: row.updatedAt.toISOString(),
+            verifiedAt: row.verifiedAt,
+            sourceGoalId: row.sourceGoalId,
+            tags: row.tags,
+            createdAt: row.createdAt,
+            updatedAt: row.updatedAt,
           });
         }
       }
@@ -98,7 +157,6 @@ export class ResolutionService {
           ).join('\n\n')
         : '';
 
-      // B13-006: Resolution 匹配结果日志
       if (matched.length > 0) {
         logger.info('[ResolutionService] Resolution matched', {
           count: matched.length,
@@ -106,9 +164,6 @@ export class ResolutionService {
           titles: matched.map(r => r.title),
         });
 
-        // GAP-06: Record consumption event for D6 flywheel
-        // Resolution is in Prisma DB (not KnowledgeStore), so we write StudioEvent directly
-        // instead of going through recordReference (which only works on KnowledgeStore entries)
         fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
           type: 'knowledge:consumption',
           source: 'resolution-match',
@@ -130,87 +185,61 @@ export class ResolutionService {
     }
   }
 
-  /**
-   * 创建 Resolution（Auditor 日审调用）
-   */
+  /** 创建 Resolution */
   async createResolution(input: CreateResolutionInput): Promise<Resolution | null> {
     try {
-      // Check for duplicate pattern
-      const existing = await prisma.resolution.findFirst({
-        where: { pattern: input.pattern },
-      });
-      if (existing) return null;
+      const all = await scanResolutions();
+      if (all.some((r: any) => r.pattern === input.pattern)) return null;
 
-      const row = await prisma.resolution.create({
-        data: {
-          pattern: input.pattern,
-          errorClass: input.errorClass,
-          layer: input.layer,
-          title: input.title,
-          fix: input.fix,
-          status: 'pending',
-          verifyCount: 0,
-          sourceGoalId: input.sourceGoalId,
-          tags: JSON.stringify(input.tags || []),
-        },
+      const id = generateId();
+      await writeResolution({
+        id,
+        pattern: input.pattern,
+        errorClass: input.errorClass,
+        layer: input.layer,
+        title: input.title,
+        fix: input.fix,
+        status: 'pending',
+        verifyCount: 0,
+        sourceGoalId: input.sourceGoalId,
+        tags: input.tags || [],
       });
 
       logger.info('[ResolutionService] Created pending resolution', {
-        id: row.id,
-        title: row.title,
-        pattern: row.pattern,
+        id, title: input.title, pattern: input.pattern,
       });
 
-      return {
-        id: row.id,
-        pattern: row.pattern,
-        errorClass: row.errorClass,
-        layer: row.layer as Resolution['layer'],
-        title: row.title,
-        fix: row.fix,
-        status: row.status as Resolution['status'],
-        verifyCount: row.verifyCount,
-        verifiedAt: row.verifiedAt?.toISOString(),
-        sourceGoalId: row.sourceGoalId ?? undefined,
-        tags: this.parseTags(row.tags),
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-      };
+      return resolutionFromDoc(id, { pattern: input.pattern, errorClass: input.errorClass,
+        layer: input.layer, title: input.title, maturity: 'pending', verifyCount: 0,
+        sourceGoalId: input.sourceGoalId, tags: input.tags || [],
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+        `# ${input.title}\n\n## Solution\n\n${input.fix}`);
     } catch (err) {
       logger.warn('[ResolutionService] create failed', { error: String(err) });
       return null;
     }
   }
 
-  /**
-   * 验证 Resolution — verifyCount++，累积 3 次 → canonical
-   */
+  /** 验证 Resolution */
   async verifyResolution(id: string): Promise<void> {
     try {
-      const row = await prisma.resolution.findUnique({ where: { id } });
-      if (!row) return;
+      const doc = await fileStore.readDoc(KNOWLEDGE_DIR, `resolution-${id}`);
+      if (!doc) return;
 
-      const newCount = row.verifyCount + 1;
-      const newStatus = newCount >= 3 ? 'canonical' : (newCount >= 1 ? 'verified' : 'pending');
+      const meta = { ...doc.meta };
+      const newCount = (Number(meta.verifyCount) || 0) + 1;
+      const newMaturity = newCount >= 3 ? 'canonical' : (newCount >= 1 ? 'verified' : 'pending');
 
-      await prisma.resolution.update({
-        where: { id },
-        data: {
-          verifyCount: newCount,
-          status: newStatus,
-          verifiedAt: row.verifiedAt || new Date(),
-        },
-      });
+      meta.verifyCount = newCount;
+      meta.maturity = newMaturity;
+      meta.updatedAt = new Date().toISOString();
+      if (!meta.verifiedAt) meta.verifiedAt = new Date().toISOString();
 
-      logger.info('[ResolutionService] Verified resolution', {
-        id,
-        verifyCount: newCount,
-        status: newStatus,
-      });
+      await fileStore.writeDoc(KNOWLEDGE_DIR, `resolution-${id}`, meta, doc.body);
 
-      // B13-003: 写 .md 到 disk → scheduleVectorDbSync() 统一 sync
-      if (newStatus === 'canonical') {
-        this.writeCanonicalToDisk().catch(() => { /* non-blocking */ });
+      logger.info('[ResolutionService] Verified resolution', { id, verifyCount: newCount, status: newMaturity });
+
+      if (newMaturity === 'canonical') {
         scheduleVectorDbSync();
       }
     } catch (err) {
@@ -218,39 +247,25 @@ export class ResolutionService {
     }
   }
 
-  /**
-   * 获取所有 pending 的 Resolution（供人工审核）
-   */
+  /** 获取所有 pending 的 Resolution */
   async listPending(): Promise<Resolution[]> {
     try {
-      const rows = await prisma.resolution.findMany({
-        where: { status: 'pending' },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      return rows.map(row => ({
-        id: row.id,
-        pattern: row.pattern,
-        errorClass: row.errorClass,
-        layer: row.layer as Resolution['layer'],
-        title: row.title,
-        fix: row.fix,
-        status: row.status as Resolution['status'],
-        verifyCount: row.verifyCount,
-        verifiedAt: row.verifiedAt?.toISOString(),
-        sourceGoalId: row.sourceGoalId ?? undefined,
-        tags: this.parseTags(row.tags),
-        createdAt: row.createdAt.toISOString(),
-        updatedAt: row.updatedAt.toISOString(),
-      }));
+      const all = await scanResolutions();
+      return all.filter((r: any) => r.maturity === 'pending')
+        .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        .map((row: any) => ({
+          id: row.id, pattern: row.pattern, errorClass: row.errorClass,
+          layer: row.layer as Resolution['layer'], title: row.title, fix: row.fix,
+          status: row.maturity as Resolution['status'], verifyCount: row.verifyCount,
+          verifiedAt: row.verifiedAt, sourceGoalId: row.sourceGoalId,
+          tags: row.tags, createdAt: row.createdAt, updatedAt: row.updatedAt,
+        }));
     } catch {
       return [];
     }
   }
 
-  /**
-   * 预置已知 Resolution Seed — 服务启动时调用，幂等
-   */
+  /** 预置已知 Resolution Seed — 幂等 */
   async ensureSeedResolutions(): Promise<void> {
     const seeds: CreateResolutionInput[] = [
       {
@@ -273,98 +288,49 @@ export class ResolutionService {
 
     for (const seed of seeds) {
       try {
-        const existing = await prisma.resolution.findFirst({
-          where: { pattern: seed.pattern },
+        const all = await scanResolutions();
+        if (all.some((r: any) => r.pattern === seed.pattern)) continue;
+
+        const id = generateId();
+        await writeResolution({
+          id,
+          pattern: seed.pattern,
+          errorClass: seed.errorClass,
+          layer: seed.layer,
+          title: seed.title,
+          fix: seed.fix,
+          status: 'canonical',
+          verifyCount: 3,
+          tags: seed.tags || [],
+          verifiedAt: new Date().toISOString(),
         });
-        if (!existing) {
-          await prisma.resolution.create({
-            data: {
-              pattern: seed.pattern,
-              errorClass: seed.errorClass,
-              layer: seed.layer,
-              title: seed.title,
-              fix: seed.fix,
-              status: 'canonical',
-              verifyCount: 3,
-              tags: JSON.stringify(seed.tags || []),
-              verifiedAt: new Date(),
-            },
-          });
-          logger.info('[ResolutionService] Seeded resolution', { title: seed.title });
-        }
+        logger.info('[ResolutionService] Seeded resolution', { title: seed.title });
       } catch (err) {
         logger.warn('[ResolutionService] Seed failed for pattern', { pattern: seed.pattern, error: String(err) });
       }
     }
-
-    // B13-003: 启动 sync 由 knowledge-bus scheduleVectorDbSync() 统一处理（覆盖 resolutions 目录）
-    // 不再单独调用 CLI sync，避免并发写入 LanceDB 冲突
   }
 
-  /**
-   * 写 canonical resolutions 到磁盘 .md 文件。
-   * sync 由 knowledge-bus scheduleVectorDbSync() 统一处理。
-   */
+  /** 写 canonical resolutions 到磁盘 + 重建索引 */
   async writeCanonicalToDisk(): Promise<void> {
     try {
-      const canonicals = await prisma.resolution.findMany({
-        where: { status: 'canonical' },
-      });
-      if (canonicals.length === 0) return;
-
-      fs.mkdirSync(RESOLUTIONS_DIR, { recursive: true });
-
-      for (const row of canonicals) {
-        const filename = `resolution-${row.id}.md`;
-        const filePath = path.join(RESOLUTIONS_DIR, filename);
-        const tags = this.parseTags(row.tags);
-
-        const content = [
-          '---',
-          `id: ${row.id}`,
-          'type: resolution',
-          'status: canonical',
-          `errorClass: ${row.errorClass}`,
-          `layer: ${row.layer}`,
-          `verifyCount: ${row.verifyCount}`,
-          '---',
-          '',
-          `# ${row.title}`,
-          '',
-          `**Pattern**: \`${row.pattern}\``,
-          `**Error Class**: ${row.errorClass}`,
-          `**Layer**: ${row.layer}`,
-          `**Verified**: ${row.verifyCount}x`,
-          `**Tags**: ${tags.join(', ')}`,
-          '',
-          '## Solution',
-          '',
-          row.fix,
-        ].join('\n');
-
-        fs.writeFileSync(filePath, content, 'utf-8');
-      }
-
-      logger.info('[ResolutionService] Wrote canonical resolutions to disk', { count: canonicals.length });
+      await fileStore.buildIndex(KNOWLEDGE_DIR, ['id', 'type', 'title', 'maturity', 'tags', 'terms']);
+      logger.info('[ResolutionService] Knowledge index rebuilt');
     } catch (err) {
       logger.warn('[ResolutionService] writeCanonicalToDisk failed', { error: String(err) });
     }
   }
 
-  /**
-   * B1: 格式化 canonical + verified 的 resolution 为 Executor prompt snippet
-   * 主动注入——不只是失败时，每次执行前都提醒已知回归模式
-   */
+  /** 格式化 verified + canonical resolution 为 prompt snippet */
   async formatForPrompt(): Promise<string> {
     try {
-      const resolutions = await prisma.resolution.findMany({
-        where: { status: { in: ['canonical', 'verified'] } },
-        select: { title: true, fix: true, tags: true },
-        orderBy: { verifyCount: 'desc' },
-        take: 10,
-      });
+      const all = await scanResolutions();
+      const resolutions = all
+        .filter((r: any) => r.maturity === 'canonical' || r.maturity === 'verified')
+        .sort((a: any, b: any) => (b.verifyCount || 0) - (a.verifyCount || 0))
+        .slice(0, 10);
       if (resolutions.length === 0) return '';
-      return resolutions.map((r, i) =>
+      return resolutions.map((r: any, i: number) =>
         `### ${i + 1}. ${r.title}\n${r.fix}`
       ).join('\n\n');
     } catch {
@@ -372,97 +338,60 @@ export class ResolutionService {
     }
   }
 
-  private parseTags(tagsJson: string): string[] {
-    try { return JSON.parse(tagsJson); } catch { return []; }
-  }
-
-  /**
-   * RKB Phase 2: Knowledge density scoring.
-   * Returns a density score (0-100) based on:
-   * - Total resolutions count
-   * - Verified/canonical ratio
-   * - Error class coverage breadth
-   * - Layer coverage
-   */
+  /** Knowledge density scoring */
   async getDensityScore(): Promise<{
-    score: number;
-    total: number;
-    verified: number;
-    canonical: number;
-    errorClasses: number;
-    layers: number;
+    score: number; total: number; verified: number; canonical: number;
+    errorClasses: number; layers: number;
   }> {
     try {
-      const [total, verified, canonical, byErrorClass, byLayer] = await Promise.all([
-        prisma.resolution.count(),
-        prisma.resolution.count({ where: { status: 'verified' } }),
-        prisma.resolution.count({ where: { status: 'canonical' } }),
-        prisma.resolution.groupBy({ by: ['errorClass'], _count: true }),
-        prisma.resolution.groupBy({ by: ['layer'], _count: true }),
-      ]);
+      const all = await scanResolutions();
+      const total = all.length;
+      const verified = all.filter((r: any) => r.maturity === 'verified').length;
+      const canonical = all.filter((r: any) => r.maturity === 'canonical').length;
+      const errorClasses = new Set(all.map((r: any) => r.errorClass).filter(Boolean)).size;
+      const layers = new Set(all.map((r: any) => r.layer).filter(Boolean)).size;
 
-      // Score components (each 0-25, total 0-100)
-      const countScore = Math.min(total / 20, 1) * 25; // 20 resolutions = max
+      const countScore = Math.min(total / 20, 1) * 25;
       const verifiedRatio = total > 0 ? (verified + canonical) / total : 0;
       const verifiedScore = verifiedRatio * 25;
-      const breadthScore = Math.min(byErrorClass.length / 8, 1) * 25; // 8 error classes = max
-      const layerScore = Math.min(byLayer.length / 4, 1) * 25; // 4 layers = max
-
-      const score = Math.round(countScore + verifiedScore + breadthScore + layerScore);
+      const breadthScore = Math.min(errorClasses / 8, 1) * 25;
+      const layerScore = Math.min(layers / 4, 1) * 25;
 
       return {
-        score,
-        total,
-        verified,
-        canonical,
-        errorClasses: byErrorClass.length,
-        layers: byLayer.length,
+        score: Math.round(countScore + verifiedScore + breadthScore + layerScore),
+        total, verified, canonical, errorClasses, layers,
       };
     } catch {
       return { score: 0, total: 0, verified: 0, canonical: 0, errorClasses: 0, layers: 0 };
     }
   }
 
-  /**
-   * RKB Phase 2: Auto-verify resolution from behavior profile confirmation.
-   * When a user confirms a behavior pattern that matches a resolution's error class,
-   * auto-increment verifyCount.
-   */
+  /** Auto-verify from behavior confirmation */
   async autoVerifyFromBehavior(category: string, pattern: string): Promise<number> {
     try {
-      // Map behavior category to error class
       const categoryToErrorClass: Record<string, string> = {
-        correction: 'scope_violation',
-        automation: 'repetitive_task',
+        correction: 'scope_violation', automation: 'repetitive_task',
       };
       const errorClass = categoryToErrorClass[category];
       if (!errorClass) return 0;
 
-      // Find matching resolutions
-      const candidates = await prisma.resolution.findMany({
-        where: {
-          errorClass,
-          status: { in: ['pending', 'verified'] },
-        },
-      });
+      const all = await scanResolutions();
+      const candidates = all.filter((r: any) =>
+        r.errorClass === errorClass &&
+        (r.maturity === 'pending' || r.maturity === 'verified')
+      );
 
       let verified = 0;
       for (const r of candidates) {
-        // Check if pattern text matches
         try {
           const re = new RegExp(r.pattern, 'i');
-          if (re.test(pattern)) {
-            await this.verifyResolution(r.id);
-            verified++;
-          }
+          if (re.test(pattern)) { await this.verifyResolution(r.id); verified++; }
         } catch {
           if (pattern.toLowerCase().includes(r.pattern.toLowerCase())) {
-            await this.verifyResolution(r.id);
-            verified++;
+            await this.verifyResolution(r.id); verified++;
           }
         }
       }
-
       return verified;
     } catch (err) {
       logger.warn('[ResolutionService] autoVerifyFromBehavior failed', { error: String(err) });
@@ -470,37 +399,32 @@ export class ResolutionService {
     }
   }
 
-  /**
-   * RKB Phase 2: Cross-session causality stats.
-   * Returns resolutions grouped by sourceGoalId to show cross-session patterns.
-   */
+  /** Cross-session causality stats */
   async getCrossSessionStats(): Promise<{
-    linkedToGoals: number;
-    unlinked: number;
+    linkedToGoals: number; unlinked: number;
     topErrorClasses: Array<{ errorClass: string; count: number; avgVerifyCount: number }>;
   }> {
     try {
-      const [linkedToGoals, unlinked, topClasses] = await Promise.all([
-        prisma.resolution.count({ where: { sourceGoalId: { not: null } } }),
-        prisma.resolution.count({ where: { sourceGoalId: null } }),
-        prisma.resolution.groupBy({
-          by: ['errorClass'],
-          _count: true,
-          _avg: { verifyCount: true },
-          orderBy: { _count: { errorClass: 'desc' } },
-          take: 10,
-        }),
-      ]);
+      const all = await scanResolutions();
+      const linkedToGoals = all.filter((r: any) => r.sourceGoalId).length;
+      const unlinked = all.filter((r: any) => !r.sourceGoalId).length;
 
-      return {
-        linkedToGoals,
-        unlinked,
-        topErrorClasses: topClasses.map(c => ({
-          errorClass: c.errorClass,
-          count: c._count,
-          avgVerifyCount: Math.round(c._avg.verifyCount || 0),
-        })),
-      };
+      const classMap = new Map<string, { count: number; totalVerify: number }>();
+      for (const r of all) {
+        const ec = r.errorClass;
+        if (!classMap.has(ec)) classMap.set(ec, { count: 0, totalVerify: 0 });
+        const entry = classMap.get(ec)!;
+        entry.count++;
+        entry.totalVerify += r.verifyCount || 0;
+      }
+      const topErrorClasses = [...classMap.entries()]
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 10)
+        .map(([errorClass, { count, totalVerify }]) => ({
+          errorClass, count, avgVerifyCount: Math.round(totalVerify / count),
+        }));
+
+      return { linkedToGoals, unlinked, topErrorClasses };
     } catch {
       return { linkedToGoals: 0, unlinked: 0, topErrorClasses: [] };
     }
@@ -508,4 +432,4 @@ export class ResolutionService {
 }
 
 export const resolutionService = ResolutionService.getInstance();
-export const resolutionMatcher = resolutionService; // B1: alias for scheduler import
+export const resolutionMatcher = resolutionService;

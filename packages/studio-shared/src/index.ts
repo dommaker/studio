@@ -41,7 +41,7 @@ export { eventBus, StudioEventBus } from './event-bus';
 export { memoryStore } from './memory-store';
 
 // 导出 FileStore (AN 运行时数据文件存储)
-export { FileStore, LockTimeoutError } from './file-store';
+export { FileStore, LockTimeoutError, parseFrontmatter, serializeFrontmatter } from './file-store';
 export type {
   AgentProfileData,
   RuntimeStateData,
