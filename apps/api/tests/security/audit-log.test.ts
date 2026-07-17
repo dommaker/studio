@@ -67,7 +67,7 @@ function applyWhere(result: MockAuditLog[], where: Record<string, unknown>): Moc
   return result;
 }
 
-const mockPrismaClient = {
+const mockPrismaClient = vi.hoisted(() => ({
   auditLog: {
     create: vi.fn(async ({ data }: { data: Record<string, unknown> }): Promise<MockAuditLog> => {
       const log: MockAuditLog = {
@@ -163,7 +163,7 @@ const mockPrismaClient = {
   },
   $disconnect: vi.fn(async (): Promise<void> => {}),
   $queryRaw: vi.fn(async (): Promise<unknown[]> => []),
-};
+}));
 
 vi.mock('@dommaker/studio-prisma', () => ({
   PrismaClient: vi.fn(() => mockPrismaClient),

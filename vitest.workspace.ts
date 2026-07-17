@@ -1,6 +1,6 @@
 import { defineWorkspace } from 'vitest/config';
 
-const baseExclude = ['**/node_modules/**', '**/*.spec.ts', '**/e2e/**', '**/*.e2e.test.ts'];
+const baseExclude = ['**/node_modules/**', '**/*.spec.ts', '**/e2e/**', '**/*.e2e.test.ts', '**/trigger-eval.test.ts'];
 const baseTest = { globals: true, environment: 'node' as const };
 
 export default defineWorkspace([

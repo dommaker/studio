@@ -4,7 +4,7 @@ import * as path from 'path';
 import { reviewAgent } from '../review-agent.service.js';
 import { execSh } from '@dommaker/studio-shared/node';
 
-const repoDir = path.resolve('/root/projects/studio');
+const repoDir = path.resolve(process.cwd());
 
 describe('ReviewAgent (topology-agnostic)', () => {
   // ── hasBranchChanges (fast, no Claude) ──
