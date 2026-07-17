@@ -8,13 +8,11 @@ datasource db {
 }
 
 model Company {
-  id           String         @id @default(cuid())
+  id           String    @id @default(cuid())
   name         String
-  size         String         @default("small")
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  Documents    Document[]
-  projects     Project[]
+  size         String    @default("small")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 }
 
 model User {
@@ -28,7 +26,6 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
-  // 关联
   sessions                Session[]
   refreshTokens           RefreshToken[]
   oauthAccounts           OAuthAccount[]
@@ -39,15 +36,15 @@ model User {
 model Session {
   id        String    @id @default(cuid())
   userId    String?
-  token     String    @unique // JWT
-  guestId   String?   // Guest Session 的临时 ID
+  token     String    @unique
+  guestId   String?
   ipAddress String?
   userAgent String?
   expiresAt DateTime
   createdAt DateTime  @default(now())
-  
+
   User      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  
+
   @@index([userId])
   @@index([token])
   @@index([expiresAt])
@@ -117,211 +114,6 @@ model EmailVerificationToken {
   @@index([email])
 }
 
-model SpecReview {
-  id                 String               @id @default(cuid())
-  title              String
-  description        String?
-  changes            String
-  changeType         String
-  impact             String
-  status             String               @default("pending")
-  approvals          String
-  requestedBy        String?
-  createdAt          DateTime             @default(now())
-  updatedAt          DateTime             @updatedAt
-  reviewedAt         DateTime?
-  reviewedBy         String?
-  comment            String?
-  SpecBypass         SpecBypass?
-  SpecReviewApproval SpecReviewApproval[]
-  SpecVersions       SpecVersion[]
-
-  @@index([status])
-  @@index([changeType])
-  @@index([createdAt])
-}
-
-model SpecReviewApproval {
-  id           String     @id @default(cuid())
-  reviewId     String
-  role         String
-  reviewerId   String
-  reviewerName String
-  approved     Boolean
-  comment      String?
-  createdAt    DateTime   @default(now())
-  SpecReview   SpecReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-
-  @@unique([reviewId, role])
-  @@index([reviewId])
-  @@index([reviewerId])
-}
-
-model SpecBypass {
-  id            String      @id @default(cuid())
-  specReviewId  String?     @unique
-  reason        String
-  urgency       String
-  requestedBy   String
-  requestedName String?
-  approvedBy    String?
-  approvedName  String?
-  status        String      @default("pending")
-  reviewedAt    DateTime?
-  completedAt   DateTime?
-  comment       String?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
-  specReview    SpecReview? @relation(fields: [specReviewId], references: [id])
-
-  @@index([status])
-  @@index([requestedBy])
-  @@index([approvedBy])
-  @@index([createdAt])
-}
-
-model SpecVersion {
-  id          String     @id @default(cuid())
-  reviewId    String
-  version     Int
-  content     String
-  diff        String?
-  changeType  String
-  changeDesc  String?
-  createdBy   String
-  createdName String?
-  createdAt   DateTime   @default(now())
-  review      SpecReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-
-  @@unique([reviewId, version])
-  @@index([reviewId])
-  @@index([version])
-  @@index([createdBy])
-  @@index([createdAt])
-}
-
-model Project {
-  id             String    @id @default(cuid())
-  pmoNumber      String    @unique
-  title          String
-  description    String?
-  requirement    String?
-  companyId      String
-  status         String    @default("pending")
-  priority       String    @default("medium")
-  gitBranch      String?
-  gitRepo        String?
-  workspaceRepoId String?
-  workspaceRepo  WorkspaceRepo? @relation(fields: [workspaceRepoId], references: [id])
-  progress       Int       @default(0)
-  specFilePath   String?   // 🆕 FL-022: Spec 文档路径
-  specVersion    Int?      @default(1)  // 🆕 FL-022: Spec 版本号
-  requirementsDocId String?  // A4: bidirectional link to RequirementsDoc
-  dependsOnPmoId  String?      // O3e: PMO number this project depends on
-  startedAt      DateTime?
-  completedAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  Tasks          Task[]
-  Documents      Document[] // 🆕 知识库文档关联
-  Company        Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-
-  @@unique([companyId, pmoNumber])
-  @@index([companyId])
-  @@index([status])
-  @@index([pmoNumber])
-  @@map("project")
-}
-
-// 🆕 公司知识库文档
-model Document {
-  id              String    @id @default(cuid())
-  projectId       String    // 关联 PMO 项目
-  companyId       String    // 公司 ID
-  
-  // 文档属性
-  type            String    // requirement/design/spec/execution/meeting/archive
-  title           String
-  content         String?   // 文档内容（Markdown）
-  filePath        String?   // 文件路径（可选）
-  
-  // 元数据
-  version         Int       @default(1)
-  status          String    @default("active")  // active/archived/deleted
-  tags String @default("[]")  // 标签
-  
-  // 作者信息
-  createdBy       String?   // 创建者角色 ID
-  updatedBy       String?   // 最后更新者
-  
-  // 时间
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  archivedAt      DateTime?
-  
-  // 关联
-  Project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  Company         Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  
-  @@unique([projectId, type, version])
-  @@index([projectId])
-  @@index([companyId])
-  @@index([type])
-  @@index([status])
-  @@index([companyId, status, type])
-  @@map("document")
-}
-
-model Task {
-  id                 String     @id @default(cuid())
-  projectId          String
-  name               String
-  description        String?
-  assignee           String
-  priority           String     @default("P2")
-  status             String     @default("pending")
-  claimedBy          String?
-  claimedAt          DateTime?
-  dependsOn String @default("[]")
-  acceptanceCriteria String @default("[]")
-  estimatedHours     Int?
-  startedAt          DateTime?
-  completedAt        DateTime?
-  testEvidence       String?    // 🆕 AS-006: 测试证据路径
-  createdAt          DateTime   @default(now())
-  updatedAt          DateTime   @updatedAt
-  Project            Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  @@index([assignee])
-  @@index([priority])
-  @@index([status])
-  @@index([projectId])
-  @@index([claimedBy])
-  @@index([projectId, status])
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-// ── 管线指标 (B1-016) ──
-
-
-// ── 管线指标 (B1-016) ──
-
-
-
-
-// ── AS-020: Workspace + Daemon 算力接入 ──
-
 model Workspace {
   id            String   @id @default(cuid())
   name          String
@@ -347,18 +139,16 @@ model WorkspaceRepo {
   id            String    @id @default(cuid())
   workspaceId   String
   workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  path          String    // 相对于 workspaceRoot
-  name          String    // 目录名
-  category      String?   // 分类目录（如 backend/fe）
-  description   String?   // 仓库描述
+  path          String
+  name          String
+  category      String?
+  description   String?
   defaultBranch String    @default("main")
-  remoteUrl     String?   // git remote origin URL
-  status        String    @default("active") // active | unavailable
+  remoteUrl     String?
+  status        String    @default("active")
   lastSyncedAt  DateTime
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
-
-  projects      Project[]
 
   @@unique([workspaceId, path])
   @@index([workspaceId])
@@ -424,5 +214,3 @@ model WorkspaceEvent {
   metadata    String?
   createdAt   DateTime   @default(now())
 }
-
-
