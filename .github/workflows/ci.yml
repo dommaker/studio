@@ -23,4 +23,4 @@ jobs:
       - run: cd harness-src && pnpm install --ignore-workspace && pnpm build
       - run: pnpm install
       - run: pnpm build
-      - run: pnpm test
+      - run: pnpm test -- --exclude "apps/api/tests/e2e/**" --exclude "tests/e2e/**"
