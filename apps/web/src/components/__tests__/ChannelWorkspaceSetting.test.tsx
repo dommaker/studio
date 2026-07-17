@@ -9,12 +9,16 @@ vi.mock('../../api', () => ({
   workspaceApi: {
     list: vi.fn(),
   },
-  taskApi: {
+}));
+
+vi.mock('../../api/channel', () => ({
+  channelApi: {
     update: vi.fn(),
   },
 }));
 
-import { workspaceApi, taskApi } from '../../api';
+import { workspaceApi } from '../../api';
+import { channelApi } from '../../api/channel';
 
 const mockWorkspaces = [
   { id: 'ws-1', name: '公司电脑', status: 'online', runtimes: [], _count: { runtimes: 0 } },
@@ -40,14 +44,14 @@ describe('ChannelWorkspaceSetting', () => {
   });
 
   it('updates channel workspace on change', async () => {
-    (taskApi.update as any).mockResolvedValue({});
+    (channelApi.update as any).mockResolvedValue({});
     render(<ChannelWorkspaceSetting channelId="ch-1" />);
     await screen.findByText('公司电脑');
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ws-1' } });
 
     await waitFor(() => {
-      expect(taskApi.update).toHaveBeenCalledWith('ch-1', expect.objectContaining({
+      expect(channelApi.update).toHaveBeenCalledWith('ch-1', expect.objectContaining({
         defaultWorkspaceId: 'ws-1',
       }));
     });
