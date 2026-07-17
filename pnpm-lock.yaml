@@ -19,8 +19,8 @@ importers:
         version: 4.22.3
     devDependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@types/node':
         specifier: ^20.0.0
         version: 20.19.41
@@ -34,8 +34,8 @@ importers:
   apps/api:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-agent':
         specifier: workspace:*
         version: link:../../packages/studio-agent
@@ -188,8 +188,8 @@ importers:
   apps/web:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-api':
         specifier: workspace:*
         version: link:../api
@@ -300,8 +300,8 @@ importers:
   packages/studio-agent:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -343,8 +343,8 @@ importers:
   packages/studio-audit:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -365,8 +365,8 @@ importers:
   packages/studio-capability:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -396,8 +396,8 @@ importers:
   packages/studio-monitor:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -430,8 +430,8 @@ importers:
   packages/studio-notification:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
@@ -449,8 +449,8 @@ importers:
   packages/studio-prisma:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@prisma/client':
         specifier: ^5.7.0
         version: 5.22.0(prisma@5.22.0)
@@ -471,8 +471,8 @@ importers:
   packages/studio-shared:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       eventemitter3:
         specifier: ^5.0.0
         version: 5.0.4
@@ -493,8 +493,8 @@ importers:
   packages/studio-skill:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -509,8 +509,8 @@ importers:
   packages/studio-spec:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-notification':
         specifier: workspace:*
         version: link:../studio-notification
@@ -543,8 +543,8 @@ importers:
   packages/studio-task:
     dependencies:
       '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.0
+        specifier: ^0.16.1
+        version: 0.16.1
       '@dommaker/studio-prisma':
         specifier: workspace:*
         version: link:../studio-prisma
