@@ -717,8 +717,8 @@ export class FileStore {
    * 目录不存在时自动创建。
    */
   async writeDoc(dir: string, key: string, meta: Record<string, unknown>, body: string): Promise<void> {
-    await this.ensureDir(dir);
     const filePath = path.join(dir, `${key}.md`);
+    await this.ensureDir(path.dirname(filePath));
     const content = serializeFrontmatter(meta, body);
     await fs.promises.writeFile(filePath, content, 'utf-8');
   }
