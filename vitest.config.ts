@@ -32,7 +32,6 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
-      '@dommaker/studio-prisma': path.resolve(__dirname, './packages/studio-prisma/src'),
       '@dommaker/studio-shared': path.resolve(__dirname, './packages/studio-shared/src'),
     },
   },

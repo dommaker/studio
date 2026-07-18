@@ -15,7 +15,6 @@
     "@dommaker/harness": "^0.16.0",
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-skill": "workspace:*",
-    "@prisma/client": "^5.7.0",
     "ajv": "^8.12.0",
     "ajv-formats": "^3.0.0",
     "uuid": "^9.0.0",

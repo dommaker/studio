@@ -1167,7 +1167,6 @@ async function main() {
       console.log('  开发:');
       console.log('    studio build              Build all packages (pnpm build)');
       console.log('    studio test               Quick API E2E test (8 checks)');
-      console.log('    studio db <cmd>           DB: push | migrate | status');
       console.log('');
       console.log('  执行:');
       console.log('    studio run <requirement>   Submit to #研发 (@Analyst)');

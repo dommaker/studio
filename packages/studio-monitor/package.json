@@ -15,7 +15,6 @@
     "@dommaker/harness": "^0.16.0",
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-task": "workspace:*",
-    "@prisma/client": "^5.7.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
