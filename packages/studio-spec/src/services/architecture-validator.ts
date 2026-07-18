@@ -11,9 +11,10 @@ import type {
   ArchitectureValidationResult,
   CheckResult,
 } from '../types/validation.types.js';
-// Prisma import removed (Spec 4 Phase 4) — no models remaining
-// 获取模型名（Prisma 已移除，返回空集合）
-function getPrismaModelNames(): Set<string> {
+// Prisma removed (Spec 4 Phase 4). Data models now live in FileStore (~/.studio/).
+// Architecture validation of data_model references requires FileStore scan (TODO: spec4-followup).
+function getDataModelNames(): Set<string> {
+  // FileStore models are document-based — scan ~/.studio/schemas/ if implemented
   return new Set<string>();
 }
 
@@ -72,15 +73,15 @@ export class ArchitectureValidator {
 
     // 检查 3: architecture.data_models 有效性
     if (spec.architecture?.data_models) {
-      const prismaModels = getPrismaModelNames();
+      const dataModels = getDataModelNames();
       for (const model of spec.architecture.data_models) {
         const checkId = `arch-model-${model}`;
-        const exists = prismaModels.has(model.toLowerCase());
+        const exists = dataModels.has(model.toLowerCase());
         checks.push({
           checkId,
           description: `检查数据模型 ${model} 是否存在`,
           passed: exists,
-          message: exists ? undefined : `模型 ${model} 在 Prisma schema 中不存在`,
+          message: exists ? undefined : `模型 ${model} 在 FileStore schema 中未注册`,
         });
         if (!exists) {
           invalidReferences.push(model);
