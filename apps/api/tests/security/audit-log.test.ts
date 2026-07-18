@@ -175,9 +175,7 @@ vi.mock('@dommaker/studio-prisma', () => ({
   },
 }));
 
-import { PrismaClient } from '@dommaker/studio-prisma';
-
-const prisma = new PrismaClient() as unknown as typeof mockPrismaClient;
+const prisma = mockPrismaClient as unknown as typeof mockPrismaClient; // @dommaker/studio-prisma PrismaClient removed (Spec 4 Phase 4)
 const auditService = new AuditService(prisma as never);
 
 /** details/changes 字段存储为 JSON 字符串，读取时需反序列化 */

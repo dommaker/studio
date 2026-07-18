@@ -4,19 +4,11 @@ import 'dotenv/config';
 // 固定 KnowledgeStore 路径 — CWD 无关, 与 memory-knowledge-sync hook 共用
 process.env.KNOWLEDGE_DIR = process.env.KNOWLEDGE_DIR || require('path').resolve(__dirname, '..', '.harness', 'knowledge');
 
-// DATABASE_URL 必须在 @dommaker/studio-prisma 加载前解析为绝对路径
-// Prisma 从 CWD 解析 file:./data.db，不同启动目录会读到不同 DB
-// ESM import 顺序: app.ts → auth.ts → @dommaker/studio-prisma 在此行之后立即触发
-import * as _path from 'path';
-if (process.env.DATABASE_URL && process.env.DATABASE_URL.startsWith('file:./')) {
-  process.env.DATABASE_URL = `file:${_path.resolve(process.cwd(), process.env.DATABASE_URL.slice(5))}`;
-}
-
 import { createServer } from 'http';
 import { app, registerRoutes } from './app.js';
 // WebSocket server removed (B0-003: migrated to SSE). See modules/events/sse.routes.ts
 import { logger } from '@dommaker/studio-shared';
-import { connectDatabase } from './core/database.js';
+// database.ts removed (Spec 4 Phase 4) — FileStore auto-creates directories
 import { taskWorker, taskQueue } from '@dommaker/studio-task';
 import { modelGateway } from '@dommaker/studio-shared';
 import { llmConfigService } from './modules/llm/config.service.js';
@@ -40,7 +32,6 @@ function loadConfig(): void {
   if (!configDir) {
     // Fallback: ~/.studio/ defaults
     const studioDir = path.join(os.homedir(), '.studio');
-    if (!process.env.DATABASE_URL) process.env.DATABASE_URL = `file:${path.join(studioDir, 'data', 'data.db')}`;
     if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = path.join(studioDir, 'worktrees');
     if (!process.env.EVENTS_DIR) process.env.EVENTS_DIR = path.join(studioDir, 'events');
     return;
@@ -48,7 +39,6 @@ function loadConfig(): void {
 
   // Load .env file from config directory
   const envPath = configDir.endsWith('.env') ? configDir : path.join(configDir, '.env');
-  const configRoot = path.dirname(envPath);
   if (fs.existsSync(envPath)) {
     const content = fs.readFileSync(envPath, 'utf-8');
     for (const line of content.split('\n')) {
@@ -57,12 +47,8 @@ function loadConfig(): void {
       const eqIdx = trimmed.indexOf('=');
       if (eqIdx === -1) continue;
       const key = trimmed.slice(0, eqIdx).trim();
-      let val = trimmed.slice(eqIdx + 1).trim();
+      const val = trimmed.slice(eqIdx + 1).trim();
       if (!process.env[key]) {
-        // Q6修复: file:./data.db 相对路径解析到绝对路径, 避免 Prisma 解析到错误位置
-        if (key === 'DATABASE_URL' && val.startsWith('file:./')) {
-          val = `file:${path.resolve(configRoot, val.slice(5))}`;
-        }
         process.env[key] = val;
       }
     }
@@ -74,9 +60,8 @@ loadConfig();
 
 async function start() {
   try {
-    // 连接数据库
-    await connectDatabase();
-    logger.info('Database connected');
+    // FileStore 自动建目录，无需 DB 连接
+    logger.info('Storage initialized (FileStore)');
 
     // 初始化模型网关
     modelGateway.loadFromEnv();

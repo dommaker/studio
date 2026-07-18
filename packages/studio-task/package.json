@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@dommaker/harness": "^0.16.0",
-    "@dommaker/studio-prisma": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "ioredis": "^5.0.0",
     "node-fetch": "^2.0.0",

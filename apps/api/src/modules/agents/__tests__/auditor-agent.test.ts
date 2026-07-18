@@ -5,7 +5,7 @@
  * Still uses Prisma for Company, Channel, ChannelMessage, StudioEvent.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
+const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
 import { FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../../skills/skill-store.js';
 

@@ -38,6 +38,7 @@ interface ConnectionEntry {
   ws: WebSocket;
   workspaceId: string;
   authenticated: boolean;
+  replaced: boolean;
   missedPongs: number;
   pingTimer: ReturnType<typeof setInterval> | null;
   authTimer: ReturnType<typeof setTimeout> | null;
@@ -117,9 +118,14 @@ function cleanupConnection(entry: ConnectionEntry): void {
     clearTimeout(entry.authTimer);
     entry.authTimer = null;
   }
-  activeConnections.delete(entry.workspaceId);
+  // Skip if already replaced by a new connection (close event fires asynchronously)
+  if (entry.replaced) return;
 
-  // Mark workspace offline in DB
+  if (activeConnections.get(entry.workspaceId) === entry) {
+    activeConnections.delete(entry.workspaceId);
+  }
+
+  // Mark workspace offline
   if (entry.authenticated) {
     updateHeartbeat(entry.workspaceId, 'offline').catch(() => {});
     logger.info({ workspaceId: entry.workspaceId }, '[WsGateway] Disconnected, marked offline');
@@ -194,8 +200,8 @@ async function handleAuth(entry: ConnectionEntry, msg: { workspaceId: string; to
   const existing = activeConnections.get(workspaceId);
   if (existing && existing.ws !== entry.ws) {
     logger.info({ workspaceId }, '[WsGateway] Replacing existing connection');
+    existing.replaced = true; // prevent close event from cleaning up
     existing.ws.close(4002, 'Replaced by new connection');
-    cleanupConnection(existing);
   }
 
   const result = await verifyWorkspaceToken(workspaceId, token);
@@ -252,6 +258,7 @@ export function attachWsGateway(
         ws,
         workspaceId: '',
         authenticated: false,
+        replaced: false,
         missedPongs: 0,
         pingTimer: null,
         authTimer: null,

@@ -24,7 +24,7 @@ vi.mock('../../../utils/logger.js', () => ({
 }));
 
 import { workspaceAuth, checkOwnership, requireNotGuest, generateAnonymousId, optionalAuth, requireAuth } from '../auth.js';
-import { prisma } from '@dommaker/studio-prisma';
+const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
 
 // ---------------------------------------------------------------------------
 // AC1: workspaceAuth()

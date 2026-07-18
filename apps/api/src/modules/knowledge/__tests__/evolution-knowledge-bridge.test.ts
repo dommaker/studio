@@ -33,7 +33,7 @@ vi.mock('../knowledge-bus.service.js', () => ({
   knowledgeBus: { recordPattern: mockRecordPattern },
 }));
 
-import { prisma } from '@dommaker/studio-prisma';
+const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
 import { KnowledgeEvolutionService } from '../evolution.service.js';
 import { modelGateway } from '@dommaker/studio-shared';
 

@@ -7,7 +7,7 @@
  * CI 中无运行服务器时自动 skip;本地/e2e 环境有服务器时自动运行。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { prisma } from '../src/core/database.js';
+// prisma import removed (Spec 4 Phase 4) — database.ts deleted, all data in FileStore
 
 const BASE = `http://localhost:${process.env.TEST_PORT || process.env.PORT || '13001'}/api/v1`;
 
@@ -44,15 +44,7 @@ describe.skipIf(!serverAvailable)('Channel API', () => {
       const data = await res.json() as any;
       authToken = data?.token || data?.data?.token || '';
     } catch { /* best effort */ }
-
-    // Clean stale test data from previous runs
-    try {
-      const stale = await prisma.channel.findMany({ where: { name: { startsWith: 'test-channel-' } } });
-      for (const c of stale) {
-        await prisma.channelMessage.deleteMany({ where: { channelId: c.id } });
-        await prisma.channel.delete({ where: { id: c.id } });
-      }
-    } catch { /* best effort */ }
+    // DB cleanup removed (Spec 4 Phase 4) — FileStore handles data via API
   });
 
   // ── Channel CRUD ──

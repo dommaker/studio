@@ -7,7 +7,7 @@
  * 约定：真 SQLite (test.db)，无 mock。LLM 依赖方法仅验证不抛异常。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
+const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
 
 let service: InstanceType<typeof import('../evolution.service.js').KnowledgeEvolutionService>;
 let testCompanyId: string;

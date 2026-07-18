@@ -6,7 +6,6 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
 import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 
 export interface CreateAgentProfileInput {
@@ -30,7 +29,6 @@ export type AgentProfileWithOnline = AgentProfileData & { isOnline: boolean };
 export class AgentProfileService {
   constructor(
     private fileStore: FileStore,
-    private prisma: ExtendedPrismaClient,
   ) {}
 
   async create(input: CreateAgentProfileInput): Promise<AgentProfileData> {
