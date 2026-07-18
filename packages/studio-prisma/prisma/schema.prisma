@@ -7,14 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Company {
-  id           String    @id @default(cuid())
-  name         String
-  size         String    @default("small")
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-}
-
 model User {
   id           String    @id @default(cuid())
   email        String    @unique
@@ -28,9 +20,6 @@ model User {
 
   sessions                Session[]
   refreshTokens           RefreshToken[]
-  oauthAccounts           OAuthAccount[]
-  passwordResetTokens     PasswordResetToken[]
-  emailVerificationTokens EmailVerificationToken[]
 }
 
 model Session {
@@ -62,56 +51,6 @@ model RefreshToken {
 
   @@index([userId])
   @@index([token])
-}
-
-model OAuthAccount {
-  id               String    @id @default(cuid())
-  userId           String
-  provider         String
-  providerAccountId String
-  accessToken      String?
-  refreshToken     String?
-  expiresAt        DateTime?
-  profile          String?
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-
-  User             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([provider, providerAccountId])
-  @@index([userId])
-}
-
-model PasswordResetToken {
-  id        String    @id @default(cuid())
-  token     String    @unique
-  userId    String
-  email     String
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([token])
-  @@index([userId])
-  @@index([email])
-}
-
-model EmailVerificationToken {
-  id        String    @id @default(cuid())
-  token     String    @unique
-  userId    String
-  email     String
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
-
-  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([token])
-  @@index([userId])
-  @@index([email])
 }
 
 model Workspace {

@@ -23,7 +23,6 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { prisma } from '../../core/database.js';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from './workunit.service.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -32,7 +31,7 @@ import { parsePagination, formatPaginatedResponse } from '../../utils/pagination
 
 const router = Router();
 const fileStore = new FileStore();
-const service = new WorkUnitService(prisma, fileStore);
+const service = new WorkUnitService(undefined, fileStore);
 
 /** GET / — list WorkUnits */
 router.get('/', async (req: Request, res: Response) => {

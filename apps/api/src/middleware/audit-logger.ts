@@ -6,10 +6,10 @@
 import { Request, Response, NextFunction } from 'express';
 import { getAuthInfo } from './auth.js';
 import { AuditService, AuditLogInput } from '@dommaker/studio-audit';
-import { prisma } from '../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../utils/logger.js';
 
-const auditService = new AuditService(prisma as any);
+const auditService = new AuditService(new FileStore());
 
 /**
  * 获取客户端 IP

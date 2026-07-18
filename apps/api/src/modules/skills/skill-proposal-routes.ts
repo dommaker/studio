@@ -11,7 +11,6 @@
 import { Router, Request, Response } from 'express';
 import { skillExtractionService } from './skill-extraction.service.js';
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { prisma } from '../../core/database.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { skillStore } from './skill-store.js';
 
