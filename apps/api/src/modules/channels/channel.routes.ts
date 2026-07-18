@@ -11,7 +11,7 @@ import { ProjectDiscoveryService } from '../projects/project-discovery.service.j
 
 const router = Router();
 const fileStore = new FileStore();
-const convertToTaskService = new ConvertToTaskService(undefined, fileStore);
+const convertToTaskService = new ConvertToTaskService(fileStore);
 const projectDiscoveryService = new ProjectDiscoveryService();
 
 // ─── AC Group Parser ───────────────────────────────────────────────

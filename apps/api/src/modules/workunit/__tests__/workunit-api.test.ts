@@ -23,7 +23,7 @@ describeIf('WorkUnit API service', () => {
     // Use temp directory for FileStore isolation
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'wu-test-'));
     fileStore = new FileStore(tmpDir);
-    service = new WorkUnitService(undefined, fileStore);
+    service = new WorkUnitService(fileStore);
 
     // Inject same FileStore into channelMessageService for cross-store consistency
     channelMessageService.setFileStore(fileStore);

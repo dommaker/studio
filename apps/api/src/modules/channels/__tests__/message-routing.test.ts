@@ -67,7 +67,7 @@ describe('Message Routing (AC-B1-B4)', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
     fs.mkdirSync(tmpDir, { recursive: true });
     fileStore = new FileStore(tmpDir);
-    workUnitService = new WorkUnitService(undefined, fileStore);
+    workUnitService = new WorkUnitService(fileStore);
     // Re-create channel config + re-inject into singleton
     await fileStore.createChannel({
       id: channelId, name: `#test-routing`, type: 'rnd',

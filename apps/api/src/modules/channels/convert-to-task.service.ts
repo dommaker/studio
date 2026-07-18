@@ -28,7 +28,7 @@ export class ConvertToTaskService {
 
   constructor(fileStore?: FileStore) {
     this.fileStore = fileStore ?? new FileStore();
-    this.workUnitService = new WorkUnitService(undefined, this.fileStore);
+    this.workUnitService = new WorkUnitService(this.fileStore);
   }
 
   /**

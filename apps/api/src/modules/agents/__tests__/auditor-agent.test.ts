@@ -5,7 +5,9 @@
  * Still uses Prisma for Company, Channel, ChannelMessage, StudioEvent.
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import { FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../../skills/skill-store.js';
 
@@ -19,12 +21,8 @@ describe('AuditorAgent B3-005', () => {
   const fileStore = new FileStore();
 
   beforeAll(async () => {
-    // Find or create test company
-    let company = await prisma.company.findFirst();
-    if (!company) {
-      company = await prisma.company.create({ data: { name: 'Test Corp' } });
-    }
-    testCompanyId = company.id;
+    // Use generated test company ID (Prisma removed, Spec 4 AC-6a)
+    testCompanyId = `test-company-${Date.now()}`;
 
     // Create system channel in FileStore (for channelMessageService)
     const channelId = `system-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -49,15 +47,14 @@ describe('AuditorAgent B3-005', () => {
       }
     }
 
-    // Create session:summary events so activeSessionCount >= 5 (required for skill audit)
-    const eventCount = await prisma.studioEvent.count({
-      where: { type: 'session:summary', timestamp: { gte: new Date(Date.now() - 28 * 24 * 3600_000) } },
-    });
-    for (let i = eventCount; i < 5; i++) {
-      await prisma.studioEvent.create({
-        data: { type: 'session:summary', source: 'test', payload: '{}', timestamp: new Date() },
-      });
-    }
+    // Create session:summary events in ~/events/studio.jsonl (STUDIO_EVENTS_JSONL path)
+    const eventsDir = path.join(os.homedir(), 'events');
+    fs.mkdirSync(eventsDir, { recursive: true });
+    const eventsJsonl = Array.from({ length: 5 }, (_, i) => JSON.stringify({
+      id: `evt-summary-${Date.now()}-${i}`,
+      type: 'session:summary', source: 'test', payload: '{}', timestamp: new Date().toISOString(),
+    })).join('\n');
+    fs.appendFileSync(path.join(eventsDir, 'studio.jsonl'), eventsJsonl + '\n');
     testChannelId = channelId;
   });
 

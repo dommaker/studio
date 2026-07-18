@@ -229,7 +229,7 @@ describe('AC-C2: findAnchorMessage', () => {
       discordChannelId: null, discordWebhookUrl: null, members: '[]',
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
-    const wuSvc = new WorkUnitService(undefined, fileStore);
+    const wuSvc = new WorkUnitService(fileStore);
     const wu = await wuSvc.create({ scope: 'thread test', channelId: testChannelId, type: 'task' });
     testWorkUnitId = wu.id;
   });

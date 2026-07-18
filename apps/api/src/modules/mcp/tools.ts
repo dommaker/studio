@@ -1106,7 +1106,7 @@ const createWorkUnit: MCPTool = {
     required: ['type', 'scope'],
   },
   handler: async (input) => {
-    const workUnitService = new WorkUnitService(undefined, fileStore);
+    const workUnitService = new WorkUnitService(fileStore);
     const workunit = await workUnitService.create({
       type: input.type,
       scope: input.scope,

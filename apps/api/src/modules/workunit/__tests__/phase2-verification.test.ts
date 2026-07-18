@@ -28,7 +28,7 @@ describe('Phase 2 Verification Scenarios', () => {
     // Isolated temp dir for FileStore
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase2-verify-'));
     fileStore = new FileStore(tmpDir);
-    service = new WorkUnitService(undefined, fileStore);
+    service = new WorkUnitService(fileStore);
     channelMessageService.setFileStore(fileStore);
 
     // Create channel in FileStore (for message ops)

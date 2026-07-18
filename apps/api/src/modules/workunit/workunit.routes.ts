@@ -31,7 +31,7 @@ import { parsePagination, formatPaginatedResponse } from '../../utils/pagination
 
 const router = Router();
 const fileStore = new FileStore();
-const service = new WorkUnitService(undefined, fileStore);
+const service = new WorkUnitService(fileStore);
 
 /** GET / — list WorkUnits */
 router.get('/', async (req: Request, res: Response) => {
