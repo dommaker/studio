@@ -44,7 +44,6 @@ vi.mock('../service.js', () => ({
   getCurrentUser: vi.fn(),
   exchangeRefreshToken: vi.fn(),
   cleanupExpiredSessions: vi.fn(),
-  generateEmailVerificationToken: vi.fn().mockResolvedValue('verification-token'),
 }));
 
 vi.mock('@dommaker/studio-audit', () => ({
@@ -54,6 +53,7 @@ vi.mock('@dommaker/studio-audit', () => ({
 vi.mock('../../../core/database.js', () => ({ prisma: {} }));
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+  FileStore: vi.fn().mockImplementation(() => ({})),
 }));
 
 // ── Imports after mocks ───────────────────────────────────────────────

@@ -27,9 +27,30 @@ vi.mock('@dommaker/studio-prisma', () => ({
   },
 }));
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-}));
+vi.mock('@dommaker/studio-shared', () => {
+  const readJson = vi.fn().mockImplementation(async (filePath: string) => {
+    if (filePath.includes('/sessions/')) {
+      return {
+        id: 's1',
+        userId: 'u1',
+        token: 'test-token',
+        expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      };
+    }
+    if (filePath.includes('/users/')) {
+      return { id: 'u1', email: 'test@test.com', role: 'User' };
+    }
+    return null;
+  });
+  return {
+    logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
+    FileStore: vi.fn().mockImplementation(() => ({
+      readJson,
+      writeJson: vi.fn().mockResolvedValue(undefined),
+      readJsonl: vi.fn().mockResolvedValue([]),
+    })),
+  };
+});
 
 vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
