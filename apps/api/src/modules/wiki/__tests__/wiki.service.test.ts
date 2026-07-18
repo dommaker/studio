@@ -27,18 +27,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-const mockPrismaFindMany = vi.fn();
-const mockPrismaFindUnique = vi.fn();
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    requirementsDoc: {
-      findMany: (...args: unknown[]) => mockPrismaFindMany(...args),
-      findUnique: (...args: unknown[]) => mockPrismaFindUnique(...args),
-    },
-  },
-}));
-
 import {
   listWikiDocs,
   buildWikiGraph,
@@ -154,7 +142,6 @@ describe('listWikiDocs', () => {
     const result = listWikiDocs({});
 
     expect(result).toHaveLength(0);
-    expect(mockPrismaFindMany).not.toHaveBeenCalled();
   });
 
   it('skips null results from readSddDoc', async () => {
@@ -230,7 +217,6 @@ describe('buildWikiGraph', () => {
 
     expect(result.nodes).toHaveLength(0);
     expect(result.edges).toHaveLength(0);
-    expect(mockPrismaFindMany).not.toHaveBeenCalled();
   });
 
   it('produces correct node shape', async () => {
@@ -269,9 +255,8 @@ describe('getWikiDocById', () => {
     expect(mockFindSddDocById).toHaveBeenCalledWith('doc-001');
   });
 
-  it('returns null when SDD not found and DB not found', async () => {
+  it('returns null when SDD not found', async () => {
     mockFindSddDocById.mockReturnValue(null);
-    mockPrismaFindUnique.mockResolvedValue(null);
 
     const result = await getWikiDocById('nonexistent');
 
@@ -284,7 +269,6 @@ describe('getWikiDocById', () => {
     const result = getWikiDocById('db-1');
 
     expect(result).toBeNull();
-    expect(mockPrismaFindUnique).not.toHaveBeenCalled();
   });
 
   it('returns metadata from requirement frontmatter', async () => {
