@@ -6,7 +6,7 @@
  * - optionalAuth() returns a function (middleware), not the factory itself
  * - Express mock: next() is called when middleware runs
  */
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 
 // Mock dependencies that requireAuth/optionalAuth use internally
@@ -14,20 +14,14 @@ vi.mock('../../../modules/auth/service.js', () => ({
   verifyToken: vi.fn().mockReturnValue({ sessionId: 's1', userId: 'u1' }),
 }));
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    session: {
-      findUnique: vi.fn().mockResolvedValue({
-        id: 's1',
-        userId: 'u1',
-        expiresAt: new Date(Date.now() + 86400000),
-        User: { id: 'u1', email: 'test@test.com', role: 'User' },
-      }),
-    },
-  },
-}));
+const mockReadJson = vi.hoisted(() => vi.fn());
+const mockWriteJson = vi.hoisted(() => vi.fn());
 
 vi.mock('@dommaker/studio-shared', () => ({
+  FileStore: vi.fn().mockImplementation(() => ({
+    readJson: mockReadJson,
+    writeJson: mockWriteJson,
+  })),
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
@@ -38,6 +32,15 @@ vi.mock('../../../utils/logger.js', () => ({
 import { requireAuth, optionalAuth, requireRole } from '../../../middleware/auth.js';
 
 describe('middleware-invocation', () => {
+  const OLD_AUTH = process.env.STUDIO_AUTH;
+
+  beforeEach(() => {
+    process.env.STUDIO_AUTH = 'required';
+  });
+
+  afterEach(() => {
+    process.env.STUDIO_AUTH = OLD_AUTH;
+  });
   describe('requireAuth', () => {
     it('requireAuth() returns a function, not the factory', () => {
       const middleware = requireAuth();
@@ -55,6 +58,10 @@ describe('middleware-invocation', () => {
         json: vi.fn(),
       } as unknown as Response;
       const next = vi.fn() as NextFunction;
+
+      // findSessionWithUser: session readJson → user readJson
+      mockReadJson.mockResolvedValueOnce({ id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000).toISOString() });
+      mockReadJson.mockResolvedValueOnce({ id: 'u1', email: 'test@test.com', role: 'User' });
 
       await middleware(req, res, next);
 
@@ -155,6 +162,10 @@ describe('middleware-invocation', () => {
         json: vi.fn(),
       } as unknown as Response;
       const next = vi.fn() as NextFunction;
+
+      // findSessionWithUser: session readJson → user readJson
+      mockReadJson.mockResolvedValueOnce({ id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000).toISOString() });
+      mockReadJson.mockResolvedValueOnce({ id: 'u1', email: 'test@test.com', role: 'User' });
 
       await middleware(req, res, next);
 

@@ -181,6 +181,13 @@ export class FileStore {
     await fs.promises.appendFile(filePath, JSON.stringify(data) + '\n', 'utf-8');
   }
 
+  /** 写入全部 JSONL 行（覆盖） */
+  public async writeJsonl(filePath: string, data: unknown[]): Promise<void> {
+    await this.ensureDir(path.dirname(filePath));
+    const content = data.map(item => JSON.stringify(item)).join('\n') + (data.length > 0 ? '\n' : '');
+    await fs.promises.writeFile(filePath, content, 'utf-8');
+  }
+
   /** 读取全部 JSONL 行（跳过解析失败的行） */
   public async readJsonl<T>(filePath: string): Promise<T[]> {
     try {

@@ -14,11 +14,17 @@ const MOCK_WRONG_PW = `wrong-${Date.now()}`;
 // ── Mock FileStore ──
 const mockReadJson = vi.hoisted(() => vi.fn());
 const mockWriteJson = vi.hoisted(() => vi.fn());
+const mockReadJsonl = vi.hoisted(() => vi.fn());
+const mockWriteJsonl = vi.hoisted(() => vi.fn());
+const mockAppendJsonl = vi.hoisted(() => vi.fn());
 
 vi.mock('@dommaker/studio-shared', () => ({
   FileStore: vi.fn().mockImplementation(() => ({
     readJson: mockReadJson,
     writeJson: mockWriteJson,
+    readJsonl: mockReadJsonl,
+    writeJsonl: mockWriteJsonl,
+    appendJsonl: mockAppendJsonl,
   })),
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
@@ -44,12 +50,20 @@ function setupStore(users: any[], sessions: any[]) {
   storeSessions = [...sessions];
   mockReadJson.mockImplementation(async (path: string) => {
     if (path.includes('users.json')) return [...storeUsers];
-    if (path.includes('sessions.json')) return [...storeSessions];
     return null;
   });
   mockWriteJson.mockImplementation(async (path: string, data: any) => {
     if (path.includes('users.json')) { storeUsers = [...(data as any[])]; }
-    else if (path.includes('sessions.json')) { storeSessions = [...(data as any[])]; }
+  });
+  mockReadJsonl.mockImplementation(async (path: string) => {
+    if (path.includes('sessions.jsonl')) return [...storeSessions];
+    return [];
+  });
+  mockWriteJsonl.mockImplementation(async (path: string, data: any) => {
+    if (path.includes('sessions.jsonl')) { storeSessions = [...(data as any[])]; }
+  });
+  mockAppendJsonl.mockImplementation(async (path: string, data: any) => {
+    if (path.includes('sessions.jsonl')) { storeSessions.push(data); }
   });
 }
 
@@ -73,7 +87,7 @@ describe('createGuestSession', () => {
     expect(result.session.guestId).toBe('g-1');
     const decoded = verifyToken(result.token);
     expect(decoded).not.toBeNull();
-    expect(mockWriteJson).toHaveBeenCalled();
+    expect(mockAppendJsonl).toHaveBeenCalled();
   });
   it('generates guestId if not provided', async () => {
     const result = await createGuestSession({});
@@ -93,7 +107,7 @@ describe('getOrCreateSession', () => {
   it('creates new session if no existing guest session', async () => {
     const result = await getOrCreateSession({ guestId: 'g-new' });
     expect(result.token).toBeTruthy();
-    expect(mockWriteJson).toHaveBeenCalled();
+    expect(mockAppendJsonl).toHaveBeenCalled();
   });
 });
 
@@ -118,7 +132,8 @@ describe('register', () => {
     expect(result.user.role).toBe('User');
     expect(result.token).toBeTruthy();
     expect(result.refreshToken).toBeTruthy();
-    expect(mockWriteJson).toHaveBeenCalled();
+    expect(mockWriteJson).toHaveBeenCalled(); // users.json
+    expect(mockAppendJsonl).toHaveBeenCalled(); // sessions.jsonl
   });
   it('throws when email already registered', async () => {
     setupStore([{ id: 'u1', email: TEST_EMAIL, passwordHash: 'x', role: 'User' }], []);
@@ -156,7 +171,7 @@ describe('logout', () => {
       refreshToken: 'rt1',
     }]);
     await logout('s1', 'u1');
-    expect(mockWriteJson).toHaveBeenCalled();
+    expect(mockWriteJsonl).toHaveBeenCalled();
   });
 });
 
@@ -191,7 +206,7 @@ describe('cleanupExpiredSessions', () => {
     ]);
     const count = await cleanupExpiredSessions();
     expect(count).toBe(1);
-    expect(mockWriteJson).toHaveBeenCalled();
+    expect(mockWriteJsonl).toHaveBeenCalled();
   });
 });
 
@@ -203,7 +218,7 @@ describe('generateRefreshToken + exchange + revoke', () => {
     }]);
     const refreshToken = await generateRefreshToken('u1');
     expect(refreshToken).toBeTruthy();
-    expect(mockWriteJson).toHaveBeenCalled();
+    expect(mockWriteJsonl).toHaveBeenCalled();
   });
   it('exchangeRefreshToken returns new token pair', async () => {
     const oldRt = 'rt-old';
@@ -231,7 +246,7 @@ describe('generateRefreshToken + exchange + revoke', () => {
     }]);
     const result = await revokeRefreshToken('rt-to-revoke');
     expect(result).toBe(true);
-    expect(mockWriteJson).toHaveBeenCalled();
+    expect(mockWriteJsonl).toHaveBeenCalled();
   });
   it('revokeRefreshToken returns false for non-existent token', async () => {
     const result = await revokeRefreshToken('non-existent');
