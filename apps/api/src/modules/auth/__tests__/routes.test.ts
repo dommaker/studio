@@ -429,6 +429,44 @@ describe('auth routes', () => {
     });
   });
 
+  describe('GET /api/auth/status (AC-A2: Spec 4 Phase 1)', () => {
+    const originalEnv = process.env.STUDIO_AUTH;
+
+    afterEach(() => {
+      process.env.STUDIO_AUTH = originalEnv;
+    });
+
+    it('STUDIO_AUTH=none: returns mode=none with local user', async () => {
+      process.env.STUDIO_AUTH = 'none';
+      const { res } = await invokeRoute(routes, 'get', '/status');
+      expect(res.json).toHaveBeenCalledWith({
+        mode: 'none', user: { id: 'local', name: 'Local User', role: 'Admin' },
+      });
+    });
+
+    it('STUDIO_AUTH=on without session: returns mode=on, user=null', async () => {
+      process.env.STUDIO_AUTH = 'on';
+      mockGetAuthInfo.mockReturnValue({ sessionId: '' });
+      const { res } = await invokeRoute(routes, 'get', '/status');
+      expect(res.json).toHaveBeenCalledWith({
+        mode: 'on', user: null,
+      });
+    });
+
+    it('STUDIO_AUTH=on with session: returns mode=on with user info', async () => {
+      process.env.STUDIO_AUTH = 'on';
+      mockGetAuthInfo.mockReturnValue({ sessionId: 's1', userId: 'u1' });
+      (authService.getCurrentUser as any).mockResolvedValue({
+        user: { id: 'u1', name: 'Test User', role: 'User' },
+        session: { id: 's1' },
+      });
+      const { res } = await invokeRoute(routes, 'get', '/status');
+      expect(res.json).toHaveBeenCalledWith({
+        mode: 'on', user: { id: 'u1', name: 'Test User', role: 'User' },
+      });
+    });
+  });
+
   describe('rate limit middleware attachment (AC4)', () => {
     it('authRateLimit mounted on POST /register', () => {
       const handlers = getHandlers(routes, 'post', '/register');
