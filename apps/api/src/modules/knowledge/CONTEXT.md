@@ -17,8 +17,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/improver-scheduler.service.ts, apps/api/src/modules/knowledge/knowledge-service.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/preference-observer.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/knowledge-sync.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts
 
-<!-- STALE_SINCE: 2026-07-15 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/improver-scheduler.service.ts, apps/api/src/modules/knowledge/knowledge-service.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/preference-observer.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/knowledge-sync.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/env-snapper.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/evolution.service.ts, apps/api/src/modules/knowledge/evolution-scheduler.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/import.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/resolution.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts, apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/rule-scanner.ts, apps/api/src/modules/knowledge/CONTEXT.md, apps/api/src/modules/knowledge/preference-observer.ts
+
+<!-- STALE_SINCE: 2026-07-18 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/env-snapper.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/evolution.service.ts, apps/api/src/modules/knowledge/evolution-scheduler.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/import.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/resolution.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts
 
 ## 职责
 
@@ -89,6 +93,12 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `e5142f65`: ci): resolve logger.error type errors in knowledge/routes.ts
+- ✅ `11ba99fa`: ci): resolve type errors in migrated agent/knowledge files
+- ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)
+- ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
+- ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零
+- ✅ `389c9e87`: add await to all sdd-utils consumers after Phase 4 async migration
 - ✅ `ab28f573`: pipeline-removal): code review warnings — dead scope configs + pipeline-dashboard deletion
 - ✅ `ea7b91c9`: knowledge): persist extractFromExecution to StudioEvent (B59-002)
 - ✅ B56: 删 formatIndexSummary() + analyst-knowledge 死链路（loadKnowledge/saveKnowledge/selectRelevantSections）— KnowledgeStore 闭环已覆盖
