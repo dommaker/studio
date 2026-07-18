@@ -40,9 +40,7 @@ function log(msg: string) {
 
 async function migrateProjects(): Promise<number> {
   ensureDir(PATHS.projects);
-  const projects = await (prisma as any).project.findMany({
-    include: { Company: { select: { id: true } } },
-  });
+  const projects = await (prisma as any).project.findMany();
   let count = 0;
 
   for (const p of projects) {
