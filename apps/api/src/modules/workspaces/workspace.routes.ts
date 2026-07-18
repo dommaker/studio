@@ -1,27 +1,78 @@
 /**
  * Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management
  *
+ * Storage: ~/.studio/workspaces/{id}.json (merged JSON with nested tokens/runtimes/repos)
+ *
  * Endpoints:
  *   POST   /api/v1/workspaces/register     — Daemon registration (token auth)
  *   PUT    /api/v1/workspaces/:id/heartbeat — Daemon heartbeat (token auth)
  *   GET    /api/v1/workspaces               — List workspaces (JWT auth)
  *   DELETE /api/v1/workspaces/:id           — Delete workspace (JWT auth)
- *
- *   POST   /api/v1/workspace-tokens         — Generate token (JWT auth)
- *   GET    /api/v1/workspace-tokens         — List tokens (JWT auth)
- *   DELETE /api/v1/workspace-tokens/:id     — Revoke token (JWT auth)
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
 import discoverProxyRouter from './discover-proxy.js';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
 
+const fileStore = new FileStore();
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
 const router = Router();
 
 // Mount discover proxy (P4: WS-backed directory discovery)
 router.use('/', discoverProxyRouter);
+
+// ── Workspace data helpers ──
+
+async function ensureWorkspacesDir(): Promise<void> {
+  await fs.promises.mkdir(WORKSPACES_DIR, { recursive: true });
+}
+
+function wsPath(id: string): string {
+  return path.join(WORKSPACES_DIR, `${id}.json`);
+}
+
+async function readWorkspace(id: string): Promise<Record<string, any> | null> {
+  return fileStore.readJson<Record<string, any>>(wsPath(id));
+}
+
+async function writeWorkspace(id: string, data: Record<string, any>): Promise<void> {
+  await ensureWorkspacesDir();
+  await fileStore.writeJson(wsPath(id), data);
+}
+
+async function listWorkspaces(): Promise<Record<string, any>[]> {
+  await ensureWorkspacesDir();
+  const entries = await fs.promises.readdir(WORKSPACES_DIR, { withFileTypes: true });
+  const results: Record<string, any>[] = [];
+  for (const e of entries) {
+    if (!e.isFile() || !e.name.endsWith('.json')) continue;
+    const data = await fileStore.readJson<Record<string, any>>(path.join(WORKSPACES_DIR, e.name));
+    if (data) results.push(data);
+  }
+  results.sort((a, b) => {
+    const da = new Date((a.createdAt as string) || 0).getTime();
+    const db = new Date((b.createdAt as string) || 0).getTime();
+    return db - da;
+  });
+  return results;
+}
+
+async function deleteWorkspaceDir(id: string): Promise<void> {
+  const tasksDir = path.join(WORKSPACES_DIR, id);
+  const eventsPath = path.join(tasksDir, 'events.jsonl');
+  const tasksPath = path.join(tasksDir, 'tasks.jsonl');
+  // Clean up task/event files
+  try { await fs.promises.unlink(eventsPath); } catch { /* not exist */ }
+  try { await fs.promises.unlink(tasksPath); } catch { /* not exist */ }
+  try { await fs.promises.rmdir(tasksDir); } catch { /* not empty or not exist */ }
+  // Delete workspace file
+  try { await fs.promises.unlink(wsPath(id)); } catch { /* not exist */ }
+}
 
 // ─── POST /api/v1/workspaces/register ───
 // Daemon registration with workspace token auth
@@ -37,7 +88,7 @@ router.post('/register', workspaceAuth(), async (req: Request, res: Response) =>
       workspaceRoot,
       runtimes = [],
       hasDocker = false,
-      os,
+      os: wsOs,
       arch,
       repos = [],
     } = req.body;
@@ -49,111 +100,90 @@ router.post('/register', workspaceAuth(), async (req: Request, res: Response) =>
       });
     }
 
-    // Update or create workspace (same token → update, not duplicate)
-    const workspace = await prisma.workspace.upsert({
-      where: { id: existingWorkspace.id },
-      update: {
-        name: name || existingWorkspace.name,
-        workspaceRoot,
-        hasDocker,
-        os: os || null,
-        arch: arch || null,
-        status: 'idle',
-        lastHeartbeat: new Date(),
-      },
-      create: {
-        name: name || 'Unnamed',
-        tokenId: workspaceToken.id,
-        workspaceRoot,
-        hasDocker,
-        os: os || null,
-        arch: arch || null,
-        status: 'idle',
-        lastHeartbeat: new Date(),
-      },
-    });
+    const now = new Date().toISOString();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const existing: Record<string, any> = existingWorkspace as any;
+    const workspace: Record<string, any> = {
+      id: existing.id,
+      name: name || existing.name || 'Unnamed',
+      workspaceRoot,
+      hasDocker: hasDocker ?? existing.hasDocker ?? false,
+      os: wsOs || existing.os || null,
+      arch: arch || existing.arch || null,
+      status: 'idle',
+      lastHeartbeat: now,
+      currentTask: existing.currentTask || null,
+      tokenId: existing.tokenId || workspaceToken.id || null,
+      tokens: existing.tokens || [],
+      runtimes: [...(existing.runtimes || [])],
+      repos: [...(existing.repos || [])],
+      createdAt: existing.createdAt || now,
+      updatedAt: now,
+    };
 
-    // Create/update WorkspaceRuntime records
+    // Upsert runtimes
     if (Array.isArray(runtimes) && runtimes.length > 0) {
+      const wsruntimes = workspace.runtimes as any[];
       for (const rt of runtimes) {
         if (!rt.provider) continue;
-        await prisma.workspaceRuntime.upsert({
-          where: {
-            workspaceId_provider: {
-              workspaceId: workspace.id,
-              provider: rt.provider,
-            },
-          },
-          update: {
-            name: rt.name || rt.provider,
-            version: rt.version || null,
-            status: 'online',
-            lastSeenAt: new Date(),
-          },
-          create: {
-            workspaceId: workspace.id,
-            provider: rt.provider,
-            name: rt.name || rt.provider,
-            version: rt.version || null,
-            status: 'online',
-            lastSeenAt: new Date(),
-          },
-        });
-      }
-    }
-
-    // Create/update WorkspaceRepo records (AS-023)
-    let repoCount = 0;
-    if (Array.isArray(repos) && repos.length > 0) {
-      for (const repo of repos) {
-        if (!repo.path || !repo.name) continue;
-        await prisma.workspaceRepo.upsert({
-          where: {
-            workspaceId_path: {
-              workspaceId: workspace.id,
-              path: repo.path,
-            },
-          },
-          update: {
-            name: repo.name,
-            category: repo.category || null,
-            description: repo.description || null,
-            defaultBranch: repo.defaultBranch || 'main',
-            remoteUrl: repo.remoteUrl || null,
-            status: 'active',
-            lastSyncedAt: new Date(),
-          },
-          create: {
-            workspaceId: workspace.id,
-            path: repo.path,
-            name: repo.name,
-            category: repo.category || null,
-            description: repo.description || null,
-            defaultBranch: repo.defaultBranch || 'main',
-            remoteUrl: repo.remoteUrl || null,
-            status: 'active',
-            lastSyncedAt: new Date(),
-          },
-        });
-        repoCount++;
-      }
-
-      // Mark repos that no longer exist as unavailable
-      const reportedPaths = new Set(repos.map((r: any) => r.path));
-      const existingRepos = await prisma.workspaceRepo.findMany({
-        where: { workspaceId: workspace.id, status: 'active' },
-      });
-      for (const existing of existingRepos) {
-        if (!reportedPaths.has(existing.path)) {
-          await prisma.workspaceRepo.update({
-            where: { id: existing.id },
-            data: { status: 'unavailable' },
-          });
+        const idx = wsruntimes.findIndex((r: any) => r.provider === rt.provider);
+        const rtData = {
+          id: `${workspace.id}_${rt.provider}`,
+          provider: rt.provider,
+          name: rt.name || rt.provider,
+          version: rt.version || null,
+          status: 'online',
+          lastSeenAt: now,
+          createdAt: idx >= 0 ? wsruntimes[idx].createdAt : now,
+          updatedAt: now,
+        };
+        if (idx >= 0) {
+          wsruntimes[idx] = { ...wsruntimes[idx], ...rtData, id: wsruntimes[idx].id };
+        } else {
+          wsruntimes.push(rtData);
         }
       }
     }
 
-    logger.info({ workspaceId: workspace.id, name: workspace.name, runtimeCount: runtimes.length, repoCount }, '[Workspace] Registered');
+    // Upsert repos (AS-023)
+    let repoCount = 0;
+    if (Array.isArray(repos) && repos.length > 0) {
+      const wsrepos = workspace.repos as any[];
+      for (const repo of repos) {
+        if (!repo.path || !repo.name) continue;
+        const idx = wsrepos.findIndex((r: any) => r.path === repo.path);
+        const repoData = {
+          id: idx >= 0 ? wsrepos[idx].id : `wr_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          path: repo.path,
+          name: repo.name,
+          category: repo.category || null,
+          description: repo.description || null,
+          defaultBranch: repo.defaultBranch || 'main',
+          remoteUrl: repo.remoteUrl || null,
+          status: 'active',
+          lastSyncedAt: now,
+          createdAt: idx >= 0 ? wsrepos[idx].createdAt : now,
+        };
+        if (idx >= 0) {
+          wsrepos[idx] = { ...wsrepos[idx], ...repoData, id: wsrepos[idx].id };
+        } else {
+          wsrepos.push(repoData);
+        }
+        repoCount++;
+      }
+
+      // Mark repos no longer reported as unavailable
+      const reportedPaths = new Set(repos.map((r: any) => r.path));
+      for (const existing of wsrepos) {
+        if (!reportedPaths.has(existing.path) && existing.status === 'active') {
+          existing.status = 'unavailable';
+        }
+      }
+    }
+
+    await writeWorkspace(workspace.id as string, workspace);
+
+    logger.info({ workspaceId: workspace.id, name: workspace.name, runtimeCount: (runtimes as any[]).length, repoCount }, '[Workspace] Registered');
 
     return res.json({
       success: true,
@@ -180,7 +210,6 @@ router.put('/:id/heartbeat', workspaceAuth(), async (req: Request, res: Response
     const workspace = authReq.workspace!;
     const { id } = req.params;
 
-    // Ensure the authenticated workspace matches the requested workspace
     if (workspace.id !== id) {
       return res.status(403).json({
         error: 'Token does not match requested workspace',
@@ -189,22 +218,29 @@ router.put('/:id/heartbeat', workspaceAuth(), async (req: Request, res: Response
     }
 
     const { status, currentTask } = req.body;
+    const now = new Date().toISOString();
 
-    const updated = await prisma.workspace.update({
-      where: { id },
-      data: {
-        status: status || workspace.status,
-        currentTask: currentTask !== undefined ? currentTask : workspace.currentTask,
-        lastHeartbeat: new Date(),
-      },
-    });
+    const ws = await readWorkspace(id);
+    if (!ws) {
+      return res.status(404).json({
+        error: 'Workspace not found',
+        code: 'WORKSPACE_NOT_FOUND',
+      });
+    }
+
+    ws.status = status || workspace.status;
+    ws.currentTask = currentTask !== undefined ? currentTask : workspace.currentTask;
+    ws.lastHeartbeat = now;
+    ws.updatedAt = now;
+
+    await writeWorkspace(id, ws);
 
     return res.json({
       success: true,
       data: {
-        workspaceId: updated.id,
-        status: updated.status,
-        lastHeartbeat: updated.lastHeartbeat,
+        workspaceId: id,
+        status: ws.status,
+        lastHeartbeat: ws.lastHeartbeat,
       },
     });
   } catch (error) {
@@ -217,17 +253,11 @@ router.put('/:id/heartbeat', workspaceAuth(), async (req: Request, res: Response
 });
 
 // ─── GET /api/v1/workspaces ───
-// List all workspaces with runtimes (JWT auth)
+// List all workspaces (JWT auth)
 
 router.get('/', requireAuth(), async (_req: Request, res: Response) => {
   try {
-    const workspaces = await prisma.workspace.findMany({
-      include: {
-        runtimes: true,
-        _count: { select: { tasks: true, events: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    const workspaces = await listWorkspaces();
 
     return res.json({
       success: true,
@@ -244,13 +274,12 @@ router.get('/', requireAuth(), async (_req: Request, res: Response) => {
 });
 
 // ─── DELETE /api/v1/workspaces/:id ───
-// Delete workspace (cascades to runtimes, tasks, events)
 
 router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
-    const workspace = await prisma.workspace.findUnique({ where: { id } });
+    const workspace = await readWorkspace(id);
     if (!workspace) {
       return res.status(404).json({
         error: 'Workspace not found',
@@ -258,7 +287,7 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
       });
     }
 
-    await prisma.workspace.delete({ where: { id } });
+    await deleteWorkspaceDir(id);
 
     logger.info({ workspaceId: id }, '[Workspace] Deleted');
     return res.json({ success: true, data: { deleted: true } });
@@ -277,10 +306,17 @@ router.get('/:id/runtimes', requireAuth(), async (req: Request, res: Response) =
   try {
     const { id } = req.params;
 
-    const runtimes = await prisma.workspaceRuntime.findMany({
-      where: { workspaceId: id },
-      orderBy: { provider: 'asc' },
-    });
+    const workspace = await readWorkspace(id);
+    if (!workspace) {
+      return res.status(404).json({
+        error: 'Workspace not found',
+        code: 'WORKSPACE_NOT_FOUND',
+      });
+    }
+
+    const runtimes = (workspace.runtimes as any[] || []).sort((a, b) =>
+      (a.provider as string).localeCompare(b.provider as string),
+    );
 
     return res.json({
       success: true,
@@ -300,10 +336,7 @@ router.get('/:id/runtimes', requireAuth(), async (req: Request, res: Response) =
 
 router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
   try {
-    const workspace = await prisma.workspace.findUnique({
-      where: { id: req.params.id },
-      include: { runtimes: true },
-    });
+    const workspace = await readWorkspace(req.params.id);
 
     if (!workspace) {
       return res.status(404).json({ error: 'Workspace not found' });

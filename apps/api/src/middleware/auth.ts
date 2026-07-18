@@ -18,8 +18,8 @@ const fileStore = new FileStore();
 const SESSIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'sessions');
 const USERS_DIR = path.join(os.homedir(), '.studio', 'data', 'users');
 const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
-const WORKSPACE_TOKENS_DIR = path.join(os.homedir(), '.studio', 'data', 'workspace-tokens');
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'data', 'workspaces');
+const WORKSPACE_TOKENS_DIR = path.join(os.homedir(), '.studio', 'workspace-tokens');
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
 
 // ─── 本地类型（替代 Prisma model 类型） ───
 
