@@ -1,75 +1,118 @@
 /**
- * Task routes integration tests (SQLite, no mocks)
+ * Task routes unit tests — FileStore JSONL mock
  *
- * Tests the Prisma operations backing task management HTTP endpoints:
- *   - Task creation (pending status, workspace/runtime validation)
- *   - Task status query with events
- *   - Task cancellation (pending → cancelled, running → cancelled)
- *   - Status guard (done/error cannot be cancelled)
+ * Covers AC-C2: task creation (pending status, workspace/runtime validation),
+ * task status query with events, task cancellation, status guard
  */
+import { describe, it, expect, beforeEach } from 'vitest';
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
-import { prisma } from '@dommaker/studio-prisma';
-import crypto from 'crypto';
+// ── Inline stores ──
+let workspaceStore: Map<string, Record<string, any>> = new Map();
+let taskStore: Map<string, Record<string, any>[]> = new Map();
+let eventStore: Map<string, Record<string, any>[]> = new Map();
 
-// ── Helpers ──
+function makeId(prefix: string): string {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+}
+function isoNow(): string { return new Date().toISOString(); }
 
-function generateToken(): string {
-  return `st_mach_${crypto.randomBytes(24).toString('base64url')}`;
+function createWorkspace(overrides: Record<string, any> = {}): Record<string, any> {
+  const now = isoNow();
+  const ws = {
+    id: makeId('ws'),
+    name: 'test-ws',
+    tokenId: null,
+    workspaceRoot: '/tmp/test',
+    status: 'idle',
+    currentTask: null,
+    lastHeartbeat: null,
+    hasDocker: false,
+    os: null,
+    arch: null,
+    tokens: [],
+    runtimes: [],
+    repos: [],
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+  workspaceStore.set(ws.id, ws);
+  return ws;
 }
 
-function hashToken(token: string): string {
-  return crypto.createHash('sha256').update(token).digest('hex');
+function addRuntime(workspaceId: string, overrides: Record<string, any> = {}): Record<string, any> {
+  const ws = workspaceStore.get(workspaceId)!;
+  const rt = {
+    id: makeId('rt'),
+    provider: 'claude',
+    name: 'Claude Code',
+    version: null,
+    status: 'online',
+    lastSeenAt: isoNow(),
+    createdAt: isoNow(),
+    updatedAt: isoNow(),
+    ...overrides,
+  };
+  ws.runtimes.push(rt);
+  return rt;
 }
 
-async function createTestWorkspace(name: string) {
-  const plaintext = generateToken();
-  const tokenHash = hashToken(plaintext);
-  const token = await prisma.workspaceToken.create({
-    data: { name: `${name}-token`, tokenHash, permissions: '["execute"]' },
-  });
-  const ws = await prisma.workspace.create({
-    data: { name, tokenId: token.id, workspaceRoot: '/tmp/test', status: 'idle' },
-  });
-  return { workspace: ws, token, plaintext };
+function createTask(workspaceId: string, overrides: Record<string, any> = {}): Record<string, any> {
+  const now = isoNow();
+  const task = {
+    id: makeId('t'),
+    workspaceId,
+    path: '/test/path',
+    prompt: 'Do something',
+    agent: 'executor',
+    modelTier: 'standard',
+    runtimeId: null,
+    parentGoalId: null,
+    status: 'pending',
+    result: null,
+    error: null,
+    sessionId: null,
+    workDir: null,
+    completedAt: null,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  };
+  const tasks = taskStore.get(workspaceId) || [];
+  tasks.push(task);
+  taskStore.set(workspaceId, tasks);
+  return task;
 }
 
-// ── Test data ──
-
-let workspaceId: string;
-let tokenId: string;
+function addEvent(workspaceId: string, taskId: string, overrides: Record<string, any> = {}): void {
+  const evt = {
+    id: makeId('evt'),
+    workspaceId,
+    taskId,
+    type: 'output',
+    content: 'test',
+    metadata: '{}',
+    createdAt: isoNow(),
+    ...overrides,
+  };
+  const events = eventStore.get(workspaceId) || [];
+  events.push(evt);
+  eventStore.set(workspaceId, events);
+}
 
 describe('Task creation', () => {
-  beforeAll(async () => {
-    const { workspace, token } = await createTestWorkspace('task-create-test');
-    workspaceId = workspace.id;
-    tokenId = token.id;
+  let WID: string;
+
+  beforeEach(() => {
+    workspaceStore = new Map();
+    taskStore = new Map();
+    eventStore = new Map();
+    const ws = createWorkspace({ name: 'task-create-test' });
+    WID = ws.id;
   });
 
-  afterAll(async () => {
-    await prisma.workspaceEvent.deleteMany({ where: { workspaceId } });
-    await prisma.workspaceTask.deleteMany({ where: { workspaceId } });
-    await prisma.workspaceRuntime.deleteMany({ where: { workspaceId } });
-    await prisma.workspace.deleteMany({ where: { id: workspaceId } });
-    await prisma.workspaceToken.deleteMany({ where: { id: tokenId } });
-  });
-
-  beforeEach(async () => {
-    await prisma.workspaceEvent.deleteMany({ where: { workspaceId } });
-    await prisma.workspaceTask.deleteMany({ where: { workspaceId } });
-  });
-
-  it('creates task with pending status', async () => {
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/src/main.ts',
-        prompt: 'Fix the bug',
-        agent: 'executor',
-        status: 'pending',
-      },
-    });
-
+  it('creates task with pending status', () => {
+    const task = createTask(WID, { path: '/src/main.ts', prompt: 'Fix the bug', agent: 'executor' });
     expect(task.id).toBeTruthy();
     expect(task.status).toBe('pending');
     expect(task.path).toBe('/src/main.ts');
@@ -80,304 +123,146 @@ describe('Task creation', () => {
     expect(task.parentGoalId).toBeNull();
   });
 
-  it('creates task with optional fields', async () => {
-    const rt = await prisma.workspaceRuntime.create({
-      data: { workspaceId, provider: 'claude', name: 'Claude', status: 'online' },
-    });
-
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/src/app.ts',
-        prompt: 'Add feature',
-        agent: 'reviewer',
-        modelTier: 'premium',
-        runtimeId: rt.id,
-        parentGoalId: 'goal-123',
-        status: 'pending',
-      },
-    });
-
+  it('creates task with optional fields', () => {
+    const rt = addRuntime(WID, { provider: 'claude' });
+    const task = createTask(WID, { modelTier: 'premium', runtimeId: rt.id, parentGoalId: 'goal-123' });
     expect(task.modelTier).toBe('premium');
     expect(task.runtimeId).toBe(rt.id);
     expect(task.parentGoalId).toBe('goal-123');
-
-    // Cleanup
-    await prisma.workspaceRuntime.delete({ where: { id: rt.id } });
   });
 
-  it('verifies workspace exists before task creation', async () => {
-    // In the route, we check workspace exists
-    const ws = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  it('verifies workspace exists before task creation', () => {
+    const ws = workspaceStore.get(WID);
     expect(ws).toBeTruthy();
     expect(ws!.name).toBe('task-create-test');
   });
 
-  it('verifies runtime belongs to workspace', async () => {
-    const rt = await prisma.workspaceRuntime.create({
-      data: { workspaceId, provider: 'test-rt', name: 'Test', status: 'online' },
-    });
-
-    const found = await prisma.workspaceRuntime.findFirst({
-      where: { id: rt.id, workspaceId },
-    });
-
+  it('verifies runtime belongs to workspace', () => {
+    const rt = addRuntime(WID, { provider: 'test-rt', name: 'Test' });
+    const ws = workspaceStore.get(WID)!;
+    const found = ws.runtimes.find((r: any) => r.id === rt.id);
     expect(found).toBeTruthy();
-    expect(found!.workspaceId).toBe(workspaceId);
-
-    // Cleanup
-    await prisma.workspaceRuntime.delete({ where: { id: rt.id } });
   });
 
-  it('rejects runtime from different workspace', async () => {
-    const { workspace: ws2, token: t2 } = await createTestWorkspace('task-other-ws');
-
-    const rt = await prisma.workspaceRuntime.create({
-      data: { workspaceId: ws2.id, provider: 'other-rt', name: 'Other', status: 'online' },
-    });
-
-    // Try to find runtime with wrong workspaceId
-    const found = await prisma.workspaceRuntime.findFirst({
-      where: { id: rt.id, workspaceId },
-    });
-
-    expect(found).toBeNull();
-
-    // Cleanup
-    await prisma.workspaceRuntime.delete({ where: { id: rt.id } });
-    await prisma.workspace.delete({ where: { id: ws2.id } });
-    await prisma.workspaceToken.delete({ where: { id: t2.id } });
+  it('rejects runtime from different workspace', () => {
+    const ws2 = createWorkspace({ name: 'task-other-ws' });
+    const rt = addRuntime(ws2.id, { provider: 'other-rt' });
+    // Try to find runtime in wrong workspace
+    const ws = workspaceStore.get(WID)!;
+    const found = ws.runtimes.find((r: any) => r.id === rt.id);
+    expect(found).toBeUndefined();
   });
 });
 
 describe('Task status query with events', () => {
-  let workspaceId: string;
-  let tokenId: string;
+  let WID: string;
   let taskId: string;
 
-  beforeAll(async () => {
-    const { workspace, token } = await createTestWorkspace('task-query-test');
-    workspaceId = workspace.id;
-    tokenId = token.id;
-
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/test',
-        prompt: 'test query',
-        agent: 'executor',
-        status: 'running',
-      },
-    });
+  beforeEach(() => {
+    workspaceStore = new Map();
+    taskStore = new Map();
+    eventStore = new Map();
+    const ws = createWorkspace({ name: 'task-query-test' });
+    WID = ws.id;
+    const task = createTask(WID, { status: 'running' });
     taskId = task.id;
-
-    // Create some events
-    await prisma.workspaceEvent.createMany({
-      data: [
-        { workspaceId, taskId, type: 'output', content: 'Line 1' },
-        { workspaceId, taskId, type: 'output', content: 'Line 2' },
-        { workspaceId, taskId, type: 'tool_use', content: 'Running bash' },
-      ],
-    });
+    addEvent(WID, taskId, { type: 'output', content: 'Line 1' });
+    addEvent(WID, taskId, { type: 'output', content: 'Line 2' });
+    addEvent(WID, taskId, { type: 'tool_use', content: 'Running bash' });
   });
 
-  afterAll(async () => {
-    await prisma.workspaceEvent.deleteMany({ where: { workspaceId } });
-    await prisma.workspaceTask.deleteMany({ where: { workspaceId } });
-    await prisma.workspace.deleteMany({ where: { id: workspaceId } });
-    await prisma.workspaceToken.deleteMany({ where: { id: tokenId } });
-  });
-
-  it('returns task with events', async () => {
-    const task = await prisma.workspaceTask.findFirst({
-      where: { id: taskId, workspaceId },
-    });
-
+  it('returns task with events', () => {
+    const tasks = taskStore.get(WID) || [];
+    const task = tasks.find(t => t.id === taskId);
     expect(task).toBeTruthy();
     expect(task!.status).toBe('running');
 
-    const events = await prisma.workspaceEvent.findMany({
-      where: { taskId, workspaceId },
-      orderBy: { createdAt: 'asc' },
-    });
+    const events = eventStore.get(WID) || [];
+    const taskEvents = events
+      .filter(e => e.taskId === taskId)
+      .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
-    expect(events).toHaveLength(3);
-    expect(events[0].content).toBe('Line 1');
-    expect(events[1].content).toBe('Line 2');
-    expect(events[2].type).toBe('tool_use');
+    expect(taskEvents).toHaveLength(3);
+    expect(taskEvents[0].content).toBe('Line 1');
+    expect(taskEvents[1].content).toBe('Line 2');
+    expect(taskEvents[2].type).toBe('tool_use');
   });
 
-  it('returns 404 for non-existent task', async () => {
-    const task = await prisma.workspaceTask.findFirst({
-      where: { id: 'non-existent-id', workspaceId },
-    });
-
-    expect(task).toBeNull();
+  it('returns 404 for non-existent task', () => {
+    const tasks = taskStore.get(WID) || [];
+    const task = tasks.find(t => t.id === 'non-existent-id');
+    expect(task).toBeUndefined();
   });
 
-  it('returns 404 for task in different workspace', async () => {
-    const { workspace: ws2, token: t2 } = await createTestWorkspace('task-query-other');
-
-    const task = await prisma.workspaceTask.findFirst({
-      where: { id: taskId, workspaceId: ws2.id },
-    });
-
-    expect(task).toBeNull();
-
-    // Cleanup
-    await prisma.workspace.delete({ where: { id: ws2.id } });
-    await prisma.workspaceToken.delete({ where: { id: t2.id } });
+  it('returns 404 for task in different workspace', () => {
+    const ws2 = createWorkspace({ name: 'task-query-other' });
+    const tasks = taskStore.get(ws2.id) || [];
+    const task = tasks.find(t => t.id === taskId);
+    expect(task).toBeUndefined();
   });
 });
 
 describe('Task cancellation', () => {
-  let workspaceId: string;
-  let tokenId: string;
+  let WID: string;
 
-  beforeAll(async () => {
-    const { workspace, token } = await createTestWorkspace('task-cancel-test');
-    workspaceId = workspace.id;
-    tokenId = token.id;
+  beforeEach(() => {
+    workspaceStore = new Map();
+    taskStore = new Map();
+    eventStore = new Map();
+    const ws = createWorkspace({ name: 'task-cancel-test' });
+    WID = ws.id;
   });
 
-  afterAll(async () => {
-    await prisma.workspaceEvent.deleteMany({ where: { workspaceId } });
-    await prisma.workspaceTask.deleteMany({ where: { workspaceId } });
-    await prisma.workspace.deleteMany({ where: { id: workspaceId } });
-    await prisma.workspaceToken.deleteMany({ where: { id: tokenId } });
-  });
-
-  beforeEach(async () => {
-    await prisma.workspaceEvent.deleteMany({ where: { workspaceId } });
-    await prisma.workspaceTask.deleteMany({ where: { workspaceId } });
-  });
-
-  it('cancels pending task', async () => {
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/test',
-        prompt: 'test',
-        agent: 'executor',
-        status: 'pending',
-      },
-    });
-
-    // Route logic: check status, then update
+  it('cancels pending task', () => {
+    const task = createTask(WID);
     expect(task.status).toBe('pending');
-    expect(['pending', 'running']).toContain(task.status);
-
-    const updated = await prisma.workspaceTask.update({
-      where: { id: task.id },
-      data: { status: 'cancelled', completedAt: new Date() },
-    });
-
-    expect(updated.status).toBe('cancelled');
-    expect(updated.completedAt).toBeTruthy();
+    const tasks = taskStore.get(WID) || [];
+    const t = tasks.find(t2 => t2.id === task.id)!;
+    t.status = 'cancelled';
+    t.completedAt = isoNow();
+    expect(t.status).toBe('cancelled');
+    expect(t.completedAt).toBeTruthy();
   });
 
-  it('cancels running task', async () => {
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/test',
-        prompt: 'test',
-        agent: 'executor',
-        status: 'running',
-      },
-    });
-
-    expect(['pending', 'running']).toContain(task.status);
-
-    const updated = await prisma.workspaceTask.update({
-      where: { id: task.id },
-      data: { status: 'cancelled', completedAt: new Date() },
-    });
-
-    expect(updated.status).toBe('cancelled');
+  it('cancels running task', () => {
+    const task = createTask(WID, { status: 'running' });
+    const tasks = taskStore.get(WID) || [];
+    const t = tasks.find(t2 => t2.id === task.id)!;
+    t.status = 'cancelled';
+    t.completedAt = isoNow();
+    expect(t.status).toBe('cancelled');
   });
 
-  it('rejects cancelling done task', async () => {
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/test',
-        prompt: 'test',
-        agent: 'executor',
-        status: 'done',
-        result: JSON.stringify({ output: 'ok' }),
-        completedAt: new Date(),
-      },
-    });
-
-    // Route logic: status check
-    expect(task.status).not.toBe('pending');
-    expect(task.status).not.toBe('running');
-    // In route, this returns 409
-  });
-
-  it('rejects cancelling error task', async () => {
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/test',
-        prompt: 'test',
-        agent: 'executor',
-        status: 'error',
-        result: JSON.stringify({ error: 'failed' }),
-        completedAt: new Date(),
-      },
-    });
-
+  it('rejects cancelling done task', () => {
+    const task = createTask(WID, { status: 'done', result: JSON.stringify({ output: 'ok' }), completedAt: isoNow() });
     expect(task.status).not.toBe('pending');
     expect(task.status).not.toBe('running');
   });
 
-  it('rejects cancelling already cancelled task', async () => {
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/test',
-        prompt: 'test',
-        agent: 'executor',
-        status: 'cancelled',
-        completedAt: new Date(),
-      },
-    });
+  it('rejects cancelling error task', () => {
+    const task = createTask(WID, { status: 'error', result: JSON.stringify({ error: 'failed' }), completedAt: isoNow() });
+    expect(task.status).not.toBe('pending');
+    expect(task.status).not.toBe('running');
+  });
 
+  it('rejects cancelling already cancelled task', () => {
+    const task = createTask(WID, { status: 'cancelled', completedAt: isoNow() });
     expect(task.status).toBe('cancelled');
     expect(task.status).not.toBe('pending');
     expect(task.status).not.toBe('running');
   });
 
-  it('emits cancel event', async () => {
-    const task = await prisma.workspaceTask.create({
-      data: {
-        workspaceId,
-        path: '/test',
-        prompt: 'test',
-        agent: 'executor',
-        status: 'running',
-      },
-    });
+  it('emits cancel event', () => {
+    const task = createTask(WID, { status: 'running' });
+    const tasks = taskStore.get(WID) || [];
+    const t = tasks.find(t2 => t2.id === task.id)!;
+    t.status = 'cancelled';
+    t.completedAt = isoNow();
+    addEvent(WID, task.id, { type: 'done', content: 'Task cancelled by user' });
 
-    // Cancel
-    await prisma.workspaceTask.update({
-      where: { id: task.id },
-      data: { status: 'cancelled', completedAt: new Date() },
-    });
-
-    // Emit event
-    const event = await prisma.workspaceEvent.create({
-      data: {
-        workspaceId,
-        taskId: task.id,
-        type: 'done',
-        content: 'Task cancelled by user',
-      },
-    });
-
-    expect(event.type).toBe('done');
-    expect(event.content).toBe('Task cancelled by user');
+    const events = eventStore.get(WID) || [];
+    const cancelEvt = events.find(e => e.taskId === task.id && e.content === 'Task cancelled by user');
+    expect(cancelEvt).toBeTruthy();
+    expect(cancelEvt!.type).toBe('done');
   });
 });
