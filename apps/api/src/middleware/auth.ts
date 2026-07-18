@@ -15,11 +15,12 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 
 const fileStore = new FileStore();
-const SESSIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'sessions');
-const USERS_DIR = path.join(os.homedir(), '.studio', 'data', 'users');
-const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
-const WORKSPACE_TOKENS_DIR = path.join(os.homedir(), '.studio', 'workspace-tokens');
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
+const STUDIO_DIR = path.join(os.homedir(), '.studio');
+const USERS_FILE = path.join(STUDIO_DIR, 'users.json');
+const SESSIONS_FILE = path.join(STUDIO_DIR, 'sessions.json');
+const DOCUMENTS_DIR = path.join(STUDIO_DIR, 'data', 'documents');
+const WORKSPACE_TOKENS_DIR = path.join(STUDIO_DIR, 'workspace-tokens');
+const WORKSPACES_DIR = path.join(STUDIO_DIR, 'workspaces');
 
 // ─── 本地类型（替代 Prisma model 类型） ───
 
@@ -95,9 +96,11 @@ export interface AuthRequest extends Request {
 // ─── 内部查询工具 ───
 
 async function findSessionWithUser(sessionId: string): Promise<(SessionData & { User: UserData }) | null> {
-  const session = await fileStore.readJson<SessionData>(path.join(SESSIONS_DIR, `${sessionId}.json`));
+  const sessions = await fileStore.readJson<SessionData[]>(SESSIONS_FILE);
+  const session = (sessions ?? []).find(s => s.id === sessionId);
   if (!session) return null;
-  const user = await fileStore.readJson<UserData>(path.join(USERS_DIR, `${session.userId}.json`));
+  const users = await fileStore.readJson<UserData[]>(USERS_FILE);
+  const user = (users ?? []).find(u => u.id === session.userId);
   if (!user) return null;
   return { ...session, User: user };
 }

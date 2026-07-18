@@ -78,7 +78,7 @@ export class OpsAgent {
         } catch {
           add({
             name: 'db-schema', passed: false, critical: true,
-            message: `❌ DB schema mismatch! The database at ${dbPath} does not match the current Prisma schema. Schema changes detected — use "studio migrate" instead of auto-push. Refusing to start to prevent data loss.`,
+            message: `❌ FileStore error! Cannot write to ${dbPath}. Check disk space and permissions.`,
           });
         }
       } else {
