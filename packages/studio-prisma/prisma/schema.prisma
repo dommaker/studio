@@ -7,52 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String?   // null for OAuth users
-  name         String?
-  avatar       String?
-  role           String    @default("Guest") // Guest, User, Admin
-  emailVerified  DateTime? // 邮箱验证时间，null 表示未验证
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-
-  sessions                Session[]
-  refreshTokens           RefreshToken[]
-}
-
-model Session {
-  id        String    @id @default(cuid())
-  userId    String?
-  token     String    @unique
-  guestId   String?
-  ipAddress String?
-  userAgent String?
-  expiresAt DateTime
-  createdAt DateTime  @default(now())
-
-  User      User?     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([token])
-  @@index([expiresAt])
-}
-
-model RefreshToken {
-  id        String    @id @default(cuid())
-  token     String    @unique
-  userId    String
-  expiresAt DateTime
-  createdAt DateTime  @default(now())
-  revokedAt DateTime?
-
-  User      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([token])
-}
-
 model Workspace {
   id            String   @id @default(cuid())
   name          String
