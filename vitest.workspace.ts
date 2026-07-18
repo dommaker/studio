@@ -1,7 +1,7 @@
 import { defineWorkspace } from 'vitest/config';
 
 const baseExclude = ['**/node_modules/**', '**/*.spec.ts', '**/e2e/**', '**/*.e2e.test.ts', '**/trigger-eval.test.ts'];
-const baseTest = { globals: true, environment: 'node' as const };
+const baseTest = { globals: true, environment: 'node' as const, pool: 'forks' as const };
 
 export default defineWorkspace([
   // 根目录测试（含 E2E - globalSetup 启动 API server）
