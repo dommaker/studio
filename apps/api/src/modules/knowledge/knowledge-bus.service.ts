@@ -549,15 +549,22 @@ export function scheduleVectorDbSync(): void {
       return;
     }
     syncInProgress = true;
+    // systemd-run scope 给 ingest 加 700M 内存帽（实测峰值 ~475M）：
+    // 超帽被 cgroup OOM 杀掉后走下方既有失败重试逻辑，LanceDB 提交原子、不会写坏。
+    // flock 保证多实例（systemd / 手动 npm dev / test 实例）同时只有一个写向量库，
+    // 锁被占时立即失败走退避重试（增量跳过后胜者很快，不会久等）。
+    // 超时 30 分钟：停机积压几百个文件时全量追赶需要 5–15 分钟；平时增量只需几秒。
     const args = [
-      '-n', '10', 'mcp-local-rag',
+      '--scope', '-q', '--collect', '-p', 'MemoryMax=700M',
+      'flock', '-n', '/tmp/vector-db-sync.lock',
+      'nice', '-n', '10', 'mcp-local-rag',
       '--db-path', LANCE_DB_PATH,
       '--cache-dir', MODEL_CACHE_DIR,
       '--model-name', MODEL_NAME,
       'ingest', UNIFIED_KNOWLEDGE_DIR,
       '--base-dir', UNIFIED_KNOWLEDGE_DIR,
     ];
-    execFile('nice', args, { timeout: 300_000 }, (err, stdout, stderr) => {
+    execFile('systemd-run', args, { timeout: 1_800_000 }, (err, stdout, stderr) => {
       syncInProgress = false;
       // #2: log resume after deferral
       if (deferredSince) {
