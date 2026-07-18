@@ -6,9 +6,9 @@ settings:
 
 catalogs:
   default:
-    prisma:
-      specifier: ^5.22.0
-      version: 5.22.0
+    vitest:
+      specifier: ^1.6.1
+      version: 1.6.1
 
 importers:
 
@@ -28,7 +28,7 @@ importers:
         specifier: ^5.3.0
         version: 5.9.3
       vitest:
-        specifier: ^1.0.0
+        specifier: 'catalog:'
         version: 1.6.1(@types/node@20.19.43)(jsdom@29.1.1)(lightningcss@1.32.0)
 
   apps/api:
@@ -51,9 +51,6 @@ importers:
       '@dommaker/studio-notification':
         specifier: workspace:*
         version: link:../../packages/studio-notification
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../../packages/studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../../packages/studio-shared
@@ -66,9 +63,6 @@ importers:
       '@dommaker/studio-task':
         specifier: workspace:*
         version: link:../../packages/studio-task
-      '@prisma/client':
-        specifier: ^5.11.0
-        version: 5.22.0(prisma@5.22.0)
       '@types/compression':
         specifier: ^1.8.1
         version: 1.8.1
@@ -172,9 +166,6 @@ importers:
       '@types/ws':
         specifier: ^8.5.10
         version: 8.18.1
-      prisma:
-        specifier: 'catalog:'
-        version: 5.22.0
       tsx:
         specifier: ^4.7.1
         version: 4.23.1
@@ -193,9 +184,6 @@ importers:
       '@dommaker/studio-api':
         specifier: workspace:*
         version: link:../api
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../../packages/studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../../packages/studio-shared
@@ -302,18 +290,12 @@ importers:
       '@dommaker/harness':
         specifier: ^0.16.0
         version: 0.16.1
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
       '@dommaker/studio-skill':
         specifier: workspace:*
         version: link:../studio-skill
-      '@prisma/client':
-        specifier: ^5.7.0
-        version: 5.22.0(prisma@5.22.0)
       ajv:
         specifier: ^8.12.0
         version: 8.20.0
@@ -345,15 +327,9 @@ importers:
       '@dommaker/harness':
         specifier: ^0.16.0
         version: 0.16.1
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
-      '@prisma/client':
-        specifier: ^5.7.0
-        version: 5.22.0(prisma@5.22.0)
     devDependencies:
       typescript:
         specifier: ^5.0.0
@@ -367,15 +343,9 @@ importers:
       '@dommaker/harness':
         specifier: ^0.16.0
         version: 0.16.1
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
-      '@prisma/client':
-        specifier: ^5.7.0
-        version: 5.22.0(prisma@5.22.0)
       zod:
         specifier: ^3.22.0
         version: 3.25.76
@@ -398,18 +368,12 @@ importers:
       '@dommaker/harness':
         specifier: ^0.16.0
         version: 0.16.1
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
       '@dommaker/studio-task':
         specifier: workspace:*
         version: link:../studio-task
-      '@prisma/client':
-        specifier: ^5.7.0
-        version: 5.22.0(prisma@5.22.0)
       zod:
         specifier: ^3.22.0
         version: 3.25.76
@@ -432,9 +396,6 @@ importers:
       '@dommaker/harness':
         specifier: ^0.16.0
         version: 0.16.1
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -445,28 +406,6 @@ importers:
       vitest:
         specifier: ^1.0.0
         version: 1.6.1(@types/node@24.13.3)(jsdom@29.1.1)(lightningcss@1.32.0)
-
-  packages/studio-prisma:
-    dependencies:
-      '@dommaker/harness':
-        specifier: ^0.16.0
-        version: 0.16.1
-      '@prisma/client':
-        specifier: ^5.7.0
-        version: 5.22.0(prisma@5.22.0)
-    devDependencies:
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.43
-      prisma:
-        specifier: ^5.7.0
-        version: 5.22.0
-      tsx:
-        specifier: ^4.0.0
-        version: 4.23.1
-      typescript:
-        specifier: ^5.3.0
-        version: 5.9.3
 
   packages/studio-shared:
     dependencies:
@@ -514,15 +453,9 @@ importers:
       '@dommaker/studio-notification':
         specifier: workspace:*
         version: link:../studio-notification
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
-      '@prisma/client':
-        specifier: ^5.7.0
-        version: 5.22.0(prisma@5.22.0)
       zod:
         specifier: ^3.22.0
         version: 3.25.76
@@ -545,9 +478,6 @@ importers:
       '@dommaker/harness':
         specifier: ^0.16.0
         version: 0.16.1
-      '@dommaker/studio-prisma':
-        specifier: workspace:*
-        version: link:../studio-prisma
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -1133,30 +1063,6 @@ packages:
     resolution: {integrity: sha512-8nKv6+0RJSL9FE4jYOEGXnPeM/Hg12qZpmqzZjRh3qM0Y7c3z1mrOTfFLids72RDQYVh9WpLEfR5WdpNX4fkig==}
     engines: {node: '>=18'}
     hasBin: true
-
-  '@prisma/client@5.22.0':
-    resolution: {integrity: sha512-M0SVXfyHnQREBKxCgyo7sffrKttwE6R8PMq330MIUF0pTwjUhLbW84pFDlf06B27XyCR++VtjugEnIHdr07SVA==}
-    engines: {node: '>=16.13'}
-    peerDependencies:
-      prisma: '*'
-    peerDependenciesMeta:
-      prisma:
-        optional: true
-
-  '@prisma/debug@5.22.0':
-    resolution: {integrity: sha512-AUt44v3YJeggO2ZU5BkXI7M4hu9BF2zzH2iF2V5pyXT/lRTyWiElZ7It+bRH1EshoMRxHgpYg4VB6rCM+mG5jQ==}
-
-  '@prisma/engines-version@5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2':
-    resolution: {integrity: sha512-2PTmxFR2yHW/eB3uqWtcgRcgAbG1rwG9ZriSvQw+nnb7c4uCr3RAcGMb6/zfE88SKlC1Nj2ziUvc96Z379mHgQ==}
-
-  '@prisma/engines@5.22.0':
-    resolution: {integrity: sha512-UNjfslWhAt06kVL3CjkuYpHAWSO6L4kDCVPegV6itt7nD1kSJavd3vhgAEhjglLJJKEdJ7oIqDJ+yHk6qO8gPA==}
-
-  '@prisma/fetch-engine@5.22.0':
-    resolution: {integrity: sha512-bkrD/Mc2fSvkQBV5EpoFcZ87AvOgDxbG99488a5cexp5Ccny+UM6MAe/UFkUC0wLYD9+9befNOqGiIJhhq+HbA==}
-
-  '@prisma/get-platform@5.22.0':
-    resolution: {integrity: sha512-pHhpQdr1UPFpt+zFfnPazhulaZYCUqeIcPpJViYoq9R+D/yw4fjE+CtnsnKzPYm0ddUbeXUzjGVGIRVgPDCk4Q==}
 
   '@rolldown/binding-android-arm64@1.1.5':
     resolution: {integrity: sha512-lZg8fqIv2v7FF237bwMgzGZEJvGL79/s5knJ/i6FmsGF4XXlzccZ4jb+TrFIxtSSxFtIpdsgrPZeMk1I9AFcyQ==}
@@ -3053,11 +2959,6 @@ packages:
     resolution: {integrity: sha512-Pdlw/oPxN+aXdmM9R00JVC9WVFoCLTKJvDVLgmJ+qAffBMxsV85l/Lu7sNx4zSzPyoL2euImuEwHhOXdEgNFZQ==}
     engines: {node: ^14.15.0 || ^16.10.0 || >=18.0.0}
 
-  prisma@5.22.0:
-    resolution: {integrity: sha512-vtpjW3XuYCSnMsNVBjLMNkTj6OZbudcPPTPYHqX0CJfpcdWciI1dM8uHETwmDxxiqEwCIE6WvXucWUetJgfu/A==}
-    engines: {node: '>=16.13'}
-    hasBin: true
-
   process-nextick-args@2.0.1:
     resolution: {integrity: sha512-3ouUOpQhtgrbOa17J7+uxOTpITYWaGP7/AhoR3+A+/1e9skrzelGi/dXzEYyvbxubEF6Wn2ypscTKiKJFFn1ag==}
 
@@ -4245,31 +4146,6 @@ snapshots:
   '@playwright/test@1.61.1':
     dependencies:
       playwright: 1.61.1
-
-  '@prisma/client@5.22.0(prisma@5.22.0)':
-    optionalDependencies:
-      prisma: 5.22.0
-
-  '@prisma/debug@5.22.0': {}
-
-  '@prisma/engines-version@5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2': {}
-
-  '@prisma/engines@5.22.0':
-    dependencies:
-      '@prisma/debug': 5.22.0
-      '@prisma/engines-version': 5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2
-      '@prisma/fetch-engine': 5.22.0
-      '@prisma/get-platform': 5.22.0
-
-  '@prisma/fetch-engine@5.22.0':
-    dependencies:
-      '@prisma/debug': 5.22.0
-      '@prisma/engines-version': 5.22.0-44.605197351a3c8bdd595af2d2a9bc3025bca48ea2
-      '@prisma/get-platform': 5.22.0
-
-  '@prisma/get-platform@5.22.0':
-    dependencies:
-      '@prisma/debug': 5.22.0
 
   '@rolldown/binding-android-arm64@1.1.5':
     optional: true
@@ -6144,12 +6020,6 @@ snapshots:
       '@jest/schemas': 29.6.3
       ansi-styles: 5.2.0
       react-is: 18.3.1
-
-  prisma@5.22.0:
-    dependencies:
-      '@prisma/engines': 5.22.0
-    optionalDependencies:
-      fsevents: 2.3.3
 
   process-nextick-args@2.0.1: {}
 

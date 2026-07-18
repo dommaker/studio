@@ -1,11 +1,13 @@
 /**
  * LLM Config Service - 分层配置解析
  *
- * UI 配置 → DB（scope/provider/model/options）→ API key 从 config.env 解析
+ * UI 配置 → FileStore（scope/provider/model/options）→ API key 从 config.env 解析
  */
 
-import { prisma } from '@dommaker/studio-prisma';
-import { logger, modelGateway, getProviderApiKey } from '@dommaker/studio-shared';
+import { randomUUID } from 'crypto';
+import path from 'node:path';
+import os from 'node:os';
+import { logger, modelGateway, getProviderApiKey, FileStore } from '@dommaker/studio-shared';
 import type { LlmProvider } from '@dommaker/studio-shared';
 
 // ─── 类型 ───
@@ -59,7 +61,44 @@ const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
 
 // ─── Service ───
 
+const fileStore = new FileStore();
+const CONFIGS_PATH = path.join(os.homedir(), '.studio', 'llm-configs.json');
+
+interface LLMConfigRecord {
+  id: string;
+  scope: string;
+  provider: string;
+  baseUrl: string | null;
+  model: string;
+  options: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function maskRecord(c: LLMConfigRecord): any {
+  return {
+    id: c.id,
+    scope: c.scope,
+    provider: c.provider,
+    baseUrl: c.baseUrl,
+    model: c.model,
+    options: c.options,
+    isActive: c.isActive,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+  };
+}
+
 export class LLMConfigService {
+  private async readConfigs(): Promise<LLMConfigRecord[]> {
+    return (await fileStore.readJson<LLMConfigRecord[]>(CONFIGS_PATH)) ?? [];
+  }
+
+  private async writeConfigs(configs: LLMConfigRecord[]): Promise<void> {
+    await fileStore.writeJson(CONFIGS_PATH, configs);
+  }
+
   /**
    * 保存 LLM 配置（scope/provider/model/options，API key 从 env 解析）
    */
@@ -74,25 +113,36 @@ export class LLMConfigService {
       throw new Error(`Invalid provider: ${input.provider}. Valid: ${validProviders.join(', ')}`);
     }
 
-    const config = await (prisma as any).lLMConfig.upsert({
-      where: {
-        scope_provider: { scope: input.scope, provider: input.provider },
-      },
-      create: {
+    const configs = await this.readConfigs();
+    const idx = configs.findIndex(c => c.scope === input.scope && c.provider === input.provider);
+    const now = new Date().toISOString();
+
+    let config: LLMConfigRecord;
+    if (idx >= 0) {
+      configs[idx] = config = {
+        ...configs[idx],
+        baseUrl: input.baseUrl || null,
+        model: input.model,
+        options: JSON.stringify(input.options || {}),
+        isActive: true,
+        updatedAt: now,
+      };
+    } else {
+      config = {
+        id: randomUUID(),
         scope: input.scope,
         provider: input.provider,
         baseUrl: input.baseUrl || null,
         model: input.model,
         options: JSON.stringify(input.options || {}),
         isActive: true,
-      },
-      update: {
-        baseUrl: input.baseUrl || null,
-        model: input.model,
-        options: JSON.stringify(input.options || {}),
-        isActive: true,
-      },
-    });
+        createdAt: now,
+        updatedAt: now,
+      };
+      configs.push(config);
+    }
+
+    await this.writeConfigs(configs);
 
     logger.info(`[LLM Config] Saved: ${config.scope}/${config.provider}`);
     return this.maskConfig(config);
@@ -102,12 +152,13 @@ export class LLMConfigService {
    * 获取指定 scope 的配置列表（脱敏）
    */
   async getConfigs(scope?: string): Promise<MaskedLLMConfig[]> {
-    const configs = await (prisma as any).lLMConfig.findMany({
-      where: scope ? { scope, isActive: true } : { isActive: true },
-      orderBy: [{ scope: 'asc' }, { provider: 'asc' }],
-    });
+    const configs = await this.readConfigs();
+    const filtered = scope
+      ? configs.filter(c => c.scope === scope && c.isActive)
+      : configs.filter(c => c.isActive);
 
-    return configs.map(c => this.maskConfig(c));
+    filtered.sort((a, b) => a.scope.localeCompare(b.scope) || a.provider.localeCompare(b.provider));
+    return filtered.map(c => this.maskConfig(c));
   }
 
   /**
@@ -136,7 +187,12 @@ export class LLMConfigService {
    * 删除配置
    */
   async deleteConfig(id: string): Promise<void> {
-    await (prisma as any).lLMConfig.delete({ where: { id } });
+    const configs = await this.readConfigs();
+    const filtered = configs.filter(c => c.id !== id);
+    if (filtered.length === configs.length) {
+      throw new Error(`LLMConfig not found: ${id}`);
+    }
+    await this.writeConfigs(filtered);
     logger.info(`[LLM Config] Deleted: ${id}`);
   }
 
@@ -149,9 +205,7 @@ export class LLMConfigService {
    * 启动时调用一次，配置变更时可重新调用
    */
   async syncToGateway(): Promise<number> {
-    const configs = await (prisma as any).lLMConfig.findMany({
-      where: { isActive: true },
-    });
+    const configs = (await this.readConfigs()).filter(c => c.isActive);
 
     let registered = 0;
 
@@ -226,10 +280,10 @@ export class LLMConfigService {
   // ─── 内部方法 ───
 
   private async findActiveConfig(scope: string) {
-    return (prisma as any).lLMConfig.findFirst({
-      where: { scope, isActive: true },
-      orderBy: { updatedAt: 'desc' },
-    });
+    const configs = await this.readConfigs();
+    return configs
+      .filter(c => c.scope === scope && c.isActive)
+      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] ?? null;
   }
 
   private toResolved(config: any, source: string): ResolvedLLMConfig {

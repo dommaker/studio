@@ -4,9 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getRegistryPath, getToolsDir } from '@dommaker/harness';
 import { CapabilityService } from '@dommaker/studio-capability';
-import { prisma } from '../../core/database.js';
 import { requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
-import { logger } from '@dommaker/studio-shared';
+import { FileStore, logger } from '@dommaker/studio-shared';
 import { createLazyService } from '../../utils/services.js';
 
 const router = Router();
@@ -33,7 +32,7 @@ let lastLoadTime = 0;
 const CACHE_TTL = 60000; // 1 分钟缓存
 
 // 能力服务实例
-const getCapabilityService = createLazyService(() => new CapabilityService(prisma, REGISTRY_PATH));
+const getCapabilityService = createLazyService(() => new CapabilityService(new FileStore(), REGISTRY_PATH));
 
 // 加载能力注册表
 function loadRegistry(): Registry {

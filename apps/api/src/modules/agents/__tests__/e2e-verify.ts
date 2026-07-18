@@ -10,7 +10,7 @@
  *
  * Requires: running API server, valid ANTHROPIC_API_KEY, Claude CLI installed
  */
-import { prisma } from '@dommaker/studio-prisma';
+const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
 import { AgentLoop, parseAgentOutput, resolveTarget, dynamicInterval } from '../agent-loop.js';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';

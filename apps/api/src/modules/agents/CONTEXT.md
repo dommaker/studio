@@ -100,8 +100,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
 
-<!-- STALE_SINCE: 2026-07-15 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-context.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/data-analyst-agent.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/types.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/types.ts
+
+<!-- STALE_SINCE: 2026-07-18 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/triage-agent.service.ts
 
 ## 职责
 
@@ -122,6 +126,10 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `11ba99fa`: ci): resolve type errors in migrated agent/knowledge files
+- ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)
+- ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
+- ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零
 - ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
 - ✅ `f06ebafe`: agents): AgentLoop channelId filter — JSON.parse double-encode guard
 - ✅ `93f20262`: agents): tryClaim revert to direct prisma + poll-fallback cron fix

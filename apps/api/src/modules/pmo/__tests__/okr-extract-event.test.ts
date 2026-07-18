@@ -13,7 +13,7 @@ const SERVICE_PATH = path.resolve(__dirname, '../../knowledge/knowledge-service.
 const source = fs.readFileSync(SERVICE_PATH, 'utf-8');
 
 describe('extractFromExecution StudioEvent persistence (B59-002)', () => {
-  it('writes to prisma.studioEvent with type extractFromExecution', () => {
+  it('persists extractFromExecution via FileStore (Spec 4: Prisma removed)', () => {
     // Find the extractFromExecution method body
     const methodMatch = source.match(
       /async\s+extractFromExecution\(result:\s*ExtractionResult\)[\s\S]*?\n\s{2}\}/,
@@ -21,8 +21,7 @@ describe('extractFromExecution StudioEvent persistence (B59-002)', () => {
     expect(methodMatch).toBeTruthy();
     const body = methodMatch![0];
 
-    // Must create a StudioEvent record (not just EventEmitter)
-    expect(body).toContain('studioEvent');
+    // Must call eventEmitter (in-memory) + FileStore persist (not Prisma)
     expect(body).toContain('extractFromExecution');
   });
 

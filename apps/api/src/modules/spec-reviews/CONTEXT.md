@@ -2,8 +2,12 @@
 
 > 此文件描述 apps/api/src/modules/spec-reviews 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-05-27 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/spec-reviews/spec-review.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/spec-reviews/routes.ts, apps/api/src/modules/spec-reviews/spec-review.service.ts
+
+<!-- STALE_SINCE: 2026-07-18 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/spec-reviews/routes.ts, apps/api/src/modules/spec-reviews/spec-review.service.ts
 
 ## 职责
 
@@ -24,4 +28,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

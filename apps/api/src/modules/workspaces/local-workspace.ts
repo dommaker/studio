@@ -16,8 +16,8 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 
 const fileStore = new FileStore();
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'data', 'workspaces');
-const RUNTIMES_DIR = path.join(os.homedir(), '.studio', 'data', 'workspace-runtimes');
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
+const RUNTIMES_DIR = path.join(os.homedir(), '.studio', 'workspace-runtimes');
 
 const VPS_WORKSPACE_NAME = 'VPS';
 

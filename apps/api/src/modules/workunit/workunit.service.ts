@@ -6,7 +6,6 @@
  */
 
 import { randomUUID } from 'crypto';
-import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
 import { logger, eventBus, FileStore, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkills } from '../skills/skill-selector.js';
@@ -178,7 +177,7 @@ function patchSnapshot(
 export class WorkUnitService {
   private fileStore: FileStore;
 
-  constructor(_prisma?: ExtendedPrismaClient, fileStore?: FileStore) {
+  constructor(fileStore?: FileStore) {
     this.fileStore = fileStore ?? new FileStore();
   }
 

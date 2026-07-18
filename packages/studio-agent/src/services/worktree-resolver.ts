@@ -110,7 +110,7 @@ export async function resolveWorkspace(opts: {
       // Look up VPS workspace from FileStore
       let ws: { id: string; workspaceRoot?: string; updatedAt?: string } | null = null;
       try {
-        const wsDir = path.join(os.homedir(), '.studio', 'data', 'workspaces');
+        const wsDir = path.join(os.homedir(), '.studio', 'workspaces');
         const entries = await fs.readdir(wsDir, { withFileTypes: true });
         for (const e of entries) {
           if (!e.isFile() || !e.name.endsWith('.json')) continue;

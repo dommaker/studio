@@ -11,15 +11,10 @@ import type {
   ArchitectureValidationResult,
   CheckResult,
 } from '../types/validation.types.js';
-import { Prisma } from '@prisma/client';
-
-// 获取 Prisma 所有模型名
+// Prisma import removed (Spec 4 Phase 4) — no models remaining
+// 获取模型名（Prisma 已移除，返回空集合）
 function getPrismaModelNames(): Set<string> {
-  const models = new Set<string>();
-  for (const key of Object.keys(Prisma.ModelName)) {
-    models.add(key.toLowerCase());
-  }
-  return models;
+  return new Set<string>();
 }
 
 // 必填字段

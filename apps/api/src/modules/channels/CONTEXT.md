@@ -30,8 +30,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel-init.ts, apps/api/src/modules/channels/channel-message.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/message-routing.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/acgroup-tier.ts, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-fact-verification.ts, apps/api/src/modules/channels/analyst-knowledge.ts, apps/api/src/modules/channels/analyst-prescan.ts, apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-scout.ts, apps/api/src/modules/channels/analyst-synthesizer.ts, apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-red-check.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/conversation-converter.ts, apps/api/src/modules/channels/conversation-handler.ts, apps/api/src/modules/channels/multi-repo-split.ts, apps/api/src/modules/channels/sdd-verification.ts, apps/api/src/modules/channels/CONTEXT.md
 
-<!-- STALE_SINCE: 2026-07-15 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel-init.ts, apps/api/src/modules/channels/channel-message.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/message-routing.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/acgroup-tier.ts, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-fact-verification.ts, apps/api/src/modules/channels/analyst-knowledge.ts, apps/api/src/modules/channels/analyst-prescan.ts, apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-scout.ts, apps/api/src/modules/channels/analyst-synthesizer.ts, apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-red-check.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/conversation-converter.ts, apps/api/src/modules/channels/conversation-handler.ts, apps/api/src/modules/channels/multi-repo-split.ts, apps/api/src/modules/channels/sdd-verification.ts, apps/api/src/modules/channels/CONTEXT.md
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/CONTEXT.md, apps/api/src/modules/channels/channel-message.service.ts
+
+<!-- STALE_SINCE: 2026-07-18 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/requirements-doc.routes.ts
 
 ## 职责
 
@@ -77,6 +81,8 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
+- ✅ `389c9e87`: add await to all sdd-utils consumers after Phase 4 async migration
 - ✅ `8d6820d3`: ChannelWorkspaceSetting calling wrong API (404)
 - ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
 - ✅ `ab28f573`: pipeline-removal): code review warnings — dead scope configs + pipeline-dashboard deletion

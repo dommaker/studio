@@ -18,8 +18,8 @@ const fileStore = new FileStore();
 const SESSIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'sessions');
 const USERS_DIR = path.join(os.homedir(), '.studio', 'data', 'users');
 const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
-const WORKSPACE_TOKENS_DIR = path.join(os.homedir(), '.studio', 'data', 'workspace-tokens');
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'data', 'workspaces');
+const WORKSPACE_TOKENS_DIR = path.join(os.homedir(), '.studio', 'workspace-tokens');
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
 
 // ─── 本地类型（替代 Prisma model 类型） ───
 
@@ -164,7 +164,13 @@ function parseAuthHeader(req: Request): string | null {
 export function optionalAuth() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
-    
+
+    // STUDIO_AUTH=none: 本地免登录模式，跳过所有认证
+    if ((process.env.STUDIO_AUTH || 'none') === 'none') {
+      authReq.user = { id: 'local', role: 'Admin', name: 'Local User' } as UserData;
+      return next();
+    }
+
     // 🆕 SEC-009: 始终生成匿名标识（用于审计）
     const ip = getClientIP(req);
     const ua = req.headers['user-agent'] || 'unknown';
@@ -210,6 +216,12 @@ export function optionalAuth() {
 export function requireAuth() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
+
+    // STUDIO_AUTH=none: 本地免登录模式，跳过所有认证
+    if ((process.env.STUDIO_AUTH || 'none') === 'none') {
+      authReq.user = { id: 'local', role: 'Admin', name: 'Local User' } as UserData;
+      return next();
+    }
 
     // 🆕 SEC-009: 始终生成匿名标识
     const ip = getClientIP(req);

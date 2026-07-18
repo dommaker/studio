@@ -10,7 +10,6 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { prisma } from '../../core/database.js';
 import { FileStore } from '@dommaker/studio-shared';
 import { AgentProfileService } from './agent-profile.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
@@ -18,7 +17,7 @@ import { parsePagination, formatPaginatedResponse } from '../../utils/pagination
 
 const router = Router();
 const fileStore = new FileStore();
-const service = new AgentProfileService(fileStore, prisma);
+const service = new AgentProfileService(fileStore);
 
 /** GET / — list AgentProfiles */
 router.get('/', async (req: Request, res: Response) => {

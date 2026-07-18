@@ -23,8 +23,8 @@ vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-import { workspaceAuth, checkOwnership, requireNotGuest, generateAnonymousId } from '../auth.js';
-import { prisma } from '@dommaker/studio-prisma';
+import { workspaceAuth, checkOwnership, requireNotGuest, generateAnonymousId, optionalAuth, requireAuth } from '../auth.js';
+const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
 
 // ---------------------------------------------------------------------------
 // AC1: workspaceAuth()
@@ -330,8 +330,112 @@ describe('requireNotGuest', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC4: generateAnonymousId() — SEC-009
+// AC-A1: STUDIO_AUTH env var switch (Spec 4 Phase 1)
 // ---------------------------------------------------------------------------
+describe('STUDIO_AUTH env var', () => {
+  const originalEnv = process.env.STUDIO_AUTH;
+
+  afterEach(() => {
+    process.env.STUDIO_AUTH = originalEnv;
+  });
+
+  describe('optionalAuth', () => {
+    let req: Partial<Request>;
+    let res: Partial<Response>;
+    let next: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      req = { headers: {}, socket: {} as any };
+      res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+      next = vi.fn();
+    });
+
+    it('STUDIO_AUTH=none: injects local user and calls next()', async () => {
+      process.env.STUDIO_AUTH = 'none';
+      const mw = optionalAuth();
+      await mw(req as Request, res as Response, next);
+
+      const authReq = req as any;
+      expect(authReq.user).toEqual({ id: 'local', role: 'Admin', name: 'Local User' });
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('STUDIO_AUTH=none: does NOT call session lookup or verifyToken', async () => {
+      process.env.STUDIO_AUTH = 'none';
+      req.headers = { authorization: 'Bearer some-token' };
+      const mw = optionalAuth();
+      await mw(req as Request, res as Response, next);
+
+      // Even with a Bearer token, none mode skips all auth checks
+      expect(next).toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('STUDIO_AUTH=on: falls through to session validation', async () => {
+      process.env.STUDIO_AUTH = 'on';
+      const mw = optionalAuth();
+      await mw(req as Request, res as Response, next);
+
+      // No token → optionalAuth should still call next() (optional means optional)
+      expect(next).toHaveBeenCalled();
+      // anonymousId should be generated
+      expect((req as any).anonymousId).toBeDefined();
+    });
+
+    it('unset STUDIO_AUTH defaults to none', async () => {
+      delete process.env.STUDIO_AUTH;
+      const mw = optionalAuth();
+      await mw(req as Request, res as Response, next);
+
+      expect((req as any).user).toEqual({ id: 'local', role: 'Admin', name: 'Local User' });
+      expect(next).toHaveBeenCalled();
+    });
+  });
+
+  describe('requireAuth', () => {
+    let req: Partial<Request>;
+    let res: Partial<Response>;
+    let next: ReturnType<typeof vi.fn>;
+
+    beforeEach(() => {
+      vi.clearAllMocks();
+      req = { headers: {}, socket: {} as any };
+      res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+      next = vi.fn();
+    });
+
+    it('STUDIO_AUTH=none: injects local user and calls next()', async () => {
+      process.env.STUDIO_AUTH = 'none';
+      const mw = requireAuth();
+      await mw(req as Request, res as Response, next);
+
+      expect((req as any).user).toEqual({ id: 'local', role: 'Admin', name: 'Local User' });
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('STUDIO_AUTH=none: does NOT return 401 even without token', async () => {
+      process.env.STUDIO_AUTH = 'none';
+      const mw = requireAuth();
+      await mw(req as Request, res as Response, next);
+
+      expect(res.status).not.toHaveBeenCalled();
+      expect(next).toHaveBeenCalled();
+    });
+
+    it('STUDIO_AUTH=on: returns 401 when no token present', async () => {
+      process.env.STUDIO_AUTH = 'on';
+      const mw = requireAuth();
+      await mw(req as Request, res as Response, next);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.json).toHaveBeenCalledWith(
+        expect.objectContaining({ code: 'UNAUTHORIZED' }),
+      );
+      expect(next).not.toHaveBeenCalled();
+    });
+  });
+});
 describe('generateAnonymousId', () => {
   it('returns a string starting with anon_ followed by 16 hex chars', () => {
     const id = generateAnonymousId('127.0.0.1', 'test-agent');

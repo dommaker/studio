@@ -13,9 +13,7 @@
   },
   "dependencies": {
     "@dommaker/harness": "^0.16.0",
-    "@dommaker/studio-prisma": "workspace:*",
-    "@dommaker/studio-shared": "workspace:*",
-    "@prisma/client": "^5.7.0"
+    "@dommaker/studio-shared": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.0.0",

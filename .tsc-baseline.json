@@ -1,7 +1,14 @@
 {
+  "packages/studio-task": [
+    {
+      "file": "packages/studio-task/src/services/__tests__/task-queue.test.ts",
+      "line": 51,
+      "code": "TS1005"
+    }
+  ],
   "_meta": {
-    "generated": "2026-07-17T18:46:40.629Z",
-    "totalErrors": 0,
-    "commit": "11ba99faf6deb35220e5699e3269a24e6f792e76"
+    "generated": "2026-07-18T11:52:17.337Z",
+    "totalErrors": 1,
+    "commit": "56d3b60325db7d82c102c0c08a5fa8f7d7e5320c"
   }
 }

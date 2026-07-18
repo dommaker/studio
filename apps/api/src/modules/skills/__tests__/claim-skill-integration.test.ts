@@ -27,21 +27,13 @@ for (const [name, description] of Object.entries(SKILL_DESCRIPTIONS)) {
   );
 }
 
-const { mockFileStore, mockStudioEventCreate } = vi.hoisted(() => ({
+const { mockFileStore } = vi.hoisted(() => ({
   mockFileStore: {
     getIndex: vi.fn(),
     claimWorkUnit: vi.fn(),
     upsertSnapshot: vi.fn(),
     appendEvent: vi.fn(),
     removeSnapshot: vi.fn(),
-  },
-  mockStudioEventCreate: vi.fn().mockResolvedValue({ id: 'evt' }),
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    skill: { findFirst: vi.fn(), findMany: vi.fn() },
-    studioEvent: { create: mockStudioEventCreate },
   },
 }));
 
@@ -58,9 +50,13 @@ vi.mock('@dommaker/studio-skill', () => ({
   },
 }));
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal();
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  };
+});
 
 const { WorkUnitService } = await import('../../workunit/workunit.service.js');
 const { invalidateManifestCache } = await import('../manifest-loader.js');
@@ -72,7 +68,7 @@ describe('AC4: claim WorkUnit auto-loads skills', () => {
     vi.clearAllMocks();
     invalidateManifestCache();
 
-    service = new WorkUnitService(undefined as never, mockFileStore as never);
+    service = new WorkUnitService(mockFileStore as never);
   });
 
   it('loads matching skills after claim', async () => {

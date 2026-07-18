@@ -25,7 +25,7 @@ describe('AC-E1+E2: Convert to Task', () => {
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'convert-task-'));
     fileStore = new FileStore(tmpDir);
-    workUnitService = new WorkUnitService(undefined, fileStore);
+    workUnitService = new WorkUnitService(fileStore);
     try {
       const mod = await import('../convert-to-task.service.js');
       ConvertToTaskService = mod.ConvertToTaskService;
@@ -74,7 +74,7 @@ describe('AC-E1+E2: Convert to Task', () => {
   describe('AC-E1: Convert to Task API', () => {
     it('normal convert → WorkUnit created + message linked', async () => {
       const { channelId, msgId } = await createFsMessage('Fix the login bug');
-      const service = new ConvertToTaskService(undefined, fileStore);
+      const service = new ConvertToTaskService(fileStore);
       const workUnit = await service.convert(channelId, msgId, {
         title: 'Fix login bug',
         description: 'Users cannot login with SSO',
@@ -99,18 +99,18 @@ describe('AC-E1+E2: Convert to Task', () => {
       testWorkUnitIds.push(existingWu.id);
       const { channelId, msgId } = await createFsMessage('already linked', { workUnitId: existingWu.id });
 
-      const service = new ConvertToTaskService(undefined, fileStore);
+      const service = new ConvertToTaskService(fileStore);
       await expect(service.convert(channelId, msgId, {})).rejects.toThrow(/already/i);
     });
 
     it('message not found → error', async () => {
-      const service = new ConvertToTaskService(undefined, fileStore);
+      const service = new ConvertToTaskService(fileStore);
       await expect(service.convert('ch-id', 'nonexistent-msg-id', {})).rejects.toThrow(/not found/i);
     });
 
     it('convert makes message the anchor (workUnitId set, replyToId null)', async () => {
       const { channelId, msgId } = await createFsMessage('anchor message');
-      const service = new ConvertToTaskService(undefined, fileStore);
+      const service = new ConvertToTaskService(fileStore);
       const workUnit = await service.convert(channelId, msgId, { title: 'Anchor task' });
       testWorkUnitIds.push(workUnit.id);
 
@@ -125,7 +125,7 @@ describe('AC-E1+E2: Convert to Task', () => {
       const agentId = `agent-e1-${Date.now()}`;
       const now = new Date().toISOString();
       await fileStore.createProfile({ id: agentId, name: `e1-agent`, description: null, channels: '[]', status: 'active', createdAt: now, updatedAt: now });
-      const service = new ConvertToTaskService(undefined, fileStore);
+      const service = new ConvertToTaskService(fileStore);
       const workUnit = await service.convert(channelId, msgId, { assigneeId: agentId });
       testWorkUnitIds.push(workUnit.id);
 
@@ -135,7 +135,7 @@ describe('AC-E1+E2: Convert to Task', () => {
 
     it('without assigneeId → WorkUnit.status = unassigned', async () => {
       const { channelId, msgId } = await createFsMessage('no assignee');
-      const service = new ConvertToTaskService(undefined, fileStore);
+      const service = new ConvertToTaskService(fileStore);
       const workUnit = await service.convert(channelId, msgId, {});
       testWorkUnitIds.push(workUnit.id);
 

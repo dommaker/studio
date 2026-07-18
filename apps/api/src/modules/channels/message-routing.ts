@@ -38,7 +38,7 @@ export async function routeMessage(
 ) {
   const resolvedFs = fs ?? fileStore;
   // Use resolved FileStore for WorkUnitService (supports test injection)
-  const wuService = new WorkUnitService(undefined, resolvedFs);
+  const wuService = new WorkUnitService(resolvedFs);
 
   // Priority 1: Thread reply — inherit workUnitId from parent
   if (replyToId) {

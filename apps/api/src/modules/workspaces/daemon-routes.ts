@@ -1,6 +1,10 @@
 /**
  * Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting
  *
+ * Storage:
+ *   - Task: ~/.studio/workspaces/{id}/tasks.jsonl (JSONL)
+ *   - Event: ~/.studio/workspaces/{id}/events.jsonl (JSONL)
+ *
  * Endpoints (workspaceAuth — Bearer st_mach_xxx):
  *   POST /api/v1/daemon/tasks/claim        — Pull next pending task
  *   POST /api/v1/daemon/tasks/:id/messages — Report output/tool_use/error events
@@ -11,11 +15,47 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '../../core/database.js';
+import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { workspaceAuth, AuthRequest } from '../../middleware/auth.js';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as fs from 'node:fs';
 
+const fileStore = new FileStore();
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
 const router = Router();
+
+// ── Task & Event helpers ──
+
+function tasksPath(workspaceId: string): string {
+  return path.join(WORKSPACES_DIR, workspaceId, 'tasks.jsonl');
+}
+
+function eventsPath(workspaceId: string): string {
+  return path.join(WORKSPACES_DIR, workspaceId, 'events.jsonl');
+}
+
+async function readTasks(workspaceId: string): Promise<Record<string, any>[]> {
+  return fileStore.readJsonl<Record<string, any>>(tasksPath(workspaceId));
+}
+
+async function writeTasks(workspaceId: string, tasks: Record<string, any>[]): Promise<void> {
+  await fs.promises.mkdir(path.dirname(tasksPath(workspaceId)), { recursive: true });
+  await fileStore.writeJsonl(tasksPath(workspaceId), tasks);
+}
+
+async function appendEvent(workspaceId: string, event: Record<string, any>): Promise<void> {
+  await fs.promises.mkdir(path.dirname(eventsPath(workspaceId)), { recursive: true });
+  await fileStore.appendJsonl(eventsPath(workspaceId), event);
+}
+
+async function appendEvents(workspaceId: string, events: Record<string, any>[]): Promise<void> {
+  await fs.promises.mkdir(path.dirname(eventsPath(workspaceId)), { recursive: true });
+  for (const evt of events) {
+    await fileStore.appendJsonl(eventsPath(workspaceId), evt);
+  }
+}
 
 // ─── POST /api/v1/daemon/tasks/claim ───
 // Pull next pending task for this workspace (optionally filtered by runtime_id)
@@ -26,49 +66,37 @@ router.post('/tasks/claim', workspaceAuth(), async (req: Request, res: Response)
     const workspace = authReq.workspace!;
     const { runtime_id } = req.body;
 
-    // Find pending task: match runtime_id if provided, otherwise any runtime or null
-    const where: Record<string, unknown> = {
-      workspaceId: workspace.id,
-      status: 'pending',
-    };
+    const tasks = await readTasks(workspace.id);
 
-    if (runtime_id) {
-      where.runtimeId = runtime_id;
-    }
-
-    const task = await prisma.workspaceTask.findFirst({
-      where,
-      orderBy: { createdAt: 'asc' },
+    // Find oldest pending task
+    const candidates = tasks.filter(t => {
+      if (t.status !== 'pending') return false;
+      if (runtime_id && t.runtimeId && t.runtimeId !== runtime_id) return false;
+      return true;
     });
+    candidates.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 
+    const task = candidates[0];
     if (!task) {
       return res.status(204).send();
     }
 
-    // Atomically claim: update status to running only if still pending
-    const claimed = await prisma.workspaceTask.updateMany({
-      where: {
-        id: task.id,
-        status: 'pending',
-      },
-      data: {
-        status: 'running',
-        runtimeId: runtime_id || task.runtimeId,
-      },
-    });
-
-    if (claimed.count === 0) {
-      // Race condition: another daemon claimed it
+    // Double-check still pending (for concurrent access simulation)
+    if (task.status !== 'pending') {
       return res.status(204).send();
     }
 
-    const fullTask = await prisma.workspaceTask.findUnique({
-      where: { id: task.id },
-    });
+    // Claim: update status to running
+    const idx = tasks.findIndex(t => t.id === task.id);
+    if (idx < 0) return res.status(204).send();
+    tasks[idx].status = 'running';
+    tasks[idx].runtimeId = runtime_id || task.runtimeId;
+    tasks[idx].updatedAt = new Date().toISOString();
+    await writeTasks(workspace.id, tasks);
 
     logger.info({ taskId: task.id, workspaceId: workspace.id, runtimeId: runtime_id }, '[Daemon] Task claimed');
 
-    return res.json({ task: fullTask });
+    return res.json({ task: tasks[idx] });
   } catch (error) {
     logger.error({ error }, '[Daemon] Claim failed');
     return res.status(500).json({
@@ -79,7 +107,6 @@ router.post('/tasks/claim', workspaceAuth(), async (req: Request, res: Response)
 });
 
 // ─── POST /api/v1/daemon/tasks/:id/messages ───
-// Report batched output/tool_use/error events
 
 router.post('/tasks/:id/messages', workspaceAuth(), async (req: Request, res: Response) => {
   try {
@@ -95,11 +122,9 @@ router.post('/tasks/:id/messages', workspaceAuth(), async (req: Request, res: Re
       });
     }
 
-    // Verify task exists and belongs to this workspace
-    const task = await prisma.workspaceTask.findFirst({
-      where: { id, workspaceId: workspace.id },
-    });
-
+    // Verify task exists
+    const tasks = await readTasks(workspace.id);
+    const task = tasks.find(t => t.id === id);
     if (!task) {
       return res.status(404).json({
         error: 'Task not found',
@@ -107,8 +132,9 @@ router.post('/tasks/:id/messages', workspaceAuth(), async (req: Request, res: Re
       });
     }
 
-    // Batch insert events
+    // Batch append events
     const events = messages.map((msg: { seq?: number; type: string; content: string; tool?: string; input?: string }) => ({
+      id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
       workspaceId: workspace.id,
       taskId: id,
       type: msg.type,
@@ -118,9 +144,10 @@ router.post('/tasks/:id/messages', workspaceAuth(), async (req: Request, res: Re
         tool: msg.tool,
         input: msg.input,
       }),
+      createdAt: new Date().toISOString(),
     }));
 
-    await prisma.workspaceEvent.createMany({ data: events });
+    await appendEvents(workspace.id, events);
 
     logger.debug({ taskId: id, count: events.length }, '[Daemon] Messages recorded');
 
@@ -135,7 +162,6 @@ router.post('/tasks/:id/messages', workspaceAuth(), async (req: Request, res: Re
 });
 
 // ─── POST /api/v1/daemon/tasks/:id/complete ───
-// Mark task done with output
 
 router.post('/tasks/:id/complete', workspaceAuth(), async (req: Request, res: Response) => {
   try {
@@ -144,56 +170,48 @@ router.post('/tasks/:id/complete', workspaceAuth(), async (req: Request, res: Re
     const { id } = req.params;
     const { output, session_id, work_dir } = req.body;
 
-    const task = await prisma.workspaceTask.findFirst({
-      where: { id, workspaceId: workspace.id },
-    });
+    const tasks = await readTasks(workspace.id);
+    const idx = tasks.findIndex(t => t.id === id);
 
-    if (!task) {
+    if (idx < 0) {
       return res.status(404).json({
         error: 'Task not found',
         code: 'TASK_NOT_FOUND',
       });
     }
 
-    if (task.status !== 'running') {
+    if (tasks[idx].status !== 'running') {
       return res.status(409).json({
-        error: `Task is ${task.status}, cannot complete`,
+        error: `Task is ${tasks[idx].status}, cannot complete`,
         code: 'TASK_INVALID_STATUS',
       });
     }
 
-    const now = new Date();
-    const elapsedMs = now.getTime() - task.createdAt.getTime();
+    const now = new Date().toISOString();
+    const elapsedMs = Date.now() - new Date(tasks[idx].createdAt).getTime();
 
-    const result = JSON.stringify({
-      output,
-      elapsedMs,
-    });
+    tasks[idx].status = 'done';
+    tasks[idx].result = JSON.stringify({ output, elapsedMs });
+    tasks[idx].sessionId = session_id || tasks[idx].sessionId;
+    tasks[idx].workDir = work_dir || tasks[idx].workDir;
+    tasks[idx].completedAt = now;
+    tasks[idx].updatedAt = now;
 
-    const updated = await prisma.workspaceTask.update({
-      where: { id },
-      data: {
-        status: 'done',
-        result,
-        sessionId: session_id || task.sessionId,
-        workDir: work_dir || task.workDir,
-        completedAt: now,
-      },
-    });
+    await writeTasks(workspace.id, tasks);
 
     // Emit done event
-    await prisma.workspaceEvent.create({
-      data: {
-        workspaceId: workspace.id,
-        taskId: id,
-        type: 'done',
-        content: output || '',
-      },
+    await appendEvent(workspace.id, {
+      id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      workspaceId: workspace.id,
+      taskId: id,
+      type: 'done',
+      content: output || '',
+      createdAt: now,
     });
 
     logger.info({ taskId: id, elapsedMs }, '[Daemon] Task completed');
 
-    return res.json({ success: true, task: updated });
+    return res.json({ success: true, task: tasks[idx] });
   } catch (error) {
     logger.error({ error }, '[Daemon] Complete failed');
     return res.status(500).json({
@@ -204,7 +222,6 @@ router.post('/tasks/:id/complete', workspaceAuth(), async (req: Request, res: Re
 });
 
 // ─── POST /api/v1/daemon/tasks/:id/fail ───
-// Mark task error
 
 router.post('/tasks/:id/fail', workspaceAuth(), async (req: Request, res: Response) => {
   try {
@@ -213,57 +230,48 @@ router.post('/tasks/:id/fail', workspaceAuth(), async (req: Request, res: Respon
     const { id } = req.params;
     const { error: taskError, session_id, work_dir, failure_reason } = req.body;
 
-    const task = await prisma.workspaceTask.findFirst({
-      where: { id, workspaceId: workspace.id },
-    });
+    const tasks = await readTasks(workspace.id);
+    const idx = tasks.findIndex(t => t.id === id);
 
-    if (!task) {
+    if (idx < 0) {
       return res.status(404).json({
         error: 'Task not found',
         code: 'TASK_NOT_FOUND',
       });
     }
 
-    if (task.status !== 'running') {
+    if (tasks[idx].status !== 'running') {
       return res.status(409).json({
-        error: `Task is ${task.status}, cannot fail`,
+        error: `Task is ${tasks[idx].status}, cannot fail`,
         code: 'TASK_INVALID_STATUS',
       });
     }
 
-    const now = new Date();
-    const elapsedMs = now.getTime() - task.createdAt.getTime();
+    const now = new Date().toISOString();
+    const elapsedMs = Date.now() - new Date(tasks[idx].createdAt).getTime();
 
-    const result = JSON.stringify({
-      error: taskError,
-      failureReason: failure_reason,
-      elapsedMs,
-    });
+    tasks[idx].status = 'error';
+    tasks[idx].result = JSON.stringify({ error: taskError, failureReason: failure_reason, elapsedMs });
+    tasks[idx].sessionId = session_id || tasks[idx].sessionId;
+    tasks[idx].workDir = work_dir || tasks[idx].workDir;
+    tasks[idx].completedAt = now;
+    tasks[idx].updatedAt = now;
 
-    const updated = await prisma.workspaceTask.update({
-      where: { id },
-      data: {
-        status: 'error',
-        result,
-        sessionId: session_id || task.sessionId,
-        workDir: work_dir || task.workDir,
-        completedAt: now,
-      },
-    });
+    await writeTasks(workspace.id, tasks);
 
     // Emit error event
-    await prisma.workspaceEvent.create({
-      data: {
-        workspaceId: workspace.id,
-        taskId: id,
-        type: 'error',
-        content: taskError || 'Unknown error',
-      },
+    await appendEvent(workspace.id, {
+      id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      workspaceId: workspace.id,
+      taskId: id,
+      type: 'error',
+      content: taskError || 'Unknown error',
+      createdAt: now,
     });
 
     logger.info({ taskId: id, failureReason: failure_reason }, '[Daemon] Task failed');
 
-    return res.json({ success: true, task: updated });
+    return res.json({ success: true, task: tasks[idx] });
   } catch (error) {
     logger.error({ error }, '[Daemon] Fail failed');
     return res.status(500).json({
@@ -290,28 +298,25 @@ router.post('/tasks/:id/session', workspaceAuth(), async (req: Request, res: Res
       });
     }
 
-    const task = await prisma.workspaceTask.findFirst({
-      where: { id, workspaceId: workspace.id },
-    });
+    const tasks = await readTasks(workspace.id);
+    const idx = tasks.findIndex(t => t.id === id);
 
-    if (!task) {
+    if (idx < 0) {
       return res.status(404).json({
         error: 'Task not found',
         code: 'TASK_NOT_FOUND',
       });
     }
 
-    const updated = await prisma.workspaceTask.update({
-      where: { id },
-      data: {
-        sessionId: session_id || task.sessionId,
-        workDir: work_dir || task.workDir,
-      },
-    });
+    tasks[idx].sessionId = session_id || tasks[idx].sessionId;
+    tasks[idx].workDir = work_dir || tasks[idx].workDir;
+    tasks[idx].updatedAt = new Date().toISOString();
+
+    await writeTasks(workspace.id, tasks);
 
     logger.debug({ taskId: id }, '[Daemon] Session pinned');
 
-    return res.json({ success: true, task: updated });
+    return res.json({ success: true, task: tasks[idx] });
   } catch (error) {
     logger.error({ error }, '[Daemon] Session update failed');
     return res.status(500).json({
@@ -330,10 +335,8 @@ router.get('/tasks/:id/status', workspaceAuth(), async (req: Request, res: Respo
     const workspace = authReq.workspace!;
     const { id } = req.params;
 
-    const task = await prisma.workspaceTask.findFirst({
-      where: { id, workspaceId: workspace.id },
-      select: { id: true, status: true, result: true, completedAt: true },
-    });
+    const tasks = await readTasks(workspace.id);
+    const task = tasks.find(t => t.id === id);
 
     if (!task) {
       return res.status(404).json({
@@ -345,7 +348,7 @@ router.get('/tasks/:id/status', workspaceAuth(), async (req: Request, res: Respo
     return res.json({
       status: task.status,
       result: task.result ? JSON.parse(task.result) : null,
-      completedAt: task.completedAt,
+      completedAt: task.completedAt || null,
     });
   } catch (error) {
     logger.error({ error }, '[Daemon] Status poll failed');

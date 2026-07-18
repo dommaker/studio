@@ -70,7 +70,7 @@ export class AgentLoop {
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
     this.fileStore = fileStore ?? new FileStore();
-    this.workUnitService = new WorkUnitService(undefined, this.fileStore);
+    this.workUnitService = new WorkUnitService(this.fileStore);
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
     // W-4 fix: parse channels from role.channels JSON
     try {

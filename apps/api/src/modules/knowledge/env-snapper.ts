@@ -223,17 +223,6 @@ export class EnvSnapper {
       deps.harness = harnessPkg.version;
     } catch { deps.harness = 'unknown'; }
 
-    // prisma 版本
-    try {
-      const prismaPkg = JSON.parse(
-        fs.readFileSync(
-          path.join(process.env.PROJECT_ROOT || '/root/projects/agent-studio', 'node_modules', '@prisma/client', 'package.json'),
-          'utf-8',
-        ),
-      );
-      deps.prisma = prismaPkg.version;
-    } catch { deps.prisma = 'unknown'; }
-
     // nginx 配置摘要
     let nginxConfig: string | undefined;
     try {
@@ -265,7 +254,7 @@ export class EnvSnapper {
       apiPort: parseInt(process.env.PORT || '13001'),
       webPort: 5173,
       nodeEnv: process.env.NODE_ENV || 'development',
-      dbPath: process.env.DATABASE_URL || 'file:./prisma/dev.db',
+      dbPath: 'N/A (FileStore)',
       keyDependencies: JSON.stringify(deps),
       nginxConfig,
       tunnelType,
@@ -275,8 +264,8 @@ export class EnvSnapper {
 
   private getDefaultLimitations(): any[] {
     const lims: any[] = [];
-    // SQLite 已知限制
-    lims.push({ issue: 'SQLite 不支持并发写', since: '2026-05-08' });
+    // FileStore 已知限制
+    lims.push({ issue: 'JSONL 无跨文件事务', since: '2026-07-18' });
     // Discord .cn 域名
     lims.push({ issue: 'Discord 无法访问 .cn 域名 (Interactions Endpoint)', since: '2026-05-10' });
     return lims;

@@ -16,7 +16,6 @@
   "dependencies": {
     "@dommaker/harness": "^0.16.0",
     "@dommaker/studio-api": "workspace:*",
-    "@dommaker/studio-prisma": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@tailwindcss/postcss": "^4.2.2",
     "@types/react-router-dom": "^5.3.3",

@@ -11,14 +11,13 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const SCHEMA_PATH = path.resolve(__dirname, '../../../../../../packages/studio-prisma/prisma/schema.prisma');
+const PRISMA_DIR = path.resolve(__dirname, '../../../../../../packages/studio-prisma');
 const WORKUNIT_DIR = path.resolve(__dirname, '..');
 
 describe('dependsOn cleanup verification', () => {
-  it('schema.prisma WorkUnit model removed (migrated to FileStore)', () => {
-    const content = fs.readFileSync(SCHEMA_PATH, 'utf-8');
-    // WorkUnit model was deleted from schema.prisma (migrated to FileStore)
-    expect(content).not.toMatch(/model WorkUnit\s*\{/);
+  it('studio-prisma package removed (Spec 4 AC-6a)', () => {
+    // studio-prisma package was deleted entirely
+    expect(fs.existsSync(PRISMA_DIR)).toBe(false);
   });
 
   it('workunit.service.ts CreateWorkUnitInput has no dependsOn', () => {

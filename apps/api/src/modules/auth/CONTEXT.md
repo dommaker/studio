@@ -22,8 +22,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/CONTEXT.md, apps/api/src/modules/auth/email.service.ts, apps/api/src/modules/auth/oauth.routes.ts, apps/api/src/modules/auth/oauth.service.ts, apps/api/src/modules/auth/routes.ts, apps/api/src/modules/auth/service.ts
 
-<!-- STALE_SINCE: 2026-06-26 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/CONTEXT.md, apps/api/src/modules/auth/email.service.ts, apps/api/src/modules/auth/oauth.routes.ts, apps/api/src/modules/auth/oauth.service.ts, apps/api/src/modules/auth/routes.ts, apps/api/src/modules/auth/service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/service.ts, apps/api/src/modules/auth/routes.ts, apps/api/src/modules/auth/email.service.ts, apps/api/src/modules/auth/oauth.routes.ts, apps/api/src/modules/auth/oauth.service.ts
+
+<!-- STALE_SINCE: 2026-07-18 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/service.ts, apps/api/src/modules/auth/routes.ts, apps/api/src/modules/auth/email.service.ts, apps/api/src/modules/auth/oauth.routes.ts, apps/api/src/modules/auth/oauth.service.ts
 
 ## 职责
 
@@ -44,5 +48,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
+- ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)
 - ✅ `0b2db57e`: oauth): return dynamic error message in route 500 response
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

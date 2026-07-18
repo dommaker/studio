@@ -26,7 +26,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     capabilitiesRoutes,
     llmProxyRoutes,
     outputsRoutes,
-    companyRoutes,
     auditLogRoutes,
     { specReviewRoutes },
     { notificationRoutes },
@@ -45,7 +44,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/capabilities/routes.js').then(m => m.default),
     import('./modules/llm/proxy.js').then(m => m.default),
     import('./modules/outputs/routes.js').then(m => m.default),
-    import('./modules/companies/routes.js').then(m => m.default),
     import('./modules/audit-logs/routes.js').then(m => m.default),
     import('./modules/spec-reviews/routes.js') as Promise<{ specReviewRoutes: Router }>,
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
@@ -199,9 +197,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/environments', router: environmentRoutes, middleware: auth, comment: 'HZ-023: Environment Manager' },
     { path: '/api/v1/agent-configs', router: agentConfigRoutes, middleware: auth, comment: 'HZ-024: Agent Manager' },
     { path: '/api/v1/builtin-tools', router: builtinToolRoutes, comment: 'HZ-026: Built-in Toolset' },
-
-    // 组织与管理
-    { path: '/api/v1/companies', router: companyRoutes, middleware: auth },
 
     // 文档与审查
     { path: '/api/v1/spec-reviews', router: specReviewRoutes, middleware: auth },

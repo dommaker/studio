@@ -17,6 +17,27 @@ const router = Router();
 const auditService = new AuditService(new FileStore()); // 🆕 SEC-010
 
 /**
+ * GET /api/v1/auth/status
+ * 返回当前认证模式 + 用户信息。前端据此决定是否显示登录页。
+ */
+router.get("/status", optionalAuth(), async (req, res) => {
+  const mode = (process.env.STUDIO_AUTH || 'none') === 'none' ? 'none' : 'on';
+  if (mode === 'none') {
+    return res.json({ mode: 'none' as const, user: { id: 'local', name: 'Local User', role: 'Admin' } });
+  }
+  const authInfo = getAuthInfo(req);
+  if (authInfo.userId && authInfo.sessionId) {
+    try {
+      const result = await authService.getCurrentUser(authInfo.sessionId);
+      return res.json({ mode: 'on' as const, user: result.user ? { id: result.user.id, name: result.user.name || '', role: result.user.role } : null });
+    } catch {
+      return res.json({ mode: 'on' as const, user: null });
+    }
+  }
+  return res.json({ mode: 'on' as const, user: null });
+});
+
+/**
  * POST /api/v1/auth/guest-session
  * 创建或获取 Guest Session
  */

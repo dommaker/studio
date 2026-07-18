@@ -1,6 +1,5 @@
 // B8 OKR 核心逻辑测试
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { prisma } from '../../../core/database.js';
 import { OKRService, getCurrentQuarter } from '../okr.service.js';
 import type { OKRKeyResult } from '../okr.service.js';
 import { FileStore } from '@dommaker/studio-shared';
@@ -11,7 +10,6 @@ import * as os from 'node:os';
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'okr-b8-'));
 const fileStore = new FileStore(testDir);
 const service = new OKRService(fileStore);
-let testCompanyId: string;
 let seededOkrId: string;
 
 /** 创建 WorkUnitSnapshot 并写入 FileStore */
@@ -43,11 +41,7 @@ async function seedWorkUnit(overrides: Partial<import('@dommaker/studio-shared')
 
 describe('B8 OKR Service', () => {
   beforeAll(async () => {
-    // 1. Company
-    const company = await prisma.company.findFirst();
-    testCompanyId = company?.id || (await prisma.company.create({ data: { name: 'B8 Test Corp' } })).id;
-
-    // 2. WorkUnits (parent) — for execution_success_rate, review_pass_rate queries
+    // 1. WorkUnits (parent) — for execution_success_rate, review_pass_rate queries
     const g1 = await seedWorkUnit({ scope: 'test-goal-ok', metadata: JSON.stringify({ description: 'seed' }), status: 'done' });
     const g2 = await seedWorkUnit({ scope: 'test-goal-fail', metadata: JSON.stringify({ description: 'seed' }), status: 'closed' });
 

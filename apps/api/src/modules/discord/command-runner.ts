@@ -4,13 +4,12 @@
  * Both `studio run` CLI and `/studio run` Discord slash command
  * reuse this logic to submit a requirement to #研发 and create a WorkUnit.
  */
-import { prisma } from '@dommaker/studio-prisma';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 
 const fileStore = new FileStore();
-const workUnitService = new WorkUnitService(prisma);
+const workUnitService = new WorkUnitService();
 
 /**
  * Submit a requirement to #研发 channel and create a WorkUnit.

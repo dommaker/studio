@@ -5,7 +5,6 @@
  * and LLM-based suggestions for task creation (AC-E2).
  */
 import { logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import type { ExtendedPrismaClient } from '@dommaker/studio-prisma';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import type { WorkUnitData } from '../workunit/workunit.service.js';
 
@@ -27,9 +26,9 @@ export class ConvertToTaskService {
   private fileStore: FileStore;
   private workUnitService: WorkUnitService;
 
-  constructor(_prisma?: ExtendedPrismaClient, fileStore?: FileStore) {
+  constructor(fileStore?: FileStore) {
     this.fileStore = fileStore ?? new FileStore();
-    this.workUnitService = new WorkUnitService(undefined, this.fileStore);
+    this.workUnitService = new WorkUnitService(this.fileStore);
   }
 
   /**

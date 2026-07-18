@@ -13,7 +13,9 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import { createServer, type Server as HttpServer } from 'http';
 import WebSocket from 'ws';
 import crypto from 'crypto';
-import { prisma } from '../../../core/database.js';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
 
 const isCI = !!process.env.CI;
 const describeIf = isCI ? describe.skip : describe;
@@ -73,28 +75,52 @@ let testWorkspaceId: string;
 let testTokenPlaintext: string;
 
 beforeAll(async () => {
-  // Create test token + workspace in DB
+  // Create test token + workspace via FileStore (prisma-free)
   testTokenPlaintext = generateToken();
   const tokenHash = hashToken(testTokenPlaintext);
+  testTokenId = crypto.randomUUID();
 
-  const token = await prisma.workspaceToken.create({
-    data: {
-      name: 'ws-gateway-test-token',
-      tokenHash,
-      permissions: JSON.stringify(['execute']),
-    },
-  });
-  testTokenId = token.id;
+  const studioDir = path.join(os.homedir(), '.studio');
+  const tokensDir = path.join(studioDir, 'workspace-tokens');
+  const workspacesDir = path.join(studioDir, 'workspaces');
 
-  const workspace = await prisma.workspace.create({
-    data: {
-      name: 'ws-gateway-test-workspace',
-      tokenId: testTokenId,
-      workspaceRoot: '/tmp/ws-test',
-      status: 'offline',
-    },
-  });
-  testWorkspaceId = workspace.id;
+  testWorkspaceId = crypto.randomUUID();
+
+  // Ensure dirs exist
+  await fs.promises.mkdir(tokensDir, { recursive: true });
+  await fs.promises.mkdir(workspacesDir, { recursive: true });
+
+  // Write workspace token file
+  const tokenData = {
+    id: testTokenId,
+    name: 'ws-gateway-test-token',
+    tokenHash,
+    permissions: JSON.stringify(['execute']),
+    workspaceId: testWorkspaceId,
+    createdAt: new Date().toISOString(),
+    revokedAt: null,
+  };
+  await fs.promises.writeFile(
+    path.join(tokensDir, `${tokenHash}.json`),
+    JSON.stringify(tokenData, null, 2),
+    'utf-8',
+  );
+
+  // Write workspace file
+  const workspaceData = {
+    id: testWorkspaceId,
+    name: 'ws-gateway-test-workspace',
+    tokenId: testTokenId,
+    workspaceRoot: '/tmp/ws-test',
+    status: 'offline',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  };
+  await fs.promises.writeFile(
+    path.join(workspacesDir, `${testWorkspaceId}.json`),
+    JSON.stringify(workspaceData, null, 2),
+    'utf-8',
+  );
 
   // Create HTTP server + attach WS gateway
   server = createServer();
@@ -121,16 +147,17 @@ afterAll(async () => {
     });
   }
 
-  // Cleanup DB
-  if (testWorkspaceId) {
-    await prisma.workspaceEvent.deleteMany({ where: { workspaceId: testWorkspaceId } });
-    await prisma.workspaceTask.deleteMany({ where: { workspaceId: testWorkspaceId } });
-    await prisma.workspaceRuntime.deleteMany({ where: { workspaceId: testWorkspaceId } });
-    await prisma.workspace.deleteMany({ where: { id: testWorkspaceId } });
-  }
-  if (testTokenId) {
-    await prisma.workspaceToken.deleteMany({ where: { id: testTokenId } });
-  }
+  // Cleanup FileStore files
+  const tokenHash = hashToken(testTokenPlaintext);
+  const tokensDir = path.join(os.homedir(), '.studio', 'workspace-tokens');
+  const workspacesDir = path.join(os.homedir(), '.studio', 'workspaces');
+
+  try {
+    await fs.promises.unlink(path.join(tokensDir, `${tokenHash}.json`));
+  } catch { /* already gone */ }
+  try {
+    await fs.promises.unlink(path.join(workspacesDir, `${testWorkspaceId}.json`));
+  } catch { /* already gone */ }
 });
 
 afterEach(() => {
@@ -201,19 +228,27 @@ describeIf('WS Gateway Auth', () => {
   });
 
   it('rejects revoked token', async () => {
-    // Create a revoked token
+    // Create a revoked token via FileStore
     const revokedPlaintext = generateToken();
-    const revokedToken = await prisma.workspaceToken.create({
-      data: {
-        name: 'revoked-test',
-        tokenHash: hashToken(revokedPlaintext),
-        permissions: '["execute"]',
-      },
-    });
-    await prisma.workspaceToken.update({
-      where: { id: revokedToken.id },
-      data: { revokedAt: new Date() },
-    });
+    const revokedHash = hashToken(revokedPlaintext);
+    const revokedTokenId = crypto.randomUUID();
+
+    const tokensDir = path.join(os.homedir(), '.studio', 'workspace-tokens');
+    const revokedTokenData = {
+      id: revokedTokenId,
+      name: 'revoked-test',
+      tokenHash: revokedHash,
+      permissions: '["execute"]',
+      workspaceId: testWorkspaceId,
+      createdAt: new Date().toISOString(),
+      revokedAt: new Date().toISOString(),
+    };
+    await fs.promises.mkdir(tokensDir, { recursive: true });
+    await fs.promises.writeFile(
+      path.join(tokensDir, `${revokedHash}.json`),
+      JSON.stringify(revokedTokenData, null, 2),
+      'utf-8',
+    );
 
     const ws = new WebSocket(`ws://localhost:${serverPort}/ws/daemon`);
     await waitForOpen(ws);
@@ -231,7 +266,8 @@ describeIf('WS Gateway Auth', () => {
     await new Promise(r => setTimeout(r, 200));
     expect(ws.readyState).toBe(WebSocket.CLOSED);
 
-    await prisma.workspaceToken.delete({ where: { id: revokedToken.id } });
+    // Cleanup
+    try { await fs.promises.unlink(path.join(tokensDir, `${revokedHash}.json`)); } catch {}
   });
 
   it('rejects non-auth first message', async () => {

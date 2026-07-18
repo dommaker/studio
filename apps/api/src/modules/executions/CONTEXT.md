@@ -4,8 +4,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/executions/routes.ts
 
-<!-- STALE_SINCE: 2026-05-27 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/executions/CONTEXT.md, apps/api/src/modules/executions/routes.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/executions/routes.ts
+
+<!-- STALE_SINCE: 2026-07-18 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/executions/routes.ts
 
 ## 职责
 
@@ -26,5 +30,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
+- ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
 - ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors

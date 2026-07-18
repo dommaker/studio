@@ -1,15 +1,45 @@
 /**
  * 认证服务 - Auth Service
  * SEC-001: 用户认证系统
+ *
+ * 存储迁移: Prisma → FileStore (users.json + sessions.jsonl)
  */
 
-import { User, Session, RefreshToken } from "@prisma/client";
-import { prisma } from "@dommaker/studio-prisma";
+import { FileStore } from "@dommaker/studio-shared";
 import * as crypto from "crypto";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
+import * as path from "node:path";
+import * as os from "node:os";
 
-// JWT 配置
+// ─── 本地类型（替代 Prisma model 类型） ───
+
+export interface UserData {
+  id: string;
+  email: string;
+  passwordHash: string | null;
+  name: string | null;
+  avatar: string | null;
+  role: string;
+  emailVerified: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SessionData {
+  id: string;
+  userId: string | null;
+  token: string;
+  guestId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  expiresAt: string;
+  createdAt: string;
+  refreshToken: string | null;
+}
+
+// ─── JWT 配置 ───
+
 export const JWT_SECRET =
   process.env.JWT_SECRET ||
   (process.env.NODE_ENV === "production"
@@ -18,9 +48,9 @@ export const JWT_SECRET =
       })()
     : "dev-jwt-secret-change-in-production");
 const JWT_EXPIRES_IN_SECONDS = 7 * 24 * 60 * 60; // 7 天
-
-// Guest Session 过期时间
 const GUEST_EXPIRES_HOURS = 24;
+
+// ─── 公共接口 ───
 
 export interface LoginInput {
   email: string;
@@ -40,30 +70,99 @@ export interface SessionInput {
 }
 
 export interface AuthResult {
-  user?: User;
-  session: Session;
+  user?: UserData;
+  session: SessionData;
   token: string;
   isNewUser?: boolean;
   refreshToken?: string;
 }
 
-/**
- * 密码加密 (bcrypt)
- */
+// ─── FileStore 实例 ───
+
+const fileStore = new FileStore();
+const STUDIO_DIR = path.join(os.homedir(), ".studio");
+const USERS_FILE = path.join(STUDIO_DIR, "users.json");
+const SESSIONS_FILE = path.join(STUDIO_DIR, "sessions.json");
+
+// ─── FileStore 数据访问层 ───
+
+async function readUsers(): Promise<UserData[]> {
+  const data = await fileStore.readJson<UserData[]>(USERS_FILE);
+  return data ?? [];
+}
+
+async function writeUsers(users: UserData[]): Promise<void> {
+  await fileStore.writeJson(USERS_FILE, users);
+}
+
+async function findUserByEmail(email: string): Promise<UserData | null> {
+  const users = await readUsers();
+  return users.find((u) => u.email === email) ?? null;
+}
+
+async function findUserById(id: string): Promise<UserData | null> {
+  const users = await readUsers();
+  return users.find((u) => u.id === id) ?? null;
+}
+
+async function updateUser(id: string, patch: Partial<UserData>): Promise<void> {
+  const users = await readUsers();
+  const idx = users.findIndex((u) => u.id === id);
+  if (idx >= 0) {
+    users[idx] = { ...users[idx], ...patch };
+    await writeUsers(users);
+  }
+}
+
+async function readSessions(): Promise<SessionData[]> {
+  const data = await fileStore.readJson<SessionData[]>(SESSIONS_FILE);
+  return data ?? [];
+}
+
+async function writeSessions(sessions: SessionData[]): Promise<void> {
+  await fileStore.writeJson(SESSIONS_FILE, sessions);
+}
+
+async function appendSession(session: SessionData): Promise<void> {
+  const sessions = await readSessions();
+  sessions.push(session);
+  await writeSessions(sessions);
+}
+
+async function findSessionById(id: string): Promise<SessionData | null> {
+  const sessions = await readSessions();
+  return sessions.find((s) => s.id === id) ?? null;
+}
+
+async function findSessionByGuestId(guestId: string): Promise<SessionData | null> {
+  const sessions = await readSessions();
+  return sessions.find((s) => s.guestId === guestId) ?? null;
+}
+
+async function findSessionByRefreshToken(token: string): Promise<SessionData | null> {
+  const sessions = await readSessions();
+  return sessions.find((s) => s.refreshToken === token) ?? null;
+}
+
+async function updateSession(id: string, patch: Partial<SessionData>): Promise<void> {
+  const sessions = await readSessions();
+  const idx = sessions.findIndex((s) => s.id === id);
+  if (idx >= 0) {
+    sessions[idx] = { ...sessions[idx], ...patch };
+    await writeSessions(sessions);
+  }
+}
+
+// ─── 密码工具 ───
+
 function hashPassword(password: string): string {
   return bcrypt.hashSync(password, 12);
 }
 
-/**
- * 验证密码
- * 支持两种格式：bcrypt 新格式和旧 PBKDF2 salt:hash 格式
- * 旧格式验证成功返回 needsRehash: true，调用方可静默升级
- */
 function verifyPassword(
   password: string,
   storedHash: string,
 ): { valid: boolean; needsRehash: boolean } {
-  // 旧 PBKDF2 格式：salt:hash（恰好一个冒号）
   const colonCount = (storedHash.match(/:/g) || []).length;
   if (colonCount === 1) {
     const [salt, hash] = storedHash.split(":");
@@ -73,368 +172,260 @@ function verifyPassword(
       .toString("hex");
     return { valid: hash === verifyHash, needsRehash: hash === verifyHash };
   }
-
-  // bcrypt 格式
-  return {
-    valid: bcrypt.compareSync(password, storedHash),
-    needsRehash: false,
-  };
+  return { valid: bcrypt.compareSync(password, storedHash), needsRehash: false };
 }
 
-/**
- * 生成 Token (JWT)
- */
+// ─── JWT 工具 ───
+
 function generateToken(sessionId: string, userId?: string): string {
   return jwt.sign({ sid: sessionId, uid: userId }, JWT_SECRET, {
     expiresIn: JWT_EXPIRES_IN_SECONDS,
   });
 }
 
-/**
- * 验证 Token (JWT)
- */
 export function verifyToken(
   token: string,
 ): { sessionId: string; userId?: string } | null {
   try {
     const payload = jwt.verify(token, JWT_SECRET) as jwt.JwtPayload;
-    return {
-      sessionId: payload.sid,
-      userId: payload.uid,
-    };
+    return { sessionId: payload.sid, userId: payload.uid };
   } catch {
     return null;
   }
 }
 
-/**
- * 创建 Guest Session
- */
-export async function createGuestSession(
-  input: SessionInput,
-): Promise<AuthResult> {
+// ─── 业务函数 ───
+
+function makeId(): string {
+  return crypto.randomUUID();
+}
+
+export async function createGuestSession(input: SessionInput): Promise<AuthResult> {
   const expiresAt = new Date();
   expiresAt.setHours(expiresAt.getHours() + GUEST_EXPIRES_HOURS);
 
-  const session = await prisma.session.create({
-    data: {
-      guestId: input.guestId || crypto.randomUUID(),
-      ipAddress: input.ipAddress,
-      userAgent: input.userAgent,
-      expiresAt,
-      token: "", // 先创建，后面更新
-    },
-  });
+  const id = makeId();
+  const token = generateToken(id);
 
-  // 生成 token
-  const token = generateToken(session.id);
-  await prisma.session.update({
-    where: { id: session.id },
-    data: { token },
-  });
-
-  return {
-    session: { ...session, token },
+  const session: SessionData = {
+    id,
+    userId: null,
     token,
+    guestId: input.guestId || crypto.randomUUID(),
+    ipAddress: input.ipAddress ?? null,
+    userAgent: input.userAgent ?? null,
+    expiresAt: expiresAt.toISOString(),
+    createdAt: new Date().toISOString(),
+    refreshToken: null,
   };
+
+  await appendSession(session);
+
+  return { session, token };
 }
 
-/**
- * 获取或创建 Session
- */
-export async function getOrCreateSession(
-  input: SessionInput,
-): Promise<AuthResult> {
-  // 如果有 guestId，查找现有 Session
+export async function getOrCreateSession(input: SessionInput): Promise<AuthResult> {
   if (input.guestId) {
-    const existing = await prisma.session.findFirst({
-      where: { guestId: input.guestId },
-      include: { User: true },
-    });
-
-    if (existing && existing.expiresAt > new Date()) {
-      return {
-        user: existing.User || undefined,
-        session: existing,
-        token: existing.token,
-      };
+    const existing = await findSessionByGuestId(input.guestId);
+    if (existing && new Date(existing.expiresAt) > new Date()) {
+      const user = existing.userId ? await findUserById(existing.userId) : null;
+      return { user: user ?? undefined, session: existing, token: existing.token };
     }
   }
-
-  // 创建新的 Guest Session
   return createGuestSession(input);
 }
 
-/**
- * 用户登录
- */
 export async function login(input: LoginInput): Promise<AuthResult> {
-  // 查找用户
-  const user = await prisma.user.findUnique({
-    where: { email: input.email },
-  });
+  const user = await findUserByEmail(input.email);
+  if (!user) throw new Error("用户不存在");
+  if (!user.passwordHash) throw new Error("该用户未设置密码，请使用其他方式登录");
 
-  if (!user) {
-    throw new Error("用户不存在");
-  }
-
-  if (!user.passwordHash) {
-    throw new Error("该用户未设置密码，请使用其他方式登录");
-  }
-
-  // 验证密码
   const pwResult = verifyPassword(input.password, user.passwordHash);
-  if (!pwResult.valid) {
-    throw new Error("密码错误");
-  }
+  if (!pwResult.valid) throw new Error("密码错误");
 
   // 旧格式静默升级为 bcrypt
   if (pwResult.needsRehash) {
     try {
-      const newHash = hashPassword(input.password);
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: newHash },
-      });
-    } catch {
-      // 静默忽略，下次登录再试
-    }
+      await updateUser(user.id, { passwordHash: hashPassword(input.password) });
+    } catch { /* 静默 */ }
   }
 
-  // 清理旧 guest session（用户登录后不再需要）
-  const guestSessions = await prisma.session.findMany({
-    where: {
-      userId: user.id,
-      guestId: { not: null },
-      expiresAt: { gt: new Date() },
-    },
-    select: { id: true },
-  });
-  if (guestSessions.length > 0) {
-    await prisma.session.deleteMany({
-      where: { id: { in: guestSessions.map((s) => s.id) } },
-    });
+  // 清理旧 guest session
+  const allSessions = await readSessions();
+  const guestIds = allSessions
+    .filter((s) => s.userId === user.id && s.guestId && new Date(s.expiresAt) > new Date())
+    .map((s) => s.id);
+  if (guestIds.length > 0) {
+    const kept = allSessions.filter((s) => !guestIds.includes(s.id));
+    await writeSessions(kept);
   }
-
-  // 创建 Session
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7); // 7 天
-
-  const session = await prisma.session.create({
-    data: {
-      userId: user.id,
-      expiresAt,
-      token: "",
-    },
-  });
-
-  // 生成 token
-  const token = generateToken(session.id, user.id);
-  await prisma.session.update({
-    where: { id: session.id },
-    data: { token },
-  });
-
-  return {
-    user,
-    session: { ...session, token },
-    token,
-    refreshToken: await generateRefreshToken(user.id),
-  };
-}
-
-/**
- * 用户注册
- */
-export async function register(input: RegisterInput): Promise<AuthResult> {
-  // 检查邮箱是否已存在
-  const existing = await prisma.user.findUnique({
-    where: { email: input.email },
-  });
-
-  if (existing) {
-    throw new Error("邮箱已被注册");
-  }
-
-  // 创建用户
-  const passwordHash = hashPassword(input.password);
-  const user = await prisma.user.create({
-    data: {
-      email: input.email,
-      passwordHash,
-      name: input.name,
-      role: "User", // 默认普通用户
-    },
-  });
 
   // 创建 Session
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
 
-  const session = await prisma.session.create({
-    data: {
-      userId: user.id,
-      expiresAt,
-      token: "",
-    },
-  });
+  const id = makeId();
+  const token = generateToken(id, user.id);
 
-  const token = generateToken(session.id, user.id);
-  await prisma.session.update({
-    where: { id: session.id },
-    data: { token },
-  });
-
-  return {
-    user,
-    session: { ...session, token },
+  const session: SessionData = {
+    id,
+    userId: user.id,
     token,
-    isNewUser: true,
-    refreshToken: await generateRefreshToken(user.id),
+    guestId: null,
+    ipAddress: null,
+    userAgent: null,
+    expiresAt: expiresAt.toISOString(),
+    createdAt: new Date().toISOString(),
+    refreshToken: null,
   };
+
+  await appendSession(session);
+
+  const refreshToken = await generateRefreshToken(user.id);
+
+  return { user, session, token, refreshToken };
 }
 
-/**
- * 登出
- * @param sessionId - 要过期的 session ID
- * @param userId - 可选，提供时同时吊销该用户所有 refresh token
- */
-export async function logout(
-  sessionId: string,
-  userId?: string,
-): Promise<void> {
-  await prisma.session.update({
-    where: { id: sessionId },
-    data: { expiresAt: new Date() }, // 立即过期
-  });
+export async function register(input: RegisterInput): Promise<AuthResult> {
+  const existing = await findUserByEmail(input.email);
+  if (existing) throw new Error("邮箱已被注册");
+
+  // 创建用户
+  const now = new Date().toISOString();
+  const user: UserData = {
+    id: makeId(),
+    email: input.email,
+    passwordHash: hashPassword(input.password),
+    name: input.name ?? null,
+    avatar: null,
+    role: "User",
+    emailVerified: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const users = await readUsers();
+  users.push(user);
+  await writeUsers(users);
+
+  // 创建 Session
+  const expiresAt = new Date();
+  expiresAt.setDate(expiresAt.getDate() + 7);
+
+  const sid = makeId();
+  const token = generateToken(sid, user.id);
+
+  const session: SessionData = {
+    id: sid,
+    userId: user.id,
+    token,
+    guestId: null,
+    ipAddress: null,
+    userAgent: null,
+    expiresAt: expiresAt.toISOString(),
+    createdAt: now,
+    refreshToken: null,
+  };
+
+  await appendSession(session);
+
+  const refreshToken = await generateRefreshToken(user.id);
+
+  return { user, session, token, isNewUser: true, refreshToken };
+}
+
+export async function logout(sessionId: string, userId?: string): Promise<void> {
+  await updateSession(sessionId, { expiresAt: new Date().toISOString() });
 
   if (userId) {
-    await prisma.refreshToken.updateMany({
-      where: { userId },
-      data: { revokedAt: new Date() },
-    });
+    const sessions = await readSessions();
+    for (const s of sessions) {
+      if (s.userId === userId && s.refreshToken) {
+        s.refreshToken = null;
+      }
+    }
+    await writeSessions(sessions);
   }
 }
 
-/**
- * 获取当前用户
- */
 export async function getCurrentUser(
   sessionId: string,
-): Promise<{ user: User | null; session: Session | null }> {
-  const session = await prisma.session.findUnique({
-    where: { id: sessionId },
-    include: { User: true },
-  });
-
-  if (!session || session.expiresAt < new Date()) {
+): Promise<{ user: UserData | null; session: SessionData | null }> {
+  const session = await findSessionById(sessionId);
+  if (!session || new Date(session.expiresAt) < new Date()) {
     return { user: null, session: null };
   }
-
-  return {
-    user: session.User,
-    session,
-  };
+  const user = session.userId ? await findUserById(session.userId) : null;
+  return { user, session };
 }
 
-/**
- * 清理过期 Session
- */
 export async function cleanupExpiredSessions(): Promise<number> {
-  const result = await prisma.session.deleteMany({
-    where: {
-      expiresAt: { lt: new Date() },
-    },
-  });
-
-  return result.count;
+  const sessions = await readSessions();
+  const now = new Date();
+  const kept = sessions.filter((s) => new Date(s.expiresAt) >= now);
+  const count = sessions.length - kept.length;
+  if (count > 0) {
+    await writeSessions(kept);
+  }
+  return count;
 }
 
 const REFRESH_TOKEN_EXPIRY_DAYS = 30;
 
-/**
- * 生成 Refresh Token
- */
 export async function generateRefreshToken(userId: string): Promise<string> {
   const token = crypto.randomBytes(64).toString("hex");
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + REFRESH_TOKEN_EXPIRY_DAYS);
-
-  await prisma.refreshToken.create({
-    data: { token, userId, expiresAt },
-  });
-
+  // Store refreshToken in the user's most recent session
+  const sessions = await readSessions();
+  const userSessions = sessions.filter((s) => s.userId === userId);
+  if (userSessions.length > 0) {
+    userSessions[userSessions.length - 1].refreshToken = token;
+    await writeSessions(sessions);
+  }
   return token;
 }
 
-/**
- * 刷新 Token：验证旧 refresh token，吊销旧的，创建新的 access + refresh pair
- */
 export async function exchangeRefreshToken(
   refreshToken: string,
-): Promise<{
-  accessToken: string;
-  refreshToken: string;
-  userId: string;
-} | null> {
-  const record = await prisma.refreshToken.findUnique({
-    where: { token: refreshToken },
-  });
+): Promise<{ accessToken: string; refreshToken: string; userId: string } | null> {
+  const session = await findSessionByRefreshToken(refreshToken);
+  if (!session || !session.userId) return null;
 
-  if (!record || record.revokedAt || record.expiresAt < new Date()) {
-    return null;
-  }
+  // Revoke old refresh token
+  await updateSession(session.id, { refreshToken: null });
 
-  // 原子性吊销旧 token — only succeeds if not already revoked (并发安全)
-  const revoke = await prisma.refreshToken.updateMany({
-    where: { id: record.id, revokedAt: null },
-    data: { revokedAt: new Date() },
-  });
-
-  if (revoke.count === 0) {
-    // 已被并发请求吊销
-    return null;
-  }
-
-  // 创建新 session + access token
+  // Create new session + access token
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + 7);
-  const session = await prisma.session.create({
-    data: { userId: record.userId, expiresAt, token: "" },
-  });
-  const accessToken = generateToken(session.id, record.userId);
-  await prisma.session.update({
-    where: { id: session.id },
-    data: { token: accessToken },
-  });
 
-  // 创建新 refresh token
-  const newRefreshToken = await generateRefreshToken(record.userId);
+  const id = makeId();
+  const accessToken = generateToken(id, session.userId);
 
-  return { accessToken, refreshToken: newRefreshToken, userId: record.userId };
+  const newSession: SessionData = {
+    id,
+    userId: session.userId,
+    token: accessToken,
+    guestId: null,
+    ipAddress: null,
+    userAgent: null,
+    expiresAt: expiresAt.toISOString(),
+    createdAt: new Date().toISOString(),
+    refreshToken: null,
+  };
+
+  await appendSession(newSession);
+
+  // Create new refresh token
+  const newRefreshToken = await generateRefreshToken(session.userId);
+
+  return { accessToken, refreshToken: newRefreshToken, userId: session.userId };
 }
 
-/**
- * 吊销 Refresh Token
- */
-export async function revokeRefreshToken(
-  refreshToken: string,
-): Promise<boolean> {
-  const record = await prisma.refreshToken.findUnique({
-    where: { token: refreshToken },
-  });
-
-  if (!record || record.revokedAt) {
-    return false;
-  }
-
-  await prisma.refreshToken.update({
-    where: { id: record.id },
-    data: { revokedAt: new Date() },
-  });
-
+export async function revokeRefreshToken(refreshToken: string): Promise<boolean> {
+  const session = await findSessionByRefreshToken(refreshToken);
+  if (!session) return false;
+  await updateSession(session.id, { refreshToken: null });
   return true;
 }
 
-// 导出工具函数（用于测试）
+// ─── 导出工具函数（用于测试） ───
 export { hashPassword, verifyPassword };

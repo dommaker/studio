@@ -93,7 +93,7 @@ async function studioUp(configPath?: string) {
   }
 
   // 4. 设置默认环境变量（不覆盖已配置的值）
-  if (!process.env.DATABASE_URL) process.env.DATABASE_URL = `file:${path.join(DATA_DIR, 'data.db')}`;
+  // DATABASE_URL removed (Spec 4 Phase 4) — FileStore only
   if (!process.env.ANALYST_DIR) process.env.ANALYST_DIR = ANALYST_DIR;
   if (!process.env.DAEMON_DIR) process.env.DAEMON_DIR = DAEMON_DIR;
   if (!process.env.KNOWLEDGE_DIR) process.env.KNOWLEDGE_DIR = KNOWLEDGE_DIR;
@@ -101,7 +101,6 @@ async function studioUp(configPath?: string) {
   if (!process.env.WORKTREES_DIR) process.env.WORKTREES_DIR = WORKTREES_DIR;
 
   console.log(`Data dir: ${STUDIO_DIR}`);
-  console.log(`Database: ${process.env.DATABASE_URL}`);
 
   // 检查前置依赖
   checkPrerequisites();
@@ -140,20 +139,7 @@ async function studioUp(configPath?: string) {
       process.exit(1);
     }
 
-    // First-time DB creation (idempotent — only if DB file doesn't exist)
-    const dbPath = (process.env.DATABASE_URL || '').replace('file:', '');
-    const monorepoSchema = path.join(process.env.REPO_DIR, 'packages/studio-prisma/prisma/schema.prisma');
-    const standaloneSchema = path.join(__dirname, '..', 'prisma', 'schema.prisma');
-    const schemaPath = fs.existsSync(monorepoSchema) ? monorepoSchema : standaloneSchema;
-    if (schemaPath && !fs.existsSync(dbPath)) {
-      console.log('First time — creating database...');
-      execSync(`npx prisma db push --schema="${schemaPath}" --skip-generate`, {
-        cwd: process.env.REPO_DIR,
-        env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
-        stdio: 'pipe', timeout: 30_000,
-      });
-      console.log('Database created');
-    }
+    // FileStore auto-creates directories on first write (Spec 4 Phase 4)
 
     const defaults = await ops.ensureDefaults();
     console.log(`Defaults: ${defaults.channels} channels, admin ${defaults.admin ? 'exists' : 'created'}`);
@@ -717,41 +703,9 @@ async function studioLogs() {
   }
 }
 
+// studio db command removed (Spec 4 Phase 4) — Prisma eliminated, use FileStore
 async function studioDb() {
-  const subcmd = process.argv[3] || 'status';
-  const repoDir = process.env.REPO_DIR || process.cwd();
-  const schemaPath = path.join(repoDir, 'packages/studio-prisma/prisma/schema.prisma');
-
-  switch (subcmd) {
-    case 'push':
-      console.log('Running prisma db push...');
-      execSync(`npx prisma db push --schema="${schemaPath}" --skip-generate --accept-data-loss`, {
-        cwd: repoDir, stdio: 'inherit', timeout: 30_000,
-      });
-      console.log('DB schema synced');
-      break;
-    case 'migrate':
-      console.log('Running prisma db migrate...');
-      execSync(`npx prisma migrate dev --schema="${schemaPath}"`, {
-        cwd: repoDir, stdio: 'inherit', timeout: 30_000,
-      });
-      break;
-    case 'status':
-      console.log(`Schema: ${schemaPath}`);
-      const dbUrl = process.env.DATABASE_URL || `file:${path.join(DATA_DIR, 'data.db')}`;
-      console.log(`Database: ${dbUrl}`);
-      try {
-        execSync(`npx prisma db execute --schema="${schemaPath}" --stdin`, {
-          cwd: repoDir, input: 'SELECT name FROM sqlite_master WHERE type="table" ORDER BY name;',
-          stdio: 'pipe', timeout: 10_000,
-        });
-      } catch {
-        console.log('(DB not accessible)');
-      }
-      break;
-    default:
-      console.log('studio db <push|migrate|status>');
-  }
+  console.log('DB commands removed — all data is stored in ~/.studio/ via FileStore.');
 }
 
 // ── API helper: all data commands call the HTTP API ──
@@ -1080,9 +1034,7 @@ async function main() {
       console.log('Starting in dev mode (isolated DB, port 3001)...');
       if (!process.env.PORT) process.env.PORT = '3001';
       if (!process.env.NODE_ENV) process.env.NODE_ENV = 'development';
-      if (!process.env.DATABASE_URL) {
-        process.env.DATABASE_URL = 'file:' + path.join(STUDIO_DIR, 'data', 'dev.db');
-      }
+      // FileStore auto-creates directories — no DB needed
       await studioUp(configPath);
       break;
     case 'project':
@@ -1215,7 +1167,6 @@ async function main() {
       console.log('  开发:');
       console.log('    studio build              Build all packages (pnpm build)');
       console.log('    studio test               Quick API E2E test (8 checks)');
-      console.log('    studio db <cmd>           DB: push | migrate | status');
       console.log('');
       console.log('  执行:');
       console.log('    studio run <requirement>   Submit to #研发 (@Analyst)');

@@ -6,7 +6,6 @@ import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { prisma } from '../../../core/database.js';
 import { FileStore } from '@dommaker/studio-shared';
 import { AgentProfileService } from '../agent-profile.service.js';
 
@@ -23,7 +22,7 @@ describe('AgentProfile CRUD', () => {
   beforeAll(() => {
     tmpDir = createTempDir();
     fileStore = new FileStore(tmpDir);
-    service = new AgentProfileService(fileStore, prisma);
+    service = new AgentProfileService(fileStore);
   });
 
   afterAll(() => {
@@ -172,7 +171,7 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
   beforeAll(() => {
     tmpDir = createTempDir();
     fileStore = new FileStore(tmpDir);
-    service = new AgentProfileService(fileStore, prisma);
+    service = new AgentProfileService(fileStore);
   });
 
   afterAll(() => {

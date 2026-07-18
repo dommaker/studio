@@ -17,8 +17,8 @@ import * as os from 'node:os';
 import * as fs from 'node:fs';
 
 const fileStore = new FileStore();
-const TOKENS_DIR = path.join(os.homedir(), '.studio', 'data', 'workspace-tokens');
-const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'data', 'workspaces');
+const TOKENS_DIR = path.join(os.homedir(), '.studio', 'workspace-tokens');
+const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
 const router = Router();
 
 async function ensureDir(): Promise<void> {

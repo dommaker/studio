@@ -22,8 +22,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr-anomaly-detector.ts, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/project.service.ts
 
-<!-- STALE_SINCE: 2026-07-15 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr-anomaly-detector.ts, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/project.service.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/project.service.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/okr-anomaly-detector.ts, apps/api/src/modules/pmo/CONTEXT.md
+
+<!-- STALE_SINCE: 2026-07-18 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/project.service.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/okr-anomaly-detector.ts
 
 ## 职责
 
@@ -44,6 +48,9 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `0d1ef570`: ci): resolve type errors found by package-level tsc build
+- ✅ `1ac014a8`: ci): resolve type errors in worktree-resolver + okr.service
+- ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)
 - ✅ `3de4f489`: ops): code review fixes — Infinity filtering + studioEvent write
 - ✅ `c013381b`: pmo): AC-10 column index off-by-one + AC-6 test matcher
 - ✅ `9f5c871d`: okr): querySkillUsageRate count skills from disk (B59-003)

@@ -8,8 +8,12 @@
 
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/mcp/tools.ts
 
-<!-- STALE_SINCE: 2026-06-12 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/mcp/routes.ts, apps/api/src/modules/mcp/tools.ts
+
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/mcp/permission.service.ts, apps/api/src/modules/mcp/tools.ts
+
+<!-- STALE_SINCE: 2026-07-18 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/mcp/permission.service.ts, apps/api/src/modules/mcp/tools.ts
 
 ## 职责
 
@@ -30,6 +34,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `3281bd80`: P6.5): Skill 元数据注入合规 + MCP SSE transport + fileKnowledge 移除
 - ✅ `ee1e354d`: B39 harness 集成修复 — A5 checkConstraint + S13 routes 类型化
 - ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
