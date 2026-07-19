@@ -143,6 +143,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // WorkUnit routes (AS-025 §3.28c-1)
   const { default: workunitRoutes } = await import('./modules/workunit/workunit.routes.js') as { default: Router };
 
+  // Requirement routes (REQ 需求编号体系, vision §5.3)
+  const { default: requirementRoutes } = await import('./modules/requirements/requirement.routes.js') as { default: Router };
+
   // AgentProfile routes (AS-025 Phase 2)
   const { default: agentProfileRoutes } = await import('./modules/agents/agent-profile.routes.js') as { default: Router };
 
@@ -151,6 +154,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
   // Trigger routes (3.28c-4: REST API for trigger management)
   const { triggerRouter } = await import('./modules/triggers/trigger.routes.js') as { triggerRouter: Router };
+
+  // Evolution routes (E1 约束进化, vision §6)
+  const { default: evolutionRoutes } = await import('./modules/evolution/evolution.routes.js') as { default: Router };
 
   // Monitoring routes (MVP-2 + MVP-6)
   const { default: monitoringRoutes } = await import('./modules/monitoring/monitoring.routes.js') as { default: Router };
@@ -172,9 +178,11 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/requirements-docs', router: requirementsDocRoutes, comment: 'B2-009: RequirementsDoc edit' },
     { path: '/api/v1/pmo', router: pmoRoutes, comment: 'PMO-001' },
     { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
+    { path: '/api/v1/requirements', router: requirementRoutes, comment: 'REQ 需求编号体系 (vision §5.3)' },
     { path: '/api/v1/agent-profiles', router: agentProfileRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD' },
     { path: '/api/v1/agent-instances', router: agentInstanceRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD' },
     { path: '/api/v1/triggers', router: triggerRouter, middleware: auth, comment: '3.28c-4: Trigger CRUD + status' },
+    { path: '/api/v1/evolution', router: evolutionRoutes, middleware: auth, comment: 'E1 约束进化：提案列表/审批/手动扫描 (vision §6)' },
     { path: '/api/v1/monitoring', router: monitoringRoutes, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
     { path: '/api/v1/projects', router: projectRoutes, comment: 'AC-D1+D3: Local project discovery' },
 
