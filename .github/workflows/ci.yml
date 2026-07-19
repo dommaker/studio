@@ -22,7 +22,7 @@ jobs:
       # vitest teardown crashes native modules (SIGABRT), but all tests pass.
       # Capture output, check for actual test failures.
       - run: |
-          npx vitest run --maxWorkers=1 2>&1 | tee /tmp/vitest.log
+          npx vitest run --maxWorkers=1 --minWorkers=1 2>&1 | tee /tmp/vitest.log
           echo "EXIT=${PIPESTATUS[0]}" >> /tmp/vitest.log
         continue-on-error: true
       - run: |
@@ -38,4 +38,8 @@ jobs:
           exit 0
       - name: Governance
         run: npx harness check && npx harness sync-docs --check
+        continue-on-error: true
+      # TODO: 待文档补齐后转为强制
+      - name: Doc freshness
+        run: npx harness doc-freshness-check CAPABILITIES.md
         continue-on-error: true

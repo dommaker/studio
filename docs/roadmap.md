@@ -1,5 +1,7 @@
 # Studio Roadmap — 唯一入口
 
+> ⚠️ 本文主体为 pipeline 时代的阶段规划，已被 2026-07 架构共识取代。当前权威文档：docs/vision-2026.md（定位与主干）、docs/plans/2026-07-*.md（分期实施计划）。本文仅作历史参考，待重写。
+
 > 最后更新：2026-07-03 (Pipeline 代码全量移除完成 — SDD pipeline-removal-cleanup Phase 1-7 + code review)
 > 架构文档：[specs/arch/index.md](specs/arch/index.md)
 > OKR：[OKR/](OKR/)
@@ -171,7 +173,7 @@ KnowledgeService 是基础设施，所有后续模块通过它访问知识。
 
 **关键发现**：管线固定成本（上下文重建 + session 启动 + API 往返）占 76%。管线价值不是速度，是结构化需求 + AC 自动验证 + 知识沉淀。小任务（<1h）不应走管线。
 
-详见 `pipeline-self-bootstrap-analysis-2026-05-24.md`。
+详见 `_archive/pipeline-self-bootstrap-analysis-2026-05-24.md`。
 
 **S3 后模式**：所有新需求通过管线执行，不再手动开发。
 
@@ -468,7 +470,7 @@ P10+ (进化闭环)              ← 持续优化
 | OKR | O | KR | 文档 |
 |-----|---|-----|------|
 | 知识飞轮质量 | 3（质量/效用/进化） | 10 | [knowledge-okr.md](OKR/knowledge-okr.md) |
-| 管线效率与质量 | 4（时间/经济/质量/并行） | 13 | [pipeline-okr.md](OKR/pipeline-okr.md) |
+| 管线效率与质量 | 4（时间/经济/质量/并行） | 13 | [pipeline-okr.md](_archive/pipeline-okr.md) |
 
 监控覆盖度：[monitoring-matrix.md](OKR/monitoring-matrix.md)（7✅ 6⚠️ 10🔴）
 
@@ -477,7 +479,7 @@ P10+ (进化闭环)              ← 持续优化
 ## 核心指标
 
 飞轮价值 = 知识质量 × 消费命中率 × 执行改善度 → [Knowledge OKR v3](OKR/knowledge-okr.md)
-管线价值 = 时间效率 × 经济效率 × 质量效率 × 并行效率 → [Pipeline OKR v3](OKR/pipeline-okr.md)
+管线价值 = 时间效率 × 经济效率 × 质量效率 × 并行效率 → [Pipeline OKR v3](_archive/pipeline-okr.md)
 
 ---
 
@@ -565,7 +567,7 @@ P10+ (进化闭环)              ← 持续优化
 
 ### Phase 3.23: 管线超时自动取消机制（B57，全部完成 2026-06-17）
 
-**Plan 文件**：[pipeline-timeout-mechanism.md](plans/pipeline-timeout-mechanism.md)
+**Plan 文件**：[pipeline-timeout-mechanism.md](_archive/pipeline-timeout-mechanism.md)
 
 **目标**：消除 60min 兜底超时，实现 per-phase 精确超时控制 + 统一告警通知。
 
@@ -991,7 +993,7 @@ Trigger (cron: "0 9 * * *")
 
 ### Phase 3.30: Goal → WorkUnit 数据层迁移（Phase 1-5 + D1-D7 收尾 ✅ 2026-06-23）
 
-**计划文档**：[goal-to-workunit-migration.md](plans/goal-to-workunit-migration.md)
+**计划文档**：[goal-to-workunit-migration.md](_archive/goal-to-workunit-migration.md)
 **策略**：C. 渐进迁移，不双写。新逻辑直接写 WorkUnit，旧代码一次性标 deprecated。
 
 #### Phase 1: WorkUnit 模型补列 + 转换工具（✅ 完成）

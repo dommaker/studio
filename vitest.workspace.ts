@@ -64,7 +64,7 @@ export default defineWorkspace([
   {
     test: {
       ...baseTest,
-      include: ['scripts/__tests__/**/*.test.ts'],
+      include: ['scripts/**/__tests__/**/*.test.ts'],
       exclude: baseExclude,
     },
   },

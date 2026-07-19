@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-18
+> 最后更新: 2026-07-19
 
 ---
 
@@ -70,10 +70,8 @@
 | change-history.service | packages/studio-spec/src/services/change-history.service.ts | 变更历史服务 |
 | gate-checker.service.test | packages/studio-spec/src/services/gate-checker.service.test.ts | GateCheckerService 单元测试 |
 | gate-checker.service | packages/studio-spec/src/services/gate-checker.service.ts | 门禁检查服务 |
-| spec-bypass.service | packages/studio-spec/src/services/spec-bypass.service.ts | Spec 绕过审批服务 |
 | spec-validator.service.test | packages/studio-spec/src/services/spec-validator.service.test.ts | SpecValidator 单元测试 |
 | spec-validator.service | packages/studio-spec/src/services/spec-validator.service.ts | SpecValidator 主服务 |
-| spec-version.service | packages/studio-spec/src/services/spec-version.service.ts | Spec 版本管理服务 |
 | change.types | packages/studio-spec/src/types/change.types.ts | Spec 变更分级类型定义 |
 | gate.types | packages/studio-spec/src/types/gate.types.ts | 门禁类型定义 |
 | validation.types | packages/studio-spec/src/types/validation.types.ts | Spec 验证类型定义 |
@@ -109,7 +107,6 @@
 | channel.routes | apps/api/src/modules/channels/channel.routes.ts | Channel Routes — B1-001/B1-002/B1-009/B1-011 |
 | discovery-exposure.service | apps/api/src/modules/channels/discovery-exposure.service.ts | Discovery Exposure Service — G33 Analyst+Reviewer 发现→#系统 channel |
 | requirements-doc.routes | apps/api/src/modules/channels/requirements-doc.routes.ts | RequirementsDoc edit routes — B2-009 |
-| routes | apps/api/src/modules/companies/routes.ts | Company API 路由 |
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | command-runner | apps/api/src/modules/discord/command-runner.ts | B3-002/B3-003: Shared command runner for CLI and Discord |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
@@ -117,8 +114,6 @@
 | event.routes | apps/api/src/modules/events/event.routes.ts | G30: StudioEvent API Endpoints |
 | sse.routes | apps/api/src/modules/events/sse.routes.ts | HZ-028: Event Stream (SSE) |
 | routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
-| routes | apps/api/src/modules/goals/routes.ts | Goal API 路由 - Goal 驱动架构 |
-| evolution.service | apps/api/src/modules/harness/evolution.service.ts | Constraint Evolution Service — 约束规则进化 |
 | iron-laws.routes | apps/api/src/modules/harness/iron-laws.routes.ts | Iron Laws API — 从 runtime-proxy 迁移 (2026-05-14) |
 | routes | apps/api/src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015) |
 | decision-chain-extractor | apps/api/src/modules/knowledge/decision-chain-extractor.ts | DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链 |
@@ -154,7 +149,6 @@
 | okr.service | apps/api/src/modules/pmo/okr.service.ts | 🆕 AS-016: 获取当前季度 |
 | project.service | apps/api/src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 + publish() → Channel + getLinkedSDDs() |
 | routes | apps/api/src/modules/pmo/routes.ts | PMO API — 项目 CRUD + POST publish + GET sdd 关联查询 |
-| routes | apps/api/src/modules/roles/routes.ts | Role API 路由 |
 | routes | apps/api/src/modules/runtime-config/routes.ts | GET /api/v1/runtime-config |
 | routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | routes | apps/api/src/modules/spec-reviews/routes.ts | Spec 审查 API 路由 |
@@ -175,16 +169,12 @@
 | agentStore | apps/web/src/stores/agentStore.ts | agentStore |
 | authStore | apps/web/src/stores/authStore.ts | 认证状态管理 - Auth Store (Zustand) |
 | runtimeStore | apps/web/src/stores/runtimeStore.ts | runtimeStore |
-| stepEditorStore | apps/web/src/stores/stepEditorStore.ts | stepEditorStore.ts - Step 编辑器状态管理 |
 | uiStore | apps/web/src/stores/uiStore.ts | uiStore |
 | setup | apps/web/src/test/setup.ts | setup |
 | canvas | apps/web/src/types/canvas.ts | 共享画布类型（xyflow 兼容，避免直接导入 xyflow 打包） |
 | types | apps/web/src/types.ts | types.ts - Agent Studio 类型定义 |
 | api | apps/web/src/utils/api.ts | 获取 API 基础 URL |
 | format | apps/web/src/utils/format.ts | 格式化 Token 数量 |
-| generateDirectoryName | apps/web/src/utils/generateDirectoryName.ts | 根据项目名称生成目录名称 |
-| slugify | apps/web/src/utils/slugify.ts | 将字符串转换为 URL 友好的 slug |
-| status-utils | apps/web/src/utils/status-utils.ts | Unified status / role / stance utilities. |
 | toast | apps/web/src/utils/toast.ts | Lightweight toast notification system (zero dependencies) |
 
 | session-summary-generator | apps/api/src/modules/events/session-summary-generator.ts | B9-015: SessionSummaryGenerator — server-side session aggregation |
@@ -207,9 +197,7 @@
 | agent-runner | packages/studio-agent/src/services/agent-runner.ts | Agent Runner — unified executor merging AgentExecutor + TaskExecutor |
 | spawn-claude-cli | packages/studio-shared/src/llm/spawn-claude-cli.ts | CLI Spawn 环境变量构造 |
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
-| oauth.routes | apps/api/src/modules/auth/oauth.routes.ts | GET /auth/:provider |
-| oauth.service | apps/api/src/modules/auth/oauth.service.ts | OAuth 2.0 service for Google and GitHub providers. |
-| failure-classifier | apps/api/src/modules/goals/failure-classifier.ts | Failure classifier — pattern matching on error messages |
+| failure-classifier | apps/api/src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
 | prompt-builder | apps/api/src/modules/knowledge/consumers/prompt-builder.ts | Unified knowledge injection entry point. |
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | knowledge-service.routes | apps/api/src/modules/knowledge/knowledge-service.routes.ts | KnowledgeService HTTP API + SSE |
@@ -227,7 +215,6 @@
 | agent-profile.routes | apps/api/src/modules/agents/agent-profile.routes.ts | AgentProfile API 路由 (AS-025 Phase 2) |
 | agent-profile.service | apps/api/src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | apps/api/src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
-| email.service | apps/api/src/modules/auth/email.service.ts | 邮件服务 - Email Service |
 | eval-case-store | apps/api/src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
 | improver-scheduler.service | apps/api/src/modules/knowledge/improver-scheduler.service.ts | ImproverScheduler — 自文档化调度器 |
 | monitoring.routes | apps/api/src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
@@ -250,7 +237,6 @@
 | monitoring | apps/web/src/api/monitoring.ts | Monitoring API — Agent Network (MVP-2 + MVP-6) |
 | workunit | apps/web/src/api/workunit.ts | WorkUnit API — Agent Network §3.28c-1 |
 | workunitStore | apps/web/src/stores/workunitStore.ts | WorkUnit Store — Agent Network §3.28c-1 |
-| data | src/data.ts | data |
 | cli-adapter | packages/studio-agent/src/cli-adapter.ts | CLI Adapter — translate common spawn params to provider-specific args |
 | registry | packages/studio-agent/src/registry.ts | Agent Persona 注册表 |
 | file-store | packages/studio-shared/src/file-store.ts | FileStore — AN 运行时数据文件存储基类 |
@@ -261,3 +247,22 @@
 | okr-anomaly-detector | apps/api/src/modules/pmo/okr-anomaly-detector.ts | okr-anomaly-detector |
 | project-discovery.service | apps/api/src/modules/projects/project-discovery.service.ts | AC-D1+D3: Project Discovery Service |
 | project.routes | apps/api/src/modules/projects/project.routes.ts | AC-D3: Project Discovery API |
+| providers | packages/studio-shared/src/providers.ts | Provider Registry — single source of truth for agent CLI providers (F4) |
+| events-dir | packages/studio-shared/src/utils/events-dir.ts | R2 事件目录统一（断点 D，docs/plans/2026-07-flywheel-repair.md）。 |
+| agent-loop-registry | apps/api/src/modules/agents/agent-loop-registry.ts | AgentLoopRegistry — profileId → running AgentLoop (F1: AgentLoop 动态挂载) |
+| knowledge-singletons | apps/api/src/modules/knowledge/knowledge-singletons.ts | knowledge-singletons — 知识子系统共享单例的唯一所有者 (R4 收敛, 断点 H) |
+| req-binding | apps/api/src/modules/requirements/req-binding.ts | REQ 绑定解析（vision §5.3）— @mention 派发 / convert-to-task 共用。 |
+| requirement.routes | apps/api/src/modules/requirements/requirement.routes.ts | Requirement API 路由 — REQ 需求编号体系（vision §5.3） |
+| requirement.service | apps/api/src/modules/requirements/requirement.service.ts | Requirement Service — REQ 需求编号体系（vision §5.3） |
+| rollup | apps/api/src/modules/requirements/rollup.ts | REQ 状态汇总（vision §5.3）：订阅 workunit.status_changed， |
+| workspace-store | apps/api/src/modules/workspaces/workspace-store.ts | Workspace Store — F6: 共享的 workspace 记录读取 |
+| waiting-input | apps/api/src/modules/workunit/waiting-input.ts | F5 双向沟通：NEED_INPUT 挂起（waiting）WorkUnit 的恢复与超时提醒。 |
+| requirements | apps/web/src/api/requirements.ts | Requirement API — REQ 需求编号体系（vision §5.3） |
+
+| prompt-overrides.test | packages/studio-shared/src/utils/prompt-overrides.test.ts | prompt-overrides 单元测试（E1 约束进化）。 |
+| prompt-overrides | packages/studio-shared/src/utils/prompt-overrides.ts | E1 约束进化（vision §6）：prompt 模板文件覆盖机制。 |
+| applier | apps/api/src/modules/evolution/applier.ts | E1 约束进化：提案生效器（applier）。 |
+| channel-review | apps/api/src/modules/evolution/channel-review.ts | E1 约束进化：频道审核（channel review）。 |
+| evolution.routes | apps/api/src/modules/evolution/evolution.routes.ts | E1 约束进化 API（vision §6）。 |
+| generator | apps/api/src/modules/evolution/generator.ts | E1 约束进化：提案生成器（generator）。 |
+| signals | apps/api/src/modules/evolution/signals.ts | E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：路径解析 + 信号加载。 |
