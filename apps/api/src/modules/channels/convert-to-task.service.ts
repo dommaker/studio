@@ -7,12 +7,15 @@
 import { logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import type { WorkUnitData } from '../workunit/workunit.service.js';
+import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
 
 export interface ConvertInput {
   title?: string;
   description?: string;
   assigneeId?: string;
   projectPath?: string;
+  workspaceId?: string | null;  // F6: 显式绑定工程（缺省走频道默认）
+  reqId?: string | null;        // REQ 需求编号（显式指定；缺省走 token/自动新建）
 }
 
 export interface ConvertSuggestion {
@@ -46,6 +49,19 @@ export class ConvertToTaskService {
     }
 
     // 2. Create WorkUnit via WorkUnitService (FileStore)
+    // F6: 显式 workspaceId 优先，其次频道默认工程
+    const channel = await this.fileStore.getChannel(channelId);
+    // REQ 需求编号（vision §5.3）：显式 > 原消息 #REQ-XXXX token > 自动新建（best-effort）
+    const reqId = await resolveReqIdForDispatch({
+      explicitReqId: input.reqId,
+      content: found.message.content,
+      channelId,
+      createdBy: 'convert',
+      fileStore: this.fileStore,
+    }).catch(err => {
+      logger.warn('[ConvertToTask] REQ binding failed (non-blocking)', { error: String(err) });
+      return null;
+    });
     const workUnit = await this.workUnitService.create({
       scope: input.title || found.message.content.slice(0, 500),
       channelId,
@@ -53,6 +69,8 @@ export class ConvertToTaskService {
       status: input.assigneeId ? 'active' : 'unassigned',
       assigneeId: input.assigneeId ?? null,
       projectPath: input.projectPath ?? null,
+      workspaceId: input.workspaceId ?? channel?.defaultWorkspaceId ?? null,
+      reqId,
       metadata: {
         creationMode: 'convert',
         originalMessageId: messageId,

@@ -93,6 +93,30 @@ describe('AgentProfile CRUD', () => {
     expect(updated.channels).toBe('["ch-new"]');
   });
 
+  // ── F3: channels 写入端归一化（历史双编码 bug） ──
+
+  it('create normalizes legacy string-encoded channels input', async () => {
+    const profile = await service.create({
+      name: 'test-normalize-create',
+      // 旧 web 客户端会发送已 JSON 编码的字符串（而非数组）
+      channels: JSON.stringify(['ch-1']) as unknown as string[],
+    });
+    testProfileIds.push(profile.id);
+    expect(profile.channels).toBe('["ch-1"]');
+    const onDisk = await service.getById(profile.id);
+    expect(onDisk!.channels).toBe('["ch-1"]');
+  });
+
+  it('update normalizes double-encoded channels input', async () => {
+    const created = await service.create({ name: 'test-normalize-update' });
+    testProfileIds.push(created.id);
+
+    const updated = await service.update(created.id, {
+      channels: JSON.stringify(JSON.stringify(['ch-2'])) as unknown as string[],
+    });
+    expect(updated.channels).toBe('["ch-2"]');
+  });
+
   it('delete', async () => {
     const created = await service.create({ name: 'test-delete' });
     await service.delete(created.id);

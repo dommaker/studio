@@ -1,8 +1,8 @@
-// Default Triggers — 7 system triggers for Agent Network
+// Default Triggers — 8 system triggers for Agent Network
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
 
-/** Register the 7 default system triggers */
+/** Register the 8 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
   // 1. workunit-timeout: SCHEDULE every 5 min → UPDATE workunit (timeout release)
   registry.registerTrigger({
@@ -109,6 +109,28 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
+  // 8. workunit-input-reminder: SCHEDULE every 5 min → EXECUTE workunit-input-reminder-scan (F5 双向沟通超时提醒)
+  registry.registerTrigger({
+    id: 'workunit-input-reminder',
+    name: 'Remind on WorkUnits waiting for human input',
+    condition: { type: 'SCHEDULE', cron: '*/5 * * * *' },
+    action: { type: 'EXECUTE', target: 'workunit-input-reminder-scan' },
+    enabled: true,
+    scope: 'system',
+  });
+
+  // 9. evolution-daily-scan: E1 约束进化（vision §6）— 每日扫描 traces/outcomes 产生进化提案，
+  // 人在频道审核后生效。EVOLUTION_SCAN_CRON 覆盖时间（默认 4:29，错开其他日级任务）；
+  // EVOLUTION_ENABLED=false 关闭（默认 ON 但保守：信号不足时零提案）。
+  registry.registerTrigger({
+    id: 'evolution-daily-scan',
+    name: 'Daily constraint-evolution scan (E1)',
+    condition: { type: 'SCHEDULE', cron: process.env.EVOLUTION_SCAN_CRON || '29 4 * * *' },
+    action: { type: 'EXECUTE', target: 'evolution-scan' },
+    enabled: process.env.EVOLUTION_ENABLED !== 'false',
+    scope: 'system',
+  });
+
 }
 
 /** Get default trigger configs (for testing) */
@@ -203,6 +225,22 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
         },
       },
       enabled: true,
+      scope: 'system',
+    },
+    {
+      id: 'workunit-input-reminder',
+      name: 'Remind on WorkUnits waiting for human input',
+      condition: { type: 'SCHEDULE', cron: '*/5 * * * *' },
+      action: { type: 'EXECUTE', target: 'workunit-input-reminder-scan' },
+      enabled: true,
+      scope: 'system',
+    },
+    {
+      id: 'evolution-daily-scan',
+      name: 'Daily constraint-evolution scan (E1)',
+      condition: { type: 'SCHEDULE', cron: process.env.EVOLUTION_SCAN_CRON || '29 4 * * *' },
+      action: { type: 'EXECUTE', target: 'evolution-scan' },
+      enabled: process.env.EVOLUTION_ENABLED !== 'false',
       scope: 'system',
     },
   ];

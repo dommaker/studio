@@ -40,10 +40,10 @@ describe('Default Triggers', () => {
     registry = new (TriggerScheduler as any)(null);
   });
 
-  it('registers 7 default triggers', () => {
+  it('registers 9 default triggers', () => {
     registerDefaultTriggers(registry);
 
-    expect(mockRegisterTrigger).toHaveBeenCalledTimes(7);
+    expect(mockRegisterTrigger).toHaveBeenCalledTimes(9);
   });
 
   it('workunit-timeout fires every 5 minutes', () => {
@@ -68,9 +68,9 @@ describe('Default Triggers', () => {
     expect(staleCalls).toHaveLength(0);
   });
 
-  it('getDefaultTriggerConfigs returns 7 configs', () => {
+  it('getDefaultTriggerConfigs returns 9 configs', () => {
     const configs = getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(7);
+    expect(configs).toHaveLength(9);
     expect(configs.map(c => c.id)).toEqual([
       'workunit-timeout',
       'agent-timeout',
@@ -79,7 +79,24 @@ describe('Default Triggers', () => {
       'session-knowledge-extraction',
       'zero-consumption-audit',
       'knowledge-synthesis',
+      'workunit-input-reminder',
+      'evolution-daily-scan',
     ]);
+  });
+
+  it('workunit-input-reminder fires every 5 minutes (F5)', () => {
+    registerDefaultTriggers(registry);
+
+    const reminderCall = mockRegisterTrigger.mock.calls.find(
+      (c: any) => c[0].id === 'workunit-input-reminder',
+    );
+    expect(reminderCall).toBeDefined();
+    expect(reminderCall![0].condition).toEqual(
+      expect.objectContaining({ type: 'SCHEDULE', cron: '*/5 * * * *' }),
+    );
+    expect(reminderCall![0].action).toEqual(
+      expect.objectContaining({ type: 'EXECUTE', target: 'workunit-input-reminder-scan' }),
+    );
   });
 
   it('knowledge-quality-audit fires daily and creates a WorkUnit', () => {

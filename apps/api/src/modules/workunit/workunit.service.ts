@@ -37,6 +37,13 @@ export interface WorkUnitMetadata {
   consecutiveStuck?: number;  // 连续无进展步数
   sessionResumes?: number;    // session 恢复次数
   lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)
+  // F5 双向沟通：NEED_INPUT 挂起/恢复状态
+  waitingForInput?: boolean;  // NEED_INPUT 挂起中（status=blocked，等待人类回复）
+  waitingQuestion?: string;   // agent 提出的问题
+  waitingSince?: string;      // 挂起时间 ISO 8601（超时提醒据此计算）
+  waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
+  pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
+  knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
   [key: string]: unknown;     // 允许扩展字段
 }
 
@@ -48,6 +55,8 @@ export interface CreateWorkUnitInput {
   channelId?: string | null;
   parentId?: string | null;
   projectPath?: string | null;
+  workspaceId?: string | null;  // F6: 绑定工程（显式指定或频道默认）
+  reqId?: string | null;        // REQ 需求编号（vision §5.3：显式/#REQ-XXXX/自动新建）
   failureType?: string;
   retryCount?: number;
   timeoutAt?: Date | null;
@@ -62,6 +71,8 @@ export interface UpdateWorkUnitInput {
   channelId?: string | null;
   parentId?: string | null;
   projectPath?: string | null;
+  workspaceId?: string | null;
+  reqId?: string | null;        // REQ 需求编号
   failureType?: string | null;
   retryCount?: number;
   timeoutAt?: Date | null;
@@ -85,6 +96,8 @@ export interface WorkUnitData {
   timeoutAt: Date | null;
   channelId: string | null;
   projectPath: string | null;
+  workspaceId?: string | null;  // F6: 绑定工程（旧 WorkUnit 无此字段 → null）
+  reqId?: string | null;        // REQ 需求编号（旧 WorkUnit 无此字段 → null）
   metadata: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -117,6 +130,8 @@ function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
     timeoutAt: s.timeoutAt ? new Date(s.timeoutAt) : null,
     channelId: s.channelId,
     projectPath: s.projectPath,
+    workspaceId: s.workspaceId ?? null,
+    reqId: s.reqId ?? null,
     metadata: s.metadata,
     createdAt: new Date(s.createdAt),
     updatedAt: new Date(s.updatedAt),
@@ -143,6 +158,8 @@ function inputToSnapshot(
     timeoutAt: input.timeoutAt?.toISOString() ?? null,
     channelId: input.channelId ?? null,
     projectPath: input.projectPath ?? null,
+    workspaceId: input.workspaceId ?? null,
+    reqId: input.reqId ?? null,
     metadata: input.metadata ? JSON.stringify(input.metadata) : null,
     createdAt: isoNow,
     updatedAt: isoNow,
@@ -165,6 +182,8 @@ function patchSnapshot(
     channelId: input.channelId !== undefined ? input.channelId : existing.channelId,
     parentId: input.parentId !== undefined ? input.parentId : existing.parentId,
     projectPath: input.projectPath !== undefined ? input.projectPath : existing.projectPath,
+    workspaceId: input.workspaceId !== undefined ? input.workspaceId : existing.workspaceId ?? null,
+    reqId: input.reqId !== undefined ? input.reqId : existing.reqId ?? null,
     failureType: input.failureType !== undefined ? input.failureType : existing.failureType,
     retryCount: input.retryCount ?? existing.retryCount,
     timeoutAt: input.timeoutAt !== undefined ? input.timeoutAt?.toISOString() ?? null : existing.timeoutAt,
@@ -519,6 +538,9 @@ export class WorkUnitService {
     await this.fileStore.appendEvent(event);
     await this.fileStore.upsertSnapshot(updated);
 
+    // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
+    this.publishStatusChanged(updated);
+
     // Cascade: parent status aggregation on any status change that affects parent
     if (['active', 'blocked', 'done', 'closed'].includes(newStatus)) {
       this.aggregateParentStatus(id).catch(err =>
@@ -562,6 +584,9 @@ export class WorkUnitService {
     };
     await this.fileStore.appendEvent(event);
     await this.fileStore.upsertSnapshot(updated);
+
+    // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
+    this.publishStatusChanged(updated);
 
     // Cascade: parent aggregation (best-effort)
     this.aggregateParentStatus(id).catch(err =>
@@ -615,6 +640,21 @@ export class WorkUnitService {
     }
 
     return snapshotToData(updated);
+  }
+
+  /**
+   * 发布 workunit.status_changed（best-effort，不阻断主流程）。
+   * REQ 需求状态汇总（vision §5.3）等订阅方消费。
+   */
+  private publishStatusChanged(snapshot: WorkUnitSnapshot): void {
+    try {
+      eventBus.publish('workunit.status_changed', { workunit: snapshotToData(snapshot) });
+    } catch (err) {
+      logger.warn('[WorkUnit] Failed to publish workunit.status_changed (non-blocking)', {
+        workUnitId: snapshot.id,
+        error: String(err),
+      });
+    }
   }
 
   /**

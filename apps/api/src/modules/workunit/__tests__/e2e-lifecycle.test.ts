@@ -19,7 +19,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { FileStore } from '@dommaker/studio-shared';
 import { TriggerStore } from '../../triggers/trigger-store.js';
-import { executeCreateAction } from '../../triggers/trigger-action.js';
+import { executeCreateAction, setTriggerActionFileStore } from '../../triggers/trigger-action.js';
 import { WorkUnitService } from '../workunit.service.js';
 import { channelMessageService } from '../../channels/channel-message.service.js';
 import { selectSkills } from '../../skills/skill-selector.js';
@@ -57,8 +57,9 @@ const TEST_SKILLS: SkillEntry[] = [
 ];
 
 describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
-  const workUnitService = new WorkUnitService();
+  let workUnitService: WorkUnitService;
   let testChannelId: string;
+  let tmpDir: string;
   let triggerDir: string;
   let triggerStore: TriggerStore;
   let workUnitId: string;
@@ -67,8 +68,15 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
   const triggerId = 'e2e-lifecycle-trigger';
 
   beforeAll(async () => {
+    // Temp FileStore — 不触碰默认 ~/.studio/data（本机可能有运行中的 server 并发写）
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-lifecycle-'));
+    fileStore = new FileStore(tmpDir);
+    workUnitService = new WorkUnitService(fileStore);
+    // trigger-action / channelMessageService 的模块级单例同样注入 tmp store
+    setTriggerActionFileStore(fileStore);
+    channelMessageService.setFileStore(fileStore);
+
     // 1. Create test Channel in FileStore (for message ops)
-    fileStore = new FileStore();
     const channelName = `#e2e-lifecycle-${Date.now()}`;
     testChannelId = `e2e-ch-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     await fileStore.createChannel({
@@ -93,13 +101,9 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
   });
 
   afterAll(async () => {
-    // Cleanup: work unit
-    if (workUnitId) {
-      await workUnitService.delete(workUnitId).catch(() => {});
-    }
-    // Cleanup: channel
-    if (testChannelId) {
-      await fileStore.deleteChannel(testChannelId).catch(() => {});
+    // Cleanup: temp dirs (workunits/channels live under tmpDir)
+    if (tmpDir) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
     // Cleanup: temp trigger dir
     if (triggerDir) {

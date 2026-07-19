@@ -8,6 +8,7 @@ import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
+import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -330,7 +331,7 @@ router.get('/:id/messages', async (req, res) => {
 
 // POST /api/v1/channels/:id/messages — send a message
 router.post('/:id/messages', async (req, res) => {
-  const { content, replyToId } = req.body;
+  const { content, replyToId, workspaceId, reqId } = req.body;
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ success: false, error: 'content is required' });
   }
@@ -343,10 +344,17 @@ router.post('/:id/messages', async (req, res) => {
     return res.status(404).json({ success: false, error: 'Channel not found' });
   }
 
+  // F6: 调用方可显式指定 workspaceId（缺省走频道默认工程）
   const message = await routeMessage(
     channelId,
     trimmedContent,
     replyToId || undefined,
+    undefined,
+    {
+      workspaceId: typeof workspaceId === 'string' && workspaceId ? workspaceId : undefined,
+      // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
+      reqId: typeof reqId === 'string' && reqId ? reqId : undefined,
+    },
   );
 
   res.status(201).json({ success: true, data: message });
@@ -430,7 +438,14 @@ router.patch('/:id', async (req, res) => {
   try {
     const data: Record<string, unknown> = {};
     if (name !== undefined) data.name = name;
-    if (defaultWorkspaceId !== undefined) data.defaultWorkspaceId = defaultWorkspaceId;
+    if (defaultWorkspaceId !== undefined) {
+      // F6: '' → 清除默认工程；非空时校验 workspace 已注册
+      const validated = await validateDefaultWorkspaceId(defaultWorkspaceId);
+      if (!validated.ok) {
+        return res.status(400).json({ success: false, error: validated.error });
+      }
+      data.defaultWorkspaceId = validated.value;
+    }
     if (defaultPath !== undefined) data.defaultPath = defaultPath;
     await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
     const updated = await fileStore.getChannel(id);
@@ -463,7 +478,7 @@ router.patch('/:id/members', async (req, res) => {
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
 router.post('/:id/messages/:messageId/convert-to-task', async (req, res) => {
   const { id: channelId, messageId } = req.params;
-  const { title, description, assigneeId, projectPath } = req.body;
+  const { title, description, assigneeId, projectPath, workspaceId, reqId } = req.body;
 
   try {
     const workUnit = await convertToTaskService.convert(channelId, messageId, {
@@ -471,6 +486,8 @@ router.post('/:id/messages/:messageId/convert-to-task', async (req, res) => {
       description,
       assigneeId,
       projectPath,
+      workspaceId,
+      reqId,
     });
     res.status(201).json({ success: true, data: workUnit });
   } catch (e: unknown) {
@@ -563,4 +580,18 @@ export async function updateChannelMembers(
   await fileStore.updateChannel(channelId, { members: JSON.stringify(updated) });
 
   return updated;
+}
+
+/**
+ * F6: 归一化 + 校验 defaultWorkspaceId（channel PATCH 用）。
+ * '' / null / 非字符串 → null（清除默认工程）；非空字符串须对应已注册 workspace。
+ */
+export async function validateDefaultWorkspaceId(
+  value: unknown,
+): Promise<{ ok: boolean; value: string | null; error?: string }> {
+  const wsId = typeof value === 'string' && value.trim() ? value.trim() : null;
+  if (wsId && !(await getWorkspaceRecord(wsId))) {
+    return { ok: false, value: null, error: `Workspace not found: ${wsId}` };
+  }
+  return { ok: true, value: wsId };
 }

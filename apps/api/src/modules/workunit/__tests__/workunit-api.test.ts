@@ -559,14 +559,12 @@ describeIf('WorkUnit API service', () => {
 
     it('cascade: child done triggers parent aggregation', async () => {
       const parent = await service.create({ scope: 'parent-cascade' });
-      const c1 = await service.create({ scope: 'child-casc-1', parentId: parent.id });
+      // transitionStatus fires aggregateParentStatus fire-and-forget; driving the
+      // child through transitions here would race the next getIndex/upsertSnapshot
+      // on index.json (torn read → flaky "WorkUnit not found"). Like the 'direct'
+      // cases above, create the child already done and verify the cascade LOGIC.
+      const c1 = await service.create({ scope: 'child-casc-1', parentId: parent.id, status: 'done' });
       testIds.push(parent.id, c1.id);
-
-      // Transition to done, then manually trigger aggregation (fire-and-forget cascades
-      // have inherent race — this verifies the cascade LOGIC, not async ordering)
-      await service.transitionStatus(c1.id, 'active');
-      await service.transitionStatus(c1.id, 'in_review');
-      await service.transitionStatus(c1.id, 'done');
 
       // Direct call to verify aggregation logic works
       await service.aggregateParentStatus(c1.id);

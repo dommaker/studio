@@ -7,12 +7,14 @@ import { api } from '../api/index';
 const statusColors: Record<string, string> = {
   idle: 'bg-gray-500/20 text-gray-300',
   active: 'bg-purple-500/20 text-purple-300',
+  error: 'bg-orange-500/20 text-orange-300',
   terminated: 'bg-red-500/20 text-red-300',
 };
 
 const statusLabels: Record<string, string> = {
   idle: '空闲',
   active: '执行中',
+  error: '不可用',
   terminated: '已终止',
 };
 
@@ -64,6 +66,7 @@ export function AgentDashboardPage() {
             <StatBadge label="总数" value={data.summary.total} color="text-blue-400" />
             <StatBadge label="空闲" value={data.summary.idle} color="text-gray-400" />
             <StatBadge label="执行中" value={data.summary.active} color="text-purple-400" />
+            <StatBadge label="不可用" value={data.summary.error} color="text-orange-400" />
             <StatBadge label="已终止" value={data.summary.terminated} color="text-red-400" />
           </div>
         )}
@@ -118,6 +121,11 @@ function AgentCard({ agent, onTerminate }: { agent: AgentInfo; onTerminate: (id:
             {agent.currentWorkUnitId && <span>WorkUnit: {agent.currentWorkUnitId.slice(0, 8)}...</span>}
             <span>运行: {uptime}</span>
           </div>
+          {agent.lastError && (
+            <div className="mt-1 text-xs text-orange-400 truncate" title={agent.lastError}>
+              ⚠ {agent.lastError}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-2">
@@ -140,6 +148,15 @@ function AgentCard({ agent, onTerminate }: { agent: AgentInfo; onTerminate: (id:
             <div><span className="text-gray-500">Status:</span> <span className="text-gray-300">{agent.status}</span></div>
             <div><span className="text-gray-500">Current WorkUnit:</span> <span className="text-gray-300">{agent.currentWorkUnitId ?? 'none'}</span></div>
             <div><span className="text-gray-500">Started:</span> <span className="text-gray-300">{new Date(agent.startedAt).toLocaleString('zh-CN')}</span></div>
+            {agent.lastError && (
+              <div className="col-span-2">
+                <span className="text-gray-500">Last Error:</span>{' '}
+                <span className="text-orange-300">{agent.lastError}</span>
+                {agent.lastErrorAt && (
+                  <span className="text-gray-500"> ({new Date(agent.lastErrorAt).toLocaleString('zh-CN')})</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
       )}

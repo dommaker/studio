@@ -326,6 +326,63 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
   });
 
+  // ── F5: 回复挂起中的 WorkUnit → 恢复执行 ──
+
+  describe('F5: reply to waiting WorkUnit resumes it', () => {
+    /** 创建挂起（blocked + waitingForInput）的 WorkUnit 及 anchor 消息 */
+    async function setupParkedWorkUnit() {
+      const wu = await workUnitService.create({
+        scope: '实现登录功能', channelId, type: 'task', status: 'active', assigneeId: 'instance-1',
+      });
+      await workUnitService.transitionStatus(wu.id, 'blocked');
+      await workUnitService.update(wu.id, {
+        metadata: {
+          waitingForInput: true,
+          waitingQuestion: '使用 OAuth 还是账号密码？',
+          waitingSince: new Date().toISOString(),
+          waitingReminded: false,
+        },
+      });
+      const anchor: ChannelMessageData = {
+        id: uuidv4(), channelId, authorType: 'agent', agentName: 'f5-agent',
+        content: '需要输入: 使用 OAuth 还是账号密码？', replyToId: null, meta: '{}',
+        workUnitId: wu.id, createdAt: new Date().toISOString(),
+      };
+      await fileStore.appendMessage(channelId, anchor);
+      return { wu, anchor };
+    }
+
+    it('human thread reply → WorkUnit un-parks (blocked → active) with reply in pendingReplies', async () => {
+      const { wu, anchor } = await setupParkedWorkUnit();
+
+      const reply = await routeMessage(channelId, '用 OAuth', anchor.id, fileStore);
+
+      expect(reply.workUnitId).toBe(wu.id);
+      const after = await findWu(wu.id);
+      expect(after!.status).toBe('active');
+      const meta = after!.metadata ? JSON.parse(after!.metadata) : {};
+      expect(meta.waitingForInput).toBe(false);
+      expect(meta.pendingReplies).toEqual(['用 OAuth']);
+    });
+
+    it('reply to non-waiting blocked WorkUnit → status untouched', async () => {
+      const wu = await workUnitService.create({
+        scope: '卡住的任务', channelId, type: 'task', status: 'active', assigneeId: 'instance-1',
+      });
+      await workUnitService.transitionStatus(wu.id, 'blocked'); // 卡住型 blocked（无 waitingForInput）
+      const anchor: ChannelMessageData = {
+        id: uuidv4(), channelId, authorType: 'agent', agentName: 'f5-agent',
+        content: '连续 3 步无进展', replyToId: null, meta: '{}',
+        workUnitId: wu.id, createdAt: new Date().toISOString(),
+      };
+      await fileStore.appendMessage(channelId, anchor);
+
+      await routeMessage(channelId, '看看情况', anchor.id, fileStore);
+
+      expect((await findWu(wu.id))!.status).toBe('blocked');
+    });
+  });
+
   // ── detectMention utility ──
 
   describe('detectMention', () => {

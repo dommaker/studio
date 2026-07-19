@@ -72,7 +72,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
     try {
       const res = await channelApi.createAgent({
         name: newAgentName.trim(),
-        channels: JSON.stringify([channelId]),
+        channels: [channelId],
       });
       const newAgent = res.data;
       await channelApi.updateMembers(channelId, { add: [newAgent.id] });
@@ -118,6 +118,9 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
               <div key={m.id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-gray-50">
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="text-sm font-medium text-gray-700 truncate">@{m.name}</span>
+                  {m.lastError && (
+                    <span className="text-xs text-orange-500 flex-shrink-0" title={m.lastError}>⚠ 不可用</span>
+                  )}
                   {m.description && (
                     <span className="text-xs text-gray-400 truncate">{m.description}</span>
                   )}
