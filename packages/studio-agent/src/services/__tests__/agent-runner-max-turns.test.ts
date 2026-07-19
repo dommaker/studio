@@ -3,51 +3,36 @@
  *
  * Source-code analysis: verify TIER_MAX_TURNS constant and --max-turns flag
  * are correctly wired into the lightweight session cmd array.
+ * (Split: TIER constants + cmd construction in runner-params.ts, --max-turns wiring in runner-lightweight.ts)
  */
 
 import { describe, test, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
 
-function resolveAgentRunnerSrc(): string {
-  const local = path.resolve(__dirname, '../agent-runner.ts');
-  if (fs.existsSync(local)) {
-    const content = fs.readFileSync(local, 'utf-8');
-    if (content.includes('TIER_MAX_TURNS')) return content;
-  }
-  try {
-    const gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', cwd: __dirname }).trim();
-    const relPath = 'packages/studio-agent/src/services/agent-runner.ts';
-    const wtList = execSync('git worktree list --porcelain', { encoding: 'utf-8', cwd: __dirname });
-    for (const block of wtList.split('\n\n')) {
-      const wtLine = block.split('\n').find(l => l.startsWith('worktree '));
-      if (!wtLine) continue;
-      const wtRoot = wtLine.slice('worktree '.length);
-      if (wtRoot === gitRoot) continue;
-      const candidate = path.join(wtRoot, relPath);
-      if (fs.existsSync(candidate)) {
-        const c = fs.readFileSync(candidate, 'utf-8');
-        if (c.includes('TIER_MAX_TURNS')) return c;
-      }
-    }
-  } catch { /* ignore */ }
-  return fs.existsSync(local) ? fs.readFileSync(local, 'utf-8') : '';
-}
+// TIER_MAX_TURNS / TIER_TIMEOUTS / --verbose cmd construction live in runner-params.ts
+const runnerParamsSrc = fs.readFileSync(
+  path.resolve(__dirname, '../runner-params.ts'),
+  'utf-8',
+);
 
-const agentRunnerSrc = resolveAgentRunnerSrc();
+// --max-turns wiring lives in runner-lightweight.ts
+const runnerLightweightSrc = fs.readFileSync(
+  path.resolve(__dirname, '../runner-lightweight.ts'),
+  'utf-8',
+);
 
 describe('TIER_MAX_TURNS constant', () => {
   test('TIER_MAX_TURNS exists with correct values (fast=8, standard=15, premium=25)', () => {
-    expect(agentRunnerSrc).toMatch(/const\s+TIER_MAX_TURNS\s*:\s*Record<ModelTier,\s*number>/);
-    expect(agentRunnerSrc).toMatch(/fast:\s*8/);
-    expect(agentRunnerSrc).toMatch(/standard:\s*15/);
-    expect(agentRunnerSrc).toMatch(/premium:\s*25/);
+    expect(runnerParamsSrc).toMatch(/const\s+TIER_MAX_TURNS\s*:\s*Record<ModelTier,\s*number>/);
+    expect(runnerParamsSrc).toMatch(/fast:\s*8/);
+    expect(runnerParamsSrc).toMatch(/standard:\s*15/);
+    expect(runnerParamsSrc).toMatch(/premium:\s*25/);
   });
 
   test('TIER_MAX_TURNS placed near TIER_TIMEOUTS', () => {
-    const tierTimeoutsIdx = agentRunnerSrc.indexOf('TIER_TIMEOUTS');
-    const tierMaxTurnsIdx = agentRunnerSrc.indexOf('TIER_MAX_TURNS');
+    const tierTimeoutsIdx = runnerParamsSrc.indexOf('TIER_TIMEOUTS');
+    const tierMaxTurnsIdx = runnerParamsSrc.indexOf('TIER_MAX_TURNS');
     expect(tierTimeoutsIdx).toBeGreaterThan(-1);
     expect(tierMaxTurnsIdx).toBeGreaterThan(-1);
     // Within 500 chars of each other
@@ -56,8 +41,8 @@ describe('TIER_MAX_TURNS constant', () => {
 });
 
 describe('--max-turns via buildSpawnArgs', () => {
-  test('agent-runner calls buildSpawnArgs with maxTurns from parameters', () => {
-    expect(agentRunnerSrc).toMatch(/maxTurns.*task\.parameters/);
+  test('runner-lightweight calls buildSpawnArgs with maxTurns from parameters', () => {
+    expect(runnerLightweightSrc).toMatch(/maxTurns.*task\.parameters/);
   });
 
   test('buildSpawnArgs in cli-adapter handles --max-turns for claude', () => {
@@ -69,7 +54,7 @@ describe('--max-turns via buildSpawnArgs', () => {
   });
 
   test('--verbose remains in agent-runner cmd construction', () => {
-    const verboseIdx = agentRunnerSrc.indexOf('`--verbose`');
+    const verboseIdx = runnerParamsSrc.indexOf('`--verbose`');
     expect(verboseIdx).toBeGreaterThan(-1);
   });
 });

@@ -11,35 +11,17 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Resolve source path (same pattern as agent-runner.test.ts)
-import { execSync } from 'child_process';
+// hasRecentActivity implementation lives in runner-output.ts
+const runnerOutputSrc = fs.readFileSync(
+  path.resolve(__dirname, '../runner-output.ts'),
+  'utf-8',
+);
 
-function resolveAgentRunnerSrc(): string {
-  const local = path.resolve(__dirname, '../agent-runner.ts');
-  if (fs.existsSync(local)) {
-    const content = fs.readFileSync(local, 'utf-8');
-    if (content.includes('hasRecentActivity')) return content;
-  }
-  try {
-    const gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', cwd: __dirname }).trim();
-    const relPath = 'packages/studio-agent/src/services/agent-runner.ts';
-    const wtList = execSync('git worktree list --porcelain', { encoding: 'utf-8', cwd: __dirname });
-    for (const block of wtList.split('\n\n')) {
-      const wtLine = block.split('\n').find(l => l.startsWith('worktree '));
-      if (!wtLine) continue;
-      const wtRoot = wtLine.slice('worktree '.length);
-      if (wtRoot === gitRoot) continue;
-      const candidate = path.join(wtRoot, relPath);
-      if (fs.existsSync(candidate)) {
-        const c = fs.readFileSync(candidate, 'utf-8');
-        if (c.includes('hasRecentActivity')) return c;
-      }
-    }
-  } catch { /* ignore */ }
-  return fs.existsSync(local) ? fs.readFileSync(local, 'utf-8') : '';
-}
-
-const agentRunnerSrc = resolveAgentRunnerSrc();
+// Stuck detection integration lives in runner-execution.ts
+const runnerExecutionSrc = fs.readFileSync(
+  path.resolve(__dirname, '../runner-execution.ts'),
+  'utf-8',
+);
 
 // Import the function under test
 // Will fail until GREEN phase implements it
@@ -121,38 +103,38 @@ describe('hasRecentActivity', () => {
 });
 
 describe('Stuck detection integration: hasRecentActivity is called before declaring stuck', () => {
-  test('agent-runner.ts exports hasRecentActivity function', () => {
-    expect(agentRunnerSrc).toMatch(/export\s+function\s+hasRecentActivity/);
+  test('runner-output.ts exports hasRecentActivity function', () => {
+    expect(runnerOutputSrc).toMatch(/export\s+function\s+hasRecentActivity/);
   });
 
   test('hasRecentActivity accepts worktreePath as first parameter', () => {
-    expect(agentRunnerSrc).toMatch(/function\s+hasRecentActivity\s*\(\s*worktreePath\s*:\s*string/);
+    expect(runnerOutputSrc).toMatch(/function\s+hasRecentActivity\s*\(\s*worktreePath\s*:\s*string/);
   });
 
   test('hasRecentActivity has default threshold of 3 minutes', () => {
-    expect(agentRunnerSrc).toMatch(/hasRecentActivity\s*\([^)]*3\s*\*\s*60\s*\*\s*1000/);
+    expect(runnerOutputSrc).toMatch(/hasRecentActivity\s*\([^)]*3\s*\*\s*60\s*\*\s*1000/);
   });
 
   test('hasRecentActivity excludes .progress.json from mtime check', () => {
-    expect(agentRunnerSrc).toContain('.progress.json');
+    expect(runnerOutputSrc).toContain('.progress.json');
   });
 
   test('hasRecentActivity excludes .agent.log from mtime check', () => {
-    expect(agentRunnerSrc).toContain('.agent.log');
+    expect(runnerOutputSrc).toContain('.agent.log');
   });
 
   test('hasRecentActivity excludes node_modules from mtime check', () => {
-    expect(agentRunnerSrc).toContain('node_modules');
+    expect(runnerOutputSrc).toContain('node_modules');
   });
 
   test('stuck detection path calls hasRecentActivity before incrementing stuckCount', () => {
     // The stuck detection block must call hasRecentActivity before stuckCount++
-    expect(agentRunnerSrc).toMatch(/hasRecentActivity\s*\(\s*worktree/);
+    expect(runnerExecutionSrc).toMatch(/hasRecentActivity\s*\(\s*worktree/);
   });
 
   test('stuck detection defers when hasRecentActivity returns true', () => {
     // When hasRecentActivity returns true, stuckCount++ must be skipped
     // Look for: if (hasRecentActivity(worktree)) pattern near stuckCount
-    expect(agentRunnerSrc).toMatch(/if\s*\(\s*hasRecentActivity\s*\(\s*worktree/);
+    expect(runnerExecutionSrc).toMatch(/if\s*\(\s*hasRecentActivity\s*\(\s*worktree/);
   });
 });
