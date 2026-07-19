@@ -1,30 +1,36 @@
 /**
  * Auth middleware unit tests
  *
- * AC1: workspaceAuth() — Bearer token → sha256 → WorkspaceToken query → req.workspace
+ * AC1: workspaceAuth() — Bearer token → sha256 → WorkspaceToken (FileStore) → req.workspace
  * AC2: checkOwnership(model, paramKey) — owner match / non-owner 403 / Admin bypass / invalid model
  * AC3: requireNotGuest() — Guest 403 / non-Guest pass
  * AC4: generateAnonymousId() — IP+UA+date hash consistency (SEC-009)
+ *
+ * 存储迁移后（Prisma → FileStore）：token/workspace/document 均通过
+ * FileStore.readJson 读取 JSON 文件，测试 mock FileStore 而非 prisma。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 
-// Mock dependencies before imports
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    workspaceToken: { findUnique: vi.fn() },
-    workspace: { findUnique: vi.fn() },
-    document: { findUnique: vi.fn() },
-  },
-}));
+// Mock FileStore — auth.ts 在模块级 `new FileStore()`，实例方法统一走 hoisted mock
+const mockReadJson = vi.hoisted(() => vi.fn());
+
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    FileStore: vi.fn().mockImplementation(() => ({
+      readJson: mockReadJson,
+    })),
+  };
+});
 
 vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
 import { workspaceAuth, checkOwnership, requireNotGuest, generateAnonymousId, optionalAuth, requireAuth } from '../auth.js';
-const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
 
 // ---------------------------------------------------------------------------
 // AC1: workspaceAuth()
@@ -60,24 +66,27 @@ describe('workspaceAuth', () => {
   it('queries WorkspaceToken with sha256 hash of Bearer token', async () => {
     const token = 'st_mach_test_token';
     const expectedHash = crypto.createHash('sha256').update(token).digest('hex');
-    vi.mocked(prisma.workspaceToken.findUnique).mockResolvedValue({
+    // FileStore: 先读 workspace-tokens/<hash>.json，再读 workspaces/<workspaceId>.json
+    mockReadJson.mockResolvedValueOnce({
       id: 'wt1',
+      tokenHash: expectedHash,
+      workspaceId: 'ws1',
       revokedAt: null,
-      workspaces: [{ id: 'ws1' }],
-    } as any);
+    });
+    mockReadJson.mockResolvedValueOnce({ id: 'ws1', name: 'test-workspace' });
     req.headers = { authorization: `Bearer ${token}` };
 
     const middleware = workspaceAuth();
     await middleware(req as Request, res as Response, next);
 
-    expect(prisma.workspaceToken.findUnique).toHaveBeenCalledWith({
-      where: { tokenHash: expectedHash },
-      include: { workspaces: true },
-    });
+    expect(mockReadJson).toHaveBeenCalledWith(
+      expect.stringContaining(`${expectedHash}.json`),
+    );
+    expect(next).toHaveBeenCalled();
   });
 
-  it('returns 401 when token not found in DB', async () => {
-    vi.mocked(prisma.workspaceToken.findUnique).mockResolvedValue(null);
+  it('returns 401 when token not found in FileStore', async () => {
+    mockReadJson.mockResolvedValueOnce(null);
     req.headers = { authorization: 'Bearer st_mach_unknown_token' };
 
     const middleware = workspaceAuth();
@@ -90,11 +99,12 @@ describe('workspaceAuth', () => {
   });
 
   it('returns 401 when token is revoked', async () => {
-    vi.mocked(prisma.workspaceToken.findUnique).mockResolvedValue({
+    mockReadJson.mockResolvedValueOnce({
       id: 'wt1',
-      revokedAt: new Date(),
-      workspaces: [],
-    } as any);
+      tokenHash: 'hash',
+      workspaceId: 'ws1',
+      revokedAt: new Date().toISOString(),
+    });
     req.headers = { authorization: 'Bearer st_mach_revoked_token' };
 
     const middleware = workspaceAuth();
@@ -107,11 +117,14 @@ describe('workspaceAuth', () => {
   });
 
   it('returns 401 when token has no registered workspace', async () => {
-    vi.mocked(prisma.workspaceToken.findUnique).mockResolvedValue({
+    mockReadJson.mockResolvedValueOnce({
       id: 'wt1',
+      tokenHash: 'hash',
+      workspaceId: 'ws-missing',
       revokedAt: null,
-      workspaces: [],
-    } as any);
+    });
+    // workspaces/<id>.json 不存在 → readJson 返回 null
+    mockReadJson.mockResolvedValueOnce(null);
     req.headers = { authorization: 'Bearer st_mach_no_ws_token' };
 
     const middleware = workspaceAuth();
@@ -125,8 +138,9 @@ describe('workspaceAuth', () => {
 
   it('injects workspace and workspaceToken into req on success', async () => {
     const mockWorkspace = { id: 'ws1', name: 'test-workspace' };
-    const mockToken = { id: 'wt1', revokedAt: null, workspaces: [mockWorkspace] };
-    vi.mocked(prisma.workspaceToken.findUnique).mockResolvedValue(mockToken as any);
+    const mockToken = { id: 'wt1', tokenHash: 'hash', workspaceId: 'ws1', revokedAt: null };
+    mockReadJson.mockResolvedValueOnce(mockToken);
+    mockReadJson.mockResolvedValueOnce(mockWorkspace);
     req.headers = { authorization: 'Bearer st_mach_valid_token' };
 
     const middleware = workspaceAuth();
@@ -138,10 +152,8 @@ describe('workspaceAuth', () => {
     expect(next).toHaveBeenCalled();
   });
 
-  it('returns 500 on unexpected DB error', async () => {
-    vi.mocked(prisma.workspaceToken.findUnique).mockRejectedValue(
-      new Error('DB connection failed'),
-    );
+  it('returns 500 on unexpected FileStore error', async () => {
+    mockReadJson.mockRejectedValueOnce(new Error('FS read failed'));
     req.headers = { authorization: 'Bearer st_mach_err_token' };
 
     const middleware = workspaceAuth();
@@ -204,10 +216,11 @@ describe('checkOwnership', () => {
     );
   });
 
-  it('returns 404 when resource not found in DB', async () => {
+  it('returns 404 when resource not found in FileStore', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { id: 'nonexistent' };
-    vi.mocked(prisma.document.findUnique).mockResolvedValue(null);
+    // documents/<id>.json 不存在 → readJson 返回 null → creatorId undefined
+    mockReadJson.mockResolvedValueOnce(null);
 
     const middleware = checkOwnership('document');
     await middleware(req as Request, res as Response, next);
@@ -221,9 +234,9 @@ describe('checkOwnership', () => {
   it('returns 403 when resource uses createdBy field and mismatches', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { id: 'doc1' };
-    vi.mocked(prisma.document.findUnique).mockResolvedValue({
+    mockReadJson.mockResolvedValueOnce({
       createdBy: 'other-user',
-    } as any);
+    });
 
     const middleware = checkOwnership('document');
     await middleware(req as Request, res as Response, next);
@@ -237,9 +250,9 @@ describe('checkOwnership', () => {
   it('calls next() when user owns the resource via createdBy', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { id: 'doc1' };
-    vi.mocked(prisma.document.findUnique).mockResolvedValue({
+    mockReadJson.mockResolvedValueOnce({
       createdBy: 'u1',
-    } as any);
+    });
 
     const middleware = checkOwnership('document');
     await middleware(req as Request, res as Response, next);
@@ -250,9 +263,9 @@ describe('checkOwnership', () => {
   it('uses custom paramKey to extract resource ID', async () => {
     (req as any).user = { id: 'u1', role: 'User' };
     req.params = { docId: 'd1' };
-    vi.mocked(prisma.document.findUnique).mockResolvedValue({
+    mockReadJson.mockResolvedValueOnce({
       createdBy: 'u1',
-    } as any);
+    });
 
     const middleware = checkOwnership('document', 'docId');
     await middleware(req as Request, res as Response, next);
@@ -267,7 +280,7 @@ describe('checkOwnership', () => {
     const middleware = checkOwnership('nonexistentModel');
     await middleware(req as Request, res as Response, next);
 
-    // (prisma as any)['nonexistentModel'] is undefined → .findUnique() throws
+    // findResourceCreator 不支持的 model → throw → catch → 500
     expect(res.status).toHaveBeenCalledWith(500);
     expect(res.json).toHaveBeenCalledWith(
       expect.objectContaining({ code: 'AUTH_CHECK_ERROR' }),

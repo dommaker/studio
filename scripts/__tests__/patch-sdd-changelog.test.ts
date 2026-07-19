@@ -49,7 +49,7 @@ describe('patch-sdd-changelog', () => {
     });
 
     const patch = await loadPatcher();
-    const results = patch(true, TEST_SDD);
+    const results = await patch(true, TEST_SDD);
 
     expect(results).toHaveLength(1);
     expect(results[0].action).toBe('created');
@@ -66,7 +66,7 @@ describe('patch-sdd-changelog', () => {
     });
 
     const patch = await loadPatcher();
-    const results = patch(true, TEST_SDD);
+    const results = await patch(true, TEST_SDD);
 
     expect(results).toHaveLength(1);
     expect(results[0].action).toBe('skipped-historical');
@@ -83,7 +83,7 @@ describe('patch-sdd-changelog', () => {
     writeFileSync(join(TEST_SDD, 'existing-changelog', 'CHANGELOG.md'), '# CHANGELOG\n');
 
     const patch = await loadPatcher();
-    const results = patch(true, TEST_SDD);
+    const results = await patch(true, TEST_SDD);
 
     expect(results).toHaveLength(1);
     expect(results[0].action).toBe('skipped-exists');
@@ -93,7 +93,7 @@ describe('patch-sdd-changelog', () => {
     mkdirSync(join(TEST_SDD, 'no-req'), { recursive: true });
 
     const patch = await loadPatcher();
-    const results = patch(true, TEST_SDD);
+    const results = await patch(true, TEST_SDD);
 
     expect(results).toHaveLength(1);
     expect(results[0].action).toBe('skipped-no-requirement');
@@ -110,7 +110,7 @@ describe('patch-sdd-changelog', () => {
     });
 
     const patch = await loadPatcher();
-    patch(true, TEST_SDD);
+    await patch(true, TEST_SDD);
 
     expect(existsSync(join(TEST_SDD, 'dry-test', 'CHANGELOG.md'))).toBe(false);
   });
@@ -126,7 +126,7 @@ describe('patch-sdd-changelog', () => {
     });
 
     const patch = await loadPatcher();
-    const results = patch(false, TEST_SDD);
+    const results = await patch(false, TEST_SDD);
 
     expect(results).toHaveLength(1);
     expect(results[0].action).toBe('created');
@@ -149,8 +149,8 @@ describe('patch-sdd-changelog', () => {
     });
 
     const patch = await loadPatcher();
-    patch(false, TEST_SDD);
-    const results2 = patch(false, TEST_SDD);
+    await patch(false, TEST_SDD);
+    const results2 = await patch(false, TEST_SDD);
 
     expect(results2[0].action).toBe('skipped-exists');
   });
@@ -180,7 +180,7 @@ describe('patch-sdd-changelog', () => {
     writeFileSync(join(TEST_SDD, 'already-has', 'CHANGELOG.md'), '# CHANGELOG\n');
 
     const patch = await loadPatcher();
-    const results = patch(true, TEST_SDD);
+    const results = await patch(true, TEST_SDD);
 
     expect(results).toHaveLength(3);
     expect(results.find(r => r.slug === 'needs-changelog')!.action).toBe('created');

@@ -1,18 +1,26 @@
 // Trigger Action Tests (3.28c-4) — RED phase
-import { describe, it, expect, afterAll } from 'vitest';
-import { executeCreateAction } from '../trigger-action';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import { executeCreateAction, setTriggerActionFileStore } from '../trigger-action';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from '../../workunit/workunit.service.js';
 import type { TriggerAction } from '../trigger.types';
 
 describe('TriggerAction — CREATE WorkUnit', () => {
-  const createdIds: string[] = [];
-  const workUnitService = new WorkUnitService();
+  let tmpDir: string;
+  let fileStore: FileStore;
+
+  beforeAll(() => {
+    // Temp FileStore — 不触碰默认 ~/.studio/data（本机可能有运行中的 server 并发写）
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trigger-action-test-'));
+    fileStore = new FileStore(tmpDir);
+    // trigger-action 模块级单例同样注入 tmp store
+    setTriggerActionFileStore(fileStore);
+  });
 
   afterAll(async () => {
-    for (const id of createdIds) {
-      await workUnitService.delete(id).catch(() => {});
-    }
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   it('creates a WorkUnit from trigger action', async () => {
@@ -26,7 +34,6 @@ describe('TriggerAction — CREATE WorkUnit', () => {
     };
 
     const result = await executeCreateAction(action, 'daily-health-check');
-    createdIds.push(result.id);
 
     expect(result.id).toBeDefined();
     expect(result.type).toBe('analysis');
@@ -37,7 +44,6 @@ describe('TriggerAction — CREATE WorkUnit', () => {
   it('sets channelId when provided', async () => {
     // Create a channel first in FileStore
     const channelId = `trigger-test-ch-${Date.now()}`;
-    const fileStore = new FileStore();
     const now = new Date().toISOString();
     await fileStore.createChannel({
       id: channelId, name: '#trigger-test-channel', type: 'rnd',
@@ -57,7 +63,6 @@ describe('TriggerAction — CREATE WorkUnit', () => {
     };
 
     const result = await executeCreateAction(action, 'test-trigger');
-    createdIds.push(result.id);
 
     expect(result.channelId).toBe(channelId);
   });
@@ -73,7 +78,6 @@ describe('TriggerAction — CREATE WorkUnit', () => {
     };
 
     const result = await executeCreateAction(action, 'my-trigger-id');
-    createdIds.push(result.id);
 
     expect(result.metadata).toBeDefined();
     const meta = JSON.parse(result.metadata!);

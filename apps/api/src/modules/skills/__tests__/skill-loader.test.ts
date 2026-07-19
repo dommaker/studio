@@ -28,22 +28,18 @@ function removeSkillFile(skillName: string) {
   } catch {}
 }
 
-// Mock prisma
-const mockPrismaSkill = {
-  findFirst: vi.fn(),
-  findMany: vi.fn(),
-};
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    skill: mockPrismaSkill,
-    studioEvent: { create: vi.fn().mockResolvedValue({ id: 'mock-evt' }) },
-  },
-}));
-
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-}));
+// Mock studio-shared — skill-loader 仅需 logger 与 FileStore（事件写入）
+// FileStore 保持最小 fake：appendJsonl 不触碰真实 ~/.studio
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    FileStore: vi.fn().mockImplementation(() => ({
+      appendJsonl: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+});
 
 // Import after mocks
 const { SkillLoaderService, skillLoaderService } = await import('../skill-loader.js');

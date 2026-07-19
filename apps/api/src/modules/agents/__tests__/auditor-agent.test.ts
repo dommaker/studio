@@ -16,6 +16,8 @@ let testChannelId: string;
 let testSkillLowSR: string;   // successRate < 0.3
 let testSkillHighSR: string;  // successRate >= 0.8 + draft
 let testSkillNormal: string;  // normal, shouldn't trigger
+let testEventsDir: string;
+let prevStudioEventsDir: string | undefined;
 
 describe('AuditorAgent B3-005', () => {
   const fileStore = new FileStore();
@@ -47,20 +49,27 @@ describe('AuditorAgent B3-005', () => {
       }
     }
 
-    // Create session:summary events in ~/events/studio.jsonl (STUDIO_EVENTS_JSONL path)
-    const eventsDir = path.join(os.homedir(), 'events');
-    fs.mkdirSync(eventsDir, { recursive: true });
+    // Create session:summary events in a tmp STUDIO_EVENTS_DIR — the code under
+    // test resolves studio.jsonl via resolveEventsDir() (STUDIO_EVENTS_DIR >
+    // EVENTS_DIR > ~/.studio/events). Keeps fixtures out of the real home dir.
+    prevStudioEventsDir = process.env.STUDIO_EVENTS_DIR;
+    testEventsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-events-'));
+    process.env.STUDIO_EVENTS_DIR = testEventsDir;
     const eventsJsonl = Array.from({ length: 5 }, (_, i) => JSON.stringify({
       id: `evt-summary-${Date.now()}-${i}`,
       type: 'session:summary', source: 'test', payload: '{}', timestamp: new Date().toISOString(),
     })).join('\n');
-    fs.appendFileSync(path.join(eventsDir, 'studio.jsonl'), eventsJsonl + '\n');
+    fs.appendFileSync(path.join(testEventsDir, 'studio.jsonl'), eventsJsonl + '\n');
     testChannelId = channelId;
   });
 
   afterAll(async () => {
     // Cleanup test skills from SkillStore
     skillStore.deleteMany({ companyId: testCompanyId });
+    // Restore env + drop tmp events dir
+    if (prevStudioEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
+    else process.env.STUDIO_EVENTS_DIR = prevStudioEventsDir;
+    if (testEventsDir) fs.rmSync(testEventsDir, { recursive: true, force: true });
   });
 
   beforeEach(async () => {
