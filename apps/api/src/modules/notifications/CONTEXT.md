@@ -4,16 +4,27 @@
 
 ## 职责
 
-<!-- 本目录的核心职责是什么 -->
+提供通知相关的 API 路由，包括获取通知列表、查询未读数量、标记单条已读和标记全部已读，作为后台消息通知模块的 HTTP 接口层。
 
 ## 核心导出
 
-<!-- 本目录对外暴露的主要模块/函数 -->
+| 导出 | 文件 | 说明 |
+| --- | --- | --- |
+| `router` | `routes.ts` | Express 路由器实例，注册了 /api/v1/notifications 下的四个端点 |
 
 ## 依赖关系
 
-<!-- 本目录依赖哪些其他模块，谁依赖本目录 -->
+上游依赖：
+- `@dommaker/studio-notification`（NotificationService）
+- `@dommaker/studio-shared`（FileStore, logger）
+- `../../utils/services.js`（createLazyService）
+
+下游依赖：
+- `apps/api/src/route-registry.ts`（导入并挂载路由）
 
 ## 注意事项
 
-<!-- 开发时需要注意的约束或约定 -->
+- 使用 `x-user-id` 请求头标识用户，默认回退为 `'default-user'`
+- 通知服务通过 `createLazyService` 延迟初始化，底层依赖 `FileStore` 存储
+- 错误统一返回 `{ error: { code: 'INTERNAL_ERROR', message: '...' } }` 结构
+- 未读通知限制获取 50 条，可通过 `unreadOnly` 查询参数控制

@@ -259,10 +259,55 @@
 | waiting-input | apps/api/src/modules/workunit/waiting-input.ts | F5 双向沟通：NEED_INPUT 挂起（waiting）WorkUnit 的恢复与超时提醒。 |
 | requirements | apps/web/src/api/requirements.ts | Requirement API — REQ 需求编号体系（vision §5.3） |
 
-| prompt-overrides.test | packages/studio-shared/src/utils/prompt-overrides.test.ts | prompt-overrides 单元测试（E1 约束进化）。 |
 | prompt-overrides | packages/studio-shared/src/utils/prompt-overrides.ts | E1 约束进化（vision §6）：prompt 模板文件覆盖机制。 |
 | applier | apps/api/src/modules/evolution/applier.ts | E1 约束进化：提案生效器（applier）。 |
 | channel-review | apps/api/src/modules/evolution/channel-review.ts | E1 约束进化：频道审核（channel review）。 |
 | evolution.routes | apps/api/src/modules/evolution/evolution.routes.ts | E1 约束进化 API（vision §6）。 |
 | generator | apps/api/src/modules/evolution/generator.ts | E1 约束进化：提案生成器（generator）。 |
 | signals | apps/api/src/modules/evolution/signals.ts | E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：路径解析 + 信号加载。 |
+| runner-execution | packages/studio-agent/src/services/runner-execution.ts | Runner Execution — session loop 执行（agent-runner.ts 拆分模块） |
+| runner-lightweight | packages/studio-agent/src/services/runner-lightweight.ts | Runner Lightweight — 轻量单 session 执行（agent-runner.ts 拆分模块） |
+| runner-output | packages/studio-agent/src/services/runner-output.ts | Runner Output — 输出解析（agent-runner.ts 拆分模块） |
+| runner-params | packages/studio-agent/src/services/runner-params.ts | Runner Params — 参数构建（agent-runner.ts 拆分模块） |
+| auditor-doc-freshness | apps/api/src/modules/agents/auditor-doc-freshness.ts | Auditor Agent — Doc Freshness Issue 处理 |
+| auditor-execution | apps/api/src/modules/agents/auditor-execution.ts | Auditor Agent — 建议执行 / 升级 / 闭环 |
+| auditor-reports | apps/api/src/modules/agents/auditor-reports.ts | Auditor Agent — 洞察与报告输出 |
+| auditor-rules | apps/api/src/modules/agents/auditor-rules.ts | Auditor Agent — 审计规则（检测 → 建议） |
+| knowledge-analysis | apps/api/src/modules/agents/knowledge-analysis.ts | Knowledge Agent — 会话分析子模块 |
+| knowledge-cold-start | apps/api/src/modules/agents/knowledge-cold-start.ts | Knowledge Agent — 冷启动子模块 |
+| knowledge-extraction | apps/api/src/modules/agents/knowledge-extraction.ts | Knowledge Agent — 提取子模块 |
+| knowledge-maintenance | apps/api/src/modules/agents/knowledge-maintenance.ts | Knowledge Agent — 语料分析（每日维护）子模块 |
+| monitor-alerts | apps/api/src/modules/agents/monitor-alerts.ts | Monitor Agent — 告警分发 / Triage 升级 / 事件写入 / 心跳持久化 |
+| monitor-lifecycle | apps/api/src/modules/agents/monitor-lifecycle.ts | Monitor Agent — G31 数据生命周期：知识沉淀闸门 + TTL 清理 |
+| monitor-probes | apps/api/src/modules/agents/monitor-probes.ts | Monitor Agent — 任务/WorkUnit 级探测 |
+| monitor-reports | apps/api/src/modules/agents/monitor-reports.ts | Monitor Agent — 报告：轨迹评估 / 每日洞察 / 交互模式观察 |
+| monitor-system-probes | apps/api/src/modules/agents/monitor-system-probes.ts | Monitor Agent — 系统/知识级探测与自修复 |
+| agents.routes | apps/api/src/modules/harness/agents.routes.ts | agents.routes — Harness Agent 生命周期子路由（T-014） |
+| constraints.routes | apps/api/src/modules/harness/constraints.routes.ts | constraints.routes — Harness 约束生命周期与质量门子路由（T-002 / M2） |
+| cso.routes | apps/api/src/modules/harness/cso.routes.ts | cso.routes — CSO 验证子路由（Decision #5） |
+| dashboard.routes | apps/api/src/modules/harness/dashboard.routes.ts | dashboard.routes — Harness 仪表盘与健康检查子路由（T-017） |
+| diagnostics.routes | apps/api/src/modules/harness/diagnostics.routes.ts | diagnostics.routes — Harness 错误分类/规格检查/验证循环子路由（T-016 / T-018 / T-013） |
+| guards.routes | apps/api/src/modules/harness/guards.routes.ts | guards.routes — Harness 安全护栏子路由（T-012） |
+| knowledge.routes | apps/api/src/modules/harness/knowledge.routes.ts | knowledge.routes — Harness 知识引擎子路由（T-010） |
+| proposals.routes | apps/api/src/modules/harness/proposals.routes.ts | proposals.routes — Harness 约束进化与提案子路由（T-002） |
+| runtime | apps/api/src/modules/harness/runtime.ts | runtime.ts — Harness 路由共享运行时 |
+| sessions.routes | apps/api/src/modules/harness/sessions.routes.ts | sessions.routes — Harness 上下文管理子路由（T-011） |
+| traces.routes | apps/api/src/modules/harness/traces.routes.ts | traces.routes — Harness 执行轨迹采集/分析/诊断子路由（T-015） |
+| document-store | apps/api/src/modules/knowledge/document-store.ts | document-store — 文档 FileStore 存取助手 |
+| documents.routes | apps/api/src/modules/knowledge/documents.routes.ts | documents.routes — 知识库文档子路由（公司数字资产管理） |
+| entries.routes | apps/api/src/modules/knowledge/entries.routes.ts | entries.routes — 知识条目子路由（KnowledgeStore 条目的导出/问答/缺口/统一浏览） |
+| files.routes | apps/api/src/modules/knowledge/files.routes.ts | files.routes — 知识库文件浏览子路由（文件系统扫描/读取） |
+| internal.routes | apps/api/src/modules/knowledge/internal.routes.ts | internal.routes — 知识库内部子路由（无 auth，本地服务间调用） |
+| search.routes | apps/api/src/modules/knowledge/search.routes.ts | search.routes — 知识检索与解法指标子路由 |
+| devops.tools | apps/api/src/modules/mcp/devops.tools.ts | MCP Tools — DevOps 发布 |
+| economy.tools | apps/api/src/modules/mcp/economy.tools.ts | MCP Tools — 经济系统 |
+| knowledge.tools | apps/api/src/modules/mcp/knowledge.tools.ts | MCP Tools — 知识库（FileStore） |
+| pmo.tools | apps/api/src/modules/mcp/pmo.tools.ts | MCP Tools — PMO 项目管理 |
+| safety.tools | apps/api/src/modules/mcp/safety.tools.ts | MCP Tools — 安全约束 |
+| skill.tools | apps/api/src/modules/mcp/skill.tools.ts | MCP Tools — Skill 按需加载 |
+| spec.tools | apps/api/src/modules/mcp/spec.tools.ts | MCP Tools — 规格审查（FileStore） |
+| system.tools | apps/api/src/modules/mcp/system.tools.ts | MCP Tools — Agent-First 系统健康与事件 |
+| task.tools | apps/api/src/modules/mcp/task.tools.ts | MCP Tools — 任务管理（FileStore） |
+| tool-store | apps/api/src/modules/mcp/tool-store.ts | MCP Tools 共享 FileStore 存取助手 |
+| workunit.tools | apps/api/src/modules/mcp/workunit.tools.ts | MCP Tools — WorkUnit |
+| mock-data | apps/web/src/pages/design-lab/mock-data.ts | Design Lab — 视觉方向稿共用 mock 数据（T1 方向稿专用，不接任何真实 API） |

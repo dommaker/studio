@@ -2,26 +2,28 @@
 
 > 此文件描述 apps/api/src/modules/dingtalk 目录的职责和上下文
 
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/dingtalk/routes.ts
-
-<!-- STALE_SINCE: 2026-05-27 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/dingtalk/CONTEXT.md
-
 ## 职责
 
-<!-- 本目录的核心职责是什么 -->
+处理钉钉机器人交互回调，包括 ActionCard 按钮点击的健康检查和操作忽略提示。当前 Meeting 模块已移除，按钮点击仅返回占位响应。
 
 ## 核心导出
 
-<!-- 本目录对外暴露的主要模块/函数 -->
+| 导出 | 文件 | 说明 |
+| default | routes.ts | Express Router 实例，挂载 /api/v1/dingtalk 路径下的 /action 和 /health 路由 |
 
 ## 依赖关系
 
-<!-- 本目录依赖哪些其他模块，谁依赖本目录 -->
+上游：
+- `apps/api/src/utils/logger.js`（日志记录）
+
+下游：
+- **apps/api/src/route-registry.ts**：注册本路由模块到 Express 应用
 
 ## 注意事项
 
-<!-- 开发时需要注意的约束或约定 -->
+- 路由挂载于 /api/v1/dingtalk 前缀，由 route-registry 统一注册
+- ActionCard 按钮点击（/action）仅返回静态 HTML，不再执行实际会议操作
+- 健康检查（/health）返回 JSON 格式 { status: 'ok', service: 'dingtalk-callback' }
 
 ## 修复历史
 

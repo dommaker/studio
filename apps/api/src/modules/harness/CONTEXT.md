@@ -2,11 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/harness 目录的职责和上下文
 
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/harness/routes.ts
-
-<!-- STALE_SINCE: 2026-06-11 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/harness/routes.ts
-
 ## 职责
 
 Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生命周期、

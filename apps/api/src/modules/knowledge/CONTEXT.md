@@ -3,27 +3,6 @@
 > 此文件描述 apps/api/src/modules/knowledge 目录的职责和上下文
 > Updated: 2026-06-11 (GAP-7 元数据驱动注入 + error logging 修复)
 
-⚠️ 以下文件已变更，本节可能过期: knowledge-bus.service.ts, routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: evolution-scheduler.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-bus.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/knowledge-service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/improver-scheduler.service.ts, apps/api/src/modules/knowledge/knowledge-service.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/preference-observer.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/knowledge-sync.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/improver-scheduler.service.ts, apps/api/src/modules/knowledge/knowledge-service.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/preference-observer.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/knowledge-sync.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/env-snapper.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/evolution.service.ts, apps/api/src/modules/knowledge/evolution-scheduler.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/import.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/resolution.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts, apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/rule-scanner.ts, apps/api/src/modules/knowledge/CONTEXT.md, apps/api/src/modules/knowledge/preference-observer.ts
-
-<!-- STALE_SINCE: 2026-07-18 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/env-snapper.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/evolution.service.ts, apps/api/src/modules/knowledge/evolution-scheduler.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/import.routes.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/resolution.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts
-
 ## 职责
 
 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。
@@ -88,14 +67,13 @@ knowledge/
 ## 依赖关系
 
 - **上游**: `@dommaker/harness`（KnowledgeStore/KnowledgeIngest/KnowledgeLifecycle）
-- **上游**: `@dommaker/studio-prisma`（UserPreference/BusinessRule/EnvironmentSnapshot）
+- **上游**: `@dommaker/studio-shared`（FileStore / logger / modelGateway）
 - **下游**: `agents/*`（通过 knowledgeService.injectContext 注入 prompt）
-- **下游**: `channels/*`（conversation-handler/analyst-trigger）
-- **下游**: `goals/*`（scheduler-dispatch）
+- **下游**: `channels/*`（conversation-handler）
 
 ## 注意事项
 
-- Prisma Producer（preference-observer 等）直接写 Prisma，不迁移到 KnowledgeStore
+- Producer（preference-observer 等）直写 KnowledgeStore（FileStore 存储；Prisma 已全量移除）
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
 - `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方，被 `buildKnowledgeContext` 替代）
 - `applicableAgents` 存储在 tags 中（`agent:executor` 格式），KnowledgeEntry 无此字段

@@ -2,26 +2,35 @@
 
 > 此文件描述 apps/web/src 目录的职责和上下文
 
-⚠️ 以下文件已变更，本节可能过期: apps/web/src/App.tsx, apps/web/src/types.ts
-
-<!-- STALE_SINCE: 2026-07-15 -->
-⚠️ 以下文件已变更，本节可能过期: apps/web/src/App.tsx, apps/web/src/types.ts
-
 ## 职责
 
-<!-- 本目录的核心职责是什么 -->
+该目录是 Agent Studio Web 前端应用的主源码目录，负责管理路由、全局状态、API 客户端、UI 组件和样式。它通过 React 应用入口 (App.tsx) 组织页面懒加载，并通过 axios 封装与后端 RESTful API 及 SSE 通信，提供认证、通道、工作单元、监控、需求等模块的交互界面。
 
 ## 核心导出
 
-<!-- 本目录对外暴露的主要模块/函数 -->
+| 导出 | 文件 | 说明 |
+|------|------|------|
+| `App` | `App.tsx` | 根组件，包含路由定义、主题、全局布局（TopNav、Sidebar）及懒加载页面 |
+| `api` (axios 实例) | `api/index.ts` | 统一 API 客户端，含 Bearer token 注入和 401 自动刷新 |
+| `channelApi` | `api/channel.ts` | 频道、消息、Agent 配置相关 API |
+| `monitoringApi` | `api/monitoring.ts` | 监控、飞轮指标、开销 API |
+| `requirementApi` | `api/requirements.ts` | 需求（REQ）CRUD 及关联工作单元链 API |
+| `workunitApi` | `api/workunit.ts` | 工作单元（WorkUnit）全生命周期 API |
+| `useWebSocket` / `WebSocketProvider` | `api/websocket.tsx` | SSE 客户端 hook 及 Context Provider（替代原生 WebSocket） |
+| `AuthModal` | `components/AuthModal.tsx` | 隐身认证模态框（双击手势触发） |
 
 ## 依赖关系
 
-<!-- 本目录依赖哪些其他模块，谁依赖本目录 -->
+上游：依赖同目录下的子模块（`pages/`、`components/`、`stores/`、`hooks/`、`contexts/`、`styles/`）以及外部库（`react`, `react-router-dom`, `react-i18next`, `axios` 等）。
+下游：暂无。
 
 ## 注意事项
 
-<!-- 开发时需要注意的约束或约定 -->
+- 路由使用 `React.lazy` 进行代码分割，懒加载页面组件需通过 `Suspense` 包裹。
+- API 客户端（`api/index.ts`）的认证 token 直接从 `localStorage` 读取，避免与 `authStore` 的循环依赖。
+- 实时通信使用 SSE（EventSource）代替 WebSocket，`api/websocket.tsx` 提供与旧 `useWebSocket` 兼容的接口。
+- Design Lab 页面（`pages/design-lab/*`）使用 mock 数据，全屏三栏布局，不嵌入通用导航骨架。
+- 所有 API 模块返回的响应数据结构需与后端约定一致（如 `{ success, data }` 或 `{ data, total }`）。
 
 ## 修复历史
 

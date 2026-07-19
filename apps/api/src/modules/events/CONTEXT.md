@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/events 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-18 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/events/event.routes.ts, apps/api/src/modules/events/session-summary-generator.ts
-
 ## 职责
 
 提供全局事件系统：StudioEvent CRUD（G30）、AgentEvent 批量写入（B9-014）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。

@@ -2,41 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/channels 目录的职责和上下文
 
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel.routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-trigger.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/requirements-doc.routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/channel.routes.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/analyst-prompt.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/analyst-executor.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/CONTEXT.md, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-trigger.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel-init.ts, apps/api/src/modules/channels/channel-message.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/message-routing.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/acgroup-tier.ts, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-fact-verification.ts, apps/api/src/modules/channels/analyst-knowledge.ts, apps/api/src/modules/channels/analyst-prescan.ts, apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-scout.ts, apps/api/src/modules/channels/analyst-synthesizer.ts, apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-red-check.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/conversation-converter.ts, apps/api/src/modules/channels/conversation-handler.ts, apps/api/src/modules/channels/multi-repo-split.ts, apps/api/src/modules/channels/sdd-verification.ts, apps/api/src/modules/channels/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/channel-init.ts, apps/api/src/modules/channels/channel-message.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/message-routing.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/acgroup-tier.ts, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-fact-verification.ts, apps/api/src/modules/channels/analyst-knowledge.ts, apps/api/src/modules/channels/analyst-prescan.ts, apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-scout.ts, apps/api/src/modules/channels/analyst-synthesizer.ts, apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-red-check.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/conversation-converter.ts, apps/api/src/modules/channels/conversation-handler.ts, apps/api/src/modules/channels/multi-repo-split.ts, apps/api/src/modules/channels/sdd-verification.ts, apps/api/src/modules/channels/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/CONTEXT.md, apps/api/src/modules/channels/channel-message.service.ts
-
-<!-- STALE_SINCE: 2026-07-18 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/requirements-doc.routes.ts
-
 ## 职责
 
 Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal 创建 → 执行管线。
@@ -61,8 +26,7 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 依赖关系
 
 **本模块依赖**：
-- `@dommaker/studio-prisma` — DB（RequirementsDoc / GoalExecution / Channel 等）
-- `@dommaker/studio-shared` — logger, modelGateway, eventBus, toKebab, writeSddDoc
+- `@dommaker/studio-shared` — FileStore（Channel / RequirementsDoc 等文件存储，已替代 studio-prisma DB）, logger, modelGateway, eventBus, toKebab, writeSddDoc
 - `daemon/studio-daemon` — Claude Code session 管理（submitAdhocJob）
 - `agents/requirement-gate` — 质量门验证
 - `agents/monitor-agent` — 管线监控

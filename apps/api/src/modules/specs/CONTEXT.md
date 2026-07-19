@@ -4,16 +4,22 @@
 
 ## 职责
 
-<!-- 本目录的核心职责是什么 -->
+提供 Specs 模块的 HTTP API 路由，包括变更分析、变更历史查询和门禁验证（待实现）。遵循 SP-002 变更分级流程，通过调用外部 SDK 中的服务处理 Spec 变更相关的业务逻辑。
 
 ## 核心导出
 
-<!-- 本目录对外暴露的主要模块/函数 -->
+| 导出 | 文件 | 说明 |
+| --- | --- | --- |
+| `router` (默认导出) | `routes.ts` | Express 路由实例，包含 `/api/v1/specs` 路径下的变更分析和历史查询端点 |
 
 ## 依赖关系
 
-<!-- 本目录依赖哪些其他模块，谁依赖本目录 -->
+- **上游依赖**：`@dommaker/studio-spec`（ChangeAnalyzerService、ChangeHistoryService、GateCheckerService）、`@dommaker/studio-shared`（logger）、`../../utils/pagination.js`（parsePagination、sendPaginated）
+- **下游使用者**：`apps/api/src/route-registry.ts`（注册该路由模块）
 
 ## 注意事项
 
-<!-- 开发时需要注意的约束或约定 -->
+- 变更提交 API 已删除（对应 SpecChangeRequest 表已移除），但 `/changes/:changeId` 查询端点保留。
+- 门禁验证 API（`GateCheckerService`）尚未实现，当前路由文件中仅有空注释块。
+- 所有端点需统一处理错误并记录日志。
+- 依赖的外部 SDK 服务需在运行时可用，否则路由会抛出 500 错误。
