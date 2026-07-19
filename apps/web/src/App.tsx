@@ -23,6 +23,10 @@ const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ 
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(m => ({ default: m.WorkspacePage })));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
+// Design Lab：T1 视觉方向稿原型（mock 数据，全屏三栏，不套 TopNav/Sidebar 骨架）
+const DesignLabPage = lazy(() => import('./pages/design-lab/DesignLabPage').then(m => ({ default: m.DesignLabPage })));
+const DirectionAPage = lazy(() => import('./pages/design-lab/DirectionAPage').then(m => ({ default: m.DirectionAPage })));
+const DirectionBPage = lazy(() => import('./pages/design-lab/DirectionBPage').then(m => ({ default: m.DirectionBPage })));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
@@ -102,6 +106,21 @@ export default function App() {
       <ThemeProvider>
         <Suspense fallback={<PageLoader />}>
           <ResetPasswordPage />
+        </Suspense>
+      </ThemeProvider>
+    );
+  }
+
+  // Design Lab: fullscreen prototypes, bypass guest wall (mock 数据，无真实请求)
+  if (location.pathname.startsWith('/design-lab')) {
+    return (
+      <ThemeProvider>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/design-lab" element={<DesignLabPage />} />
+            <Route path="/design-lab/a" element={<DirectionAPage />} />
+            <Route path="/design-lab/b" element={<DirectionBPage />} />
+          </Routes>
         </Suspense>
       </ThemeProvider>
     );
