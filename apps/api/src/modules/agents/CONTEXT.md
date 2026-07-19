@@ -115,6 +115,13 @@
 
 <!-- 本目录对外暴露的主要模块/函数 -->
 
+- `monitor-agent.service.ts` — MonitorAgent 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorAgent` / `monitorAgent` 不变。
+  - `monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/审查质量/token 预算/工具模式/deploy/proxy 事件）
+  - `monitor-system-probes.ts` — 系统/知识级探测与自修复（systemHealthCheck/worktree GC/知识健康循环/KnowledgeSync）
+  - `monitor-alerts.ts` — 告警分发/Triage 升级（FL-037）/studio.jsonl 事件写入/心跳持久化
+  - `monitor-reports.ts` — 轨迹评估（G4）/每日洞察（DailyReflection）/交互模式观察（B9-025）
+  - `monitor-lifecycle.ts` — G31 知识沉淀闸门 + 每日 23:55 数据 TTL 清理
+
 ## 依赖关系
 
 <!-- 本目录依赖哪些其他模块，谁依赖本目录 -->
