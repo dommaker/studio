@@ -1,33 +1,34 @@
 /**
- * Behavioral tests for KnowledgeBus event emission (S3 post-gaps)
+ * Behavioral tests for KnowledgeBus event emission (S3 post-gaps, R4 单一路径更新)
  *
  * AC:
- * - recordPattern rejected by quality gate → emits knowledge:quality_gate { skipped: true }
- * - recordPattern successful ingest → emits knowledge:entry_created { entryType, title }
- * - recordPattern triage gate rejection → emits knowledge:quality_gate { skipped: true, reason }
+ * - recordPattern 被质量门拒绝 → 写 knowledge:quality_gate { skipped: true }
+ * - recordPattern 成功 ingest → 写 knowledge:entry_created { entryType, title }
+ * - recordPattern triage 门拒绝 → 写 knowledge:quality_gate { skipped: true, reason }
+ *
+ * R4 收敛后质量门统一为 ingestWithQualityGate（knowledge-singletons.ts）：
+ * studio 侧 linter 预检已移除，门禁 = triage 业务门 + harness KnowledgeIngest
+ * 内置 audit（reject → __rejected 不入库）。事件经 FileStore.appendJsonl 写
+ * studio-events.jsonl（不再是 Prisma studioEvent）。
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockStudioEventCreate, mockValidateEntry, mockIngestEntry } = vi.hoisted(() => ({
-  mockStudioEventCreate: vi.fn().mockResolvedValue({ id: 'evt-1' }),
-  mockValidateEntry: vi.fn().mockReturnValue([]),
+const { mockAppendJsonl, mockIngestEntry } = vi.hoisted(() => ({
+  mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
   mockIngestEntry: vi.fn().mockReturnValue({ id: 'entry-1', lastReferenced: null, contributors: ['test'] }),
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    studioEvent: { create: mockStudioEventCreate },
-  },
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  FileStore: class {
+    appendJsonl = mockAppendJsonl;
+  },
 }));
 
 vi.mock('@dommaker/harness', () => {
   class KnowledgeLinter {
-    validateEntry = mockValidateEntry;
+    validateEntry = vi.fn().mockReturnValue([]);
   }
   class KnowledgeIngest {
     ingestEntry = mockIngestEntry;
@@ -42,23 +43,26 @@ vi.mock('@dommaker/harness', () => {
   return { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker };
 });
 
-// Mock child_process.exec (used by scheduleVectorDbSync)
-vi.mock('child_process', () => ({ exec: vi.fn() }));
+// scheduleVectorDbSync / startup pkill 不真正起进程
+vi.mock('child_process', () => ({ execFile: vi.fn(), execFileSync: vi.fn() }));
 
 import { KnowledgeBus } from '../knowledge-bus.service.js';
 
+function findEvent(type: string) {
+  const call = mockAppendJsonl.mock.calls.find((c: any[]) => c[1]?.type === type);
+  if (!call) return undefined;
+  return { ...call[1], payload: JSON.parse(call[1].payload) };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  mockStudioEventCreate.mockResolvedValue({ id: 'evt-1' });
-  mockValidateEntry.mockReturnValue([]);
+  mockAppendJsonl.mockResolvedValue(undefined);
   mockIngestEntry.mockReturnValue({ id: 'entry-1', lastReferenced: null, contributors: ['test'] });
 });
 
 describe('KnowledgeBus event emission', () => {
-  test('emits knowledge:quality_gate when quality gate rejects entry', async () => {
-    mockValidateEntry.mockReturnValue([
-      { severity: 'high', description: 'Title too short' },
-    ]);
+  test('emits knowledge:quality_gate when harness ingest gate rejects entry (__rejected)', async () => {
+    mockIngestEntry.mockReturnValue({ __rejected: true, __rejectReasons: ['Title too short'] });
 
     const bus = new KnowledgeBus();
     await bus.recordPattern({
@@ -69,18 +73,13 @@ describe('KnowledgeBus event emission', () => {
       timestamp: Date.now(),
     });
 
-    // Should emit quality_gate event with skipped=true
-    const qualityGateCall = mockStudioEventCreate.mock.calls.find(
-      (c: any[]) => c[0].data.type === 'knowledge:quality_gate',
-    );
-    expect(qualityGateCall).toBeDefined();
-    const payload = JSON.parse(qualityGateCall[0].data.payload);
-    expect(payload.skipped).toBe(true);
-    expect(payload.reason).toContain('Title too short');
+    const event = findEvent('knowledge:quality_gate');
+    expect(event).toBeDefined();
+    expect(event!.payload.skipped).toBe(true);
+    expect(event!.payload.reason).toContain('Title too short');
   });
 
   test('emits knowledge:entry_created on successful ingest', async () => {
-    mockValidateEntry.mockReturnValue([]); // no blockers
     mockIngestEntry.mockReturnValue({ id: 'new-1', lastReferenced: null, contributors: ['test'] });
 
     const bus = new KnowledgeBus();
@@ -92,19 +91,14 @@ describe('KnowledgeBus event emission', () => {
       timestamp: Date.now(),
     });
 
-    const entryCreatedCall = mockStudioEventCreate.mock.calls.find(
-      (c: any[]) => c[0].data.type === 'knowledge:entry_created',
-    );
-    expect(entryCreatedCall).toBeDefined();
-    const payload = JSON.parse(entryCreatedCall[0].data.payload);
-    expect(payload.entryType).toBe('pattern');
-    expect(payload.title).toBe('Good pattern');
+    const event = findEvent('knowledge:entry_created');
+    expect(event).toBeDefined();
+    expect(event!.payload.entryType).toBe('pattern');
+    expect(event!.payload.title).toBe('Good pattern');
   });
 
   test('does not emit entry_created when quality gate rejects', async () => {
-    mockValidateEntry.mockReturnValue([
-      { severity: 'high', description: 'Bad content' },
-    ]);
+    mockIngestEntry.mockReturnValue({ __rejected: true, __rejectReasons: ['Bad content'] });
 
     const bus = new KnowledgeBus();
     await bus.recordPattern({
@@ -115,10 +109,7 @@ describe('KnowledgeBus event emission', () => {
       timestamp: Date.now(),
     });
 
-    const entryCreatedCall = mockStudioEventCreate.mock.calls.find(
-      (c: any[]) => c[0].data.type === 'knowledge:entry_created',
-    );
-    expect(entryCreatedCall).toBeUndefined();
+    expect(findEvent('knowledge:entry_created')).toBeUndefined();
   });
 
   test('emits quality_gate for triage gate rejection (missing root_cause)', async () => {
@@ -132,12 +123,11 @@ describe('KnowledgeBus event emission', () => {
       source: 'triage' as any,
     });
 
-    const qualityGateCall = mockStudioEventCreate.mock.calls.find(
-      (c: any[]) => c[0].data.type === 'knowledge:quality_gate',
-    );
-    expect(qualityGateCall).toBeDefined();
-    const payload = JSON.parse(qualityGateCall[0].data.payload);
-    expect(payload.skipped).toBe(true);
-    expect(payload.reason).toContain('root_cause');
+    const event = findEvent('knowledge:quality_gate');
+    expect(event).toBeDefined();
+    expect(event!.payload.skipped).toBe(true);
+    expect(event!.payload.reason).toContain('root_cause');
+    // triage 门在 ingest 之前 — 不应调用 ingestEntry
+    expect(mockIngestEntry).not.toHaveBeenCalled();
   });
 });

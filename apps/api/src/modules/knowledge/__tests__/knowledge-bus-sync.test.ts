@@ -1,12 +1,31 @@
 /**
- * KnowledgeBus sync 进程泄漏修复测试 (B48-2E)
+ * scheduleVectorDbSync 测试（B48-2E + 向量库同步加固 df5f899 + R4 模块迁移）
  *
  * 验证：
- * 1. execFile 替代 exec（消除 shell wrapper）
- * 2. 重试无上限（不再 5 次放弃）
- * 3. 退避 cap 120s
+ * 1. execFile 替代 exec（消除 shell wrapper），经 systemd-run 加 700M 内存帽 + flock 单写者
+ * 2. 失败重试：指数退避 cap 120s，cap 10 次
+ * 3. R4: 函数所有权在 knowledge-singletons.ts，knowledge-bus.service.js 保持兼容 re-export
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnType<typeof vi.fn>) {
+  vi.doMock('child_process', () => ({ execFile: execFileMock, execFileSync: vi.fn() }));
+  vi.doMock('@dommaker/studio-shared', () => ({
+    logger: { info: vi.fn(), warn: loggerWarn ?? vi.fn(), error: vi.fn() },
+    FileStore: class {
+      appendJsonl = vi.fn().mockResolvedValue(undefined);
+    },
+  }));
+  vi.doMock('@dommaker/harness', () => ({
+    FileKnowledgeStore: class { list() { return []; } },
+    KnowledgeIngest: class { ingestEntry() { return { id: 'x' }; } },
+    KnowledgeLifecycle: class { shouldAutoPromote() { return false; } },
+    KnowledgeQuery: class {},
+    KnowledgeInjector: class {},
+    KnowledgeLinter: class { validateEntry() { return []; } },
+    ReferenceTracker: class {},
+  }));
+}
 
 describe('scheduleVectorDbSync (B48-2E)', () => {
   beforeEach(() => {
@@ -19,37 +38,25 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     vi.restoreAllMocks();
   });
 
-  async function loadService(execFileMock: ReturnType<typeof vi.fn>) {
-    vi.doMock('child_process', () => ({ execFile: execFileMock }));
-    vi.doMock('@dommaker/studio-prisma', () => ({
-      prisma: { studioEvent: { create: vi.fn().mockResolvedValue({ id: 'mock' }) } },
-    }));
-    vi.doMock('@dommaker/studio-shared', () => ({
-      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    }));
-    vi.doMock('@dommaker/harness', () => ({
-      FileKnowledgeStore: class { list() { return []; } },
-      KnowledgeIngest: class { ingestEntry() { return { id: 'x' }; } },
-      KnowledgeLifecycle: class { shouldAutoPromote() { return false; } },
-      KnowledgeQuery: class {},
-      KnowledgeInjector: class {},
-      KnowledgeLinter: class { validateEntry() { return []; } },
-      ReferenceTracker: class {},
-    }));
-    return await import('../knowledge-bus.service.js');
-  }
-
-  it('uses execFile (not exec) — eliminates shell wrapper', async () => {
+  it('uses execFile via systemd-run scope — mem cap + flock + nice (no shell wrapper)', async () => {
     const execFileMock = vi.fn().mockReturnValue({ pid: 123 });
-    const { scheduleVectorDbSync } = await loadService(execFileMock);
+    mockDeps(execFileMock);
+    const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
 
     scheduleVectorDbSync();
     await vi.advanceTimersByTimeAsync(5_000);
 
     expect(execFileMock).toHaveBeenCalledTimes(1);
     const [cmd, args] = execFileMock.mock.calls[0];
-    expect(cmd).toBe('nice');
+    expect(cmd).toBe('systemd-run');
     expect(Array.isArray(args)).toBe(true);
+    // 700M 内存帽
+    expect(args).toContain('MemoryMax=700M');
+    // flock 单写者
+    expect(args).toContain('flock');
+    expect(args).toContain('/tmp/vector-db-sync.lock');
+    // 降优先级执行 mcp-local-rag ingest
+    expect(args).toContain('nice');
     expect(args).toContain('-n');
     expect(args).toContain('10');
     expect(args).toContain('mcp-local-rag');
@@ -58,12 +65,13 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     expect(args).toContain('--base-dir');
   });
 
-  it('retries indefinitely — does NOT give up after 5 attempts', async () => {
+  it('retries with exponential backoff — does NOT give up before 10 attempts', async () => {
     const execFileMock = vi.fn().mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error) => void) => {
       process.nextTick(() => cb(new Error('sync failed')));
       return { pid: 123 };
     });
-    const { scheduleVectorDbSync } = await loadService(execFileMock);
+    mockDeps(execFileMock);
+    const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
 
     // Initial call
     scheduleVectorDbSync();
@@ -89,24 +97,8 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
       process.nextTick(() => cb(new Error('sync failed')));
       return { pid: 123 };
     });
-
-    vi.doMock('child_process', () => ({ execFile: execFileMock }));
-    vi.doMock('@dommaker/studio-prisma', () => ({
-      prisma: { studioEvent: { create: vi.fn().mockResolvedValue({ id: 'mock' }) } },
-    }));
-    vi.doMock('@dommaker/studio-shared', () => ({
-      logger: { info: vi.fn(), warn: loggerWarn, error: vi.fn() },
-    }));
-    vi.doMock('@dommaker/harness', () => ({
-      FileKnowledgeStore: class { list() { return []; } },
-      KnowledgeIngest: class { ingestEntry() { return { id: 'x' }; } },
-      KnowledgeLifecycle: class { shouldAutoPromote() { return false; } },
-      KnowledgeQuery: class {},
-      KnowledgeInjector: class {},
-      KnowledgeLinter: class { validateEntry() { return []; } },
-      ReferenceTracker: class {},
-    }));
-    const { scheduleVectorDbSync } = await import('../knowledge-bus.service.js');
+    mockDeps(execFileMock, loggerWarn);
+    const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
 
     scheduleVectorDbSync();
 
@@ -125,5 +117,15 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     for (let i = 4; i < backoffValues.length; i++) {
       expect(backoffValues[i]).toBeLessThanOrEqual(120);
     }
+  });
+
+  it('R4: knowledge-bus.service.js re-exports the same scheduleVectorDbSync (compat)', async () => {
+    const execFileMock = vi.fn().mockReturnValue({ pid: 123 });
+    mockDeps(execFileMock);
+    const singletons = await import('../knowledge-singletons.js');
+    const bus = await import('../knowledge-bus.service.js');
+    expect(bus.scheduleVectorDbSync).toBe(singletons.scheduleVectorDbSync);
+    expect(bus.isVectorDbSyncing).toBe(singletons.isVectorDbSyncing);
+    expect(bus.sharedStore).toBe(singletons.sharedStore);
   });
 });

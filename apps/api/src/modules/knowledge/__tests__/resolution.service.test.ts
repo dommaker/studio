@@ -1,21 +1,36 @@
 /**
  * ResolutionService — writeCanonicalToDisk + scheduleVectorDbSync 测试
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolution-test-'));
-const envDir = path.join(tmpDir, '.studio');
-const knowledgeDir = path.join(envDir, 'knowledge');
-const testLogsDir = path.join(envDir, 'logs');
-fs.mkdirSync(knowledgeDir, { recursive: true });
-fs.mkdirSync(testLogsDir, { recursive: true });
+// resolution.service.ts 在模块加载时就以 os.homedir() 固化 KNOWLEDGE_DIR，
+// 而 ESM import 先于模块体执行 —— 靠 `process.env.HOME = tmpDir` 改向既依赖
+// import 顺序，又依赖 worker 形态（threads 池下 process.env 修改不会同步到
+// libuv getenv，forks 池下则会），在根 workspace（forks）下会出现「写入 tmp、
+// 读取真实 home」的路径分裂。这里直接 mock os.homedir()，让 import 时与调用时
+// 解析到同一个 tmp 目录，任何 pool 下行为一致。
+const { tmpDir } = await vi.hoisted(async () => {
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'resolution-test-'));
+  fs.mkdirSync(path.join(tmpDir, '.studio', 'knowledge'), { recursive: true });
+  fs.mkdirSync(path.join(tmpDir, '.studio', 'logs'), { recursive: true });
+  return { tmpDir };
+});
 
-// Override HOME so FileStore paths resolve to tmpDir
-const origHome = process.env.HOME;
-process.env.HOME = tmpDir;
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  const homedir = () => tmpDir;
+  return {
+    ...actual,
+    homedir,
+    default: { ...(actual as any).default ?? actual, homedir },
+  };
+});
 
 vi.mock('../knowledge-bus.service.js', () => ({
   scheduleVectorDbSync: vi.fn(),
@@ -24,11 +39,8 @@ vi.mock('../knowledge-bus.service.js', () => ({
 import { resolutionService } from '../resolution.service.js';
 import { scheduleVectorDbSync } from '../knowledge-bus.service.js';
 
-// The resolution service uses os.homedir() for paths.
-// Override via process.env.HOME (most os.homedir() implementations check HOME first)
-// ...but resolution.service.ts uses `os.homedir()` which ignores env on Linux.
-// We need a different approach: vi.mock node:os
-// Since that's complex, let's just directly reference the right paths.
+// os.homedir() 已被 mock 指向 tmpDir —— resolution.service 的 KNOWLEDGE_DIR
+// 与本测试的写入/清理路径都落在 tmpDir/.studio/knowledge，不触碰真实 ~/.studio。
 
 async function writeTestResolution(overrides: {
   id?: string; pattern?: string; errorClass?: string; layer?: string;
@@ -55,19 +67,17 @@ async function writeTestResolution(overrides: {
     '',
     overrides.fix || 'Fix the test error by doing X',
   ].join('\n');
-  // Write to BOTH the actual homedir path AND our test dir
-  const realHome = os.homedir();
-  const realKnowledgeDir = path.join(realHome, '.studio', 'knowledge');
-  fs.mkdirSync(realKnowledgeDir, { recursive: true });
-  fs.writeFileSync(path.join(realKnowledgeDir, `resolution-${id}.md`), frontmatter);
+  const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+  fs.mkdirSync(knowledgeDir, { recursive: true });
+  fs.writeFileSync(path.join(knowledgeDir, `resolution-${id}.md`), frontmatter);
 }
 
 function cleanupResolutions() {
-  const realKnowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+  const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
   try {
-    const files = fs.readdirSync(realKnowledgeDir);
+    const files = fs.readdirSync(knowledgeDir);
     for (const f of files) {
-      if (f.startsWith('resolution-')) fs.unlinkSync(path.join(realKnowledgeDir, f));
+      if (f.startsWith('resolution-')) fs.unlinkSync(path.join(knowledgeDir, f));
     }
   } catch {}
 }
@@ -76,6 +86,10 @@ describe('ResolutionService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     cleanupResolutions();
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
   describe('writeCanonicalToDisk', () => {

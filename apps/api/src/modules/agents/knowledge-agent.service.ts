@@ -5,7 +5,7 @@
  * 使用 harness KnowledgeStore + KnowledgeIngest 存储。
  */
 
-import { modelGateway, logger, FileStore } from '@dommaker/studio-shared';
+import { modelGateway, logger, FileStore, readPromptOverride } from '@dommaker/studio-shared';
 import { ColdStartImporter, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
 import type { DecisionRecord } from '@dommaker/harness';
 import { sharedStore, sharedIngest, scheduleVectorDbSync } from '../knowledge/knowledge-bus.service.js';
@@ -48,6 +48,22 @@ const KNOWLEDGE_SYSTEM_PROMPT = `你是一个知识提取专家。请从以下�
 - content 必须做根因分析，不能只描述现象
 - 如果没有值得提取的知识，返回空数组
 - 最多提取 5 个条目`;
+
+/**
+ * R3: 通用文本知识提取 prompt（extractFromText 与 KnowledgeService.extractFromConversation
+ * 共用单一来源，避免两处漂移）。原 extractFromText 内的局部 EXTRACT_SYSTEM_PROMPT 提升而来。
+ */
+export const EXTRACT_FROM_TEXT_SYSTEM_PROMPT = `你是知识提取专家。从文本中提取结构化知识。对每条记录必须做三层分析：1) 根因（不描述表面现象），2) 责任归属（哪个 Agent/流程该预防），3) 预防措施（具体可操作）。\n\n关注类型：\n- 架构决策 (architecture) - 关于系统设计的讨论和决定\n- 设计决策 (decision) - 关于实现方式的取舍\n- 踩坑记录 (pitfall) - 遇到的问题，重点是根因而非现象\n- 流程经验 (process) - 流程中哪个环节该改进\n- 最佳实践 (guideline) - 可复用的经验和模式\n\n输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }\n只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。`;
+
+/**
+ * E1 约束进化：提取 prompt 支持文件覆盖。
+ * 覆盖文件 `~/.studio/prompt-overrides/knowledge.extract-from-text.md` 由进化提案
+ * 批准后写入（不改写源码）；无覆盖时返回默认常量。两个调用点（本类 extractFromText
+ * 与 KnowledgeService.extractFromConversation）都必须经此 getter。
+ */
+export function getExtractFromTextSystemPrompt(): string {
+  return readPromptOverride('knowledge.extract-from-text') ?? EXTRACT_FROM_TEXT_SYSTEM_PROMPT;
+}
 
 export class KnowledgeAgent {
 
@@ -444,13 +460,11 @@ ${deployResult.summary.slice(0, 2000)}
         originalLength: content.length,
       });
 
-      const EXTRACT_SYSTEM_PROMPT = `你是知识提取专家。从文本中提取结构化知识。对每条记录必须做三层分析：1) 根因（不描述表面现象），2) 责任归属（哪个 Agent/流程该预防），3) 预防措施（具体可操作）。\n\n关注类型：\n- 架构决策 (architecture) - 关于系统设计的讨论和决定\n- 设计决策 (decision) - 关于实现方式的取舍\n- 踩坑记录 (pitfall) - 遇到的问题，重点是根因而非现象\n- 流程经验 (process) - 流程中哪个环节该改进\n- 最佳实践 (guideline) - 可复用的经验和模式\n\n输出格式：{ "entries": [{ "type": "architecture|decision|pitfall|process|guideline", "title": "根因概括", "content": "根因+责任+预防", "tags": ["标签"] }] }\n只提取有价值的、可复用的知识。没有值得提取的知识则返回空数组。最多提取 5 个条目。`;
-
       let result: any;
       try {
         result = await modelGateway.promptJson(
           truncatedContent,
-          EXTRACT_SYSTEM_PROMPT,
+          getExtractFromTextSystemPrompt(),
           { provider: 'knowledge', tier: 'standard' },
         );
       } catch (e) {

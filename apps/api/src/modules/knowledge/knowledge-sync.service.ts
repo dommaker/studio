@@ -16,6 +16,11 @@ import type { KnowledgeSource } from './knowledge-bus.service.js';
 
 // ── Scope Registry ──
 // scope → associated source files (glob patterns). When any of these files change, the scope is stale.
+//
+// R5 修复（断点 J）：scope 只跟踪 STUDIO 自己的代码与配置（基于本仓库 git log 检测）。
+// harness 是 npm 依赖（@dommaker/harness），其源文件不在本仓库 git 内，
+// git log 永远不会报告 staleness —— harness 内部新鲜度是 harness 自己的问题，
+// 已从所有 scope 移除（原 harness/src/... 与 ../../harness/src/... 路径均不存在）。
 
 interface ScopeConfig {
   files: string[];          // glob patterns for source files
@@ -30,7 +35,8 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'process',
   },
   'pipeline-agents': {
-    files: ['apps/api/src/modules/agents/*.ts', 'packages/studio-agent/src/services/agent-executor.ts'],
+    // R5: agent-executor.ts 已拆分为 facade，真正实现为 session-manager.ts (P11-02)
+    files: ['apps/api/src/modules/agents/*.ts', 'packages/studio-agent/src/services/session-manager.ts'],
     title: 'Pipeline Agents',
     knowledgeType: 'architecture',
   },
@@ -40,7 +46,9 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'architecture',
   },
   'knowledge-circuit': {
-    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts', 'harness/src/knowledge/lifecycle.ts', 'harness/src/knowledge/ingest.ts'],
+    // R5: 原 harness/src/knowledge/{lifecycle,ingest}.ts 已移除（npm 依赖，见上方说明）；
+    // knowledge-singletons.ts 为 R4 后共享单例/向量同步/质量门所在地。
+    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts'],
     title: 'Knowledge Circuit Self-Check',
     knowledgeType: 'architecture',
   },
@@ -55,7 +63,7 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'architecture',
   },
   'knowledgestore-bp': {
-    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts', 'harness/src/knowledge/ingest.ts', 'harness/src/knowledge/lifecycle.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts'],
     title: 'KnowledgeStore Breakpoint Fixes',
     knowledgeType: 'architecture',
   },
@@ -64,12 +72,12 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
       'apps/api/src/modules/knowledge/*.ts',
       'apps/api/src/modules/agents/monitor-agent.service.ts',
       'apps/api/src/modules/agents/auditor-agent.service.ts',
-      'apps/api/src/modules/events/agent-event-listener.ts',
-      'packages/studio-shared/src/services/knowledge-*.ts',
+      // R5: agent-event-listener.ts 已随 pipeline-removal 删除（fb13e2b）；
+      // 会话→知识提取现由 agent-loop 触发（R3 extractFromConversation）。
+      'apps/api/src/modules/agents/agent-loop.ts',
+      // R5: packages/studio-shared/src/services/knowledge-*.ts 从未存在，已移除。
       'packages/studio-shared/src/types/resolution.ts',
-      '../../harness/src/knowledge/*.ts',
-      '../../harness/src/monitoring/knowledge-*.ts',
-      '../../harness/src/context/knowledge-injector.ts',
+      // R5: 原 ../../harness/src/... 三条已移除（npm 依赖，见上方说明）。
     ],
     title: 'Knowledge Engine Flywheel',
     knowledgeType: 'architecture',

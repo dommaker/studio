@@ -5,7 +5,7 @@
  * FL-026: 使用 MCPToolRegistry 动态注册，替代静态数组。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, resolveEventsDir } from '@dommaker/studio-shared';
 import { toolRegistry, type RegisteredTool } from './tool-registry.js';
 import { mcpPermissionService } from './permission.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
@@ -811,10 +811,10 @@ const systemHealth: MCPTool = {
     // 3. 设计文档新鲜度
     const staleDocs = checkDocumentFreshness(process.env.REPO_DIR || process.cwd());
 
-    // 4. events-daemon 探活
+    // 4. events-daemon 探活（R2: 统一事件目录）
     let eventsDaemonAlive = false;
     try {
-      const eventsDir = pathMod.join(osMod.homedir(), 'events');
+      const eventsDir = resolveEventsDir();
       if (fsMod.existsSync(eventsDir)) {
         const files = fsMod.readdirSync(eventsDir).filter(f => f.endsWith('.jsonl'));
         for (const f of files.slice(0, 3)) {
@@ -853,7 +853,7 @@ const systemHealth: MCPTool = {
 
 const emitEvent: MCPTool = {
   name: 'emitEvent',
-  description: 'Agent 向事件管线发射结构化事件（写入 ~/events/studio.jsonl，由 events-daemon 路由到 Discord）。用于 Agent 间的异步通信和系统级通知。类型以 "agent:" 为前缀。',
+  description: 'Agent 向事件管线发射结构化事件（写入统一事件目录 ~/.studio/events/studio.jsonl（STUDIO_EVENTS_DIR/EVENTS_DIR 可覆盖），由 events-daemon 路由到 Discord）。用于 Agent 间的异步通信和系统级通知。类型以 "agent:" 为前缀。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -867,9 +867,8 @@ const emitEvent: MCPTool = {
   handler: async (input) => {
     const fsMod = await import('fs');
     const pathMod = await import('path');
-    const osMod = await import('os');
 
-    const eventsDir = pathMod.join(osMod.homedir(), 'events');
+    const eventsDir = resolveEventsDir();
     try { if (!fsMod.existsSync(eventsDir)) fsMod.mkdirSync(eventsDir, { recursive: true }); } catch { /* best-effort */ }
 
     const event = {

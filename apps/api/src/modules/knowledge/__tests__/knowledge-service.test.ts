@@ -172,7 +172,22 @@ describe('KnowledgeService Phase 1A: Produce', () => {
       expect(ingest.ingestEntry).toHaveBeenCalled();
     });
 
-    it('marks low_quality when linter finds blockers', async () => {
+    it('delegates quality gate to harness ingest (__rejected → skip, no throw)', async () => {
+      const { ks, ingest } = createKS();
+      // R4: 单一质量门 — harness KnowledgeIngest 内置 audit 拒绝时返回 __rejected
+      ingest.ingestEntry.mockReturnValue({ __rejected: true, __rejectReasons: ['content too short'] });
+      const entry: PatternEntry = {
+        type: 'review',
+        title: 'Bad',
+        content: 'x',
+        tags: ['test'],
+      };
+      await expect(ks.recordPattern(entry)).resolves.not.toThrow();
+      // 条目交给 harness ingest 门裁决（单一路径），被门跳过
+      expect(ingest.ingestEntry).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not apply a separate studio linter pre-gate (single gate path, R4)', async () => {
       const { ks, ingest, linter } = createKS();
       linter.validateEntry.mockReturnValue([{ severity: 'high', description: 'too short', type: 'quality' }]);
       const entry: PatternEntry = {
@@ -182,10 +197,9 @@ describe('KnowledgeService Phase 1A: Produce', () => {
         tags: ['test'],
       };
       await ks.recordPattern(entry);
-      expect(ingest.ingestEntry).toHaveBeenCalledWith(
-        expect.objectContaining({ tags: expect.arrayContaining(['low_quality']) }),
-        expect.anything(),
-      );
+      // 不再有 studio 侧 linter 预检；low_quality 标记由 harness ingest 门的 flag action 负责
+      expect(linter.validateEntry).not.toHaveBeenCalled();
+      expect(ingest.ingestEntry).toHaveBeenCalledTimes(1);
     });
 
     it('does not throw on failure (best-effort)', async () => {
@@ -664,13 +678,17 @@ describe('KnowledgeService Phase 1C: Measure', () => {
   });
 
   describe('getAnalystAccuracy', () => {
-    it('returns accuracy report with correct shape', async () => {
+    it('returns available:false with reason (no analyst data source exists — honest, not fake-empty)', async () => {
       const { ks } = createKS();
       const r = await ks.getAnalystAccuracy();
-      expect(r).toHaveProperty('overallAccuracy');
-      expect(r).toHaveProperty('byAnalyst');
-      expect(r).toHaveProperty('recentPredictions');
+      expect(r.available).toBe(false);
+      expect(typeof r.reason).toBe('string');
+      expect(r.reason!.length).toBeGreaterThan(0);
       expect(r).toHaveProperty('timestamp');
+      // 不编造度量字段
+      expect(r.overallAccuracy).toBeUndefined();
+      expect(r.byAnalyst).toBeUndefined();
+      expect(r.recentPredictions).toBeUndefined();
     });
   });
 });

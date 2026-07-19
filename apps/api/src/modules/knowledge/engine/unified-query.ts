@@ -10,7 +10,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { FileKnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeStore } from '@dommaker/harness';
 import type { KnowledgeEntry as HarnessEntry, QueryFilter as HarnessFilter } from '@dommaker/harness';
-import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge-bus.service.js';
+import { UNIFIED_KNOWLEDGE_DIR } from '../knowledge-singletons.js';
 
 // ── Types ──────────────────────────────────────────────────
 
@@ -153,6 +153,10 @@ export class UnifiedQuery {
     }
 
     let entries = this.store.list(harnessFilter);
+
+    // R3 提案闸门：proposal（draft）/deprecated 不进入 signal 注入索引
+    // （listEntries 是审核列表，不过滤；getIndexes 仅供注入链路使用）
+    entries = entries.filter(e => e.maturity !== 'draft' && e.maturity !== 'deprecated');
 
     // Exclude low_quality
     if (filter.excludeTags?.includes('low_quality')) {

@@ -26,9 +26,9 @@ import type {
   MaturityLevel,
   KnowledgeSubsystem,
 } from '@dommaker/harness';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, modelGateway } from '@dommaker/studio-shared';
 import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
-import { scheduleVectorDbSync } from './knowledge-bus.service.js';
+import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
 import { join, basename } from 'path';
@@ -208,6 +208,12 @@ export interface ExtractionResult {
   sourceExecutionId?: string;
 }
 
+/** R3: extractFromConversation 的可选上下文（来源追溯 / 事件归因） */
+export interface ConversationExtractionCtx {
+  workUnitId?: string;
+  source?: string;
+}
+
 export interface ExecutionOutcome {
   executionId: string;
   agentType: string;
@@ -228,6 +234,21 @@ export interface InjectOpts {
   maxTokens?: number;
   includeRules?: boolean;
 }
+
+/**
+ * E2 检索主动性（断点 G）：知识上下文注入时附带的「何时查知识库」指引。
+ * signal 档只注入索引，agent 需要知道何时、如何主动检索全文。
+ * 入口 = worktree `.claude/settings.json` 里注册的 local-rag MCP server
+ * （studio-agent worktree-resolver propagateHarnessConfig 写入；agent CLI 以
+ * worktree 为 cwd 启动，自动加载该配置），工具名 `mcp__local-rag__query_documents`。
+ * 体量 ~3 行（约 80 tokens），计入 2K 注入红线内的固定小额开销。
+ */
+export const KNOWLEDGE_QUERY_GUIDANCE = [
+  '## 何时查知识库',
+  '- 遇到不熟悉的报错、同一问题反复失败、涉及用户偏好、或大改/重构之前：先查知识库再动手。',
+  '- 查询入口：MCP 工具 `mcp__local-rag__query_documents`（local-rag server），query 传关键词或问题描述。',
+  '- 有现成经验就复用，不要重复踩坑；查不到再自行解决。',
+].join('\n');
 
 export interface SearchOpts {
   limit?: number;
@@ -257,6 +278,13 @@ export interface FlywheelMetrics {
   improvement: number;
   freshness: number;
   timestamp: string;
+  /**
+   * R1: 事件衍生指标（hitRate/improvement）的数据来源标记。
+   * 'events' = 滚动窗口内有 outcome 事件，指标为实算；
+   * 'insufficient-data' = 窗口内无 outcome 事件（或读取失败），hitRate/improvement 为 0 占位而非编造。
+   * quality/freshness 始终由 KnowledgeStore 实算，不受此标记影响。
+   */
+  source?: 'events' | 'insufficient-data';
 }
 
 export interface HealthReport {
@@ -272,6 +300,39 @@ export interface AuditReport {
   findings: AuditFinding[];
   trend: string;
   timestamp: string;
+  /** M1: 事件流计数（滚动窗口，默认 30 天）。窗口内无任何相关事件 → 计数为显式 0 且 source='insufficient-data'（不编造）。 */
+  eventCounts: {
+    windowDays: number;
+    /** knowledge:consumption 事件数（lifecycle recordReference 驱动的消费记录） */
+    consumption: number;
+    /** knowledge:outcome:success 事件数 */
+    outcomeSuccess: number;
+    /** knowledge:outcome:failure 事件数 */
+    outcomeFailure: number;
+    /** knowledge:extraction 事件数（R3 LLM 提取） */
+    extraction: number;
+    source: 'events' | 'insufficient-data';
+  };
+  /** M1: 知识库条目按成熟度分布（store 实算，数据源恒为 store） */
+  entries: {
+    total: number;
+    byMaturity: Record<string, number>;
+    source: 'store';
+  };
+  /**
+   * M1: 引用次数最多的条目（top 5）。
+   * 数据源 = store 条目的 referencedBy 计数（harness KnowledgeLifecycle.recordReference 维护；
+   * 注意 recordReference 并不维护 ~/.studio/knowledge/.consumption-stats.json —— 该文件是
+   * monitor-agent 写的每日聚合摘要 {date,dailyEvents,searchHits}，不含条目级数据）。
+   */
+  topReferenced: Array<{ id: string; title: string; references: number }>;
+  /** M1: 近 30 天 LLM 提取活动（knowledge:extraction 事件实算） */
+  extractionActivity: {
+    count: number;
+    totalTokens: number;
+    lastAt: string | null;
+    source: 'events' | 'insufficient-data';
+  };
 }
 
 export interface AuditFinding {
@@ -281,10 +342,18 @@ export interface AuditFinding {
   entryId?: string;
 }
 
+/**
+ * M1 诚实契约：系统中不存在 analyst 预测 vs 实际结果的结构化数据源
+ * （recordAnalystAccuracy 仅被知识总线旧壳/测试引用，生产无调用方），
+ * 因此 getAnalystAccuracy 返回 available:false + reason，而不是假空 stub。
+ * 若未来接入真实数据源，返回 available:true 并填充度量字段。
+ */
 export interface AccuracyReport {
-  overallAccuracy: number;
-  byAnalyst: Record<string, number>;
-  recentPredictions: AccuracyData[];
+  available: boolean;
+  reason?: string;
+  overallAccuracy?: number;
+  byAnalyst?: Record<string, number>;
+  recentPredictions?: AccuracyData[];
   timestamp: string;
 }
 
@@ -332,6 +401,8 @@ export class KnowledgeService {
   private linter: KnowledgeLinter;
   private query: any;
   private eventEmitter: any;
+  /** E2（断点 G）：mcp-local-rag 可用性探测缓存（实例字段，不占 prototype 方法数） */
+  private ragProbeCache: { available: boolean; checkedAt: number } | null = null;
 
   constructor(deps: KnowledgeServiceDeps) {
     this.store = deps.store;
@@ -406,53 +477,118 @@ export class KnowledgeService {
     }
   }
 
-  async extractFromConversation(_messages: { role: string; content: string }[]): Promise<void> {
-    // Phase 5: new capability
+  /**
+   * R3 会话提取（断点 B）：任务 COMPLETE 时由 agent-loop 触发一次 LLM 提取
+   * （根因/模式/可复用经验），结果以 proposal（maturity=draft）入库。
+   *
+   * - LLM 路径复用 KnowledgeAgent 的提取链路：modelGateway.promptJson +
+   *   getExtractFromTextSystemPrompt()（单一 prompt 来源，不复制；E1 支持
+   *   ~/.studio/prompt-overrides/knowledge.extract-from-text.md 文件覆盖）。
+   * - proposal 须经审核（promote → verified）才参与注入（见 injectContext 的
+   *   isInjectableMaturity 闸门）；模板式 extractFromExecution 保留为兜底。
+   * - 提取开销（tokens/duration）以 knowledge:extraction 事件单独度量，
+   *   不计入 2K 注入红线。
+   * - 永不抛出：LLM 未配置/调用失败仅记日志（e2e 无 LLM 时静默跳过）。
+   */
+  async extractFromConversation(
+    messages: { role: string; content: string }[],
+    ctx?: ConversationExtractionCtx,
+  ): Promise<void> {
+    const source = ctx?.source ?? `conversation:${ctx?.workUnitId ?? 'unknown'}`;
+    try {
+      const transcript = buildConversationTranscript(messages);
+      if (!transcript) return;
+
+      if (!modelGateway.isAvailable()) {
+        logger.info('[KnowledgeService] extractFromConversation skipped: no LLM provider configured', { source });
+        return;
+      }
+
+      // 复用 KnowledgeAgent 的提取 prompt（动态 import 避免静态循环依赖：
+      // knowledge-agent.service 已静态引用本模块的 validateKnowledgeForm/writeTrendData）
+      // E1: 经 getter 取值以支持 prompt-override 文件覆盖（约束进化提案生效路径）
+      const { getExtractFromTextSystemPrompt } = await import('../agents/knowledge-agent.service.js');
+
+      const usageMark = Date.now();
+      const result = await modelGateway.promptJson<{ entries?: Array<{ type?: string; title?: string; content?: string; tags?: string[] }> }>(
+        transcript,
+        getExtractFromTextSystemPrompt(),
+        { provider: 'knowledge', tier: 'standard' },
+      );
+      const durationMs = Date.now() - usageMark;
+
+      // 提取开销：gateway usageLog 增量（通常 1 条；provider fallback 可能多条）
+      const usageRecords = modelGateway.getRecentUsage(20)
+        .filter(u => typeof u?.timestamp === 'number' && u.timestamp >= usageMark);
+      const promptTokens = usageRecords.reduce((s, u) => s + (u.promptTokens || 0), 0);
+      const completionTokens = usageRecords.reduce((s, u) => s + (u.completionTokens || 0), 0);
+      const totalTokens = usageRecords.reduce((s, u) => s + (u.totalTokens || 0), 0);
+
+      const entries = Array.isArray(result?.entries) ? result.entries.slice(0, 5) : [];
+      const entryIds: string[] = [];
+      for (const raw of entries) {
+        const id = ingestConversationEntry({ linter: this.linter, ingest: this.ingest }, raw, source);
+        if (id) entryIds.push(id);
+      }
+      if (entryIds.length > 0) scheduleVectorDbSync();
+
+      logger.info('[KnowledgeService] extractFromConversation completed', {
+        source, entryCount: entryIds.length, totalTokens, durationMs,
+      });
+
+      // M2 成本度量：提取开销单独记事件，与注入 tokens 分开核算
+      const eventData = {
+        trigger: 'task-complete',
+        workUnitId: ctx?.workUnitId,
+        entryIds,
+        entryCount: entryIds.length,
+        promptTokens,
+        completionTokens,
+        totalTokens,
+        durationMs,
+      };
+      this.eventEmitter.emit('knowledge', { type: 'extractFromConversation', data: eventData });
+      try {
+        await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+          type: 'knowledge:extraction',
+          source,
+          payload: JSON.stringify(eventData),
+          createdAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        logger.warn('[KnowledgeService] Failed to persist knowledge:extraction event', { error: String(e) });
+      }
+    } catch (err) {
+      // 提取失败绝不影响任务完成（模板兜底仍由 extractFromExecution 独立承担）
+      logger.warn('[KnowledgeService] extractFromConversation failed', { source, error: String(err) });
+    }
   }
 
   async recordPattern(entry: PatternEntry): Promise<void> {
     try {
       const source = entry.tags?.[0] || 'monitor';
 
-      // Triage quality gate: require root_cause + fix_action
-      if (entry.type === 'triage') {
-        const content = (entry.content || '').toLowerCase();
-        if (!content.includes('root_cause') || !content.includes('fix_action')) {
-          return; // silently skip invalid triage entries
-        }
-      }
-
-      // Validate entry quality — mark low_quality instead of rejecting
       // Merge input tags (e.g., need_review) with type-derived tags
       const tags: string[] = [entry.type, ...(entry.tags || []).filter(t => t !== entry.type)];
       const knowledgeType = ENTRY_TYPE_MAP[entry.type] || 'guideline';
-      const issues = this.linter.validateEntry({
-        title: entry.title || '',
-        content: entry.content || '',
-        tags,
-        type: knowledgeType,
-      });
-      const blockers = issues.filter((i: any) => i.severity === 'high');
-      if (blockers.length > 0) {
-        tags.push('low_quality');
-      }
 
-      this.ingest.ingestEntry(
+      // R4: 统一质量门（断点 H）— 与 KnowledgeBus.recordPattern 单一路径。
+      // triage 业务门 + harness ingest 门（reject 跳过 / flag 自动 low_quality）
+      // 均在 ingestWithQualityGate 内处理；studio 侧不再另起 linter 预检。
+      ingestWithQualityGate(
+        { ingest: this.ingest },
         {
           type: knowledgeType,
           title: entry.title,
           content: entry.content,
           tags,
-        },
-        {
-          source: `pattern:${source}`,
+          source,
+          entryType: entry.type,
           layer: 'project',
           maturity: 'active',
-          tags,
           consumptionMode: 'signal',
         },
       );
-      scheduleVectorDbSync();
     } catch {
       // best-effort — don't block producers
     }
@@ -524,8 +660,9 @@ export class KnowledgeService {
     const injectedIds: string[] = [];
 
     // 1. rule — full content injection (constraints must be followed)
+    // R3: isInjectableMaturity — proposal(draft)/archived/deprecated 不注入
     const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType, status: 'published' });
-    const filteredRules = (rules || []).filter((r: any) => r.sourceReference && r.status !== 'stale');
+    const filteredRules = (rules || []).filter((r: any) => r.sourceReference && r.status !== 'stale' && isInjectableMaturity(r.maturity));
     if (filteredRules.length) {
       const lines = filteredRules.map((r: any) => `- ${stripFormat(r.content)}`);
       sections.push(`## 系统约束\n${lines.join('\n')}`);
@@ -534,7 +671,7 @@ export class KnowledgeService {
 
     // 2. context — full content injection (preferences + environment)
     const context = await this.query.queryEntries({ consumptionModes: ['context'], status: 'published' });
-    const filteredContext = (context || []).filter((c: any) => c.sourceReference && c.status !== 'stale');
+    const filteredContext = (context || []).filter((c: any) => c.sourceReference && c.status !== 'stale' && isInjectableMaturity(c.maturity));
     if (filteredContext.length) {
       const lines = filteredContext.map((c: any) => `- ${stripFormat(c.content)}`);
       sections.push(`## 上下文\n${lines.join('\n')}`);
@@ -543,7 +680,7 @@ export class KnowledgeService {
 
     // 3. signal — index injection (informational)
     const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
-    const filteredSignals = (signals || []).filter((s: any) => s.status !== 'stale');
+    const filteredSignals = (signals || []).filter((s: any) => s.status !== 'stale' && isInjectableMaturity(s.maturity));
     if (filteredSignals.length) {
       const lines = filteredSignals.map((s: any) => `- [${s.id}] ${s.summary}`);
       sections.push(`## 近期信号\n${lines.join('\n')}`);
@@ -556,7 +693,13 @@ export class KnowledgeService {
       sections.push(`[知识库: ${refCount} 条参考，遇到问题时用 search()]`);
     }
 
-    // 5. recordReference — close maturity loop
+    // 5. E2 检索主动性（断点 G）：有知识注入时附「何时查知识库」指引 —
+    // signal 档只有索引，agent 需显式指引才会主动检索。无注入时不附加。
+    if (sections.length > 0) {
+      sections.push(KNOWLEDGE_QUERY_GUIDANCE);
+    }
+
+    // 6. recordReference — close maturity loop
     if (injectedIds.length > 0) {
       for (const id of injectedIds) {
         try { this.lifecycle.recordReference(id, 'prompt-inject'); } catch { /* non-blocking */ }
@@ -570,10 +713,29 @@ export class KnowledgeService {
    * Semantic search via mcp-local-rag CLI.
    * Calls `mcp-local-rag query <text>` and parses JSON output.
    * Maps filePath back to knowledge entry ID via YAML frontmatter.
+   *
+   * E2（断点 G）：先探测 RAG 可用性（每进程缓存，TTL 5min），不可用或查询失败时
+   * 降级为 store 关键词检索（searchKeyword），不再静默返回 []。
+   * 探测/映射逻辑为模块级函数 —— KnowledgeService 公共方法数被
+   * knowledge-service.test.ts 锁定（34），不在 prototype 上新增方法。
    */
   async semanticSearch(query: string, opts?: { limit?: number }): Promise<SemanticSearchResult[]> {
+    const limit = opts?.limit || 5;
+
+    // 可用性探测：TTL 内命中缓存直接复用，避免每次查询都多 spawn 一个探测进程
+    if (!this.ragProbeCache || Date.now() - this.ragProbeCache.checkedAt >= RAG_PROBE_TTL_MS) {
+      const available = await probeMcpLocalRag();
+      this.ragProbeCache = { available, checkedAt: Date.now() };
+      if (!available) {
+        logger.debug('[KnowledgeService] mcp-local-rag probe failed — semantic search degraded to keyword fallback');
+      }
+    }
+    if (!this.ragProbeCache.available) {
+      logger.debug('[KnowledgeService] mcp-local-rag unavailable — keyword fallback', { query });
+      return keywordHitsToSemantic(this.searchKeyword(query, { limit }));
+    }
+
     try {
-      const limit = opts?.limit || 5;
       const raw = await this.execMcpQuery(query);
       const results: SemanticSearchResult[] = JSON.parse(raw);
 
@@ -593,8 +755,11 @@ export class KnowledgeService {
 
       return mapped;
     } catch (e) {
-      logger.warn('[KnowledgeService] semanticSearch failed', { error: String(e) });
-      return [];
+      // 探测通过但查询失败（模型缺失/超时等）：TTL 内标记不可用，避免后续查询
+      // 每次都白等 30s 超时；同时降级关键词检索而不是静默返回 []。
+      this.ragProbeCache = { available: false, checkedAt: Date.now() };
+      logger.warn('[KnowledgeService] semanticSearch failed — keyword fallback', { error: String(e) });
+      return keywordHitsToSemantic(this.searchKeyword(query, { limit }));
     }
   }
 
@@ -816,7 +981,9 @@ export class KnowledgeService {
   }
 
   async list(filter?: QueryFilter): Promise<KnowledgeEntry[]> {
-    return this.query.listEntries(filter || {});
+    // UnifiedQuery.listEntries 返回 { entries, total }（分页形态）；本方法对外保持数组契约。
+    const result: any = await this.query.listEntries(filter || {});
+    return Array.isArray(result) ? result : (result?.entries ?? []);
   }
 
   async get(id: string): Promise<KnowledgeEntry | null> {
@@ -986,27 +1153,35 @@ export class KnowledgeService {
 
   // ═══════════ Measure (metrics + audit) ════════════
 
-  async getFlywheelMetrics(): Promise<FlywheelMetrics> {
+  async getFlywheelMetrics(opts?: { eventsFile?: string; windowDays?: number }): Promise<FlywheelMetrics> {
+    const timestamp = new Date().toISOString();
     try {
       const entries = this.store.list({});
       const total = entries.length;
-      if (total === 0) return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp: new Date().toISOString() };
 
-      // Quality: weighted maturity score (proven=3, verified=2, draft=1)
-      const maturityWeight: Record<string, number> = { proven: 3, verified: 2, active: 1.5, draft: 1, deprecated: 0, archived: 0 };
-      const qualitySum = entries.reduce((s: number, e: any) => s + (maturityWeight[e.maturity] || 0), 0);
-      const quality = Math.min(100, Math.round((qualitySum / (total * 3)) * 100));
+      let quality = 0;
+      let freshness = 0;
+      if (total > 0) {
+        // Quality: weighted maturity score (proven=3, verified=2, draft=1)
+        const maturityWeight: Record<string, number> = { proven: 3, verified: 2, active: 1.5, draft: 1, deprecated: 0, archived: 0 };
+        const qualitySum = entries.reduce((s: number, e: any) => s + (maturityWeight[e.maturity] || 0), 0);
+        quality = Math.min(100, Math.round((qualitySum / (total * 3)) * 100));
 
-      // Freshness: % referenced in last 30 days
-      const now = Date.now();
-      const recentCount = entries.filter((e: any) =>
-        e.lastReferenced && (now - new Date(e.lastReferenced).getTime()) < 30 * 86400000
-      ).length;
-      const freshness = Math.round((recentCount / total) * 100);
+        // Freshness: % referenced in last 30 days
+        const now = Date.now();
+        const recentCount = entries.filter((e: any) =>
+          e.lastReferenced && (now - new Date(e.lastReferenced).getTime()) < 30 * 86400000
+        ).length;
+        freshness = Math.round((recentCount / total) * 100);
+      }
 
-      return { quality, hitRate: 0, improvement: 0, freshness, timestamp: new Date().toISOString() };
+      // R1: hitRate / improvement 从 outcome 事件实算（断点 A 修复，此前硬编码 0）
+      // 模块级纯函数（不依赖 this），保持 KnowledgeService 公共方法面不变
+      const outcomeMetrics = await computeOutcomeMetrics(opts);
+
+      return { quality, hitRate: outcomeMetrics.hitRate, improvement: outcomeMetrics.improvement, freshness, timestamp, source: outcomeMetrics.source };
     } catch {
-      return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp: new Date().toISOString() };
+      return { quality: 0, hitRate: 0, improvement: 0, freshness: 0, timestamp, source: 'insufficient-data' };
     }
   }
 
@@ -1033,12 +1208,104 @@ export class KnowledgeService {
     }
   }
 
-  async getAuditReport(): Promise<AuditReport> {
-    return { findings: [], trend: 'stable', timestamp: new Date().toISOString() };
+  /**
+   * M1: 实算审计报告（断点 I 修复，此前返回空 stub）。
+   * 数据源：studio-events.jsonl 事件流（consumption/outcome/extraction）+ KnowledgeStore。
+   * 事件流无数据的分区返回显式 0 + source='insufficient-data'（与 getFlywheelMetrics 同一诚实约定）。
+   */
+  async getAuditReport(opts?: { eventsFile?: string; windowDays?: number }): Promise<AuditReport> {
+    const windowDays = opts?.windowDays ?? 30;
+    const timestamp = new Date().toISOString();
+
+    // ── store 分区（恒有数据源） ──
+    let entries: AuditReport['entries'] = { total: 0, byMaturity: {}, source: 'store' };
+    let topReferenced: AuditReport['topReferenced'] = [];
+    try {
+      const all = this.store.list({});
+      const byMaturity: Record<string, number> = {};
+      for (const e of all) {
+        const m = (e as any).maturity ?? 'unknown';
+        byMaturity[m] = (byMaturity[m] || 0) + 1;
+      }
+      entries = { total: all.length, byMaturity, source: 'store' };
+      topReferenced = all
+        .map((e: any) => ({
+          id: e.id,
+          title: typeof e.title === 'string' ? e.title.slice(0, 80) : '',
+          references: Array.isArray(e.referencedBy) ? e.referencedBy.length : 0,
+        }))
+        .filter(t => t.references > 0)
+        .sort((a, b) => b.references - a.references)
+        .slice(0, 5);
+    } catch { /* store 读取失败 → 显式 0 */ }
+
+    // ── 事件流分区 ──
+    const stats = await scanKnowledgeEvents(opts);
+
+    // trend：复用 outcome 成功率前后半窗口对比（与 getFlywheelMetrics.improvement 同一定义）
+    let trend = 'insufficient-data';
+    if (stats.outcomes.length > 0) {
+      const now = Date.now();
+      const windowStart = now - windowDays * 86400000;
+      const midpoint = windowStart + (now - windowStart) / 2;
+      const firstHalf = stats.outcomes.filter(o => o.ts < midpoint);
+      const secondHalf = stats.outcomes.filter(o => o.ts >= midpoint);
+      if (firstHalf.length > 0 && secondHalf.length > 0) {
+        const sr1 = firstHalf.filter(o => o.success).length / firstHalf.length;
+        const sr2 = secondHalf.filter(o => o.success).length / secondHalf.length;
+        trend = sr2 > sr1 ? 'improving' : sr2 < sr1 ? 'declining' : 'stable';
+      } else {
+        trend = 'stable'; // 单边窗口无法比势，记 stable（有事件但趋势不可算）
+      }
+    }
+
+    // ── findings：从实算数据派生，不预造 ──
+    const findings: AuditFinding[] = [];
+    if (entries.total === 0) {
+      findings.push({ type: 'empty-store', severity: 'medium', description: '知识库无任何条目' });
+    }
+    const drafts = entries.byMaturity['draft'] ?? 0;
+    if (drafts > 0) {
+      findings.push({
+        type: 'proposals-pending-review', severity: 'low',
+        description: `${drafts} 条 proposal 待人工审核（maturity=draft，审核 promote 前不参与注入）`,
+      });
+    }
+    if (stats.eventCounts.source === 'insufficient-data') {
+      findings.push({
+        type: 'no-events', severity: 'low',
+        description: `近 ${windowDays} 天无 consumption/outcome/extraction 事件，飞轮尚无运行数据`,
+      });
+    }
+    if (stats.eventCounts.outcomeFailure > stats.eventCounts.outcomeSuccess && stats.eventCounts.outcomeFailure > 0) {
+      findings.push({
+        type: 'failures-exceed-successes', severity: 'high',
+        description: `窗口内失败 outcome (${stats.eventCounts.outcomeFailure}) 多于成功 (${stats.eventCounts.outcomeSuccess})`,
+      });
+    }
+
+    return {
+      findings,
+      trend,
+      timestamp,
+      eventCounts: stats.eventCounts,
+      entries,
+      topReferenced,
+      extractionActivity: stats.extractionActivity,
+    };
   }
 
+  /**
+   * M1 诚实实现：系统中不存在 analyst 预测 vs 实际结果的结构化数据源。
+   * recordAnalystAccuracy() 把数据写成 data/trends/ 的 markdown 文本，且生产代码无任何调用方
+   * （仅 @deprecated KnowledgeBus 壳与测试引用）——没有可计算的输入，返回不可用标记而非假空 stub。
+   */
   async getAnalystAccuracy(): Promise<AccuracyReport> {
-    return { overallAccuracy: 0, byAnalyst: {}, recentPredictions: [], timestamp: new Date().toISOString() };
+    return {
+      available: false,
+      reason: '系统中不存在 analyst 预测 vs 实际结果的数据源（recordAnalystAccuracy 生产无调用方，预测/结果未结构化落盘），指标不可用而非编造',
+      timestamp: new Date().toISOString(),
+    };
   }
 
   // ═══════════ Additional methods (absorbed from KnowledgeBus / ResolutionService) ════════════
@@ -1089,12 +1356,289 @@ export class KnowledgeService {
 
 // ── Utilities (absorbed from KnowledgeBus / prompt-builder) ──
 
+// ── R3 会话提取 + 提案闸门 ──
+
+/** R3: 会话提取 transcript 上限（字符）。提取输入独立度量，不占 2K 注入红线，但仍控制单次调用规模。 */
+const CONVERSATION_TRANSCRIPT_MAX_CHARS = 12_000;
+const CONVERSATION_MESSAGE_MAX_CHARS = 2_000;
+
+/**
+ * R3 提案闸门：draft/archived/deprecated 不参与注入。
+ * proposal（LLM 提取产物，maturity=draft）须经人工审核 promote 后才可注入。
+ * 无 maturity 字段的条目（doc 来源 rule/preference/snapshot，恒为 approved 语义）不受限。
+ */
+const NON_INJECTABLE_MATURITIES: ReadonlySet<string> = new Set(['draft', 'archived', 'deprecated']);
+
+function isInjectableMaturity(maturity: unknown): boolean {
+  return typeof maturity !== 'string' || !NON_INJECTABLE_MATURITIES.has(maturity);
+}
+
+/** LLM 提取返回的合法知识类型（越界值回落 guideline） */
+const VALID_KNOWLEDGE_TYPES: ReadonlySet<string> = new Set(['model', 'decision', 'guideline', 'pitfall', 'process', 'architecture']);
+
+/**
+ * R3: 会话消息 → 紧凑 transcript（role 标注 + 截断）。
+ * 单条消息 2000 字符；整体 12000 字符，超出时保留头尾、中间标记省略。
+ */
+function buildConversationTranscript(messages: { role: string; content: string }[]): string {
+  const lines = (messages || [])
+    .filter(m => m && typeof m.content === 'string' && m.content.trim().length > 0)
+    .map(m => `[${m.role || 'unknown'}] ${m.content.trim().slice(0, CONVERSATION_MESSAGE_MAX_CHARS)}`);
+  const full = lines.join('\n\n');
+  if (full.length <= CONVERSATION_TRANSCRIPT_MAX_CHARS) return full;
+  const head = full.slice(0, 4_000);
+  const tail = full.slice(-(CONVERSATION_TRANSCRIPT_MAX_CHARS - 4_000));
+  return `${head}\n\n...[truncated ${full.length - CONVERSATION_TRANSCRIPT_MAX_CHARS} chars]...\n\n${tail}`;
+}
+
+/**
+ * R3: 单条 LLM 提取结果入库（proposal）。质量门与 KnowledgeAgent.safeIngest 对齐：
+ * 形态门禁（数据形态重定向 trends）→ linter 阻断跳过。maturity 恒为 draft（proposal），
+ * 审核 promote 前不参与注入。返回入库条目 id；被门禁跳过/拒绝时返回 null。
+ */
+function ingestConversationEntry(
+  deps: { linter: KnowledgeLinter; ingest: KnowledgeIngest },
+  raw: { type?: string; title?: string; content?: string; tags?: string[] },
+  source: string,
+): string | null {
+  try {
+    const title = (raw.title || '').trim();
+    const content = (raw.content || '').trim();
+    if (!title || !content) return null;
+    const tags = Array.isArray(raw.tags) ? raw.tags.filter(t => typeof t === 'string') : [];
+    const type = (VALID_KNOWLEDGE_TYPES.has(raw.type ?? '') ? raw.type : 'guideline') as KnowledgeSubsystem;
+
+    // 形态门禁（与 safeIngest 一致）：非知识形态不入库；数据形态重定向到 trends
+    const formResult = validateKnowledgeForm({ type, content, tags });
+    if (!formResult.valid) {
+      logger.info('[KnowledgeService] Conversation entry form-gate rejected', {
+        form: formResult.form, reason: formResult.reason, title: title.slice(0, 50),
+      });
+      if (formResult.form === 'data') {
+        const dateStr = new Date().toISOString().split('T')[0];
+        writeTrendData(`${dateStr}-extracted.md`, `## ${title}\n\n${content}\n\nsource: ${source}`);
+      }
+      return null;
+    }
+
+    const issues = deps.linter.validateEntry({ title, content, tags, type });
+    const blockers = issues.filter((i: any) => i.severity === 'high');
+    if (blockers.length > 0) {
+      logger.warn('[KnowledgeService] Conversation entry rejected by quality gate', {
+        title: title.slice(0, 50), issues: blockers.map((i: any) => i.description),
+      });
+      return null;
+    }
+
+    const saved = deps.ingest.ingestEntry(
+      { type, title, content, tags },
+      {
+        source,
+        layer: 'project',
+        maturity: 'draft', // R3: proposal — 审核前不参与注入
+        tags,
+        consumptionMode: 'signal',
+        origin: 'agent',
+      },
+    );
+    if ((saved as any)?.__rejected) return null;
+    return (saved as any)?.id ?? null;
+  } catch (e) {
+    logger.warn('[KnowledgeService] Failed to ingest conversation entry', { error: String(e) });
+    return null;
+  }
+}
+
+/**
+ * R1 反馈环度量 — 从 studio-events.jsonl 的 `knowledge:outcome:*` 事件实算。
+ * （模块级纯函数，不依赖 KnowledgeService 实例，供 getFlywheelMetrics 调用。）
+ *
+ * 数据源：recordOutcome() 写入的事件
+ *   { type: 'knowledge:outcome:success|failure', source, payload, createdAt }
+ *   payload 为 JSON string：{ executionId, agentType, success, consumedKnowledge: string[], ... }
+ *
+ * 指标定义（刻意简单、诚实）：
+ * - hitRate（0-100）：滚动窗口内，consumedKnowledge ≥ 1 条的任务（outcome）数 /
+ *   窗口内有 outcome 记录的总任务数 × 100。衡量「执行任务时真的注入了知识」的比例。
+ * - improvement（百分点，可为负）：窗口按时间中点对半切分，
+ *   improvement = (后半窗口成功率 − 前半窗口成功率) × 100。
+ *   任一半窗口无事件 → 趋势不可算，记 0（不编造）。
+ * - 窗口默认 30 天（opts.windowDays 可覆盖）；opts.eventsFile 供测试注入 fixture。
+ * - 窗口内无任何 outcome 事件 → hitRate/improvement = 0 且 source='insufficient-data'。
+ */
+async function computeOutcomeMetrics(opts?: { eventsFile?: string; windowDays?: number }): Promise<{ hitRate: number; improvement: number; source: 'events' | 'insufficient-data' }> {
+  const windowDays = opts?.windowDays ?? 30;
+  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+  const now = Date.now();
+  const windowStart = now - windowDays * 86400000;
+
+  let rows: any[] = [];
+  try {
+    rows = await fileStore.readJsonl<any>(eventsFile);
+  } catch {
+    rows = []; // 事件文件不存在/不可读 → 数据不足
+  }
+
+  const outcomes: Array<{ ts: number; success: boolean; consumed: number }> = [];
+  for (const row of rows) {
+    if (row?.type !== 'knowledge:outcome:success' && row?.type !== 'knowledge:outcome:failure') continue;
+    const tsRaw = row.createdAt ?? row.timestamp;
+    const ts = tsRaw ? new Date(tsRaw).getTime() : NaN;
+    // 容忍 1 分钟时钟偏移；超出窗口或时间戳非法 → 跳过
+    if (!Number.isFinite(ts) || ts < windowStart || ts > now + 60_000) continue;
+    let payload: any = {};
+    try {
+      payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload ?? {});
+    } catch {
+      continue; // payload 损坏的行不计入（与 readJsonl 跳过坏行一致，不编造 consumed=0）
+    }
+    const consumed = Array.isArray(payload.consumedKnowledge) ? payload.consumedKnowledge.length : 0;
+    outcomes.push({ ts, success: row.type === 'knowledge:outcome:success', consumed });
+  }
+
+  if (outcomes.length === 0) {
+    return { hitRate: 0, improvement: 0, source: 'insufficient-data' };
+  }
+
+  const hits = outcomes.filter(o => o.consumed > 0).length;
+  const hitRate = Math.round((hits / outcomes.length) * 100);
+
+  // improvement: 时间中点切半，后半成功率 − 前半成功率（百分点）
+  const midpoint = windowStart + (now - windowStart) / 2;
+  const firstHalf = outcomes.filter(o => o.ts < midpoint);
+  const secondHalf = outcomes.filter(o => o.ts >= midpoint);
+  let improvement = 0;
+  if (firstHalf.length > 0 && secondHalf.length > 0) {
+    const sr1 = firstHalf.filter(o => o.success).length / firstHalf.length;
+    const sr2 = secondHalf.filter(o => o.success).length / secondHalf.length;
+    improvement = Math.round((sr2 - sr1) * 100);
+  }
+
+  return { hitRate, improvement, source: 'events' };
+}
+
+/**
+ * M1 审计扫描 — 从 studio-events.jsonl 实算 consumption/outcome/extraction 事件计数与提取活动。
+ * （模块级纯函数，不依赖 KnowledgeService 实例，供 getAuditReport 调用；opts.eventsFile 供测试注入。）
+ *
+ * 计数口径（与 R1 computeOutcomeMetrics 一致的窗口/时钟容差约定）：
+ * - 窗口默认 30 天，容忍 1 分钟时钟偏移；窗口外/时间戳非法的行跳过；payload 损坏的行跳过（不计为 0）。
+ * - 窗口内四类事件全为 0 → eventCounts.source='insufficient-data'（计数为显式 0，不编造）。
+ * - extractionActivity 仅由 knowledge:extraction 事件推导；totalTokens 取 payload.totalTokens 累加，
+ *   缺失/非数值按 0 计；lastAt 为最近一次提取事件的 createdAt。
+ */
+async function scanKnowledgeEvents(opts?: { eventsFile?: string; windowDays?: number }): Promise<{
+  eventCounts: { windowDays: number; consumption: number; outcomeSuccess: number; outcomeFailure: number; extraction: number; source: 'events' | 'insufficient-data' };
+  extractionActivity: { count: number; totalTokens: number; lastAt: string | null; source: 'events' | 'insufficient-data' };
+  outcomes: Array<{ ts: number; success: boolean }>;
+}> {
+  const windowDays = opts?.windowDays ?? 30;
+  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+  const now = Date.now();
+  const windowStart = now - windowDays * 86400000;
+
+  let rows: any[] = [];
+  try {
+    rows = await fileStore.readJsonl<any>(eventsFile);
+  } catch {
+    rows = []; // 事件文件不存在/不可读 → 数据不足
+  }
+
+  let consumption = 0;
+  let outcomeSuccess = 0;
+  let outcomeFailure = 0;
+  let extraction = 0;
+  let extractionTokens = 0;
+  let extractionLastAt: string | null = null;
+  const outcomes: Array<{ ts: number; success: boolean }> = [];
+
+  for (const row of rows) {
+    const type = row?.type;
+    if (type !== 'knowledge:consumption'
+      && type !== 'knowledge:outcome:success' && type !== 'knowledge:outcome:failure'
+      && type !== 'knowledge:extraction') continue;
+    const tsRaw = row.createdAt ?? row.timestamp;
+    const ts = tsRaw ? new Date(tsRaw).getTime() : NaN;
+    if (!Number.isFinite(ts) || ts < windowStart || ts > now + 60_000) continue;
+
+    if (type === 'knowledge:consumption') {
+      consumption++;
+    } else if (type === 'knowledge:extraction') {
+      extraction++;
+      let payload: any = {};
+      try {
+        payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload ?? {});
+      } catch {
+        continue; // payload 损坏的行不计入
+      }
+      if (typeof payload.totalTokens === 'number' && Number.isFinite(payload.totalTokens)) {
+        extractionTokens += payload.totalTokens;
+      }
+      const at = row.createdAt ?? row.timestamp;
+      if (typeof at === 'string' && (!extractionLastAt || at > extractionLastAt)) extractionLastAt = at;
+    } else {
+      if (type === 'knowledge:outcome:success') outcomeSuccess++;
+      else outcomeFailure++;
+      outcomes.push({ ts, success: type === 'knowledge:outcome:success' });
+    }
+  }
+
+  const anyEvents = consumption + outcomeSuccess + outcomeFailure + extraction > 0;
+  return {
+    eventCounts: {
+      windowDays,
+      consumption,
+      outcomeSuccess,
+      outcomeFailure,
+      extraction,
+      source: anyEvents ? 'events' : 'insufficient-data',
+    },
+    extractionActivity: {
+      count: extraction,
+      totalTokens: extractionTokens,
+      lastAt: extractionLastAt,
+      source: extraction > 0 ? 'events' : 'insufficient-data',
+    },
+    outcomes,
+  };
+}
+
 function extractKeywords(prompt: string): string[] {
   return prompt
     .toLowerCase()
     .split(/[\s,，。！？、；：""''（）\(\)\[\]{}<>\/\\|@#$%^&*+=~`!\-_]+/)
     .filter(w => w.length >= 2 && !STOP_WORDS.has(w))
     .slice(0, 8);
+}
+
+// ── E2（断点 G）：RAG 可用性探测 + 关键词降级（模块级，不占 prototype 方法数）──
+
+/** mcp-local-rag 可用性探测缓存 TTL（5 分钟） */
+const RAG_PROBE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * 探测 mcp-local-rag CLI 是否可用。
+ * 用 `--help` 做最轻量存活检查（该 CLI 不支持 --version；status 需加载向量库，太重）。
+ */
+function probeMcpLocalRag(): Promise<boolean> {
+  return new Promise<boolean>((resolve) => {
+    execFile('mcp-local-rag', ['--help'], { timeout: 5_000 }, (err) => resolve(!err));
+  });
+}
+
+/**
+ * RAG 不可用时的降级检索结果映射：searchKeyword 的 SearchResult → SemanticSearchResult。
+ * 知识库确实无相关条目时 searchKeyword 返回 []，此处如实映射为空（不编造）。
+ */
+function keywordHitsToSemantic(hits: SearchResult[]): SemanticSearchResult[] {
+  return hits.map(h => ({
+    entryId: h.entry.id,
+    filePath: (h.entry as any).sourceReference || '',
+    chunkIndex: 0,
+    text: h.highlights[0] || (h.entry.content || '').slice(0, 200),
+    score: h.score,
+    fileTitle: h.entry.title || '',
+  }));
 }
 
 function stripFormat(text: string): string {
@@ -1115,15 +1659,21 @@ import {
   sharedStore,
   sharedLifecycle,
   sharedIngest,
-  sharedQuery,
   sharedLinter,
-} from './knowledge-bus.service';
+} from './knowledge-singletons.js';
+import { UnifiedQuery } from './engine/unified-query.js';
 
+// R4 修复（生产接线 bug）：query 必须是 UnifiedQuery（injectContext/list 依赖
+// queryEntries/getIndexes/count/listEntries），此前误接 harness KnowledgeQuery
+// （无这些方法）导致 injectContext 在生产抛 queryEntries is not a function，
+// 被 agent-loop try/catch 吞掉 —— 生产实际从未注入知识。
+// UnifiedQuery 显式复用 sharedStore（同一 FileKnowledgeStore 实例），
+// 保证 dedup/recordReference/成熟度闸门语义一致。
 export const knowledgeService = new KnowledgeService({
   store: sharedStore,
   lifecycle: sharedLifecycle,
   ingest: sharedIngest,
   linter: sharedLinter,
-  query: sharedQuery,
+  query: new UnifiedQuery(sharedStore),
   eventEmitter: new EventEmitter(),
 });

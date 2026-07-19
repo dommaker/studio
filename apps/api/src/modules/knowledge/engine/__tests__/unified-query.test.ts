@@ -1,26 +1,28 @@
 /**
  * UnifiedQuery - dual-store unified query tests
- * Phase 2: Prisma (structured) + KnowledgeStore (narrative) -> single query entry
+ * Post studio-prisma removal: "prisma"-sourced entries are rebuilt from
+ * KnowledgeStore (preference/rule) + ~/.studio/snapshots/*.json (env).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Mock Prisma - only environmentSnapshot is still read from Prisma by the SUT.
-// UserPreference and BusinessRule are now read from KnowledgeStore.
-const mockPrisma = {
-  userPreference: { findFirst: vi.fn() },
-  businessRule: { findMany: vi.fn(), count: vi.fn() },
-  environmentSnapshot: { findFirst: vi.fn() },
-};
-vi.mock('@dommaker/studio-prisma', () => ({ prisma: mockPrisma }));
-
-// Mock knowledge-bus.service.js (UNIFIED_KNOWLEDGE_DIR)
+// Mock knowledge-singletons.js — the only export the SUT imports from it is
+// UNIFIED_KNOWLEDGE_DIR (default store baseDir); keep it off the real home dir.
 const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uq-test-'));
-vi.mock('../knowledge-bus.service.js', () => ({
+vi.mock('../../knowledge-singletons.js', () => ({
   UNIFIED_KNOWLEDGE_DIR: tempDir,
 }));
+
+// The SUT reads env snapshots from os.homedir()/.studio/snapshots. Under
+// vitest's worker threads, process.env.HOME writes don't reach the C-level
+// getenv behind os.homedir() — so mock homedir() itself (per-test temp dir).
+const { mockHomeRef } = vi.hoisted(() => ({ mockHomeRef: { dir: '' } }));
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return { ...actual, homedir: () => mockHomeRef.dir };
+});
 
 // Use real KnowledgeStore (it's file-based, no external deps)
 const { UnifiedQuery } = await import('../unified-query.js');
@@ -72,12 +74,24 @@ function saveRule(store: any, rule: Record<string, unknown>, title: string) {
   });
 }
 
+/** Write an environment snapshot JSON the way it lands on disk post-Prisma */
+function writeSnapshot(homeDir: string, snapshot: Record<string, unknown>, name = '2026-06-04.json') {
+  const snapshotsDir = path.join(homeDir, '.studio', 'snapshots');
+  fs.mkdirSync(snapshotsDir, { recursive: true });
+  fs.writeFileSync(path.join(snapshotsDir, name), JSON.stringify(snapshot));
+}
+
 describe('UnifiedQuery', () => {
   let uq: InstanceType<typeof UnifiedQuery>;
   let testDir: string;
+  let testHome: string;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Point os.homedir() at an empty temp dir before constructing anything,
+    // so snapshot reads are deterministic (box-independent).
+    mockHomeRef.dir = fs.mkdtempSync(path.join(os.tmpdir(), 'uq-home-'));
+    testHome = mockHomeRef.dir;
     // Fresh temp dir per test for isolation
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'uq-case-'));
     uq = new UnifiedQuery(new FileKnowledgeStore({ baseDir: testDir }));
@@ -85,12 +99,14 @@ describe('UnifiedQuery', () => {
 
   afterEach(() => {
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch {}
+    try { fs.rmSync(testHome, { recursive: true, force: true }); } catch {}
+    mockHomeRef.dir = '';
   });
 
   describe('queryEntries', () => {
     describe('Prisma -> KnowledgeEntry', () => {
       it('should convert UserPreference to KnowledgeEntry with context mode', async () => {
-        // UserPreference is now read from KnowledgeStore, not Prisma
+        // UserPreference is read from KnowledgeStore
         savePreference((uq as any).store, {
           id: 'pref-1',
           userId: 'default',
@@ -100,7 +116,6 @@ describe('UnifiedQuery', () => {
           confidence: 0.8,
           updatedAt: new Date('2026-06-04'),
         });
-        mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
         const entries = await uq.queryEntries({ consumptionModes: ['context'] });
 
@@ -114,7 +129,7 @@ describe('UnifiedQuery', () => {
       });
 
       it('should convert BusinessRule to KnowledgeEntry with rule mode', async () => {
-        // BusinessRule is now read from KnowledgeStore, not Prisma
+        // BusinessRule is read from KnowledgeStore
         saveRule((uq as any).store, {
           id: 'rule-1',
           name: 'no_redis',
@@ -137,15 +152,15 @@ describe('UnifiedQuery', () => {
       });
 
       it('should convert EnvironmentSnapshot to KnowledgeEntry with context mode', async () => {
-        // EnvironmentSnapshot is still read from Prisma
-        mockPrisma.environmentSnapshot.findFirst.mockResolvedValue({
+        // EnvironmentSnapshot is read from ~/.studio/snapshots/*.json (FileStore world)
+        writeSnapshot(testHome, {
           id: 'env-1',
           hostname: 'prod-server',
           platform: 'linux',
           nodeVersion: 'v20.11.0',
           nodeEnv: 'production',
           knownLimitations: '["no redis", "no gpu"]',
-          createdAt: new Date('2026-06-04'),
+          createdAt: '2026-06-04T00:00:00.000Z',
         });
 
         const entries = await uq.queryEntries({ consumptionModes: ['context'] });
@@ -158,9 +173,7 @@ describe('UnifiedQuery', () => {
         expect(env!.content).toContain('v20');
       });
 
-      it('should return empty when no Prisma data exists', async () => {
-        mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
-
+      it('should return empty when no store data or snapshots exist', async () => {
         const entries = await uq.queryEntries({ consumptionModes: ['rule', 'context'] });
 
         expect(entries).toEqual([]);
@@ -181,7 +194,6 @@ describe('UnifiedQuery', () => {
           id: 'r3', category: 'constraint', description: 'desc',
           affects: '["reviewer"]', status: 'active', updatedAt: new Date(),
         }, 'reviewer_rule');
-        mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
         const entries = await uq.queryEntries({ consumptionModes: ['rule'], agentType: 'executor' });
 
@@ -195,7 +207,6 @@ describe('UnifiedQuery', () => {
           id: 'r1', category: 'c', description: 'd',
           affects: '[]', status: 'active', updatedAt: new Date(),
         }, 'global');
-        mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
         const entries = await uq.queryEntries({ consumptionModes: ['rule'], agentType: 'analyst' });
 
@@ -302,7 +313,6 @@ describe('UnifiedQuery', () => {
         id: 'r1', category: 'c', description: 'd',
         affects: '[]', status: 'active', updatedAt: new Date(),
       }, 'test_rule');
-      mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
       const result = await uq.listEntries({ sources: ['prisma', 'store'], consumptionModes: ['rule'] });
 
@@ -321,7 +331,6 @@ describe('UnifiedQuery', () => {
         id: 'r2', category: 'c', description: 'd',
         affects: '[]', status: 'active', updatedAt: new Date(),
       }, 'rule_b');
-      mockPrisma.environmentSnapshot.findFirst.mockResolvedValue(null);
 
       // Use sources: ['prisma'] to avoid double-counting via store source
       const count = await uq.count({ consumptionModes: ['rule'], sources: ['prisma'] });
@@ -330,13 +339,13 @@ describe('UnifiedQuery', () => {
     });
 
     it('should count context entries (preference + env)', async () => {
-      // preference from KnowledgeStore + env from Prisma
+      // preference from KnowledgeStore + env from ~/.studio/snapshots/
       savePreference((uq as any).store, {
         id: 'p1',
         preferredModel: 'test',
         updatedAt: new Date(),
       });
-      mockPrisma.environmentSnapshot.findFirst.mockResolvedValue({ id: 'e1', createdAt: new Date() });
+      writeSnapshot(testHome, { id: 'e1', createdAt: '2026-06-04T00:00:00.000Z' });
 
       // Use sources: ['prisma'] to avoid double-counting via store source
       const count = await uq.count({ consumptionModes: ['context'], sources: ['prisma'] });

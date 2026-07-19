@@ -5,14 +5,13 @@
  * 滑动窗口 N=3 挖掘工具序列模式，每日运行。
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, resolveEventsDir } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
 import { sharedStore } from './knowledge-bus.service.js';
 import { readFileSync, existsSync } from 'fs';
 import path from 'path';
-import os from 'os';
 
-const EVENTS_DIR = process.env.EVENTS_DIR || path.join(os.homedir(), 'events');
+// R2: 事件目录经 resolveEventsDir() 统一解析（STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）
 const fileStore = new FileStore();
 
 interface ToolTraceEvent {
@@ -166,7 +165,7 @@ export class PatternMiner {
   }
 
   private loadTracesSince(since: number): ToolTraceEvent[] {
-    const filePath = path.join(EVENTS_DIR, 'studio.jsonl');
+    const filePath = path.join(resolveEventsDir(), 'studio.jsonl');
     if (!existsSync(filePath)) return [];
 
     try {

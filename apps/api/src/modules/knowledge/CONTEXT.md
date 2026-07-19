@@ -37,9 +37,11 @@
 
 | 模块 | 路径 | 职责 |
 |------|------|------|
-| `knowledgeBus` | `knowledge-bus.service.ts` | Agent 间共享知识总线（write + search + formatIndexSummary） |
-| `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore） |
-| `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder） |
+| `knowledgeBus` | `knowledge-bus.service.ts` | 兼容层（thin compat，R4 收敛）— 共享知识总线 write/search API |
+| `knowledge-singletons` | `knowledge-singletons.ts` | 共享单例唯一所有者（sharedStore 等）+ 向量库同步 + 统一质量门（R4） |
+| `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore），knowledgeService 的 query 引擎（R4 修复接线） |
+| `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`） |
+| `knowledgeService.semanticSearch` | `knowledge-service.ts` | mcp-local-rag 语义检索；E2：可用性探测（进程内缓存 5min）+ 失败降级关键词检索，不再静默返回 [] |
 | `signalAggregator` | `signal-aggregator.ts` | 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | `fetchExternal` | `producers/external-fetcher.ts` | 外部文档抓取 + 摄入 |
 | `knowledgeRoutes` | `routes.ts` | REST API（含 /unified 统一浏览） |
@@ -55,7 +57,8 @@ knowledge/
 │   └── prompt-builder.ts      # prompt 注入
 ├── producers/                 # 生产层
 │   └── external-fetcher.ts    # 外部文档抓取
-├── knowledge-bus.service.ts   # 知识总线（write/search/index）
+├── knowledge-bus.service.ts   # 兼容层：KnowledgeBus 类 + 单例 re-export（R4）
+├── knowledge-singletons.ts    # 共享单例/向量库同步/统一质量门（R4 收敛）
 ├── knowledge-service.ts       # 统一知识能力层（injectContext + CRUD）
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
