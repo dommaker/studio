@@ -1,38 +1,46 @@
 /**
  * Agent Registry tests — register, get, list, update, delete, cache
+ *
+ * Post-migration: persistence is per-agent JSON files under
+ * `~/.studio/agents-registry/` via FileStore (studio-prisma was removed).
+ * Tests redirect `os.homedir()` to a tmp dir so the real file-backed
+ * code paths run without touching the real home directory.
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import * as fs from 'fs';
+import * as path from 'path';
 
-vi.mock('@dommaker/studio-shared', () => ({
+const { TEST_HOME } = vi.hoisted(() => {
+  const nodePath = require('path');
+  const nodeOs = require('os');
+  return { TEST_HOME: nodePath.join(nodeOs.tmpdir(), `agent-registry-test-${process.pid}`) };
+});
+
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  return { ...actual, homedir: () => TEST_HOME };
+});
+
+vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
+  // Spread real module: AgentRegistry constructs `new FileStore()` internally.
+  ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
 }));
 
 import { AgentRegistry } from '../agent-registry.js';
 import type { AgentMetadata } from '../types.js';
 
-function mockPrisma() {
-  return {
-    agent: {
-      findFirst: vi.fn(),
-      findMany: vi.fn(),
-      count: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    },
-  } as any;
-}
-
 function mockStore() {
-  const store = new Map<string, string>();
+  const map = new Map<string, string>();
   return {
-    get: vi.fn(async (key: string) => store.get(key) ?? null),
-    setex: vi.fn(async (key: string, _ttl: number, value: string) => { store.set(key, value); }),
+    __map: map,
+    get: vi.fn(async (key: string) => map.get(key) ?? null),
+    setex: vi.fn(async (key: string, _ttl: number, value: string) => { map.set(key, value); }),
     keys: vi.fn(async (pattern: string) => {
       const prefix = pattern.replace('*', '');
-      return [...store.keys()].filter(k => k.startsWith(prefix));
+      return [...map.keys()].filter(k => k.startsWith(prefix));
     }),
-    del: vi.fn(async (...keys: string[]) => { keys.forEach(k => store.delete(k)); }),
+    del: vi.fn(async (...keys: string[]) => { keys.forEach(k => map.delete(k)); }),
   } as any;
 }
 
@@ -41,50 +49,46 @@ const baseMetadata: Omit<AgentMetadata, 'createdAt' | 'updatedAt'> = {
   id: 'test-agent',
   name: 'Test Agent',
   version: '1.0.0',
-  category: 'utility',
+  category: 'tool',
   inputSchema: validSchema,
   outputSchema: validSchema,
   configSchema: validSchema,
   timeout: 1800,
 };
 
+const agentFile = (id: string, version: string) =>
+  path.join(TEST_HOME, '.studio', 'agents-registry', `${id}_${version}.json`);
+
 describe('AgentRegistry', () => {
-  let prisma: ReturnType<typeof mockPrisma>;
   let store: ReturnType<typeof mockStore>;
   let registry: AgentRegistry;
 
   beforeEach(() => {
-    prisma = mockPrisma();
+    fs.rmSync(TEST_HOME, { recursive: true, force: true });
+    fs.mkdirSync(TEST_HOME, { recursive: true });
     store = mockStore();
-    registry = new AgentRegistry(prisma, store);
+    registry = new AgentRegistry(store);
+  });
+
+  afterAll(() => {
+    fs.rmSync(TEST_HOME, { recursive: true, force: true });
   });
 
   describe('register', () => {
-    it('creates agent and caches it', async () => {
-      prisma.agent.findFirst.mockResolvedValue(null);
-      prisma.agent.create.mockResolvedValue({
-        ...baseMetadata,
-        description: null,
-        icon: null,
-        tags: '[]',
-        endpoint: null,
-        retryPolicy: null,
-        rateLimit: null,
-        metadata: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
+    it('creates agent file and caches it', async () => {
       const result = await registry.register(baseMetadata);
 
       expect(result.id).toBe('test-agent');
       expect(result.version).toBe('1.0.0');
-      expect(prisma.agent.create).toHaveBeenCalledTimes(1);
+      // Real persistence: JSON file written to the registry dir
+      expect(fs.existsSync(agentFile('test-agent', '1.0.0'))).toBe(true);
+      const onDisk = JSON.parse(fs.readFileSync(agentFile('test-agent', '1.0.0'), 'utf-8'));
+      expect(onDisk.name).toBe('Test Agent');
       expect(store.setex).toHaveBeenCalledTimes(1);
     });
 
     it('throws when agent version already exists', async () => {
-      prisma.agent.findFirst.mockResolvedValue({ id: 'test-agent', version: '1.0.0' });
+      await registry.register(baseMetadata);
 
       await expect(registry.register(baseMetadata)).rejects.toThrow('already exists');
     });
@@ -104,34 +108,24 @@ describe('AgentRegistry', () => {
 
       const result = await registry.get('test-agent', '1.0.0');
 
+      // Cache hit: metadata returned even though no agent file exists on disk
       expect(result?.id).toBe('test-agent');
-      expect(prisma.agent.findFirst).not.toHaveBeenCalled();
+      expect(fs.existsSync(agentFile('test-agent', '1.0.0'))).toBe(false);
     });
 
-    it('falls back to database and caches result', async () => {
-      prisma.agent.findFirst.mockResolvedValue({
-        ...baseMetadata,
-        description: null,
-        icon: null,
-        tags: '[]',
-        endpoint: null,
-        retryPolicy: null,
-        rateLimit: null,
-        metadata: null,
-        createdAt: new Date('2026-01-01'),
-        updatedAt: new Date('2026-01-01'),
-      });
+    it('falls back to file store and caches result', async () => {
+      await registry.register(baseMetadata);
+      // Drop the cache so get() must fall back to the JSON file
+      store.__map.clear();
+      store.setex.mockClear();
 
       const result = await registry.get('test-agent', '1.0.0');
 
       expect(result?.id).toBe('test-agent');
-      expect(prisma.agent.findFirst).toHaveBeenCalled();
       expect(store.setex).toHaveBeenCalled();
     });
 
     it('returns null when not found', async () => {
-      prisma.agent.findFirst.mockResolvedValue(null);
-
       const result = await registry.get('nonexistent');
       expect(result).toBeNull();
     });
@@ -139,19 +133,7 @@ describe('AgentRegistry', () => {
 
   describe('list', () => {
     it('returns paginated results', async () => {
-      prisma.agent.findMany.mockResolvedValue([{
-        ...baseMetadata,
-        description: null,
-        icon: null,
-        tags: '[]',
-        endpoint: null,
-        retryPolicy: null,
-        rateLimit: null,
-        metadata: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      }]);
-      prisma.agent.count.mockResolvedValue(1);
+      await registry.register(baseMetadata);
 
       const result = await registry.list({ page: 1, limit: 10 });
 
@@ -160,55 +142,43 @@ describe('AgentRegistry', () => {
     });
 
     it('filters by category', async () => {
-      prisma.agent.findMany.mockResolvedValue([]);
-      prisma.agent.count.mockResolvedValue(0);
+      await registry.register(baseMetadata);
+      await registry.register({ ...baseMetadata, id: 'other-agent', category: 'custom' });
 
-      await registry.list({ category: 'utility' });
+      const result = await registry.list({ category: 'tool' });
 
-      expect(prisma.agent.findMany).toHaveBeenCalledWith(expect.objectContaining({
-        where: { category: 'utility' },
-      }));
+      expect(result.total).toBe(1);
+      expect(result.data).toHaveLength(1);
+      expect(result.data[0].id).toBe('test-agent');
+      expect(result.data[0].category).toBe('tool');
     });
   });
 
   describe('update', () => {
     it('updates and invalidates cache', async () => {
-      prisma.agent.update.mockResolvedValue({
-        ...baseMetadata,
-        name: 'Updated',
-        description: null,
-        icon: null,
-        tags: '[]',
-        endpoint: null,
-        retryPolicy: null,
-        rateLimit: null,
-        metadata: null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      });
-
-      // Seed cache first
-      await store.setex('agent:test-agent:1.0.0', 3600, '{}');
+      await registry.register(baseMetadata);
+      // register() already cached the agent
+      expect(store.__map.size).toBeGreaterThan(0);
 
       const result = await registry.update('test-agent', '1.0.0', { name: 'Updated' });
 
       expect(result.name).toBe('Updated');
       // Cache should be invalidated
       expect(store.del).toHaveBeenCalled();
+      // Real persistence updated on disk
+      const onDisk = JSON.parse(fs.readFileSync(agentFile('test-agent', '1.0.0'), 'utf-8'));
+      expect(onDisk.name).toBe('Updated');
     });
   });
 
   describe('delete', () => {
     it('deletes and invalidates cache', async () => {
-      prisma.agent.delete.mockResolvedValue({});
-
-      await store.setex('agent:test-agent:1.0.0', 3600, '{}');
+      await registry.register(baseMetadata);
+      expect(fs.existsSync(agentFile('test-agent', '1.0.0'))).toBe(true);
 
       await registry.delete('test-agent', '1.0.0');
 
-      expect(prisma.agent.delete).toHaveBeenCalledWith({
-        where: { id_version: { id: 'test-agent', version: '1.0.0' } },
-      });
+      expect(fs.existsSync(agentFile('test-agent', '1.0.0'))).toBe(false);
       expect(store.del).toHaveBeenCalled();
     });
   });

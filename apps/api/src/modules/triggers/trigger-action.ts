@@ -17,8 +17,14 @@ export function unregisterExecuteHandler(target: string): void {
   executeHandlers.delete(target);
 }
 
-const fileStore = new FileStore();
-const workUnitService = new WorkUnitService();
+let fileStore = new FileStore();
+let workUnitService = new WorkUnitService();
+
+/** 测试用：替换 FileStore/WorkUnitService 实例（同 channelMessageService.setFileStore 模式） */
+export function setTriggerActionFileStore(fs: FileStore): void {
+  fileStore = fs;
+  workUnitService = new WorkUnitService(fs);
+}
 
 /**
  * Execute a CREATE action — creates a WorkUnit from trigger payload.

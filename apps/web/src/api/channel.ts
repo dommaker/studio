@@ -28,6 +28,7 @@ export interface AgentProfile {
   description: string | null;
   status: string;
   isOnline?: boolean;
+  lastError?: string | null;
 }
 
 export interface ConvertSuggestion {
@@ -89,6 +90,6 @@ export const channelApi = {
   updateMembers: (channelId: string, ops: { add?: string[]; remove?: string[] }) =>
     api.patch<{ success: boolean; data: { members: string[] } }>(`/channels/${channelId}/members`, ops),
 
-  createAgent: (data: { name: string; description?: string; channels?: string; provider?: string }) =>
+  createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string }) =>
     api.post<AgentProfile>('/agent-profiles', data),
 };

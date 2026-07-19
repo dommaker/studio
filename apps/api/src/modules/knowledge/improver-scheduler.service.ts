@@ -85,10 +85,15 @@ function formatCodeStructurePrompt(dir: string, structure: CodeStructure): strin
 }
 
 /** docs/architecture/ 模块定义 */
+// R5 修复（断点 J）：harness 是 npm 依赖（@dommaker/harness），不是仓库内 sibling checkout，
+// 原 'harness/src/...' 路径不存在。knowledge/constraints 模块指向所安装包的 dist
+// （extractCodeStructure 可解析其中的 .d.ts，fallback 可列 .js）——
+// 这样架构文档反映的是 studio 实际运行的 harness 代码。
+const HARNESS_DIST = 'node_modules/@dommaker/harness/dist';
 const ARCH_MODULES = [
   { name: 'pipeline', title: '管线', sourceDirs: ['apps/api/src/modules/agents'] },
-  { name: 'knowledge', title: '知识引擎', sourceDirs: ['apps/api/src/modules/knowledge', 'harness/src/knowledge'] },
-  { name: 'constraints', title: '约束系统', sourceDirs: ['harness/src/core/constraints', 'harness/src/constraints'] },
+  { name: 'knowledge', title: '知识引擎', sourceDirs: ['apps/api/src/modules/knowledge', `${HARNESS_DIST}/knowledge`] },
+  { name: 'constraints', title: '约束系统', sourceDirs: [`${HARNESS_DIST}/core/constraints`, `${HARNESS_DIST}/constraints`] },
   { name: 'agents', title: 'Agent 系统', sourceDirs: ['apps/api/src/modules/agents'] },
   { name: 'skills', title: 'Skill 系统', sourceDirs: ['apps/api/src/modules/skills'] },
   { name: 'infra', title: '基础设施', sourceDirs: ['apps/api/src/daemon', 'packages/studio-shared'] },

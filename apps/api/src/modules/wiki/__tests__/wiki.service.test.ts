@@ -139,7 +139,7 @@ describe('listWikiDocs', () => {
   it('returns empty when SDD returns empty', async () => {
     mockListSddDocs.mockReturnValue([]);
 
-    const result = listWikiDocs({});
+    const result = await listWikiDocs({});
 
     expect(result).toHaveLength(0);
   });
@@ -213,7 +213,7 @@ describe('buildWikiGraph', () => {
   it('returns empty graph when SDD returns empty', async () => {
     mockListSddDocs.mockReturnValue([]);
 
-    const result = buildWikiGraph();
+    const result = await buildWikiGraph();
 
     expect(result.nodes).toHaveLength(0);
     expect(result.edges).toHaveLength(0);
@@ -266,7 +266,7 @@ describe('getWikiDocById', () => {
   it('returns null when SDD not found (no DB fallback)', async () => {
     mockFindSddDocById.mockReturnValue(null);
 
-    const result = getWikiDocById('db-1');
+    const result = await getWikiDocById('db-1');
 
     expect(result).toBeNull();
   });

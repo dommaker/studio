@@ -7,6 +7,9 @@ import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelInput } from '../components/channel/ChannelInput';
 import { ChannelWorkspaceSetting } from '../components/ChannelWorkspaceSetting';
 import { ChannelMemberManager } from '../components/channel/ChannelMemberManager';
+import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
+import { workunitApi } from '../api/workunit';
+import { requirementApi, type Requirement } from '../api/requirements';
 import type { ChannelMessage } from '../api/channel';
 
 function isToday(d: Date) {
@@ -55,11 +58,39 @@ export function ChannelDetailPage() {
   const [sending, setSending] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
   const [replyTo, setReplyTo] = useState<ChannelMessage | null>(null);
+  // F5: NEED_INPUT 挂起中的 WorkUnit id 集合（等待人类回复）
+  const [waitingWuIds, setWaitingWuIds] = useState<Set<string>>(new Set());
+  // REQ 需求编号（vision §5.3）：本频道需求 chips + 全链路面板
+  const [channelReqs, setChannelReqs] = useState<Requirement[]>([]);
+  const [chainReqId, setChainReqId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) return;
     api.get(`/channels/${id}`).then(r => setChannel(r.data.data)).catch(() => {});
   }, [id]);
+
+  // F5: 拉取本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）
+  useEffect(() => {
+    if (!id) return;
+    workunitApi.list({ channelId: id, status: 'blocked', limit: 100 })
+      .then(r => {
+        const waiting = r.data.data
+          .filter(wu => {
+            try { return !!JSON.parse(wu.metadata || '{}').waitingForInput; } catch { return false; }
+          })
+          .map(wu => wu.id);
+        setWaitingWuIds(new Set(waiting));
+      })
+      .catch(() => {});
+  }, [id, messages.length]);
+
+  // REQ 需求编号（vision §5.3）：拉取本频道需求（派发会自动新建，随消息刷新）
+  useEffect(() => {
+    if (!id) return;
+    requirementApi.list({ channelId: id })
+      .then(r => setChannelReqs(r.data.data))
+      .catch(() => {});
+  }, [id, messages.length]);
 
   const handleSend = async (content: string, replyToId?: string) => {
     setSending(true);
@@ -82,6 +113,11 @@ export function ChannelDetailPage() {
   const findMessage = useCallback((msgId: string) => {
     return messages.find(m => m.id === msgId);
   }, [messages]);
+
+  // F5: 消息关联的 WorkUnit 是否挂起等待回复
+  const isWaitingForInput = useCallback((msg: ChannelMessage) => {
+    return !!msg.workUnitId && waitingWuIds.has(msg.workUnitId);
+  }, [waitingWuIds]);
 
   // AC-C3: Thread expand/collapse state
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
@@ -120,6 +156,23 @@ export function ChannelDetailPage() {
           />
         </div>
       </div>
+
+      {/* REQ 需求编号 chips（vision §5.3）— 点击打开全链路面板 */}
+      {channelReqs.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-gray-200 bg-gray-50">
+          <span className="text-xs text-gray-400 flex-shrink-0">REQ</span>
+          {channelReqs.map(req => (
+            <button
+              key={req.id}
+              onClick={() => setChainReqId(req.id)}
+              className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 hover:bg-blue-100 max-w-[240px] truncate"
+              title={`${req.id} · ${req.title} · ${req.status}`}
+            >
+              {req.id} · {req.title} · {req.status}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Message list */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -205,6 +258,7 @@ export function ChannelDetailPage() {
                         threadReplyCount={item.replies.length}
                         isExpanded={expanded}
                         onToggleThread={() => toggleThread(anchorId)}
+                        waitingForInput={isWaitingForInput(msg)}
                       />
                       {expanded && item.replies.map(reply => (
                         <ChannelMessageItem
@@ -215,6 +269,7 @@ export function ChannelDetailPage() {
                           findMessage={findMessage}
                           channelId={id}
                           isThreadReply
+                          waitingForInput={isWaitingForInput(reply)}
                         />
                       ))}
                     </div>
@@ -237,7 +292,7 @@ export function ChannelDetailPage() {
                           <div className="flex-1 border-t border-gray-200" />
                         </div>
                       )}
-                      <ChannelMessageItem message={msg} onAction={handleAction} onReply={handleReply} findMessage={findMessage} channelId={id} />
+                      <ChannelMessageItem message={msg} onAction={handleAction} onReply={handleReply} findMessage={findMessage} channelId={id} waitingForInput={isWaitingForInput(msg)} />
                     </div>
                   );
                 }
@@ -249,6 +304,9 @@ export function ChannelDetailPage() {
 
       {/* Input */}
       <ChannelInput onSend={handleSend} sending={sending} replyTo={replyTo} onCancelReply={() => setReplyTo(null)} channelId={id} />
+
+      {/* REQ 全链路面板（vision §5.3） */}
+      <RequirementChainPanel reqId={chainReqId} onClose={() => setChainReqId(null)} />
     </div>
   );
 }

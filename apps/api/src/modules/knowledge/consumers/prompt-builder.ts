@@ -14,6 +14,7 @@
 import { UnifiedQuery, type IndexEntry } from '../engine/unified-query.js';
 import { sharedStore, sharedLifecycle } from '../knowledge-bus.service.js';
 import { skillLoader } from '@dommaker/studio-skill';
+import { renderWithOverride } from '@dommaker/studio-shared';
 
 interface BuildOptions {
   /** 'compact' = rules + context (default), 'full' = all knowledge types */
@@ -88,6 +89,7 @@ function buildStatsSummary(): string {
 /**
  * AC-8d: Build Skill index for injection.
  * AS-021: 只注入元数据（name + description），Agent 按需通过 loadSkill MCP tool 加载完整内容。
+ * E1 约束进化：区段文案支持 prompt-override 文件覆盖（{content} = skill 索引）。
  */
 function buildSkillPrompts(agentType: string): string {
   const skills = skillLoader.load({ agentType });
@@ -96,12 +98,13 @@ function buildSkillPrompts(agentType: string): string {
   const skillIndex = skillLoader.formatForPrompt(skills);
   if (!skillIndex) return '';
 
-  return [
+  const fallback = [
     '## 已激活 Skills',
     '以下 skill 可用。需要时使用 `loadSkill` MCP tool 加载完整内容。',
     '',
     skillIndex,
   ].join('\n');
+  return renderWithOverride('knowledge.skills-section', fallback, { content: skillIndex });
 }
 
 /**
@@ -116,10 +119,12 @@ export async function buildKnowledgeContext(
   const injectedIds: string[] = [];
 
   // 1. rule — full content injection (constraints must be followed)
+  // E1: 各区段支持 prompt-override 文件覆盖（~/.studio/prompt-overrides/<templateId>.md，
+  // 无覆盖时输出与默认完全一致）
   const rules = await uq.queryEntries({ consumptionModes: ['rule'], agentType });
   if (rules.length) {
     const lines = rules.map(r => `- ${stripFormat(r.content)}`);
-    sections.push(`## 系统约束\n${lines.join('\n')}`);
+    sections.push(renderWithOverride('knowledge.rules-section', `## 系统约束\n${lines.join('\n')}`, { content: lines.join('\n') }));
     injectedIds.push(...rules.map(r => r.id));
   }
 
@@ -127,7 +132,7 @@ export async function buildKnowledgeContext(
   const context = await uq.queryEntries({ consumptionModes: ['context'], agentType });
   if (context.length) {
     const lines = context.map(c => `- ${stripFormat(c.content)}`);
-    sections.push(`## 上下文\n${lines.join('\n')}`);
+    sections.push(renderWithOverride('knowledge.context-section', `## 上下文\n${lines.join('\n')}`, { content: lines.join('\n') }));
     injectedIds.push(...context.map(c => c.id));
   }
 
@@ -140,14 +145,14 @@ export async function buildKnowledgeContext(
   }
   if (signals.length) {
     const lines = signals.map(s => `- [${s.id}] ${s.summary}`);
-    sections.push(`## 近期信号\n${lines.join('\n')}`);
+    sections.push(renderWithOverride('knowledge.signals-section', `## 近期信号\n${lines.join('\n')}`, { content: lines.join('\n') }));
     injectedIds.push(...signals.map(s => s.id));
   }
 
   // 4. reference — hint only
   const refCount = await uq.count({ consumptionModes: ['reference'] });
   if (refCount > 0) {
-    sections.push(`[知识库: ${refCount} 条参考，遇到问题时用 search()]`);
+    sections.push(renderWithOverride('knowledge.reference-hint', `[知识库: ${refCount} 条参考，遇到问题时用 search()]`, { count: refCount }));
   }
 
   // 5. AC-8d: Skill prompts — evolved skills from knowledge pipeline

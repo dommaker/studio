@@ -59,9 +59,9 @@ describe('middleware-invocation', () => {
       } as unknown as Response;
       const next = vi.fn() as NextFunction;
 
-      // findSessionWithUser: session readJson → user readJson
-      mockReadJson.mockResolvedValueOnce({ id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000).toISOString() });
-      mockReadJson.mockResolvedValueOnce({ id: 'u1', email: 'test@test.com', role: 'User' });
+      // findSessionWithUser: sessions.json（数组）→ users.json（数组）
+      mockReadJson.mockResolvedValueOnce([{ id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000).toISOString() }]);
+      mockReadJson.mockResolvedValueOnce([{ id: 'u1', email: 'test@test.com', role: 'User' }]);
 
       await middleware(req, res, next);
 
@@ -163,9 +163,9 @@ describe('middleware-invocation', () => {
       } as unknown as Response;
       const next = vi.fn() as NextFunction;
 
-      // findSessionWithUser: session readJson → user readJson
-      mockReadJson.mockResolvedValueOnce({ id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000).toISOString() });
-      mockReadJson.mockResolvedValueOnce({ id: 'u1', email: 'test@test.com', role: 'User' });
+      // findSessionWithUser: sessions.json（数组）→ users.json（数组）
+      mockReadJson.mockResolvedValueOnce([{ id: 's1', userId: 'u1', expiresAt: new Date(Date.now() + 86400000).toISOString() }]);
+      mockReadJson.mockResolvedValueOnce([{ id: 'u1', email: 'test@test.com', role: 'User' }]);
 
       await middleware(req, res, next);
 

@@ -98,14 +98,16 @@ beforeEach(() => {
 });
 
 describe('AgentExecutor stream-json migration', () => {
-  test('uses --output-format stream-json --verbose in CLI command', async () => {
+  test('uses stream-json output via the provider registry in CLI command', async () => {
     const fs = await import('fs');
     const src = fs.readFileSync(
       new URL('../session-manager.ts', import.meta.url).pathname, 'utf-8'
     );
 
-    // After migration, source should contain stream-json
-    expect(src).toContain('--output-format stream-json');
+    // F4: `--output-format stream-json` moved from a hardcoded literal into the shared
+    // provider registry (claude def); session-manager resolves binary + args via
+    // buildSpawnArgs(provider). --verbose stays as the claude fallback literal.
+    expect(src).toContain('buildSpawnArgs(provider');
     expect(src).toContain('--verbose');
     // Should NOT contain old format in code (comments OK)
     const codeLines = src.split('\n').filter(l => !l.trim().startsWith('//') && !l.trim().startsWith('*'));

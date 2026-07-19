@@ -1,11 +1,18 @@
 /**
- * @deprecated Pipeline 层组件，随 Pipeline 30 天观察期后删除（2026-07 起算）。
- * Agent Network 层使用 knowledgeService（knowledge-service.ts）。
- * 新代码禁止引用本模块。
+ * KnowledgeBus — 兼容层（thin compat，R4 收敛后保留）
  *
- * KnowledgeBus — Agent 间共享知识总线 (H1, 2026-05-21)
+ * TODO(R4-followup): KnowledgeBus 类的 write/search API 与 KnowledgeService 重复，
+ * 消费者（evolution.service / knowledge-sync / improver-scheduler /
+ * discovery-exposure / knowledge-agent / routes）应逐步迁移到 knowledgeService，
+ * 之后删除本类。新代码禁止直接使用 KnowledgeBus，请用 knowledgeService。
  *
- * 每个 Agent 既是生产者也是消费者：
+ * 共享单例（sharedStore/sharedLifecycle/sharedIngest/sharedQuery/sharedInjector/
+ * sharedLinter）、向量库同步（scheduleVectorDbSync）与消费链验证
+ * （verifyConsumptionChain）已收敛至 knowledge-singletons.ts —— 本模块仅做 re-export。
+ * recordPattern 质量门已统一：KnowledgeBus 与 knowledgeService 均经
+ * ingestWithQualityGate（harness ingest 门）单一路径入库。
+ *
+ * 历史背景 — Agent 间共享知识总线 (H1, 2026-05-21)：
  *   Monitor → write pattern/failure
  *   Auditor → write tier stats/trend
  *   Ops     → write incident
@@ -19,30 +26,31 @@
  * 底层存储：harness KnowledgeStore + DB (Incident, PipelineRun)
  */
 
-import { FileKnowledgeStore, KnowledgeIngest, KnowledgeLifecycle, KnowledgeQuery, KnowledgeInjector, KnowledgeLinter, ReferenceTracker } from '@dommaker/harness';
-import type { KnowledgeStore } from '@dommaker/harness';
+import { logger } from '@dommaker/studio-shared';
+import type { KnowledgeStore, KnowledgeIngest } from '@dommaker/harness';
 import type { KnowledgeSubsystem, DecisionRecord } from '@dommaker/harness';
-import { FileStore, logger } from '@dommaker/studio-shared';
-import { execFile, execFileSync } from 'child_process';
-import * as path from 'path';
-import * as os from 'os';
+import {
+  sharedStore,
+  sharedLifecycle,
+  sharedIngest,
+  scheduleVectorDbSync,
+  ingestWithQualityGate,
+  appendKnowledgeEvent,
+} from './knowledge-singletons.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
-const fileStore = new FileStore();
-
-// KE-002 P0: unified absolute path for knowledge storage
-export const UNIFIED_KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowledge');
-
-// local-rag vector-db paths (must match MCP server config)
-const LANCE_DB_PATH = path.join(os.homedir(), '.cache', 'mcp-local-rag', 'lancedb');
-const MODEL_CACHE_DIR = path.join(os.homedir(), '.cache', 'huggingface', 'hub');
-const MODEL_NAME = path.join(MODEL_CACHE_DIR, 'models--onnx-community--bge-small-zh-v1.5-ONNX', 'snapshots', 'main');
-
-// Startup: kill orphan mcp-local-rag ingest processes from previous crashes
-try {
-  execFileSync('pkill', ['-f', 'mcp-local-rag.*ingest'], { stdio: 'ignore' });
-  logger.info('[KnowledgeBus] Cleaned orphan mcp-local-rag ingest processes');
-} catch { /* no orphans — good */ }
+// ── Re-export：单例所有权在 knowledge-singletons.ts（兼容既有 import 路径） ──
+export {
+  UNIFIED_KNOWLEDGE_DIR,
+  sharedStore,
+  sharedLifecycle,
+  sharedIngest,
+  sharedQuery,
+  sharedInjector,
+  sharedLinter,
+  verifyConsumptionChain,
+  scheduleVectorDbSync,
+  isVectorDbSyncing,
+} from './knowledge-singletons.js';
 
 // BusEntry type → KnowledgeType 保真映射 (KE-002 P1)
 const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeSubsystem> = {
@@ -56,60 +64,6 @@ const BUS_ENTRY_TO_KNOWLEDGE_TYPE: Record<BusEntry['type'], KnowledgeSubsystem> 
   analyst_accuracy: 'model',
   decision: 'decision',
 };
-
-// Singleton store + lifecycle + ingest — shared by knowledgeBus and knowledgeQuery
-export const sharedStore = new FileKnowledgeStore({ baseDir: UNIFIED_KNOWLEDGE_DIR });
-export const sharedLifecycle = new KnowledgeLifecycle(sharedStore, {
-  autoPromoteSources: ['triage', 'auditor', 'evolution', 'analyst'],
-});
-export const sharedIngest = new KnowledgeIngest(sharedStore);
-// KE-002 P3: budget-aware query + injector (replaces naive store.list)
-export const sharedQuery = new KnowledgeQuery(sharedStore, sharedLifecycle);
-export const sharedInjector = new KnowledgeInjector(sharedQuery);
-// GAP-01: shared linter for ingest validation
-export const sharedLinter = new KnowledgeLinter(sharedStore, new ReferenceTracker(sharedStore));
-
-// D6 flywheel: emit consumption events on every recordReference() call
-// (same-day dedup already handled by lifecycle, so max 1 event per contributor per entry per day)
-// Cast needed: onReference added in harness 0.13.4+, npm version may lag
-let _consumptionCallbackRegistered = false;
-(sharedLifecycle as any).onReference?.((event: { entryId: string; contributor: string; timestamp: string }) => {
-  fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-    type: 'knowledge:consumption',
-    source: event.contributor,
-    payload: JSON.stringify({ entryId: event.entryId, timestamp: event.timestamp }),
-    createdAt: new Date().toISOString(),
-  }).catch((e: any) => {
-    logger.warn('[KnowledgeBus] consumption event failed', { error: String(e) });
-  });
-});
-_consumptionCallbackRegistered = typeof (sharedLifecycle as any).onReference === 'function';
-if (!_consumptionCallbackRegistered) {
-  logger.error('[KnowledgeBus] onReference callback NOT registered — consumption events will not be emitted. Check harness version (need >=0.13.4)');
-}
-
-/**
- * GAP-16: Verify consumption event chain integrity.
- * Call once at startup to confirm recordReference → onReference → StudioEvent works.
- */
-export async function verifyConsumptionChain(): Promise<boolean> {
-  try {
-    if (!_consumptionCallbackRegistered) return false;
-    // Write a probe event directly to confirm DB is writable
-    const probeId = `probe_${Date.now()}`;
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-      type: 'knowledge:probe',
-      source: 'startup',
-      payload: JSON.stringify({ ts: Date.now(), purpose: 'chain-integrity-check' }),
-      createdAt: new Date().toISOString(),
-    });
-    logger.info('[KnowledgeBus] Consumption chain probe OK', { probeId });
-    return true;
-  } catch (e: any) {
-    logger.error('[KnowledgeBus] Consumption chain probe FAILED', { error: String(e) });
-    return false;
-  }
-}
 
 // ── 统一条目类型 ──
 
@@ -129,6 +83,10 @@ export interface BusEntry {
   context?: Record<string, unknown>;
 }
 
+/**
+ * @deprecated 兼容类 — 新代码请用 knowledgeService（knowledge-service.ts）。
+ * write 路径质量门已与 knowledgeService.recordPattern 统一（ingestWithQualityGate）。
+ */
 export class KnowledgeBus {
   private store: KnowledgeStore;
   private ingest: KnowledgeIngest;
@@ -145,65 +103,26 @@ export class KnowledgeBus {
     try {
       const source = entry.source || 'monitor';
 
-      // Triage quality gate: require root_cause + fix_action
-      if (source === 'triage') {
-        const content = (entry.content || '').toLowerCase();
-        if (!content.includes('root_cause') || !content.includes('fix_action')) {
-          const msg = 'Triage entry must include root_cause and fix_action';
-          logger.warn(`[KnowledgeBus] ${msg}`, { title: entry.title });
-          fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-            type: 'knowledge:quality_gate',
-            source: 'knowledge-bus',
-            payload: JSON.stringify({ skipped: true, reason: msg, entryType: entry.type }),
-            createdAt: new Date().toISOString(),
-          }).catch(() => {});
-          throw new Error(msg);
-        }
-      }
-
-      // Quality gate: reject entries with high severity issues
-      const tags: string[] = [entry.type];
-      const issues = sharedLinter.validateEntry({ title: entry.title || '', content: entry.content || '', tags, type: BUS_ENTRY_TO_KNOWLEDGE_TYPE[entry.type] || 'guideline' });
-      const blockers = issues.filter(i => i.severity === 'high');
-      if (blockers.length > 0) {
-        logger.warn('[KnowledgeBus] Entry rejected by quality gate', { title: entry.title, issues: blockers.map(i => i.description) });
-        fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-          type: 'knowledge:quality_gate',
-          source: 'knowledge-bus',
-          payload: JSON.stringify({ skipped: true, reason: blockers.map(i => i.description).join('; '), entryType: entry.type }),
-          createdAt: new Date().toISOString(),
-        }).catch(() => {});
-        return;
-      }
-
-      const result = this.ingest.ingestEntry(
+      const result = ingestWithQualityGate(
+        { ingest: this.ingest },
         {
           type: BUS_ENTRY_TO_KNOWLEDGE_TYPE[entry.type] || 'guideline',
           title: entry.title,
           content: entry.content,
-          tags,
-        },
-        {
-          source: `pattern:${source}`,
+          tags: [entry.type],
+          source,
+          entryType: entry.type,
           layer: 'project',
           maturity: 'active',
-          tags,
           consumptionMode: 'signal',
         },
       );
-      scheduleVectorDbSync();
+      if (!result) return; // 质量门跳过（事件已由门禁记录）
+
       // Log dedup merges
       if (result.lastReferenced && result.contributors.length > 1) {
         logger.info('[KnowledgeBus] Dedup merged', { title: entry.title, existingId: result.id });
       }
-
-      // S3 Gap 3d: emit entry_created for knowledge_growth_rate metric
-      fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-        type: 'knowledge:entry_created',
-        source: 'knowledge-bus',
-        payload: JSON.stringify({ entryType: entry.type, title: entry.title }),
-        createdAt: new Date().toISOString(),
-      }).catch(() => {});
     } catch (e: any) {
       logger.warn('[KnowledgeBus] Failed to record pattern', { error: String(e) });
     }
@@ -286,9 +205,9 @@ export class KnowledgeBus {
         `AC匹配率: ${Math.round(data.acMatchRate * 100)}%`,
         `预测文件: [${data.predictedFiles.join(', ')}]`,
         `实际文件: [${data.actualFiles.join(', ')}]`,
-        missedFiles.length > 0 ? `漏预测文件: ${missedFiles.join(', ')}` : '',
-        extraFiles.length > 0 ? `多预测文件: ${extraFiles.join(', ')}` : '',
-        missedDeps.length > 0 ? `漏预测依赖: ${missedDeps.join(', ')}` : '',
+        missedFiles.length > 0 ? `漏预测文件: [${missedFiles.join(', ')}]` : '',
+        extraFiles.length > 0 ? `多预测文件: [${extraFiles.join(', ')}]` : '',
+        missedDeps.length > 0 ? `漏预测依赖: [${missedDeps.join(', ')}]` : '',
         Object.entries(data.missesByType).length > 0
           ? `误判类型: ${Object.entries(data.missesByType).map(([k, v]) => `${k}(${v})`).join(', ')}`
           : '',
@@ -480,18 +399,11 @@ export class KnowledgeBus {
       // D6 flywheel: record search hit rate with scores
       if (scored.length > 0) {
         const avgScore = scored.reduce((s, r) => s + r.score, 0) / scored.length;
-        fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-          type: 'knowledge:search_hit',
-          source: 'search',
-          payload: JSON.stringify({
-            query: query.slice(0, 200),
-            hitCount: scored.length,
-            avgScore: Math.round(avgScore * 100) / 100,
-            entryIds: scored.map(r => r.id),
-          }),
-          createdAt: new Date().toISOString(),
-        }).catch((e: any) => {
-          logger.warn('[KnowledgeBus] search_hit event failed', { error: String(e) });
+        appendKnowledgeEvent('knowledge:search_hit', {
+          query: query.slice(0, 200),
+          hitCount: scored.length,
+          avgScore: Math.round(avgScore * 100) / 100,
+          entryIds: scored.map(r => r.id),
         });
       }
 
@@ -515,95 +427,6 @@ export class KnowledgeBus {
 }
 
 export const knowledgeBus = new KnowledgeBus();
-
-// ── local-rag sync debounce timer + mutex ──
-let syncTimer: ReturnType<typeof setTimeout> | null = null;
-let syncInProgress = false;
-let deferredSince: number | null = null;  // #2: track deferral start for log dedup
-let failCount = 0;  // #3: consecutive failure count for backoff
-
-/**
- * 将 .studio/knowledge/ 同步到 local-rag 向量库。
- * 防止 safeIngest 写盘后 Agent 无法通过 mcp__local-rag__query_documents 检索到新条目。
- *
- * 使用 mcp-local-rag CLI 增量 ingest（已 ingest 的文件自动跳过）。
- * 5s 防抖：批量 ingest 15 条 → 只触发 1 次 sync。
- * 互斥锁：防止并发写入 LanceDB 导致 commit conflict。
- * 失败重试：指数退避（10s, 20s, 40s... cap 120s，不设上限）。
- */
-export function isVectorDbSyncing(): boolean {
-  return syncInProgress;
-}
-
-export function scheduleVectorDbSync(): void {
-  if (syncTimer) clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => {
-    syncTimer = null;
-    if (syncInProgress) {
-      // #2: only log first defer, not every 5s
-      if (!deferredSince) {
-        deferredSince = Date.now();
-        logger.info('[KnowledgeBus] vector-db sync deferred (previous sync still running)');
-      }
-      scheduleVectorDbSync();
-      return;
-    }
-    syncInProgress = true;
-    // systemd-run scope 给 ingest 加 700M 内存帽（实测峰值 ~475M）：
-    // 超帽被 cgroup OOM 杀掉后走下方既有失败重试逻辑，LanceDB 提交原子、不会写坏。
-    // flock 保证多实例（systemd / 手动 npm dev / test 实例）同时只有一个写向量库，
-    // 锁被占时立即失败走退避重试（增量跳过后胜者很快，不会久等）。
-    // 超时 30 分钟：停机积压几百个文件时全量追赶需要 5–15 分钟；平时增量只需几秒。
-    const args = [
-      '--scope', '-q', '--collect', '-p', 'MemoryMax=700M',
-      'flock', '-n', '/tmp/vector-db-sync.lock',
-      'nice', '-n', '10', 'mcp-local-rag',
-      '--db-path', LANCE_DB_PATH,
-      '--cache-dir', MODEL_CACHE_DIR,
-      '--model-name', MODEL_NAME,
-      'ingest', UNIFIED_KNOWLEDGE_DIR,
-      '--base-dir', UNIFIED_KNOWLEDGE_DIR,
-    ];
-    execFile('systemd-run', args, { timeout: 1_800_000 }, (err, stdout, stderr) => {
-      syncInProgress = false;
-      // #2: log resume after deferral
-      if (deferredSince) {
-        const waited = Math.round((Date.now() - deferredSince) / 1000);
-        deferredSince = null;
-        logger.info('[KnowledgeBus] vector-db sync resumed after deferral', { waitedSec: waited });
-      }
-      if (err) {
-        // optimize() failures are non-fatal (data already inserted)
-        const msg = err.message || '';
-        if (msg.includes('Succeeded:')) {
-          const summary = msg.match(/Succeeded:\s*\d+.*Failed:\s*\d+.*Total chunks:\s*\d+/s)?.[0];
-          logger.info('[KnowledgeBus] vector-db synced (with optimize warning)', { summary });
-          failCount = 0;
-          return;
-        }
-        // #3: re-schedule with exponential backoff on real failure (cap 10 attempts, 120s backoff)
-        failCount++;
-        if (failCount > 10) {
-          logger.error('[KnowledgeBus] vector-db sync gave up after 10 attempts', {
-            totalAttempts: failCount, lastError: msg.slice(0, 500),
-          });
-          failCount = 0;
-          return;
-        }
-        const backoffSec = Math.min(10 * Math.pow(2, failCount - 1), 120);
-        logger.warn('[KnowledgeBus] vector-db sync failed, retrying', {
-          attempt: failCount, backoffSec, error: msg.slice(0, 500),
-        });
-        setTimeout(() => scheduleVectorDbSync(), backoffSec * 1000);
-        return;
-      }
-      failCount = 0;
-      // Extract summary line from stdout
-      const summary = stdout.match(/Succeeded:\s*\d+.*Failed:\s*\d+.*Total chunks:\s*\d+/s)?.[0] || stdout.slice(-100);
-      logger.info('[KnowledgeBus] vector-db synced', { summary });
-    });
-  }, 5_000);
-}
 
 /**
  * 设计时知识沉淀：按 scope 去重写入。

@@ -7,6 +7,8 @@ export interface AgentInfo {
   status: string;
   currentWorkUnitId: string | null;
   startedAt: string;
+  lastError?: string | null;
+  lastErrorAt?: string | null;
 }
 
 export interface AgentSummary {
@@ -15,6 +17,7 @@ export interface AgentSummary {
     total: number;
     idle: number;
     active: number;
+    error: number;
     terminated: number;
   };
 }
@@ -41,7 +44,39 @@ export interface MonitoringStats {
   };
 }
 
+/** M1: 飞轮指标（/monitoring/flywheel） */
+export interface FlywheelStats {
+  quality: number;
+  hitRate: number;
+  improvement: number;
+  freshness: number;
+  source: 'events' | 'insufficient-data';
+  proposalsPendingReview: number;
+  extraction: { count30d: number; totalTokens30d: number };
+  windowDays: number;
+  timestamp: string;
+}
+
+/** M2: 封装开销（/monitoring/overhead） */
+export interface OverheadStats {
+  windowDays: number;
+  executions: number;
+  workUnits: number;
+  avgInjectedTokens: number;
+  injectedBudget: number;
+  injectedBudgetUsedPct: number;
+  avgExecutionTokens: number | null;
+  executionCoveragePct: number;
+  avgOverheadRatio: number | null;
+  overheadBudget: number;
+  extractionTokens: number;
+  source: 'events' | 'insufficient-data';
+  timestamp: string;
+}
+
 export const monitoringApi = {
   getAgentSummary: () => api.get<AgentSummary>('/monitoring/agents'),
   getStats: () => api.get<MonitoringStats>('/monitoring/stats'),
+  getFlywheel: () => api.get<FlywheelStats>('/monitoring/flywheel'),
+  getOverhead: () => api.get<OverheadStats>('/monitoring/overhead'),
 };

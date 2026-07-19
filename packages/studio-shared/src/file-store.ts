@@ -16,6 +16,10 @@
  *       lock             # flock 文件锁目录
  *       events.jsonl     # 事件流 (append-only)
  *       index.json       # 当前状态快照
+ *     requirements/      # REQ 需求编号体系 (vision §5.3)
+ *       lock             # seq 分配 flock 锁目录
+ *       index.json       # { nextSeq } 序号计数器
+ *       REQ-0042.json    # RequirementData（每需求一个文件）
  */
 
 import fs from 'node:fs';
@@ -30,7 +34,7 @@ export interface AgentProfileData {
   description: string | null;
   channels: string;        // JSON: Channel ID[]
   status: string;          // active | inactive
-  provider: string | null; // bound CLI: claude | codex | opencode | openclaw | null
+  provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601
 }
@@ -39,13 +43,15 @@ export interface RuntimeStateData {
   id: string;
   roleId: string;
   sessionId: string | null;
-  status: string;          // idle | active | terminated
+  status: string;          // idle | active | error | terminated
   currentWorkUnitId: string | null;
   startedAt: string;       // ISO 8601
   terminatedAt: string | null;
   lastHeartbeat: string | null;
   metadata: string | null; // JSON
   pid?: number;            // process.pid for dead-instance detection
+  lastError?: string | null;   // F2: last startup-fatal error (e.g. health probe failure)
+  lastErrorAt?: string | null; // ISO 8601
 }
 
 export interface ChannelData {
@@ -111,6 +117,8 @@ export interface WorkUnitSnapshot {
   timeoutAt: string | null;
   channelId: string | null;
   projectPath: string | null;
+  workspaceId?: string | null;  // F6: 绑定的注册工程（可选 — 旧事件/快照无此字段仍可加载）
+  reqId?: string | null;        // REQ 需求编号（可选 — 旧事件/快照无此字段仍可加载）
   metadata: string | null;
   createdAt: string;
   updatedAt: string;
@@ -123,6 +131,67 @@ export interface WorkUnitFilter {
   type?: string;
   assigneeId?: string;
   channelId?: string;
+}
+
+// ─── Requirement（REQ 需求编号体系, vision §5.3）───
+// Requirement 是 WorkUnit 的父实体：一个需求 = 一组 WorkUnit。
+// 编号 REQ-<递增序号> 在频道首次 @mention 派发时自动分配，也可手动创建。
+
+export type RequirementStatus = 'open' | 'in-progress' | 'done' | 'archived';
+
+export interface RequirementData {
+  id: string;                 // REQ-<zero-padded seq>，如 REQ-0042
+  seq: number;                // 递增序号（flock 原子分配）
+  title: string;
+  status: RequirementStatus;
+  channelId?: string | null;  // 来源频道（可选 — 手动创建可无）
+  createdAt: string;          // ISO 8601
+  createdBy: string;          // 创建来源：mention | convert | manual | api
+  docs?: string[];            // 关联文档（需求文档 / SDD 路径）
+  description?: string;
+}
+
+export interface RequirementFilter {
+  status?: string;
+  channelId?: string;
+}
+
+// ─── Evolution（E1 约束进化, vision §6 / docs/plans/2026-07-flywheel-repair.md §4）───
+//
+// 约束进化提案：signals（traces/模式挖掘）→ 提案 → 人在频道/API 审核 → 生效。
+// 存储复制 Requirement 模式：`~/.studio/data/evolution/EP-0042.json` + flock 序号。
+
+export type EvolutionTargetType = 'iron-law' | 'guideline' | 'prompt-template' | 'role-preset';
+export type EvolutionProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied';
+
+export interface EvolutionProposalData {
+  id: string;                 // EP-<zero-padded seq>，如 EP-0042
+  seq: number;                // 递增序号（flock 原子分配）
+  targetType: EvolutionTargetType;
+  targetId: string;           // 约束 id | prompt templateId | role 名（.agents/roles/<name>.yaml）
+  action: 'add' | 'amend';    // add=新增条目（或 shadow 覆盖内置约束）；amend=修改既有条目
+  /** 仅 iron-law/guideline：变更种类（message=改提示文案；exception=加例外；new-entry=新增约束条目） */
+  constraintChange?: 'message' | 'exception' | 'new-entry';
+  currentText: string;        // 当前文本（add 时可为空串）
+  proposedText: string;       // 提案文本（message/模板/persona 全量替换内容）
+  rationale: string;          // 理由（含预期效果）
+  evidence: {                 // 证据（事件计数/样例）
+    windowHours: number;
+    eventCounts: Record<string, number>;
+    samples?: string[];
+  };
+  status: EvolutionProposalStatus;
+  source: string;             // 'harness-autoEvolve' | 'heuristic:prompt-failure' | 'heuristic:role-failure'
+  createdAt: string;          // ISO 8601
+  decidedBy?: string | null;  // 'channel' | 'api:<user>' 等
+  decidedAt?: string | null;
+  appliedAt?: string | null;
+  rejectReason?: string | null;
+}
+
+export interface EvolutionProposalFilter {
+  status?: string;
+  targetType?: string;
 }
 
 /** 锁超时错误 */
@@ -328,6 +397,38 @@ export class FileStore {
       if (isErrnoError(err) && err.code === 'ENOENT') throw new Error(`AgentProfile not found: ${id}`);
       throw err;
     }
+  }
+
+  /**
+   * F3 一次性迁移：把所有 profile.json 的 channels 字段归一化为单层 JSON 编码
+   * （修复历史双重编码 bug 的存量数据）。dryRun 时只统计不写盘。
+   * 无法读取/非字符串 channels 的 profile 跳过（交给清洗脚本判定去留）。
+   */
+  async migrateChannelsEncoding(opts?: { dryRun?: boolean }): Promise<{ scanned: number; rewritten: number }> {
+    const dir = this.agentsDir();
+    let scanned = 0;
+    let rewritten = 0;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return { scanned, rewritten };
+      throw err;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const profile = await this.readJson<AgentProfileData>(this.profilePath(entry.name));
+      if (!profile || typeof profile.channels !== 'string') continue;
+      scanned++;
+      const normalized = stringifyChannels(profile.channels);
+      if (normalized !== profile.channels) {
+        rewritten++;
+        if (!opts?.dryRun) {
+          await this.writeJson(this.profilePath(entry.name), { ...profile, channels: normalized });
+        }
+      }
+    }
+    return { scanned, rewritten };
   }
 
   // ═══════════════════════
@@ -698,6 +799,196 @@ export class FileStore {
   }
 
   // ═══════════════════════
+  // Requirement（REQ 需求编号体系, vision §5.3）
+  // ═══════════════════════
+
+  private get requirementsDir(): string {
+    return path.join(this.baseDir, 'requirements');
+  }
+
+  private get requirementsLockDir(): string {
+    return path.join(this.baseDir, 'requirements', 'lock');
+  }
+
+  private get requirementsIndexPath(): string {
+    return path.join(this.baseDir, 'requirements', 'index.json');
+  }
+
+  private requirementPath(id: string): string {
+    return path.join(this.requirementsDir, `${id}.json`);
+  }
+
+  /** 读取目录中现存 REQ 文件的 seq 集合（容错：文件名不规范的跳过） */
+  private async listExistingRequirementSeqs(): Promise<number[]> {
+    try {
+      const entries = await fs.promises.readdir(this.requirementsDir, { withFileTypes: true });
+      const seqs: number[] = [];
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const m = entry.name.match(/^REQ-(\d+)\.json$/);
+        if (m) seqs.push(parseInt(m[1], 10));
+      }
+      return seqs;
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return [];
+      throw err;
+    }
+  }
+
+  /**
+   * 原子分配下一个需求序号（flock 保护，跨进程安全）。
+   * index.json 缺失/损坏/落后时按现存文件恢复，保证 seq 唯一。
+   */
+  async allocateRequirementSeq(): Promise<number> {
+    return this.withLock(this.requirementsLockDir, async () => {
+      const index = await this.readJson<{ nextSeq: number }>(this.requirementsIndexPath);
+      const fromIndex = index && Number.isInteger(index.nextSeq) && index.nextSeq > 0 ? index.nextSeq : 1;
+      const existing = await this.listExistingRequirementSeqs();
+      const seq = Math.max(fromIndex, existing.length > 0 ? Math.max(...existing) + 1 : 1);
+      await this.writeJson(this.requirementsIndexPath, { nextSeq: seq + 1 });
+      return seq;
+    });
+  }
+
+  async createRequirement(data: RequirementData): Promise<void> {
+    await this.writeJson(this.requirementPath(data.id), data);
+  }
+
+  /** 读取单个需求（容错：文件缺失/损坏/结构异常 → null） */
+  async getRequirement(id: string): Promise<RequirementData | null> {
+    const req = await this.readJson<RequirementData>(this.requirementPath(id));
+    if (!req || typeof req.id !== 'string' || typeof req.seq !== 'number') return null;
+    return req;
+  }
+
+  /** 列出需求（容错读：损坏文件跳过），按 seq 升序 */
+  async listRequirements(filter?: RequirementFilter): Promise<RequirementData[]> {
+    let entries: fs.Dirent[];
+    try {
+      await this.ensureDir(this.requirementsDir);
+      entries = await fs.promises.readdir(this.requirementsDir, { withFileTypes: true });
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return [];
+      throw err;
+    }
+    const requirements: RequirementData[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === 'index.json') continue;
+      const req = await this.readJson<RequirementData>(path.join(this.requirementsDir, entry.name));
+      if (!req || typeof req.id !== 'string' || typeof req.seq !== 'number') continue; // skip malformed
+      if (filter?.status && req.status !== filter.status) continue;
+      if (filter?.channelId && req.channelId !== filter.channelId) continue;
+      requirements.push(req);
+    }
+    requirements.sort((a, b) => a.seq - b.seq);
+    return requirements;
+  }
+
+  /** 更新需求（id/seq 不可变）。不存在时抛错。 */
+  async updateRequirement(id: string, patch: Partial<RequirementData>): Promise<RequirementData> {
+    const existing = await this.getRequirement(id);
+    if (!existing) throw new Error(`Requirement not found: ${id}`);
+    const updated: RequirementData = { ...existing, ...patch, id: existing.id, seq: existing.seq };
+    await this.writeJson(this.requirementPath(id), updated);
+    return updated;
+  }
+
+  // ═══════════════════════
+  // Evolution（E1 约束进化提案存储，复制 Requirement 模式）
+  // ═══════════════════════
+
+  private get evolutionDir(): string {
+    return path.join(this.baseDir, 'evolution');
+  }
+
+  private get evolutionLockDir(): string {
+    return path.join(this.baseDir, 'evolution', 'lock');
+  }
+
+  private get evolutionIndexPath(): string {
+    return path.join(this.baseDir, 'evolution', 'index.json');
+  }
+
+  private evolutionProposalPath(id: string): string {
+    return path.join(this.evolutionDir, `${id}.json`);
+  }
+
+  /** 读取目录中现存 EP 文件的 seq 集合（容错：文件名不规范的跳过） */
+  private async listExistingEvolutionSeqs(): Promise<number[]> {
+    try {
+      const entries = await fs.promises.readdir(this.evolutionDir, { withFileTypes: true });
+      const seqs: number[] = [];
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        const m = entry.name.match(/^EP-(\d+)\.json$/);
+        if (m) seqs.push(parseInt(m[1], 10));
+      }
+      return seqs;
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return [];
+      throw err;
+    }
+  }
+
+  /**
+   * 原子分配下一个进化提案序号（flock 保护，跨进程安全）。
+   * index.json 缺失/损坏/落后时按现存文件恢复，保证 seq 唯一。
+   */
+  async allocateEvolutionSeq(): Promise<number> {
+    return this.withLock(this.evolutionLockDir, async () => {
+      const index = await this.readJson<{ nextSeq: number }>(this.evolutionIndexPath);
+      const fromIndex = index && Number.isInteger(index.nextSeq) && index.nextSeq > 0 ? index.nextSeq : 1;
+      const existing = await this.listExistingEvolutionSeqs();
+      const seq = Math.max(fromIndex, existing.length > 0 ? Math.max(...existing) + 1 : 1);
+      await this.writeJson(this.evolutionIndexPath, { nextSeq: seq + 1 });
+      return seq;
+    });
+  }
+
+  async createEvolutionProposal(data: EvolutionProposalData): Promise<void> {
+    await this.writeJson(this.evolutionProposalPath(data.id), data);
+  }
+
+  /** 读取单个提案（容错：文件缺失/损坏/结构异常 → null） */
+  async getEvolutionProposal(id: string): Promise<EvolutionProposalData | null> {
+    const p = await this.readJson<EvolutionProposalData>(this.evolutionProposalPath(id));
+    if (!p || typeof p.id !== 'string' || typeof p.seq !== 'number') return null;
+    return p;
+  }
+
+  /** 列出提案（容错读：损坏文件跳过），按 seq 升序 */
+  async listEvolutionProposals(filter?: EvolutionProposalFilter): Promise<EvolutionProposalData[]> {
+    let entries: fs.Dirent[];
+    try {
+      await this.ensureDir(this.evolutionDir);
+      entries = await fs.promises.readdir(this.evolutionDir, { withFileTypes: true });
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return [];
+      throw err;
+    }
+    const proposals: EvolutionProposalData[] = [];
+    for (const entry of entries) {
+      if (!entry.isFile() || !/^EP-\d+\.json$/.test(entry.name)) continue;
+      const p = await this.readJson<EvolutionProposalData>(path.join(this.evolutionDir, entry.name));
+      if (!p || typeof p.id !== 'string' || typeof p.seq !== 'number') continue; // skip malformed
+      if (filter?.status && p.status !== filter.status) continue;
+      if (filter?.targetType && p.targetType !== filter.targetType) continue;
+      proposals.push(p);
+    }
+    proposals.sort((a, b) => a.seq - b.seq);
+    return proposals;
+  }
+
+  /** 更新提案（id/seq 不可变）。不存在时抛错。 */
+  async updateEvolutionProposal(id: string, patch: Partial<EvolutionProposalData>): Promise<EvolutionProposalData> {
+    const existing = await this.getEvolutionProposal(id);
+    if (!existing) throw new Error(`Evolution proposal not found: ${id}`);
+    const updated: EvolutionProposalData = { ...existing, ...patch, id: existing.id, seq: existing.seq };
+    await this.writeJson(this.evolutionProposalPath(id), updated);
+    return updated;
+  }
+
+  // ═══════════════════════
   // Markdown 读写（Phase 1: spec-2a filestore-unification）
   // ═══════════════════════
 
@@ -821,8 +1112,53 @@ export class FileStore {
 
 // ─── 工具函数 ───
 
+/**
+ * F3: 容错解析「JSON 编码的字符串数组」字段（AgentProfile.channels / Channel.members）。
+ * 历史写入 bug 曾把值二次 JSON 编码（"\"[\\\"id\\\"]\""），本函数最多解包 2 层编码；
+ * 无法解析或不是字符串数组时返回 []。
+ */
+export function parseChannels(raw: unknown): string[] {
+  let value: unknown = raw;
+  for (let depth = 0; depth <= 2; depth++) {
+    if (Array.isArray(value)) {
+      return value.filter((v): v is string => typeof v === 'string');
+    }
+    if (typeof value !== 'string' || value.trim() === '') return [];
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/**
+ * F3: 写入端归一化 — 接受 string[] 或（可能多次编码的）JSON 字符串，
+ * 输出单层 JSON 编码，保证落盘的 channels/members 字段永远只有一层编码。
+ */
+export function stringifyChannels(raw: unknown): string {
+  return JSON.stringify(parseChannels(raw));
+}
+
 function isErrnoError(err: unknown): err is NodeJS.ErrnoException {
   return err instanceof Error && 'code' in err;
+}
+
+/**
+ * REQ 需求编号格式化（vision §5.3）：seq → `REQ-<zero-padded>`（至少 4 位）。
+ * formatRequirementId(42) === 'REQ-0042'
+ */
+export function formatRequirementId(seq: number): string {
+  return `REQ-${String(seq).padStart(4, '0')}`;
+}
+
+/**
+ * E1 约束进化提案编号格式化（vision §6）：seq → `EP-<zero-padded>`（至少 4 位）。
+ * formatEvolutionId(42) === 'EP-0042'
+ */
+export function formatEvolutionId(seq: number): string {
+  return `EP-${String(seq).padStart(4, '0')}`;
 }
 
 function sleep(ms: number): Promise<void> {

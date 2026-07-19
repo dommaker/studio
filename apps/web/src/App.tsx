@@ -56,7 +56,6 @@ export default function App() {
   } = useWebSocketHandlers(() => {});
 
   const {
-    showAgentRegistry, setShowAgentRegistry,
     showResult, setShowResult,
     selectedProject, setSelectedProject,
     handleViewDetails,
@@ -127,8 +126,6 @@ export default function App() {
         showResult={showResult}
         currentExecution={currentExecution}
         onCloseResult={() => setShowResult(false)}
-        showAgentRegistry={showAgentRegistry}
-        onCloseAgentRegistry={() => setShowAgentRegistry(false)}
         selectedProject={selectedProject}
         onCloseProject={() => setSelectedProject(null)}
       />

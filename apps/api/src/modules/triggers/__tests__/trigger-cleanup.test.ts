@@ -4,10 +4,12 @@
  * Source-code verification:
  * - 3 triggers removed from default-triggers.ts (9→7)
  *   - okr-metric-sync was added back later (7 total)
+ *   - workunit-input-reminder added by F5 双向沟通 (8 total)
+ *   - evolution-daily-scan added by E1 约束进化 (9 total)
  * - EVENT condition type re-added by PMO-Channel-Agent-Flow SDD AC-1
  * - subscribeEvent/unsubscribeEvent removed from trigger-scheduler.ts (replaced by registerTrigger EVENT handling)
  * - resolveTemplate/getNestedValue removed from trigger-action.ts
- * - 7 retained triggers intact
+ * - retained triggers intact
  */
 
 import { describe, it, expect } from 'vitest';
@@ -18,10 +20,10 @@ const AGENTS_DIR = path.resolve(__dirname, '../../agents');
 const TRIGGERS_DIR = path.resolve(__dirname, '..');
 
 describe('Trigger cleanup verification', () => {
-  it('default triggers count is 7 (not 9)', async () => {
+  it('default triggers count is 9 (8 retained + E1 evolution-daily-scan)', async () => {
     const mod = await import('../../agents/default-triggers.js');
     const configs = mod.getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(7);
+    expect(configs).toHaveLength(9);
   });
 
   it('okr-metric-sync trigger is present', () => {

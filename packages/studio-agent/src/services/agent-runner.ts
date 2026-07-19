@@ -14,7 +14,7 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
 import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type StreamEvent, type ModelTier, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles, FileStore } from '@dommaker/studio-shared';
-import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
+import { execSh, resolveSessionId, readSessionIdFile, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
 import { buildSpawnArgs } from '../cli-adapter.js';
@@ -245,7 +245,7 @@ export class AgentRunner implements IAgentRunner {
 
     try {
       // Step 1: prerequisite checks
-      const checks = await this.checkPrerequisites();
+      const checks = await this.checkPrerequisites(task.provider || 'claude');
       const errors = checks.filter(c => !c.passed && !c.isWarning);
       if (errors.length > 0) {
         throw new Error(`\u524d\u7f6e\u68c0\u67e5\u5931\u8d25: ${errors.map(e => e.message).join(', ')}`);
@@ -378,12 +378,18 @@ export class AgentRunner implements IAgentRunner {
         await fs.writeFile(path.join(worktree, '.prompt.md'), prompt, 'utf-8');
 
         // Session flags
+        // F4: --session-id/--continue/--name 是 claude 专属语法；其它 provider 的 session
+        // 由 registry spawn 模板处理（cli-adapter）。非 claude 的跨 session 续接仍是 claude-only。
+        const provider = task.provider || 'claude';
+        const providerDef = resolveProviderDefinition(provider);
         const isFirstSession = sessionCount === 1;
-        const sessionFlag = isFirstSession
-          ? (isNewSession
-              ? `--session-id ${sessionId} --name "executor-${task.executionId.slice(0, 8)}"`
+        const sessionFlag = provider === 'claude'
+          ? (isFirstSession
+              ? (isNewSession
+                  ? `--session-id ${sessionId} --name "executor-${task.executionId.slice(0, 8)}"`
+                  : '--continue')
               : '--continue')
-          : '--continue';
+          : '';
 
         const taskTier = (task.model as ModelTier) || 'standard';
         const model = getModelForTier(taskTier);
@@ -396,27 +402,33 @@ export class AgentRunner implements IAgentRunner {
         // Restrict tool access
         const _analystCtx = (task.parameters?.analystContext as any) || null;
         const _restrictDirs = _analystCtx?.verifiedFiles as string[] | undefined;
-        const addDirArgs = _restrictDirs?.length
+        const addDirArgs = _restrictDirs?.length && providerDef.spawn.addDirFlag
           ? _restrictDirs.map((f: string) => {
               const dir = f.split('/').slice(0, -1).join('/');
-              return `--add-dir "${dir}"`;
+              return `${providerDef.spawn.addDirFlag} "${dir}"`;
             }).join(' ')
           : '';
 
         // AC1.1: Use stream-json output format via cli-adapter
-        const spawnArgs = buildSpawnArgs(task.provider || 'claude', {
+        const spawnArgs = buildSpawnArgs(provider, {
           worktreeDir: worktree,
         });
+        // --verbose already ships in claude's registry template; literal kept for the legacy cmd shape
+        const verboseArg = spawnArgs.args.includes('--verbose') ? '' : (provider === 'claude' ? `--verbose` : '');
+        const promptArg = providerDef.spawn.promptViaStdin
+          ? `< "${promptFile}"`
+          : providerDef.spawn.promptFlag
+            ? `${providerDef.spawn.promptFlag} "$(cat "${promptFile}")"`
+            : `"$(cat "${promptFile}")"`;
         const cmd = [
           `cd "${worktree}"`,
           `&&`,
           spawnArgs.command,
           ...spawnArgs.args,
-          `--verbose`,
+          verboseArg,
           addDirArgs,
           sessionFlag,
-          `<`,
-          `"${promptFile}"`,
+          promptArg,
           `2>&1`,
         ].filter(Boolean).join(' ');
 
@@ -803,7 +815,7 @@ export class AgentRunner implements IAgentRunner {
 
     try {
       // Prerequisite checks (keep — fast validation)
-      const checks = await this.checkPrerequisites();
+      const checks = await this.checkPrerequisites(task.provider || 'claude');
       const errors = checks.filter(c => !c.passed && !c.isWarning);
       if (errors.length > 0) {
         throw new Error(`前置检查失败: ${errors.map(e => e.message).join(', ')}`);
@@ -822,27 +834,37 @@ export class AgentRunner implements IAgentRunner {
       fsSync.writeFileSync(promptFile, augmentedPrompt, 'utf-8');
 
       // Session management — caller provides flags via parameters
-      const sessionFlags = (task.parameters?.sessionFlags as string) || '';
+      // F4: sessionFlags 是 claude 专属语法（--session-id/--continue）；其它 provider 的
+      // session 由 registry spawn 模板处理（buildSpawnArgs 传入 parameters.sessionId）。
+      const provider = task.provider || 'claude';
+      const providerDef = resolveProviderDefinition(provider);
+      const sessionFlags = provider === 'claude' ? ((task.parameters?.sessionFlags as string) || '') : '';
       const taskTier = (task.model as ModelTier) || 'standard';
       const model = getModelForTier(taskTier);
       const agentRole = (task.parameters?.agentRole as string) || 'executor';
       const sessionId = task.executionId;
 
       // Use cli-adapter for provider-specific spawn args
-      const spawnArgs = buildSpawnArgs(task.provider || 'claude', {
+      const spawnArgs = buildSpawnArgs(provider, {
         worktreeDir: worktree,
         sessionId: task.parameters?.sessionId as string | undefined,
         maxTurns: task.parameters?.maxTurns as number | undefined,
       });
+      // --verbose already ships in claude's registry template; literal kept for the legacy cmd shape
+      const verboseArg = spawnArgs.args.includes('--verbose') ? '' : (provider === 'claude' ? `--verbose` : '');
+      const promptArg = providerDef.spawn.promptViaStdin
+        ? `< "${promptFile}"`
+        : providerDef.spawn.promptFlag
+          ? `${providerDef.spawn.promptFlag} "$(cat "${promptFile}")"`
+          : `"$(cat "${promptFile}")"`;
       const cmd = [
         `cd "${worktree}"`,
         `&&`,
         spawnArgs.command,
         ...spawnArgs.args,
-        `--verbose`,
+        verboseArg,
         sessionFlags,
-        `<`,
-        `"${promptFile}"`,
+        promptArg,
         `2>&1`,
       ].filter(Boolean).join(' ');
 
@@ -927,6 +949,7 @@ export class AgentRunner implements IAgentRunner {
           return {
             success: false, worktree, outputFiles: [], error: text.slice(0, 500),
             logFile, sessionCount: 1, totalDurationMs: sessionMs, sessionIds: [sessionId],
+            usage: streamUsage, // M2: 失败执行同样计 tokens
           };
         }
 
@@ -938,6 +961,7 @@ export class AgentRunner implements IAgentRunner {
           success: true, worktree, outputFiles: [], logFile,
           sessionCount: 1, totalDurationMs: sessionMs, sessionIds: [sessionId],
           outputText: text || undefined,
+          usage: streamUsage, // M2: 透出 CLI usage，供 agent-loop 记录 workunit:tokens
         };
       } catch (execErr: any) {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
@@ -1033,22 +1057,27 @@ export class AgentRunner implements IAgentRunner {
   // Prerequisites
   // ========================================
 
-  async checkPrerequisites(): Promise<PrerequisiteCheck[]> {
+  async checkPrerequisites(provider: string = 'claude'): Promise<PrerequisiteCheck[]> {
     const checks: PrerequisiteCheck[] = [];
     logger.info('[AgentRunner] Checking prerequisites', { repoDir: this.config.repoDir });
 
+    // F4: provider CLI health probe from the registry (claude keeps the old message/shape)
+    const providerDef = resolveProviderDefinition(provider);
+    const probeCmd = buildHealthProbeCommand(provider);
+    const cliCheckName = `${providerDef.displayName} CLI`;
+    const cliUnavailable = `${providerDef.binaries[0]} \u547d\u4ee4\u4e0d\u53ef\u7528`;
     try {
-      const { stdout } = await execSh('claude --version 2>&1 || echo "NOT_FOUND"', {
+      const { stdout } = await execSh(`${probeCmd} 2>&1 || echo "NOT_FOUND"`, {
         cwd: '/tmp',
         timeoutMs: 10_000,
       });
       if (stdout.includes('NOT_FOUND')) {
-        checks.push({ name: 'Claude Code CLI', passed: false, message: 'claude \u547d\u4ee4\u4e0d\u53ef\u7528' });
+        checks.push({ name: cliCheckName, passed: false, message: cliUnavailable });
       } else {
-        checks.push({ name: 'Claude Code CLI', passed: true, message: stdout.trim().slice(0, 80) });
+        checks.push({ name: cliCheckName, passed: true, message: stdout.trim().slice(0, 80) });
       }
     } catch {
-      checks.push({ name: 'Claude Code CLI', passed: false, message: 'claude \u547d\u4ee4\u4e0d\u53ef\u7528' });
+      checks.push({ name: cliCheckName, passed: false, message: cliUnavailable });
     }
 
     try {

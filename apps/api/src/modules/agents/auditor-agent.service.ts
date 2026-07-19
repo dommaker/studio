@@ -8,7 +8,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, resolveEventsDir } from '@dommaker/studio-shared';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { NotificationService } from '@dommaker/studio-notification';
 
@@ -18,7 +18,11 @@ import { skillStore } from '../skills/skill-store.js';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 const SYSTEM_CHANNEL_NAME = '#系统';
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), 'events', 'studio.jsonl');
+
+/** R2 事件目录统一: studio.jsonl 经 resolveEventsDir() 懒解析（STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events） */
+function studioEventsJsonl(): string {
+  return path.join(resolveEventsDir(), 'studio.jsonl');
+}
 
 interface Suggestion {
   type: 'skill_weight' | 'skill_status' | 'param_tuning' | 'prompt_optimization'
@@ -254,14 +258,14 @@ export class AuditorAgent {
   /**
    * 分析开发会话行为趋势 (session:summary → behavioral insights)
    *
-   * 读取 ~/events/studio.jsonl 中的 session:summary 事件，
-   * 聚合最近 24h 的行为信号，产出入门级洞察。
+   * 读取统一事件目录（~/.studio/events，env 可覆盖）studio.jsonl 中的
+   * session:summary 事件，聚合最近 24h 的行为信号，产出入门级洞察。
    * 不自动进化约束 — 行为约束的执行机制（Claude Code hooks）与代码约束（harness check）不同。
    */
   private async analyzeSessionTrends(since: Date): Promise<string[]> {
     const lines: string[] = [];
     try {
-      const eventsFile = path.join(os.homedir(), 'events', 'studio.jsonl');
+      const eventsFile = studioEventsJsonl();
       if (!fs.existsSync(eventsFile)) return [];
 
       const raw = fs.readFileSync(eventsFile, 'utf-8');
@@ -861,7 +865,7 @@ export class AuditorAgent {
       // Read studio events from JSONL
       let activeSessionCount = 0;
       try {
-        const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        const allEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
         activeSessionCount = allEvents.filter(
           (e: any) => e.type === 'session:summary' && new Date(e.timestamp).getTime() >= fourWeeksAgo.getTime()
         ).length;
@@ -916,7 +920,7 @@ export class AuditorAgent {
           if (skill.status === 'deprecated') {
             let recentUsage = 0;
             try {
-              const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+              const allEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
               recentUsage = allEvents.filter(
                 (e: any) => e.type === 'skill:used'
                   && new Date(e.timestamp).getTime() >= fourWeeksAgo.getTime()

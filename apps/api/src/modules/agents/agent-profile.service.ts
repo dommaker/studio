@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 
 export interface CreateAgentProfileInput {
   name: string;
@@ -24,7 +24,12 @@ export interface UpdateAgentProfileInput {
   status?: string;
 }
 
-export type AgentProfileWithOnline = AgentProfileData & { isOnline: boolean };
+export type AgentProfileWithOnline = AgentProfileData & {
+  isOnline: boolean;
+  /** F2: 最近一次启动失败原因（health probe 等），来自 runtime state */
+  lastError: string | null;
+  lastErrorAt: string | null;
+};
 
 export class AgentProfileService {
   constructor(
@@ -43,13 +48,15 @@ export class AgentProfileService {
       id: randomUUID(),
       name: input.name,
       description: input.description ?? null,
-      channels: input.channels ? JSON.stringify(input.channels) : '[]',
+      channels: stringifyChannels(input.channels),
       provider: input.provider ?? null,
       status: input.status ?? 'active',
       createdAt: now,
       updatedAt: now,
     };
     await this.fileStore.createProfile(data);
+    // F1: notify AgentLoopRegistry (mounts a loop when created already active)
+    eventBus.publish('agent-profile.created', { profile: data });
     return data;
   }
 
@@ -97,9 +104,21 @@ export class AgentProfileService {
     const activeStates = allStates.filter(s => s.status === 'active' && agentIds.includes(s.roleId));
     const onlineSet = new Set(activeStates.map(ri => ri.roleId));
 
+    // F2: surface latest startup failure per profile (status === 'error' states only)
+    const errorByRole = new Map<string, { lastError: string; lastErrorAt: string | null }>();
+    for (const s of allStates) {
+      if (s.status !== 'error' || !s.lastError || !agentIds.includes(s.roleId)) continue;
+      const prev = errorByRole.get(s.roleId);
+      if (!prev || (s.lastErrorAt ?? '') > (prev.lastErrorAt ?? '')) {
+        errorByRole.set(s.roleId, { lastError: s.lastError, lastErrorAt: s.lastErrorAt ?? null });
+      }
+    }
+
     const data: AgentProfileWithOnline[] = profiles.map(p => ({
       ...p,
       isOnline: onlineSet.has(p.id),
+      lastError: errorByRole.get(p.id)?.lastError ?? null,
+      lastErrorAt: errorByRole.get(p.id)?.lastErrorAt ?? null,
     }));
 
     // Sort by createdAt descending (same as Prisma orderBy: { createdAt: 'desc' })
@@ -118,20 +137,30 @@ export class AgentProfileService {
   }
 
   async update(id: string, input: UpdateAgentProfileInput): Promise<AgentProfileData> {
+    const existing = await this.fileStore.getProfile(id);
+    if (!existing) throw new Error(`AgentProfile not found: ${id}`);
+
     const patch: Partial<AgentProfileData> = {};
     if (input.name !== undefined) patch.name = input.name;
     if (input.description !== undefined) patch.description = input.description;
-    if (input.channels !== undefined) patch.channels = JSON.stringify(input.channels);
+    if (input.channels !== undefined) patch.channels = stringifyChannels(input.channels);
     if (input.provider !== undefined) patch.provider = input.provider;
     if (input.status !== undefined) patch.status = input.status;
 
     await this.fileStore.updateProfile(id, patch);
     const updated = await this.fileStore.getProfile(id);
     if (!updated) throw new Error(`AgentProfile not found: ${id}`);
+
+    // F1: status transition (activate/deactivate) → AgentLoopRegistry mount/unmount
+    if (existing.status !== updated.status) {
+      eventBus.publish('agent-profile.updated', { profile: updated, previousStatus: existing.status });
+    }
     return updated;
   }
 
   async delete(id: string): Promise<void> {
     await this.fileStore.deleteProfile(id);
+    // F1: notify AgentLoopRegistry (unmounts the loop)
+    eventBus.publish('agent-profile.deleted', { profileId: id });
   }
 }

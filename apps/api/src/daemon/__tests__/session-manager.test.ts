@@ -21,7 +21,10 @@ vi.mock('@dommaker/studio-shared/node', () => ({
 }));
 
 // Also mock @dommaker/studio-shared for logger, getModelForTier
-vi.mock('@dommaker/studio-shared', () => ({
+vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
+  // Spread real module: FileStore & other post-migration exports must exist
+  // (session-summary-generator constructs `new FileStore()` at import time).
+  ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   getModelForTier: () => 'claude-sonnet-4-6',
 }));

@@ -32,18 +32,19 @@ const mockMemoryStore = {
 };
 
 // Mock @dommaker/studio-shared — TaskQueue 从此模块 import memoryStore
-vi.mock('@dommaker/studio-shared', () => ({
-  memoryStore: mockMemoryStore,
-  logger: {
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
-  },
-}));
-
-vi.mock('uuid', () => ({
-  v4: vi.fn(() => 'test-task-uuid'),
-}));
+// 部分 mock：memoryStore/logger 用 mock，FileStore 等其余导出保持真实实现
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    memoryStore: mockMemoryStore,
+    logger: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    },
+  };
+});
 
 describe('TaskQueue', () => {
   beforeEach(() => {

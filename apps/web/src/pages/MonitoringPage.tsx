@@ -1,10 +1,12 @@
 // MonitoringPage — Agent Network MVP-6
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { monitoringApi, type MonitoringStats } from '../api/monitoring';
+import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats } from '../api/monitoring';
 
 export function MonitoringPage() {
   const [data, setData] = useState<MonitoringStats | null>(null);
+  const [flywheel, setFlywheel] = useState<FlywheelStats | null>(null);
+  const [overhead, setOverhead] = useState<OverheadStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -18,6 +20,9 @@ export function MonitoringPage() {
     } finally {
       setLoading(false);
     }
+    // M1/M2 区块独立加载，失败不影响主面板
+    monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => setFlywheel(null));
+    monitoringApi.getOverhead().then(r => setOverhead(r.data)).catch(() => setOverhead(null));
   };
 
   useEffect(() => { load(); }, []);
@@ -89,12 +94,88 @@ export function MonitoringPage() {
                   <StatCard label="失败/阻塞" value={data.recent.failedLast24h} color="text-red-400" />
                 </div>
               </Section>
+
+              {/* M1: 飞轮指标 */}
+              <Section title="飞轮指标">
+                {flywheel ? (
+                  <>
+                    <div className="grid grid-cols-4 gap-3">
+                      <StatCard label="知识命中率" value={`${flywheel.hitRate}%`} color="text-blue-400" />
+                      <StatCard
+                        label="成功率变化"
+                        value={`${flywheel.improvement > 0 ? '+' : ''}${flywheel.improvement}pp`}
+                        color={flywheel.improvement > 0 ? 'text-green-400' : flywheel.improvement < 0 ? 'text-red-400' : 'text-gray-400'}
+                      />
+                      <StatCard label="质量分" value={flywheel.quality} color="text-purple-400" />
+                      <StatCard label="新鲜度" value={`${flywheel.freshness}%`} color="text-green-400" />
+                      <StatCard
+                        label="proposal 待审"
+                        value={flywheel.proposalsPendingReview}
+                        color={flywheel.proposalsPendingReview > 0 ? 'text-yellow-400' : 'text-gray-400'}
+                      />
+                      <StatCard label={`提取次数 (${flywheel.windowDays}d)`} value={flywheel.extraction.count30d} color="text-blue-300" />
+                      <StatCard label={`提取 tokens (${flywheel.windowDays}d)`} value={flywheel.extraction.totalTokens30d} color="text-blue-300" />
+                    </div>
+                    {flywheel.source === 'insufficient-data' && (
+                      <div className="mt-2 text-xs text-gray-500">事件数据不足：hitRate / 成功率变化为 0 占位而非实测</div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-500">飞轮指标不可用</div>
+                )}
+              </Section>
+
+              {/* M2: 封装开销 */}
+              <Section title="封装开销">
+                {overhead && overhead.source === 'events' ? (
+                  <>
+                    <div className="grid grid-cols-4 gap-3">
+                      <StatCard
+                        label={`平均注入 tokens (红线 ${overhead.injectedBudget})`}
+                        value={overhead.avgInjectedTokens}
+                        color={budgetColor(overhead.injectedBudgetUsedPct)}
+                      />
+                      <StatCard
+                        label="注入预算占用"
+                        value={`${overhead.injectedBudgetUsedPct}%`}
+                        color={budgetColor(overhead.injectedBudgetUsedPct)}
+                      />
+                      <StatCard
+                        label={`封装开销比 (红线 ${Math.round(overhead.overheadBudget * 100)}%)`}
+                        value={overhead.avgOverheadRatio !== null ? `${Math.round(overhead.avgOverheadRatio * 1000) / 10}%` : 'N/A'}
+                        color={overhead.avgOverheadRatio !== null
+                          ? budgetColor((overhead.avgOverheadRatio / overhead.overheadBudget) * 100)
+                          : 'text-gray-400'}
+                      />
+                      <StatCard
+                        label="平均执行 tokens"
+                        value={overhead.avgExecutionTokens ?? 'N/A'}
+                        color="text-purple-400"
+                      />
+                      <StatCard label={`提取 tokens (${overhead.windowDays}d)`} value={overhead.extractionTokens} color="text-blue-300" />
+                      <StatCard label="统计执行数" value={overhead.executions} color="text-gray-400" />
+                    </div>
+                    <div className="mt-2 text-xs text-gray-500">
+                      开销比 = 注入估算 / 执行 tokens（仅统计 CLI 回报 usage 的执行，覆盖率 {overhead.executionCoveragePct}%）；提取开销单独核算，不计入注入红线
+                    </div>
+                  </>
+                ) : (
+                  <div className="text-sm text-gray-500">暂无 workunit:tokens 事件，开销数据不足</div>
+                )}
+              </Section>
             </div>
           ) : null}
         </div>
       </div>
     </div>
   );
+}
+
+/** 阈值着色：绿 = 预算内，黄 = 接近红线（≥70%），红 = 越线（>100%） */
+function budgetColor(usedPct: number): string {
+  if (usedPct > 100) return 'text-red-400';
+  if (usedPct >= 70) return 'text-yellow-400';
+  return 'text-green-400';
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
@@ -106,7 +187,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({ label, value, color }: { label: string; value: React.ReactNode; color: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className={`text-lg font-bold ${color}`}>{value}</span>

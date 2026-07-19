@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
+import { requirementApi } from '../../api/requirements';
 import type { ChannelMessage } from '../../api/channel';
 
 // M2: quality gate check before execution
@@ -34,9 +35,9 @@ const STATUS_LABELS: Record<string, string> = {
   error: '失败',
 };
 
-async function fetchGoalProgress(goalId: string) {
+async function fetchReqProgress(reqId: string) {
   try {
-    const res = await api.get(`/goals/${goalId}`);
+    const res = await requirementApi.getChain(reqId);
     return res.data.data;
   } catch {
     return null;
@@ -47,7 +48,7 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
   const status = meta.status || 'ready';
   const isIdle = status === 'ready';
   const navigate = useNavigate();
-  const [goalProgress, setGoalProgress] = useState<{ total: number; completed: number } | null>(null);
+  const [progress, setProgress] = useState<{ total: number; completed: number } | null>(null);
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
@@ -115,24 +116,26 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
     setEditing(false);
   };
 
-  // Poll goal progress when executing
+  // Poll requirement chain progress when executing
+  const reqId: string | undefined = meta.requirementId || meta.reqId;
   useEffect(() => {
-    if (status !== 'executing' || !meta.goalId) return;
+    if (status !== 'executing' || !reqId) return;
     const poll = () => {
-      fetchGoalProgress(meta.goalId).then(goal => {
-        if (goal) {
-          const total = goal.GoalExecution?.length || 0;
-          const completed = goal.GoalExecution?.filter((e: any) =>
-            e.status === 'completed' || e.status === 'succeeded'
-          ).length || 0;
-          setGoalProgress({ total, completed });
+      fetchReqProgress(reqId).then(chain => {
+        if (chain) {
+          const workunits = chain.workunits || [];
+          const total = workunits.length;
+          const completed = workunits.filter(w =>
+            w.status === 'done' || w.status === 'completed' || w.status === 'succeeded'
+          ).length;
+          setProgress({ total, completed });
         }
       });
     };
     poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, [status, meta.goalId]);
+  }, [status, reqId]);
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 max-w-md">
@@ -275,23 +278,23 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
       {/* Executing state — show progress */}
       {status === 'executing' && (
         <div className="border-t pt-2">
-          {goalProgress ? (
+          {progress ? (
             <div className="space-y-1">
               <div className="flex justify-between text-xs">
                 <span className="text-blue-600">执行进度</span>
-                <span className="text-gray-500">{goalProgress.completed}/{goalProgress.total} 完成</span>
+                <span className="text-gray-500">{progress.completed}/{progress.total} 完成</span>
               </div>
               <div className="w-full bg-gray-200 rounded-full h-1.5">
                 <div
                   className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
-                  style={{ width: `${goalProgress.total > 0 ? (goalProgress.completed / goalProgress.total) * 100 : 0}%` }}
+                  style={{ width: `${progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}%` }}
                 />
               </div>
               <button
-                onClick={() => navigate(`/goals`)}
+                onClick={() => navigate(`/workunits`)}
                 className="text-xs text-blue-500 hover:underline mt-1"
               >
-                查看 Goals →
+                查看 WorkUnits →
               </button>
             </div>
           ) : (

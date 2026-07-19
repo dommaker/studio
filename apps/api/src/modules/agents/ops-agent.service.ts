@@ -600,7 +600,7 @@ export class OpsAgent {
     if (!adminExists) {
       const adminPassword = process.env.ADMIN_PASSWORD;
       if (!adminPassword) {
-        logger.warn('[Ops] No admin user found and ADMIN_PASSWORD not set — skipping auto-creation. Run: ADMIN_PASSWORD=<pwd> npx tsx scripts/seed-admin.ts');
+        logger.warn('[Ops] No admin user found and ADMIN_PASSWORD not set — skipping auto-creation. Set ADMIN_PASSWORD (and optionally ADMIN_EMAIL) to auto-create an admin on next boot.');
       } else {
         const adminEmail = process.env.ADMIN_EMAIL || 'admin@localhost';
         const now = new Date().toISOString();

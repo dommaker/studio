@@ -3,7 +3,6 @@ export { useAgentStore } from './agentStore';
 export { useRuntimeStore } from './runtimeStore';
 export { useUIStore } from './uiStore';
 export { useAuthStore } from './authStore';
-export { useStepEditorStore } from './stepEditorStore';
 // 兼容：保留 useAppStore 作为组合导出
 import { useAgentStore } from './agentStore';
 import { useRuntimeStore } from './runtimeStore';

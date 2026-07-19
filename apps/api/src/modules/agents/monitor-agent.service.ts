@@ -13,7 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, resolveEventsDir } from '@dommaker/studio-shared';
 import type { WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import { knowledgeService, writeTrendData } from '../knowledge/knowledge-service.js';
@@ -28,7 +28,14 @@ const CHECK_INTERVAL = 5 * 60_000; // 5 min
 const FAILURE_THRESHOLD = 3;
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
 const HEARTBEAT_FILE = path.join(os.homedir(), '.studio', 'heartbeats.json');
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), 'events', 'studio.jsonl');
+/**
+ * R2 事件目录统一: studio.jsonl 路径经 resolveEventsDir() 懒解析
+ * （STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）。
+ * 懒解析保证运行时/测试注入的 env 生效，且模块加载期不读 env。
+ */
+function studioEventsJsonl(): string {
+  return path.join(resolveEventsDir(), 'studio.jsonl');
+}
 
 // NA Step 7: 告警阈值
 const PROGRESS_STAGNATION_WARN = 3;  // 连续 3 次无进展 → Level 1
@@ -527,7 +534,7 @@ export class MonitorAgent {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
       let events: Array<{ payload: string | null; timestamp: Date }> = [];
       try {
-        const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        const allEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
         events = allEvents
           .filter((e: any) => e.type === 'deploy_push_failed' && e.timestamp && new Date(e.timestamp).getTime() >= oneHourAgo.getTime())
           .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -563,7 +570,7 @@ export class MonitorAgent {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
       let events: Array<{ payload: string | null; timestamp: Date }> = [];
       try {
-        const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        const allEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
         events = allEvents
           .filter((e: any) => e.type === 'proxy_restart_exhausted' && e.timestamp && new Date(e.timestamp).getTime() >= oneHourAgo.getTime())
           .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -764,8 +771,7 @@ export class MonitorAgent {
     try {
       const fs = require('fs');
       const path = require('path');
-      const os = require('os');
-      const dir = process.env.EVENTS_DIR || path.join(os.homedir(), 'events');
+      const dir = resolveEventsDir(); // R2: 统一事件目录
       fs.mkdirSync(dir, { recursive: true });
       fs.appendFileSync(
         path.join(dir, 'studio.jsonl'),
@@ -1085,7 +1091,7 @@ export class MonitorAgent {
 
       // 1. Session summary
       try {
-        const eventsFile = path.join(os.homedir(), 'events', 'studio.jsonl');
+        const eventsFile = studioEventsJsonl();
         if (fs.existsSync(eventsFile)) {
           const raw = fs.readFileSync(eventsFile, 'utf-8');
           const sessions: any[] = [];
@@ -1120,7 +1126,7 @@ export class MonitorAgent {
       // 1b. Pattern detection (7-day window, from studio.jsonl session:summary)
       try {
         const weekAgo = new Date(now - 7 * 24 * 3600_000);
-        const allStudioEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        const allStudioEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
         const summaryEvents = allStudioEvents
           .filter((e: any) => e.type === 'session:summary' && e.timestamp && new Date(e.timestamp).getTime() >= weekAgo.getTime())
           .map((e: any) => ({ payload: e.payload || null }));
@@ -1162,7 +1168,7 @@ export class MonitorAgent {
             lastSeen: today,
           }));
 
-          this.fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+          this.fileStore.appendJsonl(studioEventsJsonl(), {
             type: 'pattern_report',
             source: 'monitor',
             payload: JSON.stringify({ distribution, recurring: recurringData, date: today }),
@@ -1204,7 +1210,7 @@ export class MonitorAgent {
 
       // 4b. Knowledge consumption hit rate (24h)
       try {
-        const allStudioEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+        const allStudioEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
         const consumptionEvents = allStudioEvents
           .filter((e: any) => e.type === 'knowledge:consumption' && e.timestamp && new Date(e.timestamp).getTime() >= since.getTime())
           .map((e: any) => ({ source: e.source || '', payload: e.payload || null }));
@@ -1332,7 +1338,7 @@ export class MonitorAgent {
       if (new Date(now).getDay() === 0) {
         try {
           const weekAgoForProfile = new Date(now - 7 * 24 * 3600_000);
-          const allStudioEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+          const allStudioEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
           const weeklyEvents = allStudioEvents
             .filter((e: any) => ['pattern_report', 'workflow_report'].includes(e.type) && e.timestamp && new Date(e.timestamp).getTime() >= weekAgoForProfile.getTime())
             .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -1381,7 +1387,7 @@ export class MonitorAgent {
       } catch (e: any) { logger.warn('[MonitorAgent] DailyReflection channel post failed', { error: String(e) }); }
 
       // G30: Record daily reflection event
-      this.fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      this.fileStore.appendJsonl(studioEventsJsonl(), {
         type: 'daily_reflection',
         source: 'monitor',
         payload: JSON.stringify({ date: today, summaryLength: content.length }),
@@ -1413,7 +1419,7 @@ export class MonitorAgent {
   async observePattern(): Promise<{ distribution: Record<string, number>; recurring: Array<{ type: string; count: number; successRate: number }> } | null> {
     try {
       const weekAgo = new Date(Date.now() - 7 * 24 * 3600_000);
-      const allStudioEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+      const allStudioEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
       const events = allStudioEvents
         .filter((e: any) => e.type === 'session:summary' && e.timestamp && new Date(e.timestamp).getTime() >= weekAgo.getTime())
         .map((e: any) => ({ payload: e.payload || null }));
@@ -1438,7 +1444,7 @@ export class MonitorAgent {
         .map(([pt, s]) => ({ type: pt, count: s.count, successRate: Math.round((s.successCount / s.count) * 100) / 100 }));
 
       const today = new Date().toISOString().split('T')[0];
-      await this.fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      await this.fileStore.appendJsonl(studioEventsJsonl(), {
         type: 'pattern_report',
         source: 'monitor',
         payload: JSON.stringify({ distribution, recurring, date: today }),
@@ -1486,7 +1492,7 @@ export class MonitorAgent {
       const cutoff = new Date(Date.now() - 7 * 24 * 3600_000);
       const oldCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
 
-      const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+      const allEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
       const unmarked = allEvents.filter((e: any) =>
         !e.precipitated
         && e.timestamp
@@ -1509,7 +1515,7 @@ export class MonitorAgent {
       });
 
       await fs.promises.writeFile(
-        STUDIO_EVENTS_JSONL,
+        studioEventsJsonl(),
         updatedEvents.map((e: any) => JSON.stringify(e)).join('\n') + '\n',
         'utf-8',
       );
@@ -1634,9 +1640,9 @@ export class MonitorAgent {
       // 4. FileStore disk check (no VACUUM needed for file-based storage)
       logger.info('[MonitorAgent] TTL: disk cleanup completed (FileStore — no VACUUM needed)');
 
-      // 5. Truncate ~/events/studio.jsonl keeping only last 7 days
+      // 5. Truncate studio.jsonl（统一事件目录）keeping only last 7 days
       try {
-        const eventsFile = path.join(os.homedir(), 'events', 'studio.jsonl');
+        const eventsFile = studioEventsJsonl();
         if (fs.existsSync(eventsFile)) {
           const raw = fs.readFileSync(eventsFile, 'utf-8');
           const sevenDaysAgo = Date.now() - 7 * 24 * 3600_000;
@@ -1670,12 +1676,12 @@ export class MonitorAgent {
       if (gate.studioEvent !== false) {
         try {
           const eventCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
-          const allEvents = await this.fileStore.readJsonl<any>(STUDIO_EVENTS_JSONL);
+          const allEvents = await this.fileStore.readJsonl<any>(studioEventsJsonl());
           const filtered = allEvents.filter((e: any) =>
             !(e.precipitated && e.timestamp && new Date(e.timestamp).getTime() < eventCutoff.getTime())
           );
           await fs.promises.writeFile(
-            STUDIO_EVENTS_JSONL,
+            studioEventsJsonl(),
             filtered.map((e: any) => JSON.stringify(e)).join('\n') + '\n',
             'utf-8',
           );

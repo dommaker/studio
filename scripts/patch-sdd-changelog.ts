@@ -82,6 +82,7 @@ export async function patchSddChangelogs(dryRun: boolean, sddDir?: string): Prom
 const isDirectRun = process.argv[1]?.includes('patch-sdd-changelog');
 
 if (isDirectRun) {
+  void (async () => {
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const execute = args.includes('--execute');
@@ -91,7 +92,7 @@ if (isDirectRun) {
     process.exit(1);
   }
 
-  const results = patchSddChangelogs(dryRun);
+  const results = await patchSddChangelogs(dryRun);
 
   const created = results.filter(r => r.action === 'created');
   const skipped = results.filter(r => r.action !== 'created');
@@ -120,4 +121,5 @@ if (isDirectRun) {
       console.log(`  ${reason}: ${slugs.length}`);
     }
   }
+  })();
 }

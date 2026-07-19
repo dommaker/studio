@@ -5,25 +5,22 @@
  *
  * Priority chain:
  *   1. task.parameters.workspaceRoot (direct path)
- *   2. VPS workspace DB query (prisma.workspace.findFirst)
+ *   2. VPS workspace lookup (~/.studio/workspaces/*.json via FileStore)
  *   3. createWorktree() fallback (calls git worktree add via execSh)
  *
- * Strategy: mock external deps (prisma, fs, execSh), let real code run.
+ * Strategy: mock external deps (FileStore, fs, execSh), let real code run.
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
-const { mockFindFirst, mockExistsSync, mockExecSh, mockReadFileSync, mockMkdirSync, mockWriteFile } = vi.hoisted(() => ({
-  mockFindFirst: vi.fn(),
+const { mockExistsSync, mockExecSh, mockReadFileSync, mockMkdirSync, mockWriteFile, mockReaddir, mockReadJson } = vi.hoisted(() => ({
   mockExistsSync: vi.fn(),
   mockExecSh: vi.fn(),
   mockReadFileSync: vi.fn(),
   mockMkdirSync: vi.fn(),
   mockWriteFile: vi.fn().mockResolvedValue(undefined),
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: { workspace: { findFirst: mockFindFirst } },
+  mockReaddir: vi.fn(),
+  mockReadJson: vi.fn(),
 }));
 
 vi.mock('fs', async (importOriginal) => {
@@ -41,6 +38,7 @@ vi.mock('fs/promises', async (importOriginal) => {
   return {
     ...actual,
     writeFile: mockWriteFile,
+    readdir: mockReaddir,
     rm: vi.fn().mockResolvedValue(undefined),
   };
 });
@@ -51,7 +49,15 @@ vi.mock('@dommaker/studio-shared/node', () => ({
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
-  return { ...actual, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() } };
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    // Stub the FileStore I/O edge — resolveWorkspace reads VPS workspaces
+    // from ~/.studio/workspaces/*.json; capture via mockReadJson instead.
+    FileStore: class {
+      readJson = mockReadJson;
+    },
+  };
 });
 
 import { resolveWorkspace, ensureDeps, writeRequirementsMd } from '../worktree-resolver.js';
@@ -74,7 +80,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   // Default: return true for .git checks (repoDir validation), false otherwise
   mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
-  mockFindFirst.mockResolvedValue(null);
+  // Default: no workspaces dir (priority 2 finds nothing) → priority 3 worktree
+  mockReaddir.mockRejectedValue(new Error('ENOENT: no workspace dir'));
+  mockReadJson.mockResolvedValue(null);
   mockExecSh.mockResolvedValue({ stdout: '', stderr: '', exitCode: 0 });
 });
 
@@ -86,13 +94,13 @@ describe('resolveWorkspace()', () => {
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/custom/workspace');
-    expect(mockFindFirst).not.toHaveBeenCalled();
+    // Priority 2 (workspace dir scan) never consulted
+    expect(mockReaddir).not.toHaveBeenCalled();
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
   test('priority 1 skipped: workspaceRoot set but path does not exist', async () => {
     const task = makeTask({ workspaceRoot: '/nonexistent' });
-    mockFindFirst.mockResolvedValue(null);
 
     await resolveWorkspace({ task, ...baseOpts });
 
@@ -100,29 +108,34 @@ describe('resolveWorkspace()', () => {
     expect(mockExecSh).toHaveBeenCalled();
   });
 
-  test('priority 2: returns VPS workspaceRoot from DB when path exists', async () => {
+  test('priority 2: returns VPS workspaceRoot from FileStore when path exists', async () => {
     const task = makeTask();
-    mockFindFirst.mockResolvedValue({
+    mockReaddir.mockResolvedValue([{ name: 'ws-1.json', isFile: () => true }]);
+    mockReadJson.mockResolvedValue({
       id: 'ws-1',
+      name: 'VPS',
+      tokenId: null,
       workspaceRoot: '/vps/root',
+      updatedAt: '2026-01-01T00:00:00Z',
     });
     mockExistsSync.mockImplementation((p: string) => p === '/vps/root' || p.endsWith('/.git'));
 
     const result = await resolveWorkspace({ task, ...baseOpts });
 
     expect(result).toBe('/vps/root');
-    expect(mockFindFirst).toHaveBeenCalledWith({
-      where: { name: 'VPS', tokenId: null },
-      orderBy: { updatedAt: 'desc' },
-    });
+    expect(mockReadJson).toHaveBeenCalledWith(expect.stringContaining('ws-1.json'));
     expect(mockExecSh).not.toHaveBeenCalled();
   });
 
-  test('priority 2 skipped: DB returns workspace but path does not exist', async () => {
+  test('priority 2 skipped: FileStore returns workspace but path does not exist', async () => {
     const task = makeTask();
-    mockFindFirst.mockResolvedValue({
+    mockReaddir.mockResolvedValue([{ name: 'ws-1.json', isFile: () => true }]);
+    mockReadJson.mockResolvedValue({
       id: 'ws-1',
+      name: 'VPS',
+      tokenId: null,
       workspaceRoot: '/stale/path',
+      updatedAt: '2026-01-01T00:00:00Z',
     });
     mockExistsSync.mockImplementation((p: string) => p.endsWith('/.git'));
 
@@ -132,9 +145,9 @@ describe('resolveWorkspace()', () => {
     expect(mockExecSh).toHaveBeenCalled();
   });
 
-  test('priority 2 skipped: DB query throws', async () => {
+  test('priority 2 skipped: workspace dir read fails', async () => {
     const task = makeTask();
-    mockFindFirst.mockRejectedValue(new Error('DB connection lost'));
+    mockReaddir.mockRejectedValue(new Error('ENOENT: no workspace dir'));
 
     await resolveWorkspace({ task, ...baseOpts });
 
@@ -178,10 +191,14 @@ describe('resolveWorkspace()', () => {
 
   test('hasWorktree=true skips priority 2 (VPS workspace) and creates worktree', async () => {
     const task = makeTask({ hasWorktree: true });
-    // VPS workspace exists in DB — but should be skipped
-    mockFindFirst.mockResolvedValue({
+    // VPS workspace exists in the FileStore — but should be skipped
+    mockReaddir.mockResolvedValue([{ name: 'ws-1.json', isFile: () => true }]);
+    mockReadJson.mockResolvedValue({
       id: 'ws-1',
+      name: 'VPS',
+      tokenId: null,
       workspaceRoot: '/vps/root',
+      updatedAt: '2026-01-01T00:00:00Z',
     });
     mockExistsSync.mockImplementation((p: string) => p === '/vps/root' || p.endsWith('/.git'));
 
@@ -189,7 +206,7 @@ describe('resolveWorkspace()', () => {
 
     // Should NOT use VPS workspace
     expect(result).toBe('/worktrees/exec-1');
-    expect(mockFindFirst).not.toHaveBeenCalled();
+    expect(mockReaddir).not.toHaveBeenCalled();
     // Should create worktree
     expect(mockExecSh).toHaveBeenCalledWith(
       expect.stringContaining('git worktree add'),

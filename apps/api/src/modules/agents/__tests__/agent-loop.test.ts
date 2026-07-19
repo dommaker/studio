@@ -92,7 +92,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds, extractInputTokens, isProcessAlive, writeToolCallEvents } from '../agent-loop';
+import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds, extractInputTokens, isProcessAlive, writeToolCallEvents, resolveToolTraceFile } from '../agent-loop';
 
 describe('AgentLoop', () => {
   let agentLoop: AgentLoop;
@@ -497,6 +497,68 @@ describe('AgentLoop', () => {
       expect(result).toHaveProperty('action');
     });
 
+    it('R1: threads injectContext injectedIds into outcome records as consumedKnowledge', async () => {
+      // mockInjectContext default: { prompt: '## 系统约束\n- test rule', injectedIds: ['rule-1'] }
+      mockExecuteLightweight.mockResolvedValue({
+        success: true, outputText: 'ACTION: COMPLETE:done',
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+
+      const target = {
+        workUnit: {
+          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
+          status: 'active', assigneeId: 'agent-1', parentId: null,
+          failureType: null, retryCount: 0, timeoutAt: null,
+          projectPath: null, metadata: null, claimedAt: null,
+          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+        },
+      };
+
+      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+      // recordExecutionOutcome 是 fire-and-forget：extractFromExecution 在
+      // recordOutcome 之后的 microtask 链上，先让事件循环排空再断言
+      await new Promise(r => setImmediate(r));
+
+      // R1 反馈环: 注入的知识条目 id 必须贯穿到 outcome/extraction（不再硬编码 []）
+      expect(mockInjectContext).toHaveBeenCalled();
+      expect(mockRecordOutcome).toHaveBeenCalledWith(
+        expect.objectContaining({ consumedKnowledge: ['rule-1'] })
+      );
+      expect(mockExtractFromExecution).toHaveBeenCalledWith(
+        expect.objectContaining({ consumedKnowledge: ['rule-1'] })
+      );
+    });
+
+    it('R1: reports empty consumedKnowledge when nothing was injected', async () => {
+      mockInjectContext.mockResolvedValueOnce({ prompt: '', injectedIds: [] });
+      mockExecuteLightweight.mockResolvedValue({
+        success: true, outputText: 'ACTION: PROGRESS:working',
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+
+      const target = {
+        workUnit: {
+          id: 'wu-1', type: 'task', scope: 'test', channelId: 'ch-1',
+          status: 'active', assigneeId: 'agent-1', parentId: null,
+          failureType: null, retryCount: 0, timeoutAt: null,
+          projectPath: null, metadata: null, claimedAt: null,
+          completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+        },
+      };
+
+      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
+
+      expect(mockRecordOutcome).toHaveBeenCalledWith(
+        expect.objectContaining({ consumedKnowledge: [] })
+      );
+    });
+
     it('does not block when recordOutcome fails', async () => {
       mockRecordOutcome.mockRejectedValueOnce(new Error('DB timeout'));
       mockExecuteLightweight.mockResolvedValue({
@@ -749,16 +811,23 @@ describe('AgentLoop', () => {
       expect(mockExecSync).toHaveBeenCalledWith('claude --version', expect.objectContaining({ timeout: 5000 }));
     });
 
-    it('start() returns early when claude CLI is not available', async () => {
+    it('start() does not start the loop when claude CLI is not available (F2: records error state)', async () => {
       mockExecSync.mockImplementation(() => { throw new Error('ENOENT'); });
 
       agentLoop = new AgentLoop(mockRole, fileStore);
-      await agentLoop.start();
+      const started = await agentLoop.start();
 
-      // State should NOT be created — start() returned early
+      // Loop did not start — no EVENT trigger registered
+      expect(started).toBe(false);
+      expect(mockTriggerScheduler.registerTrigger).not.toHaveBeenCalled();
+
+      // F2: failure IS recorded in runtime state for UI/monitoring visibility
       const agentStates = await fileStore.listStates();
       const match = agentStates.find(s => s.roleId === 'role-1');
-      expect(match).toBeUndefined();
+      expect(match).toBeDefined();
+      expect(match!.status).toBe('error');
+      expect(match!.lastError).toBeTruthy();
+      expect(match!.lastErrorAt).toBeTruthy();
     });
   });
 
@@ -899,6 +968,54 @@ describe('AgentLoop', () => {
       const eventsFile = path.join(testDir, 'no-tools.jsonl');
       const count = writeToolCallEvents('{"type":"result","result":"done"}', eventsFile);
       expect(count).toBe(0);
+    });
+  });
+
+  describe('R2: unified events dir (resolveEventsDir)', () => {
+    let testDir: string;
+    let prevStudioEventsDir: string | undefined;
+    let prevEventsDir: string | undefined;
+
+    beforeEach(() => {
+      testDir = path.join(os.tmpdir(), `eventsdir-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+      prevStudioEventsDir = process.env.STUDIO_EVENTS_DIR;
+      prevEventsDir = process.env.EVENTS_DIR;
+    });
+
+    afterEach(() => {
+      if (prevStudioEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
+      else process.env.STUDIO_EVENTS_DIR = prevStudioEventsDir;
+      if (prevEventsDir === undefined) delete process.env.EVENTS_DIR;
+      else process.env.EVENTS_DIR = prevEventsDir;
+      try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
+    });
+
+    it('resolveToolTraceFile honors STUDIO_EVENTS_DIR override', () => {
+      process.env.STUDIO_EVENTS_DIR = testDir;
+      expect(resolveToolTraceFile()).toBe(path.join(testDir, 'studio.jsonl'));
+    });
+
+    it('STUDIO_EVENTS_DIR wins over legacy EVENTS_DIR', () => {
+      process.env.EVENTS_DIR = path.join(testDir, 'legacy');
+      process.env.STUDIO_EVENTS_DIR = testDir;
+      expect(resolveToolTraceFile()).toBe(path.join(testDir, 'studio.jsonl'));
+    });
+
+    it('agent-loop writes tool traces into the resolved events dir', () => {
+      process.env.STUDIO_EVENTS_DIR = testDir;
+      const streamOutput = [
+        '{"type":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo.ts"}}]}',
+        '{"type":"result"}',
+      ].join('\n');
+
+      const count = writeToolCallEvents(streamOutput, resolveToolTraceFile());
+      expect(count).toBe(1);
+
+      const traceFile = path.join(testDir, 'studio.jsonl');
+      expect(fs.existsSync(traceFile)).toBe(true);
+      const first = JSON.parse(fs.readFileSync(traceFile, 'utf-8').trim().split('\n')[0]);
+      expect(first.type).toBe('tool:call');
+      expect(first.tool).toBe('Read');
     });
   });
 });

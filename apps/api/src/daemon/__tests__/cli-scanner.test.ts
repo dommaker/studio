@@ -69,6 +69,19 @@ describe('cli-scanner', () => {
       });
     });
 
+    test('detects kimi via its registry definition', () => {
+      mockExecSync
+        .mockReturnValueOnce('/root/.kimi-code/bin/kimi\n') // which
+        .mockReturnValueOnce('0.27.0\n');                    // --version
+
+      const result = detectProvider('kimi');
+      expect(result).toEqual({
+        provider: 'kimi',
+        path: '/root/.kimi-code/bin/kimi',
+        version: '0.27.0',
+      });
+    });
+
     test('returns null when which returns empty string', () => {
       mockExecSync.mockReturnValueOnce('');
 
@@ -135,11 +148,12 @@ describe('cli-scanner', () => {
   });
 
   describe('KNOWN_PROVIDERS', () => {
-    test('contains expected providers', () => {
+    test('contains expected providers (F4: kimi in, openclaw out of defaults)', () => {
       expect(KNOWN_PROVIDERS).toContain('claude');
+      expect(KNOWN_PROVIDERS).toContain('kimi');
       expect(KNOWN_PROVIDERS).toContain('codex');
       expect(KNOWN_PROVIDERS).toContain('opencode');
-      expect(KNOWN_PROVIDERS).toContain('openclaw');
+      expect(KNOWN_PROVIDERS).not.toContain('openclaw');
       expect(KNOWN_PROVIDERS).toHaveLength(4);
     });
   });

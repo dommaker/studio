@@ -44,16 +44,26 @@ describe('buildSpawnArgs', () => {
       expect(result.command).toBe('codex');
     });
 
-    it('uses --session flag for sessionId', () => {
-      const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123' });
-      expect(result.args).toContain('--session');
-      expect(result.args).toContain('sess-123');
+    it('uses exec --json for non-interactive runs', () => {
+      const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test' });
+      expect(result.args).toEqual(['exec', '--json']);
     });
 
-    it('includes --print and --output-format by default', () => {
-      const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test' });
-      expect(result.args).toContain('--print');
-      expect(result.args).toContain('--output-format');
+    it('uses exec resume subcommand for sessionId', () => {
+      const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123' });
+      expect(result.args).toEqual(['exec', 'resume', 'sess-123', '--json']);
+    });
+  });
+
+  describe('kimi provider', () => {
+    it('returns kimi command', () => {
+      const result = buildSpawnArgs('kimi', { worktreeDir: '/tmp/test' });
+      expect(result.command).toBe('kimi');
+    });
+
+    it('uses --output-format stream-json and --session for sessionId', () => {
+      const result = buildSpawnArgs('kimi', { worktreeDir: '/tmp/test', sessionId: '01HZX' });
+      expect(result.args).toEqual(['--output-format', 'stream-json', '--session', '01HZX']);
     });
   });
 
@@ -76,16 +86,16 @@ describe('buildSpawnArgs', () => {
       expect(result.command).toBe('opencode');
     });
 
-    it('does not include session flags (session via file context)', () => {
-      const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test', sessionId: 'sess-123' });
-      expect(result.args).not.toContain('--session');
-      expect(result.args).not.toContain('--session-id');
+    it('uses run --format json for non-interactive runs', () => {
+      const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test' });
+      expect(result.args).toEqual(['run', '--format', 'json']);
     });
 
-    it('includes --print and --output-format by default', () => {
-      const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test' });
-      expect(result.args).toContain('--print');
-      expect(result.args).toContain('--output-format');
+    it('uses --session flag for sessionId', () => {
+      const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test', sessionId: 'sess-123' });
+      const idx = result.args.indexOf('--session');
+      expect(idx).not.toBe(-1);
+      expect(result.args[idx + 1]).toBe('sess-123');
     });
   });
 });

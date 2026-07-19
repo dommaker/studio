@@ -2,20 +2,30 @@
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
 // Knowledge search analysis preserved as module-level exports.
 import { execSync } from 'child_process';
-import { logger, parseStreamEvents, extractToolCalls, FileStore, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, resolveEventsDir, estimateTokens, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import * as os from 'os';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../triggers/trigger-registry.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
+import { eventStore } from '../../core/event-store.js';
+import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
+
+/** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流） */
+const STUDIO_EVENTS_JSONL = join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const metricsFileStore = new FileStore();
+
+/** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
+const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
 
 /** Result of analyzing agent log for knowledge search behavior */
 export interface KnowledgeSearchAnalysis {
@@ -66,85 +76,148 @@ export class AgentLoop {
   private myChannels: string[] = [];
   private triggerId: string | null = null;
   private loopPromise: Promise<void> | null = null;
+  private lastIdleHeartbeatAt = 0;
 
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
     this.fileStore = fileStore ?? new FileStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
-    // W-4 fix: parse channels from role.channels JSON
+    // W-4 fix + F3: parse channels from role.channels JSON（容错历史双重编码值）
+    this.myChannels = parseChannels(role.channels);
+  }
+
+  /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle.
+   *  Returns true when the loop started; false on startup-fatal failure (recorded for UI/monitoring, F2). */
+  async start(): Promise<boolean> {
     try {
-      const parsed = JSON.parse(role.channels || '[]');
-      this.myChannels = Array.isArray(parsed) ? parsed : [];
-    } catch {
-      this.myChannels = [];
+      // AC-4.5 + F4: Health probe — verify the profile's provider CLI is available
+      const providerId = this.role.provider || 'claude';
+      const probeCmd = buildHealthProbeCommand(providerId);
+      try {
+        execSync(probeCmd, { timeout: 5000 });
+      } catch {
+        const message = `${resolveProviderDefinition(providerId).displayName} CLI not available (health probe \`${probeCmd}\` failed)`;
+        logger.error(`[AgentLoop] ${message} — agent ${this.role.name} unavailable`);
+        await this.recordStartupFailure(message);
+        return false;
+      }
+
+      const allStates = await this.fileStore.listStates();
+
+      // F2: recovery — a successful probe clears previous error states for this role
+      for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'error')) {
+        await this.fileStore.updateState(s.id, {
+          status: 'terminated',
+          terminatedAt: new Date().toISOString(),
+          lastError: null,
+          lastErrorAt: null,
+        }).catch(() => {});
+      }
+
+      // AC-4.6: Detect and clean up stale previous instances for this role
+      const stalePrev = allStates.find(s => s.roleId === this.role.id && s.status !== 'error' && s.pid && !isProcessAlive(s.pid));
+      if (stalePrev) {
+        logger.info(`[AgentLoop] Cleaning up stale instance ${stalePrev.id} (PID ${stalePrev.pid})`);
+        await this.fileStore.updateState(stalePrev.id, { status: 'terminated' }).catch(() => {});
+      }
+
+      const now = new Date().toISOString();
+      const instanceId = randomUUID();
+      const state: RuntimeStateData = {
+        id: instanceId,
+        roleId: this.role.id,
+        sessionId: null,
+        status: 'idle',
+        currentWorkUnitId: null,
+        startedAt: now,
+        terminatedAt: null,
+        lastHeartbeat: null,
+        metadata: null,
+        pid: process.pid,
+      };
+      await this.fileStore.createState(instanceId, state);
+      this.instance = state;
+
+      this.alive = true;
+      logger.info(`[AgentLoop] Started for role ${this.role.name} (instance=${this.instance.id})`);
+
+      // AC-3: Register EVENT trigger for workunit.created
+      const scheduler = getTriggerScheduler();
+      this.triggerId = `agent-loop-${this.role.id}-workunit-created`;
+      const handlerTarget = `agent-loop-${this.role.id}-observe`;
+
+      scheduler.registerExecuteHandler(handlerTarget, async () => {
+        if (this.alive) {
+          this.observe().catch(err =>
+            logger.warn(`[AgentLoop] EVENT-triggered observe failed: ${err.message}`)
+          );
+        }
+      });
+
+      scheduler.registerTrigger({
+        id: this.triggerId,
+        name: `Agent ${this.role.name} observe on workunit.created`,
+        condition: { type: 'EVENT', event: 'workunit.created' },
+        action: { type: 'EXECUTE', target: handlerTarget },
+        enabled: true,
+        scope: 'agent',
+      });
+
+      // Main loop (non-blocking — fire and forget like original)
+      this.loopPromise = this.runLoop().catch(err =>
+        logger.error(`[AgentLoop] Loop failed for ${this.role.name}: ${err.message}`)
+      );
+      return true;
+    } catch (err) {
+      // F2: any other startup-fatal failure is also surfaced
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error(`[AgentLoop] Startup failed for ${this.role.name}: ${message}`);
+      await this.recordStartupFailure(message).catch(() => {});
+      return false;
     }
   }
 
-  /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle */
-  async start(): Promise<void> {
-    // AC-4.5: Health probe — verify Claude CLI is available
-    try {
-      execSync('claude --version', { timeout: 5000 });
-    } catch {
-      logger.error('[AgentLoop] Claude CLI not available');
-      return;
-    }
-
-    // AC-4.6: Detect and clean up stale previous instances for this role
-    const allStates = await this.fileStore.listStates();
-    const stalePrev = allStates.find(s => s.roleId === this.role.id && s.pid && !isProcessAlive(s.pid));
-    if (stalePrev) {
-      logger.info(`[AgentLoop] Cleaning up stale instance ${stalePrev.id} (PID ${stalePrev.pid})`);
-      await this.fileStore.updateState(stalePrev.id, { status: 'terminated' }).catch(() => {});
-    }
-
+  /** F2: Record a startup-fatal failure to runtime state (state.json) + notify via eventBus and SSE */
+  private async recordStartupFailure(message: string): Promise<void> {
     const now = new Date().toISOString();
-    const instanceId = randomUUID();
-    const state: RuntimeStateData = {
-      id: instanceId,
-      roleId: this.role.id,
-      sessionId: null,
-      status: 'idle',
-      currentWorkUnitId: null,
-      startedAt: now,
-      terminatedAt: null,
-      lastHeartbeat: null,
-      metadata: null,
-      pid: process.pid,
-    };
-    await this.fileStore.createState(instanceId, state);
-    this.instance = state;
-
-    this.alive = true;
-    logger.info(`[AgentLoop] Started for role ${this.role.name} (instance=${this.instance.id})`);
-
-    // AC-3: Register EVENT trigger for workunit.created
-    const scheduler = getTriggerScheduler();
-    this.triggerId = `agent-loop-${this.role.id}-workunit-created`;
-    const handlerTarget = `agent-loop-${this.role.id}-observe`;
-
-    scheduler.registerExecuteHandler(handlerTarget, async () => {
-      if (this.alive) {
-        this.observe().catch(err =>
-          logger.warn(`[AgentLoop] EVENT-triggered observe failed: ${err.message}`)
-        );
+    try {
+      // Reuse this role's existing error state if any (avoid one record per retry)
+      const allStates = await this.fileStore.listStates();
+      const existing = allStates.find(s => s.roleId === this.role.id && s.status === 'error');
+      if (existing) {
+        await this.fileStore.updateState(existing.id, { lastError: message, lastErrorAt: now });
+      } else {
+        const instanceId = randomUUID();
+        const state: RuntimeStateData = {
+          id: instanceId,
+          roleId: this.role.id,
+          sessionId: null,
+          status: 'error',
+          currentWorkUnitId: null,
+          startedAt: now,
+          terminatedAt: null,
+          lastHeartbeat: null,
+          metadata: null,
+          pid: process.pid,
+          lastError: message,
+          lastErrorAt: now,
+        };
+        await this.fileStore.createState(instanceId, state);
       }
-    });
+    } catch (err) {
+      logger.warn(`[AgentLoop] Failed to record startup failure state: ${err instanceof Error ? err.message : String(err)}`);
+    }
 
-    scheduler.registerTrigger({
-      id: this.triggerId,
-      name: `Agent ${this.role.name} observe on workunit.created`,
-      condition: { type: 'EVENT', event: 'workunit.created' },
-      action: { type: 'EXECUTE', target: handlerTarget },
-      enabled: true,
-      scope: 'agent',
-    });
-
-    // Main loop (non-blocking — fire and forget like original)
-    this.loopPromise = this.runLoop().catch(err =>
-      logger.error(`[AgentLoop] Loop failed for ${this.role.name}: ${err.message}`)
-    );
+    const payload = { profileId: this.role.id, name: this.role.name, provider: this.role.provider ?? 'claude', error: message };
+    eventBus.publish('agent.health.failed', payload);
+    // SSE 'events' topic (same shape as channel-message.service.ts publishSSE)
+    eventStore.publish('events', JSON.stringify({
+      event_type: 'agent.health.failed',
+      event_id: randomUUID(),
+      timestamp: now,
+      data: payload,
+    })).catch(() => {}); // best-effort
   }
 
   /** Main observe→resolveTarget→agentStep→recordResult loop */
@@ -156,9 +229,7 @@ export class AgentLoop {
 
         if (!target) {
           // No work available → back to idle (fix: status stays correct after task completion)
-          if (this.instance) {
-            await this.fileStore.updateState(this.instance.id, { status: 'idle', currentWorkUnitId: null }).catch(() => {});
-          }
+          await this.updateIdleState();
           await sleep(15_000);
           continue;
         }
@@ -195,6 +266,25 @@ export class AgentLoop {
     }
   }
 
+  /**
+   * Idle branch state update. F6-fix: 空闲也要刷新 lastHeartbeat（按
+   * IDLE_HEARTBEAT_INTERVAL_MS 节流），否则 agent-timeout-scan 会把
+   * 空闲 >5min 的实例标记 terminated（内存 loop 仍在跑，监控却显示已终止）。
+   */
+  private async updateIdleState(): Promise<void> {
+    if (!this.instance) return;
+    const update: { status: string; currentWorkUnitId: null; lastHeartbeat?: string } = {
+      status: 'idle',
+      currentWorkUnitId: null,
+    };
+    const nowMs = Date.now();
+    if (nowMs - this.lastIdleHeartbeatAt >= IDLE_HEARTBEAT_INTERVAL_MS) {
+      update.lastHeartbeat = new Date(nowMs).toISOString();
+      this.lastIdleHeartbeatAt = nowMs;
+    }
+    await this.fileStore.updateState(this.instance.id, update).catch(() => {});
+  }
+
   /** Stop the agent loop and clean up */
   stop(): void {
     this.alive = false;
@@ -226,7 +316,14 @@ export class AgentLoop {
     const allSnapshots = await this.fileStore.getIndex();
     const unassigned = allSnapshots.filter(s => {
       if (s.status !== 'unassigned') return false;
-      if (this.myChannels.length > 0 && s.channelId && !this.myChannels.includes(s.channelId)) return false;
+      // Assignee-aware claiming（@mention 语义，docs/vision-2026.md §3）：
+      // 显式指派给某个 profile 的 WorkUnit 只能被该 profile 的 loop 认领；
+      // 未指派的保持既有频道作用域（我的频道内 + acceptedTypes 匹配）。
+      if (s.assigneeId) {
+        if (s.assigneeId !== this.role.id) return false;
+      } else if (this.myChannels.length > 0 && s.channelId && !this.myChannels.includes(s.channelId)) {
+        return false;
+      }
       if (this.acceptedTypes.length > 0 && !this.acceptedTypes.includes(s.type)) return false;
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
@@ -235,7 +332,7 @@ export class AgentLoop {
         id: s.id, parentId: s.parentId, type: s.type, scope: s.scope,
         assigneeId: s.assigneeId, status: s.status, failureType: s.failureType,
         retryCount: s.retryCount, timeoutAt: s.timeoutAt ? new Date(s.timeoutAt) : null,
-        channelId: s.channelId, projectPath: s.projectPath, metadata: s.metadata,
+        channelId: s.channelId, projectPath: s.projectPath, workspaceId: s.workspaceId ?? null, metadata: s.metadata,
         createdAt: new Date(s.createdAt), updatedAt: new Date(s.updatedAt),
         claimedAt: s.claimedAt ? new Date(s.claimedAt) : null,
         completedAt: s.completedAt ? new Date(s.completedAt) : null,
@@ -260,23 +357,39 @@ export class AgentLoop {
     const wu = target.workUnit;
     const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
 
-    const prompt = target.newReplies?.length
-      ? buildReplyPrompt(wu, target.newReplies)
-      : buildContinuePrompt(wu);
+    // F5: 恢复挂起时由 message-routing 写入的人类回复（优先级最高，注入后即消费）
+    const pendingReplies = Array.isArray(metadata.pendingReplies)
+      ? metadata.pendingReplies.filter((r): r is string => typeof r === 'string' && r.trim().length > 0)
+      : [];
+
+    const prompt = pendingReplies.length > 0
+      ? buildReplyPrompt(wu, pendingReplies)
+      : target.newReplies?.length
+        ? buildReplyPrompt(wu, target.newReplies.map(r => r.content))
+        : buildContinuePrompt(wu);
 
     // GAP-5: Knowledge injection — non-blocking
+    // R1 反馈环: 接住 injectContext 返回的 injectedIds，贯穿到 recordOutcome /
+    // extractFromExecution 的 consumedKnowledge（断点 A：此前注入 id 被丢弃，
+    // outcome 永远上报 consumedKnowledge: []，飞轮无反馈数据）。
     let knowledgeContext = '';
+    let injectedKnowledgeIds: string[] = [];
     try {
       const ctx = await knowledgeService.injectContext(wu.type, {
         tags: [wu.type],
       });
       knowledgeContext = ctx.prompt;
+      injectedKnowledgeIds = ctx.injectedIds ?? [];
     } catch {
       // Non-blocking: agent continues without knowledge context
     }
 
     // Session management — per-Agent session (GAP-2: RuntimeInstance.sessionId)
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
+    if (pendingReplies.length > 0) {
+      // F5: 回复已注入 prompt，清除避免后续步骤重复注入（undefined 在 JSON 序列化时丢弃）
+      metadataUpdates.pendingReplies = undefined;
+    }
     const agentSessionId = this.instance?.sessionId;
     if (!agentSessionId) {
       const newId = randomUUID();
@@ -291,11 +404,18 @@ export class AgentLoop {
       metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
     }
 
+    // F6: WorkUnit 绑定工程 → 解析 workspace 的 repo 路径，经 parameters.workspaceRoot
+    // 传给 agent-runner（resolveWorkspace Priority 1：直接以该目录为 cwd）。
+    // 未绑定或解析失败 → 不传，保持现有 fallback 行为。
+    const workspaceRoot = wu.workspaceId ? await this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
+
     // AgentTask with new interface: provider, sessionId, maxTurns, knowledgeContext
     const task: AgentTask = {
       id: wu.id,
       executionId: `${wu.id}-${Date.now()}`,
-      provider: (this.role.provider as 'claude' | 'codex' | 'opencode' | 'openclaw') || 'claude',
+      // F4: profile provider (registry id) → AgentTask. Cast via AgentTask['provider'] because
+      // apps/api tsc resolves studio-agent types from its (possibly stale) dist/index.d.ts.
+      provider: (this.role.provider || 'claude') as AgentTask['provider'],
       prompt,
       parameters: {
         sessionId: agentSessionId ?? undefined,
@@ -304,6 +424,7 @@ export class AgentLoop {
         agentRole: 'executor',
         workUnitId: wu.id,
         agentProfileId: this.role.id,
+        ...(workspaceRoot ? { workspaceRoot } : {}),
         extraEnv: {
           STUDIO_WORKUNIT_ID: wu.id,
           STUDIO_CHANNEL_ID: wu.channelId ?? '',
@@ -317,15 +438,48 @@ export class AgentLoop {
       const result: ExecutionResult = await agentRunner.executeLightweight(task);
       const stepResult = parseAgentOutput(result.outputText ?? '');
 
+      // M2 成本红线度量: 每次 CLI 执行完成记一条 workunit:tokens 事件
+      // （注入估算 chars/4 vs 2K 红线；执行 tokens 取自 CLI usage，未回报则记 null 不编造）。
+      // fire-and-forget：绝不影响任务流程。
+      void writeWorkunitTokenEvent(STUDIO_EVENTS_JSONL, {
+        workUnitId: wu.id,
+        executionId: task.executionId,
+        injectedTokens: estimateTokens(knowledgeContext.length),
+        executionTokens: result.usage && (result.usage.inputTokens + result.usage.outputTokens) > 0
+          ? result.usage.inputTokens + result.usage.outputTokens
+          : null,
+      }).catch(() => {});
+
       // T-1.1: Record tool:call events for PatternMiner data source
+      // R2: 写入统一事件目录（STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）
       if (result.outputText) {
         try {
-          writeToolCallEvents(result.outputText, join(DEFAULT_EVENTS_DIR, 'studio.jsonl'));
+          writeToolCallEvents(result.outputText, resolveToolTraceFile());
         } catch { /* non-blocking */ }
       }
 
       // GAP-6: recordOutcome + extractFromExecution (non-blocking)
-      this.recordExecutionOutcome(wu, result).catch(() => {});
+      // R1: 携带本次注入的知识条目 id，反馈环才有数据
+      this.recordExecutionOutcome(wu, result, injectedKnowledgeIds).catch(() => {});
+
+      // R3 会话提取（断点 B）：任务 COMPLETE → 触发一次 LLM 知识提取（proposal 入库，
+      // 审核前不注入）。模板式 extractFromExecution 保留为始终在线的兜底，两条链路独立。
+      // fire-and-forget：无 LLM 配置/提取失败仅记日志，绝不影响任务完成。
+      // 去重：metadata.knowledgeExtractedAt 标记后不再重复提取（随 recordResult 原子写入持久化）。
+      if (stepResult.action === 'complete' && !metadata.knowledgeExtractedAt) {
+        metadataUpdates.knowledgeExtractedAt = new Date().toISOString();
+        const conversation = [
+          { role: 'user', content: wu.scope ?? '' },
+          ...pendingReplies.map(content => ({ role: 'user', content })),
+          { role: 'assistant', content: stepResult.summary },
+        ];
+        try {
+          void knowledgeService.extractFromConversation?.(conversation, { workUnitId: wu.id })
+            ?.catch((err: unknown) =>
+              logger.warn(`[AgentLoop] extractFromConversation failed: ${err instanceof Error ? err.message : String(err)}`)
+            );
+        } catch { /* non-blocking */ }
+      }
 
       // Session truncation: detect input_tokens exceeding threshold
       this.checkSessionTruncation(result.outputText, metadataUpdates);
@@ -350,13 +504,31 @@ export class AgentLoop {
     }
   }
 
-  /** Record execution outcome to knowledge service (GAP-6, non-blocking) */
-  private async recordExecutionOutcome(wu: WorkUnitData, result: ExecutionResult): Promise<void> {
+  /**
+   * F6: 解析 WorkUnit 绑定工程的执行根目录（workspace.workspaceRoot）。
+   * 记录缺失/无 workspaceRoot/读取失败 → null（保持未绑定的默认行为）。
+   */
+  private async resolveBoundWorkspaceRoot(workspaceId: string): Promise<string | null> {
+    try {
+      const root = await resolveWorkspaceRoot(workspaceId);
+      if (!root) {
+        logger.warn(`[AgentLoop] Bound workspace ${workspaceId} unresolved, falling back to default cwd`);
+      }
+      return root;
+    } catch (err) {
+      logger.warn(`[AgentLoop] Workspace resolution failed for ${workspaceId}: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
+
+  /** Record execution outcome to knowledge service (GAP-6, non-blocking).
+   *  R1: consumedKnowledge = 本次 agentStep 经 injectContext 实际注入的知识条目 id。 */
+  private async recordExecutionOutcome(wu: WorkUnitData, result: ExecutionResult, consumedKnowledge: string[] = []): Promise<void> {
     try {
       await knowledgeService.recordOutcome({
         executionId: wu.id,
         agentType: 'claude',
-        consumedKnowledge: [],
+        consumedKnowledge,
         success: result.success,
         details: result.outputText?.slice(0, 500) ?? '',
         timestamp: new Date().toISOString(),
@@ -371,7 +543,7 @@ export class AgentLoop {
         success: result.success,
         duration: result.totalDurationMs ?? 0,
         agentType: 'claude',
-        consumedKnowledge: [],
+        consumedKnowledge,
       });
     } catch {
       // Non-blocking
@@ -415,10 +587,22 @@ export class AgentLoop {
     const stepCount = (metadata.stepCount ?? 0) + 1;
     let consecutiveStuck = result.action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
 
+    // F5: NEED_INPUT 挂起标记（等待人类回复）；其他结果清除挂起标记（恢复后继续执行）
+    const waitingUpdates: Partial<WorkUnitMetadata> = result.action === 'need_input'
+      ? {
+          waitingForInput: true,
+          waitingQuestion: result.summary,
+          waitingSince: new Date().toISOString(),
+          waitingReminded: false,
+        }
+      : metadata.waitingForInput
+        ? { waitingForInput: false, waitingReminded: false }
+        : {};
+
     // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
     // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
     await this.workUnitService.update(wuId, {
-      metadata: { ...metadata, ...result.metadataUpdates, stepCount, consecutiveStuck },
+      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, stepCount, consecutiveStuck },
     });
 
     // Monitoring: step limit
@@ -456,7 +640,10 @@ export class AgentLoop {
         break;
       case 'need_input':
         await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`);
-        await this.workUnitService.transitionStatus(wuId, 'blocked');
+        // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
+        if (wu.status !== 'blocked') {
+          await this.workUnitService.transitionStatus(wuId, 'blocked');
+        }
         break;
     }
   }
@@ -599,8 +786,8 @@ ${wu.scope}
 当做出设计决策（选型、架构选择、方案取舍）时，用 Write 工具追加到 ~/.studio/knowledge/decision-YYYY-MM-DD.md 记录：话题、候选方案、选择、理由。`;
 }
 
-function buildReplyPrompt(wu: WorkUnitData, replies: ChannelMessageData[]): string {
-  const replyText = replies.map(r => r.content).join('\n');
+function buildReplyPrompt(wu: WorkUnitData, replies: string[]): string {
+  const replyText = replies.join('\n');
   return `## 当前工作
 
 ${wu.scope}
@@ -676,9 +863,56 @@ export function extractKnowledgeEntryIds(analysis: KnowledgeSearchAnalysis): str
   return Array.from(new Set(ids));
 }
 
+// ─── workunit:tokens event recording (M2) ───
+
+export interface WorkunitTokenEventArgs {
+  workUnitId: string;
+  executionId?: string;
+  /** 注入上下文估算 tokens（调用方按 chars/4 约定估算，与 estimateTokens 一致） */
+  injectedTokens: number;
+  /**
+   * 执行总 tokens（CLI usage input+output）。CLI 未回报 usage 时传 null ——
+   * 聚合端据此把该事件排除在执行 tokens/开销比均值外（executionSource='unavailable'），不编造 0。
+   */
+  executionTokens: number | null;
+  /** LLM 提取 tokens（可选；R3 提取异步入库，通常由 knowledge:extraction 事件单独度量） */
+  extractionTokens?: number;
+}
+
+/**
+ * M2: 写一条 workunit:tokens 事件（模块级函数，供 agent-loop 与单测直接调用）。
+ * totalTokens = injectedTokens + executionTokens（execution 未知时仅计注入部分）。
+ */
+export async function writeWorkunitTokenEvent(eventsFile: string, args: WorkunitTokenEventArgs): Promise<void> {
+  const executionTokens = typeof args.executionTokens === 'number' && Number.isFinite(args.executionTokens)
+    ? args.executionTokens
+    : null;
+  await metricsFileStore.appendJsonl(eventsFile, {
+    type: 'workunit:tokens',
+    source: 'agent-loop',
+    payload: JSON.stringify({
+      workUnitId: args.workUnitId,
+      executionId: args.executionId,
+      injectedTokens: args.injectedTokens,
+      injectedSource: 'estimate:chars/4',
+      executionTokens,
+      executionSource: executionTokens !== null ? 'cli-usage' : 'unavailable',
+      totalTokens: args.injectedTokens + (executionTokens ?? 0),
+      ...(typeof args.extractionTokens === 'number' ? { extractionTokens: args.extractionTokens } : {}),
+    }),
+    createdAt: new Date().toISOString(),
+  });
+}
+
 // ─── tool:call event recording ───
 
-const DEFAULT_EVENTS_DIR = join(homedir(), 'events');
+/**
+ * R2: tool trace 文件路径 — 经统一 resolver 解析
+ * （STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）。懒解析以支持运行时/测试注入 env。
+ */
+export function resolveToolTraceFile(): string {
+  return join(resolveEventsDir(), 'studio.jsonl');
+}
 
 /**
  * Write tool:call events extracted from stream-json output to a JSONL file.

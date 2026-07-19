@@ -4,6 +4,10 @@
  * AC:
  * - saveProposal creates skill → emits knowledge:skill_created { skillName, skillId }
  * - loadSkill succeeds → emits knowledge:skill_used { skillName }
+ *
+ * 迁移说明（studio-prisma 移除后）：事件通过 FileStore.appendJsonl 写入
+ * ~/.studio/logs/studio-events.jsonl；skillStore/proposalStore 为文件存储，
+ * 此处 mock 掉以隔离真实 ~/.studio。
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
@@ -13,34 +17,34 @@ import * as path from 'path';
 // Set SKILLS_DIR before skill-loader module loads
 process.env.SKILLS_DIR = path.join(os.tmpdir(), 'skill-events-test');
 
-const { mockStudioEventCreate, mockSkillCreate, mockSkillProposalCreate, mockSkillFindFirst } = vi.hoisted(() => ({
-  mockStudioEventCreate: vi.fn().mockResolvedValue({ id: 'evt-1' }),
-  mockSkillCreate: vi.fn().mockResolvedValue({ id: 'skill-1', name: 'test-skill' }),
-  mockSkillProposalCreate: vi.fn().mockResolvedValue({ id: 'sp-1' }),
-  mockSkillFindFirst: vi.fn().mockResolvedValue({ id: 'skill-1', name: 'test-skill', prompt: 'do stuff', tools: '[]', tier: 'standard' }),
+const { mockAppendJsonl, mockSkillCreate, mockProposalCreate } = vi.hoisted(() => ({
+  mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
+  mockSkillCreate: vi.fn(),
+  mockProposalCreate: vi.fn(),
 }));
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    studioEvent: { create: mockStudioEventCreate },
-    skill: {
-      create: mockSkillCreate,
-      findFirst: mockSkillFindFirst,
-    },
-    skillProposal: { create: mockSkillProposalCreate },
-    workUnit: { findUnique: vi.fn(), findMany: vi.fn() },
-  },
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    recordDecision: vi.fn(),
+    FileStore: vi.fn().mockImplementation(() => ({
+      appendJsonl: mockAppendJsonl,
+      getIndex: vi.fn().mockResolvedValue([]),
+      upsertSnapshot: vi.fn().mockResolvedValue(undefined),
+      appendEvent: vi.fn().mockResolvedValue(undefined),
+    })),
+  };
+});
+
+// 文件存储隔离：skillStore / proposalStore 不写真实 ~/.studio
+vi.mock('../skill-store.js', () => ({
+  skillStore: { create: mockSkillCreate },
 }));
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  modelGateway: { promptJson: vi.fn() },
-  recordDecision: vi.fn(),
-  FileStore: vi.fn().mockReturnValue({
-    getIndex: vi.fn().mockResolvedValue([]),
-    upsertSnapshot: vi.fn().mockResolvedValue(undefined),
-    appendEvent: vi.fn().mockResolvedValue(undefined),
-  }),
+vi.mock('../proposal-store.js', () => ({
+  proposalStore: { create: mockProposalCreate },
 }));
 
 // Mock fs for skill-loader file-based loading
@@ -81,29 +85,12 @@ vi.mock('fs', async (importOriginal) => {
 
 vi.mock('child_process', () => ({ exec: vi.fn() }));
 
-// Mock @dommaker/studio-skill — skill-loader uses skillLoader.loadSingle/get
-vi.mock('@dommaker/studio-skill', () => ({
-  skillLoader: {
-    loadSingle: vi.fn().mockReturnValue({
-      name: 'test-skill',
-      prompt: 'do stuff',
-      tools: [],
-      tier: 'standard',
-      requires: [],
-    }),
-    get: vi.fn().mockReturnValue(null),
-    load: vi.fn().mockReturnValue([]),
-    formatForPrompt: vi.fn().mockReturnValue(''),
-  },
-}));
-
 describe('Skill event emission', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockStudioEventCreate.mockResolvedValue({ id: 'evt-1' });
-    mockSkillCreate.mockResolvedValue({ id: 'skill-1', name: 'test-skill' });
-    mockSkillProposalCreate.mockResolvedValue({ id: 'sp-1' });
-    mockSkillFindFirst.mockResolvedValue({ id: 'skill-1', name: 'test-skill', prompt: 'do stuff', tools: '[]', tier: 'standard' });
+    mockAppendJsonl.mockResolvedValue(undefined);
+    mockSkillCreate.mockReturnValue({ id: 'skill-1', name: 'Test Skill' });
+    mockProposalCreate.mockReturnValue({ id: 'sp-1' });
   });
 
   test('saveProposal emits knowledge:skill_created', async () => {
@@ -124,40 +111,35 @@ describe('Skill event emission', () => {
       createdAt: new Date(),
     });
 
-    const skillCreatedCall = mockStudioEventCreate.mock.calls.find(
-      (c: any[]) => c[0].data.type === 'knowledge:skill_created',
+    // 事件经 FileStore.appendJsonl(STUDIO_EVENTS_JSONL, { type, source, payload, createdAt })
+    const skillCreatedCall = mockAppendJsonl.mock.calls.find(
+      (c: any[]) => c[1]?.type === 'knowledge:skill_created',
     );
     expect(skillCreatedCall).toBeDefined();
-    const payload = JSON.parse(skillCreatedCall[0].data.payload);
+    const payload = JSON.parse(skillCreatedCall[1].payload);
     expect(payload.skillName).toBe('Test Skill');
   });
 
   test('loadSkill emits knowledge:skill_used', async () => {
-    // Need to mock prisma differently for skill-loader
-    // skill-loader imports prisma from @dommaker/studio-prisma (already mocked above)
-    // and also uses loadSkillFromDisk which reads from filesystem (mocked)
-
-    // Reset the mock to track calls for this test
-    mockStudioEventCreate.mockClear();
+    // skill-loader 仅从磁盘加载（loadSkillFromDisk，fs 已 mock），无 DB fallback
+    mockAppendJsonl.mockClear();
 
     const { SkillLoaderService } = await import('../../skills/skill-loader.js');
     const loader = new SkillLoaderService();
 
-    // loadSkill tries file-based first (returns null due to mock),
-    // then falls back to Prisma (returns from mockSkillFindFirst)
     const result = await loader.loadSkill({
       sessionId: 'sess-1',
       skillName: 'test-skill',
     });
 
-    // Skill should be loaded from Prisma mock
+    // Skill loaded from mocked SKILL.md on disk
     expect(result).not.toBeNull();
 
-    const skillUsedCall = mockStudioEventCreate.mock.calls.find(
-      (c: any[]) => c[0].data.type === 'knowledge:skill_used',
+    const skillUsedCall = mockAppendJsonl.mock.calls.find(
+      (c: any[]) => c[1]?.type === 'knowledge:skill_used',
     );
     expect(skillUsedCall).toBeDefined();
-    const payload = JSON.parse(skillUsedCall[0].data.payload);
+    const payload = JSON.parse(skillUsedCall[1].payload);
     expect(payload.skillName).toBe('test-skill');
   });
 });

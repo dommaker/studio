@@ -1,43 +1,68 @@
 /**
  * LLM Config Service tests — resolve (layered lookup), saveConfig, maskConfig
+ *
+ * 迁移说明（studio-prisma 移除后）：配置持久化到 ~/.studio/llm-configs.json，
+ * 经 FileStore.readJson/writeJson 读写（整数组）。测试用内存 FileStore mock。
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const isCI = !!process.env.CI;
 const describeIf = isCI ? describe.skip : describe;
 
-const { lLMConfigMock, getProviderApiKeyMock, modelGatewayMock } = vi.hoisted(() => ({
-  lLMConfigMock: {
-    findFirst: vi.fn(),
-    findMany: vi.fn(),
-    upsert: vi.fn(),
-    delete: vi.fn(),
-  },
-  getProviderApiKeyMock: vi.fn(),
-  modelGatewayMock: { addProvider: vi.fn() },
-}));
+const { configsStore, MockFileStore, getProviderApiKeyMock, modelGatewayMock } = vi.hoisted(() => {
+  const configsStore: any[] = [];
+  class MockFileStore {
+    async readJson(_path: string): Promise<any[]> {
+      return configsStore.slice();
+    }
+    async writeJson(_path: string, data: any[]): Promise<void> {
+      configsStore.length = 0;
+      configsStore.push(...data);
+    }
+  }
+  return {
+    configsStore,
+    MockFileStore,
+    getProviderApiKeyMock: vi.fn(),
+    modelGatewayMock: { addProvider: vi.fn() },
+  };
+});
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: { lLMConfig: lLMConfigMock },
-}));
-
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  modelGateway: modelGatewayMock,
-  getProviderApiKey: (...args: unknown[]) => getProviderApiKeyMock(...args),
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    modelGateway: modelGatewayMock,
+    getProviderApiKey: (...args: unknown[]) => getProviderApiKeyMock(...args),
+    FileStore: MockFileStore,
+  };
+});
 
 import { LLMConfigService, type LLMConfigScope } from '../config.service.js';
+
+function seedConfig(overrides: Record<string, unknown> = {}) {
+  const now = new Date().toISOString();
+  configsStore.push({
+    id: 'cfg-1',
+    scope: 'orchestrator',
+    provider: 'anthropic',
+    baseUrl: 'https://api.anthropic.com/v1',
+    model: 'claude-sonnet-4-6',
+    options: '{}',
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    ...overrides,
+  });
+}
 
 describeIf('LLMConfigService', () => {
   let service: LLMConfigService;
 
   beforeEach(() => {
+    configsStore.length = 0;
     service = new LLMConfigService();
-    lLMConfigMock.findFirst.mockReset();
-    lLMConfigMock.findMany.mockReset();
-    lLMConfigMock.upsert.mockReset();
-    lLMConfigMock.delete.mockReset();
     getProviderApiKeyMock.mockReset();
     modelGatewayMock.addProvider.mockReset();
   });
@@ -48,15 +73,7 @@ describeIf('LLMConfigService', () => {
 
   describe('resolve', () => {
     it('returns exact scope match', async () => {
-      lLMConfigMock.findFirst.mockResolvedValueOnce({
-        id: 'cfg-1',
-        scope: 'orchestrator',
-        provider: 'anthropic',
-        baseUrl: 'https://api.anthropic.com/v1',
-        model: 'claude-sonnet-4-6',
-        options: '{}',
-        isActive: true,
-      });
+      seedConfig();
       getProviderApiKeyMock.mockReturnValue('sk-test-key-1234');
 
       const result = await service.resolve('orchestrator');
@@ -68,17 +85,13 @@ describeIf('LLMConfigService', () => {
     });
 
     it('falls back to agent_default for agent_* scopes', async () => {
-      lLMConfigMock.findFirst
-        .mockResolvedValueOnce(null) // exact match
-        .mockResolvedValueOnce({    // agent_default
-          id: 'cfg-default',
-          scope: 'agent_default',
-          provider: 'openai',
-          baseUrl: 'https://api.openai.com/v1',
-          model: 'gpt-4o',
-          options: '{}',
-          isActive: true,
-        });
+      seedConfig({
+        id: 'cfg-default',
+        scope: 'agent_default',
+        provider: 'openai',
+        baseUrl: 'https://api.openai.com/v1',
+        model: 'gpt-4o',
+      });
       getProviderApiKeyMock.mockReturnValue('sk-openai-key');
 
       const result = await service.resolve('agent_claude');
@@ -87,8 +100,7 @@ describeIf('LLMConfigService', () => {
       expect(result.model).toBe('gpt-4o');
     });
 
-    it('falls back to env when no DB config', async () => {
-      lLMConfigMock.findFirst.mockResolvedValue(null);
+    it('falls back to env when no stored config', async () => {
       getProviderApiKeyMock.mockReturnValue(null);
 
       const original = process.env.STUDIO_API_KEY;
@@ -105,7 +117,6 @@ describeIf('LLMConfigService', () => {
     });
 
     it('throws when no config found at all', async () => {
-      lLMConfigMock.findFirst.mockResolvedValue(null);
       getProviderApiKeyMock.mockReturnValue(null);
 
       // Clear all env vars that might provide fallback
@@ -126,16 +137,8 @@ describeIf('LLMConfigService', () => {
       }
     });
 
-    it('throws when DB config exists but no API key in env', async () => {
-      lLMConfigMock.findFirst.mockResolvedValueOnce({
-        id: 'cfg-1',
-        scope: 'orchestrator',
-        provider: 'anthropic',
-        baseUrl: 'https://api.anthropic.com/v1',
-        model: 'claude-sonnet-4-6',
-        options: '{}',
-        isActive: true,
-      });
+    it('throws when stored config exists but no API key in env', async () => {
+      seedConfig();
       getProviderApiKeyMock.mockReturnValue(null);
 
       // Clear env fallbacks
@@ -175,15 +178,6 @@ describeIf('LLMConfigService', () => {
     });
 
     it('upserts config and returns masked result', async () => {
-      lLMConfigMock.upsert.mockResolvedValueOnce({
-        id: 'cfg-1',
-        scope: 'orchestrator',
-        provider: 'anthropic',
-        baseUrl: null,
-        model: 'claude-sonnet-4-6',
-        options: '{}',
-        isActive: true,
-      });
       getProviderApiKeyMock.mockReturnValue('sk-test-abcd');
 
       const result = await service.saveConfig({
@@ -194,20 +188,15 @@ describeIf('LLMConfigService', () => {
 
       expect(result.apiKeyMasked).toBe('****abcd');
       expect(result.model).toBe('claude-sonnet-4-6');
+      // 配置已持久化到 FileStore
+      expect(configsStore).toHaveLength(1);
+      expect(configsStore[0].scope).toBe('orchestrator');
     });
   });
 
   describe('getConfigs', () => {
     it('returns masked configs', async () => {
-      lLMConfigMock.findMany.mockResolvedValueOnce([{
-        id: 'cfg-1',
-        scope: 'orchestrator',
-        provider: 'anthropic',
-        baseUrl: null,
-        model: 'claude-sonnet-4-6',
-        options: '{}',
-        isActive: true,
-      }]);
+      seedConfig({ baseUrl: null });
       getProviderApiKeyMock.mockReturnValue('sk-1234');
 
       const result = await service.getConfigs('orchestrator');
@@ -218,9 +207,15 @@ describeIf('LLMConfigService', () => {
 
   describe('deleteConfig', () => {
     it('deletes by id', async () => {
-      lLMConfigMock.delete.mockResolvedValueOnce({});
+      seedConfig();
+
       await service.deleteConfig('cfg-1');
-      expect(lLMConfigMock.delete).toHaveBeenCalledWith({ where: { id: 'cfg-1' } });
+
+      expect(configsStore).toHaveLength(0);
+    });
+
+    it('throws when id not found', async () => {
+      await expect(service.deleteConfig('no-such-id')).rejects.toThrow('LLMConfig not found');
     });
   });
 });

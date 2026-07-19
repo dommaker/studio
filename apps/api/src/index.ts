@@ -9,7 +9,9 @@ import { app, registerRoutes } from './app.js';
 // WebSocket server removed (B0-003: migrated to SSE). See modules/events/sse.routes.ts
 import { logger } from '@dommaker/studio-shared';
 // database.ts removed (Spec 4 Phase 4) — FileStore auto-creates directories
-import { taskWorker, taskQueue } from '@dommaker/studio-task';
+// TODO(cleanup): @dommaker/studio-task 为 pipeline 时代队列，全库无存活生产者；
+// 默认关闭（启动/停止由 STUDIO_TASK_QUEUE_ENABLED=true 恢复）。
+// 包暂不删除 — 12 个 task-queue 测试为预存失败。
 import { modelGateway } from '@dommaker/studio-shared';
 import { llmConfigService } from './modules/llm/config.service.js';
 import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
@@ -95,7 +97,7 @@ async function start() {
     await bootstrapHarness();
 
     // GAP-16: 验证消费事件链完整性（异步，不阻塞启动）
-    import('./modules/knowledge/knowledge-bus.service.js').then(({ verifyConsumptionChain }) => {
+    import('./modules/knowledge/knowledge-singletons.js').then(({ verifyConsumptionChain }) => {
       verifyConsumptionChain().catch(() => { /* non-blocking */ });
     });
 
@@ -150,6 +152,12 @@ async function start() {
     monitorAgent.start();
     auditorAgent.start();
     daemon.start();
+    // REQ 需求编号体系（vision §5.3）：WorkUnit 终态 → Requirement done 状态汇总
+    try {
+      const { initRequirementRollup } = await import('./modules/requirements/rollup.js');
+      initRequirementRollup();
+      logger.info('[Requirement] Rollup subscribed (workunit.status_changed → done)');
+    } catch (e) { logger.warn('[Requirement] Rollup init failed', { error: String(e) }); }
     // ── Ops Agent: runtime health loop ──
     try {
       const { createOpsAgent } = await import('./modules/agents/ops-agent.service.js');
@@ -162,20 +170,24 @@ async function start() {
     // ── AS-026: AgentLoop per AgentProfile ──
     try {
       const { FileStore } = await import('@dommaker/studio-shared');
-      const { AgentLoop } = await import('./modules/agents/agent-loop.js');
+      const { agentLoopRegistry } = await import('./modules/agents/agent-loop-registry.js');
       const { registerDefaultTriggers } = await import('./modules/agents/default-triggers.js');
       const { getTriggerScheduler } = await import('./modules/triggers/trigger-registry.js');
 
       const fileStore = new FileStore();
       const profiles = await fileStore.listProfiles({ status: 'active' });
-      const registry = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
-      registry.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)
-      registerDefaultTriggers(registry);
+      const scheduler = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
+      scheduler.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)
+      registerDefaultTriggers(scheduler);
+
+      // F1: profile 生命周期事件（create/activate/deactivate/delete）→ 动态挂载/卸载
+      agentLoopRegistry.subscribeToEvents();
 
       for (const profile of profiles) {
-        const loop = new AgentLoop(profile as any);
-        await loop.start();
-        logger.info(`[AgentLoop] Started for profile ${profile.name}`);
+        const entry = await agentLoopRegistry.mount(profile);
+        if (entry.status === 'running') {
+          logger.info(`[AgentLoop] Started for profile ${profile.name}`);
+        }
       }
       if (profiles.length === 0) {
         logger.info('[AgentLoop] No active profiles found, skipping auto-start');
@@ -196,7 +208,7 @@ async function start() {
       const threshold = Date.now() - TIMEOUT_MS;
       const fileStore = new FileStore();
       const allStates = await fileStore.listStates();
-      const stale = allStates.filter(s => s.status !== 'terminated' && (s.lastHeartbeat ? new Date(s.lastHeartbeat).getTime() < threshold : true));
+      const stale = allStates.filter(s => s.status !== 'terminated' && s.status !== 'error' && (s.lastHeartbeat ? new Date(s.lastHeartbeat).getTime() < threshold : true));
       const svc = new AgentInstanceService(fileStore);
       for (const inst of stale) {
         await svc.terminate(inst.id).catch(err =>
@@ -205,6 +217,29 @@ async function start() {
       }
       if (stale.length > 0) logger.info(`[AgentTimeout] Terminated ${stale.length} stale instances`);
     });
+
+    // ── F5: NEED_INPUT 挂起超时提醒 handler ──
+    registerExecuteHandler('workunit-input-reminder-scan', async () => {
+      const { scanWaitingForInputReminders } = await import('./modules/workunit/waiting-input.js');
+      await scanWaitingForInputReminders();
+    });
+
+    // ── E1 约束进化（vision §6）：每日扫描 handler + 频道审核 watcher ──
+    registerExecuteHandler('evolution-scan', async () => {
+      const { getEvolutionService } = await import('./modules/evolution/evolution.service.js');
+      const result = await getEvolutionService().runScan();
+      if (result.created.length > 0) {
+        logger.info(`[Evolution] Daily scan created ${result.created.length} proposal(s)`);
+      }
+    });
+    if (process.env.EVOLUTION_ENABLED !== 'false') {
+      try {
+        const { getEvolutionService } = await import('./modules/evolution/evolution.service.js');
+        const { initEvolutionChannelReview } = await import('./modules/evolution/channel-review.js');
+        initEvolutionChannelReview(getEvolutionService());
+        logger.info('[Evolution] Channel review watcher subscribed (approve/reject EP-XXXX)');
+      } catch (e) { logger.warn('[Evolution] Channel review init failed', { error: String(e) }); }
+    }
 
     // ── meeting 路径服务已摘除 ──
 
@@ -324,6 +359,12 @@ async function start() {
       // Graceful: stop accepting new work, wait for running Claude tasks
       try { await daemon.gracefulShutdown(); } catch {}
 
+      // F1: unmount all AgentLoops
+      try {
+        const { agentLoopRegistry } = await import('./modules/agents/agent-loop-registry.js');
+        agentLoopRegistry.unmountAll();
+      } catch {}
+
       detachWsGateway();
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }
       stopEvolutionScheduler();
@@ -332,8 +373,14 @@ async function start() {
       stopAuditSubscriber();
       // Deprecated meeting services removed from startup — stops are no-ops
       try { await stopHealthMonitor(); } catch {}
-      try { await taskWorker.stop(); } catch {}
-      try { await taskQueue.close(); } catch {}
+      // pipeline 时代任务队列默认关闭；STUDIO_TASK_QUEUE_ENABLED=true 时恢复停止/关闭
+      if (process.env.STUDIO_TASK_QUEUE_ENABLED === 'true') {
+        try {
+          const { taskWorker, taskQueue } = await import('@dommaker/studio-task');
+          await taskWorker.stop();
+          await taskQueue.close();
+        } catch {}
+      }
       server.close(() => process.exit(0));
       // Fallback: force exit if server.close() hangs (lingering connections/handles)
       setTimeout(() => process.exit(0), 5000).unref();

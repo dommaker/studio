@@ -8,7 +8,15 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-vi.mock('@dommaker/studio-shared', () => ({
+const { mockAppendJsonl } = vi.hoisted(() => ({
+  mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
+  // Spread real module: post-migration exports must exist. Stub only the
+  // FileStore I/O edge — StudioEvents are now JSONL appends (was prisma create),
+  // and we capture them instead of writing to ~/.studio/logs on disk.
+  ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   getModelForTier: vi.fn(() => 'claude-sonnet-4-20250514'),
   parseStreamLine: vi.fn((line: string) => {
@@ -22,14 +30,9 @@ vi.mock('@dommaker/studio-shared', () => ({
     }
     return null;
   }),
-}));
-
-const { mockStudioEventCreate } = vi.hoisted(() => ({
-  mockStudioEventCreate: vi.fn().mockResolvedValue({}),
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: { studioEvent: { create: mockStudioEventCreate } },
+  FileStore: class {
+    appendJsonl = mockAppendJsonl;
+  },
 }));
 
 vi.mock('../cli-adapter.js', () => ({
@@ -101,12 +104,12 @@ function emitStdoutToolUse(tool: string, input: Record<string, unknown>) {
   mockChild.stdout.emit('data', Buffer.from(line + '\n'));
 }
 
-/** Capture all prisma calls via fresh mockImplementation per test */
+/** Capture all FileStore.appendJsonl calls via fresh mockImplementation per test */
 function captureCalls(): unknown[][] {
   const calls: unknown[][] = [];
-  mockStudioEventCreate.mockImplementation((...args: unknown[]) => {
+  mockAppendJsonl.mockImplementation((...args: unknown[]) => {
     calls.push(args);
-    return Promise.resolve({});
+    return Promise.resolve();
   });
   return calls;
 }
@@ -116,7 +119,7 @@ describe('TaskExecutor daemon-event-capture', () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'task-events-test-'));
-    mockStudioEventCreate.mockReset();
+    mockAppendJsonl.mockReset().mockResolvedValue(undefined);
     fetchMock.mockReset();
     fetchMock.mockResolvedValue({ ok: true, json: async () => ({}) });
     // Prevent listener accumulation across tests (mockChild is a singleton)
@@ -141,12 +144,10 @@ describe('TaskExecutor daemon-event-capture', () => {
     const executor = new TaskExecutor(makeConfig());
     await executor.execute(makeTask());
 
-    const toolCall = calls.find(([arg]) => {
-      const d = (arg as Record<string, unknown>)?.data as Record<string, unknown> | undefined;
-      return d?.type === 'tool:call';
-    });
+    const toolCall = calls.find(([, evt]) => (evt as Record<string, unknown>)?.type === 'tool:call');
     expect(toolCall).toBeDefined();
-    const data = (toolCall![0] as Record<string, unknown>).data as Record<string, unknown>;
+    expect(String(toolCall![0])).toContain('studio-events.jsonl');
+    const data = toolCall![1] as Record<string, unknown>;
     const payload = JSON.parse(data.payload as string);
     expect(payload.tool).toBe('Read');
     expect(payload.sessionId).toBe('sess-1');
@@ -164,12 +165,12 @@ describe('TaskExecutor daemon-event-capture', () => {
     const executor = new TaskExecutor(makeConfig());
     await executor.execute(makeTask());
 
-    const toolCall = calls.find(([arg]) => ((arg as Record<string, unknown>)?.data as Record<string, unknown>)?.type === 'tool:call');
-    const fileChange = calls.find(([arg]) => ((arg as Record<string, unknown>)?.data as Record<string, unknown>)?.type === 'file:change');
+    const toolCall = calls.find(([, evt]) => (evt as Record<string, unknown>)?.type === 'tool:call');
+    const fileChange = calls.find(([, evt]) => (evt as Record<string, unknown>)?.type === 'file:change');
     expect(toolCall).toBeDefined();
     expect(fileChange).toBeDefined();
 
-    const fcData = (fileChange![0] as Record<string, unknown>).data as Record<string, unknown>;
+    const fcData = fileChange![1] as Record<string, unknown>;
     const fcPayload = JSON.parse(fcData.payload as string);
     expect(fcPayload.path).toBe('/src/new-file.ts');
     expect(fcPayload.sessionId).toBe('sess-1');
@@ -186,9 +187,9 @@ describe('TaskExecutor daemon-event-capture', () => {
     const executor = new TaskExecutor(makeConfig());
     await executor.execute(makeTask());
 
-    const fileChange = calls.find(([arg]) => ((arg as Record<string, unknown>)?.data as Record<string, unknown>)?.type === 'file:change');
+    const fileChange = calls.find(([, evt]) => (evt as Record<string, unknown>)?.type === 'file:change');
     expect(fileChange).toBeDefined();
-    const fcData = (fileChange![0] as Record<string, unknown>).data as Record<string, unknown>;
+    const fcData = fileChange![1] as Record<string, unknown>;
     const fcPayload = JSON.parse(fcData.payload as string);
     expect(fcPayload.path).toBe('/src/app.ts');
   });
@@ -205,15 +206,15 @@ describe('TaskExecutor daemon-event-capture', () => {
     await executor.execute(makeTask({ sessionId: null }));
 
     expect(calls.length).toBeGreaterThan(0);
-    const toolCall = calls.find(([arg]) => ((arg as Record<string, unknown>)?.data as Record<string, unknown>)?.type === 'tool:call');
+    const toolCall = calls.find(([, evt]) => (evt as Record<string, unknown>)?.type === 'tool:call');
     expect(toolCall).toBeDefined();
-    const data = (toolCall![0] as Record<string, unknown>).data as Record<string, unknown>;
+    const data = toolCall![1] as Record<string, unknown>;
     const payload = JSON.parse(data.payload as string);
     expect(payload.sessionId).toBe('task-1');
   });
 
   it('StudioEvent write failure does not block stdout processing', async () => {
-    mockStudioEventCreate.mockRejectedValue(new Error('DB down'));
+    mockAppendJsonl.mockRejectedValue(new Error('disk full'));
 
     process.nextTick(() => {
       emitStdoutToolUse('Write', { file_path: '/src/app.ts', content: 'x' });

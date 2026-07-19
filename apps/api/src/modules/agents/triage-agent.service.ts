@@ -13,6 +13,15 @@ const MAX_FIX_ATTEMPTS = 3;
 const FIX_COOLDOWN_MS = 30_000; // 30s between attempts
 const INCIDENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'incidents.jsonl');
 
+// 破坏性修复命令安全门：仅当 STUDIO_TRIAGE_DESTRUCTIVE=true 时才真正执行
+// rm/pkill/tmux kill-session 等变更性命令（曾误删 e2e 临时目录、误杀存活 agent CLI 进程）。
+// 默认关闭 — 破坏性 action 降级为 dry-run echo，只记录"本会执行什么"，
+// 事件仍照常记录/上报，不丢失可观测性。只读命令（ls/echo/curl 健康检查）不受限。
+export function guarded(cmd: string): string {
+  if (process.env.STUDIO_TRIAGE_DESTRUCTIVE === 'true') return cmd;
+  return `echo '[Triage] DRY-RUN (set STUDIO_TRIAGE_DESTRUCTIVE=true to enable) — would run: ${cmd.replace(/'/g, `'\\''`)}'`;
+}
+
 interface PhaseResult {
   success: boolean;
   log: TriageLogEntry;
@@ -271,37 +280,39 @@ class TriageAgent {
     const actions: Record<string, string[]> = {
       // 系统级（已有）
       service_down: ['echo "[Triage] service_down detected - logging only, no auto-restart"'],
-      resource_critical: ['rm -rf /tmp/studio-* 2>/dev/null; find /var/log -name "*.log" -mtime +7 -delete 2>/dev/null || true'],
+      // guarded: rm -rf + find -delete — 清 tmp/旧日志
+      resource_critical: [guarded('rm -rf /tmp/studio-* 2>/dev/null; find /var/log -name "*.log" -mtime +7 -delete 2>/dev/null || true')],
       ext_dependency: ['echo "wait and retry"'],
-      zombie: ['pkill -9 -f defunct 2>/dev/null || true'],
+      // guarded: pkill 僵尸进程
+      zombie: [guarded('pkill -9 -f defunct 2>/dev/null || true')],
       // 执行级（Monitor 升级，FL-037 Phase 1）
       execution_repeated_failure: [
-        // Attempt 1: kill stuck session + clean worktree + re-spawn（由 GoalScheduler 处理）
-        'echo "[Triage] execution_repeated_failure — escalated to GoalScheduler for re-spawn with tier upgrade"',
+        // 无自动 re-spawn 调度器（GoalScheduler 已删除）— 记录后升级人工/上层重试
+        'echo "[Triage] execution_repeated_failure — logged; re-spawn with tier upgrade handled by human/external retry (no auto scheduler)"',
       ],
       execution_stuck: [
-        // Attempt 1: kill the stuck tmux session
-        'tmux ls 2>/dev/null | grep -E "studio-exec" | cut -d: -f1 | xargs -I{} tmux kill-session -t {} 2>/dev/null; echo "[Triage] killed stuck tmux sessions"',
+        // Attempt 1: kill the stuck tmux session（guarded: tmux kill-session）
+        guarded('tmux ls 2>/dev/null | grep -E "studio-exec" | cut -d: -f1 | xargs -I{} tmux kill-session -t {} 2>/dev/null; echo "[Triage] killed stuck tmux sessions"'),
       ],
       execution_progress_stagnation: [
-        // Attempt 1: check worktree health + kill stale claude processes
+        // Attempt 1: check worktree health（只读，无需 gate）
         'echo "[Triage] progress stagnation — checking worktree health"; ls /tmp/studio-worktrees/*/.progress.json 2>/dev/null || echo "no worktrees found"',
-        // Attempt 2: force kill stale processes
-        'pkill -9 -f "claude --print" 2>/dev/null; echo "[Triage] killed stale claude processes"',
+        // Attempt 2: force kill stale processes（guarded: pkill agent CLI）
+        guarded('pkill -9 -f "claude --print" 2>/dev/null; echo "[Triage] killed stale claude processes"'),
       ],
       execution_heartbeat_lost: [
-        // Attempt 1: kill tmux session
-        'tmux ls 2>/dev/null | grep -E "studio-exec" | cut -d: -f1 | xargs -I{} tmux kill-session -t {} 2>/dev/null; echo "[Triage] killed heartbeat-lost tmux sessions"',
-        // Attempt 2: force re-spawn signal (GoalScheduler 检测到后 re-spawn)
-        'echo "[Triage] heartbeat_lost — awaiting GoalScheduler re-spawn"',
+        // Attempt 1: kill tmux session（guarded: tmux kill-session）
+        guarded('tmux ls 2>/dev/null | grep -E "studio-exec" | cut -d: -f1 | xargs -I{} tmux kill-session -t {} 2>/dev/null; echo "[Triage] killed heartbeat-lost tmux sessions"'),
+        // Attempt 2: 记录并等待人工 re-spawn（无自动调度器，GoalScheduler 已删除）
+        'echo "[Triage] heartbeat_lost — awaiting human re-spawn (no auto scheduler)"',
       ],
       execution_session_exhausted: [
         // 无法自动修复 — escalate to human (不进入 ACT 阶段)
         'echo "[Triage] session exhausted"',
       ],
       execution_timeout: [
-        // Attempt 1: kill + signal re-spawn with tier upgrade
-        'tmux ls 2>/dev/null | grep -E "studio-exec" | cut -d: -f1 | xargs -I{} tmux kill-session -t {} 2>/dev/null; echo "[Triage] killed timeout tmux sessions — awaiting re-spawn"',
+        // Attempt 1: kill + 等待人工/上层 re-spawn with tier upgrade（guarded: tmux kill-session）
+        guarded('tmux ls 2>/dev/null | grep -E "studio-exec" | cut -d: -f1 | xargs -I{} tmux kill-session -t {} 2>/dev/null; echo "[Triage] killed timeout tmux sessions — awaiting re-spawn"'),
       ],
       // 跨执行模式（Phase 3）
       agent_type_failure_trend: [

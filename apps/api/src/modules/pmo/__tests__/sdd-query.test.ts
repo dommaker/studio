@@ -1,23 +1,31 @@
 // AC-10: PMO-SDD association query tests
+//
+// 迁移说明（studio-prisma 移除后）：
+// - projectService.get 通过 FileStore.readJson 读取 ~/.studio/projects/<id>.json
+// - getLinkedSDDs 仍用 fs.existsSync/readFileSync 读 docs/sdd/_index.md
+// 测试 mock FileStore（readJson）与 fs（existsSync/readFileSync）。
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
-  mockProjectFindUnique,
+  mockFileReadJson,
   mockExistsSync,
   mockReadFileSync,
 } = vi.hoisted(() => ({
-  mockProjectFindUnique: vi.fn(),
+  mockFileReadJson: vi.fn(),
   mockExistsSync: vi.fn(),
   mockReadFileSync: vi.fn(),
 }));
 
-vi.mock('../../../core/database.js', () => ({
-  prisma: {
-    project: {
-      findUnique: mockProjectFindUnique,
-    },
-  },
-}));
+// Mock FileStore — project.service 模块级 `new FileStore()`，get() 走 readJson
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return {
+    ...actual,
+    FileStore: vi.fn().mockImplementation(() => ({
+      readJson: mockFileReadJson,
+    })),
+  };
+});
 
 // Mock channelMessageService and WorkUnitService (needed by project.service imports)
 vi.mock('../../channels/channel-message.service.js', () => ({
@@ -33,8 +41,8 @@ vi.mock('../../workunit/workunit.service.js', () => ({
   })),
 }));
 
-// Partial mock of fs — keep other fs functions intact
-vi.mock('fs', async (importOriginal) => {
+// Partial mock of node:fs（project.service 以 'node:fs' 导入）— keep other fs functions intact
+vi.mock('node:fs', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return {
     ...orig,
@@ -48,7 +56,8 @@ import { projectService } from '../project.service.js';
 describe('AC-10: PMO-SDD association query', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockProjectFindUnique.mockResolvedValue({
+    // FileStore readJson：~/.studio/projects/proj-1.json 存在
+    mockFileReadJson.mockResolvedValue({
       id: 'proj-1',
       pmoNumber: 'PM-001',
       title: 'Test',
@@ -91,7 +100,8 @@ describe('AC-10: PMO-SDD association query', () => {
   });
 
   it('project not found → throws', async () => {
-    mockProjectFindUnique.mockResolvedValue(null);
+    // FileStore readJson 返回 null（文件不存在）
+    mockFileReadJson.mockResolvedValue(null);
 
     await expect(projectService.getLinkedSDDs('nope')).rejects.toThrow();
   });

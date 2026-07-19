@@ -1,15 +1,17 @@
 /**
  * CLI Scanner — auto-detect available agent CLIs on the system
  *
- * Scans for: claude, codex, opencode, openclaw
- * Uses `which` to find path, `--version` to get version string.
+ * Scans the registry's default providers (F4): claude, kimi, codex, opencode
+ * (openclaw is config-only now — re-add via ~/.studio/providers.json).
+ * Uses `which` to find path, provider version command to get version string.
  */
 
 import { execSync } from 'child_process';
+import { listScanProviders, resolveProviderDefinition, type ProviderId } from '@dommaker/studio-shared/node';
 
-/** Known agent CLI providers */
-export const KNOWN_PROVIDERS = ['claude', 'codex', 'opencode', 'openclaw'] as const;
-export type ProviderName = (typeof KNOWN_PROVIDERS)[number];
+/** Known agent CLI providers (from the provider registry, built-ins + user config) */
+export const KNOWN_PROVIDERS: readonly string[] = listScanProviders();
+export type ProviderName = ProviderId;
 
 export interface DetectedRuntime {
   provider: ProviderName;
@@ -22,34 +24,38 @@ export interface DetectedRuntime {
  * Returns null if the binary is not found or fails to report version.
  */
 export function detectProvider(name: ProviderName): DetectedRuntime | null {
-  try {
-    const cliPath = execSync(`which ${name}`, { encoding: 'utf-8', stdio: 'pipe' }).trim();
-    if (!cliPath) return null;
-
-    let version = 'unknown';
+  const def = resolveProviderDefinition(name);
+  for (const binary of def.binaries) {
     try {
-      version = execSync(`${name} --version`, {
-        encoding: 'utf-8',
-        stdio: 'pipe',
-        timeout: 5_000,
-      }).trim();
-    } catch {
-      // --version may not be supported; try -v
+      const cliPath = execSync(`which ${binary}`, { encoding: 'utf-8', stdio: 'pipe' }).trim();
+      if (!cliPath) continue;
+
+      let version = 'unknown';
       try {
-        version = execSync(`${name} -v`, {
+        version = execSync(`${binary} ${def.versionArgs.join(' ')}`, {
           encoding: 'utf-8',
           stdio: 'pipe',
           timeout: 5_000,
         }).trim();
       } catch {
-        version = 'unknown';
+        // version command may not be supported; try -v
+        try {
+          version = execSync(`${binary} -v`, {
+            encoding: 'utf-8',
+            stdio: 'pipe',
+            timeout: 5_000,
+          }).trim();
+        } catch {
+          version = 'unknown';
+        }
       }
-    }
 
-    return { provider: name, path: cliPath, version };
-  } catch {
-    return null;
+      return { provider: name, path: cliPath, version };
+    } catch {
+      // binary not found — try the next candidate
+    }
   }
+  return null;
 }
 
 /**

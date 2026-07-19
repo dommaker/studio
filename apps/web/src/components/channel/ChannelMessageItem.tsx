@@ -19,6 +19,8 @@ interface Props {
   isExpanded?: boolean;
   onToggleThread?: () => void;
   isThreadReply?: boolean;
+  /** F5: 关联 WorkUnit 挂起等待人类回复（NEED_INPUT） */
+  waitingForInput?: boolean;
 }
 
 function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction: Props['onAction']) {
@@ -40,6 +42,7 @@ function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction
 export function ChannelMessageItem({
   message, onAction, onReply, findMessage, channelId,
   isThreadAnchor, threadReplyCount, isExpanded, onToggleThread, isThreadReply,
+  waitingForInput,
 }: Props) {
   const isHuman = message.authorType === 'human';
   const meta = parseMeta(message.meta);
@@ -60,6 +63,11 @@ export function ChannelMessageItem({
         {/* Author label + reply button + convert button */}
         <div className={`text-xs mb-1 flex items-center gap-2 ${isHuman ? 'justify-end text-blue-600' : 'justify-start text-gray-500'}`}>
           <span>{isHuman ? 'You' : message.agentName || 'Agent'}</span>
+          {waitingForInput && (
+            <span className="px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-700 border border-amber-300">
+              等待回复
+            </span>
+          )}
           {onReply && (
             <button
               onClick={() => onReply(message)}

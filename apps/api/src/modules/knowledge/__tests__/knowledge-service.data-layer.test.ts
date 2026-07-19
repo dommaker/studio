@@ -15,21 +15,28 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-// Mock external dependencies
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+// Mock external dependencies — keep the real module (knowledge-service.ts
+// instantiates the real FileStore at module top-level), silence only the logger.
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+  };
+});
 
 const mockIngestEntry = vi.fn().mockReturnValue({ id: 'test-id', maturity: 'draft' });
 const mockScheduleSync = vi.fn();
 
-vi.mock('../knowledge-bus.service.js', () => ({
+vi.mock('../knowledge-singletons.js', () => ({
   sharedStore: { list: vi.fn(), update: vi.fn(), get: vi.fn() },
   sharedIngest: { ingestEntry: mockIngestEntry },
   sharedLifecycle: { recordReference: vi.fn() },
   sharedQuery: { search: vi.fn() },
   sharedLinter: { validateEntry: vi.fn().mockReturnValue([]) },
   scheduleVectorDbSync: mockScheduleSync,
+  ingestWithQualityGate: vi.fn(),
+  UNIFIED_KNOWLEDGE_DIR: '/tmp/unused',
 }));
 
 // Test data directory (isolated from real ~/.studio/data/)

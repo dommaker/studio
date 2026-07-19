@@ -483,8 +483,8 @@ async function studioStatus() {
   try {
     const fs = await import('fs');
     const path = await import('path');
-    const os = await import('os');
-    const sf = path.join(os.homedir(), 'events', 'studio.jsonl');
+    const { resolveEventsDir } = await import('@dommaker/studio-shared');
+    const sf = path.join(resolveEventsDir(), 'studio.jsonl');
     if (fs.existsSync(sf)) {
       const lines = fs.readFileSync(sf, 'utf-8').split('\n').filter(Boolean);
       const trajectory = lines.map(l => { try { return JSON.parse(l); } catch { return null; } })
@@ -947,7 +947,7 @@ async function studioDaemonStart() {
   }
 
   // Dynamic imports to avoid loading daemon modules on every CLI invocation
-  const { scanAllProviders, hasDocker } = await import('../daemon/cli-scanner.js');
+  const { scanAllProviders, hasDocker, KNOWN_PROVIDERS } = await import('../daemon/cli-scanner.js');
   const { generateWorkspaceConfig, writeWorkspaceConfig } = await import('../daemon/workspace-config.js');
   const { registerWorkspace } = await import('../daemon/registration.js');
 
@@ -955,7 +955,7 @@ async function studioDaemonStart() {
   console.log('Scanning for agent CLIs...');
   const runtimes = scanAllProviders();
   if (runtimes.length === 0) {
-    console.warn('Warning: No agent CLIs detected (claude, codex, opencode, openclaw)');
+    console.warn(`Warning: No agent CLIs detected (${KNOWN_PROVIDERS.join(', ')})`);
   } else {
     for (const r of runtimes) {
       console.log(`  Found: ${r.provider} (${r.version}) at ${r.path}`);

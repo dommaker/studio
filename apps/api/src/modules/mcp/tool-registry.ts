@@ -2,7 +2,7 @@
  * MCP Tool Registry — dynamic registration, health, rate limiting
  */
 
-import { logger } from '@dommaker/studio-shared';
+import { logger, resolveEventsDir } from '@dommaker/studio-shared';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
 
 export type ToolRiskLevel = 'low' | 'medium' | 'high';
@@ -147,12 +147,11 @@ export class MCPToolRegistry {
     stats.avgDuration = Math.round((stats.avgDuration * (stats.totalCalls - 1) + duration) / stats.totalCalls);
     stats.lastCallAt = Date.now();
 
-    // G2: Trace all tool calls
+    // G2: Trace all tool calls (R2: 统一事件目录)
     try {
       const fs = require('fs');
       const path = require('path');
-      const os = require('os');
-      const dir = process.env.EVENTS_DIR || path.join(os.homedir(), 'events');
+      const dir = resolveEventsDir();
       fs.mkdirSync(dir, { recursive: true });
       const tool = this.tools.get(name);
       fs.appendFileSync(

@@ -1,4 +1,7 @@
 // Execution API 路由
+// ⚠️ LEGACY surface — 仍被 web 端调用（apps/web/src/api/index.ts `executionApi` ← agentStore / ProjectDetail(Page) / PMOCard）。
+// 基于 FileStore（executions.jsonl / tasks 目录 / AgentRegistry），不依赖已删除的 DB。
+// 计划迁移到 agent-profiles / workunit API（见 docs/vision-2026.md），迁移前请勿在此扩展新功能。
 import { Router, Request, Response } from 'express';
 import { eventStore } from '../../core/event-store.js';
 import { v4 as uuidv4 } from 'uuid';
