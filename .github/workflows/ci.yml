@@ -39,7 +39,5 @@ jobs:
       - name: Governance
         run: npx harness check && npx harness sync-docs --check
         continue-on-error: true
-      # TODO: 待文档补齐后转为强制
       - name: Doc freshness
         run: npx harness doc-freshness-check CAPABILITIES.md
-        continue-on-error: true
