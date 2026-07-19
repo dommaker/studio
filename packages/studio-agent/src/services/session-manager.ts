@@ -16,9 +16,10 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
 import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
-import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
+import { execSh, resolveSessionId, readSessionIdFile, resolveProviderDefinition, buildHealthProbeCommand, type ProviderId } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
+import { buildSpawnArgs } from '../cli-adapter.js';
 
 import {
   createWorktree,
@@ -55,7 +56,7 @@ export interface ExecutorConfig {
 export interface AgentTask {
   id: string;
   executionId: string;
-  provider: 'claude' | 'codex' | 'opencode' | 'openclaw';
+  provider: ProviderId;
   model?: string;
   prompt: string;
   notifyTarget?: string;
@@ -86,6 +87,17 @@ export interface ExecutionResult {
   sessionIds?: string[]; // B9-014: collected session IDs for summary generation
   /** P9: 原始 stdout 文本（lightweight 模式产出，供调用方解析） */
   outputText?: string;
+  /**
+   * M2: CLI 回报的执行 token 用量（stream-json usage 聚合，extractUsage 产出）。
+   * CLI 未回报 usage 时缺省 —— 调用方据此标记 executionSource='unavailable'，不编造 0。
+   */
+  usage?: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    model: string;
+  };
 }
 
 // ─── 前置检查结果 ───
@@ -152,7 +164,7 @@ export class AgentExecutor {
 
     try {
       // Step 1: 前置检查
-      const checks = await this.checkPrerequisites();
+      const checks = await this.checkPrerequisites(task.provider || 'claude');
       const errors = checks.filter(c => !c.passed && !c.isWarning);
       if (errors.length > 0) {
         throw new Error(`前置检查失败: ${errors.map(e => e.message).join(', ')}`);
@@ -303,12 +315,18 @@ export class AgentExecutor {
         logger.info('[AgentExecutor] Prompt built', { taskId: task.id, executionId: task.executionId, session: sessionCount, promptSize: prompt.length, knowledgeContextSize: knowledgeContext.length });
 
         // 启动 Agent（async spawn）
+        // F4: provider 定义来自共享 registry；session 续接 flags（--session-id/--continue/--name）
+        // 是 claude 专属语法，其它 provider 的 session 由 spawn 模板处理（见 cli-adapter）。
+        const provider = task.provider || 'claude';
+        const providerDef = resolveProviderDefinition(provider);
         const isFirstSession = sessionCount === 1;
-        const sessionFlag = isFirstSession
-          ? (isNewSession
-              ? `--session-id ${sessionId} --name "executor-${task.executionId.slice(0, 8)}"`
+        const sessionFlag = provider === 'claude'
+          ? (isFirstSession
+              ? (isNewSession
+                  ? `--session-id ${sessionId} --name "executor-${task.executionId.slice(0, 8)}"`
+                  : '--continue')
               : '--continue')
-          : '--continue';
+          : '';
 
         const model = getModelForTier((task.model as 'fast' | 'standard' | 'premium') || 'standard');
 
@@ -320,24 +338,32 @@ export class AgentExecutor {
         // O1c: Restrict tool access to verified files (prevents exploration drift)
         const _analystCtx = (task.parameters?.analystContext as any) || null;
         const _restrictDirs = _analystCtx?.verifiedFiles as string[] | undefined;
-        const addDirArgs = _restrictDirs?.length
+        const addDirArgs = _restrictDirs?.length && providerDef.spawn.addDirFlag
           ? _restrictDirs.map((f: string) => {
               const dir = f.split('/').slice(0, -1).join('/');
-              return `--add-dir "${dir}"`;
+              return `${providerDef.spawn.addDirFlag} "${dir}"`;
             }).join(' ')
           : '';
+
+        // F4: binary + base args from the provider registry (byte-identical for claude)
+        const spawnArgs = buildSpawnArgs(provider, { worktreeDir: worktree });
+        // --verbose already ships in claude's registry template; literal kept for the legacy cmd shape
+        const verboseArg = spawnArgs.args.includes('--verbose') ? '' : (provider === 'claude' ? `--verbose` : '');
+        // F4: prompt delivery per provider template — flag/positional providers read the
+        // prompt file via shell substitution; claude/codex use stdin redirect (inline below).
+        const promptNonStdinArg = providerDef.spawn.promptFlag
+          ? `${providerDef.spawn.promptFlag} "$(cat "${promptFile}")"`
+          : `"$(cat "${promptFile}")"`;
 
         const cmd = [
           `cd "${worktree}"`,
           `&&`,
-          `claude`,
-          `--print`,
-          `--output-format stream-json`,
-          `--verbose`,
+          spawnArgs.command,
+          ...spawnArgs.args,
+          verboseArg,
           addDirArgs,
           sessionFlag,
-          `<`,
-          `"${promptFile}"`,
+          providerDef.spawn.promptViaStdin ? `< "${promptFile}"` : promptNonStdinArg,
           `2>&1`,
         ].filter(Boolean).join(' ');
 
@@ -564,23 +590,27 @@ export class AgentExecutor {
   // 前置检查
   // ========================================
 
-  async checkPrerequisites(): Promise<PrerequisiteCheck[]> {
+  async checkPrerequisites(provider: ProviderId = 'claude'): Promise<PrerequisiteCheck[]> {
     const checks: PrerequisiteCheck[] = [];
     logger.info('[AgentExecutor] Checking prerequisites', { repoDir: this.config.repoDir });
 
-    // Claude Code CLI
+    // F4: provider CLI health probe from the registry (claude keeps the old message/shape)
+    const providerDef = resolveProviderDefinition(provider);
+    const probeCmd = buildHealthProbeCommand(provider);
+    const cliCheckName = `${providerDef.displayName} CLI`;
+    const cliUnavailable = `${providerDef.binaries[0]} 命令不可用`;
     try {
-      const { stdout } = await execSh('claude --version 2>&1 || echo "NOT_FOUND"', {
+      const { stdout } = await execSh(`${probeCmd} 2>&1 || echo "NOT_FOUND"`, {
         cwd: '/tmp',
         timeoutMs: 10_000,
       });
       if (stdout.includes('NOT_FOUND')) {
-        checks.push({ name: 'Claude Code CLI', passed: false, message: 'claude 命令不可用' });
+        checks.push({ name: cliCheckName, passed: false, message: cliUnavailable });
       } else {
-        checks.push({ name: 'Claude Code CLI', passed: true, message: stdout.trim().slice(0, 80) });
+        checks.push({ name: cliCheckName, passed: true, message: stdout.trim().slice(0, 80) });
       }
     } catch {
-      checks.push({ name: 'Claude Code CLI', passed: false, message: 'claude 命令不可用' });
+      checks.push({ name: cliCheckName, passed: false, message: cliUnavailable });
     }
 
     // 磁盘空间

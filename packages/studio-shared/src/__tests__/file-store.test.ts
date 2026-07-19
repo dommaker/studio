@@ -14,6 +14,8 @@ import os from 'node:os';
 import {
   FileStore,
   LockTimeoutError,
+  parseChannels,
+  stringifyChannels,
   parseFrontmatter,
   serializeFrontmatter,
   type AgentProfileData,
@@ -771,5 +773,122 @@ describe('FileStore', () => {
       const data = await store.readJson<{ v: number }>(fp);
       expect(data!.v).toBe(2);
     });
+  });
+});
+
+// ─── F3: channels 字段解析/归一化/迁移 ───
+
+describe('parseChannels (F3)', () => {
+  it('parses single-encoded JSON array string', () => {
+    expect(parseChannels('["ch-1","ch-2"]')).toEqual(['ch-1', 'ch-2']);
+  });
+
+  it('unwraps double-encoded value (legacy write bug)', () => {
+    // 形如 "\"[\\\"ch-1\\\"]\""（live 数据中的实际形态）
+    const doubleEncoded = JSON.stringify(JSON.stringify(['ch-1']));
+    expect(parseChannels(doubleEncoded)).toEqual(['ch-1']);
+  });
+
+  it('accepts an already-parsed array', () => {
+    expect(parseChannels(['ch-1'])).toEqual(['ch-1']);
+  });
+
+  it('returns [] for empty array / empty string', () => {
+    expect(parseChannels('[]')).toEqual([]);
+    expect(parseChannels('')).toEqual([]);
+    expect(parseChannels('   ')).toEqual([]);
+  });
+
+  it('returns [] for garbage / non-string-array values', () => {
+    expect(parseChannels('not json')).toEqual([]);
+    expect(parseChannels('42')).toEqual([]);
+    expect(parseChannels('{"a":1}')).toEqual([]);
+    expect(parseChannels(null)).toEqual([]);
+    expect(parseChannels(undefined)).toEqual([]);
+    expect(parseChannels(42)).toEqual([]);
+  });
+
+  it('filters non-string entries from parsed arrays', () => {
+    expect(parseChannels('["a",1,null,"b"]')).toEqual(['a', 'b']);
+  });
+
+  it('returns [] for triple-encoded garbage depth', () => {
+    const triple = JSON.stringify(JSON.stringify(JSON.stringify(['x'])));
+    expect(parseChannels(triple)).toEqual([]);
+  });
+});
+
+describe('stringifyChannels (F3)', () => {
+  it('stores arrays as single-encoded JSON', () => {
+    expect(stringifyChannels(['ch-1', 'ch-2'])).toBe('["ch-1","ch-2"]');
+  });
+
+  it('normalizes single-encoded string input (legacy client)', () => {
+    expect(stringifyChannels('["ch-1"]')).toBe('["ch-1"]');
+  });
+
+  it('normalizes double-encoded string input', () => {
+    expect(stringifyChannels(JSON.stringify(JSON.stringify(['ch-1'])))).toBe('["ch-1"]');
+  });
+
+  it('normalizes garbage / undefined to []', () => {
+    expect(stringifyChannels('garbage')).toBe('[]');
+    expect(stringifyChannels(undefined)).toBe('[]');
+  });
+});
+
+describe('FileStore.migrateChannelsEncoding (F3)', () => {
+  let tmpDir: string;
+  let store: FileStore;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('rewrites double-encoded channels to single encoding', async () => {
+    const good = makeProfile('p-good');
+    good.channels = '["ch-1"]';
+    const bad = makeProfile('p-bad');
+    bad.channels = JSON.stringify(JSON.stringify(['ch-2']));
+    await store.createProfile(good);
+    await store.createProfile(bad);
+
+    const result = await store.migrateChannelsEncoding();
+    expect(result).toEqual({ scanned: 2, rewritten: 1 });
+
+    expect((await store.getProfile('p-good'))!.channels).toBe('["ch-1"]');
+    expect((await store.getProfile('p-bad'))!.channels).toBe('["ch-2"]');
+  });
+
+  it('dryRun counts but does not write', async () => {
+    const bad = makeProfile('p-bad');
+    bad.channels = JSON.stringify(JSON.stringify(['ch-2']));
+    await store.createProfile(bad);
+
+    const result = await store.migrateChannelsEncoding({ dryRun: true });
+    expect(result).toEqual({ scanned: 1, rewritten: 1 });
+    expect((await store.getProfile('p-bad'))!.channels).toBe(bad.channels);
+  });
+
+  it('skips malformed profile.json and missing channels field', async () => {
+    const dir = path.join(tmpDir, 'agents', 'p-corrupt');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'profile.json'), '{bad json');
+    const noChannels = makeProfile('p-no-channels');
+    delete (noChannels as Partial<AgentProfileData>).channels;
+    await store.createProfile(noChannels);
+
+    const result = await store.migrateChannelsEncoding();
+    expect(result).toEqual({ scanned: 0, rewritten: 0 });
+  });
+
+  it('returns zeros when agents dir does not exist', async () => {
+    const result = await store.migrateChannelsEncoding();
+    expect(result).toEqual({ scanned: 0, rewritten: 0 });
   });
 });

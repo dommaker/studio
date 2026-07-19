@@ -7,7 +7,10 @@ import * as path from 'path';
 import * as os from 'os';
 import { EventEmitter } from 'events';
 
-vi.mock('@dommaker/studio-shared', () => ({
+vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
+  // Spread real module: FileStore must exist (task-executor.ts constructs
+  // `new FileStore()` at module scope for JSONL event writes).
+  ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   getModelForTier: vi.fn(() => 'claude-sonnet-4-20250514'),
   parseStreamLine: vi.fn((line: string) => {

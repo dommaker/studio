@@ -45,6 +45,12 @@ describe('cli-adapter', () => {
   });
 
   describe('buildSpawnArgs for codex', () => {
+    test('uses exec --json for non-interactive runs', () => {
+      const result = buildSpawnArgs('codex', {});
+      expect(result.args).toEqual(['exec', '--json']);
+      expect(result.promptViaStdin).toBe(true);
+    });
+
     test('adds --model when provided', () => {
       const result = buildSpawnArgs('codex', { model: 'gpt-4' });
       const idx = result.args.indexOf('--model');
@@ -52,18 +58,9 @@ describe('cli-adapter', () => {
       expect(result.args[idx + 1]).toBe('gpt-4');
     });
 
-    test('adds --session when provided', () => {
+    test('uses exec resume subcommand when sessionId provided', () => {
       const result = buildSpawnArgs('codex', { sessionId: 'sess-1' });
-      const idx = result.args.indexOf('--session');
-      expect(idx).not.toBe(-1);
-      expect(result.args[idx + 1]).toBe('sess-1');
-    });
-
-    test('adds --max-steps for maxTurns', () => {
-      const result = buildSpawnArgs('codex', { maxTurns: 5 });
-      const idx = result.args.indexOf('--max-steps');
-      expect(idx).not.toBe(-1);
-      expect(result.args[idx + 1]).toBe('5');
+      expect(result.args).toEqual(['exec', 'resume', 'sess-1', '--json']);
     });
 
     test('uses prompt as positional arg when provided', () => {
@@ -79,9 +76,9 @@ describe('cli-adapter', () => {
   });
 
   describe('buildSpawnArgs for opencode', () => {
-    test('starts with run subcommand', () => {
+    test('starts with run subcommand and json format', () => {
       const result = buildSpawnArgs('opencode', {});
-      expect(result.args[0]).toBe('run');
+      expect(result.args).toEqual(['run', '--format', 'json']);
     });
 
     test('adds --model when provided', () => {
@@ -91,18 +88,34 @@ describe('cli-adapter', () => {
       expect(result.args[idx + 1]).toBe('claude-3');
     });
 
-    test('adds --output for outputFormat', () => {
-      const result = buildSpawnArgs('opencode', { outputFormat: 'json' });
-      const idx = result.args.indexOf('--output');
+    test('maps stream-json to --format json', () => {
+      const result = buildSpawnArgs('opencode', { outputFormat: 'stream-json' });
+      const idx = result.args.indexOf('--format');
       expect(idx).not.toBe(-1);
       expect(result.args[idx + 1]).toBe('json');
     });
 
-    test('adds --max-turns when provided', () => {
-      const result = buildSpawnArgs('opencode', { maxTurns: 20 });
-      const idx = result.args.indexOf('--max-turns');
+    test('adds --session when sessionId provided', () => {
+      const result = buildSpawnArgs('opencode', { sessionId: 'sess-9' });
+      const idx = result.args.indexOf('--session');
       expect(idx).not.toBe(-1);
-      expect(result.args[idx + 1]).toBe('20');
+      expect(result.args[idx + 1]).toBe('sess-9');
+    });
+  });
+
+  describe('buildSpawnArgs for kimi', () => {
+    test('delivers prompt via --prompt flag with stream-json output', () => {
+      const result = buildSpawnArgs('kimi', { prompt: 'hello' });
+      expect(result.command).toBe('kimi');
+      expect(result.args).toEqual(['--output-format', 'stream-json', '--prompt', 'hello']);
+      expect(result.promptViaStdin).toBe(false);
+    });
+
+    test('adds --session when sessionId provided', () => {
+      const result = buildSpawnArgs('kimi', { sessionId: '01HZX' });
+      const idx = result.args.indexOf('--session');
+      expect(idx).not.toBe(-1);
+      expect(result.args[idx + 1]).toBe('01HZX');
     });
   });
 

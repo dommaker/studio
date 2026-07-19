@@ -62,11 +62,14 @@ describe('AC2: agent-executor.ts cmd construction', () => {
       expect(cmdBlock).toContain('promptFile');
     });
 
-    test('AC2.1-5: cmd should contain "claude", "--print", and stream-json format', () => {
-      expect(cmdBlock).toContain('claude');
-      expect(cmdBlock).toContain('--print');
-      expect(cmdBlock).toContain('--output-format stream-json');
-      expect(cmdBlock).toContain('--verbose');
+    test('AC2.1-5: cmd resolves binary/args via the provider registry (claude keeps --print, stream-json, --verbose)', () => {
+      // F4: hardcoded `claude --print --output-format stream-json --verbose` literals moved
+      // into the shared provider registry (claude def); the cmd array now references
+      // spawnArgs. Runtime flag coverage lives in src/__tests__/cli-adapter.test.ts.
+      expect(cmdBlock).toContain('spawnArgs.command');
+      expect(cmdBlock).toContain('...spawnArgs.args');
+      expect(sessionManagerSrc).toContain('`--verbose`');
+      expect(sessionManagerSrc).toContain('buildSpawnArgs(provider');
     });
   });
 
@@ -141,12 +144,12 @@ describe('AC2: agent-executor.ts cmd construction', () => {
 
 // ─── Cross-AC integrity check ────────────────────────────────────
 describe('Cross-AC integrity', () => {
-  test('cmd structure: must start with cd, then claude with flags, then input redirect', () => {
+  test('cmd structure: must start with cd, then provider command with args, then input redirect', () => {
     expect(cmdBlock).toMatch(/cd\s+"\$\{worktree\}"/);
-    const claudeIdx = cmdBlock.indexOf('claude');
+    const commandIdx = cmdBlock.indexOf('spawnArgs.command');
     const redirectIdx = cmdBlock.indexOf('<');
-    expect(claudeIdx).toBeGreaterThan(0);
-    expect(redirectIdx).toBeGreaterThan(claudeIdx);
+    expect(commandIdx).toBeGreaterThan(0);
+    expect(redirectIdx).toBeGreaterThan(commandIdx);
   });
 
   test('promptFile variable is reused, not renamed (in session-manager)', () => {

@@ -1,10 +1,13 @@
 /**
  * CLI Adapter — translate common agent args to provider-specific spawn args
  *
- * Supports: claude, codex, opencode, openclaw
- * Each provider has different CLI flags for the same concepts.
+ * Provider definitions come from the shared provider registry (F4):
+ * claude, kimi, codex, opencode built in (+ openclaw config-only),
+ * user overrides via ~/.studio/providers.json.
+ * claude args are byte-identical to the pre-F4 hardcoded adapter.
  */
 
+import { resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
 import type { ProviderName } from './cli-scanner.js';
 
 /** Common CLI parameters for agent execution */
@@ -49,128 +52,13 @@ export function buildSpawnArgs(
   params: AgentCliParams,
   providerPath?: string,
 ): SpawnArgs {
-  const command = providerPath || provider;
-
-  switch (provider) {
-    case 'claude':
-      return buildClaudeArgs(command, params);
-    case 'codex':
-      return buildCodexArgs(command, params);
-    case 'opencode':
-      return buildOpencodeArgs(command, params);
-    case 'openclaw':
-      return buildOpenclawArgs(command, params);
-    default:
-      return buildGenericArgs(command, params);
-  }
-}
-
-function buildClaudeArgs(command: string, params: AgentCliParams): SpawnArgs {
-  // Default to stream-json for tool:call/file:change event capture
-  const format = params.outputFormat || 'stream-json';
-  const args: string[] = ['--print', '--output-format', format, '--verbose'];
-
-  if (params.sessionId) {
-    args.push('--session-id', params.sessionId);
-  }
-  if (params.maxTurns) {
-    args.push('--max-turns', String(params.maxTurns));
-  }
-  if (params.extraArgs) {
-    args.push(...params.extraArgs);
-  }
+  const def = resolveProviderDefinition(provider);
+  const { args, promptViaStdin } = buildArgsFromTemplate(def, params);
 
   return {
-    command,
+    command: providerPath || def.binaries[0] || provider,
     args,
-    promptViaStdin: true,
+    env: def.env ? { ...def.env } : undefined,
+    promptViaStdin,
   };
-}
-
-function buildCodexArgs(command: string, params: AgentCliParams): SpawnArgs {
-  const args: string[] = [];
-
-  if (params.model) {
-    args.push('--model', params.model);
-  }
-  if (params.outputFormat) {
-    args.push('--format', params.outputFormat);
-  }
-  if (params.sessionId) {
-    args.push('--session', params.sessionId);
-  }
-  if (params.maxTurns) {
-    args.push('--max-steps', String(params.maxTurns));
-  }
-  if (params.extraArgs) {
-    args.push(...params.extraArgs);
-  }
-
-  // Prompt via positional arg or stdin
-  if (params.prompt) {
-    args.push(params.prompt);
-    return { command, args, promptViaStdin: false };
-  }
-
-  return { command, args, promptViaStdin: true };
-}
-
-function buildOpencodeArgs(command: string, params: AgentCliParams): SpawnArgs {
-  const args: string[] = ['run'];
-
-  if (params.model) {
-    args.push('--model', params.model);
-  }
-  if (params.outputFormat) {
-    args.push('--output', params.outputFormat);
-  }
-  if (params.maxTurns) {
-    args.push('--max-turns', String(params.maxTurns));
-  }
-  if (params.extraArgs) {
-    args.push(...params.extraArgs);
-  }
-
-  return { command, args, promptViaStdin: true };
-}
-
-function buildOpenclawArgs(command: string, params: AgentCliParams): SpawnArgs {
-  const args: string[] = [];
-
-  if (params.model) {
-    args.push('--model', params.model);
-  }
-  if (params.sessionId) {
-    args.push('--session', params.sessionId);
-  }
-  if (params.maxTurns) {
-    args.push('--max-turns', String(params.maxTurns));
-  }
-  if (params.extraArgs) {
-    args.push(...params.extraArgs);
-  }
-
-  return { command, args, promptViaStdin: true };
-}
-
-function buildGenericArgs(command: string, params: AgentCliParams): SpawnArgs {
-  const args: string[] = [];
-
-  if (params.model) {
-    args.push('--model', params.model);
-  }
-  if (params.outputFormat) {
-    args.push('--output-format', params.outputFormat);
-  }
-  if (params.sessionId) {
-    args.push('--session-id', params.sessionId);
-  }
-  if (params.maxTurns) {
-    args.push('--max-turns', String(params.maxTurns));
-  }
-  if (params.extraArgs) {
-    args.push(...params.extraArgs);
-  }
-
-  return { command, args, promptViaStdin: true };
 }

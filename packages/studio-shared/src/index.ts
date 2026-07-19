@@ -41,7 +41,7 @@ export { eventBus, StudioEventBus } from './event-bus';
 export { memoryStore } from './memory-store';
 
 // 导出 FileStore (AN 运行时数据文件存储)
-export { FileStore, LockTimeoutError, parseFrontmatter, serializeFrontmatter } from './file-store';
+export { FileStore, LockTimeoutError, parseChannels, stringifyChannels, parseFrontmatter, serializeFrontmatter, formatRequirementId, formatEvolutionId } from './file-store';
 export type {
   AgentProfileData,
   RuntimeStateData,
@@ -54,6 +54,13 @@ export type {
   WorkUnitEventType,
   WorkUnitSnapshot,
   WorkUnitFilter,
+  RequirementData,
+  RequirementStatus,
+  RequirementFilter,
+  EvolutionProposalData,
+  EvolutionProposalStatus,
+  EvolutionProposalFilter,
+  EvolutionTargetType,
 } from './file-store';
 
 // 导出 Stats 模块

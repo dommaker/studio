@@ -15,3 +15,5 @@ export type { SddFrontmatter } from './sdd-utils';
 export { getDispatchStrategy, getAvailableSlots, updateDispatchOutcome } from './concurrency-control';
 export { extractAffectedFiles } from './error-file-extractor';
 export { forceCommit } from './git-utils';
+export { resolveEventsDir } from './events-dir';
+export { resolvePromptOverridesDir, readPromptOverride, renderWithOverride } from './prompt-overrides';
