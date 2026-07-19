@@ -44,7 +44,7 @@
 | `knowledgeService.semanticSearch` | `knowledge-service.ts` | mcp-local-rag 语义检索；E2：可用性探测（进程内缓存 5min）+ 失败降级关键词检索，不再静默返回 [] |
 | `signalAggregator` | `signal-aggregator.ts` | 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | `fetchExternal` | `producers/external-fetcher.ts` | 外部文档抓取 + 摄入 |
-| `knowledgeRoutes` | `routes.ts` | REST API（含 /unified 统一浏览） |
+| `knowledgeRoutes` | `routes.ts` | REST API 挂载门面（挂载下方 6 个子路由，含 /unified 统一浏览） |
 | `ImproverScheduler` | `improver-scheduler.service.ts` | 自文档化调度器（每小时刷新 stale CONTEXT.md + 生成架构文档） |
 
 ## 目录结构
@@ -74,7 +74,14 @@ knowledge/
 ├── pattern-miner.ts           # Producer: 交互模式
 ├── decision-chain-extractor.ts # Producer: 决策链
 ├── eval-case-generator.ts     # Producer: 评估用例
-├── routes.ts                  # API 路由
+├── routes.ts                  # API 路由门面（挂载子路由，导出 knowledgeRoutes/knowledgeInternalRoutes 不变）
+├── document-store.ts          # 文档 FileStore 存取助手（DocRecord + list/get/save + 项目读取）
+├── documents.routes.ts        # 子路由：文档列表/详情/CRUD/归档/审批
+├── files.routes.ts            # 子路由：文件浏览（/requirements /read-file /file）
+├── entries.routes.ts          # 子路由：知识条目（/export /ask /gaps /unified）
+├── evolution.routes.ts        # 子路由：知识进化（/evolution/*）
+├── search.routes.ts           # 子路由：检索与解法指标（/resolutions /search /resolution/*）
+├── internal.routes.ts         # 子路由：内部端点（/sync-status /upsert /extract-*，无 auth）
 └── import.routes.ts           # 文件导入路由
 ```
 
