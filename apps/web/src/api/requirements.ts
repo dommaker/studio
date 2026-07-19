@@ -1,0 +1,45 @@
+// Requirement API — REQ 需求编号体系（vision §5.3）
+import { api } from './index';
+
+export type RequirementStatus = 'open' | 'in-progress' | 'done' | 'archived';
+
+export interface Requirement {
+  id: string;                 // REQ-0042
+  seq: number;
+  title: string;
+  status: RequirementStatus;
+  channelId?: string | null;
+  createdAt: string;
+  createdBy: string;
+  docs?: string[];
+  description?: string;
+}
+
+export interface RequirementChainWorkUnit {
+  id: string;
+  title: string;
+  status: string;
+  assigneeId: string | null;
+}
+
+export interface RequirementChain {
+  requirement: Requirement;
+  workunits: RequirementChainWorkUnit[];
+}
+
+export const requirementApi = {
+  list: (params?: { status?: string; channelId?: string }) =>
+    api.get<{ success: boolean; data: Requirement[] }>('/requirements', { params }),
+
+  get: (id: string) =>
+    api.get<{ success: boolean; data: Requirement }>(`/requirements/${id}`),
+
+  create: (data: { title: string; channelId?: string; description?: string }) =>
+    api.post<{ success: boolean; data: Requirement }>('/requirements', data),
+
+  update: (id: string, data: { title?: string; status?: RequirementStatus; docs?: string[]; description?: string }) =>
+    api.patch<{ success: boolean; data: Requirement }>(`/requirements/${id}`, data),
+
+  getChain: (id: string) =>
+    api.get<{ success: boolean; data: RequirementChain }>(`/requirements/${id}/chain`),
+};

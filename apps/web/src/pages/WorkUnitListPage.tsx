@@ -204,6 +204,11 @@ function WorkUnitRow({
               {statusLabels[wu.status] ?? wu.status}
             </span>
             <span className="text-xs text-gray-500">{typeLabels[wu.type] ?? wu.type}</span>
+            {wu.reqId && (
+              <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-300" title="REQ 需求编号">
+                {wu.reqId}
+              </span>
+            )}
             <span className="font-medium text-white truncate">{wu.scope}</span>
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
@@ -242,6 +247,7 @@ function WorkUnitRow({
             <div><span className="text-gray-500">Type:</span> <span className="text-gray-300">{wu.type}</span></div>
             <div><span className="text-gray-500">Assignee:</span> <span className="text-gray-300">{wu.assigneeId ?? 'none'}</span></div>
             <div><span className="text-gray-500">Channel:</span> <span className="text-gray-300">{wu.channelId ?? 'none'}</span></div>
+            <div><span className="text-gray-500">REQ:</span> <span className="text-gray-300">{wu.reqId ?? 'none'}</span></div>
             <div><span className="text-gray-500">Retry:</span> <span className="text-gray-300">{wu.retryCount}</span></div>
             <div><span className="text-gray-500">Failure:</span> <span className="text-gray-300">{wu.failureType ?? 'none'}</span></div>
             <div className="col-span-2"><span className="text-gray-500">Updated:</span> <span className="text-gray-300">{formatTime(wu.updatedAt)}</span></div>

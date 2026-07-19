@@ -13,6 +13,7 @@ export interface WorkUnit {
   retryCount: number;
   timeoutAt: string | null;
   channelId: string | null;
+  reqId?: string | null;
   metadata: string | null;
   createdAt: string;
   updatedAt: string;
