@@ -126,6 +126,11 @@
   - `auditor-execution.ts` — 建议执行（低风险自动应用/确认卡片+铃铛通知/RKB Resolution 创建/Triage 升级/eval case 生成/B8 提案预检）
   - `auditor-doc-freshness.ts` — doc-freshness issue 处理（numeric/status 差异自动修复 + PR，narrative 差异评论）
   - `auditor-reports.ts` — 洞察与报告输出（会话行为趋势/B13-011 七日趋势/tier 成功率反馈/#系统 推送）
+- `knowledge-agent.service.ts` — KnowledgeAgent 门面（被动知识提取 + F1 每日维护），T3 拆分后保留公共 API、safeIngest（P2.5 形态门禁+质量门）与 runDailyMaintenance 聚合；对外导出 `KnowledgeAgent` / `knowledgeAgent` / `EXTRACT_FROM_TEXT_SYSTEM_PROMPT` / `getExtractFromTextSystemPrompt` 不变。
+  - `knowledge-extraction.ts` — 提取（执行结果/审查/错误/完成输出/部署结果/任意文本）+ 提取 prompt 单一来源 + #系统 Channel helper + git diff 读取
+  - `knowledge-cold-start.ts` — 冷启动四源导入（P1b: docs/code/git/manual）+ Discord 通知
+  - `knowledge-analysis.ts` — 会话分析（决策记录 extractDecision / 用户行为模式 extractUserBehavior KE-003）
+  - `knowledge-maintenance.ts` — 语料分析（F1：语义去重/质量评估/过期验证/矛盾审查）
 
 ## 依赖关系
 
