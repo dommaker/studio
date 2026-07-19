@@ -7,7 +7,6 @@ set -e
 
 CONFIG_DIR="$HOME/.studio"
 CONFIG_FILE="$CONFIG_DIR/config.env"
-SERVICE_FILE="/etc/systemd/system/studio-api.service"
 
 echo "=== Studio 统一配置初始化 ==="
 
@@ -47,26 +46,7 @@ else
     echo "Config already exists: $CONFIG_FILE"
 fi
 
-# 3. 更新 systemd service 文件
-echo ""
-echo "Updating systemd service ..."
-
-# 备份原文件
-if [ -f "$SERVICE_FILE" ]; then
-    cp "$SERVICE_FILE" "${SERVICE_FILE}.bak.$(date +%s)"
-    echo "Backed up: ${SERVICE_FILE}.bak.*"
-fi
-
-# 复制新 service 文件
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cp "$SCRIPT_DIR/studio-api.service" "$SERVICE_FILE"
-echo "Updated: $SERVICE_FILE"
-
-# 4. 重新加载 systemd
-systemctl daemon-reload
-echo "systemctl daemon-reload done"
-
-# 5. 验证配置
+# 3. 验证配置
 echo ""
 echo "=== 验证配置 ==="
 echo "Config file: $CONFIG_FILE"

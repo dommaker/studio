@@ -1,4 +1,6 @@
 // Agent API 路由
+// ⚠️ LEGACY surface — 仍被 web 端调用（apps/web/src/api/index.ts `agentApi` ← agentStore / ProjectDetail(Page) / PMOCard）。
+// 计划迁移到 agent-profiles / workunit API（见 docs/vision-2026.md），迁移前请勿在此扩展新功能。
 import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
 import { reviewAgent } from './review-agent.service.js';

@@ -26,7 +26,7 @@
 
 ## 依赖关系
 
-- 依赖：`@dommaker/studio-prisma`（Prisma 模型）、`ws`（WebSocket 库）
+- 依赖：`ws`（WebSocket 库）
 - 被依赖：`agents/`（任务分发）、`channels/`（Channel Workspace 设置）、`web/`（UI 组件）
 
 ## 注意事项

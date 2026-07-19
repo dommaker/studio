@@ -3,19 +3,15 @@ packages:
   - 'apps/*'
 
 allowBuilds:
-  '@prisma/client': true
   '@prisma/engines': true
   esbuild: true
-  prisma: true
 
 minimumReleaseAge: 0
 
 catalog:
   '@fastify/cors': ^8.4.0
-  '@prisma/client': ^5.7.0
   '@types/node': ^20.0.0
   fastify: ^4.24.0
-  prisma: ^5.22.0
   typescript: ^5.3.0
   vitest: ^1.0.0
   zod: ^3.22.0

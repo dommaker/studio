@@ -4,7 +4,7 @@
  * GET /api/v1/events/stream — Server-Sent Events stream
  *
  * Query params:
- *   topics — comma-separated topic filter (executions, tasks, meetings, all)
+ *   topics — comma-separated topic filter (executions, tasks, all)
  *   Last-Event-ID — reconnection support (standard SSE header)
  *
  * Provides a simpler alternative to WebSocket for one-way server→client streaming.
@@ -33,7 +33,6 @@ function getTopicFromEventType(eventType: string): string {
   if (eventType.startsWith('execution.')) return 'executions';
   if (eventType.startsWith('node.')) return 'nodes';
   if (eventType.startsWith('task.')) return 'tasks';
-  if (eventType.startsWith('meeting.')) return 'meetings';
   if (eventType.startsWith('goal.')) return 'goals';
   if (eventType.startsWith('runtime.')) return 'executions';
   if (eventType.startsWith('knowledge.')) return 'knowledge';

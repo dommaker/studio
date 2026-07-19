@@ -1,13 +1,12 @@
 /**
  * 全局弹窗状态 hook
- * - showAgentRegistry, showResult, selectedProject
+ * - showResult, selectedProject
  * - handleViewDetails
  */
 import { useState } from 'react';
 import type { ExecutionState } from '../types';
 
 export function useGlobalModals() {
-  const [showAgentRegistry, setShowAgentRegistry] = useState(false);
   const [showResult, setShowResult] = useState(false);
   const [selectedProject, setSelectedProject] = useState<any>(null);
 
@@ -51,8 +50,6 @@ export function useGlobalModals() {
   };
 
   return {
-    showAgentRegistry,
-    setShowAgentRegistry,
     showResult,
     setShowResult,
     selectedProject,

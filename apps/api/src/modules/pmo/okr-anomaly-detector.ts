@@ -27,6 +27,15 @@ interface AnomalyItem {
 
 export async function detectAnomalies(): Promise<AnomalyReport> {
   const now = new Date();
+  // TODO(vision §5.3): PMO 重定义为 REQ 需求编号体系，独立检测器已下线。
+  // 默认停用（本函数当前亦无生产调用方）；如需临时运行设 OKR_ANOMALY_DETECTOR_ENABLED=true。
+  // 模块与测试保留，清理归 cleanup batch-2。
+  if (process.env.OKR_ANOMALY_DETECTOR_ENABLED !== 'true') {
+    return {
+      anomalies: [],
+      summary: { totalMetrics: 0, anomalyCount: 0, timestamp: now },
+    };
+  }
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const anomalies: AnomalyItem[] = [];
   const STUDIO_DIR = path.join(os.homedir(), '.studio');

@@ -146,7 +146,9 @@ export class DiscordNotifier {
 
   /**
    * 发送带确认/拒绝按钮的消息
-   * 使用 Link 按钮（style 5）打开确认 URL
+   *
+   * meetings 模块已删除，确认/拒绝 URL 无有效目标 —— 降级为纯文本通知。
+   * TODO: 接入新审批链路后恢复按钮
    */
   async sendWithConfirmButtons(
     title: string,
@@ -154,20 +156,8 @@ export class DiscordNotifier {
     actionId: string,
     channelId?: string
   ): Promise<void> {
-    const baseUrl = process.env.MEETING_ACTION_BASE_URL || '';
-    if (!baseUrl) {
-      logger.warn('[DiscordNotifier] MEETING_ACTION_BASE_URL not set, buttons will not work');
-    }
-
-    await this.send({
-      title,
-      content,
-      channelId,
-      buttons: [
-        { label: '✅ 确认执行', url: `${baseUrl}/api/v1/meetings/${actionId}/confirm`, style: 'link' },
-        { label: '❌ 拒绝', url: `${baseUrl}/api/v1/meetings/${actionId}/reject`, style: 'link' }
-      ]
-    });
+    logger.info(`[DiscordNotifier] confirm action ${actionId} sent without buttons (meetings module removed)`);
+    await this.send({ title, content, channelId });
   }
 
   /**
