@@ -25,6 +25,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 
 // ─── 类型定义 ───
 
@@ -238,10 +239,27 @@ export class FileStore {
     }
   }
 
-  /** 写入 JSON 文件 */
+  /**
+   * 写入 JSON 文件（原子写）。
+   * 同目录 tmp 文件 + rename（同分区 rename 原子），进程崩溃或并发读不会看到撕裂内容；
+   * tmp 名含 pid + 随机串防并发冲突；rename 前 fsync 落盘；失败时清理 tmp。
+   */
   public async writeJson(filePath: string, data: unknown): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
-    await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
+    const tmpPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
+    try {
+      const fh = await fs.promises.open(tmpPath, 'w');
+      try {
+        await fh.writeFile(JSON.stringify(data, null, 2), 'utf-8');
+        await fh.sync();
+      } finally {
+        await fh.close();
+      }
+      await fs.promises.rename(tmpPath, filePath);
+    } catch (err) {
+      await fs.promises.unlink(tmpPath).catch(() => {});
+      throw err;
+    }
   }
 
   /** 追加一行 JSONL */
@@ -673,15 +691,37 @@ export class FileStore {
     await this.appendJsonl(this.eventsPath, event);
   }
 
-  async getIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
+  /**
+   * 读取 workunits/index.json 原始快照数组。
+   * 文件不存在 → null（调用方按空处理）；存在但 JSON 撕裂/非数组 → 抛出带路径的错误。
+   * 损坏绝不静默当空数组——防止后续基于空数组回写把全部已有快照抹掉。
+   */
+  private async readIndexFile(): Promise<WorkUnitSnapshot[] | null> {
+    let content: string;
     try {
-      const snapshots = await this.readJson<WorkUnitSnapshot[]>(this.indexPath);
-      if (!snapshots) return [];
-      return applyFilter(snapshots, filter);
-    } catch {
-      // index 损坏则重建
-      return this.rebuildIndex(filter);
+      content = await fs.promises.readFile(this.indexPath, 'utf-8');
+    } catch (err: unknown) {
+      if (isErrnoError(err) && err.code === 'ENOENT') return null;
+      throw err;
     }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (err) {
+      throw new Error(
+        `WorkUnit index corrupted (JSON parse failed): ${this.indexPath}` +
+        `${err instanceof Error ? ` — ${err.message}` : ''}`
+      );
+    }
+    if (!Array.isArray(parsed)) {
+      throw new Error(`WorkUnit index corrupted (not an array): ${this.indexPath}`);
+    }
+    return parsed as WorkUnitSnapshot[];
+  }
+
+  async getIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
+    const snapshots = (await this.readIndexFile()) ?? [];
+    return applyFilter(snapshots, filter);
   }
 
   async rebuildIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
@@ -717,15 +757,8 @@ export class FileStore {
 
   async claimWorkUnit(wuId: string, assigneeId: string): Promise<boolean> {
     return this.withLock(this.lockDir, async () => {
-      // 读取当前 index
-      let snapshots: WorkUnitSnapshot[] = [];
-      try {
-        const loaded = await this.readJson<WorkUnitSnapshot[]>(this.indexPath);
-        if (loaded) snapshots = loaded;
-      } catch {
-        // index 不存在或损坏，从 events 重建
-        snapshots = await this.rebuildIndex();
-      }
+      // 读取当前 index（不存在 → 空；撕裂/损坏 → 抛错，不再幻影 "not found"）
+      const snapshots = (await this.readIndexFile()) ?? [];
 
       const wu = snapshots.find(s => s.id === wuId);
       if (!wu || wu.status !== 'unassigned') {
@@ -762,16 +795,20 @@ export class FileStore {
   /**
    * Upsert a single WorkUnit snapshot in index.json.
    * 用于 service 层 create/update 后同步更新快照。
+   * read-modify-write 全程持有 workunits flock（与 claimWorkUnit 同一把锁），
+   * 跨进程并发写不会丢更新。
    */
   async upsertSnapshot(snapshot: WorkUnitSnapshot): Promise<void> {
-    let snapshots: WorkUnitSnapshot[] = [];
-    try {
-      const loaded = await this.readJson<WorkUnitSnapshot[]>(this.indexPath);
-      if (loaded) snapshots = loaded;
-    } catch {
-      // index 不存在或损坏，从 events 重建
-      snapshots = await this.rebuildIndex();
-    }
+    return this.withLock(this.lockDir, () => this.upsertSnapshotLocked(snapshot));
+  }
+
+  /**
+   * upsertSnapshot 的无锁变体：仅供已持有 this.lockDir 的内部路径调用。
+   * withLock（mkdir）不可重入，持锁方若调公共 upsertSnapshot 会自死锁。
+   */
+  private async upsertSnapshotLocked(snapshot: WorkUnitSnapshot): Promise<void> {
+    // index 不存在 → 从空开始；撕裂/损坏 → 抛错，绝不基于空数组回写
+    const snapshots = (await this.readIndexFile()) ?? [];
     const idx = snapshots.findIndex(s => s.id === snapshot.id);
     if (idx >= 0) {
       snapshots[idx] = snapshot;
@@ -784,16 +821,17 @@ export class FileStore {
   /**
    * Remove a WorkUnit snapshot from index.json by id.
    * 用于 service 层 delete 后清理快照。
+   * 与 upsertSnapshot 同一把 workunits flock。
    */
   async removeSnapshot(id: string): Promise<void> {
-    let snapshots: WorkUnitSnapshot[] = [];
-    try {
-      const loaded = await this.readJson<WorkUnitSnapshot[]>(this.indexPath);
-      if (loaded) snapshots = loaded;
-    } catch {
-      // index 不存在或损坏 — nothing to remove
-      return;
-    }
+    return this.withLock(this.lockDir, () => this.removeSnapshotLocked(id));
+  }
+
+  /** removeSnapshot 的无锁变体：仅供已持有 this.lockDir 的内部路径调用 */
+  private async removeSnapshotLocked(id: string): Promise<void> {
+    // index 不存在 → nothing to remove；撕裂/损坏 → 抛错
+    const snapshots = await this.readIndexFile();
+    if (!snapshots) return;
     const filtered = snapshots.filter(s => s.id !== id);
     await this.writeJson(this.indexPath, filtered);
   }
