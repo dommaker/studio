@@ -1,4 +1,5 @@
 // Knowledge confirm / retract card — B1-008/B1-010
+// 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；交互语义零变更
 import type { ChannelMessage } from '../../api/channel';
 
 interface Props {
@@ -25,38 +26,37 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
   }> | undefined;
 
   if (status === 'confirmed' || status === 'rejected' || status === 'deprecated' || status === 'published') {
+    const okState = status === 'confirmed' || status === 'published';
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-3 max-w-md">
-        <div className="text-xs text-gray-500 mb-1">{isRetract ? '⚠️ 撤回确认' : '📚 知识收录'}</div>
-        <div className={`text-sm ${status === 'confirmed' || status === 'published' ? 'text-green-700' : status === 'deprecated' ? 'text-gray-500' : 'text-red-600'}`}>
+      <div className="mc-card" data-card-type={meta.cardType}>
+        <div className="mc-card-label" style={{ marginBottom: 4 }}>{isRetract ? '撤回确认' : '知识收录'}</div>
+        <span className={okState ? 'mc-status mc-status-done' : status === 'deprecated' ? 'mc-status mc-status-pending' : 'mc-status mc-status-error'}>
           {isRetract
             ? (status === 'deprecated' ? '已确认废弃' : '撤回已取消，保持发布')
-            : (status === 'confirmed' ? '已确认入库' : '已拒绝')}
-        </div>
+            : (status === 'confirmed' ? '已确认入库' : status === 'published' ? '已确认入库' : '已拒绝')}
+        </span>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-blue-200 rounded-lg shadow-sm p-3 max-w-md">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-gray-500">
-          {isRetract ? '⚠️ 撤回确认' : '📚 知识收录确认'}
+    <div className="mc-card" data-card-type={meta.cardType} style={{ borderColor: 'var(--accent-border)' }}>
+      <div className="mc-card-head">
+        <span className="mc-card-label">
+          {isRetract ? '撤回确认' : '知识收录确认'}
         </span>
-        <span className="text-xs text-blue-600">{entries?.length || 0} 条知识</span>
+        <span className="mc-status mc-status-need">{entries?.length || 0} 条知识</span>
       </div>
 
       {/* Entries */}
       {entries?.map((entry, i) => (
-        <div key={i} className="mb-1.5 border-b border-gray-100 pb-1.5 last:border-0">
-          <p className="text-sm font-medium text-gray-800">{entry.title}</p>
-          <p className="text-xs text-gray-500 mt-0.5">{entry.content}</p>
-          <div className="flex gap-1 mt-0.5">
-            <span className="text-xs text-blue-500 bg-blue-50 px-1 rounded">
-              {TYPE_LABELS[entry.type] || entry.type}
-            </span>
+        <div key={i} style={{ marginBottom: 6, borderBottom: '1px solid var(--border-subtle)', paddingBottom: 6 }}>
+          <p className="mc-card-body" style={{ fontWeight: 600 }}>{entry.title}</p>
+          <p className="mc-card-dim" style={{ marginTop: 2 }}>{entry.content}</p>
+          <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+            <span className="mc-wu-link">{TYPE_LABELS[entry.type] || entry.type}</span>
             {entry.tags?.map(tag => (
-              <span key={tag} className="text-xs text-gray-400 bg-gray-50 px-1 rounded">{tag}</span>
+              <span key={tag} className="mc-status mc-status-pending">{tag}</span>
             ))}
           </div>
         </div>
@@ -64,18 +64,16 @@ export function KnowledgeConfirmCard({ message, meta, onAction }: Props) {
 
       {/* Action buttons */}
       {status !== 'confirmed' && status !== 'rejected' && status !== 'deprecated' && (
-        <div className="flex gap-2 border-t pt-2 mt-1">
+        <div className="mc-card-actions">
           <button
             onClick={() => onAction(message.id, isRetract ? 'retract_confirm' : 'knowledge_confirm')}
-            className={`flex-1 text-xs px-3 py-1.5 rounded text-white transition-colors ${
-              isRetract ? 'bg-orange-500 hover:bg-orange-600' : 'bg-green-500 hover:bg-green-600'
-            }`}
+            className={isRetract ? 'mc-btn mc-btn-warn' : 'mc-btn mc-btn-primary'}
           >
             {isRetract ? '确认废弃' : '确认入库'}
           </button>
           <button
             onClick={() => onAction(message.id, isRetract ? 'retract_reject' : 'knowledge_reject')}
-            className="flex-1 border border-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
+            className="mc-btn"
           >
             拒绝
           </button>

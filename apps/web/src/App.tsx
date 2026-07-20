@@ -156,10 +156,18 @@ export default function App() {
 
       <Suspense fallback={null}><TriageBanner /></Suspense>
 
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-h-0">
         <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
-        <div className="flex-1 overflow-auto" style={{ background: 'var(--bg-primary)' }}>
+        {/* Mission Control：频道工作区为满高三栏（各栏独立滚动），其余页面保持文档流滚动 */}
+        <div
+          className={
+            /^\/channels\/[^/]+$/.test(location.pathname)
+              ? 'flex-1 flex flex-col overflow-hidden min-h-0'
+              : 'flex-1 overflow-auto'
+          }
+          style={{ background: 'var(--bg-primary)' }}
+        >
           <Routes>
             <Route
               path="/"

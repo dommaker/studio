@@ -1,6 +1,7 @@
 @import "./animations.css";
 @import "./responsive.css";
-/* 科幻极简设计系统 - 统一样式 */
+@import "./mission-control.css";
+/* 科幻极简设计系统 - 统一样式（2026-07 起深色主题 = 方向 A「Mission Control」） */
 
 /* === 主题切换 === */
 /* 默认深色主题 —— 方向 A「Mission Control 控制台」（docs/plans/2026-07-ui-visual-directions.md §2）

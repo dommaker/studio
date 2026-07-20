@@ -1,4 +1,5 @@
 // Channel Member Manager — AC-B frontend gap
+// 2026-07 视觉重构（方向 A Mission Control）：深色变量重绘；成员管理逻辑零变更
 import React, { useEffect, useState, useRef } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
 
@@ -88,46 +89,43 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
   const memberCount = memberIds.length;
 
   return (
-    <div className="relative" ref={panelRef}>
+    <div style={{ position: 'relative' }} ref={panelRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-1 px-2 py-1 text-sm text-gray-600 bg-gray-50 rounded hover:bg-gray-100"
+        className="mc-btn"
         title="Channel 成员管理"
       >
-        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-        </svg>
-        <span>{memberCount > 0 ? `${memberCount} agents` : 'All'}</span>
+        成员 <span>{memberCount > 0 ? `${memberCount} agents` : 'All'}</span>
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50">
-          <div className="px-3 py-2 border-b border-gray-100">
-            <h3 className="text-sm font-medium text-gray-700">频道成员</h3>
+        <div className="mc-mention-popup" style={{ left: 'auto', right: 0, bottom: 'auto', top: '100%', marginTop: 4, width: 288, maxHeight: 'none' }}>
+          <div style={{ padding: '8px 10px', borderBottom: '1px solid var(--border-subtle)' }}>
+            <h3 className="mc-card-body" style={{ fontWeight: 600 }}>频道成员</h3>
             {memberCount === 0 && (
-              <p className="text-xs text-gray-400 mt-0.5">空 = 所有 Agent 可见</p>
+              <p className="mc-drawer-note">空 = 所有 Agent 可见</p>
             )}
           </div>
 
           {/* Current members */}
-          <div className="max-h-40 overflow-y-auto px-2 py-1">
+          <div style={{ maxHeight: 160, overflowY: 'auto', padding: '4px 6px' }}>
             {members.length === 0 && memberCount === 0 && (
-              <p className="text-xs text-gray-400 text-center py-2">未配置成员，显示所有 Agent</p>
+              <p className="mc-drawer-note" style={{ textAlign: 'center', padding: '8px 0' }}>未配置成员，显示所有 Agent</p>
             )}
             {members.map((m) => (
-              <div key={m.id} className="flex items-center justify-between py-1 px-1 rounded hover:bg-gray-50">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-sm font-medium text-gray-700 truncate">@{m.name}</span>
+              <div key={m.id} className="mc-mention-item" style={{ justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0 }}>
+                  <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis' }}>@{m.name}</span>
                   {m.lastError && (
-                    <span className="text-xs text-orange-500 flex-shrink-0" title={m.lastError}>⚠ 不可用</span>
+                    <span className="mc-status mc-status-running" title={m.lastError}>! 不可用</span>
                   )}
                   {m.description && (
-                    <span className="text-xs text-gray-400 truncate">{m.description}</span>
+                    <span className="mc-mention-desc">{m.description}</span>
                   )}
                 </div>
                 <button
                   onClick={() => handleRemove(m.id)}
-                  className="text-gray-400 hover:text-red-500 text-xs flex-shrink-0"
+                  className="mc-icon-btn"
                   title="移除"
                 >
                   ✕
@@ -138,44 +136,42 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
 
           {/* Add existing agent */}
           {availableAgents.length > 0 && (
-            <div className="border-t border-gray-100 px-2 py-1">
-              <p className="text-xs text-gray-400 px-1 py-1">添加 Agent</p>
+            <div style={{ borderTop: '1px solid var(--border-subtle)', padding: '4px 6px' }}>
+              <p className="mc-drawer-note" style={{ padding: '0 4px' }}>添加 Agent</p>
               {availableAgents.map((a) => (
                 <button
                   key={a.id}
                   onClick={() => handleAdd(a.id)}
-                  className="w-full text-left px-2 py-1 text-sm text-gray-600 hover:bg-blue-50 hover:text-blue-600 rounded flex items-center justify-between"
+                  className="mc-mention-item"
                 >
                   <span>@{a.name}</span>
-                  <span className="text-xs text-gray-400">+</span>
+                  <span className="mc-mention-desc">+</span>
                 </button>
               ))}
             </div>
           )}
 
           {/* Create new agent */}
-          <div className="border-t border-gray-100 px-3 py-2">
+          <div style={{ borderTop: '1px solid var(--border-subtle)', padding: 8 }}>
             {showCreateForm ? (
-              <div className="flex flex-col gap-1">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <input
                   type="text"
                   value={newAgentName}
                   onChange={(e) => setNewAgentName(e.target.value)}
                   placeholder="Agent 名称"
-                  className="px-2 py-1 text-sm border border-gray-200 rounded focus:outline-none focus:border-blue-400"
+                  className="input"
                   autoFocus
                   onKeyDown={(e) => e.key === 'Enter' && handleCreateAgent()}
                 />
-                <div className="flex gap-1">
-                  <button
-                    onClick={handleCreateAgent}
-                    className="flex-1 px-2 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
-                  >
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <button onClick={handleCreateAgent} className="mc-btn mc-btn-primary" style={{ flex: 1 }}>
                     创建
                   </button>
                   <button
                     onClick={() => { setShowCreateForm(false); setNewAgentName(''); }}
-                    className="flex-1 px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded hover:bg-gray-200"
+                    className="mc-btn"
+                    style={{ flex: 1 }}
                   >
                     取消
                   </button>
@@ -184,7 +180,8 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
             ) : (
               <button
                 onClick={() => setShowCreateForm(true)}
-                className="w-full text-center text-xs text-blue-500 hover:text-blue-600 py-1"
+                className="mc-icon-btn"
+                style={{ opacity: 1, width: '100%', textAlign: 'center', color: 'var(--accent-primary)' }}
               >
                 + 创建新 Agent
               </button>

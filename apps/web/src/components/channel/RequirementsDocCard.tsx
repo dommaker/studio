@@ -1,4 +1,5 @@
 // RequirementsDoc inline card — B1-001/B1-003, M2 quality gate
+// 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；质量门/编辑/进度轮询逻辑零变更
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../api';
@@ -34,6 +35,15 @@ const STATUS_LABELS: Record<string, string> = {
   done: '已完成',
   error: '失败',
 };
+
+/** 状态 → mc-status chip 修饰类 */
+function statusClass(status: string): string {
+  if (status === 'executing') return 'mc-status mc-status-running';
+  if (status === 'done') return 'mc-status mc-status-done';
+  if (status === 'error') return 'mc-status mc-status-error';
+  if (status === 'ready') return 'mc-status mc-status-need';
+  return 'mc-status mc-status-pending';
+}
 
 async function fetchReqProgress(reqId: string) {
   try {
@@ -138,97 +148,87 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
   }, [status, reqId]);
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 max-w-md">
+    <div className="mc-card" data-card-type="requirements_doc">
       {/* Status badge */}
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-gray-500">📋 需求文档</span>
-        <span className={`text-xs px-2 py-0.5 rounded-full ${
-          status === 'executing' ? 'bg-blue-100 text-blue-700' :
-          status === 'done' ? 'bg-green-100 text-green-700' :
-          status === 'error' ? 'bg-red-100 text-red-700' :
-          'bg-yellow-100 text-yellow-700'
-        }`}>
+      <div className="mc-card-head">
+        <span className="mc-card-label">需求文档</span>
+        <span className={statusClass(status)}>
+          {status === 'executing' ? <span className="mc-dot" /> : null}
           {STATUS_LABELS[status] || status}
         </span>
       </div>
 
       {/* Content */}
-      <div className="text-sm text-gray-800 whitespace-pre-wrap mb-3">
+      <div className="mc-card-body" style={{ marginBottom: 8 }}>
         {editing ? (
           <div>
             <textarea
               value={editContent}
               onChange={e => setEditContent(e.target.value)}
-              className="w-full border border-gray-300 rounded p-2 text-xs font-mono resize-y"
+              className="input"
+              style={{ width: '100%', fontSize: 'var(--fs-sm)', resize: 'vertical' }}
               rows={8}
               autoFocus
             />
-            <div className="flex gap-1 mt-1">
-              <button onClick={handleSave} disabled={saving}
-                className="text-xs bg-green-500 text-white px-2 py-0.5 rounded hover:bg-green-600">
+            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <button onClick={handleSave} disabled={saving} className="mc-btn mc-btn-primary">
                 {saving ? '保存中...' : '保存'}
               </button>
-              <button onClick={() => setEditing(false)}
-                className="text-xs border border-gray-300 px-2 py-0.5 rounded hover:bg-gray-50">
+              <button onClick={() => setEditing(false)} className="mc-btn">
                 取消
               </button>
             </div>
           </div>
         ) : (
           <div>
-            {edited && <span className="text-xs text-green-600 mr-1">✓ 已更新</span>}
+            {edited && <span className="mc-status mc-status-done" style={{ marginRight: 6 }}>✓ 已更新</span>}
             {message.content}
           </div>
         )}
       </div>
       {/* Edit button (B2-009) */}
       {!editing && isIdle && (
-        <button onClick={handleEdit} className="text-xs text-gray-400 hover:text-blue-500 mb-2">
-          ✏️ 编辑
+        <button onClick={handleEdit} className="mc-icon-btn" style={{ opacity: 1, marginBottom: 6 }}>
+          编辑
         </button>
       )}
 
       {/* M2: Quality gate confirmation modal */}
       {showQualityModal && qualityCheck && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center">
-          <div className="bg-white rounded-lg shadow-xl p-5 max-w-sm w-full mx-4">
-            <h3 className="font-semibold text-gray-800 mb-3">质量门检查</h3>
+        <div className="modal-overlay">
+          <div className="modal-content" style={{ maxWidth: 400 }}>
+            <h3 className="modal-title" style={{ marginBottom: 10 }}>质量门检查</h3>
             {qualityCheck.ironLawFailures > 0 ? (
-              <div className="bg-red-50 border border-red-200 rounded p-3 mb-3">
-                <span className="text-red-700 text-sm font-medium">❌ {qualityCheck.ironLawFailures} 条 Iron Law 未通过</span>
-                <p className="text-red-600 text-xs mt-1">执行前必须修复上述约束违规</p>
+              <div className="mc-status mc-status-error" style={{ display: 'flex', padding: '8px 10px', marginBottom: 10 }}>
+                ✗ {qualityCheck.ironLawFailures} 条 Iron Law 未通过（执行前必须修复约束违规）
               </div>
             ) : (
-              <div className="bg-green-50 border border-green-200 rounded p-3 mb-3">
-                <span className="text-green-700 text-sm font-medium">✅ Iron Laws 全部通过</span>
-                {qualityCheck.guidelineWarnings > 0 && (
-                  <p className="text-yellow-600 text-xs mt-1">⚠️ {qualityCheck.guidelineWarnings} 条 Guidelines 告警</p>
-                )}
+              <div className="mc-status mc-status-done" style={{ display: 'flex', padding: '8px 10px', marginBottom: 10 }}>
+                ✓ Iron Laws 全部通过
+                {qualityCheck.guidelineWarnings > 0 ? `（${qualityCheck.guidelineWarnings} 条 Guidelines 告警）` : ''}
               </div>
             )}
-            <div className="text-xs text-gray-500 mb-3">
+            <div className="mc-drawer-note" style={{ marginBottom: 10 }}>
               共检查 {qualityCheck.totalConstraints} 条约束
             </div>
 
             {/* M4b: Gate exception override reason */}
             {qualityCheck.ironLawFailures > 0 && (
-              <div className="mb-3">
-                <label className="text-xs text-gray-600 block mb-1">例外理由（记录审计日志）</label>
+              <div style={{ marginBottom: 10 }}>
+                <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>例外理由（记录审计日志）</label>
                 <textarea
                   value={overrideReason}
                   onChange={e => setOverrideReason(e.target.value)}
                   placeholder="说明为何允许在违规情况下继续..."
-                  className="w-full border border-gray-300 rounded p-1.5 text-xs resize-none"
+                  className="input"
+                  style={{ width: '100%', fontSize: 'var(--fs-sm)', resize: 'none' }}
                   rows={2}
                 />
               </div>
             )}
 
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowQualityModal(false)}
-                className="flex-1 border border-gray-300 text-gray-600 text-xs px-3 py-1.5 rounded hover:bg-gray-50"
-              >
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setShowQualityModal(false)} className="mc-btn" style={{ flex: 1 }}>
                 取消
               </button>
               <button
@@ -237,11 +237,8 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
                   confirmStartExecution();
                 }}
                 disabled={qualityCheck.ironLawFailures > 0 && !overrideReason.trim()}
-                className={`flex-1 text-white text-xs px-3 py-1.5 rounded transition-colors ${
-                  qualityCheck.ironLawFailures > 0
-                    ? 'bg-orange-500 hover:bg-orange-600 disabled:opacity-50'
-                    : 'bg-blue-500 hover:bg-blue-600'
-                }`}
+                className={qualityCheck.ironLawFailures > 0 ? 'mc-btn mc-btn-warn' : 'mc-btn mc-btn-primary'}
+                style={{ flex: 1 }}
               >
                 {qualityCheck.ironLawFailures > 0 ? '强制执行（记录例外）' : '确认执行'}
               </button>
@@ -252,24 +249,14 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
 
       {/* Action buttons (idle) */}
       {isIdle && (
-        <div className="flex gap-2 border-t pt-2">
-          <button
-            onClick={handleStartExecution}
-            disabled={qualityChecking}
-            className="flex-1 bg-blue-500 text-white text-xs px-3 py-1.5 rounded hover:bg-blue-600 transition-colors disabled:opacity-50"
-          >
+        <div className="mc-card-actions">
+          <button onClick={handleStartExecution} disabled={qualityChecking} className="mc-btn mc-btn-primary">
             {qualityChecking ? '检查中...' : '开始执行'}
           </button>
-          <button
-            onClick={() => onAction(message.id, 'modify')}
-            className="flex-1 border border-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={() => onAction(message.id, 'modify')} className="mc-btn">
             修改需求
           </button>
-          <button
-            onClick={() => onAction(message.id, 'continue_discussion')}
-            className="flex-1 border border-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded hover:bg-gray-50 transition-colors"
-          >
+          <button onClick={() => onAction(message.id, 'continue_discussion')} className="mc-btn">
             继续讨论
           </button>
         </div>
@@ -277,35 +264,32 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
 
       {/* Executing state — show progress */}
       {status === 'executing' && (
-        <div className="border-t pt-2">
+        <div className="mc-card-actions" style={{ display: 'block' }}>
           {progress ? (
-            <div className="space-y-1">
-              <div className="flex justify-between text-xs">
-                <span className="text-blue-600">执行进度</span>
-                <span className="text-gray-500">{progress.completed}/{progress.total} 完成</span>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 'var(--fs-xs)' }}>
+                <span className="mc-dim">执行进度</span>
+                <span className="mc-dim">{progress.completed}/{progress.total} 完成</span>
               </div>
-              <div className="w-full bg-gray-200 rounded-full h-1.5">
+              <div className="mc-progress">
                 <div
-                  className="bg-blue-500 h-1.5 rounded-full transition-all duration-500"
+                  className="mc-progress-fill"
                   style={{ width: `${progress.total > 0 ? (progress.completed / progress.total) * 100 : 0}%` }}
                 />
               </div>
-              <button
-                onClick={() => navigate(`/workunits`)}
-                className="text-xs text-blue-500 hover:underline mt-1"
-              >
-                查看 WorkUnits →
+              <button onClick={() => navigate(`/workunits`)} className="mc-wu-link" style={{ marginTop: 6 }}>
+                查看 WorkUnits ›
               </button>
             </div>
           ) : (
-            <div className="text-xs text-gray-400">执行已启动，正在初始化...</div>
+            <div className="mc-drawer-note">执行已启动，正在初始化...</div>
           )}
         </div>
       )}
 
       {/* Other states */}
       {!isIdle && status !== 'executing' && (
-        <div className="text-xs text-gray-400 border-t pt-2">
+        <div className="mc-card-foot" style={{ borderTop: '1px solid var(--border-subtle)', paddingTop: 8 }}>
           {status === 'needs_revision' && '等待修改反馈...'}
           {status === 'done' && '需求已完成'}
           {status === 'error' && `错误: ${meta.error || '未知'}`}
