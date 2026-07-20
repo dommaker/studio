@@ -2,8 +2,9 @@
 // 契约（γ 轨道依赖，不得偏离）：cardType 'knowledge_proposal'；
 // action 'knowledge_proposal_approve' / 'knowledge_proposal_reject'（由 ChannelDetailPage.handleAction 分发到 /promote、/demote）
 // 交互模式仿 AuditorSuggestionCard；视觉复用 mc-card 族
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
+import { knowledgeApi } from '../../api/knowledge';
 
 interface Props {
   message: ChannelMessage;
@@ -28,6 +29,25 @@ export function KnowledgeProposalCard({ message, meta, onAction }: Props) {
     meta.status === 'approved' || meta.status === 'rejected' ? meta.status : null,
   );
   const [pending, setPending] = useState(false);
+
+  // 已审核态按条目 maturity 派生（刷新/重进频道后仍正确；其他入口的审核也会反映）：
+  // 全部非 draft/archived → approved；全部 archived → rejected；否则保持待审。派生失败静默保持待审。
+  useEffect(() => {
+    if (reviewed || !entries?.length) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const maturities = await Promise.all(
+          entries.map(async e => (await knowledgeApi.getEntry(e.id)).data?.maturity),
+        );
+        if (cancelled) return;
+        if (maturities.every(m => m && m !== 'draft' && m !== 'archived')) setReviewed('approved');
+        else if (maturities.every(m => m === 'archived')) setReviewed('rejected');
+      } catch { /* 派生失败保持待审 */ }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const act = async (action: 'knowledge_proposal_approve' | 'knowledge_proposal_reject') => {
     setPending(true);

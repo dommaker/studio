@@ -35,6 +35,7 @@ pnpm start  # 启动生产服务
 
 - 治理配置：`.harness/config.yml`（preset: standard；`governance.doc_freshness` 声明式文档门禁）
 - 约束清单：`.harness/custom-constraints.yml` + harness preset 内置约束（`npx harness check` 校验）
+- **文档门禁约定（blocking）**：CI 对 `harness check` 与 `harness sync-docs --check` 强制执行。CONTEXT.md 新鲜度按 mtime 判定——**修改某模块源码时必须同步更新（至少 touch）该模块的 CONTEXT.md**，否则门禁红；新增/删除模块目录后跑 `npx harness sync-docs` 重生成 CAPABILITIES.md 并提交。
 
 ## 知识入口
 

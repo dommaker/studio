@@ -21,4 +21,6 @@ export const knowledgeApi = {
     }),
   promote: (entryId: string) => api.post('/knowledge-service/promote', { entryId }),
   demote: (entryId: string) => api.post('/knowledge-service/demote', { entryId }),
+  /** 单条目查询（卡片已审核态按 maturity 派生的数据源） */
+  getEntry: (id: string) => api.get<KnowledgeEntryItem>(`/knowledge-service/entries/${id}`),
 };

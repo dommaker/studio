@@ -335,42 +335,6 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       store.snapshot();
     } catch { /* best-effort */ }
 
-    // B10-201: Behavior profile trends (KnowledgeStore)
-    try {
-      const { sharedStore: bStore } = await import('../knowledge/knowledge-bus.service.js');
-      const behaviorEntries = bStore.list({ tags: ['behavior'] });
-      const behaviorProfiles = behaviorEntries
-        .filter((e: any) => new Date(e.created).getTime() >= since.getTime())
-        .map((e: any) => {
-          const d = JSON.parse(e.content || '{}');
-          return { category: d.category || 'unknown', suggestedAction: d.suggestedAction || 'skip', confidence: d.confidence || 0, status: (e as any).tags?.includes('pending') ? 'pending' : 'applied' };
-        });
-      if (behaviorProfiles.length > 0) {
-        const byCat: Record<string, number> = {};
-        const byAction: Record<string, number> = {};
-        let pendingCount = 0;
-        for (const p of behaviorProfiles) {
-          byCat[p.category] = (byCat[p.category] || 0) + 1;
-          byAction[p.suggestedAction] = (byAction[p.suggestedAction] || 0) + 1;
-          if (p.status === 'pending') pendingCount++;
-        }
-        const catLabels: Record<string, string> = { correction: '纠正', pattern: '决策', workflow: '决策', automation: '自动化' };
-        const actLabels: Record<string, string> = { create_rule: '规则', create_skill: 'Skill', create_automation: '自动化', skip: '跳过' };
-
-        lines.push('', '### 行为模式（24h）');
-        lines.push(`- 新提取: ${behaviorProfiles.length} 条 | 待确认: ${pendingCount} 条`);
-        const catLine = Object.entries(byCat).map(([c, n]) => `${catLabels[c] || c}(${n})`).join(', ');
-        lines.push(`- 分类: ${catLine}`);
-        const topAction = Object.entries(byAction).sort((a, b) => b[1] - a[1])[0];
-        if (topAction) {
-          lines.push(`- 最多建议: ${actLabels[topAction[0]] || topAction[0]} (${topAction[1]} 次)`);
-        }
-        if (pendingCount >= 5) {
-          lines.push(`- ⚠️ 积压 ${pendingCount} 条待确认行为模式 — 考虑批量审核`);
-        }
-      }
-    } catch { /* best-effort */ }
-
     // B9-025: Weekly profile report (every Sunday)
     if (new Date(now).getDay() === 0) {
       try {

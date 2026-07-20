@@ -1,10 +1,17 @@
 // KnowledgeProposalCard — 2026-07 知识审核闭环
 // 契约（γ 轨道依赖）：cardType 'knowledge_proposal'；
 // action 'knowledge_proposal_approve' / 'knowledge_proposal_reject'
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { KnowledgeProposalCard } from '../KnowledgeProposalCard';
+import { knowledgeApi } from '../../../api/knowledge';
 import type { ChannelMessage } from '../../../api/channel';
+
+// 已审核态按条目 maturity 派生：默认全部 draft（保持待审），各用例按需覆盖
+vi.mock('../../../api/knowledge', () => ({
+  knowledgeApi: { getEntry: vi.fn() },
+}));
+const mockGetEntry = knowledgeApi.getEntry as ReturnType<typeof vi.fn>;
 
 const baseMessage: ChannelMessage = {
   id: 'msg-kp-1',
@@ -29,6 +36,11 @@ const baseMessage: ChannelMessage = {
 };
 
 describe('KnowledgeProposalCard — 知识审核闭环', () => {
+  beforeEach(() => {
+    mockGetEntry.mockReset();
+    mockGetEntry.mockResolvedValue({ data: { maturity: 'draft' } });
+  });
+
   it('renders 条目标题/类型 + 通过/拒绝按钮', () => {
     render(<KnowledgeProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={vi.fn()} />);
     expect(screen.getByText('session 过期未刷新导致 401')).toBeTruthy();
@@ -74,5 +86,26 @@ describe('KnowledgeProposalCard — 知识审核闭环', () => {
     render(<KnowledgeProposalCard message={baseMessage} meta={meta} onAction={vi.fn()} />);
     expect(screen.getByText(/已通过/)).toBeTruthy();
     expect(screen.queryByText('拒绝')).not.toBeTruthy();
+  });
+
+  it('maturity 派生：条目全部 verified → 刷新后也显示已通过', async () => {
+    mockGetEntry.mockResolvedValue({ data: { maturity: 'verified' } });
+    render(<KnowledgeProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={vi.fn()} />);
+    expect(await screen.findByText(/已通过/)).toBeTruthy();
+    expect(screen.queryByText('拒绝')).not.toBeTruthy();
+  });
+
+  it('maturity 派生：条目全部 archived → 显示已拒绝；混合状态保持待审', async () => {
+    mockGetEntry.mockResolvedValue({ data: { maturity: 'archived' } });
+    const { unmount } = render(<KnowledgeProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={vi.fn()} />);
+    expect(await screen.findByText(/已拒绝/)).toBeTruthy();
+    unmount();
+
+    mockGetEntry
+      .mockResolvedValueOnce({ data: { maturity: 'draft' } })
+      .mockResolvedValueOnce({ data: { maturity: 'verified' } });
+    render(<KnowledgeProposalCard message={baseMessage} meta={JSON.parse(baseMessage.meta!)} onAction={vi.fn()} />);
+    await waitFor(() => expect(mockGetEntry).toHaveBeenCalledTimes(4));
+    expect(screen.getByText('通过')).toBeTruthy();
   });
 });
