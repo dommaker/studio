@@ -1,6 +1,6 @@
 // Contract test: MonitoringPage — MVP-6
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 
 vi.mock('react', async () => {
@@ -45,11 +45,30 @@ vi.mock('../../api/monitoring', () => ({
   },
 }));
 
+// 审核闭环：待审列表数据源（GET /knowledge-service/entries?maturity=draft）+ approve 走 /promote
+const { mockListPendingReview, mockPromote } = vi.hoisted(() => ({
+  mockListPendingReview: vi.fn(),
+  mockPromote: vi.fn(),
+}));
+vi.mock('../../api/knowledge', () => ({
+  knowledgeApi: { listPendingReview: mockListPendingReview, promote: mockPromote, demote: vi.fn() },
+}));
+
 import { MonitoringPage } from '../MonitoringPage';
 
 describe('MonitoringPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockListPendingReview.mockResolvedValue({
+      data: {
+        entries: [
+          { id: 'k-1', title: 'session 过期未刷新导致 401', type: 'pitfall', maturity: 'draft', created: new Date(Date.now() - 2 * 3600_000).toISOString() },
+          { id: 'k-2', title: '登录流程统一走 auth-service', type: 'guideline', maturity: 'draft', created: new Date(Date.now() - 26 * 3600_000).toISOString() },
+        ],
+        total: 2,
+      },
+    });
+    mockPromote.mockResolvedValue({ data: { success: true } });
   });
 
   it('renders page title', () => {
@@ -83,5 +102,32 @@ describe('MonitoringPage', () => {
     expect(screen.getByText('800')).toBeDefined(); // avgInjectedTokens
     expect(screen.getByText('40%')).toBeDefined(); // injectedBudgetUsedPct
     expect(screen.getByText('2.5%')).toBeDefined(); // avgOverheadRatio
+  });
+
+  // ── 审核闭环：待审区从纯计数升级为列表（标题/年龄/approve） ──
+
+  it('renders 待审提案列表：标题 + 年龄 + approve 按钮', async () => {
+    render(<MonitoringPage />);
+    expect(await screen.findByText('知识提案待审')).toBeDefined();
+    expect(await screen.findByText('session 过期未刷新导致 401')).toBeDefined();
+    expect(screen.getByText('登录流程统一走 auth-service')).toBeDefined();
+    // 年龄（2 小时前 / 1 天前）
+    expect(screen.getByText(/2 小时前/)).toBeDefined();
+    expect(screen.getByText(/1 天前/)).toBeDefined();
+    // 每行一个 approve 按钮
+    expect(screen.getAllByText('通过').length).toBe(2);
+  });
+
+  it('approve → 调 /promote 并把该条目移出列表', async () => {
+    render(<MonitoringPage />);
+    const buttons = await screen.findAllByText('通过');
+    fireEvent.click(buttons[0]);
+    await waitFor(() => {
+      expect(mockPromote).toHaveBeenCalledWith('k-1');
+    });
+    await waitFor(() => {
+      expect(screen.queryByText('session 过期未刷新导致 401')).toBeNull();
+    });
+    expect(screen.getByText('登录流程统一走 auth-service')).toBeDefined();
   });
 });
