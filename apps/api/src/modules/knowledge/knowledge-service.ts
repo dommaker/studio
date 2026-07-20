@@ -1392,8 +1392,8 @@ function buildConversationTranscript(messages: { role: string; content: string }
 }
 
 /**
- * R3: 单条 LLM 提取结果入库（proposal）。质量门与 KnowledgeAgent.safeIngest 对齐：
- * 形态门禁（数据形态重定向 trends）→ linter 阻断跳过。maturity 恒为 draft（proposal），
+ * R3: 单条 LLM 提取结果入库（proposal）。质量门：形态门禁（数据形态重定向 trends）→
+ * linter 阻断跳过。maturity 恒为 draft（proposal），
  * 审核 promote 前不参与注入。返回入库条目 id；被门禁跳过/拒绝时返回 null。
  */
 function ingestConversationEntry(
@@ -1408,7 +1408,7 @@ function ingestConversationEntry(
     const tags = Array.isArray(raw.tags) ? raw.tags.filter(t => typeof t === 'string') : [];
     const type = (VALID_KNOWLEDGE_TYPES.has(raw.type ?? '') ? raw.type : 'guideline') as KnowledgeSubsystem;
 
-    // 形态门禁（与 safeIngest 一致）：非知识形态不入库；数据形态重定向到 trends
+    // 形态门禁：非知识形态不入库；数据形态重定向到 trends
     const formResult = validateKnowledgeForm({ type, content, tags });
     if (!formResult.valid) {
       logger.info('[KnowledgeService] Conversation entry form-gate rejected', {

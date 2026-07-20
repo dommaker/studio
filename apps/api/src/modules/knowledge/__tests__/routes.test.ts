@@ -51,8 +51,7 @@ const EXPECTED_PUBLIC: Array<[string, string]> = [
 ];
 
 const EXPECTED_INTERNAL: Array<[string, string]> = [
-  ['GET', '/sync-status'], ['POST', '/upsert'], ['POST', '/extract-text'],
-  ['POST', '/extract-behavior'], ['POST', '/extract-text-sync'],
+  ['GET', '/sync-status'], ['POST', '/upsert'], ['POST', '/extract-text-sync'],
 ];
 
 function toSet(routes: Array<[string, string]>): Set<string> {

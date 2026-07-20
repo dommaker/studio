@@ -1,19 +1,18 @@
 /**
  * auditor-execution — 建议执行 / 升级 / 闭环单元测试
  * applyLowRiskSuggestions / pushConfirmationCards / autoCreateResolutions /
- * escalateToTriage / generateEvalCases / preCheckProposal
+ * escalateToTriage / generateEvalCases
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpHome, tmpData, mockHandleAlert, mockMatch, mockCreateResolution, mockGenEval } = vi.hoisted(() => {
+const { tmpHome, mockHandleAlert, mockMatch, mockCreateResolution, mockGenEval } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
   return {
     tmpHome: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-exec-home-')),
-    tmpData: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-exec-data-')),
     mockHandleAlert: vi.fn(() => Promise.resolve()),
     mockMatch: vi.fn(() => Promise.resolve({ matched: null })),
     mockCreateResolution: vi.fn(() => Promise.resolve({ id: 'res-new' })),
@@ -38,7 +37,6 @@ vi.mock('../../knowledge/eval-case-generator.js', () => ({
   evalCaseGenerator: { generateFromFailures: mockGenEval },
 }));
 
-import { FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../../skills/skill-store.js';
 import {
   applyLowRiskSuggestions,
@@ -46,7 +44,6 @@ import {
   autoCreateResolutions,
   escalateToTriage,
   generateEvalCases,
-  preCheckProposal,
 } from '../auditor-execution.js';
 
 // ── applyLowRiskSuggestions ──
@@ -267,49 +264,5 @@ describe('generateEvalCases()', () => {
   it('taskDescription is undefined for unparseable input', async () => {
     await generateEvalCases([{ status: 'closed', error: 'boom', agentType: 'executor', input: '{invalid json' }]);
     expect(mockGenEval.mock.calls[0][0][0].taskDescription).toBeUndefined();
-  });
-});
-
-// ── preCheckProposal ──
-
-describe('preCheckProposal()', () => {
-  const resDir = path.join(tmpHome, '.studio', 'data', 'resolutions');
-  let fileStore: FileStore;
-
-  beforeEach(() => {
-    fileStore = new FileStore(tmpData);
-    try { fs.rmSync(resDir, { recursive: true, force: true }); } catch {}
-  });
-
-  afterEach(() => {
-    try { fs.rmSync(resDir, { recursive: true, force: true }); } catch {}
-  });
-
-  it('passes high-confidence proposal with no similar history', async () => {
-    const result = await preCheckProposal(fileStore, { suggestedFix: 'reconfigure-xyz-unique-1', confidence: 0.9 });
-    expect(result.status).toBe('pass');
-    expect(result.reasons).toEqual([]);
-  });
-
-  it('warns on confidence < 0.5', async () => {
-    const result = await preCheckProposal(fileStore, { suggestedFix: 'reconfigure-xyz-unique-2', confidence: 0.4 });
-    expect(result.status).toBe('warning');
-    expect(result.reasons[0]).toContain('confidence');
-  });
-
-  it('blocks on confidence < 0.3', async () => {
-    const result = await preCheckProposal(fileStore, { suggestedFix: 'reconfigure-xyz-unique-3', confidence: 0.2 });
-    expect(result.status).toBe('blocked');
-  });
-
-  it('warns when a similar resolution is still pending', async () => {
-    fs.mkdirSync(resDir, { recursive: true });
-    fs.writeFileSync(path.join(resDir, 'res-pending.json'), JSON.stringify({
-      status: 'pending', title: 'res-pending', fix: 'apply reconfigure-xyz-pending slowly',
-    }), 'utf-8');
-
-    const result = await preCheckProposal(fileStore, { suggestedFix: 'reconfigure-xyz-pending', confidence: 0.9 });
-    expect(result.status).toBe('warning');
-    expect(result.reasons[0]).toContain('pending');
   });
 });

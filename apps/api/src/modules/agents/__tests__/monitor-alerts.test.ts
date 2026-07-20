@@ -1,5 +1,5 @@
 /**
- * monitor-alerts — 告警分发 / Triage 升级 / 事件写入 / 心跳持久化
+ * monitor-alerts — 告警分发 / Triage 升级 / 事件写入
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
@@ -42,8 +42,6 @@ import {
   dispatchMonitorAlerts,
   escalateToTriage,
   recordAlertPatterns,
-  recordHeartbeat,
-  loadPersistedHeartbeats,
 } from '../monitor-alerts.js';
 
 function readEventLines(): any[] {
@@ -73,20 +71,14 @@ describe('monitor-alerts: escalateToTriage (FL-037)', () => {
     }));
   });
 
-  it('escalates critical deploy_push_failed → ext_dependency', () => {
-    escalateToTriage([{ source: 'deploy_push_failed', level: 'critical', message: 'push failed' } as any]);
-    expect(mockHandleAlert).toHaveBeenCalledWith(expect.objectContaining({ type: 'ext_dependency' }));
-  });
-
   it('does NOT escalate warning alerts', () => {
     escalateToTriage([{ source: 'failure_trend', level: 'warning', message: 'm' } as any]);
     expect(mockHandleAlert).not.toHaveBeenCalled();
   });
 
-  it('does NOT escalate sources mapped to null (tool_error_rate / review_quality)', () => {
+  it('does NOT escalate sources mapped to null (tool_error_rate / session_file_size)', () => {
     escalateToTriage([
       { source: 'tool_error_rate', level: 'critical', message: 'a' } as any,
-      { source: 'review_quality', level: 'critical', message: 'b' } as any,
       { source: 'session_file_size', level: 'critical', message: 'c' } as any,
     ]);
     expect(mockHandleAlert).not.toHaveBeenCalled();
@@ -145,41 +137,6 @@ describe('monitor-alerts: recordAlertPatterns (H3)', () => {
       type: 'pattern',
       title: '[Monitor] failure_trend: trend',
     }));
-  });
-});
-
-describe('monitor-alerts: heartbeat persistence', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  const hbFile = () => path.join(tmpHome, '.studio', 'heartbeats.json');
-
-  it('recordHeartbeat persists heartbeat to file', () => {
-    recordHeartbeat('exec-1');
-
-    expect(fs.existsSync(hbFile())).toBe(true);
-    const data = JSON.parse(fs.readFileSync(hbFile(), 'utf-8'));
-    expect(typeof data['exec-1']).toBe('number');
-  });
-
-  it('loadPersistedHeartbeats restores fresh entries and drops stale (>30min)', () => {
-    fs.mkdirSync(path.dirname(hbFile()), { recursive: true });
-    fs.writeFileSync(hbFile(), JSON.stringify({
-      'stale-exec': Date.now() - 60 * 60_000,
-      'fresh-exec': Date.now(),
-    }));
-
-    loadPersistedHeartbeats();
-
-    const fresh = JSON.parse(fs.readFileSync(hbFile(), 'utf-8'));
-    expect(fresh['stale-exec']).toBeUndefined();
-    expect(typeof fresh['fresh-exec']).toBe('number');
-    expect(mockLogger.info).toHaveBeenCalledWith('[MonitorAgent] Restored heartbeats', expect.objectContaining({ count: expect.any(Number) }));
-  });
-
-  it('loadPersistedHeartbeats is a no-op when file missing', () => {
-    if (fs.existsSync(hbFile())) fs.unlinkSync(hbFile());
-    loadPersistedHeartbeats();
-    expect(mockLogger.info).not.toHaveBeenCalledWith('[MonitorAgent] Restored heartbeats', expect.anything());
   });
 });
 

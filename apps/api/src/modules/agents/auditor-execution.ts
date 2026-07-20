@@ -8,7 +8,6 @@
  *   - RKB: 新 error pattern 自动创建 pending Resolution
  *   - Triage 升级（Phase 3）
  *   - Better-Harness: 失败 → eval case 生成
- *   - B8: OKR 提案预检
  */
 
 import * as fs from 'fs';
@@ -278,75 +277,4 @@ function extractTaskDescription(input: any): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-// ── B8: OKR 驱动闭环 ──
-
-/**
- * 提案预检 — 轻量可行性校验
- */
-export async function preCheckProposal(
-  fileStore: FileStore,
-  proposal: { suggestedFix: string; confidence: number },
-): Promise<{
-  status: 'pass' | 'warning' | 'blocked';
-  reasons: string[];
-}> {
-  const reasons: string[] = [];
-
-  // 1. Confidence 阈值
-  if (proposal.confidence < 0.5) {
-    reasons.push('confidence 低于 0.5，分析结果可信度不足');
-  }
-
-  // 2. RKB 历史: 类似提案之前失败过?
-  try {
-    let similar: any = null;
-    try {
-      const RES_DIR = path.join(os.homedir(), '.studio', 'data', 'resolutions');
-      let allRes: any[] = [];
-      try {
-        const entries = await fs.promises.readdir(RES_DIR, { withFileTypes: true });
-        for (const e of entries) {
-          if (e.isFile() && e.name.endsWith('.json')) {
-            const data = await fileStore.readJson<any>(path.join(RES_DIR, e.name));
-            if (data) allRes.push(data);
-          }
-        }
-      } catch { /* no resolutions dir */ }
-      similar = allRes.find((r: any) =>
-        (r.status === 'pending' || r.status === 'canonical') &&
-        r.fix && r.fix.includes(proposal.suggestedFix.substring(0, 50))
-      ) || null;
-    } catch { /* non-blocking */ }
-    if (similar && similar.status === 'pending') {
-      reasons.push(`类似方案 "${similar.title}" 仍在 pending 状态，建议等待验证结果`);
-    }
-  } catch { /* non-blocking */ }
-
-  // 3. 检查重复提案
-  try {
-    const allWuSnapshots = await fileStore.getIndex();
-    const cutoff = new Date(Date.now() - 14 * 86400000);
-    const recentWorkUnits = allWuSnapshots.filter(s => {
-      if (s.type !== 'okr_proposal') return false;
-      if (new Date(s.createdAt).getTime() < cutoff.getTime()) return false;
-      if (!s.scope || !s.scope.includes(proposal.suggestedFix.substring(0, 30))) return false;
-      return true;
-    });
-    if (recentWorkUnits.length > 0) {
-      reasons.push(`最近 14 天内已有 ${recentWorkUnits.length} 个相似 WorkUnit，建议检查是否需要重新提案`);
-    }
-  } catch { /* non-blocking */ }
-
-  let status: 'pass' | 'warning' | 'blocked' = 'pass';
-  if (reasons.length === 0) {
-    status = 'pass';
-  } else if (proposal.confidence < 0.3 || reasons.length >= 2) {
-    status = 'blocked';
-  } else {
-    status = 'warning';
-  }
-
-  return { status, reasons };
 }

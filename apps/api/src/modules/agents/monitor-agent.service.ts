@@ -6,19 +6,18 @@
  *   - 进度停滞（.progress.json completedSteps 无变化）
  *   - 会话计数超阈值
  *   - 总执行时间超阈值
- *   - 心跳丢失
  *   - blocked 24h 自动放弃
  *
  * 结构（T3 拆分：探测/告警/报告分离，零行为变更；本文件为门面，保留聚合逻辑）：
- *   - monitor-probes.ts        任务/WorkUnit 级探测（失败趋势/停滞/超时/质量/预算/工具模式）
+ *   - monitor-probes.ts        任务/WorkUnit 级探测（失败趋势/停滞/超时/工具模式）
  *   - monitor-system-probes.ts 系统/知识级探测与自修复（系统健康/worktree GC/知识循环）
- *   - monitor-alerts.ts        告警分发/Triage 升级/事件写入/心跳持久化
+ *   - monitor-alerts.ts        告警分发/Triage 升级/事件写入
  *   - monitor-reports.ts       轨迹评估/每日洞察/交互模式观察
  *   - monitor-lifecycle.ts     G31 知识沉淀闸门 + 数据 TTL 清理
  */
 
 import { logger, FileStore } from '@dommaker/studio-shared';
-import type { MonitorAlert, TriageIncidentInput } from './types.js';
+import type { MonitorAlert } from './types.js';
 import * as probes from './monitor-probes.js';
 import * as systemProbes from './monitor-system-probes.js';
 import * as alerting from './monitor-alerts.js';
@@ -42,7 +41,6 @@ export class MonitorAgent {
 
   start(): void {
     if (this.interval) return;
-    this.loadPersistedHeartbeats();
     this.interval = setInterval(() => this.check().catch(e => {
       logger.error('[MonitorAgent] Check failed', { error: String(e) });
     }), CHECK_INTERVAL);
@@ -73,9 +71,7 @@ export class MonitorAgent {
 
     alerts.push(...await this.checkFailureTrend());
     alerts.push(...await this.checkProgressStagnation());
-    await this.autoAbandonStaleRunning(); // 先清理僵尸，再检查执行时间告警
     alerts.push(...await this.checkTotalExecutionTime());
-    alerts.push(...await this.checkHeartbeatLoss());
     alerts.push(...await this.checkToolPatterns());
     await this.evaluateTrajectory();  // G4
     await this.autoAbandonStaleBlocked();
@@ -83,10 +79,6 @@ export class MonitorAgent {
     await this.gcStaleWorktrees();
     await this.checkKnowledgeHealth();
     alerts.push(...await this.checkSessionFileHealth());
-    alerts.push(...await this.checkReviewQuality());
-    alerts.push(...await this.checkTokenBudget());
-    alerts.push(...await this.checkDeployPushFailed());
-    alerts.push(...await this.checkProxyRestartExhausted());
     // DailyReflection: 每天 23:50 聚合一次每日洞察
     await this.dailyReflection();
 
@@ -117,16 +109,8 @@ export class MonitorAgent {
     return probes.checkTotalExecutionTime(this.fileStore);
   }
 
-  private async checkHeartbeatLoss(): Promise<MonitorAlert[]> {
-    return probes.checkHeartbeatLoss();
-  }
-
   private async autoAbandonStaleBlocked(): Promise<void> {
     return probes.autoAbandonStaleBlocked(this.fileStore);
-  }
-
-  private async autoAbandonStaleRunning(): Promise<void> {
-    return probes.autoAbandonStaleRunning();
   }
 
   private async gcStaleWorktrees(): Promise<void> {
@@ -135,22 +119,6 @@ export class MonitorAgent {
 
   private async checkSessionFileHealth(): Promise<MonitorAlert[]> {
     return probes.checkSessionFileHealth();
-  }
-
-  private async checkReviewQuality(): Promise<MonitorAlert[]> {
-    return probes.checkReviewQuality(this.fileStore);
-  }
-
-  private async checkTokenBudget(): Promise<MonitorAlert[]> {
-    return probes.checkTokenBudget(this.fileStore);
-  }
-
-  private async checkDeployPushFailed(): Promise<MonitorAlert[]> {
-    return probes.checkDeployPushFailed(this.fileStore);
-  }
-
-  private async checkProxyRestartExhausted(): Promise<MonitorAlert[]> {
-    return probes.checkProxyRestartExhausted(this.fileStore);
   }
 
   private async checkToolPatterns(): Promise<MonitorAlert[]> {
@@ -179,18 +147,6 @@ export class MonitorAgent {
     return alerting.escalateToTriage(alerts);
   }
 
-  /**
-   * 🆕 记录心跳（由 agent.heartbeat 事件调用）+ 文件持久化
-   */
-  recordHeartbeat(executionId: string): void {
-    return alerting.recordHeartbeat(executionId);
-  }
-
-  /** Restore heartbeat state from persisted file on startup */
-  private loadPersistedHeartbeats(): void {
-    return alerting.loadPersistedHeartbeats();
-  }
-
   // ── 报告（monitor-reports）──
 
   /** G4: Trajectory Eval — 结构化轨迹评估 */
@@ -198,21 +154,8 @@ export class MonitorAgent {
     return reports.evaluateTrajectory(this.fileStore);
   }
 
-  /** B1-008: System health check for Triage */
-  async systemHealthCheck(): Promise<TriageIncidentInput[]> {
-    return systemProbes.systemHealthCheck();
-  }
-
   private async dailyReflection(): Promise<void> {
     return reports.dailyReflection(this.fileStore, this.reportState);
-  }
-
-  /**
-   * 从 session:summary 事件中提取模式分布，写入 pattern_report + 更新 UserPreference。
-   * 可独立调用（非 DailyReflection 时间窗口也可触发）。
-   */
-  async observePattern(): Promise<{ distribution: Record<string, number>; recurring: Array<{ type: string; count: number; successRate: number }> } | null> {
-    return reports.observePattern(this.fileStore);
   }
 
   // ── 数据生命周期（monitor-lifecycle）──

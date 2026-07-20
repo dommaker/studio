@@ -269,15 +269,13 @@
 | runner-lightweight | packages/studio-agent/src/services/runner-lightweight.ts | Runner Lightweight — 轻量单 session 执行（agent-runner.ts 拆分模块） |
 | runner-output | packages/studio-agent/src/services/runner-output.ts | Runner Output — 输出解析（agent-runner.ts 拆分模块） |
 | runner-params | packages/studio-agent/src/services/runner-params.ts | Runner Params — 参数构建（agent-runner.ts 拆分模块） |
-| auditor-doc-freshness | apps/api/src/modules/agents/auditor-doc-freshness.ts | Auditor Agent — Doc Freshness Issue 处理 |
 | auditor-execution | apps/api/src/modules/agents/auditor-execution.ts | Auditor Agent — 建议执行 / 升级 / 闭环 |
 | auditor-reports | apps/api/src/modules/agents/auditor-reports.ts | Auditor Agent — 洞察与报告输出 |
 | auditor-rules | apps/api/src/modules/agents/auditor-rules.ts | Auditor Agent — 审计规则（检测 → 建议） |
-| knowledge-analysis | apps/api/src/modules/agents/knowledge-analysis.ts | Knowledge Agent — 会话分析子模块 |
 | knowledge-cold-start | apps/api/src/modules/agents/knowledge-cold-start.ts | Knowledge Agent — 冷启动子模块 |
-| knowledge-extraction | apps/api/src/modules/agents/knowledge-extraction.ts | Knowledge Agent — 提取子模块 |
+| knowledge-extraction | apps/api/src/modules/agents/knowledge-extraction.ts | Knowledge Agent — 提取 prompt 单一来源 |
 | knowledge-maintenance | apps/api/src/modules/agents/knowledge-maintenance.ts | Knowledge Agent — 语料分析（每日维护）子模块 |
-| monitor-alerts | apps/api/src/modules/agents/monitor-alerts.ts | Monitor Agent — 告警分发 / Triage 升级 / 事件写入 / 心跳持久化 |
+| monitor-alerts | apps/api/src/modules/agents/monitor-alerts.ts | Monitor Agent — 告警分发 / Triage 升级 / 事件写入 |
 | monitor-lifecycle | apps/api/src/modules/agents/monitor-lifecycle.ts | Monitor Agent — G31 数据生命周期：知识沉淀闸门 + TTL 清理 |
 | monitor-probes | apps/api/src/modules/agents/monitor-probes.ts | Monitor Agent — 任务/WorkUnit 级探测 |
 | monitor-reports | apps/api/src/modules/agents/monitor-reports.ts | Monitor Agent — 报告：轨迹评估 / 每日洞察 / 交互模式观察 |

@@ -67,13 +67,10 @@ vi.mock('../triage-agent.service.js', () => ({
   triageAgent: { handleAlert: vi.fn() },
 }));
 
-import { MonitorAgent } from '../monitor-agent.service.js';
+import { systemHealthCheck } from '../monitor-system-probes.js';
 
 describe('MonitorAgent CPU load monitoring', () => {
-  let agent: MonitorAgent;
-
   beforeEach(() => {
-    agent = new MonitorAgent();
     mockLoadavg.mockReset();
     mockCpus.mockReset();
   });
@@ -82,7 +79,7 @@ describe('MonitorAgent CPU load monitoring', () => {
     mockLoadavg.mockReturnValue([1.0, 0.8, 0.5]);
     mockCpus.mockReturnValue(Array(2).fill({ model: 'test' }));
 
-    const anomalies = await (agent as any).systemHealthCheck();
+    const anomalies = await systemHealthCheck();
     const cpuAnomalies = anomalies.filter((a: any) => a.message?.includes('CPU'));
     expect(cpuAnomalies).toHaveLength(0);
   });
@@ -91,7 +88,7 @@ describe('MonitorAgent CPU load monitoring', () => {
     mockLoadavg.mockReturnValue([5.0, 3.0, 2.0]); // 2 cores, threshold=4
     mockCpus.mockReturnValue(Array(2).fill({ model: 'test' }));
 
-    const anomalies = await (agent as any).systemHealthCheck();
+    const anomalies = await systemHealthCheck();
     const cpuAnomalies = anomalies.filter((a: any) => a.message?.includes('CPU'));
     expect(cpuAnomalies).toHaveLength(1);
     expect(cpuAnomalies[0].severity).toBe('warning');
@@ -102,7 +99,7 @@ describe('MonitorAgent CPU load monitoring', () => {
     mockLoadavg.mockReturnValue([9.0, 5.0, 3.0]); // 2 cores, threshold=8
     mockCpus.mockReturnValue(Array(2).fill({ model: 'test' }));
 
-    const anomalies = await (agent as any).systemHealthCheck();
+    const anomalies = await systemHealthCheck();
     const cpuAnomalies = anomalies.filter((a: any) => a.message?.includes('CPU'));
     expect(cpuAnomalies).toHaveLength(1);
     expect(cpuAnomalies[0].severity).toBe('critical');
@@ -113,7 +110,7 @@ describe('MonitorAgent CPU load monitoring', () => {
     mockLoadavg.mockReturnValue([5.5, 3.3, 2.2]);
     mockCpus.mockReturnValue(Array(4).fill({ model: 'test' })); // 4 cores, threshold=8
 
-    const anomalies = await (agent as any).systemHealthCheck();
+    const anomalies = await systemHealthCheck();
     const cpuAnomalies = anomalies.filter((a: any) => a.message?.includes('CPU'));
     expect(cpuAnomalies).toHaveLength(0);
   });
@@ -122,7 +119,7 @@ describe('MonitorAgent CPU load monitoring', () => {
     mockLoadavg.mockReturnValue([9.0, 5.0, 3.0]);
     mockCpus.mockReturnValue(Array(4).fill({ model: 'test' }));
 
-    const anomalies = await (agent as any).systemHealthCheck();
+    const anomalies = await systemHealthCheck();
     const cpuAnomalies = anomalies.filter((a: any) => a.message?.includes('CPU'));
     expect(cpuAnomalies).toHaveLength(1);
     expect(cpuAnomalies[0].severity).toBe('warning'); // 9 > 8 (4×2) but < 16 (4×4)
