@@ -38,5 +38,5 @@ pnpm start  # 启动生产服务
 
 ## 知识入口
 
-- `.harness/knowledge/`：项目知识库（541 条），用 `harness knowledge` 查询
+- `.harness/knowledge/`：项目知识库（631 条），用 `harness knowledge` 查询
 - 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 41 个），改动代码时同步更新
