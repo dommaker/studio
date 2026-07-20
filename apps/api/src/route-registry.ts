@@ -38,6 +38,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     discordRoutes,
     larkRoutes,
     dingtalkRoutes,
+    { deployWebhookRoutes },
   ] = await Promise.all([
     import('./modules/agents/routes.js').then(m => m.default),
     import('./modules/executions/routes.js').then(m => m.default),
@@ -56,6 +57,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/discord/routes.js').then(m => m.default),
     import('./modules/lark/routes.js').then(m => m.default),
     import('./modules/dingtalk/routes.js').then(m => m.default),
+    import('./modules/deploy/webhook.routes.js') as Promise<{ deployWebhookRoutes: Router }>,
   ]);
 
   // SkillHub routes (FL-025)
@@ -226,6 +228,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // Discord
     { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions' },
+
+    // Deploy（触发式部署：GitHub push webhook，HMAC 校验，免登录见 app.ts PUBLIC_API）
+    { path: '/api/v1/deploy', router: deployWebhookRoutes, comment: 'GitHub push webhook → auto-deploy' },
 
     // Workspace (AS-020 P2: Daemon registration + token management)
     { path: '/api/v1/workspaces', router: workspaceRoutes, comment: 'AS-020: Workspace registration + heartbeat' },
