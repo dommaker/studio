@@ -14,12 +14,12 @@ html, body, #root {
 }
 
 body {
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background-color: var(--bg-primary, #0a0e14);
-  color: var(--text-primary, #e6edf3);
-  line-height: 1.5;
+  background-color: var(--bg-primary, #050507);
+  color: var(--text-primary, #d7dde3);
+  line-height: 1.45;
 }
 
 button {
@@ -46,25 +46,24 @@ a {
 
 /* 滚动条 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-secondary, #111820);
-  border-radius: 4px;
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--bg-tertiary, #1a2230);
-  border-radius: 4px;
+  background: var(--border-default, rgba(255, 255, 255, 0.14));
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-muted, #484f58);
+  background: var(--text-muted, #4a5058);
 }
 
 /* 代码块 */
 pre, code {
-  font-family: 'Fira Code', 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace);
 }
