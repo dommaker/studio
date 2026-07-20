@@ -617,6 +617,35 @@ describe('KnowledgeService Phase 1B: Lifecycle', () => {
     });
   });
 
+  describe('demote', () => {
+    it('demotes draft → archived（reject 语义：保留追溯，不再注入）', async () => {
+      const entries = [
+        { id: 'e1', title: 'Proposal', content: 'A'.repeat(60), tags: ['pattern'], maturity: 'draft', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn().mockReturnValue(entries[0]);
+      await ks.demote('e1');
+      expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'archived' }));
+    });
+
+    it('does not demote non-draft entries（仅 draft 可 rejected → archived）', async () => {
+      const entries = [
+        { id: 'e1', title: 'Verified', content: 'A'.repeat(60), tags: ['pattern'], maturity: 'verified', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn();
+      await ks.demote('e1');
+      expect(store.update).not.toHaveBeenCalled();
+    });
+
+    it('does not demote if entry not found', async () => {
+      const { ks, store } = createKS();
+      store.update = vi.fn();
+      await ks.demote('nonexistent');
+      expect(store.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('decay', () => {
     it('decays proven → verified when stale', async () => {
       const staleDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year ago
@@ -1057,8 +1086,9 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('recordOutcome exists', () => expect(typeof ks.recordOutcome).toBe('function'));
   });
 
-  describe('Lifecycle (4 methods)', () => {
+  describe('Lifecycle (5 methods)', () => {
     it('promote exists', () => expect(typeof ks.promote).toBe('function'));
+    it('demote exists', () => expect(typeof ks.demote).toBe('function'));
     it('decay exists', () => expect(typeof ks.decay).toBe('function'));
     it('merge exists', () => expect(typeof ks.merge).toBe('function'));
     it('graduateConstraint exists', () => expect(typeof ks.graduateConstraint).toBe('function'));
@@ -1078,10 +1108,10 @@ describe('KnowledgeService Phase 0: contract', () => {
   });
 
   describe('method count', () => {
-    it('has exactly 34 public methods', () => {
+    it('has exactly 35 public methods', () => {
       const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
         .filter(m => m !== 'constructor');
-      expect(methods).toHaveLength(34);
+      expect(methods).toHaveLength(35);
     });
   });
 });

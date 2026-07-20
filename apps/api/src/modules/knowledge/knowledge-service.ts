@@ -1148,6 +1148,20 @@ export class KnowledgeService {
     }
   }
 
+  /**
+   * 审核闭环 reject 语义：draft → archived（保留追溯，decay/lint 不再管它，永不注入）。
+   * 与 promote 对称；仅 draft 可 demote（verified/proven 的降级走 decay）。
+   */
+  async demote(entryId: string): Promise<void> {
+    const entry = this.store.get(entryId);
+    if (!entry) return;
+    const prev: Record<string, MaturityLevel> = { draft: 'archived' };
+    const target = prev[entry.maturity];
+    if (target) {
+      this.store.update(entryId, { maturity: target });
+    }
+  }
+
   async decay(entryId: string): Promise<void> {
     const entry = this.store.get(entryId);
     if (!entry) return;
