@@ -26,7 +26,7 @@ import type {
   MaturityLevel,
   KnowledgeSubsystem,
 } from '@dommaker/harness';
-import { FileStore, logger, modelGateway } from '@dommaker/studio-shared';
+import { FileStore, logger, modelGateway, estimateTokens } from '@dommaker/studio-shared';
 import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { execFile } from 'child_process';
@@ -656,47 +656,100 @@ export class KnowledgeService {
   // ═══════════ Consume (read knowledge) ════════════
 
   async injectContext(agentType: string, _opts?: InjectOpts): Promise<InjectContextResult> {
-    const sections: string[] = [];
     const injectedIds: string[] = [];
 
     // 1. rule — full content injection (constraints must be followed)
     // R3: isInjectableMaturity — proposal(draft)/archived/deprecated 不注入
+    // ②（wireups）：来源凭证读生产字段 sourceReferences（复数，length>0），
+    // 此前误读单数 sourceReference → 生产恒 false，rule/context 两档恒空。
     const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType, status: 'published' });
-    const filteredRules = (rules || []).filter((r: any) => r.sourceReference && r.status !== 'stale' && isInjectableMaturity(r.maturity));
-    if (filteredRules.length) {
-      const lines = filteredRules.map((r: any) => `- ${stripFormat(r.content)}`);
-      sections.push(`## 系统约束\n${lines.join('\n')}`);
-      injectedIds.push(...filteredRules.map((r: any) => r.id));
-    }
+    const filteredRules = (rules || []).filter((r: any) => hasSourceReferences(r) && r.status !== 'stale' && isInjectableMaturity(r.maturity));
 
     // 2. context — full content injection (preferences + environment)
     const context = await this.query.queryEntries({ consumptionModes: ['context'], status: 'published' });
-    const filteredContext = (context || []).filter((c: any) => c.sourceReference && c.status !== 'stale' && isInjectableMaturity(c.maturity));
-    if (filteredContext.length) {
-      const lines = filteredContext.map((c: any) => `- ${stripFormat(c.content)}`);
-      sections.push(`## 上下文\n${lines.join('\n')}`);
-      injectedIds.push(...filteredContext.map((c: any) => c.id));
-    }
+    const filteredContext = (context || []).filter((c: any) => hasSourceReferences(c) && c.status !== 'stale' && isInjectableMaturity(c.maturity));
 
     // 3. signal — index injection (informational)
     const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
     const filteredSignals = (signals || []).filter((s: any) => s.status !== 'stale' && isInjectableMaturity(s.maturity));
-    if (filteredSignals.length) {
-      const lines = filteredSignals.map((s: any) => `- [${s.id}] ${s.summary}`);
-      sections.push(`## 近期信号\n${lines.join('\n')}`);
-      injectedIds.push(...filteredSignals.map((s: any) => s.id));
+
+    // ③（wireups）：2K 注入红线执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
+    // 逐个累加 estimateTokens（chars/4 现有口径），超 2000 截断并记 knowledge:inject-trimmed 事件。
+    interface Candidate { line: string; id: string }
+    const toCandidates = (entries: any[], lineOf: (e: any) => string): Candidate[] =>
+      entries
+        .map(e => ({ line: lineOf(e), id: e.id as string, entry: e }))
+        .sort((a, b) => injectPriority(b.entry) - injectPriority(a.entry))
+        .map(({ line, id }) => ({ line, id }));
+
+    const sectionCandidates: Array<{ header: string; items: Candidate[] }> = [
+      { header: '## 系统约束', items: toCandidates(filteredRules, (r: any) => `- ${stripFormat(r.content)}`) },
+      { header: '## 上下文', items: toCandidates(filteredContext, (c: any) => `- ${stripFormat(c.content)}`) },
+      { header: '## 近期信号', items: toCandidates(filteredSignals, (s: any) => `- [${s.id}] ${s.summary}`) },
+    ];
+
+    const sections: string[] = [];
+    const trimmedIds: string[] = [];
+    let usedTokens = 0;
+    // 预算内给检索指引预留（有注入时必附加，属红线内固定小额开销）
+    const guidanceTokens = estimateTokens(KNOWLEDGE_QUERY_GUIDANCE.length + 2);
+
+    for (const section of sectionCandidates) {
+      if (section.items.length === 0) continue;
+      const headerTokens = estimateTokens(section.header.length + 2); // header + 段落分隔
+      const keptLines: string[] = [];
+      for (const item of section.items) {
+        const lineTokens = estimateTokens(item.line.length + 1);
+        const cost = (keptLines.length === 0 ? headerTokens : 0) + lineTokens;
+        if (usedTokens + cost + guidanceTokens > INJECT_TOKEN_BUDGET) {
+          trimmedIds.push(item.id);
+          continue;
+        }
+        usedTokens += cost;
+        keptLines.push(item.line);
+        injectedIds.push(item.id);
+      }
+      if (keptLines.length > 0) sections.push(`${section.header}\n${keptLines.join('\n')}`);
     }
 
     // 4. reference — hint only
     const refCount = await this.query.count({ consumptionModes: ['reference'] });
     if (refCount > 0) {
-      sections.push(`[知识库: ${refCount} 条参考，遇到问题时用 search()]`);
+      const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
+      const hintTokens = estimateTokens(hint.length + 2);
+      if (usedTokens + hintTokens + guidanceTokens <= INJECT_TOKEN_BUDGET) {
+        sections.push(hint);
+        usedTokens += hintTokens;
+      }
     }
 
     // 5. E2 检索主动性（断点 G）：有知识注入时附「何时查知识库」指引 —
     // signal 档只有索引，agent 需显式指引才会主动检索。无注入时不附加。
     if (sections.length > 0) {
       sections.push(KNOWLEDGE_QUERY_GUIDANCE);
+      usedTokens += guidanceTokens;
+    }
+
+    // ③: 裁剪事件 — 沿用 studio-events.jsonl 事件写入路径（best-effort）
+    if (trimmedIds.length > 0) {
+      try {
+        await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+          type: 'knowledge:inject-trimmed',
+          source: 'inject-context',
+          payload: JSON.stringify({
+            agentType,
+            budgetTokens: INJECT_TOKEN_BUDGET,
+            keptTokens: usedTokens,
+            keptIds: injectedIds,
+            trimmedIds,
+            trimmedCount: trimmedIds.length,
+          }),
+          createdAt: new Date().toISOString(),
+        });
+      } catch { /* non-blocking */ }
+      logger.info('[KnowledgeService] injectContext trimmed to 2K budget', {
+        agentType, keptTokens: usedTokens, trimmedCount: trimmedIds.length,
+      });
     }
 
     // 6. recordReference — close maturity loop
@@ -1371,6 +1424,25 @@ const NON_INJECTABLE_MATURITIES: ReadonlySet<string> = new Set(['draft', 'archiv
 
 function isInjectableMaturity(maturity: unknown): boolean {
   return typeof maturity !== 'string' || !NON_INJECTABLE_MATURITIES.has(maturity);
+}
+
+/** ②（wireups）：生产条目来源凭证字段是 sourceReferences（复数数组），length>0 才算有凭证。 */
+function hasSourceReferences(entry: any): boolean {
+  return Array.isArray(entry?.sourceReferences) && entry.sourceReferences.length > 0;
+}
+
+/** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点） */
+const INJECT_TOKEN_BUDGET = 2_000;
+
+/**
+ * ③（wireups）：注入优先级 = 成熟度权重 × 10000 + 引用计数。
+ * 成熟度高的先注入；同成熟度按 referencedBy 计数（被引用越多越有价值）。
+ */
+function injectPriority(entry: any): number {
+  const maturityWeight: Record<string, number> = { proven: 3, verified: 2, active: 2, draft: 1 };
+  const w = maturityWeight[entry?.maturity] ?? 0;
+  const refs = Array.isArray(entry?.referencedBy) ? entry.referencedBy.length : 0;
+  return w * 10_000 + refs;
 }
 
 /** LLM 提取返回的合法知识类型（越界值回落 guideline） */

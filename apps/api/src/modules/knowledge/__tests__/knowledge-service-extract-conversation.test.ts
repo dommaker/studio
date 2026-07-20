@@ -297,13 +297,13 @@ describe('R3: 提案注入闸门（draft 不参与 injectContext）', () => {
   it('(b) rule/context/signal 三档均排除 draft，保留 approved 成熟度', async () => {
     const { ks, query } = createKS();
     query.queryEntries
-      .mockResolvedValueOnce([ // rule 档
-        { id: 'r-draft', content: 'Draft rule content here', type: 'guideline', sourceReference: 'ref', status: 'published', maturity: 'draft' },
-        { id: 'r-active', content: 'Active rule content here', type: 'guideline', sourceReference: 'ref', status: 'published', maturity: 'active' },
+      .mockResolvedValueOnce([ // rule 档（生产形状：sourceReferences 复数）
+        { id: 'r-draft', content: 'Draft rule content here', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published', maturity: 'draft' },
+        { id: 'r-active', content: 'Active rule content here', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published', maturity: 'active' },
       ])
       .mockResolvedValueOnce([ // context 档
-        { id: 'c-draft', content: 'Draft preference content', type: 'model', sourceReference: 'ref', status: 'published', maturity: 'draft' },
-        { id: 'c-verified', content: 'Verified preference content', type: 'model', sourceReference: 'ref', status: 'published', maturity: 'verified' },
+        { id: 'c-draft', content: 'Draft preference content', type: 'model', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published', maturity: 'draft' },
+        { id: 'c-verified', content: 'Verified preference content', type: 'model', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published', maturity: 'verified' },
       ]);
     query.getIndexes.mockReturnValue([
       { id: 's-draft', summary: 'draft signal', status: 'fresh', maturity: 'draft' },
@@ -326,7 +326,7 @@ describe('R3: 提案注入闸门（draft 不参与 injectContext）', () => {
   it('无 maturity 字段的条目（doc 来源）不受闸门影响', async () => {
     const { ks, query } = createKS();
     query.queryEntries
-      .mockResolvedValueOnce([{ id: 'r1', content: 'Always use TypeScript', type: 'guideline', sourceReference: 'ref1', status: 'published' }])
+      .mockResolvedValueOnce([{ id: 'r1', content: 'Always use TypeScript', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' }])
       .mockResolvedValueOnce([]);
 
     const result = await ks.injectContext('executor');
