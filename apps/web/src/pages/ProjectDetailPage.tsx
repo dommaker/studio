@@ -198,15 +198,15 @@ export function ProjectDetailPage() {
   const tasksByStatus = getTasksByStatus();
 
   if (loading) {
-    return <div className="flex items-center justify-center h-64"><div className="text-gray-500">加载中...</div></div>;
+    return <div className="flex items-center justify-center h-64"><div className="u-text-2">加载中...</div></div>;
   }
 
   if (error) {
-    return <div className="flex items-center justify-center h-64"><div className="text-red-500">{error}</div></div>;
+    return <div className="flex items-center justify-center h-64"><div className="u-err">{error}</div></div>;
   }
 
   if (!project) {
-    return <div className="flex items-center justify-center h-64"><div className="text-gray-500">项目不存在</div></div>;
+    return <div className="flex items-center justify-center h-64"><div className="u-text-2">项目不存在</div></div>;
   }
 
   return (
@@ -217,25 +217,25 @@ export function ProjectDetailPage() {
           <PmoNumberBadge pmoNumber={project.pmoNumber} status={project.status as any} size="lg" />
           <h1 className="text-2xl font-bold">{project.title}</h1>
         </div>
-        <p className="text-gray-600">{project.description || '无描述'}</p>
+        <p className="u-text-2">{project.description || '无描述'}</p>
         {project.OKR && (
-          <div className="text-sm text-gray-500 mt-1">
+          <div className="text-sm u-text-2 mt-1">
             OKR: {project.OKR.title} ({project.OKR.quarter})
           </div>
         )}
       </div>
 
       {/* 📈 项目进展（AS-010 增强） */}
-      <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <h3 className="text-sm font-medium text-gray-500 mb-3">📈 项目进展</h3>
+      <div className="u-surface rounded-lg shadow p-4 mb-6">
+        <h3 className="text-sm font-medium u-text-2 mb-3">📈 项目进展</h3>
         
         {/* 主进度条 */}
         <div className="flex items-center gap-3 mb-3">
           <div className="flex-1">
-            <div className="h-4 bg-gray-200 rounded-full overflow-hidden">
+            <div className="h-4 u-surface-2 rounded-full overflow-hidden">
               <div 
                 className={`h-full transition-all ${
-                  progressStats.progress === 100 ? 'bg-green-500' :
+                  progressStats.progress === 100 ? 'u-ok-bg' :
                   progressStats.progress > 50 ? 'bg-gradient-to-r from-blue-400 to-blue-600' :
                   'bg-gradient-to-r from-yellow-400 to-yellow-500'
                 }`}
@@ -243,30 +243,30 @@ export function ProjectDetailPage() {
               />
             </div>
           </div>
-          <span className="text-2xl font-bold text-gray-700">{progressStats.progress}%</span>
+          <span className="text-2xl font-bold u-text">{progressStats.progress}%</span>
         </div>
         
         {/* 统计卡片 */}
         <div className="grid grid-cols-5 gap-2">
-          <div className="p-2 rounded-lg bg-green-50 text-center">
-            <div className="text-lg font-bold text-green-600">{progressStats.completed}</div>
-            <div className="text-xs text-gray-500">✅ 完成</div>
+          <div className="p-2 rounded-lg u-ok-dim text-center">
+            <div className="text-lg font-bold u-ok">{progressStats.completed}</div>
+            <div className="text-xs u-text-2">✅ 完成</div>
           </div>
-          <div className="p-2 rounded-lg bg-blue-50 text-center">
-            <div className="text-lg font-bold text-blue-600">{progressStats.inProgress}</div>
-            <div className="text-xs text-gray-500">🔄 进行中</div>
+          <div className="p-2 rounded-lg u-accent-dim text-center">
+            <div className="text-lg font-bold u-accent">{progressStats.inProgress}</div>
+            <div className="text-xs u-text-2">🔄 进行中</div>
           </div>
-          <div className="p-2 rounded-lg bg-gray-50 text-center">
-            <div className="text-lg font-bold text-gray-600">{progressStats.pending}</div>
-            <div className="text-xs text-gray-500">⏳ 待领取</div>
+          <div className="p-2 rounded-lg u-surface-2 text-center">
+            <div className="text-lg font-bold u-text-2">{progressStats.pending}</div>
+            <div className="text-xs u-text-2">⏳ 待领取</div>
           </div>
-          <div className="p-2 rounded-lg bg-red-50 text-center">
-            <div className="text-lg font-bold text-red-600">{progressStats.blocked}</div>
-            <div className="text-xs text-gray-500">🚫 阻塞</div>
+          <div className="p-2 rounded-lg u-err-dim text-center">
+            <div className="text-lg font-bold u-err">{progressStats.blocked}</div>
+            <div className="text-xs u-text-2">🚫 阻塞</div>
           </div>
-          <div className="p-2 rounded-lg bg-purple-50 text-center">
-            <div className="text-lg font-bold text-purple-600">{tokenStats.toLocaleString()}</div>
-            <div className="text-xs text-gray-500">💰 Token</div>
+          <div className="p-2 rounded-lg u-accent-dim text-center">
+            <div className="text-lg font-bold u-accent">{tokenStats.toLocaleString()}</div>
+            <div className="text-xs u-text-2">💰 Token</div>
           </div>
         </div>
         
@@ -286,14 +286,14 @@ export function ProjectDetailPage() {
             return (
               <React.Fragment key={s}>
                 <div className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  isActive ? 'bg-blue-500 text-white ring-2 ring-blue-300' :
-                  isPast ? 'bg-green-100 text-green-700' :
-                  'bg-gray-100 text-gray-400'
+                  isActive ? 'u-accent-bg u-on-accent' :
+                  isPast ? 'u-ok-dim u-ok' :
+                  'u-surface-2 u-text-3'
                 }`}>
                   {labels[s]}
                 </div>
                 {i < 3 && (
-                  <div className={`text-lg ${isPast || isActive ? 'text-green-400' : 'text-gray-300'}`}>→</div>
+                  <div className={`text-lg ${isPast || isActive ? 'u-ok' : 'u-text-3'}`}>→</div>
                 )}
               </React.Fragment>
             );
@@ -303,8 +303,8 @@ export function ProjectDetailPage() {
 
       {/* 📋 任务看板 */}
       {tasks.length > 0 && (
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">📋 任务看板 ({tasks.length})</h3>
+        <div className="u-surface rounded-lg shadow p-4 mb-6">
+          <h3 className="text-sm font-medium u-text-2 mb-3">📋 任务看板 ({tasks.length})</h3>
           
           {/* 🆕 AS-018: Iron Law 警告横幅 */}
           {(tasksByStatus.inProgress.length > 0 || tasksByStatus.completed.length > 0) && (
@@ -318,49 +318,49 @@ export function ProjectDetailPage() {
           
           <div className="grid grid-cols-4 gap-2">
             {/* 待领取 */}
-            <div className="p-3 rounded-lg bg-gray-50">
-              <div className="text-xs text-gray-500 mb-2">待领取 ({tasksByStatus.pending.length})</div>
+            <div className="p-3 rounded-lg u-surface-2">
+              <div className="text-xs u-text-2 mb-2">待领取 ({tasksByStatus.pending.length})</div>
               <div className="space-y-2">
                 {tasksByStatus.pending.map(task => (
-                  <div key={task.id} className="p-2 bg-white rounded text-sm">
+                  <div key={task.id} className="p-2 u-surface rounded text-sm">
                     <div className="font-medium">{task.name}</div>
-                    <div className="text-xs text-gray-400">{task.assignee}</div>
+                    <div className="text-xs u-text-3">{task.assignee}</div>
                   </div>
                 ))}
               </div>
             </div>
             {/* 进行中 */}
-            <div className="p-3 rounded-lg bg-blue-50">
-              <div className="text-xs text-blue-500 mb-2">进行中 ({tasksByStatus.inProgress.length})</div>
+            <div className="p-3 rounded-lg u-accent-dim">
+              <div className="text-xs u-accent mb-2">进行中 ({tasksByStatus.inProgress.length})</div>
               <div className="space-y-2">
                 {tasksByStatus.inProgress.map(task => (
-                  <div key={task.id} className="p-2 bg-white rounded text-sm">
+                  <div key={task.id} className="p-2 u-surface rounded text-sm">
                     <div className="font-medium">{task.name}</div>
-                    <div className="text-xs text-gray-400">{task.ClaimedBy?.name || task.assignee}</div>
+                    <div className="text-xs u-text-3">{task.ClaimedBy?.name || task.assignee}</div>
                   </div>
                 ))}
               </div>
             </div>
             {/* 已完成 */}
-            <div className="p-3 rounded-lg bg-green-50">
-              <div className="text-xs text-green-500 mb-2">已完成 ({tasksByStatus.completed.length})</div>
+            <div className="p-3 rounded-lg u-ok-dim">
+              <div className="text-xs u-ok mb-2">已完成 ({tasksByStatus.completed.length})</div>
               <div className="space-y-2">
                 {tasksByStatus.completed.map(task => (
-                  <div key={task.id} className="p-2 bg-white rounded text-sm">
+                  <div key={task.id} className="p-2 u-surface rounded text-sm">
                     <div className="font-medium">{task.name}</div>
-                    <div className="text-xs text-gray-400">✅</div>
+                    <div className="text-xs u-text-3">✅</div>
                   </div>
                 ))}
               </div>
             </div>
             {/* 阻塞 */}
-            <div className="p-3 rounded-lg bg-red-50">
-              <div className="text-xs text-red-500 mb-2">阻塞 ({tasksByStatus.blocked.length})</div>
+            <div className="p-3 rounded-lg u-err-dim">
+              <div className="text-xs u-err mb-2">阻塞 ({tasksByStatus.blocked.length})</div>
               <div className="space-y-2">
                 {tasksByStatus.blocked.map(task => (
-                  <div key={task.id} className="p-2 bg-white rounded text-sm">
+                  <div key={task.id} className="p-2 u-surface rounded text-sm">
                     <div className="font-medium">{task.name}</div>
-                    <div className="text-xs text-red-400">依赖: {task.dependsOn.length}</div>
+                    <div className="text-xs u-err">依赖: {task.dependsOn.length}</div>
                   </div>
                 ))}
               </div>
@@ -371,41 +371,41 @@ export function ProjectDetailPage() {
 
       {/* 📚 知识库 */}
       {documents.length > 0 && (
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">📚 知识库 ({documents.length})</h3>
+        <div className="u-surface rounded-lg shadow p-4 mb-6">
+          <h3 className="text-sm font-medium u-text-2 mb-3">📚 知识库 ({documents.length})</h3>
           <div className="grid grid-cols-3 gap-2">
             {/* requirement */}
-            <div className="p-3 rounded-lg bg-yellow-50">
-              <div className="text-xs text-yellow-600 mb-2">📄 需求文档</div>
+            <div className="p-3 rounded-lg u-warn-dim">
+              <div className="text-xs u-warn mb-2">📄 需求文档</div>
               <div className="space-y-1">
                 {documents.filter(d => d.type === 'requirement').map(doc => (
-                  <div key={doc.id} className="p-2 bg-white rounded text-sm cursor-pointer hover:bg-yellow-100">
+                  <div key={doc.id} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
                     <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs text-gray-400">v{doc.version}</div>
+                    <div className="text-xs u-text-3">v{doc.version}</div>
                   </div>
                 ))}
               </div>
             </div>
             {/* design/spec */}
-            <div className="p-3 rounded-lg bg-blue-50">
-              <div className="text-xs text-blue-600 mb-2">📐 设计/规范</div>
+            <div className="p-3 rounded-lg u-accent-dim">
+              <div className="text-xs u-accent mb-2">📐 设计/规范</div>
               <div className="space-y-1">
                 {documents.filter(d => d.type === 'design' || d.type === 'spec').map(doc => (
-                  <div key={doc.id} className="p-2 bg-white rounded text-sm cursor-pointer hover:bg-blue-100">
+                  <div key={doc.id} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
                     <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs text-gray-400">{doc.type} v{doc.version}</div>
+                    <div className="text-xs u-text-3">{doc.type} v{doc.version}</div>
                   </div>
                 ))}
               </div>
             </div>
             {/* execution/archive */}
-            <div className="p-3 rounded-lg bg-purple-50">
-              <div className="text-xs text-purple-600 mb-2">📦 执行/归档</div>
+            <div className="p-3 rounded-lg u-accent-dim">
+              <div className="text-xs u-accent mb-2">📦 执行/归档</div>
               <div className="space-y-1">
                 {documents.filter(d => ['execution', 'archive'].includes(d.type)).map(doc => (
-                  <div key={doc.id} className="p-2 bg-white rounded text-sm cursor-pointer hover:bg-purple-100">
+                  <div key={doc.id} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
                     <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs text-gray-400">{doc.type}</div>
+                    <div className="text-xs u-text-3">{doc.type}</div>
                   </div>
                 ))}
               </div>
@@ -416,8 +416,8 @@ export function ProjectDetailPage() {
 
       {/* 📦 执行历史（AS-010 增强） */}
       {project.Execution && project.Execution.length > 0 && (
-        <div className="bg-white rounded-lg shadow p-4 mb-6">
-          <h3 className="text-sm font-medium text-gray-500 mb-3">📦 执行历史 ({project.Execution.length})</h3>
+        <div className="u-surface rounded-lg shadow p-4 mb-6">
+          <h3 className="text-sm font-medium u-text-2 mb-3">📦 执行历史 ({project.Execution.length})</h3>
           <div className="space-y-3">
             {project.Execution.slice(0, 5).map(exec => {
               // 解析 steps 数据
@@ -427,19 +427,19 @@ export function ProjectDetailPage() {
               const progressPercent = Math.round((currentStep / totalSteps) * 100);
               
               return (
-                <div key={exec.id} className="p-3 bg-gray-50 rounded border border-gray-200">
+                <div key={exec.id} className="p-3 u-surface-2 rounded border u-border">
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-gray-700 text-sm font-mono">{exec.id.slice(0, 8)}</span>
+                      <span className="u-text text-sm font-mono">{exec.id.slice(0, 8)}</span>
                       {exec.workflowName && (
-                        <span className="text-xs text-gray-400">{exec.workflowName}</span>
+                        <span className="text-xs u-text-3">{exec.workflowName}</span>
                       )}
                     </div>
                     <span className={`text-xs px-2 py-1 rounded ${
-                      exec.status === 'completed' || exec.status === 'succeeded' ? 'bg-green-100 text-green-600' :
-                      exec.status === 'running' ? 'bg-blue-100 text-blue-600' :
-                      exec.status === 'failed' ? 'bg-red-100 text-red-600' :
-                      'bg-gray-100 text-gray-600'
+                      exec.status === 'completed' || exec.status === 'succeeded' ? 'u-ok-dim u-ok' :
+                      exec.status === 'running' ? 'u-accent-dim u-accent' :
+                      exec.status === 'failed' ? 'u-err-dim u-err' :
+                      'u-surface-2 u-text-2'
                     }`}>
                       {exec.status === 'succeeded' ? '✅ 成功' :
                        exec.status === 'running' ? '⏳ 运行中' :
@@ -452,18 +452,18 @@ export function ProjectDetailPage() {
                   {(exec.status === 'running' || steps.length > 0) && (
                     <div className="mb-2">
                       <div className="flex items-center gap-2 mb-1">
-                        <div className="flex-1 bg-gray-200 rounded-full h-2">
+                        <div className="flex-1 u-surface-2 rounded-full h-2">
                           <div 
                             className={`h-2 rounded-full transition-all ${
                               exec.status === 'running' ? 'bg-gradient-to-r from-blue-400 to-blue-600' :
-                              exec.status === 'failed' ? 'bg-red-500' : 'bg-green-500'
+                              exec.status === 'failed' ? 'u-err-bg' : 'u-ok-bg'
                             }`}
                             style={{ width: `${progressPercent}%` }}
                           />
                         </div>
-                        <span className="text-xs text-gray-500">{progressPercent}%</span>
+                        <span className="text-xs u-text-2">{progressPercent}%</span>
                       </div>
-                      <div className="text-xs text-gray-400">
+                      <div className="text-xs u-text-3">
                         步骤 {currentStep} / {totalSteps}
                       </div>
                     </div>
@@ -478,7 +478,7 @@ export function ProjectDetailPage() {
                   )}
                   
                   {/* 时间戳 */}
-                  <div className="text-xs text-gray-400 mt-2 flex gap-3">
+                  <div className="text-xs u-text-3 mt-2 flex gap-3">
                     <span>创建: {new Date(exec.createdAt).toLocaleString('zh-CN')}</span>
                     {exec.completedAt && (
                       <span>完成: {new Date(exec.completedAt).toLocaleString('zh-CN')}</span>
@@ -495,26 +495,26 @@ export function ProjectDetailPage() {
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setShowVscodeGuide(true)}
-          className="px-4 py-2 bg-cyan-500 text-white rounded hover:bg-cyan-600"
+          className="px-4 py-2 u-accent-bg u-on-accent rounded u-hover-bg"
         >
           VS Code 打开
         </button>
         <button
           onClick={() => setShowCloudIdeGuide(true)}
-          className="px-4 py-2 bg-violet-500 text-white rounded hover:bg-violet-600"
+          className="px-4 py-2 u-accent-bg u-on-accent rounded u-hover-bg"
         >
           ☁️ Cloud IDE
         </button>
         <button
           onClick={handleArchive}
           disabled={archiveLoading}
-          className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50"
+          className="px-4 py-2 u-ok-bg u-on-accent rounded u-hover-bg disabled:opacity-50"
         >
           {archiveLoading ? '归档中...' : '📦 归档'}
         </button>
         <button
           onClick={handleCopyPath}
-          className="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
+          className="px-4 py-2 u-surface-2 u-text rounded u-hover-bg"
         >
           {copySuccess ? '✓ 已复制' : '📋 复制路径'}
         </button>
@@ -523,24 +523,24 @@ export function ProjectDetailPage() {
       {/* VS Code 弹窗 */}
       {showVscodeGuide && (
         <div className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black/50">
-          <div className="bg-white rounded-xl max-w-md w-full shadow-2xl">
+          <div className="u-surface rounded-xl max-w-md w-full shadow-2xl">
             <div className="p-4 border-b">
               <h3 className="text-lg font-bold">📋 VS Code Remote SSH</h3>
             </div>
             <div className="p-4 space-y-3">
               {vscodeSteps.map((step, i) => (
-                <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
-                  <span className="w-6 h-6 bg-blue-500 text-white rounded-full flex items-center justify-center text-sm">{step.step}</span>
+                <div key={i} className="flex items-center gap-2 p-2 u-surface-2 rounded">
+                  <span className="w-6 h-6 u-accent-bg u-on-accent rounded-full flex items-center justify-center text-sm">{step.step}</span>
                   <span className="text-sm flex-1">{step.text}</span>
-                  <button onClick={() => copyStep(step.text, i)} className="px-2 py-1 text-xs rounded bg-gray-200 hover:bg-gray-300">
+                  <button onClick={() => copyStep(step.text, i)} className="px-2 py-1 text-xs rounded u-surface-2 u-hover-bg">
                     {copiedStep === i ? '✓' : '复制'}
                   </button>
                 </div>
               ))}
-              <div className="text-xs p-2 rounded bg-blue-50 text-blue-600">💡 提示：连接成功后 File → Open Folder → 粘贴路径</div>
+              <div className="text-xs p-2 rounded u-accent-dim u-accent">💡 提示：连接成功后 File → Open Folder → 粘贴路径</div>
             </div>
             <div className="p-4 border-t flex justify-end">
-              <button onClick={() => setShowVscodeGuide(false)} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">关闭</button>
+              <button onClick={() => setShowVscodeGuide(false)} className="px-4 py-2 u-surface-2 rounded u-hover-bg">关闭</button>
             </div>
           </div>
         </div>
@@ -549,24 +549,24 @@ export function ProjectDetailPage() {
       {/* Cloud IDE 弹窗 */}
       {showCloudIdeGuide && (
         <div className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black/50">
-          <div className="bg-white rounded-xl max-w-md w-full shadow-2xl">
+          <div className="u-surface rounded-xl max-w-md w-full shadow-2xl">
             <div className="p-4 border-b">
               <h3 className="text-lg font-bold">☁️ Cloud IDE (浏览器中的 VS Code)</h3>
             </div>
             <div className="p-4 space-y-3">
               {cloudIdeSteps.map((step, i) => (
-                <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
-                  <span className="w-6 h-6 bg-violet-500 text-white rounded-full flex items-center justify-center text-sm">{step.step}</span>
+                <div key={i} className="flex items-center gap-2 p-2 u-surface-2 rounded">
+                  <span className="w-6 h-6 u-accent-bg u-on-accent rounded-full flex items-center justify-center text-sm">{step.step}</span>
                   <span className="text-sm flex-1">{step.text}</span>
-                  <button onClick={() => copyStep(step.text, i)} className="px-2 py-1 text-xs rounded bg-gray-200 hover:bg-gray-300">
+                  <button onClick={() => copyStep(step.text, i)} className="px-2 py-1 text-xs rounded u-surface-2 u-hover-bg">
                     {copiedStep === i ? '✓' : '复制'}
                   </button>
                 </div>
               ))}
-              <div className="text-xs p-2 rounded bg-violet-50 text-violet-600">💡 Cloud IDE 内置终端和浏览器预览</div>
+              <div className="text-xs p-2 rounded u-accent-dim u-accent">💡 Cloud IDE 内置终端和浏览器预览</div>
             </div>
             <div className="p-4 border-t flex justify-end">
-              <button onClick={() => setShowCloudIdeGuide(false)} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">关闭</button>
+              <button onClick={() => setShowCloudIdeGuide(false)} className="px-4 py-2 u-surface-2 rounded u-hover-bg">关闭</button>
             </div>
           </div>
         </div>

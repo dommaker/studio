@@ -122,7 +122,7 @@ export function IntentResult({ analysis, onConfirm, onModify, onCancel, isExecut
           <button
             onClick={onConfirm}
             disabled={isExecuting}
-            className="flex-1 py-3 text-white rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-50"
+            className="flex-1 py-3 u-on-bright rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-50"
             style={{ background: 'linear-gradient(to right, #6366f1, #8b5cf6)' }}
           >
             {isExecuting ? (

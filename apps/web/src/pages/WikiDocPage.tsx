@@ -139,7 +139,7 @@ export function WikiDocPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2" />
       </div>
     );
   }

@@ -412,7 +412,7 @@ export default function KnowledgeGraphView(props: KnowledgeGraphViewProps) {
   if (!props.graph) {
     return (
       <div className="h-full w-full flex items-center justify-center bg-slate-900 rounded-lg">
-        <p className="text-slate-500 text-sm">No knowledge graph loaded</p>
+        <p className="u-text-2 text-sm">No knowledge graph loaded</p>
       </div>
     );
   }

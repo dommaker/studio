@@ -81,23 +81,23 @@ export function NotificationBell() {
     <div className="relative" ref={dropdownRef}>
       <button
         onClick={() => setOpen(!open)}
-        className="relative p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+        className="relative p-1.5 rounded-lg u-hover-bg transition-colors"
         title="通知中心"
       >
         <span className="text-lg">🔔</span>
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+          <span className="absolute -top-0.5 -right-0.5 u-err-bg u-on-accent text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
             {unread > 9 ? '9+' : unread}
           </span>
         )}
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full mt-2 w-80 bg-white border border-gray-200 rounded-lg shadow-xl z-50">
-          <div className="flex items-center justify-between px-4 py-2 border-b border-gray-100">
-            <span className="text-sm font-semibold text-gray-700">通知</span>
+        <div className="absolute right-0 top-full mt-2 w-80 u-surface border u-border rounded-lg shadow-xl z-50">
+          <div className="flex items-center justify-between px-4 py-2 border-b u-border">
+            <span className="text-sm font-semibold u-text">通知</span>
             {unread > 0 && (
-              <button onClick={markAllRead} className="text-xs text-blue-500 hover:underline">
+              <button onClick={markAllRead} className="text-xs u-accent hover:underline">
                 全部已读
               </button>
             )}
@@ -105,7 +105,7 @@ export function NotificationBell() {
 
           <div className="max-h-80 overflow-y-auto">
             {notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-xs text-gray-400">暂无通知</div>
+              <div className="px-4 py-8 text-center text-xs u-text-3">暂无通知</div>
             ) : (
               notifications.map(n => (
                 <button
@@ -115,16 +115,16 @@ export function NotificationBell() {
                     navigate(`/channels/${n.channelId}`);
                     setOpen(false);
                   }}
-                  className={`w-full text-left px-4 py-2.5 border-b border-gray-50 hover:bg-gray-50 transition-colors ${
-                    !n.read ? 'bg-blue-50/50' : ''
+                  className={`w-full text-left px-4 py-2.5 border-b u-border u-hover-bg transition-colors ${
+                    !n.read ? 'u-accent-dim' : ''
                   }`}
                 >
                   <div className="flex items-center gap-2">
-                    {!n.read && <span className="w-1.5 h-1.5 bg-blue-500 rounded-full flex-shrink-0" />}
-                    <span className="text-xs font-medium text-gray-700">@{n.agentName}</span>
-                    <span className="text-[10px] text-gray-400 ml-auto">{n.time}</span>
+                    {!n.read && <span className="w-1.5 h-1.5 u-accent-bg rounded-full flex-shrink-0" />}
+                    <span className="text-xs font-medium u-text">@{n.agentName}</span>
+                    <span className="text-[10px] u-text-3 ml-auto">{n.time}</span>
                   </div>
-                  <p className="text-xs text-gray-500 mt-0.5 truncate">{n.content}</p>
+                  <p className="text-xs u-text-2 mt-0.5 truncate">{n.content}</p>
                 </button>
               ))
             )}

@@ -192,7 +192,7 @@ export function KnowledgeImportPage() {
         {[1, 2, 3, 4].map(s => (
           <div key={s} className="flex items-center gap-2">
             <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-              step >= s ? 'text-white' : ''
+              step >= s ? '' : ''
             }`} style={{
               background: step >= s ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
               color: step >= s ? 'white' : 'var(--text-tertiary)',
@@ -384,15 +384,15 @@ export function KnowledgeImportPage() {
 
           <div className="grid grid-cols-3 gap-4">
             <div className="p-4 rounded-xl text-center" style={{ background: 'rgba(34, 197, 94, 0.1)', border: '1px solid #22c55e' }}>
-              <div className="text-3xl font-bold text-green-500">{importResult.imported}</div>
+              <div className="text-3xl font-bold u-ok">{importResult.imported}</div>
               <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>已导入</div>
             </div>
             <div className="p-4 rounded-xl text-center" style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b' }}>
-              <div className="text-3xl font-bold text-yellow-500">{importResult.skipped}</div>
+              <div className="text-3xl font-bold u-warn">{importResult.skipped}</div>
               <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>已跳过</div>
             </div>
             <div className="p-4 rounded-xl text-center" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444' }}>
-              <div className="text-3xl font-bold text-red-500">{importResult.errors}</div>
+              <div className="text-3xl font-bold u-err">{importResult.errors}</div>
               <div className="text-sm" style={{ color: 'var(--text-secondary)' }}>失败</div>
             </div>
           </div>

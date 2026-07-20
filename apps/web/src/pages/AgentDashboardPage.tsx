@@ -5,10 +5,10 @@ import { monitoringApi, type AgentInfo, type AgentSummary } from '../api/monitor
 import { api } from '../api/index';
 
 const statusColors: Record<string, string> = {
-  idle: 'bg-gray-500/20 text-gray-300',
-  active: 'bg-purple-500/20 text-purple-300',
-  error: 'bg-orange-500/20 text-orange-300',
-  terminated: 'bg-red-500/20 text-red-300',
+  idle: 'u-surface-2 u-text-3',
+  active: 'u-accent-dim u-accent',
+  error: 'u-warn-dim u-warn',
+  terminated: 'u-err-dim u-err',
 };
 
 const statusLabels: Record<string, string> = {
@@ -63,11 +63,11 @@ export function AgentDashboardPage() {
 
         {data && (
           <div className="flex gap-6 mt-4">
-            <StatBadge label="总数" value={data.summary.total} color="text-blue-400" />
-            <StatBadge label="空闲" value={data.summary.idle} color="text-gray-400" />
-            <StatBadge label="执行中" value={data.summary.active} color="text-purple-400" />
-            <StatBadge label="不可用" value={data.summary.error} color="text-orange-400" />
-            <StatBadge label="已终止" value={data.summary.terminated} color="text-red-400" />
+            <StatBadge label="总数" value={data.summary.total} color="u-accent" />
+            <StatBadge label="空闲" value={data.summary.idle} color="u-text-3" />
+            <StatBadge label="执行中" value={data.summary.active} color="u-accent" />
+            <StatBadge label="不可用" value={data.summary.error} color="u-warn" />
+            <StatBadge label="已终止" value={data.summary.terminated} color="u-err" />
           </div>
         )}
       </div>
@@ -75,13 +75,13 @@ export function AgentDashboardPage() {
       <div className="flex-1 overflow-auto px-8 pb-8">
         <div className="max-w-5xl">
           {error && (
-            <div className="mt-4 p-3 rounded bg-red-500/10 text-red-300 text-sm">{error}</div>
+            <div className="mt-4 p-3 rounded u-err-dim u-err text-sm">{error}</div>
           )}
 
           {loading && !data ? (
-            <div className="text-center py-20 text-gray-500">加载中...</div>
+            <div className="text-center py-20 u-text-2">加载中...</div>
           ) : !data || data.agents.length === 0 ? (
-            <div className="text-center py-20 text-gray-500">
+            <div className="text-center py-20 u-text-2">
               <div className="text-4xl mb-4">🤖</div>
               <p>暂无运行中的 Agent</p>
               <p className="text-sm mt-2">AgentProfile 启动后会自动注册</p>
@@ -111,18 +111,18 @@ function AgentCard({ agent, onTerminate }: { agent: AgentInfo; onTerminate: (id:
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded ${statusColors[agent.status] || 'bg-gray-500/20 text-gray-300'}`}>
+            <span className={`text-xs px-2 py-0.5 rounded ${statusColors[agent.status] || 'u-surface-2 u-text-3'}`}>
               {statusLabels[agent.status] ?? agent.status}
             </span>
-            <span className="font-medium text-white">{agent.name}</span>
+            <span className="font-medium u-text">{agent.name}</span>
           </div>
-          <div className="flex items-center gap-4 mt-1 text-xs text-gray-500">
+          <div className="flex items-center gap-4 mt-1 text-xs u-text-2">
             <span>ID: {agent.id.slice(0, 8)}...</span>
             {agent.currentWorkUnitId && <span>WorkUnit: {agent.currentWorkUnitId.slice(0, 8)}...</span>}
             <span>运行: {uptime}</span>
           </div>
           {agent.lastError && (
-            <div className="mt-1 text-xs text-orange-400 truncate" title={agent.lastError}>
+            <div className="mt-1 text-xs u-warn truncate" title={agent.lastError}>
               ⚠ {agent.lastError}
             </div>
           )}
@@ -131,29 +131,29 @@ function AgentCard({ agent, onTerminate }: { agent: AgentInfo; onTerminate: (id:
         <div className="flex items-center gap-2">
           {agent.status !== 'terminated' && (
             <button
-              className="text-xs px-2 py-1 rounded bg-red-500/20 text-red-300 hover:bg-red-500/30"
+              className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
               onClick={e => { e.stopPropagation(); onTerminate(agent.id); }}
             >
               强制释放
             </button>
           )}
-          <span className="text-gray-500 text-sm">{expanded ? '▾' : '▸'}</span>
+          <span className="u-text-2 text-sm">{expanded ? '▾' : '▸'}</span>
         </div>
       </div>
 
       {expanded && (
         <div className="px-3 pb-3 text-sm" style={{ borderTop: '1px solid var(--border-subtle)' }}>
           <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
-            <div><span className="text-gray-500">ID:</span> <span className="text-gray-300">{agent.id}</span></div>
-            <div><span className="text-gray-500">Status:</span> <span className="text-gray-300">{agent.status}</span></div>
-            <div><span className="text-gray-500">Current WorkUnit:</span> <span className="text-gray-300">{agent.currentWorkUnitId ?? 'none'}</span></div>
-            <div><span className="text-gray-500">Started:</span> <span className="text-gray-300">{new Date(agent.startedAt).toLocaleString('zh-CN')}</span></div>
+            <div><span className="u-text-2">ID:</span> <span className="u-text-3">{agent.id}</span></div>
+            <div><span className="u-text-2">Status:</span> <span className="u-text-3">{agent.status}</span></div>
+            <div><span className="u-text-2">Current WorkUnit:</span> <span className="u-text-3">{agent.currentWorkUnitId ?? 'none'}</span></div>
+            <div><span className="u-text-2">Started:</span> <span className="u-text-3">{new Date(agent.startedAt).toLocaleString('zh-CN')}</span></div>
             {agent.lastError && (
               <div className="col-span-2">
-                <span className="text-gray-500">Last Error:</span>{' '}
-                <span className="text-orange-300">{agent.lastError}</span>
+                <span className="u-text-2">Last Error:</span>{' '}
+                <span className="u-warn">{agent.lastError}</span>
                 {agent.lastErrorAt && (
-                  <span className="text-gray-500"> ({new Date(agent.lastErrorAt).toLocaleString('zh-CN')})</span>
+                  <span className="u-text-2"> ({new Date(agent.lastErrorAt).toLocaleString('zh-CN')})</span>
                 )}
               </div>
             )}
@@ -168,7 +168,7 @@ function StatBadge({ label, value, color }: { label: string; value: number; colo
   return (
     <div className="flex items-center gap-2">
       <span className={`text-lg font-bold ${color}`}>{value}</span>
-      <span className="text-sm text-gray-400">{label}</span>
+      <span className="text-sm u-text-3">{label}</span>
     </div>
   );
 }

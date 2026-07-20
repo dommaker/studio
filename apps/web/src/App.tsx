@@ -23,10 +23,14 @@ const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ 
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(m => ({ default: m.WorkspacePage })));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
+// Design Lab：T1 视觉方向稿原型（mock 数据，全屏三栏，不套 TopNav/Sidebar 骨架）
+const DesignLabPage = lazy(() => import('./pages/design-lab/DesignLabPage').then(m => ({ default: m.DesignLabPage })));
+const DirectionAPage = lazy(() => import('./pages/design-lab/DirectionAPage').then(m => ({ default: m.DirectionAPage })));
+const DirectionBPage = lazy(() => import('./pages/design-lab/DirectionBPage').then(m => ({ default: m.DirectionBPage })));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white"></div>
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2 "></div>
   </div>
 );
 
@@ -107,6 +111,21 @@ export default function App() {
     );
   }
 
+  // Design Lab: fullscreen prototypes, bypass guest wall (mock 数据，无真实请求)
+  if (location.pathname.startsWith('/design-lab')) {
+    return (
+      <ThemeProvider>
+        <Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/design-lab" element={<DesignLabPage />} />
+            <Route path="/design-lab/a" element={<DirectionAPage />} />
+            <Route path="/design-lab/b" element={<DirectionBPage />} />
+          </Routes>
+        </Suspense>
+      </ThemeProvider>
+    );
+  }
+
   // Lurk Wall: guest sees LandingPage, admin sees full Studio
   if (isGuest) {
     return (
@@ -137,10 +156,18 @@ export default function App() {
 
       <Suspense fallback={null}><TriageBanner /></Suspense>
 
-      <div className="flex-1 flex">
+      <div className="flex-1 flex min-h-0">
         <Sidebar isOpen={isSidebarOpen} onClose={() => setIsSidebarOpen(false)} />
 
-        <div className="flex-1 overflow-auto" style={{ background: 'var(--bg-primary)' }}>
+        {/* Mission Control：频道工作区为满高三栏（各栏独立滚动），其余页面保持文档流滚动 */}
+        <div
+          className={
+            /^\/channels\/[^/]+$/.test(location.pathname)
+              ? 'flex-1 flex flex-col overflow-hidden min-h-0'
+              : 'flex-1 overflow-auto'
+          }
+          style={{ background: 'var(--bg-primary)' }}
+        >
           <Routes>
             <Route
               path="/"

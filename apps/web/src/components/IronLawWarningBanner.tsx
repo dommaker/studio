@@ -140,7 +140,7 @@ export const IronLawWarningBanner: React.FC<IronLawWarningBannerProps> = ({
         {dismissible && (
           <button
             onClick={() => setDismissed(true)}
-            className="text-gray-400 hover:text-gray-600 text-sm"
+            className="u-text-3 u-hover-text text-sm"
           >
             ✕
           </button>

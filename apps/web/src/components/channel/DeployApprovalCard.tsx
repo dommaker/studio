@@ -1,4 +1,5 @@
 // M4a: Deploy SQL approval card
+// 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；审批链路零变更
 import { useState } from 'react';
 import { api } from '../../api';
 import type { ChannelMessage } from '../../api/channel';
@@ -41,34 +42,30 @@ export function DeployApprovalCard({ message, meta, onAction }: Props) {
 
   if (status !== 'pending') {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4 max-w-md">
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-xs font-medium text-gray-500">部署审批</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full ${
-            status === 'approved' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
-          }`}>
+      <div className="mc-card" data-card-type="deploy_approval">
+        <div className="mc-card-head">
+          <span className="mc-card-label">部署审批</span>
+          <span className={status === 'approved' ? 'mc-status mc-status-done' : 'mc-status mc-status-error'}>
             {status === 'approved' ? '已批准' : '已拒绝'}
           </span>
         </div>
-        <div className="text-xs text-gray-400">{message.content}</div>
+        <div className="mc-card-dim">{message.content}</div>
       </div>
     );
   }
 
   return (
-    <div className="bg-white border border-orange-200 rounded-lg shadow-sm p-4 max-w-md">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs font-medium text-gray-500">部署审批</span>
-        <span className="text-xs px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
-          待审批
-        </span>
+    <div className="mc-card" data-card-type="deploy_approval" style={{ borderColor: 'var(--warning-border)' }}>
+      <div className="mc-card-head">
+        <span className="mc-card-label">部署审批</span>
+        <span className="mc-status mc-status-running">待审批</span>
       </div>
 
       {/* Blockers */}
       {blockers.length > 0 && (
-        <div className="mb-3 bg-red-50 border border-red-100 rounded p-2">
-          <span className="text-xs font-medium text-red-600">阻断项</span>
-          <ul className="text-xs text-red-500 mt-1 list-disc list-inside">
+        <div className="mc-status mc-status-error" style={{ display: 'block', padding: '6px 8px', marginBottom: 8 }}>
+          <span style={{ fontWeight: 600 }}>阻断项</span>
+          <ul style={{ margin: '4px 0 0', paddingLeft: 16, listStyle: 'disc' }}>
             {blockers.map((b: string, i: number) => (
               <li key={i}>{b}</li>
             ))}
@@ -78,11 +75,11 @@ export function DeployApprovalCard({ message, meta, onAction }: Props) {
 
       {/* SQL changes */}
       {sqlChanges.length > 0 && (
-        <div className="mb-3">
-          <span className="text-xs font-medium text-gray-600">SQL 变更 ({sqlChanges.length})</span>
-          <div className="mt-1 space-y-1 max-h-24 overflow-y-auto">
+        <div style={{ marginBottom: 8 }}>
+          <span className="mc-card-label">SQL 变更 ({sqlChanges.length})</span>
+          <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 96, overflowY: 'auto' }}>
             {sqlChanges.map((sql: string, i: number) => (
-              <pre key={i} className="text-xs bg-gray-50 rounded p-1 font-mono text-gray-700 border border-gray-100">
+              <pre key={i} className="mc-card-dim" style={{ background: 'var(--bg-tertiary)', borderRadius: 3, padding: 4, border: '1px solid var(--border-subtle)', margin: 0, overflowX: 'auto' }}>
                 {sql.length > 120 ? sql.slice(0, 120) + '...' : sql}
               </pre>
             ))}
@@ -92,9 +89,9 @@ export function DeployApprovalCard({ message, meta, onAction }: Props) {
 
       {/* Dependency changes */}
       {depChanges.length > 0 && (
-        <div className="mb-3">
-          <span className="text-xs font-medium text-gray-600">依赖变更</span>
-          <ul className="text-xs text-gray-500 mt-1 list-disc list-inside">
+        <div style={{ marginBottom: 8 }}>
+          <span className="mc-card-label">依赖变更</span>
+          <ul className="mc-card-dim" style={{ margin: '4px 0 0', paddingLeft: 16, listStyle: 'disc' }}>
             {depChanges.map((d: { name: string; from?: string; to?: string }, i: number) => (
               <li key={i}>{d.name}{d.from && d.to ? `: ${d.from} → ${d.to}` : ''}</li>
             ))}
@@ -103,19 +100,11 @@ export function DeployApprovalCard({ message, meta, onAction }: Props) {
       )}
 
       {/* Approve/Reject */}
-      <div className="flex gap-2 border-t pt-2">
-        <button
-          onClick={handleApprove}
-          disabled={approving}
-          className="flex-1 bg-green-500 text-white text-xs px-3 py-1.5 rounded hover:bg-green-600 disabled:opacity-50"
-        >
+      <div className="mc-card-actions">
+        <button onClick={handleApprove} disabled={approving} className="mc-btn mc-btn-primary">
           {approving ? '审批中...' : '批准部署'}
         </button>
-        <button
-          onClick={handleReject}
-          disabled={rejecting}
-          className="flex-1 border border-gray-300 text-gray-700 text-xs px-3 py-1.5 rounded hover:bg-gray-50 disabled:opacity-50"
-        >
+        <button onClick={handleReject} disabled={rejecting} className="mc-btn">
           {rejecting ? '处理中...' : '拒绝'}
         </button>
       </div>

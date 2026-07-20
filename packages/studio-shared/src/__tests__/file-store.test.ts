@@ -11,6 +11,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { spawn } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import {
   FileStore,
   LockTimeoutError,
@@ -890,5 +892,222 @@ describe('FileStore.migrateChannelsEncoding (F3)', () => {
   it('returns zeros when agents dir does not exist', async () => {
     const result = await store.migrateChannelsEncoding();
     expect(result).toEqual({ scanned: 0, rewritten: 0 });
+  });
+});
+
+// ─── T6: writeJson 原子写 + WorkUnit index 并发写加锁 + getIndex 损坏语义 ───
+
+describe('FileStore T6: 原子写与并发', () => {
+  let tmpDir: string;
+  let store: FileStore;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    store = new FileStore(tmpDir);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  function makeSnapshot(id: string): WorkUnitSnapshot {
+    const now = new Date().toISOString();
+    return {
+      id,
+      parentId: null,
+      type: 'task',
+      scope: `scope-${id}`,
+      assigneeId: null,
+      status: 'unassigned',
+      failureType: null,
+      retryCount: 0,
+      timeoutAt: null,
+      channelId: null,
+      projectPath: null,
+      metadata: null,
+      createdAt: now,
+      updatedAt: now,
+      claimedAt: null,
+      completedAt: null,
+    };
+  }
+
+  const indexJsonPath = () => path.join(tmpDir, 'workunits', 'index.json');
+
+  function writeTornIndex(content = '[{"id":"wu1",'): string {
+    fs.mkdirSync(path.dirname(indexJsonPath()), { recursive: true });
+    fs.writeFileSync(indexJsonPath(), content);
+    return content;
+  }
+
+  describe('writeJson 原子写', () => {
+    it('写入后不残留 tmp 文件', async () => {
+      await store.writeJson(path.join(tmpDir, 'a.json'), { v: 1 });
+      expect(fs.readdirSync(tmpDir).filter(f => f.includes('.tmp-'))).toEqual([]);
+    });
+
+    it('并发写不同文件互不干扰', async () => {
+      await Promise.all(Array.from({ length: 20 }, (_, i) =>
+        store.writeJson(path.join(tmpDir, `f-${i}.json`), { v: i })));
+      for (let i = 0; i < 20; i++) {
+        expect(JSON.parse(fs.readFileSync(path.join(tmpDir, `f-${i}.json`), 'utf-8'))).toEqual({ v: i });
+      }
+      expect(fs.readdirSync(tmpDir).filter(f => f.includes('.tmp-'))).toEqual([]);
+    });
+
+    it('并发写同一文件不产生撕裂 JSON（结果必是某个完整 payload）', async () => {
+      const fp = path.join(tmpDir, 'race.json');
+      const payloads = Array.from({ length: 20 }, (_, i) => ({ v: i, pad: 'x'.repeat(4096) }));
+      await Promise.all(payloads.map(p => store.writeJson(fp, p)));
+      const parsed = JSON.parse(fs.readFileSync(fp, 'utf-8'));
+      expect(payloads).toContainEqual(parsed);
+      expect(fs.readdirSync(tmpDir).filter(f => f.includes('.tmp-'))).toEqual([]);
+    });
+  });
+
+  describe('getIndex 损坏文件语义', () => {
+    it('index.json 缺失 → 返回空数组', async () => {
+      expect(await store.getIndex()).toEqual([]);
+    });
+
+    it('index.json 撕裂 → 抛出带路径的错误（不再静默当空）', async () => {
+      writeTornIndex();
+      await expect(store.getIndex()).rejects.toThrow(indexJsonPath());
+    });
+
+    it('index.json 内容不是数组 → 同样抛错', async () => {
+      writeTornIndex('{"not":"an array"}');
+      await expect(store.getIndex()).rejects.toThrow(indexJsonPath());
+    });
+
+    it('upsertSnapshot 遇到撕裂 index → 抛错且不覆盖原文件', async () => {
+      const torn = writeTornIndex();
+      await expect(store.upsertSnapshot(makeSnapshot('wu-x'))).rejects.toThrow('index.json');
+      // 不允许基于空数组回写把撕裂文件"洗白"（数据全丢路径）
+      expect(fs.readFileSync(indexJsonPath(), 'utf-8')).toBe(torn);
+    });
+
+    it('removeSnapshot 遇到撕裂 index → 抛错', async () => {
+      writeTornIndex();
+      await expect(store.removeSnapshot('wu1')).rejects.toThrow('index.json');
+    });
+
+    it('claimWorkUnit 遇到撕裂 index → 抛错而非幻影 false', async () => {
+      writeTornIndex();
+      await expect(store.claimWorkUnit('wu1', 'agent1')).rejects.toThrow('index.json');
+    });
+  });
+
+  describe('upsertSnapshot/removeSnapshot 锁（同进程）', () => {
+    it('并发 upsert 50 个不同 id 全部保留', async () => {
+      await Promise.all(Array.from({ length: 50 }, (_, i) => store.upsertSnapshot(makeSnapshot(`c-${i}`))));
+      const ids = (await store.getIndex()).map(s => s.id);
+      expect(ids).toHaveLength(50);
+      expect(new Set(ids).size).toBe(50);
+    });
+
+    it('并发 remove 与 upsert 混合不丢数据', async () => {
+      for (let i = 0; i < 20; i++) await store.upsertSnapshot(makeSnapshot(`keep-${i}`));
+      await Promise.all([
+        ...Array.from({ length: 20 }, (_, i) => store.upsertSnapshot(makeSnapshot(`new-${i}`))),
+        ...Array.from({ length: 10 }, (_, i) => store.removeSnapshot(`keep-${i}`)),
+      ]);
+      const ids = (await store.getIndex()).map(s => s.id);
+      expect(ids).toHaveLength(30);
+      for (let i = 10; i < 20; i++) expect(ids).toContain(`keep-${i}`);
+      for (let i = 0; i < 20; i++) expect(ids).toContain(`new-${i}`);
+    });
+  });
+
+  // 多进程压测：tsx 起子进程跑真实 FileStore，验证跨进程锁 + 原子写
+  describe('多进程并发压测', () => {
+    const REPO_ROOT = path.resolve(__dirname, '../../../..');
+    const TSX_BIN = path.join(REPO_ROOT, 'node_modules', '.bin', 'tsx');
+    const FILE_STORE_TS = pathToFileURL(path.resolve(__dirname, '..', 'file-store.ts')).href;
+
+    function writeWorker(): string {
+      const workerPath = path.join(tmpDir, 't6-worker.ts');
+      fs.writeFileSync(workerPath, `
+import { FileStore } from ${JSON.stringify(FILE_STORE_TS)};
+import type { WorkUnitSnapshot } from ${JSON.stringify(FILE_STORE_TS)};
+
+const [baseDir, mode, workerId, countStr] = process.argv.slice(2);
+const count = parseInt(countStr, 10);
+const store = new FileStore(baseDir);
+
+function makeSnapshot(id: string): WorkUnitSnapshot {
+  const now = new Date().toISOString();
+  return {
+    id, parentId: null, type: 'task', scope: 'scope-' + id, assigneeId: null,
+    status: 'unassigned', failureType: null, retryCount: 0, timeoutAt: null,
+    channelId: null, projectPath: null, metadata: null,
+    createdAt: now, updatedAt: now, claimedAt: null, completedAt: null,
+  };
+}
+
+async function main() {
+  for (let j = 0; j < count; j++) {
+    const id = workerId + '-' + j;
+    if (mode === 'upsert') {
+      await store.upsertSnapshot(makeSnapshot(id));
+    } else {
+      await store.removeSnapshot(id);
+    }
+  }
+}
+
+main().catch(err => {
+  console.error(err);
+  process.exit(1);
+});
+`);
+      return workerPath;
+    }
+
+    function runWorker(workerPath: string, args: string[]): Promise<void> {
+      return new Promise((resolve, reject) => {
+        const child = spawn(TSX_BIN, [workerPath, ...args], { stdio: ['ignore', 'ignore', 'pipe'] });
+        let stderr = '';
+        child.stderr!.on('data', (d: Buffer) => { stderr += d.toString(); });
+        child.on('error', reject);
+        child.on('exit', code => {
+          if (code === 0) resolve();
+          else reject(new Error(`worker exited ${code}: ${stderr}`));
+        });
+      });
+    }
+
+    it('8 进程 × 25 upsert：无丢无重、无 tmp 残留', async () => {
+      expect(fs.existsSync(TSX_BIN)).toBe(true);
+      const PROCS = 8, PER = 25;
+      const workerPath = writeWorker();
+      await Promise.all(Array.from({ length: PROCS }, (_, i) =>
+        runWorker(workerPath, [tmpDir, 'upsert', `w${i}`, String(PER)])));
+
+      const index = await store.getIndex();
+      const ids = index.map(s => s.id);
+      expect(ids).toHaveLength(PROCS * PER);
+      expect(new Set(ids).size).toBe(PROCS * PER);
+      for (let i = 0; i < PROCS; i++) {
+        for (let j = 0; j < PER; j++) expect(ids).toContain(`w${i}-${j}`);
+      }
+      const leftovers = fs.readdirSync(path.join(tmpDir, 'workunits')).filter(f => f.includes('.tmp-'));
+      expect(leftovers).toEqual([]);
+    }, 30000);
+
+    it('8 进程 × 25 remove：全部删除', async () => {
+      expect(fs.existsSync(TSX_BIN)).toBe(true);
+      const PROCS = 8, PER = 25;
+      // 预置 PROCS*PER 条（直接原子写 index，避免 200 次串行 upsert 拖慢测试）
+      const seed: WorkUnitSnapshot[] = [];
+      for (let i = 0; i < PROCS; i++) for (let j = 0; j < PER; j++) seed.push(makeSnapshot(`w${i}-${j}`));
+      await store.writeJson(indexJsonPath(), seed);
+
+      const workerPath = writeWorker();
+      await Promise.all(Array.from({ length: PROCS }, (_, i) =>
+        runWorker(workerPath, [tmpDir, 'remove', `w${i}`, String(PER)])));
+
+      expect(await store.getIndex()).toEqual([]);
+    }, 30000);
   });
 });

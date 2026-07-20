@@ -33,8 +33,8 @@ export const ChannelWorkspaceSetting: React.FC<ChannelWorkspaceSettingProps> = (
   };
 
   return (
-    <select role="combobox" value={selected} onChange={handleChange}>
-      <option value="">None</option>
+    <select role="combobox" value={selected} onChange={handleChange} className="mc-btn" title="默认工程">
+      <option value="">默认工程：无</option>
       {workspaces.map((ws) => (
         <option key={ws.id} value={ws.id}>
           {ws.name}

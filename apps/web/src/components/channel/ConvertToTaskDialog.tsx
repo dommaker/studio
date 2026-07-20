@@ -1,4 +1,5 @@
 // AC-E3: Convert to Task dialog — LLM suggestion + form
+// 2026-07 视觉重构（方向 A Mission Control）：深色变量重绘；交互语义零变更
 import { useState, useEffect } from 'react';
 import { channelApi, type AgentProfile, type ConvertSuggestion, type LocalProject } from '../../api/channel';
 
@@ -67,50 +68,53 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
-        <h2 className="text-lg font-semibold mb-4">转为任务</h2>
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        <h2 className="modal-title" style={{ marginBottom: 12 }}>转为任务</h2>
 
         {/* Source message preview */}
-        <div className="text-xs text-gray-500 border-l-2 border-gray-300 pl-2 mb-4 italic truncate">
+        <div className="mc-quote" style={{ marginBottom: 12 }}>
           {messageContent}
         </div>
 
         {loading && (
-          <div className="text-center text-gray-400 text-sm mb-4">正在获取建议...</div>
+          <div className="mc-drawer-note" style={{ textAlign: 'center', marginBottom: 12 }}>正在获取建议...</div>
         )}
 
         {error && (
-          <div className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded mb-4">{error}</div>
+          <div className="mc-status mc-status-error" style={{ display: 'flex', marginBottom: 12, padding: '6px 10px' }}>{error}</div>
         )}
 
-        <div className="space-y-3">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">标题</label>
+            <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>标题</label>
             <input
               type="text"
               value={title}
               onChange={e => setTitle(e.target.value)}
               placeholder="任务标题"
-              className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input"
+              style={{ width: '100%' }}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">描述</label>
+            <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>描述</label>
             <textarea
               value={description}
               onChange={e => setDescription(e.target.value)}
               placeholder="任务描述"
               rows={3}
-              className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              className="input"
+              style={{ width: '100%', resize: 'none' }}
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">分配给</label>
+            <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>分配给</label>
             <select
               value={assigneeId}
               onChange={e => setAssigneeId(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input"
+              style={{ width: '100%' }}
             >
               <option value="">未分配</option>
               {agents.map(a => (
@@ -119,11 +123,12 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
             </select>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">项目</label>
+            <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>项目</label>
             <select
               value={projectPath}
               onChange={e => setProjectPath(e.target.value)}
-              className="w-full border border-gray-300 rounded px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="input"
+              style={{ width: '100%' }}
             >
               <option value="">无</option>
               {projects.map(p => (
@@ -133,17 +138,14 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 mt-6">
-          <button
-            onClick={onClose}
-            className="px-4 py-1.5 text-sm text-gray-600 hover:text-gray-800"
-          >
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
+          <button onClick={onClose} className="mc-btn">
             取消
           </button>
           <button
             onClick={handleSubmit}
             disabled={submitting || loading}
-            className="px-4 py-1.5 text-sm bg-blue-500 text-white rounded hover:bg-blue-600 disabled:opacity-50"
+            className="mc-btn mc-btn-primary"
           >
             {submitting ? '创建中...' : '创建任务'}
           </button>

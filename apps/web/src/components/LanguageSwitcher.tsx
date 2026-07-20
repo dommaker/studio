@@ -17,8 +17,8 @@ export const LanguageSwitcher: React.FC = () => {
           onClick={() => handleLanguageChange(lang.code)}
           className={`px-2 py-1 rounded text-sm transition-colors ${
             currentLang === lang.code || currentLang.startsWith(lang.code.split('-')[0])
-              ? 'bg-blue-100 text-blue-700'
-              : 'hover:bg-gray-100'
+              ? 'u-accent-dim u-accent'
+              : 'u-hover-bg'
           }`}
           title={lang.name}
         >

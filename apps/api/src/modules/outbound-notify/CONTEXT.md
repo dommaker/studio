@@ -4,16 +4,33 @@
 
 ## 职责
 
-<!-- 本目录的核心职责是什么 -->
+本模块提供基于 Discord 的通知发送服务，支持多种任务与会议相关通知类型。内部封装了对 `discordNotifier` 的调用，并通过 `eventStore` 将通知事件发布到消息总线。还暴露 HTTP 路由供内部模块通过 POST /api/v1/notify/send 触发通知。
 
 ## 核心导出
 
-<!-- 本目录对外暴露的主要模块/函数 -->
+| 导出 | 文件 | 说明 |
+| --- | --- | --- |
+| `NotifyService` | `notify.service.ts` | 通知发送服务类，提供 `send()`、`sendHighRiskNotification()`、`sendMediumRiskNotification()` 方法 |
+| `notifyService` | `notify.service.ts` | `NotifyService` 的单例实例 |
+| `NotifyMessage` | `notify.service.ts` | 通知消息的类型接口，定义支持的通知类型和字段 |
+| `NotifyEvent` | `notify.service.ts` | 通知事件类型（TypeScript 类型导出） |
+| `default router` | `routes.ts` | Express 路由器，处理 `/send` 端点 |
 
 ## 依赖关系
 
-<!-- 本目录依赖哪些其他模块，谁依赖本目录 -->
+**上游**:
+- `../../utils/logger`（日志记录）
+- `../../core/event-store`（事件存储，用于发布通知事件）
+- `../../utils/discord-notifier`（Discord 消息发送工具）
+- `@dommaker/studio-shared`（路由模块中使用的日志）
+
+**下游**:
+- `apps/api/src/route-registry.ts`：注册本模块暴露的路由。
 
 ## 注意事项
 
-<!-- 开发时需要注意的约束或约定 -->
+- `send()` 方法自动将 `components`（旧格式按钮）转换为 Discord 按钮格式；新调用应优先使用 `sendHighRiskNotification` 等方法。
+- 高风险会议通知使用 `sendWithConfirmButtons` 生成带确认按钮的Discord消息，中风险使用普通文字通知。
+- 路由 POST `/api/v1/notify/send` 要求请求体必须包含 `type`、`title`、`content`，否则返回 400。
+- `notifyService` 为单例，初始化时自动注入 `eventStore`，无需手动传入。
+- 通知发布到事件总线频道为 `'notifications'`，其他模块可通过订阅该频道消费。

@@ -2,126 +2,56 @@
 
 > 此文件描述 apps/api/src/modules/agents 目录的职责和上下文
 
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/types.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/session-summary-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/types.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/session-summary-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/requirement-gate.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/knowledge-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/monitor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/post-eval-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/auditor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/deploy-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/requirement-gate.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/requirement-gate.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/deploy-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/review-agent.service.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/default-triggers.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-context.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/data-analyst-agent.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/post-eval-agent.service.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/types.ts
-
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/types.ts
-
-<!-- STALE_SINCE: 2026-07-18 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/triage-agent.service.ts
-
 ## 职责
 
-<!-- 本目录的核心职责是什么 -->
+负责管理 Agent 的配置（profile）、运行实例（instance）、决策循环（loop）以及内部审计 Agent（Auditor）等核心编排逻辑。提供 REST API 进行 CRUD 操作，并通过事件驱动机制实现 Agent 的自动挂载、运行和终止。
 
 ## 核心导出
 
-<!-- 本目录对外暴露的主要模块/函数 -->
+- `monitor-agent.service.ts` — MonitorAgent 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorAgent` / `monitorAgent` 不变。
+  - `monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/审查质量/token 预算/工具模式/deploy/proxy 事件）
+  - `monitor-system-probes.ts` — 系统/知识级探测与自修复（systemHealthCheck/worktree GC/知识健康循环/KnowledgeSync）
+  - `monitor-alerts.ts` — 告警分发/Triage 升级（FL-037）/studio.jsonl 事件写入/心跳持久化
+  - `monitor-reports.ts` — 轨迹评估（G4）/每日洞察（DailyReflection）/交互模式观察（B9-025）
+  - `monitor-lifecycle.ts` — G31 知识沉淀闸门 + 每日 23:55 数据 TTL 清理
+- `auditor-agent.service.ts` — AuditorAgent 门面（跨任务审计 + 周期洞察，每 24h 日审），T3 拆分后仅保留聚合/委托逻辑；对外导出 `AuditorAgent` / `auditorAgent` 不变。
+  - `auditor-rules.ts` — 审计规则（错误归类/技能与 agent-type 建议 B3-005/用户模型质量/知识电路健康 I2）
+  - `auditor-execution.ts` — 建议执行（低风险自动应用/确认卡片+铃铛通知/RKB Resolution 创建/Triage 升级/eval case 生成/B8 提案预检）
+  - `auditor-doc-freshness.ts` — doc-freshness issue 处理（numeric/status 差异自动修复 + PR，narrative 差异评论）
+  - `auditor-reports.ts` — 洞察与报告输出（会话行为趋势/B13-011 七日趋势/tier 成功率反馈/#系统 推送）
+- `knowledge-agent.service.ts` — KnowledgeAgent 门面（被动知识提取 + F1 每日维护），T3 拆分后保留公共 API、safeIngest（P2.5 形态门禁+质量门）与 runDailyMaintenance 聚合；对外导出 `KnowledgeAgent` / `knowledgeAgent` / `EXTRACT_FROM_TEXT_SYSTEM_PROMPT` / `getExtractFromTextSystemPrompt` 不变。
+  - `knowledge-extraction.ts` — 提取（执行结果/审查/错误/完成输出/部署结果/任意文本）+ 提取 prompt 单一来源 + #系统 Channel helper + git diff 读取
+  - `knowledge-cold-start.ts` — 冷启动四源导入（P1b: docs/code/git/manual）+ Discord 通知
+  - `knowledge-analysis.ts` — 会话分析（决策记录 extractDecision / 用户行为模式 extractUserBehavior KE-003）
+  - `knowledge-maintenance.ts` — 语料分析（F1：语义去重/质量评估/过期验证/矛盾审查）
 
 ## 依赖关系
 
-<!-- 本目录依赖哪些其他模块，谁依赖本目录 -->
+- 上游
+  - `@dommaker/studio-shared`（eventBus、FileStore、logger、parseStreamEvents 等）
+  - `@dommaker/studio-shared/node`（resolveProviderDefinition、buildHealthProbeCommand）
+  - `@dommaker/studio-agent`（agentRunner、AgentTask、ExecutionResult）
+  - `../../utils/errors.js`、`../../utils/pagination.js`
+  - `../workunit/workunit.service.js`（WorkUnitService）
+  - `../knowledge/knowledge-service.js`、`../knowledge/knowledge-bus.service.js`
+  - `../triggers/trigger-registry.js`、`../workspaces/workspace-store.js`
+  - `../../core/event-store.js`
+  - 子模块：`auditor-rules.js`、`auditor-execution.js`、`auditor-doc-freshness.js`、`auditor-reports.js`
+- 下游
+  - **apps/api/src**（cli/server.ts、index.ts、route-registry.ts）—— API 入口挂载 agents 路由及启动时初始化
+  - **apps/api/src/modules/knowledge**（internal.routes.ts、knowledge-service.ts）—— 知识模块依赖本目录的 knowledge-agent.service 等
+  - **apps/api/src/modules/workunit**（waiting-input.ts）—— 等待输入流程引用 agent 实例
 
 ## 注意事项
 
-<!-- 开发时需要注意的约束或约定 -->
+- AgentLoop session token 限制为 100K（`SESSION_TOKEN_LIMIT`），超过后自动截断
+- Idle 心跳间隔固定 45 秒（`IDLE_HEARTBEAT_INTERVAL_MS`），配合超时扫描 5 分钟阈值
+- `AgentLoopRegistry.mount()` 幂等且不抛错，失败仅标记为 failed 状态
+- 路由层统一使用 `getErrorMessage` 捕获异常，并返回标准错误码（如 `INTERNAL_ERROR`、`NOT_FOUND`）
+- 所有 Agent 数据均通过 `FileStore` 存储（已从 Prisma 迁移）
+- 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件
+- `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
+- `auditor-doc-freshness.ts` 依赖 `gh` CLI（GitHub Actions runner 或服务器上可用）
 
 ## 修复历史
 

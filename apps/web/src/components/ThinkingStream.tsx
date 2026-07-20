@@ -75,14 +75,14 @@ export function ThinkingStream({ messages, isThinking, currentExecutionId }: Thi
   }
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
+    <div className="u-surface rounded-xl border u-border overflow-hidden shadow-sm">
       {/* 头部 */}
-      <div className="px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b border-slate-100">
+      <div className="px-4 py-3 bg-gradient-to-r from-indigo-50 to-purple-50 border-b u-border">
         <div className="flex items-center gap-2">
           <span className="text-lg">🧠</span>
-          <span className="font-semibold text-gray-800">思考流</span>
+          <span className="font-semibold u-text">思考流</span>
           {isThinking && (
-            <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-600 text-xs rounded-full animate-pulse">
+            <span className="ml-2 px-2 py-0.5 u-accent-dim u-accent text-xs rounded-full animate-pulse">
               思考中...
             </span>
           )}
@@ -97,23 +97,23 @@ export function ThinkingStream({ messages, isThinking, currentExecutionId }: Thi
         {filteredMessages.map(msg => (
           <div key={msg.id} className="flex gap-3 animate-fade-in">
             {/* 角色图标 */}
-            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-lg">
+            <div className="flex-shrink-0 w-8 h-8 rounded-full u-accent-dim flex items-center justify-center text-lg">
               {roleIcons[msg.stepId || ''] || typeIcons[msg.type] || '🤖'}
             </div>
 
             {/* 内容 */}
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 mb-1">
-                <span className="font-medium text-gray-800 text-sm">
+                <span className="font-medium u-text text-sm">
                   {msg.stepName || msg.stepId || 'Agent'}
                 </span>
-                <span className="text-xs text-gray-400">
+                <span className="text-xs u-text-3">
                   {msg.timestamp instanceof Date 
                     ? msg.timestamp.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
                     : new Date(msg.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
                 </span>
                 {msg.progress !== undefined && (
-                  <span className="text-xs text-indigo-500">
+                  <span className="text-xs u-accent">
                     {Math.round(msg.progress * 100)}%
                   </span>
                 )}
@@ -121,7 +121,7 @@ export function ThinkingStream({ messages, isThinking, currentExecutionId }: Thi
               
               {/* 消息内容 */}
               {(displayedContent[msg.id] || msg.content) && (
-                <div className="text-sm text-gray-700 whitespace-pre-wrap bg-slate-50 rounded-lg p-2 mt-1">
+                <div className="text-sm u-text whitespace-pre-wrap u-surface-2 rounded-lg p-2 mt-1">
                   {displayedContent[msg.id] || msg.content}
                 </div>
               )}
@@ -131,11 +131,11 @@ export function ThinkingStream({ messages, isThinking, currentExecutionId }: Thi
 
         {/* 思考中指示器 */}
         {isThinking && filteredMessages.length === 0 && (
-          <div className="flex items-center gap-2 text-gray-500 text-sm py-2">
+          <div className="flex items-center gap-2 u-text-2 text-sm py-2">
             <div className="flex gap-1">
-              <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-              <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-              <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+              <span className="w-2 h-2 u-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+              <span className="w-2 h-2 u-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+              <span className="w-2 h-2 u-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
             </div>
             <span>等待 Agent 响应...</span>
           </div>
@@ -148,13 +148,13 @@ export function ThinkingStream({ messages, isThinking, currentExecutionId }: Thi
 // 简化版思考流指示器
 export function ThinkingIndicator({ stepName }: { stepName?: string }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 rounded-lg">
+    <div className="flex items-center gap-2 px-3 py-2 u-accent-dim rounded-lg">
       <div className="flex gap-1">
-        <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-        <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-        <span className="w-2 h-2 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+        <span className="w-2 h-2 u-accent rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+        <span className="w-2 h-2 u-accent rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+        <span className="w-2 h-2 u-accent rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
       </div>
-      <span className="text-sm text-indigo-600">
+      <span className="text-sm u-accent">
         {stepName ? `${stepName} 执行中...` : '思考中...'}
       </span>
     </div>
