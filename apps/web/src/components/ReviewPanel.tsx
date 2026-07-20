@@ -305,7 +305,7 @@ export function ReviewPanel({ analysis, onConfirm, onModify, onCancel }: ReviewP
           </button>
           <button
             onClick={onConfirm}
-            className="px-5 py-2 text-sm rounded-lg font-medium text-white transition-colors"
+            className="px-5 py-2 text-sm rounded-lg font-medium u-on-bright transition-colors"
             style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
           >
             ✅ 开始执行

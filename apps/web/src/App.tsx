@@ -30,7 +30,7 @@ const DirectionBPage = lazy(() => import('./pages/design-lab/DirectionBPage').th
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
-    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-900 dark:border-white"></div>
+    <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2 "></div>
   </div>
 );
 

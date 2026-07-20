@@ -156,7 +156,7 @@ function LLMConfigSection() {
               </div>
               <div className="flex items-center gap-2">
                 {testResult?.key === c.scope && (
-                  <span className={`text-xs ${testResult.success ? 'text-green-500' : 'text-red-500'}`}>
+                  <span className={`text-xs ${testResult.success ? 'u-ok' : 'u-err'}`}>
                     {testResult.success ? `${testResult.latencyMs}ms` : `失败: ${testResult.error?.slice(0, 30)}`}
                   </span>
                 )}
@@ -165,7 +165,7 @@ function LLMConfigSection() {
                   {testing === c.scope ? '测试中...' : '测试'}
                 </button>
                 <button onClick={() => handleDelete(c.id)}
-                  className="px-2 py-1 text-xs rounded text-red-500" style={{ background: 'var(--bg-elevated)' }}>
+                  className="px-2 py-1 text-xs rounded u-err" style={{ background: 'var(--bg-elevated)' }}>
                   删除
                 </button>
               </div>

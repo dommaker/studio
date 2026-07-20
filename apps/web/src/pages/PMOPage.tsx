@@ -488,13 +488,13 @@ export function PMOPage({ companyId }: PMOPageProps) {
       {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑) */}
       {showOKRDialog && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6" style={{ maxHeight: '80vh', overflow: 'auto' }}>
+          <div className="u-surface rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6" style={{ maxHeight: '80vh', overflow: 'auto' }}>
             <h3 className="text-lg font-semibold mb-4">创建 OKR</h3>
 
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-sm text-gray-600 mb-1">季度</label>
+                  <label className="text-sm u-text-2 mb-1">季度</label>
                   <input
                     type="text"
                     value={newOKRQuarter}
@@ -504,7 +504,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                   />
                 </div>
                 <div>
-                  <label className="text-sm text-gray-600 mb-1">标题</label>
+                  <label className="text-sm u-text-2 mb-1">标题</label>
                   <input
                     type="text"
                     value={newOKRTitle}
@@ -518,10 +518,10 @@ export function PMOPage({ companyId }: PMOPageProps) {
               {/* 🆕 KR 编辑 */}
               <div>
                 <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm text-gray-600">关键结果 (KR)</label>
+                  <label className="text-sm u-text-2">关键结果 (KR)</label>
                   <button
                     onClick={addKR}
-                    className="text-xs px-2 py-1 rounded border border-gray-300 hover:bg-gray-50"
+                    className="text-xs px-2 py-1 rounded border u-border-2 u-hover-bg"
                   >
                     + 添加 KR
                   </button>
@@ -542,7 +542,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                       {krs.length > 1 && (
                         <button
                           onClick={() => removeKR(kr.id)}
-                          className="text-xs text-red-500 hover:text-red-700"
+                          className="text-xs u-err u-hover-text"
                         >
                           ✕
                         </button>
@@ -550,7 +550,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                     </div>
                     <div className="grid grid-cols-4 gap-2">
                       <div>
-                        <label className="text-xs text-gray-400">目标值</label>
+                        <label className="text-xs u-text-3">目标值</label>
                         <input
                           type="number"
                           value={kr.target}
@@ -560,7 +560,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-400">当前值</label>
+                        <label className="text-xs u-text-3">当前值</label>
                         <input
                           type="number"
                           value={kr.current}
@@ -570,7 +570,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-400">单位</label>
+                        <label className="text-xs u-text-3">单位</label>
                         <input
                           type="text"
                           value={kr.unit}
@@ -580,7 +580,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                         />
                       </div>
                       <div>
-                        <label className="text-xs text-gray-400">自动度量</label>
+                        <label className="text-xs u-text-3">自动度量</label>
                         <select
                           value={kr.metricType || ''}
                           onChange={(e) => updateKR(kr.id, 'metricType', e.target.value)}
@@ -618,13 +618,13 @@ export function PMOPage({ companyId }: PMOPageProps) {
                   setShowOKRDialog(false);
                   setKRs([{ id: 'kr1', objectiveId: 'o1', title: '', target: 100, current: 0, unit: '%', metricType: '' }]);
                 }}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                className="px-4 py-2 u-text-2 u-hover-text"
               >
                 取消
               </button>
               <button
                 onClick={handleCreateOKR}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                className="px-4 py-2 u-accent-bg u-on-accent rounded-lg u-hover-bg"
               >
                 创建
               </button>
@@ -663,7 +663,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
               <button
                 onClick={handlePublishConfirm}
                 disabled={publishing || channels.length === 0}
-                className="px-4 py-2 rounded text-white"
+                className="px-4 py-2 rounded u-on-accent"
                 style={{ background: publishing ? 'var(--bg-tertiary)' : 'var(--accent-primary)' }}
               >
                 {publishing ? '发布中...' : '确认发布'}

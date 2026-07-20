@@ -29,7 +29,7 @@ export function LandingPage() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex flex-col items-center justify-center px-4">
+    <div className="min-h-screen u-text flex flex-col items-center justify-center px-4" style={{ background: 'var(--bg-primary)' }}>
       <div className="text-center max-w-2xl">
         {/* 品牌 */}
         <div
@@ -42,7 +42,7 @@ export function LandingPage() {
         <h1 className="text-3xl md:text-4xl font-bold mb-3 tracking-tight">
           Agent Studio
         </h1>
-        <p className="text-base text-gray-400 mb-12 max-w-md mx-auto leading-relaxed">
+        <p className="text-base u-text-3 mb-12 max-w-md mx-auto leading-relaxed">
           我的 AI 开发助手。从需求分析到代码审查，7×24 自主运行。
         </p>
 
@@ -58,19 +58,19 @@ export function LandingPage() {
           ].map((f) => (
             <div
               key={f.label}
-              className="bg-white/5 border border-white/10 rounded-xl p-5 text-center"
+              className="u-surface-2 border u-border rounded-xl p-5 text-center"
             >
               <div className="text-2xl mb-2">{f.icon}</div>
               <div className="text-sm font-medium mb-1">{f.label}</div>
-              <div className="text-xs text-gray-500">{f.desc}</div>
+              <div className="text-xs u-text-2">{f.desc}</div>
             </div>
           ))}
         </div>
 
         {/* 状态指示（无文字，仅色点） */}
         <div className="flex items-center justify-center gap-2 mb-16">
-          <span className="w-1.5 h-1.5 rounded-full bg-green-500" title="运行中" />
-          <span className="text-xs text-gray-600">running</span>
+          <span className="w-1.5 h-1.5 rounded-full u-ok-bg" title="运行中" />
+          <span className="text-xs u-text-2">running</span>
         </div>
       </div>
 

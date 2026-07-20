@@ -38,7 +38,7 @@ export function TriageBanner() {
 
   return (
     <div className={`px-4 py-2 text-sm text-center ${
-      hasCritical ? 'bg-red-500 text-white' : 'bg-orange-50 text-orange-800 border-b border-orange-200'
+      hasCritical ? 'u-err-bg u-on-accent' : 'u-warn-dim u-warn border-b u-warn-border'
     }`}>
       <div className="flex items-center justify-center gap-2 max-w-3xl mx-auto">
         <span>{hasCritical ? '🚨' : '⚠️'}</span>

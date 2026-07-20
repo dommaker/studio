@@ -628,3 +628,37 @@
 @media (max-width: 1100px) {
   .mc-drawer { width: 300px; }
 }
+
+/* ============================================================
+   语义工具类 —— 替代写死浅色 Tailwind 类（bg-white/text-gray-* 等），
+   全部消费 theme.css 变量，深色（A 方向）/浅色双主题一致。
+   ============================================================ */
+.u-surface { background: var(--bg-elevated); }
+.u-surface-2 { background: var(--bg-tertiary); }
+.u-hover-bg:hover { background: var(--bg-hover); }
+.u-hover-text:hover { color: var(--text-primary); }
+.u-hover-accent:hover { color: var(--accent-primary); }
+.u-text { color: var(--text-primary); }
+.u-text-2 { color: var(--text-secondary); }
+.u-text-3 { color: var(--text-muted); }
+.u-border { border-color: var(--border-subtle); }
+.u-border-2 { border-color: var(--border-default); }
+.u-accent { color: var(--accent-primary); }
+.u-accent-bg { background: var(--accent-primary); color: var(--bg-primary); }
+.u-accent-dim { background: var(--accent-dim); color: var(--accent-primary); }
+.u-accent-border { border-color: var(--accent-border); }
+.u-ok { color: var(--success); }
+.u-ok-bg { background: var(--success); color: var(--bg-primary); }
+.u-ok-dim { background: var(--success-dim); color: var(--success); }
+.u-ok-border { border-color: var(--success-border); }
+.u-err { color: var(--error); }
+.u-err-bg { background: var(--error); color: var(--bg-primary); }
+.u-err-dim { background: var(--error-dim); color: var(--error); }
+.u-err-border { border-color: var(--error-border); }
+.u-warn { color: var(--warning); }
+.u-warn-bg { background: var(--warning); color: var(--bg-primary); }
+.u-warn-dim { background: var(--warning-dim); color: var(--warning); }
+.u-warn-border { border-color: var(--warning-border); }
+.u-on-accent { color: var(--bg-primary); }
+.u-on-bright { color: #f5f7fa; }
+.u-ph::placeholder { color: var(--text-muted); }

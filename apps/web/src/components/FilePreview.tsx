@@ -58,14 +58,14 @@ export function FilePreview({ file, onClose }: FilePreviewProps) {
       .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>')
       // 代码块
-      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="bg-gray-900 p-4 rounded-lg my-4 overflow-x-auto"><code class="text-sm text-gray-100">$2</code></pre>')
+      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre class="u-surface p-4 rounded-lg my-4 overflow-x-auto"><code class="text-sm u-text">$2</code></pre>')
       // 行内代码
-      .replace(/`([^`]+)`/g, '<code class="bg-gray-100 px-1.5 py-0.5 rounded text-sm font-mono">$1</code>')
+      .replace(/`([^`]+)`/g, '<code class="u-surface-2 px-1.5 py-0.5 rounded text-sm font-mono">$1</code>')
       // 列表
       .replace(/^- (.*)$/gm, '<li class="ml-4">$1</li>')
       .replace(/^(\d+)\. (.*)$/gm, '<li class="ml-4">$2</li>')
       // 链接
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="text-blue-600 hover:underline" target="_blank">$1</a>')
+      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" class="u-accent hover:underline" target="_blank">$1</a>')
       // 换行
       .replace(/\n\n/g, '</p><p class="my-3">')
       .replace(/\n/g, '<br>');
@@ -121,14 +121,14 @@ export function FilePreview({ file, onClose }: FilePreviewProps) {
             <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: 'var(--border-subtle)' }}>
               <button
                 onClick={() => setViewMode('preview')}
-                className={`px-3 py-1.5 text-xs transition-colors ${viewMode === 'preview' ? 'bg-indigo-600 text-white' : ''}`}
+                className={`px-3 py-1.5 text-xs transition-colors ${viewMode === 'preview' ? 'u-accent-bg u-on-accent' : ''}`}
                 style={viewMode !== 'preview' ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : {}}
               >
                 预览
               </button>
               <button
                 onClick={() => setViewMode('raw')}
-                className={`px-3 py-1.5 text-xs transition-colors ${viewMode === 'raw' ? 'bg-indigo-600 text-white' : ''}`}
+                className={`px-3 py-1.5 text-xs transition-colors ${viewMode === 'raw' ? 'u-accent-bg u-on-accent' : ''}`}
                 style={viewMode !== 'raw' ? { background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' } : {}}
               >
                 原始

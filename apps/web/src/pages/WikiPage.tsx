@@ -160,7 +160,7 @@ export function WikiPage() {
         {viewMode === 'graph' ? (
           graphLoading ? (
             <div className="flex items-center justify-center h-full">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400" />
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2" />
             </div>
           ) : graphData ? (
             <div className="h-full rounded-lg overflow-hidden" style={{ border: '1px solid var(--border-subtle)' }}>
@@ -173,7 +173,7 @@ export function WikiPage() {
           )
         ) : loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-gray-400" />
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2" />
           </div>
         ) : docs.length === 0 ? (
           <div className="flex items-center justify-center h-64">

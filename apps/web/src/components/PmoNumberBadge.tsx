@@ -14,11 +14,11 @@ interface PmoNumberBadgeProps {
 }
 
 const statusColors: Record<string, string> = {
-  pending: 'bg-gray-100 text-gray-700',
-  active: 'bg-blue-100 text-blue-700',
-  in_review: 'bg-yellow-100 text-yellow-700',
-  completed: 'bg-green-100 text-green-700',
-  cancelled: 'bg-red-100 text-red-700',
+  pending: 'u-surface-2 u-text',
+  active: 'u-accent-dim u-accent',
+  in_review: 'u-warn-dim u-warn',
+  completed: 'u-ok-dim u-ok',
+  cancelled: 'u-err-dim u-err',
 };
 
 const sizeStyles: Record<string, string> = {

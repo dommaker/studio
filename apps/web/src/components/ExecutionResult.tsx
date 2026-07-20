@@ -25,7 +25,7 @@ export function ExecutionResult({ execution, onClose }: ExecutionResultProps) {
               ? 'linear-gradient(to right, #3b82f6, #06b6d4)'
               : 'linear-gradient(to right, #ef4444, #ec4899)'
         }}>
-          <h2 className="font-bold text-white flex items-center gap-2">
+          <h2 className="font-bold u-on-bright flex items-center gap-2">
             <span className="text-2xl">
               {isSuccess ? '✅' : isRunning ? '⏳' : '❌'}
             </span>

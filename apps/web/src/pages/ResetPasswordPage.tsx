@@ -34,26 +34,26 @@ export function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex items-center justify-center px-4">
-        <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 w-full max-w-sm shadow-2xl text-center">
-          <p className="text-red-400 text-sm mb-4">重置链接无效</p>
-          <a href="/forgot-password" className="text-xs text-gray-500 hover:text-gray-300">重新发送重置链接</a>
+      <div className="min-h-screen u-text flex items-center justify-center px-4" style={{ background: "var(--bg-primary)" }}>
+        <div className="u-surface border u-border rounded-xl p-6 w-full max-w-sm shadow-2xl text-center">
+          <p className="u-err text-sm mb-4">重置链接无效</p>
+          <a href="/forgot-password" className="text-xs u-text-2 u-hover-text">重新发送重置链接</a>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 text-white flex items-center justify-center px-4">
-      <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 w-full max-w-sm shadow-2xl">
+    <div className="min-h-screen u-text flex items-center justify-center px-4" style={{ background: "var(--bg-primary)" }}>
+      <div className="u-surface border u-border rounded-xl p-6 w-full max-w-sm shadow-2xl">
         <h1 className="text-lg font-bold mb-4">设置新密码</h1>
 
         {success ? (
           <div>
-            <p className="text-green-400 text-sm mb-4">密码重置成功，请使用新密码登录</p>
+            <p className="u-ok text-sm mb-4">密码重置成功，请使用新密码登录</p>
             <button
               onClick={() => navigate('/login')}
-              className="w-full px-4 py-2.5 bg-gray-700 rounded-lg text-gray-200 text-sm hover:bg-gray-600 transition-colors"
+              className="w-full px-4 py-2.5 u-surface-2 rounded-lg u-text text-sm u-hover-bg transition-colors"
             >
               前往登录
             </button>
@@ -66,20 +66,20 @@ export function ResetPasswordPage() {
               onChange={(e) => { setPassword(e.target.value); setError(''); }}
               placeholder="新密码"
               autoFocus
-              className="w-full px-4 py-2.5 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-gray-400 mb-2"
+              className="w-full px-4 py-2.5 u-surface border u-border-2 rounded-lg u-text text-sm u-ph mb-2"
             />
             <input
               type="password"
               value={confirm}
               onChange={(e) => { setConfirm(e.target.value); setError(''); }}
               placeholder="确认新密码"
-              className="w-full px-4 py-2.5 bg-gray-900 border border-gray-600 rounded-lg text-white text-sm placeholder-gray-500 focus:outline-none focus:border-gray-400 mb-3"
+              className="w-full px-4 py-2.5 u-surface border u-border-2 rounded-lg u-text text-sm u-ph mb-3"
             />
-            {error && <p className="text-red-400 text-xs mb-3">{error}</p>}
+            {error && <p className="u-err text-xs mb-3">{error}</p>}
             <button
               type="submit"
               disabled={loading || !password.trim() || !confirm.trim()}
-              className="w-full px-4 py-2.5 bg-gray-700 rounded-lg text-gray-200 text-sm hover:bg-gray-600 disabled:opacity-50 transition-colors"
+              className="w-full px-4 py-2.5 u-surface-2 rounded-lg u-text text-sm u-hover-bg disabled:opacity-50 transition-colors"
             >
               {loading ? '重置中...' : '重置密码'}
             </button>

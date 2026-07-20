@@ -47,9 +47,9 @@ export function DeleteButton({
   const { isGuest, getAuthHeader } = useAuthStore();
 
   const buttonClass = {
-    icon: 'p-1 text-gray-400 hover:text-red-600 rounded hover:bg-red-50 disabled:opacity-50',
-    text: 'px-3 py-1 text-sm text-red-600 hover:bg-red-50 rounded disabled:opacity-50',
-    button: 'px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50',
+    icon: 'p-1 u-text-3 u-hover-accent rounded u-hover-bg disabled:opacity-50',
+    text: 'px-3 py-1 text-sm u-err u-hover-bg rounded disabled:opacity-50',
+    button: 'px-4 py-2 u-err-bg u-on-accent rounded u-hover-bg disabled:opacity-50',
   }[variant];
 
   const handleClick = () => {

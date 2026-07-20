@@ -62,19 +62,19 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
 
       <div ref={listRef} className="max-h-48 overflow-auto px-3 py-2 space-y-2">
         {loading && messages.length === 0 ? (
-          <div className="text-xs text-gray-500">加载中...</div>
+          <div className="text-xs u-text-2">加载中...</div>
         ) : messages.length === 0 ? (
-          <div className="text-xs text-gray-500">暂无消息</div>
+          <div className="text-xs u-text-2">暂无消息</div>
         ) : (
           messages.map(msg => (
             <div key={msg.id} className="text-xs">
-              <span className={`font-medium ${msg.authorType === 'agent' ? 'text-purple-400' : 'text-blue-400'}`}>
+              <span className={`font-medium ${msg.authorType === 'agent' ? 'u-accent' : 'u-accent'}`}>
                 {msg.authorType === 'agent' ? (msg.agentName || 'Agent') : 'Human'}
               </span>
-              <span className="text-gray-500 ml-2">
+              <span className="u-text-2 ml-2">
                 {new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
               </span>
-              <div className="mt-0.5 text-gray-300 whitespace-pre-wrap">{msg.content}</div>
+              <div className="mt-0.5 u-text-3 whitespace-pre-wrap">{msg.content}</div>
             </div>
           ))
         )}
@@ -82,7 +82,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
 
       <div className="flex gap-2 px-3 py-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
         <input
-          className="flex-1 px-2 py-1 text-xs rounded bg-gray-800 text-white border border-gray-600 outline-none focus:border-blue-500"
+          className="flex-1 px-2 py-1 text-xs rounded u-surface u-text border u-border-2 outline-none "
           placeholder="输入消息..."
           value={input}
           onChange={e => setInput(e.target.value)}
@@ -90,7 +90,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
           disabled={sending}
         />
         <button
-          className="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/30 disabled:opacity-50"
+          className="text-xs px-2 py-1 rounded u-accent-dim u-accent u-hover-bg disabled:opacity-50"
           onClick={handleSend}
           disabled={sending || !input.trim()}
         >
