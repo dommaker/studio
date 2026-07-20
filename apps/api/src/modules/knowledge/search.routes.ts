@@ -73,7 +73,8 @@ searchRoutes.get('/resolutions', async (req, res) => {
 /**
  * GET /api/v1/knowledge/search
  * Unified search across all knowledge types
- * Query: q (required), types (comma-separated: document,resolution,behavior,pattern)
+ * Query: q (required), types (comma-separated: document,resolution,pattern)
+ * R4: behavior 读端已删（写链路整体已清理，全库无写入方，属残尸）
  */
 searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
   try {
@@ -82,7 +83,7 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
       return res.status(400).json({ error: 'q (search query) is required' });
     }
     const query = String(q).toLowerCase();
-    const searchTypes = types ? String(types).split(',') : ['document', 'resolution', 'behavior', 'pattern'];
+    const searchTypes = types ? String(types).split(',') : ['document', 'resolution', 'pattern'];
     const takeLimit = Math.min(Number(limit), 50);
 
     const results: Array<{ type: string; id: string; title: string; snippet: string; score: number }> = [];
@@ -124,30 +125,6 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
           title: r.title,
           snippet: r.fix.slice(0, 200),
           score: score + (r.status === 'canonical' ? 1 : 0),
-        });
-      }
-    }
-
-    // Search behavior profiles (KnowledgeStore)
-    if (searchTypes.includes('behavior')) {
-      const { sharedStore: bSearchStore } = await import('./knowledge-bus.service.js');
-      const behaviorSearchEntries = bSearchStore.list({ tags: ['behavior'] })
-        .filter((e: any) => {
-          const d = JSON.parse(e.content || '{}');
-          const title = e.title || '';
-          const pattern = d.pattern || '';
-          const evidence = d.evidence || '';
-          return title.includes(query) || pattern.includes(query) || evidence.includes(query);
-        })
-        .slice(0, takeLimit);
-      for (const e of behaviorSearchEntries) {
-        const d = JSON.parse((e as any).content || '{}');
-        results.push({
-          type: 'behavior',
-          id: (e as any).id,
-          title: (e as any).title,
-          snippet: (d.pattern || '').slice(0, 200),
-          score: 1,
         });
       }
     }
