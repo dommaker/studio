@@ -686,45 +686,26 @@ describe('KnowledgeService Phase 1B: Lifecycle', () => {
 
 describe('KnowledgeService Phase 1B: Resolve', () => {
   describe('createResolution', () => {
-    it.skip('creates resolution via FileStore (TODO: mock writeJson to write to temp dir)', async () => {
-      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ks-res-create-'));
-      const prevHome = process.env.HOME;
-      process.env.HOME = tmpHome;
-      try {
-        fs.mkdirSync(path.join(tmpHome, '.studio', 'data', 'resolutions'), { recursive: true });
-        const { ks } = createKS();
-        await ks.createResolution({ pattern: 'permission error', fix: 'check file perms', errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix' });
-        // Resolution file should exist
-        const resDir = path.join(tmpHome, '.studio', 'data', 'resolutions');
-        const files = fs.readdirSync(resDir);
-        expect(files.length).toBeGreaterThanOrEqual(1);
-      } finally {
-        process.env.HOME = prevHome;
-        fs.rmSync(tmpHome, { recursive: true, force: true });
-      }
+    it('R3: 委托 resolutionService 主存储（不再写 ~/.studio/data/resolutions 影子库）', async () => {
+      mockResolutionCreate.mockClear();
+      const { ks } = createKS();
+      await ks.createResolution({
+        pattern: 'permission error', fix: 'check file perms',
+        errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix', tags: ['triage'],
+      });
+      // triage 调用方签名不变（Promise<void>），写入落到 resolutionService 主存储
+      expect(mockResolutionCreate).toHaveBeenCalledTimes(1);
+      expect(mockResolutionCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ pattern: 'permission error', title: 'Permission fix', tags: ['triage'] }),
+      );
     });
 
-    it.skip('skips if duplicate pattern exists (TODO: mock readJson for dedup check)', async () => {
-      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ks-res-dup-'));
-      const prevHome = process.env.HOME;
-      process.env.HOME = tmpHome;
-      try {
-        const resDir = path.join(tmpHome, '.studio', 'data', 'resolutions');
-        fs.mkdirSync(resDir, { recursive: true });
-        fs.writeFileSync(path.join(resDir, 'existing.json'), JSON.stringify({
-          id: 'existing', pattern: 'permission error', fix: 'existing fix', status: 'verified',
-          verifyCount: 1, errorClass: 'perm', layer: 'L5_error_fix', title: 'Existing',
-          tags: '[]', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        }));
-        const { ks } = createKS();
-        await ks.createResolution({ pattern: 'permission error', fix: 'check file perms', errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix' });
-        // Should not create duplicate
-        const files = fs.readdirSync(resDir);
-        expect(files.length).toBe(1); // only the existing one
-      } finally {
-        process.env.HOME = prevHome;
-        fs.rmSync(tmpHome, { recursive: true, force: true });
-      }
+    it('R3: resolutionService 失败被吞掉（best-effort，不阻塞 triage 调用方）', async () => {
+      mockResolutionCreate.mockRejectedValueOnce(new Error('disk down'));
+      const { ks } = createKS();
+      await expect(ks.createResolution({
+        pattern: 'p', fix: 'f', errorClass: 'e', layer: 'L5_error_fix', title: 't',
+      })).resolves.not.toThrow();
     });
   });
 });

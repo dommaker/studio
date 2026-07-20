@@ -369,12 +369,11 @@ export interface KnowledgeServiceDeps {
 }
 
 // ── Resolution FileStore helpers ──
+// 注意：~/.studio/data/resolutions 为影子库（legacy）。R3 起 createResolution 改写
+// resolutionService 主存储（~/.studio/knowledge/resolution-*.md）；
+// matchResolutions/verifyResolution 仍读影子库，存量数据合并由 γ 轨道清洗脚本完成。
 
 const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'resolutions');
-
-async function ensureDir(dir: string): Promise<void> {
-  await fs.promises.mkdir(dir, { recursive: true });
-}
 
 async function listResolutions(): Promise<any[]> {
   try {
@@ -1196,29 +1195,17 @@ export class KnowledgeService {
 
   // ═══════════ Resolve (known solutions) ════════════
 
+  /**
+   * R3（type-repair）：写入 resolutionService 主存储（~/.studio/knowledge/resolution-*.md），
+   * 不再写 ~/.studio/data/resolutions/ 影子库（双库合并：UI/匹配只读主存储）。
+   * 按 pattern 去重由 resolutionService.createResolution 负责（语义与原影子库一致）。
+   * triage 调用方签名不变（Promise<void>）；失败 best-effort 吞掉。
+   */
   async createResolution(input: CreateResolutionInput): Promise<void> {
     try {
-      const all = await listResolutions();
-      const existing = all.find((r: any) => r.pattern === input.pattern);
-      if (existing) return;
-
-      const id = `res_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      const now = new Date().toISOString();
-      const resolution = {
-        id,
-        pattern: input.pattern,
-        errorClass: input.errorClass || 'unknown',
-        layer: input.layer || 'L5_error_fix',
-        title: input.title || input.pattern.slice(0, 100),
-        fix: input.fix,
-        status: 'pending',
-        tags: input.tags ? JSON.stringify(input.tags) : '[]',
-        verifyCount: 0,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await ensureDir(RESOLUTIONS_DIR);
-      await fileStore.writeJson(path.join(RESOLUTIONS_DIR, `${id}.json`), resolution);
+      // 动态 import：与 postKnowledgeProposalCard 同款，避免模块加载期循环依赖
+      const { resolutionService } = await import('./resolution.service.js');
+      await resolutionService.createResolution(input);
     } catch {
       // best-effort
     }
