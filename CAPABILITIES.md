@@ -310,3 +310,4 @@
 | workunit.tools | apps/api/src/modules/mcp/workunit.tools.ts | MCP Tools — WorkUnit |
 | mock-data | apps/web/src/pages/design-lab/mock-data.ts | Design Lab — 视觉方向稿共用 mock 数据（T1 方向稿专用，不接任何真实 API） |
 | useChannelList | apps/web/src/hooks/useChannelList.ts | 频道列表数据 hook —— ChannelListPage 与 Mission Control 左栏 ChannelRail 共用 |
+| knowledge | apps/web/src/api/knowledge.ts | Knowledge Service API — 2026-07 知识审核闭环 |
