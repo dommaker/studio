@@ -20,18 +20,27 @@ describe('e2e-live-smoke', () => {
   });
 
   it('prints SKIP and exits 0 when claude is not on PATH', () => {
-    // PATH 保留 coreutils 与 node，但排除 claude 所在的 /usr/local/bin
-    const nodeDir = path.dirname(process.execPath);
-    const safePath = [nodeDir, '/usr/bin', '/bin'].join(':');
-    const result = spawnSync(TSX_BIN, [SCRIPT], {
-      encoding: 'utf-8',
-      timeout: 60_000,
-      env: { ...process.env, PATH: safePath },
-    });
-    expect(result.error).toBeUndefined();
-    expect(result.status).toBe(0);
-    expect(`${result.stdout}\n${result.stderr}`).toContain('SKIP');
-    // SKIP 必须先于 API 启动
-    expect(`${result.stdout}\n${result.stderr}`).not.toContain('API server ready');
+    // claude 在本机以 npm 全局包形式存在于 node 同级 bin、/usr/bin、/usr/local/bin 三处，
+    // 任何包含 node 的 PATH 都必然能找到 claude —— 唯一可靠的隔离是临时目录只软链
+    // tsx shim 运行所需的最小工具集（node + sed/dirname/uname），其余一概不含
+    const isolated = fs.mkdtempSync(path.join(os.tmpdir(), 'live-smoke-path-'));
+    fs.symlinkSync(process.execPath, path.join(isolated, 'node'));
+    for (const tool of ['sed', 'dirname', 'uname']) {
+      fs.symlinkSync(path.join('/usr/bin', tool), path.join(isolated, tool));
+    }
+    try {
+      const result = spawnSync(TSX_BIN, [SCRIPT], {
+        encoding: 'utf-8',
+        timeout: 60_000,
+        env: { ...process.env, PATH: isolated },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.status).toBe(0);
+      expect(`${result.stdout}\n${result.stderr}`).toContain('SKIP');
+      // SKIP 必须先于 API 启动
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain('API server ready');
+    } finally {
+      fs.rmSync(isolated, { recursive: true, force: true });
+    }
   }, 70_000);
 });
