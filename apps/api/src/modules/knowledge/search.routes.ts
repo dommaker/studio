@@ -39,7 +39,8 @@ searchRoutes.get('/resolutions', async (req, res) => {
       ];
     }
 
-    const allResolutions = await resolutionService.listPending(); // TODO: add search support to resolutionService
+    // R3: 解法库浏览口径 = pending + canonical（canonical 是审核通过的正式解法，本应展示）
+    const allResolutions = await resolutionService.listByMaturity(['pending', 'canonical']); // TODO: add search support to resolutionService
     // Simple in-memory filter for search
     let resolutions = allResolutions;
     if (search) {
@@ -106,9 +107,9 @@ searchRoutes.get('/search', apiCache(CACHE_CONFIG.short), async (req, res) => {
       }
     }
 
-    // Search resolutions
+    // Search resolutions（R3: 同浏览口径 pending + canonical，canonical 命中加分）
     if (searchTypes.includes('resolution')) {
-      const allRes = await resolutionService.listPending(); // FIXME: need listAll or search method
+      const allRes = await resolutionService.listByMaturity(['pending', 'canonical']); // FIXME: need listAll or search method
       const resolutions = allRes.filter((r: any) =>
         (r.title && r.title.toLowerCase().includes(query.toLowerCase())) ||
         (r.fix && r.fix.toLowerCase().includes(query.toLowerCase())) ||

@@ -118,4 +118,64 @@ describe('ResolutionService', () => {
       expect(scheduleVectorDbSync).not.toHaveBeenCalled();
     });
   });
+
+  describe('R3: listByMaturity / listPending 口径', () => {
+    it('listByMaturity([pending, canonical]) 返回两档，listPending 仍只回 pending', async () => {
+      await writeTestResolution({ id: `t-pending-${Date.now()}`, status: 'pending', verifyCount: 0, title: 'Pending One' });
+      await writeTestResolution({ id: `t-canonical-${Date.now()}`, status: 'canonical', verifyCount: 3, title: 'Canonical One' });
+      await writeTestResolution({ id: `t-verified-${Date.now()}`, status: 'verified', verifyCount: 1, title: 'Verified One' });
+
+      const browse = await resolutionService.listByMaturity(['pending', 'canonical']);
+      const statuses = browse.map(r => r.status).sort();
+      expect(statuses).toEqual(['canonical', 'pending']);
+
+      const pendingOnly = await resolutionService.listPending();
+      expect(pendingOnly.map(r => r.status)).toEqual(['pending']);
+    });
+
+    it('scan 不依赖 _index.md：索引缺失/滞后也能看到存量（生产 UI 显示 0 的根因）', async () => {
+      await writeTestResolution({ id: `t-idx-${Date.now()}`, status: 'canonical', title: 'Indexed Blind' });
+      // 写一个不含任何 resolution 条目的 stale _index.md（生产形状）
+      const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+      const indexPath = path.join(knowledgeDir, '_index.md');
+      fs.writeFileSync(indexPath, '# Directory Index\n# Total: 0 entries\n#\n# filename|id|type|title|maturity|tags\n');
+      try {
+        const browse = await resolutionService.listByMaturity(['pending', 'canonical']);
+        expect(browse.map(r => r.title)).toContain('Indexed Blind');
+      } finally {
+        fs.rmSync(indexPath, { force: true });
+      }
+    });
+  });
+
+  describe('R5: ensureSeedResolutions 启动幂等（title+内容 hash 判重）', () => {
+    function countSeedFiles(): number {
+      const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+      return fs.readdirSync(knowledgeDir).filter(f => f.startsWith('resolution-') && f.endsWith('.md')).length;
+    }
+
+    it('首次写 2 条 seed；再次运行一条不写', async () => {
+      await resolutionService.ensureSeedResolutions();
+      expect(countSeedFiles()).toBe(2);
+
+      await resolutionService.ensureSeedResolutions();
+      expect(countSeedFiles()).toBe(2);
+    });
+
+    it('stale _index.md 遮蔽存量时仍不重复写（生产 730 条事故形状）', async () => {
+      await resolutionService.ensureSeedResolutions();
+      expect(countSeedFiles()).toBe(2);
+
+      // _index.md 不含 resolution 条目（生产事故根因：listDocs 读索引 → 扫描失明）
+      const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
+      const indexPath = path.join(knowledgeDir, '_index.md');
+      fs.writeFileSync(indexPath, '# Directory Index\n# Total: 0 entries\n#\n# filename|id|type|title|maturity|tags\n');
+      try {
+        await resolutionService.ensureSeedResolutions();
+        expect(countSeedFiles()).toBe(2);
+      } finally {
+        fs.rmSync(indexPath, { force: true });
+      }
+    });
+  });
 });
