@@ -441,20 +441,29 @@ export class AgentLoop {
       // M2 成本红线度量: 每次 CLI 执行完成记一条 workunit:tokens 事件
       // （注入估算 chars/4 vs 2K 红线；执行 tokens 取自 CLI usage，未回报则记 null 不编造）。
       // fire-and-forget：绝不影响任务流程。
+      const executionTokens = result.usage && (result.usage.inputTokens + result.usage.outputTokens) > 0
+        ? result.usage.inputTokens + result.usage.outputTokens
+        : null;
       void writeWorkunitTokenEvent(STUDIO_EVENTS_JSONL, {
         workUnitId: wu.id,
         executionId: task.executionId,
         injectedTokens: estimateTokens(knowledgeContext.length),
-        executionTokens: result.usage && (result.usage.inputTokens + result.usage.outputTokens) > 0
-          ? result.usage.inputTokens + result.usage.outputTokens
-          : null,
+        executionTokens,
       }).catch(() => {});
+
+      // wireup④ token 预算数据源: 本次 executionTokens 累加进 metadata._cumulativeTokens，
+      // 随 metadataUpdates 由 recordResult 单次原子写入（与 knowledgeExtractedAt 同路径）。
+      // CLI 未回报 usage（executionTokens=null）按 0 累加——即保持既有累计值不变。
+      metadataUpdates._cumulativeTokens = (metadata._cumulativeTokens ?? 0) + (executionTokens ?? 0);
 
       // T-1.1: Record tool:call events for PatternMiner data source
       // R2: 写入统一事件目录（STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）
-      if (result.outputText) {
+      // R2-fix: outputText 是 extractResult 后的纯文本（不含 stream-json 事件行），
+      // 必须优先取 rawOutput（原始 stdout）——否则 parseStreamEvents 恒产 0 条。
+      const toolTraceSource = result.rawOutput ?? result.outputText;
+      if (toolTraceSource) {
         try {
-          writeToolCallEvents(result.outputText, resolveToolTraceFile());
+          writeToolCallEvents(toolTraceSource, resolveToolTraceFile());
         } catch { /* non-blocking */ }
       }
 

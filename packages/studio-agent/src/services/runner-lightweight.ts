@@ -190,6 +190,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         success: true, worktree, outputFiles: [], logFile,
         sessionCount: 1, totalDurationMs: sessionMs, sessionIds: [sessionId],
         outputText: text || undefined,
+        rawOutput: stdout, // R2: 原始 stream-json，供 agent-loop 提取 tool:call 事件
         usage: streamUsage, // M2: 透出 CLI usage，供 agent-loop 记录 workunit:tokens
       };
     } catch (execErr: any) {

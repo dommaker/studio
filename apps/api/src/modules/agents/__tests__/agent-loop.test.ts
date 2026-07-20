@@ -1018,4 +1018,123 @@ describe('AgentLoop', () => {
       expect(first.tool).toBe('Read');
     });
   });
+
+  describe('R2-fix: agentStep tool:call 接线（rawOutput 优先于 outputText）', () => {
+    let prevStudioEventsDir: string | undefined;
+
+    const makeTarget = (metadata: Record<string, unknown> | null = null) => ({
+      workUnit: {
+        id: 'wu-r2-wiring', type: 'task', scope: 'test', channelId: 'ch-1',
+        status: 'active', assigneeId: 'agent-1', parentId: null,
+        failureType: null, retryCount: 0, timeoutAt: null,
+        projectPath: null, metadata: metadata ? JSON.stringify(metadata) : null, claimedAt: null,
+        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+      },
+    });
+
+    beforeEach(() => {
+      prevStudioEventsDir = process.env.STUDIO_EVENTS_DIR;
+      process.env.STUDIO_EVENTS_DIR = testDir;
+    });
+
+    afterEach(() => {
+      if (prevStudioEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
+      else process.env.STUDIO_EVENTS_DIR = prevStudioEventsDir;
+    });
+
+    it('rawOutput（stream-json）中的 tool_use 落盘为 tool:call 事件（含 message.content 与 content 两种形状）', async () => {
+      mockExecuteLightweight.mockResolvedValue({
+        success: true,
+        outputText: 'ACTION: PROGRESS:working',
+        rawOutput: [
+          // message.content 形状（claude stream-json assistant 事件）
+          '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo.ts"}}]}}',
+          // 直接 content 形状
+          '{"type":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/bar.ts"}}]}',
+          '{"type":"result","result":"done"}',
+        ].join('\n'),
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+
+      const traceFile = path.join(testDir, 'studio.jsonl');
+      expect(fs.existsSync(traceFile)).toBe(true);
+      const lines = fs.readFileSync(traceFile, 'utf-8').trim().split('\n');
+      expect(lines.length).toBe(2);
+
+      const first = JSON.parse(lines[0]);
+      expect(first.type).toBe('tool:call');
+      expect(first.tool).toBe('Read');
+      expect(first.success).toBe(true);
+      expect(first.caller).toBe('agent-loop');
+      expect(typeof first.timestamp).toBe('number');
+
+      const second = JSON.parse(lines[1]);
+      expect(second.type).toBe('tool:call');
+      expect(second.tool).toBe('Edit');
+    });
+
+    it('仅 outputText（extractResult 纯文本）时产 0 条——接线必须走 rawOutput', async () => {
+      mockExecuteLightweight.mockResolvedValue({
+        success: true,
+        outputText: 'ACTION: PROGRESS:working\n已完成第一步，继续中。',
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+      await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+
+      // 0 条 tool:call → writeToolCallEvents 提前返回，不落盘
+      expect(fs.existsSync(path.join(testDir, 'studio.jsonl'))).toBe(false);
+    });
+  });
+
+  describe('wireup④: metadata._cumulativeTokens 累计写回', () => {
+    const makeTarget = (metadata: Record<string, unknown> | null = null) => ({
+      workUnit: {
+        id: 'wu-cumulative-tokens', type: 'task', scope: 'test', channelId: 'ch-1',
+        status: 'active', assigneeId: 'agent-1', parentId: null,
+        failureType: null, retryCount: 0, timeoutAt: null,
+        projectPath: null, metadata: metadata ? JSON.stringify(metadata) : null, claimedAt: null,
+        completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+      },
+    });
+
+    it('本次 executionTokens 累加到既有 _cumulativeTokens', async () => {
+      mockExecuteLightweight.mockResolvedValue({
+        success: true,
+        outputText: 'ACTION: PROGRESS:working',
+        usage: { inputTokens: 100, outputTokens: 50, cacheReadTokens: 0, cacheCreationTokens: 0, model: 'm' },
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+      const result = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget({ _cumulativeTokens: 70 }));
+      const { metadataUpdates } = result as { metadataUpdates?: Record<string, unknown> };
+      expect(metadataUpdates).toBeDefined();
+      expect(metadataUpdates!._cumulativeTokens).toBe(220);
+    });
+
+    it('CLI 未回报 usage 时按 0 累加（既有值不变；无既有值记 0）', async () => {
+      mockExecuteLightweight.mockResolvedValue({
+        success: true,
+        outputText: 'ACTION: PROGRESS:working',
+        logFile: '/tmp/log', worktree: '/tmp/wt', outputFiles: [], sessionCount: 1,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+
+      const withExisting = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget({ _cumulativeTokens: 70 }));
+      expect((withExisting as { metadataUpdates?: Record<string, unknown> }).metadataUpdates!._cumulativeTokens).toBe(70);
+
+      const fresh = await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
+      expect((fresh as { metadataUpdates?: Record<string, unknown> }).metadataUpdates!._cumulativeTokens).toBe(0);
+    });
+  });
 });
