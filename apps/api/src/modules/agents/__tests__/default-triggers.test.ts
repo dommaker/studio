@@ -40,10 +40,10 @@ describe('Default Triggers', () => {
     registry = new (TriggerScheduler as any)(null);
   });
 
-  it('registers 9 default triggers', () => {
+  it('registers 10 default triggers', () => {
     registerDefaultTriggers(registry);
 
-    expect(mockRegisterTrigger).toHaveBeenCalledTimes(9);
+    expect(mockRegisterTrigger).toHaveBeenCalledTimes(10);
   });
 
   it('workunit-timeout fires every 5 minutes', () => {
@@ -68,9 +68,9 @@ describe('Default Triggers', () => {
     expect(staleCalls).toHaveLength(0);
   });
 
-  it('getDefaultTriggerConfigs returns 9 configs', () => {
+  it('getDefaultTriggerConfigs returns 10 configs', () => {
     const configs = getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(9);
+    expect(configs).toHaveLength(10);
     expect(configs.map(c => c.id)).toEqual([
       'workunit-timeout',
       'agent-timeout',
@@ -81,6 +81,7 @@ describe('Default Triggers', () => {
       'knowledge-synthesis',
       'workunit-input-reminder',
       'evolution-daily-scan',
+      'doc-semantic-review',
     ]);
   });
 
@@ -192,5 +193,26 @@ describe('Default Triggers', () => {
     );
     expect(synthesisCall![0].action.payload.type).toBe('analysis');
     expect(synthesisCall![0].action.payload.scope).toContain('knowledge-synthesis-skill');
+  });
+
+  it('doc-semantic-review fires weekly Friday 9:47 and creates WorkUnit', () => {
+    registerDefaultTriggers(registry);
+
+    const reviewCall = mockRegisterTrigger.mock.calls.find(
+      (c: any) => c[0].id === 'doc-semantic-review',
+    );
+    expect(reviewCall).toBeDefined();
+    expect(reviewCall![0].condition).toEqual(
+      expect.objectContaining({ type: 'SCHEDULE', cron: '47 9 * * 5' }),
+    );
+    expect(reviewCall![0].action).toEqual(
+      expect.objectContaining({
+        type: 'CREATE',
+        target: 'WorkUnit',
+      }),
+    );
+    expect(reviewCall![0].action.payload.type).toBe('analysis');
+    expect(reviewCall![0].action.payload.scope).toContain('README.md');
+    expect(reviewCall![0].action.payload.scope).toContain('sync-docs');
   });
 });

@@ -44,6 +44,7 @@
     "cross-project:check": "npx tsx scripts/tools/cross-project-check.ts",
     "harness:coverage": "npx tsx scripts/tools/harness-coverage.ts",
     "doc:sync-check": "bash scripts/check-doc-sync.sh",
+    "gen:agents-md": "node scripts/gen-agents-md.mjs",
     "doc:diff": "npx tsx scripts/tools/arch-doc-diff.ts",
     "postinstall": "node scripts/harness-sync.js",
     "prepare": "node scripts/harness-sync.js"

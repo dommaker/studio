@@ -1,8 +1,8 @@
-// Default Triggers — 8 system triggers for Agent Network
+// Default Triggers — 10 system triggers for Agent Network
 import { TriggerScheduler } from '../triggers/trigger-scheduler.js';
 import type { TriggerConfig } from '../triggers/trigger.types.js';
 
-/** Register the 8 default system triggers */
+/** Register the 10 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
   // 1. workunit-timeout: SCHEDULE every 5 min → UPDATE workunit (timeout release)
   registry.registerTrigger({
@@ -131,6 +131,24 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
     scope: 'system',
   });
 
+  // 10. doc-semantic-review: SCHEDULE weekly Friday 9:47 → CREATE WorkUnit for doc semantic review
+  // （文档治理闭环 P1，docs/plans/2026-07-doc-governance-loop.md；错开日级 3:17-5:17 与周一 10:23）
+  registry.registerTrigger({
+    id: 'doc-semantic-review',
+    name: 'Weekly doc semantic review',
+    condition: { type: 'SCHEDULE', cron: '47 9 * * 5' },
+    action: {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: {
+        type: 'analysis',
+        scope: '审查 README.md 与 docs/ 手写文档（清单由 agent 自行定位）同当前代码结构/行为的一致性；产出差异清单（doc/行/文档声称/代码现状/建议）发频道；机械类差异同时给出 sync-docs 重生成命令。',
+      },
+    },
+    enabled: true,
+    scope: 'system',
+  });
+
 }
 
 /** Get default trigger configs (for testing) */
@@ -241,6 +259,21 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
       condition: { type: 'SCHEDULE', cron: process.env.EVOLUTION_SCAN_CRON || '29 4 * * *' },
       action: { type: 'EXECUTE', target: 'evolution-scan' },
       enabled: process.env.EVOLUTION_ENABLED !== 'false',
+      scope: 'system',
+    },
+    {
+      id: 'doc-semantic-review',
+      name: 'Weekly doc semantic review',
+      condition: { type: 'SCHEDULE', cron: '47 9 * * 5' },
+      action: {
+        type: 'CREATE',
+        target: 'WorkUnit',
+        payload: {
+          type: 'analysis',
+          scope: '审查 README.md 与 docs/ 手写文档（清单由 agent 自行定位）同当前代码结构/行为的一致性；产出差异清单（doc/行/文档声称/代码现状/建议）发频道；机械类差异同时给出 sync-docs 重生成命令。',
+        },
+      },
+      enabled: true,
       scope: 'system',
     },
   ];
