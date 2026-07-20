@@ -1,7 +1,8 @@
 /**
  * 知识库页面 — 累积知识浏览
  *
- * Tabs: 统一视图 | 偏好 | 规则 | 环境 | 决策链 | 交互模式 | 行为模式 | 解法库
+ * Tabs: 统一视图 | 偏好 | 规则 | 环境 | 决策链 | 交互模式 | 解法库
+ * （R4: 行为模式写链路已整体删除，tab/标题残尸清理，共 7 个 tab）
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -135,7 +136,7 @@ export function KnowledgePage() {
       <div className="mb-6 flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>知识库</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>八大知识类型 — 偏好 / 规则 / 环境 / 决策链 / 交互模式 / 行为模式 / 解法库</p>
+          <p style={{ color: 'var(--text-secondary)' }}>七大知识类型 — 统一视图 / 偏好 / 规则 / 环境 / 决策链 / 交互模式 / 解法库</p>
         </div>
         <button onClick={() => navigate('/knowledge/import')} className="btn btn-primary text-sm">📥 冷启动导入</button>
       </div>
