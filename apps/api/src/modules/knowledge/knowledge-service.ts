@@ -525,12 +525,18 @@ export class KnowledgeService {
       const totalTokens = usageRecords.reduce((s, u) => s + (u.totalTokens || 0), 0);
 
       const entries = Array.isArray(result?.entries) ? result.entries.slice(0, 5) : [];
-      const entryIds: string[] = [];
+      const ingested: Array<{ id: string; title: string; type: string }> = [];
       for (const raw of entries) {
-        const id = ingestConversationEntry({ linter: this.linter, ingest: this.ingest }, raw, source);
-        if (id) entryIds.push(id);
+        const saved = ingestConversationEntry({ linter: this.linter, ingest: this.ingest }, raw, source);
+        if (saved) ingested.push(saved);
       }
-      if (entryIds.length > 0) scheduleVectorDbSync();
+      const entryIds = ingested.map(e => e.id);
+      if (ingested.length > 0) {
+        scheduleVectorDbSync();
+        // 审核闭环：入库即发提案卡到 #系统（人在频道 approve/reject → promote/demote）。
+        // best-effort：频道缺失/发卡失败静默跳过，绝不阻断提取链路。
+        await postKnowledgeProposalCard(ingested, { workUnitId: ctx?.workUnitId, source });
+      }
 
       logger.info('[KnowledgeService] extractFromConversation completed', {
         source, entryCount: entryIds.length, totalTokens, durationMs,
@@ -1467,18 +1473,31 @@ function buildConversationTranscript(messages: { role: string; content: string }
  * R3: 单条 LLM 提取结果入库（proposal）。质量门：形态门禁（数据形态重定向 trends）→
  * linter 阻断跳过。maturity 恒为 draft（proposal），
  * 审核 promote 前不参与注入。返回入库条目 id；被门禁跳过/拒绝时返回 null。
+ *
+ * R1（type-repair）：type='decision' 条目补 tags ['decision', <category>] ——
+ * category 取 LLM 产出的首个非 'decision' tag，缺省回落 'process'。
+ * 决策链查询（decision-chain-extractor）以此 tag 约定为口径。
+ *
+ * 返回入库条目 {id,title,type}（提案卡聚合用）；被门禁跳过/拒绝时返回 null。
  */
 function ingestConversationEntry(
   deps: { linter: KnowledgeLinter; ingest: KnowledgeIngest },
   raw: { type?: string; title?: string; content?: string; tags?: string[] },
   source: string,
-): string | null {
+): { id: string; title: string; type: string } | null {
   try {
     const title = (raw.title || '').trim();
     const content = (raw.content || '').trim();
     if (!title || !content) return null;
-    const tags = Array.isArray(raw.tags) ? raw.tags.filter(t => typeof t === 'string') : [];
+    const rawTags = Array.isArray(raw.tags) ? raw.tags.filter(t => typeof t === 'string') : [];
     const type = (VALID_KNOWLEDGE_TYPES.has(raw.type ?? '') ? raw.type : 'guideline') as KnowledgeSubsystem;
+
+    // R1: decision 条目统一 tags 契约 ['decision', <category>]（前两位恒定）
+    let tags = rawTags;
+    if (type === 'decision') {
+      const category = rawTags.find(t => t !== 'decision') ?? 'process';
+      tags = ['decision', category, ...rawTags.filter(t => t !== 'decision' && t !== category)];
+    }
 
     // 形态门禁：非知识形态不入库；数据形态重定向到 trends
     const formResult = validateKnowledgeForm({ type, content, tags });
@@ -1514,10 +1533,57 @@ function ingestConversationEntry(
       },
     );
     if ((saved as any)?.__rejected) return null;
-    return (saved as any)?.id ?? null;
+    const id = (saved as any)?.id;
+    return typeof id === 'string' && id ? { id, title, type } : null;
   } catch (e) {
     logger.warn('[KnowledgeService] Failed to ingest conversation entry', { error: String(e) });
     return null;
+  }
+}
+
+/** 审核闭环：提案卡投放的目标频道（ensureDefaultChannels 启动播种） */
+const SYSTEM_CHANNEL_NAME = '#系统';
+
+/**
+ * 审核闭环（2026-07 knowledge-review-loop）：提取产物入库后，聚合本次条目发一张
+ * cardType='knowledge_proposal' 卡片到 #系统 频道。人在频道 approve → promote
+ * （draft→verified，参与注入）；reject → demote（draft→archived）。
+ *
+ * 契约（γ 轨道依赖，不得偏离）：cardType='knowledge_proposal'；
+ * cardData.entries=[{id,title,type}]；cardData.workUnitId 为来源 WorkUnit。
+ * 无条目 / 频道缺失 / 发卡失败均静默跳过（提取链路绝不被通知阻断）。
+ */
+async function postKnowledgeProposalCard(
+  entries: Array<{ id: string; title: string; type: string }>,
+  ctx: { workUnitId?: string; source: string },
+): Promise<void> {
+  if (entries.length === 0) return;
+  try {
+    const channel = (await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
+    if (!channel) return; // 频道未播种 → 静默跳过（与 auditor postToSystemChannel 同款降级）
+
+    const { channelMessageService } = await import('../channels/channel-message.service.js');
+    const content = [
+      '## 📚 知识提案 — 待人工审核',
+      '',
+      ...entries.map((e, i) => `${i + 1}. **${e.title}**（${e.type}）`),
+      '',
+      `来源 WorkUnit: ${ctx.workUnitId ?? 'unknown'}`,
+      '审核通过后参与知识注入；拒绝则归档，不再注入。',
+    ].join('\n');
+
+    await channelMessageService.createCardMessage(
+      channel.id,
+      'KK',
+      content,
+      'knowledge_proposal',
+      { entries, workUnitId: ctx.workUnitId ?? null, source: ctx.source },
+    );
+    logger.info('[KnowledgeService] knowledge_proposal card posted', {
+      channel: SYSTEM_CHANNEL_NAME, entryCount: entries.length, workUnitId: ctx.workUnitId,
+    });
+  } catch (e) {
+    logger.warn('[KnowledgeService] Failed to post knowledge_proposal card', { error: String(e) });
   }
 }
 

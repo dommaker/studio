@@ -212,6 +212,11 @@ ${(diff || '').substring(0, 3000)}
 
   /**
    * 查询决策链
+   *
+   * R1（type-repair）：口径放宽为 type='decision' OR tags 含 'decision' ——
+   * LLM 会话提取产物（ingestConversationEntry，tags 约定 ['decision', <category>]）
+   * 与存量 type='decision' 但无 tag 的条目均可查到。
+   * content 逐条容错：extractor 产物是 JSON，LLM 产物是自然语言（解析失败按 {} 处理，不整单失败）。
    */
   async query(params: {
     topic?: string;
@@ -219,9 +224,14 @@ ${(diff || '').substring(0, 3000)}
     sourceType?: string;
     limit?: number;
   }): Promise<Record<string, any>[]> {
-    const entries = sharedStore.list({ tags: ['decision'] });
+    const entries = sharedStore.list({})
+      .filter(e => (e as any).type === 'decision' || e.tags?.includes('decision'));
     let results = entries.map(e => {
-      const data = JSON.parse((e as any).content || '{}');
+      let data: Record<string, any> = {};
+      try {
+        const parsed = JSON.parse((e as any).content || '{}');
+        if (parsed && typeof parsed === 'object') data = parsed;
+      } catch { /* LLM 产物为自然语言 content — 按空 data 容错 */ }
       return {
         id: e.id,
         topic: e.title,
