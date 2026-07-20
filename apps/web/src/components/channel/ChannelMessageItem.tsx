@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
+import { KnowledgeProposalCard } from './KnowledgeProposalCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
 import { DeployApprovalCard } from './DeployApprovalCard'; // M4a
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
@@ -36,6 +37,8 @@ function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction
     case 'knowledge_confirm':
     case 'retract_confirm':
       return <KnowledgeConfirmCard message={message} meta={meta} onAction={onAction} />;
+    case 'knowledge_proposal': // 2026-07 知识审核闭环
+      return <KnowledgeProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'auditor_suggestion':
       return <AuditorSuggestionCard message={message} meta={meta} onAction={onAction} />;
     case 'deploy_approval': // M4a
