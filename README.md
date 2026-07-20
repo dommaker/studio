@@ -80,11 +80,11 @@ pnpm install
 
 | 文档 | 作用 |
 |------|------|
-| [docs/vision-2026.md](docs/vision-2026.md) | 定位与主干设计共识（宪法），含三期演进路线 |
+| `docs/vision-2026.md`（本地文档，gitignored 未入库） | 定位与主干设计共识（宪法），含三期演进路线 |
 | [docs/plans/](docs/plans/) | 三期计划：一期 `2026-07-mvp-fix-plan.md`（修通最小闭环），二期 `2026-07-flywheel-repair.md`（飞轮通数据）+ `2026-07-cleanup-docs-ui.md`（清理） |
 | [docs/sdd/](docs/sdd/) | 变更规格（SDD），按变更立项 |
 | [CAPABILITIES.md](CAPABILITIES.md) | 能力清单（harness `sync-docs` 自动维护） |
-| [CLAUDE.md](CLAUDE.md) | harness 治理约束（铁律、工作流） |
+| [AGENTS.md](AGENTS.md) | agent 导读与模块索引（`pnpm gen:agents-md` 维护自动区段） |
 
 ## License
 
