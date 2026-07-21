@@ -59,6 +59,7 @@ pnpm start  # 启动生产服务
 | `apps/api/src/modules/builtin-tools` | 提供一组内置工具（文件操作、搜索、执行、通信）的元数据定义与 RESTful 路由，供上层服务注册和调用。工具列表静态注册在 routes.ts 中，每个工具包含名称、描述、分类、输入 schema 与启用状态。 |
 | `apps/api/src/modules/capabilities` | 提供能力注册表的读取与 API 暴露，包括从文件系统加载工具/技能定义，并通过 Express 路由对外提供服务。同时定义能力类型（Capability）和注册表（Registry）接口，支持缓存与阶段（Stage）识别。 |
 | `apps/api/src/modules/channels` | Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal 创建 → 执行管线。 |
+| `apps/api/src/modules/deploy` | （缺少 CONTEXT.md，请补充） |
 | `apps/api/src/modules/dingtalk` | 处理钉钉机器人交互回调，包括 ActionCard 按钮点击的健康检查和操作忽略提示。当前 Meeting 模块已移除，按钮点击仅返回占位响应。 |
 | `apps/api/src/modules/discord` | 处理 Discord 集成，包括命令行 (studio run) 和 Discord 斜杠命令 (/studio run) 共享的命令运行逻辑，以及 Discord 交互端点（按钮点击回调）的路由处理。 |
 | `apps/api/src/modules/environments` | 提供环境管理（Environment Manager）的 CRUD REST API，包括环境列表、详情、创建、更新和删除（虽然摘要未显示更新和删除，但根据描述应有，但以源码为准，源码只显示了GET列表、GET详情、POST创建，可能... |
