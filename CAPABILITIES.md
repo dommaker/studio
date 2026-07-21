@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-20
+> 最后更新: 2026-07-21
 
 ---
 
@@ -311,3 +311,11 @@
 | mock-data | apps/web/src/pages/design-lab/mock-data.ts | Design Lab — 视觉方向稿共用 mock 数据（T1 方向稿专用，不接任何真实 API） |
 | useChannelList | apps/web/src/hooks/useChannelList.ts | 频道列表数据 hook —— ChannelListPage 与 Mission Control 左栏 ChannelRail 共用 |
 | knowledge | apps/web/src/api/knowledge.ts | Knowledge Service API — 2026-07 知识审核闭环 |
+| executor | apps/api/src/modules/agents/executor.ts | §9.6 Executor 接口 — AgentLoop 执行面抽象（P0） |
+| token-usage.routes | apps/api/src/modules/agents/token-usage.routes.ts | §10.5 角色级 token 视图路由（只读）。 |
+| token-usage.service | apps/api/src/modules/agents/token-usage.service.ts | §10.5 角色级 token 滚动视图（只读聚合）。 |
+| migrate-members | apps/api/src/modules/channels/migrate-members.ts | §9.5 成员关系统一 — 迁移：把各 profile.channels 合并进对应 channel.members。 |
+| manifest-generator | apps/api/src/modules/skills/manifest-generator.ts | manifest-generator |
+| skill-demotion-routes | apps/api/src/modules/skills/skill-demotion-routes.ts | §10.6 Skill 降级提案 API 路由 |
+| skill-demotion | apps/api/src/modules/skills/skill-demotion.ts | §10.6 skill 生命周期降级通路（聚合 + 降级提案）。 |
+| delegation-gate | apps/api/src/modules/workunit/delegation-gate.ts | DelegationGate — A2A 协作委派闸门（2026-07-agent-to-agent-collab-design §4.1 机制 3 / §4.2） |
