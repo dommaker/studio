@@ -26,7 +26,7 @@ import type {
   MaturityLevel,
   KnowledgeSubsystem,
 } from '@dommaker/harness';
-import { FileStore, logger, modelGateway } from '@dommaker/studio-shared';
+import { FileStore, logger, modelGateway, estimateTokens } from '@dommaker/studio-shared';
 import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { execFile } from 'child_process';
@@ -369,12 +369,11 @@ export interface KnowledgeServiceDeps {
 }
 
 // ── Resolution FileStore helpers ──
+// 注意：~/.studio/data/resolutions 为影子库（legacy）。R3 起 createResolution 改写
+// resolutionService 主存储（~/.studio/knowledge/resolution-*.md）；
+// matchResolutions/verifyResolution 仍读影子库，存量数据合并由 γ 轨道清洗脚本完成。
 
 const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'resolutions');
-
-async function ensureDir(dir: string): Promise<void> {
-  await fs.promises.mkdir(dir, { recursive: true });
-}
 
 async function listResolutions(): Promise<any[]> {
   try {
@@ -525,12 +524,18 @@ export class KnowledgeService {
       const totalTokens = usageRecords.reduce((s, u) => s + (u.totalTokens || 0), 0);
 
       const entries = Array.isArray(result?.entries) ? result.entries.slice(0, 5) : [];
-      const entryIds: string[] = [];
+      const ingested: Array<{ id: string; title: string; type: string }> = [];
       for (const raw of entries) {
-        const id = ingestConversationEntry({ linter: this.linter, ingest: this.ingest }, raw, source);
-        if (id) entryIds.push(id);
+        const saved = ingestConversationEntry({ linter: this.linter, ingest: this.ingest }, raw, source);
+        if (saved) ingested.push(saved);
       }
-      if (entryIds.length > 0) scheduleVectorDbSync();
+      const entryIds = ingested.map(e => e.id);
+      if (ingested.length > 0) {
+        scheduleVectorDbSync();
+        // 审核闭环：入库即发提案卡到 #系统（人在频道 approve/reject → promote/demote）。
+        // best-effort：频道缺失/发卡失败静默跳过，绝不阻断提取链路。
+        await postKnowledgeProposalCard(ingested, { workUnitId: ctx?.workUnitId, source });
+      }
 
       logger.info('[KnowledgeService] extractFromConversation completed', {
         source, entryCount: entryIds.length, totalTokens, durationMs,
@@ -655,48 +660,104 @@ export class KnowledgeService {
 
   // ═══════════ Consume (read knowledge) ════════════
 
-  async injectContext(agentType: string, _opts?: InjectOpts): Promise<InjectContextResult> {
-    const sections: string[] = [];
+  async injectContext(agentType: string, opts?: InjectOpts): Promise<InjectContextResult> {
     const injectedIds: string[] = [];
+    // §10 依赖项：maxTokens 做实（此前 _opts 未生效，2K 红线只有度量无运行时截断）。
+    // 缺省回退 INJECT_TOKEN_BUDGET——skill 段优先占用预算时由调用方传入剩余额度。
+    const maxTokens = opts?.maxTokens ?? INJECT_TOKEN_BUDGET;
 
     // 1. rule — full content injection (constraints must be followed)
     // R3: isInjectableMaturity — proposal(draft)/archived/deprecated 不注入
+    // ②（wireups）：来源凭证读生产字段 sourceReferences（复数，length>0），
+    // 此前误读单数 sourceReference → 生产恒 false，rule/context 两档恒空。
     const rules = await this.query.queryEntries({ consumptionModes: ['rule'], agentType, status: 'published' });
-    const filteredRules = (rules || []).filter((r: any) => r.sourceReference && r.status !== 'stale' && isInjectableMaturity(r.maturity));
-    if (filteredRules.length) {
-      const lines = filteredRules.map((r: any) => `- ${stripFormat(r.content)}`);
-      sections.push(`## 系统约束\n${lines.join('\n')}`);
-      injectedIds.push(...filteredRules.map((r: any) => r.id));
-    }
+    const filteredRules = (rules || []).filter((r: any) => hasSourceReferences(r) && r.status !== 'stale' && isInjectableMaturity(r.maturity));
 
     // 2. context — full content injection (preferences + environment)
     const context = await this.query.queryEntries({ consumptionModes: ['context'], status: 'published' });
-    const filteredContext = (context || []).filter((c: any) => c.sourceReference && c.status !== 'stale' && isInjectableMaturity(c.maturity));
-    if (filteredContext.length) {
-      const lines = filteredContext.map((c: any) => `- ${stripFormat(c.content)}`);
-      sections.push(`## 上下文\n${lines.join('\n')}`);
-      injectedIds.push(...filteredContext.map((c: any) => c.id));
-    }
+    const filteredContext = (context || []).filter((c: any) => hasSourceReferences(c) && c.status !== 'stale' && isInjectableMaturity(c.maturity));
 
     // 3. signal — index injection (informational)
     const signals = this.query.getIndexes({ consumptionModes: ['signal'], limit: 5 });
     const filteredSignals = (signals || []).filter((s: any) => s.status !== 'stale' && isInjectableMaturity(s.maturity));
-    if (filteredSignals.length) {
-      const lines = filteredSignals.map((s: any) => `- [${s.id}] ${s.summary}`);
-      sections.push(`## 近期信号\n${lines.join('\n')}`);
-      injectedIds.push(...filteredSignals.map((s: any) => s.id));
+
+    // ③（wireups）：2K 注入红线执行 — 候选按注入优先级（成熟度 → 引用计数）排序，
+    // 逐个累加 estimateTokens（chars/4 现有口径），超 2000 截断并记 knowledge:inject-trimmed 事件。
+    interface Candidate { line: string; id: string }
+    const toCandidates = (entries: any[], lineOf: (e: any) => string): Candidate[] =>
+      entries
+        .map(e => ({ line: lineOf(e), id: e.id as string, entry: e }))
+        .sort((a, b) => injectPriority(b.entry) - injectPriority(a.entry))
+        .map(({ line, id }) => ({ line, id }));
+
+    const sectionCandidates: Array<{ header: string; items: Candidate[] }> = [
+      { header: '## 系统约束', items: toCandidates(filteredRules, (r: any) => `- ${stripFormat(r.content)}`) },
+      { header: '## 上下文', items: toCandidates(filteredContext, (c: any) => `- ${stripFormat(c.content)}`) },
+      { header: '## 近期信号', items: toCandidates(filteredSignals, (s: any) => `- [${s.id}] ${s.summary}`) },
+    ];
+
+    const sections: string[] = [];
+    const trimmedIds: string[] = [];
+    let usedTokens = 0;
+    // 预算内给检索指引预留（有注入时必附加，属红线内固定小额开销）
+    const guidanceTokens = estimateTokens(KNOWLEDGE_QUERY_GUIDANCE.length + 2);
+
+    for (const section of sectionCandidates) {
+      if (section.items.length === 0) continue;
+      const headerTokens = estimateTokens(section.header.length + 2); // header + 段落分隔
+      const keptLines: string[] = [];
+      for (const item of section.items) {
+        const lineTokens = estimateTokens(item.line.length + 1);
+        const cost = (keptLines.length === 0 ? headerTokens : 0) + lineTokens;
+        if (usedTokens + cost + guidanceTokens > maxTokens) {
+          trimmedIds.push(item.id);
+          continue;
+        }
+        usedTokens += cost;
+        keptLines.push(item.line);
+        injectedIds.push(item.id);
+      }
+      if (keptLines.length > 0) sections.push(`${section.header}\n${keptLines.join('\n')}`);
     }
 
     // 4. reference — hint only
     const refCount = await this.query.count({ consumptionModes: ['reference'] });
     if (refCount > 0) {
-      sections.push(`[知识库: ${refCount} 条参考，遇到问题时用 search()]`);
+      const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
+      const hintTokens = estimateTokens(hint.length + 2);
+      if (usedTokens + hintTokens + guidanceTokens <= maxTokens) {
+        sections.push(hint);
+        usedTokens += hintTokens;
+      }
     }
 
     // 5. E2 检索主动性（断点 G）：有知识注入时附「何时查知识库」指引 —
     // signal 档只有索引，agent 需显式指引才会主动检索。无注入时不附加。
     if (sections.length > 0) {
       sections.push(KNOWLEDGE_QUERY_GUIDANCE);
+      usedTokens += guidanceTokens;
+    }
+
+    // ③: 裁剪事件 — 沿用 studio-events.jsonl 事件写入路径（best-effort）
+    if (trimmedIds.length > 0) {
+      try {
+        await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+          type: 'knowledge:inject-trimmed',
+          source: 'inject-context',
+          payload: JSON.stringify({
+            agentType,
+            budgetTokens: maxTokens,
+            keptTokens: usedTokens,
+            keptIds: injectedIds,
+            trimmedIds,
+            trimmedCount: trimmedIds.length,
+          }),
+          createdAt: new Date().toISOString(),
+        });
+      } catch { /* non-blocking */ }
+      logger.info('[KnowledgeService] injectContext trimmed to token budget', {
+        agentType, budgetTokens: maxTokens, keptTokens: usedTokens, trimmedCount: trimmedIds.length,
+      });
     }
 
     // 6. recordReference — close maturity loop
@@ -1089,6 +1150,20 @@ export class KnowledgeService {
     }
   }
 
+  /**
+   * 审核闭环 reject 语义：draft → archived（保留追溯，decay/lint 不再管它，永不注入）。
+   * 与 promote 对称；仅 draft 可 demote（verified/proven 的降级走 decay）。
+   */
+  async demote(entryId: string): Promise<void> {
+    const entry = this.store.get(entryId);
+    if (!entry) return;
+    const prev: Record<string, MaturityLevel> = { draft: 'archived' };
+    const target = prev[entry.maturity];
+    if (target) {
+      this.store.update(entryId, { maturity: target });
+    }
+  }
+
   async decay(entryId: string): Promise<void> {
     const entry = this.store.get(entryId);
     if (!entry) return;
@@ -1123,29 +1198,17 @@ export class KnowledgeService {
 
   // ═══════════ Resolve (known solutions) ════════════
 
+  /**
+   * R3（type-repair）：写入 resolutionService 主存储（~/.studio/knowledge/resolution-*.md），
+   * 不再写 ~/.studio/data/resolutions/ 影子库（双库合并：UI/匹配只读主存储）。
+   * 按 pattern 去重由 resolutionService.createResolution 负责（语义与原影子库一致）。
+   * triage 调用方签名不变（Promise<void>）；失败 best-effort 吞掉。
+   */
   async createResolution(input: CreateResolutionInput): Promise<void> {
     try {
-      const all = await listResolutions();
-      const existing = all.find((r: any) => r.pattern === input.pattern);
-      if (existing) return;
-
-      const id = `res_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-      const now = new Date().toISOString();
-      const resolution = {
-        id,
-        pattern: input.pattern,
-        errorClass: input.errorClass || 'unknown',
-        layer: input.layer || 'L5_error_fix',
-        title: input.title || input.pattern.slice(0, 100),
-        fix: input.fix,
-        status: 'pending',
-        tags: input.tags ? JSON.stringify(input.tags) : '[]',
-        verifyCount: 0,
-        createdAt: now,
-        updatedAt: now,
-      };
-      await ensureDir(RESOLUTIONS_DIR);
-      await fileStore.writeJson(path.join(RESOLUTIONS_DIR, `${id}.json`), resolution);
+      // 动态 import：与 postKnowledgeProposalCard 同款，避免模块加载期循环依赖
+      const { resolutionService } = await import('./resolution.service.js');
+      await resolutionService.createResolution(input);
     } catch {
       // best-effort
     }
@@ -1373,6 +1436,25 @@ function isInjectableMaturity(maturity: unknown): boolean {
   return typeof maturity !== 'string' || !NON_INJECTABLE_MATURITIES.has(maturity);
 }
 
+/** ②（wireups）：生产条目来源凭证字段是 sourceReferences（复数数组），length>0 才算有凭证。 */
+function hasSourceReferences(entry: any): boolean {
+  return Array.isArray(entry?.sourceReferences) && entry.sourceReferences.length > 0;
+}
+
+/** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点） */
+export const INJECT_TOKEN_BUDGET = 2_000;
+
+/**
+ * ③（wireups）：注入优先级 = 成熟度权重 × 10000 + 引用计数。
+ * 成熟度高的先注入；同成熟度按 referencedBy 计数（被引用越多越有价值）。
+ */
+function injectPriority(entry: any): number {
+  const maturityWeight: Record<string, number> = { proven: 3, verified: 2, active: 2, draft: 1 };
+  const w = maturityWeight[entry?.maturity] ?? 0;
+  const refs = Array.isArray(entry?.referencedBy) ? entry.referencedBy.length : 0;
+  return w * 10_000 + refs;
+}
+
 /** LLM 提取返回的合法知识类型（越界值回落 guideline） */
 const VALID_KNOWLEDGE_TYPES: ReadonlySet<string> = new Set(['model', 'decision', 'guideline', 'pitfall', 'process', 'architecture']);
 
@@ -1392,23 +1474,36 @@ function buildConversationTranscript(messages: { role: string; content: string }
 }
 
 /**
- * R3: 单条 LLM 提取结果入库（proposal）。质量门与 KnowledgeAgent.safeIngest 对齐：
- * 形态门禁（数据形态重定向 trends）→ linter 阻断跳过。maturity 恒为 draft（proposal），
+ * R3: 单条 LLM 提取结果入库（proposal）。质量门：形态门禁（数据形态重定向 trends）→
+ * linter 阻断跳过。maturity 恒为 draft（proposal），
  * 审核 promote 前不参与注入。返回入库条目 id；被门禁跳过/拒绝时返回 null。
+ *
+ * R1（type-repair）：type='decision' 条目补 tags ['decision', <category>] ——
+ * category 取 LLM 产出的首个非 'decision' tag，缺省回落 'process'。
+ * 决策链查询（decision-chain-extractor）以此 tag 约定为口径。
+ *
+ * 返回入库条目 {id,title,type}（提案卡聚合用）；被门禁跳过/拒绝时返回 null。
  */
 function ingestConversationEntry(
   deps: { linter: KnowledgeLinter; ingest: KnowledgeIngest },
   raw: { type?: string; title?: string; content?: string; tags?: string[] },
   source: string,
-): string | null {
+): { id: string; title: string; type: string } | null {
   try {
     const title = (raw.title || '').trim();
     const content = (raw.content || '').trim();
     if (!title || !content) return null;
-    const tags = Array.isArray(raw.tags) ? raw.tags.filter(t => typeof t === 'string') : [];
+    const rawTags = Array.isArray(raw.tags) ? raw.tags.filter(t => typeof t === 'string') : [];
     const type = (VALID_KNOWLEDGE_TYPES.has(raw.type ?? '') ? raw.type : 'guideline') as KnowledgeSubsystem;
 
-    // 形态门禁（与 safeIngest 一致）：非知识形态不入库；数据形态重定向到 trends
+    // R1: decision 条目统一 tags 契约 ['decision', <category>]（前两位恒定）
+    let tags = rawTags;
+    if (type === 'decision') {
+      const category = rawTags.find(t => t !== 'decision') ?? 'process';
+      tags = ['decision', category, ...rawTags.filter(t => t !== 'decision' && t !== category)];
+    }
+
+    // 形态门禁：非知识形态不入库；数据形态重定向到 trends
     const formResult = validateKnowledgeForm({ type, content, tags });
     if (!formResult.valid) {
       logger.info('[KnowledgeService] Conversation entry form-gate rejected', {
@@ -1442,10 +1537,57 @@ function ingestConversationEntry(
       },
     );
     if ((saved as any)?.__rejected) return null;
-    return (saved as any)?.id ?? null;
+    const id = (saved as any)?.id;
+    return typeof id === 'string' && id ? { id, title, type } : null;
   } catch (e) {
     logger.warn('[KnowledgeService] Failed to ingest conversation entry', { error: String(e) });
     return null;
+  }
+}
+
+/** 审核闭环：提案卡投放的目标频道（ensureDefaultChannels 启动播种） */
+const SYSTEM_CHANNEL_NAME = '#系统';
+
+/**
+ * 审核闭环（2026-07 knowledge-review-loop）：提取产物入库后，聚合本次条目发一张
+ * cardType='knowledge_proposal' 卡片到 #系统 频道。人在频道 approve → promote
+ * （draft→verified，参与注入）；reject → demote（draft→archived）。
+ *
+ * 契约（γ 轨道依赖，不得偏离）：cardType='knowledge_proposal'；
+ * cardData.entries=[{id,title,type}]；cardData.workUnitId 为来源 WorkUnit。
+ * 无条目 / 频道缺失 / 发卡失败均静默跳过（提取链路绝不被通知阻断）。
+ */
+async function postKnowledgeProposalCard(
+  entries: Array<{ id: string; title: string; type: string }>,
+  ctx: { workUnitId?: string; source: string },
+): Promise<void> {
+  if (entries.length === 0) return;
+  try {
+    const channel = (await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
+    if (!channel) return; // 频道未播种 → 静默跳过（与 auditor postToSystemChannel 同款降级）
+
+    const { channelMessageService } = await import('../channels/channel-message.service.js');
+    const content = [
+      '## 📚 知识提案 — 待人工审核',
+      '',
+      ...entries.map((e, i) => `${i + 1}. **${e.title}**（${e.type}）`),
+      '',
+      `来源 WorkUnit: ${ctx.workUnitId ?? 'unknown'}`,
+      '审核通过后参与知识注入；拒绝则归档，不再注入。',
+    ].join('\n');
+
+    await channelMessageService.createCardMessage(
+      channel.id,
+      'KK',
+      content,
+      'knowledge_proposal',
+      { entries, workUnitId: ctx.workUnitId ?? null, source: ctx.source },
+    );
+    logger.info('[KnowledgeService] knowledge_proposal card posted', {
+      channel: SYSTEM_CHANNEL_NAME, entryCount: entries.length, workUnitId: ctx.workUnitId,
+    });
+  } catch (e) {
+    logger.warn('[KnowledgeService] Failed to post knowledge_proposal card', { error: String(e) });
   }
 }
 

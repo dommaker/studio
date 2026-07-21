@@ -42,7 +42,9 @@ coverage/
 *.temp
 
 # Harness traces and runtime state
-**/.harness/
+**/.harness/*
+# 但治理配置入库（声明式文档门禁，CI 消费）
+!**/.harness/config.yml
 
 # Test results (screenshots, videos)
 test-results/

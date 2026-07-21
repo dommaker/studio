@@ -15,8 +15,7 @@
  * - search.routes.ts     检索/指标：GET /resolutions、GET /search、
  *                        GET /resolution/density、GET /resolution/cross-session
  * - internal.routes.ts   内部端点（挂载于 /api/knowledge，无 auth）：
- *                        GET /sync-status、POST /upsert、POST /extract-text、
- *                        POST /extract-behavior、POST /extract-text-sync
+ *                        GET /sync-status、POST /upsert、POST /extract-text-sync
  *
  * 挂载顺序等价性（Express 路由匹配顺序敏感）：
  * 原文件单 Router 注册顺序中，/requirements、/read-file、/file 三个字面路径位于

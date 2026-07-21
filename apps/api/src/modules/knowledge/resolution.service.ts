@@ -9,6 +9,7 @@
 
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync } from './knowledge-bus.service.js';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -52,19 +53,31 @@ function generateId(): string {
   return `res_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** Scan all resolution-*.md files in knowledge dir */
+/** Scan all resolution-*.md files in knowledge dir.
+ *  R5: 直接读目录，不走 _index.md——writeDoc 不维护索引，索引滞后会让扫描对存量
+ *  失明（seed 去重失效、auditor/triage 新建解法 UI 不可见的共同根因）。 */
 async function scanResolutions(): Promise<any[]> {
-  const keys = await fileStore.listDocs(KNOWLEDGE_DIR);
-  const resKeys = keys.filter(k => k.startsWith('resolution-'));
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(KNOWLEDGE_DIR);
+  } catch {
+    return [];
+  }
   const results: any[] = [];
-  for (const key of resKeys) {
+  for (const f of files) {
+    if (!f.startsWith('resolution-') || !f.endsWith('.md')) continue;
+    const key = f.replace(/\.md$/, '');
     const doc = await fileStore.readDoc(KNOWLEDGE_DIR, key);
     if (doc) {
-      const id = key.replace('resolution-', '');
-      results.push(resolutionFromDoc(id, doc.meta, doc.body));
+      results.push(resolutionFromDoc(key.replace('resolution-', ''), doc.meta, doc.body));
     }
   }
   return results;
+}
+
+/** R5: title + 正文内容 hash —— seed/合并去重判据（不受 frontmatter 序列化差异影响） */
+function resolutionContentHash(title: string, fix: string): string {
+  return crypto.createHash('sha256').update(`${title}\n${fix}`).digest('hex').slice(0, 16);
 }
 
 /** Write resolution to knowledge md file */
@@ -249,9 +262,17 @@ export class ResolutionService {
 
   /** 获取所有 pending 的 Resolution */
   async listPending(): Promise<Resolution[]> {
+    return this.listByMaturity(['pending']);
+  }
+
+  /**
+   * R3: 按成熟度列出 Resolution（解法库浏览口径 = pending + canonical，
+   * canonical 是审核通过的正式解法，本应展示）。createdAt 倒序。
+   */
+  async listByMaturity(maturities: Array<Resolution['status']>): Promise<Resolution[]> {
     try {
       const all = await scanResolutions();
-      return all.filter((r: any) => r.maturity === 'pending')
+      return all.filter((r: any) => maturities.includes(r.maturity))
         .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .map((row: any) => ({
           id: row.id, pattern: row.pattern, errorClass: row.errorClass,
@@ -286,10 +307,21 @@ export class ResolutionService {
       },
     ];
 
+    // R5: 启动幂等 —— 旧判据 pattern 等值比较依赖 _index.md 可见性，索引滞后时
+    // 每次启动重复写 seed（生产 730 条 = 2 seed × 365 次启动）。改为一次性扫描存量，
+    // 按 title+内容 hash 判重；同一批内登记 hash 防同 run 重复。
+    let existingHashes: Set<string>;
+    try {
+      const existing = await scanResolutions();
+      existingHashes = new Set(existing.map((r: any) => resolutionContentHash(r.title, r.fix)));
+    } catch {
+      existingHashes = new Set();
+    }
+
     for (const seed of seeds) {
       try {
-        const all = await scanResolutions();
-        if (all.some((r: any) => r.pattern === seed.pattern)) continue;
+        const hash = resolutionContentHash(seed.title, seed.fix);
+        if (existingHashes.has(hash)) continue;
 
         const id = generateId();
         await writeResolution({
@@ -304,6 +336,7 @@ export class ResolutionService {
           tags: seed.tags || [],
           verifiedAt: new Date().toISOString(),
         });
+        existingHashes.add(hash);
         logger.info('[ResolutionService] Seeded resolution', { title: seed.title });
       } catch (err) {
         logger.warn('[ResolutionService] Seed failed for pattern', { pattern: seed.pattern, error: String(err) });

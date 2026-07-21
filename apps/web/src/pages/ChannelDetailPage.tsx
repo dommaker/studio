@@ -104,9 +104,35 @@ export function ChannelDetailPage() {
     }
   }, [sendMessage]);
 
-  const handleAction = useCallback((_messageId: string, action: string) => {
-    if (action === 'converted') refresh();
-  }, [refresh]);
+  // 统一卡片 action 路由（2026-07 知识审核闭环）：按 action 分发。
+  // knowledge_proposal approve → /promote（draft→verified，参与注入）；
+  // reject → /demote（draft→archived）。返回是否成功（卡片据此显示已审核状态）。
+  const handleAction = useCallback(async (messageId: string, action: string): Promise<boolean> => {
+    if (action === 'converted') { refresh(); return true; }
+    if (action === 'knowledge_proposal_approve' || action === 'knowledge_proposal_reject') {
+      const msg = messages.find(m => m.id === messageId);
+      let entryIds: string[] = [];
+      try {
+        const meta = JSON.parse(typeof msg?.meta === 'string' ? msg.meta : '{}');
+        const entries = meta?.cardData?.entries;
+        if (Array.isArray(entries)) {
+          entryIds = entries.map((e: any) => e?.id).filter((id: any) => typeof id === 'string' && id.length > 0);
+        }
+      } catch { entryIds = []; }
+      if (entryIds.length === 0) return false;
+      const endpoint = action === 'knowledge_proposal_approve'
+        ? '/knowledge-service/promote'
+        : '/knowledge-service/demote';
+      try {
+        await Promise.all(entryIds.map(entryId => api.post(endpoint, { entryId })));
+        refresh();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+    return false;
+  }, [messages, refresh]);
 
   const handleReply = useCallback((message: ChannelMessage) => {
     setReplyTo(message);

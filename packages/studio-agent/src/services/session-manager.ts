@@ -88,6 +88,12 @@ export interface ExecutionResult {
   /** P9: 原始 stdout 文本（lightweight 模式产出，供调用方解析） */
   outputText?: string;
   /**
+   * R2: 原始 stream-json stdout（lightweight 模式产出）。outputText 是
+   * extractResult 后的纯文本（不含 stream-json 事件行），调用方需要解析
+   * tool_use/usage 事件时必须使用本字段（如 agent-loop 的 tool:call 落盘）。
+   */
+  rawOutput?: string;
+  /**
    * M2: CLI 回报的执行 token 用量（stream-json usage 聚合，extractUsage 产出）。
    * CLI 未回报 usage 时缺省 —— 调用方据此标记 executionSource='unavailable'，不编造 0。
    */

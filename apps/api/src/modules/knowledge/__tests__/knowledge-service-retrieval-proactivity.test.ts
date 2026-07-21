@@ -135,7 +135,7 @@ describe('E2: injectContext 附「何时查知识库」指引', () => {
   it('rule 档注入时同样附带指引块', async () => {
     const { ks, query } = createKS();
     query.queryEntries.mockResolvedValueOnce([
-      { id: 'r1', content: '禁止直接操作生产库', type: 'guideline', sourceReference: 'ref1', status: 'published' },
+      { id: 'r1', content: '禁止直接操作生产库', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' },
     ]);
 
     const result = await ks.injectContext('executor');

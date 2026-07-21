@@ -27,6 +27,8 @@ app.use(compression());
 
 // Discord interactions 需要原始 body 进行签名验证，跳过 JSON 解析
 app.use('/api/v1/discord/interactions', express.raw({ type: 'application/json', limit: '1mb' }));
+// Deploy webhook 同样需要原始 body 做 GitHub HMAC-SHA256 校验
+app.use('/api/v1/deploy/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
@@ -79,6 +81,7 @@ export async function registerRoutes(): Promise<void> {
       '/auth/callback/google',
       '/auth/callback/github',
       '/discord/interactions',
+      '/deploy/webhook',     // GitHub webhook（HMAC 即认证）
       '/cso/validate',
       '/events/stream',  // SSE
       // Public read-only endpoints (Lurk Wall bypass)

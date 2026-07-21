@@ -53,7 +53,7 @@ vi.mock('@dommaker/harness', () => ({
   FileKnowledgeStore: class { snapshot() {} },
 }));
 
-import { evaluateTrajectory, dailyReflection, observePattern } from '../monitor-reports.js';
+import { evaluateTrajectory, dailyReflection } from '../monitor-reports.js';
 
 function eventsFile(): string {
   return path.join(tmpEvents, 'studio.jsonl');
@@ -123,48 +123,6 @@ describe('evaluateTrajectory (G4)', () => {
   it('does nothing when no recent completed workUnits', async () => {
     await evaluateTrajectory(makeFileStore());
     expect(readEventLines()).toHaveLength(0);
-  });
-});
-
-describe('observePattern (B9-025)', () => {
-  const summaryEvent = (patternType: string, success = true) => ({
-    type: 'session:summary',
-    timestamp: new Date().toISOString(),
-    payload: JSON.stringify({ patternType, success }),
-  });
-
-  it('returns null when fewer than 3 session:summary events in 7 days', async () => {
-    const fileStore = makeFileStore({
-      readJsonl: vi.fn(async () => [summaryEvent('ci_fix'), summaryEvent('ci_fix')]),
-    });
-
-    expect(await observePattern(fileStore)).toBeNull();
-    expect(fileStore.appendJsonl).not.toHaveBeenCalled();
-  });
-
-  it('returns distribution + recurring patterns and persists pattern_report', async () => {
-    const fileStore = makeFileStore({
-      readJsonl: vi.fn(async () => [
-        summaryEvent('ci_fix'), summaryEvent('ci_fix'), summaryEvent('ci_fix'),
-        summaryEvent('other', false),
-        { type: 'unrelated', timestamp: new Date().toISOString(), payload: '{}' },
-      ]),
-    });
-
-    const result = await observePattern(fileStore);
-
-    expect(result).toEqual({
-      distribution: { ci_fix: 3, other: 1 },
-      recurring: [{ type: 'ci_fix', count: 3, successRate: 1 }],
-    });
-    expect(fileStore.appendJsonl).toHaveBeenCalledWith(
-      expect.stringContaining('studio.jsonl'),
-      expect.objectContaining({ type: 'pattern_report', source: 'monitor' }),
-    );
-    expect(mockUpdatePref).toHaveBeenCalledWith(
-      { ci_fix: 3, other: 1 },
-      [expect.objectContaining({ type: 'ci_fix', count: 3, successRate: 1 })],
-    );
   });
 });
 

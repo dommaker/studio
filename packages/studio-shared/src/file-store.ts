@@ -33,7 +33,7 @@ export interface AgentProfileData {
   id: string;
   name: string;
   description: string | null;
-  channels: string;        // JSON: Channel ID[]
+  channels: string;        // JSON: Channel ID[] — @deprecated §9.5: channel.members 为成员关系唯一事实源；过渡期保留可读，新代码勿写入
   status: string;          // active | inactive
   provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
   createdAt: string;       // ISO 8601
@@ -561,6 +561,38 @@ export class FileStore {
 
   async appendMessage(channelId: string, msg: ChannelMessageData): Promise<void> {
     await this.appendJsonl(this.messagesPath(channelId), msg);
+  }
+
+  /**
+   * §4.2 发言层新鲜度检查：频道版本快照（messages.jsonl 原始行数 + 最后一行的消息 id）。
+   * 读取失败（频道不存在等）返回空版本 —— 调用方按「无变化」处理，绝不阻断发言。
+   */
+  async getChannelVersion(channelId: string): Promise<{ lineCount: number; lastMessageId: string | null }> {
+    try {
+      const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
+      return { lineCount: rows.length, lastMessageId: rows.length > 0 ? rows[rows.length - 1].id : null };
+    } catch {
+      return { lineCount: 0, lastMessageId: null };
+    }
+  }
+
+  /**
+   * §4.2: 读取 messages.jsonl 中从 fromLine（原始行数下标）之后追加的消息（过滤 tombstone）。
+   * 与 getChannelVersion 的 lineCount 口径一致（同一 readJsonl 原始行数组）。
+   */
+  async getMessagesSinceLine(channelId: string, fromLine: number): Promise<ChannelMessageData[]> {
+    try {
+      const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(channelId));
+      const result: ChannelMessageData[] = [];
+      for (const row of rows.slice(Math.max(0, fromLine))) {
+        if (row.deleted) continue;
+        const { deleted, ...rest } = row;
+        result.push(rest);
+      }
+      return result;
+    } catch {
+      return [];
+    }
   }
 
   /** 解析 JSONL，按 id 去重（最新条目生效），过滤已删除 */

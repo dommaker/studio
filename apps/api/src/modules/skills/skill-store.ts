@@ -13,6 +13,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { logger } from '@dommaker/studio-shared';
+import { generateManifest } from './manifest-generator.js';
 
 // ── Types ──
 
@@ -346,6 +347,13 @@ export class SkillStore {
 
       const content = `${frontmatter}\n\n${prompt}`;
       fs.writeFileSync(path.join(dir, 'SKILL.md'), content, 'utf-8');
+
+      // SKILL.md 变更后重新生成 MANIFEST.md（best-effort，不阻塞写入）
+      try {
+        generateManifest();
+      } catch (e) {
+        logger.warn('[SkillStore] Failed to regenerate MANIFEST.md', { name: record.name, error: String(e) });
+      }
     } catch (e) {
       logger.warn('[SkillStore] Failed to write SKILL.md', { name: record.name, error: String(e) });
     }

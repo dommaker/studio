@@ -4,8 +4,8 @@
  * 挂载 internalRoutes 到 express app（对应 route-registry 的 /api/knowledge 无 auth 挂载），覆盖：
  * GET /sync-status（200，新鲜度检测结构）、
  * POST /upsert（400 缺字段 / 200 写入 KnowledgeStore + Document 投影 created→updated）、
- * POST /extract-text /extract-behavior /extract-text-sync（400 参数校验，
- * 不触发后台 LLM 提取）。HOME 指向临时目录隔离 sharedStore 与 FileStore。
+ * POST /extract-text-sync（400 参数校验）。
+ * HOME 指向临时目录隔离 sharedStore 与 FileStore。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -85,18 +85,6 @@ describe('internal.routes', () => {
     expect(doc.content).toBe('v2 内容');
     expect(doc.version).toBe(2);
     expect(doc.tags).toEqual(['auth', 'design-doc']);
-  });
-
-  it('POST /extract-text 400 without content/source', async () => {
-    const res = await api('POST', '/extract-text', { content: 'x' });
-    expect(res.status).toBe(400);
-    expect(res.json.error).toBe('content and source are required');
-  });
-
-  it('POST /extract-behavior 400 without content/source', async () => {
-    const res = await api('POST', '/extract-behavior', { source: 's' });
-    expect(res.status).toBe(400);
-    expect(res.json.error).toBe('content and source are required');
   });
 
   it('POST /extract-text-sync 400 without content/source', async () => {

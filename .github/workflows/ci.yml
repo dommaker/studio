@@ -38,6 +38,3 @@ jobs:
           exit 0
       - name: Governance
         run: npx harness check && npx harness sync-docs --check
-        continue-on-error: true
-      - name: Doc freshness
-        run: npx harness doc-freshness-check CAPABILITIES.md

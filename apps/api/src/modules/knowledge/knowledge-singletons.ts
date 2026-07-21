@@ -104,7 +104,7 @@ let failCount = 0;  // #3: consecutive failure count for backoff
 
 /**
  * 将 .studio/knowledge/ 同步到 local-rag 向量库。
- * 防止 safeIngest 写盘后 Agent 无法通过 mcp__local-rag__query_documents 检索到新条目。
+ * 防止知识写盘后 Agent 无法通过 mcp__local-rag__query_documents 检索到新条目。
  *
  * 使用 mcp-local-rag CLI 增量 ingest（已 ingest 的文件自动跳过）。
  * 5s 防抖：批量 ingest 15 条 → 只触发 1 次 sync。

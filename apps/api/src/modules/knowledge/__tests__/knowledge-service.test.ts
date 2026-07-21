@@ -8,13 +8,20 @@
  * - matchResolutions: Prisma delegation
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { estimateTokens } from '@dommaker/studio-shared';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
 // ── Mock FileStore to intercept appendJsonl calls ──
-const { mockAppendJsonl } = vi.hoisted(() => ({
+const { mockAppendJsonl, mockResolutionCreate } = vi.hoisted(() => ({
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
+  mockResolutionCreate: vi.fn().mockResolvedValue(null),
+}));
+
+// R3（type-repair）：createResolution 归并到 resolutionService 主存储 — mock 掉具体写盘
+vi.mock('../resolution.service.js', () => ({
+  resolutionService: { createResolution: mockResolutionCreate },
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -353,8 +360,9 @@ describe('KnowledgeService Phase 1A: Consume', () => {
 
     it('includes rules section when rules exist', async () => {
       const { ks, query } = createKS();
+      // 生产形状：sourceReferences（复数数组，harness KnowledgeEntry.sourceReferences）
       query.queryEntries.mockResolvedValueOnce([
-        { id: 'r1', content: 'Always use TypeScript', type: 'guideline', sourceReference: 'ref1', status: 'published' },
+        { id: 'r1', content: 'Always use TypeScript', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' },
       ]);
       const result = await ks.injectContext('executor');
       expect(result.prompt).toContain('## 系统约束');
@@ -364,10 +372,10 @@ describe('KnowledgeService Phase 1A: Consume', () => {
 
     it('includes context section', async () => {
       const { ks, query } = createKS();
-      // First call = rules (empty), second = context
+      // First call = rules (empty), second = context（生产形状：sourceReferences 复数）
       query.queryEntries
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([{ id: 'c1', content: 'Use ESM imports', type: 'model', sourceReference: 'ref2', status: 'published' }]);
+        .mockResolvedValueOnce([{ id: 'c1', content: 'Use ESM imports', type: 'model', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' }]);
       const result = await ks.injectContext('executor');
       expect(result.prompt).toContain('## 上下文');
       expect(result.prompt).toContain('Use ESM imports');
@@ -376,7 +384,7 @@ describe('KnowledgeService Phase 1A: Consume', () => {
 
     it('records references for injected entries', async () => {
       const { ks, query, lifecycle } = createKS();
-      query.queryEntries.mockResolvedValueOnce([{ id: 'r1', content: 'Rule 1', type: 'guideline', sourceReference: 'ref1', status: 'published' }]);
+      query.queryEntries.mockResolvedValueOnce([{ id: 'r1', content: 'Rule 1', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' }]);
       await ks.injectContext('executor');
       expect(lifecycle.recordReference).toHaveBeenCalledWith('r1', 'prompt-inject');
     });
@@ -402,12 +410,12 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       );
     });
 
-    it('AC-2.2: filters out entries without sourceReference', async () => {
+    it('AC-2.2: filters out entries without sourceReferences（生产复数字段）', async () => {
       const { ks, query } = createKS();
       query.queryEntries
         .mockResolvedValueOnce([
-          { id: 'r1', content: 'Rule 1', type: 'guideline', sourceReference: null, status: 'published' },
-          { id: 'r2', content: 'Rule 2', type: 'guideline', sourceReference: 'ref1', status: 'published' },
+          { id: 'r1', content: 'Rule 1', type: 'guideline', sourceReferences: [], status: 'published' },
+          { id: 'r2', content: 'Rule 2', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' },
         ])
         .mockResolvedValueOnce([]);
       const result = await ks.injectContext('executor');
@@ -416,12 +424,25 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       expect(result.prompt).toContain('Rule 2');
     });
 
+    it('AC-2.2b: 单数 sourceReference（旧 bug 形状）不再被当作来源凭证', async () => {
+      // 回归：生产条目字段是 sourceReferences（复数）；只带单数字段的条目不得注入
+      const { ks, query } = createKS();
+      query.queryEntries
+        .mockResolvedValueOnce([
+          { id: 'r1', content: 'Rule 1', type: 'guideline', sourceReference: 'ref1', status: 'published' },
+        ])
+        .mockResolvedValueOnce([]);
+      const result = await ks.injectContext('executor');
+      expect(result.injectedIds).toEqual([]);
+      expect(result.prompt).not.toContain('Rule 1');
+    });
+
     it('AC-2.3: filters out stale entries', async () => {
       const { ks, query } = createKS();
       query.queryEntries
         .mockResolvedValueOnce([
-          { id: 'r1', content: 'Stale rule', type: 'guideline', sourceReference: 'ref1', status: 'stale' },
-          { id: 'r2', content: 'Active rule', type: 'guideline', sourceReference: 'ref1', status: 'published' },
+          { id: 'r1', content: 'Stale rule', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'stale' },
+          { id: 'r2', content: 'Active rule', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' },
         ])
         .mockResolvedValueOnce([]);
       const result = await ks.injectContext('executor');
@@ -432,13 +453,82 @@ describe('KnowledgeService Phase 1A: Consume', () => {
 
     it('AC-2.4: injectedIds only contains IDs of actually injected entries', async () => {
       const { ks, query } = createKS();
-      // rule query returns entry without sourceReference (excluded), context returns valid entry
+      // rule query returns entry without sourceReferences (excluded), context returns valid entry
       query.queryEntries
-        .mockResolvedValueOnce([{ id: 'r1', content: 'Rule 1', type: 'guideline', sourceReference: null, status: 'published' }])
-        .mockResolvedValueOnce([{ id: 'c1', content: 'Context 1', type: 'model', sourceReference: 'ref1', status: 'published' }]);
+        .mockResolvedValueOnce([{ id: 'r1', content: 'Rule 1', type: 'guideline', sourceReferences: [], status: 'published' }])
+        .mockResolvedValueOnce([{ id: 'c1', content: 'Context 1', type: 'model', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' }]);
       const result = await ks.injectContext('executor');
       // r1 should be filtered out, only c1 is injected
       expect(result.injectedIds).toEqual(['c1']);
+    });
+
+    // ── ③ 2K 注入红线执行（wireups ③）：裁剪 + knowledge:inject-trimmed 事件 ──
+
+    it('③: 候选总量超 2K tokens 时裁剪到预算内，并写 knowledge:inject-trimmed 事件', async () => {
+      const { ks, query } = createKS();
+      mockAppendJsonl.mockClear();
+      const big = (label: string) => `${label} ${'规'.repeat(3500)}`; // ≈875 tokens/条
+      query.queryEntries
+        .mockResolvedValueOnce([
+          { id: 'r1', content: big('规则一'), type: 'guideline', sourceReferences: [{ timestamp: 't' }], status: 'published', maturity: 'verified' },
+          { id: 'r2', content: big('规则二'), type: 'guideline', sourceReferences: [{ timestamp: 't' }], status: 'published', maturity: 'verified' },
+          { id: 'r3', content: big('规则三'), type: 'guideline', sourceReferences: [{ timestamp: 't' }], status: 'published', maturity: 'verified' },
+        ])
+        .mockResolvedValueOnce([]);
+
+      const result = await ks.injectContext('executor');
+
+      // 注入估算 ≤ 2000 tokens（chars/4 现有口径）；r3 被裁剪
+      expect(estimateTokens(result.prompt.length)).toBeLessThanOrEqual(2000);
+      expect(result.injectedIds).toEqual(['r1', 'r2']);
+      expect(result.prompt).not.toContain('规则三');
+      // 裁剪事件（沿用 studio-events.jsonl 事件写入路径）
+      expect(mockAppendJsonl).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ type: 'knowledge:inject-trimmed' }),
+      );
+      const call = mockAppendJsonl.mock.calls.find(c => c[1]?.type === 'knowledge:inject-trimmed');
+      const payload = JSON.parse(call![1].payload);
+      expect(payload).toMatchObject({ agentType: 'executor', budgetTokens: 2000 });
+      expect(payload.trimmedIds).toEqual(['r3']);
+    });
+
+    it('③: 裁剪优先级 — 高成熟度条目优先保留，低成熟度先被裁掉', async () => {
+      const { ks, query } = createKS();
+      mockAppendJsonl.mockClear();
+      query.queryEntries
+        .mockResolvedValueOnce([
+          // 数组顺序：大 active 在前；按注入优先级（成熟度→引用计数）排序后 proven 小条目先注入
+          { id: 'r-big', content: `低优先级 ${'冗'.repeat(8_000)}`, type: 'guideline', sourceReferences: [{ timestamp: 't' }], status: 'published', maturity: 'active' },
+          { id: 'r-small', content: '高优先级 proven 小条目', type: 'guideline', sourceReferences: [{ timestamp: 't' }], status: 'published', maturity: 'proven' },
+        ])
+        .mockResolvedValueOnce([]);
+
+      const result = await ks.injectContext('executor');
+
+      expect(estimateTokens(result.prompt.length)).toBeLessThanOrEqual(2000);
+      expect(result.injectedIds).toContain('r-small');
+      expect(result.injectedIds).not.toContain('r-big');
+      expect(result.prompt).toContain('高优先级 proven 小条目');
+      expect(result.prompt).not.toContain('低优先级');
+    });
+
+    it('③: 候选未超预算时不裁剪、不写 trimmed 事件（行为与现状一致）', async () => {
+      const { ks, query } = createKS();
+      mockAppendJsonl.mockClear();
+      query.queryEntries
+        .mockResolvedValueOnce([
+          { id: 'r1', content: 'Always use TypeScript', type: 'guideline', sourceReferences: [{ timestamp: 't' }], status: 'published' },
+        ])
+        .mockResolvedValueOnce([]);
+
+      const result = await ks.injectContext('executor');
+
+      expect(result.injectedIds).toEqual(['r1']);
+      expect(mockAppendJsonl).not.toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ type: 'knowledge:inject-trimmed' }),
+      );
     });
   });
 
@@ -527,6 +617,35 @@ describe('KnowledgeService Phase 1B: Lifecycle', () => {
     });
   });
 
+  describe('demote', () => {
+    it('demotes draft → archived（reject 语义：保留追溯，不再注入）', async () => {
+      const entries = [
+        { id: 'e1', title: 'Proposal', content: 'A'.repeat(60), tags: ['pattern'], maturity: 'draft', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn().mockReturnValue(entries[0]);
+      await ks.demote('e1');
+      expect(store.update).toHaveBeenCalledWith('e1', expect.objectContaining({ maturity: 'archived' }));
+    });
+
+    it('does not demote non-draft entries（仅 draft 可 rejected → archived）', async () => {
+      const entries = [
+        { id: 'e1', title: 'Verified', content: 'A'.repeat(60), tags: ['pattern'], maturity: 'verified', lastReferenced: new Date().toISOString() },
+      ];
+      const { ks, store } = createKS({ entries });
+      store.update = vi.fn();
+      await ks.demote('e1');
+      expect(store.update).not.toHaveBeenCalled();
+    });
+
+    it('does not demote if entry not found', async () => {
+      const { ks, store } = createKS();
+      store.update = vi.fn();
+      await ks.demote('nonexistent');
+      expect(store.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('decay', () => {
     it('decays proven → verified when stale', async () => {
       const staleDate = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year ago
@@ -567,45 +686,26 @@ describe('KnowledgeService Phase 1B: Lifecycle', () => {
 
 describe('KnowledgeService Phase 1B: Resolve', () => {
   describe('createResolution', () => {
-    it.skip('creates resolution via FileStore (TODO: mock writeJson to write to temp dir)', async () => {
-      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ks-res-create-'));
-      const prevHome = process.env.HOME;
-      process.env.HOME = tmpHome;
-      try {
-        fs.mkdirSync(path.join(tmpHome, '.studio', 'data', 'resolutions'), { recursive: true });
-        const { ks } = createKS();
-        await ks.createResolution({ pattern: 'permission error', fix: 'check file perms', errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix' });
-        // Resolution file should exist
-        const resDir = path.join(tmpHome, '.studio', 'data', 'resolutions');
-        const files = fs.readdirSync(resDir);
-        expect(files.length).toBeGreaterThanOrEqual(1);
-      } finally {
-        process.env.HOME = prevHome;
-        fs.rmSync(tmpHome, { recursive: true, force: true });
-      }
+    it('R3: 委托 resolutionService 主存储（不再写 ~/.studio/data/resolutions 影子库）', async () => {
+      mockResolutionCreate.mockClear();
+      const { ks } = createKS();
+      await ks.createResolution({
+        pattern: 'permission error', fix: 'check file perms',
+        errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix', tags: ['triage'],
+      });
+      // triage 调用方签名不变（Promise<void>），写入落到 resolutionService 主存储
+      expect(mockResolutionCreate).toHaveBeenCalledTimes(1);
+      expect(mockResolutionCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ pattern: 'permission error', title: 'Permission fix', tags: ['triage'] }),
+      );
     });
 
-    it.skip('skips if duplicate pattern exists (TODO: mock readJson for dedup check)', async () => {
-      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ks-res-dup-'));
-      const prevHome = process.env.HOME;
-      process.env.HOME = tmpHome;
-      try {
-        const resDir = path.join(tmpHome, '.studio', 'data', 'resolutions');
-        fs.mkdirSync(resDir, { recursive: true });
-        fs.writeFileSync(path.join(resDir, 'existing.json'), JSON.stringify({
-          id: 'existing', pattern: 'permission error', fix: 'existing fix', status: 'verified',
-          verifyCount: 1, errorClass: 'perm', layer: 'L5_error_fix', title: 'Existing',
-          tags: '[]', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        }));
-        const { ks } = createKS();
-        await ks.createResolution({ pattern: 'permission error', fix: 'check file perms', errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix' });
-        // Should not create duplicate
-        const files = fs.readdirSync(resDir);
-        expect(files.length).toBe(1); // only the existing one
-      } finally {
-        process.env.HOME = prevHome;
-        fs.rmSync(tmpHome, { recursive: true, force: true });
-      }
+    it('R3: resolutionService 失败被吞掉（best-effort，不阻塞 triage 调用方）', async () => {
+      mockResolutionCreate.mockRejectedValueOnce(new Error('disk down'));
+      const { ks } = createKS();
+      await expect(ks.createResolution({
+        pattern: 'p', fix: 'f', errorClass: 'e', layer: 'L5_error_fix', title: 't',
+      })).resolves.not.toThrow();
     });
   });
 });
@@ -967,8 +1067,9 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('recordOutcome exists', () => expect(typeof ks.recordOutcome).toBe('function'));
   });
 
-  describe('Lifecycle (4 methods)', () => {
+  describe('Lifecycle (5 methods)', () => {
     it('promote exists', () => expect(typeof ks.promote).toBe('function'));
+    it('demote exists', () => expect(typeof ks.demote).toBe('function'));
     it('decay exists', () => expect(typeof ks.decay).toBe('function'));
     it('merge exists', () => expect(typeof ks.merge).toBe('function'));
     it('graduateConstraint exists', () => expect(typeof ks.graduateConstraint).toBe('function'));
@@ -988,10 +1089,10 @@ describe('KnowledgeService Phase 0: contract', () => {
   });
 
   describe('method count', () => {
-    it('has exactly 34 public methods', () => {
+    it('has exactly 35 public methods', () => {
       const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
         .filter(m => m !== 'constructor');
-      expect(methods).toHaveLength(34);
+      expect(methods).toHaveLength(35);
     });
   });
 });

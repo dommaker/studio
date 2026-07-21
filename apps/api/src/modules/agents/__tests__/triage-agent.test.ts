@@ -59,7 +59,7 @@ vi.mock('@dommaker/studio-prisma', () => ({ prisma: mockPrisma }));
 
 // Use dynamic import after mock setup
 const { triageAgent } = await import('../triage-agent.service.js');
-const { monitorAgent } = await import('../monitor-agent.service.js');
+const { systemHealthCheck } = await import('../monitor-system-probes.js');
 
 describe('TriageAgent + MonitorAgent', () => {
   beforeEach(() => {
@@ -73,14 +73,14 @@ describe('TriageAgent + MonitorAgent', () => {
 
   // ── systemHealthCheck ──
 
-  describe('MonitorAgent.systemHealthCheck()', () => {
+  describe('systemProbes.systemHealthCheck()', () => {
     it('returns array (may be empty or contain anomalies)', async () => {
-      const anomalies = await monitorAgent.systemHealthCheck();
+      const anomalies = await systemHealthCheck();
       expect(Array.isArray(anomalies)).toBe(true);
     });
 
     it('anomalies have correct shape', async () => {
-      const anomalies = await monitorAgent.systemHealthCheck();
+      const anomalies = await systemHealthCheck();
       for (const a of anomalies) {
         expect(a).toHaveProperty('type');
         expect(a).toHaveProperty('severity');

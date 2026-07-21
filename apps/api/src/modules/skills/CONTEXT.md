@@ -10,14 +10,19 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 
 | 导出 | 文件 | 说明 |
 |------|------|------|
-| loadManifest, SkillEntry | manifest-loader.ts | 扫描技能目录，读取 SKILL.md frontmatter 构建技能条目 |
+| loadManifest, SkillEntry | manifest-loader.ts | 扫描技能目录，读取 SKILL.md frontmatter（name/description/agentTypes/status/triggers/consumers）构建技能条目；status 显式非 published 跳过 |
+| loadSkillContent, loadSkillBody | manifest-loader.ts | 读取 SKILL.md 全文 / 仅正文（剥 frontmatter，agentStep prompt 注入用） |
+| generateManifest | manifest-generator.ts | 从 frontmatter 重新生成 SKILLS_DIR/MANIFEST.md（GENERATED 文件，best-effort 不 throw）；skill-store 写 SKILL.md 后自动调用 |
 | ProposalStore 类, ProposalRecord, ProposalCreateInput, ProposalUpdateInput, ProposalListFilter | proposal-store.ts | 文件型 CRUD 操作技能提案 |
 | router | routes.ts | 技能 CRUD + discover 路由，挂载至 /api/v1/skills |
 | SkillExtractionService 类, ExtractedSkillProposal | skill-extraction.service.ts | 从 WorkUnit 中提取可复用模式并生成提案 |
 | router | skill-proposal-routes.ts | 提案列表、扫描、提取、审批等路由，挂载至 /api/v1/skills/proposals |
-| selectSkills | skill-selector.ts | 基于 description 文本的三层策略技能匹配（排除 NOT-for） |
+| selectSkills | skill-selector.ts | 三层策略技能匹配：声明 triggers 时匹配 triggers（替代长 description），否则匹配 description（排除 NOT-for）；consumers 含 loop 的 skill 不参与 |
+| selectSkillsWithDomain, parseAcceptedTypesFromDescription | skill-selector.ts | §10 域匹配（角色 acceptedTypes ∪ WU type）∩ skill.agentTypes 为主、scope 匹配为次，去重封顶 3 |
 | SkillRecord, SkillCreateInput, SkillUpdateInput | skill-store.ts | 技能元数据的类型定义及文件型 CRUD |
 | LoadedSkill, SessionSkillState, LoadSkillOptions, UnloadSkillOptions | skill-loader.ts | 技能加载相关的类型定义及层级工具权限 |
+| aggregateSkillUsage, scanSkillDemotions, approveDemotion, rejectDemotion, DemotionProposalStore | skill-demotion.ts | §10.6 降级通路：skill_used 事件 + WU 终态聚合 → 降级提案（只提案不自动生效；approve 改 frontmatter status，正文逐字节保留）；提案存 ~/.studio/data/skills/demotion-proposals.json |
+| router | skill-demotion-routes.ts | 降级提案列表（?scan=true 触发扫描）/ 审批路由，挂载至 /api/v1/skills/demotion-proposals（先于 /api/v1/skills 注册） |
 
 ## 依赖关系
 

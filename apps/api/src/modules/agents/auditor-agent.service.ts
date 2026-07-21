@@ -6,8 +6,7 @@
  *
  * 结构（T3 拆分：审计规则/执行/报告分离，零行为变更；本文件为门面，保留聚合逻辑）：
  *   - auditor-rules.ts         审计规则（错误归类/技能与 agent-type 建议/用户模型质量/知识电路健康）
- *   - auditor-execution.ts     建议执行（低风险自动应用/确认卡片/Resolution 创建/Triage 升级/eval case/提案预检）
- *   - auditor-doc-freshness.ts doc-freshness issue 处理（自动修复 numeric/status 差异 + PR）
+ *   - auditor-execution.ts     建议执行（低风险自动应用/确认卡片/Resolution 创建/Triage 升级/eval case）
  *   - auditor-reports.ts       洞察与报告输出（会话行为趋势/7 日趋势/tier 成功率/#系统 推送）
  */
 
@@ -16,7 +15,6 @@ import { knowledgeService } from '../knowledge/knowledge-service.js';
 import * as rules from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 import * as execution from './auditor-execution.js';
-import * as docFreshness from './auditor-doc-freshness.js';
 import * as reports from './auditor-reports.js';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
@@ -183,8 +181,6 @@ export class AuditorAgent {
         summary.push('', '### 待人工确认', ...highRisk.map(s => `- ⚠️ ${s.detail}`));
       }
 
-      const finalContent = summary.join('\n');
-
       // 新增: 用户模型 + 电路健康摘要
       if (modelSuggestions.length > 0) {
         summary.push('', '### 用户模型质量', ...modelSuggestions.map(s => `- ${s.risk === 'high' ? '⚠️' : '📊'} ${s.detail}`));
@@ -192,6 +188,14 @@ export class AuditorAgent {
       if (circuitSuggestions.length > 0) {
         summary.push('', '### 知识电路健康', ...circuitSuggestions.map(s => `- ${s.risk === 'high' ? '🔴' : '🟡'} ${s.detail}`));
       }
+
+      // 开发会话行为趋势 (session:summary → behavioral insights)
+      const sessionTrends = await this.analyzeSessionTrends(yesterday);
+      if (sessionTrends.length > 0) {
+        summary.push('', '### 开发会话行为趋势', ...sessionTrends);
+      }
+
+      const finalContent = summary.join('\n');
 
       // 8. 推送到 #系统 channel
       await this.postToSystemChannel(finalContent);
@@ -215,15 +219,6 @@ export class AuditorAgent {
         return { status: e.status, error: eMeta.error ?? null, agentType: eMeta.agentType ?? null };
       });
       await this.autoCreateResolutions(execsForRes);
-
-      // Doc Freshness: 处理 CI 创建的 doc-freshness issues
-      await this.handleDocFreshnessIssues();
-
-      // 开发会话行为趋势 (session:summary → behavioral insights)
-      const sessionTrends = await this.analyzeSessionTrends(yesterday);
-      if (sessionTrends.length > 0) {
-        summary.push('', '### 开发会话行为趋势', ...sessionTrends);
-      }
 
       // Record audit findings to KnowledgeService
       knowledgeService.recordPattern({
@@ -260,7 +255,7 @@ export class AuditorAgent {
     return rules.generateSuggestions(this.fileStore, agentTypeStats, errorByAgentType);
   }
 
-  // ── 建议执行（auditor-execution / auditor-doc-freshness）──
+  // ── 建议执行（auditor-execution）──
 
   private async applyLowRiskSuggestions(suggestions: Suggestion[]): Promise<string[]> {
     return execution.applyLowRiskSuggestions(suggestions);
@@ -294,20 +289,6 @@ export class AuditorAgent {
     goalId?: string;
   }>): Promise<void> {
     return execution.generateEvalCases(recentExecs);
-  }
-
-  private async handleDocFreshnessIssues(): Promise<void> {
-    return docFreshness.handleDocFreshnessIssues();
-  }
-
-  /**
-   * 提案预检 — 轻量可行性校验
-   */
-  async preCheckProposal(proposal: { suggestedFix: string; confidence: number }): Promise<{
-    status: 'pass' | 'warning' | 'blocked';
-    reasons: string[];
-  }> {
-    return execution.preCheckProposal(this.fileStore, proposal);
   }
 
   // ── 洞察与报告（auditor-reports）──

@@ -14,12 +14,14 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockAppendJsonl, mockPromptJson, mockIsAvailable, mockGetRecentUsage, mockScheduleVectorDbSync } = vi.hoisted(() => ({
+const { mockAppendJsonl, mockPromptJson, mockIsAvailable, mockGetRecentUsage, mockScheduleVectorDbSync, mockListChannels, mockCreateCardMessage } = vi.hoisted(() => ({
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
   mockPromptJson: vi.fn(),
   mockIsAvailable: vi.fn().mockReturnValue(true),
   mockGetRecentUsage: vi.fn().mockReturnValue([]),
   mockScheduleVectorDbSync: vi.fn(),
+  mockListChannels: vi.fn().mockResolvedValue([]),
+  mockCreateCardMessage: vi.fn().mockResolvedValue({}),
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -34,6 +36,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
       readDoc: vi.fn().mockResolvedValue(null),
       writeDoc: vi.fn().mockResolvedValue(undefined),
       listDocs: vi.fn().mockResolvedValue([]),
+      listChannels: mockListChannels,
     })),
     modelGateway: {
       promptJson: mockPromptJson,
@@ -47,6 +50,11 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 vi.mock('../../agents/knowledge-agent.service.js', () => ({
   EXTRACT_FROM_TEXT_SYSTEM_PROMPT: 'shared-extraction-system-prompt',
   getExtractFromTextSystemPrompt: () => 'shared-extraction-system-prompt',
+}));
+
+// 审核闭环：发卡到 #系统 走 channelMessageService（动态 import 路径与生产一致）
+vi.mock('../../channels/channel-message.service.js', () => ({
+  channelMessageService: { createCardMessage: mockCreateCardMessage },
 }));
 
 vi.mock('../knowledge-singletons.js', () => ({
@@ -287,6 +295,112 @@ describe('R3: extractFromConversation', () => {
     expect(transcript.length).toBeLessThanOrEqual(12_000 + 200); // 上限 + 标记开销
     expect(ingest.ingestEntry.mock.calls[0][0].type).toBe('guideline');
   });
+
+  // ── R1（type-repair）：decision 条目补 tags ['decision', <category>] ──
+
+  it('R1: type=decision 条目入库时补 tags [decision, <category>]（category 取 LLM 产出）', async () => {
+    mockPromptJson.mockResolvedValue({
+      entries: [
+        { type: 'decision', title: '选用 JWT 而非 session', content: '背景: 多端登录。选择: JWT 无状态。权衡: 无法主动失效，用短过期+刷新令牌兜底。', tags: ['architecture'] },
+      ],
+    });
+    const { ks, ingest } = createKS();
+
+    await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r1' });
+
+    expect(ingest.ingestEntry).toHaveBeenCalledTimes(1);
+    const [partial, opts] = ingest.ingestEntry.mock.calls[0];
+    expect(partial.type).toBe('decision');
+    // 契约：tags 前两位恒为 ['decision', <category>]
+    expect(partial.tags.slice(0, 2)).toEqual(['decision', 'architecture']);
+    expect(opts.tags.slice(0, 2)).toEqual(['decision', 'architecture']);
+  });
+
+  it('R1: decision 条目 LLM 未给 category 时回落 process', async () => {
+    mockPromptJson.mockResolvedValue({
+      entries: [
+        { type: 'decision', title: '改用 ESM 模块体系', content: '背景: CJS/ESM 混用导致工具链问题。选择: 全面 ESM。权衡: 老依赖需评估兼容性。', tags: [] },
+      ],
+    });
+    const { ks, ingest } = createKS();
+
+    await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r1' });
+
+    const [partial, opts] = ingest.ingestEntry.mock.calls[0];
+    expect(partial.tags.slice(0, 2)).toEqual(['decision', 'process']);
+    expect(opts.tags.slice(0, 2)).toEqual(['decision', 'process']);
+  });
+
+  it('R1: 非 decision 条目不补 decision tag', async () => {
+    mockPromptJson.mockResolvedValue({
+      entries: [
+        { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: ['root-cause'] },
+      ],
+    });
+    const { ks, ingest } = createKS();
+
+    await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r1' });
+
+    const [partial] = ingest.ingestEntry.mock.calls[0];
+    expect(partial.tags).not.toContain('decision');
+  });
+
+  // ── 审核闭环：入库即发 knowledge_proposal 提案卡到 #系统 ──
+
+  it('入库成功 → 聚合本次条目发一张 knowledge_proposal 卡片到 #系统', async () => {
+    mockListChannels.mockResolvedValue([{ id: 'ch-sys', name: '#系统', type: 'system' }]);
+    mockPromptJson.mockResolvedValue({
+      entries: [
+        { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: ['root-cause'] },
+        { type: 'guideline', title: '登录流程统一走 auth-service', content: '可复用模式: 所有登录入口委托 auth-service，避免分散实现。', tags: ['pattern'] },
+      ],
+    });
+    const { ks } = createKS();
+
+    await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-card' });
+
+    // 一次提取多条合并为一张卡（防刷屏）
+    expect(mockCreateCardMessage).toHaveBeenCalledTimes(1);
+    const [channelId, agentName, content, cardType, cardData] = mockCreateCardMessage.mock.calls[0];
+    expect(channelId).toBe('ch-sys');
+    expect(cardType).toBe('knowledge_proposal'); // 契约：γ 轨道依赖，不得偏离
+    expect(content).toContain('session 过期未刷新导致 401');
+    expect(content).toContain('登录流程统一走 auth-service');
+    expect(cardData.workUnitId).toBe('wu-card');
+    // 卡片携带各条目 id/标题/类型（approve → promote 用）
+    expect(cardData.entries).toHaveLength(2);
+    expect(cardData.entries[0]).toMatchObject({
+      id: 'ingested-1', title: 'session 过期未刷新导致 401', type: 'pitfall',
+    });
+    expect(cardData.entries[1]).toMatchObject({ id: 'ingested-2', type: 'guideline' });
+  });
+
+  it('#系统 频道缺失时静默跳过（不发卡、不抛出、不影响提取事件）', async () => {
+    mockListChannels.mockResolvedValue([]); // 频道未播种
+    mockPromptJson.mockResolvedValue({
+      entries: [
+        { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: [] },
+      ],
+    });
+    const { ks } = createKS();
+
+    await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-noch' })).resolves.not.toThrow();
+    expect(mockCreateCardMessage).not.toHaveBeenCalled();
+    // 提取事件照常记录
+    expect(mockAppendJsonl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ type: 'knowledge:extraction' }),
+    );
+  });
+
+  it('无入库条目（全被门禁拦下）→ 不发卡', async () => {
+    mockListChannels.mockResolvedValue([{ id: 'ch-sys', name: '#系统', type: 'system' }]);
+    mockPromptJson.mockResolvedValue({ entries: [] });
+    const { ks } = createKS();
+
+    await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-empty' });
+    expect(mockCreateCardMessage).not.toHaveBeenCalled();
+  });
 });
 
 describe('R3: 提案注入闸门（draft 不参与 injectContext）', () => {
@@ -297,13 +411,13 @@ describe('R3: 提案注入闸门（draft 不参与 injectContext）', () => {
   it('(b) rule/context/signal 三档均排除 draft，保留 approved 成熟度', async () => {
     const { ks, query } = createKS();
     query.queryEntries
-      .mockResolvedValueOnce([ // rule 档
-        { id: 'r-draft', content: 'Draft rule content here', type: 'guideline', sourceReference: 'ref', status: 'published', maturity: 'draft' },
-        { id: 'r-active', content: 'Active rule content here', type: 'guideline', sourceReference: 'ref', status: 'published', maturity: 'active' },
+      .mockResolvedValueOnce([ // rule 档（生产形状：sourceReferences 复数）
+        { id: 'r-draft', content: 'Draft rule content here', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published', maturity: 'draft' },
+        { id: 'r-active', content: 'Active rule content here', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published', maturity: 'active' },
       ])
       .mockResolvedValueOnce([ // context 档
-        { id: 'c-draft', content: 'Draft preference content', type: 'model', sourceReference: 'ref', status: 'published', maturity: 'draft' },
-        { id: 'c-verified', content: 'Verified preference content', type: 'model', sourceReference: 'ref', status: 'published', maturity: 'verified' },
+        { id: 'c-draft', content: 'Draft preference content', type: 'model', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published', maturity: 'draft' },
+        { id: 'c-verified', content: 'Verified preference content', type: 'model', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published', maturity: 'verified' },
       ]);
     query.getIndexes.mockReturnValue([
       { id: 's-draft', summary: 'draft signal', status: 'fresh', maturity: 'draft' },
@@ -326,7 +440,7 @@ describe('R3: 提案注入闸门（draft 不参与 injectContext）', () => {
   it('无 maturity 字段的条目（doc 来源）不受闸门影响', async () => {
     const { ks, query } = createKS();
     query.queryEntries
-      .mockResolvedValueOnce([{ id: 'r1', content: 'Always use TypeScript', type: 'guideline', sourceReference: 'ref1', status: 'published' }])
+      .mockResolvedValueOnce([{ id: 'r1', content: 'Always use TypeScript', type: 'guideline', sourceReferences: [{ timestamp: '2026-07-20T00:00:00Z' }], status: 'published' }])
       .mockResolvedValueOnce([]);
 
     const result = await ks.injectContext('executor');

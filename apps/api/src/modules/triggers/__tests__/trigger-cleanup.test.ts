@@ -6,6 +6,7 @@
  *   - okr-metric-sync was added back later (7 total)
  *   - workunit-input-reminder added by F5 双向沟通 (8 total)
  *   - evolution-daily-scan added by E1 约束进化 (9 total)
+ *   - doc-semantic-review added by 2026-07 文档治理闭环 P1 (10 total)
  * - EVENT condition type re-added by PMO-Channel-Agent-Flow SDD AC-1
  * - subscribeEvent/unsubscribeEvent removed from trigger-scheduler.ts (replaced by registerTrigger EVENT handling)
  * - resolveTemplate/getNestedValue removed from trigger-action.ts
@@ -20,10 +21,10 @@ const AGENTS_DIR = path.resolve(__dirname, '../../agents');
 const TRIGGERS_DIR = path.resolve(__dirname, '..');
 
 describe('Trigger cleanup verification', () => {
-  it('default triggers count is 9 (8 retained + E1 evolution-daily-scan)', async () => {
+  it('default triggers count is 10 (8 retained + E1 evolution-daily-scan + doc-semantic-review)', async () => {
     const mod = await import('../../agents/default-triggers.js');
     const configs = mod.getDefaultTriggerConfigs();
-    expect(configs).toHaveLength(9);
+    expect(configs).toHaveLength(10);
   });
 
   it('okr-metric-sync trigger is present', () => {

@@ -118,13 +118,9 @@ export type MonitorAlertSource =
   | 'progress_stagnation'
   | 'session_escalation'
   | 'total_time'
-  | 'heartbeat_loss'
   | 'tool_error_rate'
   | 'tool_zero_success'
-  | 'session_file_size'
-  | 'review_quality'
-  | 'deploy_push_failed'
-  | 'proxy_restart_exhausted';
+  | 'session_file_size';
 
 export interface MonitorAlert {
   level: 'info' | 'warning' | 'critical';

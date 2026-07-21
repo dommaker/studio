@@ -2,11 +2,15 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats } from '../api/monitoring';
+import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
 
 export function MonitoringPage() {
   const [data, setData] = useState<MonitoringStats | null>(null);
   const [flywheel, setFlywheel] = useState<FlywheelStats | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
+  // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
+  const [proposals, setProposals] = useState<KnowledgeEntryItem[] | null>(null);
+  const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -23,9 +27,27 @@ export function MonitoringPage() {
     // M1/M2 区块独立加载，失败不影响主面板
     monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => setFlywheel(null));
     monitoringApi.getOverhead().then(r => setOverhead(r.data)).catch(() => setOverhead(null));
+    // 待审列表独立加载，失败不阻塞其他区块
+    knowledgeApi.listPendingReview().then(r => setProposals(r.data.entries)).catch(() => setProposals(null));
   };
 
   useEffect(() => { load(); }, []);
+
+  // 一键 approve：draft → verified（参与注入）；成功后移出列表
+  const approveProposal = async (entryId: string) => {
+    setApprovingIds(prev => new Set(prev).add(entryId));
+    try {
+      await knowledgeApi.promote(entryId);
+      setProposals(prev => prev ? prev.filter(p => p.id !== entryId) : prev);
+      monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => {});
+    } catch { /* 保留在列表中，可重试 */ } finally {
+      setApprovingIds(prev => {
+        const next = new Set(prev);
+        next.delete(entryId);
+        return next;
+      });
+    }
+  };
 
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
@@ -125,6 +147,34 @@ export function MonitoringPage() {
                 )}
               </Section>
 
+              {/* 审核闭环：proposal 待审列表（计数升级为列表：标题/年龄/一键 approve） */}
+              <Section title="知识提案待审">
+                {proposals === null ? (
+                  <div className="text-sm u-text-2">待审列表不可用</div>
+                ) : proposals.length === 0 ? (
+                  <div className="text-sm u-text-2">无待审提案（提取产物以 draft 入库，审核通过后才参与注入）</div>
+                ) : (
+                  <div className="space-y-2">
+                    {proposals.map(p => (
+                      <div key={p.id} className="flex items-center gap-3 text-sm">
+                        <span className="u-text-1" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {p.title}
+                        </span>
+                        <span className="text-xs u-text-3">{formatAge(p.created)}</span>
+                        <button
+                          className="btn btn-secondary"
+                          style={{ padding: '2px 10px', fontSize: 12 }}
+                          disabled={approvingIds.has(p.id)}
+                          onClick={() => approveProposal(p.id)}
+                        >
+                          {approvingIds.has(p.id) ? '处理中…' : '通过'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Section>
+
               {/* M2: 封装开销 */}
               <Section title="封装开销">
                 {overhead && overhead.source === 'events' ? (
@@ -176,6 +226,19 @@ function budgetColor(usedPct: number): string {
   if (usedPct > 100) return 'u-err';
   if (usedPct >= 70) return 'u-warn';
   return 'u-ok';
+}
+
+/** 待审提案年龄：created → 「N 分钟/小时/天前」 */
+function formatAge(iso?: string): string {
+  if (!iso) return '时间未知';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return '刚刚';
+  const minutes = Math.floor(ms / 60_000);
+  if (minutes < 1) return '刚刚';
+  if (minutes < 60) return `${minutes} 分钟前`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} 小时前`;
+  return `${Math.floor(hours / 24)} 天前`;
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {

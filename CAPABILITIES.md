@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-20
+> 最后更新: 2026-07-21
 
 ---
 
@@ -269,15 +269,13 @@
 | runner-lightweight | packages/studio-agent/src/services/runner-lightweight.ts | Runner Lightweight — 轻量单 session 执行（agent-runner.ts 拆分模块） |
 | runner-output | packages/studio-agent/src/services/runner-output.ts | Runner Output — 输出解析（agent-runner.ts 拆分模块） |
 | runner-params | packages/studio-agent/src/services/runner-params.ts | Runner Params — 参数构建（agent-runner.ts 拆分模块） |
-| auditor-doc-freshness | apps/api/src/modules/agents/auditor-doc-freshness.ts | Auditor Agent — Doc Freshness Issue 处理 |
 | auditor-execution | apps/api/src/modules/agents/auditor-execution.ts | Auditor Agent — 建议执行 / 升级 / 闭环 |
 | auditor-reports | apps/api/src/modules/agents/auditor-reports.ts | Auditor Agent — 洞察与报告输出 |
 | auditor-rules | apps/api/src/modules/agents/auditor-rules.ts | Auditor Agent — 审计规则（检测 → 建议） |
-| knowledge-analysis | apps/api/src/modules/agents/knowledge-analysis.ts | Knowledge Agent — 会话分析子模块 |
 | knowledge-cold-start | apps/api/src/modules/agents/knowledge-cold-start.ts | Knowledge Agent — 冷启动子模块 |
-| knowledge-extraction | apps/api/src/modules/agents/knowledge-extraction.ts | Knowledge Agent — 提取子模块 |
+| knowledge-extraction | apps/api/src/modules/agents/knowledge-extraction.ts | Knowledge Agent — 提取 prompt 单一来源 |
 | knowledge-maintenance | apps/api/src/modules/agents/knowledge-maintenance.ts | Knowledge Agent — 语料分析（每日维护）子模块 |
-| monitor-alerts | apps/api/src/modules/agents/monitor-alerts.ts | Monitor Agent — 告警分发 / Triage 升级 / 事件写入 / 心跳持久化 |
+| monitor-alerts | apps/api/src/modules/agents/monitor-alerts.ts | Monitor Agent — 告警分发 / Triage 升级 / 事件写入 |
 | monitor-lifecycle | apps/api/src/modules/agents/monitor-lifecycle.ts | Monitor Agent — G31 数据生命周期：知识沉淀闸门 + TTL 清理 |
 | monitor-probes | apps/api/src/modules/agents/monitor-probes.ts | Monitor Agent — 任务/WorkUnit 级探测 |
 | monitor-reports | apps/api/src/modules/agents/monitor-reports.ts | Monitor Agent — 报告：轨迹评估 / 每日洞察 / 交互模式观察 |
@@ -312,3 +310,12 @@
 | workunit.tools | apps/api/src/modules/mcp/workunit.tools.ts | MCP Tools — WorkUnit |
 | mock-data | apps/web/src/pages/design-lab/mock-data.ts | Design Lab — 视觉方向稿共用 mock 数据（T1 方向稿专用，不接任何真实 API） |
 | useChannelList | apps/web/src/hooks/useChannelList.ts | 频道列表数据 hook —— ChannelListPage 与 Mission Control 左栏 ChannelRail 共用 |
+| knowledge | apps/web/src/api/knowledge.ts | Knowledge Service API — 2026-07 知识审核闭环 |
+| executor | apps/api/src/modules/agents/executor.ts | §9.6 Executor 接口 — AgentLoop 执行面抽象（P0） |
+| token-usage.routes | apps/api/src/modules/agents/token-usage.routes.ts | §10.5 角色级 token 视图路由（只读）。 |
+| token-usage.service | apps/api/src/modules/agents/token-usage.service.ts | §10.5 角色级 token 滚动视图（只读聚合）。 |
+| migrate-members | apps/api/src/modules/channels/migrate-members.ts | §9.5 成员关系统一 — 迁移：把各 profile.channels 合并进对应 channel.members。 |
+| manifest-generator | apps/api/src/modules/skills/manifest-generator.ts | manifest-generator |
+| skill-demotion-routes | apps/api/src/modules/skills/skill-demotion-routes.ts | §10.6 Skill 降级提案 API 路由 |
+| skill-demotion | apps/api/src/modules/skills/skill-demotion.ts | §10.6 skill 生命周期降级通路（聚合 + 降级提案）。 |
+| delegation-gate | apps/api/src/modules/workunit/delegation-gate.ts | DelegationGate — A2A 协作委派闸门（2026-07-agent-to-agent-collab-design §4.1 机制 3 / §4.2） |

@@ -5,8 +5,6 @@
  * 挂载于 /api/knowledge（route-registry.ts，无 auth 中间件）：
  * - GET  /sync-status        知识同步状态（新鲜度检测 + 自动 heal）
  * - POST /upsert             设计时知识沉淀入口（KnowledgeStore + FileStore Document 投影）
- * - POST /extract-text       P0b: 通用文本知识提取（202 后台执行）
- * - POST /extract-behavior   KE-003: 用户行为模式提取（202 后台执行）
  * - POST /extract-text-sync  Debug: 同步提取（端到端测试管线用）
  */
 
@@ -115,68 +113,8 @@ internalRoutes.post('/upsert', async (req, res) => {
   }
 });
 
-// ============================================
-// P0b: Generic text knowledge extraction (no auth, internal only)
-// ============================================
-
-/**
- * POST /api/knowledge/extract-text
- * Body: { content: string, source: string, layer?: string }
- * Returns: 202 { queued: true }
- *
- * Generic endpoint: caller provides pre-processed text content.
- * All source-specific logic (format parsing, message filtering, truncation)
- * belongs in the caller, not here.
- */
-internalRoutes.post('/extract-text', async (req, res) => {
-  try {
-    const { content, source, layer } = req.body;
-    if (!content || !source) {
-      return res.status(400).json({ error: 'content and source are required' });
-    }
-
-    // 202 Accepted immediately — extraction happens in background
-    res.status(202).json({ queued: true });
-
-    // Fire-and-forget: spawn extraction in background
-    const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
-    knowledgeAgent.extractFromText(content, source, layer).catch(err => {
-      logger.error('[KnowledgeRoutes] Text extraction failed');
-    });
-  } catch (error) {
-    logger.error('Failed to queue text extraction');
-    res.status(500).json({ error: 'Failed to queue text extraction' });
-  }
-});
-
 // Debug: synchronous extraction for testing pipeline end-to-end
 
-/**
- * POST /api/knowledge/extract-behavior
- * Body: { content: string, source: string, threshold?: number }
- * Returns: 202 { queued: true }
- *
- * KE-003: Extract user behavior patterns from session transcript.
- * Runs in parallel with extract-text (both triggered by session:archive).
- */
-internalRoutes.post('/extract-behavior', async (req, res) => {
-  try {
-    const { content, source, threshold } = req.body;
-    if (!content || !source) {
-      return res.status(400).json({ error: 'content and source are required' });
-    }
-
-    res.status(202).json({ queued: true });
-
-    const { knowledgeAgent } = await import('../agents/knowledge-agent.service.js');
-    knowledgeAgent.extractUserBehavior(content, source, threshold).catch(err => {
-      logger.error('[KnowledgeRoutes] Behavior extraction failed');
-    });
-  } catch (error) {
-    logger.error('Failed to queue behavior extraction');
-    res.status(500).json({ error: 'Failed to queue behavior extraction' });
-  }
-});
 internalRoutes.post('/extract-text-sync', async (req, res) => {
   try {
     const { content, source, layer } = req.body;

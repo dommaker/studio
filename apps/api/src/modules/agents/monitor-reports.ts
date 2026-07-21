@@ -335,42 +335,6 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       store.snapshot();
     } catch { /* best-effort */ }
 
-    // B10-201: Behavior profile trends (KnowledgeStore)
-    try {
-      const { sharedStore: bStore } = await import('../knowledge/knowledge-bus.service.js');
-      const behaviorEntries = bStore.list({ tags: ['behavior'] });
-      const behaviorProfiles = behaviorEntries
-        .filter((e: any) => new Date(e.created).getTime() >= since.getTime())
-        .map((e: any) => {
-          const d = JSON.parse(e.content || '{}');
-          return { category: d.category || 'unknown', suggestedAction: d.suggestedAction || 'skip', confidence: d.confidence || 0, status: (e as any).tags?.includes('pending') ? 'pending' : 'applied' };
-        });
-      if (behaviorProfiles.length > 0) {
-        const byCat: Record<string, number> = {};
-        const byAction: Record<string, number> = {};
-        let pendingCount = 0;
-        for (const p of behaviorProfiles) {
-          byCat[p.category] = (byCat[p.category] || 0) + 1;
-          byAction[p.suggestedAction] = (byAction[p.suggestedAction] || 0) + 1;
-          if (p.status === 'pending') pendingCount++;
-        }
-        const catLabels: Record<string, string> = { correction: '纠正', pattern: '决策', workflow: '决策', automation: '自动化' };
-        const actLabels: Record<string, string> = { create_rule: '规则', create_skill: 'Skill', create_automation: '自动化', skip: '跳过' };
-
-        lines.push('', '### 行为模式（24h）');
-        lines.push(`- 新提取: ${behaviorProfiles.length} 条 | 待确认: ${pendingCount} 条`);
-        const catLine = Object.entries(byCat).map(([c, n]) => `${catLabels[c] || c}(${n})`).join(', ');
-        lines.push(`- 分类: ${catLine}`);
-        const topAction = Object.entries(byAction).sort((a, b) => b[1] - a[1])[0];
-        if (topAction) {
-          lines.push(`- 最多建议: ${actLabels[topAction[0]] || topAction[0]} (${topAction[1]} 次)`);
-        }
-        if (pendingCount >= 5) {
-          lines.push(`- ⚠️ 积压 ${pendingCount} 条待确认行为模式 — 考虑批量审核`);
-        }
-      }
-    } catch { /* best-effort */ }
-
     // B9-025: Weekly profile report (every Sunday)
     if (new Date(now).getDay() === 0) {
       try {
@@ -447,52 +411,3 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
   }
 }
 
-// ── B9-025: PatternObserver — 交互模式持久化 ──
-
-/**
- * 从 session:summary 事件中提取模式分布，写入 pattern_report + 更新 UserPreference。
- * 可独立调用（非 DailyReflection 时间窗口也可触发）。
- */
-export async function observePattern(fileStore: FileStore): Promise<{ distribution: Record<string, number>; recurring: Array<{ type: string; count: number; successRate: number }> } | null> {
-  try {
-    const weekAgo = new Date(Date.now() - 7 * 24 * 3600_000);
-    const allStudioEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
-    const events = allStudioEvents
-      .filter((e: any) => e.type === 'session:summary' && e.timestamp && new Date(e.timestamp).getTime() >= weekAgo.getTime())
-      .map((e: any) => ({ payload: e.payload || null }));
-    if (events.length < 3) return null;
-
-    const typeCounts: Record<string, { count: number; successCount: number }> = {};
-    for (const ev of events) {
-      try {
-        const p = typeof ev.payload === 'string' ? JSON.parse(ev.payload) : ev.payload;
-        const pt = (p as any)?.patternType || (p as any)?.workflowType || 'unknown';
-        if (!typeCounts[pt]) typeCounts[pt] = { count: 0, successCount: 0 };
-        typeCounts[pt].count++;
-        if ((p as any)?.success !== false) typeCounts[pt].successCount++;
-      } catch {}
-    }
-
-    const distribution: Record<string, number> = {};
-    for (const [pt, s] of Object.entries(typeCounts)) distribution[pt] = s.count;
-
-    const recurring = Object.entries(typeCounts)
-      .filter(([_, s]) => s.count >= 3 && s.successCount / s.count > 0.7)
-      .map(([pt, s]) => ({ type: pt, count: s.count, successRate: Math.round((s.successCount / s.count) * 100) / 100 }));
-
-    const today = new Date().toISOString().split('T')[0];
-    await fileStore.appendJsonl(studioEventsJsonl(), {
-      type: 'pattern_report',
-      source: 'monitor',
-      payload: JSON.stringify({ distribution, recurring, date: today }),
-      timestamp: new Date().toISOString(),
-      precipitated: false,
-    });
-
-    await preferenceObserver.updateFromPatternReport(distribution, recurring.map(r => ({ ...r, lastSeen: today })));
-    return { distribution, recurring };
-  } catch (e: any) {
-    logger.warn('[MonitorAgent] observePattern failed', { error: String(e) });
-    return null;
-  }
-}

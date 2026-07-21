@@ -47,6 +47,8 @@ knowledgeServiceRoutes.get('/entries', async (req, res) => {
     const filter: Record<string, unknown> = {};
     if (req.query.type) filter.types = String(req.query.type).split(',');
     if (req.query.tags) filter.tags = String(req.query.tags).split(',');
+    // 审核闭环：监控页待审列表数据源（maturity=draft）
+    if (req.query.maturity) filter.maturity = String(req.query.maturity).split(',');
     if (req.query.limit) filter.limit = Math.min(Number(req.query.limit), 100);
     if (req.query.offset) filter.offset = Number(req.query.offset);
     const entries = await knowledgeService.list(filter as any);
@@ -253,6 +255,19 @@ knowledgeServiceRoutes.post('/promote', async (req, res) => {
     const { entryId } = req.body;
     if (!entryId) return res.status(400).json({ error: 'entryId required' });
     await knowledgeService.promote(entryId);
+    res.json({ success: true });
+  } catch (e: any) {
+    logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// 审核闭环 reject 端点：draft → archived（与 /promote 对称）
+knowledgeServiceRoutes.post('/demote', async (req, res) => {
+  try {
+    const { entryId } = req.body;
+    if (!entryId) return res.status(400).json({ error: 'entryId required' });
+    await knowledgeService.demote(entryId);
     res.json({ success: true });
   } catch (e: any) {
     logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });

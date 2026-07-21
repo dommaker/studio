@@ -46,14 +46,8 @@ import {
   checkFailureTrend,
   checkProgressStagnation,
   checkTotalExecutionTime,
-  checkHeartbeatLoss,
   autoAbandonStaleBlocked,
-  autoAbandonStaleRunning,
   checkSessionFileHealth,
-  checkReviewQuality,
-  checkTokenBudget,
-  checkDeployPushFailed,
-  checkProxyRestartExhausted,
   checkToolPatterns,
 } from '../monitor-probes.js';
 
@@ -191,10 +185,6 @@ describe('checkTotalExecutionTime', () => {
 });
 
 describe('autoAbandon probes', () => {
-  it('checkHeartbeatLoss is a no-op returning []', async () => {
-    expect(await checkHeartbeatLoss()).toEqual([]);
-  });
-
   it('autoAbandonStaleBlocked closes blocked workUnits older than 24h', async () => {
     const stale = makeSnapshot({ id: 'wu-stale', status: 'blocked', createdAt: new Date(Date.now() - 48 * 3600_000).toISOString() });
     const fresh = makeSnapshot({ id: 'wu-fresh', status: 'blocked', createdAt: new Date().toISOString() });
@@ -206,12 +196,6 @@ describe('autoAbandon probes', () => {
 
     expect(fileStore.upsertSnapshot).toHaveBeenCalledTimes(1);
     expect(fileStore.upsertSnapshot).toHaveBeenCalledWith(expect.objectContaining({ id: 'wu-stale', status: 'closed' }));
-  });
-
-  it('autoAbandonStaleRunning is a no-op (covered by workunit-timeout trigger)', async () => {
-    const fileStore = makeFileStore();
-    await autoAbandonStaleRunning();
-    expect(fileStore.getIndex).not.toHaveBeenCalled();
   });
 });
 
@@ -240,85 +224,6 @@ describe('checkSessionFileHealth', () => {
     fs.writeFileSync(f, '{}');
     process.env.SESSION_FILE_PATH = f;
     expect(await checkSessionFileHealth()).toEqual([]);
-  });
-});
-
-describe('checkReviewQuality', () => {
-  const mkDone = (id: string, metadata: any) => makeSnapshot({
-    id, status: 'done', metadata: JSON.stringify(metadata), updatedAt: new Date().toISOString(),
-  });
-
-  it('reviewScore=0 (never scored) produces no alert', async () => {
-    const fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkDone('wu-0', { reviewScore: 0 })]) });
-    expect(await checkReviewQuality(fileStore)).toEqual([]);
-  });
-
-  it('reviewScore < 50 produces critical alert; 50-74 warning', async () => {
-    let fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkDone('wu-low', { reviewScore: 40, reviewCycle: 2 })]) });
-    let alerts = await checkReviewQuality(fileStore);
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'review_quality', level: 'critical' });
-    expect(alerts[0].message).toContain('after 2 cycles');
-
-    fileStore = makeFileStore({ getIndex: vi.fn(async () => [mkDone('wu-mid', { reviewScore: 60 })]) });
-    alerts = await checkReviewQuality(fileStore);
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0].level).toBe('warning');
-    expect(alerts[0].message).toContain('(first cycle)');
-  });
-});
-
-describe('checkTokenBudget', () => {
-  const mkWu = (id: string, tokens: number) => makeSnapshot({
-    id, status: 'done', metadata: JSON.stringify({ _cumulativeTokens: tokens }), updatedAt: new Date().toISOString(),
-  });
-
-  it('critical ≥ 1M tokens, warning ≥ 500K, none below', async () => {
-    const fileStore = makeFileStore({
-      getIndex: vi.fn(async () => [mkWu('wu-crit', 1_200_000), mkWu('wu-warn', 600_000), mkWu('wu-ok', 100_000)]),
-    });
-
-    const alerts = await checkTokenBudget(fileStore);
-    expect(alerts).toHaveLength(2);
-    expect(alerts[0]).toMatchObject({ level: 'critical', source: 'total_time' });
-    expect(alerts[0].message).toContain('1200K');
-    expect(alerts[1]).toMatchObject({ level: 'warning', source: 'total_time' });
-    expect(alerts[1].message).toContain('600K');
-  });
-});
-
-describe('deploy / proxy event probes', () => {
-  it('checkDeployPushFailed emits critical alert for recent deploy_push_failed events', async () => {
-    const events = [
-      { type: 'deploy_push_failed', timestamp: new Date().toISOString(), payload: JSON.stringify({ error: 'permission denied', branch: 'main' }) },
-      { type: 'deploy_push_failed', timestamp: new Date(Date.now() - 2 * 3600_000).toISOString(), payload: JSON.stringify({ error: 'stale' }) },
-      { type: 'other_event', timestamp: new Date().toISOString(), payload: '{}' },
-    ];
-    const fileStore = makeFileStore({ readJsonl: vi.fn(async () => events) });
-
-    const alerts = await checkDeployPushFailed(fileStore);
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'deploy_push_failed', level: 'critical' });
-    expect(alerts[0].message).toContain('permission denied');
-    expect(alerts[0].message).toContain('main');
-  });
-
-  it('checkProxyRestartExhausted emits critical alert for recent proxy_restart_exhausted events', async () => {
-    const events = [
-      { type: 'proxy_restart_exhausted', timestamp: new Date().toISOString(), payload: JSON.stringify({ restartsThisHour: 5, synSentCount: 42 }) },
-    ];
-    const fileStore = makeFileStore({ readJsonl: vi.fn(async () => events) });
-
-    const alerts = await checkProxyRestartExhausted(fileStore);
-    expect(alerts).toHaveLength(1);
-    expect(alerts[0]).toMatchObject({ source: 'proxy_restart_exhausted', level: 'critical' });
-    expect(alerts[0].message).toContain('5 restarts/h');
-  });
-
-  it('returns empty when events file unreadable', async () => {
-    const fileStore = makeFileStore({ readJsonl: vi.fn(async () => { throw new Error('ENOENT'); }) });
-    expect(await checkDeployPushFailed(fileStore)).toEqual([]);
-    expect(await checkProxyRestartExhausted(fileStore)).toEqual([]);
   });
 });
 
