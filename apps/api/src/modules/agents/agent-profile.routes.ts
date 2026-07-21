@@ -22,7 +22,7 @@ const service = new AgentProfileService(fileStore);
 /** GET / — list AgentProfiles */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { status, channelId } = req.query;
+    const { status, channelId, includeSystem } = req.query;
     const { page, limit } = parsePagination(req);
 
     const result = await service.list({
@@ -30,6 +30,8 @@ router.get('/', async (req: Request, res: Response) => {
       channelId: channelId as string,
       page,
       limit,
+      // AC-1.4: includeSystem=true 时包含 studio 角色（前端 setup 用）
+      includeSystem: includeSystem === 'true',
     });
 
     res.json(formatPaginatedResponse(result.data, result.total, page, limit));
