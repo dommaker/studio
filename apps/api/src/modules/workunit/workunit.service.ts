@@ -7,8 +7,8 @@
 
 import { randomUUID } from 'crypto';
 import { logger, eventBus, FileStore, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
-import { loadManifest } from '../skills/manifest-loader.js';
-import { selectSkills } from '../skills/skill-selector.js';
+import { loadManifest, type SkillEntry } from '../skills/manifest-loader.js';
+import { selectSkillsWithDomain, parseAcceptedTypesFromDescription } from '../skills/skill-selector.js';
 import { skillLoaderService } from '../skills/skill-loader.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
@@ -44,6 +44,21 @@ export interface WorkUnitMetadata {
   waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
   pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
   knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
+  matchedSkills?: string[];   // §10 P0: claim 时域匹配命中的 skill 名（agentStep 注入正文用）
+  skillHints?: string[];      // §10.3: 消息中 +skill名 显式指定的 skill（解析时优先于域匹配）
+  lastCommitHash?: string;    // §10.5: PROGRESS 无提交监视 — 上次观察到的 worktree HEAD
+  noCommitSteps?: number;     // §10.5: 连续无新提交步数（满 3 步频道提醒一次并归零）
+  commitGuardHint?: string;   // §10.5: COMPLETE 被提交守卫打回时的提示（注入下一轮 prompt 后清除）
+  // A2A 协作（2026-07-agent-to-agent-collab-design §5）
+  collab?: {                  // 协作树追踪（DELEGATE 派生的 WU 携带；根 WU 首次委派后补记）
+    rootId: string;           // 协作树根 WU id
+    depth: number;            // 根=0，每跳 +1；上限见 §4.2（P1: 1）
+    chain: string[];          // profile id 谱系（含自己），环检测输入 —— 必须用 profile id（§1.2-b）
+    delegatedBy?: { profileId: string; workUnitId: string };  // 派出方（根 WU 无）
+    delegationCount: number;  // 本 WU 已派出的子任务数（宽度上限输入）
+  };
+  childGuardHint?: string;    // §6-2 父 complete 守卫：存在未完结子 WU 被打回时的提示（注入下一轮 prompt 后清除）
+  freshnessInterrupts?: number; // §4.2 发言层新鲜度检查：结果回帖被「房间已变」连续拦截次数（≥2 后照发并归零）
   [key: string]: unknown;     // 允许扩展字段
 }
 
@@ -432,7 +447,16 @@ export class WorkUnitService {
     if (!wu) throw new Error('WorkUnit not found');
 
     // AC4: auto-load matching skills based on scope (best-effort, non-blocking)
-    this.autoLoadSkillsForAgent(agentId, wu.scope).catch((err) => {
+    // §10 P0: 同时把匹配结果持久化到 metadata.matchedSkills（agentStep 注入用）
+    // §10.3: +skill名 显式指定（message-routing 写入 metadata.skillHints）
+    let skillHints: string[] = [];
+    try {
+      const meta = wu.metadata ? JSON.parse(wu.metadata) : {};
+      if (Array.isArray(meta.skillHints)) {
+        skillHints = meta.skillHints.filter((s: unknown): s is string => typeof s === 'string' && s.length > 0);
+      }
+    } catch { /* 元数据损坏不影响 claim */ }
+    this.autoLoadSkillsForAgent(agentId, wu.scope, wu.type, id, skillHints).catch((err) => {
       logger.warn('[WorkUnit] Skill auto-load failed (non-blocking)', {
         workUnitId: id,
         agentId,
@@ -444,14 +468,59 @@ export class WorkUnitService {
   }
 
   /**
-   * AS-025 §3.28c-5: Select and load skills matching the WorkUnit scope.
-   * Uses agentId as session key for SkillLoaderService.
+   * AS-025 §3.28c-5 + §10.3: Select and load skills matching the WorkUnit.
+   * 显式覆盖：metadata.skillHints（+skill名）按精确名解析，强制置顶 —— 显式优先于域匹配，
+   * 仍要求 active（status 缺省/published）且非 loop-only skill（hub 专用，不进 WU）。
+   * 主信号 = 域匹配（角色 acceptedTypes ∪ WU type）∩ skill.agentTypes；
+   * 次级信号 = scope 文本匹配。合并后封顶 3 个（hint 在前）。Uses agentId as session key for SkillLoaderService.
    */
-  private async autoLoadSkillsForAgent(agentId: string, scope: string): Promise<void> {
+  private async autoLoadSkillsForAgent(agentId: string, scope: string, wuType: string, workUnitId: string, skillHints: string[] = []): Promise<void> {
     const manifest = loadManifest();
     if (manifest.length === 0) return;
 
-    const matched = selectSkills(scope, manifest);
+    // 角色职能域：agentId 是 instance id → instance.roleId → profile.description
+    // 解析失败按空域降级（仅靠 WU type + scope 匹配），绝不影响 claim
+    let acceptedTypes: string[] = [];
+    try {
+      const instance = await this.fileStore.getState(agentId);
+      const profile = instance?.roleId ? await this.fileStore.getProfile(instance.roleId) : null;
+      acceptedTypes = parseAcceptedTypesFromDescription(profile?.description);
+    } catch (err) {
+      logger.warn('[WorkUnit] Resolve agent profile for skill domain matching failed (fallback to WU type only)', {
+        agentId,
+        error: String(err),
+      });
+    }
+
+    // §10.3 显式覆盖：hint 逐名解析，未知/不活跃/loop-only 跳过并记日志
+    const hinted: SkillEntry[] = [];
+    for (const hint of skillHints) {
+      const entry = manifest.find(e => e.name === hint);
+      if (!entry) {
+        logger.warn('[WorkUnit] Skill hint not found in manifest (skipped)', { workUnitId, hint });
+        continue;
+      }
+      if (entry.status && entry.status !== 'published') {
+        logger.warn('[WorkUnit] Skill hint not active (skipped)', { workUnitId, hint, status: entry.status });
+        continue;
+      }
+      if (Array.isArray(entry.consumers) && entry.consumers.some(c => c.toLowerCase() === 'loop')) {
+        logger.warn('[WorkUnit] Skill hint is loop-only (skipped)', { workUnitId, hint });
+        continue;
+      }
+      hinted.push(entry);
+    }
+
+    const domainMatched = selectSkillsWithDomain(scope, manifest, { acceptedTypes, wuType });
+    // 合并：hint 在前，域/scope 匹配在后，按 name 去重，封顶 3
+    const seen = new Set<string>();
+    const matched: SkillEntry[] = [];
+    for (const entry of [...hinted, ...domainMatched]) {
+      if (seen.has(entry.name)) continue;
+      seen.add(entry.name);
+      matched.push(entry);
+      if (matched.length >= 3) break;
+    }
     if (matched.length === 0) return;
 
     for (const entry of matched) {
@@ -466,6 +535,22 @@ export class WorkUnitService {
       scope,
       skills: matched.map(e => e.name),
     });
+
+    // §10 P0: 匹配结果落盘 metadata.matchedSkills（agentStep 读它注入 skill 正文）
+    const snapshots = await this.fileStore.getIndex();
+    const current = snapshots.find(s => s.id === workUnitId);
+    if (!current) return;
+    const meta: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    meta.matchedSkills = matched.map(e => e.name);
+    const updated: WorkUnitSnapshot = { ...current, metadata: JSON.stringify(meta), updatedAt: new Date().toISOString() };
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: workUnitId,
+      timestamp: updated.updatedAt,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
   }
 
   /**

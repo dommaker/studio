@@ -18,6 +18,14 @@ export interface SkillEntry {
   path: string;
   /** Skill description from frontmatter (Chinese) */
   description: string;
+  /** 服务域（frontmatter agentTypes）——域匹配主信号，缺省表示未声明 */
+  agentTypes?: string[];
+  /** 生命周期状态（frontmatter status）——缺省视为 active */
+  status?: string;
+  /** 触发关键词（frontmatter triggers）——scope 匹配优先于 description */
+  triggers?: string[];
+  /** 消费方（frontmatter consumers）——含 'loop' 的是 hub-service skill，不参与 WU 匹配 */
+  consumers?: string[];
 }
 
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
@@ -27,26 +35,40 @@ let cachedEntries: SkillEntry[] | null = null;
 
 /**
  * Parse YAML frontmatter from SKILL.md content.
- * Extracts name and description fields.
+ * Extracts name/description/agentTypes/status/triggers/consumers fields.
+ * 数组字段（agentTypes/triggers/consumers）支持 `[a, b]` 行内写法，与 skill-loader 解析口径一致。
  */
-function parseFrontmatter(content: string): { name: string; description: string } | null {
+function parseFrontmatter(content: string): { name: string; description: string; agentTypes?: string[]; status?: string; triggers?: string[]; consumers?: string[] } | null {
   const match = content.match(/^---\n([\s\S]*?)\n---/);
   if (!match) return null;
 
   const yaml = match[1];
   let name = '';
   let description = '';
+  let agentTypes: string[] | undefined;
+  let status: string | undefined;
+  let triggers: string[] | undefined;
+  let consumers: string[] | undefined;
 
   for (const line of yaml.split('\n')) {
     const kv = line.match(/^(\w+):\s*(.+)$/);
     if (!kv) continue;
     const [, key, val] = kv;
+    // Parse arrays: [a, b] or ["a", "b"]
+    if (val.startsWith('[') && val.endsWith(']')) {
+      const arr = val.slice(1, -1).split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
+      if (key === 'agentTypes') agentTypes = arr;
+      if (key === 'triggers') triggers = arr;
+      if (key === 'consumers') consumers = arr;
+      continue;
+    }
     const cleaned = val.replace(/^["']|["']$/g, '');
     if (key === 'name') name = cleaned;
     if (key === 'description') description = cleaned;
+    if (key === 'status') status = cleaned;
   }
 
-  return name ? { name, description } : null;
+  return name ? { name, description, agentTypes, status, triggers, consumers } : null;
 }
 
 /**
@@ -77,10 +99,18 @@ export function loadManifest(): SkillEntry[] {
         const meta = parseFrontmatter(content);
         if (!meta) continue;
 
+        // 生命周期过滤：status 缺省 = active；显式设置且非 published 才跳过
+        // （与 skill-loader loadSkillFromDisk 口径一致，_deprecated 等草稿不参与匹配）
+        if (meta.status && meta.status !== 'published') continue;
+
         entries.push({
           name: meta.name || dir.name,
           path: `${dir.name}/SKILL.md`,
           description: meta.description,
+          agentTypes: meta.agentTypes,
+          status: meta.status,
+          triggers: meta.triggers,
+          consumers: meta.consumers,
         });
       } catch (err) {
         logger.warn('[manifest-loader] Failed to read SKILL.md', { skill: dir.name, error: String(err) });
@@ -121,6 +151,18 @@ export function loadSkillContent(entry: SkillEntry): string | null {
     logger.error('[manifest-loader] Failed to read SKILL.md', { path: filePath, error: String(err) });
     return null;
   }
+}
+
+/**
+ * 读取 SKILL.md 正文（剥掉 frontmatter）——agentStep prompt 注入用。
+ * Returns null if file doesn't exist or body is empty.
+ */
+export function loadSkillBody(entry: SkillEntry): string | null {
+  const content = loadSkillContent(entry);
+  if (!content) return null;
+  const match = content.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/);
+  const body = (match ? match[1] : content).trim();
+  return body || null;
 }
 
 /**

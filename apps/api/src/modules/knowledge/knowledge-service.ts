@@ -660,8 +660,11 @@ export class KnowledgeService {
 
   // ═══════════ Consume (read knowledge) ════════════
 
-  async injectContext(agentType: string, _opts?: InjectOpts): Promise<InjectContextResult> {
+  async injectContext(agentType: string, opts?: InjectOpts): Promise<InjectContextResult> {
     const injectedIds: string[] = [];
+    // §10 依赖项：maxTokens 做实（此前 _opts 未生效，2K 红线只有度量无运行时截断）。
+    // 缺省回退 INJECT_TOKEN_BUDGET——skill 段优先占用预算时由调用方传入剩余额度。
+    const maxTokens = opts?.maxTokens ?? INJECT_TOKEN_BUDGET;
 
     // 1. rule — full content injection (constraints must be followed)
     // R3: isInjectableMaturity — proposal(draft)/archived/deprecated 不注入
@@ -706,7 +709,7 @@ export class KnowledgeService {
       for (const item of section.items) {
         const lineTokens = estimateTokens(item.line.length + 1);
         const cost = (keptLines.length === 0 ? headerTokens : 0) + lineTokens;
-        if (usedTokens + cost + guidanceTokens > INJECT_TOKEN_BUDGET) {
+        if (usedTokens + cost + guidanceTokens > maxTokens) {
           trimmedIds.push(item.id);
           continue;
         }
@@ -722,7 +725,7 @@ export class KnowledgeService {
     if (refCount > 0) {
       const hint = `[知识库: ${refCount} 条参考，遇到问题时用 search()]`;
       const hintTokens = estimateTokens(hint.length + 2);
-      if (usedTokens + hintTokens + guidanceTokens <= INJECT_TOKEN_BUDGET) {
+      if (usedTokens + hintTokens + guidanceTokens <= maxTokens) {
         sections.push(hint);
         usedTokens += hintTokens;
       }
@@ -743,7 +746,7 @@ export class KnowledgeService {
           source: 'inject-context',
           payload: JSON.stringify({
             agentType,
-            budgetTokens: INJECT_TOKEN_BUDGET,
+            budgetTokens: maxTokens,
             keptTokens: usedTokens,
             keptIds: injectedIds,
             trimmedIds,
@@ -752,8 +755,8 @@ export class KnowledgeService {
           createdAt: new Date().toISOString(),
         });
       } catch { /* non-blocking */ }
-      logger.info('[KnowledgeService] injectContext trimmed to 2K budget', {
-        agentType, keptTokens: usedTokens, trimmedCount: trimmedIds.length,
+      logger.info('[KnowledgeService] injectContext trimmed to token budget', {
+        agentType, budgetTokens: maxTokens, keptTokens: usedTokens, trimmedCount: trimmedIds.length,
       });
     }
 
@@ -1439,7 +1442,7 @@ function hasSourceReferences(entry: any): boolean {
 }
 
 /** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点） */
-const INJECT_TOKEN_BUDGET = 2_000;
+export const INJECT_TOKEN_BUDGET = 2_000;
 
 /**
  * ③（wireups）：注入优先级 = 成熟度权重 × 10000 + 引用计数。
