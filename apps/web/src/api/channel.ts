@@ -27,6 +27,7 @@ export interface AgentProfile {
   name: string;
   description: string | null;
   status: string;
+  provider?: string | null;
   isOnline?: boolean;
   lastError?: string | null;
 }
@@ -64,9 +65,13 @@ export const channelApi = {
       { content, replyToId }
     ),
 
-  listAgents: (channelId?: string) =>
+  listAgents: (channelId?: string, options?: { includeSystem?: boolean }) =>
     api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {
-      params: { status: 'active', ...(channelId ? { channelId } : {}) },
+      params: {
+        status: 'active',
+        ...(channelId ? { channelId } : {}),
+        ...(options?.includeSystem ? { includeSystem: 'true' } : {}),
+      },
     }),
 
   convertToTask: (channelId: string, messageId: string, data: {
@@ -92,4 +97,7 @@ export const channelApi = {
 
   createAgent: (data: { name: string; description?: string; channels?: string[]; provider?: string }) =>
     api.post<AgentProfile>('/agent-profiles', data),
+
+  updateAgent: (id: string, data: Partial<{ name: string; description: string | null; channels: string[]; provider: string | null; status: string }>) =>
+    api.patch<AgentProfile>(`/agent-profiles/${id}`, data),
 };

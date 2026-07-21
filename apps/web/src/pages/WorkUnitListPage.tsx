@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { DiscussionPanel } from '../components/DiscussionPanel';
+import { ReviewHint } from '../components/workunit/ReviewHint';
+import { channelApi, type AgentProfile } from '../api/channel';
 
 const statusLabels: Record<string, string> = {
   unassigned: '待分配',
@@ -191,6 +193,16 @@ function WorkUnitRow({
   const [expanded, setExpanded] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [channelMembers, setChannelMembers] = useState<AgentProfile[]>([]);
+  const navigate = useNavigate();
+
+  // AC-2.4: expanded 时获取频道成员，用于 ReviewHint 判断是否有 reviewer
+  useEffect(() => {
+    if (!expanded || !wu.channelId) return;
+    channelApi.listAgents(wu.channelId)
+      .then(res => setChannelMembers(res.data.data))
+      .catch(() => { /* best-effort */ });
+  }, [expanded, wu.channelId]);
 
   return (
     <div className="rounded-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
@@ -242,6 +254,12 @@ function WorkUnitRow({
 
       {expanded && (
         <div className="px-3 pb-3 text-sm" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+          {/* AC-2.4: in_review + 无 reviewer -> 提醒横幅 */}
+          <ReviewHint
+            status={wu.status}
+            channelMembers={channelMembers}
+            onSetupClick={() => navigate('/setup/roles')}
+          />
           <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
             <div><span className="u-text-2">ID:</span> <span className="u-text-3">{wu.id}</span></div>
             <div><span className="u-text-2">Type:</span> <span className="u-text-3">{wu.type}</span></div>
