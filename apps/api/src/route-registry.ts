@@ -63,6 +63,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // SkillHub routes (FL-025)
   const { default: skillsRoutes } = await import('./modules/skills/routes.js') as { default: Router };
 
+  // §10.6 skill 降级提案（须先于 /api/v1/skills 注册，否则被 skillsRoutes 的 GET /:id 吃掉）
+  const { default: skillDemotionRoutes } = await import('./modules/skills/skill-demotion-routes.js') as { default: Router };
+
   // Skill proposal routes
   const { default: skillProposalRoutes } = await import('./modules/skills/skill-proposal-routes.js') as { default: Router };
 
@@ -151,6 +154,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // AgentProfile routes (AS-025 Phase 2)
   const { default: agentProfileRoutes } = await import('./modules/agents/agent-profile.routes.js') as { default: Router };
 
+  // §10.5 角色级 token 视图（只读聚合，挂在 /api/v1/agents 下，须先于 legacy agentRoutes 注册）
+  const { default: tokenUsageRoutes } = await import('./modules/agents/token-usage.routes.js') as { default: Router };
+
   // RuntimeInstance routes (AS-026 AC-1)
   const { default: agentInstanceRoutes } = await import('./modules/agents/agent-instance.routes.js') as { default: Router };
 
@@ -173,6 +179,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/auth', router: authRoutes, comment: 'SEC-001: 认证系统' },
 
     // 核心业务
+    { path: '/api/v1/agents', router: tokenUsageRoutes, comment: '§10.5: 角色级 token 视图（仅 /:id/token-usage，先于 legacy 注册）' },
     { path: '/api/v1/agents', router: agentRoutes },
     { path: '/api/v1/executions', router: executionRoutes },
 
@@ -190,6 +197,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },
+    { path: '/api/v1/skills/demotion-proposals', router: skillDemotionRoutes, comment: '§10.6: skill 降级提案（先于 SkillHub 注册）' },
     { path: '/api/v1/skills', router: skillsRoutes, comment: 'FL-025: SkillHub' },
     { path: '/api/v1/skills/proposals', router: skillProposalRoutes },
 
