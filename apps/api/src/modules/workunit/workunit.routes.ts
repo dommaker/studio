@@ -33,6 +33,16 @@ const router = Router();
 const fileStore = new FileStore();
 const service = new WorkUnitService(fileStore);
 
+/**
+ * A2A §4.4: 调用方 authorType 识别（body.authorType 优先，其次 x-author-type header）。
+ * 与讨论空间发帖的 authorType 字段同约定；UI/人类调用不发送该字段 → 'human'。
+ */
+function resolveCallerAuthorType(req: Request): string {
+  const fromBody = typeof req.body?.authorType === 'string' ? req.body.authorType : undefined;
+  const fromHeader = req.headers['x-author-type'];
+  return fromBody ?? (typeof fromHeader === 'string' ? fromHeader : 'human');
+}
+
 /** GET / — list WorkUnits */
 router.get('/', async (req: Request, res: Response) => {
   try {
@@ -213,6 +223,14 @@ router.post('/:id/unclaim', async (req: Request, res: Response) => {
 /** POST /:id/review-passed — review approved (in_review → done) */
 router.post('/:id/review-passed', async (req: Request, res: Response) => {
   try {
+    // A2A §4.4-2 / §8-Q3: 验收权只在人 —— agent 身份调用一律 403。
+    // 身份约定：调用方在 body.authorType 或 x-author-type header 声明；
+    // UI/人类调用不发送该字段（或发送 'human'）。
+    if (resolveCallerAuthorType(req) === 'agent') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Review actions are human-only (authorType=agent rejected)' },
+      });
+    }
     const wu = await service.reviewPassed(req.params.id);
     res.json(wu);
   } catch (error) {
@@ -230,6 +248,12 @@ router.post('/:id/review-passed', async (req: Request, res: Response) => {
 /** POST /:id/review-rejected — review rejected (in_review → active, or blocked after 3) */
 router.post('/:id/review-rejected', async (req: Request, res: Response) => {
   try {
+    // A2A §4.4-2 / §8-Q3: 同 review-passed，agent 身份调用一律 403
+    if (resolveCallerAuthorType(req) === 'agent') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Review actions are human-only (authorType=agent rejected)' },
+      });
+    }
     const wu = await service.reviewRejected(req.params.id, req.body?.reason);
     res.json(wu);
   } catch (error) {

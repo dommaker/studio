@@ -8,12 +8,14 @@ import { randomUUID } from 'crypto';
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import * as os from 'os';
-import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
+import { LocalExecutor, type Executor } from './executor.js';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
+import { checkDelegation, effectiveParentCollab, resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT, type CollabMeta } from '../workunit/delegation-gate.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../triggers/trigger-registry.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
+import { loadManifest } from '../skills/manifest-loader.js';
 import { eventStore } from '../../core/event-store.js';
 import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 
@@ -27,6 +29,14 @@ const metricsFileStore = new FileStore();
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
 
+/**
+ * §10 P0: 注入总预算（skill 段 + 知识段共用的 2K 红线）。
+ * 必须与 knowledge-service 的 INJECT_TOKEN_BUDGET 保持一致——
+ * 不从 knowledge-service import：现有测试以 vi.mock 工厂替换整个 knowledge-service
+ * 模块（只暴露 knowledgeService），新增命名导入会在 mock 模块上访问不到而抛错。
+ */
+const INJECT_TOKEN_BUDGET = 2_000;
+
 /** Result of analyzing agent log for knowledge search behavior */
 export interface KnowledgeSearchAnalysis {
   searched: boolean;
@@ -35,8 +45,12 @@ export interface KnowledgeSearchAnalysis {
 
 /** Agent output action after parsing */
 export interface StepResult {
-  action: 'progress' | 'complete' | 'need_input';
+  action: 'progress' | 'complete' | 'need_input' | 'delegate';
   summary: string;
+  /** A2A §4.1: DELEGATE 协议解析结果（action='delegate' 时存在） */
+  delegate?: { targetName: string; scope: string };
+  /** §4.2 发言层新鲜度检查：step 开始时捕获的频道版本（agentStep 写入，recordResult 比对） */
+  channelVersion?: { lineCount: number; lastMessageId: string | null };
   /** Metadata fields to merge into WorkUnit.metadata (set by agentStep, written atomically by recordResult) */
   metadataUpdates?: Partial<WorkUnitMetadata>;
 }
@@ -77,6 +91,7 @@ export class AgentLoop {
   private triggerId: string | null = null;
   private loopPromise: Promise<void> | null = null;
   private lastIdleHeartbeatAt = 0;
+  private executor: Executor;
 
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
@@ -85,6 +100,9 @@ export class AgentLoop {
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
     // W-4 fix + F3: parse channels from role.channels JSON（容错历史双重编码值）
     this.myChannels = parseChannels(role.channels);
+    // §9.6: 执行面走 Executor 接口。TODO(§9.6 P1): profile.nodeId === 'local' →
+    // LocalExecutor，否则 RemoteExecutor(nodeId)；profile 尚无 nodeId 字段，目前恒为 LocalExecutor。
+    this.executor = new LocalExecutor();
   }
 
   /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle.
@@ -306,6 +324,21 @@ export class AgentLoop {
     }
   }
 
+  /**
+   * §9.5: 加载全部频道的 members（channelId → member profile ids）。
+   * 每次 observe 调用一次；读取失败按空表处理（全量走 profile.channels 回退，不致停摆）。
+   */
+  private async loadChannelMembers(): Promise<Map<string, string[]>> {
+    const map = new Map<string, string[]>();
+    try {
+      const channels = await this.fileStore.listChannels();
+      for (const ch of channels) {
+        map.set(ch.id, parseChannels(ch.members));
+      }
+    } catch { /* non-blocking — 回退到 profile.channels 口径 */ }
+    return map;
+  }
+
   /** Observe: collect state from DB (zero token) */
   private async observe(): Promise<Observations> {
     // W-6 fix: batch query for newReplies instead of N+1
@@ -314,15 +347,25 @@ export class AgentLoop {
     })).data.filter(wu => wu.status === 'active' || wu.status === 'blocked');
 
     const allSnapshots = await this.fileStore.getIndex();
+    // §9.5: channel.members 为成员关系唯一事实源 — observe 每轮加载一次频道配置
+    // （FileStore 规模小，成本可忽略）。
+    const channelMembers = await this.loadChannelMembers();
     const unassigned = allSnapshots.filter(s => {
       if (s.status !== 'unassigned') return false;
       // Assignee-aware claiming（@mention 语义，docs/vision-2026.md §3）：
       // 显式指派给某个 profile 的 WorkUnit 只能被该 profile 的 loop 认领；
-      // 未指派的保持既有频道作用域（我的频道内 + acceptedTypes 匹配）。
+      // 未指派的保持频道作用域（§9.5: 频道 members 含本 profile + acceptedTypes 匹配）。
       if (s.assigneeId) {
         if (s.assigneeId !== this.role.id) return false;
-      } else if (this.myChannels.length > 0 && s.channelId && !this.myChannels.includes(s.channelId)) {
-        return false;
+      } else if (s.channelId) {
+        const members = channelMembers.get(s.channelId);
+        if (members && members.length > 0) {
+          // members 非空 → 唯一事实源：仅频道成员可见
+          if (!members.includes(this.role.id)) return false;
+        } else if (this.myChannels.length > 0 && !this.myChannels.includes(s.channelId)) {
+          // 过渡期回退：频道无 members（历史数据未回填）时沿用旧 profile.channels 口径
+          return false;
+        }
       }
       if (this.acceptedTypes.length > 0 && !this.acceptedTypes.includes(s.type)) return false;
       return true;
@@ -357,31 +400,81 @@ export class AgentLoop {
     const wu = target.workUnit;
     const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
 
+    // §4.2 发言层新鲜度检查：step 开始记录频道版本（recordResult 回帖前比对）。
+    // 读取失败按 undefined 处理 —— 跳过检查直接发帖，绝不阻断执行。
+    const channelVersion = wu.channelId
+      ? await this.fileStore.getChannelVersion(wu.channelId).catch(() => undefined)
+      : undefined;
+
     // F5: 恢复挂起时由 message-routing 写入的人类回复（优先级最高，注入后即消费）
     const pendingReplies = Array.isArray(metadata.pendingReplies)
       ? metadata.pendingReplies.filter((r): r is string => typeof r === 'string' && r.trim().length > 0)
       : [];
 
-    const prompt = pendingReplies.length > 0
+    // §10.5 提交守卫：上一轮 COMPLETE 被打回时 recordResult 写入的提示（注入后即消费）
+    const commitGuardHint = typeof metadata.commitGuardHint === 'string' && metadata.commitGuardHint.length > 0
+      ? metadata.commitGuardHint
+      : null;
+
+    // §6-2 父 complete 守卫：上一轮 COMPLETE 因子任务未完结被打回时的提示（注入后即消费）
+    const childGuardHint = typeof metadata.childGuardHint === 'string' && metadata.childGuardHint.length > 0
+      ? metadata.childGuardHint
+      : null;
+
+    const basePrompt = pendingReplies.length > 0
       ? buildReplyPrompt(wu, pendingReplies)
       : target.newReplies?.length
         ? buildReplyPrompt(wu, target.newReplies.map(r => r.content))
         : buildContinuePrompt(wu);
+    let prompt = basePrompt;
+    if (commitGuardHint) prompt = `${prompt}\n\n## 提交提醒\n\n${commitGuardHint}`;
+    if (childGuardHint) prompt = `${prompt}\n\n## 子任务提醒\n\n${childGuardHint}`;
 
     // GAP-5: Knowledge injection — non-blocking
     // R1 反馈环: 接住 injectContext 返回的 injectedIds，贯穿到 recordOutcome /
     // extractFromExecution 的 consumedKnowledge（断点 A：此前注入 id 被丢弃，
     // outcome 永远上报 consumedKnowledge: []，飞轮无反馈数据）。
+    // §10 P0: skill 索引段（## 本次任务 Skills）先于知识段注入，共用 2K 红线——
+    // skill 先占预算，剩余额度传给 injectContext（skill 是本次任务的主动指令）。
+    // A2A §4.1 机制 2: 成员花名册段（## 频道成员与委派）在 skill 之后、知识之前，
+    // 共用 2K 红线（优先级：skills index > roster > knowledge）。
+    let skillSection = '';
+    let skillTokens = 0;
+    try {
+      const composed = await this.buildSkillSection(wu, metadata);
+      skillSection = composed.section;
+      skillTokens = composed.tokens;
+    } catch {
+      // Non-blocking: agent continues without skill section
+    }
+
+    let rosterSection = '';
+    let rosterTokens = 0;
+    try {
+      const roster = await this.buildRosterSection(wu, Math.max(0, INJECT_TOKEN_BUDGET - skillTokens));
+      rosterSection = roster.section;
+      rosterTokens = roster.tokens;
+    } catch {
+      // Non-blocking: agent continues without roster section
+    }
+
     let knowledgeContext = '';
     let injectedKnowledgeIds: string[] = [];
     try {
       const ctx = await knowledgeService.injectContext(wu.type, {
         tags: [wu.type],
+        maxTokens: Math.max(0, INJECT_TOKEN_BUDGET - skillTokens - rosterTokens),
       });
       knowledgeContext = ctx.prompt;
       injectedKnowledgeIds = ctx.injectedIds ?? [];
     } catch {
       // Non-blocking: agent continues without knowledge context
+    }
+    const leadSections = [skillSection, rosterSection].filter(s => s.length > 0).join('\n\n');
+    if (leadSections) {
+      knowledgeContext = knowledgeContext
+        ? `${leadSections}\n\n## 项目上下文\n${knowledgeContext}`
+        : leadSections;
     }
 
     // Session management — per-Agent session (GAP-2: RuntimeInstance.sessionId)
@@ -389,6 +482,14 @@ export class AgentLoop {
     if (pendingReplies.length > 0) {
       // F5: 回复已注入 prompt，清除避免后续步骤重复注入（undefined 在 JSON 序列化时丢弃）
       metadataUpdates.pendingReplies = undefined;
+    }
+    if (commitGuardHint) {
+      // §10.5: 提示已注入 prompt，清除避免后续步骤重复注入
+      metadataUpdates.commitGuardHint = undefined;
+    }
+    if (childGuardHint) {
+      // §6-2: 提示已注入 prompt，清除避免后续步骤重复注入
+      metadataUpdates.childGuardHint = undefined;
     }
     const agentSessionId = this.instance?.sessionId;
     if (!agentSessionId) {
@@ -435,7 +536,8 @@ export class AgentLoop {
     };
 
     try {
-      const result: ExecutionResult = await agentRunner.executeLightweight(task);
+      // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
+      const result: ExecutionResult = await this.executor.execute(task);
       const stepResult = parseAgentOutput(result.outputText ?? '');
 
       // M2 成本红线度量: 每次 CLI 执行完成记一条 workunit:tokens 事件
@@ -499,7 +601,7 @@ export class AgentLoop {
         metadataUpdates.lastInputTokens = tokens;
       }
 
-      return { ...stepResult, metadataUpdates };
+      return { ...stepResult, metadataUpdates, channelVersion };
     } catch (err) {
       // W-3 fix: executeLightweight failure returns error result instead of throwing
       // This allows recordResult to update metadata and monitoring to handle it (consecutiveStuck → blocked)
@@ -511,6 +613,87 @@ export class AgentLoop {
         metadataUpdates,
       };
     }
+  }
+
+  /**
+   * §10 P0: 组装 `## 本次任务 Skills` 段（claim 时域匹配命中的 skill 索引）。
+   * index-on-demand：只放 name + 一句话 description + 全文指针
+   * （`.studio/skills/<name>/SKILL.md` 由 worktree-resolver 落盘，agent 按需阅读），不注入正文。
+   * 内存快照缺 matchedSkills 时回读一次 FileStore（claim 的匹配落盘是 fire-and-forget）。
+   * 预算：skill 段单独超过 2K 红线时按 chars/4 口径截断（知识段额度随之归零）。
+   */
+  private async buildSkillSection(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<{ section: string; tokens: number }> {
+    const asNames = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && s.length > 0) : [];
+
+    let matchedSkills = asNames(metadata.matchedSkills);
+    if (matchedSkills.length === 0) {
+      try {
+        const snapshots = await this.fileStore.getIndex();
+        const fresh = snapshots.find(s => s.id === wu.id);
+        const freshMeta: WorkUnitMetadata = fresh?.metadata ? JSON.parse(fresh.metadata) : {};
+        matchedSkills = asNames(freshMeta.matchedSkills);
+      } catch { /* non-blocking — 回读失败按无 skill 处理 */ }
+    }
+    if (matchedSkills.length === 0) return { section: '', tokens: 0 };
+
+    const manifest = loadManifest();
+    const blocks: string[] = [];
+    for (const name of matchedSkills) {
+      const entry = manifest.find(e => e.name === name);
+      if (!entry) continue;
+      blocks.push(`### ${name}\n${entry.description || '（无描述）'}\n全文：.studio/skills/${name}/SKILL.md（按需阅读）`);
+    }
+    if (blocks.length === 0) return { section: '', tokens: 0 };
+
+    let section = `## 本次任务 Skills\n\n${blocks.join('\n\n')}`;
+    let tokens = estimateTokens(section.length);
+    if (tokens > INJECT_TOKEN_BUDGET) {
+      section = section.slice(0, INJECT_TOKEN_BUDGET * 4);
+      tokens = INJECT_TOKEN_BUDGET;
+    }
+    return { section, tokens };
+  }
+
+  /**
+   * A2A §4.1 机制 2: 组装 `## 频道成员与委派` 段（成员花名册 + DELEGATE 协议教学）。
+   * 花名册 = 本频道 active 成员的 name + description + provider（排除自己——委派质量取决于
+   * 模型对角色能力的理解，没有花名册的 DELEGATE 是盲派）；members 为空（历史频道未回填）
+   * 时回退到全部 active profile，与 DelegationGate 的过渡期口径一致。
+   * 预算：与 skill/知识段共用 2K 红线，优先级 skills index > roster > knowledge——
+   * 调用方传入 skill 之后的剩余额度，超出按 chars/4 口径截断。
+   */
+  private async buildRosterSection(wu: WorkUnitData, tokenBudget: number): Promise<{ section: string; tokens: number }> {
+    if (!wu.channelId || tokenBudget <= 0) return { section: '', tokens: 0 };
+
+    const channel = await this.fileStore.getChannel(wu.channelId);
+    const memberIds = parseChannels(channel?.members);
+    let members: AgentProfileData[];
+    if (memberIds.length > 0) {
+      const resolved = await Promise.all(memberIds.map(id => this.fileStore.getProfile(id).catch(() => null)));
+      members = resolved.filter((p): p is AgentProfileData => !!p && p.status === 'active');
+    } else {
+      members = await this.fileStore.listProfiles({ status: 'active' });
+    }
+    members = members.filter(p => p.id !== this.role.id);
+    if (members.length === 0) return { section: '', tokens: 0 };
+
+    const rosterLines = members.map(p =>
+      `- ${p.name}（provider: ${p.provider ?? 'claude'}）：${p.description || '（无描述）'}`
+    );
+    let section = `## 频道成员与委派
+
+本频道可协作成员：
+${rosterLines.join('\n')}
+
+如需把一部分工作交给更合适的成员，输出一行：ACTION: DELEGATE:@<成员名>:<子任务 scope>（scope 为该行剩余内容）。仅可委派给上述成员，不可委派给自己；委派深度上限 ${resolveMaxDepth()} 跳（根任务 depth=0），同一任务最多委派 ${MAX_DELEGATIONS_PER_PARENT} 次，不可对同一成员重复委派。系统校验通过后会创建子任务并在频道发卡片，你继续按 PROGRESS 推进自己的部分；校验不通过则转为 NEED_INPUT 请人裁决。`;
+
+    let tokens = estimateTokens(section.length);
+    if (tokens > tokenBudget) {
+      section = section.slice(0, tokenBudget * 4);
+      tokens = tokenBudget;
+    }
+    return { section, tokens };
   }
 
   /**
@@ -526,6 +709,28 @@ export class AgentLoop {
       return root;
     } catch (err) {
       logger.warn(`[AgentLoop] Workspace resolution failed for ${workspaceId}: ${err instanceof Error ? err.message : String(err)}`);
+      return null;
+    }
+  }
+
+  /**
+   * §10.5 提交守卫：worktree 是否有未提交改动。
+   * git 调用失败返回 false —— 守卫静默跳过，绝不因基础设施故障阻断完成。
+   */
+  private hasUncommittedChanges(cwd: string): boolean {
+    try {
+      const out = execSync('git status --porcelain', { cwd, timeout: 5000, encoding: 'utf-8' });
+      return out.trim().length > 0;
+    } catch {
+      return false;
+    }
+  }
+
+  /** §10.5: 读取 worktree 当前 HEAD hash（失败返回 null —— 无提交监视静默跳过） */
+  private readHeadHash(cwd: string): string | null {
+    try {
+      return execSync('git rev-parse HEAD', { cwd, timeout: 5000, encoding: 'utf-8' }).trim() || null;
+    } catch {
       return null;
     }
   }
@@ -593,11 +798,129 @@ export class AgentLoop {
     if (!wu) return;
 
     const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+
+    // §10.5 提交守卫（发生在状态迁移之前，与 stepCount 守卫同层 —— 不动 VALID_TRANSITIONS）。
+    // 路径解析或 git 调用失败一律静默跳过，绝不因基础设施故障阻断完成。
+    let action = result.action;
+    const guardUpdates: Partial<WorkUnitMetadata> = {};
+    let noCommitNotice = false;
+    const workspaceRoot = wu.workspaceId ? await this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
+    if (workspaceRoot) {
+      if (action === 'complete' && this.hasUncommittedChanges(workspaceRoot)) {
+        // COMPLETE 守卫：有未提交改动 → 打回按 PROGRESS 处理，提示注入下一轮 prompt
+        action = 'progress';
+        guardUpdates.commitGuardHint = '有未提交改动，请先 git add/commit 再报告完成';
+        logger.info(`[AgentLoop] Commit guard: COMPLETE downgraded for ${wuId} (uncommitted changes)`);
+      }
+      if (action === 'progress') {
+        // PROGRESS 无提交监视：HEAD 不变 → 累计；连续 3 步发一次频道提醒并归零
+        const head = this.readHeadHash(workspaceRoot);
+        if (head) {
+          if (metadata.lastCommitHash === head) {
+            const next = (metadata.noCommitSteps ?? 0) + 1;
+            if (next >= 3) {
+              noCommitNotice = true;
+              guardUpdates.noCommitSteps = 0;
+            } else {
+              guardUpdates.noCommitSteps = next;
+            }
+          } else {
+            guardUpdates.lastCommitHash = head;
+            guardUpdates.noCommitSteps = 0;
+          }
+        }
+      }
+    }
+
+    // §6-2 父 complete 守卫（与提交守卫同层，同一降级为 progress 的模式）：
+    // 存在未完结（unassigned/active/blocked/in_review）子 WU 时不允许 complete ——
+    // 父一旦抢先 in_review，聚合的状态序防回退会让「子后完成」无法改写父状态（收口顺序：父必须等子）。
+    if (action === 'complete') {
+      const unfinishedChildren = await this.listUnfinishedChildren(wuId);
+      if (unfinishedChildren.length > 0) {
+        action = 'progress';
+        guardUpdates.childGuardHint = `存在未完结子任务（${unfinishedChildren.join(', ')}），等待其全部完成后再报告 COMPLETE`;
+        logger.info(`[AgentLoop] Child guard: COMPLETE downgraded for ${wuId} (unfinished children: ${unfinishedChildren.length})`);
+      }
+    }
+
+    // A2A §4.1: DELEGATE 分支 —— DelegationGate 纯代码校验（零 LLM）。
+    // 通过：建子单 + collab 元数据 + delegate 卡片（父 WU 状态不变，按 progress 继续）；
+    // 拒绝：降级 NEED_INPUT（现有 blocked 路径），频道发「拟委派…需人工确认」请人裁决。
+    if (action === 'delegate' && result.delegate) {
+      const gate = await checkDelegation({
+        fileStore: this.fileStore,
+        parent: wu,
+        delegator: this.role,
+        targetName: result.delegate.targetName,
+      });
+      if (gate.pass && gate.target) {
+        const parentCollab = effectiveParentCollab(wu, this.role.id);
+        const childCollab: CollabMeta = {
+          rootId: parentCollab.rootId,
+          depth: parentCollab.depth + 1,
+          chain: [...parentCollab.chain, gate.target.id],
+          delegatedBy: { profileId: this.role.id, workUnitId: wuId },
+          delegationCount: 0,
+        };
+        await this.workUnitService.create({
+          scope: result.delegate.scope,
+          type: wu.type,
+          parentId: wuId,
+          assigneeId: gate.target.id, // unassigned 语义 = 目标 profile id（同 @mention 点名，§1.2-b）
+          channelId: wu.channelId,
+          projectPath: wu.projectPath,
+          workspaceId: wu.workspaceId ?? null,
+          reqId: wu.reqId ?? null,
+          status: 'unassigned',
+          metadata: { creationMode: 'agent-delegate', collab: childCollab },
+        });
+        // 父 WU 补记/累加 collab（根 WU 首次委派时从无 collab 合并为 depth=0 的根记录）
+        guardUpdates.collab = { ...parentCollab, delegationCount: (parentCollab.delegationCount ?? 0) + 1 };
+        action = 'progress';
+        // delegate 卡片即本步的 progress 消息（走下方统一回帖路径，含新鲜度检查）
+        result.summary = `@${this.role.name} 委派 @${gate.target.name}：${result.delegate.scope}（深度 ${childCollab.depth}/${resolveMaxDepth()}）`;
+        logger.info(`[AgentLoop] Delegation created: ${wuId} → @${gate.target.name} (depth ${childCollab.depth})`);
+      } else {
+        action = 'need_input';
+        result.summary = `拟委派 @${result.delegate.targetName}：${result.delegate.scope}，因 ${gate.reason ?? '未知原因'} 需人工确认`;
+        logger.info(`[AgentLoop] Delegation rejected for ${wuId}: ${gate.reason}`);
+      }
+    }
+
+    // §4.2 发言层新鲜度检查（仅 recordResult → postToDiscussionSpace 结果回帖路径，系统通知不受影响）：
+    // step 期间房间有外部新消息 → 不直接发帖，新消息写入 pendingReplies 注入下一轮 prompt，
+    // 本步按 progress 处理；同一结果连续 2 次被拦截仍判定要发 → 照发并注明「发送时房间有新消息」。
+    let skipResultPost = false;
+    const freshnessUpdates: Partial<WorkUnitMetadata> = {};
+    if (result.channelVersion && wu.channelId) {
+      const arrived = await this.fileStore.getMessagesSinceLine(wu.channelId, result.channelVersion.lineCount);
+      // 本 loop 自己发的消息（如 delegate 卡片）不算「房间已变」
+      const external = arrived.filter(m => !(m.authorType === 'agent' && m.agentName === this.role.name));
+      const interrupts = metadata.freshnessInterrupts ?? 0;
+      if (external.length > 0 && interrupts < 2) {
+        skipResultPost = true;
+        action = 'progress';
+        freshnessUpdates.pendingReplies = external.map(m =>
+          m.authorType === 'agent' ? `[${m.agentName ?? 'agent'}]: ${m.content}` : m.content
+        );
+        freshnessUpdates.freshnessInterrupts = interrupts + 1;
+        logger.info(`[AgentLoop] Freshness: result post held for ${wuId} (${external.length} new message(s), interrupt ${interrupts + 1}/2)`);
+      } else {
+        if (external.length > 0) {
+          result.summary = `${result.summary}（发送时房间有新消息）`;
+        }
+        if (interrupts > 0) {
+          freshnessUpdates.freshnessInterrupts = 0;
+        }
+      }
+    }
+
     const stepCount = (metadata.stepCount ?? 0) + 1;
-    let consecutiveStuck = result.action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
+    let consecutiveStuck = action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
 
     // F5: NEED_INPUT 挂起标记（等待人类回复）；其他结果清除挂起标记（恢复后继续执行）
-    const waitingUpdates: Partial<WorkUnitMetadata> = result.action === 'need_input'
+    const waitingUpdates: Partial<WorkUnitMetadata> = action === 'need_input'
       ? {
           waitingForInput: true,
           waitingQuestion: result.summary,
@@ -611,8 +934,13 @@ export class AgentLoop {
     // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
     // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
     await this.workUnitService.update(wuId, {
-      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, stepCount, consecutiveStuck },
+      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, stepCount, consecutiveStuck },
     });
+
+    // §10.5: 连续 3 步无新提交 → 频道提醒一次（计数已归零，之后每 3 步再提醒）
+    if (noCommitNotice) {
+      await this.postToDiscussionSpace(wuId, `任务 ${wuId} 连续 3 步无新提交，请注意及时 commit`);
+    }
 
     // Monitoring: step limit
     if (stepCount > 15) {
@@ -631,16 +959,16 @@ export class AgentLoop {
       return;
     }
 
-    // State transitions by action
-    switch (result.action) {
+    // State transitions by action (§10.5: 使用守卫降级后的 action；§4.2: 新鲜度拦截时不发帖)
+    switch (action) {
       case 'progress':
-        await this.postToDiscussionSpace(wuId, result.summary);
+        if (!skipResultPost) await this.postToDiscussionSpace(wuId, result.summary);
         if (wu.status === 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'active');
         }
         break;
       case 'complete':
-        await this.postToDiscussionSpace(wuId, result.summary);
+        if (!skipResultPost) await this.postToDiscussionSpace(wuId, result.summary);
         // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
         if (wu.status === 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'active');
@@ -648,13 +976,21 @@ export class AgentLoop {
         await this.workUnitService.transitionStatus(wuId, 'in_review');
         break;
       case 'need_input':
-        await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`);
+        if (!skipResultPost) await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`);
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
         if (wu.status !== 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'blocked');
         }
         break;
     }
+  }
+
+  /** §6-2 父 complete 守卫：未完结（unassigned/active/blocked/in_review）子 WU 的 id 列表 */
+  private async listUnfinishedChildren(wuId: string): Promise<string[]> {
+    const snapshots = await this.fileStore.getIndex();
+    return snapshots
+      .filter(s => s.parentId === wuId && !['done', 'closed'].includes(s.status))
+      .map(s => s.id);
   }
 
   /** Post message directly to discussion space (no EventBus) */
@@ -751,6 +1087,13 @@ export function resolveTarget(obs: Observations): Target | null {
 export function parseAgentOutput(text: string): StepResult {
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
+    // A2A §4.1: ACTION: DELEGATE:@<profileName>:<scope>（scope = 该行剩余内容，必填）。
+    // 解析失败（@名字缺失、scope 为空、格式不对）落到下方默认 progress，与现有容错一致。
+    const delegateMatch = lines[i].match(/ACTION:\s*DELEGATE:@([\w-]+):(\s*\S.*)$/);
+    if (delegateMatch) {
+      const scope = delegateMatch[2].trim();
+      return { action: 'delegate', summary: scope, delegate: { targetName: delegateMatch[1], scope } };
+    }
     const match = lines[i].match(/ACTION:\s*(PROGRESS|COMPLETE|NEED_INPUT):(.*)/);
     if (match) {
       const actionMap: Record<string, StepResult['action']> = {
@@ -768,6 +1111,7 @@ export function parseAgentOutput(text: string): StepResult {
 export function dynamicInterval(result: { action: string }): number {
   switch (result.action) {
     case 'progress':   return 3_000;
+    case 'delegate':   return 3_000; // A2A: 委派后父按 progress 继续
     case 'complete':   return 10_000;
     case 'need_input': return 30_000;
     default:           return 15_000;
