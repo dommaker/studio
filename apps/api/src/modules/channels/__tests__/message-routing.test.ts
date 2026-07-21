@@ -403,4 +403,55 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(detectMention('@my_agent do this')).toBe('my_agent');
     });
   });
+
+  // ── §9.5: mention 匹配以 channel.members 为界 ──
+
+  describe('§9.5: mention matching scoped to channel members', () => {
+    function activeProfile(id: string, name: string): AgentProfileData {
+      return {
+        id, name, description: `test agent ${name}`,
+        channels: '[]', status: 'active', provider: null,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+      };
+    }
+
+    it('matches when the named profile IS a channel member', async () => {
+      const agent = activeProfile('member-agent-1', 'MemberAgent');
+      await fileStore.createProfile(agent);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([agent.id]) });
+
+      const result = await routeMessage(channelId, '@MemberAgent do this', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBe(agent.id);
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(true);
+    });
+
+    it('treats active but NON-member profile as no-match (assigneeId null, WorkUnit still created)', async () => {
+      const outsider = activeProfile('outsider-agent-1', 'OutsiderAgent');
+      await fileStore.createProfile(outsider);
+      // 频道有 members，但不含 OutsiderAgent
+      await fileStore.updateChannel(channelId, { members: JSON.stringify(['some-other-profile']) });
+
+      const result = await routeMessage(channelId, '@OutsiderAgent do this', undefined, fileStore);
+
+      expect(result.workUnitId).toBeTruthy(); // WorkUnit 创建行为不变
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBeNull();
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(false);
+    });
+
+    it('falls back to matching any active profile when channel members is empty', async () => {
+      const agent = activeProfile('legacy-agent-1', 'LegacyAgent');
+      await fileStore.createProfile(agent);
+      await fileStore.updateChannel(channelId, { members: '[]' }); // 历史频道：members 未回填
+
+      const result = await routeMessage(channelId, '@LegacyAgent do this', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBe(agent.id);
+    });
+  });
 });

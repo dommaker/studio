@@ -6,7 +6,7 @@
  * 2. @mention detected → create WorkUnit
  * 3. plain text → store only
  */
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
@@ -22,6 +22,18 @@ const workUnitService = new WorkUnitService();
 export function detectMention(content: string): string | null {
   const match = content.match(/@([\w-]+)/);
   return match ? match[1] : null;
+}
+
+/**
+ * §10.3 显式覆盖：解析消息中的 `+skill名` token（全部出现，按序去重）。
+ * token 保留在原文中不改写；创建 WorkUnit 时写入 metadata.skillHints。
+ */
+export function parseSkillHints(content: string): string[] {
+  const hints: string[] = [];
+  for (const match of content.matchAll(/\+([\w-]+)/g)) {
+    if (!hints.includes(match[1])) hints.push(match[1]);
+  }
+  return hints;
 }
 
 /**
@@ -78,10 +90,16 @@ export async function routeMessage(
   const mentionName = detectMention(content);
   if (mentionName) {
     const allProfiles = await resolvedFs.listProfiles({ status: 'active' });
-    const agent = allProfiles.find(p => p.name === mentionName) ?? null;
-    const scope = content.replace(/@[\w-]+\s*/, '');
     // F6: 显式 workspaceId 优先，其次频道默认工程
     const channel = await resolvedFs.getChannel(channelId);
+    // §9.5: mention 匹配以 channel.members 为界 — 只能 @ 到本频道成员（修越界 bug）。
+    // members 为空（历史频道未回填）时回退到全量 active profile 匹配，保持既有行为。
+    const memberIds = parseChannels(channel?.members);
+    const agent = allProfiles.find(p =>
+      p.name === mentionName && (memberIds.length === 0 || memberIds.includes(p.id))
+    ) ?? null;
+    const scope = content.replace(/@[\w-]+\s*/, '');
+    const skillHints = parseSkillHints(content);
     const workspaceId = options?.workspaceId ?? channel?.defaultWorkspaceId ?? null;
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
     // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
@@ -107,6 +125,8 @@ export async function routeMessage(
         mentionName,
         matched: !!agent,
         creationMode: 'mention',
+        // §10.3: +skill名 显式指定（token 保留在原文中，仅解析进 metadata）
+        ...(skillHints.length > 0 ? { skillHints } : {}),
       },
     });
     logger.info('[MessageRouting] WorkUnit created from @mention', {
