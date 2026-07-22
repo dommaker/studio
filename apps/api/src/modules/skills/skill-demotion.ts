@@ -354,7 +354,16 @@ export async function approveDemotion(id: string, opts?: ReviewOptions): Promise
   const p = store.get(id);
   if (!p || p.status !== 'pending') return false;
 
-  setSkillFrontmatterStatus(p.skillName, p.suggestedStatus, opts?.skillsDir);
+  const dir = opts?.skillsDir ?? SKILLS_DIR;
+  // 1. 写 frontmatter status=archived（原路径）
+  setSkillFrontmatterStatus(p.skillName, p.suggestedStatus, dir);
+  // 2. 移动 skill 目录到 _deprecated/<skillName>/（listSkillsOnDisk 跳过 _ 前缀）
+  const srcDir = path.join(dir, p.skillName);
+  const destDir = path.join(dir, '_deprecated', p.skillName);
+  fs.mkdirSync(path.dirname(destDir), { recursive: true });
+  fs.renameSync(srcDir, destDir);
+  logger.info('[SkillDemotion] Skill directory moved to _deprecated', { skillName: p.skillName, from: srcDir, to: destDir });
+  // 3. 标记提案已审
   store.update(id, { status: 'approved' });
   return true;
 }

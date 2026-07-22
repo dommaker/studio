@@ -195,6 +195,13 @@ async function start() {
       // F1: profile 生命周期事件（create/activate/deactivate/delete）→ 动态挂载/卸载
       agentLoopRegistry.subscribeToEvents();
 
+      // AC-4.1: ReviewDispatcher subscribes to workunit.status_changed
+      try {
+        const { getReviewDispatcher } = await import('./modules/agents/review-dispatcher.js');
+        getReviewDispatcher().subscribeToEvents();
+        logger.info('[ReviewDispatcher] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[ReviewDispatcher] Failed to subscribe', { error: String(e) }); }
+
       for (const profile of profiles) {
         const entry = await agentLoopRegistry.mount(profile);
         if (entry.status === 'running') {

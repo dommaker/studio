@@ -25,6 +25,7 @@
 import { Router, type Request, type Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService } from './workunit.service.js';
+import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
@@ -155,6 +156,26 @@ router.put('/:id', async (req: Request, res: Response) => {
     }
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: msg },
+    });
+  }
+});
+
+/** GET /:id/tree-tokens - 树级 token 开销聚合（AC-5.4, §8.4.4） */
+router.get('/:id/tree-tokens', async (req: Request, res: Response) => {
+  try {
+    const wu = await service.getById(req.params.id);
+    if (!wu) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `WorkUnit ${req.params.id} not found` },
+      });
+    }
+    const meta = wu.metadata ? JSON.parse(wu.metadata) as { collab?: { rootId?: string } } : {};
+    const rootId = meta.collab?.rootId ?? wu.id;
+    const report = await aggregateTreeTokens(rootId, fileStore);
+    res.json(report);
+  } catch (error) {
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) },
     });
   }
 });

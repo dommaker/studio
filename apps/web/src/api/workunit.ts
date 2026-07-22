@@ -126,4 +126,23 @@ export const workunitApi = {
       '/events',
       { params: { type: 'workunit:tokens', limit } },
     ),
+
+  /** AC-5.4: 树级 token 开销聚合 */
+  getTreeTokens: (id: string) =>
+    api.get<TreeTokenReport>(`/workunits/${id}/tree-tokens`),
 };
+
+/** AC-5.4: 树级 token 开销报告（GET /workunits/:id/tree-tokens 响应体） */
+export interface TreeTokenReport {
+  rootId: string;
+  nodes: Array<{
+    workUnitId: string;
+    profileName: string | null;
+    status: string;
+    injectedTokens: number | null;
+    executionTokens: number | null;
+    totalTokens: number | null;
+  }>;
+  rootTotal: number;
+  budgetRemaining: number;
+}

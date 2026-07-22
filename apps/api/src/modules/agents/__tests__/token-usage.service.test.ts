@@ -14,7 +14,8 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 
-import { getAgentTokenUsage, invalidateTokenUsageCache } from '../token-usage.service.js';
+import { getAgentTokenUsage, invalidateTokenUsageCache, aggregateTreeTokens } from '../token-usage.service.js';
+import { TREE_TOKEN_BUDGET } from '../../workunit/delegation-gate.js';
 
 let tmpDir: string;
 let eventsFile: string;
@@ -197,5 +198,59 @@ describe('§10.5 getAgentTokenUsage', () => {
     const usage = await getAgentTokenUsage(PROFILE_A, { eventsFile, fileStore, now });
     expect(usage.totals.totalTokens).toBe(10);
     expect(usage.workUnitCount).toBe(1);
+  });
+});
+
+describe('§8.4.3 aggregateTreeTokens', () => {
+  it('单节点树：root 有 token 事件 -> 正确聚合', async () => {
+    writeState(INSTANCE_1, PROFILE_A);
+    await fileStore.createProfile({ id: PROFILE_A, name: 'AgentA', description: null, channels: '[]', provider: 'claude', status: 'active', createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' });
+    writeIndex([makeWu('wu-root', INSTANCE_1)]);
+    writeEvents([
+      tokenEvent('wu-root', { injected: 500, execution: 1500 }, new Date().toISOString()),
+    ]);
+
+    const report = await aggregateTreeTokens('wu-root', fileStore, { eventsFile });
+    expect(report.rootId).toBe('wu-root');
+    expect(report.nodes).toHaveLength(1);
+    expect(report.nodes[0]).toMatchObject({
+      workUnitId: 'wu-root',
+      profileName: 'AgentA',
+      injectedTokens: 500,
+      executionTokens: 1500,
+      totalTokens: 2000,
+    });
+    expect(report.rootTotal).toBe(1500);
+    expect(report.budgetRemaining).toBe(TREE_TOKEN_BUDGET - 1500);
+  });
+
+  it('多节点树：root + 子孙 WU 聚合', async () => {
+    writeState(INSTANCE_1, PROFILE_A);
+    writeState(INSTANCE_2, PROFILE_B);
+    await fileStore.createProfile({ id: PROFILE_A, name: 'AgentA', description: null, channels: '[]', provider: 'claude', status: 'active', createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' });
+    await fileStore.createProfile({ id: PROFILE_B, name: 'AgentB', description: null, channels: '[]', provider: 'claude', status: 'active', createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' });
+    writeIndex([
+      makeWu('wu-root', INSTANCE_1, { collab: { rootId: 'wu-root', depth: 0, chain: [PROFILE_A], delegationCount: 0 } }),
+      makeWu('wu-child', INSTANCE_2, { collab: { rootId: 'wu-root', depth: 1, chain: [PROFILE_A, PROFILE_B], delegationCount: 0 } }),
+    ]);
+    writeEvents([
+      tokenEvent('wu-root', { injected: 100, execution: 900 }, new Date().toISOString()),
+      tokenEvent('wu-child', { injected: 200, execution: 800 }, new Date().toISOString()),
+    ]);
+
+    const report = await aggregateTreeTokens('wu-root', fileStore, { eventsFile });
+    expect(report.nodes).toHaveLength(2);
+    expect(report.rootTotal).toBe(1700); // 900 + 800
+    const child = report.nodes.find(n => n.workUnitId === 'wu-child');
+    expect(child?.profileName).toBe('AgentB');
+  });
+
+  it('无事件文件 -> 全零，不抛错', async () => {
+    writeIndex([makeWu('wu-root', null)]);
+    const report = await aggregateTreeTokens('wu-root', fileStore, { eventsFile });
+    expect(report.rootTotal).toBe(0);
+    expect(report.budgetRemaining).toBe(TREE_TOKEN_BUDGET);
+    expect(report.nodes[0].injectedTokens).toBeNull();
+    expect(report.nodes[0].executionTokens).toBeNull();
   });
 });
