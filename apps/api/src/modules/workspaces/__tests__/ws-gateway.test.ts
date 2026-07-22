@@ -25,6 +25,7 @@ import {
   getConnectedWorkspaceIds,
   sendToWorkspace,
   discoverViaWs,
+  sendAgentTask,
   notifyTaskAvailable,
   getActiveConnectionCount,
   activeConnections,
@@ -528,6 +529,162 @@ describeIf('Discover Proxy', () => {
     });
 
     await expect(discoverViaWs(testWorkspaceId, '/nonexistent')).rejects.toThrow('Path not found');
+
+    ws.close();
+    await new Promise(r => setTimeout(r, 100));
+  });
+});
+
+describeIf('sendAgentTask', () => {
+  const mockResult = {
+    success: true,
+    worktree: '/tmp/test-worktree',
+    outputFiles: ['output.txt'],
+    logFile: '/tmp/test-worktree/.agent.log',
+    sessionCount: 1,
+  };
+
+  it('T1: sends agent-task and resolves with agent-task-result', async () => {
+    const ws = new WebSocket(`ws://localhost:${serverPort}/ws/daemon`);
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({
+      type: 'auth',
+      workspaceId: testWorkspaceId,
+      token: testTokenPlaintext,
+    }));
+    await waitForMessage(ws, 'auth_ok');
+
+    // Client-side handler: respond to agent-task with agent-task-result
+    ws.on('message', (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'agent-task') {
+        ws.send(JSON.stringify({
+          type: 'agent-task-result',
+          requestId: msg.requestId,
+          result: mockResult,
+        }));
+      }
+    });
+
+    const result = await sendAgentTask(testWorkspaceId, {
+      id: 'task-1',
+      executionId: 'exec-1',
+      provider: 'claude' as any,
+      prompt: 'test prompt',
+    });
+
+    expect(result).toEqual(mockResult);
+
+    ws.close();
+    await new Promise(r => setTimeout(r, 100));
+  });
+
+  it('T2: rejects when no active connection', async () => {
+    await expect(sendAgentTask('no-such-workspace', {
+      id: 'task-1',
+      executionId: 'exec-1',
+      provider: 'claude' as any,
+      prompt: 'test',
+    })).rejects.toThrow('No active connection');
+  });
+
+  it('T3: rejects on timeout', async () => {
+    const ws = new WebSocket(`ws://localhost:${serverPort}/ws/daemon`);
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({
+      type: 'auth',
+      workspaceId: testWorkspaceId,
+      token: testTokenPlaintext,
+    }));
+    await waitForMessage(ws, 'auth_ok');
+
+    // Don't respond to agent-task — should timeout
+    await expect(sendAgentTask(testWorkspaceId, {
+      id: 'task-1',
+      executionId: 'exec-1',
+      provider: 'claude' as any,
+      prompt: 'test',
+    }, 500)).rejects.toThrow('timed out');
+
+    ws.close();
+    await new Promise(r => setTimeout(r, 100));
+  });
+
+  it('T4: rejects on daemon error response', async () => {
+    const ws = new WebSocket(`ws://localhost:${serverPort}/ws/daemon`);
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({
+      type: 'auth',
+      workspaceId: testWorkspaceId,
+      token: testTokenPlaintext,
+    }));
+    await waitForMessage(ws, 'auth_ok');
+
+    ws.on('message', (data) => {
+      const msg = JSON.parse(data.toString());
+      if (msg.type === 'agent-task') {
+        ws.send(JSON.stringify({
+          type: 'agent-task-result',
+          requestId: msg.requestId,
+          error: 'Execution failed: out of memory',
+        }));
+      }
+    });
+
+    await expect(sendAgentTask(testWorkspaceId, {
+      id: 'task-1',
+      executionId: 'exec-1',
+      provider: 'claude' as any,
+      prompt: 'test',
+    })).rejects.toThrow('Execution failed: out of memory');
+
+    ws.close();
+    await new Promise(r => setTimeout(r, 100));
+  });
+
+  it('T5: strips onProgress from sent agent-task message', async () => {
+    const ws = new WebSocket(`ws://localhost:${serverPort}/ws/daemon`);
+    await waitForOpen(ws);
+    ws.send(JSON.stringify({
+      type: 'auth',
+      workspaceId: testWorkspaceId,
+      token: testTokenPlaintext,
+    }));
+    await waitForMessage(ws, 'auth_ok');
+
+    // Capture the agent-task message sent by the gateway
+    const taskPromise = new Promise<Record<string, unknown>>((resolve) => {
+      ws.on('message', (data) => {
+        const msg = JSON.parse(data.toString());
+        if (msg.type === 'agent-task') {
+          resolve(msg);
+        }
+      });
+    });
+
+    // Fire and forget — we just want to inspect the message
+    const resultPromise = sendAgentTask(testWorkspaceId, {
+      id: 'task-with-progress',
+      executionId: 'exec-1',
+      provider: 'claude' as any,
+      prompt: 'test',
+      onProgress: (async () => {}) as any,
+    });
+
+    // Wait for the agent-task message to be received
+    const agentTaskMsg = await taskPromise;
+    expect(agentTaskMsg.task).toBeDefined();
+    expect((agentTaskMsg.task as Record<string, unknown>).onProgress).toBeUndefined();
+
+    // Now respond so the promise resolves
+    ws.send(JSON.stringify({
+      type: 'agent-task-result',
+      requestId: agentTaskMsg.requestId,
+      result: mockResult,
+    }));
+
+    const result = await resultPromise;
+    expect(result).toEqual(mockResult);
 
     ws.close();
     await new Promise(r => setTimeout(r, 100));
