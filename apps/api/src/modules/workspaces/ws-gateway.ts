@@ -198,8 +198,10 @@ function handleMessage(entry: ConnectionEntry, raw: string): void {
       pendingTasks.delete(msg.requestId);
       if (msg.error) {
         pending.reject(new Error(msg.error));
+      } else if (msg.result) {
+        pending.resolve(msg.result);
       } else {
-        pending.resolve(msg.result!);
+        pending.reject(new Error('agent-task-result missing result'));
       }
       break;
     }
