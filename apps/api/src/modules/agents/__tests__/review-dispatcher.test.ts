@@ -76,6 +76,19 @@ afterEach(() => {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
+/** Poll until condition is met or timeout (default 20×100ms = 2s) */
+const waitFor = async (
+  fn: () => Promise<boolean>,
+  maxAttempts = 20,
+  intervalMs = 100
+): Promise<void> => {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (await fn()) return;
+    await new Promise(r => setTimeout(r, intervalMs));
+  }
+  throw new Error('waitFor timeout after ' + (maxAttempts * intervalMs) + 'ms');
+};
+
 describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
   it('AC-4.1: in_review + 有 reviewer -> 创建 type=review 子 WU', async () => {
     const parent = await wuService.create({
@@ -88,8 +101,10 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
 
     // Simulate parent entering in_review
     await wuService.transitionStatus(parent.id, 'in_review');
-    // Wait for async event handler
-    await new Promise(r => setTimeout(r, 100));
+    await waitFor(async () => {
+      const snaps = await fileStore.getIndex();
+      return snaps.some(s => s.parentId === parent.id && s.type === 'review');
+    });
 
     const snapshots = await fileStore.getIndex();
     const reviewChild = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
@@ -112,7 +127,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
     });
 
     await wuService.transitionStatus(parent.id, 'in_review');
-    await new Promise(r => setTimeout(r, 100));
+    // Poll: no reviewer in channel → child should never be created; wait 500ms and verify
+    await new Promise(r => setTimeout(r, 500));
 
     const snapshots = await fileStore.getIndex();
     const reviewChild = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
@@ -138,7 +154,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
     });
 
     await wuService.transitionStatus(parent.id, 'in_review');
-    await new Promise(r => setTimeout(r, 100));
+    // Poll: already has review child → event handler should skip; wait 500ms and verify
+    await new Promise(r => setTimeout(r, 500));
 
     const snapshots = await fileStore.getIndex();
     const reviewChildren = snapshots.filter(s => s.parentId === parent.id && s.type === 'review');
@@ -153,7 +170,10 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
       status: 'active',
     });
     await wuService.transitionStatus(parent.id, 'in_review');
-    await new Promise(r => setTimeout(r, 100));
+    await waitFor(async () => {
+      const snaps = await fileStore.getIndex();
+      return snaps.some(s => s.parentId === parent.id && s.type === 'review');
+    });
 
     // Find the created review child
     const snapshots = await fileStore.getIndex();
@@ -167,7 +187,10 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
     childMeta.reviewReport = { approved: true, reason: '代码质量良好' };
     await wuService.update(child!.id, { metadata: childMeta });
     await wuService.transitionStatus(child!.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await waitFor(async () => {
+      const p = await wuService.getById(parent.id);
+      return p!.status !== 'in_review';
+    });
 
     const updatedParent = await wuService.getById(parent.id);
     expect(updatedParent!.status).toBe('done');
@@ -181,7 +204,10 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
       status: 'active',
     });
     await wuService.transitionStatus(parent.id, 'in_review');
-    await new Promise(r => setTimeout(r, 100));
+    await waitFor(async () => {
+      const snaps = await fileStore.getIndex();
+      return snaps.some(s => s.parentId === parent.id && s.type === 'review');
+    });
 
     const snapshots = await fileStore.getIndex();
     const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
@@ -193,7 +219,10 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
     childMeta.reviewReport = { approved: false, reason: '缺少错误处理' };
     await wuService.update(child!.id, { metadata: childMeta });
     await wuService.transitionStatus(child!.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await waitFor(async () => {
+      const p = await wuService.getById(parent.id);
+      return p!.status !== 'in_review';
+    });
 
     const updatedParent = await wuService.getById(parent.id);
     expect(['active', 'blocked']).toContain(updatedParent!.status);
@@ -207,7 +236,10 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
       status: 'active',
     });
     await wuService.transitionStatus(parent.id, 'in_review');
-    await new Promise(r => setTimeout(r, 100));
+    await waitFor(async () => {
+      const snaps = await fileStore.getIndex();
+      return snaps.some(s => s.parentId === parent.id && s.type === 'review');
+    });
 
     const snapshots = await fileStore.getIndex();
     const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
@@ -217,7 +249,10 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
     await wuService.transitionStatus(child!.id, 'active');
     await wuService.transitionStatus(child!.id, 'in_review');
     await wuService.transitionStatus(child!.id, 'done');
-    await new Promise(r => setTimeout(r, 100));
+    await waitFor(async () => {
+      const p = await wuService.getById(parent.id);
+      return p!.status !== 'in_review';
+    });
 
     const updatedParent = await wuService.getById(parent.id);
     expect(['active', 'blocked']).toContain(updatedParent!.status);
