@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-21
+> 最后更新: 2026-07-22
 
 ---
 
@@ -319,3 +319,4 @@
 | skill-demotion-routes | apps/api/src/modules/skills/skill-demotion-routes.ts | §10.6 Skill 降级提案 API 路由 |
 | skill-demotion | apps/api/src/modules/skills/skill-demotion.ts | §10.6 skill 生命周期降级通路（聚合 + 降级提案）。 |
 | delegation-gate | apps/api/src/modules/workunit/delegation-gate.ts | DelegationGate — A2A 协作委派闸门（2026-07-agent-to-agent-collab-design §4.1 机制 3 / §4.2） |
+| system-executor | apps/api/src/modules/agents/system-executor.ts | SystemExecutor - 系统级 LLM 调用执行器（AC-1.6 ~ AC-1.10） |
