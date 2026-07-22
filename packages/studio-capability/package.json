@@ -12,7 +12,7 @@
     "lint": "eslint src/**/*.ts"
   },
   "dependencies": {
-    "@dommaker/harness": "^0.16.0",
+    "@dommaker/harness": "^0.16.3",
     "@dommaker/studio-shared": "workspace:*",
     "zod": "^3.22.0"
   },

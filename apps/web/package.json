@@ -14,7 +14,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
-    "@dommaker/harness": "^0.16.0",
+    "@dommaker/harness": "^0.16.3",
     "@dommaker/studio-api": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@tailwindcss/postcss": "^4.2.2",

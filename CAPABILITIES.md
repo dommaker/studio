@@ -183,6 +183,7 @@
 | worktree-resolver | packages/studio-agent/src/services/worktree-resolver.ts | Worktree Resolver — git worktree 创建 + harness 配置传播 + 文件桥 |
 | user-behavior | packages/studio-shared/src/types/user-behavior.ts | User Behavior Profile types — KE-003 |
 | skill-loader | apps/api/src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
+| webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook Routes — auto-deploy webhook endpoint |
 | daemon-routes | apps/api/src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
 | gc-service | apps/api/src/modules/workspaces/gc-service.ts | GC Service — AS-020 P5: Garbage collection for old tasks and events |
 | local-workspace | apps/api/src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
