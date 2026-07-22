@@ -6,7 +6,7 @@
  *   审查结果写入 .review-report.json，供修复循环使用。
  */
 
-import { logger, getModelForTier, buildSpawnEnv } from '@dommaker/studio-shared';
+import { logger, getModelForTier } from '@dommaker/studio-shared';
 import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
@@ -182,7 +182,7 @@ export class ReviewAgent {
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/execution-review-${Date.now()}` },
+          env: { HOME: `/tmp/execution-review-${Date.now()}` },
           timeoutMs: getReviewTimeoutMs(),
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -437,7 +437,7 @@ export class ReviewAgent {
 
         const { stdout } = await execSh(cmd, {
           cwd: params.worktree,
-          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/execution-review-${Date.now()}` },
+          env: { HOME: `/tmp/execution-review-${Date.now()}` },
           timeoutMs: getReviewTimeoutMs(params.complexity),
           maxBuffer: 5 * 1024 * 1024,
         });
@@ -550,7 +550,7 @@ export class ReviewAgent {
       try {
         await execSh(cmd, {
           cwd: repoPath,
-          env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/execution-review-${Date.now()}` },
+          env: { HOME: `/tmp/execution-review-${Date.now()}` },
           timeoutMs: getReviewTimeoutMs(),
           maxBuffer: 10 * 1024 * 1024,
         });
@@ -686,7 +686,7 @@ export class ReviewAgent {
       try { fs.unlinkSync(reportPath); } catch {}
       const cmd = `cd "${worktree}" && cat '${promptFile}' | claude --print --output-format json 2>&1`;
       await execSh(cmd, {
-        cwd: worktree, env: { ...buildSpawnEnv({ tier: 'standard', role: 'reviewer' }), HOME: `/tmp/execution-review-${Date.now()}` },
+        cwd: worktree, env: { HOME: `/tmp/execution-review-${Date.now()}` },
         timeoutMs: 5 * 60 * 1000, maxBuffer: 5 * 1024 * 1024,
       });
 

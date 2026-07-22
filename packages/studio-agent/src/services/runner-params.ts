@@ -14,7 +14,7 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
-import { logger, buildSpawnEnv, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles, type ModelTier } from '@dommaker/studio-shared';
+import { logger, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles, type ModelTier } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
@@ -380,21 +380,15 @@ export interface SessionEnvOptions {
   withWorkUnitEnv?: boolean;
 }
 
-/** Spawn env: process.env + buildSpawnEnv(tier/role/extra) + HOME 隔离（GAP-2）。 */
+/** Spawn env: process.env + HOME 隔离（GAP-2）。 */
 export function buildSessionEnv(opts: SessionEnvOptions): NodeJS.ProcessEnv {
   const { task } = opts;
   return {
     ...process.env,
-    ...buildSpawnEnv({
-      tier: opts.tier,
-      role: opts.role,
-      extra: {
-        STUDIO_EXECUTION_ID: task.executionId,
-        ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
-        ...(opts.withWorkUnitEnv && task.parameters?.workUnitId ? { STUDIO_WORKUNIT_ID: task.parameters.workUnitId as string } : {}),
-        ...(opts.withWorkUnitEnv ? (task.parameters?.extraEnv as Record<string, string> || {}) : {}),
-      },
-    }),
+    STUDIO_EXECUTION_ID: task.executionId,
+    ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
+    ...(opts.withWorkUnitEnv && task.parameters?.workUnitId ? { STUDIO_WORKUNIT_ID: task.parameters.workUnitId as string } : {}),
+    ...(opts.withWorkUnitEnv ? (task.parameters?.extraEnv as Record<string, string> || {}) : {}),
     // HOME isolation: per-Agent for session continuity (GAP-2)
     HOME: opts.agentHome,
   };
