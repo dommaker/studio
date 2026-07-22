@@ -29,7 +29,7 @@ beforeEach(async () => {
   // 每个用例一个干净子目录（FileStore 数据根 = homedir()/.studio）
   workDir = path.join(hoistedHome.dir, `.studio`, 'data', 'evolution');
   fs.rmSync(workDir, { recursive: true, force: true });
-  fileStore = new FileStore();
+  fileStore = new FileStore(path.join(hoistedHome.dir, '.studio', 'data'));
   service = new EvolutionService({
     fileStore,
     paths: resolveEvolutionPaths({ repoRoot: hoistedHome.dir, eventsDir: path.join(hoistedHome.dir, 'events') }),

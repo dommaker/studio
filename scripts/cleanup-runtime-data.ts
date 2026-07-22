@@ -25,7 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore } from '../packages/studio-shared/src/index';
 
 // ─── 类型 ───
 
