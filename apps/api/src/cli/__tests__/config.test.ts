@@ -15,7 +15,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { studioConfig } from '../config.js';
 
-const MANAGED_KEYS = ['STUDIO_API_KEY', 'PIPELINE_API_KEY', 'KNOWLEDGE_API_KEY', 'JWT_SECRET', 'ENCRYPTION_KEY', 'DISCORD_DAILY_CHANNEL'];
+const MANAGED_KEYS = ['JWT_SECRET', 'ENCRYPTION_KEY', 'DISCORD_DAILY_CHANNEL'];
 
 let tmpHome: string;
 let prevHome: string | undefined;
@@ -105,22 +105,19 @@ describe('studio config list', () => {
 });
 
 describe('studio config check', () => {
-  it('三键全缺 → 逐项 ✗ + exit(1)', async () => {
+  it('两键全缺 → 逐项 ✗ + exit(1)', async () => {
     await expect(studioConfig(['check'])).rejects.toThrow('exit:1');
     const out = logs.join('\n');
-    expect(out).toContain('  ✗ Studio API Key: MISSING');
     expect(out).toContain('  ✗ JWT Secret: MISSING');
     expect(out).toContain('  ✗ Encryption Key: MISSING');
   });
 
   it('config.env 提供的键会被采纳 → ✓', async () => {
     await studioConfig(['set', 'JWT_SECRET=abcdef1234567890']);
-    process.env.STUDIO_API_KEY = 'x';
     process.env.ENCRYPTION_KEY = 'y';
     logs = [];
     await expect(studioConfig(['check'])).rejects.toThrow('exit:0');
     const out = logs.join('\n');
-    expect(out).toContain('  ✓ Studio API Key: configured');
     expect(out).toContain('  ✓ JWT Secret: configured');
     expect(out).toContain('  ✓ Encryption Key: configured');
   });

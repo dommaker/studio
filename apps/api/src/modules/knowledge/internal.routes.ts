@@ -123,8 +123,8 @@ internalRoutes.post('/extract-text-sync', async (req, res) => {
     }
 
     // Direct API call for knowledge extraction
-    const apiKey = process.env.KNOWLEDGE_API_KEY || process.env.STUDIO_API_KEY || '';
-    const knowledgeBaseUrl = process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1';
+    const apiKey = process.env.DEEPSEEK_API_KEY || '';
+    const knowledgeBaseUrl = process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1';
     const rawResponse = await fetch(`${knowledgeBaseUrl}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
