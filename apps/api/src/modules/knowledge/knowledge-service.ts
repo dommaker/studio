@@ -26,7 +26,8 @@ import type {
   MaturityLevel,
   KnowledgeSubsystem,
 } from '@dommaker/harness';
-import { FileStore, logger, modelGateway, estimateTokens } from '@dommaker/studio-shared';
+import { FileStore, logger, estimateTokens } from '@dommaker/studio-shared';
+import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { execFile } from 'child_process';
@@ -480,7 +481,7 @@ export class KnowledgeService {
    * R3 会话提取（断点 B）：任务 COMPLETE 时由 agent-loop 触发一次 LLM 提取
    * （根因/模式/可复用经验），结果以 proposal（maturity=draft）入库。
    *
-   * - LLM 路径复用 KnowledgeAgent 的提取链路：modelGateway.promptJson +
+   * - LLM 路径复用 KnowledgeAgent 的提取链路：systemExecutor.run +
    *   getExtractFromTextSystemPrompt()（单一 prompt 来源，不复制；E1 支持
    *   ~/.studio/prompt-overrides/knowledge.extract-from-text.md 文件覆盖）。
    * - proposal 须经审核（promote → verified）才参与注入（见 injectContext 的
@@ -498,30 +499,22 @@ export class KnowledgeService {
       const transcript = buildConversationTranscript(messages);
       if (!transcript) return;
 
-      if (!modelGateway.isAvailable()) {
-        logger.info('[KnowledgeService] extractFromConversation skipped: no LLM provider configured', { source });
-        return;
-      }
-
       // 复用 KnowledgeAgent 的提取 prompt（动态 import 避免静态循环依赖：
       // knowledge-agent.service 已静态引用本模块的 validateKnowledgeForm/writeTrendData）
       // E1: 经 getter 取值以支持 prompt-override 文件覆盖（约束进化提案生效路径）
       const { getExtractFromTextSystemPrompt } = await import('../agents/knowledge-agent.service.js');
 
-      const usageMark = Date.now();
-      const result = await modelGateway.promptJson<{ entries?: Array<{ type?: string; title?: string; content?: string; tags?: string[] }> }>(
-        transcript,
-        getExtractFromTextSystemPrompt(),
-        { provider: 'knowledge', tier: 'standard' },
-      );
-      const durationMs = Date.now() - usageMark;
+      const startMs = Date.now();
+      const execResult = await getSystemExecutor().run(transcript, {
+        systemPrompt: getExtractFromTextSystemPrompt(),
+      });
+      const durationMs = Date.now() - startMs;
+      const result = JSON.parse(execResult.output) as { entries?: Array<{ type?: string; title?: string; content?: string; tags?: string[] }> };
 
-      // 提取开销：gateway usageLog 增量（通常 1 条；provider fallback 可能多条）
-      const usageRecords = modelGateway.getRecentUsage(20)
-        .filter(u => typeof u?.timestamp === 'number' && u.timestamp >= usageMark);
-      const promptTokens = usageRecords.reduce((s, u) => s + (u.promptTokens || 0), 0);
-      const completionTokens = usageRecords.reduce((s, u) => s + (u.completionTokens || 0), 0);
-      const totalTokens = usageRecords.reduce((s, u) => s + (u.totalTokens || 0), 0);
+      // 提取开销：systemExecutor.run 返回的 usage（CLI --output-format json envelope）
+      const promptTokens = execResult.usage?.inputTokens ?? 0;
+      const completionTokens = execResult.usage?.outputTokens ?? 0;
+      const totalTokens = promptTokens + completionTokens;
 
       const entries = Array.isArray(result?.entries) ? result.entries.slice(0, 5) : [];
       const ingested: Array<{ id: string; title: string; type: string }> = [];
@@ -564,6 +557,10 @@ export class KnowledgeService {
         logger.warn('[KnowledgeService] Failed to persist knowledge:extraction event', { error: String(e) });
       }
     } catch (err) {
+      if (err instanceof StudioRoleNotConfiguredError) {
+        logger.info('[KnowledgeService] extractFromConversation skipped: studio role provider not configured', { source });
+        return;
+      }
       // 提取失败绝不影响任务完成（模板兜底仍由 extractFromExecution 独立承担）
       logger.warn('[KnowledgeService] extractFromConversation failed', { source, error: String(err) });
     }

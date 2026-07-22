@@ -9,7 +9,8 @@
  *   - resolveContradictions F1d 矛盾审查（按 tag 分组检测，保留高 maturity）
  */
 
-import { modelGateway, logger } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
+import { getSystemExecutor } from './system-executor.js';
 import { sharedStore } from '../knowledge/knowledge-bus.service.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
@@ -62,9 +63,9 @@ ${entryList}
 如果没有重复，返回 {"duplicates": []}。最多返回 5 组。`;
 
       try {
-        const result = await modelGateway.promptJson<{ duplicates: Array<{ keep: string; merge: string[]; reason: string }> }>(
+        const result = await getSystemExecutor().runJson<{ duplicates: Array<{ keep: string; merge: string[]; reason: string }> }>(
           prompt,
-          '你是知识库去重专家。判断哪些知识条目在语义上是重复的。只合并真正重复的，不要合并相关但不同的条目。',
+          { systemPrompt: '你是知识库去重专家。判断哪些知识条目在语义上是重复的。只合并真正重复的，不要合并相关但不同的条目。' },
         );
 
         if (!result.duplicates?.length) continue;
@@ -146,9 +147,9 @@ ${entryList}
 只标记 keep=false 的为低质量。`;
 
     try {
-      const result = await modelGateway.promptJson<{ assessments: Array<{ id: string; keep: boolean; reason: string; score: number }> }>(
+      const result = await getSystemExecutor().runJson<{ assessments: Array<{ id: string; keep: boolean; reason: string; score: number }> }>(
         prompt,
-        '你是知识质量评估专家。严格评估每条知识的价值。只删除真正无价值的条目，有疑问的保留。',
+        { systemPrompt: '你是知识质量评估专家。严格评估每条知识的价值。只删除真正无价值的条目，有疑问的保留。' },
       );
 
       if (!result.assessments?.length) continue;
@@ -230,9 +231,9 @@ ${context}
 如果知识描述的内容已被代码变更覆盖或修正，标记为 stillValid=false。`;
 
       try {
-        const result = await modelGateway.promptJson<{ results: Array<{ id: string; stillValid: boolean; reason: string }> }>(
+        const result = await getSystemExecutor().runJson<{ results: Array<{ id: string; stillValid: boolean; reason: string }> }>(
           prompt,
-          '你是代码-知识一致性检查专家。判断知识条目描述的内容是否与最新代码一致。如果不确定，标记为 stillValid=true。',
+          { systemPrompt: '你是代码-知识一致性检查专家。判断知识条目描述的内容是否与最新代码一致。如果不确定，标记为 stillValid=true。' },
         );
 
         if (!result.results?.length) continue;
@@ -310,9 +311,9 @@ ${entryList}
 如果没有矛盾，返回 {"contradictions": []}。相关但不矛盾的条目不算。`;
 
     try {
-      const result = await modelGateway.promptJson<{ contradictions: Array<{ entries: string[]; description: string; resolution: string }> }>(
+      const result = await getSystemExecutor().runJson<{ contradictions: Array<{ entries: string[]; description: string; resolution: string }> }>(
         prompt,
-        '你是知识一致性检查专家。只报告真正的矛盾（对同一问题给出相反建议），不要报告互补或不同角度的知识。',
+        { systemPrompt: '你是知识一致性检查专家。只报告真正的矛盾（对同一问题给出相反建议），不要报告互补或不同角度的知识。' },
       );
 
       if (!result.contradictions?.length) continue;

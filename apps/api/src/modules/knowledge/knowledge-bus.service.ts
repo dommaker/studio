@@ -2,7 +2,7 @@
  * KnowledgeBus — 兼容层（thin compat，R4 收敛后保留）
  *
  * TODO(R4-followup): KnowledgeBus 类的 write/search API 与 KnowledgeService 重复，
- * 消费者（evolution.service / knowledge-sync / improver-scheduler /
+ * 消费者（evolution.service / knowledge-sync /
  * discovery-exposure / knowledge-agent / routes）应逐步迁移到 knowledgeService，
  * 之后删除本类。新代码禁止直接使用 KnowledgeBus，请用 knowledgeService。
  *

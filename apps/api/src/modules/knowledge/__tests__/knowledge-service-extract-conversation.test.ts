@@ -14,11 +14,9 @@
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-const { mockAppendJsonl, mockPromptJson, mockIsAvailable, mockGetRecentUsage, mockScheduleVectorDbSync, mockListChannels, mockCreateCardMessage } = vi.hoisted(() => ({
+const { mockAppendJsonl, mockRun, mockScheduleVectorDbSync, mockListChannels, mockCreateCardMessage } = vi.hoisted(() => ({
   mockAppendJsonl: vi.fn().mockResolvedValue(undefined),
-  mockPromptJson: vi.fn(),
-  mockIsAvailable: vi.fn().mockReturnValue(true),
-  mockGetRecentUsage: vi.fn().mockReturnValue([]),
+  mockRun: vi.fn(),
   mockScheduleVectorDbSync: vi.fn(),
   mockListChannels: vi.fn().mockResolvedValue([]),
   mockCreateCardMessage: vi.fn().mockResolvedValue({}),
@@ -38,11 +36,14 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
       listDocs: vi.fn().mockResolvedValue([]),
       listChannels: mockListChannels,
     })),
-    modelGateway: {
-      promptJson: mockPromptJson,
-      isAvailable: mockIsAvailable,
-      getRecentUsage: mockGetRecentUsage,
-    },
+  };
+});
+
+vi.mock('../../agents/system-executor.js', async (importOriginal) => {
+  const actual = await importOriginal() as any;
+  return {
+    ...actual,
+    getSystemExecutor: () => ({ run: mockRun }),
   };
 });
 
@@ -139,31 +140,35 @@ const MESSAGES = [
   { role: 'assistant', content: '已完成：登录功能 + session 过期根因修复' },
 ];
 
+/** 构造 systemExecutor.run() 的 mock 返回值（output 是 JSON 字符串） */
+function makeRunResult(data: unknown, usage?: { inputTokens: number; outputTokens: number }): {
+  output: string; usage: { inputTokens: number; outputTokens: number } | undefined; durationMs: number;
+} {
+  return { output: JSON.stringify(data), usage, durationMs: 100 };
+}
+
 describe('R3: extractFromConversation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockIsAvailable.mockReturnValue(true);
-    mockGetRecentUsage.mockReturnValue([]);
   });
 
   it('(a) 解析 LLM 输出 → 以 maturity=draft 入库（proposal），复用共享 prompt 与 knowledge provider', async () => {
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: ['root-cause'] },
         { type: 'guideline', title: '登录流程统一走 auth-service', content: '可复用模式: 所有登录入口委托 auth-service，避免分散实现。', tags: ['pattern'] },
       ],
-    });
+    }));
     const { ks, ingest } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' });
 
-    // LLM 调用：transcript 含 role 标注消息；prompt/provider 复用 KnowledgeAgent 路径
-    expect(mockPromptJson).toHaveBeenCalledTimes(1);
-    const [transcript, systemPrompt, options] = mockPromptJson.mock.calls[0];
+    // LLM 调用：transcript 含 role 标注消息；systemPrompt 经 options 传递
+    expect(mockRun).toHaveBeenCalledTimes(1);
+    const [transcript, runOpts] = mockRun.mock.calls[0];
     expect(transcript).toContain('[user] 实现登录功能，注意上次 session 过期的坑');
     expect(transcript).toContain('[assistant] 已完成：登录功能 + session 过期根因修复');
-    expect(systemPrompt).toBe('shared-extraction-system-prompt');
-    expect(options).toEqual({ provider: 'knowledge', tier: 'standard' });
+    expect(runOpts).toEqual({ systemPrompt: 'shared-extraction-system-prompt' });
 
     // 入库：proposal（draft）+ signal 消费模式 + 来源追溯
     expect(ingest.ingestEntry).toHaveBeenCalledTimes(2);
@@ -180,15 +185,11 @@ describe('R3: extractFromConversation', () => {
   });
 
   it('(d) 发射 knowledge:extraction 事件：token 计数 + duration + entry ids', async () => {
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: [] },
       ],
-    });
-    // timestamp 在调用时取（≥ usageMark），模拟 gateway usageLog 增量
-    mockGetRecentUsage.mockImplementation(() => [
-      { provider: 'knowledge', model: 'deepseek-v4-pro', promptTokens: 1200, completionTokens: 300, totalTokens: 1500, latencyMs: 800, timestamp: Date.now(), success: true },
-    ]);
+    }, { inputTokens: 1200, outputTokens: 300 }));
     const { ks, eventEmitter } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' });
@@ -213,18 +214,18 @@ describe('R3: extractFromConversation', () => {
     );
   });
 
-  it('无 LLM 配置时静默跳过（e2e 降级路径）：不调 LLM、不入库、不记事件', async () => {
-    mockIsAvailable.mockReturnValue(false);
+  it('无 LLM 配置时静默跳过（e2e 降级路径）：不入库、不记事件', async () => {
+    const { StudioRoleNotConfiguredError } = await import('../../agents/system-executor.js');
+    mockRun.mockRejectedValue(new StudioRoleNotConfiguredError());
     const { ks, ingest } = createKS();
 
     await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).resolves.not.toThrow();
-    expect(mockPromptJson).not.toHaveBeenCalled();
     expect(ingest.ingestEntry).not.toHaveBeenCalled();
     expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 
   it('LLM 调用失败被吞掉：不抛出、不入库、不记事件（模板兜底不受影响）', async () => {
-    mockPromptJson.mockRejectedValue(new Error('provider down'));
+    mockRun.mockRejectedValue(new Error('provider down'));
     const { ks, ingest } = createKS();
 
     await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' })).resolves.not.toThrow();
@@ -236,11 +237,11 @@ describe('R3: extractFromConversation', () => {
     const { ks } = createKS();
     await ks.extractFromConversation([], { workUnitId: 'wu-r3' });
     await ks.extractFromConversation([{ role: 'user', content: '   ' }], { workUnitId: 'wu-r3' });
-    expect(mockPromptJson).not.toHaveBeenCalled();
+    expect(mockRun).not.toHaveBeenCalled();
   });
 
   it('LLM 返回空 entries → 仍记提取事件（entryCount=0，成本已发生）', async () => {
-    mockPromptJson.mockResolvedValue({ entries: [] });
+    mockRun.mockResolvedValue(makeRunResult({ entries: [] }));
     const { ks, ingest } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' });
@@ -250,12 +251,12 @@ describe('R3: extractFromConversation', () => {
   });
 
   it('形态门禁：rule 形态条目被拒绝，不入库', async () => {
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'guideline', title: '禁止直连生产库', content: '禁止直连生产数据库', tags: [] },
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: [] },
       ],
-    });
+    }));
     const { ks, ingest } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r3' });
@@ -264,11 +265,11 @@ describe('R3: extractFromConversation', () => {
   });
 
   it('linter 高严重度阻断 → 跳过该条', async () => {
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: [] },
       ],
-    });
+    }));
     const { ks, ingest, linter } = createKS();
     linter.validateEntry.mockReturnValue([{ severity: 'high', description: 'too vague', type: 'quality' }]);
 
@@ -277,11 +278,11 @@ describe('R3: extractFromConversation', () => {
   });
 
   it('非法 type 回落 guideline；超长 transcript 截断到上限', async () => {
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'weird-type', title: '某条经验', content: '这是一条足够长的经验内容，用于通过形态门禁检查。', tags: [] },
       ],
-    });
+    }));
     const { ks, ingest } = createKS();
 
     const longMessages = [
@@ -291,7 +292,7 @@ describe('R3: extractFromConversation', () => {
     ];
     await ks.extractFromConversation(longMessages, { workUnitId: 'wu-r3' });
 
-    const [transcript] = mockPromptJson.mock.calls[0];
+    const [transcript] = mockRun.mock.calls[0];
     expect(transcript.length).toBeLessThanOrEqual(12_000 + 200); // 上限 + 标记开销
     expect(ingest.ingestEntry.mock.calls[0][0].type).toBe('guideline');
   });
@@ -299,11 +300,11 @@ describe('R3: extractFromConversation', () => {
   // ── R1（type-repair）：decision 条目补 tags ['decision', <category>] ──
 
   it('R1: type=decision 条目入库时补 tags [decision, <category>]（category 取 LLM 产出）', async () => {
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'decision', title: '选用 JWT 而非 session', content: '背景: 多端登录。选择: JWT 无状态。权衡: 无法主动失效，用短过期+刷新令牌兜底。', tags: ['architecture'] },
       ],
-    });
+    }));
     const { ks, ingest } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r1' });
@@ -317,11 +318,11 @@ describe('R3: extractFromConversation', () => {
   });
 
   it('R1: decision 条目 LLM 未给 category 时回落 process', async () => {
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'decision', title: '改用 ESM 模块体系', content: '背景: CJS/ESM 混用导致工具链问题。选择: 全面 ESM。权衡: 老依赖需评估兼容性。', tags: [] },
       ],
-    });
+    }));
     const { ks, ingest } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r1' });
@@ -332,11 +333,11 @@ describe('R3: extractFromConversation', () => {
   });
 
   it('R1: 非 decision 条目不补 decision tag', async () => {
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: ['root-cause'] },
       ],
-    });
+    }));
     const { ks, ingest } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-r1' });
@@ -349,12 +350,12 @@ describe('R3: extractFromConversation', () => {
 
   it('入库成功 → 聚合本次条目发一张 knowledge_proposal 卡片到 #系统', async () => {
     mockListChannels.mockResolvedValue([{ id: 'ch-sys', name: '#系统', type: 'system' }]);
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: ['root-cause'] },
         { type: 'guideline', title: '登录流程统一走 auth-service', content: '可复用模式: 所有登录入口委托 auth-service，避免分散实现。', tags: ['pattern'] },
       ],
-    });
+    }));
     const { ks } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-card' });
@@ -377,11 +378,11 @@ describe('R3: extractFromConversation', () => {
 
   it('#系统 频道缺失时静默跳过（不发卡、不抛出、不影响提取事件）', async () => {
     mockListChannels.mockResolvedValue([]); // 频道未播种
-    mockPromptJson.mockResolvedValue({
+    mockRun.mockResolvedValue(makeRunResult({
       entries: [
         { type: 'pitfall', title: 'session 过期未刷新导致 401', content: '根因: token 刷新逻辑遗漏。责任: Executor。预防: 加中间件统一刷新。', tags: [] },
       ],
-    });
+    }));
     const { ks } = createKS();
 
     await expect(ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-noch' })).resolves.not.toThrow();
@@ -395,7 +396,7 @@ describe('R3: extractFromConversation', () => {
 
   it('无入库条目（全被门禁拦下）→ 不发卡', async () => {
     mockListChannels.mockResolvedValue([{ id: 'ch-sys', name: '#系统', type: 'system' }]);
-    mockPromptJson.mockResolvedValue({ entries: [] });
+    mockRun.mockResolvedValue(makeRunResult({ entries: [] }));
     const { ks } = createKS();
 
     await ks.extractFromConversation(MESSAGES, { workUnitId: 'wu-empty' });

@@ -7,7 +7,8 @@
  *
  * Migrated from Prisma Skill/SkillProposal to file-based stores (D-005).
  */
-import { logger, modelGateway, recordDecision, FileStore } from '@dommaker/studio-shared';
+import { logger, recordDecision, FileStore } from '@dommaker/studio-shared';
+import { getSystemExecutor } from '../agents/system-executor.js';
 import * as os from 'os';
 import * as path from 'path';
 import { skillStore } from './skill-store.js';
@@ -299,7 +300,7 @@ Similar successful executions: ${similar.map((s, i) => `\n${i + 1}. ${s.acs}`).j
 
 Output JSON: {"hasPattern": bool, "name": "pattern name", "description": "description", "category": "code_gen|testing|review|refactor|config|docs", "pattern": "injectable Agent prompt template", "confidence": 0.8}`;
 
-    const r = await modelGateway.promptJson<{ hasPattern: boolean; name?: string; description?: string; category?: string; pattern?: string; confidence?: number }>(prompt, 'You are a Skill extraction analyst.');
+    const r = await getSystemExecutor().runJson<{ hasPattern: boolean; name?: string; description?: string; category?: string; pattern?: string; confidence?: number }>(prompt, { systemPrompt: 'You are a Skill extraction analyst.' });
 
     if (!r.hasPattern || !r.name) return null;
     return { id: '', skillId: '', companyId, name: r.name, description: r.description || '', category: r.category || 'general', pattern: r.pattern || '', sourceGoalIds: [], confidence: r.confidence || 0.5, status: 'pending', createdAt: new Date() };

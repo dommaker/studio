@@ -13,7 +13,7 @@
 import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { sharedStore } from './knowledge-bus.service.js';
-import { modelGateway } from '@dommaker/studio-shared';
+import { getSystemExecutor } from '../agents/system-executor.js';
 
 export const entriesRoutes = Router();
 
@@ -98,7 +98,7 @@ entriesRoutes.post('/ask', async (req, res) => {
     const systemPrompt = '你是知识库问答助手。根据提供的知识条目回答用户问题。回答必须基于知识条目内容，不要编造。引用时标注来源编号如 [1] [2]。';
     const userPrompt = `知识条目：\n${context}\n\n---\n\n用户问题：${question}`;
 
-    const answer = await modelGateway.prompt(userPrompt, systemPrompt);
+    const answer = (await getSystemExecutor().run(userPrompt, { systemPrompt })).output;
 
     // 4. Return answer + source references
     const sources = entries.map((e: any) => ({

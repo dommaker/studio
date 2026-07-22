@@ -66,6 +66,8 @@ async function start() {
     logger.info('Storage initialized (FileStore)');
 
     // 初始化模型网关
+    // TODO(deprecate): modelGateway 将在 Phase 4 删除；系统级 LLM 调用已迁移至 systemExecutor。
+    // 此处 loadFromEnv 仅为未迁移的消费方保留，Phase 4 清理后移除。
     modelGateway.loadFromEnv();
     // R1: 注册 knowledge provider（KnowledgeAgent 统一走 gateway）
     if (process.env.KNOWLEDGE_API_KEY) {

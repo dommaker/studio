@@ -1,6 +1,9 @@
 /**
  * Model Gateway - Facade
  *
+ * @deprecated use systemExecutor (apps/api/src/modules/agents/system-executor.ts) for system-level LLM calls.
+ * modelGateway 保留至 Phase 4 删除前，仅供未迁移的消费方使用。新代码禁止使用。
+ *
  * 统一 LLM 调用网关：多 provider 管理、优先级路由、自动 fallback、token 用量统计
  *
  * P11-06: Split into sub-modules:

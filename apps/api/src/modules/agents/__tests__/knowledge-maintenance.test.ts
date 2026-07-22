@@ -2,7 +2,7 @@
  * knowledge-maintenance — F1 每日维护算子单元测试
  *
  * 自足测试（不依赖真实 LLM / 真实 git）：
- * - modelGateway.promptJson mock：控制去重/质量/过期/矛盾判断结果
+ * - systemExecutor.runJson mock：控制去重/质量/过期/矛盾判断结果
  * - sharedStore mock（list/get/update）：控制语料条目
  * - child_process.exec mock（自定义 promisify）：控制 validateFreshness 的 git log 输出
  *
@@ -15,9 +15,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const {
-  mockPromptJson, mockLogger, mockStoreList, mockStoreGet, mockStoreUpdate, mockGitLog,
+  mockRunJson, mockLogger, mockStoreList, mockStoreGet, mockStoreUpdate, mockGitLog,
 } = vi.hoisted(() => ({
-  mockPromptJson: vi.fn(),
+  mockRunJson: vi.fn(),
   mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   mockStoreList: vi.fn(() => [] as any[]),
   mockStoreGet: vi.fn(),
@@ -26,8 +26,11 @@ const {
 }));
 
 vi.mock('@dommaker/studio-shared', () => ({
-  modelGateway: { promptJson: mockPromptJson },
   logger: mockLogger,
+}));
+
+vi.mock('../system-executor.js', () => ({
+  getSystemExecutor: () => ({ runJson: mockRunJson }),
 }));
 
 vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
@@ -71,7 +74,7 @@ describe('semanticDedup (F1a)', () => {
   it('条目 < 2 → 0，不调 LLM', async () => {
     mockStoreList.mockReturnValue([entry('a')]);
     expect(await semanticDedup()).toBe(0);
-    expect(mockPromptJson).not.toHaveBeenCalled();
+    expect(mockRunJson).not.toHaveBeenCalled();
   });
 
   it('LLM 判定重复 → archive 重复项并把 sourceReferences 去重转移到保留项', async () => {
@@ -80,7 +83,7 @@ describe('semanticDedup (F1a)', () => {
       id === 'a'
         ? entry('a', { sourceReferences: [{ workflow: 'w1', timestamp: '1' }] })
         : entry('b', { sourceReferences: [{ workflow: 'w1', timestamp: '1' }, { workflow: 'w2', timestamp: '2' }] }));
-    mockPromptJson.mockResolvedValue({ duplicates: [{ keep: 'a', merge: ['b'], reason: '同一问题' }] });
+    mockRunJson.mockResolvedValue({ duplicates: [{ keep: 'a', merge: ['b'], reason: '同一问题' }] });
 
     expect(await semanticDedup()).toBe(1);
     expect(mockStoreUpdate).toHaveBeenCalledWith('b', { maturity: 'archived' });
@@ -94,14 +97,14 @@ describe('semanticDedup (F1a)', () => {
 
   it('无重复 → 0 且不更新', async () => {
     mockStoreList.mockReturnValue([entry('a'), entry('b')]);
-    mockPromptJson.mockResolvedValue({ duplicates: [] });
+    mockRunJson.mockResolvedValue({ duplicates: [] });
     expect(await semanticDedup()).toBe(0);
     expect(mockStoreUpdate).not.toHaveBeenCalled();
   });
 
   it('LLM 批次失败 → warn 容错，返回 0', async () => {
     mockStoreList.mockReturnValue([entry('a'), entry('b')]);
-    mockPromptJson.mockRejectedValue(new Error('down'));
+    mockRunJson.mockRejectedValue(new Error('down'));
     expect(await semanticDedup()).toBe(0);
     expect(mockLogger.warn).toHaveBeenCalledWith('[KnowledgeAgent] Semantic dedup batch failed', expect.objectContaining({ type: 'pitfall' }));
   });
@@ -110,14 +113,14 @@ describe('semanticDedup (F1a)', () => {
 describe('assessQuality (F1b)', () => {
   it('空语料 → 0，不调 LLM', async () => {
     expect(await assessQuality()).toBe(0);
-    expect(mockPromptJson).not.toHaveBeenCalled();
+    expect(mockRunJson).not.toHaveBeenCalled();
   });
 
   it('keep=false 且非 proven → archive；proven 保留不动', async () => {
     mockStoreList.mockReturnValue([entry('x'), entry('y', { maturity: 'proven' })]);
     mockStoreGet.mockImplementation((id: string) =>
       id === 'x' ? entry('x') : entry('y', { maturity: 'proven' }));
-    mockPromptJson.mockResolvedValue({
+    mockRunJson.mockResolvedValue({
       assessments: [
         { id: 'x', keep: false, reason: '泛泛而谈', score: 2 },
         { id: 'y', keep: false, reason: '低质', score: 1 },
@@ -131,7 +134,7 @@ describe('assessQuality (F1b)', () => {
 
   it('全部 keep → 0', async () => {
     mockStoreList.mockReturnValue([entry('x')]);
-    mockPromptJson.mockResolvedValue({ assessments: [{ id: 'x', keep: true, reason: '有价值', score: 9 }] });
+    mockRunJson.mockResolvedValue({ assessments: [{ id: 'x', keep: true, reason: '有价值', score: 9 }] });
     expect(await assessQuality()).toBe(0);
     expect(mockStoreUpdate).not.toHaveBeenCalled();
   });
@@ -141,7 +144,7 @@ describe('validateFreshness (F1c)', () => {
   it('近 7 天无 git 变更 → 0 早退，不调 LLM', async () => {
     mockGitLog.stdout = '';
     expect(await validateFreshness()).toBe(0);
-    expect(mockPromptJson).not.toHaveBeenCalled();
+    expect(mockRunJson).not.toHaveBeenCalled();
   });
 
   it('条目内容命中变更文件且 stillValid=false → 标 draft', async () => {
@@ -150,7 +153,7 @@ describe('validateFreshness (F1c)', () => {
       entry('s1', { title: 'foo-service 的重试逻辑', content: 'foo-service 使用指数退避' }),
       entry('s2', { title: '无关条目', content: '完全无关的内容' }),
     ]);
-    mockPromptJson.mockResolvedValue({
+    mockRunJson.mockResolvedValue({
       results: [
         { id: 's1', stillValid: false, reason: '代码已重写' },
       ],
@@ -159,7 +162,7 @@ describe('validateFreshness (F1c)', () => {
     expect(await validateFreshness()).toBe(1);
     expect(mockStoreUpdate).toHaveBeenCalledWith('s1', { maturity: 'draft' });
     // s2 未命中变更文件 → 不进入 LLM 批次
-    const prompt = mockPromptJson.mock.calls[0][0] as string;
+    const prompt = mockRunJson.mock.calls[0][0] as string;
     expect(prompt).toContain('s1');
     expect(prompt).not.toContain('s2');
   });
@@ -167,7 +170,7 @@ describe('validateFreshness (F1c)', () => {
   it('stillValid=true → 不更新', async () => {
     mockGitLog.stdout = 'foo.ts\n';
     mockStoreList.mockReturnValue([entry('s1', { title: 'foo 说明', content: 'foo 行为' })]);
-    mockPromptJson.mockResolvedValue({ results: [{ id: 's1', stillValid: true, reason: '仍正确' }] });
+    mockRunJson.mockResolvedValue({ results: [{ id: 's1', stillValid: true, reason: '仍正确' }] });
     expect(await validateFreshness()).toBe(0);
     expect(mockStoreUpdate).not.toHaveBeenCalled();
   });
@@ -187,7 +190,7 @@ describe('resolveContradictions (F1d)', () => {
     ]);
     mockStoreGet.mockImplementation((id: string) =>
       id === 'a' ? entry('a', { maturity: 'proven', tags: ['cache'] }) : entry('b', { maturity: 'draft', tags: ['cache'] }));
-    mockPromptJson.mockResolvedValue({
+    mockRunJson.mockResolvedValue({
       contradictions: [{ entries: ['a', 'b'], description: '缓存策略相反', resolution: '保留 a' }],
     });
 
@@ -200,6 +203,6 @@ describe('resolveContradictions (F1d)', () => {
   it('无矛盾 → 0；无共同 tag 的分组 → 不调 LLM', async () => {
     mockStoreList.mockReturnValue([entry('a', { tags: ['x'] }), entry('b', { tags: ['y'] })]);
     expect(await resolveContradictions()).toBe(0);
-    expect(mockPromptJson).not.toHaveBeenCalled();
+    expect(mockRunJson).not.toHaveBeenCalled();
   });
 });
