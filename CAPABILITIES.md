@@ -321,3 +321,4 @@
 | delegation-gate | apps/api/src/modules/workunit/delegation-gate.ts | DelegationGate — A2A 协作委派闸门（2026-07-agent-to-agent-collab-design §4.1 机制 3 / §4.2） |
 | system-executor | apps/api/src/modules/agents/system-executor.ts | SystemExecutor - 系统级 LLM 调用执行器（AC-1.6 ~ AC-1.10） |
 | review-dispatcher | apps/api/src/modules/agents/review-dispatcher.ts | ReviewDispatcher - AC-4.1 ~ AC-4.5: 状态机驱动的 review 系统代派 |
+| remote-executor | apps/api/src/modules/agents/remote-executor.ts | RemoteExecutor — §9.6 P2: 远程节点执行器 |
