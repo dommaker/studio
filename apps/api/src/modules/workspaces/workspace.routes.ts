@@ -334,6 +334,29 @@ router.get('/:id/runtimes', requireAuth(), async (req: Request, res: Response) =
 
 // ─── GET /api/v1/workspaces/:id ───
 
+router.get('/runtimes', requireAuth(), async (_req: Request, res: Response) => {
+  try {
+    // AC-2.6: 聚合所有 workspace 的 runtimes，供前端角色初始化向导使用
+    const workspaces = await listWorkspaces();
+    const allRuntimes: Array<{ nodeId: string; provider: string; version: string; workspaceName: string }> = [];
+    for (const ws of workspaces) {
+      const runtimes = (ws.runtimes as Array<{ provider: string; version: string }> | undefined) ?? [];
+      for (const rt of runtimes) {
+        allRuntimes.push({
+          nodeId: ws.id,
+          provider: rt.provider,
+          version: rt.version,
+          workspaceName: ws.name ?? ws.id,
+        });
+      }
+    }
+    return res.json({ runtimes: allRuntimes });
+  } catch (error) {
+    logger.error({ error }, '[Workspace] List all runtimes failed');
+    return res.status(500).json({ error: 'Failed to list runtimes', code: 'WORKSPACE_RUNTIMES_ERROR' });
+  }
+});
+
 router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
   try {
     const workspace = await readWorkspace(req.params.id);

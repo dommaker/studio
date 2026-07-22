@@ -134,6 +134,19 @@ describe('AgentLoopRegistry', () => {
       expect(mockTriggerScheduler.registerTrigger).toHaveBeenCalledTimes(1);
       expect(registry.list()).toHaveLength(1);
     });
+
+    it('AC-1.3: mount 跳过 name=studio 角色（status=skipped，不创建 loop）', async () => {
+      const studioProfile = makeProfile('studio-id');
+      studioProfile.name = 'studio';
+      const entry = await registry.mount(studioProfile);
+
+      expect(entry.status).toBe('skipped');
+      expect(entry.loop).toBeNull();
+      // 不注册 trigger
+      expect(mockTriggerScheduler.registerTrigger).not.toHaveBeenCalled();
+      // get 仍可查到（便于调试）
+      expect(registry.get('studio-id')).toBe(entry);
+    });
   });
 
   describe('start-failure isolation', () => {

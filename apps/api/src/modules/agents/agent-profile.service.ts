@@ -8,6 +8,9 @@
 import { randomUUID } from 'crypto';
 import { eventBus, FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 
+/** 保留角色名：系统内置 studio 角色专用，用户不可创建/改名/删除 */
+export const STUDIO_ROLE_NAME = 'studio';
+
 export interface CreateAgentProfileInput {
   name: string;
   description?: string;
@@ -31,12 +34,46 @@ export type AgentProfileWithOnline = AgentProfileData & {
   lastErrorAt: string | null;
 };
 
+/**
+ * AC-1.1: 幂等创建内置 studio 角色。
+ *
+ * studio 角色是系统任务执行身份（systemExecutor 读其 provider），
+ * 不通过 AgentProfileService.create 走事件流（避免触发 agentLoopRegistry mount），
+ * 直接 fileStore.createProfile。已存在则跳过。
+ */
+export async function ensureStudioProfile(fileStore: FileStore): Promise<AgentProfileData> {
+  const all = await fileStore.listProfiles();
+  const existing = all.find(p => p.name === STUDIO_ROLE_NAME);
+  if (existing) return existing;
+
+  const now = new Date().toISOString();
+  const data: AgentProfileData = {
+    id: randomUUID(),
+    name: STUDIO_ROLE_NAME,
+    description: null,
+    channels: '[]',
+    provider: null,
+    status: 'active',
+    createdAt: now,
+    updatedAt: now,
+  };
+  await fileStore.createProfile(data);
+  // 故意不发 agent-profile.created 事件：studio 角色 mount 应跳过（AC-1.3），
+  // 走事件流会触发 mount，虽 mount 内部会跳过，但事件语义不对（不是用户创建）。
+  return data;
+}
+
 export class AgentProfileService {
   constructor(
     private fileStore: FileStore,
   ) {}
 
   async create(input: CreateAgentProfileInput): Promise<AgentProfileData> {
+    // AC-1.2: 保留名拒绝
+    if (input.name === STUDIO_ROLE_NAME) {
+      throw new Error(`name "${STUDIO_ROLE_NAME}" is reserved for system role`);
+    }
+
     // Check name uniqueness by scanning all profiles
     const all = await this.fileStore.listProfiles();
     if (all.some(p => p.name === input.name)) {
@@ -75,10 +112,17 @@ export class AgentProfileService {
     provider?: string;
     page?: number;
     limit?: number;
+    /** AC-1.4: 默认排除 studio 角色；true 时包含 */
+    includeSystem?: boolean;
   }): Promise<{ data: AgentProfileWithOnline[]; total: number }> {
-    const { status, channelId, provider, page = 1, limit = 20 } = options ?? {};
+    const { status, channelId, provider, page = 1, limit = 20, includeSystem = false } = options ?? {};
 
     let profiles = await this.fileStore.listProfiles(status ? { status } : undefined);
+
+    // AC-1.4: 默认排除 studio 角色（系统内置，不面向用户）
+    if (!includeSystem) {
+      profiles = profiles.filter(p => p.name !== STUDIO_ROLE_NAME);
+    }
 
     // When filtering by channelId, fetch all (no pagination) to avoid missing members across pages
     const fetchAll = !!channelId;
@@ -140,6 +184,11 @@ export class AgentProfileService {
     const existing = await this.fileStore.getProfile(id);
     if (!existing) throw new Error(`AgentProfile not found: ${id}`);
 
+    // AC-1.2: 拒绝改名到 studio
+    if (input.name === STUDIO_ROLE_NAME) {
+      throw new Error(`name "${STUDIO_ROLE_NAME}" is reserved for system role`);
+    }
+
     const patch: Partial<AgentProfileData> = {};
     if (input.name !== undefined) patch.name = input.name;
     if (input.description !== undefined) patch.description = input.description;
@@ -159,6 +208,12 @@ export class AgentProfileService {
   }
 
   async delete(id: string): Promise<void> {
+    // AC-1.5: 拒绝删除 studio 角色
+    const existing = await this.fileStore.getProfile(id);
+    if (existing?.name === STUDIO_ROLE_NAME) {
+      throw new Error(`studio role cannot be deleted`);
+    }
+
     await this.fileStore.deleteProfile(id);
     // F1: notify AgentLoopRegistry (unmounts the loop)
     eventBus.publish('agent-profile.deleted', { profileId: id });

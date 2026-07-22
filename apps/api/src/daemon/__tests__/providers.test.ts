@@ -123,6 +123,20 @@ describe('health probe resolution', () => {
     const p = writeConfig({ claude: { healthProbeArgs: ['doctor'] } });
     expect(buildHealthProbeCommand('claude', p)).toBe('claude doctor');
   });
+
+  /**
+   * 防回归：health probe 绝不能调 LLM。
+   * health probe 只检查二进制可用性（--version），不应产生任何 API 调用。
+   */
+  test('health probe never triggers LLM calls', () => {
+    const llmTriggerPatterns = ['--print', '-p ', 'chat/completions', '"ok"', '--prompt'];
+    for (const providerId of ['claude', 'kimi', 'codex', 'opencode']) {
+      const cmd = buildHealthProbeCommand(providerId, '/nonexistent/providers.json');
+      for (const pattern of llmTriggerPatterns) {
+        expect(cmd, `${providerId} probe "${cmd}" must not contain "${pattern}"`).not.toContain(pattern);
+      }
+    }
+  });
 });
 
 describe('spawn-args templates (daemon buildSpawnArgs)', () => {

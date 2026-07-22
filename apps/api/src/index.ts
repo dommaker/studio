@@ -178,8 +178,13 @@ async function start() {
       const { agentLoopRegistry } = await import('./modules/agents/agent-loop-registry.js');
       const { registerDefaultTriggers } = await import('./modules/agents/default-triggers.js');
       const { getTriggerScheduler } = await import('./modules/triggers/trigger-registry.js');
+      const { ensureStudioProfile } = await import('./modules/agents/agent-profile.service.js');
 
       const fileStore = new FileStore();
+      // AC-1.1: 启动时幂等创建内置 studio 角色（系统任务执行身份）
+      try {
+        await ensureStudioProfile(fileStore);
+      } catch (e) { logger.warn('[StudioRole] ensureStudioProfile failed', { error: String(e) }); }
       const profiles = await fileStore.listProfiles({ status: 'active' });
       const scheduler = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
       scheduler.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)

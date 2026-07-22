@@ -2,12 +2,12 @@
  * AgentProfile CRUD 测试 — AS-025 Phase 2
  * Storage: FileStore（迁移自 Prisma）
  */
-import { describe, it, expect, afterAll, beforeAll, beforeEach } from 'vitest';
+import { describe, it, expect, afterAll, beforeAll, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { FileStore } from '@dommaker/studio-shared';
-import { AgentProfileService } from '../agent-profile.service.js';
+import { FileStore, eventBus } from '@dommaker/studio-shared';
+import { AgentProfileService, ensureStudioProfile } from '../agent-profile.service.js';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-profile-test-'));
@@ -302,5 +302,98 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     expect(result.data.length).toBeGreaterThanOrEqual(1);
 
     await fileStore.deleteChannel(ch2Id);
+  });
+});
+
+// ── AC Group 1: 内置 studio 角色 ──
+
+describe('AC Group 1: studio role', () => {
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-role-test-'));
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore);
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('ensureStudioProfile', () => {
+    it('首次调用创建 name=studio 的 profile，provider=null', async () => {
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.name).toBe('studio');
+      expect(profile.provider).toBeNull();
+      expect(profile.status).toBe('active');
+      expect(profile.channels).toBe('[]');
+      expect(profile.description).toBeNull();
+    });
+
+    it('已存在时跳过创建（幂等）', async () => {
+      const first = await ensureStudioProfile(fileStore);
+      const second = await ensureStudioProfile(fileStore);
+      expect(second.id).toBe(first.id);
+    });
+
+    it('不发 agent-profile.created 事件（避免触发 mount）', async () => {
+      const events: string[] = [];
+      const handler = () => events.push('created');
+      eventBus.subscribe('agent-profile.created', handler);
+      try {
+        await ensureStudioProfile(fileStore);
+        expect(events).toHaveLength(0);
+      } finally {
+        eventBus.unsubscribe('agent-profile.created', handler);
+      }
+    });
+
+    it('ensureStudioProfile 后 list 默认不含 studio（includeSystem=false）', async () => {
+      await ensureStudioProfile(fileStore);
+      const result = await service.list();
+      expect(result.data.find(p => p.name === 'studio')).toBeUndefined();
+    });
+  });
+
+  describe('create rejects studio name', () => {
+    it('create name=studio 拒绝', async () => {
+      await expect(service.create({ name: 'studio' })).rejects.toThrow(/studio.*reserved|reserved.*studio/i);
+    });
+
+    it('create name=Studio（大小写变体）允许（不保留）', async () => {
+      // 只有精确 'studio' 保留，大小写变体不保留
+      const profile = await service.create({ name: 'Studio' });
+      expect(profile.name).toBe('Studio');
+    });
+  });
+
+  describe('update rejects rename to studio', () => {
+    it('update 改名到 studio 拒绝', async () => {
+      const created = await service.create({ name: 'some-role' });
+      await expect(service.update(created.id, { name: 'studio' })).rejects.toThrow(/studio.*reserved|reserved.*studio/i);
+    });
+  });
+
+  describe('list includeSystem', () => {
+    it('list({ includeSystem: true }) 包含 studio 角色', async () => {
+      await ensureStudioProfile(fileStore);
+      const result = await service.list({ includeSystem: true });
+      expect(result.data.find(p => p.name === 'studio')).toBeDefined();
+    });
+
+    it('list 默认排除 studio 角色', async () => {
+      await ensureStudioProfile(fileStore);
+      const result = await service.list();
+      expect(result.data.find(p => p.name === 'studio')).toBeUndefined();
+    });
+  });
+
+  describe('delete rejects studio', () => {
+    it('delete studio 角色拒绝', async () => {
+      const studio = await ensureStudioProfile(fileStore);
+      await expect(service.delete(studio.id)).rejects.toThrow(/studio.*cannot be deleted|cannot delete.*studio/i);
+    });
   });
 });

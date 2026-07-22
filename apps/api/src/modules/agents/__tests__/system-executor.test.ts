@@ -1,0 +1,235 @@
+/**
+ * SystemExecutor 单元测试
+ *
+ * AC-1.6 ~ AC-1.10
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { FileStore } from '@dommaker/studio-shared';
+
+// Mock @dommaker/studio-shared/node 的 execSh + provider helpers
+const { mockExecSh } = vi.hoisted(() => ({
+  mockExecSh: vi.fn(),
+}));
+const { mockResolveProvider } = vi.hoisted(() => ({
+  mockResolveProvider: vi.fn(),
+}));
+const { mockBuildArgs } = vi.hoisted(() => ({
+  mockBuildArgs: vi.fn(),
+}));
+
+vi.mock('@dommaker/studio-shared/node', () => ({
+  execSh: mockExecSh,
+  resolveProviderDefinition: mockResolveProvider,
+  buildArgsFromTemplate: mockBuildArgs,
+}));
+
+import { SystemExecutor, StudioRoleNotConfiguredError, SystemExecutorJsonParseError } from '../system-executor.js';
+import { ensureStudioProfile } from '../agent-profile.service.js';
+
+function createTempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'system-executor-test-'));
+}
+
+describe('SystemExecutor', () => {
+  let tmpDir: string;
+  let fileStore: FileStore;
+  let eventsFile: string;
+  let executor: SystemExecutor;
+
+  beforeEach(() => {
+    tmpDir = createTempDir();
+    fileStore = new FileStore(tmpDir);
+    eventsFile = path.join(tmpDir, 'studio-events.jsonl');
+    executor = new SystemExecutor(fileStore, eventsFile);
+
+    // Default provider mock：claude provider
+    mockResolveProvider.mockReturnValue({
+      id: 'claude',
+      displayName: 'Claude Code',
+      binaries: ['claude'],
+      spawn: { baseArgs: ['--print', '--output-format', '{outputFormat}'], defaultOutputFormat: 'json', promptViaStdin: true },
+    });
+    mockBuildArgs.mockReturnValue({
+      args: ['--print', '--output-format', 'json'],
+      promptViaStdin: true,
+    });
+    mockExecSh.mockReset();
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  describe('AC-1.7 run()', () => {
+    it('返回 SystemExecutorResult（output + usage + durationMs）', async () => {
+      await ensureStudioProfile(fileStore);
+      // 更新 studio 角色 provider=claude
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({
+        stdout: JSON.stringify({ result: 'hello', usage: { input_tokens: 100, output_tokens: 50 } }),
+        stderr: '',
+      });
+
+      const result = await executor.run('test prompt');
+      expect(result.output).toContain('hello');
+      expect(result.usage).toEqual({ inputTokens: 100, outputTokens: 50 });
+      expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('CLI 输出非 JSON 时 usage=undefined，output 返回原始 stdout', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: 'plain text output', stderr: '' });
+
+      const result = await executor.run('test');
+      expect(result.output).toBe('plain text output');
+      expect(result.usage).toBeUndefined();
+    });
+  });
+
+  describe('AC-1.8 runJson<T>()', () => {
+    it('解析 JSON 输出返回 T', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      const mockResult = { duplicates: [{ keep: 'id1', merge: ['id2'], reason: 'same' }] };
+      mockExecSh.mockResolvedValue({ stdout: JSON.stringify(mockResult), stderr: '' });
+
+      const result = await executor.runJson<{ duplicates: unknown[] }>('dedup prompt');
+      expect(result.duplicates).toHaveLength(1);
+      expect((result.duplicates[0] as { keep: string }).keep).toBe('id1');
+    });
+
+    it('JSON parse 失败抛 SystemExecutorJsonParseError（含 rawOutput）', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: 'not json {', stderr: '' });
+
+      await expect(executor.runJson('bad prompt')).rejects.toBeInstanceOf(SystemExecutorJsonParseError);
+      try {
+        await executor.runJson('bad prompt');
+      } catch (e) {
+        expect((e as SystemExecutorJsonParseError).rawOutput).toBe('not json {');
+      }
+    });
+  });
+
+  describe('AC-1.7 provider=null 抛 StudioRoleNotConfiguredError', () => {
+    it('studio 角色 provider=null 时抛 StudioRoleNotConfiguredError', async () => {
+      await ensureStudioProfile(fileStore);  // provider 默认 null
+      await expect(executor.run('test')).rejects.toBeInstanceOf(StudioRoleNotConfiguredError);
+      expect(mockExecSh).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('AC-1.10 写 system:tokens 事件', () => {
+    it('run 完成后写 system:tokens 事件到 studio-events.jsonl', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({
+        stdout: JSON.stringify({ result: 'ok', usage: { input_tokens: 200, output_tokens: 100 } }),
+        stderr: '',
+      });
+
+      await executor.run('test prompt');
+
+      // 读 studio-events.jsonl 验证
+      const content = fs.readFileSync(eventsFile, 'utf-8');
+      const lines = content.trim().split('\n');
+      expect(lines.length).toBeGreaterThanOrEqual(1);
+      const evt = JSON.parse(lines[lines.length - 1]);
+      expect(evt.type).toBe('system:tokens');
+      expect(evt.source).toBe('system-executor');
+      const payload = JSON.parse(evt.payload);
+      expect(payload.provider).toBe('claude');
+      expect(payload.inputTokens).toBe(200);
+      expect(payload.outputTokens).toBe(100);
+      expect(payload.promptSignature).toBeDefined();
+      expect(typeof payload.promptSignature).toBe('string');
+      expect(payload.promptSignature).toHaveLength(8);
+    });
+
+    it('usage 缺失时 inputTokens/outputTokens 记 null 不编造', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: 'no json', stderr: '' });
+
+      await executor.run('test');
+
+      const content = fs.readFileSync(eventsFile, 'utf-8');
+      const evt = JSON.parse(content.trim().split('\n').pop()!);
+      const payload = JSON.parse(evt.payload);
+      expect(payload.inputTokens).toBeNull();
+      expect(payload.outputTokens).toBeNull();
+    });
+  });
+
+  describe('AC-1.9 SystemExecutorOptions', () => {
+    it('传 cwd 时作为 execSh 的 cwd', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test', { cwd: '/tmp/test-cwd' });
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ cwd: '/tmp/test-cwd' }),
+      );
+    });
+
+    it('传 systemPrompt 时合并到 stdin（systemPrompt + prompt）', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('user prompt', { systemPrompt: 'system instruction' });
+
+      const callArgs = mockExecSh.mock.calls[0][1];
+      expect(callArgs.stdin).toContain('system instruction');
+      expect(callArgs.stdin).toContain('user prompt');
+    });
+
+    it('默认 timeoutMs=30000', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+
+      await executor.run('test');
+
+      expect(mockExecSh).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ timeoutMs: 30_000 }),
+      );
+    });
+  });
+});

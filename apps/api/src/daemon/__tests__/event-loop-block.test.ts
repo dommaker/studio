@@ -10,6 +10,7 @@ vi.mock('@dommaker/studio-shared/node', () => ({
   execSh: vi.fn().mockResolvedValue({
     stdout: '{"result": "DONE", "usage": {"input_tokens": 100, "output_tokens": 50, "cache_read_input_tokens": 0}}',
   }),
+  buildHealthProbeCommand: vi.fn(() => 'claude --version'),
   resolveSessionId: vi.fn((worktree: string) => {
     const sidFile = path.join(worktree, '.daemon', 'session-id');
     try { return fs.readFileSync(sidFile, 'utf-8').trim(); } catch { return null; }

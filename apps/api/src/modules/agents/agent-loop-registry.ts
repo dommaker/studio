@@ -9,8 +9,8 @@ import { AgentLoop } from './agent-loop.js';
 
 export interface MountedLoop {
   profileId: string;
-  loop: AgentLoop;
-  status: 'running' | 'failed';
+  loop: AgentLoop | null;
+  status: 'running' | 'failed' | 'skipped';
   error?: string;
 }
 
@@ -27,6 +27,19 @@ export class AgentLoopRegistry {
   async mount(profile: AgentProfileData): Promise<MountedLoop> {
     const existing = this.loops.get(profile.id);
     if (existing) return existing;
+
+    // AC-1.3: studio 角色不 mount（系统任务执行身份，不消费 WU，由 systemExecutor 直接 spawn）
+    if (profile.name === 'studio') {
+      const entry: MountedLoop = {
+        profileId: profile.id,
+        loop: null,
+        status: 'skipped',
+        error: 'system role',
+      };
+      this.loops.set(profile.id, entry);
+      logger.info(`[AgentLoopRegistry] Skipped mount for system role ${profile.name}`);
+      return entry;
+    }
 
     const loop = new AgentLoop(profile, this.fileStore);
     let entry: MountedLoop;
@@ -55,7 +68,7 @@ export class AgentLoopRegistry {
     const entry = this.loops.get(profileId);
     if (!entry) return;
     try {
-      entry.loop.stop();
+      entry.loop?.stop();
     } catch (err) {
       logger.warn(`[AgentLoopRegistry] Stop failed for ${profileId}: ${err instanceof Error ? err.message : String(err)}`);
     }

@@ -3,7 +3,7 @@
 import { SessionManager } from './session-manager.js';
 import type { JobSpec, TaskResult } from './session-manager.js';
 import { logger } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { execSh, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import * as path from 'path';
 import * as os from 'os';
 import { execSync } from 'child_process';
@@ -111,15 +111,22 @@ class StudioDaemon {
     return this.manager.getAllStatus();
   }
 
-  /** 启动健康探测：确认 Claude CLI 能在当前环境正常启动 */
+  /**
+   * 启动健康探测：确认 Claude CLI 二进制可用（不调 LLM）。
+   *
+   * 只跑 `claude --version`，复用 buildHealthProbeCommand 与
+   * agent-loop / session-manager 保持一致。禁止用 `claude --print -p ...`
+   * 之类会触发 LLM 调用的命令做 health probe。
+   */
   private runHealthProbe(): void {
-    const cmd = 'IS_SANDBOX=1 claude --print --output-format json -p "ok" 2>&1';
-    execSh(cmd, { cwd: REPO_DIR, timeoutMs: 30_000, maxBuffer: 1024 * 1024 })
-      .then(() => logger.info('[StudioDaemon] Health probe passed'))
+    const cmd = buildHealthProbeCommand('claude');
+    execSh(cmd, { cwd: REPO_DIR, timeoutMs: 10_000, maxBuffer: 1024 * 1024 })
+      .then(() => logger.info('[StudioDaemon] Health probe passed', { cmd }))
       .catch((e: any) => {
-        logger.error('[StudioDaemon] Health probe FAILED — Claude CLI may be broken', {
+        logger.error('[StudioDaemon] Health probe FAILED - Claude CLI may be broken', {
+          cmd,
           error: (e?.message || String(e)).slice(0, 200),
-          hint: 'Check IS_SANDBOX, STUDIO_API_KEY, claude binary path',
+          hint: 'Check claude binary path',
         });
       });
   }

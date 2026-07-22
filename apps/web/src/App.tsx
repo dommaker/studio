@@ -18,6 +18,7 @@ const WikiDocPage = lazy(() => import('./pages/WikiDocPage').then(m => ({ defaul
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })));
 const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => ({ default: m.OAuthCallback })));
 const WorkUnitListPage = lazy(() => import('./pages/WorkUnitListPage').then(m => ({ default: m.WorkUnitListPage })));
+const RolesSetup = lazy(() => import('./pages/RolesSetup').then(m => ({ default: m.RolesSetup })));
 const AgentDashboardPage = lazy(() => import('./pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
 const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ default: m.MonitoringPage })));
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(m => ({ default: m.WorkspacePage })));
@@ -44,6 +45,9 @@ import { LandingPage } from './components/LandingPage';
 import { useWebSocket, WebSocketProvider } from './api/websocket';
 import { useWebSocketHandlers } from './hooks/useWebSocketHandlers';
 import { useGlobalModals } from './hooks/useGlobalModals';
+import { channelApi } from './api/channel';
+import { StudioRoleSetupModal, isStudioRoleSetupDismissed } from './components/setup/StudioRoleSetupModal';
+import { FirstRoleSetupModal, isFirstRoleSetupDismissed } from './components/setup/FirstRoleSetupModal';
 import './styles/theme.css';
 
 export default function App() {
@@ -67,6 +71,9 @@ export default function App() {
 
   // 本地 state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  // AC-2.2/2.3: studio 角色 provider=null + 无用户角色 弹框提醒
+  const [studioRoleSetupOpen, setStudioRoleSetupOpen] = useState(false);
+  const [firstRoleSetupOpen, setFirstRoleSetupOpen] = useState(false);
 
   // WebSocket
   const { status: wsStatus } = useWebSocket({
@@ -79,6 +86,26 @@ export default function App() {
     loadAgents();
     loadExecutions();
   }, [loadAgents, loadExecutions]);
+
+  // AC-2.1~2.3: 启动时检测 studio 角色 provider + 无用户角色
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    channelApi.listAgents(undefined, { includeSystem: true })
+      .then((res) => {
+        const profiles = res.data.data;
+        const studio = profiles.find(p => p.name === 'studio');
+        const userRoles = profiles.filter(p => p.name !== 'studio');
+        // AC-2.2: studio provider=null 且未 dismiss -> 弹框
+        if (studio && !studio.provider && !isStudioRoleSetupDismissed()) {
+          setStudioRoleSetupOpen(true);
+        }
+        // AC-2.3: 无用户角色且未 dismiss -> 弹框
+        if (userRoles.length === 0 && !isFirstRoleSetupDismissed()) {
+          setFirstRoleSetupOpen(true);
+        }
+      })
+      .catch(() => { /* 静默，不阻塞 UI */ });
+  }, [isAuthenticated]);
 
   // OAuth callback: bypass guest wall (user is returning from OAuth provider)
   if (location.pathname === '/auth/callback') {
@@ -149,6 +176,27 @@ export default function App() {
         onCloseProject={() => setSelectedProject(null)}
       />
 
+      {/* AC-2.2: studio 角色 provider=null 弹框 */}
+      <StudioRoleSetupModal
+        open={studioRoleSetupOpen}
+        onClose={() => setStudioRoleSetupOpen(false)}
+        onSave={async (provider) => {
+          try {
+            const res = await channelApi.listAgents(undefined, { includeSystem: true });
+            const studio = res.data.data.find(p => p.name === 'studio');
+            if (studio) await channelApi.updateAgent(studio.id, { provider });
+          } catch { /* best-effort */ }
+        }}
+      />
+      {/* AC-2.3: 无用户角色弹框 */}
+      <FirstRoleSetupModal
+        open={firstRoleSetupOpen}
+        onClose={() => setFirstRoleSetupOpen(false)}
+        onCreate={async (data) => {
+          try { await channelApi.createAgent(data); } catch { /* best-effort */ }
+        }}
+      />
+
       <TopNav
         wsStatus={wsStatus === 'connected' ? 'connected' : 'disconnected'}
         onMenuClick={() => setIsSidebarOpen(true)}
@@ -194,6 +242,7 @@ export default function App() {
             <Route path="/agents" element={<Suspense fallback={<PageLoader />}><AgentDashboardPage /></Suspense>} />
             <Route path="/monitoring" element={<Suspense fallback={<PageLoader />}><MonitoringPage /></Suspense>} />
             <Route path="/workspaces/:id" element={<Suspense fallback={<PageLoader />}><WorkspacePage /></Suspense>} />
+            <Route path="/setup/roles" element={<Suspense fallback={<PageLoader />}><RolesSetup /></Suspense>} />
           </Routes>
         </div>
       </div>
