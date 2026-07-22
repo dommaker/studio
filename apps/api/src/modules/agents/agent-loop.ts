@@ -10,6 +10,7 @@ import { join } from 'path';
 import * as os from 'os';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
+import { RemoteExecutor, RemoteNodeUnreachableError } from './remote-executor.js';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
 import { checkDelegation, effectiveParentCollab, resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT, type CollabMeta } from '../workunit/delegation-gate.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
@@ -100,9 +101,14 @@ export class AgentLoop {
     this.acceptedTypes = this.parseAcceptedTypes(role.description);
     // W-4 fix + F3: parse channels from role.channels JSON（容错历史双重编码值）
     this.myChannels = parseChannels(role.channels);
-    // §9.6: 执行面走 Executor 接口。TODO(§9.6 P1): profile.nodeId === 'local' →
-    // LocalExecutor，否则 RemoteExecutor(nodeId)；profile 尚无 nodeId 字段，目前恒为 LocalExecutor。
-    this.executor = new LocalExecutor();
+    // §9.6: 执行面走 Executor 接口。profile.nodeId: undefined/'local' → LocalExecutor
+    // 其他 → RemoteExecutor(nodeId)。P1 WS 通道留桩，RemoteExecutor 暂抛不可达错误。
+    if (role.nodeId && role.nodeId !== 'local') {
+      this.executor = new RemoteExecutor(role.nodeId);
+      logger.info('[AgentLoop] RemoteExecutor selected', { role: role.name, nodeId: role.nodeId });
+    } else {
+      this.executor = new LocalExecutor();
+    }
   }
 
   /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle.
@@ -606,7 +612,15 @@ export class AgentLoop {
       // W-3 fix: executeLightweight failure returns error result instead of throwing
       // This allows recordResult to update metadata and monitoring to handle it (consecutiveStuck → blocked)
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(`[AgentLoop] agentStep executeLightweight failed: ${message}`);
+      logger.error(`[AgentLoop] agentStep execute failed: ${message}`);
+      // AC-8.7: 远程节点不可达 → need_input，由人工评估是否需要切换节点
+      if (err instanceof RemoteNodeUnreachableError) {
+        return {
+          action: 'need_input' as const,
+          summary: `远程节点不可达: ${message}`,
+          metadataUpdates: { ...metadataUpdates, lastError: `remote-unreachable: ${this.executor instanceof RemoteExecutor ? (this.executor as any).nodeId : 'unknown'}` },
+        };
+      }
       return {
         action: 'need_input' as const, // increments consecutiveStuck
         summary: `Agent execution failed: ${message}`,

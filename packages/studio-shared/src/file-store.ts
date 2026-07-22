@@ -38,6 +38,8 @@ export interface AgentProfileData {
   provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601
+  /** §9.6 P1: 节点 ID。undefined 或 'local' → 本地执行；其他 → RemoteExecutor 路由。 */
+  nodeId?: string;
 }
 
 export interface RuntimeStateData {

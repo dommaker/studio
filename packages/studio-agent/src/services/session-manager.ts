@@ -71,6 +71,8 @@ export interface AgentTask {
   onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
   /** P3: 覆盖 tier 默认超时 (ms)。提供时替代 getSessionTimeout(tier)。 */
   timeoutMs?: number;
+  /** §9.6 P1: 远程节点 ID。undefined/'local' → LocalExecutor，否则 RemoteExecutor。 */
+  nodeId?: string;
 }
 
 // ─── 执行结果 ───

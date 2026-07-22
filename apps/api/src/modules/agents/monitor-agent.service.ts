@@ -23,6 +23,7 @@ import * as systemProbes from './monitor-system-probes.js';
 import * as alerting from './monitor-alerts.js';
 import * as reports from './monitor-reports.js';
 import * as lifecycle from './monitor-lifecycle.js';
+import { isWorkspaceConnected } from '../workspaces/ws-gateway.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 
@@ -78,6 +79,7 @@ export class MonitorAgent {
     await this.systemTriageCheck();
     await this.gcStaleWorktrees();
     await this.checkKnowledgeHealth();
+    await this.checkNodeOffline();
     alerts.push(...await this.checkSessionFileHealth());
     // DailyReflection: 每天 23:50 聚合一次每日洞察
     await this.dailyReflection();
@@ -162,6 +164,29 @@ export class MonitorAgent {
 
   private async dataLifecycle(): Promise<void> {
     return lifecycle.dataLifecycle(this.fileStore, this.lifecycleState);
+  }
+
+  /** AC-8.7: 扫描有 nodeId 的 profile，标记离线节点。 */
+  private async checkNodeOffline(): Promise<void> {
+    try {
+      const profiles = await this.fileStore.listProfiles();
+      for (const profile of profiles) {
+        if (!profile.nodeId || profile.nodeId === 'local') continue;
+        const connected = isWorkspaceConnected(profile.id);
+        if (!connected && profile.status === 'active') {
+          logger.warn('[MonitorAgent] Node offline', { profile: profile.name, nodeId: profile.nodeId });
+          try {
+            await this.fileStore.updateProfile(profile.id, {
+              status: 'inactive',
+            });
+          } catch (updateErr) {
+            logger.warn('[MonitorAgent] Failed to mark profile offline', { error: String(updateErr) });
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('[MonitorAgent] checkNodeOffline failed', { error: String(err) });
+    }
   }
 }
 
