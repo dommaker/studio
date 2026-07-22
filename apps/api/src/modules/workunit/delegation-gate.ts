@@ -15,6 +15,8 @@
  *  7. 重复：同（父 WU, 目标 profile）不存在未完结（非 done/closed）子 WU；
  *  8. 预算：checkTreeBudget() —— P1 留桩（TODO §4.3 P2 接通）。
  */
+import * as os from 'os';
+import * as path from 'path';
 import { FileStore, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
 
@@ -26,10 +28,10 @@ export const MAX_DELEGATIONS_PER_PARENT = 3;
 /** §4.2 协作树总 WU 数上限（含根） */
 export const MAX_TREE_SIZE = 8;
 
-/** §4.2 深度上限：P1 = 1（仅根 WU 可委派），env STUDIO_COLLAB_MAX_DEPTH 覆盖（可配置 1–3） */
+/** §4.2 深度上限：P2 = 2（根->子->孙三层），env STUDIO_COLLAB_MAX_DEPTH 覆盖（可配置 1–3） */
 export function resolveMaxDepth(env: NodeJS.ProcessEnv = process.env): number {
   const raw = Number(env.STUDIO_COLLAB_MAX_DEPTH);
-  return Number.isInteger(raw) && raw >= 1 ? raw : 1;
+  return Number.isInteger(raw) && raw >= 1 ? raw : 2;
 }
 
 /** 从 metadata JSON 串容错解析 collab（损坏/缺失 → null） */
@@ -81,8 +83,50 @@ export interface DelegationCheckResult {
  * workunit:tokens（executionTokens），`树已耗 + 子 WU 预估 ≤ TREE_TOKEN_BUDGET(400K)`。
  * P1 留桩恒通过。
  */
-export function checkTreeBudget(): { pass: boolean; reason?: string } {
-  return { pass: true };
+/** §4.3 树级 token 预算上限 */
+export const TREE_TOKEN_BUDGET = 400_000;
+
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+
+/**
+ * §4.3 P2 树级预算闸门：按 collab.rootId 聚合 studio-events.jsonl 的
+ * workunit:tokens（executionTokens），树已耗 ≤ TREE_TOKEN_BUDGET(400K)。
+ * 子 WU 预估取 0（TODO 后续基于历史均值）。文件不存在 -> treeTotal=0，pass。
+ */
+export async function checkTreeBudget(
+  rootId: string,
+  fileStore: FileStore,
+): Promise<{ pass: boolean; reason?: string; treeTotal: number }> {
+  const snapshots = await fileStore.getIndex();
+  const treeWuIds = new Set<string>([rootId]);
+  for (const s of snapshots) {
+    const collab = readCollab(s.metadata);
+    if (collab?.rootId === rootId) treeWuIds.add(s.id);
+  }
+
+  let treeTotal = 0;
+  try {
+    const events = await fileStore.readJsonl<{ type: string; payload: string }>(STUDIO_EVENTS_JSONL);
+    for (const evt of events) {
+      if (evt.type !== 'workunit:tokens') continue;
+      try {
+        const payload = JSON.parse(evt.payload) as { workUnitId: string; executionTokens: number | null };
+        if (!treeWuIds.has(payload.workUnitId)) continue;
+        if (typeof payload.executionTokens === 'number') {
+          treeTotal += payload.executionTokens;
+        }
+      } catch { /* skip malformed */ }
+    }
+  } catch { /* 文件不存在 -> treeTotal=0，pass */ }
+
+  if (treeTotal > TREE_TOKEN_BUDGET) {
+    return {
+      pass: false,
+      reason: `协作树预算超限（已耗 ${treeTotal} / 上限 ${TREE_TOKEN_BUDGET}）`,
+      treeTotal,
+    };
+  }
+  return { pass: true, treeTotal };
 }
 
 /** 委派闸门主入口：按序校验，首个失败项即返回 */
@@ -151,8 +195,8 @@ export async function checkDelegation(input: DelegationCheckInput): Promise<Dele
     return { pass: false, reason: `已存在委派给 @${targetName} 的未完结子任务` };
   }
 
-  // 8. 预算（P1 留桩）
-  const budget = checkTreeBudget();
+  // 8. 预算：按 rootId 聚合 studio-events.jsonl 的 executionTokens
+  const budget = await checkTreeBudget(parentCollab.rootId, fileStore);
   if (!budget.pass) {
     return { pass: false, reason: budget.reason ?? '协作树预算超限' };
   }

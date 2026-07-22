@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { loadManifest, type SkillEntry } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseAcceptedTypesFromDescription } from '../skills/skill-selector.js';
 import { skillLoaderService } from '../skills/skill-loader.js';
@@ -59,6 +59,12 @@ export interface WorkUnitMetadata {
   };
   childGuardHint?: string;    // §6-2 父 complete 守卫：存在未完结子 WU 被打回时的提示（注入下一轮 prompt 后清除）
   freshnessInterrupts?: number; // §4.2 发言层新鲜度检查：结果回帖被「房间已变」连续拦截次数（≥2 后照发并归零）
+  /** AC-4.5: reviewer 角色 complete 时写入，ReviewDispatcher 据此调 reviewPassed/reviewRejected */
+  reviewReport?: {
+    approved: boolean;
+    reason?: string;
+    issues?: Array<{ severity: string; message: string }>;
+  };
   [key: string]: unknown;     // 允许扩展字段
 }
 
@@ -245,7 +251,63 @@ export class WorkUnitService {
       });
     }
 
-    return snapshotToData(snapshot);
+    const parentWu = snapshotToData(snapshot);
+
+    // AC-6.3: 频道默认管线展开（D10: 只展开第一跳，后续靠 agent DELEGATE）
+    if (input.type === 'feature' && input.channelId) {
+      await this.expandDefaultPipelineHead(parentWu).catch(err =>
+        logger.warn('[WorkUnit] defaultPipeline expansion failed (non-blocking)', {
+          parentId: parentWu.id,
+          error: String(err),
+        }),
+      );
+    }
+
+    return parentWu;
+  }
+
+  /**
+   * AC-6.3 + D10: 展开频道默认管线的第一跳。
+   * 仅 type='feature' 父 WU 触发；创建 type=pipeline[0] 的链头子 WU，
+   * 后续跳由 agent DELEGATE 协议接管（不全链路代码展开）。
+   */
+  private async expandDefaultPipelineHead(parent: WorkUnitData): Promise<void> {
+    const channel = await this.fileStore.getChannel(parent.channelId!);
+    if (!channel?.defaultPipeline || channel.defaultPipeline.length === 0) return;
+
+    const firstName = channel.defaultPipeline[0];
+    const profiles = await this.fileStore.listProfiles({ status: 'active' });
+    const firstProfile: AgentProfileData | undefined = profiles.find(p => p.name === firstName);
+    if (!firstProfile) {
+      logger.warn('[WorkUnit] defaultPipeline profile not found or inactive', {
+        parentId: parent.id,
+        profileName: firstName,
+      });
+      return;
+    }
+
+    const childMeta: WorkUnitMetadata = {
+      collab: {
+        rootId: parent.id,
+        depth: 1,
+        chain: [firstProfile.id],
+        delegatedBy: { profileId: parent.assigneeId ?? '', workUnitId: parent.id },
+        delegationCount: 0,
+      },
+    };
+
+    // 递归 create：子 WU type=profile.name（非 'feature'），不会再次触发展开
+    await this.create({
+      type: firstProfile.name,
+      scope: parent.scope,
+      assigneeId: firstProfile.id,
+      status: 'unassigned',
+      channelId: parent.channelId,
+      parentId: parent.id,
+      workspaceId: parent.workspaceId ?? null,
+      reqId: parent.reqId ?? null,
+      metadata: childMeta,
+    });
   }
 
   /**

@@ -9,7 +9,8 @@
  * 知识成熟度：draft → verified → proven → archived (与 harness 对齐)
  */
 
-import { logger, modelGateway, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
+import { getSystemExecutor } from '../agents/system-executor.js';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'node:fs';
@@ -96,7 +97,7 @@ export class KnowledgeEvolutionService {
 执行状态: ${execution.status}
 执行结果: ${JSON.stringify(execution.error || execution.nodeExecutions).slice(0, 2000)}`;
 
-      const extraction = await modelGateway.promptJson(extractionPrompt);
+      const extraction = await getSystemExecutor().runJson<Array<{ title?: string; content?: string; type?: string; tags?: string[] }>>(extractionPrompt);
 
       const entries = Array.isArray(extraction) ? extraction : [];
 
@@ -193,12 +194,12 @@ export class KnowledgeEvolutionService {
         // 使用 LLM 识别模式
         try {
           const titles = typeDocs.map(d => d.title).join(', ');
-          const analysis = await modelGateway.promptJson(
+          const analysis = await getSystemExecutor().runJson<{ pattern?: string; recommendation?: string }>(
             'agent_default',
-            `分析以下同类型文档标题，识别共同模式和最佳实践。返回 JSON: {pattern: string, recommendation: string}
+            { systemPrompt: `分析以下同类型文档标题，识别共同模式和最佳实践。返回 JSON: {pattern: string, recommendation: string}
 
 类型: ${type}
-文档: ${titles}`,
+文档: ${titles}` },
           );
 
           if (analysis?.pattern) {

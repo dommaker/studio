@@ -14,6 +14,7 @@ import {
   effectiveParentCollab,
   MAX_DELEGATIONS_PER_PARENT,
   MAX_TREE_SIZE,
+  TREE_TOKEN_BUDGET,
 } from '../delegation-gate.js';
 
 function makeProfile(id: string, name: string, status = 'active'): AgentProfileData {
@@ -112,14 +113,24 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
     expect(result.reason).toContain('不能委派给自己');
   });
 
-  it('深度：root（depth=0）可委派（depth+1=1 ≤ MAX_DEPTH=1）', async () => {
+  it('深度：root（depth=0）可委派（depth+1=1 ≤ MAX_DEPTH=2）', async () => {
     const parent = await makeParent();
-    expect(resolveMaxDepth()).toBe(1);
+    expect(resolveMaxDepth()).toBe(2);
     const result = await check(parent, 'AgentB');
     expect(result.pass).toBe(true);
   });
 
-  it('深度：depth=1 的子 WU 再委派（第二跳）在 MAX_DEPTH=1 下拒绝', async () => {
+  it('深度：depth=1 的子 WU 再委派（第二跳）在默认 MAX_DEPTH=2 下放行', async () => {
+    const parent = await makeParent({
+      collab: { rootId: 'root-wu', depth: 1, chain: [profileA.id, profileB.id], delegationCount: 0 },
+    });
+    const result = await check(parent, 'AgentC', profileB);
+    expect(result.pass).toBe(true);
+  });
+
+  it('深度：STUDIO_COLLAB_MAX_DEPTH=1 时第二跳拒绝', async () => {
+    process.env.STUDIO_COLLAB_MAX_DEPTH = '1';
+    expect(resolveMaxDepth()).toBe(1);
     const parent = await makeParent({
       collab: { rootId: 'root-wu', depth: 1, chain: [profileA.id, profileB.id], delegationCount: 0 },
     });
@@ -128,13 +139,16 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
     expect(result.reason).toContain('深度上限');
   });
 
-  it('深度：STUDIO_COLLAB_MAX_DEPTH=2 时第二跳放行', async () => {
-    process.env.STUDIO_COLLAB_MAX_DEPTH = '2';
-    expect(resolveMaxDepth()).toBe(2);
+  it('深度：STUDIO_COLLAB_MAX_DEPTH=3 时第三跳放行', async () => {
+    const profileD = makeProfile('profile-d', 'AgentD');
+    await fileStore.createProfile(profileD);
+    await fileStore.updateChannel(channelId, { members: stringifyChannels([profileA.id, profileB.id, profileC.id, profileD.id]) });
+    process.env.STUDIO_COLLAB_MAX_DEPTH = '3';
+    expect(resolveMaxDepth()).toBe(3);
     const parent = await makeParent({
-      collab: { rootId: 'root-wu', depth: 1, chain: [profileA.id, profileB.id], delegationCount: 0 },
+      collab: { rootId: 'root-wu', depth: 2, chain: [profileA.id, profileB.id, profileC.id], delegationCount: 0 },
     });
-    const result = await check(parent, 'AgentC', profileB);
+    const result = await check(parent, 'AgentD', profileC);
     expect(result.pass).toBe(true);
   });
 
@@ -225,8 +239,33 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
     expect(result.reason).toContain('未完结子任务');
   });
 
-  it('预算：checkTreeBudget 留桩恒通过（TODO §4.3 P2）', () => {
-    expect(checkTreeBudget()).toEqual({ pass: true });
+  it('预算：checkTreeBudget 无事件文件 -> pass + treeTotal=0', async () => {
+    const parent = await makeParent();
+    const result = await checkTreeBudget(parent.id, fileStore);
+    expect(result.pass).toBe(true);
+    expect(result.treeTotal).toBe(0);
+  });
+
+  it('预算：checkTreeBudget 超限 -> fail + reason 含数字', async () => {
+    const parent = await makeParent();
+    // 写入超预算的 token 事件
+    const eventsFile = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+    fs.mkdirSync(path.dirname(eventsFile), { recursive: true });
+    const overBudget = TREE_TOKEN_BUDGET + 10_000;
+    fs.writeFileSync(eventsFile, JSON.stringify({
+      type: 'workunit:tokens',
+      payload: JSON.stringify({ workUnitId: parent.id, injectedTokens: 0, executionTokens: overBudget }),
+      createdAt: new Date().toISOString(),
+    }) + '\n');
+    try {
+      const result = await checkTreeBudget(parent.id, fileStore);
+      expect(result.pass).toBe(false);
+      expect(result.reason).toContain(String(overBudget));
+      expect(result.reason).toContain(String(TREE_TOKEN_BUDGET));
+      expect(result.treeTotal).toBe(overBudget);
+    } finally {
+      fs.rmSync(eventsFile, { force: true });
+    }
   });
 
   it('readCollab / effectiveParentCollab：缺失、损坏与根默认口径', async () => {

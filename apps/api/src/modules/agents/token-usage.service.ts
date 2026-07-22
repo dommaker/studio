@@ -21,6 +21,8 @@
 import * as os from 'os';
 import * as path from 'path';
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { TREE_TOKEN_BUDGET } from '../workunit/delegation-gate.js';
+import { readCollab } from '../workunit/delegation-gate.js';
 
 const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
 
@@ -211,4 +213,107 @@ async function computeAgentTokenUsage(
   };
 
   return usage;
+}
+
+// ── §8.4.3 树聚合（AC-5.5）──
+
+export interface TreeTokenReport {
+  rootId: string;
+  nodes: Array<{
+    workUnitId: string;
+    profileName: string | null;
+    status: string;
+    injectedTokens: number | null;
+    executionTokens: number | null;
+    totalTokens: number | null;
+  }>;
+  rootTotal: number;
+  budgetRemaining: number;
+}
+
+/**
+ * 按 rootId 聚合树内每 WU 的 token 开销（只读，不修改事件文件）。
+ * 文件不存在/索引为空 -> 返回全零报告（不抛错）。
+ */
+export async function aggregateTreeTokens(
+  rootId: string,
+  fileStore: FileStore,
+  opts?: { eventsFile?: string },
+): Promise<TreeTokenReport> {
+  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+
+  // 1. 找出子树 WU + 建立 workUnitId -> snapshot 映射
+  const snapshots = await fileStore.getIndex().catch(() => [] as WorkUnitSnapshot[]);
+  const treeNodes = new Map<string, WorkUnitSnapshot>();
+  const root = snapshots.find(s => s.id === rootId);
+  if (root) treeNodes.set(rootId, root);
+  for (const s of snapshots) {
+    const collab = readCollab(s.metadata);
+    if (collab?.rootId === rootId) treeNodes.set(s.id, s);
+  }
+
+  // 2. 读 events 聚合每 WU 的 tokens
+  const perWuTokens = new Map<string, { injected: number; execution: number }>();
+  try {
+    const events = await fileStore.readJsonl<Record<string, unknown>>(eventsFile);
+    for (const evt of events) {
+      if (evt?.type !== 'workunit:tokens') continue;
+      let payload: Record<string, unknown>;
+      try {
+        payload = typeof evt.payload === 'string' ? JSON.parse(evt.payload) : (evt.payload as Record<string, unknown>) ?? {};
+      } catch {
+        continue;
+      }
+      const wuId = typeof payload.workUnitId === 'string' ? payload.workUnitId : null;
+      if (!wuId || !treeNodes.has(wuId)) continue;
+      const prev = perWuTokens.get(wuId) ?? { injected: 0, execution: 0 };
+      const injected = typeof payload.injectedTokens === 'number' ? payload.injectedTokens : 0;
+      const execution = typeof payload.executionTokens === 'number' ? payload.executionTokens : 0;
+      prev.injected += injected;
+      prev.execution += execution;
+      perWuTokens.set(wuId, prev);
+    }
+  } catch {
+    // 文件不存在 -> 全零
+  }
+
+  // 3. 读 profiles 拿 name（assigneeId 是 instance id，需经 state.roleId 反查 profile）
+  const allStates = await fileStore.listStates().catch(() => []);
+  const allProfiles = await fileStore.listProfiles().catch(() => []);
+  const instanceToProfile = new Map<string, string>();
+  for (const st of allStates) {
+    if (st?.id && st?.roleId) instanceToProfile.set(st.id, st.roleId);
+  }
+  const profileNameById = new Map<string, string>();
+  for (const p of allProfiles) {
+    profileNameById.set(p.id, p.name);
+  }
+
+  // 4. 组装 nodes
+  const nodes: TreeTokenReport['nodes'] = [];
+  let rootTotal = 0;
+  for (const [wuId, snap] of treeNodes) {
+    const tokens = perWuTokens.get(wuId);
+    const profileId = snap.assigneeId ? instanceToProfile.get(snap.assigneeId) : undefined;
+    const profileName = profileId ? profileNameById.get(profileId) ?? null : null;
+    const injected = tokens?.injected ?? null;
+    const execution = tokens?.execution ?? null;
+    const total = tokens ? tokens.injected + tokens.execution : null;
+    nodes.push({
+      workUnitId: wuId,
+      profileName,
+      status: snap.status,
+      injectedTokens: injected,
+      executionTokens: execution,
+      totalTokens: total,
+    });
+    if (typeof execution === 'number') rootTotal += execution;
+  }
+
+  return {
+    rootId,
+    nodes,
+    rootTotal,
+    budgetRemaining: TREE_TOKEN_BUDGET - rootTotal,
+  };
 }

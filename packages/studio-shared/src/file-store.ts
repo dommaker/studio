@@ -38,6 +38,8 @@ export interface AgentProfileData {
   provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601
+  /** §9.6 P1: 节点 ID。undefined 或 'local' → 本地执行；其他 → RemoteExecutor 路由。 */
+  nodeId?: string;
 }
 
 export interface RuntimeStateData {
@@ -64,6 +66,8 @@ export interface ChannelData {
   discordChannelId: string | null;
   discordWebhookUrl: string | null;
   members: string;         // JSON: AgentProfile ID[]
+  /** AC-6.1: 频道默认管线 AgentProfile name 数组。空数组=清除；undefined=未配置 */
+  defaultPipeline?: string[];
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601
 }

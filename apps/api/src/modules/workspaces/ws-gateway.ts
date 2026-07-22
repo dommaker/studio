@@ -7,6 +7,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import type { IncomingMessage, Server as HttpServer } from 'http';
 import crypto from 'crypto';
 import { FileStore } from '@dommaker/studio-shared';
+import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { logger } from '../../utils/logger.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -20,7 +21,8 @@ const WORKSPACES_DIR = path.join(os.homedir(), '.studio', 'workspaces');
 type ClientMessage =
   | { type: 'auth'; workspaceId: string; token: string }
   | { type: 'pong' }
-  | { type: 'discover_response'; requestId: string; entries: DiscoverEntry[]; error?: string };
+  | { type: 'discover_response'; requestId: string; entries: DiscoverEntry[]; error?: string }
+  | { type: 'agent-task-result'; requestId: string; result?: ExecutionResult; error?: string };
 
 export interface DiscoverEntry {
   name: string;
@@ -50,10 +52,17 @@ interface PendingDiscover {
   timer: ReturnType<typeof setTimeout>;
 }
 
+interface PendingTask {
+  resolve: (result: ExecutionResult) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
 // ── Singleton state ──
 
 const activeConnections = new Map<string, ConnectionEntry>();
 const pendingDiscovers = new Map<string, PendingDiscover>();
+const pendingTasks = new Map<string, PendingTask>();
 
 // ── Token verification (shared with workspaceAuth middleware) ──
 
@@ -178,6 +187,21 @@ function handleMessage(entry: ConnectionEntry, raw: string): void {
         pending.reject(new Error(msg.error));
       } else {
         pending.resolve(msg.entries || []);
+      }
+      break;
+    }
+
+    case 'agent-task-result': {
+      const pending = pendingTasks.get(msg.requestId);
+      if (!pending) break;
+      clearTimeout(pending.timer);
+      pendingTasks.delete(msg.requestId);
+      if (msg.error) {
+        pending.reject(new Error(msg.error));
+      } else if (msg.result) {
+        pending.resolve(msg.result);
+      } else {
+        pending.reject(new Error('agent-task-result missing result'));
       }
       break;
     }
@@ -325,6 +349,12 @@ export function attachWsGateway(
       pending.reject(new Error('Server shutting down'));
     }
     pendingDiscovers.clear();
+    // Reject all pending tasks
+    for (const [, pending] of pendingTasks) {
+      clearTimeout(pending.timer);
+      pending.reject(new Error('Server shutting down'));
+    }
+    pendingTasks.clear();
   };
 }
 
@@ -392,6 +422,42 @@ export function discoverViaWs(
 }
 
 /**
+ * Send an AgentTask to a remote daemon via WS and wait for the execution result.
+ * Throws on timeout or if no active connection for the workspace.
+ */
+export function sendAgentTask(
+  workspaceId: string,
+  task: AgentTask,
+  timeoutMs = 30_000,
+): Promise<ExecutionResult> {
+  return new Promise((resolve, reject) => {
+    const entry = activeConnections.get(workspaceId);
+    if (!entry || entry.ws.readyState !== WebSocket.OPEN || !entry.authenticated) {
+      reject(new Error('No active connection for workspace'));
+      return;
+    }
+
+    const requestId = crypto.randomUUID();
+
+    const timer = setTimeout(() => {
+      pendingTasks.delete(requestId);
+      reject(new Error('Agent task timed out'));
+    }, timeoutMs);
+
+    pendingTasks.set(requestId, { resolve, reject, timer });
+
+    // Strip non-serializable callbacks
+    const safeTask = { ...task, onProgress: undefined };
+
+    entry.ws.send(JSON.stringify({
+      type: 'agent-task',
+      requestId,
+      task: safeTask,
+    }));
+  });
+}
+
+/**
  * Notify workspace that a task is available.
  * Returns true if notification was sent.
  */
@@ -411,4 +477,4 @@ export function getActiveConnectionCount(): number {
 }
 
 // Expose internals for testing
-export { activeConnections, pendingDiscovers };
+export { activeConnections, pendingDiscovers, pendingTasks };

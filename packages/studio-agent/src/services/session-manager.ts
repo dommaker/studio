@@ -15,7 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, buildSpawnEnv, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
+import { logger, getModelForTier, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile, resolveProviderDefinition, buildHealthProbeCommand, type ProviderId } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
@@ -71,6 +71,8 @@ export interface AgentTask {
   onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
   /** P3: 覆盖 tier 默认超时 (ms)。提供时替代 getSessionTimeout(tier)。 */
   timeoutMs?: number;
+  /** §9.6 P1: 远程节点 ID。undefined/'local' → LocalExecutor，否则 RemoteExecutor。 */
+  nodeId?: string;
 }
 
 // ─── 执行结果 ───
@@ -396,14 +398,8 @@ export class AgentExecutor {
           const { stdout } = await execSh(cmd, {
             cwd: worktree,
             env: {
-              ...buildSpawnEnv({
-                tier: (task.model as 'fast' | 'standard' | 'premium') || 'standard',
-                role: 'executor',
-                extra: {
-                  STUDIO_EXECUTION_ID: task.executionId,
-                  ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
-                },
-              }),
+              STUDIO_EXECUTION_ID: task.executionId,
+              ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
               HOME: `/tmp/execution-${task.executionId}`,
             },
             timeoutMs: this.config.sessionTimeoutMinutes * 60 * 1000,

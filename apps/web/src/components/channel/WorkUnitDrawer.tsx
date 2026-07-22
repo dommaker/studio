@@ -9,6 +9,7 @@ import {
 } from '../../api/workunit';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
+import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 
 export type DrawerState = { kind: 'wu'; id: string } | { kind: 'req'; id: string } | null;
 
@@ -77,6 +78,7 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
   const [error, setError] = useState('');
+  const [showTreeTokens, setShowTreeTokens] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -177,6 +179,18 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
           </div>
         </div>
       )}
+
+      <div className="mc-block-label">
+        树级 token 开销
+        <button
+          className="mc-wu-link"
+          style={{ marginLeft: 'auto' }}
+          onClick={() => setShowTreeTokens(s => !s)}
+        >
+          {showTreeTokens ? '收起' : '展开'}
+        </button>
+      </div>
+      {showTreeTokens && <TreeTokenDrawer workUnitId={id} onClose={() => setShowTreeTokens(false)} />}
 
       {overhead && (
         <>

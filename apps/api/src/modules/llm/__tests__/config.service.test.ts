@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 const isCI = !!process.env.CI;
 const describeIf = isCI ? describe.skip : describe;
 
-const { configsStore, MockFileStore, getProviderApiKeyMock, modelGatewayMock } = vi.hoisted(() => {
+const { configsStore, MockFileStore } = vi.hoisted(() => {
   const configsStore: any[] = [];
   class MockFileStore {
     async readJson(_path: string): Promise<any[]> {
@@ -23,8 +23,6 @@ const { configsStore, MockFileStore, getProviderApiKeyMock, modelGatewayMock } =
   return {
     configsStore,
     MockFileStore,
-    getProviderApiKeyMock: vi.fn(),
-    modelGatewayMock: { addProvider: vi.fn() },
   };
 });
 
@@ -33,8 +31,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return {
     ...actual,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    modelGateway: modelGatewayMock,
-    getProviderApiKey: (...args: unknown[]) => getProviderApiKeyMock(...args),
     FileStore: MockFileStore,
   };
 });
@@ -63,25 +59,30 @@ describeIf('LLMConfigService', () => {
   beforeEach(() => {
     configsStore.length = 0;
     service = new LLMConfigService();
-    getProviderApiKeyMock.mockReset();
-    modelGatewayMock.addProvider.mockReset();
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
   });
 
+  const saveEnv = (key: string, val: string | undefined) => process.env[key] = val;
+  const clearEnv = (key: string) => delete process.env[key];
+
   describe('resolve', () => {
     it('returns exact scope match', async () => {
       seedConfig();
-      getProviderApiKeyMock.mockReturnValue('sk-test-key-1234');
-
-      const result = await service.resolve('orchestrator');
-
-      expect(result.provider).toBe('anthropic');
-      expect(result.model).toBe('claude-sonnet-4-6');
-      expect(result.apiKey).toBe('sk-test-key-1234');
-      expect(result.source).toBe('orchestrator');
+      const prev = process.env.ANTHROPIC_AUTH_TOKEN;
+      process.env.ANTHROPIC_AUTH_TOKEN = 'sk-test-key-1234';
+      try {
+        const result = await service.resolve('orchestrator');
+        expect(result.provider).toBe('anthropic');
+        expect(result.model).toBe('claude-sonnet-4-6');
+        expect(result.apiKey).toBe('sk-test-key-1234');
+        expect(result.source).toBe('orchestrator');
+      } finally {
+        if (prev === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
+        else process.env.ANTHROPIC_AUTH_TOKEN = prev;
+      }
     });
 
     it('falls back to agent_default for agent_* scopes', async () => {
@@ -92,35 +93,35 @@ describeIf('LLMConfigService', () => {
         baseUrl: 'https://api.openai.com/v1',
         model: 'gpt-4o',
       });
-      getProviderApiKeyMock.mockReturnValue('sk-openai-key');
-
-      const result = await service.resolve('agent_claude');
-
-      expect(result.source).toBe('agent_default');
-      expect(result.model).toBe('gpt-4o');
+      const prev = process.env.OPENAI_API_KEY;
+      process.env.OPENAI_API_KEY = 'sk-openai-key';
+      try {
+        const result = await service.resolve('agent_claude');
+        expect(result.source).toBe('agent_default');
+        expect(result.model).toBe('gpt-4o');
+      } finally {
+        if (prev === undefined) delete process.env.OPENAI_API_KEY;
+        else process.env.OPENAI_API_KEY = prev;
+      }
     });
 
     it('falls back to env when no stored config', async () => {
-      getProviderApiKeyMock.mockReturnValue(null);
-
-      const original = process.env.STUDIO_API_KEY;
-      process.env.STUDIO_API_KEY = 'test-key-ok';
+      const original = process.env.DEEPSEEK_API_KEY;
+      process.env.DEEPSEEK_API_KEY = 'test-key-ok';
 
       try {
         const result = await service.resolve('studio');
         expect(result.provider).toBe('deepseek');
-        expect(result.source).toBe('env:studio');
+        expect(result.source).toBe('env:deepseek');
       } finally {
-        if (original === undefined) delete process.env.STUDIO_API_KEY;
-        else process.env.STUDIO_API_KEY = original;
+        if (original === undefined) delete process.env.DEEPSEEK_API_KEY;
+        else process.env.DEEPSEEK_API_KEY = original;
       }
     });
 
     it('throws when no config found at all', async () => {
-      getProviderApiKeyMock.mockReturnValue(null);
-
       // Clear all env vars that might provide fallback
-      const envKeys = ['LLM_API_KEY_USER', 'STUDIO_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'];
+      const envKeys = ['LLM_API_KEY_USER', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'];
       const originals: Record<string, string | undefined> = {};
       for (const key of envKeys) {
         originals[key] = process.env[key];
@@ -139,10 +140,9 @@ describeIf('LLMConfigService', () => {
 
     it('throws when stored config exists but no API key in env', async () => {
       seedConfig();
-      getProviderApiKeyMock.mockReturnValue(null);
 
       // Clear env fallbacks
-      const envKeys = ['LLM_API_KEY_USER', 'STUDIO_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'];
+      const envKeys = ['LLM_API_KEY_USER', 'DEEPSEEK_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'OPENAI_API_KEY', 'LLM_API_KEY', 'CODING_API_KEY_1'];
       const originals: Record<string, string | undefined> = {};
       for (const key of envKeys) {
         originals[key] = process.env[key];
@@ -178,30 +178,40 @@ describeIf('LLMConfigService', () => {
     });
 
     it('upserts config and returns masked result', async () => {
-      getProviderApiKeyMock.mockReturnValue('sk-test-abcd');
+      const prev = process.env.ANTHROPIC_AUTH_TOKEN;
+      process.env.ANTHROPIC_AUTH_TOKEN = 'sk-test-abcd';
+      try {
+        const result = await service.saveConfig({
+          scope: 'orchestrator',
+          provider: 'anthropic',
+          model: 'claude-sonnet-4-6',
+        });
 
-      const result = await service.saveConfig({
-        scope: 'orchestrator',
-        provider: 'anthropic',
-        model: 'claude-sonnet-4-6',
-      });
-
-      expect(result.apiKeyMasked).toBe('****abcd');
-      expect(result.model).toBe('claude-sonnet-4-6');
-      // 配置已持久化到 FileStore
-      expect(configsStore).toHaveLength(1);
-      expect(configsStore[0].scope).toBe('orchestrator');
+        expect(result.apiKeyMasked).toBe('****abcd');
+        expect(result.model).toBe('claude-sonnet-4-6');
+        // 配置已持久化到 FileStore
+        expect(configsStore).toHaveLength(1);
+        expect(configsStore[0].scope).toBe('orchestrator');
+      } finally {
+        if (prev === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
+        else process.env.ANTHROPIC_AUTH_TOKEN = prev;
+      }
     });
   });
 
   describe('getConfigs', () => {
     it('returns masked configs', async () => {
       seedConfig({ baseUrl: null });
-      getProviderApiKeyMock.mockReturnValue('sk-1234');
-
-      const result = await service.getConfigs('orchestrator');
-      expect(result).toHaveLength(1);
-      expect(result[0].apiKeyMasked).toContain('****');
+      const prev = process.env.ANTHROPIC_AUTH_TOKEN;
+      process.env.ANTHROPIC_AUTH_TOKEN = 'sk-1234';
+      try {
+        const result = await service.getConfigs('orchestrator');
+        expect(result).toHaveLength(1);
+        expect(result[0].apiKeyMasked).toContain('****');
+      } finally {
+        if (prev === undefined) delete process.env.ANTHROPIC_AUTH_TOKEN;
+        else process.env.ANTHROPIC_AUTH_TOKEN = prev;
+      }
     });
   });
 

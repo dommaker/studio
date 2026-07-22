@@ -47,7 +47,7 @@
 | cache | packages/studio-shared/src/harness/runtime/cache.ts | Constraint Check Cache（S7 修复） |
 | session-metrics | packages/studio-shared/src/harness/session-metrics.ts | Session Metrics — parse claude --output-format json output into structured metrics. |
 | llm-client | packages/studio-shared/src/llm/llm-client.ts | LLM 客户端 |
-| model-gateway | packages/studio-shared/src/llm/model-gateway.ts | Model Gateway - 统一 LLM 调用网关 |
+| system-executor | apps/api/src/modules/agents/system-executor.ts | SystemExecutor — 系统级 LLM 调用抽象，替代 modelGateway |
 | memory-store | packages/studio-shared/src/memory-store.ts | MemoryStore — 内存替代 Redis (B0-011) |
 | node | packages/studio-shared/src/node.ts | Node.js 专用入口 — 包含 CLI 和 Config 模块 |
 | goal-status | packages/studio-shared/src/types/goal-status.ts | Goal 状态类型 — SQLite 不支持 enum，用 TypeScript 类型守卫约束 |
@@ -135,7 +135,7 @@
 | config.service | apps/api/src/modules/llm/config.service.ts | LLM Config Service - 加密存储 + 分层配置解析 |
 | creation-analyzer | apps/api/src/modules/llm/creation-analyzer.ts | 创建意图分析器 - 从自然语言生成 Skill/Workflow 配置 |
 | intent-analyzer | apps/api/src/modules/llm/intent-analyzer.ts | LLM 意图分析器 - 使用 /api/v1/llm/chat（统一使用 Studio LLM 配置） |
-| proxy | apps/api/src/modules/llm/proxy.ts | 获取 LLM 配置 |
+
 | admin.routes | apps/api/src/modules/mcp/admin.routes.ts | MCP Admin Routes — tool management, permissions, audit |
 | permission.service | apps/api/src/modules/mcp/permission.service.ts | MCP Permission Service — role×tool access control + audit logging |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
@@ -181,13 +181,9 @@
 | output-capture | packages/studio-agent/src/services/output-capture.ts | Output Capture — 进度读取 + 输出文件收集 + session 指标记录 |
 | session-manager | packages/studio-agent/src/services/session-manager.ts | Session Manager — Agent 执行器核心（session loop + async spawn） |
 | worktree-resolver | packages/studio-agent/src/services/worktree-resolver.ts | Worktree Resolver — git worktree 创建 + harness 配置传播 + 文件桥 |
-| model-router | packages/studio-shared/src/llm/model-router.ts | Model Router — 类型定义 + 模型选择/路由逻辑 + 统一调用入口 + prompt 缓存 |
-| provider-registry | packages/studio-shared/src/llm/provider-registry.ts | Provider Registry — LLM provider 注册/查询 |
-| usage-tracker | packages/studio-shared/src/llm/usage-tracker.ts | Usage Tracker — token/cost 用量统计 |
 | user-behavior | packages/studio-shared/src/types/user-behavior.ts | User Behavior Profile types — KE-003 |
 | skill-loader | apps/api/src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
 | daemon-routes | apps/api/src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
-| discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | gc-service | apps/api/src/modules/workspaces/gc-service.ts | GC Service — AS-020 P5: Garbage collection for old tasks and events |
 | local-workspace | apps/api/src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
 | task-routes | apps/api/src/modules/workspaces/task-routes.ts | Task Routes — AS-020 P5: UI/Server task management |
@@ -195,7 +191,7 @@
 | workspace.routes | apps/api/src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
 | ws-gateway | apps/api/src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
 | agent-runner | packages/studio-agent/src/services/agent-runner.ts | Agent Runner — unified executor merging AgentExecutor + TaskExecutor |
-| spawn-claude-cli | packages/studio-shared/src/llm/spawn-claude-cli.ts | CLI Spawn 环境变量构造 |
+
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
 | failure-classifier | apps/api/src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
 | prompt-builder | apps/api/src/modules/knowledge/consumers/prompt-builder.ts | Unified knowledge injection entry point. |
@@ -216,7 +212,6 @@
 | agent-profile.service | apps/api/src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | apps/api/src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
 | eval-case-store | apps/api/src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
-| improver-scheduler.service | apps/api/src/modules/knowledge/improver-scheduler.service.ts | ImproverScheduler — 自文档化调度器 |
 | monitoring.routes | apps/api/src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | monitoring.service | apps/api/src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
 | sdd-freshness.service | apps/api/src/modules/sdd/sdd-freshness.service.ts | SDD Doc Freshness Service |
@@ -320,3 +315,6 @@
 | skill-demotion | apps/api/src/modules/skills/skill-demotion.ts | §10.6 skill 生命周期降级通路（聚合 + 降级提案）。 |
 | delegation-gate | apps/api/src/modules/workunit/delegation-gate.ts | DelegationGate — A2A 协作委派闸门（2026-07-agent-to-agent-collab-design §4.1 机制 3 / §4.2） |
 | system-executor | apps/api/src/modules/agents/system-executor.ts | SystemExecutor - 系统级 LLM 调用执行器（AC-1.6 ~ AC-1.10） |
+| review-dispatcher | apps/api/src/modules/agents/review-dispatcher.ts | ReviewDispatcher - AC-4.1 ~ AC-4.5: 状态机驱动的 review 系统代派 |
+| remote-executor | apps/api/src/modules/agents/remote-executor.ts | RemoteExecutor — §9.6 P2: 远程节点执行器 |
+| discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |

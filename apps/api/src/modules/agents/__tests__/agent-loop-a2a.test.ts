@@ -180,10 +180,10 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
         delegationCount: 0,
       });
 
-      // delegate 卡片：@A 委派 @B：<scope>（深度 1/1），authorType=agent
+      // delegate 卡片：@A 委派 @B：<scope>（深度 1/2），authorType=agent
       const cards = (await channelMessages()).filter(m => m.authorType === 'agent');
       expect(cards).toHaveLength(1);
-      expect(cards[0].content).toBe(`@AgentA 委派 @AgentB：审查登录模块的实现（深度 1/1）`);
+      expect(cards[0].content).toBe(`@AgentA 委派 @AgentB：审查登录模块的实现（深度 1/2）`);
       expect(cards[0].workUnitId).toBe(parent.id);
     });
 
@@ -338,7 +338,7 @@ describe('A2A P1: DELEGATE / complete 守卫 / 新鲜度检查 / 花名册', () 
       // 本 loop 自己的 agent 消息（如 delegate 卡片）不触发拦截
       const own: ChannelMessageData = {
         id: uuidv4(), channelId, authorType: 'agent', agentName: 'AgentA',
-        content: '@AgentA 委派 @AgentB：分工（深度 1/1）', replyToId: null, meta: '{}',
+        content: '@AgentA 委派 @AgentB：分工（深度 1/2）', replyToId: null, meta: '{}',
         workUnitId: parent.id, createdAt: new Date().toISOString(),
       };
       await fileStore.appendMessage(channelId, own);

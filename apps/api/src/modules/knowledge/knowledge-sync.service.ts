@@ -41,7 +41,7 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'architecture',
   },
   'pipeline-logging': {
-    files: ['apps/api/src/modules/agents/*.service.ts', 'packages/studio-shared/src/llm/model-gateway.ts'],
+    files: ['apps/api/src/modules/agents/*.service.ts', 'apps/api/src/modules/agents/system-executor.ts'],
     title: 'Pipeline Logging & Observability',
     knowledgeType: 'architecture',
   },

@@ -7,7 +7,7 @@
 import { randomUUID } from 'crypto';
 import path from 'node:path';
 import os from 'node:os';
-import { logger, modelGateway, getProviderApiKey, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import type { LlmProvider } from '@dommaker/studio-shared';
 
 // ─── 类型 ───
@@ -56,7 +56,7 @@ const PROVIDER_DEFAULTS: Record<string, { baseUrl: string; model: string }> = {
   anthropic: { baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-20250514' },
   openai: { baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
   tencent: { baseUrl: 'https://api.lkeap.cloud.tencent.com/coding/v3', model: 'glm-5' },
-  deepseek: { baseUrl: process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  deepseek: { baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
 };
 
 // ─── Service ───
@@ -199,53 +199,6 @@ export class LLMConfigService {
   /**
    * 测试配置连通性
    */
-
-  /**
-   * 将 DB 中的配置注册到 ModelGateway
-   * 启动时调用一次，配置变更时可重新调用
-   */
-  async syncToGateway(): Promise<number> {
-    const configs = (await this.readConfigs()).filter(c => c.isActive);
-
-    let registered = 0;
-
-    // 按 scope 分组，取 studio scope 注册到 gateway
-    for (const config of configs) {
-      if (config.scope !== 'studio' && config.scope !== 'orchestrator') continue;
-
-      try {
-        const apiKey = getProviderApiKey(config.provider as LlmProvider);
-        if (!apiKey) {
-          logger.warn(`[LLM Config] No API key in env for ${config.provider}, skipping ${config.scope}`);
-          continue;
-        }
-
-        const defaults = PROVIDER_DEFAULTS[config.provider] || {} as { baseUrl?: string; model?: string };
-        const opts = typeof config.options === 'string' ? JSON.parse(config.options) : (config.options || {});
-
-        modelGateway.addProvider({
-          name: `${config.scope}:${config.provider}`,
-          baseUrl: config.baseUrl || defaults.baseUrl || '',
-          apiKey,
-          model: config.model || defaults.model || '',
-          priority: config.scope === 'orchestrator' ? 0 : 1,
-          temperature: opts.temperature,
-          maxTokens: opts.maxTokens,
-        });
-
-        registered++;
-      } catch (error) {
-        logger.warn(`[LLM Config] Failed to register ${config.scope}/${config.provider}`, { error: String(error) });
-      }
-    }
-
-    logger.info(`[LLM Config] Synced ${registered} configs to ModelGateway`);
-    return registered;
-  }
-
-  /**
-   * 测试配置连通性
-   */
   async testConfig(scope: LLMConfigScope): Promise<{ success: boolean; latencyMs: number; error?: string }> {
     try {
       const config = await this.resolve(scope);
@@ -279,6 +232,17 @@ export class LLMConfigService {
 
   // ─── 内部方法 ───
 
+  private resolveApiKey(provider: string): string | undefined {
+    const envMap: Record<string, string> = {
+      deepseek: 'DEEPSEEK_API_KEY',
+      anthropic: 'ANTHROPIC_AUTH_TOKEN',
+      openai: 'OPENAI_API_KEY',
+      coding: 'CODING_API_KEY_1',
+    };
+    const envKey = envMap[provider];
+    return envKey ? process.env[envKey] || undefined : undefined;
+  }
+
   private async findActiveConfig(scope: string) {
     const configs = await this.readConfigs();
     return configs
@@ -287,7 +251,7 @@ export class LLMConfigService {
   }
 
   private toResolved(config: any, source: string): ResolvedLLMConfig {
-    const apiKey = getProviderApiKey(config.provider as LlmProvider);
+    const apiKey = this.resolveApiKey(config.provider as string);
     if (!apiKey) {
       throw new Error(`No API key in environment for provider "${config.provider}" (scope: ${config.scope}). Set the appropriate env var in ~/.studio/config.env`);
     }
@@ -317,14 +281,14 @@ export class LLMConfigService {
       };
     }
 
-    // 系统配置
-    if (process.env.STUDIO_API_KEY) {
+    // 系统配置 — 直接读 provider env key（不再走 STUDIO_API_KEY 统一密钥）
+    if (process.env.DEEPSEEK_API_KEY) {
       return {
         provider: 'deepseek',
-        baseUrl: process.env.STUDIO_BASE_URL || 'https://api.deepseek.com/v1',
-        apiKey: process.env.STUDIO_API_KEY,
+        baseUrl: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com/v1',
+        apiKey: process.env.DEEPSEEK_API_KEY,
         model: process.env.DEEPSEEK_MODEL || 'deepseek-chat',
-        source: 'env:studio',
+        source: 'env:deepseek',
       };
     }
 
@@ -352,7 +316,7 @@ export class LLMConfigService {
   }
 
   private maskConfig(config: any): MaskedLLMConfig {
-    const apiKey = getProviderApiKey(config.provider as LlmProvider);
+    const apiKey = this.resolveApiKey(config.provider as string);
     const apiKeyMasked = apiKey ? `****${apiKey.slice(-4)}` : '****(not-set)';
 
     return {

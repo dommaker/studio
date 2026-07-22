@@ -12,7 +12,6 @@ import { logger } from '@dommaker/studio-shared';
 // TODO(cleanup): @dommaker/studio-task 为 pipeline 时代队列，全库无存活生产者；
 // 默认关闭（启动/停止由 STUDIO_TASK_QUEUE_ENABLED=true 恢复）。
 // 包暂不删除 — 12 个 task-queue 测试为预存失败。
-import { modelGateway } from '@dommaker/studio-shared';
 import { llmConfigService } from './modules/llm/config.service.js';
 import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
@@ -64,34 +63,6 @@ async function start() {
   try {
     // FileStore 自动建目录，无需 DB 连接
     logger.info('Storage initialized (FileStore)');
-
-    // 初始化模型网关
-    modelGateway.loadFromEnv();
-    // R1: 注册 knowledge provider（KnowledgeAgent 统一走 gateway）
-    if (process.env.KNOWLEDGE_API_KEY) {
-      modelGateway.addProvider({
-        name: 'knowledge',
-        baseUrl: process.env.KNOWLEDGE_BASE_URL || 'https://api.deepseek.com/v1',
-        apiKey: process.env.KNOWLEDGE_API_KEY,
-        model: process.env.MODEL_TIER_STANDARD || 'deepseek-v4-pro',
-        priority: 1,
-        tierModels: {
-          fast: process.env.MODEL_TIER_FAST || 'deepseek-v4-flash',
-          standard: process.env.MODEL_TIER_STANDARD || 'deepseek-v4-pro',
-        },
-      });
-    }
-    // 从 DB 加载加密配置（优先级高于 env）
-    try {
-      const dbCount = await llmConfigService.syncToGateway();
-      logger.info('Model gateway initialized', {
-        providers: modelGateway.getProviders().map(p => `${p.name}(${p.model})`),
-        dbConfigs: dbCount,
-        available: modelGateway.isAvailable(),
-      });
-    } catch (err) {
-      logger.warn('Failed to sync DB configs to gateway, using env only', { error: String(err) });
-    }
 
     // 初始化 harness 运行时（加载 .harness/config.yml 注入 ConstraintChecker）
     await bootstrapHarness();
@@ -192,6 +163,13 @@ async function start() {
 
       // F1: profile 生命周期事件（create/activate/deactivate/delete）→ 动态挂载/卸载
       agentLoopRegistry.subscribeToEvents();
+
+      // AC-4.1: ReviewDispatcher subscribes to workunit.status_changed
+      try {
+        const { getReviewDispatcher } = await import('./modules/agents/review-dispatcher.js');
+        getReviewDispatcher().subscribeToEvents();
+        logger.info('[ReviewDispatcher] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[ReviewDispatcher] Failed to subscribe', { error: String(e) }); }
 
       for (const profile of profiles) {
         const entry = await agentLoopRegistry.mount(profile);

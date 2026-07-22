@@ -227,12 +227,21 @@ router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
 // POST /api/v1/channels — create a new channel (B2-007)
 // Also supports creating initial agents: { agents: [{ name, description? }] }
 router.post('/', async (req, res) => {
-  const { name, type = 'rnd', members, agents } = req.body;
+  const { name, type = 'rnd', members, agents, defaultPipeline } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'name is required' });
   }
   if (!['rnd', 'decision', 'system'].includes(type)) {
     return res.status(400).json({ success: false, error: 'type must be rnd, decision, or system' });
+  }
+  // AC-6.2: validate defaultPipeline items are active AgentProfile names
+  let pipelineValue: string[] | undefined;
+  if (defaultPipeline !== undefined) {
+    const validated = await validateDefaultPipeline(fileStore, defaultPipeline);
+    if (!validated.ok) {
+      return res.status(400).json({ success: false, error: validated.error });
+    }
+    pipelineValue = validated.value;
   }
   const channelName = name.startsWith('#') ? name.trim() : `#${name.trim()}`;
   try {
@@ -252,6 +261,7 @@ router.post('/', async (req, res) => {
       discordChannelId: null,
       discordWebhookUrl: null,
       members: '[]',
+      ...(pipelineValue !== undefined ? { defaultPipeline: pipelineValue } : {}),
       createdAt: now,
       updatedAt: now,
     };
@@ -434,7 +444,7 @@ router.put('/:id/restore', async (req, res) => {
 // PATCH /api/v1/channels/:id — update channel settings
 router.patch('/:id', async (req, res) => {
   const { id } = req.params;
-  const { name, defaultWorkspaceId, defaultPath } = req.body;
+  const { name, defaultWorkspaceId, defaultPath, defaultPipeline } = req.body;
   try {
     const data: Record<string, unknown> = {};
     if (name !== undefined) data.name = name;
@@ -447,6 +457,14 @@ router.patch('/:id', async (req, res) => {
       data.defaultWorkspaceId = validated.value;
     }
     if (defaultPath !== undefined) data.defaultPath = defaultPath;
+    // AC-6.2: validate defaultPipeline items are active AgentProfile names
+    if (defaultPipeline !== undefined) {
+      const validated = await validateDefaultPipeline(fileStore, defaultPipeline);
+      if (!validated.ok) {
+        return res.status(400).json({ success: false, error: validated.error });
+      }
+      data.defaultPipeline = validated.value;
+    }
     await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
     const updated = await fileStore.getChannel(id);
     if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
@@ -594,4 +612,33 @@ export async function validateDefaultWorkspaceId(
     return { ok: false, value: null, error: `Workspace not found: ${wsId}` };
   }
   return { ok: true, value: wsId };
+}
+
+/**
+ * AC-6.2: validate defaultPipeline items are active AgentProfile names.
+ * - undefined -> ok, value=undefined (skip update)
+ * - non-array -> reject
+ * - each item must be string matching an active AgentProfile.name
+ * - empty array allowed (clears pipeline)
+ */
+export async function validateDefaultPipeline(
+  fs: FileStore,
+  value: unknown,
+): Promise<{ ok: boolean; value?: string[]; error?: string }> {
+  if (value === undefined) return { ok: true };
+  if (!Array.isArray(value)) {
+    return { ok: false, error: 'defaultPipeline must be an array' };
+  }
+  if (value.length === 0) return { ok: true, value: [] };
+  const activeProfiles = await fs.listProfiles({ status: 'active' });
+  const activeNames = new Set(activeProfiles.map(p => p.name));
+  for (const item of value) {
+    if (typeof item !== 'string') {
+      return { ok: false, error: `defaultPipeline item must be string: ${String(item)}` };
+    }
+    if (!activeNames.has(item)) {
+      return { ok: false, error: `AgentProfile not found or not active: ${item}` };
+    }
+  }
+  return { ok: true, value: value as string[] };
 }

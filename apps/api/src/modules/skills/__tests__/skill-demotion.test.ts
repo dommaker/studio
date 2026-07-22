@@ -210,10 +210,9 @@ describe('§10.6 scanSkillDemotions 规则边界', () => {
 });
 
 describe('§10.6 approve / reject', () => {
-  it('approve：替换已有 status 行，正文逐字节保留', async () => {
+  it('approve：替换已有 status 行，正文逐字节保留，文件移动到 _deprecated/', async () => {
     writeSkill('old-skill', { ageDays: 40, frontmatterExtra: [`status: published`], body: `\n# 正文\n\n保留我。\n` });
     const file = path.join(skillsDir, 'old-skill', 'SKILL.md');
-    const hashBefore = sha256(file);
     // frontmatter 收尾 --- 起算的正文段
     const bodyOf = (s: string) => s.slice(s.indexOf('\n---\n') + 1);
     const bodyBefore = bodyOf(fs.readFileSync(file, 'utf-8'));
@@ -225,18 +224,22 @@ describe('§10.6 approve / reject', () => {
     const ok = await approveDemotion(proposal.id, { store, skillsDir });
     expect(ok).toBe(true);
 
-    const raw = fs.readFileSync(file, 'utf-8');
+    // 原路径文件已移走
+    expect(fs.existsSync(file)).toBe(false);
+    // 新路径文件存在
+    const newFile = path.join(skillsDir, '_deprecated', 'old-skill', 'SKILL.md');
+    expect(fs.existsSync(newFile)).toBe(true);
+    const raw = fs.readFileSync(newFile, 'utf-8');
     expect(raw).toContain('status: archived');
     expect(raw).not.toContain('status: published');
     // 正文逐字节保留：frontmatter 收尾 --- 之后的部分与审批前完全一致
     expect(bodyOf(raw)).toBe(bodyBefore);
-    expect(sha256(file)).not.toBe(hashBefore); // 文件整体变了（frontmatter）
 
     expect(store.get(proposal.id)!.status).toBe('approved');
     expect(store.get(proposal.id)!.reviewedAt).not.toBeNull();
   });
 
-  it('approve：无 status 行时在收尾 --- 前插入，正文不变', async () => {
+  it('approve：无 status 行时在收尾 --- 前插入，正文不变，文件移动到 _deprecated/', async () => {
     const body = `\n## 没有 status 行的 skill\n`;
     writeSkill('old-skill', { ageDays: 40, body });
     const file = path.join(skillsDir, 'old-skill', 'SKILL.md');
@@ -247,9 +250,32 @@ describe('§10.6 approve / reject', () => {
     const proposal = store.list({ status: 'pending' })[0];
     await approveDemotion(proposal.id, { store, skillsDir });
 
-    const rawAfter = fs.readFileSync(file, 'utf-8');
+    // 原路径文件已移走
+    expect(fs.existsSync(file)).toBe(false);
+    const newFile = path.join(skillsDir, '_deprecated', 'old-skill', 'SKILL.md');
+    expect(fs.existsSync(newFile)).toBe(true);
+    const rawAfter = fs.readFileSync(newFile, 'utf-8');
     expect(rawAfter).toContain('status: archived\n---');
     expect(rawAfter.slice(rawAfter.indexOf('\n---\n') + 1)).toBe(bodyBefore);
+  });
+
+  it('approve：skill 目录从原位置整体移动到 _deprecated/<skillName>/', async () => {
+    writeSkill('old-skill', { ageDays: 40, frontmatterExtra: ['status: published'] });
+    const originalDir = path.join(skillsDir, 'old-skill');
+    const deprecatedDir = path.join(skillsDir, '_deprecated', 'old-skill');
+
+    await scanSkillDemotions({ eventsFile, fileStore, skillsDir, store, now: NOW });
+    const proposal = store.list({ status: 'pending' })[0];
+
+    await approveDemotion(proposal.id, { store, skillsDir });
+
+    // 原目录不存在
+    expect(fs.existsSync(originalDir)).toBe(false);
+    // _deprecated/<skillName>/ 目录存在
+    expect(fs.existsSync(deprecatedDir)).toBe(true);
+    // SKILL.md 在新位置且 frontmatter status=archived
+    const raw = fs.readFileSync(path.join(deprecatedDir, 'SKILL.md'), 'utf-8');
+    expect(raw).toContain('status: archived');
   });
 
   it('已审过的提案再次 approve → false', async () => {

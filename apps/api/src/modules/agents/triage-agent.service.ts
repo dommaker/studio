@@ -365,7 +365,7 @@ class TriageAgent {
       const errMsg = String(e).slice(0, 500);
       let llmDiagnosis = '';
       try {
-        const { modelGateway } = await import('@dommaker/studio-shared');
+        const { getSystemExecutor } = await import('./system-executor.js');
         const diagPrompt = [
           `事件类型: ${incidentType}`,
           `消息: ${input.message}`,
@@ -375,7 +375,10 @@ class TriageAgent {
           '',
           '请简要分析根因并建议下一步修复策略（1-3 句话）。',
         ].join('\n');
-        llmDiagnosis = await modelGateway.prompt(diagPrompt, '你是 SRE 故障诊断专家。简短回答，给出可执行的修复建议。');
+        const execResult = await getSystemExecutor().run(diagPrompt, {
+          systemPrompt: '你是 SRE 故障诊断专家。简短回答，给出可执行的修复建议。',
+        });
+        llmDiagnosis = execResult.output;
         logger.info('[TriageAgent] LLM fallback diagnosis', { incidentType, diagnosis: llmDiagnosis.slice(0, 200) });
       } catch { /* LLM unavailable — fall through to escalate */ }
 
