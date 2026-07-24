@@ -37,6 +37,10 @@ vi.mock('express', () => {
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  // 路由文件现引入 middleware/auth.js（鉴权收紧），其模块加载链会 new FileStore()
+  FileStore: vi.fn().mockImplementation(function () {
+    return { readJson: vi.fn(), writeJson: vi.fn(), appendJsonl: vi.fn() };
+  }),
 }));
 
 vi.mock('../skill-demotion.js', () => ({

@@ -1,7 +1,8 @@
 /**
  * internal.routes 路由测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
- * 挂载 internalRoutes 到 express app（对应 route-registry 的 /api/knowledge 无 auth 挂载），覆盖：
+ * 挂载 internalRoutes 到 express app（route-registry 的 /api/knowledge 挂载层自
+ * 2026-07-24 起为 requireLocalhost——本测试经 127.0.0.1 直连 router，不含挂载中间件），覆盖：
  * GET /sync-status（200，新鲜度检测结构）、
  * POST /upsert（400 缺字段 / 200 写入 KnowledgeStore + Document 投影 created→updated）、
  * POST /extract-text-sync（400 参数校验）。
