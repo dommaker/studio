@@ -10,7 +10,7 @@ import type { GateContext, GateResult } from '@dommaker/harness';
 
 // Mock ReviewGate
 vi.mock('@dommaker/harness', () => ({
-  ReviewGate: vi.fn().mockImplementation(() => ({
+  ReviewGate: vi.fn().mockImplementation(function () { return {
     check: vi.fn().mockResolvedValue({
       gate: 'review',
       passed: false,  // 新 PR 通常无审批
@@ -18,7 +18,7 @@ vi.mock('@dommaker/harness', () => ({
       details: { approvals: 0, changesRequested: 0, minReviewers: 1 },
       timestamp: new Date().toISOString(),
     } as GateResult),
-  })),
+  }; }),
 }));
 
 describe('AS-007: ReviewGate Integration', () => {

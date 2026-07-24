@@ -12,10 +12,10 @@ vi.mock('@dommaker/studio-shared', async () => {
   const actual = await vi.importActual<typeof import('@dommaker/studio-shared')>('@dommaker/studio-shared');
   return {
     ...actual,
-    FileStore: vi.fn(() => ({
+    FileStore: vi.fn(function () { return {
       listChannels: listChannelsMock,
       createChannel: createChannelMock,
-    })),
+    }; }),
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
   };
 });

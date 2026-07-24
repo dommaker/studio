@@ -73,6 +73,7 @@ describe('ReviewAgent — empty diff pre-check', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.clearAllMocks(); // vitest 4: restoreAllMocks 不再清理非 spy mock 的调用记录，logger 调用需显式清理
     try { fs.rmSync(worktree, { recursive: true, force: true }); } catch { /* best-effort */ }
   });
 
@@ -197,6 +198,7 @@ describe('ReviewAgent — isSimpleChange total lines check', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    mockExecSh.mockReset(); // vitest 4: restoreAllMocks 不再清理 once 队列，防止 mockResolvedValueOnce 跨用例泄漏
     try { fs.rmSync(worktree, { recursive: true, force: true }); } catch { /* best-effort */ }
   });
 

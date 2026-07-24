@@ -34,11 +34,11 @@ const {
 
 // ── Mock FileStore ──
 vi.mock('@dommaker/studio-shared', () => ({
-  FileStore: vi.fn().mockImplementation(() => ({
+  FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,
     writeJson: mockWriteJson,
     readJsonl: mockReadJsonl,
-  })),
+  }; }),
 }));
 
 // ── Mock channel/log/fs ──
@@ -50,9 +50,9 @@ vi.mock('../../channels/channel-message.service.js', () => ({
 }));
 
 vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
+  WorkUnitService: vi.fn().mockImplementation(function () { return {
     create: (...args: unknown[]) => mockWuCreate(...args),
-  })),
+  }; }),
 }));
 
 vi.mock('../../utils/logger.js', () => ({

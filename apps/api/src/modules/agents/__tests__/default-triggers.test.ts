@@ -10,10 +10,10 @@ const { mockRegisterExecuteHandler } = vi.hoisted(() => ({
 }));
 
 vi.mock('../../triggers/trigger-scheduler', () => ({
-  TriggerScheduler: vi.fn().mockImplementation(() => ({
+  TriggerScheduler: vi.fn().mockImplementation(function () { return {
     registerTrigger: mockRegisterTrigger,
     getStates: vi.fn().mockReturnValue([]),
-  })),
+  }; }),
 }));
 
 vi.mock('../../triggers/trigger-action', () => ({

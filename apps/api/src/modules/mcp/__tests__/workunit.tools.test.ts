@@ -9,7 +9,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const mockCreate = vi.fn().mockResolvedValue({ id: 'wu-1', type: 'task', scope: 'S', status: 'unassigned' });
 
 vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({ create: mockCreate })),
+  WorkUnitService: vi.fn().mockImplementation(function () { return { create: mockCreate }; }),
 }));
 
 import { workunitTools } from '../workunit.tools.js';

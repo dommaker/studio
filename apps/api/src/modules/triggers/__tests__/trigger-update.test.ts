@@ -22,7 +22,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
       error: vi.fn(),
       debug: vi.fn(),
     },
-    FileStore: vi.fn(() => mockFileStore),
+    FileStore: vi.fn(function () { return mockFileStore; }),
   };
 });
 

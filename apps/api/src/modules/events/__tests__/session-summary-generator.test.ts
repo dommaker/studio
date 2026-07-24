@@ -10,10 +10,10 @@ const mockSkillStoreFindFirst = vi.hoisted(() => vi.fn());
 const mockSkillStoreCreate = vi.hoisted(() => vi.fn());
 
 vi.mock('@dommaker/studio-shared', () => ({
-  FileStore: vi.fn().mockImplementation(() => ({
+  FileStore: vi.fn().mockImplementation(function () { return {
     readJsonl: mockReadJsonl,
     appendJsonl: mockAppendJsonl,
-  })),
+  }; }),
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 

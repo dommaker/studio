@@ -48,7 +48,7 @@ vi.mock('../service.js', () => ({
 }));
 
 vi.mock('@dommaker/studio-audit', () => ({
-  AuditService: vi.fn().mockImplementation(() => ({ log: mockAuditLog })),
+  AuditService: vi.fn().mockImplementation(function () { return { log: mockAuditLog }; }),
 }));
 
 vi.mock('../../../core/database.js', () => ({ prisma: {} }));

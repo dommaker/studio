@@ -15,9 +15,9 @@ vi.mock('@dommaker/studio-prisma', () => ({
 
 // Mock WorkUnitService
 vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
+  WorkUnitService: vi.fn().mockImplementation(function () { return {
     create: mockCreate,
-  })),
+  }; }),
 }));
 
 // Import tools (triggers registerAll side effect)

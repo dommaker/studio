@@ -317,7 +317,7 @@ describeIf('KnowledgeBus', () => {
       });
       const after = knowledgeBus.store.list({}).length;
       expect(after).toBe(before); // entry should NOT be written
-    });
+    }, 15000); // 该用例真实耗时 ~4s（reject 路径也走完整质量门管线），全量并行负载下需要余量
 
     it('accepts entry with content >= 20 chars', async () => {
       // Verify: entry is NOT silently rejected (recordPattern doesn't throw on valid content)

@@ -42,7 +42,7 @@ vi.mock('os', async (importOriginal) => {
 vi.mock('@dommaker/studio-shared', () => ({ logger: mockLogger }));
 
 vi.mock('@dommaker/harness', () => ({
-  ColdStartImporter: vi.fn().mockImplementation((config: any) => {
+  ColdStartImporter: vi.fn().mockImplementation(function (config: any) {
     importerConfigs.push(config);
     return { importAll: mockImportAll };
   }),

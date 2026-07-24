@@ -18,10 +18,10 @@ const mockReadJson = vi.hoisted(() => vi.fn());
 const mockWriteJson = vi.hoisted(() => vi.fn());
 
 vi.mock('@dommaker/studio-shared', () => ({
-  FileStore: vi.fn().mockImplementation(() => ({
+  FileStore: vi.fn().mockImplementation(function () { return {
     readJson: mockReadJson,
     writeJson: mockWriteJson,
-  })),
+  }; }),
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 

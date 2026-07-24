@@ -30,10 +30,10 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return {
     ...actual,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-    FileStore: vi.fn().mockImplementation(() => ({
+    FileStore: vi.fn().mockImplementation(function () { return {
       readJsonl: mockReadJsonl,
       appendJsonl: mockAppendJsonl,
-    })),
+    }; }),
   };
 });
 

@@ -19,22 +19,6 @@ jobs:
       - run: npm install -g pnpm@latest
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm build
-      # vitest teardown crashes native modules (SIGABRT), but all tests pass.
-      # Capture output, check for actual test failures.
-      - run: |
-          npx vitest run --maxWorkers=1 --minWorkers=1 2>&1 | tee /tmp/vitest.log
-          echo "EXIT=${PIPESTATUS[0]}" >> /tmp/vitest.log
-        continue-on-error: true
-      - run: |
-          if grep -Eq "Tests +[1-9][0-9]* +failed" /tmp/vitest.log; then
-            echo "FOUND TEST FAILURES"
-            exit 1
-          fi
-          if grep -q "Failed Tests " /tmp/vitest.log; then
-            echo "FOUND TEST FAILURES"
-            exit 1
-          fi
-          echo "ALL TESTS PASSED"
-          exit 0
+      - run: pnpm test
       - name: Governance
         run: npx harness check && npx harness sync-docs --check

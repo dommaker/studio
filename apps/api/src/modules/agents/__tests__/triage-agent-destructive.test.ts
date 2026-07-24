@@ -33,7 +33,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
     ...actual,
-    FileStore: vi.fn().mockImplementation(() => mockFileStore),
+    FileStore: vi.fn().mockImplementation(function () { return mockFileStore; }),
   };
 });
 
