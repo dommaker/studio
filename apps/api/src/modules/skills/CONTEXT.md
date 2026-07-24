@@ -51,10 +51,12 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 - skill-selector 匹配时会排除 `NOT-for` 子句，避免排除项关键词触发误匹配
 - 技能加载器根据 `tier`（fast/standard/premium）控制可访问的工具集合，不同层级工具权限不同
 - 所有日志使用 `@dommaker/studio-shared` 的 logger 实例，统一日志格式
+- **鉴权（2026-07-24 收紧）**：skills 7 条写（POST /、PATCH、DELETE、publish、deprecate、restore、usage）+ demotion-proposals approve/reject + proposals 5 条写已收 requireAuth+requireNotGuest。GET /api/v1/skills/proposals 被 skills 的 GET /:id 遮蔽，属路由顺序 bug（未修）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
 - ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零
 - ✅ `bdf5fd4a`: test): fix 27 CI test failures across 8 files

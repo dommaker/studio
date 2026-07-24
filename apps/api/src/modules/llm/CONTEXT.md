@@ -10,7 +10,7 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `configRoutes` (默认导出 Router) | config.routes.ts | LLM 配置 API 路由（GET/POST/DELETE /api/v1/llm/config） |
+| `configRoutes` (默认导出 Router) | config.routes.ts | LLM 配置 API 路由（挂载 /api/v1/settings/llm；2026-07 起 requireAuth+requireAdmin） |
 | `proxyRoutes` (默认导出 Router) | proxy.ts | LLM 代理路由（/api/v1/llm/status, /chat, /models） |
 | `llmConfigService` | config.service.ts | 配置服务实例（含加载、保存、测试、脱敏） |
 | `ResolvedLLMConfig` / `LLMConfigInput` 等类型 | config.service.ts | LLM 配置相关类型定义 |
@@ -40,5 +40,6 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — /api/v1/settings/llm 挂载收 requireAuth+requireAdmin（LLM 配置含 key 管理 + /:scope/test 真实外呼）；CONTEXT 挂载路径修正（/api/v1/llm/config → /api/v1/settings/llm）
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

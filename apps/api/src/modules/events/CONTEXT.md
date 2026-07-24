@@ -39,8 +39,10 @@
 - SSE 使用 EventBus pub/sub (B0-002)，不依赖数据库
 - session:summary 在 session:end 时触发，fire-and-forget
 - patternType 分类规则：纯 deterministic，不调 LLM
+- **鉴权（2026-07-24 收紧）**：event.routes 的 POST /、/agent-events 已收 requireAuth+requireNotGuest；GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零

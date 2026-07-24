@@ -24,8 +24,10 @@
 - harness 约束检查失败时仅记录警告，不中断正常响应。
 - 返回的 `harnessCheck` 字段在 harness 不可用时可能缺失，客户端需做可选处理。
 - 若 `CLAUDE.md` 不存在，返回 `status: 'missing'` 和创建建议。
+- **鉴权（2026-07-24 收紧）**：/api/v1/admin/docs-freshness 挂载层已收 requireAuth+requireAdmin（响应含服务器文件路径存在性/mtime）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 挂载收 requireAuth+requireAdmin
 - ✅ `5b274644`: admin): docs-freshness capability_sync filter now matches

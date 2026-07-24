@@ -54,10 +54,12 @@
 - 所有 Agent 数据均通过 `FileStore` 存储（已从 Prisma 迁移）
 - 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件
 - `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
+- **鉴权（2026-07-24 收紧）**：legacy agents POST `/`、PUT `/:agentId` 与 agent-profiles/agent-instances 写 = `requireAuth()+requireNotGuest()`；`POST /review/diff`（任意路径写+spawn claude）与 instances `POST /:id/terminate` = `requireAuth()+requireAdmin()`；legacy DELETE 原有 requireRole('Admin') 不变。另知：agent-configs `:id` 路径拼接无校验（穿越面，未修）、/review/diff 的 baseRef/headRef shell 拼接（Admin 门后，未修）
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — agents/profiles/instances 写端点收 requireNotGuest，/review/diff 与 terminate 收 requireAdmin
 - ✅ 2026-07 频道角色排查沉淀：AgentProfile 持久化布局与 index-on-demand 注入架构写入注意事项（排查结论：无全量注入问题，skills/知识/roster 均为索引方式）
 - ✅ `11ba99fa`: ci): resolve type errors in migrated agent/knowledge files
 - ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)

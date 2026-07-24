@@ -19,3 +19,9 @@ Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息�
 ## 注意事项
 
 - 只读发现层，不负责工程注册（注册在 workspaces 模块）
+- **鉴权（2026-07-24 收紧）**：/api/v1/projects 挂载层已收 requireAuth+requireAdmin（GET /discover 会扫描服务器目录、回显绝对路径）。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 挂载收 requireAuth+requireAdmin

@@ -23,3 +23,9 @@
 - 门禁验证 API（`GateCheckerService`）尚未实现，当前路由文件中仅有空注释块。
 - 所有端点需统一处理错误并记录日志。
 - 依赖的外部 SDK 服务需在运行时可用，否则路由会抛出 500 错误。
+- **鉴权（2026-07-24 收紧）**：POST /changes/:changeId/validate（可触发 harness 检查点执行）、POST /:id/changes/import 已收 requireAuth+requireNotGuest。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest

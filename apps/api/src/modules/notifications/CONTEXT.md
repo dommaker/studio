@@ -28,3 +28,9 @@
 - 通知服务通过 `createLazyService` 延迟初始化，底层依赖 `FileStore` 存储
 - 错误统一返回 `{ error: { code: 'INTERNAL_ERROR', message: '...' } }` 结构
 - 未读通知限制获取 50 条，可通过 `unreadOnly` 查询参数控制
+- **鉴权（2026-07-24 收紧）**：POST /:id/read、/read-all 已收 requireAuth+requireNotGuest；userId 取自 x-user-id 请求头，存在 IDOR 已知局限（未修）。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest

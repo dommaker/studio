@@ -29,9 +29,11 @@
 - 使用 `ensureDir` 异步创建目录，写操作前均需保证目录存在
 - 路由层做参数校验（如 `title`、`changes` 必填），业务层通过 `specReviewService` 处理逻辑，错误统一以 HTTP 500 返回
 - 迁移自 Prisma，旧数据需手动迁移或重建；当前不兼容外部数据库
+- **鉴权（2026-07-24 收紧）**：POST /、PATCH /:id、POST /:id/approve 已收 requireAuth+requireNotGuest。approve 的 role/reviewerId 为 body 自声明、不与 req.user 绑定，属已知局限（未修）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

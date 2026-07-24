@@ -31,9 +31,11 @@
 - 成本红线常量 (`INJECTED_TOKEN_BUDGET`、`OVERHEAD_RATIO_BUDGET`) 与 vision §3 对齐，修改需同步文档。
 - `KnowledgeMetricsSource` 接口设计为 DI 注入，默认 lazy 获取生产单例，避免模块加载期副作用。
 - 监控数据窗口默认 30 天，由 `KnowledgeMetricsSource` 的 `windowDays` 参数控制。
+- **鉴权（2026-07-24 收紧）**：`/api/v1/monitoring` 挂载级 `requireAuth()+requireAdmin()`（route-registry）。4 个 GET 端点此前无挂载中间件、仅靠 Lurk Wall 大门兜底。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（agent 运行时/统计属内部运营信息）
 - ✅ 2026-07 频道角色修复：`getAgentSummary` agents 映射新增 `roleId`，支撑前端 AgentDashboard 与 AgentProfile 合并展示（provider/描述等）
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

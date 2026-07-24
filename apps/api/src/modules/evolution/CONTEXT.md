@@ -24,3 +24,9 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 
 - 保守策略：信号不足时零提案；`EVOLUTION_ENABLED=false` 可整体关闭
 - 提案必须经人确认后才由 applier 生效，不做自动落地
+- **鉴权（2026-07-24 收紧）**：`/api/v1/evolution` 挂载级 `requireAuth()+requireAdmin()` —— approve/reject/run 直接让约束变更生效，此前仅 requireAuth。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（约束审批 = 治理面）

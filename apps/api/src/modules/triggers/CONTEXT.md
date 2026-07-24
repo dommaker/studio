@@ -25,3 +25,9 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 
 - EVENT 类型由 PMO-Channel-Agent-Flow SDD AC-1 重新引入；旧 subscribeEvent API 已删除
 - 默认 trigger 清单变更需同步 agents/__tests__/default-triggers.test.ts 与 triggers/__tests__/trigger-cleanup.test.ts
+- **鉴权（2026-07-24 收紧）**：`/api/v1/triggers` 挂载级 `requireAuth()+requireAdmin()` —— POST/DELETE 会热加载触发器直接驱动 AgentLoop 执行。另：`GET /status` 注册在 `GET /:id` 之后被遮蔽（历史 bug，未修）。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（触发器写操作 = 远程执行面）

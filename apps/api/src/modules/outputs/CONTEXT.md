@@ -30,3 +30,9 @@
 - 文件系统写入使用同步 `writeFileSync`，可能阻塞事件循环，生产环境应考虑异步版本或流式写入。
 - 使用了 `requireNotGuest` 和 `requireRole` 中间件，确保接口受身份验证和角色限制。
 - 路由回退逻辑：当 EventStore 索引为空时，会尝试从文件系统直接读取目录列表，以兼容历史数据或未建立索引的场景。
+- **已知风险（2026-07-24 记录）**：行为未变（DELETE 原有 requireRole('Admin')）；GET /:executionId 的 fs 回退分支回显服务器绝对路径；GET /:executionId/:filename 直接 path.join 无归一化校验，可 `../` 目录穿越（两者均需过大门，未修）。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 记录路径穿越/绝对路径泄露风险（未修，另立项）

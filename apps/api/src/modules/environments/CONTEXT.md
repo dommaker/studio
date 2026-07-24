@@ -28,9 +28,11 @@
 - 所有请求均使用 try-catch 包裹，失败时返回 500 并记录错误日志
 - 环境 ID 由 `Date.now()` 和随机字符串组合生成，非 UUID
 - 未实现权限校验，假设调用方已通过身份验证
+- **鉴权（2026-07-24 收紧）**：/api/v1/environments 挂载层已收 requireAuth+requireAdmin（环境记录的 envVars/mounts 明文存 ~/.studio/environments.json，可能含密钥）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 挂载收 requireAuth+requireAdmin
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
 - ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors

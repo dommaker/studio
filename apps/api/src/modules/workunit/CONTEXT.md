@@ -23,3 +23,9 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - 状态变更发布 `workunit.status_changed` 事件，requirements/rollup 据此汇总 REQ 状态
 - NEED_INPUT 挂起后由人在频道线程回复触发续跑
 - review-passed/review-rejected 拒绝 authorType=agent 的调用（403，A2A §4.4：验收权只在人；UI/人类调用不发送 authorType 或发送 'human'）
+- **鉴权（2026-07-24 收紧）**：11 条写端点（CRUD/claim/unclaim/review/status/讨论区发消息/编辑消息）= `requireAuth()+requireNotGuest()`；GET 只读保持大门层。注意 authorType/agentName 仍是自声明身份（不作凭证，已知局限）
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — 写端点收 requireAuth+requireNotGuest（WU 派单/状态机此前无角色层）

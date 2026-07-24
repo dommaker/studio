@@ -77,10 +77,13 @@ knowledge/
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
 - `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方，被 `buildKnowledgeContext` 替代）
 - `applicableAgents` 存储在 tags 中（`agent:executor` 格式），KnowledgeEntry 无此字段
+- **鉴权（2026-07-24 收紧）**：`/api/knowledge`（internal.routes，不在 /api/v1 大门内）2026-07-24 起挂载 requireLocalhost——此前全匿名：POST /upsert 可污染知识库、POST /extract-text-sync 盗用服务器 LLM key、GET /sync-status 有 heal 写副作用；本机脚本经回环调用不受影响。
+- **鉴权（2026-07-24 收紧）**：/api/v1/knowledge 子路由写端点（documents 6 条、entries /ask+/unified、evolution 4 条、files /read-file、import /scan+/execute）与 /api/v1/knowledge-service 写 11 条已收 requireAuth+requireNotGuest；files/import 的 startsWith 路径前缀校验无分隔符（兄弟目录可绕，未修）；knowledge-service GET /entries/stats 被 :id 遮蔽（未修）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: /api/knowledge 挂 requireLocalhost；v1 写端点收 requireAuth+requireNotGuest
 - ✅ `e5142f65`: ci): resolve logger.error type errors in knowledge/routes.ts
 - ✅ `11ba99fa`: ci): resolve type errors in migrated agent/knowledge files
 - ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)

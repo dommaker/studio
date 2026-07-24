@@ -24,3 +24,9 @@
 - 获取配置时若 EventStore 无值，则返回硬编码默认配置（maxConcurrent: 3, tokenWarningThreshold: 15000, showTokenUsage: true）。
 - 更新配置使用合并策略（`...existing`），未传的字段保持原值。
 - 错误处理统一返回 JSON 格式错误码（`CONFIG_GET_ERROR`, `INVALID_CONCURRENCY`, `INVALID_THRESHOLD`）。
+- **鉴权（2026-07-24 收紧）**：/api/v1/runtime-config 挂载层已收 requireAuth+requireAdmin（TaskWorker 配置写 + /reload 热更）。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 挂载收 requireAuth+requireAdmin

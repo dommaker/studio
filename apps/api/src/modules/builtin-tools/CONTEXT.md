@@ -26,3 +26,9 @@
 - `inputSchema` 遵循 JSON Schema 格式，`required` 字段必须与 properties 一致。
 - `enabled` 字段目前硬编码为 `true`，未来可改为从配置中心动态加载。
 - 文件操作类工具（`path` 参数）应进行路径安全检查，防止目录遍历，当前代码未实现该检查，需后续补充。
+- **鉴权（2026-07-24 收紧）**：/api/v1/builtin-tools 挂载层已收 requireAuth+requireAdmin（PATCH 可启停工具；启停状态仅内存态不持久化）。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 挂载收 requireAuth+requireAdmin

@@ -44,10 +44,12 @@
 - 项目创建时自动生成 PMO 号（格式为 PMO-{序号}）。
 - 所有服务都基于 FileStore（JSON 文件）而非数据库。
 - 测试中使用了 mock，注意 mock 目录与测试数据的路径约定。
+- **鉴权（2026-07-24 收紧）**：7 条写端点（POST /project、PUT /project/:id、PUT /project/:id/status、POST /project/:id/publish、POST /okr、PUT /okr/:id、PUT /projects/:id/okr）已收 requireAuth+requireNotGuest（此前 import 的 requireNotGuest 只声明未使用）；DELETE project/okr 原有 requireRole('Admin') 不变。OKR 写的 roleId 为 body 自声明、checkPermission 据此校验，属已知局限（未修）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `0d1ef570`: ci): resolve type errors found by package-level tsc build
 - ✅ `1ac014a8`: ci): resolve type errors in worktree-resolver + okr.service
 - ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)

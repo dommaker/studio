@@ -30,10 +30,12 @@
 - `findTaskByExecutionId` 辅助函数会遍历 `TASKS_DIR` 下的所有 JSON 文件，需注意文件数量较多时的性能。
 - 路由 GET / 默认按 `createdAt` 降序排列，分页参数为 `page` 和 `limit`（默认 1/20）。
 - 该模块的长期规划是废弃并被 agent-profiles / workunit API 替代（见 `docs/vision-2026.md`）。
+- **已知风险（2026-07-24 记录）**：行为未变；POST /events 无任何鉴权/签名（内部 runtime 回调假设，全仓无调用方，生产靠大门兜底，建议后续 requireLocalhost 或共享密钥）；GET /:executionId 与 POST /:executionId/archive 回显服务器绝对路径。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 记录 /events 无凭证回调与路径回显风险（未修，另立项）
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
