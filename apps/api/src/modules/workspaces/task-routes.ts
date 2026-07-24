@@ -14,7 +14,7 @@
 import { Router, Request, Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
@@ -67,7 +67,7 @@ async function appendEvent(workspaceId: string, event: Record<string, any>): Pro
 // ─── POST /api/v1/workspaces/:id/tasks ───
 // Create a new task (admin/UI creates, Daemon claims)
 
-router.post('/:id/tasks', requireAuth(), async (req: Request, res: Response) => {
+router.post('/:id/tasks', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { id: workspaceId } = req.params;
     const { path: taskPath, prompt, agent, modelTier, runtimeId, parentGoalId } = req.body;
@@ -151,7 +151,7 @@ router.post('/:id/tasks', requireAuth(), async (req: Request, res: Response) => 
 // ─── GET /api/v1/workspaces/:id/tasks/:taskId ───
 // Get task status + events
 
-router.get('/:id/tasks/:taskId', requireAuth(), async (req: Request, res: Response) => {
+router.get('/:id/tasks/:taskId', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { id: workspaceId, taskId } = req.params;
 
@@ -187,7 +187,7 @@ router.get('/:id/tasks/:taskId', requireAuth(), async (req: Request, res: Respon
 // ─── POST /api/v1/workspaces/:id/tasks/:taskId/cancel ───
 // Cancel task (pending → cancelled, running → cancelled)
 
-router.post('/:id/tasks/:taskId/cancel', requireAuth(), async (req: Request, res: Response) => {
+router.post('/:id/tasks/:taskId/cancel', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { id: workspaceId, taskId } = req.params;
 

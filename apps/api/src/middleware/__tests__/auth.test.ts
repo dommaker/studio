@@ -20,9 +20,9 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
     ...actual,
-    FileStore: vi.fn().mockImplementation(() => ({
+    FileStore: vi.fn().mockImplementation(function () { return {
       readJson: mockReadJson,
-    })),
+    }; }),
   };
 });
 
@@ -30,7 +30,7 @@ vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-import { workspaceAuth, checkOwnership, requireNotGuest, generateAnonymousId, optionalAuth, requireAuth } from '../auth.js';
+import { workspaceAuth, checkOwnership, requireNotGuest, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin } from '../auth.js';
 
 // ---------------------------------------------------------------------------
 // AC1: workspaceAuth()
@@ -289,8 +289,86 @@ describe('checkOwnership', () => {
 });
 
 // ---------------------------------------------------------------------------
-// AC3: requireNotGuest()
+// requireRole none 模式修复 + requireAdmin（2026-07）
 // ---------------------------------------------------------------------------
+describe('requireRole / requireAdmin', () => {
+  const OLD_AUTH = process.env.STUDIO_AUTH;
+  let req: Partial<Request>;
+  let res: Partial<Response>;
+  let next: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    req = { headers: {} };
+    res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    next = vi.fn();
+  });
+
+  afterEach(() => {
+    process.env.STUDIO_AUTH = OLD_AUTH;
+  });
+
+  it('requireRole: STUDIO_AUTH=none 本地模式直接放行（无 session 也不 401）', async () => {
+    process.env.STUDIO_AUTH = 'none';
+    const middleware = requireRole('Admin');
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+    // 注入本地 Admin 用户供下游使用
+    expect((req as any).user?.role).toBe('Admin');
+  });
+
+  it('requireRole: unset STUDIO_AUTH 默认为 none，同样放行', async () => {
+    delete process.env.STUDIO_AUTH;
+    const middleware = requireRole('Admin');
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('requireAdmin: none 模式直接放行', async () => {
+    process.env.STUDIO_AUTH = 'none';
+    const middleware = requireAdmin();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('requireAdmin: 认证开启时无 session 返回 401', async () => {
+    process.env.STUDIO_AUTH = 'on';
+    const middleware = requireAdmin();
+    await middleware(req as Request, res as Response, next);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('requireAdmin: 认证开启时 Guest 角色返回 403', async () => {
+    process.env.STUDIO_AUTH = 'on';
+    (req as any).session = { id: 's1', userId: 'u1' };
+    (req as any).user = { id: 'u1', role: 'Guest' };
+    const middleware = requireAdmin();
+    await middleware(req as Request, res as Response, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'FORBIDDEN' }),
+    );
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('requireAdmin: 认证开启时 Admin 角色放行', async () => {
+    process.env.STUDIO_AUTH = 'on';
+    (req as any).session = { id: 's1', userId: 'u1' };
+    (req as any).user = { id: 'u1', role: 'Admin' };
+    const middleware = requireAdmin();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+});
+
+
 describe('requireNotGuest', () => {
   let req: Partial<Request>;
   let res: Partial<Response>;

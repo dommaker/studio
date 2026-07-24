@@ -9,7 +9,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import { logger } from '../../utils/logger.js';
 import { discoverViaWs, isWorkspaceConnected } from './ws-gateway.js';
 
@@ -18,7 +18,7 @@ const router = Router();
 // ─── GET /api/v1/workspaces/:id/discover ───
 // Proxy directory discovery through active WS connection
 
-router.get('/:id/discover', requireAuth(), async (req: Request, res: Response) => {
+router.get('/:id/discover', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { path, timeout: timeoutStr } = req.query;

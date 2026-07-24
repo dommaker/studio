@@ -13,7 +13,7 @@
 import { Router, Request, Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { requireAuth, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
+import { requireAuth, requireAdmin, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
 import discoverProxyRouter from './discover-proxy.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -255,7 +255,7 @@ router.put('/:id/heartbeat', workspaceAuth(), async (req: Request, res: Response
 // ─── GET /api/v1/workspaces ───
 // List all workspaces (JWT auth)
 
-router.get('/', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/', requireAuth(), requireAdmin(), async (_req: Request, res: Response) => {
   try {
     const workspaces = await listWorkspaces();
 
@@ -275,7 +275,7 @@ router.get('/', requireAuth(), async (_req: Request, res: Response) => {
 
 // ─── DELETE /api/v1/workspaces/:id ───
 
-router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -302,7 +302,7 @@ router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
 
 // ─── GET /api/v1/workspaces/:id/runtimes ───
 
-router.get('/:id/runtimes', requireAuth(), async (req: Request, res: Response) => {
+router.get('/:id/runtimes', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -334,9 +334,13 @@ router.get('/:id/runtimes', requireAuth(), async (req: Request, res: Response) =
 
 // ─── GET /api/v1/workspaces/:id ───
 
-router.get('/runtimes', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/runtimes', requireAuth(), requireAdmin(), async (_req: Request, res: Response) => {
   try {
     // AC-2.6: 聚合所有 workspace 的 runtimes，供前端角色初始化向导使用
+    // 2026-07：聚合前先重扫本地 CLI（best-effort），保证本地 runtime 新鲜可见
+    const { rescanLocalRuntimes } = await import('./local-workspace.js');
+    await rescanLocalRuntimes().catch(() => {});
+
     const workspaces = await listWorkspaces();
     const allRuntimes: Array<{ nodeId: string; provider: string; version: string; workspaceName: string }> = [];
     for (const ws of workspaces) {
@@ -357,7 +361,7 @@ router.get('/runtimes', requireAuth(), async (_req: Request, res: Response) => {
   }
 });
 
-router.get('/:id', requireAuth(), async (req: Request, res: Response) => {
+router.get('/:id', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const workspace = await readWorkspace(req.params.id);
 
