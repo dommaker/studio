@@ -2,6 +2,7 @@
 import { Router } from 'express';
 import { logger, appendChangelog, findSddDocById, updateSddFrontmatter } from '@dommaker/studio-shared';
 import { listWikiDocs, buildWikiGraph, getWikiDocById } from './wiki.service.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 export const wikiRoutes = Router();
 
@@ -61,7 +62,7 @@ wikiRoutes.get('/:id', async (req, res) => {
  * PUT /api/v1/wiki/:id
  * 更新：content / linkedDocIds / title
  */
-wikiRoutes.put('/:id', async (req, res) => {
+wikiRoutes.put('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { content, title, linkedDocIds } = req.body;
 

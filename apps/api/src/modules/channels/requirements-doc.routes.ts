@@ -1,11 +1,12 @@
 // RequirementsDoc edit routes — B2-009
 import { Router } from 'express';
 import { logger, findSddDocById, readSddDoc, updateSddFrontmatter } from '@dommaker/studio-shared';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 
 // PUT /api/v1/requirements-docs/:id
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   const { content } = req.body;
   if (!content || typeof content !== 'string') {
     return res.status(400).json({ success: false, error: 'content is required' });

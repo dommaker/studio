@@ -6,6 +6,7 @@ import { Router, Request, Response } from 'express';
 import { NotificationService } from '@dommaker/studio-notification';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { createLazyService } from '../../utils/services.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 
@@ -53,7 +54,7 @@ router.get('/unread-count', async (req: Request, res: Response) => {
  * POST /api/v1/notifications/:id/read
  * 标记已读
  */
-router.post('/:id/read', async (req: Request, res: Response) => {
+router.post('/:id/read', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const userId = (req.headers['x-user-id'] as string) || 'default-user';
 
@@ -70,7 +71,7 @@ router.post('/:id/read', async (req: Request, res: Response) => {
  * POST /api/v1/notifications/read-all
  * 标记全部已读
  */
-router.post('/read-all', async (req: Request, res: Response) => {
+router.post('/read-all', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const userId = (req.headers['x-user-id'] as string) || 'default-user';
 

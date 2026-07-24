@@ -14,6 +14,7 @@ import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { sharedStore } from './knowledge-bus.service.js';
 import { getSystemExecutor } from '../agents/system-executor.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 export const entriesRoutes = Router();
 
@@ -62,7 +63,7 @@ entriesRoutes.get('/export', async (req, res) => {
  * Body: { question: string, types?: string[], limit?: number }
  * Returns: { answer: string, sources: Array<{ id, title, type }> }
  */
-entriesRoutes.post('/ask', async (req, res) => {
+entriesRoutes.post('/ask', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { question, types, limit = 10 } = req.body;
     if (!question || typeof question !== 'string') {
@@ -200,7 +201,7 @@ entriesRoutes.get('/unified', async (req, res) => {
  * POST /unified — manual knowledge entry creation
  * Body: { type, title, content, consumptionMode, applicableAgents?, tags? }
  */
-entriesRoutes.post('/unified', async (req, res) => {
+entriesRoutes.post('/unified', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { type, title, content, consumptionMode, applicableAgents, tags } = req.body;
 

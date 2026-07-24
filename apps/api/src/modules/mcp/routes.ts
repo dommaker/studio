@@ -16,6 +16,7 @@ import { mcpServer } from './server.js';
 import { getToolSchemas, executeTool } from './tools.js';
 import { toolRegistry } from './tool-registry.js';
 import { logger } from '@dommaker/studio-shared';
+import { requireAuth, requireAdmin, requireLocalhost } from '../../middleware/auth.js';
 import adminRoutes from './admin.routes.js';
 
 const router = Router();
@@ -27,8 +28,9 @@ const sseClients = new Map<string, Response>();
 /**
  * GET /api/v1/mcp/sse
  * SSE transport endpoint — Claude CLI connects here
+ * 2026-07 收紧：与 /messages 配对限回环（公网匿名握连无意义且可耗资源）。
  */
-router.get('/sse', (req: Request, res: Response) => {
+router.get('/sse', requireLocalhost(), (req: Request, res: Response) => {
   const clientId = `sse-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   res.writeHead(200, {
@@ -53,8 +55,10 @@ router.get('/sse', (req: Request, res: Response) => {
 /**
  * POST /api/v1/mcp/messages
  * SSE message endpoint — Claude CLI sends requests here
+ * 2026-07 收紧：tools/call 与 REST 执行等价（executor seed 默认全允许），
+ * 真实客户端为本机 agent（worktree-resolver STUDIO_MCP_URL=localhost），限回环。
  */
-router.post('/messages', async (req: Request, res: Response) => {
+router.post('/messages', requireLocalhost(), async (req: Request, res: Response) => {
   const clientId = req.query.clientId as string;
   const client = clientId ? sseClients.get(clientId) : null;
 
@@ -119,8 +123,10 @@ router.get('/tools', async (_req: Request, res: Response) => {
 /**
  * POST /api/v1/mcp/tools/:name
  * 直接调用 tool（简化接口，不需要 JSON-RPC 封装）
+ * 2026-07 收紧：roleId 自声明 + executor seed 默认全允许 → 执行任意 tool
+ * （含 devops/git），PUBLIC_API 前缀下曾匿名可达；收紧为 Admin。
  */
-router.post('/tools/:name', async (req: Request, res: Response) => {
+router.post('/tools/:name', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { name } = req.params;
     const roleId = req.body?.roleId || req.headers['x-role-id'] as string;
@@ -158,7 +164,7 @@ router.get('/health', async (_req: Request, res: Response) => {
   }
 });
 
-// Admin routes (requireAuth middleware applied in route-registry)
-router.use('/admin', adminRoutes);
+// Admin routes（2026-07 收紧：此前注释声称由 route-registry 提供 requireAuth，实际并无）
+router.use('/admin', requireAuth(), requireAdmin(), adminRoutes);
 
 export default router;

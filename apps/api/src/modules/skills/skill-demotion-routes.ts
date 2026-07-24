@@ -11,6 +11,7 @@
 import { Router, Request, Response } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import { demotionProposalStore, scanSkillDemotions, approveDemotion, rejectDemotion } from './skill-demotion.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 
@@ -35,7 +36,7 @@ router.get('/', async (req: Request, res: Response) => {
 /**
  * POST /:id/approve — 批准：frontmatter status → archived（正文不动）
  */
-router.post('/:id/approve', async (req: Request, res: Response) => {
+router.post('/:id/approve', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const success = await approveDemotion(req.params.id);
     if (!success) {
@@ -51,7 +52,7 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
 /**
  * POST /:id/reject — 拒绝：只改提案状态
  */
-router.post('/:id/reject', async (req: Request, res: Response) => {
+router.post('/:id/reject', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const success = await rejectDemotion(req.params.id);
     if (!success) {

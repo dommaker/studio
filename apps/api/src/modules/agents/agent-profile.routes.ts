@@ -14,6 +14,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { AgentProfileService } from './agent-profile.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -43,7 +44,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 /** POST / — create AgentProfile */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { name, description, channels, provider, status } = req.body;
 
@@ -86,7 +87,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 /** PATCH /:id — update AgentProfile */
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const profile = await service.update(req.params.id, req.body);
     res.json(profile);
@@ -104,7 +105,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 });
 
 /** DELETE /:id — delete AgentProfile */
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     await service.delete(req.params.id);
     res.status(204).send();

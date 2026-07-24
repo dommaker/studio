@@ -13,6 +13,7 @@ import { skillExtractionService } from './skill-extraction.service.js';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { skillStore } from './skill-store.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -40,7 +41,7 @@ router.get('/', async (req: Request, res: Response) => {
  * POST /api/v1/skills/proposals/scan
  * 触发批量扫描提取
  */
-router.post('/scan', async (req: Request, res: Response) => {
+router.post('/scan', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { companyId } = req.body;
     if (!companyId) {
@@ -71,7 +72,7 @@ router.post('/scan', async (req: Request, res: Response) => {
  * POST /api/v1/skills/proposals/extract/:executionId
  * 从指定执行提取 Skill
  */
-router.post('/extract/:executionId', async (req: Request, res: Response) => {
+router.post('/extract/:executionId', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { executionId } = req.params;
     const proposal = await skillExtractionService.extractFromWorkUnit(executionId);
@@ -91,7 +92,7 @@ router.post('/extract/:executionId', async (req: Request, res: Response) => {
 /**
  * POST /api/v1/skills/proposals/:id/approve
  */
-router.post('/:id/approve', async (req: Request, res: Response) => {
+router.post('/:id/approve', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const success = await skillExtractionService.reviewProposal(id, true);
@@ -108,7 +109,7 @@ router.post('/:id/approve', async (req: Request, res: Response) => {
 /**
  * POST /api/v1/skills/proposals/:id/reject
  */
-router.post('/:id/reject', async (req: Request, res: Response) => {
+router.post('/:id/reject', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const success = await skillExtractionService.reviewProposal(id, false);
@@ -128,7 +129,7 @@ router.post('/:id/reject', async (req: Request, res: Response) => {
  * 将 Skill 状态设为 under_review，推确认卡片到 #系统 Channel。
  * 人点击确认→deprecated，点击拒绝→恢复 published。
  */
-router.post('/:id/retract', async (req: Request, res: Response) => {
+router.post('/:id/retract', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const skill = skillStore.get(id);

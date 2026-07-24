@@ -9,6 +9,7 @@
 import { Router, Request, Response } from 'express';
 import { specReviewService } from './spec-review.service.js';
 import { logger } from '@dommaker/studio-shared';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 
@@ -59,7 +60,7 @@ router.get('/:id', async (req: Request, res: Response) => {
  * POST /api/v1/spec-reviews
  * 创建审查
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const {
       title,
@@ -90,7 +91,7 @@ router.post('/', async (req: Request, res: Response) => {
  * PATCH /api/v1/spec-reviews/:id
  * 更新审查状态
  */
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { status } = req.body;
 
@@ -113,7 +114,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
  * POST /api/v1/spec-reviews/:id/approve
  * 提交审批
  */
-router.post('/:id/approve', async (req: Request, res: Response) => {
+router.post('/:id/approve', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { role, reviewerId, reviewerName, approved, comment } = req.body;
     

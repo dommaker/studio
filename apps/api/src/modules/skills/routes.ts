@@ -8,6 +8,7 @@ import { Router, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
 import { skillStore } from './skill-store.js';
 import { proposalStore } from './proposal-store.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 
@@ -95,7 +96,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 /**
  * POST /api/v1/skills
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { companyId, roleId, name, category, description, metadata, source } = req.body;
     if (!companyId || !name) return res.status(400).json({ error: 'companyId and name are required' });
@@ -116,7 +117,7 @@ router.post('/', async (req: Request, res: Response) => {
 /**
  * PATCH /api/v1/skills/:id
  */
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { name, category, description, metadata, roleId } = req.body;
     const skill = skillStore.update(req.params.id, {
@@ -134,7 +135,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 /**
  * DELETE /api/v1/skills/:id
  */
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const deleted = skillStore.delete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Skill not found' });
@@ -151,7 +152,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
  * POST /api/v1/skills/:id/publish
  * draft → published
  */
-router.post('/:id/publish', async (req: Request, res: Response) => {
+router.post('/:id/publish', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
@@ -171,7 +172,7 @@ router.post('/:id/publish', async (req: Request, res: Response) => {
  * POST /api/v1/skills/:id/deprecate
  * published → deprecated
  */
-router.post('/:id/deprecate', async (req: Request, res: Response) => {
+router.post('/:id/deprecate', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
@@ -191,7 +192,7 @@ router.post('/:id/deprecate', async (req: Request, res: Response) => {
  * POST /api/v1/skills/:id/restore
  * deprecated → draft
  */
-router.post('/:id/restore', async (req: Request, res: Response) => {
+router.post('/:id/restore', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const skill = skillStore.get(req.params.id);
     if (!skill) return res.status(404).json({ error: 'Skill not found' });
@@ -216,7 +217,7 @@ router.post('/:id/restore', async (req: Request, res: Response) => {
  * POST /api/v1/skills/:id/usage
  * 记录一次使用，自动更新统计
  */
-router.post('/:id/usage', async (req: Request, res: Response) => {
+router.post('/:id/usage', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { success, durationMs } = req.body;
     const skill = skillStore.get(req.params.id);

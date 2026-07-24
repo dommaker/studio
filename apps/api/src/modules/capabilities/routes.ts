@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getRegistryPath, getToolsDir } from '@dommaker/harness';
 import { CapabilityService } from '@dommaker/studio-capability';
-import { requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
+import { requireAuth, requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { createLazyService } from '../../utils/services.js';
 
@@ -126,7 +126,7 @@ router.get('/registry', (req, res) => {
 });
 
 // 刷新 Registry 缓存
-router.post('/registry/refresh', (req, res) => {
+router.post('/registry/refresh', requireAuth(), requireNotGuest(), (req, res) => {
   cachedRegistry = null;
   lastLoadTime = 0;
   const registry = loadRegistry();
@@ -138,7 +138,7 @@ router.post('/registry/refresh', (req, res) => {
 });
 
 // 从 Registry 同步到数据库
-router.post('/sync', async (req: Request, res: Response) => {
+router.post('/sync', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const service = getCapabilityService();
     const result = await service.syncFromRegistry();
@@ -208,7 +208,7 @@ router.get('/cost-config', (req: Request, res: Response) => {
 });
 
 // 创建能力
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const service = getCapabilityService();
     const capability = await service.create(req.body);
@@ -228,7 +228,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 // 批量创建能力
-router.post('/batch', async (req: Request, res: Response) => {
+router.post('/batch', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const service = getCapabilityService();
     const { capabilities } = req.body;
@@ -297,7 +297,7 @@ router.get('/name/:name', async (req: Request, res: Response) => {
 });
 
 // 更新能力
-router.put('/:capabilityId', async (req: Request, res: Response) => {
+router.put('/:capabilityId', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const service = getCapabilityService();
     const { capabilityId } = req.params;

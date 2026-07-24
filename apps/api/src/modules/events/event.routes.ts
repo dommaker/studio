@@ -13,6 +13,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
 import { generateSessionSummary } from './session-summary-generator.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
 const fileStore = new FileStore();
@@ -34,7 +35,7 @@ interface AgentEvent {
  * Create a new StudioEvent.
  * Body: { type: string, source: string, payload: Record<string, unknown> }
  */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { type, source, payload } = req.body;
     if (!type || !source) {
@@ -102,7 +103,7 @@ router.get('/', async (req: Request, res: Response) => {
  * Body: AgentEvent[] — array of events with { sessionId, agentId, timestamp, type, payload? }
  * Validates required fields, stores each as a StudioEvent.
  */
-router.post('/agent-events', async (req: Request, res: Response) => {
+router.post('/agent-events', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const events: AgentEvent[] = req.body;
 

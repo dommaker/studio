@@ -4,7 +4,7 @@
 import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
 import { reviewAgent } from './review-agent.service.js';
-import { requireNotGuest, requireRole } from '../../middleware/auth.js';
+import { requireAuth, requireAdmin, requireNotGuest, requireRole } from '../../middleware/auth.js';
 import { eventStore } from '../../core/event-store.js';
 import { logger } from '@dommaker/studio-shared';
 
@@ -51,7 +51,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 // 注册新 Agent
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const reg = await initRegistry();
     const metadata = await reg.register(req.body);
@@ -96,7 +96,7 @@ router.get('/:agentId', async (req: Request, res: Response) => {
 });
 
 // 更新 Agent
-router.put('/:agentId', async (req: Request, res: Response) => {
+router.put('/:agentId', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const reg = await initRegistry();
     const { agentId } = req.params;
@@ -144,7 +144,7 @@ router.delete('/:agentId', requireRole('Admin'), async (req: Request, res: Respo
 
 // ── Review diff between branches ──────────────────────────
 
-router.post('/review/diff', async (req: Request, res: Response) => {
+router.post('/review/diff', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { baseRef, headRef, repoPath, description, acceptanceCriteria, stances } = req.body;
     if (!baseRef || !headRef) {

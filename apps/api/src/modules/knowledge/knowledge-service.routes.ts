@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import { knowledgeService } from './knowledge-service.js';
 import { logger } from '@dommaker/studio-shared';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 export const knowledgeServiceRoutes = Router();
 
@@ -70,7 +71,7 @@ knowledgeServiceRoutes.get('/entries/:id', async (req, res) => {
   }
 });
 
-knowledgeServiceRoutes.post('/entries', async (req, res) => {
+knowledgeServiceRoutes.post('/entries', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const entry = req.body;
     if (!entry.id || !entry.type || !entry.title || !entry.content) {
@@ -84,7 +85,7 @@ knowledgeServiceRoutes.post('/entries', async (req, res) => {
   }
 });
 
-knowledgeServiceRoutes.put('/entries/:id', async (req, res) => {
+knowledgeServiceRoutes.put('/entries/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const updated = await knowledgeService.update(req.params.id, req.body);
     if (!updated) return res.status(404).json({ error: 'Not found' });
@@ -95,7 +96,7 @@ knowledgeServiceRoutes.put('/entries/:id', async (req, res) => {
   }
 });
 
-knowledgeServiceRoutes.delete('/entries/:id', async (req, res) => {
+knowledgeServiceRoutes.delete('/entries/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const deleted = await knowledgeService.delete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Not found' });
@@ -119,7 +120,7 @@ knowledgeServiceRoutes.get('/entries/stats', async (_req, res) => {
 
 // ── Produce ──
 
-knowledgeServiceRoutes.post('/pattern', async (req, res) => {
+knowledgeServiceRoutes.post('/pattern', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { type, title, content, tags } = req.body;
     if (!type || !title || !content) {
@@ -133,7 +134,7 @@ knowledgeServiceRoutes.post('/pattern', async (req, res) => {
   }
 });
 
-knowledgeServiceRoutes.post('/incident', async (req, res) => {
+knowledgeServiceRoutes.post('/incident', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { title, content, severity, tags } = req.body;
     if (!title || !content || !severity) {
@@ -147,7 +148,7 @@ knowledgeServiceRoutes.post('/incident', async (req, res) => {
   }
 });
 
-knowledgeServiceRoutes.post('/trend', async (req, res) => {
+knowledgeServiceRoutes.post('/trend', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { title, content, metric, tags } = req.body;
     if (!title || !content || !metric) {
@@ -231,7 +232,7 @@ knowledgeServiceRoutes.post('/match-resolutions', async (req, res) => {
 
 // ── Track ──
 
-knowledgeServiceRoutes.post('/record-outcome', async (req, res) => {
+knowledgeServiceRoutes.post('/record-outcome', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { executionId, agentType, consumedKnowledge, success, details, timestamp, mode } = req.body;
     if (!executionId || !agentType || success === undefined) {
@@ -250,7 +251,7 @@ knowledgeServiceRoutes.post('/record-outcome', async (req, res) => {
 
 // ── Lifecycle ──
 
-knowledgeServiceRoutes.post('/promote', async (req, res) => {
+knowledgeServiceRoutes.post('/promote', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { entryId } = req.body;
     if (!entryId) return res.status(400).json({ error: 'entryId required' });
@@ -263,7 +264,7 @@ knowledgeServiceRoutes.post('/promote', async (req, res) => {
 });
 
 // 审核闭环 reject 端点：draft → archived（与 /promote 对称）
-knowledgeServiceRoutes.post('/demote', async (req, res) => {
+knowledgeServiceRoutes.post('/demote', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { entryId } = req.body;
     if (!entryId) return res.status(400).json({ error: 'entryId required' });
@@ -275,7 +276,7 @@ knowledgeServiceRoutes.post('/demote', async (req, res) => {
   }
 });
 
-knowledgeServiceRoutes.post('/decay', async (req, res) => {
+knowledgeServiceRoutes.post('/decay', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { entryId } = req.body;
     if (!entryId) return res.status(400).json({ error: 'entryId required' });
@@ -287,7 +288,7 @@ knowledgeServiceRoutes.post('/decay', async (req, res) => {
   }
 });
 
-knowledgeServiceRoutes.post('/merge', async (req, res) => {
+knowledgeServiceRoutes.post('/merge', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { sourceId, targetId } = req.body;
     if (!sourceId || !targetId) return res.status(400).json({ error: 'sourceId, targetId required' });
