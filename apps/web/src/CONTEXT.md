@@ -18,6 +18,7 @@
 | `workunitApi` | `api/workunit.ts` | 工作单元（WorkUnit）全生命周期 API + token 度量事件查询/解析 |
 | `useWebSocket` / `WebSocketProvider` | `api/websocket.tsx` | SSE 客户端 hook 及 Context Provider（替代原生 WebSocket） |
 | `useChannelList` | `hooks/useChannelList.ts` | 频道列表数据 hook（ChannelListPage 与 ChannelRail 共用：列表/未读 SSE/新建） |
+| `useDetectedProviders` / `buildProviderOptions` | `hooks/useDetectedProviders.ts` | 运行环境已装 agent CLI 探测（GET /workspaces/runtimes，服务端聚合前 best-effort 重扫本机）；provider 下拉统一数据源（FirstRoleSetupModal / StudioRoleSetupModal / ChannelMemberManager 创建表单），一个都没扫到时回退 4 个内置全量可选 |
 | `ChannelRail` | `components/channel/ChannelRail.tsx` | Mission Control 左栏：频道列表（未读 badge、agent 在线数）+ Agent 状态 |
 | `WorkUnitDrawer` | `components/channel/WorkUnitDrawer.tsx` | 右抽屉：WorkUnit 详情（含 token 开销与全局开销红线）/ REQ 全链路，只展示真实 API 数据 |
 | `AuthModal` | `components/AuthModal.tsx` | 隐身认证模态框（双击手势触发） |
@@ -33,11 +34,15 @@
 - API 客户端（`api/index.ts`）的认证 token 直接从 `localStorage` 读取，避免与 `authStore` 的循环依赖。
 - 实时通信使用 SSE（EventSource）代替 WebSocket，`api/websocket.tsx` 提供与旧 `useWebSocket` 兼容的接口。
 - Design Lab 页面（`pages/design-lab/*`）使用 mock 数据，全屏三栏布局，不嵌入通用导航骨架；作为 A/B 方向参照保留。
-- 视觉体系（2026-07 T1b，方向 A「Mission Control」）：`styles/theme.css` 深色 `:root` 变量组 = A 方向 token（近纯黑 #050507、磷光青绿 #2ee6a8、终端黄 #e6c85c、全等宽、12.5px 基准）；`[data-theme="light"]` 浅色机制保留（ThemeContext 不变）。`styles/mission-control.css` 承载三栏布局（mc-*）与语义工具类（u-*）；页面禁止写死浅色 Tailwind 类（bg-white/text-gray-*），一律消费变量或 u-* 类。
+- 视觉体系（2026-07 T1b，方向 A「Mission Control」）：`styles/theme.css` 深色 `:root` 变量组 = A 方向 token（近纯黑 #050507、磷光青绿 #2ee6a8、终端黄 #e6c85c、全等宽、12.5px 基准）；`[data-theme="light"]` 浅色机制保留（ThemeContext 不变）。`styles/mission-control.css` 承载三栏布局（mc-*）与语义工具类（u-*）；页面禁止写死浅色 Tailwind 类（bg-white/text-gray-*），一律消费变量或 u-* 类。**样式规范唯一权威来源：`docs/specs/ui/style-guide.md`**（token、组件类、弹框标准结构、禁用规则）。
 - 频道工作区（`pages/ChannelDetailPage.tsx`）= 左 ChannelRail / 中对话流 / 右 WorkUnitDrawer；REQ 全链路原 Modal 形态（`components/requirement/RequirementChainPanel.tsx`）保留给其他页面使用。
+- 频道消息流滚动约定（2026-07，仿 QQ/微信）：打开/切换频道定位到最新一条；新消息仅当人在底部附近（≤80px）或是自己发送时跟随到底；"加载更早的消息"前插后按 scrollHeight 差值补偿，视口不跳。实现在 `ChannelDetailPage.tsx` 的 streamRef + useLayoutEffect。
+- 角色（AgentProfile）创建入口时间线：进 App 时 `App.tsx` 检测（studio 角色 provider=null → StudioRoleSetupModal 补 CLI；无用户角色 → FirstRoleSetupModal 建首个角色）；常规入口 = Agent 管理页"创建角色"按钮 → `/setup/roles` 向导（勾选扫描到的 runtime 批量建）；频道内快捷入口 = 成员面板"+ 创建新 Agent"（name + 描述 + CLI 下拉）。所有入口共用 `channelApi.createAgent` → `POST /agent-profiles`。
+- `AgentDashboardPage`（侧边栏 Agent 菜单）= 角色（profile）中心列表：`channelApi.listAllAgents()`（全量含 studio/inactive）按 `roleId` 合并 `monitoringApi.getAgentSummary()` 运行时状态；每行展示名称 / 背后 CLI(provider) / 描述 / profile 状态 / 运行时状态 / lastError。
 - 所有 API 模块返回的响应数据结构需与后端约定一致（如 `{ success, data }` 或 `{ data, total }`）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07 频道角色修复：频道打开自动定位最新消息（此前停在顶部）；provider 下拉从硬编码 4 项改为运行环境扫描（useDetectedProviders）；频道成员面板创建 Agent 补 CLI/描述；AgentDashboardPage 从 runtime 实例列表改为 profile 中心（名称/CLI/描述/状态），页头加"创建角色"入口
 - ✅ `5b7ec85c`: web): 修复 4 个生产崩溃 + 菜单冗余整合

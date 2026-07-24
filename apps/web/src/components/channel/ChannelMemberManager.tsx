@@ -2,6 +2,7 @@
 // 2026-07 视觉重构（方向 A Mission Control）：深色变量重绘；成员管理逻辑零变更
 import React, { useEffect, useState, useRef } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
+import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 
 interface ChannelMemberManagerProps {
   channelId: string;
@@ -19,8 +20,21 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
   const [allAgents, setAllAgents] = useState<AgentProfile[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [newAgentName, setNewAgentName] = useState('');
+  const [newAgentDesc, setNewAgentDesc] = useState('');
+  const [newAgentProvider, setNewAgentProvider] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const { detected, loading: providersLoading, noneDetected } = useDetectedProviders();
+  const providerOptions = buildProviderOptions(detected, providersLoading || noneDetected);
+
+  // 打开创建表单后默认选中第一个可用 CLI
+  useEffect(() => {
+    if (!showCreateForm) return;
+    setNewAgentProvider((prev) => {
+      if (prev && providerOptions.some((o) => o.value === prev && !o.disabled)) return prev;
+      return providerOptions.find((o) => !o.disabled)?.value ?? '';
+    });
+  }, [showCreateForm, providerOptions]);
 
   // Load member profiles and all available agents
   useEffect(() => {
@@ -69,16 +83,20 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
   };
 
   const handleCreateAgent = async () => {
-    if (!newAgentName.trim()) return;
+    if (!newAgentName.trim() || !newAgentProvider) return;
     try {
       const res = await channelApi.createAgent({
         name: newAgentName.trim(),
+        description: newAgentDesc.trim() || undefined,
+        provider: newAgentProvider,
         channels: [channelId],
       });
       const newAgent = res.data;
       await channelApi.updateMembers(channelId, { add: [newAgent.id] });
       setMemberIds((prev) => [...new Set([...prev, newAgent.id])]);
       setNewAgentName('');
+      setNewAgentDesc('');
+      setNewAgentProvider('');
       setShowCreateForm(false);
     } catch (e) {
       console.error('Failed to create agent', e);
@@ -164,12 +182,34 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
                   autoFocus
                   onKeyDown={(e) => e.key === 'Enter' && handleCreateAgent()}
                 />
+                <input
+                  type="text"
+                  value={newAgentDesc}
+                  onChange={(e) => setNewAgentDesc(e.target.value)}
+                  placeholder="描述（可选）"
+                  className="input"
+                />
+                <select
+                  value={newAgentProvider}
+                  onChange={(e) => setNewAgentProvider(e.target.value)}
+                  className="input"
+                  title="背后的 CLI"
+                >
+                  {providerOptions.map((o) => (
+                    <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
+                  ))}
+                </select>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <button onClick={handleCreateAgent} className="mc-btn mc-btn-primary" style={{ flex: 1 }}>
+                  <button
+                    onClick={handleCreateAgent}
+                    className="mc-btn mc-btn-primary"
+                    style={{ flex: 1 }}
+                    disabled={!newAgentName.trim() || !newAgentProvider}
+                  >
                     创建
                   </button>
                   <button
-                    onClick={() => { setShowCreateForm(false); setNewAgentName(''); }}
+                    onClick={() => { setShowCreateForm(false); setNewAgentName(''); setNewAgentDesc(''); setNewAgentProvider(''); }}
                     className="mc-btn"
                     style={{ flex: 1 }}
                   >

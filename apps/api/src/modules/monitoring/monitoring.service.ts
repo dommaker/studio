@@ -66,6 +66,8 @@ export interface OverheadStats {
 export interface AgentSummary {
   agents: Array<{
     id: string;
+    /** 2026-07：对应 AgentProfile.id，供前端合并 profile 信息（provider 等） */
+    roleId: string;
     name: string;
     status: string;
     currentWorkUnitId: string | null;
@@ -140,6 +142,8 @@ export class MonitoringService {
 
     const agents = states.map(inst => ({
       id: inst.id,
+      // 2026-07：暴露 roleId，前端据此与 AgentProfile 合并展示（provider 等）
+      roleId: inst.roleId,
       name: roleNameMap.get(inst.roleId) ?? 'unknown',
       status: inst.status,
       currentWorkUnitId: inst.currentWorkUnitId,

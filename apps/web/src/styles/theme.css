@@ -180,6 +180,34 @@ body {
   box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* disabled 时不响应 hover 态（各变体分别复位） */
+.btn-primary:disabled:hover {
+  filter: none;
+}
+
+.btn-secondary:disabled:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-default);
+}
+
+.btn-ghost:disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.btn-danger:disabled:hover {
+  border-color: var(--error-border);
+}
+
+.btn-warning:disabled:hover {
+  border-color: var(--warning-border);
+}
+
 .btn-primary {
   background: var(--accent-primary);
   color: #050507;

@@ -1,7 +1,7 @@
 // Channel Detail Page — Mission Control 三栏（左频道栏 / 中对话流 / 右抽屉）
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams } from 'react-router-dom';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
 import { api } from '../api';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
@@ -93,6 +93,50 @@ export function ChannelDetailPage() {
       .then(r => setChannelReqs(r.data.data))
       .catch(() => {});
   }, [id, messages.length]);
+
+  // 消息流滚动管理（仿 QQ/微信）：打开定位最新；新消息仅在人本就在底部附近或自己发送时跟随；加载更早保持视口
+  const streamRef = useRef<HTMLDivElement>(null);
+  const scrollStateRef = useRef({ initial: true, preserve: false, prevHeight: 0 });
+
+  // 切换频道后，下一批消息到达时重新定位到底部
+  useEffect(() => {
+    scrollStateRef.current.initial = true;
+  }, [id]);
+
+  const handleLoadMore = useCallback(() => {
+    const el = streamRef.current;
+    if (el) {
+      scrollStateRef.current.preserve = true;
+      scrollStateRef.current.prevHeight = el.scrollHeight;
+    }
+    loadMore();
+  }, [loadMore]);
+
+  useLayoutEffect(() => {
+    const el = streamRef.current;
+    if (!el || messages.length === 0) return;
+    const state = scrollStateRef.current;
+    // 前插了更早的消息：按高度差补偿，视口停留在原消息
+    if (state.preserve) {
+      state.preserve = false;
+      el.scrollTop = el.scrollTop + (el.scrollHeight - state.prevHeight);
+      return;
+    }
+    // 初次加载完成：直接定位到最新一条
+    if (state.initial) {
+      if (!loading) {
+        state.initial = false;
+        el.scrollTop = el.scrollHeight;
+      }
+      return;
+    }
+    // 新消息：人在底部附近（≤80px）或是自己发的，才跟随到底
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 80;
+    const last = messages[messages.length - 1];
+    if (nearBottom || last?.authorType === 'human') {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [messages, loading]);
 
   const handleSend = useCallback(async (content: string, replyToId?: string) => {
     setSending(true);
@@ -224,7 +268,7 @@ export function ChannelDetailPage() {
         )}
 
         {/* Message list */}
-        <div className="mc-stream">
+        <div className="mc-stream" ref={streamRef}>
           <div className="mc-stream-inner">
             {loading && messages.length === 0 && (
               <div className="mc-stream-empty">加载中…</div>
@@ -238,7 +282,7 @@ export function ChannelDetailPage() {
 
             {/* B2-002: Load more */}
             {hasMore && (
-              <button onClick={loadMore} className="mc-loadmore">
+              <button onClick={handleLoadMore} className="mc-loadmore">
                 加载更早的消息
               </button>
             )}
