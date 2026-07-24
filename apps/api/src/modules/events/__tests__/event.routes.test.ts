@@ -16,10 +16,10 @@ const mockGenerateSessionSummary = vi.hoisted(() => vi.fn().mockResolvedValue({}
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
-  FileStore: vi.fn().mockImplementation(() => ({
+  FileStore: vi.fn().mockImplementation(function () { return {
     appendJsonl: mockAppendJsonl,
     readJsonl: mockReadJsonl,
-  })),
+  }; }),
 }));
 
 vi.mock('../session-summary-generator.js', () => ({

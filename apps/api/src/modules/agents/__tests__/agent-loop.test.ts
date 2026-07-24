@@ -48,21 +48,21 @@ vi.mock('@dommaker/studio-agent', () => ({
 }));
 
 vi.mock('../../workunit/workunit.service', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
+  WorkUnitService: vi.fn().mockImplementation(function () { return {
     claim: mockWuClaim,
     unclaim: mockWuUnclaim,
     transitionStatus: mockWuTransitionStatus,
-  })),
+  }; }),
 }));
 
 vi.mock('../../triggers/trigger-scheduler', () => ({
-  TriggerScheduler: vi.fn().mockImplementation(() => ({
+  TriggerScheduler: vi.fn().mockImplementation(function () { return {
     getStates: vi.fn().mockReturnValue([]),
     registerTrigger: vi.fn(),
     unregisterTrigger: vi.fn(),
     registerExecuteHandler: vi.fn(),
     dispose: vi.fn(),
-  })),
+  }; }),
 }));
 
 const { mockTriggerScheduler } = vi.hoisted(() => ({

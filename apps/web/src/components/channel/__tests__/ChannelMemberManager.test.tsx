@@ -17,6 +17,15 @@ vi.mock('../../../api/channel', () => ({
   },
 }));
 
+// 2026-07：创建表单新增 CLI 下拉（由运行环境扫描驱动），测试中固定回退态（全量可选）
+vi.mock('../../../hooks/useDetectedProviders', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../hooks/useDetectedProviders')>();
+  return {
+    ...actual,
+    useDetectedProviders: () => ({ detected: [], loading: false, noneDetected: true }),
+  };
+});
+
 import { ChannelMemberManager } from '../ChannelMemberManager';
 
 const mockAgentList = [

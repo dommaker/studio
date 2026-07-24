@@ -5,6 +5,7 @@
  * 用户关闭后 sessionStorage 标记，本次会话不再弹。
  */
 import { useState, useEffect } from 'react';
+import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 
 export interface StudioRoleSetupModalProps {
   open: boolean;
@@ -12,20 +13,27 @@ export interface StudioRoleSetupModalProps {
   onSave: (provider: string) => void;
 }
 
-const PROVIDERS = ['claude', 'kimi', 'codex', 'opencode'] as const;
 const SESSION_KEY = 'studio-role-setup-dismissed';
 
 export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupModalProps) {
-  const [selected, setSelected] = useState<string>('claude');
+  const [selected, setSelected] = useState<string>('');
+  const { detected, loading: providersLoading, noneDetected } = useDetectedProviders();
+  // 扫描进行中同样回退全量可选，避免加载窗口期无可选项
+  const providerOptions = buildProviderOptions(detected, providersLoading || noneDetected);
 
-  // open 时重置 selected
+  // open 时重置；选项就绪后默认选中第一个可用 CLI
   useEffect(() => {
-    if (open) setSelected('claude');
-  }, [open]);
+    if (!open) return;
+    setSelected((prev) => {
+      if (prev && providerOptions.some((o) => o.value === prev && !o.disabled)) return prev;
+      return providerOptions.find((o) => !o.disabled)?.value ?? '';
+    });
+  }, [open, providerOptions]);
 
   if (!open) return null;
 
   const handleSave = () => {
+    if (!selected) return;
     onSave(selected);
     onClose();
   };
@@ -51,14 +59,19 @@ export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupM
             style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
             data-testid="studio-provider-select"
           >
-            {PROVIDERS.map((p) => (
-              <option key={p} value={p}>{p}</option>
+            {providerOptions.map((o) => (
+              <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
             ))}
           </select>
+          {noneDetected && (
+            <p style={{ color: '#999', fontSize: '13px', margin: '6px 0 0' }}>
+              未在服务器上检测到已安装的 CLI，请确认安装后再选择。
+            </p>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={handleDismiss} style={{ padding: '8px 16px' }}>稍后</button>
-          <button onClick={handleSave} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px' }} data-testid="studio-provider-save">
+          <button onClick={handleSave} disabled={!selected} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px' }} data-testid="studio-provider-save">
             确认
           </button>
         </div>

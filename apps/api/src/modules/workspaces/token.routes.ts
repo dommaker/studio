@@ -11,7 +11,7 @@ import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { requireAuth } from '../../middleware/auth.js';
+import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
@@ -74,7 +74,7 @@ function maskToken(hash: string): string {
 // ─── POST /api/v1/workspace-tokens ───
 // Generate a new workspace token (returns plaintext once)
 
-router.post('/', requireAuth(), async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { name, permissions = ['execute'] } = req.body;
 
@@ -138,7 +138,7 @@ router.post('/', requireAuth(), async (req: Request, res: Response) => {
 // ─── GET /api/v1/workspace-tokens ───
 // List all tokens (masked)
 
-router.get('/', requireAuth(), async (_req: Request, res: Response) => {
+router.get('/', requireAuth(), requireAdmin(), async (_req: Request, res: Response) => {
   try {
     const allTokens = await listTokens();
     // Dedup by ID (both id.json and hash.json files exist)
@@ -177,7 +177,7 @@ router.get('/', requireAuth(), async (_req: Request, res: Response) => {
 // ─── DELETE /api/v1/workspace-tokens/:id ───
 // Revoke token (set revokedAt)
 
-router.delete('/:id', requireAuth(), async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

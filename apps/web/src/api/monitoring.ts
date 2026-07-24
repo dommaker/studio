@@ -3,6 +3,8 @@ import { api } from './index';
 
 export interface AgentInfo {
   id: string;
+  /** 对应 AgentProfile.id，用于与 profile（provider 等）合并展示 */
+  roleId: string;
   name: string;
   status: string;
   currentWorkUnitId: string | null;

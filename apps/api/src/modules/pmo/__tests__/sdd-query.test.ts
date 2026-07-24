@@ -21,9 +21,9 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
   return {
     ...actual,
-    FileStore: vi.fn().mockImplementation(() => ({
+    FileStore: vi.fn().mockImplementation(function () { return {
       readJson: mockFileReadJson,
-    })),
+    }; }),
   };
 });
 
@@ -36,9 +36,9 @@ vi.mock('../../channels/channel-message.service.js', () => ({
 }));
 
 vi.mock('../../workunit/workunit.service.js', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
+  WorkUnitService: vi.fn().mockImplementation(function () { return {
     create: vi.fn(),
-  })),
+  }; }),
 }));
 
 // Partial mock of node:fs（project.service 以 'node:fs' 导入）— keep other fs functions intact

@@ -14,9 +14,9 @@ import { Request, Response } from 'express';
 const mockAuditLogFn = vi.hoisted(() => vi.fn().mockResolvedValue({ id: 'log-1' }));
 
 vi.mock('@dommaker/studio-audit', () => ({
-  AuditService: vi.fn().mockImplementation(() => ({
+  AuditService: vi.fn().mockImplementation(function () { return {
     log: mockAuditLogFn,
-  })),
+  }; }),
 }));
 
 vi.mock('../auth.js', () => ({

@@ -14,10 +14,12 @@ const { mockGetAgentSummary, mockGetStats } = vi.hoisted(() => ({
 }));
 
 vi.mock('../monitoring.service.js', () => ({
-  MonitoringService: vi.fn().mockImplementation(() => ({
-    getAgentSummary: mockGetAgentSummary,
-    getStats: mockGetStats,
-  })),
+  MonitoringService: vi.fn(function MonitoringService() {
+    return {
+      getAgentSummary: mockGetAgentSummary,
+      getStats: mockGetStats,
+    };
+  }),
 }));
 
 import router from '../monitoring.routes.js';

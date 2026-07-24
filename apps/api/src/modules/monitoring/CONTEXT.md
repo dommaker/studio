@@ -17,7 +17,7 @@
 | `KnowledgeMetricsSource` (接口) | `monitoring.service.ts` | 知识度量源接口，定义 `getFlywheelMetrics` 和 `getAuditReport` 方法 |
 | `FlywheelStats` (接口) | `monitoring.service.ts` | M1 飞轮指标类型，包含 quality、hitRate、freshness 等字段 |
 | `OverheadStats` (接口) | `monitoring.service.ts` | M2 封装开销指标类型，包含 injectedTokens、executionTokens 等字段 |
-| `AgentSummary` (接口) | `monitoring.service.ts` | Agent 摘要类型（定义截断，但已导出） |
+| `AgentSummary` (接口) | `monitoring.service.ts` | Agent 摘要类型；agents 数组含 `roleId`（= AgentProfile.id），前端 AgentDashboard 据此合并 profile 信息（provider 等） |
 
 ## 依赖关系
 
@@ -35,4 +35,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07 频道角色修复：`getAgentSummary` agents 映射新增 `roleId`，支撑前端 AgentDashboard 与 AgentProfile 合并展示（provider/描述等）
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

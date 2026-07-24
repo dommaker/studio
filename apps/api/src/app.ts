@@ -73,9 +73,9 @@ export async function registerRoutes(): Promise<void> {
   if (process.env.NODE_ENV === 'production') {
     const PUBLIC_API = new Set([
       '/auth/login',
-      '/auth/register',
       '/auth/guest-session',
       '/auth/refresh',
+      '/auth/status',         // 前端检测登录状态（未登录返回 mode:on + user:null）
       '/auth/google',
       '/auth/github',
       '/auth/callback/google',

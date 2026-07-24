@@ -37,13 +37,15 @@ vi.mock('@dommaker/studio-prisma', () => ({
   },
 }));
 
+const mockFileStoreInstance = vi.hoisted(() => ({
+  getIndex: vi.fn().mockResolvedValue([]),
+  upsertSnapshot: vi.fn().mockResolvedValue(undefined),
+  appendEvent: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
-  FileStore: vi.fn().mockReturnValue({
-    getIndex: vi.fn().mockResolvedValue([]),
-    upsertSnapshot: vi.fn().mockResolvedValue(undefined),
-    appendEvent: vi.fn().mockResolvedValue(undefined),
-  }),
+  FileStore: vi.fn().mockImplementation(function () { return mockFileStoreInstance; }),
 }));
 
 vi.mock('fs', async (importOriginal) => {

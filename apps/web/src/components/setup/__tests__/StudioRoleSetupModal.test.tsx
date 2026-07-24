@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { StudioRoleSetupModal, isStudioRoleSetupDismissed } from '../StudioRoleSetupModal';
 
+// 2026-07：provider 选项改由运行环境扫描驱动，测试中固定回退态（4 个内置 CLI 全量可选）
+vi.mock('../../../hooks/useDetectedProviders', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../hooks/useDetectedProviders')>();
+  return {
+    ...actual,
+    useDetectedProviders: () => ({ detected: [], loading: false, noneDetected: true }),
+  };
+});
+
 describe('StudioRoleSetupModal (AC-2.2)', () => {
   beforeEach(() => {
     sessionStorage.clear();

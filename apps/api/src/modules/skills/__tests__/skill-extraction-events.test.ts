@@ -29,12 +29,12 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
     ...actual,
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     recordDecision: vi.fn(),
-    FileStore: vi.fn().mockImplementation(() => ({
+    FileStore: vi.fn().mockImplementation(function () { return {
       appendJsonl: mockAppendJsonl,
       getIndex: vi.fn().mockResolvedValue([]),
       upsertSnapshot: vi.fn().mockResolvedValue(undefined),
       appendEvent: vi.fn().mockResolvedValue(undefined),
-    })),
+    }; }),
   };
 });
 

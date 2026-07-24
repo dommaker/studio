@@ -5,7 +5,6 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { v4 as uuidv4 } from 'uuid';
-import { eventBus } from '@dommaker/studio-shared';
 import { eventBus, FileStore, type AgentProfileData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { routeMessage, detectMention } from '../message-routing.js';
 import { channelMessageService } from '../channel-message.service.js';

@@ -283,11 +283,21 @@ export function requireAuth() {
 
 /**
  * 角色检查 - 要求特定角色
+ *
+ * 2026-07 修复：STUDIO_AUTH=none（本地免登录）下此前因无 session 恒 401，
+ * 导致 pmo/outputs 等 Admin 端点在本地不可用；现与 requireAuth/optionalAuth
+ * 对称，none 模式直接放行并注入本地 Admin 用户。
  */
 export function requireRole(...roles: string[]) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
-    
+
+    // STUDIO_AUTH=none: 本地免登录模式，直接放行
+    if ((process.env.STUDIO_AUTH || 'none') === 'none') {
+      authReq.user = authReq.user ?? ({ id: 'local', role: 'Admin', name: 'Local User' } as UserData);
+      return next();
+    }
+
     // 先执行 requireAuth
     if (!authReq.session || !authReq.session.userId) {
       return res.status(401).json({
@@ -295,7 +305,7 @@ export function requireRole(...roles: string[]) {
         code: 'UNAUTHORIZED',
       });
     }
-    
+
     const user = authReq.user;
     if (!user) {
       return res.status(401).json({
@@ -303,7 +313,7 @@ export function requireRole(...roles: string[]) {
         code: 'USER_NOT_FOUND',
       });
     }
-    
+
     if (!roles.includes(user.role)) {
       return res.status(403).json({
         error: '权限不足',
@@ -312,7 +322,7 @@ export function requireRole(...roles: string[]) {
         current: user.role,
       });
     }
-    
+
     next();
   };
 }
@@ -405,6 +415,18 @@ export function requireNotGuest() {
 
     next();
   };
+}
+
+/**
+ * Admin 检查 — 2026-07 服务器信息暴露修复
+ *
+ * requireRole('Admin') 的语义化包装。生产环境要求 requireAuth 之后
+ * role==='Admin'；STUDIO_AUTH=none 本地免登录模式直接放行（继承
+ * requireRole 的 none 分支）。用于 workspaces 模块等暴露服务器
+ * 信息/远程操作能力的端点。
+ */
+export function requireAdmin() {
+  return requireRole('Admin');
 }
 
 /**

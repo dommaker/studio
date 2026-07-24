@@ -74,6 +74,12 @@ export const channelApi = {
       },
     }),
 
+  /** 管理列表用：全量 profile（含 studio 系统角色与 inactive），不带 status 过滤 */
+  listAllAgents: () =>
+    api.get<{ data: AgentProfile[]; pagination: { total: number } }>('/agent-profiles', {
+      params: { includeSystem: 'true', limit: 200 },
+    }),
+
   convertToTask: (channelId: string, messageId: string, data: {
     title?: string; description?: string; assigneeId?: string; projectPath?: string;
   }) =>

@@ -42,7 +42,7 @@ export const WorkspaceStatusBar: React.FC = () => {
         <div key={ws.id}>
           <span>{ws.name}</span>
           <span>{ws.status}</span>
-          <span>{ws._count.runtimes} runtimes</span>
+          <span>{(ws.runtimes?.length ?? 0)} runtimes</span>
         </div>
       ))}
     </div>

@@ -412,9 +412,9 @@ export class FileStore {
   }
 
   async deleteProfile(id: string): Promise<void> {
-    const filePath = this.profilePath(id);
+    const dir = path.join(this.baseDir, 'agents', id);
     try {
-      await fs.promises.unlink(filePath);
+      await fs.promises.rm(dir, { recursive: true, force: true });
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') throw new Error(`AgentProfile not found: ${id}`);
       throw err;
@@ -550,9 +550,9 @@ export class FileStore {
   }
 
   async deleteChannel(id: string): Promise<void> {
-    const dir = this.channelConfigPath(id);
+    const dir = path.join(this.baseDir, 'channels', id);
     try {
-      await fs.promises.unlink(dir);
+      await fs.promises.rm(dir, { recursive: true, force: true });
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') throw new Error(`Channel not found: ${id}`);
       throw err;

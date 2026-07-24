@@ -85,5 +85,8 @@ apps/api/docs/
 # Unified config (contains API keys)
 config.env
 
+# Vitest compile cache
+node-compile-cache/
+
 # TypeScript build cache
 *.tsbuildinfo

@@ -26,7 +26,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal() as any;
   return {
     ...actual,
-    FileStore: vi.fn().mockImplementation(() => ({
+    FileStore: vi.fn().mockImplementation(function () { return {
       appendJsonl: mockAppendJsonl,
       readJsonl: vi.fn().mockResolvedValue([]),
       readJson: vi.fn().mockResolvedValue(null),
@@ -35,7 +35,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
       writeDoc: vi.fn().mockResolvedValue(undefined),
       listDocs: vi.fn().mockResolvedValue([]),
       listChannels: mockListChannels,
-    })),
+    }; }),
   };
 });
 

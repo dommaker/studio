@@ -70,7 +70,7 @@ export interface SessionInput {
 }
 
 export interface AuthResult {
-  user?: UserData;
+  user?: SafeUser;
   session: SessionData;
   token: string;
   isNewUser?: boolean;
@@ -194,7 +194,13 @@ export function verifyToken(
   }
 }
 
-// ─── 业务函数 ───
+// ─── 安全工具 ───
+
+/** 从返回给前端的用户对象中移除 passwordHash */
+function sanitizeUser(user: UserData): SafeUser {
+  const { passwordHash, ...safe } = user;
+  return safe;
+}
 
 function makeId(): string {
   return crypto.randomUUID();
@@ -229,7 +235,7 @@ export async function getOrCreateSession(input: SessionInput): Promise<AuthResul
     const existing = await findSessionByGuestId(input.guestId);
     if (existing && new Date(existing.expiresAt) > new Date()) {
       const user = existing.userId ? await findUserById(existing.userId) : null;
-      return { user: user ?? undefined, session: existing, token: existing.token };
+      return { user: user ? sanitizeUser(user) : undefined, session: existing, token: existing.token };
     }
   }
   return createGuestSession(input);
@@ -283,7 +289,7 @@ export async function login(input: LoginInput): Promise<AuthResult> {
 
   const refreshToken = await generateRefreshToken(user.id);
 
-  return { user, session, token, refreshToken };
+  return { user: sanitizeUser(user), session, token, refreshToken };
 }
 
 export async function register(input: RegisterInput): Promise<AuthResult> {
@@ -331,7 +337,7 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
 
   const refreshToken = await generateRefreshToken(user.id);
 
-  return { user, session, token, isNewUser: true, refreshToken };
+  return { user: sanitizeUser(user), session, token, isNewUser: true, refreshToken };
 }
 
 export async function logout(sessionId: string, userId?: string): Promise<void> {
@@ -348,15 +354,17 @@ export async function logout(sessionId: string, userId?: string): Promise<void> 
   }
 }
 
+export type SafeUser = Omit<UserData, 'passwordHash'>;
+
 export async function getCurrentUser(
   sessionId: string,
-): Promise<{ user: UserData | null; session: SessionData | null }> {
+): Promise<{ user: SafeUser | null; session: SessionData | null }> {
   const session = await findSessionById(sessionId);
   if (!session || new Date(session.expiresAt) < new Date()) {
     return { user: null, session: null };
   }
   const user = session.userId ? await findUserById(session.userId) : null;
-  return { user, session };
+  return { user: user ? sanitizeUser(user) : null, session };
 }
 
 export async function cleanupExpiredSessions(): Promise<number> {

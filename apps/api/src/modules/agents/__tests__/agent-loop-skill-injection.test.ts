@@ -49,11 +49,11 @@ vi.mock('@dommaker/studio-agent', () => ({
 }));
 
 vi.mock('../../workunit/workunit.service', () => ({
-  WorkUnitService: vi.fn().mockImplementation(() => ({
+  WorkUnitService: vi.fn().mockImplementation(function () { return {
     claim: vi.fn(),
     unclaim: vi.fn(),
     transitionStatus: vi.fn(),
-  })),
+  }; }),
 }));
 
 vi.mock('../../triggers/trigger-registry', () => ({
