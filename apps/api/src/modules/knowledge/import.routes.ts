@@ -13,6 +13,7 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from "path";
 import * as os from "os";
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
 const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
@@ -88,7 +89,7 @@ function inferTags(fileName: string, relativePath: string): string[] {
  *
  * Body: { projectId: string, scanPath?: string, maxDepth?: number }
  */
-knowledgeImportRoutes.post('/scan', async (req: Request, res: Response) => {
+knowledgeImportRoutes.post('/scan', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { projectId, scanPath, maxDepth = 3 } = req.body;
 
@@ -223,7 +224,7 @@ knowledgeImportRoutes.post('/scan', async (req: Request, res: Response) => {
  *   files: Array<{ path: string, type?: string, title?: string, tags?: string[] }>
  * }
  */
-knowledgeImportRoutes.post('/execute', async (req: Request, res: Response) => {
+knowledgeImportRoutes.post('/execute', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { projectId, files: filesToImport } = req.body;
 

@@ -12,6 +12,7 @@ import {
 } from '@dommaker/studio-spec';
 import { logger } from '@dommaker/studio-shared';
 import { parsePagination, sendPaginated } from '../../utils/pagination.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 
@@ -82,7 +83,7 @@ router.get('/changes/:changeId', async (req: Request, res: Response) => {
  * POST /api/v1/specs/changes/:changeId/validate
  * 门禁验证
  */
-router.post('/changes/:changeId/validate', async (req: Request, res: Response) => {
+router.post('/changes/:changeId/validate', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { changeId } = req.params;
     const { checkpoints, harnessConfigs, strictMode } = req.body;
@@ -197,7 +198,7 @@ router.get('/:id/changes/export', async (req: Request, res: Response) => {
  * POST /api/v1/specs/:id/changes/import
  * 导入变更历史
  */
-router.post('/:id/changes/import', async (req: Request, res: Response) => {
+router.post('/:id/changes/import', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { data } = req.body;

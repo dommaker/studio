@@ -13,6 +13,7 @@ import { Router, type Request, type Response } from 'express';
 import { AgentInstanceService } from './agent-instance.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
+import { requireAuth, requireAdmin, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 const service = new AgentInstanceService();
@@ -38,7 +39,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 /** POST / — create RuntimeInstance */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { roleId, sessionId, metadata } = req.body;
 
@@ -81,7 +82,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 /** PATCH /:id — update RuntimeInstance */
-router.patch('/:id', async (req: Request, res: Response) => {
+router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const instance = await service.update(req.params.id, req.body);
     res.json(instance);
@@ -104,7 +105,7 @@ router.patch('/:id', async (req: Request, res: Response) => {
 });
 
 /** POST /:id/terminate — force terminate instance + unclaim WorkUnit */
-router.post('/:id/terminate', async (req: Request, res: Response) => {
+router.post('/:id/terminate', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const instance = await service.terminate(req.params.id);
     res.json(instance);

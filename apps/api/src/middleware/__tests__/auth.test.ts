@@ -30,7 +30,7 @@ vi.mock('../../../utils/logger.js', () => ({
   logger: { error: vi.fn(), info: vi.fn(), warn: vi.fn() },
 }));
 
-import { workspaceAuth, checkOwnership, requireNotGuest, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin } from '../auth.js';
+import { workspaceAuth, checkOwnership, requireNotGuest, requireLocalhost, generateAnonymousId, optionalAuth, requireAuth, requireRole, requireAdmin } from '../auth.js';
 
 // ---------------------------------------------------------------------------
 // AC1: workspaceAuth()
@@ -370,6 +370,7 @@ describe('requireRole / requireAdmin', () => {
 
 
 describe('requireNotGuest', () => {
+  const OLD_AUTH = process.env.STUDIO_AUTH;
   let req: Partial<Request>;
   let res: Partial<Response>;
   let next: ReturnType<typeof vi.fn>;
@@ -380,7 +381,12 @@ describe('requireNotGuest', () => {
     next = vi.fn();
   });
 
+  afterEach(() => {
+    process.env.STUDIO_AUTH = OLD_AUTH;
+  });
+
   it('returns 403 when user is not logged in', async () => {
+    process.env.STUDIO_AUTH = 'on';
     const middleware = requireNotGuest();
     await middleware(req as Request, res as Response, next);
 
@@ -392,6 +398,7 @@ describe('requireNotGuest', () => {
   });
 
   it('returns 403 when user has Guest role', async () => {
+    process.env.STUDIO_AUTH = 'on';
     (req as any).user = { id: 'u1', role: 'Guest' };
     const middleware = requireNotGuest();
     await middleware(req as Request, res as Response, next);
@@ -404,6 +411,7 @@ describe('requireNotGuest', () => {
   });
 
   it('calls next() when user has User role', async () => {
+    process.env.STUDIO_AUTH = 'on';
     (req as any).user = { id: 'u1', role: 'User' };
     const middleware = requireNotGuest();
     await middleware(req as Request, res as Response, next);
@@ -412,7 +420,27 @@ describe('requireNotGuest', () => {
   });
 
   it('calls next() when user has Admin role', async () => {
+    process.env.STUDIO_AUTH = 'on';
     (req as any).user = { id: 'u1', role: 'Admin' };
+    const middleware = requireNotGuest();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('STUDIO_AUTH=none 本地模式直接放行（无 user 也不 403）', async () => {
+    process.env.STUDIO_AUTH = 'none';
+    const middleware = requireNotGuest();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+    // 注入本地 Admin 用户供下游使用
+    expect((req as any).user?.role).toBe('Admin');
+  });
+
+  it('unset STUDIO_AUTH 默认为 none，同样放行', async () => {
+    delete process.env.STUDIO_AUTH;
     const middleware = requireNotGuest();
     await middleware(req as Request, res as Response, next);
 
@@ -549,5 +577,85 @@ describe('generateAnonymousId', () => {
     const id1 = generateAnonymousId('127.0.0.1', 'Mozilla/5.0 Chrome');
     const id2 = generateAnonymousId('127.0.0.1', 'Mozilla/5.0 Firefox');
     expect(id1).not.toBe(id2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// requireLocalhost（2026-07 API 鉴权收紧：内部端点本机回环限定）
+// ---------------------------------------------------------------------------
+describe('requireLocalhost', () => {
+  let req: Partial<Request>;
+  let res: Partial<Response>;
+  let next: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    req = { headers: {} };
+    res = { status: vi.fn().mockReturnThis(), json: vi.fn() };
+    next = vi.fn();
+  });
+
+  it('calls next() for IPv4 loopback 127.0.0.1', async () => {
+    (req as any).ip = '127.0.0.1';
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
+  it('calls next() for IPv6 loopback ::1', async () => {
+    (req as any).ip = '::1';
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('calls next() for IPv4-mapped IPv6 loopback ::ffff:127.0.0.1', async () => {
+    (req as any).ip = '::ffff:127.0.0.1';
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('returns 403 LOCALHOST_ONLY for public IP', async () => {
+    (req as any).ip = '203.0.113.10';
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(
+      expect.objectContaining({ code: 'LOCALHOST_ONLY' }),
+    );
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('returns 403 for IPv4-mapped public IP', async () => {
+    (req as any).ip = '::ffff:203.0.113.10';
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('falls back to socket.remoteAddress when req.ip is undefined', async () => {
+    (req as any).ip = undefined;
+    (req as any).socket = { remoteAddress: '127.0.0.1' };
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(next).toHaveBeenCalled();
+  });
+
+  it('returns 403 when no IP information is available', async () => {
+    (req as any).ip = undefined;
+    (req as any).socket = {};
+    const middleware = requireLocalhost();
+    await middleware(req as Request, res as Response, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
   });
 });

@@ -22,3 +22,9 @@ REQ 需求编号体系（vision §5.3）：一个需求（`REQ-<序号>`）= 一
 
 - 首次 @mention 派发时自动分配 REQ 编号
 - 状态汇总走事件驱动（`workunit.status_changed`），不做轮询
+- **鉴权（2026-07-24 收紧）**：POST /、PATCH /:id 已收 requireAuth+requireNotGuest；GET 端点保持大门层鉴权不变。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest

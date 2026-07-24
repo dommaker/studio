@@ -29,6 +29,7 @@ import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -69,7 +70,7 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 /** POST / — create WorkUnit */
-router.post('/', async (req: Request, res: Response) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { scope, type, assigneeId, status, channelId, parentId, metadata, projectPath } = req.body;
 
@@ -99,7 +100,7 @@ router.post('/', async (req: Request, res: Response) => {
 });
 
 /** POST /from-message — convert ChannelMessage to WorkUnit (emergence path) */
-router.post('/from-message', async (req: Request, res: Response) => {
+router.post('/from-message', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { messageId, type, metadata } = req.body;
 
@@ -143,7 +144,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 });
 
 /** PUT /:id — update WorkUnit */
-router.put('/:id', async (req: Request, res: Response) => {
+router.put('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const wu = await service.update(req.params.id, req.body);
     res.json(wu);
@@ -181,7 +182,7 @@ router.get('/:id/tree-tokens', async (req: Request, res: Response) => {
 });
 
 /** DELETE /:id — delete WorkUnit */
-router.delete('/:id', async (req: Request, res: Response) => {
+router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     await service.delete(req.params.id);
     res.status(204).send();
@@ -199,7 +200,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
 });
 
 /** POST /:id/claim — claim WorkUnit (optimistic lock) */
-router.post('/:id/claim', async (req: Request, res: Response) => {
+router.post('/:id/claim', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { agentId } = req.body;
     if (!agentId || typeof agentId !== 'string') {
@@ -224,7 +225,7 @@ router.post('/:id/claim', async (req: Request, res: Response) => {
 });
 
 /** POST /:id/unclaim — unclaim WorkUnit */
-router.post('/:id/unclaim', async (req: Request, res: Response) => {
+router.post('/:id/unclaim', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const wu = await service.unclaim(req.params.id);
     res.json(wu);
@@ -242,7 +243,7 @@ router.post('/:id/unclaim', async (req: Request, res: Response) => {
 });
 
 /** POST /:id/review-passed — review approved (in_review → done) */
-router.post('/:id/review-passed', async (req: Request, res: Response) => {
+router.post('/:id/review-passed', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     // A2A §4.4-2 / §8-Q3: 验收权只在人 —— agent 身份调用一律 403。
     // 身份约定：调用方在 body.authorType 或 x-author-type header 声明；
@@ -267,7 +268,7 @@ router.post('/:id/review-passed', async (req: Request, res: Response) => {
 });
 
 /** POST /:id/review-rejected — review rejected (in_review → active, or blocked after 3) */
-router.post('/:id/review-rejected', async (req: Request, res: Response) => {
+router.post('/:id/review-rejected', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     // A2A §4.4-2 / §8-Q3: 同 review-passed，agent 身份调用一律 403
     if (resolveCallerAuthorType(req) === 'agent') {
@@ -290,7 +291,7 @@ router.post('/:id/review-rejected', async (req: Request, res: Response) => {
 });
 
 /** POST /:id/status — transition WorkUnit status (state machine) */
-router.post('/:id/status', async (req: Request, res: Response) => {
+router.post('/:id/status', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { status } = req.body;
     if (!status || typeof status !== 'string') {
@@ -348,7 +349,7 @@ router.get('/:id/messages', async (req: Request, res: Response) => {
 });
 
 /** POST /:id/messages — send message in discussion space (auto-associate workUnitId) */
-router.post('/:id/messages', async (req: Request, res: Response) => {
+router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { content, replyToId, authorType = 'human', agentName } = req.body;
 
@@ -400,7 +401,7 @@ router.post('/:id/messages', async (req: Request, res: Response) => {
 });
 
 /** PATCH /:id/messages/:messageId — edit message in discussion space */
-router.patch('/:id/messages/:messageId', async (req: Request, res: Response) => {
+router.patch('/:id/messages/:messageId', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { content, meta } = req.body;
 

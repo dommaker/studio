@@ -5,7 +5,7 @@
  * 新增模块只需在此表中添加一行，无需修改 app.ts。
  */
 import { Router as ExpressRouter, type Router } from 'express';
-import { requireAuth } from './middleware/auth.js';
+import { requireAuth, requireAdmin, requireLocalhost } from './middleware/auth.js';
 import { mcpRateLimit } from './middleware/rate-limit.js';
 import { logger } from '@dommaker/studio-shared';
 
@@ -96,6 +96,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Harness monitoring routes (T-015)
   const { default: harnessRoutes } = await import('./modules/harness/routes.js') as { default: Router };
 
+  // CSO 验证子路由（2026-07 收紧：/api/v1/cso 只挂 validate，不再整挂 harness router——否则 /harness 的 Admin 收紧可被 /cso/* 双挂载绕过）
+  const { csoRoutes } = await import('./modules/harness/cso.routes.js') as { csoRoutes: Router };
+
   // Environment Manager routes (HZ-023)
   const { default: environmentRoutes } = await import('./modules/environments/routes.js') as { default: Router };
 
@@ -171,6 +174,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const { default: projectRoutes } = await import('./modules/projects/project.routes.js') as { default: Router };
 
   const auth = [requireAuth()];
+  // 2026-07 API 鉴权收紧（姿态 A：保持 Lurk Wall，收紧写操作+敏感信息，详见 docs/plans/2026-07-api-auth-tightening.md）
+  const admin = [requireAuth(), requireAdmin()];
+  const localhost = [requireLocalhost()];
 
   return [
     // 认证
@@ -188,10 +194,10 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/requirements', router: requirementRoutes, comment: 'REQ 需求编号体系 (vision §5.3)' },
     { path: '/api/v1/agent-profiles', router: agentProfileRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD' },
     { path: '/api/v1/agent-instances', router: agentInstanceRoutes, comment: 'AS-026 AC-1: RuntimeInstance CRUD' },
-    { path: '/api/v1/triggers', router: triggerRouter, middleware: auth, comment: '3.28c-4: Trigger CRUD + status' },
-    { path: '/api/v1/evolution', router: evolutionRoutes, middleware: auth, comment: 'E1 约束进化：提案列表/审批/手动扫描 (vision §6)' },
-    { path: '/api/v1/monitoring', router: monitoringRoutes, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
-    { path: '/api/v1/projects', router: projectRoutes, comment: 'AC-D1+D3: Local project discovery' },
+    { path: '/api/v1/triggers', router: triggerRouter, middleware: admin, comment: '3.28c-4: Trigger CRUD + status' },
+    { path: '/api/v1/evolution', router: evolutionRoutes, middleware: admin, comment: 'E1 约束进化：提案列表/审批/手动扫描 (vision §6)' },
+    { path: '/api/v1/monitoring', router: monitoringRoutes, middleware: admin, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
+    { path: '/api/v1/projects', router: projectRoutes, middleware: admin, comment: 'AC-D1+D3: Local project discovery' },
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },
@@ -203,15 +209,15 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
     { path: '/api/v1/events', router: eventRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD' },
-    { path: '/api/v1/settings/llm', router: llmConfigRoutes, middleware: auth, comment: '§12.11: 加密 LLM 配置' },
+    { path: '/api/v1/settings/llm', router: llmConfigRoutes, middleware: admin, comment: '§12.11: 加密 LLM 配置' },
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },
     { path: '/api/v1/outputs', router: outputsRoutes },
-    { path: '/api/v1/runtime-config', router: runtimeConfigRoutes, middleware: auth, comment: 'TaskWorker 配置' },
-    { path: '/api/v1/harness', router: harnessRoutes, middleware: auth, comment: 'T-015: Harness 监控集成' },
-    { path: '/api/v1/cso', router: harnessRoutes, comment: 'Decision #5: CSO 验证（无需认证）' },
-    { path: '/api/v1/environments', router: environmentRoutes, middleware: auth, comment: 'HZ-023: Environment Manager' },
-    { path: '/api/v1/agent-configs', router: agentConfigRoutes, middleware: auth, comment: 'HZ-024: Agent Manager' },
-    { path: '/api/v1/builtin-tools', router: builtinToolRoutes, comment: 'HZ-026: Built-in Toolset' },
+    { path: '/api/v1/runtime-config', router: runtimeConfigRoutes, middleware: admin, comment: 'TaskWorker 配置' },
+    { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
+    { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },
+    { path: '/api/v1/environments', router: environmentRoutes, middleware: admin, comment: 'HZ-023: Environment Manager' },
+    { path: '/api/v1/agent-configs', router: agentConfigRoutes, middleware: admin, comment: 'HZ-024: Agent Manager' },
+    { path: '/api/v1/builtin-tools', router: builtinToolRoutes, middleware: admin, comment: 'HZ-026: Built-in Toolset' },
 
     // 文档与审查
     { path: '/api/v1/spec-reviews', router: specReviewRoutes, middleware: auth },
@@ -219,17 +225,17 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // 通知与知识
     { path: '/api/v1/notifications', router: notificationRoutes, middleware: auth },
-    { path: '/api/v1/notify', router: notifyRoutes, comment: 'DD-009: 出站推送（内部调用）' },
+    { path: '/api/v1/notify', router: notifyRoutes, middleware: admin, comment: 'DD-009: 出站推送（内部调用）' },
     { path: '/api/v1/knowledge', router: knowledgeRoutes, middleware: auth },
     { path: '/api/v1/knowledge-service', router: knowledgeServiceRoutes, middleware: auth, comment: 'KnowledgeService HTTP API + SSE' },
     { path: '/api/v1/knowledge/import', router: knowledgeImportRoutes, middleware: auth, comment: 'S2: 冷启动导入' },
-    { path: '/api/knowledge', router: knowledgeInternalRoutes, comment: 'Internal knowledge extraction API (no auth, text→LLM→knowledge store)' },
+    { path: '/api/knowledge', router: knowledgeInternalRoutes, middleware: localhost, comment: 'Internal knowledge extraction API (2026-07 收紧：本机回环限定，此前全匿名可写/盗用 LLM)' },
     { path: '/api/v1/wiki', router: wikiRoutes, comment: 'B2-008: LLM Wiki 档案馆' },
 
     // 运维
     { path: '/api/v1/health', router: healthRoutes, comment: 'M1: Health check' },
-    { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: auth, comment: 'AR-012' },
-    { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: auth, comment: 'T-020: CLAUDE.md 新鲜度检查' },
+    { path: '/api/v1/audit-logs', router: auditLogRoutes, middleware: admin, comment: 'AR-012' },
+    { path: '/api/v1/admin/docs-freshness', router: docsFreshnessRoutes, middleware: admin, comment: 'T-020: CLAUDE.md 新鲜度检查' },
 
     // Discord
     { path: '/api/v1/discord', router: discordRoutes, comment: 'Discord Interactions' },

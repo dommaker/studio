@@ -401,10 +401,19 @@ export function checkOwnership(model: string, paramKey: string = 'id') {
 
 /**
  * Guest 检查 - 要求不是 Guest 角色
+ *
+ * 2026-07 修复：补 STUDIO_AUTH=none 分支（与 requireRole 对称），
+ * 否则 none 模式下未先经 requireAuth 注入用户时恒 403。
  */
 export function requireNotGuest() {
   return async (req: Request, res: Response, next: NextFunction) => {
     const authReq = req as AuthRequest;
+
+    // STUDIO_AUTH=none: 本地免登录模式，直接放行
+    if ((process.env.STUDIO_AUTH || 'none') === 'none') {
+      authReq.user = authReq.user ?? ({ id: 'local', role: 'Admin', name: 'Local User' } as UserData);
+      return next();
+    }
 
     if (!authReq.user || authReq.user.role === 'Guest') {
       return res.status(403).json({
@@ -427,6 +436,31 @@ export function requireNotGuest() {
  */
 export function requireAdmin() {
   return requireRole('Admin');
+}
+
+/**
+ * 本机回环检查 — 2026-07 API 鉴权收紧
+ *
+ * 仅放行 127.0.0.1 / ::1（含 ::ffff: 映射），其余 403。
+ * 用于"假定本机调用方、无凭证"的端点（/api/knowledge 内部知识 API、
+ * /api/v1/mcp/messages|sse）：经反向代理（Cloudflare 等）的公网流量
+ * socket 对端是代理边缘 IP 天然被拦；本机 daemon/CLI 脚本走回环不受影响。
+ * 与认证模式无关（网络层检查），STUDIO_AUTH=none 下同样生效。
+ */
+export function requireLocalhost() {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip ?? req.socket?.remoteAddress ?? '';
+    const normalized = ip.startsWith('::ffff:') ? ip.slice(7) : ip;
+
+    if (normalized === '127.0.0.1' || normalized === '::1') {
+      return next();
+    }
+
+    return res.status(403).json({
+      error: '该端点仅允许本机调用',
+      code: 'LOCALHOST_ONLY',
+    });
+  };
 }
 
 /**

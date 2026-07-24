@@ -19,6 +19,7 @@ import {
   listDocs, getDoc, saveDoc, getProject, findProjectPmoNumber,
   type DocRecord,
 } from './document-store.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 export const documentsRoutes = Router();
 
@@ -149,7 +150,7 @@ documentsRoutes.get('/:projectId', async (req, res) => {
  * 创建文档
  * POST /api/v1/knowledge/:projectId
  */
-documentsRoutes.post('/:projectId', async (req, res) => {
+documentsRoutes.post('/:projectId', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { projectId } = req.params;
     const { type, title, content, filePath, tags, createdBy } = req.body;
@@ -189,7 +190,7 @@ documentsRoutes.post('/:projectId', async (req, res) => {
  * 更新文档
  * PUT /api/v1/knowledge/:documentId
  */
-documentsRoutes.put('/:documentId', async (req, res) => {
+documentsRoutes.put('/:documentId', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { documentId } = req.params;
     const { title, content, filePath, tags, updatedBy } = req.body;
@@ -219,7 +220,7 @@ documentsRoutes.put('/:documentId', async (req, res) => {
  * 归档文档
  * POST /api/v1/knowledge/:documentId/archive
  */
-documentsRoutes.post('/:documentId/archive', async (req, res) => {
+documentsRoutes.post('/:documentId/archive', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { documentId } = req.params;
 
@@ -245,7 +246,7 @@ documentsRoutes.post('/:documentId/archive', async (req, res) => {
  * POST /api/v1/knowledge/:documentId/approve — 审批通过，提升 maturity 为 validated
  * POST /api/v1/knowledge/:documentId/reject  — 驳回，标记 status 为 rejected
  */
-documentsRoutes.post('/:documentId/approve', async (req, res) => {
+documentsRoutes.post('/:documentId/approve', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { documentId } = req.params;
     const doc = await getDoc(documentId);
@@ -259,7 +260,7 @@ documentsRoutes.post('/:documentId/approve', async (req, res) => {
   }
 });
 
-documentsRoutes.post('/:documentId/reject', async (req, res) => {
+documentsRoutes.post('/:documentId/reject', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { documentId } = req.params;
     const doc = await getDoc(documentId);
@@ -277,7 +278,7 @@ documentsRoutes.post('/:documentId/reject', async (req, res) => {
  * 删除文档
  * DELETE /api/v1/knowledge/:documentId
  */
-documentsRoutes.delete('/:documentId', async (req, res) => {
+documentsRoutes.delete('/:documentId', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const { documentId } = req.params;
 

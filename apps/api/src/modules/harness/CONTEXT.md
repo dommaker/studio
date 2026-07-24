@@ -13,7 +13,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | 文件 | 职责 |
 |------|------|
 | `runtime.ts` | @dommaker/harness 懒加载、Collector/Analyzer/KnowledgeStore 单例、TTL 缓存 |
-| `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness + /api/v1/cso） |
+| `routes.ts` | 挂载门面（默认导出 Router，route-registry 挂 /api/v1/harness，2026-07 起 requireAuth+requireAdmin） |
 | `traces.routes.ts` | 轨迹采集/分析/诊断（/traces、/analysis、/diagnose） |
 | `proposals.routes.ts` | 约束进化与提案（/proposals、/evolve） |
 | `constraints.routes.ts` | 约束生命周期 + 质量门（/constraints*、/check-constraints） |
@@ -23,7 +23,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 | `agents.routes.ts` | Agent 生命周期（/agents*） |
 | `diagnostics.routes.ts` | 错误分类/规格检查/验证（/classify、/failures、/check-spec、/verify*） |
 | `dashboard.routes.ts` | 仪表盘/健康（/dashboard、/health） |
-| `cso.routes.ts` | CSO 验证（/validate，挂 /api/v1/cso 无 auth） |
+| `cso.routes.ts` | CSO 验证（/validate；2026-07 起 /api/v1/cso 只挂本文件，不再整挂 routes.ts 门面——否则 harness 的 Admin 收紧可被 /cso/* 双挂载绕过） |
 | `iron-laws.routes.ts` | Iron Laws（独立子路由，挂 /api/v1/iron-laws） |
 
 ## 核心导出
@@ -34,7 +34,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 
 - 依赖 `@dommaker/harness`（懒加载，不可用时端点降级 503）
 - 依赖 `@dommaker/studio-shared`（logger）、`../knowledge/knowledge-bus.service.js`（UNIFIED_KNOWLEDGE_DIR）
-- 被 `apps/api/src/route-registry.ts` 引用（/api/v1/harness 带 auth、/api/v1/cso 无 auth）
+- 被 `apps/api/src/route-registry.ts` 引用（/api/v1/harness = requireAuth+requireAdmin；/api/v1/cso 仅挂 cso.routes 的 /validate，公开不变）
 
 ## 注意事项
 
@@ -46,5 +46,6 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — /api/v1/harness 挂载收 requireAuth+requireAdmin（含 /verify 命令执行、/check-spec 路径探测、proposals 执行面）；/api/v1/cso 拆分只挂 csoRoutes（消除双挂载绕过），/validate 保持公开
 - ✅ `ee1e354d`: B39 harness 集成修复 — A5 checkConstraint + S13 routes 类型化
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

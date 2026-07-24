@@ -41,10 +41,12 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 - **DB 去重**：同 channel 24h 内有有效 RequirementsDoc → 质量门验证 → 直接复用（0 token）
 - **requirement-gate Stage 2**：确定性检查（文件重叠/单向依赖/architectureContext），全部 soft warning，永不阻断
 - **outputFile 唯一性**：Claude 通过 Write tool 写文件，stdout 只有 "DONE"。文件丢失 = 数据丢失
+- **鉴权分层（2026-07-24 收紧，姿态 A）**：`/api/v1/channels` 在 PUBLIC_API —— GET（`/`、`/:id`、`/:id/messages`）保持**匿名公开**（Lurk Wall 围观本体，不要再给 GET 加中间件）；9 条写端点（建频道/发消息/删频道/archive/restore/PATCH/members/convert-to-task×2）= `requireAuth()+requireNotGuest()`。注意 `POST /:id/messages` 经 @mention 派单/恢复挂起 WU 可直接触发 agent 执行与 LLM 消耗，是收紧前最危险的匿名入口。requirements-docs PUT 同为 requireNotGuest
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — channels 12 条路由曾零鉴权且在 PUBLIC_API 前缀下匿名可达（P0：匿名发消息可触发 agent 执行/LLM 消耗）；GET 保持公开，写端点收 requireAuth+requireNotGuest；requirements-doc PUT 同步收紧
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `389c9e87`: add await to all sdd-utils consumers after Phase 4 async migration
 - ✅ `8d6820d3`: ChannelWorkspaceSetting calling wrong API (404)

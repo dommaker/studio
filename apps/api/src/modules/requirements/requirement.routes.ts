@@ -11,6 +11,7 @@
 import { Router, type Request, type Response } from 'express';
 import { FileStore, type RequirementStatus } from '@dommaker/studio-shared';
 import { RequirementService, REQUIREMENT_STATUSES } from './requirement.service.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 export function createRequirementRoutes(fileStore?: FileStore): Router {
   const router = Router();
@@ -30,7 +31,7 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
   });
 
   /** POST / — 手动创建需求 */
-  router.post('/', async (req: Request, res: Response) => {
+  router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
     const { title, channelId, description, createdBy, docs } = req.body;
     if (!title || typeof title !== 'string' || !title.trim()) {
       return res.status(400).json({ success: false, error: 'title is required' });
@@ -56,7 +57,7 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
   });
 
   /** PATCH /:id — 更新 status/title/docs/description */
-  router.patch('/:id', async (req: Request, res: Response) => {
+  router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
     const { title, status, description, docs } = req.body;
     if (status !== undefined && !REQUIREMENT_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, error: `status must be one of: ${REQUIREMENT_STATUSES.join(', ')}` });

@@ -10,6 +10,7 @@
 import { Router } from 'express';
 import { logger } from '@dommaker/studio-shared';
 import * as os from 'os';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 export const filesRoutes = Router();
 
@@ -101,7 +102,7 @@ filesRoutes.get('/requirements', async (req, res) => {
  * - 路径必须在允许的目录范围内（ALLOWED_DIRS 配置）
  * - 文件必须是 .md/.txt/.json 格式
  */
-filesRoutes.post('/read-file', async (req, res) => {
+filesRoutes.post('/read-file', requireAuth(), requireNotGuest(), async (req, res) => {
   try {
     const fs = require('fs');
     const path = require('path');

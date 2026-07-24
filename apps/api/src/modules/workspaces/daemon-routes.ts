@@ -17,7 +17,7 @@
 import { Router, Request, Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
-import { workspaceAuth, AuthRequest } from '../../middleware/auth.js';
+import { workspaceAuth, AuthRequest, requireAuth, requireAdmin } from '../../middleware/auth.js';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as fs from 'node:fs';
@@ -362,7 +362,7 @@ router.get('/tasks/:id/status', workspaceAuth(), async (req: Request, res: Respo
 // ─── GET /api/v1/daemon/status ───
 // Daemon session status (for CLI and monitoring)
 
-router.get('/status', async (_req: Request, res: Response) => {
+router.get('/status', requireAuth(), requireAdmin(), async (_req: Request, res: Response) => {
   try {
     const { daemon } = await import('../../daemon/studio-daemon.js');
     if (!daemon.isStarted()) {

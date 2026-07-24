@@ -41,10 +41,14 @@
 - 支持两种认证模式：`none`（直接返回本地管理员用户）和 `on`（完整认证流程）
 - Guest Session 有效期 24 小时，JWT 令牌有效期 7 天
 - 路由中应用了速率限制中间件（authRateLimit）
+- **Guest session `userId=null`**（service.ts createGuestSession 不建用户记录）→ `findSessionWithUser` 查不到用户 → guest token 实际过不了 `requireAuth()`/Lurk Wall 大门，等同匿名（2026-07-24 生产实测确认）。Lurk Wall 的"guest 可围观"实际由 PUBLIC_API 白名单前缀承载（/channels、/requirements-docs 等，无需任何 token）
+- 注册用户 role 恒为 `"User"`（service.ts:307）；`/auth/register` 不在 PUBLIC_API，生产上仅已过大门者（即 Admin）可创建用户
+- 中间件分层（middleware/auth.ts，2026-07-24 收紧）：`requireAuth+requireNotGuest` = 内容写（User+Admin）；`requireAuth+requireAdmin` = 敏感/控制；`requireLocalhost` = 内部本机端点（/api/knowledge、/mcp/messages|sse）。三者 + requireRole 在 `STUDIO_AUTH=none` 下均放行，本地免登录不受影响。全量路由审查表见 `docs/plans/2026-07-api-auth-tightening.md`
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧（姿态 A）— `requireNotGuest` 补 STUDIO_AUTH=none 放行分支；新增 `requireLocalhost` 中间件；确认 guest session（userId=null）实际过不了 requireAuth/大门，真实暴露面=PUBLIC_API 前缀+/api/knowledge；审查表 docs/plans/2026-07-api-auth-tightening.md
 - ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
 - ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)
 - ✅ `0b2db57e`: oauth): return dynamic error message in route 500 response

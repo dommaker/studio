@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import { okrService, OKRService } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand } from './project.service.js';
 import { logger } from '../../utils/logger.js';
-import { requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
+import { requireAuth, requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { FileStore } from '@dommaker/studio-shared';
 import * as os from 'os';
@@ -49,7 +49,7 @@ router.get('/project', async (req: Request, res: Response) => {
  * POST /api/v1/pmo/project
  * 创建项目（自动生成 PMO 号）
  */
-router.post('/project', async (req: Request, res: Response) => {
+router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo } = req.body;
 
@@ -131,7 +131,7 @@ router.get('/project/by-pmo/:pmoNumber', async (req: Request, res: Response) => 
  * PUT /api/v1/pmo/project/:id
  * 更新项目
  */
-router.put('/project/:id', async (req: Request, res: Response) => {
+router.put('/project/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const project = await projectService.update(req.params.id, req.body);
     res.json(project);
@@ -147,7 +147,7 @@ router.put('/project/:id', async (req: Request, res: Response) => {
  * PUT /api/v1/pmo/project/:id/status
  * 更新项目状态
  */
-router.put('/project/:id/status', async (req: Request, res: Response) => {
+router.put('/project/:id/status', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { status } = req.body;
 
@@ -188,7 +188,7 @@ router.delete('/project/:id', requireRole('Admin'), async (req: Request, res: Re
  * POST /api/v1/pmo/project/:id/publish
  * 发布 PMO 到 Channel，创建分析 WorkUnit
  */
-router.post('/project/:id/publish', async (req: Request, res: Response) => {
+router.post('/project/:id/publish', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { channelId } = req.body;
     if (!channelId) {
@@ -289,7 +289,7 @@ router.get('/okr', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Resp
  * POST /api/v1/pmo/okr
  * 创建 OKR（需要管理员权限）
  */
-router.post('/okr', async (req: Request, res: Response) => {
+router.post('/okr', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { companyId, title, objectives, keyResults, quarter, roleId } = req.body;
 
@@ -415,7 +415,7 @@ router.get('/okr/:id', async (req: Request, res: Response) => {
  * PUT /api/v1/pmo/okr/:id
  * 更新 OKR（需要管理员权限）
  */
-router.put('/okr/:id', async (req: Request, res: Response) => {
+router.put('/okr/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { roleId, ...updates } = req.body;
     const okrId = req.params.id;
@@ -545,7 +545,7 @@ router.get('/projects', async (req: Request, res: Response) => {
  * PUT /api/v1/pmo/projects/:id/okr
  * 设置项目关联的 OKR（需要管理员或 ProjectLead 权限）
  */
-router.put('/projects/:id/okr', async (req: Request, res: Response) => {
+router.put('/projects/:id/okr', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const executionId = req.params.id;
     const { okrId } = req.body;

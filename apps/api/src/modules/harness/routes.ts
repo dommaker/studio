@@ -2,7 +2,9 @@
  * FL-029: Harness Monitoring Routes (T-015)（挂载门面）
  *
  * 本文件为路由门面：创建 Router、按原注册顺序挂载子路由、默认导出不变
- * （route-registry.ts 将其挂载于 /api/v1/harness（auth）与 /api/v1/cso（无 auth））。
+ * （route-registry.ts 将其挂载于 /api/v1/harness（requireAuth+requireAdmin）。
+ * 2026-07 收紧：/api/v1/cso 不再整挂本 router，只挂 cso.routes 的
+ * GET /validate——否则本文件的 Admin 收紧可被 /cso/* 双挂载绕过）：
  * 处理器实现已按资源拆分为子路由（T3 大文件拆分序列 5/N，零行为变更）：
  *
  * - runtime.ts           共享运行时：@dommaker/harness 懒加载、Collector/Analyzer/

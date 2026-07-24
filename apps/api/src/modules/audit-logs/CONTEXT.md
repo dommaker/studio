@@ -23,3 +23,9 @@
 - 所有错误场景统一返回 `{ error: { code, message } }` 格式，内部日志使用 `logger.error`。
 - 审计服务通过 `createLazyService` 延迟初始化，避免启动时加载依赖。
 - 分页默认值为 page=1, limit=50，调用方不应依赖默认值以外的行为。
+- **鉴权（2026-07-24 收紧）**：`/api/v1/audit-logs` 挂载级 `requireAuth()+requireAdmin()` —— 日志含 IP/UA/email（PII），且 `POST /`（伪造审计）、`POST /cleanup`（销毁证据）此前无角色限制。另：`GET /export` 注册在 `GET /:id` 之后被遮蔽不可达（历史 bug，未修）。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（审计完整性 + PII）

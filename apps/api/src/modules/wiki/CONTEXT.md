@@ -31,10 +31,12 @@
 - `linkedDocIds` 参数兼容数组与 JSON 字符串形式，需使用 `parseLinkedDocIds` 解析
 - 路由中每个端点包含 `try-catch` 错误处理，统一返回 500 错误
 - 遵循 B2-008 规范，Wiki 文档即为 RequirementsDoc 档案馆的视图
+- **鉴权（2026-07-24 收紧）**：PUT /:id 已收 requireAuth+requireNotGuest。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: PUT /:id 收 requireAuth+requireNotGuest
 - ✅ `389c9e87`: add await to all sdd-utils consumers after Phase 4 async migration
 - ✅ `5b7ec85c`: web): 修复 4 个生产崩溃 + 菜单冗余整合
 - ✅ `1c4ac168`: SP-004): 补齐 SDD 三个缺口 — Files section + Analyst 输出 + 去 DB 读

@@ -6,6 +6,7 @@ import { channelMessageService } from './channel-message.service.js';
 import { routeMessage } from './message-routing.js';
 import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
+import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
@@ -226,7 +227,7 @@ router.get('/', apiCache(CACHE_CONFIG.medium), async (_req, res) => {
 
 // POST /api/v1/channels — create a new channel (B2-007)
 // Also supports creating initial agents: { agents: [{ name, description? }] }
-router.post('/', async (req, res) => {
+router.post('/', requireAuth(), requireNotGuest(), async (req, res) => {
   const { name, type = 'rnd', members, agents, defaultPipeline } = req.body;
   if (!name || typeof name !== 'string' || !name.trim()) {
     return res.status(400).json({ success: false, error: 'name is required' });
@@ -340,7 +341,7 @@ router.get('/:id/messages', async (req, res) => {
 });
 
 // POST /api/v1/channels/:id/messages — send a message
-router.post('/:id/messages', async (req, res) => {
+router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) => {
   const { content, replyToId, workspaceId, reqId } = req.body;
   if (!content || typeof content !== 'string' || !content.trim()) {
     return res.status(400).json({ success: false, error: 'content is required' });
@@ -371,7 +372,7 @@ router.post('/:id/messages', async (req, res) => {
 });
 
 // DELETE /api/v1/channels/:id — delete channel (B2-012: Goal fallback to #研发)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
 
@@ -416,7 +417,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // PUT /api/v1/channels/:id/archive — archive a channel (B1-011)
-router.put('/:id/archive', async (req, res) => {
+router.put('/:id/archive', requireAuth(), requireNotGuest(), async (req, res) => {
   const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
 
@@ -428,7 +429,7 @@ router.put('/:id/archive', async (req, res) => {
 });
 
 // PUT /api/v1/channels/:id/restore — restore an archived channel (B1-011)
-router.put('/:id/restore', async (req, res) => {
+router.put('/:id/restore', requireAuth(), requireNotGuest(), async (req, res) => {
   const channel = await fileStore.getChannel(req.params.id);
   if (!channel) return res.status(404).json({ success: false, error: 'Channel not found' });
   if (!channel.name.includes('-archived-')) {
@@ -442,7 +443,7 @@ router.put('/:id/restore', async (req, res) => {
 });
 
 // PATCH /api/v1/channels/:id — update channel settings
-router.patch('/:id', async (req, res) => {
+router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   const { id } = req.params;
   const { name, defaultWorkspaceId, defaultPath, defaultPipeline } = req.body;
   try {
@@ -479,7 +480,7 @@ router.patch('/:id', async (req, res) => {
 });
 
 // PATCH /api/v1/channels/:id/members — update channel members (AC-B2)
-router.patch('/:id/members', async (req, res) => {
+router.patch('/:id/members', requireAuth(), requireNotGuest(), async (req, res) => {
   const { add, remove } = req.body;
   try {
     const members = await updateChannelMembers(req.params.id, { add, remove });
@@ -494,7 +495,7 @@ router.patch('/:id/members', async (req, res) => {
 });
 
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
-router.post('/:id/messages/:messageId/convert-to-task', async (req, res) => {
+router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNotGuest(), async (req, res) => {
   const { id: channelId, messageId } = req.params;
   const { title, description, assigneeId, projectPath, workspaceId, reqId } = req.body;
 
@@ -521,7 +522,7 @@ router.post('/:id/messages/:messageId/convert-to-task', async (req, res) => {
 });
 
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task/suggest (AC-E2)
-router.post('/:id/messages/:messageId/convert-to-task/suggest', async (req, res) => {
+router.post('/:id/messages/:messageId/convert-to-task/suggest', requireAuth(), requireNotGuest(), async (req, res) => {
   const { messageId } = req.params;
 
   try {

@@ -49,10 +49,12 @@
 - tools.ts 是门面，不包含 tool 定义。新增 tool 在对应域 *.tools.ts 中添加，并在 tools.ts 的 allTools 数组中展开（注册顺序即数组顺序）。
 - 风险级别按工具名前缀自动分配（create/store/extract/approve/assign/update 等 → medium，delete/drop/truncate → high，其余 → low）。
 - 权限模型默认 executor（本地 Agent）可调用所有 tool。
+- **HTTP 端点鉴权分层（2026-07-24 收紧）**：`GET /tools`、`GET /health` 保持公开（Lurk）；`POST /tools/:name` → `requireAuth+requireAdmin`（roleId 自声明 + executor seed 默认全允许，此前在 PUBLIC_API 前缀下匿名可执行任意 tool 含 devops/git）；`POST /messages`、`GET /sse` → `requireLocalhost`（真实客户端为本机 agent，`STUDIO_MCP_URL` 默认 localhost SSE）；`/admin/*` → `requireAuth+requireAdmin`（此前裸奔，注释谎称由 route-registry 提供 requireAuth）。permission.service 的 RBAC 是 agent 角色维度，与 HTTP 用户鉴权是两层。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-24: API 鉴权收紧 — `POST /tools/:name` 收 requireAuth+requireAdmin（此前 PUBLIC_API 前缀下匿名可执行任意 tool）；`POST /messages`、`GET /sse` 限 requireLocalhost（本机 agent 不受影响）；`/admin/*` 补 requireAuth+requireAdmin
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `3281bd80`: P6.5): Skill 元数据注入合规 + MCP SSE transport + fileKnowledge 移除
 - ✅ `ee1e354d`: B39 harness 集成修复 — A5 checkConstraint + S13 routes 类型化
