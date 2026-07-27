@@ -18,6 +18,8 @@ import * as os from 'node:os';
 // SKILLS_DIR 在 manifest-loader 模块加载时读取 —— 必须先设再 import agent-loop
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-skills-'));
 process.env.SKILLS_DIR = testSkillsDir;
+// 事件文件隔离：skill 注入度量会写 STUDIO_EVENTS_JSONL，指向临时文件避免污染生产事件流
+process.env.STUDIO_EVENTS_JSONL = path.join(testSkillsDir, 'studio-events.jsonl');
 
 const SKILL_BODY = '## 执行步骤\n\n1. 读需求\n2. 写代码\n3. 跑测试';
 const SKILL_FIXTURE = `---\nname: feature-dev\ndescription: "功能开发流程"\nagentTypes: [feature]\ntriggers: [登录, 认证, 会话, 鉴权, 令牌]\nstatus: published\n---\n\n${SKILL_BODY}\n`;

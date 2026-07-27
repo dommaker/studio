@@ -24,8 +24,12 @@ import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
 
-/** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流） */
-const STUDIO_EVENTS_JSONL = join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+/** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
+ *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用），默认 ~/.studio/logs/studio-events.jsonl。
+ *  调用时惰性解析：测试在 import 本模块后仍可改 env 生效。 */
+function studioEventsJsonlPath(): string {
+  return process.env.STUDIO_EVENTS_JSONL || join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+}
 const metricsFileStore = new FileStore();
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
@@ -565,7 +569,7 @@ export class AgentLoop {
       const executionTokens = result.usage && (result.usage.inputTokens + result.usage.outputTokens) > 0
         ? result.usage.inputTokens + result.usage.outputTokens
         : null;
-      void writeWorkunitTokenEvent(STUDIO_EVENTS_JSONL, {
+      void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
         workUnitId: wu.id,
         executionId: task.executionId,
         injectedTokens: estimateTokens(knowledgeContext.length),
@@ -690,7 +694,7 @@ export class AgentLoop {
 
     // 度量（fire-and-forget）：每个实际注入的 skill 记一条 knowledge:skill_used 事件
     for (const skillName of matched) {
-      void metricsFileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
+      void metricsFileStore.appendJsonl(studioEventsJsonlPath(), {
         type: 'knowledge:skill_used',
         source: 'agent-loop',
         payload: JSON.stringify({ skillName, workUnitId: wu.id }),
