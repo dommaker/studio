@@ -21,10 +21,8 @@
     "dev:stop": "./scripts/dev/stop.sh",
     "dev:status": "./scripts/dev/status.sh",
     "dev:logs": "./scripts/dev/logs.sh",
-    "=== 生产环境 ===": "",
+    "=== 生产环境 ===": "生产部署/启停脚本维护在私有运维仓（不随本仓发布），本仓只保留通用 start",
     "start": "npx tsx apps/api/src/index.ts",
-    "prod:build": "./scripts/prod/build-prod.sh",
-    "prod:deploy": "./scripts/prod/deploy.sh",
     "=== 数据库 ===": "(Spec 4 Phase 4 — DB已移除, 全部使用 FileStore)",
     "=== 单独启动 ===": "",
     "dev:api": "pnpm --filter @dommaker/studio-api dev",
@@ -45,12 +43,13 @@
     "harness:coverage": "npx tsx scripts/tools/harness-coverage.ts",
     "doc:sync-check": "bash scripts/check-doc-sync.sh",
     "gen:agents-md": "node scripts/gen-agents-md.mjs",
+    "agents-md:sync": "npx harness sync-docs --agents && node scripts/gen-agents-md.mjs",
     "doc:diff": "npx tsx scripts/tools/arch-doc-diff.ts",
     "postinstall": "node scripts/harness-sync.js",
     "prepare": "node scripts/harness-sync.js"
   },
   "devDependencies": {
-    "@dommaker/harness": "^0.16.3",
+    "@dommaker/harness": "^0.16.4",
     "@types/node": "^20.0.0",
     "typescript": "^5.3.0",
     "vitest": "^4.1.2"

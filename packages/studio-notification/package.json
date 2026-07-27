@@ -12,7 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@dommaker/harness": "^0.16.3",
+    "@dommaker/harness": "^0.16.4",
     "@dommaker/studio-shared": "workspace:*"
   },
   "devDependencies": {
