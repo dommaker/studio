@@ -80,7 +80,7 @@ function buildSection(entries) {
 ## 模块索引
 
 > 本区段由 \`pnpm gen:agents-md\`（scripts/gen-agents-md.mjs）生成，请勿手改；
-> 新增/变更模块后重跑该命令。CI 门禁（doc_dir_check）校验本表与目录双向一致。
+> 新增/变更模块后重跑该命令。AGENTS.md 全文（含 harness 生成的导读部分）用 \`pnpm agents-md:sync\` 重建，勿手改本文件。
 
 | 目录 | 说明 |
 |------|------|

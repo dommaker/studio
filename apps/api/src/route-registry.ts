@@ -73,6 +73,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Knowledge Import routes (冷启动导入)
   const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };
 
+  // Company routes (FileStore 存储；PMO 页 / Settings / useCompanyId 依赖)
+  const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
+
   // KnowledgeService HTTP API + SSE
   const { knowledgeServiceRoutes, initKnowledgeEventBridge } = await import('./modules/knowledge/knowledge-service.routes.js') as { knowledgeServiceRoutes: Router; initKnowledgeEventBridge: (es: any) => void };
   const { eventStore } = await import('./core/event-store.js');
@@ -190,6 +193,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/channels', router: channelRoutes, comment: 'B1-001: Channel chat interface' },
     { path: '/api/v1/requirements-docs', router: requirementsDocRoutes, comment: 'B2-009: RequirementsDoc edit' },
     { path: '/api/v1/pmo', router: pmoRoutes, comment: 'PMO-001' },
+    { path: '/api/v1/companies', router: companyRoutes, middleware: auth, comment: '公司 CRUD（FileStore 存储；008912d 误删后恢复）' },
     { path: '/api/v1/workunits', router: workunitRoutes, comment: 'AS-025 §3.28c-1: WorkUnit CRUD + Claim + State machine' },
     { path: '/api/v1/requirements', router: requirementRoutes, comment: 'REQ 需求编号体系 (vision §5.3)' },
     { path: '/api/v1/agent-profiles', router: agentProfileRoutes, comment: 'AS-025 Phase 2: AgentProfile CRUD' },

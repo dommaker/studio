@@ -115,4 +115,21 @@ describe('deploy webhook', () => {
     expect(status).toBe(202);
     expect(json.ignored).toBe('refs/heads/feat/x');
   });
+
+  it('未配置 DEPLOY_SCRIPT → 503，不触发', async () => {
+    const saved = process.env.DEPLOY_SCRIPT;
+    delete process.env.DEPLOY_SCRIPT;
+    try {
+      const payload = JSON.stringify({ ref: 'refs/heads/master' });
+      const { status, json } = await post(payload, {
+        'x-hub-signature-256': sign(payload),
+        'x-github-event': 'push',
+      });
+      expect(status).toBe(503);
+      expect(json.error).toContain('DEPLOY_SCRIPT');
+    } finally {
+      if (saved === undefined) delete process.env.DEPLOY_SCRIPT;
+      else process.env.DEPLOY_SCRIPT = saved;
+    }
+  });
 });
