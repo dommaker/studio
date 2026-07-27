@@ -4,7 +4,7 @@
  * 数据流：
  *   knowledge:skill_used 事件（payload: { skillName }，skill-loader.ts 发射）
  *     → 每 skill 使用次数 / lastUsedAt
- *   WU 索引 metadata.matchedSkills（claim 时落盘，§10 P0）
+ *   WU 索引 metadata.matchedSkills（决策 7：agent-loop step 时匹配并落盘）
  *     → skill ↔ WU 关联；终态口径：done = 成功，closed/blocked = 不成功，
  *       其余（active/in_review/unassigned 等）未终态不计入成功率。
  *   无关联终态 WU 时 successRate = null（未知，不参与 demote 判定，不编造）。

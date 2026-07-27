@@ -228,18 +228,6 @@ export class SkillLoaderService {
   }
 
   /**
-   * Get the combined prompt from all loaded skills for a session.
-   */
-  getSessionPrompt(sessionId: string): string {
-    const skills = this.getSessionSkills(sessionId);
-    if (skills.length === 0) return '';
-    return skills
-      .filter(s => s.prompt)
-      .map(s => `\n---\n${s.prompt}`)
-      .join('');
-  }
-
-  /**
    * Get all allowed tools for a session (union of all loaded skill tools,
    * filtered by tier permission).
    *

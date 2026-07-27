@@ -26,6 +26,10 @@ export interface SkillEntry {
   triggers?: string[];
   /** 消费方（frontmatter consumers）——含 'loop' 的是 hub-service skill，不参与 WU 匹配 */
   consumers?: string[];
+  /** 引用次数（排序器「其余 published」热度信号；manifest 暂未回填 → 调用方按名称序兜底） */
+  referenceCount?: number;
+  /** 最近更新时间 ISO 8601（热度次级信号；未回填 → 名称序兜底） */
+  updatedAt?: string;
 }
 
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');

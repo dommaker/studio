@@ -180,26 +180,6 @@ status: published
   });
 
   describe('session management', () => {
-    it('should get combined prompt from loaded skills', async () => {
-      createSkillFile('test-skill', `---
-name: test-skill
-description: "Test"
-tier: fast
-status: published
----
-## Section 1`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      const prompt = service.getSessionPrompt('test-session');
-      expect(prompt).toContain('## Section 1');
-
-      removeSkillFile('test-skill');
-    });
-
-    it('should return empty string for empty session', () => {
-      expect(service.getSessionPrompt('empty-session')).toBe('');
-    });
-
     it('should clear session on unload of last skill', async () => {
       createSkillFile('test-skill', `---
 name: test-skill

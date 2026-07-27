@@ -1,7 +1,7 @@
 /**
  * WorkUnit claim + skill auto-load integration test (AS-025 §3.28c-5)
- *
- * AC4: claim WorkUnit 后自动加载相关 Skill
+ * → 决策 7 重构：claim 不再自动加载 skill（匹配挪到 agent-loop step 时）。
+ * 本文件保留为 claim 基础行为冒烟：claim 成功/无匹配不抛错/乐观锁失败抛错。
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
@@ -61,7 +61,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 const { WorkUnitService } = await import('../../workunit/workunit.service.js');
 const { invalidateManifestCache } = await import('../manifest-loader.js');
 
-describe('AC4: claim WorkUnit auto-loads skills', () => {
+describe('AC4 → 决策 7: claim 基础行为（skill 匹配已挪到 step 时）', () => {
   let service: WorkUnitService;
 
   beforeEach(() => {
@@ -71,7 +71,7 @@ describe('AC4: claim WorkUnit auto-loads skills', () => {
     service = new WorkUnitService(mockFileStore as never);
   });
 
-  it('loads matching skills after claim', async () => {
+  it('claim 成功返回 claimed WU（不再触发 skill 自动加载）', async () => {
     const baseSnapshot = {
       id: 'wu-1', status: 'unassigned', scope: '分析需求：用户认证',
       parentId: null, type: 'task', assigneeId: null, failureType: null,
