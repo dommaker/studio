@@ -11,7 +11,7 @@
 - `monitor-agent.service.ts` — MonitorAgent 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorAgent` / `monitorAgent` 不变。
   - `monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/工具模式）
   - `monitor-system-probes.ts` — 系统/知识级探测与自修复（systemHealthCheck/worktree GC/知识健康循环/KnowledgeSync）
-  - `monitor-alerts.ts` — 告警分发（+ notifyAlert 出口：频道/企业微信 webhook）/Triage 升级（FL-037）/studio.jsonl 事件写入
+  - `monitor-alerts.ts` — 告警分发（+ notifyAlert 出口：频道/企业微信 webhook）/Triage 升级（FL-037）/统一事件写入（D18: utils/studio-events）
   - `monitor-reports.ts` — 轨迹评估（G4）/每日洞察（DailyReflection）/交互模式观察（B9-025）
   - `monitor-lifecycle.ts` — G31 知识沉淀闸门 + 每日 23:55 数据 TTL 清理
 - `auditor-agent.service.ts` — AuditorAgent 门面（跨任务审计 + 周期洞察，每 24h 日审），T3 拆分后仅保留聚合/委托逻辑；对外导出 `AuditorAgent` / `auditorAgent` 不变。
@@ -61,6 +61,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B5 D18 事件入口统一（决策 D18）— monitor-alerts/monitor-reports/monitor-lifecycle/auditor-rules/auditor-reports/agent-loop 的读写全部收敛到统一事件文件（~/.studio/logs/studio-events.jsonl，经 utils/studio-events；STUDIO_EVENTS_FILE 可覆盖）：emitMonitorEvent 改写 StudioEvent 形态（字段入 payload）；DailyReflection 读方统一后可读到 session:summary/knowledge:consumption（原读 studio.jsonl 恒空）；TTL/沉淀闸门时间口径经 getStudioEventTime 兼容 createdAt 与历史 timestamp；tool:call traces 改 StudioEvent 形态；workunit:tokens 事件 payload 增补 inputTokens/cacheReadTokens/cacheCreationTokens（D16 缓存命中率数据源）
 - ✅ 2026-07-27: B4a 内置角色 + reviewer worktree 死代码清除（决策 D7/D8）— 新增 builtin-roles.ts：启动幂等 seed pm/dev/reviewer（不覆盖用户改动、inactive 尊重可禁用；description 尾部英文关键词即 acceptedTypes 来源，reviewer 必含 'reviewer' 字样供 ReviewDispatcher 锚定）；ensureBuiltinRoleMembers / migrateBuiltinRolesToProjectChannels 供频道绑工程自动加入与存量迁移；ensureStudioProfile 回填 studio 定位描述（仅空/旧默认时写，用户自定义不覆盖）；studio-daemon 摘除 reviewer session/worktree（daemon/reviewer-* 分支泄漏源头），index.ts 不再 daemon.start()（submitJob/submitAdhocJob 无生产调用方，文件保留供 getStatus/isStarted 消费方）
 - ✅ 2026-07-27: B3b-i 每 WU worktree 隔离 + 提交前自动验证（决策 D1/D3 前半）— agent-loop 对代码类 WU 强制专属 worktree 执行（ensureWuWorktree 按 WU id 键控复用，失败走 failed 分支不退共享目录；review 继承父 worktree）；提交守卫 git cwd 切 resolveExecutionCwd；recordResult 接受 COMPLETE 前跑验证（覆盖>约定>跳过，失败降级+verifyFailCount≥3 转 blocked，全绿写 verifyReport 发频道）
 - ✅ 2026-07-27: B3a 工程归属链（决策 D2）— agent-loop 执行根目录解析抽为 resolveExecutionWorkspaceRoot：metadata.workspaceRoot（Requirement→PMO gitRepo / 人工回复绑定的直接路径）优先于 wu.workspaceId 记录解析（agentStep 与提交守卫两处消费点同步切换）

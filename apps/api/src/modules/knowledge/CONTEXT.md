@@ -83,6 +83,7 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B5 D18 — pattern-miner 的 tool:call trace 源从 ~/.studio/events/studio.jsonl 改读统一事件文件（utils/studio-events；兼容 payload 嵌套与历史扁平形态）
 - ✅ 2026-07-27: P0 修复 5 — knowledge-service/knowledge-singletons/resolution/evolution 的 ~/.studio/logs 事件文件统一走 utils/studio-log-path 测试隔离（VITEST → os.tmpdir()/studio-test-logs，生产行为不变）
 - ✅ 2026-07-24: /api/knowledge 挂 requireLocalhost；v1 写端点收 requireAuth+requireNotGuest
 - ✅ `e5142f65`: ci): resolve logger.error type errors in knowledge/routes.ts

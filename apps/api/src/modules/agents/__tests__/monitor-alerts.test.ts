@@ -1,17 +1,22 @@
 /**
- * monitor-alerts — 告警分发 / Triage 升级 / 事件写入
+ * monitor-alerts — 告警分发 / Triage 升级 / 事件写入（D18: 统一事件文件）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpHome, tmpEvents, mockLogger, mockRecordPattern, mockHandleAlert } = vi.hoisted(() => {
+const { tmpHome, tmpEvents, eventsFile, mockLogger, mockRecordPattern, mockHandleAlert } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
+  const tmpEvents = fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-alerts-events-'));
+  const eventsFile = path.join(tmpEvents, 'studio-events.jsonl');
+  // D18: 统一事件文件按测试文件隔离（resolveStudioEventsFile 懒读 env）
+  process.env.STUDIO_EVENTS_FILE = eventsFile;
   return {
     tmpHome: fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-alerts-home-')),
-    tmpEvents: fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-alerts-events-')),
+    tmpEvents,
+    eventsFile,
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockRecordPattern: vi.fn(() => Promise.resolve()),
     mockHandleAlert: vi.fn(() => Promise.resolve()),
@@ -23,10 +28,10 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: mockLogger,
-  resolveEventsDir: () => tmpEvents,
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return { ...actual, logger: mockLogger };
+});
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { recordPattern: mockRecordPattern },
@@ -53,9 +58,8 @@ import {
 } from '../monitor-alerts.js';
 
 function readEventLines(): any[] {
-  const file = path.join(tmpEvents, 'studio.jsonl');
-  if (!fs.existsSync(file)) return [];
-  return fs.readFileSync(file, 'utf-8')
+  if (!fs.existsSync(eventsFile)) return [];
+  return fs.readFileSync(eventsFile, 'utf-8')
     .split('\n')
     .filter(l => l.trim())
     .map(l => JSON.parse(l));
@@ -96,11 +100,10 @@ describe('monitor-alerts: escalateToTriage (FL-037)', () => {
 describe('monitor-alerts: dispatchMonitorAlerts', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    const f = path.join(tmpEvents, 'studio.jsonl');
-    if (fs.existsSync(f)) fs.unlinkSync(f);
+    if (fs.existsSync(eventsFile)) fs.unlinkSync(eventsFile);
   });
 
-  it('logs by level and emits only warning/critical to studio.jsonl', () => {
+  it('logs by level and emits only warning/critical to 统一事件文件', async () => {
     dispatchMonitorAlerts([
       { source: 'total_time', level: 'critical', message: 'crit' } as any,
       { source: 'failure_trend', level: 'warning', message: 'warn' } as any,
@@ -111,16 +114,24 @@ describe('monitor-alerts: dispatchMonitorAlerts', () => {
     expect(mockLogger.warn).toHaveBeenCalledTimes(1);
     expect(mockLogger.info).toHaveBeenCalledTimes(1);
 
+    // emitMonitorEvent 是 fire-and-forget —— 等待落盘
+    await vi.waitFor(() => {
+      expect(readEventLines()).toHaveLength(2);
+    });
     const lines = readEventLines();
-    expect(lines).toHaveLength(2);
     for (const line of lines) {
       expect(line.type).toBe('monitor:alert');
-      expect(['critical', 'warning']).toContain(line.level);
+      // D18: StudioEvent 形态 —— 告警字段在 payload 内
+      const payload = JSON.parse(line.payload);
+      expect(['critical', 'warning']).toContain(payload.level);
+      expect(line.source).toBe('monitor');
+      expect(line.createdAt).toBeTruthy();
     }
   });
 
-  it('emits nothing for info-only alerts', () => {
+  it('emits nothing for info-only alerts', async () => {
     dispatchMonitorAlerts([{ source: 'progress_stagnation', level: 'info', message: 'i' } as any]);
+    await new Promise(r => setTimeout(r, 50));
     expect(readEventLines()).toHaveLength(0);
   });
 
@@ -161,10 +172,13 @@ describe('monitor-alerts: recordAlertPatterns (H3)', () => {
 });
 
 describe('monitor-alerts: studioEventsJsonl / emitMonitorEvent', () => {
-  it('resolves studio.jsonl under events dir and appends events', () => {
-    expect(studioEventsJsonl()).toBe(path.join(tmpEvents, 'studio.jsonl'));
+  it('resolves 统一事件文件（STUDIO_EVENTS_FILE 可覆盖）并写入事件', async () => {
+    expect(studioEventsJsonl()).toBe(eventsFile);
     emitMonitorEvent({ type: 'monitor:test', marker: 'abc' });
-    const lines = readEventLines();
-    expect(lines.some(l => l.type === 'monitor:test' && l.marker === 'abc')).toBe(true);
+    await vi.waitFor(() => {
+      const lines = readEventLines();
+      expect(lines.some(l => l.type === 'monitor:test'
+        && JSON.parse(l.payload).marker === 'abc')).toBe(true);
+    });
   });
 });

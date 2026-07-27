@@ -3,6 +3,7 @@ import { logger, FileStore, parseFrontmatter } from '@dommaker/studio-shared';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+import { getStudioEventTime } from '../../utils/studio-events.js';
 
 // ─── 路径常量 ───
 const STUDIO_DIR = path.join(os.homedir(), '.studio');
@@ -62,10 +63,11 @@ export function getCurrentQuarter(): string {
   return `${year}-Q${quarter}`;
 }
 
-/** JSONL 行事件 */
+/** JSONL 行事件（D18：createdAt 为准，兼容历史顶层 timestamp） */
 interface StudioEventRow {
   type: string;
-  timestamp: string;
+  timestamp?: string;
+  createdAt?: string;
   payload?: string;
 }
 
@@ -113,7 +115,7 @@ export class OKRService {
   /** 从 studio 事件 jsonl 中按 type 和时间范围过滤 */
   private async readEvents(type: string, since: Date): Promise<StudioEventRow[]> {
     const rows = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
-    return rows.filter(r => r.type === type && new Date(r.timestamp).getTime() >= since.getTime());
+    return rows.filter(r => r.type === type && getStudioEventTime(r) >= since.getTime());
   }
 
   /** 解析 meta 中的 objectives/keyResults JSON 字符串 */
@@ -731,8 +733,8 @@ export class OKRService {
     try {
       const since = new Date(Date.now() - days * 86400000);
       const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
-      const injected = events.filter(e => e.type === 'knowledge:injected' && new Date(e.timestamp).getTime() >= since.getTime()).length;
-      const consumed = events.filter(e => e.type === 'knowledge:consumption' && new Date(e.timestamp).getTime() >= since.getTime()).length;
+      const injected = events.filter(e => e.type === 'knowledge:injected' && getStudioEventTime(e) >= since.getTime()).length;
+      const consumed = events.filter(e => e.type === 'knowledge:consumption' && getStudioEventTime(e) >= since.getTime()).length;
       if (injected === 0) return null;
       return Math.round((consumed / injected) * 100);
     } catch { return null; }
@@ -895,8 +897,8 @@ export class OKRService {
     try {
       const since = new Date(Date.now() - days * 86400000);
       const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
-      const searches = events.filter(e => e.type === 'knowledge:search' && new Date(e.timestamp).getTime() >= since.getTime()).length;
-      const hits = events.filter(e => e.type === 'knowledge:search_hit' && new Date(e.timestamp).getTime() >= since.getTime()).length;
+      const searches = events.filter(e => e.type === 'knowledge:search' && getStudioEventTime(e) >= since.getTime()).length;
+      const hits = events.filter(e => e.type === 'knowledge:search_hit' && getStudioEventTime(e) >= since.getTime()).length;
       if (searches === 0) return null;
       return Math.round((hits / searches) * 100);
     } catch { return null; }
@@ -931,7 +933,7 @@ export class OKRService {
     try {
       const since = new Date(Date.now() - days * 86400000);
       const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
-      return events.filter(e => e.type === 'knowledge:skill_created' && new Date(e.timestamp).getTime() >= since.getTime()).length;
+      return events.filter(e => e.type === 'knowledge:skill_created' && getStudioEventTime(e) >= since.getTime()).length;
     } catch { return null; }
   }
 
@@ -953,7 +955,7 @@ export class OKRService {
 
       const since = new Date(Date.now() - days * 86400000);
       const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
-      const used = events.filter(e => e.type === 'knowledge:skill_used' && new Date(e.timestamp).getTime() >= since.getTime()).length;
+      const used = events.filter(e => e.type === 'knowledge:skill_used' && getStudioEventTime(e) >= since.getTime()).length;
       return Math.round((used / total) * 100);
     } catch { return null; }
   }
@@ -963,7 +965,7 @@ export class OKRService {
     try {
       const since = new Date(Date.now() - days * 86400000);
       const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
-      return events.filter(e => e.type === 'knowledge:entry_created' && new Date(e.timestamp).getTime() >= since.getTime()).length;
+      return events.filter(e => e.type === 'knowledge:entry_created' && getStudioEventTime(e) >= since.getTime()).length;
     } catch { return null; }
   }
 
@@ -973,7 +975,7 @@ export class OKRService {
       const since = new Date(Date.now() - days * 86400000);
       const events = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
       const filtered = events.filter(e =>
-        e.type.startsWith('knowledge:outcome') && new Date(e.timestamp).getTime() >= since.getTime()
+        e.type.startsWith('knowledge:outcome') && getStudioEventTime(e) >= since.getTime()
       );
       if (filtered.length === 0) return null;
       const withKnowledge = filtered.filter(e => {
@@ -1013,7 +1015,7 @@ export class OKRService {
         this.fileStore.getIndex(),
         this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL),
       ]);
-      const conflicts = events.filter(e => e.type === 'scheduler:conflict' && new Date(e.timestamp).getTime() >= sinceMs).length;
+      const conflicts = events.filter(e => e.type === 'scheduler:conflict' && getStudioEventTime(e) >= sinceMs).length;
       const total = snapshots.filter(s => s.parentId !== null && new Date(s.createdAt).getTime() >= sinceMs).length;
       if (total === 0) return null;
       return Math.round((conflicts / total) * 100);

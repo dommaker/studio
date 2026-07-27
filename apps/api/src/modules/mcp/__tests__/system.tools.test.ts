@@ -2,7 +2,7 @@
  * system.tools 单元测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 覆盖 systemHealth / emitEvent。
- * knowledge-bus.service 被 mock；STUDIO_EVENTS_DIR 指向临时目录隔离事件文件。
+ * knowledge-bus.service 被 mock；D18 后 STUDIO_EVENTS_FILE 指向临时文件隔离事件写入。
  */
 import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import fs from 'node:fs';
@@ -20,7 +20,8 @@ vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
 import { systemTools } from '../system.tools.js';
 
 let tmpEvents: string;
-let prevEventsDir: string | undefined;
+let eventsFile: string;
+let prevEventsFile: string | undefined;
 
 function tool(name: string) {
   const t = systemTools.find(t => t.name === name);
@@ -30,13 +31,14 @@ function tool(name: string) {
 
 beforeAll(() => {
   tmpEvents = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-system-tools-'));
-  prevEventsDir = process.env.STUDIO_EVENTS_DIR;
-  process.env.STUDIO_EVENTS_DIR = tmpEvents;
+  eventsFile = path.join(tmpEvents, 'studio-events.jsonl');
+  prevEventsFile = process.env.STUDIO_EVENTS_FILE;
+  process.env.STUDIO_EVENTS_FILE = eventsFile;
 });
 
 afterAll(() => {
-  if (prevEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
-  else process.env.STUDIO_EVENTS_DIR = prevEventsDir;
+  if (prevEventsFile === undefined) delete process.env.STUDIO_EVENTS_FILE;
+  else process.env.STUDIO_EVENTS_FILE = prevEventsFile;
   fs.rmSync(tmpEvents, { recursive: true, force: true });
 });
 
@@ -45,13 +47,14 @@ describe('system.tools', () => {
     expect(systemTools.map(t => t.name)).toEqual(['systemHealth', 'emitEvent']);
   });
 
-  it('systemHealth 汇总知识库统计与 flags（无 jsonl → daemon 不在线）', async () => {
+  it('systemHealth 汇总知识库统计与 flags（无事件文件 → 事件流不活跃）', async () => {
     mockList.mockReturnValue([
       { type: 'design', layer: 'project', maturity: 'candidate' },
       { type: 'design', layer: 'system', maturity: 'canonical' },
       { type: 'spec', layer: 'project', maturity: 'archived' },
     ]);
     mockFreshness.mockReturnValue([{ file: 'a.md' }, { file: 'b.md' }]);
+    if (fs.existsSync(eventsFile)) fs.unlinkSync(eventsFile);
 
     const result = await tool('systemHealth').handler({});
     expect(mockFreshness).toHaveBeenCalledWith(process.env.REPO_DIR || process.cwd());
@@ -67,39 +70,38 @@ describe('system.tools', () => {
     expect(result.flags).toEqual({ needsColdStart: false, needsDecay: false, healthy: false });
   });
 
-  it('systemHealth 空库时 needsColdStart/needsDecay 为 true；新鲜 jsonl → daemon 在线', async () => {
+  it('systemHealth 空库时 needsColdStart/needsDecay 为 true；事件文件新鲜 → 事件流活跃', async () => {
     mockList.mockReturnValue([]);
     mockFreshness.mockReturnValue([]);
-    fs.writeFileSync(path.join(tmpEvents, 'studio.jsonl'), '{}\n');
+    fs.writeFileSync(eventsFile, '{"type":"x","payload":"{}","createdAt":"2026-01-01T00:00:00.000Z"}\n');
 
     const result = await tool('systemHealth').handler({});
     expect(result.system.eventsDaemonAlive).toBe(true);
     expect(result.flags).toEqual({ needsColdStart: true, needsDecay: true, healthy: true });
   });
 
-  it('emitEvent 写入 studio.jsonl 并返回路由说明', async () => {
+  it('emitEvent 写入统一事件文件（StudioEvent 形态）并返回路由说明', async () => {
     const result = await tool('emitEvent').handler({
       eventType: 'agent:analysis_done', message: 'done', details: { goalId: 'g1' },
     });
     expect(result).toEqual({
       emitted: true,
       eventType: 'agent:analysis_done',
-      routedTo: 'events-daemon → Discord (if goal:/monitor:/agent: prefix)',
+      routedTo: 'unified studio-events.jsonl (D18)',
     });
 
-    const file = path.join(tmpEvents, 'studio.jsonl');
-    const lines = fs.readFileSync(file, 'utf-8').trim().split('\n');
+    const lines = fs.readFileSync(eventsFile, 'utf-8').trim().split('\n');
     const event = JSON.parse(lines[lines.length - 1]);
-    expect(event).toMatchObject({
-      type: 'agent:analysis_done', message: 'done', severity: 'info', details: { goalId: 'g1' },
-    });
-    expect(event.timestamp).toBeTruthy();
+    expect(event.type).toBe('agent:analysis_done');
+    expect(event.source).toBe('mcp');
+    expect(JSON.parse(event.payload)).toEqual({ message: 'done', severity: 'info', details: { goalId: 'g1' } });
+    expect(event.createdAt).toBeTruthy();
   });
 
   it('emitEvent severity 默认 info，可覆盖', async () => {
     await tool('emitEvent').handler({ eventType: 'agent:x', message: 'm', severity: 'critical' });
-    const lines = fs.readFileSync(path.join(tmpEvents, 'studio.jsonl'), 'utf-8').trim().split('\n');
-    expect(JSON.parse(lines[lines.length - 1]).severity).toBe('critical');
+    const lines = fs.readFileSync(eventsFile, 'utf-8').trim().split('\n');
+    expect(JSON.parse(JSON.parse(lines[lines.length - 1]).payload).severity).toBe('critical');
     expect(tool('emitEvent').inputSchema.required).toEqual(['eventType', 'message']);
   });
 });

@@ -59,6 +59,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B5 顺手修 — claim-skill-persist 2 用例修复：B3a claim 写 timeoutAt 后首次 upsertSnapshot 不再是 matchedSkills 那次（生产行为验证无回归），测试改为按 metadata 内容定位目标调用
 - ✅ 2026-07-27: D11 promote 门禁 — 新增 skill-promotion.ts（SKILL.md 存在/frontmatter 三要素/引用路径三校验），接入 POST /:id/publish（拒绝 400+reasons；通过翻磁盘 frontmatter published + 索引同步 + manifest 缓存失效），11 条单测
 - ✅ 2026-07-27: P0 修复 5 — skill-loader/skill-extraction/skill-demotion 的 studio-events.jsonl 走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest

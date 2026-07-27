@@ -4,7 +4,7 @@
  * T3 拆分：自 tools.ts 原样提取（systemHealth / emitEvent）。
  */
 
-import { resolveEventsDir } from '@dommaker/studio-shared';
+import { resolveStudioEventsFile, writeStudioEvent } from '../../utils/studio-events.js';
 import type { RegisteredTool } from './tool-registry.js';
 
 // ─── Agent-First 系统健康 ───
@@ -21,7 +21,6 @@ const systemHealth: RegisteredTool = {
     const { sharedStore, checkDocumentFreshness } = await import('../knowledge/knowledge-bus.service.js');
     const fsMod = await import('fs');
     const osMod = await import('os');
-    const pathMod = await import('path');
 
     // 1. 系统资源
     const mem = process.memoryUsage();
@@ -42,19 +41,13 @@ const systemHealth: RegisteredTool = {
     // 3. 设计文档新鲜度
     const staleDocs = checkDocumentFreshness(process.env.REPO_DIR || process.cwd());
 
-    // 4. events-daemon 探活（R2: 统一事件目录）
+    // 4. 事件流活性探活（D18: 统一事件文件 30s 内有写入即视为活跃）
     let eventsDaemonAlive = false;
     try {
-      const eventsDir = resolveEventsDir();
-      if (fsMod.existsSync(eventsDir)) {
-        const files = fsMod.readdirSync(eventsDir).filter(f => f.endsWith('.jsonl'));
-        for (const f of files.slice(0, 3)) {
-          const stat = fsMod.statSync(pathMod.join(eventsDir, f));
-          if (Date.now() - stat.mtimeMs < 30_000) {
-            eventsDaemonAlive = true;
-            break;
-          }
-        }
+      const eventsFile = resolveStudioEventsFile();
+      if (fsMod.existsSync(eventsFile)) {
+        const stat = fsMod.statSync(eventsFile);
+        eventsDaemonAlive = Date.now() - stat.mtimeMs < 30_000;
       }
     } catch { /* can't determine */ }
 
@@ -84,7 +77,7 @@ const systemHealth: RegisteredTool = {
 
 const emitEvent: RegisteredTool = {
   name: 'emitEvent',
-  description: 'Agent 向事件管线发射结构化事件（写入统一事件目录 ~/.studio/events/studio.jsonl（STUDIO_EVENTS_DIR/EVENTS_DIR 可覆盖），由 events-daemon 路由到 Discord）。用于 Agent 间的异步通信和系统级通知。类型以 "agent:" 为前缀。',
+  description: 'Agent 向统一事件流发射结构化事件（D18：写入 ~/.studio/logs/studio-events.jsonl，测试期隔离）。用于 Agent 间的异步通信和系统级通知。类型以 "agent:" 为前缀。',
   inputSchema: {
     type: 'object',
     properties: {
@@ -96,28 +89,17 @@ const emitEvent: RegisteredTool = {
     required: ['eventType', 'message'],
   },
   handler: async (input) => {
-    const fsMod = await import('fs');
-    const pathMod = await import('path');
-
-    const eventsDir = resolveEventsDir();
-    try { if (!fsMod.existsSync(eventsDir)) fsMod.mkdirSync(eventsDir, { recursive: true }); } catch { /* best-effort */ }
-
-    const event = {
-      type: input.eventType,
+    // D18: 统一事件写入入口（StudioEvent 形态；空 payload 拒收 —— message 必填，恒非空）
+    await writeStudioEvent(String(input.eventType), {
       message: input.message,
       severity: input.severity || 'info',
       details: input.details || {},
-      timestamp: new Date().toISOString(),
-    };
-
-    try {
-      fsMod.appendFileSync(pathMod.join(eventsDir, 'studio.jsonl'), JSON.stringify(event) + '\n');
-    } catch { /* non-blocking */ }
+    }, { source: 'mcp' });
 
     return {
       emitted: true,
       eventType: input.eventType,
-      routedTo: 'events-daemon → Discord (if goal:/monitor:/agent: prefix)',
+      routedTo: 'unified studio-events.jsonl (D18)',
     };
   },
 };

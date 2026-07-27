@@ -932,8 +932,8 @@ describe('AgentLoop', () => {
       try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
     });
 
-    it('writes tool:call JSONL from stream-json output', () => {
-      const eventsFile = path.join(testDir, 'studio.jsonl');
+    it('writes tool:call JSONL from stream-json output（D18: StudioEvent 形态）', () => {
+      const eventsFile = path.join(testDir, 'studio-events.jsonl');
       const streamOutput = [
         '{"type":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo.ts"}}]}',
         '{"type":"assistant","content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/bar.ts","old_string":"x","new_string":"y"}}]}',
@@ -949,13 +949,16 @@ describe('AgentLoop', () => {
 
       const first = JSON.parse(raw[0]);
       expect(first.type).toBe('tool:call');
-      expect(first.tool).toBe('Read');
-      expect(first.caller).toBe('agent-loop');
+      expect(first.source).toBe('agent-loop');
+      const firstPayload = JSON.parse(first.payload);
+      expect(firstPayload.tool).toBe('Read');
+      expect(firstPayload.caller).toBe('agent-loop');
 
       const second = JSON.parse(raw[1]);
       expect(second.type).toBe('tool:call');
-      expect(second.tool).toBe('Edit');
-      expect(second.success).toBe(true);
+      const secondPayload = JSON.parse(second.payload);
+      expect(secondPayload.tool).toBe('Edit');
+      expect(secondPayload.success).toBe(true);
     });
 
     it('returns 0 for empty output', () => {
@@ -971,38 +974,33 @@ describe('AgentLoop', () => {
     });
   });
 
-  describe('R2: unified events dir (resolveEventsDir)', () => {
+  describe('D18: 统一事件文件 (resolveStudioEventsFile)', () => {
     let testDir: string;
-    let prevStudioEventsDir: string | undefined;
-    let prevEventsDir: string | undefined;
+    let prevStudioEventsFile: string | undefined;
 
     beforeEach(() => {
-      testDir = path.join(os.tmpdir(), `eventsdir-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
-      prevStudioEventsDir = process.env.STUDIO_EVENTS_DIR;
-      prevEventsDir = process.env.EVENTS_DIR;
+      testDir = path.join(os.tmpdir(), `eventsfile-test-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
+      prevStudioEventsFile = process.env.STUDIO_EVENTS_FILE;
     });
 
     afterEach(() => {
-      if (prevStudioEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
-      else process.env.STUDIO_EVENTS_DIR = prevStudioEventsDir;
-      if (prevEventsDir === undefined) delete process.env.EVENTS_DIR;
-      else process.env.EVENTS_DIR = prevEventsDir;
+      if (prevStudioEventsFile === undefined) delete process.env.STUDIO_EVENTS_FILE;
+      else process.env.STUDIO_EVENTS_FILE = prevStudioEventsFile;
       try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
     });
 
-    it('resolveToolTraceFile honors STUDIO_EVENTS_DIR override', () => {
-      process.env.STUDIO_EVENTS_DIR = testDir;
-      expect(resolveToolTraceFile()).toBe(path.join(testDir, 'studio.jsonl'));
+    it('resolveToolTraceFile 默认指向测试隔离的统一事件文件', () => {
+      delete process.env.STUDIO_EVENTS_FILE;
+      expect(resolveToolTraceFile()).toBe(path.join(os.tmpdir(), 'studio-test-logs', 'studio-events.jsonl'));
     });
 
-    it('STUDIO_EVENTS_DIR wins over legacy EVENTS_DIR', () => {
-      process.env.EVENTS_DIR = path.join(testDir, 'legacy');
-      process.env.STUDIO_EVENTS_DIR = testDir;
-      expect(resolveToolTraceFile()).toBe(path.join(testDir, 'studio.jsonl'));
+    it('resolveToolTraceFile honors STUDIO_EVENTS_FILE override', () => {
+      process.env.STUDIO_EVENTS_FILE = path.join(testDir, 'studio-events.jsonl');
+      expect(resolveToolTraceFile()).toBe(path.join(testDir, 'studio-events.jsonl'));
     });
 
-    it('agent-loop writes tool traces into the resolved events dir', () => {
-      process.env.STUDIO_EVENTS_DIR = testDir;
+    it('agent-loop writes tool traces into the resolved events file', () => {
+      process.env.STUDIO_EVENTS_FILE = path.join(testDir, 'studio-events.jsonl');
       const streamOutput = [
         '{"type":"assistant","content":[{"type":"tool_use","name":"Read","input":{"file_path":"/foo.ts"}}]}',
         '{"type":"result"}',
@@ -1011,16 +1009,16 @@ describe('AgentLoop', () => {
       const count = writeToolCallEvents(streamOutput, resolveToolTraceFile());
       expect(count).toBe(1);
 
-      const traceFile = path.join(testDir, 'studio.jsonl');
+      const traceFile = path.join(testDir, 'studio-events.jsonl');
       expect(fs.existsSync(traceFile)).toBe(true);
       const first = JSON.parse(fs.readFileSync(traceFile, 'utf-8').trim().split('\n')[0]);
       expect(first.type).toBe('tool:call');
-      expect(first.tool).toBe('Read');
+      expect(JSON.parse(first.payload).tool).toBe('Read');
     });
   });
 
   describe('R2-fix: agentStep tool:call 接线（rawOutput 优先于 outputText）', () => {
-    let prevStudioEventsDir: string | undefined;
+    let prevStudioEventsFile: string | undefined;
 
     const makeTarget = (metadata: Record<string, unknown> | null = null) => ({
       workUnit: {
@@ -1032,14 +1030,16 @@ describe('AgentLoop', () => {
       },
     });
 
+    const traceFile = () => path.join(testDir, 'studio-events.jsonl');
+
     beforeEach(() => {
-      prevStudioEventsDir = process.env.STUDIO_EVENTS_DIR;
-      process.env.STUDIO_EVENTS_DIR = testDir;
+      prevStudioEventsFile = process.env.STUDIO_EVENTS_FILE;
+      process.env.STUDIO_EVENTS_FILE = traceFile();
     });
 
     afterEach(() => {
-      if (prevStudioEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
-      else process.env.STUDIO_EVENTS_DIR = prevStudioEventsDir;
+      if (prevStudioEventsFile === undefined) delete process.env.STUDIO_EVENTS_FILE;
+      else process.env.STUDIO_EVENTS_FILE = prevStudioEventsFile;
     });
 
     it('rawOutput（stream-json）中的 tool_use 落盘为 tool:call 事件（含 message.content 与 content 两种形状）', async () => {
@@ -1060,21 +1060,23 @@ describe('AgentLoop', () => {
       await agentLoop.start();
       await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
 
-      const traceFile = path.join(testDir, 'studio.jsonl');
-      expect(fs.existsSync(traceFile)).toBe(true);
-      const lines = fs.readFileSync(traceFile, 'utf-8').trim().split('\n');
+      expect(fs.existsSync(traceFile())).toBe(true);
+      const lines = fs.readFileSync(traceFile(), 'utf-8').trim().split('\n');
       expect(lines.length).toBe(2);
 
       const first = JSON.parse(lines[0]);
       expect(first.type).toBe('tool:call');
-      expect(first.tool).toBe('Read');
-      expect(first.success).toBe(true);
-      expect(first.caller).toBe('agent-loop');
-      expect(typeof first.timestamp).toBe('number');
+      expect(first.source).toBe('agent-loop');
+      const firstPayload = JSON.parse(first.payload);
+      expect(firstPayload.tool).toBe('Read');
+      expect(firstPayload.success).toBe(true);
+      expect(firstPayload.caller).toBe('agent-loop');
+      expect(typeof firstPayload.timestamp).toBe('number');
+      expect(typeof first.createdAt).toBe('string');
 
       const second = JSON.parse(lines[1]);
       expect(second.type).toBe('tool:call');
-      expect(second.tool).toBe('Edit');
+      expect(JSON.parse(second.payload).tool).toBe('Edit');
     });
 
     it('仅 outputText（extractResult 纯文本）时产 0 条——接线必须走 rawOutput', async () => {
@@ -1089,7 +1091,7 @@ describe('AgentLoop', () => {
       await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(makeTarget());
 
       // 0 条 tool:call → writeToolCallEvents 提前返回，不落盘
-      expect(fs.existsSync(path.join(testDir, 'studio.jsonl'))).toBe(false);
+      expect(fs.existsSync(traceFile())).toBe(false);
     });
   });
 

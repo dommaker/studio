@@ -29,5 +29,6 @@ E1 约束进化（vision §6 / docs/plans/2026-07-flywheel-repair.md §4）：�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B5 D18 — signals 的 tool:call 信号改读 studioEventsFile（统一事件文件；兼容 payload 嵌套与历史扁平形态），eventsDir 字段保留但标记 deprecated
 - ✅ 2026-07-27: P0 修复 5 — signals 的 studioEventsFile 默认路径走 utils/studio-log-path 测试隔离（overrides 优先不变，生产行为不变）
 - ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（约束审批 = 治理面）
