@@ -2,8 +2,9 @@
 //
 // 安全：HMAC-SHA256 校验 X-Hub-Signature-256（secret = env DEPLOY_WEBHOOK_SECRET），
 // 原始 body 由 app.ts 的 express.raw 挂载保留（同 discord/interactions 先例）。
-// 行为：仅接受 push 到 refs/heads/master；202 立即返回后异步触发 auto-deploy.sh
-// （脚本内含方向检查/flock/build/restart/health/rollback，幂等可重入）。
+// 行为：仅接受 push 到 refs/heads/master；202 立即返回后异步触发部署脚本
+// （路径 = env DEPLOY_SCRIPT，未配置按 503 处理，同 DEPLOY_WEBHOOK_SECRET；
+// 脚本内含方向检查/flock/build/restart/health/rollback，幂等可重入）。
 import { Router } from 'express';
 import crypto from 'crypto';
 import { spawn } from 'child_process';
@@ -11,12 +12,15 @@ import { logger } from '@dommaker/studio-shared';
 
 export const deployWebhookRoutes = Router();
 
-const DEPLOY_SCRIPT = process.env.DEPLOY_SCRIPT || '/root/projects/studio-config/scripts/auto-deploy.sh';
-
 deployWebhookRoutes.post('/webhook', (req, res) => {
   const secret = process.env.DEPLOY_WEBHOOK_SECRET;
   if (!secret) {
     return res.status(503).json({ error: 'DEPLOY_WEBHOOK_SECRET not configured' });
+  }
+
+  const deployScript = process.env.DEPLOY_SCRIPT;
+  if (!deployScript) {
+    return res.status(503).json({ error: 'DEPLOY_SCRIPT not configured' });
   }
 
   const body = req.body as Buffer;
@@ -51,7 +55,7 @@ deployWebhookRoutes.post('/webhook', (req, res) => {
 
   // 先响应再触发：部署会重启本进程，不能让请求悬着
   res.status(202).json({ accepted: true });
-  const child = spawn('bash', [DEPLOY_SCRIPT], { detached: true, stdio: 'ignore' });
+  const child = spawn('bash', [deployScript], { detached: true, stdio: 'ignore' });
   child.unref();
-  logger.info('[DeployWebhook] push to master accepted, deploy triggered', { script: DEPLOY_SCRIPT });
+  logger.info('[DeployWebhook] push to master accepted, deploy triggered', { script: deployScript });
 });
