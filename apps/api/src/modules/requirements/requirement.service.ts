@@ -4,6 +4,9 @@
  * Requirement 是一组 WorkUnit 的父实体：编号 REQ-<seq> 在频道首次
  * @mention 派发时自动分配（best-effort，见 req-binding.ts），也可手动创建。
  * 存储：FileStore `~/.studio/data/requirements/{id}.json` + index.json 序号计数器。
+ *
+ * B3a 工程归属链（决策 D2）：Requirement 可挂 PMO 项目（projectId），
+ * 创建/更新时校验项目存在；WU 归属解析经此继承 PMO 项目 gitRepo（见 ownership-resolver.ts）。
  */
 import {
   eventBus,
@@ -13,8 +16,23 @@ import {
   type RequirementData,
   type RequirementStatus,
 } from '@dommaker/studio-shared';
+import { projectService } from '../pmo/project.service.js';
 
 export const REQUIREMENT_STATUSES: RequirementStatus[] = ['open', 'in-progress', 'done', 'archived'];
+
+/**
+ * B3a 工程归属链（决策 D2）：Requirement 可挂 PMO 项目（projectId，工程归属锚点）。
+ * studio-shared 的 RequirementData 暂未加该字段（本批改动限 apps/api/src），
+ * FileStore 读写原样透传 JSON —— 本地扩展类型承载，运行时无差异。
+ */
+export type RequirementWithProject = RequirementData & {
+  projectId?: string | null; // B3a: 挂接的 PMO 项目 id（WU 经此继承工程 gitRepo）
+};
+
+/** RequirementService 可注入依赖（测试用 stub 避免碰真实 ~/.studio/projects） */
+export interface RequirementServiceDeps {
+  projectExists?: (projectId: string) => Promise<boolean>;
+}
 
 /**
  * WorkUnit 终态集合 — 全部到达时 Requirement 汇总为 done。
@@ -29,6 +47,7 @@ export interface CreateRequirementInput {
   status?: RequirementStatus;
   description?: string;
   docs?: string[];
+  projectId?: string | null; // B3a: 挂接 PMO 项目（给定且非 null 时校验项目存在）
 }
 
 export interface UpdateRequirementInput {
@@ -36,6 +55,7 @@ export interface UpdateRequirementInput {
   status?: RequirementStatus;
   description?: string;
   docs?: string[];
+  projectId?: string | null; // B3a: 挂接/更换 PMO 项目；null = 清除挂接
 }
 
 /** getChain 返回的 WorkUnit 摘要（UI 全链路视图用） */
@@ -59,18 +79,22 @@ export function deriveTitle(message: string): string {
 
 export class RequirementService {
   private fileStore: FileStore;
+  private projectExists: (projectId: string) => Promise<boolean>;
 
-  constructor(fileStore?: FileStore) {
+  constructor(fileStore?: FileStore, deps?: RequirementServiceDeps) {
     this.fileStore = fileStore ?? new FileStore();
+    this.projectExists = deps?.projectExists ?? (async id => (await projectService.get(id)) !== null);
   }
 
   /**
    * 创建需求（flock 原子分配 seq）。
    * 发布 requirement.created（best-effort）。
+   * B3a: 给定 projectId 时校验 PMO 项目存在，不存在抛错（不落档）。
    */
-  async create(input: CreateRequirementInput): Promise<RequirementData> {
+  async create(input: CreateRequirementInput): Promise<RequirementWithProject> {
+    if (input.projectId) await this.assertProjectExists(input.projectId);
     const seq = await this.fileStore.allocateRequirementSeq();
-    const requirement: RequirementData = {
+    const requirement: RequirementWithProject = {
       id: formatRequirementId(seq),
       seq,
       title: input.title,
@@ -78,6 +102,7 @@ export class RequirementService {
       channelId: input.channelId ?? null,
       createdAt: new Date().toISOString(),
       createdBy: input.createdBy ?? 'manual',
+      projectId: input.projectId ?? null,
       ...(input.description !== undefined ? { description: input.description } : {}),
       ...(input.docs !== undefined ? { docs: input.docs } : {}),
     };
@@ -98,35 +123,47 @@ export class RequirementService {
     });
   }
 
-  async get(id: string): Promise<RequirementData | null> {
-    return this.fileStore.getRequirement(id);
+  async get(id: string): Promise<RequirementWithProject | null> {
+    return (await this.fileStore.getRequirement(id)) as RequirementWithProject | null;
   }
 
-  async list(filter?: { status?: string; channelId?: string }): Promise<RequirementData[]> {
-    return this.fileStore.listRequirements(filter);
+  async list(filter?: { status?: string; channelId?: string }): Promise<RequirementWithProject[]> {
+    return (await this.fileStore.listRequirements(filter)) as RequirementWithProject[];
   }
 
   /**
-   * 更新需求（status/title/docs/description）。
+   * 更新需求（status/title/docs/description/projectId）。
    * 发布 requirement.updated（best-effort）。
+   * B3a: projectId 非 null 时校验 PMO 项目存在；null = 清除挂接。
    */
-  async update(id: string, input: UpdateRequirementInput): Promise<RequirementData> {
-    const patch: Partial<RequirementData> = {};
+  async update(id: string, input: UpdateRequirementInput): Promise<RequirementWithProject> {
+    const patch: Partial<RequirementWithProject> = {};
     if (input.title !== undefined) patch.title = input.title;
     if (input.status !== undefined) patch.status = input.status;
     if (input.description !== undefined) patch.description = input.description;
     if (input.docs !== undefined) patch.docs = input.docs;
-    const updated = await this.fileStore.updateRequirement(id, patch);
+    if (input.projectId !== undefined) {
+      if (input.projectId) await this.assertProjectExists(input.projectId);
+      patch.projectId = input.projectId;
+    }
+    const updated = (await this.fileStore.updateRequirement(id, patch)) as RequirementWithProject;
     this.publish('requirement.updated', updated);
     return updated;
   }
 
   /** 关联文档（去重追加） */
-  async addDoc(id: string, docPath: string): Promise<RequirementData> {
+  async addDoc(id: string, docPath: string): Promise<RequirementWithProject> {
     const existing = await this.fileStore.getRequirement(id);
     if (!existing) throw new Error(`Requirement not found: ${id}`);
     const docs = [...new Set([...(existing.docs ?? []), docPath])];
     return this.update(id, { docs });
+  }
+
+  /** B3a: 校验 PMO 项目存在（挂接 projectId 前置检查） */
+  private async assertProjectExists(projectId: string): Promise<void> {
+    if (!(await this.projectExists(projectId))) {
+      throw new Error(`Project not found: ${projectId}`);
+    }
   }
 
   /**

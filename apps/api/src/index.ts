@@ -134,6 +134,12 @@ async function start() {
       initRequirementRollup();
       logger.info('[Requirement] Rollup subscribed (workunit.status_changed → done)');
     } catch (e) { logger.warn('[Requirement] Rollup init failed', { error: String(e) }); }
+    // B3a 工程归属链（决策 D2）：WorkUnit 状态 → PMO 项目进度回写
+    try {
+      const { initPmoProgressRollup } = await import('./modules/pmo/progress-rollup.js');
+      initPmoProgressRollup();
+      logger.info('[PMO] Progress rollup subscribed (workunit.status_changed → project progress)');
+    } catch (e) { logger.warn('[PMO] Progress rollup init failed', { error: String(e) }); }
     // ── Ops Agent: runtime health loop ──
     try {
       const { createOpsAgent } = await import('./modules/agents/ops-agent.service.js');

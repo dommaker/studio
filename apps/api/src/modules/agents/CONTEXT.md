@@ -59,6 +59,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B3a 工程归属链（决策 D2）— agent-loop 执行根目录解析抽为 resolveExecutionWorkspaceRoot：metadata.workspaceRoot（Requirement→PMO gitRepo / 人工回复绑定的直接路径）优先于 wu.workspaceId 记录解析（agentStep 与提交守卫两处消费点同步切换）
 - ✅ 2026-07-27: P0 观测性后半 — ①monitor-alerts warning/critical 接 notifyAlert 出口（utils/notifier.ts：频道「系统」/STUDIO_ALERT_CHANNEL_ID + 企业微信 WECOM_WEBHOOK_URL，双 sink 独立降级；discord-notifier 保留未动）②agent-loop traceId 贯穿（metadata.traceId → extraEnv.STUDIO_TRACE_ID + 失败/锚点日志行带 traceId）③~/.studio/logs 写路径测试隔离（agent-loop/triage/system-executor/ops/token-usage 改走 utils/studio-log-path，VITEST → os.tmpdir()/studio-test-logs）
 - ✅ 2026-07-27: P0 信任链三修 — ①agentStep 接 success===false 显式失败分支（action='failed'：consecutiveStuck 累计、不发频道、3 次 blocked 说明原因；recordResult 空 summary 不发帖）②reviewReport 断链接上（reviewer 输出 REVIEW_RESULT 行 → agentStep 解析写 metadata.reviewReport；review 子 WU complete 直接收口 done；无 report 转人工不再默认拒绝；dispatcher members 改 parseChannels 安全解析）
 - ✅ 2026-07-27: isOnline 语义修正 — 从「instance status=active」改为「loop 存活」：status idle/active 且心跳新鲜（≤5min，与 agent-timeout-scan 同阈值；null 心跳按 startedAt 宽限）。此前空闲 loop 恒显示「Online: 否」误导。另：delete profile 时清理所有 channel.members 中的悬空引用

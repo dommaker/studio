@@ -3,9 +3,12 @@
  *
  * Scans local directories for projects (CLAUDE.md / package.json / .git/).
  * Pure service — no database persistence. In-memory caching.
+ *
+ * D6 排除清单（第一层）：env STUDIO_PROJECTS_EXCLUDE（冒号分隔）或 options.exclude，
+ * 规则命中目录名（精确）或绝对路径（目录边界前缀）即跳过，不递归进入。
  */
 import { readdir, stat, access } from 'node:fs/promises';
-import { join, basename } from 'node:path';
+import { join, sep } from 'node:path';
 import { homedir } from 'node:os';
 
 export interface LocalProject {
@@ -18,6 +21,8 @@ export interface LocalProject {
 interface ProjectDiscoveryOptions {
   roots?: string[];
   cacheTtl?: number;
+  /** D6: 排除规则（目录名或绝对路径前缀）；缺省读 env STUDIO_PROJECTS_EXCLUDE */
+  exclude?: string[];
 }
 
 export class ProjectDiscoveryService {
@@ -25,11 +30,15 @@ export class ProjectDiscoveryService {
   private cacheTime = 0;
   private readonly cacheTtl: number;
   private readonly roots: string[];
+  private readonly exclude: string[];
 
   constructor(options?: ProjectDiscoveryOptions) {
     const rootEnv = process.env.STUDIO_PROJECTS_ROOT;
     this.roots = options?.roots ?? (rootEnv ? rootEnv.split(':') : [join(homedir(), 'projects')]);
     this.cacheTtl = options?.cacheTtl ?? 60_000;
+    const excludeEnv = process.env.STUDIO_PROJECTS_EXCLUDE;
+    this.exclude = options?.exclude
+      ?? (excludeEnv ? excludeEnv.split(':').map(s => s.trim()).filter(Boolean) : []);
   }
 
   async discover(): Promise<LocalProject[]> {
@@ -67,6 +76,18 @@ export class ProjectDiscoveryService {
     this.cacheTime = 0;
   }
 
+  /**
+   * D6: 排除规则匹配 — 目录名精确匹配，或绝对路径按目录边界前缀匹配
+   * （`/data/secret` 命中 `/data/secret` 与 `/data/secret/x`，不误伤 `/data/secret2`）。
+   */
+  private isExcluded(name: string, fullPath: string): boolean {
+    return this.exclude.some(rule => {
+      if (name === rule || fullPath === rule) return true;
+      const prefix = rule.endsWith(sep) ? rule : rule + sep;
+      return fullPath.startsWith(prefix);
+    });
+  }
+
   private async scanDirectory(dir: string, depth: number): Promise<LocalProject[]> {
     if (depth > 2) return []; // Max depth: root + 2 levels (monorepo/packages/project)
 
@@ -90,6 +111,8 @@ export class ProjectDiscoveryService {
       if (!isDir) continue;
       // Skip hidden directories and node_modules
       if (entry.startsWith('.') || entry === 'node_modules') continue;
+      // D6: 排除清单命中（目录名 / 绝对路径前缀）→ 跳过且不递归
+      if (this.isExcluded(entry, fullPath)) continue;
 
       const projectInfo = await this.isProject(fullPath);
       if (projectInfo.isProject) {

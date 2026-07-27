@@ -46,6 +46,7 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B3a 工程归属链（决策 D2）— message-routing 建 WU 改走 ownership-resolver：显式 workspaceId > Requirement.projectId→PMO gitRepo（metadata.workspaceRoot 落档，agent-loop 直接作 cwd）> 频道 defaultWorkspaceId（降级为默认提示）> 无归属时 WU 立即 NEED_INPUT 挂起（blocked + waitingReason='ownership'）并发 Studio 系统消息问人，线程回复经 waiting-input 解析绑定后复活。注意：message-routing.test.ts 中「无归属建 WU」断言由 unassigned 改为 blocked（新行为即需求本身）
 - ✅ 2026-07-27: P0 修复 6 traceId 入口 — 消息 POST 复用 audit 中间件落在 req 的 requestId（没有则 randomUUID）传入 routeMessage；@mention 建 WU 写 metadata.traceId（线程回复不动）；频道写操作纳入 audit 关键操作（audit.jsonl requestId 不再为空）
 - ✅ 2026-07-27: @mention 正则放宽到 Unicode — `detectMention` 与 scope 剥离正则从 `[\w-]` 改为 `[\p{L}\p{N}_-]+/u`（`\w` 不匹配中文，中文名 agent 被 @ 永远落纯存储不派单）；补 CJK 用例
 - ✅ 2026-07-24: API 鉴权收紧 — channels 12 条路由曾零鉴权且在 PUBLIC_API 前缀下匿名可达（P0：匿名发消息可触发 agent 执行/LLM 消耗）；GET 保持公开，写端点收 requireAuth+requireNotGuest；requirements-doc PUT 同步收紧

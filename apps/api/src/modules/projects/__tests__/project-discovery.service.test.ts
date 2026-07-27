@@ -1,7 +1,7 @@
 /**
  * AC-D1+D3: Project discovery service + API tests
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -136,5 +136,98 @@ describe('AC-D3: Project Discovery API integration', () => {
   // For now, the service tests above cover the core logic
   it('placeholder — API route test added during GREEN phase', () => {
     expect(true).toBe(true);
+  });
+});
+
+describe('D6: STUDIO_PROJECTS_EXCLUDE 排除清单', () => {
+  let tempRoot: string;
+  let savedExclude: string | undefined;
+
+  beforeAll(async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'studio-discovery-exclude-'));
+    // keep-a / skip-b / skip-path / prefix / prefix2：均带 CLAUDE.md 标记
+    for (const name of ['keep-a', 'skip-b', 'skip-path', 'prefix', 'prefix2']) {
+      const dir = join(tempRoot, name);
+      await mkdir(dir);
+      await writeFile(join(dir, 'CLAUDE.md'), `# ${name}`);
+    }
+    // mono（CLAUDE.md）+ mono/packages/inner（package.json）：验证目录名规则对嵌套生效
+    await mkdir(join(tempRoot, 'mono', 'packages', 'inner'), { recursive: true });
+    await writeFile(join(tempRoot, 'mono', 'CLAUDE.md'), '# mono');
+    await writeFile(join(tempRoot, 'mono', 'packages', 'inner', 'package.json'), JSON.stringify({ name: 'inner' }));
+  });
+
+  afterAll(async () => {
+    await rm(tempRoot, { recursive: true, force: true });
+  });
+
+  beforeEach(() => {
+    savedExclude = process.env.STUDIO_PROJECTS_EXCLUDE;
+    delete process.env.STUDIO_PROJECTS_EXCLUDE;
+  });
+
+  afterEach(() => {
+    if (savedExclude === undefined) {
+      delete process.env.STUDIO_PROJECTS_EXCLUDE;
+    } else {
+      process.env.STUDIO_PROJECTS_EXCLUDE = savedExclude;
+    }
+  });
+
+  async function discoverNames(service: ProjectDiscoveryService): Promise<string[]> {
+    return (await service.discover()).map(p => p.name);
+  }
+
+  it('options.exclude：目录名与绝对路径规则命中即跳过', async () => {
+    const service = new ProjectDiscoveryService({
+      roots: [tempRoot],
+      exclude: ['skip-b', join(tempRoot, 'skip-path')],
+    });
+
+    const names = await discoverNames(service);
+    expect(names).toContain('keep-a');
+    expect(names).not.toContain('skip-b');
+    expect(names).not.toContain('skip-path');
+  });
+
+  it('env STUDIO_PROJECTS_EXCLUDE（冒号分隔）同样生效', async () => {
+    process.env.STUDIO_PROJECTS_EXCLUDE = `skip-b:${join(tempRoot, 'skip-path')}`;
+    const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+
+    const names = await discoverNames(service);
+    expect(names).toContain('keep-a');
+    expect(names).not.toContain('skip-b');
+    expect(names).not.toContain('skip-path');
+  });
+
+  it('绝对路径规则按目录边界匹配，不误伤同名前缀目录', async () => {
+    const service = new ProjectDiscoveryService({
+      roots: [tempRoot],
+      exclude: [join(tempRoot, 'prefix')],
+    });
+
+    const names = await discoverNames(service);
+    expect(names).not.toContain('prefix');
+    expect(names).toContain('prefix2'); // '/prefix' 不应命中 '/prefix2'
+  });
+
+  it('目录名规则对嵌套层级生效（排除后不递归进入）', async () => {
+    const service = new ProjectDiscoveryService({
+      roots: [tempRoot],
+      exclude: ['packages'],
+    });
+
+    const names = await discoverNames(service);
+    expect(names).toContain('mono');   // 父级工程保留
+    expect(names).not.toContain('inner'); // packages/ 被排除 → 内部工程不发现
+  });
+
+  it('无排除清单时行为不变', async () => {
+    const service = new ProjectDiscoveryService({ roots: [tempRoot] });
+
+    const names = await discoverNames(service);
+    for (const name of ['keep-a', 'skip-b', 'skip-path', 'prefix', 'prefix2', 'mono', 'inner']) {
+      expect(names).toContain(name);
+    }
   });
 });

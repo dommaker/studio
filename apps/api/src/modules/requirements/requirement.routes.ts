@@ -32,21 +32,34 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
 
   /** POST / — 手动创建需求 */
   router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-    const { title, channelId, description, createdBy, docs } = req.body;
+    const { title, channelId, description, createdBy, docs, projectId } = req.body;
     if (!title || typeof title !== 'string' || !title.trim()) {
       return res.status(400).json({ success: false, error: 'title is required' });
     }
     if (docs !== undefined && (!Array.isArray(docs) || docs.some(d => typeof d !== 'string'))) {
       return res.status(400).json({ success: false, error: 'docs must be an array of strings' });
     }
-    const data = await service.create({
-      title: title.trim(),
-      channelId: typeof channelId === 'string' ? channelId : null,
-      description: typeof description === 'string' ? description : undefined,
-      createdBy: typeof createdBy === 'string' ? createdBy : 'manual',
-      docs,
-    });
-    res.status(201).json({ success: true, data });
+    // B3a: projectId 挂接 PMO 项目（string | null；不存在 → 400）
+    if (projectId !== undefined && projectId !== null && typeof projectId !== 'string') {
+      return res.status(400).json({ success: false, error: 'projectId must be a string or null' });
+    }
+    try {
+      const data = await service.create({
+        title: title.trim(),
+        channelId: typeof channelId === 'string' ? channelId : null,
+        description: typeof description === 'string' ? description : undefined,
+        createdBy: typeof createdBy === 'string' ? createdBy : 'manual',
+        docs,
+        projectId: projectId === undefined ? undefined : projectId,
+      });
+      res.status(201).json({ success: true, data });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('Project not found')) {
+        return res.status(400).json({ success: false, error: msg });
+      }
+      throw e;
+    }
   });
 
   /** GET /:id — get requirement by id */
@@ -56,9 +69,9 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
     res.json({ success: true, data });
   });
 
-  /** PATCH /:id — 更新 status/title/docs/description */
+  /** PATCH /:id — 更新 status/title/docs/description/projectId */
   router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-    const { title, status, description, docs } = req.body;
+    const { title, status, description, docs, projectId } = req.body;
     if (status !== undefined && !REQUIREMENT_STATUSES.includes(status)) {
       return res.status(400).json({ success: false, error: `status must be one of: ${REQUIREMENT_STATUSES.join(', ')}` });
     }
@@ -68,16 +81,24 @@ export function createRequirementRoutes(fileStore?: FileStore): Router {
     if (docs !== undefined && (!Array.isArray(docs) || docs.some(d => typeof d !== 'string'))) {
       return res.status(400).json({ success: false, error: 'docs must be an array of strings' });
     }
+    // B3a: projectId 挂接/清除 PMO 项目（string | null；项目不存在 → 400）
+    if (projectId !== undefined && projectId !== null && typeof projectId !== 'string') {
+      return res.status(400).json({ success: false, error: 'projectId must be a string or null' });
+    }
     try {
       const data = await service.update(req.params.id, {
         title: typeof title === 'string' ? title.trim() : undefined,
         status,
         description,
         docs,
+        projectId: projectId === undefined ? undefined : projectId,
       });
       res.json({ success: true, data });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('Project not found')) {
+        return res.status(400).json({ success: false, error: msg });
+      }
       if (msg.includes('not found')) {
         return res.status(404).json({ success: false, error: msg });
       }

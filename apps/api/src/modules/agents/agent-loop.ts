@@ -516,10 +516,11 @@ export class AgentLoop {
       metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
     }
 
-    // F6: WorkUnit 绑定工程 → 解析 workspace 的 repo 路径，经 parameters.workspaceRoot
+    // F6 → B3a: WorkUnit 绑定工程 → 解析执行根目录，经 parameters.workspaceRoot
     // 传给 agent-runner（resolveWorkspace Priority 1：直接以该目录为 cwd）。
-    // 未绑定或解析失败 → 不传，保持现有 fallback 行为。
-    const workspaceRoot = wu.workspaceId ? await this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
+    // metadata.workspaceRoot（B3a 归属链：Requirement→PMO gitRepo / 人工回复绑定）优先；
+    // 否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）；都没有 → 不传，保持现有 fallback。
+    const workspaceRoot = await this.resolveExecutionWorkspaceRoot(wu, metadata);
 
     // AgentTask with new interface: provider, sessionId, maxTurns, knowledgeContext
     const task: AgentTask = {
@@ -756,6 +757,17 @@ ${rosterLines.join('\n')}
   }
 
   /**
+   * B3a 归属链：执行根目录解析 — metadata.workspaceRoot（Requirement→PMO gitRepo /
+   * 人工回复绑定的直接路径）优先；否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）。
+   */
+  private async resolveExecutionWorkspaceRoot(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<string | null> {
+    if (typeof metadata.workspaceRoot === 'string' && metadata.workspaceRoot.length > 0) {
+      return metadata.workspaceRoot;
+    }
+    return wu.workspaceId ? this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
+  }
+
+  /**
    * F6: 解析 WorkUnit 绑定工程的执行根目录（workspace.workspaceRoot）。
    * 记录缺失/无 workspaceRoot/读取失败 → null（保持未绑定的默认行为）。
    */
@@ -865,7 +877,7 @@ ${rosterLines.join('\n')}
     let action = result.action;
     const guardUpdates: Partial<WorkUnitMetadata> = {};
     let noCommitNotice = false;
-    const workspaceRoot = wu.workspaceId ? await this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
+    const workspaceRoot = await this.resolveExecutionWorkspaceRoot(wu, metadata);
     if (workspaceRoot) {
       if (action === 'complete' && this.hasUncommittedChanges(workspaceRoot)) {
         // COMPLETE 守卫：有未提交改动 → 打回按 PROGRESS 处理，提示注入下一轮 prompt
