@@ -53,12 +53,15 @@
 - 路由层统一使用 `getErrorMessage` 捕获异常，并返回标准错误码（如 `INTERNAL_ERROR`、`NOT_FOUND`）
 - 所有 Agent 数据均通过 `FileStore` 存储（已从 Prisma 迁移）
 - 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件（测试环境隔离到 `os.tmpdir()/studio-test-logs/`，见 `utils/studio-log-path.ts`）
+- **B3b-i 每 WU worktree 隔离（决策 D1）**：代码类 WU（task/bug/feature/refactor）解析出 git 仓库根后执行 cwd 强制走专属 worktree（`<worktreesDir>/wu-<wuId>`，分支 `task/<wuId>`，agent-loop 首个 step 经 `ensureWuWorktree` 创建并落档 metadata.worktreePath/Branch/BaseBranch/BaseRepo，后续 step 复用）；review WU 继承父 worktreePath（看 diff）；创建失败走 B1 failed 分支（3 次 blocked），不退回共享目录；提交守卫/自动验证的 git cwd 统一走 `resolveExecutionCwd`
+- **B3b-i COMPLETE 前自动验证（决策 D3 前半）**：提交/子任务守卫通过后在 WU worktree 跑验证——覆盖（metadata.verifyCommands > workspace 记录 verifyCommands）> 约定（package.json scripts 的 test/typecheck/lint，按 lockfile 选 pnpm/npm，单条 10min）；全绿写 metadata.verifyReport 并发频道简报；失败降级 progress（verifyFailHint 注入下一轮，尾部截 2000），verifyFailCount ≥3 转 blocked
 - `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
 - **鉴权（2026-07-24 收紧）**：legacy agents POST `/`、PUT `/:agentId` 与 agent-profiles/agent-instances 写 = `requireAuth()+requireNotGuest()`；`POST /review/diff`（任意路径写+spawn claude）与 instances `POST /:id/terminate` = `requireAuth()+requireAdmin()`；legacy DELETE 原有 requireRole('Admin') 不变。另知：agent-configs `:id` 路径拼接无校验（穿越面，未修）、/review/diff 的 baseRef/headRef shell 拼接（Admin 门后，未修）
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B3b-i 每 WU worktree 隔离 + 提交前自动验证（决策 D1/D3 前半）— agent-loop 对代码类 WU 强制专属 worktree 执行（ensureWuWorktree 按 WU id 键控复用，失败走 failed 分支不退共享目录；review 继承父 worktree）；提交守卫 git cwd 切 resolveExecutionCwd；recordResult 接受 COMPLETE 前跑验证（覆盖>约定>跳过，失败降级+verifyFailCount≥3 转 blocked，全绿写 verifyReport 发频道）
 - ✅ 2026-07-27: B3a 工程归属链（决策 D2）— agent-loop 执行根目录解析抽为 resolveExecutionWorkspaceRoot：metadata.workspaceRoot（Requirement→PMO gitRepo / 人工回复绑定的直接路径）优先于 wu.workspaceId 记录解析（agentStep 与提交守卫两处消费点同步切换）
 - ✅ 2026-07-27: P0 观测性后半 — ①monitor-alerts warning/critical 接 notifyAlert 出口（utils/notifier.ts：频道「系统」/STUDIO_ALERT_CHANNEL_ID + 企业微信 WECOM_WEBHOOK_URL，双 sink 独立降级；discord-notifier 保留未动）②agent-loop traceId 贯穿（metadata.traceId → extraEnv.STUDIO_TRACE_ID + 失败/锚点日志行带 traceId）③~/.studio/logs 写路径测试隔离（agent-loop/triage/system-executor/ops/token-usage 改走 utils/studio-log-path，VITEST → os.tmpdir()/studio-test-logs）
 - ✅ 2026-07-27: P0 信任链三修 — ①agentStep 接 success===false 显式失败分支（action='failed'：consecutiveStuck 累计、不发频道、3 次 blocked 说明原因；recordResult 空 summary 不发帖）②reviewReport 断链接上（reviewer 输出 REVIEW_RESULT 行 → agentStep 解析写 metadata.reviewReport；review 子 WU complete 直接收口 done；无 report 转人工不再默认拒绝；dispatcher members 改 parseChannels 安全解析）

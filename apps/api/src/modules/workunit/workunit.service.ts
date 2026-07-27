@@ -10,6 +10,7 @@ import { logger, eventBus, FileStore, type AgentProfileData, type ChannelMessage
 import { loadManifest, type SkillEntry } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseAcceptedTypesFromDescription } from '../skills/skill-selector.js';
 import { skillLoaderService } from '../skills/skill-loader.js';
+import { mergeWorktreeBranchOnReviewPass } from './merge-on-review-pass.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
 export interface WorkUnitMetadata {
@@ -48,6 +49,25 @@ export interface WorkUnitMetadata {
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
   ownershipSource?: string;   // 归属来源：explicit / requirement / channel-default / none / human-reply
   ownershipProjectId?: string; // 经 Requirement 解析到的 PMO 项目 id（审计用）
+  // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
+  worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
+  worktreeBranch?: string;    // 专属分支名（task/<wuId>）
+  worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测）
+  worktreeBaseRepo?: string;  // 共享 git 仓库根（worktree 的母仓库）
+  // B3b-i COMPLETE 前自动验证（决策 D3 前半，约定优先可覆盖）
+  verifyCommands?: string[];  // 覆盖验证命令（优先级高于 package.json scripts 约定；workspace 记录同名字段次之）
+  verifyReport?: {            // 最近一次全绿的验证摘要（COMPLETE 接受前写入）
+    commands: string[];
+    source: 'override' | 'convention';
+    passedAt: string;
+  };
+  verifyFailCount?: number;   // 自动验证连续失败计数（≥3 → blocked）
+  verifyFailHint?: string;    // 验证失败提示（失败命令+输出尾部，注入下一轮 prompt 后清除）
+  // B3b-ii 评审通过后自动合并（决策 D1/D3 后半，merge-on-review-pass.ts）
+  mergedAt?: string;          // task 分支合并回 base 分支完成时间 ISO 8601（防重哨兵：存在即跳过合并）
+  mergeCommit?: string;       // 合并后 baseRepo HEAD（merge commit 全哈希）
+  mergeConflict?: boolean;    // 自动合并（含 rebase 重试）仍冲突，已转人工（WU 置 blocked）
+  conflictFiles?: string[];   // 合并冲突文件清单（diff-filter=U）
   knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
   matchedSkills?: string[];   // §10 P0: claim 时域匹配命中的 skill 名（agentStep 注入正文用）
   skillHints?: string[];      // §10.3: 消息中 +skill名 显式指定的 skill（解析时优先于域匹配）
@@ -751,6 +771,7 @@ export class WorkUnitService {
   /**
    * Review passed: in_review → done. Emits workunit.review.passed.
    * Resets consecutive rejection counter.
+   * B3b-ii：收口处触发 worktree 分支自动合并（best-effort，不阻断 done 迁移）。
    */
   async reviewPassed(id: string): Promise<WorkUnitData> {
     const snapshots = await this.fileStore.getIndex();
@@ -786,6 +807,53 @@ export class WorkUnitService {
     this.publishStatusChanged(updated);
 
     // Cascade: parent aggregation (best-effort)
+    this.aggregateParentStatus(id).catch(err =>
+      logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
+    );
+
+    // B3b-ii（决策 D1/D3 后半）：评审通过 → task 分支自动合并回 base 分支。
+    // best-effort：无 worktree 落档的 WU 在 merge 模块内旁路；冲突由模块自行置 blocked 转人工；
+    // 任何失败只记日志，不阻断本方法的 done 迁移。
+    mergeWorktreeBranchOnReviewPass(this, snapshotToData(updated), this.fileStore).catch(err =>
+      logger.warn('[WorkUnit] merge-on-review-pass failed (non-blocking)', { workUnitId: id, error: String(err) })
+    );
+
+    return snapshotToData(updated);
+  }
+
+  /**
+   * B3b-ii: 自动合并冲突转人工 — 置 blocked 并落档 mergeConflict/conflictFiles。
+   * done → blocked 不在 VALID_TRANSITIONS（同 reviewRejected 3 次拒绝自动 blocked 先例，直写快照）。
+   */
+  async markMergeConflict(id: string, conflictFiles: string[]): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const current = snapshots.find(s => s.id === id);
+    if (!current) throw new Error('WorkUnit not found');
+
+    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    metadata.mergeConflict = true;
+    metadata.conflictFiles = conflictFiles;
+
+    const now = new Date();
+    const isoNow = now.toISOString();
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      status: 'blocked',
+      metadata: JSON.stringify(metadata),
+      updatedAt: isoNow,
+    };
+
+    const event: WorkUnitEvent = {
+      type: 'blocked',
+      wuId: id,
+      timestamp: isoNow,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+
+    this.publishStatusChanged(updated);
+
     this.aggregateParentStatus(id).catch(err =>
       logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
     );
