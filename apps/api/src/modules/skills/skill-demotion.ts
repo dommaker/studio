@@ -2,8 +2,10 @@
  * §10.6 skill 生命周期降级通路（聚合 + 降级提案）。
  *
  * 数据流：
- *   knowledge:skill_used 事件（payload: { skillName }，skill-loader.ts 发射）
- *     → 每 skill 使用次数 / lastUsedAt
+ *   knowledge:skill_used 事件（payload: { skillName, workUnitId? }，agent-loop.ts step 注入时发射）
+ *     → 每 skill 使用次数 / lastUsedAt。口径（2026-07-27 校准）：uses = 使用 WU 数——
+ *       带 workUnitId 的事件按 (skill, workUnitId) 去重（同一 WU 多 step 注入只计一次）；
+ *       legacy 事件（无 workUnitId，source=skill-loader）每条计 1 次。
  *   WU 索引 metadata.matchedSkills（决策 7：agent-loop step 时匹配并落盘）
  *     → skill ↔ WU 关联；终态口径：done = 成功，closed/blocked = 不成功，
  *       其余（active/in_review/unassigned 等）未终态不计入成功率。
@@ -165,6 +167,9 @@ export async function aggregateSkillUsage(opts?: AggregateOptions): Promise<Map<
     rows = [];
   }
 
+  // uses 去重：带 workUnitId 的事件按 (skill, workUnitId) 只计一次（同一 WU 多 step 注入不重复计数）
+  const seenWuPairs = new Set<string>();
+
   for (const row of rows) {
     if (row?.type !== 'knowledge:skill_used') continue;
     let payload: Record<string, unknown>;
@@ -175,8 +180,17 @@ export async function aggregateSkillUsage(opts?: AggregateOptions): Promise<Map<
     }
     const name = typeof payload.skillName === 'string' ? payload.skillName : null;
     if (!name) continue;
+    const wuId = typeof payload.workUnitId === 'string' && payload.workUnitId ? payload.workUnitId : null;
     const s = ensure(name);
-    s.uses++;
+    if (wuId) {
+      const pairKey = `${name}${wuId}`;
+      if (!seenWuPairs.has(pairKey)) {
+        seenWuPairs.add(pairKey);
+        s.uses++;
+      }
+    } else {
+      s.uses++; // legacy 事件（无 workUnitId）每条计 1 次
+    }
     const tsRaw = (row.createdAt ?? row.timestamp) as string | undefined;
     if (tsRaw && (!s.lastUsedAt || tsRaw > s.lastUsedAt)) s.lastUsedAt = tsRaw;
   }
