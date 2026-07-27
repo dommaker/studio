@@ -113,10 +113,10 @@ describeIf('Executor Daemon 实战测试', () => {
     // 清理
     try { fs.rmSync(WORKTREES_DIR, { recursive: true, force: true }); } catch {}
 
-    // 启动 daemon（注册 analyst + reviewer）
+    // 启动 daemon（注册 analyst；B4a 起 reviewer session/worktree 已摘除）
     daemon.start();
 
-    // Register executor session — daemon.start() only registers analyst+reviewer
+    // Register executor session — daemon.start() only registers analyst
     const executorWt = path.join(WORKTREES_DIR, 'executor');
     fs.mkdirSync(executorWt, { recursive: true });
     (daemon as any).manager.register({

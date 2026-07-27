@@ -61,6 +61,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B4a 内置角色 + reviewer worktree 死代码清除（决策 D7/D8）— 新增 builtin-roles.ts：启动幂等 seed pm/dev/reviewer（不覆盖用户改动、inactive 尊重可禁用；description 尾部英文关键词即 acceptedTypes 来源，reviewer 必含 'reviewer' 字样供 ReviewDispatcher 锚定）；ensureBuiltinRoleMembers / migrateBuiltinRolesToProjectChannels 供频道绑工程自动加入与存量迁移；ensureStudioProfile 回填 studio 定位描述（仅空/旧默认时写，用户自定义不覆盖）；studio-daemon 摘除 reviewer session/worktree（daemon/reviewer-* 分支泄漏源头），index.ts 不再 daemon.start()（submitJob/submitAdhocJob 无生产调用方，文件保留供 getStatus/isStarted 消费方）
 - ✅ 2026-07-27: B3b-i 每 WU worktree 隔离 + 提交前自动验证（决策 D1/D3 前半）— agent-loop 对代码类 WU 强制专属 worktree 执行（ensureWuWorktree 按 WU id 键控复用，失败走 failed 分支不退共享目录；review 继承父 worktree）；提交守卫 git cwd 切 resolveExecutionCwd；recordResult 接受 COMPLETE 前跑验证（覆盖>约定>跳过，失败降级+verifyFailCount≥3 转 blocked，全绿写 verifyReport 发频道）
 - ✅ 2026-07-27: B3a 工程归属链（决策 D2）— agent-loop 执行根目录解析抽为 resolveExecutionWorkspaceRoot：metadata.workspaceRoot（Requirement→PMO gitRepo / 人工回复绑定的直接路径）优先于 wu.workspaceId 记录解析（agentStep 与提交守卫两处消费点同步切换）
 - ✅ 2026-07-27: P0 观测性后半 — ①monitor-alerts warning/critical 接 notifyAlert 出口（utils/notifier.ts：频道「系统」/STUDIO_ALERT_CHANNEL_ID + 企业微信 WECOM_WEBHOOK_URL，双 sink 独立降级；discord-notifier 保留未动）②agent-loop traceId 贯穿（metadata.traceId → extraEnv.STUDIO_TRACE_ID + 失败/锚点日志行带 traceId）③~/.studio/logs 写路径测试隔离（agent-loop/triage/system-executor/ops/token-usage 改走 utils/studio-log-path，VITEST → os.tmpdir()/studio-test-logs）

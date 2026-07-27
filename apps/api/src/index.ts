@@ -127,7 +127,11 @@ async function start() {
     // ── 核心服务 ──
     monitorAgent.start();
     auditorAgent.start();
-    daemon.start();
+    // B4a（决策 D8）: daemon.start() 已摘除 —— studio-daemon 是 pipeline 时代
+    // session 管理器，submitJob/submitAdhocJob 全库无生产调用方（仅测试），
+    // 且其 reviewer session 每次启动新建 git worktree（daemon/reviewer-* 分支
+    // 从不合从不删，泄漏源头）。代码文件保留：daemon-routes / discord /
+    // ops-agent / cli 仍消费 getStatus/isStarted（未启动时安全降级为空状态）。
     // REQ 需求编号体系（vision §5.3）：WorkUnit 终态 → Requirement done 状态汇总
     try {
       const { initRequirementRollup } = await import('./modules/requirements/rollup.js');
@@ -162,6 +166,13 @@ async function start() {
       try {
         await ensureStudioProfile(fileStore);
       } catch (e) { logger.warn('[StudioRole] ensureStudioProfile failed', { error: String(e) }); }
+      // B4a（决策 D7）: 内置角色 seed（pm/dev/reviewer，幂等、不覆盖用户改动、可禁用）
+      // + 一次性迁移：已绑定工程的存量频道补内置角色成员（幂等）
+      try {
+        const { ensureBuiltinRoles, migrateBuiltinRolesToProjectChannels } = await import('./modules/agents/builtin-roles.js');
+        await ensureBuiltinRoles(fileStore);
+        await migrateBuiltinRolesToProjectChannels(fileStore);
+      } catch (e) { logger.warn('[BuiltinRoles] Seed/migration failed', { error: String(e) }); }
       const profiles = await fileStore.listProfiles({ status: 'active' });
       const scheduler = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
       scheduler.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)

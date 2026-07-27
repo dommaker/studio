@@ -12,6 +12,8 @@ import { WorkUnitService } from '../workunit/workunit.service.js';
 import { resumeWaitingWorkUnit, postStudioSystemMessage } from '../workunit/waiting-input.js';
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
 import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/ownership-resolver.js';
+import { STUDIO_ROLE_NAME } from '../agents/agent-profile.service.js';
+import { PM_ROLE_NAME } from '../agents/builtin-roles.js';
 
 const fileStore = new FileStore();
 const workUnitService = new WorkUnitService();
@@ -103,9 +105,17 @@ export async function routeMessage(
     // §9.5: mention 匹配以 channel.members 为界 — 只能 @ 到本频道成员（修越界 bug）。
     // members 为空（历史频道未回填）时回退到全量 active profile 匹配，保持既有行为。
     const memberIds = parseChannels(channel?.members);
-    const agent = allProfiles.find(p =>
-      p.name === mentionName && (memberIds.length === 0 || memberIds.includes(p.id))
-    ) ?? null;
+    const inScope = (p: (typeof allProfiles)[number]) => memberIds.length === 0 || memberIds.includes(p.id);
+    let agent = allProfiles.find(p => p.name === mentionName && inScope(p)) ?? null;
+    // B4a（决策 D7）: @studio 特殊路由 — studio 是系统角色不执行任务，
+    // 改派给 pm（metadata.reroutedFrom='studio'）并向频道发系统消息说明；
+    // pm 不存在/被禁用/不在本频道时按未命中处理（assigneeId=null）。
+    let reroutedFrom: string | undefined;
+    if (mentionName === STUDIO_ROLE_NAME) {
+      const pm = allProfiles.find(p => p.name === PM_ROLE_NAME && inScope(p)) ?? null;
+      agent = pm;
+      if (pm) reroutedFrom = STUDIO_ROLE_NAME;
+    }
     const scope = content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
     const skillHints = parseSkillHints(content);
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
@@ -150,6 +160,8 @@ export async function routeMessage(
         mentionName,
         matched: !!agent,
         creationMode: 'mention',
+        // B4a: @studio 改派标记（WU 实际派给 pm，非 studio 本身）
+        ...(reroutedFrom ? { reroutedFrom } : {}),
         // P0 修复 6: traceId 贯穿（audit requestId → WU metadata → agent-loop 日志）
         ...(options?.traceId ? { traceId: options.traceId } : {}),
         // §10.3: +skill名 显式指定（token 保留在原文中，仅解析进 metadata）
@@ -177,6 +189,7 @@ export async function routeMessage(
       reqId,
       ownershipSource: ownership?.source ?? 'fallback',
       parked,
+      reroutedFrom,
       traceId: options?.traceId ?? undefined,
     });
     const message = await channelMessageService.createHumanMessage(
@@ -185,6 +198,20 @@ export async function routeMessage(
       undefined,
       workUnit.id,
     );
+    // B4a: @studio 改派 → 频道发 Studio 系统消息说明（best-effort，挂在派发消息线程）
+    if (reroutedFrom) {
+      await postStudioSystemMessage(
+        resolvedFs,
+        channelId,
+        `studio 是系统角色，你的消息已转给 @${PM_ROLE_NAME}`,
+        { replyToId: message.id, workUnitId: workUnit.id },
+      ).catch(err =>
+        logger.warn('[MessageRouting] Post studio-reroute notice failed (non-blocking)', {
+          workUnitId: workUnit.id,
+          error: String(err),
+        })
+      );
+    }
     // B3a: 无归属挂起 → 频道发 Studio 系统消息提问（挂在派发消息线程，回复即触发解析）
     if (parked) {
       await postStudioSystemMessage(

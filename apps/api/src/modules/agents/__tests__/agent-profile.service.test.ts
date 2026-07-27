@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { AgentProfileService, ensureStudioProfile } from '../agent-profile.service.js';
+import { AgentProfileService, ensureStudioProfile, STUDIO_ROLE_DESCRIPTION } from '../agent-profile.service.js';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-profile-test-'));
@@ -346,7 +346,40 @@ describe('AC Group 1: studio role', () => {
       expect(profile.provider).toBeNull();
       expect(profile.status).toBe('active');
       expect(profile.channels).toBe('[]');
-      expect(profile.description).toBeNull();
+      // B4a: studio 定位描述随种子写入
+      expect(profile.description).toBe(STUDIO_ROLE_DESCRIPTION);
+    });
+
+    it('存量 studio description 为空（旧默认）时回填定位描述', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-legacy', name: 'studio', description: null,
+        channels: '[]', provider: null, status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.id).toBe('studio-legacy');
+      expect(profile.description).toBe(STUDIO_ROLE_DESCRIPTION);
+      // 落盘确认 + 幂等（第二次调用结果不变）
+      const onDisk = await fileStore.getProfile('studio-legacy');
+      expect(onDisk!.description).toBe(STUDIO_ROLE_DESCRIPTION);
+      const again = await ensureStudioProfile(fileStore);
+      expect(again.description).toBe(STUDIO_ROLE_DESCRIPTION);
+    });
+
+    it('存量 studio description 为用户自定义时不覆盖', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-custom', name: 'studio', description: '用户自定义的系统角色说明',
+        channels: '[]', provider: null, status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.description).toBe('用户自定义的系统角色说明');
+      const onDisk = await fileStore.getProfile('studio-custom');
+      expect(onDisk!.description).toBe('用户自定义的系统角色说明');
     });
 
     it('已存在时跳过创建（幂等）', async () => {

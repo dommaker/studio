@@ -472,6 +472,15 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
       data.defaultPipeline = validated.value;
     }
     await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
+    // B4a: 频道绑定工程 → 自动把内置角色（pm/dev/reviewer）加入 members（幂等，best-effort）
+    if (defaultWorkspaceId !== undefined && data.defaultWorkspaceId) {
+      try {
+        const { ensureBuiltinRoleMembers } = await import('../agents/builtin-roles.js');
+        await ensureBuiltinRoleMembers(fileStore, id);
+      } catch (e) {
+        logger.warn('[Channel] Auto-join builtin roles failed (non-blocking)', { channelId: id, error: String(e) });
+      }
+    }
     const updated = await fileStore.getChannel(id);
     if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
     res.json({ success: true, data: updated });
