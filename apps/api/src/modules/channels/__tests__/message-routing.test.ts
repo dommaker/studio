@@ -325,6 +325,33 @@ describe('Message Routing (AC-B1-B4)', () => {
     });
   });
 
+  // ── 决策 12: 无 @ 兜底 —— 频道默认角色 ──
+
+  describe('决策 12: channel.defaultProfileId 无 @ 兜底', () => {
+    it('配置了默认角色 → 无 @ 消息创建 WU 并关联消息', async () => {
+      await fileStore.updateChannel(channelId, { defaultProfileId: 'default-agent-1' });
+
+      const result = await routeMessage(channelId, '没有点名的消息', undefined, fileStore);
+
+      expect(result.workUnitId).toBeTruthy();
+      const wu = await findWu(result.workUnitId!);
+      expect(wu).not.toBeNull();
+      expect(wu!.assigneeId).toBe('default-agent-1');
+      expect(wu!.type).toBe('task');
+      expect(wu!.scope).toBe('没有点名的消息');
+      expect(wu!.status).toBe('unassigned');
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.creationMode).toBe('channel-default');
+    });
+
+    it('未配置默认角色 → 维持纯存储（不建 WU）', async () => {
+      const result = await routeMessage(channelId, '纯聊天', undefined, fileStore);
+
+      expect(result.workUnitId).toBeNull();
+      expect(await countWu(channelId)).toBe(0);
+    });
+  });
+
   // ── F5: 回复挂起中的 WorkUnit → 恢复执行 ──
 
   describe('F5: reply to waiting WorkUnit resumes it', () => {

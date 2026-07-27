@@ -1,9 +1,12 @@
 /**
- * §10.3 显式覆盖：metadata.skillHints（+skill名）在 claim 时强制置顶匹配集
+ * §10.3 显式覆盖 → 决策 11 重构：+skill名 解析从 message-routing/claim 挪到
+ * step 时（skill-selector.parseSkillHintsFromScope + selectSkillsWithDomain）。
+ * claim 不再消费 metadata.skillHints（workunit.service 的 autoLoadSkillsForAgent 已删除）。
  *
+ * 本文件覆盖迁移后的等价行为（磁盘 manifest 版）：
  * - hint 按精确名从 manifest 解析，置于域匹配结果之前（显式 > 域匹配）
+ * - 决策 7：排序器全量产出，不再封顶 3（由调用方按预算截断）
  * - 未知 / 非 published / consumers:[loop] 的 hint 跳过并记日志
- * - 总数封顶 3（hint 优先占位）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
@@ -25,21 +28,13 @@ function writeSkill(name: string, frontmatter: string) {
 
 // description 均为零文本交集词 —— scope 匹配不命中，只剩域匹配/hint 两条路
 writeSkill('hint-skill', 'description: "xyzzy 无交集"\nstatus: published');
-writeSkill('loop-skill', 'description: "xyzzy 无交集"\nstatus: published\nagentTypes: [feature]\nconsumers: [loop]');
+writeSkill('loop-skill', 'description: "xyzzy 无交集"\nstatus: published\nagentTypes: [implement]\nconsumers: [loop]');
 writeSkill('draft-skill', 'description: "xyzzy 无交集"\nstatus: draft');
-writeSkill('domain-a', 'description: "xyzzy 无交集"\nstatus: published\nagentTypes: [feature]');
-writeSkill('domain-b', 'description: "xyzzy 无交集"\nstatus: published\nagentTypes: [feature]');
-writeSkill('domain-c', 'description: "xyzzy 无交集"\nstatus: published\nagentTypes: [feature]');
+writeSkill('domain-a', 'description: "xyzzy 无交集"\nstatus: published\nagentTypes: [implement]');
+writeSkill('domain-b', 'description: "xyzzy 无交集"\nstatus: published\nagentTypes: [implement]');
+writeSkill('domain-c', 'description: "xyzzy 无交集"\nstatus: published\nagentTypes: [implement]');
 
-const { mockFileStore, mockLogger } = vi.hoisted(() => ({
-  mockFileStore: {
-    getIndex: vi.fn(),
-    claimWorkUnit: vi.fn(),
-    upsertSnapshot: vi.fn(),
-    appendEvent: vi.fn(),
-    getState: vi.fn(),
-    getProfile: vi.fn(),
-  },
+const { mockLogger } = vi.hoisted(() => ({
   mockLogger: {
     info: vi.fn(),
     warn: vi.fn(),
@@ -50,116 +45,80 @@ const { mockFileStore, mockLogger } = vi.hoisted(() => ({
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, logger: mockLogger };
+  return { ...actual as object, logger: mockLogger };
 });
 
-const { WorkUnitService } = await import('../../workunit/workunit.service.js');
-const { invalidateManifestCache } = await import('../../skills/manifest-loader.js');
+const { loadManifest, invalidateManifestCache } = await import('../../skills/manifest-loader.js');
+const { selectSkillsWithDomain, parseSkillHintsFromScope } = await import('../../skills/skill-selector.js');
 
-describe('§10.3: claim 时 skillHints 显式覆盖', () => {
-  let service: InstanceType<typeof WorkUnitService>;
-
-  /** scope 与所有 skill 零文本交集；域 = WU type feature + profile feature → 命中 domain-a/b/c */
-  function setupClaim(metadata: string | null) {
-    const base = {
-      id: 'wu-1', status: 'unassigned', scope: 'xyzzy 无交集', type: 'feature',
-      parentId: null, assigneeId: null, failureType: null,
-      retryCount: 0, timeoutAt: null, channelId: null, projectPath: null,
-      metadata, claimedAt: null, completedAt: null,
-      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-    };
-    let getIndexCalls = 0;
-    mockFileStore.getIndex.mockImplementation(() => {
-      getIndexCalls++;
-      return getIndexCalls === 1
-        ? [base]
-        : [{ ...base, assigneeId: 'inst-1', status: 'active' }];
-    });
-    mockFileStore.claimWorkUnit.mockResolvedValue(true);
-    mockFileStore.upsertSnapshot.mockResolvedValue(undefined);
-    mockFileStore.appendEvent.mockResolvedValue(undefined);
-    mockFileStore.getState.mockResolvedValue({ id: 'inst-1', roleId: 'role-1' });
-    mockFileStore.getProfile.mockResolvedValue({ id: 'role-1', description: '负责 feature 开发' });
-  }
-
-  /** 等待 fire-and-forget 的 autoLoad 落盘，返回持久化的 matchedSkills */
-  async function persistedMatchedSkills(): Promise<string[]> {
-    await vi.waitFor(() => {
-      expect(mockFileStore.upsertSnapshot).toHaveBeenCalled();
-    });
-    const updated = mockFileStore.upsertSnapshot.mock.calls[0][0];
-    return JSON.parse(updated.metadata).matchedSkills;
-  }
-
+describe('§10.3 → 决策 11: +skill 显式点名（step 时从 scope 解析）', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     invalidateManifestCache();
-    service = new WorkUnitService(mockFileStore as never);
   });
 
-  it('hint 强制置顶于域匹配之前，总数封顶 3', async () => {
-    setupClaim(JSON.stringify({ skillHints: ['hint-skill'] }));
+  it('hint 强制置顶于域匹配之前；排序器全量产出不再封顶 3', () => {
+    const hints = parseSkillHintsFromScope('xyzzy 无交集 +hint-skill');
+    expect(hints).toEqual(['hint-skill']);
 
-    await service.claim('wu-1', 'inst-1');
-    const matched = await persistedMatchedSkills();
+    const matched = selectSkillsWithDomain(
+      'xyzzy 无交集', loadManifest(), { acceptedTypes: ['feature'], wuType: 'feature' }, hints,
+    );
 
-    // hint-skill 无 agentTypes、无 scope 交集 —— 只能靠显式 hint 进入匹配集
-    expect(matched[0]).toBe('hint-skill');
-    // 1 hint + 3 域匹配共 4 个候选 → 封顶 3
-    expect(matched).toHaveLength(3);
-    expect(matched.slice(1).every(n => ['domain-a', 'domain-b', 'domain-c'].includes(n))).toBe(true);
+    // hint-skill 无 agentTypes、无 scope 交集 —— 只能靠显式 hint 进入排序头部
+    expect(matched[0].name).toBe('hint-skill');
+    // 1 hint + 3 域匹配共 4 个 —— 决策 7：不再封顶 3
+    expect(matched).toHaveLength(4);
+    expect(matched.slice(1).every(s => ['domain-a', 'domain-b', 'domain-c'].includes(s.name))).toBe(true);
   });
 
-  it('未知 hint 跳过并记日志，域匹配不受影响', async () => {
-    setupClaim(JSON.stringify({ skillHints: ['no-such-skill'] }));
+  it('未知 hint 跳过并记日志，域匹配不受影响', () => {
+    const matched = selectSkillsWithDomain(
+      'xyzzy 无交集', loadManifest(), { acceptedTypes: [], wuType: 'feature' }, ['no-such-skill'],
+    );
 
-    await service.claim('wu-1', 'inst-1');
-    const matched = await persistedMatchedSkills();
-
-    expect(matched).toHaveLength(3);
-    expect(matched.every(n => ['domain-a', 'domain-b', 'domain-c'].includes(n))).toBe(true);
+    // 3 个域匹配在前；hint-skill（无交集但 published）作为「其余」殿后 —— 排序器全量产出
+    expect(matched).toHaveLength(4);
+    expect(matched.slice(0, 3).every(s => ['domain-a', 'domain-b', 'domain-c'].includes(s.name))).toBe(true);
+    expect(matched[3].name).toBe('hint-skill');
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('not found'),
       expect.objectContaining({ hint: 'no-such-skill' }),
     );
   });
 
-  it('consumers:[loop] 的 hint 跳过（hub-only，不进 WU）', async () => {
-    setupClaim(JSON.stringify({ skillHints: ['loop-skill'] }));
+  it('consumers:[loop] 的 hint 跳过（hub-only，不进 WU）', () => {
+    const matched = selectSkillsWithDomain(
+      'xyzzy 无交集', loadManifest(), { acceptedTypes: [], wuType: 'feature' }, ['loop-skill'],
+    );
 
-    await service.claim('wu-1', 'inst-1');
-    const matched = await persistedMatchedSkills();
-
-    // loop-skill 声明了 agentTypes:[feature]，域匹配与 hint 两条路都必须排除它
-    expect(matched).not.toContain('loop-skill');
-    expect(matched).toHaveLength(3);
+    // loop-skill 声明了 agentTypes:[implement]，域匹配/hint/「其余」三条路都必须排除它
+    expect(matched.map(s => s.name)).not.toContain('loop-skill');
+    expect(matched).toHaveLength(4);
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('loop-only'),
+      expect.stringContaining('not found'),
       expect.objectContaining({ hint: 'loop-skill' }),
     );
   });
 
-  it('非 published 的 hint 跳过（draft 不进 manifest，按未找到处理）', async () => {
-    setupClaim(JSON.stringify({ skillHints: ['draft-skill'] }));
+  it('非 published 的 hint 跳过（draft 不进 manifest，按未找到处理）', () => {
+    const matched = selectSkillsWithDomain(
+      'xyzzy 无交集', loadManifest(), { acceptedTypes: [], wuType: 'feature' }, ['draft-skill'],
+    );
 
-    await service.claim('wu-1', 'inst-1');
-    const matched = await persistedMatchedSkills();
-
-    expect(matched).not.toContain('draft-skill');
-    expect(matched).toHaveLength(3);
+    expect(matched.map(s => s.name)).not.toContain('draft-skill');
+    expect(matched).toHaveLength(4);
     expect(mockLogger.warn).toHaveBeenCalledWith(
       expect.stringContaining('not found'),
       expect.objectContaining({ hint: 'draft-skill' }),
     );
   });
 
-  it('无 hint 时行为不变（纯域匹配）', async () => {
-    setupClaim(null);
+  it('无 hint 时纯域匹配（feature 归一化为 implement 后命中），其余 published 殿后', () => {
+    const matched = selectSkillsWithDomain(
+      'xyzzy 无交集', loadManifest(), { acceptedTypes: [], wuType: 'feature' },
+    );
 
-    await service.claim('wu-1', 'inst-1');
-    const matched = await persistedMatchedSkills();
-
-    expect(matched).toHaveLength(3);
-    expect(matched.every(n => ['domain-a', 'domain-b', 'domain-c'].includes(n))).toBe(true);
+    expect(matched.map(s => s.name)).toEqual(['domain-a', 'domain-b', 'domain-c', 'hint-skill']);
   });
 });

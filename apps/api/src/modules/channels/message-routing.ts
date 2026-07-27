@@ -4,7 +4,11 @@
  * Priority:
  * 1. replyToId present → thread reply (inherit workUnitId from parent)
  * 2. @mention detected → create WorkUnit
- * 3. plain text → store only
+ * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
+ * 4. plain text → store only
+ *
+ * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
+ * 由 agent-loop step 时经 parseSkillHintsFromScope 解析（skill-selector.ts）。
  */
 import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
@@ -25,24 +29,13 @@ export function detectMention(content: string): string | null {
 }
 
 /**
- * §10.3 显式覆盖：解析消息中的 `+skill名` token（全部出现，按序去重）。
- * token 保留在原文中不改写；创建 WorkUnit 时写入 metadata.skillHints。
- */
-export function parseSkillHints(content: string): string[] {
-  const hints: string[] = [];
-  for (const match of content.matchAll(/\+([\w-]+)/g)) {
-    if (!hints.includes(match[1])) hints.push(match[1]);
-  }
-  return hints;
-}
-
-/**
  * Route a message based on its content and context.
  *
  * Priority order:
  * 1. replyToId → thread reply: inherit workUnitId from parent message
  * 2. @mention → create WorkUnit, associate with message
- * 3. plain text → store without workUnitId
+ * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
+ * 4. plain text → store without workUnitId（未配置默认角色 = 维持纯存储）
  *
  * F6: 创建 WorkUnit 时绑定工程 — options.workspaceId 显式指定优先，
  * 否则回落到频道 defaultWorkspaceId。
@@ -99,7 +92,6 @@ export async function routeMessage(
       p.name === mentionName && (memberIds.length === 0 || memberIds.includes(p.id))
     ) ?? null;
     const scope = content.replace(/@[\w-]+\s*/, '');
-    const skillHints = parseSkillHints(content);
     const workspaceId = options?.workspaceId ?? channel?.defaultWorkspaceId ?? null;
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
     // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
@@ -125,8 +117,6 @@ export async function routeMessage(
         mentionName,
         matched: !!agent,
         creationMode: 'mention',
-        // §10.3: +skill名 显式指定（token 保留在原文中，仅解析进 metadata）
-        ...(skillHints.length > 0 ? { skillHints } : {}),
       },
     });
     logger.info('[MessageRouting] WorkUnit created from @mention', {
@@ -145,6 +135,30 @@ export async function routeMessage(
     );
   }
 
-  // Priority 3: Plain storage
+  // 决策 12: 无 @ 兜底 —— 频道配置了默认角色 → 派给它建 WorkUnit（消息关联到该 WU）
+  const channel = await resolvedFs.getChannel(channelId);
+  if (channel?.defaultProfileId) {
+    const workUnit = await wuService.create({
+      scope: content,
+      channelId,
+      type: 'task',
+      status: 'unassigned',
+      assigneeId: channel.defaultProfileId,
+      metadata: { creationMode: 'channel-default' },
+    });
+    logger.info('[MessageRouting] WorkUnit created for channel default profile', {
+      channelId,
+      workUnitId: workUnit.id,
+      defaultProfileId: channel.defaultProfileId,
+    });
+    return channelMessageService.createHumanMessage(
+      channelId,
+      content,
+      undefined,
+      workUnit.id,
+    );
+  }
+
+  // Priority 4: Plain storage
   return channelMessageService.createHumanMessage(channelId, content);
 }

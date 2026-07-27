@@ -7,7 +7,7 @@
  * AC1: Trigger 触发后 WorkUnit 自动创建
  * AC2: Agent 读 Channel 能看到 WorkUnit
  * AC3: Agent claim WorkUnit 成功
- * AC4: claim 后自动加载 Skill
+ * AC4: claim 不再触发 skill 加载（决策 7：匹配挪到 agent-loop step 时）
  * AC5: 执行结果写入 Channel（workUnitId 关联）
  * AC6: WorkUnit 状态流转到 done
  * AC7: 讨论空间可查询（GET /workunits/:id/messages）
@@ -178,28 +178,18 @@ describe('WorkUnit E2E Lifecycle (3.28c-6)', () => {
     expect(claimed.claimedAt).not.toBeNull();
   });
 
-  // ── AC4: claim 后自动加载 Skill ──
-  it('AC4: claim 后自动加载 Skill', async () => {
-    // Wait for async autoLoadSkillsForAgent to complete
+  // ── AC4 → 决策 7: claim 不再自动加载 Skill（匹配挪到 agent-loop step 时） ──
+  it('AC4: claim 不触发 skill 加载，匹配器在 step 时独立可用', async () => {
+    // 旧行为是 claim 后 fire-and-forget 加载 —— 留出时间窗证明其不再发生
     await new Promise(r => setTimeout(r, 200));
 
-    // Verify loadSkill was called
-    expect(mockLoadSkill).toHaveBeenCalled();
+    // claim 路径不再调用 skillLoaderService.loadSkill
+    expect(mockLoadSkill).not.toHaveBeenCalled();
 
-    // Verify correct skill was selected for scope "需求分析：验证 E2E 流程"
-    // "需求分析" matches session-analyst keyword
-    const loadedSkillNames = mockLoadSkill.mock.calls.map(
-      (call: unknown[]) => (call[0] as { skillName: string }).skillName,
-    );
-    expect(loadedSkillNames).toContain('session-analyst');
-
-    // Verify selectSkills independently
+    // 匹配器本身仍可用：scope "需求分析" 命中 session-analyst（step 时由 agent-loop 调用）
     const matched = selectSkills('需求分析：验证 E2E 流程', TEST_SKILLS);
     expect(matched.length).toBeGreaterThanOrEqual(1);
     expect(matched.some(s => s.name === 'session-analyst')).toBe(true);
-
-    // Reset mock for clean state
-    mockLoadSkill.mockClear();
   });
 
   // ── AC5: 执行结果写入 Channel（workUnitId 关联） ──
