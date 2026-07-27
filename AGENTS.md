@@ -6,6 +6,7 @@
 - **dead-code-removal** — 彻底清理已废弃的代码概念：跨 schema、后端、前端、packages 全链路删除。
 - **design-analyst** — 把模糊需求变成结构化设计文档（方案对比、AC 定义、风险评估），或对系统/架构/方案做评估分析。
 - **doc-manager-skill** — 文档状态管理：保存进度到 memory、维护文档格式、更新 roadmap Phase、同步 spec/SDD status。
+- **exploration-sediment** — 调研/探索结论沉淀：耐久发现与修复写入对应目录 CONTEXT.md（注意事项/核心导出/修复历史），调研类任务收尾必走。
 - **knowledge-extraction** — 从近期工作产物中提取可复用知识，去重后写入知识库（Loop 自动触发，也支持用户请求）。
 - **knowledge-quality-skill** — 审查知识库条目的语义质量：内容完整性、价值、跨条目矛盾、引用存活、语义重复。
 - **knowledge-synthesis-skill** — 从时间窗口的知识集合中产出高阶洞察：语义模式检测与经验教训综合（Loop 自动触发）。
