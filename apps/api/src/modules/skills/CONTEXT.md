@@ -23,6 +23,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 | LoadedSkill, SessionSkillState, LoadSkillOptions, UnloadSkillOptions | skill-loader.ts | 技能加载相关的类型定义及层级工具权限 |
 | aggregateSkillUsage, scanSkillDemotions, approveDemotion, rejectDemotion, DemotionProposalStore | skill-demotion.ts | §10.6 降级通路：skill_used 事件 + WU 终态聚合 → 降级提案（只提案不自动生效；approve 改 frontmatter status，正文逐字节保留）；提案存 ~/.studio/data/skills/demotion-proposals.json |
 | router | skill-demotion-routes.ts | 降级提案列表（?scan=true 触发扫描）/ 审批路由，挂载至 /api/v1/skills/demotion-proposals（先于 /api/v1/skills 注册） |
+| validateSkillForPromotion, promoteSkill, extractReferencedPaths | skill-promotion.ts | D11 promote 门禁：① SKILL.md 存在 ② frontmatter name+description+triggers ③ 引用路径（~/ 与绝对路径，glob 退化父目录）真实存在；通过后 frontmatter status=published（正文逐字节保留）+ manifest 缓存失效 + 索引同名 draft/testing 同步。接入 routes POST /:id/publish（拒绝 → 400 + reasons） |
 
 ## 依赖关系
 
@@ -46,7 +47,9 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 
 - 所有数据存储已从 Prisma 迁移至文件系统（D-005），无数据库依赖
 - SKILL.md 文件采用 frontmatter 格式，存放于 `~/.studio/skills/` 目录；技能索引存于 `~/.studio/skills-index.json`，提案存于 `~/.studio/proposals.json`
-- `loadManifest()` 使用内存缓存，变更需重启进程或重新调用清除缓存
+- **运行时唯一 skill 源 = `~/.studio/skills/`（SKILLS_DIR 可覆盖）**：apps/api 全部组件、studio-agent worktree-resolver（readSkillIndex/copySkillFiles）、studio-skill loader 都读它。仓库内 `.studio/skills/` 不被任何运行时代码读取——它是 API/测试服务器启动时从 `~/.studio/skills` 批量镜像进来的副本（改动会直接出现在 git 工作区，属同步产物，不要当作代码改动提交）；worktree 里的 `.studio/skills/` 则是 copySkillFiles 从 ~/.studio/skills 复制的产物
+- promote 路径 = POST /:id/publish（D11 起挂 skill-promotion 门禁）：匹配池只认磁盘 frontmatter（status 缺省/published），门禁通过才翻 published，未过门禁的 draft 永不进匹配池
+- `loadManifest()` 使用内存缓存，变更需重启进程或调用 invalidateManifestCache（promoteSkill 已自动调用）
 - 两个路由文件均导出 `Router` 实例，需分别挂载到 Express 应用的不同路径（/api/v1/skills 与 /api/v1/skills/proposals）
 - skill-selector 匹配时会排除 `NOT-for` 子句，避免排除项关键词触发误匹配
 - 技能加载器根据 `tier`（fast/standard/premium）控制可访问的工具集合，不同层级工具权限不同
@@ -56,6 +59,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: D11 promote 门禁 — 新增 skill-promotion.ts（SKILL.md 存在/frontmatter 三要素/引用路径三校验），接入 POST /:id/publish（拒绝 400+reasons；通过翻磁盘 frontmatter published + 索引同步 + manifest 缓存失效），11 条单测
 - ✅ 2026-07-27: P0 修复 5 — skill-loader/skill-extraction/skill-demotion 的 studio-events.jsonl 走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
