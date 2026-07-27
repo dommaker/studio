@@ -9,8 +9,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import * as fs from 'fs';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 const TASKS_DIR = path.join(os.homedir(), '.studio', 'data', 'tasks');
 const fileStore = new FileStore();
 

@@ -16,6 +16,7 @@ import * as path from 'path';
 import { FileStore, logger } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildArgsFromTemplate } from '@dommaker/studio-shared/node';
 import { STUDIO_ROLE_NAME } from './agent-profile.service.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 export interface SystemExecutorOptions {
   /** 系统提示词（注入 CLI prompt 的 system 部分，通过 stdin prefix） */
@@ -56,7 +57,7 @@ export class SystemExecutorJsonParseError extends Error {
   }
 }
 
-const DEFAULT_EVENTS_FILE = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const DEFAULT_EVENTS_FILE = resolveStudioLogFile('studio-events.jsonl');
 
 export class SystemExecutor {
   constructor(

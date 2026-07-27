@@ -19,12 +19,13 @@ import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { eventStore } from '../../core/event-store.js';
 import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
 
 /** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流） */
-const STUDIO_EVENTS_JSONL = join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const metricsFileStore = new FileStore();
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
@@ -46,7 +47,9 @@ export interface KnowledgeSearchAnalysis {
 
 /** Agent output action after parsing */
 export interface StepResult {
-  action: 'progress' | 'complete' | 'need_input' | 'delegate';
+  // 'failed': CLI 执行失败（runner 返回 success:false）的显式分支——记 consecutiveStuck、
+  // 不发频道消息，达到 3 次走既有 blocked 路径（W-3 接线，见 agentStep）
+  action: 'progress' | 'complete' | 'need_input' | 'delegate' | 'failed';
   summary: string;
   /** A2A §4.1: DELEGATE 协议解析结果（action='delegate' 时存在） */
   delegate?: { targetName: string; scope: string };
@@ -405,6 +408,8 @@ export class AgentLoop {
   private async agentStep(target: Target): Promise<StepResult> {
     const wu = target.workUnit;
     const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    // P0 修复 6: traceId 贯穿 — 频道消息 → WU metadata → 执行参数（extraEnv）与日志行
+    const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
     // §4.2 发言层新鲜度检查：step 开始记录频道版本（recordResult 回帖前比对）。
     // 读取失败按 undefined 处理 —— 跳过检查直接发帖，绝不阻断执行。
@@ -535,6 +540,7 @@ export class AgentLoop {
         extraEnv: {
           STUDIO_WORKUNIT_ID: wu.id,
           STUDIO_CHANNEL_ID: wu.channelId ?? '',
+          STUDIO_TRACE_ID: traceId ?? '',
         },
       },
       model: 'standard',
@@ -544,7 +550,33 @@ export class AgentLoop {
     try {
       // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
       const result: ExecutionResult = await this.executor.execute(task);
+
+      // W-3 接线：runner 失败时返回 { success:false } 而不抛错、且无 outputText ——
+      // 直接落入 parseAgentOutput 会得到默认 progress（空 summary），导致 consecutiveStuck
+      // 被清零、每 3s 重试、往频道发空消息。显式失败分支：action='failed'，由 recordResult
+      // 记 consecutiveStuck + errorType/errorDetail，不发频道消息；连续 3 次走 blocked 路径。
+      // 不带 channelVersion —— 失败不是发言，无需新鲜度检查（避免被降级为 progress）。
+      if (result.success === false) {
+        const detail = (result.error ?? '未知错误').slice(0, 500);
+        logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
+        return {
+          action: 'failed' as const,
+          summary: `CLI 执行失败: ${detail}`,
+          metadataUpdates: {
+            ...metadataUpdates,
+            errorType: 'execution_failed',
+            errorDetail: detail,
+            errorAt: new Date().toISOString(),
+          },
+        };
+      }
+
       const stepResult = parseAgentOutput(result.outputText ?? '');
+
+      // 执行成功 → 清除上一轮失败标记（undefined 在 JSON 序列化时丢弃）
+      metadataUpdates.errorType = undefined;
+      metadataUpdates.errorDetail = undefined;
+      metadataUpdates.errorAt = undefined;
 
       // M2 成本红线度量: 每次 CLI 执行完成记一条 workunit:tokens 事件
       // （注入估算 chars/4 vs 2K 红线；执行 tokens 取自 CLI usage，未回报则记 null 不编造）。
@@ -601,6 +633,18 @@ export class AgentLoop {
       // Session truncation: detect input_tokens exceeding threshold
       this.checkSessionTruncation(result.outputText, metadataUpdates);
 
+      // P0 修复（reviewReport 回传断链）：review 子 WU 报告 COMPLETE 时，把 reviewer
+      // 最终输出解析为结构化结论写入 metadata.reviewReport —— 这是 ReviewDispatcher
+      // 路径 B 判定父 WU 过/拒的唯一数据源。解析失败不写（dispatcher 转人工，不误拒）。
+      if (wu.type === 'review' && stepResult.action === 'complete') {
+        const report = parseReviewReport(result.outputText ?? '');
+        if (report) {
+          metadataUpdates.reviewReport = report;
+        } else {
+          logger.warn(`[AgentLoop] Review WU ${wu.id} completed without parseable REVIEW_RESULT — 由 ReviewDispatcher 转人工`);
+        }
+      }
+
       // AC-4.3/4.4: Cache tracking — extract input_tokens from result events
       const tokens = extractInputTokens(result.outputText ?? '');
       if (tokens !== null) {
@@ -609,10 +653,11 @@ export class AgentLoop {
 
       return { ...stepResult, metadataUpdates, channelVersion };
     } catch (err) {
-      // W-3 fix: executeLightweight failure returns error result instead of throwing
-      // This allows recordResult to update metadata and monitoring to handle it (consecutiveStuck → blocked)
+      // W-3 fix: executeLightweight 失败返回 { success:false } 不抛错 —— 已在上方
+      // success===false 显式分支接线（consecutiveStuck → blocked）；本 catch 只覆盖
+      // 真正抛出的异常（如 spawn 失败），保持 need_input 语义。
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(`[AgentLoop] agentStep execute failed: ${message}`);
+      logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
       // AC-8.7: 远程节点不可达 → need_input，由人工评估是否需要切换节点
       if (err instanceof RemoteNodeUnreachableError) {
         return {
@@ -812,6 +857,8 @@ ${rosterLines.join('\n')}
     if (!wu) return;
 
     const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    // P0 修复 6: traceId（与 agentStep 同一来源，供日志行携带）
+    const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
     // §10.5 提交守卫（发生在状态迁移之前，与 stepCount 守卫同层 —— 不动 VALID_TRANSITIONS）。
     // 路径解析或 git 调用失败一律静默跳过，绝不因基础设施故障阻断完成。
@@ -951,6 +998,11 @@ ${rosterLines.join('\n')}
       metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, stepCount, consecutiveStuck },
     });
 
+    // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志
+    if (traceId) {
+      logger.info(`[AgentLoop] Step recorded for ${wuId}`, { traceId, action, stepCount });
+    }
+
     // §10.5: 连续 3 步无新提交 → 频道提醒一次（计数已归零，之后每 3 步再提醒）
     if (noCommitNotice) {
       await this.postToDiscussionSpace(wuId, `任务 ${wuId} 连续 3 步无新提交，请注意及时 commit`);
@@ -969,25 +1021,34 @@ ${rosterLines.join('\n')}
     // Monitoring: stuck detection
     if (consecutiveStuck >= 3) {
       await this.workUnitService.transitionStatus(wuId, 'blocked');
-      await this.postToDiscussionSpace(wuId, '连续 3 步无进展，等待人类介入');
+      // W-3 接线：执行失败导致的 blocked 在频道说明失败原因（summary 含 CLI 错误详情）
+      const stuckReason = action === 'failed' && result.summary ? `（${result.summary}）` : '';
+      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`);
       return;
     }
 
     // State transitions by action (§10.5: 使用守卫降级后的 action；§4.2: 新鲜度拦截时不发帖)
+    // 非空守卫：summary 为空（如 CLI 成功但无文本输出）不发帖，避免频道空消息。
     switch (action) {
       case 'progress':
-        if (!skipResultPost) await this.postToDiscussionSpace(wuId, result.summary);
+        if (!skipResultPost && result.summary.trim().length > 0) await this.postToDiscussionSpace(wuId, result.summary);
         if (wu.status === 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'active');
         }
         break;
       case 'complete':
-        if (!skipResultPost) await this.postToDiscussionSpace(wuId, result.summary);
+        if (!skipResultPost && result.summary.trim().length > 0) await this.postToDiscussionSpace(wuId, result.summary);
         // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
         if (wu.status === 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'active');
         }
         await this.workUnitService.transitionStatus(wuId, 'in_review');
+        // P0 修复（reviewReport 回传断链）：review 子 WU 不再被二次评审
+        // （ReviewDispatcher 路径 A 跳过 type=review），complete 后直接收口 done，
+        // 触发路径 B 读取 metadata.reviewReport 判定父 WU reviewPassed/reviewRejected。
+        if (wu.type === 'review') {
+          await this.workUnitService.transitionStatus(wuId, 'done');
+        }
         break;
       case 'need_input':
         if (!skipResultPost) await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`);
@@ -995,6 +1056,10 @@ ${rosterLines.join('\n')}
         if (wu.status !== 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'blocked');
         }
+        break;
+      case 'failed':
+        // W-3 接线：CLI 执行失败 —— 不发频道消息、不做状态迁移（保持 active 待重试）；
+        // consecutiveStuck 已在上方累计，满 3 次走 blocked 路径并说明失败原因。
         break;
     }
   }
@@ -1128,8 +1193,58 @@ export function dynamicInterval(result: { action: string }): number {
     case 'delegate':   return 3_000; // A2A: 委派后父按 progress 继续
     case 'complete':   return 10_000;
     case 'need_input': return 30_000;
+    case 'failed':     return 15_000; // W-3: 失败重试降速（原误判 progress 时每 3s 重试）
     default:           return 15_000;
   }
+}
+
+/**
+ * P0 修复（reviewReport 回传断链）：解析 reviewer 最终输出为结构化审查结论。
+ * 约定格式（已写入 review 子 WU scope）：输出以
+ *   REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"...","issues":[...]}
+ * 结尾的行。宽松策略：优先解析 REVIEW_RESULT 行 JSON；失败则从输出尾部提取
+ * verdict 关键词；仍失败 → null（不写 reviewReport，由 ReviewDispatcher 转人工）。
+ */
+export function parseReviewReport(text: string): { approved: boolean; reason?: string; issues?: Array<{ severity: string; message: string }> } | null {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const match = lines[i].match(/REVIEW_RESULT:\s*(\{.*\})\s*$/);
+    if (!match) continue;
+    try {
+      const parsed = JSON.parse(match[1]) as { verdict?: unknown; summary?: unknown; issues?: unknown };
+      if (parsed.verdict === 'pass' || parsed.verdict === 'reject') {
+        return {
+          approved: parsed.verdict === 'pass',
+          reason: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+          issues: normalizeReviewIssues(parsed.issues),
+        };
+      }
+    } catch { /* JSON 损坏 → 落到关键词兜底 */ }
+    break; // 已找到（最末一条）REVIEW_RESULT 行，不再向上扫描更早的行
+  }
+
+  // 兜底：输出尾部 verdict 关键词（ reviewer 未按约定格式但给出了结论词）
+  const tail = lines.slice(-10).join('\n');
+  if (/verdict["'\s:]+reject/i.test(tail)) {
+    return { approved: false, reason: '（关键词兜底判定）' };
+  }
+  if (/verdict["'\s:]+pass/i.test(tail)) {
+    return { approved: true, reason: '（关键词兜底判定）' };
+  }
+  return null;
+}
+
+/** REVIEW_RESULT issues 字段归一化：只保留 { severity, message } 形状，非法项丢弃 */
+function normalizeReviewIssues(raw: unknown): Array<{ severity: string; message: string }> | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const issues = raw
+    .filter((i): i is Record<string, unknown> => i !== null && typeof i === 'object')
+    .map(i => ({
+      severity: typeof i.severity === 'string' ? i.severity : 'info',
+      message: typeof i.message === 'string' ? i.message : JSON.stringify(i),
+    }))
+    .filter(i => i.message.length > 0);
+  return issues.length > 0 ? issues : undefined;
 }
 
 function sleep(ms: number): Promise<void> {

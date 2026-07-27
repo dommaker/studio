@@ -11,7 +11,7 @@
 - `monitor-agent.service.ts` — MonitorAgent 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorAgent` / `monitorAgent` 不变。
   - `monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/工具模式）
   - `monitor-system-probes.ts` — 系统/知识级探测与自修复（systemHealthCheck/worktree GC/知识健康循环/KnowledgeSync）
-  - `monitor-alerts.ts` — 告警分发/Triage 升级（FL-037）/studio.jsonl 事件写入
+  - `monitor-alerts.ts` — 告警分发（+ notifyAlert 出口：频道/企业微信 webhook）/Triage 升级（FL-037）/studio.jsonl 事件写入
   - `monitor-reports.ts` — 轨迹评估（G4）/每日洞察（DailyReflection）/交互模式观察（B9-025）
   - `monitor-lifecycle.ts` — G31 知识沉淀闸门 + 每日 23:55 数据 TTL 清理
 - `auditor-agent.service.ts` — AuditorAgent 门面（跨任务审计 + 周期洞察，每 24h 日审），T3 拆分后仅保留聚合/委托逻辑；对外导出 `AuditorAgent` / `auditorAgent` 不变。
@@ -52,13 +52,15 @@
 - `AgentLoopRegistry.mount()` 幂等且不抛错，失败仅标记为 failed 状态
 - 路由层统一使用 `getErrorMessage` 捕获异常，并返回标准错误码（如 `INTERNAL_ERROR`、`NOT_FOUND`）
 - 所有 Agent 数据均通过 `FileStore` 存储（已从 Prisma 迁移）
-- 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件
+- 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件（测试环境隔离到 `os.tmpdir()/studio-test-logs/`，见 `utils/studio-log-path.ts`）
 - `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
 - **鉴权（2026-07-24 收紧）**：legacy agents POST `/`、PUT `/:agentId` 与 agent-profiles/agent-instances 写 = `requireAuth()+requireNotGuest()`；`POST /review/diff`（任意路径写+spawn claude）与 instances `POST /:id/terminate` = `requireAuth()+requireAdmin()`；legacy DELETE 原有 requireRole('Admin') 不变。另知：agent-configs `:id` 路径拼接无校验（穿越面，未修）、/review/diff 的 baseRef/headRef shell 拼接（Admin 门后，未修）
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: P0 观测性后半 — ①monitor-alerts warning/critical 接 notifyAlert 出口（utils/notifier.ts：频道「系统」/STUDIO_ALERT_CHANNEL_ID + 企业微信 WECOM_WEBHOOK_URL，双 sink 独立降级；discord-notifier 保留未动）②agent-loop traceId 贯穿（metadata.traceId → extraEnv.STUDIO_TRACE_ID + 失败/锚点日志行带 traceId）③~/.studio/logs 写路径测试隔离（agent-loop/triage/system-executor/ops/token-usage 改走 utils/studio-log-path，VITEST → os.tmpdir()/studio-test-logs）
+- ✅ 2026-07-27: P0 信任链三修 — ①agentStep 接 success===false 显式失败分支（action='failed'：consecutiveStuck 累计、不发频道、3 次 blocked 说明原因；recordResult 空 summary 不发帖）②reviewReport 断链接上（reviewer 输出 REVIEW_RESULT 行 → agentStep 解析写 metadata.reviewReport；review 子 WU complete 直接收口 done；无 report 转人工不再默认拒绝；dispatcher members 改 parseChannels 安全解析）
 - ✅ 2026-07-27: isOnline 语义修正 — 从「instance status=active」改为「loop 存活」：status idle/active 且心跳新鲜（≤5min，与 agent-timeout-scan 同阈值；null 心跳按 startedAt 宽限）。此前空闲 loop 恒显示「Online: 否」误导。另：delete profile 时清理所有 channel.members 中的悬空引用
 - ✅ 2026-07-24: API 鉴权收紧 — agents/profiles/instances 写端点收 requireNotGuest，/review/diff 与 terminate 收 requireAdmin
 - ✅ 2026-07 频道角色排查沉淀：AgentProfile 持久化布局与 index-on-demand 注入架构写入注意事项（排查结论：无全量注入问题，skills/知识/roster 均为索引方式）

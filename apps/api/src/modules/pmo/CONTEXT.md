@@ -49,6 +49,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: P0 修复 5 — executions/studio-events jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `0d1ef570`: ci): resolve type errors found by package-level tsc build
 - ✅ `1ac014a8`: ci): resolve type errors in worktree-resolver + okr.service

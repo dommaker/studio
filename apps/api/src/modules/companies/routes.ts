@@ -10,9 +10,10 @@ import { logger } from '../../utils/logger.js';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'node:fs';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const COMPANIES_DIR = path.join(os.homedir(), '.studio', 'data', 'companies');
-const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 const fileStore = new FileStore();
 
 interface CompanyRecord {

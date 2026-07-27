@@ -13,6 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { ExecutionTrace } from '@dommaker/harness';
 import { FileStore, resolveEventsDir } from '@dommaker/studio-shared';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 export interface EvolutionPaths {
   /** 仓库根（.harness/ 与 .agents/ 所在），默认 process.cwd() */
@@ -37,7 +38,7 @@ export function resolveEvolutionPaths(overrides?: Partial<EvolutionPaths>): Evol
     traceFile: overrides?.traceFile ?? path.join(repoRoot, '.harness', 'logs', 'traces.log'),
     rolesDir: overrides?.rolesDir ?? path.join(repoRoot, '.agents', 'roles'),
     eventsDir: overrides?.eventsDir ?? resolveEventsDir(),
-    studioEventsFile: overrides?.studioEventsFile ?? path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl'),
+    studioEventsFile: overrides?.studioEventsFile ?? resolveStudioLogFile('studio-events.jsonl'),
   };
 }
 

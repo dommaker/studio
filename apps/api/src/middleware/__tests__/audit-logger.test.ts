@@ -42,6 +42,7 @@ import {
   getResourceId,
   auditLogger,
   recordAuditLog,
+  ensureRequestId,
 } from '../audit-logger.js';
 
 describe('getClientIP', () => {
@@ -124,6 +125,37 @@ describe('isCriticalOperation', () => {
     const req = { method: 'GET', path: '/api/v1/other/path' } as Request;
     expect(isCriticalOperation(req)).toBe(false);
   });
+
+  it('P0 修复 6: POST 频道消息（可触发 agent 执行/LLM 消耗）纳入审计', () => {
+    const req = { method: 'POST', path: '/api/v1/channels/ch-1/messages' } as Request;
+    expect(isCriticalOperation(req)).toBe(true);
+  });
+
+  it('GET 频道消息仍不审计（读操作）', () => {
+    const req = { method: 'GET', path: '/api/v1/channels/ch-1/messages' } as Request;
+    expect(isCriticalOperation(req)).toBe(false);
+  });
+});
+
+describe('ensureRequestId (P0 修复 6)', () => {
+  it('复用 req 上已有的 requestId', () => {
+    const req = { headers: {}, requestId: 'req-existing-1' } as unknown as Request;
+    expect(ensureRequestId(req)).toBe('req-existing-1');
+  });
+
+  it('无现有 id 时取 x-request-id 头', () => {
+    const req = { headers: { 'x-request-id': 'req-from-header' } } as unknown as Request;
+    expect(ensureRequestId(req)).toBe('req-from-header');
+    expect((req as any).requestId).toBe('req-from-header');
+  });
+
+  it('都没有则生成 uuid 并落到 req 上（二次调用稳定）', () => {
+    const req = { headers: {} } as unknown as Request;
+    const id = ensureRequestId(req);
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    expect((req as any).requestId).toBe(id);
+    expect(ensureRequestId(req)).toBe(id);
+  });
 });
 
 describe('recordAuditLog', () => {
@@ -185,6 +217,17 @@ describe('recordAuditLog', () => {
     const arg = mockAuditLogFn.mock.calls[0][0];
     expect(arg.details?.anonymousId).toBe('anon1');
   });
+
+  it('P0 修复 6: requestId 不再为空 — 复用 req 上已有的 id', async () => {
+    (req as any).requestId = 'req-trace-42';
+    await recordAuditLog(req, res, authInfo, '10.0.0.1', 'agent', {});
+    expect(mockAuditLogFn.mock.calls[0][0].requestId).toBe('req-trace-42');
+  });
+
+  it('P0 修复 6: req 上无 id 时现场生成 requestId', async () => {
+    await recordAuditLog(req, res, authInfo, '10.0.0.1', 'agent', {});
+    expect(mockAuditLogFn.mock.calls[0][0].requestId).toMatch(/^[0-9a-f-]{36}$/);
+  });
 });
 
 describe('auditLogger middleware', () => {
@@ -222,6 +265,16 @@ describe('auditLogger middleware', () => {
     expect(next).toHaveBeenCalled();
     // res.json should not be overridden for non-critical
     expect(res.json).toBe(jsonSpy);
+  });
+
+  it('P0 修复 6: 非关键操作也会给 req 赋 requestId（供下游路由复用为 traceId）', async () => {
+    req.method = 'GET';
+    req.path = '/api/v1/health/ping';
+    const middleware = auditLogger();
+    await middleware(req as Request, res as Response, next);
+
+    expect(typeof (req as any).requestId).toBe('string');
+    expect((req as any).requestId.length).toBeGreaterThan(0);
   });
 
   it('overrides res.json for critical operations', async () => {

@@ -28,6 +28,7 @@ import type {
 } from '@dommaker/harness';
 import { FileStore, logger, estimateTokens } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { execFile } from 'child_process';
@@ -59,7 +60,7 @@ const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
 // ── Data layer: trends directory ──
 
 const DATA_TRENDS_DIR = path.join(os.homedir(), '.studio', 'data', 'trends');
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 /**

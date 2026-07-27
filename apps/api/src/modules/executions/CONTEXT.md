@@ -35,6 +35,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: P0 修复 5 — executions.jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 记录 /events 无凭证回调与路径回显风险（未修，另立项）
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零

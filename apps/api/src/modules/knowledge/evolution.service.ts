@@ -16,6 +16,7 @@ import * as path from 'path';
 import * as fs from 'node:fs';
 import type { MaturityLevel } from '@dommaker/harness';
 import { knowledgeBus } from './knowledge-bus.service.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const DOCUMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'documents');
 const PROJECTS_DIR = path.join(os.homedir(), '.studio', 'projects');
@@ -70,7 +71,7 @@ export interface EvolutionResult {
   reason: string;
 }
 
-const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
+const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 const fileStore = new FileStore();
 
 // ─── Knowledge Evolution Service ───

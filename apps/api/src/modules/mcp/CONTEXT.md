@@ -54,6 +54,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: P0 修复 5 — permission.service 审计日志测试隔离：VITEST/NODE_ENV=test 时 AUDIT_PATH 改写 os.tmpdir()/studio-test-logs/mcp-audit-logs.jsonl，生产路径不变；已被污染的 ~/.studio/mcp-audit-logs.jsonl 归档为 .test-polluted.bak
 - ✅ 2026-07-24: API 鉴权收紧 — `POST /tools/:name` 收 requireAuth+requireAdmin（此前 PUBLIC_API 前缀下匿名可执行任意 tool）；`POST /messages`、`GET /sse` 限 requireLocalhost（本机 agent 不受影响）；`/admin/*` 补 requireAuth+requireAdmin
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `3281bd80`: P6.5): Skill 元数据注入合规 + MCP SSE transport + fileKnowledge 移除

@@ -13,6 +13,7 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 // ── Types ──
 
@@ -114,7 +115,7 @@ function getOrCreateSession(sessionId: string, agentType: string): SessionSkillS
   return state;
 }
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 // ── Service ──

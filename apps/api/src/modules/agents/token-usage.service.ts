@@ -23,8 +23,9 @@ import * as path from 'path';
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { TREE_TOKEN_BUDGET } from '../workunit/delegation-gate.js';
 import { readCollab } from '../workunit/delegation-gate.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 /** 30s 内存缓存——该接口要扫 jsonl + WU 索引，轻量缓存避免连打 */
 const CACHE_TTL_MS = 30_000;

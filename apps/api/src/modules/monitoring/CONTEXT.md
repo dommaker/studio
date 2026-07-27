@@ -36,6 +36,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: P0 修复 5 — monitoring.service 的 studio-events.jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（agent 运行时/统计属内部运营信息）
 - ✅ 2026-07 频道角色修复：`getAgentSummary` agents 映射新增 `roleId`，支撑前端 AgentDashboard 与 AgentProfile 合并展示（provider/描述等）
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

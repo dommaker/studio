@@ -7,11 +7,12 @@ import type { TriageIncidentInput, TriageLogEntry } from './types.js';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;
 const FIX_COOLDOWN_MS = 30_000; // 30s between attempts
-const INCIDENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'incidents.jsonl');
+const INCIDENTS_JSONL = resolveStudioLogFile('incidents.jsonl');
 
 // 破坏性修复命令安全门：仅当 STUDIO_TRIAGE_DESTRUCTIVE=true 时才真正执行
 // rm/pkill/tmux kill-session 等变更性命令（曾误删 e2e 临时目录、误杀存活 agent CLI 进程）。

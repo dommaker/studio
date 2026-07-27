@@ -44,5 +44,6 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: P0 修复 5 — session-summary-generator/event.routes 的 studio-events.jsonl 走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零

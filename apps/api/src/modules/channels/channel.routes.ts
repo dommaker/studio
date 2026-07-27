@@ -355,6 +355,10 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
     return res.status(404).json({ success: false, error: 'Channel not found' });
   }
 
+  // P0 修复 6: traceId — 复用 audit 中间件落在 req 上的 requestId（同一次 HTTP 请求同值），
+  // 没有则新建（如单测直连路由）；@mention 建 WU 时写入 metadata.traceId。
+  const traceId = (req as any).requestId ?? randomUUID();
+
   // F6: 调用方可显式指定 workspaceId（缺省走频道默认工程）
   const message = await routeMessage(
     channelId,
@@ -365,6 +369,7 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
       workspaceId: typeof workspaceId === 'string' && workspaceId ? workspaceId : undefined,
       // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
       reqId: typeof reqId === 'string' && reqId ? reqId : undefined,
+      traceId,
     },
   );
 

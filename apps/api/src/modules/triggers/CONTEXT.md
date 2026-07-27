@@ -30,4 +30,5 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: P0 触发器修复 — executeUpdateAction 查询支持 { lt, gt, lte, gte }（ISO 时间/数值）+ '$now' 占位符执行时刻求值；workunit-timeout 由 UPDATE 改为 EXECUTE（handler 在 workunit/timeout-release.ts）
 - ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（触发器写操作 = 远程执行面）

@@ -59,12 +59,21 @@ export interface WorkUnitMetadata {
   };
   childGuardHint?: string;    // §6-2 父 complete 守卫：存在未完结子 WU 被打回时的提示（注入下一轮 prompt 后清除）
   freshnessInterrupts?: number; // §4.2 发言层新鲜度检查：结果回帖被「房间已变」连续拦截次数（≥2 后照发并归零）
+  // P0 修复（W-3 接线）：CLI 执行失败记录（agentStep success===false 显式分支写入，成功执行后清除）
+  errorType?: string;         // 最近一次执行失败类型（如 execution_failed）
+  errorDetail?: string;       // 最近一次执行失败详情（截断 500 字符）
+  errorAt?: string;           // 最近一次执行失败时间 ISO 8601
+  // P0 修复（WU 超时机制）：claim 写入 timeoutAt 列；metadata.timeoutAt 显式值优先于按 type 的默认时长
+  timeoutAt?: string;         // 显式超时刻 ISO 8601（claim 时优先于默认时长）
+  timeoutReleasedAt?: string; // 最近一次超时释放时间 ISO 8601
+  timeoutReleaseCount?: number; // 超时释放次数（≥3 → blocked，不再自动回池）
   /** AC-4.5: reviewer 角色 complete 时写入，ReviewDispatcher 据此调 reviewPassed/reviewRejected */
   reviewReport?: {
     approved: boolean;
     reason?: string;
     issues?: Array<{ severity: string; message: string }>;
   };
+  traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   [key: string]: unknown;     // 允许扩展字段
 }
 
@@ -135,6 +144,34 @@ const VALID_TRANSITIONS: Record<string, string[]> = {
   blocked: ['active', 'closed', 'unassigned'],
   closed: ['unassigned'],
 };
+
+/**
+ * P0 修复（WU 超时机制）：WU 被认领进入 active 时的默认超时时长（分钟），按 type 区分。
+ * metadata.timeoutAt 显式值优先于此表；未知 type 回落 WU_DEFAULT_TIMEOUT_MINUTES。
+ */
+export const WU_TIMEOUT_MINUTES: Record<string, number> = {
+  task: 60,
+  bug: 60,
+  feature: 60,
+  review: 30,
+  analysis: 30,
+};
+export const WU_DEFAULT_TIMEOUT_MINUTES = 60;
+
+/** claim 时的 timeoutAt 决策：metadata.timeoutAt 显式值优先，否则按 WU type 给默认时长 */
+function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date {
+  if (metadataRaw) {
+    try {
+      const meta = JSON.parse(metadataRaw) as WorkUnitMetadata;
+      if (typeof meta.timeoutAt === 'string') {
+        const explicit = new Date(meta.timeoutAt);
+        if (!Number.isNaN(explicit.getTime())) return explicit;
+      }
+    } catch { /* 元数据损坏按无显式值处理 */ }
+  }
+  const minutes = WU_TIMEOUT_MINUTES[wuType] ?? WU_DEFAULT_TIMEOUT_MINUTES;
+  return new Date(Date.now() + minutes * 60_000);
+}
 
 // ── 转换函数 ──
 
@@ -507,6 +544,14 @@ export class WorkUnitService {
     const afterClaim = await this.fileStore.getIndex();
     const wu = afterClaim.find(s => s.id === id);
     if (!wu) throw new Error('WorkUnit not found');
+
+    // P0 修复（WU 超时机制）：认领进入 active 时写入 timeoutAt（workunit-timeout
+    // 扫描的判定字段）。已有列值不动；metadata.timeoutAt 显式值优先；否则按 type 给默认时长。
+    if (!wu.timeoutAt) {
+      const timeoutAt = resolveClaimTimeoutAt(wu.type, wu.metadata);
+      await this.update(id, { timeoutAt });
+      wu.timeoutAt = timeoutAt.toISOString();
+    }
 
     // AC4: auto-load matching skills based on scope (best-effort, non-blocking)
     // §10 P0: 同时把匹配结果持久化到 metadata.matchedSkills（agentStep 注入用）

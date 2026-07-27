@@ -7,6 +7,54 @@ import { WorkUnitService } from '../workunit/workunit.service.js';
 /** Handler registry for EXECUTE actions */
 const executeHandlers = new Map<string, TriggerExecuteHandler>();
 
+// ── UPDATE query 匹配（P0 修复：操作符比较 + 基准时间推迟到执行时刻）──
+
+type CompareOp = 'lt' | 'gt' | 'lte' | 'gte';
+const COMPARE_OPS: CompareOp[] = ['lt', 'gt', 'lte', 'gte'];
+
+/** '$now' 占位符：在每次执行（tick）时求值为当前 ISO 时间，而不是注册时冻结 */
+export const NOW_PLACEHOLDER = '$now';
+
+/**
+ * 单字段匹配：期望值是含 lt/gt/lte/gte 键的对象 → 操作符比较（全部满足）；
+ * 否则浅层全等（与原行为一致）。操作符比较：任一侧为数值 → 数值比较；
+ * 其余按字符串比较（ISO 8601 同格式字典序即时序，适用于 timeoutAt 等时间字段）。
+ */
+export function matchesQueryValue(actual: unknown, expected: unknown, nowIso: string): boolean {
+  if (expected !== null && typeof expected === 'object' && !Array.isArray(expected)) {
+    const ops = expected as Record<string, unknown>;
+    const opKeys = COMPARE_OPS.filter(op => op in ops);
+    if (opKeys.length > 0) {
+      return opKeys.every(op => compareValues(actual, resolveNow(ops[op], nowIso), op));
+    }
+  }
+  return actual === resolveNow(expected, nowIso);
+}
+
+function resolveNow(value: unknown, nowIso: string): unknown {
+  return value === NOW_PLACEHOLDER ? nowIso : value;
+}
+
+function compareValues(actual: unknown, expected: unknown, op: CompareOp): boolean {
+  if (actual === null || actual === undefined) return false;
+  let a: number | string;
+  let b: number | string;
+  if (typeof actual === 'number' || typeof expected === 'number') {
+    a = Number(actual);
+    b = Number(expected);
+    if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  } else {
+    a = String(actual);
+    b = String(expected);
+  }
+  switch (op) {
+    case 'lt': return a < b;
+    case 'gt': return a > b;
+    case 'lte': return a <= b;
+    case 'gte': return a >= b;
+  }
+}
+
 /** Register a handler for EXECUTE actions */
 export function registerExecuteHandler(target: string, handler: TriggerExecuteHandler): void {
   executeHandlers.set(target, handler);
@@ -109,10 +157,11 @@ export async function executeUpdateAction(
     const now = new Date().toISOString();
 
     for (const s of snapshots) {
-      // Match snapshot against query (simple key-value equality)
+      // Match snapshot against query（浅层全等 + { lt, gt, lte, gte } 操作符；
+      // '$now' 占位符在执行时刻求值 —— 基准时间不冻结在注册时）
       let matches = true;
       for (const [key, value] of Object.entries(query as Record<string, unknown>)) {
-        if ((s as unknown as Record<string, unknown>)[key] !== value) {
+        if (!matchesQueryValue((s as unknown as Record<string, unknown>)[key], value, now)) {
           matches = false;
           break;
         }

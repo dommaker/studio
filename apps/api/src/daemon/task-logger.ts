@@ -1,8 +1,8 @@
 // Task Logger — 结构化任务日志，供审计/进化/调试
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
+import { resolveStudioLogsDir } from '../utils/studio-log-path.js';
 
 export interface TaskLog {
   timestamp: string;
@@ -26,7 +26,8 @@ export interface TaskLog {
   outputSize?: number;     // 产出大小
 }
 
-const LOG_DIR = path.join(os.homedir(), '.studio', 'logs');
+// P0 修复 5：测试（VITEST / NODE_ENV=test）改写到 os.tmpdir()/studio-test-logs，生产不变
+const LOG_DIR = resolveStudioLogsDir();
 
 function ensureLogDir() {
   if (!fs.existsSync(LOG_DIR)) {

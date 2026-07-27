@@ -56,6 +56,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: P0 修复 5 — skill-loader/skill-extraction/skill-demotion 的 studio-events.jsonl 走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
 - ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零

@@ -84,11 +84,21 @@ describe('§10.3: claim 时 skillHints 显式覆盖', () => {
 
   /** 等待 fire-and-forget 的 autoLoad 落盘，返回持久化的 matchedSkills */
   async function persistedMatchedSkills(): Promise<string[]> {
+    // P0 修复后 claim 会先写一次 timeoutAt（upsertSnapshot 调用顺序不再固定）——
+    // 按内容定位含 matchedSkills 的那次写入
+    const withMatchedSkills = (c: unknown[]) => {
+      try {
+        const meta = (c[0] as { metadata?: string | null })?.metadata;
+        return meta ? JSON.parse(meta).matchedSkills : undefined;
+      } catch {
+        return undefined;
+      }
+    };
     await vi.waitFor(() => {
-      expect(mockFileStore.upsertSnapshot).toHaveBeenCalled();
+      expect(mockFileStore.upsertSnapshot.mock.calls.some(c => withMatchedSkills(c))).toBe(true);
     });
-    const updated = mockFileStore.upsertSnapshot.mock.calls[0][0];
-    return JSON.parse(updated.metadata).matchedSkills;
+    const call = mockFileStore.upsertSnapshot.mock.calls.find(c => withMatchedSkills(c));
+    return JSON.parse((call![0] as { metadata: string }).metadata).matchedSkills;
   }
 
   beforeEach(() => {
