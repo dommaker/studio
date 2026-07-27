@@ -41,9 +41,12 @@ beforeEach(async () => {
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   });
   channelMessageService.setFileStore(fileStore);
+  // B3a：线程回复触发归属解析时会查 project-discovery —— 指向空 tmp 目录保持隔离
+  process.env.STUDIO_PROJECTS_ROOT = tmpDir;
 });
 
 afterEach(() => {
+  delete process.env.STUDIO_PROJECTS_ROOT;
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 

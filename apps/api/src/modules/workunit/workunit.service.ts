@@ -42,7 +42,12 @@ export interface WorkUnitMetadata {
   waitingQuestion?: string;   // agent 提出的问题
   waitingSince?: string;      // 挂起时间 ISO 8601（超时提醒据此计算）
   waitingReminded?: boolean;  // 本次挂起已提醒过（每次挂起只提醒一次，恢复时重置）
+  waitingReason?: string;     // 挂起原因：'ownership' = B3a 等待工程归属（缺省 = agent 提问）
   pendingReplies?: string[];  // 恢复后待注入下一轮 prompt 的人类回复（多条拼接，消费后清除）
+  // B3a 工程归属链（决策 D2）：归属解析结果落档
+  workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
+  ownershipSource?: string;   // 归属来源：explicit / requirement / channel-default / none / human-reply
+  ownershipProjectId?: string; // 经 Requirement 解析到的 PMO 项目 id（审计用）
   knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
   matchedSkills?: string[];   // §10 P0: claim 时域匹配命中的 skill 名（agentStep 注入正文用）
   skillHints?: string[];      // §10.3: 消息中 +skill名 显式指定的 skill（解析时优先于域匹配）

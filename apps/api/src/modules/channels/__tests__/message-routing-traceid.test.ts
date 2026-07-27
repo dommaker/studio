@@ -31,6 +31,7 @@ describe('message-routing traceId (P0 修复 6)', () => {
   });
 
   afterAll(() => {
+    delete process.env.STUDIO_PROJECTS_ROOT;
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
@@ -47,6 +48,8 @@ describe('message-routing traceId (P0 修复 6)', () => {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
     });
     channelMessageService.setFileStore(fileStore);
+    // B3a：线程回复触发归属解析时会查 project-discovery —— 指向空 tmp 目录保持隔离
+    process.env.STUDIO_PROJECTS_ROOT = tmpDir;
   });
 
   it('@mention 建 WU：options.traceId 写入 metadata.traceId', async () => {

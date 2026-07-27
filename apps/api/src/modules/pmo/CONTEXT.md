@@ -16,6 +16,7 @@
 | `projectService` 实例 | `project.service.ts` | 项目服务单例 |
 | `parsePmoNumberFromCommand` | `project.service.ts` | 从命令中解析 PMO 号 |
 | `PROJECT_STATUS` 常量 | `project.service.ts` | 项目状态枚举 |
+| `initPmoProgressRollup` / `syncProjectProgress` | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement 关联 WU 的完结比例回写 progress；全部完结 → completed（best-effort） |
 | `detectAnomalies` | `okr-anomaly-detector.ts` | OKR 异常检测（默认停用） |
 | 默认导出 Express Router | `routes.ts` | 提供 `/project`、`/objective`、`/key-result` 等 REST 路由 |
 
@@ -49,6 +50,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B3a 工程归属链（决策 D2）— 新增 progress-rollup.ts：订阅 workunit.status_changed，WU 关联 Requirement 挂 projectId 时按该项目全部关联 WU 完结比例回写 progress（口径同 REQ 汇总 TERMINAL_WORKUNIT_STATUSES），全部完结置 completed（skipValidation 系统直写）；best-effort 不阻断
 - ✅ 2026-07-27: P0 修复 5 — executions/studio-events jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `0d1ef570`: ci): resolve type errors found by package-level tsc build

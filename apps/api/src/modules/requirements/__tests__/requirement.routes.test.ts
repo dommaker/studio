@@ -4,7 +4,7 @@
  * 挂载 createRequirementRoutes(tmpFileStore) 到 express app，
  * 监听临时端口后用 fetch 验证 happy paths + 校验错误。
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -155,5 +155,60 @@ describe('Requirement API (vision §5.3)', () => {
   it('GET /:id/chain unknown → 404', async () => {
     const { status } = await api('GET', '/REQ-9999/chain');
     expect(status).toBe(404);
+  });
+
+  // B3a 工程归属链（决策 D2）：projectId 挂接 —— PMO 项目写真实 ~/.studio/projects
+  // （workspace-binding.test.ts 同款约定），用例结束统一删除。
+  describe('B3a: projectId 挂接', () => {
+    let projectId: string | null = null;
+
+    afterEach(async () => {
+      if (projectId) {
+        const { projectService } = await import('../../pmo/project.service.js');
+        await projectService.delete(projectId).catch(() => { /* 忽略 */ });
+        projectId = null;
+      }
+    });
+
+    it('POST / with valid projectId → 201 + 落档', async () => {
+      const { projectService } = await import('../../pmo/project.service.js');
+      const project = await projectService.create({ title: `b3a-routes-${Date.now()}` });
+      projectId = project.id;
+
+      const { status, json } = await api('POST', '/', { title: '挂项目需求', projectId: project.id });
+
+      expect(status).toBe(201);
+      expect(json.data.projectId).toBe(project.id);
+    });
+
+    it('POST / with non-existent projectId → 400', async () => {
+      const { status, json } = await api('POST', '/', { title: '挂空项目', projectId: 'proj-no-such-b3a' });
+
+      expect(status).toBe(400);
+      expect(json.error).toContain('Project not found');
+    });
+
+    it('POST / with non-string projectId → 400', async () => {
+      const { status } = await api('POST', '/', { title: '类型错误', projectId: 123 });
+      expect(status).toBe(400);
+    });
+
+    it('PATCH /:id 挂接 / 清除 projectId；bogus → 400', async () => {
+      const { projectService } = await import('../../pmo/project.service.js');
+      const project = await projectService.create({ title: `b3a-routes-${Date.now()}` });
+      projectId = project.id;
+      const created = (await api('POST', '/', { title: '待挂接' })).json.data;
+
+      const linked = await api('PATCH', `/${created.id}`, { projectId: project.id });
+      expect(linked.status).toBe(200);
+      expect(linked.json.data.projectId).toBe(project.id);
+
+      const cleared = await api('PATCH', `/${created.id}`, { projectId: null });
+      expect(cleared.status).toBe(200);
+      expect(cleared.json.data.projectId).toBeNull();
+
+      expect((await api('PATCH', `/${created.id}`, { projectId: 'proj-no-such-b3a' })).status).toBe(400);
+      expect((await api('PATCH', `/${created.id}`, { projectId: 42 })).status).toBe(400);
+    });
   });
 });
