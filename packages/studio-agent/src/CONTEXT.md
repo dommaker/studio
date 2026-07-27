@@ -4,7 +4,7 @@
 
 ## 职责
 
-提供 Agent 执行引擎的核心能力，包括任务完成处理（AgentCompleter）、统一执行器（AgentRunner/AgentExecutor）、Agent 注册中心（AgentRegistry）以及角色定义注册表（DEFAULT_PERSONAS）。负责将 provider 抽象参数转化为 CLI 参数（cli-adapter），管理 session 循环与轻量执行路径，并收集输出与指标。
+提供 Agent 执行引擎的核心能力，包括任务完成处理（AgentCompleter）、统一执行器（AgentRunner/AgentExecutor）与 Agent 注册中心（AgentRegistry）。负责将 provider 抽象参数转化为 CLI 参数（cli-adapter），管理 session 循环与轻量执行路径，并收集输出与指标。
 
 ## 核心导出
 
@@ -14,7 +14,6 @@
 | `AgentExecutor`, `agentExecutor` | services/session-manager.ts | Session 循环执行器（门面，通过 agent-executor.ts 重新导出） |
 | `AgentRunner`, `agentRunner` | services/agent-runner.ts | 统一执行器，合并 AgentExecutor + TaskExecutor，支持流式 JSON 输出 |
 | `AgentCompleter`, `agentCompleter` | services/agent-completer.ts | 任务完成处理器，检测输出文件、解析验证结果、更新状态、发布事件 |
-| `getPersona`, `listPersonas`, `DEFAULT_PERSONAS` | registry.ts | 角色定义注册表，提供预置角色（pm、developer、reviewer、tester） |
 | `buildSpawnArgs` | cli-adapter.ts | 纯函数，为指定 provider 构建 CLI spawn 参数（command + args） |
 | 类型 `Provider`, `SpawnParams`, `SpawnArgs` | cli-adapter.ts | CLI 适配相关类型 |
 | 类型 `AgentMetadata`, `JSONSchema` 等 | types.ts | Agent 元数据、JSON Schema 等类型定义 |
@@ -40,7 +39,6 @@
 - **避免循环依赖**：拆分后的子模块（runner-params、runner-output、runner-execution、runner-lightweight）不得反向依赖 agent-runner.ts 或 session-manager.ts 的类；状态通过 `RunnerExecutionState` 接口传入。
 - **Session 循环与轻量路径**：AgentRunner 提供两套执行路径：多 session 循环（runner-execution.ts）和轻量单 session（runner-lightweight.ts），后者跳过 SDD 解析、REQUIREMENTS.md、contract tests、Iron Laws、依赖缓存等，适用于简单任务。
 - **Cache 与性能**：AgentRegistry 使用外部 CacheStore（如 Redis），注意 TTL 和缓存键约定（`agent:` 前缀）。
-- **类型安全**：角色定义（DEFAULT_PERSONAS）直接从文件加载，修改时需同步类型约束（AgentPersonaConstraints）。
 
 ## 修复历史
 

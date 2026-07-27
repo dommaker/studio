@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-24
+> 最后更新: 2026-07-27
 
 ---
 
@@ -195,7 +195,6 @@
 
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
 | failure-classifier | apps/api/src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
-| prompt-builder | apps/api/src/modules/knowledge/consumers/prompt-builder.ts | Unified knowledge injection entry point. |
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | knowledge-service.routes | apps/api/src/modules/knowledge/knowledge-service.routes.ts | KnowledgeService HTTP API + SSE |
 | knowledge-service | apps/api/src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |
@@ -234,7 +233,6 @@
 | workunit | apps/web/src/api/workunit.ts | WorkUnit API — Agent Network §3.28c-1 |
 | workunitStore | apps/web/src/stores/workunitStore.ts | WorkUnit Store — Agent Network §3.28c-1 |
 | cli-adapter | packages/studio-agent/src/cli-adapter.ts | CLI Adapter — translate common spawn params to provider-specific args |
-| registry | packages/studio-agent/src/registry.ts | Agent Persona 注册表 |
 | file-store | packages/studio-shared/src/file-store.ts | FileStore — AN 运行时数据文件存储基类 |
 | anomaly-detector | packages/studio-shared/src/stats/anomaly-detector.ts | 计算数组的均值和标准差（总体标准差） |
 | system-health | apps/api/src/modules/agents/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
@@ -321,3 +319,4 @@
 | discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
 | useDetectedProviders | apps/web/src/hooks/useDetectedProviders.ts | 当前运行环境已安装的 agent CLI 列表。 |
+| domain-vocab | packages/studio-shared/src/domain-vocab.ts | 职能域词表（决策 8，docs/plans/2026-07-27-agents-md-skill-governance.md） |

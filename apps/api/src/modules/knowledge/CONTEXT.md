@@ -32,8 +32,6 @@
 knowledge/
 ├── engine/                    # 存储/查询层
 │   └── unified-query.ts       # 双存储统一查询
-├── consumers/                 # 消费层
-│   └── prompt-builder.ts      # prompt 注入
 ├── producers/                 # 生产层
 │   └── external-fetcher.ts    # 外部文档抓取
 ├── knowledge-bus.service.ts   # 兼容层：KnowledgeBus 类 + 单例 re-export（R4）
@@ -75,7 +73,7 @@ knowledge/
 
 - Producer（preference-observer 等）直写 KnowledgeStore（FileStore 存储；Prisma 已全量移除）
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
-- `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方，被 `buildKnowledgeContext` 替代）
+- `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方；替代者 `buildKnowledgeContext` 亦已于 2026-07-27 清理，现注入入口为 `knowledgeService.injectContext`）
 - `applicableAgents` 存储在 tags 中（`agent:executor` 格式），KnowledgeEntry 无此字段
 - **鉴权（2026-07-24 收紧）**：`/api/knowledge`（internal.routes，不在 /api/v1 大门内）2026-07-24 起挂载 requireLocalhost——此前全匿名：POST /upsert 可污染知识库、POST /extract-text-sync 盗用服务器 LLM key、GET /sync-status 有 heal 写副作用；本机脚本经回环调用不受影响。
 - **鉴权（2026-07-24 收紧）**：/api/v1/knowledge 子路由写端点（documents 6 条、entries /ask+/unified、evolution 4 条、files /read-file、import /scan+/execute）与 /api/v1/knowledge-service 写 11 条已收 requireAuth+requireNotGuest；files/import 的 startsWith 路径前缀校验无分隔符（兄弟目录可绕，未修）；knowledge-service GET /entries/stats 被 :id 遮蔽（未修）。

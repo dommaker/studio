@@ -46,7 +46,7 @@
 
 - AgentLoop session token 限制为 100K（`SESSION_TOKEN_LIMIT`），超过后自动截断
 - **AgentProfile 持久化布局**：`~/.studio/data/agents/{id}/profile.json`（身份：name/description/provider/status/nodeId，模型见 `packages/studio-shared/src/file-store.ts`，无 systemPrompt 字段）+ 同目录 `state.json`（运行时实例）；原子写 + mkdir 锁，永久存在仅可显式 DELETE；保留名 `studio`（系统执行角色，provider 由 StudioRoleSetupModal 补配）
-- **prompt 注入架构 = index-on-demand（严禁全量注入）**：skills 走 4 层索引（claim 匹配 ≤3 存名 → prompt 只放 name+一句话描述+`.studio/skills/<name>/SKILL.md` 指针 → worktree AGENTS.md 索引行 → 全文落盘按需阅读，见 `agent-loop.ts` buildSkillSection / `studio-agent/worktree-resolver.ts`）；知识分层（rule/context 约束层按设计全量、signal 层 `[id] summary` 索引、reference 层只报条数，见 knowledge-service.injectContext）；roster 只放 `name（provider）：description` 索引行且不含自身；全部注入共享 2K token 红线硬截断。不注入：agent 完整记录、频道列表、成员 ID、记忆
+- **prompt 注入架构 = index-on-demand（严禁全量注入）**：skills 走索引+按需（step 时匹配：相关度排序全量列表，2K 预算块级截断取代封顶 3；prompt 只放 name+description+triggers 摘要+`~/.studio/skills/<name>/SKILL.md` 绝对路径指针，正文不注入，agent 按需阅读，见 `agent-loop.ts` buildSkillSection）；知识分层（rule/context 约束层按设计全量、signal 层 `[id] summary` 索引、reference 层只报条数，见 knowledge-service.injectContext）；roster 只放 `name（provider）：description` 索引行且不含自身；全部注入共享 2K token 红线硬截断。不注入：agent 完整记录、频道列表、成员 ID、记忆
 - A2A 协作 P1（2026-07-agent-to-agent-collab-design）：`ACTION: DELEGATE:@<profileName>:<scope>` 协议由 recordResult 拦截，经 workunit/delegation-gate 校验后建子单（`metadata.collab`）+ 发 delegate 卡片，拒绝则降级 NEED_INPUT；父 complete 守卫（未完结子 WU → 降级 progress）；发言层新鲜度检查（step 期间房间有外部新消息 → 结果帖拦截注入 pendingReplies，连续 2 次后照发）；花名册段（## 频道成员与委派）与 skill/知识段共用 2K 注入红线（优先级 skills > roster > knowledge）
 - Idle 心跳间隔固定 45 秒（`IDLE_HEARTBEAT_INTERVAL_MS`），配合超时扫描 5 分钟阈值
 - `AgentLoopRegistry.mount()` 幂等且不抛错，失败仅标记为 failed 状态
@@ -54,8 +54,8 @@
 - 所有 Agent 数据均通过 `FileStore` 存储（已从 Prisma 迁移）
 - 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件
 - `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
-- **mention 派单调度链**：`WorkUnitService.create` 发 `workunit.created` 事件 → TriggerScheduler 唤醒对应 AgentLoop.observe（另有 15s 轮询兜底）→ 过滤（assigneeId 精确匹配 / 频道成员 / acceptedTypes）→ claim（assigneeId 改写为 instance.id）→ agentStep → LocalExecutor → runner-lightweight spawn CLI → recordResult 解析 ACTION → postToDiscussionSpace 直接 `fileStore.appendMessage`（**不走 EventBus/SSE**，前端靠轮询消息接口看到回复）
-- **isOnline 语义（2026-07-27 起）** = loop 存活：state status 为 idle/active 且心跳新鲜（≤5min，与 agent-timeout-scan 同阈值；null 心跳按 startedAt 宽限）。另知两个坑（未修）：① `acceptedTypes` 过滤对**显式指派**的 WU 也生效——description 含 `review` 等词但不含 `task` 的 profile 被 @ 也看不到自己的单；② 手动 `POST /agent-instances` 只建 idle 记录、并不起 loop，null 心跳约 2 分钟内被 timeout-scan 终止（假在线）
+- **mention 派单调度链**：`WorkUnitService.create` 发 `workunit.created` 事件 → TriggerScheduler 唤醒对应 AgentLoop.observe（另有 15s 轮询兜底）→ 过滤（assigneeId 精确匹配 / 频道成员）→ claim（assigneeId 改写为 instance.id）→ agentStep → LocalExecutor → runner-lightweight spawn CLI → recordResult 解析 ACTION → postToDiscussionSpace 直接 `fileStore.appendMessage`（**不走 EventBus/SSE**，前端靠轮询消息接口看到回复）
+- **isOnline 语义（2026-07-27 起）** = loop 存活：state status 为 idle/active 且心跳新鲜（≤5min，与 agent-timeout-scan 同阈值；null 心跳按 startedAt 宽限）。另知一坑（未修）：手动 `POST /agent-instances` 只建 idle 记录、并不起 loop，null 心跳约 2 分钟内被 timeout-scan 终止（假在线）
 - **鉴权（2026-07-24 收紧）**：legacy agents POST `/`、PUT `/:agentId` 与 agent-profiles/agent-instances 写 = `requireAuth()+requireNotGuest()`；`POST /review/diff`（任意路径写+spawn claude）与 instances `POST /:id/terminate` = `requireAuth()+requireAdmin()`；legacy DELETE 原有 requireRole('Admin') 不变。另知：agent-configs `:id` 路径拼接无校验（穿越面，未修）、/review/diff 的 baseRef/headRef shell 拼接（Admin 门后，未修）
 
 ## 修复历史

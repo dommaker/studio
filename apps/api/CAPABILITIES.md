@@ -61,7 +61,6 @@
 | routes | src/modules/executions/routes.ts | Execution API 路由 |
 | iron-laws.routes | src/modules/harness/iron-laws.routes.ts | Iron Laws API — 从 runtime-proxy 迁移 (2026-05-14) |
 | routes | src/modules/harness/routes.ts | FL-029: Harness Monitoring Routes (T-015) |
-| prompt-builder | src/modules/knowledge/consumers/prompt-builder.ts | Unified knowledge injection entry point. |
 | decision-chain-extractor | src/modules/knowledge/decision-chain-extractor.ts | DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链 |
 | unified-query | src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | env-snapper | src/modules/knowledge/env-snapper.ts | EnvSnapper (G-003) — 系统环境自动快照 |
