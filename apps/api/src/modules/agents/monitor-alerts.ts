@@ -3,7 +3,7 @@
  *
  * 从 monitor-agent.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责告警出口侧：
- *   - 告警日志分级 + studio.jsonl 事件写入
+ *   - 告警日志分级 + studio.jsonl 事件写入 + notifyAlert 通知出口（P0 修复 4）
  *   - FL-037: critical 告警升级 Triage
  *   - H3: 告警写入 KnowledgeBus pattern
  */
@@ -11,6 +11,7 @@
 import * as path from 'path';
 import { logger, resolveEventsDir } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
+import { notifyAlert } from '../../utils/notifier.js';
 import type { MonitorAlert } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
 
@@ -36,7 +37,7 @@ export function emitMonitorEvent(data: Record<string, unknown>): void {
   } catch { /* non-blocking */ }
 }
 
-/** Log all alerts + emit warning/critical to studio events file for Discord notification */
+/** Log all alerts + emit warning/critical to studio events file + notifyAlert 出口（频道 + 企业微信 webhook） */
 export function dispatchMonitorAlerts(alerts: MonitorAlert[]): void {
   for (const alert of alerts) {
     if (alert.level === 'critical') {
@@ -46,11 +47,14 @@ export function dispatchMonitorAlerts(alerts: MonitorAlert[]): void {
     } else {
       logger.info('[MonitorAgent] INFO', alert);
     }
-    // Emit to studio events file for Discord notification
+    // Emit to studio events file + 通知出口（P0 修复 4：频道 + 企业微信 webhook）
     if (alert.level === 'critical' || alert.level === 'warning') {
       try {
         emitMonitorEvent({ type: 'monitor:alert', ...alert, timestamp: Date.now() });
       } catch { /* non-blocking */ }
+      // fire-and-forget：sink 失败仅记日志，不阻塞 check loop
+      void notifyAlert(alert.level, `[Monitor] ${alert.source}`, alert.message)
+        .catch(() => { /* non-blocking */ });
     }
   }
 }

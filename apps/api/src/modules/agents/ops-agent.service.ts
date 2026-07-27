@@ -12,6 +12,7 @@ import * as os from 'os';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { loadRules, type OpsRules } from './ops-rules.js';
 import { hashPassword } from '../auth/service.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 export interface PreflightResult {
   passed: boolean;
@@ -463,7 +464,7 @@ export class OpsAgent {
    */
   private async emitProxyRestartExhaustedAlert(synSentCount: number): Promise<void> {
     try {
-      const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+      const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
       const fs = new FileStore();
       await fs.appendJsonl(STUDIO_EVENTS_JSONL, {
         type: 'proxy_restart_exhausted',

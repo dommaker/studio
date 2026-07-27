@@ -26,4 +26,4 @@
 
 - 本模块在 008912d（db-removal）中被误删，导致前端 `/api/v1/companies` 404，后按 FileStore 版本恢复；与 Prisma 无任何关联。
 - `GET /sizes/config` 必须在 `GET /:companyId` 之后不会冲突：`/:companyId` 只匹配单段路径。
-- `hall-stats` 聚合 `~/.studio/logs/executions.jsonl` 的执行统计，文件不存在时按 0 处理。
+- `hall-stats` 聚合 `~/.studio/logs/executions.jsonl` 的执行统计（测试环境隔离到 os.tmpdir()/studio-test-logs，见 utils/studio-log-path.ts），文件不存在时按 0 处理。

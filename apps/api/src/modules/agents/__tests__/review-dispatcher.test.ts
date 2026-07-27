@@ -7,7 +7,7 @@
  *  - 已有未完结 review 子 WU -> 跳过（同父唯一性）
  *  - child done + approved -> 父 reviewPassed
  *  - child done + rejected -> 父 reviewRejected
- *  - child done + 无 reviewReport -> 父 reviewRejected（格式异常）
+ *  - child done + 无 reviewReport -> 父保持 in_review + 频道转人工（P0 修复，不再默认拒绝）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
@@ -199,7 +199,7 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
     expect(['active', 'blocked']).toContain(updatedParent!.status);
   });
 
-  it('AC-4.5: child done + 无 reviewReport -> 父 reviewRejected（格式异常）', async () => {
+  it('AC-4.5 + P0 修复: child done + 无 reviewReport -> 父保持 in_review，频道转人工（不再默认拒绝）', async () => {
     const parent = await wuService.create({
       scope: '实现功能 F',
       type: 'feature',
@@ -219,7 +219,14 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5)', () => {
     await wuService.transitionStatus(child!.id, 'done');
     await new Promise(r => setTimeout(r, 100));
 
+    // P0 修复：解析失败不再默认 reviewRejected（误杀）——父 WU 保持 in_review，
+    // 频道发系统消息转人工裁决
     const updatedParent = await wuService.getById(parent.id);
-    expect(['active', 'blocked']).toContain(updatedParent!.status);
+    expect(updatedParent!.status).toBe('in_review');
+
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    const sysMsg = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio');
+    expect(sysMsg).toBeDefined();
+    expect(sysMsg!.content).toContain('转人工');
   });
 });

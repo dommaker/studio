@@ -21,8 +21,9 @@ import { FileStore, logger } from '@dommaker/studio-shared';
 import { execFile, execFileSync } from 'child_process';
 import * as path from 'path';
 import * as os from 'os';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 // KE-002 P0: unified absolute path for knowledge storage

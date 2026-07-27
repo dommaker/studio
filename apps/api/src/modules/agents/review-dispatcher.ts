@@ -4,6 +4,8 @@
  * 订阅 workunit.status_changed：
  *   路径 A：父 WU -> in_review -> 找频道内 reviewer 角色 -> 创建 review 子 WU（绕过 DelegationGate）
  *   路径 B：子 WU（type=review）-> done -> 解析 metadata.reviewReport -> 父 WU reviewPassed/reviewRejected
+ *     （reviewReport 由 reviewer 的 AgentLoop 在子 WU complete 时解析 REVIEW_RESULT 写入；
+ *       缺失/无法解析 -> 不默认拒绝，频道发系统消息转人工，父 WU 保持 in_review）
  *
  * 设计决策（design.md §1.2）：
  *   D5: 状态机驱动，不走 agent DELEGATE 协议
@@ -11,9 +13,11 @@
  *   D7: 旧 reviewAgent.review() 保留至 AC Group 7
  */
 
-import { eventBus, logger, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
+import { randomUUID } from 'crypto';
+import { eventBus, logger, parseChannels, type FileStore, type AgentProfileData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { readCollab } from '../workunit/delegation-gate.js';
+import { findAnchorMessage } from './agent-loop.js';
 
 export class ReviewDispatcher {
   private subscribed = false;
@@ -49,13 +53,9 @@ export class ReviewDispatcher {
   /** 检查频道是否有 reviewer 角色（description 含 'reviewer'） */
   private async findReviewerInChannel(channelId: string): Promise<AgentProfileData | null> {
     const channel = await this.fileStore.getChannel(channelId);
-    if (!channel?.members) return null;
-    let memberIds: string[] = [];
-    try {
-      memberIds = JSON.parse(channel.members);
-    } catch {
-      return null;
-    }
+    // P0 修复：安全解析 members —— 损坏 JSON / 非数组 / 双重编码一律按无成员处理
+    // （此前裸 JSON.parse 只对语法错误兜底，非数组值会让派发静默跳过）
+    const memberIds = parseChannels(channel?.members);
     if (memberIds.length === 0) return null;
 
     const allProfiles = await this.fileStore.listProfiles({ status: 'active' });
@@ -111,7 +111,13 @@ export class ReviewDispatcher {
 
     const child = await this.workUnitService.create({
       type: 'review',
-      scope: `审查代码变更：${parent.scope?.slice(0, 200) ?? ''}`,
+      // P0 修复（reviewReport 回传断链）：scope 写入 REVIEW_RESULT 输出约定 ——
+      // reviewer 的 AgentLoop complete 时据此解析结构化结论写入 metadata.reviewReport
+      scope: `审查代码变更：${parent.scope?.slice(0, 200) ?? ''}
+
+完成审查后，除 ACTION 行外，还必须在输出的最后一行给出结构化结论：
+REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"一句话结论","issues":[{"severity":"error"|"warn"|"info","message":"问题描述"}]}
+（verdict=pass 通过 / reject 打回；summary、issues 可省略。缺少该行将转人工评审。）`,
       assigneeId: reviewer.id,
       status: 'unassigned',
       channelId: parent.channelId,
@@ -142,8 +148,16 @@ export class ReviewDispatcher {
       | undefined;
 
     if (!report) {
-      // reviewer 输出格式异常 -> 默认拒绝（AC-4.5 边界）
-      await this.workUnitService.reviewRejected(parent.id, 'reviewer 输出格式异常，无法解析审查结论');
+      // P0 修复：reviewer 输出无法解析 → 不再默认 reviewRejected（误杀）。
+      // 父 WU 保持 in_review 不动，频道发系统消息转人工裁决。
+      logger.warn('[ReviewDispatcher] Review child done without parseable reviewReport — 转人工', {
+        childId: child.id,
+        parentId: parent.id,
+      });
+      await this.postSystemMessage(
+        parent,
+        `任务「${(parent.scope ?? '').slice(0, 50)}」的审查结论无法解析（reviewer 未输出 REVIEW_RESULT），已转人工评审，请人工处理`,
+      );
       return;
     }
 
@@ -155,6 +169,24 @@ export class ReviewDispatcher {
         ?? 'reviewer 拒绝';
       await this.workUnitService.reviewRejected(parent.id, reason);
     }
+  }
+
+  /** 向父 WU 所在频道发系统消息（转人工通知；形态同 waiting-input 提醒） */
+  private async postSystemMessage(parent: WorkUnitData, content: string): Promise<void> {
+    if (!parent.channelId) return;
+    const anchor = await findAnchorMessage(parent.id, this.fileStore);
+    const msg: ChannelMessageData = {
+      id: randomUUID(),
+      channelId: parent.channelId,
+      authorType: 'agent',
+      agentName: 'Studio',
+      content,
+      replyToId: anchor?.id ?? null,
+      meta: '{}',
+      workUnitId: parent.id,
+      createdAt: new Date().toISOString(),
+    };
+    await this.fileStore.appendMessage(parent.channelId, msg);
   }
 }
 

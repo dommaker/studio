@@ -212,6 +212,12 @@ async function start() {
       await scanWaitingForInputReminders();
     });
 
+    // ── P0: WorkUnit 执行超时释放 handler（workunit-timeout 触发器）──
+    registerExecuteHandler('workunit-timeout-scan', async () => {
+      const { scanTimedOutWorkUnits } = await import('./modules/workunit/timeout-release.js');
+      await scanTimedOutWorkUnits();
+    });
+
     // ── E1 约束进化（vision §6）：每日扫描 handler + 频道审核 watcher ──
     registerExecuteHandler('evolution-scan', async () => {
       const { getEvolutionService } = await import('./modules/evolution/evolution.service.js');

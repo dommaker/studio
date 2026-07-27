@@ -12,11 +12,12 @@ import * as path from 'path';
 import * as os from 'os';
 import { logger, getModelForTier, type ModelTier, parseStreamLine as parseStreamLineShared, extractFilePath, type StreamEvent, FileStore } from '@dommaker/studio-shared';
 import { buildSpawnArgs, type AgentCliParams } from './cli-adapter.js';
+import { resolveStudioLogFile } from '../utils/studio-log-path.js';
 import type { ProviderName } from './cli-scanner.js';
 import type { ClaimedTask } from './claim-loop.js';
 import type { DetectedRuntime } from './cli-scanner.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 export interface TaskExecutorConfig {

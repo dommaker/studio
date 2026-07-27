@@ -4,19 +4,14 @@ import type { TriggerConfig } from '../triggers/trigger.types.js';
 
 /** Register the 10 default system triggers */
 export function registerDefaultTriggers(registry: TriggerScheduler): void {
-  // 1. workunit-timeout: SCHEDULE every 5 min → UPDATE workunit (timeout release)
+  // 1. workunit-timeout: SCHEDULE every 5 min → EXECUTE workunit-timeout-scan
+  // （P0 修复：原为 UPDATE + 注册时冻结的 timeoutAt 查询，永不命中；改为 EXECUTE handler
+  //   每次 tick 现算基准时间，释放回池记 metadata + 频道系统消息，≥3 次转 blocked）
   registry.registerTrigger({
     id: 'workunit-timeout',
     name: 'Release timed-out WorkUnits',
     condition: { type: 'SCHEDULE', cron: '*/5 * * * *' },
-    action: {
-      type: 'UPDATE',
-      target: 'workunit',
-      config: {
-        query: { status: 'active', timeoutAt: { lt: new Date().toISOString() } },
-        update: { status: 'unassigned', assigneeId: null },
-      },
-    },
+    action: { type: 'EXECUTE', target: 'workunit-timeout-scan' },
     enabled: true,
     scope: 'system',
   });
@@ -158,14 +153,7 @@ export function getDefaultTriggerConfigs(): TriggerConfig[] {
       id: 'workunit-timeout',
       name: 'Release timed-out WorkUnits',
       condition: { type: 'SCHEDULE', cron: '*/5 * * * *' },
-      action: {
-        type: 'UPDATE',
-        target: 'workunit',
-        config: {
-          query: { status: 'active' },
-          update: { status: 'unassigned', assigneeId: null },
-        },
-      },
+      action: { type: 'EXECUTE', target: 'workunit-timeout-scan' },
       enabled: true,
       scope: 'system',
     },

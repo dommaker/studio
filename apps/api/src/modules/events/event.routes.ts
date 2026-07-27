@@ -14,8 +14,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { generateSessionSummary } from './session-summary-generator.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 const router = Router();

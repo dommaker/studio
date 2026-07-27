@@ -36,6 +36,14 @@ vi.mock('../triage-agent.service.js', () => ({
   triageAgent: { handleAlert: mockHandleAlert },
 }));
 
+const { mockNotifyAlert } = vi.hoisted(() => ({
+  mockNotifyAlert: vi.fn(() => Promise.resolve()),
+}));
+
+vi.mock('../../../utils/notifier.js', () => ({
+  notifyAlert: mockNotifyAlert,
+}));
+
 import {
   studioEventsJsonl,
   emitMonitorEvent,
@@ -114,6 +122,18 @@ describe('monitor-alerts: dispatchMonitorAlerts', () => {
   it('emits nothing for info-only alerts', () => {
     dispatchMonitorAlerts([{ source: 'progress_stagnation', level: 'info', message: 'i' } as any]);
     expect(readEventLines()).toHaveLength(0);
+  });
+
+  it('P0 修复 4: warning/critical 触发 notifyAlert 通知出口，info 不触发', () => {
+    dispatchMonitorAlerts([
+      { source: 'total_time', level: 'critical', message: 'crit-msg' } as any,
+      { source: 'failure_trend', level: 'warning', message: 'warn-msg' } as any,
+      { source: 'progress_stagnation', level: 'info', message: 'info-msg' } as any,
+    ]);
+
+    expect(mockNotifyAlert).toHaveBeenCalledTimes(2);
+    expect(mockNotifyAlert).toHaveBeenCalledWith('critical', '[Monitor] total_time', 'crit-msg');
+    expect(mockNotifyAlert).toHaveBeenCalledWith('warning', '[Monitor] failure_trend', 'warn-msg');
   });
 });
 

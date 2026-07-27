@@ -56,9 +56,14 @@ describe('Default Triggers', () => {
     expect(timeoutCall![0].condition).toEqual(
       expect.objectContaining({ type: 'SCHEDULE', cron: '*/5 * * * *' }),
     );
+    // P0 修复：UPDATE + 注册时冻结的 timeoutAt 查询永不命中 —— 改为 EXECUTE handler
+    // （workunit-timeout-scan 每次 tick 现算基准时间，释放回池 + 频道系统消息 + ≥3 次 blocked）
+    expect(timeoutCall![0].action).toEqual(
+      expect.objectContaining({ type: 'EXECUTE', target: 'workunit-timeout-scan' }),
+    );
   });
 
-  it('does not register stale-recovery handler (workunit-timeout is UPDATE, not EXECUTE)', () => {
+  it('does not register stale-recovery handler (stale-recovery was dead code)', () => {
     registerDefaultTriggers(registry);
 
     // Bug 3 fix: stale-recovery handler was dead code (UPDATE action doesn't call EXECUTE handlers)

@@ -50,13 +50,16 @@ export function parseSkillHints(content: string): string[] {
  *
  * REQ 需求编号（vision §5.3）：@mention 派发时绑定需求 —
  * options.reqId 显式指定 > 消息文本 #REQ-XXXX token > 自动新建（best-effort）。
+ *
+ * P0 修复 6：options.traceId 链路追踪 id — 仅 @mention 建 WU 时写入 metadata.traceId；
+ * 线程回复不建 WU，不动。
  */
 export async function routeMessage(
   channelId: string,
   content: string,
   replyToId?: string,
   fs?: FileStore,
-  options?: { workspaceId?: string | null; reqId?: string | null },
+  options?: { workspaceId?: string | null; reqId?: string | null; traceId?: string | null },
 ) {
   const resolvedFs = fs ?? fileStore;
   // Use resolved FileStore for WorkUnitService (supports test injection)
@@ -126,6 +129,8 @@ export async function routeMessage(
         mentionName,
         matched: !!agent,
         creationMode: 'mention',
+        // P0 修复 6: traceId 贯穿（audit requestId → WU metadata → agent-loop 日志）
+        ...(options?.traceId ? { traceId: options.traceId } : {}),
         // §10.3: +skill名 显式指定（token 保留在原文中，仅解析进 metadata）
         ...(skillHints.length > 0 ? { skillHints } : {}),
       },
@@ -137,6 +142,7 @@ export async function routeMessage(
       matched: !!agent,
       workspaceId,
       reqId,
+      traceId: options?.traceId ?? undefined,
     });
     return channelMessageService.createHumanMessage(
       channelId,
