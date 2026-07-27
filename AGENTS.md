@@ -35,11 +35,11 @@ pnpm start  # 启动生产服务
 ## 约束与治理
 
 - 治理配置：`.harness/config.yml`（preset: standard）
-- 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 12 条、Guidelines 28 条）
+- 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 11 条、Guidelines 25 条）
 
 ## 知识入口
 
-- `.harness/knowledge/`：项目知识库（757 条），用 `harness knowledge` 查询
+- `.harness/knowledge/`：项目知识库（772 条），用 `harness knowledge` 查询
 - 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 49 个），改动代码时同步更新
 
 <!-- PRESERVE:overview -->
