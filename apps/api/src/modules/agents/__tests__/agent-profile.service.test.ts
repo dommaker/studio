@@ -243,7 +243,7 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     expect(found!.isOnline).toBe(false);
   });
 
-  it('isOnline=false when RuntimeState status=idle', async () => {
+  it('isOnline=true when RuntimeState status=idle with fresh heartbeat (idle loop is alive)', async () => {
     const now = new Date().toISOString();
     const profile = await service.create({ name: 'online-test-4' });
     testProfileIds.push(profile.id);
@@ -251,7 +251,24 @@ describe('AC-A2: listAgents online status + channelId filter', () => {
     await fileStore.createState(stateId, {
       id: stateId, roleId: profile.id, sessionId: null, status: 'idle',
       currentWorkUnitId: null, startedAt: now, terminatedAt: null,
-      lastHeartbeat: null, metadata: null,
+      lastHeartbeat: now, metadata: null,
+    });
+    runtimeIds.push(stateId);
+
+    const result = await service.list({ status: 'active' });
+    const found = result.data.find(p => p.id === profile.id);
+    expect(found!.isOnline).toBe(true);
+  });
+
+  it('isOnline=false when heartbeat is stale (loop considered dead)', async () => {
+    const old = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 分钟前，超过 5 分钟阈值
+    const profile = await service.create({ name: 'online-test-5' });
+    testProfileIds.push(profile.id);
+    const stateId = `ri-${profile.id}`;
+    await fileStore.createState(stateId, {
+      id: stateId, roleId: profile.id, sessionId: null, status: 'idle',
+      currentWorkUnitId: null, startedAt: old, terminatedAt: null,
+      lastHeartbeat: old, metadata: null,
     });
     runtimeIds.push(stateId);
 
