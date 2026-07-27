@@ -2,8 +2,6 @@
  * SkillLoaderService tests
  *
  * #73: File-driven loading
- * #75: load/unload lifecycle
- * #76: tier-based tool permission binding
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -60,9 +58,6 @@ describe('SkillLoaderService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new SkillLoaderService();
-    service.clearSession('test-session');
-    service.clearSession('session-1');
-    service.clearSession('session-2');
   });
 
   // ── #73: File-driven loading ──
@@ -136,146 +131,14 @@ status: published
 
       expect(loaded).not.toBeNull();
 
-      const sessionSkills = service.getSessionSkills('test-session');
-      expect(sessionSkills).toHaveLength(2);
-      expect(sessionSkills.map(s => s.name)).toContain('base-skill');
-      expect(sessionSkills.map(s => s.name)).toContain('main-skill');
-
+      // 递归加载验证：删除磁盘文件后 base-skill 仍命中会话缓存
+      // （若 required 未递归加载，文件已删 → loadSkill 返回 null）
       removeSkillFile('main-skill');
       removeSkillFile('base-skill');
-    });
-  });
 
-  // ── #75: load/unload lifecycle ──
-
-  describe('unloadSkill (#75)', () => {
-    it('should unload a skill from session', async () => {
-      createSkillFile('test-skill', `---
-name: test-skill
-description: "Test"
-tier: fast
-status: published
----
-## Test`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      expect(service.getSessionSkills('test-session')).toHaveLength(1);
-
-      const removed = service.unloadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      expect(removed).toBe(true);
-      expect(service.getSessionSkills('test-session')).toHaveLength(0);
-
-      removeSkillFile('test-skill');
-    });
-
-    it('should return false when unloading non-loaded skill', () => {
-      const removed = service.unloadSkill({ sessionId: 'test-session', skillName: 'nonexistent' });
-      expect(removed).toBe(false);
-    });
-
-    it('should return false for non-existent session', () => {
-      const removed = service.unloadSkill({ sessionId: 'no-such-session', skillName: 'any' });
-      expect(removed).toBe(false);
-    });
-  });
-
-  describe('session management', () => {
-    it('should clear session on unload of last skill', async () => {
-      createSkillFile('test-skill', `---
-name: test-skill
-description: "Test"
-tier: fast
-status: published
----
-## Test`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      expect(service.getActiveSessionCount()).toBeGreaterThan(0);
-
-      service.unloadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      expect(service.getSessionSkills('test-session')).toHaveLength(0);
-
-      removeSkillFile('test-skill');
-    });
-
-    it('should clear entire session', async () => {
-      createSkillFile('skill-a', `---
-name: skill-a
-description: "A"
-tier: fast
-status: published
----
-## A`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'skill-a' });
-      service.clearSession('test-session');
-      expect(service.getSessionSkills('test-session')).toHaveLength(0);
-
-      removeSkillFile('skill-a');
-    });
-  });
-
-  // ── #76: tier-based tool permission binding ──
-
-  describe('tool permissions (#76)', () => {
-    it('should return tools for fast tier', () => {
-      const tools = service.getToolsForTier('fast');
-      expect(tools).toContain('Read');
-      expect(tools).toContain('Bash');
-      expect(tools).not.toContain('Edit');
-      expect(tools).not.toContain('WebFetch');
-    });
-
-    it('should return tools for standard tier', () => {
-      const tools = service.getToolsForTier('standard');
-      expect(tools).toContain('Read');
-      expect(tools).toContain('Edit');
-      expect(tools).toContain('Write');
-      expect(tools).not.toContain('WebFetch');
-    });
-
-    it('should return tools for premium tier', () => {
-      const tools = service.getToolsForTier('premium');
-      expect(tools).toContain('Read');
-      expect(tools).toContain('Edit');
-      expect(tools).toContain('WebFetch');
-      expect(tools).toContain('WebSearch');
-    });
-
-    it('should check if tool is allowed for tier', () => {
-      expect(service.isToolAllowedForTier('Read', 'fast')).toBe(true);
-      expect(service.isToolAllowedForTier('Edit', 'fast')).toBe(false);
-      expect(service.isToolAllowedForTier('Edit', 'standard')).toBe(true);
-      expect(service.isToolAllowedForTier('WebFetch', 'standard')).toBe(false);
-      expect(service.isToolAllowedForTier('WebFetch', 'premium')).toBe(true);
-    });
-
-    it('should get session tools filtered by tier', async () => {
-      createSkillFile('tool-skill', `---
-name: tool-skill
-description: "Tools"
-tier: premium
-tools: [Read, Edit, WebFetch]
-status: published
----
-## Tools`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'tool-skill' });
-
-      const fastTools = service.getSessionTools('test-session', 'fast');
-      expect(fastTools).toEqual(['Read']);
-
-      const standardTools = service.getSessionTools('test-session', 'standard');
-      expect(standardTools).toContain('Read');
-      expect(standardTools).toContain('Edit');
-      expect(standardTools).not.toContain('WebFetch');
-
-      const premiumTools = service.getSessionTools('test-session', 'premium');
-      expect(premiumTools).toContain('Read');
-      expect(premiumTools).toContain('Edit');
-      expect(premiumTools).toContain('WebFetch');
-
-      removeSkillFile('tool-skill');
+      const cachedBase = await service.loadSkill({ sessionId: 'test-session', skillName: 'base-skill' });
+      expect(cachedBase).not.toBeNull();
+      expect(cachedBase!.name).toBe('base-skill');
     });
   });
 

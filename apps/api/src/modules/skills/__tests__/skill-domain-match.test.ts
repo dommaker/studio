@@ -25,7 +25,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   return { ...orig, logger: mockLogger };
 });
 
-const { loadManifest, invalidateManifestCache, loadSkillBody } = await import('../manifest-loader.js');
+const { loadManifest, invalidateManifestCache } = await import('../manifest-loader.js');
 const { selectSkillsWithDomain, parseSkillHintsFromScope } = await import('../skill-selector.js');
 type SkillEntry = import('../manifest-loader.js').SkillEntry;
 
@@ -98,16 +98,6 @@ describe('manifest-loader: agentTypes/status 解析（§10 P0）', () => {
 
     const skills = loadManifest();
     expect(skills.map(s => s.name)).toEqual(['live-skill']);
-  });
-
-  it('loadSkillBody returns body without frontmatter', () => {
-    writeSkill('body-skill', ['name: body-skill', 'description: "正文测试"'], '## 步骤\n\n1. 先做\n2. 后做');
-
-    const entry = loadManifest().find(s => s.name === 'body-skill')!;
-    const body = loadSkillBody(entry);
-    expect(body).toContain('## 步骤');
-    expect(body).not.toContain('---');
-    expect(body).not.toContain('description');
   });
 });
 

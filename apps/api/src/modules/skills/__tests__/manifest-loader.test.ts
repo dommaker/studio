@@ -16,7 +16,7 @@ vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-const { loadManifest, invalidateManifestCache, loadSkillContent, getSkillFilePath } = await import('../manifest-loader.js');
+const { loadManifest, invalidateManifestCache, getSkillFilePath } = await import('../manifest-loader.js');
 
 function writeSkill(dirName: string, name: string, description: string) {
   const dir = path.join(testSkillsDir, dirName);
@@ -117,23 +117,8 @@ describe('manifest-loader', () => {
     });
   });
 
-  describe('AC3: loadSkillContent reads SKILL.md full text', () => {
-    it('returns SKILL.md content for valid entry', () => {
-      writeSkill('test-skill', 'test-skill', '测试 Skill');
-
-      const entry = { name: 'test-skill', path: 'test-skill/SKILL.md', description: '测试' };
-      const content = loadSkillContent(entry);
-      expect(content).toContain('# test-skill');
-      expect(content).toContain('Skill content here.');
-    });
-
-    it('returns null for missing SKILL.md', () => {
-      const entry = { name: 'nonexistent', path: 'nonexistent/SKILL.md', description: 'test' };
-      const content = loadSkillContent(entry);
-      expect(content).toBeNull();
-    });
-
-    it('getSkillFilePath returns absolute path', () => {
+  describe('getSkillFilePath', () => {
+    it('returns absolute path', () => {
       const entry = { name: 'foo', path: 'foo/SKILL.md', description: 'test' };
       const absPath = getSkillFilePath(entry);
       expect(absPath).toContain('foo/SKILL.md');

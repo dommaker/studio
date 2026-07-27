@@ -139,37 +139,6 @@ export function getSkillFilePath(entry: SkillEntry): string {
 }
 
 /**
- * Read full SKILL.md content for a SkillEntry.
- * AC3: load full SKILL.md content for selected skill
- * Returns null if file doesn't exist.
- */
-export function loadSkillContent(entry: SkillEntry): string | null {
-  const filePath = getSkillFilePath(entry);
-  try {
-    if (!fs.existsSync(filePath)) {
-      logger.warn('[manifest-loader] SKILL.md not found', { path: filePath });
-      return null;
-    }
-    return fs.readFileSync(filePath, 'utf-8');
-  } catch (err) {
-    logger.error('[manifest-loader] Failed to read SKILL.md', { path: filePath, error: String(err) });
-    return null;
-  }
-}
-
-/**
- * 读取 SKILL.md 正文（剥掉 frontmatter）——agentStep prompt 注入用。
- * Returns null if file doesn't exist or body is empty.
- */
-export function loadSkillBody(entry: SkillEntry): string | null {
-  const content = loadSkillContent(entry);
-  if (!content) return null;
-  const match = content.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/);
-  const body = (match ? match[1] : content).trim();
-  return body || null;
-}
-
-/**
  * Invalidate cached manifest — call after external changes.
  */
 export function invalidateManifestCache(): void {

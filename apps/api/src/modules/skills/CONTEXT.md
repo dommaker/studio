@@ -11,7 +11,6 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 | 导出 | 文件 | 说明 |
 |------|------|------|
 | loadManifest, SkillEntry | manifest-loader.ts | 扫描技能目录，读取 SKILL.md frontmatter（name/description/agentTypes/status/triggers/consumers）构建技能条目；status 显式非 published 跳过 |
-| loadSkillContent, loadSkillBody | manifest-loader.ts | 读取 SKILL.md 全文 / 仅正文（剥 frontmatter） |
 | generateManifest | manifest-generator.ts | 从 frontmatter 重新生成 SKILLS_DIR/MANIFEST.md（GENERATED 文件，best-effort 不 throw）；skill-store 写 SKILL.md 后自动调用 |
 | ProposalStore 类, ProposalRecord, ProposalCreateInput, ProposalUpdateInput, ProposalListFilter | proposal-store.ts | 文件型 CRUD 操作技能提案 |
 | router | routes.ts | 技能 CRUD + discover 路由，挂载至 /api/v1/skills |
@@ -20,7 +19,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 | selectSkills | skill-selector.ts | 三层策略技能匹配：声明 triggers 时匹配 triggers（替代长 description），否则匹配 description（排除 NOT-for）；consumers 含 loop 的 skill 不参与 |
 | selectSkillsWithDomain, parseSkillHintsFromScope | skill-selector.ts | 决策 7/8/11：相关度排序器（显式 +hints > 域匹配（阶段词表归一化）> scope 匹配 > 其余按热度/名称序），全量不封顶（调用方按预算截断）；+skill 从 scope 解析 |
 | SkillRecord, SkillCreateInput, SkillUpdateInput | skill-store.ts | 技能元数据的类型定义及文件型 CRUD |
-| LoadedSkill, SessionSkillState, LoadSkillOptions, UnloadSkillOptions | skill-loader.ts | 技能加载相关的类型定义及层级工具权限 |
+| LoadedSkill, SessionSkillState, LoadSkillOptions | skill-loader.ts | 技能加载相关的类型定义 |
 | aggregateSkillUsage, scanSkillDemotions, approveDemotion, rejectDemotion, DemotionProposalStore | skill-demotion.ts | §10.6 降级通路：skill_used 事件 + WU 终态聚合 → 降级提案（只提案不自动生效；approve 改 frontmatter status，正文逐字节保留）；提案存 ~/.studio/data/skills/demotion-proposals.json |
 | router | skill-demotion-routes.ts | 降级提案列表（?scan=true 触发扫描）/ 审批路由，挂载至 /api/v1/skills/demotion-proposals（先于 /api/v1/skills 注册） |
 
@@ -49,7 +48,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 - `loadManifest()` 使用内存缓存，变更需重启进程或重新调用清除缓存
 - 两个路由文件均导出 `Router` 实例，需分别挂载到 Express 应用的不同路径（/api/v1/skills 与 /api/v1/skills/proposals）
 - skill-selector 匹配时会排除 `NOT-for` 子句，避免排除项关键词触发误匹配
-- 技能加载器根据 `tier`（fast/standard/premium）控制可访问的工具集合，不同层级工具权限不同
+- 技能加载器按 SKILL.md frontmatter 的 `tier` 字段记录技能层级（fast/standard/premium）
 - 所有日志使用 `@dommaker/studio-shared` 的 logger 实例，统一日志格式
 - **鉴权（2026-07-24 收紧）**：skills 7 条写（POST /、PATCH、DELETE、publish、deprecate、restore、usage）+ demotion-proposals approve/reject + proposals 5 条写已收 requireAuth+requireNotGuest。GET /api/v1/skills/proposals 被 skills 的 GET /:id 遮蔽，属路由顺序 bug（未修）。
 

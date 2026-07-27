@@ -39,7 +39,6 @@ const { mockLoadManifest, mockLoadSkill } = vi.hoisted(() => {
 vi.mock('../../skills/manifest-loader.js', () => ({
   loadManifest: mockLoadManifest,
   getSkillFilePath: vi.fn(() => '/tmp/test/SKILL.md'),
-  loadSkillContent: vi.fn(() => 'test'),
   invalidateManifestCache: vi.fn(),
 }));
 

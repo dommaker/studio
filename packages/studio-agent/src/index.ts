@@ -10,8 +10,6 @@ export type {
   JSONSchema,
   AgentConfig,
   AgentCapabilities,
-  AgentPersona,
-  AgentPersonaConstraints,
 } from './types.js';
 
 export type { AgentTask, ExecutionResult } from './services/session-manager.js';

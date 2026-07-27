@@ -2,10 +2,9 @@
  * SkillLoader API Service - file-based skill loading with session lifecycle
  *
  * Wraps @dommaker/studio-skill package loader.
- * Adds: session-level load/unload, tier-based tool permissions.
+ * Adds: session-level load cache（生产调用方仅 mcp/skill.tools.ts 的 loadSkill）。
  *
- * #75: load/unload lifecycle
- * #76: tier-based tool permission binding
+ * #75: loadSkill lifecycle
  */
 
 import { type SkillTier } from '@dommaker/studio-skill';
@@ -36,19 +35,6 @@ export interface LoadSkillOptions {
   skillName: string;
   agentType?: string;
 }
-
-export interface UnloadSkillOptions {
-  sessionId: string;
-  skillName: string;
-}
-
-// ── Tier -> tool access mapping ──
-
-const TIER_TOOL_ACCESS: Record<SkillTier, Set<string>> = {
-  fast: new Set(['Read', 'Glob', 'Grep', 'Bash']),
-  standard: new Set(['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'NotebookEdit']),
-  premium: new Set(['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch']),
-};
 
 // ── File-based skill loading (.md with frontmatter) ──
 
@@ -192,96 +178,6 @@ export class SkillLoaderService {
     return loaded;
   }
 
-  /**
-   * Unload a skill from a session context.
-   * Removes prompt + tools from loaded state.
-   *
-   * #75: unloadSkill lifecycle
-   */
-  unloadSkill(options: UnloadSkillOptions): boolean {
-    const { sessionId, skillName } = options;
-    const state = sessionStates.get(sessionId);
-    if (!state) return false;
-
-    const existed = state.loaded.has(skillName);
-    state.loaded.delete(skillName);
-
-    if (existed) {
-      logger.info('[SkillLoader] Unloaded skill', { sessionId, skillName });
-    }
-
-    // Clean up empty sessions
-    if (state.loaded.size === 0) {
-      sessionStates.delete(sessionId);
-    }
-
-    return existed;
-  }
-
-  /**
-   * Get all loaded skills for a session.
-   */
-  getSessionSkills(sessionId: string): LoadedSkill[] {
-    const state = sessionStates.get(sessionId);
-    if (!state) return [];
-    return [...state.loaded.values()];
-  }
-
-  /**
-   * Get all allowed tools for a session (union of all loaded skill tools,
-   * filtered by tier permission).
-   *
-   * #76: tier-based tool permission binding
-   */
-  getSessionTools(sessionId: string, tier: SkillTier = 'standard'): string[] {
-    const skills = this.getSessionSkills(sessionId);
-    const allowedByTier = TIER_TOOL_ACCESS[tier] || TIER_TOOL_ACCESS.standard;
-
-    const tools = new Set<string>();
-    for (const skill of skills) {
-      for (const tool of skill.tools) {
-        if (allowedByTier.has(tool)) {
-          tools.add(tool);
-        }
-      }
-    }
-    return [...tools];
-  }
-
-  /**
-   * Get allowed tools for a specific tier.
-   * Used by tool permission service to enforce tier-based access.
-   *
-   * #76: tier-based tool permission binding
-   */
-  getToolsForTier(tier: SkillTier): string[] {
-    return [...(TIER_TOOL_ACCESS[tier] || TIER_TOOL_ACCESS.standard)];
-  }
-
-  /**
-   * Check if a tool is allowed for a given tier.
-   *
-   * #76: tier-based tool permission binding
-   */
-  isToolAllowedForTier(toolName: string, tier: SkillTier): boolean {
-    const allowed = TIER_TOOL_ACCESS[tier] || TIER_TOOL_ACCESS.standard;
-    return allowed.has(toolName);
-  }
-
-  /**
-   * Clear all loaded skills for a session (cleanup).
-   */
-  clearSession(sessionId: string): void {
-    sessionStates.delete(sessionId);
-    logger.info('[SkillLoader] Cleared session', { sessionId });
-  }
-
-  /**
-   * Get active session count (for monitoring).
-   */
-  getActiveSessionCount(): number {
-    return sessionStates.size;
-  }
 }
 
 /** Singleton */
