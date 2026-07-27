@@ -14,8 +14,6 @@ export type {
   AgentPersonaConstraints,
 } from './types.js';
 
-export { getPersona, listPersonas, DEFAULT_PERSONAS } from './registry.js';
-
 export type { AgentTask, ExecutionResult } from './services/session-manager.js';
 
 // CLI adapter — pure function buildSpawnArgs for provider-specific CLI args

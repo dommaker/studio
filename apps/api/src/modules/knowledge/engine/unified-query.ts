@@ -1,7 +1,7 @@
 /**
  * UnifiedQuery — dual-store unified query layer.
  * Wraps Prisma (structured data) + KnowledgeStore (narrative knowledge).
- * Consumer-facing API: buildKnowledgeContext, Studio UI, search.
+ * Consumer-facing API: knowledgeService.injectContext, Studio UI, search.
  */
 import * as fs from 'fs';
 import * as path from 'path';
