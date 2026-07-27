@@ -397,3 +397,97 @@ describe('AC Group 1: studio role', () => {
     });
   });
 });
+
+// ── 决策 9: create preset 从 .agents/roles/*.yaml 预填 ──
+
+describe('决策 9: create preset 预填（.agents/roles/*.yaml）', () => {
+  let tmpDir: string;
+  let rolesDir: string;
+  let fileStore: FileStore;
+  let service: AgentProfileService;
+  let savedRolesDir: string | undefined;
+
+  beforeEach(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'profile-preset-test-'));
+    rolesDir = path.join(tmpDir, 'roles');
+    fs.mkdirSync(rolesDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(rolesDir, 'developer.yaml'),
+      [
+        'id: developer',
+        'name: Developer',
+        'description: 代码实现、TDD 流程',
+        'acceptedTypes: [implement]',
+        'persona: |',
+        '  你是开发者。遵循 TDD 流程。',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    fileStore = new FileStore(tmpDir);
+    service = new AgentProfileService(fileStore);
+    savedRolesDir = process.env.STUDIO_ROLES_DIR;
+    process.env.STUDIO_ROLES_DIR = rolesDir;
+  });
+
+  afterEach(() => {
+    if (savedRolesDir === undefined) delete process.env.STUDIO_ROLES_DIR;
+    else process.env.STUDIO_ROLES_DIR = savedRolesDir;
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('preset 带入 description/persona/acceptedTypes', async () => {
+    const profile = await service.create({ name: 'dev-1', preset: 'developer' });
+
+    expect(profile.description).toBe('代码实现、TDD 流程');
+    expect(profile.persona).toBe('你是开发者。遵循 TDD 流程。\n');
+    expect(profile.acceptedTypes).toEqual(['implement']);
+    // 落盘后可回读
+    const onDisk = await service.getById(profile.id);
+    expect(onDisk!.acceptedTypes).toEqual(['implement']);
+    expect(onDisk!.persona).toContain('你是开发者');
+  });
+
+  it('显式传入字段优先于预设', async () => {
+    const profile = await service.create({
+      name: 'dev-2',
+      preset: 'developer',
+      description: '显式描述',
+      persona: '显式 persona',
+      acceptedTypes: ['review'],
+    });
+
+    expect(profile.description).toBe('显式描述');
+    expect(profile.persona).toBe('显式 persona');
+    expect(profile.acceptedTypes).toEqual(['review']);
+  });
+
+  it('显式传入 persona/acceptedTypes（无 preset）', async () => {
+    const profile = await service.create({
+      name: 'dev-3',
+      persona: '直接给的 persona',
+      acceptedTypes: ['test', 'review'],
+    });
+
+    expect(profile.persona).toBe('直接给的 persona');
+    expect(profile.acceptedTypes).toEqual(['test', 'review']);
+  });
+
+  it('未知 preset 拒绝创建（防手误静默丢配置）', async () => {
+    await expect(service.create({ name: 'dev-4', preset: 'no-such-role' }))
+      .rejects.toThrow(/preset not found|not found.*preset/i);
+  });
+
+  it('含路径字符的 preset 拒绝创建（防目录穿越）', async () => {
+    await expect(service.create({ name: 'dev-5', preset: '../../etc/passwd' }))
+      .rejects.toThrow(/preset not found|not found.*preset/i);
+  });
+
+  it('无 preset 时行为不变（persona/acceptedTypes 不落盘）', async () => {
+    const profile = await service.create({ name: 'dev-6' });
+
+    expect(profile.description).toBeNull();
+    expect(profile.persona).toBeUndefined();
+    expect(profile.acceptedTypes).toBeUndefined();
+  });
+});
