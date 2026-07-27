@@ -216,16 +216,16 @@ export async function studioStatus() {
     }
   } catch { /* optional */ }
 
-  // 6. G4: Trajectory eval
+  // 6. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
   try {
     const fs = await import('fs');
-    const path = await import('path');
-    const { resolveEventsDir } = await import('@dommaker/studio-shared');
-    const sf = path.join(resolveEventsDir(), 'studio.jsonl');
+    const { resolveStudioEventsFile, parseStudioEventPayload } = await import('../utils/studio-events.js');
+    const sf = resolveStudioEventsFile();
     if (fs.existsSync(sf)) {
       const lines = fs.readFileSync(sf, 'utf-8').split('\n').filter(Boolean);
       const trajectory = lines.map(l => { try { return JSON.parse(l); } catch { return null; } })
         .filter((e: any) => e?.type === 'monitor:trajectory')
+        .map((e: any) => ({ ...(parseStudioEventPayload(e) ?? {}), ...e }))
         .pop();
       if (trajectory) {
         const emoji = trajectory.verdict === 'good' ? '✅' : trajectory.verdict === 'degraded' ? '⚠️' : '❌';

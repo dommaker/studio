@@ -15,6 +15,7 @@ import * as path from 'path';
 import { generateSessionSummary } from './session-summary-generator.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { writeStudioEvent, isEmptyEventPayload } from '../../utils/studio-events.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
@@ -35,6 +36,7 @@ interface AgentEvent {
  * POST /api/v1/events
  * Create a new StudioEvent.
  * Body: { type: string, source: string, payload: Record<string, unknown> }
+ * D18：payload 为空（{} / null / undefined）拒绝落盘 → 400（调用方自查）。
  */
 router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
@@ -42,16 +44,21 @@ router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Res
     if (!type || !source) {
       return res.status(400).json({ error: 'type and source are required' });
     }
+    if (isEmptyEventPayload(payload)) {
+      return res.status(400).json({ error: 'payload must be a non-empty object' });
+    }
 
-    const event = {
+    const written = await writeStudioEvent(type, payload, { source });
+    if (!written) {
+      return res.status(500).json({ error: 'Failed to create event' });
+    }
+
+    res.status(201).json({
       type,
       source,
-      payload: typeof payload === 'string' ? payload : JSON.stringify(payload ?? {}),
+      payload: typeof payload === 'string' ? payload : JSON.stringify(payload),
       createdAt: new Date().toISOString(),
-    };
-    await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, event);
-
-    res.status(201).json(event);
+    });
   } catch (error: any) {
     logger.error('[StudioEvent] POST failed', { error: String(error) });
     res.status(500).json({ error: 'Failed to create event' });
@@ -130,17 +137,16 @@ router.post('/agent-events', requireAuth(), requireNotGuest(), async (req: Reque
       return res.status(400).json({ error: 'Validation failed', details: errors });
     }
 
-    // Batch insert — map AgentEvent → StudioEvent
+    // Batch insert — map AgentEvent → StudioEvent（D18：统一写入入口；payload 恒含 sessionId 非空）
     for (const e of events) {
-      await fileStore.appendJsonl(STUDIO_EVENTS_JSONL, {
-        type: e.type,
+      const written = await writeStudioEvent(e.type, {
+        sessionId: e.sessionId,
+        ...(typeof e.payload === 'object' && e.payload !== null ? e.payload : {}),
+      }, {
         source: e.agentId,
-        payload: JSON.stringify({
-          sessionId: e.sessionId,
-          ...(typeof e.payload === 'object' && e.payload !== null ? e.payload : {}),
-        }),
         createdAt: new Date(e.timestamp).toISOString(),
       });
+      if (!written) throw new Error(`event write rejected/failed: ${e.type}`);
     }
 
     logger.info('[AgentEvents] Batch ingested', { count: events.length, agentId: events[0].agentId });

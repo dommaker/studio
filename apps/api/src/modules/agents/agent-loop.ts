@@ -2,7 +2,7 @@
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
 // Knowledge search analysis preserved as module-level exports.
 import { execSync } from 'child_process';
-import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, resolveEventsDir, estimateTokens, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { resolveProviderDefinition, buildHealthProbeCommand, execSh } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
@@ -21,6 +21,7 @@ import { loadManifest } from '../skills/manifest-loader.js';
 import { eventStore } from '../../core/event-store.js';
 import { getWorkspaceRecord, resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -651,6 +652,12 @@ export class AgentLoop {
         executionId: task.executionId,
         injectedTokens: estimateTokens(knowledgeContext.length),
         executionTokens,
+        // D16: 缓存命中率数据源（CLI 回报 usage 时才有；未回报则缺省不编造）
+        ...(result.usage ? {
+          inputTokens: result.usage.inputTokens,
+          cacheReadTokens: result.usage.cacheReadTokens,
+          cacheCreationTokens: result.usage.cacheCreationTokens,
+        } : {}),
       }).catch(() => {});
 
       // wireup④ token 预算数据源: 本次 executionTokens 累加进 metadata._cumulativeTokens，
@@ -659,7 +666,7 @@ export class AgentLoop {
       metadataUpdates._cumulativeTokens = (metadata._cumulativeTokens ?? 0) + (executionTokens ?? 0);
 
       // T-1.1: Record tool:call events for PatternMiner data source
-      // R2: 写入统一事件目录（STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）
+      // D18: 写入统一事件文件（~/.studio/logs/studio-events.jsonl）
       // R2-fix: outputText 是 extractResult 后的纯文本（不含 stream-json 事件行），
       // 必须优先取 rawOutput（原始 stdout）——否则 parseStreamEvents 恒产 0 条。
       const toolTraceSource = result.rawOutput ?? result.outputText;
@@ -1610,6 +1617,11 @@ export interface WorkunitTokenEventArgs {
   executionTokens: number | null;
   /** LLM 提取 tokens（可选；R3 提取异步入库，通常由 knowledge:extraction 事件单独度量） */
   extractionTokens?: number;
+  /** D16: CLI usage 的 input tokens（缓存命中率分子分母用；有 usage 时写入） */
+  inputTokens?: number;
+  /** D16: CLI usage 的 cache read / creation tokens（缓存命中率用；有 usage 时写入） */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 }
 
 /**
@@ -1632,6 +1644,9 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
       executionSource: executionTokens !== null ? 'cli-usage' : 'unavailable',
       totalTokens: args.injectedTokens + (executionTokens ?? 0),
       ...(typeof args.extractionTokens === 'number' ? { extractionTokens: args.extractionTokens } : {}),
+      ...(typeof args.inputTokens === 'number' ? { inputTokens: args.inputTokens } : {}),
+      ...(typeof args.cacheReadTokens === 'number' ? { cacheReadTokens: args.cacheReadTokens } : {}),
+      ...(typeof args.cacheCreationTokens === 'number' ? { cacheCreationTokens: args.cacheCreationTokens } : {}),
     }),
     createdAt: new Date().toISOString(),
   });
@@ -1640,17 +1655,19 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
 // ─── tool:call event recording ───
 
 /**
- * R2: tool trace 文件路径 — 经统一 resolver 解析
- * （STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）。懒解析以支持运行时/测试注入 env。
+ * D18 事件入口统一: tool:call trace 写入统一事件文件
+ * （~/.studio/logs/studio-events.jsonl，测试期经 studio-log-path 隔离）。
+ * 懒解析以支持运行时/测试注入 env。
  */
 export function resolveToolTraceFile(): string {
-  return join(resolveEventsDir(), 'studio.jsonl');
+  return resolveStudioEventsFile();
 }
 
 /**
  * Write tool:call events extracted from stream-json output to a JSONL file.
  * Returns the count of tool calls written.
  * T-1.1: Wiring tool:call recording for PatternMiner data source.
+ * D18: StudioEvent 形态（payload 嵌套），与 daemon/task-executor 的 tool:call 一致。
  */
 export function writeToolCallEvents(outputText: string, filePath: string): number {
   const events = parseStreamEvents(outputText);
@@ -1664,11 +1681,15 @@ export function writeToolCallEvents(outputText: string, filePath: string): numbe
   for (const call of toolCalls) {
     const event = JSON.stringify({
       type: 'tool:call',
-      tool: call.name,
-      success: true,
-      durationMs: 0,
-      timestamp: now,
-      caller: 'agent-loop',
+      source: 'agent-loop',
+      payload: JSON.stringify({
+        tool: call.name,
+        success: true,
+        durationMs: 0,
+        timestamp: now,
+        caller: 'agent-loop',
+      }),
+      createdAt: new Date(now).toISOString(),
     });
     appendFileSync(filePath, event + '\n', 'utf-8');
   }

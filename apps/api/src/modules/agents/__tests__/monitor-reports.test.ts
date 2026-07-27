@@ -1,19 +1,24 @@
 /**
- * monitor-reports — 轨迹评估 / 每日洞察 / 交互模式观察
+ * monitor-reports — 轨迹评估 / 每日洞察 / 交互模式观察（D18: 统一事件文件）
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
 const {
-  tmpHome, tmpEvents, mockLogger, mockUpdatePref, mockExecSync,
+  tmpHome, tmpEvents, eventsFile, mockLogger, mockUpdatePref, mockExecSync,
 } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
+  const tmpEvents = fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-reports-events-'));
+  const eventsFile = path.join(tmpEvents, 'studio-events.jsonl');
+  // D18: 统一事件文件按测试文件隔离（resolveStudioEventsFile 懒读 env）
+  process.env.STUDIO_EVENTS_FILE = eventsFile;
   return {
     tmpHome: fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-reports-home-')),
-    tmpEvents: fs.mkdtempSync(path.join(os.tmpdir(), 'monitor-reports-events-')),
+    tmpEvents,
+    eventsFile,
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockUpdatePref: vi.fn(() => Promise.resolve()),
     mockExecSync: vi.fn(() => '0'),
@@ -27,10 +32,10 @@ vi.mock('os', async (importOriginal) => {
 
 vi.mock('child_process', () => ({ execSync: mockExecSync }));
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: mockLogger,
-  resolveEventsDir: () => tmpEvents,
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return { ...actual, logger: mockLogger };
+});
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { getStats: () => ({ total: 5, pattern: 2, fix: 1 }) },
@@ -48,20 +53,20 @@ vi.mock('../triage-agent.service.js', () => ({
   triageAgent: { handleAlert: vi.fn(() => Promise.resolve()) },
 }));
 
-vi.mock('@dommaker/harness', () => ({
-  KnowledgeAudit: class { run() { return { totalEntries: 0 }; } },
-  FileKnowledgeStore: class { snapshot() {} },
-}));
+vi.mock('@dommaker/harness', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/harness')>();
+  return {
+    ...actual,
+    KnowledgeAudit: class { run() { return { totalEntries: 0 }; } },
+    FileKnowledgeStore: class { snapshot() {} },
+  };
+});
 
 import { evaluateTrajectory, dailyReflection } from '../monitor-reports.js';
 
-function eventsFile(): string {
-  return path.join(tmpEvents, 'studio.jsonl');
-}
-
 function readEventLines(): any[] {
-  if (!fs.existsSync(eventsFile())) return [];
-  return fs.readFileSync(eventsFile(), 'utf-8')
+  if (!fs.existsSync(eventsFile)) return [];
+  return fs.readFileSync(eventsFile, 'utf-8')
     .split('\n')
     .filter(l => l.trim())
     .map(l => JSON.parse(l));
@@ -79,7 +84,7 @@ function makeFileStore(overrides: Record<string, unknown> = {}): any {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  if (fs.existsSync(eventsFile())) fs.unlinkSync(eventsFile());
+  if (fs.existsSync(eventsFile)) fs.unlinkSync(eventsFile);
 });
 
 describe('evaluateTrajectory (G4)', () => {
@@ -102,10 +107,16 @@ describe('evaluateTrajectory (G4)', () => {
 
     await evaluateTrajectory(fileStore);
 
-    const lines = readEventLines();
+    // emitMonitorEvent 是 fire-and-forget —— 等待落盘（D18: StudioEvent 形态，字段在 payload）
+    let lines: any[] = [];
+    await vi.waitFor(() => {
+      lines = readEventLines();
+      expect(lines.some(l => l.type === 'monitor:alert')).toBe(true);
+    });
+
     const report = lines.find(l => l.type === 'monitor:trajectory');
     expect(report).toBeDefined();
-    expect(report).toMatchObject({
+    expect(JSON.parse(report.payload)).toMatchObject({
       totalWorkUnits: 3,
       efficiency: '67%',  // (1 efficient + 1 normal) / 3 timed
       slowRate: '33%',
@@ -114,14 +125,16 @@ describe('evaluateTrajectory (G4)', () => {
       verdict: 'good',
     });
 
-    const alert = lines.find(l => l.type === 'monitor:alert' && l.source === 'trajectory');
+    const alert = lines.find(l => l.type === 'monitor:alert' && JSON.parse(l.payload).source === 'trajectory');
     expect(alert).toBeDefined();
-    expect(alert.level).toBe('warning');
-    expect(alert.message).toContain('67%');
+    const alertPayload = JSON.parse(alert.payload);
+    expect(alertPayload.level).toBe('warning');
+    expect(alertPayload.message).toContain('67%');
   });
 
   it('does nothing when no recent completed workUnits', async () => {
     await evaluateTrajectory(makeFileStore());
+    await new Promise(r => setTimeout(r, 50));
     expect(readEventLines()).toHaveLength(0);
   });
 });
@@ -144,11 +157,56 @@ describe('dailyReflection', () => {
     await dailyReflection(fileStore, state);
 
     expect(state.lastDailyReflectionTs).toBeGreaterThan(0);
-    expect(fileStore.appendJsonl).toHaveBeenCalledWith(
-      expect.stringContaining('studio.jsonl'),
-      expect.objectContaining({ type: 'daily_reflection', source: 'monitor' }),
-    );
+    // D18: daily_reflection 经统一入口落盘（fire-and-forget —— 等待）
+    await vi.waitFor(() => {
+      const lines = readEventLines();
+      const evt = lines.find(l => l.type === 'daily_reflection' && l.source === 'monitor');
+      expect(evt).toBeDefined();
+    });
     // listChannels → [] → 不发频道卡片；DISCORD_DAILY_CHANNEL 未设置 → 不发 Discord
     expect(fileStore.listChannels).toHaveBeenCalledWith({ name: '#系统' });
+  });
+
+  it('读方一致（D18 裂口修复）：session:summary / knowledge:consumption 从统一文件可读', async () => {
+    // 会话活动 + 知识消费事件写在统一文件（session-summary-generator 同款 StudioEvent 形态）
+    const now = Date.now();
+    const rows = [
+      {
+        type: 'session:summary', source: 'claude',
+        payload: JSON.stringify({
+          sessionId: 's1', agentId: 'claude', filesChanged: ['a.ts'], toolsUsed: ['Bash'],
+          patternType: 'ci_fix', eventCount: 42, durationMs: 600_000,
+        }),
+        createdAt: new Date(now - 3600_000).toISOString(),
+      },
+      {
+        type: 'knowledge:consumption', source: 'prompt-inject',
+        payload: JSON.stringify({ entryId: 'k1', timestamp: new Date(now - 3600_000).toISOString() }),
+        createdAt: new Date(now - 3600_000).toISOString(),
+      },
+    ];
+    fs.writeFileSync(eventsFile, rows.map(r => JSON.stringify(r)).join('\n') + '\n', 'utf-8');
+
+    const posted: string[] = [];
+    const fileStore = makeFileStore({
+      listChannels: vi.fn(async () => [{ id: 'ch-sys', name: '#系统' }]),
+    });
+    vi.doMock('../../channels/channel-message.service.js', () => ({
+      channelMessageService: {
+        createAgentMessage: vi.fn(async (_ch: string, _sender: string, content: string) => {
+          posted.push(content);
+        }),
+      },
+    }));
+    vi.resetModules();
+    const { dailyReflection: dr } = await import('../monitor-reports.js');
+
+    await dr(fileStore, { lastDailyReflectionTs: 0 });
+
+    // 频道卡片内容包含会话活动（此前读 studio.jsonl 永远读不到）
+    expect(posted.length).toBeGreaterThan(0);
+    expect(posted[0]).toContain('会话活动');
+    expect(posted[0]).toContain('会话: 1 次');
+    expect(posted[0]).toContain('知识消费');
   });
 });

@@ -4,7 +4,7 @@
  * 从 monitor-agent.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责每日 23:55 的数据生命周期管理：
  *   - 沉淀闸门：清理前从即将过期的数据中提取知识，成功后标记 precipitated
- *   - TTL 清理：Session / WorkUnit / studio.jsonl / StudioEvent / sessions 归档 / traces 备份
+ *   - TTL 清理：Session / WorkUnit / 统一事件文件（D18: studio-events.jsonl）/ StudioEvent / sessions 归档 / traces 备份
  */
 
 import * as fs from 'fs';
@@ -13,6 +13,7 @@ import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
 import { studioEventsJsonl } from './monitor-alerts.js';
+import { getStudioEventTime } from '../../utils/studio-events.js';
 
 /**
  * 生命周期的实例级状态（由 MonitorAgent 实例持有并传入，保持 per-instance 语义）。
@@ -51,12 +52,11 @@ async function precipitateStudioEvents(fileStore: FileStore): Promise<boolean> {
     const oldCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
 
     const allEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
-    const unmarked = allEvents.filter((e: any) =>
-      !e.precipitated
-      && e.timestamp
-      && new Date(e.timestamp).getTime() >= oldCutoff.getTime()
-      && new Date(e.timestamp).getTime() < cutoff.getTime()
-    );
+    const inWindow = (e: any) => {
+      const ts = getStudioEventTime(e);
+      return Number.isFinite(ts) && ts >= oldCutoff.getTime() && ts < cutoff.getTime();
+    };
+    const unmarked = allEvents.filter((e: any) => !e.precipitated && inWindow(e));
 
     if (unmarked.length === 0) {
       logger.info('[MonitorAgent] Precipitate: no unprompted StudioEvents');
@@ -64,13 +64,7 @@ async function precipitateStudioEvents(fileStore: FileStore): Promise<boolean> {
     }
 
     // Mark as precipitated in the JSONL file
-    const updatedEvents = allEvents.map((e: any) => {
-      const isMatch = !e.precipitated
-        && e.timestamp
-        && new Date(e.timestamp).getTime() >= oldCutoff.getTime()
-        && new Date(e.timestamp).getTime() < cutoff.getTime();
-      return isMatch ? { ...e, precipitated: true } : e;
-    });
+    const updatedEvents = allEvents.map((e: any) => (!e.precipitated && inWindow(e) ? { ...e, precipitated: true } : e));
 
     await fs.promises.writeFile(
       studioEventsJsonl(),
@@ -196,7 +190,7 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
     // 4. FileStore disk check (no VACUUM needed for file-based storage)
     logger.info('[MonitorAgent] TTL: disk cleanup completed (FileStore — no VACUUM needed)');
 
-    // 5. Truncate studio.jsonl（统一事件目录）keeping only last 7 days
+    // 5. Truncate 统一事件文件（D18: studio-events.jsonl）keeping only last 7 days
     try {
       const eventsFile = studioEventsJsonl();
       if (fs.existsSync(eventsFile)) {
@@ -208,8 +202,8 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
           if (!line.trim()) continue;
           try {
             const entry = JSON.parse(line);
-            const ts = entry.timestamp || 0;
-            if (ts >= sevenDaysAgo) {
+            const ts = getStudioEventTime(entry);
+            if (Number.isFinite(ts) && ts >= sevenDaysAgo) {
               keepLines.push(line);
             } else {
               removedCount++;
@@ -220,10 +214,10 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
           }
         }
         fs.writeFileSync(eventsFile, keepLines.join('\n') + '\n', 'utf-8');
-        logger.info('[MonitorAgent] TTL: studio.jsonl truncated', { kept: keepLines.length, removed: removedCount });
+        logger.info('[MonitorAgent] TTL: studio-events.jsonl truncated', { kept: keepLines.length, removed: removedCount });
       }
     } catch (e) {
-      logger.warn('[MonitorAgent] TTL: studio.jsonl truncation failed', { error: String(e) });
+      logger.warn('[MonitorAgent] TTL: studio-events.jsonl truncation failed', { error: String(e) });
     }
 
     // 6. (removed: knowledge.md truncation — dead chain, KnowledgeStore replaces)
@@ -231,10 +225,10 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
     // 7. StudioEvent TTL: 删除已沉淀且 >30d 的事件
     if (gate.studioEvent !== false) {
       try {
-        const eventCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
+        const eventCutoffMs = Date.now() - 30 * 24 * 3600_000;
         const allEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
         const filtered = allEvents.filter((e: any) =>
-          !(e.precipitated && e.timestamp && new Date(e.timestamp).getTime() < eventCutoff.getTime())
+          !(e.precipitated && Number.isFinite(getStudioEventTime(e)) && getStudioEventTime(e) < eventCutoffMs)
         );
         await fs.promises.writeFile(
           studioEventsJsonl(),

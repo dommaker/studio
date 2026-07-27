@@ -3,38 +3,35 @@
  *
  * 从 monitor-agent.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责告警出口侧：
- *   - 告警日志分级 + studio.jsonl 事件写入 + notifyAlert 通知出口（P0 修复 4）
+ *   - 告警日志分级 + 统一事件写入（D18: utils/studio-events）+ notifyAlert 通知出口（P0 修复 4）
  *   - FL-037: critical 告警升级 Triage
  *   - H3: 告警写入 KnowledgeBus pattern
  */
 
-import * as path from 'path';
-import { logger, resolveEventsDir } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { notifyAlert } from '../../utils/notifier.js';
 import type { MonitorAlert } from './types.js';
 import { triageAgent } from './triage-agent.service.js';
+import { resolveStudioEventsFile, writeStudioEvent } from '../../utils/studio-events.js';
 
 /**
- * R2 事件目录统一: studio.jsonl 路径经 resolveEventsDir() 懒解析
- * （STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）。
- * 懒解析保证运行时/测试注入的 env 生效，且模块加载期不读 env。
+ * D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl
+ * （测试期经 studio-log-path 隔离）。保留本函数名以兼容既有调用方/测试。
  */
 export function studioEventsJsonl(): string {
-  return path.join(resolveEventsDir(), 'studio.jsonl');
+  return resolveStudioEventsFile();
 }
 
+/**
+ * 统一事件写入（D18）：data.type 作为事件类型，其余字段作为 payload
+ * （StudioEvent 形态 { type, source: 'monitor', payload, createdAt }）。
+ * fire-and-forget：写盘失败/空 payload 仅记日志，不阻塞 check loop。
+ */
 export function emitMonitorEvent(data: Record<string, unknown>): void {
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const dir = resolveEventsDir(); // R2: 统一事件目录
-    fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(
-      path.join(dir, 'studio.jsonl'),
-      JSON.stringify(data) + '\n',
-    );
-  } catch { /* non-blocking */ }
+  const { type, ...rest } = data;
+  if (typeof type !== 'string' || !type) return;
+  void writeStudioEvent(type, rest, { source: 'monitor' });
 }
 
 /** Log all alerts + emit warning/critical to studio events file + notifyAlert 出口（频道 + 企业微信 webhook） */
@@ -50,7 +47,7 @@ export function dispatchMonitorAlerts(alerts: MonitorAlert[]): void {
     // Emit to studio events file + 通知出口（P0 修复 4：频道 + 企业微信 webhook）
     if (alert.level === 'critical' || alert.level === 'warning') {
       try {
-        emitMonitorEvent({ type: 'monitor:alert', ...alert, timestamp: Date.now() });
+        emitMonitorEvent({ type: 'monitor:alert', ...alert });
       } catch { /* non-blocking */ }
       // fire-and-forget：sink 失败仅记日志，不阻塞 check loop
       void notifyAlert(alert.level, `[Monitor] ${alert.source}`, alert.message)

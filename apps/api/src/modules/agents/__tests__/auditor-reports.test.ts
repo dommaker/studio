@@ -2,17 +2,22 @@
  * auditor-reports — 洞察与报告输出单元测试
  * analyzeSessionTrends / trackTrends / saveTierStats / postToSystemChannel
  */
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpHome, tmpEvents, mockSave } = vi.hoisted(() => {
+const { tmpHome, tmpEvents, eventsFile, mockSave } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
+  const tmpEvents = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-events-'));
+  const eventsFile = path.join(tmpEvents, 'studio-events.jsonl');
+  // D18: 统一事件文件按测试文件隔离（resolveStudioEventsFile 懒读 env）
+  process.env.STUDIO_EVENTS_FILE = eventsFile;
   return {
     tmpHome: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-home-')),
-    tmpEvents: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-events-')),
+    tmpEvents,
+    eventsFile,
     mockSave: vi.fn(),
   };
 });
@@ -36,17 +41,6 @@ import {
 
 const snapshotFile = path.join(tmpHome, '.studio', 'auditor', 'daily-snapshots.jsonl');
 
-const prevEventsDir = process.env.STUDIO_EVENTS_DIR;
-
-beforeAll(() => {
-  process.env.STUDIO_EVENTS_DIR = tmpEvents;
-});
-
-afterAll(() => {
-  if (prevEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
-  else process.env.STUDIO_EVENTS_DIR = prevEventsDir;
-});
-
 function makeSnapshot(overrides: Record<string, unknown> = {}) {
   return {
     date: '2026-07-10',
@@ -62,10 +56,11 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
 }
 
 function writeSessionEvents(events: Array<Record<string, unknown>>): void {
+  // D18: 历史扁平形态（字段在顶层）写入统一事件文件 —— 读方需兼容
   const jsonl = events.map(e => JSON.stringify({
-    source: 'test', payload: '{}', ...e,
+    source: 'test', ...e,
   })).join('\n');
-  fs.writeFileSync(path.join(tmpEvents, 'studio.jsonl'), jsonl + '\n', 'utf-8');
+  fs.writeFileSync(eventsFile, jsonl + '\n', 'utf-8');
 }
 
 // ── trackTrends ──
@@ -133,7 +128,7 @@ describe('analyzeSessionTrends()', () => {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   beforeEach(() => {
-    try { fs.unlinkSync(path.join(tmpEvents, 'studio.jsonl')); } catch {}
+    try { fs.unlinkSync(eventsFile); } catch {}
     try { fs.unlinkSync(snapshotFile); } catch {}
   });
 
@@ -159,6 +154,27 @@ describe('analyzeSessionTrends()', () => {
     expect(insights[0]).toContain('开发会话: 2 次');
     expect(insights[0]).toContain('深度分析: 1');
     expect(insights[0]).toContain('知识捕获率: 100%');
+  });
+
+  it('D18: 兼容 StudioEvent 新形态（payload 嵌套 + createdAt + eventCount）', async () => {
+    const jsonl = [
+      JSON.stringify({
+        type: 'session:summary', source: 'claude',
+        payload: JSON.stringify({ sessionId: 's1', agentId: 'claude', filesChanged: [], toolsUsed: ['Bash'], patternType: 'ci_fix', eventCount: 20, durationMs: 60000 }),
+        createdAt: new Date().toISOString(),
+      }),
+      JSON.stringify({
+        type: 'session:summary', source: 'claude',
+        payload: JSON.stringify({ sessionId: 's2', agentId: 'claude', filesChanged: [], toolsUsed: [], patternType: 'unknown', eventCount: 40 }),
+        createdAt: new Date().toISOString(),
+      }),
+    ].join('\n');
+    fs.writeFileSync(eventsFile, jsonl + '\n', 'utf-8');
+
+    const insights = await analyzeSessionTrends(since);
+    expect(insights[0]).toContain('开发会话: 2 次');
+    // eventCount 映射为 turns：平均 (20+40)/2 = 30 —— 不触发 >30 偏高告警
+    expect(insights.join('\n')).not.toContain('平均会话');
   });
 
   it('flags sensitive ops, capture degradation and long sessions', async () => {

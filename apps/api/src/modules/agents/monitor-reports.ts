@@ -15,7 +15,19 @@ import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
-import { studioEventsJsonl, emitMonitorEvent } from './monitor-alerts.js';
+import { emitMonitorEvent } from './monitor-alerts.js';
+import {
+  readStudioEvents,
+  writeStudioEvent,
+  parseStudioEventPayload,
+  getStudioEventTime,
+} from '../../utils/studio-events.js';
+
+/** 事件字段拉平：StudioEvent（payload 嵌套）与历史扁平事件（字段在顶层）统一为平面对象 */
+function flattenEvent(e: Record<string, unknown>): Record<string, any> {
+  const { payload: _p, ...top } = e;
+  return { ...(parseStudioEventPayload(e) ?? {}), ...top };
+}
 
 /**
  * 报告的实例级状态（由 MonitorAgent 实例持有并传入，保持 per-instance 语义）。
@@ -75,7 +87,6 @@ export async function evaluateTrajectory(fileStore: FileStore): Promise<void> {
 
     const report = {
       type: 'monitor:trajectory',
-      timestamp: Date.now(),
       totalWorkUnits,
       efficiency: `${efficiency}%`,
       slowRate: `${slowRate}%`,
@@ -95,7 +106,6 @@ export async function evaluateTrajectory(fileStore: FileStore): Promise<void> {
         level: 'warning',
         source: 'trajectory',
         message: `WorkUnit efficiency ${efficiency}% (${slowRate}% slow, ${retryCount} retries)`,
-        timestamp: Date.now(),
       });
     }
   } catch (e) {
@@ -126,47 +136,44 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       '',
     ];
 
-    // 1. Session summary
+    // 1. Session summary（D18：读统一事件文件；兼容 payload 嵌套与历史扁平形态）
     try {
-      const eventsFile = studioEventsJsonl();
-      if (fs.existsSync(eventsFile)) {
-        const raw = fs.readFileSync(eventsFile, 'utf-8');
-        const sessions: any[] = [];
-        for (const line of raw.split('\n')) {
-          if (!line.trim()) continue;
-          try {
-            const e = JSON.parse(line);
-            if (e.type === 'session:summary' && new Date(e.timestamp) >= since) sessions.push(e);
-          } catch {}
-        }
-        if (sessions.length > 0) {
-          const totalTurns = sessions.reduce((s: number, e: any) => s + (e.turnCount || 0), 0);
-          const deepCount = sessions.filter((e: any) => e.deepAnalysis).length;
-          const captureRate = deepCount > 0
-            ? Math.round((sessions.filter((e: any) => e.knowledgeCaptured).length / deepCount) * 100)
-            : 0;
-          const tools = [...new Set(sessions.map((e: any) => e.tool || 'unknown'))];
-          const totalMin = sessions.reduce((s: number, e: any) => s + (e.durationMin || 0), 0);
+      const allEvents = await readStudioEvents();
+      const sinceMs = since.getTime();
+      const sessions = allEvents
+        .filter(e => e.type === 'session:summary' && getStudioEventTime(e) >= sinceMs)
+        .map(flattenEvent);
+      if (sessions.length > 0) {
+        // 字段兼容：外部扁平写入方（turnCount/durationMin/tool）vs
+        // session-summary-generator（eventCount/durationMs/toolsUsed/patternType）
+        const turnOf = (s: any) => s.turnCount ?? s.eventCount ?? 0;
+        const totalTurns = sessions.reduce((sum: number, s: any) => sum + turnOf(s), 0);
+        const deepCount = sessions.filter((s: any) => s.deepAnalysis).length;
+        const captureRate = deepCount > 0
+          ? Math.round((sessions.filter((s: any) => s.knowledgeCaptured).length / deepCount) * 100)
+          : 0;
+        const tools = [...new Set(sessions.map((s: any) => s.tool || s.patternType || 'unknown'))];
+        const totalMin = sessions.reduce((sum: number, s: any) =>
+          sum + (s.durationMin ?? (typeof s.durationMs === 'number' ? Math.round(s.durationMs / 60000) : 0)), 0);
 
-          lines.push('### 会话活动');
-          lines.push(`- 会话: ${sessions.length} 次 | 总 turn: ${totalTurns} | 总时长: ${totalMin}min`);
-          lines.push(`- 工具: ${tools.join(', ')}`);
-          lines.push(`- 深度分析: ${deepCount} | 知识捕获率: ${captureRate}%`);
-          const highTurn = sessions.filter((e: any) => e.turnCount > 30);
-          if (highTurn.length > 0) {
-            lines.push(`- ⚠️ ${highTurn.length} 个会话超过 30 turns — 考虑 cstnew 重置上下文`);
-          }
+        lines.push('### 会话活动');
+        lines.push(`- 会话: ${sessions.length} 次 | 总 turn: ${totalTurns} | 总时长: ${totalMin}min`);
+        lines.push(`- 工具: ${tools.join(', ')}`);
+        lines.push(`- 深度分析: ${deepCount} | 知识捕获率: ${captureRate}%`);
+        const highTurn = sessions.filter((s: any) => turnOf(s) > 30);
+        if (highTurn.length > 0) {
+          lines.push(`- ⚠️ ${highTurn.length} 个会话超过 30 turns — 考虑 cstnew 重置上下文`);
         }
       }
     } catch { lines.push('### 会话活动\n(数据源不可用)'); }
 
-    // 1b. Pattern detection (7-day window, from studio.jsonl session:summary)
+    // 1b. Pattern detection (7-day window, from 统一事件文件 session:summary)
     try {
-      const weekAgo = new Date(now - 7 * 24 * 3600_000);
-      const allStudioEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
+      const weekAgoMs = now - 7 * 24 * 3600_000;
+      const allStudioEvents = await readStudioEvents();
       const summaryEvents = allStudioEvents
-        .filter((e: any) => e.type === 'session:summary' && e.timestamp && new Date(e.timestamp).getTime() >= weekAgo.getTime())
-        .map((e: any) => ({ payload: e.payload || null }));
+        .filter(e => e.type === 'session:summary' && getStudioEventTime(e) >= weekAgoMs)
+        .map(e => ({ payload: e.payload || null }));
 
       if (summaryEvents.length >= 5) {
         const typeCounts: Record<string, { count: number; successCount: number }> = {};
@@ -195,7 +202,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
           }
         }
 
-        // B9-025: Persist pattern_report + update UserPreference
+        // B9-025: Persist pattern_report + update UserPreference（D18：统一写入入口）
         const distribution: Record<string, number> = {};
         for (const [pt, s] of Object.entries(typeCounts)) distribution[pt] = s.count;
         const recurringData = recurring.map(([pt, s]) => ({
@@ -205,13 +212,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
           lastSeen: today,
         }));
 
-        fileStore.appendJsonl(studioEventsJsonl(), {
-          type: 'pattern_report',
-          source: 'monitor',
-          payload: JSON.stringify({ distribution, recurring: recurringData, date: today }),
-          timestamp: new Date().toISOString(),
-          precipitated: false,
-        }).catch((e: any) => { logger.warn('[MonitorAgent] pattern_report event failed', { error: String(e) }); });
+        void writeStudioEvent('pattern_report', { distribution, recurring: recurringData, date: today }, { source: 'monitor' });
 
         preferenceObserver.updateFromPatternReport(distribution, recurringData).catch((e) => {
           logger.warn('[MonitorAgent] updateFromPatternReport failed', { error: String(e) });
@@ -245,15 +246,16 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       lines.push(`- KnowledgeBus: ${stats.total || 0} 条 (pattern:${stats.pattern || 0} fix:${stats.fix || 0})`);
     } catch { /* best-effort */ }
 
-    // 4b. Knowledge consumption hit rate (24h)
+    // 4b. Knowledge consumption hit rate (24h)（D18：统一事件文件，createdAt 口径）
     try {
-      const allStudioEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
+      const sinceMs = since.getTime();
+      const allStudioEvents = await readStudioEvents();
       const consumptionEvents = allStudioEvents
-        .filter((e: any) => e.type === 'knowledge:consumption' && e.timestamp && new Date(e.timestamp).getTime() >= since.getTime())
-        .map((e: any) => ({ source: e.source || '', payload: e.payload || null }));
+        .filter(e => e.type === 'knowledge:consumption' && getStudioEventTime(e) >= sinceMs)
+        .map(e => ({ source: (e.source as string) || '', payload: e.payload || null }));
       const searchHitEvents = allStudioEvents
-        .filter((e: any) => e.type === 'knowledge:search_hit' && e.timestamp && new Date(e.timestamp).getTime() >= since.getTime())
-        .map((e: any) => ({ payload: e.payload || null }));
+        .filter(e => e.type === 'knowledge:search_hit' && getStudioEventTime(e) >= sinceMs)
+        .map(e => ({ payload: e.payload || null }));
 
       if (consumptionEvents.length > 0 || searchHitEvents.length > 0) {
         lines.push('', '### 知识消费（24h）');
@@ -338,12 +340,12 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     // B9-025: Weekly profile report (every Sunday)
     if (new Date(now).getDay() === 0) {
       try {
-        const weekAgoForProfile = new Date(now - 7 * 24 * 3600_000);
-        const allStudioEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
+        const weekAgoMs = now - 7 * 24 * 3600_000;
+        const allStudioEvents = await readStudioEvents();
         const weeklyEvents = allStudioEvents
-          .filter((e: any) => ['pattern_report', 'workflow_report'].includes(e.type) && e.timestamp && new Date(e.timestamp).getTime() >= weekAgoForProfile.getTime())
-          .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-          .map((e: any) => ({ payload: e.payload || null }));
+          .filter(e => ['pattern_report', 'workflow_report'].includes(e.type as string) && getStudioEventTime(e) >= weekAgoMs)
+          .sort((a, b) => getStudioEventTime(b) - getStudioEventTime(a))
+          .map(e => ({ payload: e.payload || null }));
 
         if (weeklyEvents.length > 0) {
           const merged: Record<string, number> = {};
@@ -387,14 +389,8 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       }
     } catch (e: any) { logger.warn('[MonitorAgent] DailyReflection channel post failed', { error: String(e) }); }
 
-    // G30: Record daily reflection event
-    fileStore.appendJsonl(studioEventsJsonl(), {
-      type: 'daily_reflection',
-      source: 'monitor',
-      payload: JSON.stringify({ date: today, summaryLength: content.length }),
-      timestamp: new Date().toISOString(),
-      precipitated: false,
-    }).catch((e: any) => { logger.warn('[MonitorAgent] StudioEvent failed', { error: String(e) }); });
+    // G30: Record daily reflection event（D18：统一写入入口）
+    void writeStudioEvent('daily_reflection', { date: today, summaryLength: content.length }, { source: 'monitor' });
 
     // Discord alert (fire-and-forget, channel configured via DISCORD_DAILY_CHANNEL)
     try {

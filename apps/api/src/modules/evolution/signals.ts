@@ -4,16 +4,17 @@
  * 三个信号源（全部文件型，tmp dir 可注入）：
  *   1. harness 约束 traces：<repoRoot>/.harness/logs/traces.log（ExecutionTrace JSONL，
  *      由 @dommaker/harness TraceCollector 写入，供 autoEvolve 使用）
- *   2. 工具调用 traces：<eventsDir>/studio.jsonl（tool:call 事件，eventsDir 经
- *      resolveEventsDir() 统一解析 —— R2 断点 D 修复后的唯一事件目录）
+ *   2. 工具调用 traces：<studioEventsFile>（tool:call 事件 —— D18 后与 knowledge
+ *      事件同一统一事件文件；原 <eventsDir>/studio.jsonl 已收敛）
  *   3. 执行结果事件：<studioEventsFile>（knowledge:outcome:* 事件，含 consumedKnowledge
  *      反馈数据 —— R1 断点 A 修复后有值）
  */
 import os from 'node:os';
 import path from 'node:path';
 import type { ExecutionTrace } from '@dommaker/harness';
-import { FileStore, resolveEventsDir } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
 
 export interface EvolutionPaths {
   /** 仓库根（.harness/ 与 .agents/ 所在），默认 process.cwd() */
@@ -24,9 +25,9 @@ export interface EvolutionPaths {
   traceFile: string;
   /** 角色预设目录（role-preset 提案的写入目标：<rolesDir>/<name>.yaml） */
   rolesDir: string;
-  /** 统一事件目录（tool:call traces） */
+  /** @deprecated D18 后事件全部收敛到 studioEventsFile；保留字段仅为兼容，不再被读取 */
   eventsDir: string;
-  /** StudioEvent 流（knowledge:outcome:* 等） */
+  /** 统一事件文件（tool:call、knowledge:outcome:* 等全部事件） */
   studioEventsFile: string;
 }
 
@@ -37,7 +38,7 @@ export function resolveEvolutionPaths(overrides?: Partial<EvolutionPaths>): Evol
     constraintsFile: overrides?.constraintsFile ?? path.join(repoRoot, '.harness', 'custom-constraints.yml'),
     traceFile: overrides?.traceFile ?? path.join(repoRoot, '.harness', 'logs', 'traces.log'),
     rolesDir: overrides?.rolesDir ?? path.join(repoRoot, '.agents', 'roles'),
-    eventsDir: overrides?.eventsDir ?? resolveEventsDir(),
+    eventsDir: overrides?.eventsDir ?? path.join(os.homedir(), '.studio', 'events'),
     studioEventsFile: overrides?.studioEventsFile ?? resolveStudioLogFile('studio-events.jsonl'),
   };
 }
@@ -83,8 +84,25 @@ export async function loadWindowSignals(
   const constraintTraces = (await fileStore.readJsonl<ExecutionTrace>(paths.traceFile).catch(() => []))
     .filter(t => t && typeof t.timestamp === 'number' && t.timestamp >= sinceMs && typeof t.constraintId === 'string');
 
-  const toolCalls = (await fileStore.readJsonl<ToolCallEvent>(path.join(paths.eventsDir, 'studio.jsonl')).catch(() => []))
-    .filter(e => e && e.type === 'tool:call' && typeof e.timestamp === 'number' && (e.timestamp as number) >= sinceMs);
+  // D18: tool:call 与 knowledge:outcome 同一统一事件文件；兼容 payload 嵌套与历史扁平形态
+  const toolCallRows = (await fileStore.readJsonl<Record<string, unknown>>(paths.studioEventsFile).catch(() => []))
+    .filter(e => e && e.type === 'tool:call');
+  const toolCalls: ToolCallEvent[] = [];
+  for (const row of toolCallRows) {
+    const p = parseStudioEventPayload(row) ?? {};
+    const flat: Record<string, any> = { ...p, ...row };
+    const ts = typeof flat.timestamp === 'number' ? flat.timestamp : getStudioEventTime(row);
+    if (!Number.isFinite(ts) || ts < sinceMs) continue;
+    toolCalls.push({
+      type: 'tool:call',
+      tool: flat.tool,
+      success: flat.success,
+      durationMs: flat.durationMs,
+      timestamp: ts,
+      caller: flat.caller,
+      riskLevel: flat.riskLevel,
+    });
+  }
 
   const outcomeRows = (await fileStore.readJsonl<StudioEventRow>(paths.studioEventsFile).catch(() => []))
     .filter(r => r && typeof r.type === 'string' && r.type.startsWith('knowledge:outcome:')

@@ -50,6 +50,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B5 D18 顺手修 — okr.service 读 knowledge:* 事件的时间口径从顶层 `e.timestamp`（StudioEvent 形态下不存在，恒被过滤、指标恒空）改为 getStudioEventTime（createdAt 优先、兼容历史 timestamp），10 处
 - ✅ 2026-07-27: B3a 工程归属链（决策 D2）— 新增 progress-rollup.ts：订阅 workunit.status_changed，WU 关联 Requirement 挂 projectId 时按该项目全部关联 WU 完结比例回写 progress（口径同 REQ 汇总 TERMINAL_WORKUNIT_STATUSES），全部完结置 completed（skipValidation 系统直写）；best-effort 不阻断
 - ✅ 2026-07-27: P0 修复 5 — executions/studio-events jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
