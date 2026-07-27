@@ -34,7 +34,7 @@ const OTHER_ROLE_ID = 'role-other';
 const CHANNEL_ID = 'ch-members';
 const LEGACY_CHANNEL_ID = 'ch-legacy';
 
-// description 含 'task' → acceptedTypes = ['task']，与测试 WU 类型匹配
+// 决策 9：description 不再解析 acceptedTypes（认领过滤已删，此处 description 仅为展示文本）
 const baseRole = {
   id: ROLE_ID,
   name: 'member-agent',

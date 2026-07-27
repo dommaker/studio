@@ -1,11 +1,14 @@
 /**
  * §10 P0 — agentStep skill 索引注入（index-on-demand）
+ * → 决策 7/11/13 重构：匹配从 claim 挪到 step 时（消竞态、吃到 skill 库最新版）
  *
- * - metadata.matchedSkills 存在：knowledgeContext 含 `## 本次任务 Skills`（在 `## 项目上下文` 之前）
- *   + 每个 skill 的索引块（name + description + `.studio/skills/<name>/SKILL.md` 指针），不含正文；
- *   injectContext 收到扣减后的 maxTokens
- * - 无 matchedSkills：行为与现状一致（无 skill 段，injectContext 默认 2K 预算）
- * - 内存快照缺 matchedSkills：回读 FileStore 索引补一次
+ * - 域匹配命中（wu.type/role.acceptedTypes 经 normalizeToStage 归一化 ∩ skill.agentTypes）：
+ *   knowledgeContext 含 `## 本次任务 Skills`（在 `## 项目上下文` 之前）+ 协议说明行
+ *   + 索引块（name + description + triggers 摘要 + `~/.studio/skills/<name>/SKILL.md` 指针），不含正文；
+ *   injectContext 收到扣减后的 maxTokens（skills > persona > roster > knowledge 共用 2K）
+ * - metadata.matchedSkills 不再作为注入输入（step 时实时计算；匹配名单经 metadataUpdates 落盘供度量）
+ * - +skill 显式点名 step 时从 wu.scope 解析（parseSkillHintsFromScope），排最高优先级
+ * - 决策 13：`## 你的角色` 段（persona ?? description，为空省略）
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -17,12 +20,12 @@ const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-skills-'
 process.env.SKILLS_DIR = testSkillsDir;
 
 const SKILL_BODY = '## 执行步骤\n\n1. 读需求\n2. 写代码\n3. 跑测试';
-fs.mkdirSync(path.join(testSkillsDir, 'feature-dev'), { recursive: true });
-fs.writeFileSync(
-  path.join(testSkillsDir, 'feature-dev', 'SKILL.md'),
-  `---\nname: feature-dev\ndescription: "功能开发流程"\nagentTypes: [feature]\nstatus: published\n---\n\n${SKILL_BODY}\n`,
-  'utf-8',
-);
+const SKILL_FIXTURE = `---\nname: feature-dev\ndescription: "功能开发流程"\nagentTypes: [feature]\ntriggers: [登录, 认证, 会话, 鉴权, 令牌]\nstatus: published\n---\n\n${SKILL_BODY}\n`;
+function writeSkillFixture() {
+  fs.mkdirSync(path.join(testSkillsDir, 'feature-dev'), { recursive: true });
+  fs.writeFileSync(path.join(testSkillsDir, 'feature-dev', 'SKILL.md'), SKILL_FIXTURE, 'utf-8');
+}
+writeSkillFixture();
 
 const { mockExecSync, mockExecuteLightweight, mockInjectContext } = vi.hoisted(() => ({
   mockExecSync: vi.fn().mockReturnValue('Claude Code CLI version 1.0.0'),
@@ -78,28 +81,36 @@ import { FileStore, estimateTokens } from '@dommaker/studio-shared';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
 const { AgentLoop } = await import('../agent-loop');
+const { invalidateManifestCache } = await import('../../skills/manifest-loader.js');
 
-describe('§10 P0: agentStep skill 注入', () => {
+/** 新注入契约的固定文本（与 agent-loop buildSkillSection 保持一致） */
+const SKILL_HEADER = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
+const SKILL_BLOCK = '### feature-dev\n功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌\n全文：~/.studio/skills/feature-dev/SKILL.md';
+const SKILL_TOKENS = estimateTokens(SKILL_HEADER.length) + estimateTokens(SKILL_BLOCK.length + 2);
+
+describe('§10 P0 + 决策 7/11/13: agentStep skill/persona 注入', () => {
   let agentLoop: AgentLoop;
   let testDir: string;
   let fileStore: FileStore;
 
+  // description/persona 均为空 —— 默认不产 persona 段（各用例按需覆盖）
   const mockRole = {
     id: 'role-1',
     name: 'test-agent',
-    description: 'A test agent for unit testing',
+    description: null,
     channels: '[]',
     status: 'active',
     createdAt: new Date(),
     updatedAt: new Date(),
   };
 
-  const makeWu = (metadata: string | null) => ({
+  const makeWu = (metadata: string | null, overrides: Record<string, unknown> = {}) => ({
     id: 'wu-1', type: 'feature', scope: '实现登录功能', channelId: 'ch-1',
     status: 'active', assigneeId: 'agent-1', parentId: null,
     failureType: null, retryCount: 0, timeoutAt: null,
     projectPath: null, metadata, claimedAt: null,
     completedAt: null, createdAt: new Date(), updatedAt: new Date(),
+    ...overrides,
   });
 
   beforeEach(() => {
@@ -125,60 +136,120 @@ describe('§10 P0: agentStep skill 注入', () => {
     try { fs.rmSync(testDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }, 5000);
 
-  async function runStep(wu: ReturnType<typeof makeWu>) {
-    agentLoop = new AgentLoop(mockRole as any, fileStore);
+  async function runStep(wu: ReturnType<typeof makeWu>, roleOverrides: Record<string, unknown> = {}) {
+    agentLoop = new AgentLoop({ ...mockRole, ...roleOverrides } as any, fileStore);
     await agentLoop.start();
-    await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep({ workUnit: wu });
+    const result = await (agentLoop as unknown as {
+      agentStep(t: unknown): Promise<{ metadataUpdates?: { matchedSkills?: string[] } }>;
+    }).agentStep({ workUnit: wu });
     const task = mockExecuteLightweight.mock.calls[0][0];
-    return task.parameters.knowledgeContext as string;
+    return { knowledgeContext: task.parameters.knowledgeContext as string, result };
   }
 
-  it('metadata.matchedSkills 存在 → `## 本次任务 Skills` 在 `## 项目上下文` 之前，含索引块不含正文', async () => {
-    const knowledgeContext = await runStep(makeWu(JSON.stringify({ matchedSkills: ['feature-dev'] })));
+  it('域匹配命中（wuType feature→implement ∩ agentTypes [feature]）→ 索引段在 `## 项目上下文` 之前，含协议行不含正文', async () => {
+    const { knowledgeContext } = await runStep(makeWu(null));
 
     expect(knowledgeContext).toContain('## 本次任务 Skills');
+    expect(knowledgeContext).toContain('以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。');
     expect(knowledgeContext).toContain('### feature-dev');
-    expect(knowledgeContext).toContain('功能开发流程');
-    expect(knowledgeContext).toContain('全文：.studio/skills/feature-dev/SKILL.md（按需阅读）');
+    expect(knowledgeContext).toContain('功能开发流程｜触发：登录, 认证, 会话, 鉴权, 令牌');
+    expect(knowledgeContext).toContain('全文：~/.studio/skills/feature-dev/SKILL.md');
     expect(knowledgeContext).not.toContain(SKILL_BODY);
     expect(knowledgeContext).toContain('## 项目上下文');
     expect(knowledgeContext).toContain('- test rule');
     expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
 
-    // skill 段优先占预算：injectContext 收到 2000 - skillTokens
-    const expectedSection = `## 本次任务 Skills\n\n### feature-dev\n功能开发流程\n全文：.studio/skills/feature-dev/SKILL.md（按需阅读）`;
-    const expectedBudget = 2000 - estimateTokens(expectedSection.length);
+    // skill 段优先占预算：injectContext 收到 2000 - skillTokens（无 persona/roster 段）
     expect(mockInjectContext).toHaveBeenCalledWith('feature', {
       tags: ['feature'],
-      maxTokens: expectedBudget,
+      maxTokens: 2000 - SKILL_TOKENS,
     });
   });
 
-  it('无 matchedSkills → 与现状一致（无 skill 段，injectContext 默认 2K）', async () => {
-    const knowledgeContext = await runStep(makeWu(null));
+  it('匹配名单经 metadataUpdates.matchedSkills 返回（随 recordResult 原子落盘，供度量/被无视率）', async () => {
+    const { result } = await runStep(makeWu(null));
 
-    expect(knowledgeContext).toBe('## 系统约束\n- test rule');
-    expect(knowledgeContext).not.toContain('## 本次任务 Skills');
-    expect(mockInjectContext).toHaveBeenCalledWith('feature', {
-      tags: ['feature'],
-      maxTokens: 2000,
-    });
+    expect(result.metadataUpdates?.matchedSkills).toEqual(['feature-dev']);
   });
 
-  it('内存快照缺 matchedSkills → 回读 FileStore 索引补齐', async () => {
-    // FileStore 索引里已有 claim 落盘的 matchedSkills，但 agentStep 内存快照（metadata=null）没有
-    await fileStore.upsertSnapshot({
-      ...makeWu(null),
-      metadata: JSON.stringify({ matchedSkills: ['feature-dev'] }),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      claimedAt: null, completedAt: null, timeoutAt: null,
-    } as any);
+  it('metadata.matchedSkills 不再作为注入输入：陈旧值被忽略，以 step 时实时匹配为准', async () => {
+    // 陈旧 metadata 指向不存在的 skill —— 旧实现读它注入，新实现 step 时重算
+    const { knowledgeContext } = await runStep(makeWu(JSON.stringify({ matchedSkills: ['no-such-skill'] })));
 
-    const knowledgeContext = await runStep(makeWu(null));
+    expect(knowledgeContext).toContain('### feature-dev');
+    expect(knowledgeContext).not.toContain('no-such-skill');
+  });
 
-    expect(knowledgeContext).toContain('## 本次任务 Skills');
-    expect(knowledgeContext).toContain('全文：.studio/skills/feature-dev/SKILL.md（按需阅读）');
-    expect(knowledgeContext).not.toContain(SKILL_BODY);
+  it('决策 11：+skill 从 scope 解析并入最高优先级（无域/文本交集也命中）', async () => {
+    // scope 与 skill 描述零文本交集、type 无域交集 —— 只能靠 +显式点名
+    const wu = makeWu(null, { type: 'zzz-无交集', scope: 'xyzzy 无交集 +feature-dev' });
+    const { knowledgeContext, result } = await runStep(wu);
+
+    expect(knowledgeContext).toContain('### feature-dev');
+    expect(result.metadataUpdates?.matchedSkills?.[0]).toBe('feature-dev');
+  });
+
+  it('skill 库为空 → 无 skill 段，injectContext 默认 2K 预算（行为与现状一致）', async () => {
+    fs.rmSync(path.join(testSkillsDir, 'feature-dev'), { recursive: true, force: true });
+    invalidateManifestCache();
+    try {
+      const { knowledgeContext } = await runStep(makeWu(null));
+
+      expect(knowledgeContext).toBe('## 系统约束\n- test rule');
+      expect(knowledgeContext).not.toContain('## 本次任务 Skills');
+      expect(mockInjectContext).toHaveBeenCalledWith('feature', {
+        tags: ['feature'],
+        maxTokens: 2000,
+      });
+    } finally {
+      writeSkillFixture();
+      invalidateManifestCache();
+    }
+  });
+
+  it('决策 13：role.persona → 注入 `## 你的角色` 段，顺序在 skills 之后、知识之前', async () => {
+    const { knowledgeContext } = await runStep(makeWu(null), { persona: '你是测试者，先写测试再实现。' });
+
+    expect(knowledgeContext).toContain('## 你的角色\n\n你是测试者，先写测试再实现。');
+    expect(knowledgeContext.indexOf('## 本次任务 Skills')).toBeLessThan(knowledgeContext.indexOf('## 你的角色'));
+    expect(knowledgeContext.indexOf('## 你的角色')).toBeLessThan(knowledgeContext.indexOf('## 项目上下文'));
+  });
+
+  it('决策 13：persona 缺省回退 description', async () => {
+    const { knowledgeContext } = await runStep(makeWu(null), { description: '只是角色描述' });
+
+    expect(knowledgeContext).toContain('## 你的角色\n\n只是角色描述');
+  });
+
+  it('决策 13：persona/description 皆空 → `## 你的角色` 段省略', async () => {
+    const { knowledgeContext } = await runStep(makeWu(null));
+
+    expect(knowledgeContext).not.toContain('## 你的角色');
+  });
+
+  it('决策 13：注入顺序 skills > persona > roster > knowledge（共用 2K 红线）', async () => {
+    const now = new Date().toISOString();
+    await fileStore.createChannel({
+      id: 'ch-1', name: '#test-order', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null,
+      members: JSON.stringify(['p-other']),
+      createdAt: now, updatedAt: now,
+    });
+    await fileStore.createProfile({
+      id: 'p-other', name: 'other-agent', description: '其他成员',
+      channels: '[]', status: 'active', createdAt: now, updatedAt: now,
+    });
+
+    const { knowledgeContext } = await runStep(makeWu(null), { persona: '你是排序验证者。' });
+
+    const skillIdx = knowledgeContext.indexOf('## 本次任务 Skills');
+    const personaIdx = knowledgeContext.indexOf('## 你的角色');
+    const rosterIdx = knowledgeContext.indexOf('## 频道成员与委派');
+    const knowledgeIdx = knowledgeContext.indexOf('## 项目上下文');
+    expect(skillIdx).toBeGreaterThanOrEqual(0);
+    expect(personaIdx).toBeGreaterThan(skillIdx);
+    expect(rosterIdx).toBeGreaterThan(personaIdx);
+    expect(knowledgeIdx).toBeGreaterThan(rosterIdx);
   });
 });
