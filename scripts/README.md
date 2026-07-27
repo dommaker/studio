@@ -11,18 +11,15 @@ scripts/
 │   ├── logs.sh       # 查看日志
 │   └── validate-env.sh
 │
-├── prod/         # 生产环境脚本
-│   ├── build-prod.sh # 只打包前端
-│   ├── deploy.sh     # 打包 + 部署到 nginx
-│   ├── start.sh      # 启动生产 API
-│   ├── stop.sh       # 停止生产 API
-│   └── status.sh     # 状态检查（含域名测试）
-│
 └── tools/        # 工具脚本
     ├── health-check.sh
     ├── status.sh
     └── *.ts          # 各种检查脚本
 ```
+
+> 生产环境的部署/启停脚本维护在私有运维仓，不随本仓发布。
+> 生产 API 由 systemd `studio-api.service` 统一管理（`Restart=always`），
+> 禁止用 pm2 / nohup 等方式另起进程（多监管者会互相抢端口）。
 
 ---
 
@@ -40,20 +37,8 @@ npm run dev:logs      # 查看日志
 ### 生产环境
 
 ```bash
-npm run prod:build    # 打包前端静态文件
-npm run prod:deploy   # 打包 + 部署到 /var/www/agent-studio
-npm run prod:start    # 启动生产 API（端口 13101）
-npm run prod:stop     # 停止生产 API
-npm run prod:status   # 状态检查 + 域名测试
-```
-
-### 数据库
-
-```bash
-npm run db:generate       # 生成 Prisma 客户端
-npm run db:migrate        # 运行迁移（开发）
-npm run db:migrate:prod   # 运行迁移（生产）
-npm run db:studio         # 打开 Prisma Studio
+npm start                            # 直接以前台方式启动 API（等价 npx tsx apps/api/src/index.ts）
+systemctl restart studio-api.service # 线上重启（部署自动化由私有运维仓负责）
 ```
 
 ### 单独启动（调试用）
@@ -69,10 +54,10 @@ npm run build:web     # 只构建前端
 
 ## 环境区分
 
-| 环境 | 端口 | 数据库 | 前端方式 | 命令 |
-|------|------|--------|----------|------|
-| **开发** | 3001 + 3000 | agent_studio_test | vite dev | `npm run dev:*` |
-| **生产** | 13101 | agent_studio_prod | nginx 静态 | `npm run prod:*` |
+| 环境 | 端口 | 前端方式 | 命令 |
+|------|------|----------|------|
+| **开发** | 3001 + 3000 | vite dev | `npm run dev:*` |
+| **生产** | 13101 | nginx 静态 | systemd 管理，部署脚本在私有运维仓 |
 
 ---
 
@@ -85,18 +70,10 @@ npm run dev:start
 # → http://localhost:3000
 ```
 
-### 部署线上更新
-
-```bash
-npm run prod:deploy
-# → https://dommaker.cn 更新
-```
-
 ### 重启线上服务
 
 ```bash
-npm run prod:stop
-npm run prod:start
+systemctl restart studio-api.service
 ```
 
 ---
@@ -104,12 +81,12 @@ npm run prod:start
 ## 日志位置
 
 ```
-/tmp/studio-api-dev.log    # 开发 API 日志
-/tmp/studio-web-dev.log    # 开发 Web 日志
-/tmp/studio-api-prod.log   # 生产 API 日志
-/var/log/nginx/error.log   # nginx 错误日志
+/tmp/studio-api-dev.log        # 开发 API 日志
+/tmp/studio-web-dev.log        # 开发 Web 日志
+journalctl -u studio-api.service   # 生产 API 日志（systemd journal）
+/var/log/nginx/error.log       # nginx 错误日志
 ```
 
 ---
 
-*整理时间: 2026-04-26*
+*整理时间: 2026-04-26（2026-07-24 更新：生产脚本移出本仓，生产进程 systemd 统一管理）*
