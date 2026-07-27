@@ -11,6 +11,9 @@ import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfil
 /** 保留角色名：系统内置 studio 角色专用，用户不可创建/改名/删除 */
 export const STUDIO_ROLE_NAME = 'studio';
 
+/** B4a: studio 角色定位描述（种子默认值；用户自定义后不覆盖） */
+export const STUDIO_ROLE_DESCRIPTION = '系统角色：平台维护性 LLM 调用与系统提醒署名，不执行任务';
+
 export interface CreateAgentProfileInput {
   name: string;
   description?: string;
@@ -40,17 +43,26 @@ export type AgentProfileWithOnline = AgentProfileData & {
  * studio 角色是系统任务执行身份（systemExecutor 读其 provider），
  * 不通过 AgentProfileService.create 走事件流（避免触发 agentLoopRegistry mount），
  * 直接 fileStore.createProfile。已存在则跳过。
+ *
+ * B4a: description 定位为"系统角色不执行任务"——新建直接写入；
+ * 存量仅在 description 为空（旧默认）时回填，用户自定义不覆盖。
  */
 export async function ensureStudioProfile(fileStore: FileStore): Promise<AgentProfileData> {
   const all = await fileStore.listProfiles();
   const existing = all.find(p => p.name === STUDIO_ROLE_NAME);
-  if (existing) return existing;
+  if (existing) {
+    if (!existing.description || !existing.description.trim()) {
+      await fileStore.updateProfile(existing.id, { description: STUDIO_ROLE_DESCRIPTION });
+      return { ...existing, description: STUDIO_ROLE_DESCRIPTION };
+    }
+    return existing;
+  }
 
   const now = new Date().toISOString();
   const data: AgentProfileData = {
     id: randomUUID(),
     name: STUDIO_ROLE_NAME,
-    description: null,
+    description: STUDIO_ROLE_DESCRIPTION,
     channels: '[]',
     provider: null,
     status: 'active',

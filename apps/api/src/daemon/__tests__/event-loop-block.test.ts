@@ -63,7 +63,7 @@ import { daemon } from '../studio-daemon.js';
 
 const WORKTREES_DIR = path.join(os.tmpdir(), 'daemon-block-test');
 
-/** Register executor session in the daemon (daemon.start() only registers analyst+reviewer) */
+/** Register executor session in the daemon (daemon.start() only registers analyst) */
 function registerExecutor(worktree: string) {
   fs.mkdirSync(worktree, { recursive: true });
   (daemon as any).manager.register({
