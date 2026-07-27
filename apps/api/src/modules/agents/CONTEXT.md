@@ -59,6 +59,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: isOnline 语义修正 — 从「instance status=active」改为「loop 存活」：status idle/active 且心跳新鲜（≤5min，与 agent-timeout-scan 同阈值；null 心跳按 startedAt 宽限）。此前空闲 loop 恒显示「Online: 否」误导。另：delete profile 时清理所有 channel.members 中的悬空引用
 - ✅ 2026-07-24: API 鉴权收紧 — agents/profiles/instances 写端点收 requireNotGuest，/review/diff 与 terminate 收 requireAdmin
 - ✅ 2026-07 频道角色排查沉淀：AgentProfile 持久化布局与 index-on-demand 注入架构写入注意事项（排查结论：无全量注入问题，skills/知识/roster 均为索引方式）
 - ✅ `11ba99fa`: ci): resolve type errors in migrated agent/knowledge files

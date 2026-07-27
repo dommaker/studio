@@ -46,6 +46,7 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: @mention 正则放宽到 Unicode — `detectMention` 与 scope 剥离正则从 `[\w-]` 改为 `[\p{L}\p{N}_-]+/u`（`\w` 不匹配中文，中文名 agent 被 @ 永远落纯存储不派单）；补 CJK 用例
 - ✅ 2026-07-24: API 鉴权收紧 — channels 12 条路由曾零鉴权且在 PUBLIC_API 前缀下匿名可达（P0：匿名发消息可触发 agent 执行/LLM 消耗）；GET 保持公开，写端点收 requireAuth+requireNotGuest；requirements-doc PUT 同步收紧
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `389c9e87`: add await to all sdd-utils consumers after Phase 4 async migration

@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eventBus, FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 
 /** 保留角色名：系统内置 studio 角色专用，用户不可创建/改名/删除 */
 export const STUDIO_ROLE_NAME = 'studio';
@@ -143,10 +143,19 @@ export class AgentProfileService {
     }
 
     // Add isOnline field (check RuntimeState via FileStore)
+    // Online 语义 = loop 存活：status idle/active 且心跳新鲜（刚启动未及首次心跳时按 startedAt 宽限）。
+    // 阈值与 agent-timeout-scan 一致（5 分钟）— 空闲 loop 不再误显示为离线。
+    const ONLINE_TIMEOUT_MS = 5 * 60 * 1000;
+    const onlineThreshold = Date.now() - ONLINE_TIMEOUT_MS;
     const agentIds = profiles.map(p => p.id);
     const allStates = await this.fileStore.listStates();
-    const activeStates = allStates.filter(s => s.status === 'active' && agentIds.includes(s.roleId));
-    const onlineSet = new Set(activeStates.map(ri => ri.roleId));
+    const aliveStates = allStates.filter(s =>
+      (s.status === 'active' || s.status === 'idle') && agentIds.includes(s.roleId) &&
+      (s.lastHeartbeat
+        ? new Date(s.lastHeartbeat).getTime() >= onlineThreshold
+        : new Date(s.startedAt).getTime() >= onlineThreshold)
+    );
+    const onlineSet = new Set(aliveStates.map(ri => ri.roleId));
 
     // F2: surface latest startup failure per profile (status === 'error' states only)
     const errorByRole = new Map<string, { lastError: string; lastErrorAt: string | null }>();
@@ -215,6 +224,16 @@ export class AgentProfileService {
     }
 
     await this.fileStore.deleteProfile(id);
+    // 清理 channel.members 中的悬空引用（channel.members 是成员关系唯一事实源）
+    const channels = await this.fileStore.listChannels();
+    for (const ch of channels) {
+      const ids = parseChannels(ch.members);
+      if (ids.includes(id)) {
+        await this.fileStore.updateChannel(ch.id, {
+          members: JSON.stringify(ids.filter(m => m !== id)),
+        });
+      }
+    }
     // F1: notify AgentLoopRegistry (unmounts the loop)
     eventBus.publish('agent-profile.deleted', { profileId: id });
   }

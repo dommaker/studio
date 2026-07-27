@@ -63,6 +63,9 @@
 
   /* 主题标识 */
   --theme-name: 'dark';
+
+  /* 原生控件（select 弹出面板、滚动条等）按深色渲染 — 缺省时浏览器按浅色绘制白底面板 */
+  color-scheme: dark;
 }
 
 /* 浅色主题 */
@@ -123,6 +126,8 @@
 
   /* 主题标识 */
   --theme-name: 'light';
+
+  color-scheme: light;
 }
 
 /* 主题切换过渡 —— A 方向动效最少：不做全局过渡，主题切换即时生效 */
@@ -285,6 +290,13 @@ body {
 
 .input:focus {
   border-color: var(--accent-primary);
+}
+
+/* 原生 select 弹出面板：option 由浏览器绘制，显式跟随主题变量，避免默认白底 */
+select.input option,
+select option {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 /* === 标签组件 === */

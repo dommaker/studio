@@ -20,7 +20,8 @@ const workUnitService = new WorkUnitService();
  * Returns the first matched name, or null if no @mention found.
  */
 export function detectMention(content: string): string | null {
-  const match = content.match(/@([\w-]+)/);
+  // \w 只等价于 [A-Za-z0-9_]，中文等 Unicode 名字匹配不到 — 用 \p{L}/\p{N} 放宽
+  const match = content.match(/@([\p{L}\p{N}_-]+)/u);
   return match ? match[1] : null;
 }
 
@@ -98,7 +99,7 @@ export async function routeMessage(
     const agent = allProfiles.find(p =>
       p.name === mentionName && (memberIds.length === 0 || memberIds.includes(p.id))
     ) ?? null;
-    const scope = content.replace(/@[\w-]+\s*/, '');
+    const scope = content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
     const skillHints = parseSkillHints(content);
     const workspaceId = options?.workspaceId ?? channel?.defaultWorkspaceId ?? null;
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
