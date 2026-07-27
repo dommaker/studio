@@ -85,8 +85,41 @@ describe('ChannelMemberManager', () => {
     fireEvent.click(screen.getByTitle('Channel 成员管理'));
     fireEvent.click(screen.getByText('+ 创建新 Agent'));
     expect(screen.getByPlaceholderText('Agent 名称')).toBeTruthy();
-    expect(screen.getByText('创建')).toBeTruthy();
+    expect(screen.getByText('创建并加入频道')).toBeTruthy();
     expect(screen.getByText('取消')).toBeTruthy();
+  });
+
+  it('syncs memberIds when membersJson arrives asynchronously (refresh bug)', () => {
+    // 页面刷新时 channel 异步加载：首渲 membersJson 为 undefined，数据后到
+    const { rerender } = render(<ChannelMemberManager channelId="ch-1" membersJson={undefined} />);
+    expect(screen.getByText('All')).toBeTruthy();
+    rerender(<ChannelMemberManager channelId="ch-1" membersJson='["a1","a2"]' />);
+    expect(screen.getByText('2 agents')).toBeTruthy();
+  });
+
+  it('creates agent and joins the channel in one action', async () => {
+    mockCreateAgent.mockResolvedValue({ data: { id: 'new-a', name: 'new-agent', description: null, status: 'active' } });
+    render(<ChannelMemberManager channelId="ch-1" membersJson="[]" />);
+    fireEvent.click(screen.getByTitle('Channel 成员管理'));
+    fireEvent.click(screen.getByText('+ 创建新 Agent'));
+    fireEvent.change(screen.getByPlaceholderText('Agent 名称'), { target: { value: '新成员' } });
+    fireEvent.click(screen.getByText('创建并加入频道'));
+    await waitFor(() => {
+      expect(mockCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ name: '新成员', channels: ['ch-1'] }));
+      expect(mockUpdateMembers).toHaveBeenCalledWith('ch-1', { add: ['new-a'] });
+    });
+  });
+
+  it('shows inline error when create fails', async () => {
+    mockCreateAgent.mockRejectedValue(new Error('provider unavailable'));
+    render(<ChannelMemberManager channelId="ch-1" membersJson="[]" />);
+    fireEvent.click(screen.getByTitle('Channel 成员管理'));
+    fireEvent.click(screen.getByText('+ 创建新 Agent'));
+    fireEvent.change(screen.getByPlaceholderText('Agent 名称'), { target: { value: 'x' } });
+    fireEvent.click(screen.getByText('创建并加入频道'));
+    await waitFor(() => {
+      expect(screen.getByText('provider unavailable')).toBeTruthy();
+    });
   });
 
   it('handles empty membersJson gracefully', () => {
