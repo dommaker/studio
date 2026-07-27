@@ -14,6 +14,7 @@
 | `AgentExecutor`, `agentExecutor` | services/session-manager.ts | Session 循环执行器（门面，通过 agent-executor.ts 重新导出） |
 | `AgentRunner`, `agentRunner` | services/agent-runner.ts | 统一执行器，合并 AgentExecutor + TaskExecutor，支持流式 JSON 输出 |
 | `AgentCompleter`, `agentCompleter` | services/agent-completer.ts | 任务完成处理器，检测输出文件、解析验证结果、更新状态、发布事件 |
+| `ensureWuWorktree`, 类型 `WuWorktreeInfo` | services/worktree-resolver.ts | B3b-i 每 WU 专属 worktree（`<worktreesDir>/wu-<wuId>` + 分支 `task/<wuId>`，按 WU id 键控跨 step 复用；创建失败清理半成品后抛错） |
 | `getPersona`, `listPersonas`, `DEFAULT_PERSONAS` | registry.ts | 角色定义注册表，提供预置角色（pm、developer、reviewer、tester） |
 | `buildSpawnArgs` | cli-adapter.ts | 纯函数，为指定 provider 构建 CLI spawn 参数（command + args） |
 | 类型 `Provider`, `SpawnParams`, `SpawnArgs` | cli-adapter.ts | CLI 适配相关类型 |
@@ -45,4 +46,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B3b-i — worktree-resolver 新增 ensureWuWorktree/WuWorktreeInfo（每 WU 专属 worktree，目录/分支按 WU id 键控，含 .git 即复用；失败兜底清理 worktree 注册项+目录+分支后抛错）；createWorktree 增第 5 可选参 branchName（缺省保持 task/<basename> 原行为）；经 agent-executor 门面与包入口导出，dist 已重建
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

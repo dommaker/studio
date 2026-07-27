@@ -48,6 +48,20 @@ export interface WorkUnitMetadata {
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
   ownershipSource?: string;   // 归属来源：explicit / requirement / channel-default / none / human-reply
   ownershipProjectId?: string; // 经 Requirement 解析到的 PMO 项目 id（审计用）
+  // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
+  worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
+  worktreeBranch?: string;    // 专属分支名（task/<wuId>）
+  worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测）
+  worktreeBaseRepo?: string;  // 共享 git 仓库根（worktree 的母仓库）
+  // B3b-i COMPLETE 前自动验证（决策 D3 前半，约定优先可覆盖）
+  verifyCommands?: string[];  // 覆盖验证命令（优先级高于 package.json scripts 约定；workspace 记录同名字段次之）
+  verifyReport?: {            // 最近一次全绿的验证摘要（COMPLETE 接受前写入）
+    commands: string[];
+    source: 'override' | 'convention';
+    passedAt: string;
+  };
+  verifyFailCount?: number;   // 自动验证连续失败计数（≥3 → blocked）
+  verifyFailHint?: string;    // 验证失败提示（失败命令+输出尾部，注入下一轮 prompt 后清除）
   knowledgeExtractedAt?: string; // R3: 会话知识提取已触达时间戳（去重——同一 WorkUnit 只提取一次）
   matchedSkills?: string[];   // §10 P0: claim 时域匹配命中的 skill 名（agentStep 注入正文用）
   skillHints?: string[];      // §10.3: 消息中 +skill名 显式指定的 skill（解析时优先于域匹配）

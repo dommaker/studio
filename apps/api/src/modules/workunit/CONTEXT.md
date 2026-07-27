@@ -24,12 +24,14 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - 状态变更发布 `workunit.status_changed` 事件，requirements/rollup 据此汇总 REQ 状态
 - NEED_INPUT 挂起后由人在频道线程回复触发续跑
 - B3a（决策 D2）：WU metadata 增 workspaceRoot / ownershipSource / ownershipProjectId / waitingReason 字段承载工程归属；agent-loop 执行根目录解析 metadata.workspaceRoot 优先于 workspaceId 记录
+- B3b-i（决策 D1/D3 前半）：WU metadata 增 worktreePath/worktreeBranch/worktreeBaseBranch/worktreeBaseRepo（代码类 WU 专属 worktree 落档，review 子 WU 经 `...parentMeta` 拷贝天然继承）与 verifyCommands/verifyReport/verifyFailCount/verifyFailHint（自动验证）；覆盖命令也可放在 workspace 记录的 verifyCommands 字段
 - review-passed/review-rejected 拒绝 authorType=agent 的调用（403，A2A §4.4：验收权只在人；UI/人类调用不发送 authorType 或发送 'human'）
 - **鉴权（2026-07-24 收紧）**：11 条写端点（CRUD/claim/unclaim/review/status/讨论区发消息/编辑消息）= `requireAuth()+requireNotGuest()`；GET 只读保持大门层。注意 authorType/agentName 仍是自声明身份（不作凭证，已知局限）
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-27: B3b-i — WorkUnitMetadata 新增 worktreePath/worktreeBranch/worktreeBaseBranch/worktreeBaseRepo（每 WU 专属 worktree 落档）与 verifyCommands/verifyReport/verifyFailCount/verifyFailHint（COMPLETE 前自动验证：覆盖命令、全绿摘要、失败计数与提示）
 - ✅ 2026-07-27: B3a 工程归属链（决策 D2）— waiting-input 增 ownership 挂起分支：回复按 project-discovery 候选解析，唯一命中绑定 metadata.workspaceRoot 并复活、写回 Requirement.projectId（gitRepo 相同的既有 PMO 项目复用，否则新建锚点项目）；多候选/无命中继续等待并发 Studio 消息列候选；抽出 postStudioSystemMessage 统一系统消息形态（message-routing 复用）
 - ✅ 2026-07-27: P0 修复 5/6 — delegation-gate 的 studio-events.jsonl 走 studio-log-path 测试隔离（原测试直接写并 rm 真实 ~/.studio/logs/studio-events.jsonl，有删生产数据风险）；WorkUnitMetadata 新增 traceId 字段（P0 修复 6）
 - ✅ 2026-07-27: P0 WU 超时机制从零接上 — claim 写 timeoutAt；workunit-timeout 触发器 UPDATE→EXECUTE（workunit-timeout-scan，timeout-release.ts），UPDATE 查询支持 lt/gt/lte/gte 与 '$now' 执行时刻求值
