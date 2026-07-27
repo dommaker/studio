@@ -293,8 +293,8 @@ export function Settings() {
 
         // 检查通知配置同步状态
         try {
-          const notifyRes = await api.get('/api/v1/notify/config/status');
-          const hasNotifyUserConfig = notifyRes.data.discord.hasUserConfig || notifyRes.data.wecom.hasUserConfig || notifyRes.data.telegram.hasUserConfig;
+          const notifyRes = await api.get('/notify/config/status');
+          const hasNotifyUserConfig = notifyRes.data?.discord?.hasUserConfig || notifyRes.data?.wecom?.hasUserConfig || notifyRes.data?.telegram?.hasUserConfig;
           if (hasNotifyUserConfig) {
             setNotifySyncStatus('synced');
           } else {
@@ -378,7 +378,7 @@ export function Settings() {
       });
 
       // 保存 Webhook 配置到进程内存
-      await api.post('/api/v1/notify/config', {
+      await api.post('/notify/config', {
         discord: config.discord,
         wecom: config.wecom,
         telegram: config.telegram,
