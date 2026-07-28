@@ -79,6 +79,49 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
     } else { throw e; }
   }
   logger.info('[WorktreeResolver] Git worktree created', { worktree, branch, base: baseBranch, repo: repoDir });
+  await writeWorktreeExclude(worktree);
+}
+
+// ─── 工具产物 exclude（§10.5 提交守卫误伤修复）───
+
+/**
+ * runner 执行期写入 worktree 的工具产物（全部 untracked）——
+ * 不写进 exclude 会让 `git status --porcelain` 恒非空，提交守卫把"不改代码的角色"
+ * （如 reviewer）的 COMPLETE 永远打回。刻意不含 AGENTS.md：它是内容文件，
+ * agent 可能 legit 修改（且 propagateHarnessConfig 覆盖既有 AGENTS.md 是另一已知问题）。
+ */
+const WORKTREE_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log'] as const;
+
+/**
+ * 新建 worktree 后，把工具产物写进仓库级 `.git/info/exclude`（不写 repo 文件）。
+ * 注意 git 没有 per-worktree exclude（2.43 实测 `<gitdir>/worktrees/<name>/info/exclude`
+ * 不生效，`git rev-parse --git-path info/exclude` 在 worktree 内解析到公共 gitdir）——
+ * 写入的是该仓库所有 worktree 共享的 exclude。主 workspace 直接执行的路径不经过
+ * createWorktree，不会触发本函数；已有 worktree 复用路径也不经过（只新建时写）。
+ * 幂等 + best-effort：已存在的行不重复写，任何失败仅 warn，绝不影响 worktree 创建。
+ */
+async function writeWorktreeExclude(worktree: string): Promise<void> {
+  try {
+    const { stdout } = await execSh('git rev-parse --git-path info/exclude', { cwd: worktree, timeoutMs: 5_000 });
+    const rawPath = stdout.trim().split('\n')[0];
+    if (!rawPath) return;
+    const excludePath = path.isAbsolute(rawPath) ? rawPath : path.resolve(worktree, rawPath);
+
+    let existing = '';
+    try {
+      existing = await fs.readFile(excludePath, 'utf-8');
+    } catch { /* exclude 文件不存在 —— 视为空 */ }
+    const existingLines = new Set(existing.split('\n').map(l => l.trim()));
+    const missing = WORKTREE_EXCLUDE_PATTERNS.filter(p => !existingLines.has(p));
+    if (missing.length === 0) return;
+
+    await fs.mkdir(path.dirname(excludePath), { recursive: true });
+    const prefix = existing === '' || existing.endsWith('\n') ? existing : `${existing}\n`;
+    await fs.writeFile(excludePath, `${prefix}# studio-agent tool artifacts (commit-guard fix)\n${missing.join('\n')}\n`, 'utf-8');
+    logger.info('[WorktreeResolver] Tool artifacts added to git exclude', { excludePath, patterns: missing });
+  } catch (e) {
+    logger.warn('[WorktreeResolver] Failed to write git exclude (non-blocking)', { worktree, error: String(e) });
+  }
 }
 
 // ─── B3b-i: 每 WU 专属 worktree（按 WU id 键控，跨 step 复用）───

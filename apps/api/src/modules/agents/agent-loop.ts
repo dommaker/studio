@@ -520,15 +520,22 @@ export class AgentLoop {
       // §6-2: 提示已注入 prompt，清除避免后续步骤重复注入
       metadataUpdates.childGuardHint = undefined;
     }
-    const agentSessionId = this.instance?.sessionId;
-    if (!agentSessionId) {
-      const newId = randomUUID();
-      metadataUpdates.sessionId = newId;
+    // 续用判定（fix/guard-and-resume）：同一 WU 内才续用。claude 会话按 (HOME, cwd) 存储
+    // （2.1.80 实测：异 cwd --resume 报 "No conversation found with session ID"），
+    // B3b-i 每 WU 独立 worktree → 跨 WU 续用必失败；WU metadata.sessionId 由本 WU 首 step
+    // 写入，与 instance.sessionId 相等才说明会话是在本 WU（同一 worktree/cwd）建立的。
+    const resumeSessionId = this.instance?.sessionId && metadata.sessionId === this.instance.sessionId
+      ? this.instance.sessionId
+      : null;
+    let newSessionId: string | null = null;
+    if (!resumeSessionId) {
+      newSessionId = randomUUID();
+      metadataUpdates.sessionId = newSessionId;
       metadataUpdates.startedAt = new Date().toISOString();
       // Persist sessionId to RuntimeInstance for cross-WorkUnit continuity
       if (this.instance) {
-        await this.fileStore.updateState(this.instance.id, { sessionId: newId });
-        this.instance.sessionId = newId;
+        await this.fileStore.updateState(this.instance.id, { sessionId: newSessionId });
+        this.instance.sessionId = newSessionId;
       }
     } else {
       metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
@@ -567,6 +574,8 @@ export class AgentLoop {
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         logger.error(`[AgentLoop] Worktree creation failed for ${wu.id}: ${message}`, { traceId });
+        // 首 step 失败：会话未建立，重置避免下步 --resume 空 id
+        if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
         return {
           action: 'failed' as const,
           summary: `worktree 创建失败: ${message.slice(0, 500)}`,
@@ -585,15 +594,22 @@ export class AgentLoop {
     }
 
     // AgentTask with new interface: provider, sessionId, maxTurns, knowledgeContext
+    const taskProvider = (this.role.provider || 'claude') as AgentTask['provider'];
     const task: AgentTask = {
       id: wu.id,
       executionId: `${wu.id}-${Date.now()}`,
       // F4: profile provider (registry id) → AgentTask. Cast via AgentTask['provider'] because
       // apps/api tsc resolves studio-agent types from its (possibly stale) dist/index.d.ts.
-      provider: (this.role.provider || 'claude') as AgentTask['provider'],
+      provider: taskProvider,
       prompt,
       parameters: {
-        sessionId: agentSessionId ?? undefined,
+        // 续用：sessionId + sessionResume → runner 按 provider 换 resume 语法（claude --resume）。
+        // 新建：仅 claude 把新 sessionId 传给 CLI（--session-id 建会话 —— 不建则后续 --resume
+        // 找不到会话，2.1.80 实测报 "No conversation found"）；kimi/codex/opencode 的 session
+        // 参数均续用语义（registry 注释 + --help 查证），对未使用过的 id 会报错 → 新建不传，
+        // CLI 自建会话（与修复前行为一致）。
+        sessionId: resumeSessionId ?? (newSessionId && taskProvider === 'claude' ? newSessionId : undefined),
+        ...(resumeSessionId ? { sessionResume: true } : {}),
         maxTurns: 50,
         knowledgeContext: knowledgeContext || undefined,
         agentRole: 'executor',
@@ -622,6 +638,8 @@ export class AgentLoop {
       if (result.success === false) {
         const detail = (result.error ?? '未知错误').slice(0, 500);
         logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
+        // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
+        if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
         return {
           action: 'failed' as const,
           summary: `CLI 执行失败: ${detail}`,
@@ -725,6 +743,8 @@ export class AgentLoop {
       // W-3 fix: executeLightweight 失败返回 { success:false } 不抛错 —— 已在上方
       // success===false 显式分支接线（consecutiveStuck → blocked）；本 catch 只覆盖
       // 真正抛出的异常（如 spawn 失败），保持 need_input 语义。
+      // 首 step 抛异常：会话未建立，重置避免下步 --resume 空 id
+      if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
       // AC-8.7: 远程节点不可达 → need_input，由人工评估是否需要切换节点
@@ -998,6 +1018,19 @@ ${rosterLines.join('\n')}
     } catch {
       // Non-blocking
     }
+  }
+
+  /**
+   * 首 step（新建会话）执行失败时重置 sessionId：CLI 会话未必已建立（可能根本没 spawn 到），
+   * 不重置则下一步按续用发 `--resume <从未建立的 id>`（claude 必报 "No conversation found"）。
+   * 续用 step 失败不调用 —— 会话已存在，保留下一步继续 resume。
+   */
+  private async resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): Promise<void> {
+    if (this.instance) {
+      this.instance.sessionId = null;
+      await this.fileStore.updateState(this.instance.id, { sessionId: null }).catch(() => {});
+    }
+    delete metadataUpdates.sessionId;
   }
 
   /** Check execution output for input_tokens exceeding threshold, reset session if needed */

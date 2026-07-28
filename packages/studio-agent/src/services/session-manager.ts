@@ -62,6 +62,8 @@ export interface AgentTask {
   notifyTarget?: string;
   parameters?: {
     sessionId?: string;
+    /** true = sessionId 指向已存在会话（续用），cli-adapter 按 provider 换 resume 语法（claude --resume） */
+    sessionResume?: boolean;
     maxTurns?: number;
     knowledgeContext?: string;
     agentRole?: string;

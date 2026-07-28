@@ -38,6 +38,48 @@ describe('buildSpawnArgs', () => {
     });
   });
 
+  describe('sessionResume (fix/guard-and-resume)', () => {
+    it('claude: resume uses --resume instead of --session-id', () => {
+      const result = buildSpawnArgs('claude', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
+      expect(result.args).toContain('--resume');
+      expect(result.args).toContain('sess-123');
+      expect(result.args).not.toContain('--session-id');
+      // baseArgs 保留（--print/--output-format/--verbose）
+      expect(result.args).toContain('--print');
+      expect(result.args).toContain('stream-json');
+    });
+
+    it('claude: resume keeps --max-turns', () => {
+      const result = buildSpawnArgs('claude', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true, maxTurns: 50 });
+      expect(result.args).toContain('--resume');
+      expect(result.args).toContain('--max-turns');
+      expect(result.args).toContain('50');
+    });
+
+    it('claude: sessionResume without sessionId stays flag-free (新建行为不变)', () => {
+      const result = buildSpawnArgs('claude', { worktreeDir: '/tmp/test', sessionResume: true });
+      expect(result.args).not.toContain('--resume');
+      expect(result.args).not.toContain('--session-id');
+    });
+
+    it('kimi: resume keeps --session (本来就是续用语义)', () => {
+      const result = buildSpawnArgs('kimi', { worktreeDir: '/tmp/test', sessionId: '01HZX', sessionResume: true });
+      expect(result.args).toEqual(['--output-format', 'stream-json', '--session', '01HZX']);
+    });
+
+    it('codex: resume keeps exec resume subcommand', () => {
+      const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
+      expect(result.args).toEqual(['exec', 'resume', 'sess-123', '--json']);
+    });
+
+    it('opencode: resume keeps --session (continue 语义，--help 查证)', () => {
+      const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
+      const idx = result.args.indexOf('--session');
+      expect(idx).not.toBe(-1);
+      expect(result.args[idx + 1]).toBe('sess-123');
+    });
+  });
+
   describe('codex provider', () => {
     it('returns codex command', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test' });
