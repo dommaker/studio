@@ -2,7 +2,6 @@
  * SkillLoaderService tests
  *
  * #73: File-driven loading
- * #75: load/unload lifecycle
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -47,6 +46,7 @@ const TDD_SKILL_MD = `---
 name: tdd-workflow
 description: "TDD workflow"
 agentTypes: [executor]
+tier: fast
 status: published
 ---
 ## TDD
@@ -58,9 +58,6 @@ describe('SkillLoaderService', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     service = new SkillLoaderService();
-    service.clearSession('test-session');
-    service.clearSession('session-1');
-    service.clearSession('session-2');
   });
 
   // ── #73: File-driven loading ──
@@ -78,6 +75,7 @@ describe('SkillLoaderService', () => {
       expect(loaded).not.toBeNull();
       expect(loaded!.name).toBe('tdd-workflow');
       expect(loaded!.prompt).toContain('## TDD');
+      expect(loaded!.tier).toBe('fast');
       expect(loaded!.skillId).toBe('file:tdd-workflow');
 
       removeSkillFile('tdd-workflow');
@@ -108,6 +106,7 @@ describe('SkillLoaderService', () => {
 name: main-skill
 description: "Main skill"
 agentTypes: [executor]
+tier: standard
 required: [base-skill]
 status: published
 ---
@@ -117,6 +116,7 @@ status: published
 name: base-skill
 description: "Base skill"
 agentTypes: [executor]
+tier: fast
 status: published
 ---
 ## Base`;
@@ -131,98 +131,14 @@ status: published
 
       expect(loaded).not.toBeNull();
 
-      const sessionSkills = service.getSessionSkills('test-session');
-      expect(sessionSkills).toHaveLength(2);
-      expect(sessionSkills.map(s => s.name)).toContain('base-skill');
-      expect(sessionSkills.map(s => s.name)).toContain('main-skill');
-
+      // 递归加载验证：删除磁盘文件后 base-skill 仍命中会话缓存
+      // （若 required 未递归加载，文件已删 → loadSkill 返回 null）
       removeSkillFile('main-skill');
       removeSkillFile('base-skill');
-    });
-  });
 
-  // ── #75: load/unload lifecycle ──
-
-  describe('unloadSkill (#75)', () => {
-    it('should unload a skill from session', async () => {
-      createSkillFile('test-skill', `---
-name: test-skill
-description: "Test"
-status: published
----
-## Test`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      expect(service.getSessionSkills('test-session')).toHaveLength(1);
-
-      const removed = service.unloadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      expect(removed).toBe(true);
-      expect(service.getSessionSkills('test-session')).toHaveLength(0);
-
-      removeSkillFile('test-skill');
-    });
-
-    it('should return false when unloading non-loaded skill', () => {
-      const removed = service.unloadSkill({ sessionId: 'test-session', skillName: 'nonexistent' });
-      expect(removed).toBe(false);
-    });
-
-    it('should return false for non-existent session', () => {
-      const removed = service.unloadSkill({ sessionId: 'no-such-session', skillName: 'any' });
-      expect(removed).toBe(false);
-    });
-  });
-
-  describe('session management', () => {
-    it('should get combined prompt from loaded skills', async () => {
-      createSkillFile('test-skill', `---
-name: test-skill
-description: "Test"
-status: published
----
-## Section 1`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      const prompt = service.getSessionPrompt('test-session');
-      expect(prompt).toContain('## Section 1');
-
-      removeSkillFile('test-skill');
-    });
-
-    it('should return empty string for empty session', () => {
-      expect(service.getSessionPrompt('empty-session')).toBe('');
-    });
-
-    it('should clear session on unload of last skill', async () => {
-      createSkillFile('test-skill', `---
-name: test-skill
-description: "Test"
-status: published
----
-## Test`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      expect(service.getActiveSessionCount()).toBeGreaterThan(0);
-
-      service.unloadSkill({ sessionId: 'test-session', skillName: 'test-skill' });
-      expect(service.getSessionSkills('test-session')).toHaveLength(0);
-
-      removeSkillFile('test-skill');
-    });
-
-    it('should clear entire session', async () => {
-      createSkillFile('skill-a', `---
-name: skill-a
-description: "A"
-status: published
----
-## A`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'skill-a' });
-      service.clearSession('test-session');
-      expect(service.getSessionSkills('test-session')).toHaveLength(0);
-
-      removeSkillFile('skill-a');
+      const cachedBase = await service.loadSkill({ sessionId: 'test-session', skillName: 'base-skill' });
+      expect(cachedBase).not.toBeNull();
+      expect(cachedBase!.name).toBe('base-skill');
     });
   });
 
@@ -233,6 +149,7 @@ status: published
 name: file-skill
 description: "Test skill from file"
 agentTypes: [executor]
+tier: fast
 status: published
 ---
 ## Test Skill
@@ -257,6 +174,7 @@ This is a test skill loaded from a .md file.`;
       expect(loaded).not.toBeNull();
       expect(loaded!.name).toBe('file-skill');
       expect(loaded!.prompt).toContain('## Test Skill');
+      expect(loaded!.tier).toBe('fast');
       expect(loaded!.skillId).toBe('file:file-skill');
     });
   });

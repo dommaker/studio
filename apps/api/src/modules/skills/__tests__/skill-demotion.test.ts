@@ -70,6 +70,16 @@ function skillUsedEvent(skillName: string, createdAt: string): string {
   });
 }
 
+/** agent-loop step 注入格式（2026-07-27 口径校准：带 workUnitId） */
+function skillUsedEventForWu(skillName: string, workUnitId: string, createdAt: string): string {
+  return JSON.stringify({
+    type: 'knowledge:skill_used',
+    source: 'agent-loop',
+    payload: JSON.stringify({ skillName, workUnitId }),
+    createdAt,
+  });
+}
+
 function writeEvents(lines: string[]): void {
   fs.writeFileSync(eventsFile, lines.length ? lines.join('\n') + '\n' : '', 'utf-8');
 }
@@ -131,6 +141,21 @@ describe('§10.6 aggregateSkillUsage', () => {
     const b = usage.get('skill-b')!;
     expect(b.uses).toBe(1);
     expect(b.successRate).toBe(0);   // 0 done / 1 终态（blocked）
+  });
+
+  it('uses 口径：带 workUnitId 按 (skill, WU) 去重；legacy 无 workUnitId 每条计 1', async () => {
+    writeEvents([
+      skillUsedEventForWu('skill-a', 'wu-1', '2026-07-19T10:00:00.000Z'),
+      skillUsedEventForWu('skill-a', 'wu-1', '2026-07-19T11:00:00.000Z'), // 同 WU 多 step 注入 → 去重
+      skillUsedEventForWu('skill-a', 'wu-2', '2026-07-20T10:00:00.000Z'),
+      skillUsedEvent('skill-a', '2026-07-18T10:00:00.000Z'),              // legacy 每条计 1
+      skillUsedEvent('skill-a', '2026-07-18T11:00:00.000Z'),
+    ]);
+
+    const usage = await aggregateSkillUsage({ eventsFile, fileStore });
+    const a = usage.get('skill-a')!;
+    expect(a.uses).toBe(4); // wu-1×1 + wu-2×1 + legacy×2
+    expect(a.lastUsedAt).toBe('2026-07-20T10:00:00.000Z');
   });
 
   it('空数据 → 空 Map，不抛错', async () => {

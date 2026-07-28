@@ -39,7 +39,7 @@ const OTHER_CHANNEL = 'ch-other';
 const mockRole = {
   id: SELF_ROLE_ID,
   name: 'self-agent',
-  description: 'task executor (assignee test)', // acceptedTypes = ['task']
+  description: 'task executor (assignee test)', // 决策 9：description 不再解析 acceptedTypes
   channels: JSON.stringify([MY_CHANNEL]),
   status: 'active',
   createdAt: new Date(),
@@ -131,6 +131,34 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
     const obs = await observe();
     expect(obs.unassigned.map(w => w.id)).toContain(wu.id);
     expect(resolveTarget(obs)?.workUnit.id).toBe(wu.id);
+  });
+
+  it('(c2) 决策 10：删除 acceptedTypes 硬过滤 —— acceptedTypes 不含 WU type 的任务仍可见', async () => {
+    // 角色只声明 implement，但 type=review 的任务（指派 + 频道未指派各一）都必须可见
+    const loop = new AgentLoop({ ...mockRole, acceptedTypes: ['implement'] }, fileStore);
+    (loop as unknown as { instance: unknown }).instance = {
+      id: SELF_INSTANCE_ID,
+      roleId: SELF_ROLE_ID,
+      sessionId: null,
+      status: 'idle',
+      currentWorkUnitId: null,
+      startedAt: new Date().toISOString(),
+      terminatedAt: null,
+      lastHeartbeat: null,
+      metadata: null,
+    };
+    const assigned = await wuService.create({
+      scope: '@self-agent 审查代码', channelId: MY_CHANNEL, type: 'review',
+      status: 'unassigned', assigneeId: SELF_ROLE_ID,
+    });
+    const channelScoped = await wuService.create({
+      scope: '频道内审查任务', channelId: MY_CHANNEL, type: 'review',
+      status: 'unassigned', assigneeId: null,
+    });
+
+    const obs = await (loop as unknown as ObserveCapable).observe();
+    expect(obs.unassigned.map(w => w.id)).toContain(assigned.id);
+    expect(obs.unassigned.map(w => w.id)).toContain(channelScoped.id);
   });
 
   it('(d) 未指派但在非本 profile 频道的 WorkUnit 不被认领', async () => {

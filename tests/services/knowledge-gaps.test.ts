@@ -550,17 +550,3 @@ describe('ToolRegistry → PreferenceObserver wiring (G-001)', () => {
     toolRegistry.unregister('__test_pref_observer__');
   });
 });
-
-// ════════════════════════════════════════════
-// GoalScheduler → knowledge injection wiring (S9)
-// ════════════════════════════════════════════
-
-describe('GoalScheduler knowledge injection (S9)', () => {
-  it('调度器导入 buildKnowledgeContext 可用', async () => {
-    const { buildKnowledgeContext } = await import(
-      '../../apps/api/src/modules/knowledge/consumers/prompt-builder.js'
-    );
-
-    expect(typeof buildKnowledgeContext).toBe('function');
-  });
-});

@@ -65,6 +65,7 @@ e2e/.auth.json
 .analyst/
 .daemon/
 *.db
+.studio/
 
 # Claude Code (development only)
 CLAUDE.md

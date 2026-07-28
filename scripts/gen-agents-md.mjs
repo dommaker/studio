@@ -10,6 +10,10 @@
  * <!-- /AUTO-GENERATED:modules --> 标记之间的内容；标记外内容不动。
  * 标记不存在时在文件末尾追加。
  *
+ * 整个区段外层套 <!-- PRESERVE:modules -->：harness sync-docs --agents 的
+ * 漂移比对（existing !== 生成内容+PRESERVE 块）不认识本区段，不套会被
+ * --check 永远判 stale；套入后 harness 原样穿过，本脚本仍按 AUTO 标记原地更新。
+ *
  * 用法：node scripts/gen-agents-md.mjs   （或 pnpm gen:agents-md）
  */
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -91,6 +95,11 @@ ${END}`;
 const entries = collect();
 const section = buildSection(entries);
 
+// PRESERVE 包裹版：harness 漂移比对对包裹内容免疫（见文件头注释）
+const WRAP_BEGIN = '<!-- PRESERVE:modules -->';
+const WRAP_END = '<!-- /PRESERVE:modules -->';
+const wrapped = `${WRAP_BEGIN}\n${section}\n${WRAP_END}`;
+
 let original = '';
 try {
   original = readFileSync(AGENTS_MD, 'utf-8');
@@ -100,12 +109,18 @@ try {
 }
 
 let next;
+const wrapBeginIdx = original.indexOf(WRAP_BEGIN);
+const wrapEndIdx = original.indexOf(WRAP_END);
 const beginIdx = original.indexOf(BEGIN);
 const endIdx = original.indexOf(END);
-if (beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx) {
-  next = original.slice(0, beginIdx) + section + original.slice(endIdx + END.length);
+if (wrapBeginIdx !== -1 && wrapEndIdx !== -1 && wrapEndIdx > wrapBeginIdx) {
+  // 已包裹：整体替换 PRESERVE 块
+  next = original.slice(0, wrapBeginIdx) + wrapped + original.slice(wrapEndIdx + WRAP_END.length);
+} else if (beginIdx !== -1 && endIdx !== -1 && endIdx > beginIdx) {
+  // 迁移：裸 AUTO 段 → 替换为 PRESERVE 包裹版
+  next = original.slice(0, beginIdx) + wrapped + original.slice(endIdx + END.length);
 } else {
-  next = original.replace(/\s*$/, '') + '\n\n' + section + '\n';
+  next = original.replace(/\s*$/, '') + '\n\n' + wrapped + '\n';
 }
 
 if (next === original) {

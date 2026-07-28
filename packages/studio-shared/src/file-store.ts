@@ -40,6 +40,10 @@ export interface AgentProfileData {
   updatedAt: string;       // ISO 8601
   /** §9.6 P1: 节点 ID。undefined 或 'local' → 本地执行；其他 → RemoteExecutor 路由。 */
   nodeId?: string;
+  /** 决策 9: 显式职能域（阶段词表，见 domain-vocab.ts）。创建时可从 .agents/roles/*.yaml 预设带入 */
+  acceptedTypes?: string[];
+  /** 决策 13: 角色自述（prompt「## 你的角色」段内容）；缺省回退 description */
+  persona?: string;
 }
 
 export interface RuntimeStateData {
@@ -68,6 +72,8 @@ export interface ChannelData {
   members: string;         // JSON: AgentProfile ID[]
   /** AC-6.1: 频道默认管线 AgentProfile name 数组。空数组=清除；undefined=未配置 */
   defaultPipeline?: string[];
+  /** 决策 12: 无 @ 消息的默认认领角色（AgentProfile ID）。未配置（null/undefined）= 维持纯存储 */
+  defaultProfileId?: string | null;
   createdAt: string;       // ISO 8601
   updatedAt: string;       // ISO 8601
 }

@@ -1,8 +1,10 @@
 /**
- * §10 P0 域匹配测试
+ * §10 P0 域匹配测试（决策 7/8/11 重构后）
  *
  * - manifest-loader：解析 agentTypes/status；status 显式非 published 跳过，缺省 = active
- * - selectSkillsWithDomain：域交集主信号 + scope 次级信号、去重、封顶 3
+ * - selectSkillsWithDomain：相关度排序器——显式 hints > 域匹配（normalizeToStage 归一化）
+ *   > scope 匹配 > 其余 published（热度/名称序）；全量产出不封顶（调用方按预算截断）
+ * - parseSkillHintsFromScope：从 scope 解析 +skill名（决策 11，自 message-routing 迁入）
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -13,12 +15,18 @@ import * as os from 'os';
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'domain-match-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
+const { mockLogger } = vi.hoisted(() => ({
+  mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }));
 
-const { loadManifest, invalidateManifestCache, loadSkillBody } = await import('../manifest-loader.js');
-const { selectSkillsWithDomain, parseAcceptedTypesFromDescription } = await import('../skill-selector.js');
+// importOriginal：skill-selector 还依赖 normalizeToStage，不能整包替换
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const orig = await importOriginal() as Record<string, unknown>;
+  return { ...orig, logger: mockLogger };
+});
+
+const { loadManifest, invalidateManifestCache } = await import('../manifest-loader.js');
+const { selectSkillsWithDomain, parseSkillHintsFromScope } = await import('../skill-selector.js');
 type SkillEntry = import('../manifest-loader.js').SkillEntry;
 
 function writeSkill(dirName: string, frontmatterLines: string[], body?: string) {
@@ -38,6 +46,7 @@ function cleanupSkills() {
 }
 
 beforeEach(() => {
+  vi.clearAllMocks();
   invalidateManifestCache();
   cleanupSkills();
 });
@@ -90,31 +99,27 @@ describe('manifest-loader: agentTypes/status 解析（§10 P0）', () => {
     const skills = loadManifest();
     expect(skills.map(s => s.name)).toEqual(['live-skill']);
   });
+});
 
-  it('loadSkillBody returns body without frontmatter', () => {
-    writeSkill('body-skill', ['name: body-skill', 'description: "正文测试"'], '## 步骤\n\n1. 先做\n2. 后做');
+describe('parseSkillHintsFromScope（决策 11：+skill 从 scope 解析，自 message-routing 迁入）', () => {
+  it('解析全部 +skill名 token（按序）', () => {
+    expect(parseSkillHintsFromScope('实现登录 +tdd +review 谢谢')).toEqual(['tdd', 'review']);
+  });
 
-    const entry = loadManifest().find(s => s.name === 'body-skill')!;
-    const body = loadSkillBody(entry);
-    expect(body).toContain('## 步骤');
-    expect(body).not.toContain('---');
-    expect(body).not.toContain('description');
+  it('去重且保持首次出现顺序', () => {
+    expect(parseSkillHintsFromScope('+a +b +a')).toEqual(['a', 'b']);
+  });
+
+  it('无 token → 空数组', () => {
+    expect(parseSkillHintsFromScope('随便聊聊，没有 hint')).toEqual([]);
+  });
+
+  it('支持连字符与下划线 skill 名', () => {
+    expect(parseSkillHintsFromScope('+skill-design-skill +my_skill')).toEqual(['skill-design-skill', 'my_skill']);
   });
 });
 
-describe('parseAcceptedTypesFromDescription（与 agent-loop 同一关键词集）', () => {
-  it('extracts type keywords from description', () => {
-    expect(parseAcceptedTypesFromDescription('负责 feature 开发与 code review 工作'))
-      .toEqual(['feature', 'review']);
-  });
-
-  it('returns [] for null/empty description', () => {
-    expect(parseAcceptedTypesFromDescription(null)).toEqual([]);
-    expect(parseAcceptedTypesFromDescription('')).toEqual([]);
-  });
-});
-
-describe('selectSkillsWithDomain（§10.3 域匹配动态解析）', () => {
+describe('selectSkillsWithDomain（决策 7/8：排序器 + 阶段词表归一化）', () => {
   const entry = (name: string, extra?: Partial<SkillEntry>): SkillEntry => ({
     name,
     path: `${name}/SKILL.md`,
@@ -122,13 +127,29 @@ describe('selectSkillsWithDomain（§10.3 域匹配动态解析）', () => {
     ...extra,
   });
 
-  it('domain match: agentTypes [feature, refactor] 命中 WU type feature', () => {
+  it('domain match: agentTypes [feature, refactor] 归一化后命中 WU type feature，域匹配排最前', () => {
     const skills = [
       entry('feature-dev', { agentTypes: ['feature', 'refactor'] }),
       entry('review-only', { agentTypes: ['review'] }),
     ];
     const matched = selectSkillsWithDomain('xyzzy 无交集文本', skills, { acceptedTypes: [], wuType: 'feature' });
-    expect(matched.map(s => s.name)).toEqual(['feature-dev']);
+    // feature→implement 归一化后命中 feature-dev；未命中的 review-only 作为「其余 published」殿后
+    expect(matched.map(s => s.name)).toEqual(['feature-dev', 'review-only']);
+  });
+
+  it('归一化（决策 8）：wuType feature → implement 命中 agentTypes [implement]', () => {
+    const skills = [entry('impl-skill', { agentTypes: ['implement'] })];
+    const matched = selectSkillsWithDomain('', skills, { acceptedTypes: [], wuType: 'feature' });
+    expect(matched[0].name).toBe('impl-skill');
+  });
+
+  it('归一化（决策 8）：角色 acceptedTypes [feature] → implement；wuType task → general', () => {
+    const skills = [
+      entry('impl-skill', { agentTypes: ['implement'] }),
+      entry('general-skill', { agentTypes: ['general'] }),
+    ];
+    const matched = selectSkillsWithDomain('', skills, { acceptedTypes: ['feature'], wuType: 'task' });
+    expect(matched.map(s => s.name)).toEqual(['impl-skill', 'general-skill']);
   });
 
   it('domain match: 角色 acceptedTypes 与 WU type 取并集', () => {
@@ -168,7 +189,7 @@ describe('selectSkillsWithDomain（§10.3 域匹配动态解析）', () => {
     expect(names).toContain('scope-only');
   });
 
-  it('caps result at 3 skills', () => {
+  it('决策 7：不再封顶 3 —— 返回相关度排序全量列表（由调用方按预算截断）', () => {
     const skills = [
       entry('s1', { agentTypes: ['feature'] }),
       entry('s2', { agentTypes: ['feature'] }),
@@ -176,6 +197,55 @@ describe('selectSkillsWithDomain（§10.3 域匹配动态解析）', () => {
       entry('s4', { agentTypes: ['feature'] }),
     ];
     const matched = selectSkillsWithDomain('', skills, { acceptedTypes: [], wuType: 'feature' });
-    expect(matched.length).toBe(3);
+    expect(matched.length).toBe(4);
+  });
+
+  it('其余 published 殿后：有引用数按引用数降序', () => {
+    const skills = [
+      entry('low', { referenceCount: 1 }),
+      entry('high', { referenceCount: 9 }),
+      entry('mid', { referenceCount: 5 }),
+    ];
+    const matched = selectSkillsWithDomain('', skills, { acceptedTypes: [], wuType: 'zzz-无交集' });
+    expect(matched.map(s => s.name)).toEqual(['high', 'mid', 'low']);
+  });
+
+  it('其余 published 殿后：无引用数/更新时间字段按名称序兜底', () => {
+    const skills = [entry('delta'), entry('bravo'), entry('alpha')];
+    const matched = selectSkillsWithDomain('', skills, { acceptedTypes: [], wuType: 'zzz-无交集' });
+    expect(matched.map(s => s.name)).toEqual(['alpha', 'bravo', 'delta']);
+  });
+
+  it('决策 11：显式 hint 强制置顶于域匹配之前', () => {
+    const skills = [
+      entry('hint-skill', { description: 'xyzzy 无交集' }),
+      entry('domain-a', { agentTypes: ['implement'] }),
+    ];
+    const matched = selectSkillsWithDomain('', skills, { acceptedTypes: [], wuType: 'implement' }, ['hint-skill']);
+    expect(matched[0].name).toBe('hint-skill');
+    expect(matched.map(s => s.name)).toContain('domain-a');
+  });
+
+  it('未知 hint 跳过并记日志，其余排序不受影响', () => {
+    const skills = [entry('domain-a', { agentTypes: ['implement'] })];
+    const matched = selectSkillsWithDomain('', skills, { acceptedTypes: [], wuType: 'implement' }, ['no-such-skill']);
+    expect(matched.map(s => s.name)).toEqual(['domain-a']);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('not found'),
+      expect.objectContaining({ hint: 'no-such-skill' }),
+    );
+  });
+
+  it('consumers:[loop] 的 hint 跳过（hub-only，不进 WU）', () => {
+    const skills = [
+      entry('loop-skill', { agentTypes: ['implement'], consumers: ['loop'] }),
+      entry('domain-a', { agentTypes: ['implement'] }),
+    ];
+    const matched = selectSkillsWithDomain('', skills, { acceptedTypes: [], wuType: 'implement' }, ['loop-skill']);
+    expect(matched.map(s => s.name)).toEqual(['domain-a']);
+    expect(mockLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('not found'),
+      expect.objectContaining({ hint: 'loop-skill' }),
+    );
   });
 });

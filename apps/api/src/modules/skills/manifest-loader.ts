@@ -26,6 +26,10 @@ export interface SkillEntry {
   triggers?: string[];
   /** 消费方（frontmatter consumers）——含 'loop' 的是 hub-service skill，不参与 WU 匹配 */
   consumers?: string[];
+  /** 引用次数（排序器「其余 published」热度信号；manifest 暂未回填 → 调用方按名称序兜底） */
+  referenceCount?: number;
+  /** 最近更新时间 ISO 8601（热度次级信号；未回填 → 名称序兜底） */
+  updatedAt?: string;
 }
 
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
@@ -132,37 +136,6 @@ export function loadManifest(): SkillEntry[] {
  */
 export function getSkillFilePath(entry: SkillEntry): string {
   return path.join(SKILLS_DIR, entry.path);
-}
-
-/**
- * Read full SKILL.md content for a SkillEntry.
- * AC3: load full SKILL.md content for selected skill
- * Returns null if file doesn't exist.
- */
-export function loadSkillContent(entry: SkillEntry): string | null {
-  const filePath = getSkillFilePath(entry);
-  try {
-    if (!fs.existsSync(filePath)) {
-      logger.warn('[manifest-loader] SKILL.md not found', { path: filePath });
-      return null;
-    }
-    return fs.readFileSync(filePath, 'utf-8');
-  } catch (err) {
-    logger.error('[manifest-loader] Failed to read SKILL.md', { path: filePath, error: String(err) });
-    return null;
-  }
-}
-
-/**
- * 读取 SKILL.md 正文（剥掉 frontmatter）——agentStep prompt 注入用。
- * Returns null if file doesn't exist or body is empty.
- */
-export function loadSkillBody(entry: SkillEntry): string | null {
-  const content = loadSkillContent(entry);
-  if (!content) return null;
-  const match = content.match(/^---\n[\s\S]*?\n---\n?([\s\S]*)$/);
-  const body = (match ? match[1] : content).trim();
-  return body || null;
 }
 
 /**

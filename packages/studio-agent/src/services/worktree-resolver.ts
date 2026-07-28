@@ -38,8 +38,6 @@ function getDefaultBranch(cwd: string): string {
 
 /**
  * 创建 worktree（真 git worktree add）
- * branchName 显式指定时优先（B3b-i 按 WU 键控的分支名 task/<wuId>）；
- * 缺省保持原行为 task/<basename(worktree)>（含完整 executionId，findTaskBranch 可找到）。
  */
 export async function createWorktree(worktree: string, baseBranch: string, repoDir: string, task?: AgentTask, branchName?: string): Promise<void> {
   // Validate repoDir is a git repository
@@ -63,122 +61,49 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
     logger.warn('[WorktreeResolver] Failed to clean worktree dir, continuing', { error: String(e) });
   }
 
-  // 创建 git worktree — 缺省分支名必须包含完整 executionId，确保 findTaskBranch 能找到
-  const branch = branchName ?? `task/${path.basename(worktree)}`;
+  // 创建 git worktree — 分支名必须包含完整 executionId，确保 findTaskBranch 能找到
+  const resolvedBranch = branchName ?? `task/${path.basename(worktree)}`;
   try {
     await execSh(
-      `git worktree add -b "${branch}" "${worktree}" "${baseBranch}"`,
+      `git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`,
       { cwd: repoDir, timeoutMs: 30_000 },
     );
   } catch (e: any) {
     if (e.message?.includes("already exists")) {
       try {
-        await execSh(`git branch -D "${branch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
-        await execSh(`git worktree add -b "${branch}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
+        await execSh(`git branch -D "${resolvedBranch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+        await execSh(`git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
       } catch (e2: any) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
     } else { throw e; }
   }
-  logger.info('[WorktreeResolver] Git worktree created', { worktree, branch, base: baseBranch, repo: repoDir });
-  await writeWorktreeExclude(worktree);
+  logger.info('[WorktreeResolver] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
+  await writeGitExclude(repoDir);
 }
 
-// ─── 工具产物 exclude（§10.5 提交守卫误伤修复）───
+/** 工具产物 exclude 规则（写入 .git/info/exclude，git status 不再看到这些产物） */
+const GIT_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/'];
 
-/**
- * runner 执行期写入 worktree 的工具产物（全部 untracked）——
- * 不写进 exclude 会让 `git status --porcelain` 恒非空，提交守卫把"不改代码的角色"
- * （如 reviewer）的 COMPLETE 永远打回。刻意不含 AGENTS.md：它是内容文件，
- * agent 可能 legit 修改。.harness/ 由 propagateHarnessConfig 无条件创建
- * （模板缺失时为空目录，有模板文件时即 untracked 污染源）。
- */
-const WORKTREE_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/'] as const;
-
-/**
- * 新建 worktree 后，把工具产物写进仓库级 `.git/info/exclude`（不写 repo 文件）。
- * 注意 git 没有 per-worktree exclude（2.43 实测 `<gitdir>/worktrees/<name>/info/exclude`
- * 不生效，`git rev-parse --git-path info/exclude` 在 worktree 内解析到公共 gitdir）——
- * 写入的是该仓库所有 worktree 共享的 exclude。主 workspace 直接执行的路径不经过
- * createWorktree，不会触发本函数；已有 worktree 复用路径也不经过（只新建时写）。
- * 幂等 + best-effort：已存在的行不重复写，任何失败仅 warn，绝不影响 worktree 创建。
- */
-async function writeWorktreeExclude(worktree: string): Promise<void> {
+async function writeGitExclude(repoDir: string): Promise<void> {
   try {
-    const { stdout } = await execSh('git rev-parse --git-path info/exclude', { cwd: worktree, timeoutMs: 5_000 });
-    const rawPath = stdout.trim().split('\n')[0];
-    if (!rawPath) return;
-    const excludePath = path.isAbsolute(rawPath) ? rawPath : path.resolve(worktree, rawPath);
-
+    const excludePath = path.join(repoDir, '.git', 'info', 'exclude');
     let existing = '';
-    try {
-      existing = await fs.readFile(excludePath, 'utf-8');
-    } catch { /* exclude 文件不存在 —— 视为空 */ }
-    const existingLines = new Set(existing.split('\n').map(l => l.trim()));
-    const missing = WORKTREE_EXCLUDE_PATTERNS.filter(p => !existingLines.has(p));
-    if (missing.length === 0) return;
-
-    await fs.mkdir(path.dirname(excludePath), { recursive: true });
-    const prefix = existing === '' || existing.endsWith('\n') ? existing : `${existing}\n`;
-    await fs.writeFile(excludePath, `${prefix}# studio-agent tool artifacts (commit-guard fix)\n${missing.join('\n')}\n`, 'utf-8');
-    logger.info('[WorktreeResolver] Tool artifacts added to git exclude', { excludePath, patterns: missing });
-  } catch (e) {
-    logger.warn('[WorktreeResolver] Failed to write git exclude (non-blocking)', { worktree, error: String(e) });
+    try { existing = await fs.readFile(excludePath, 'utf-8'); } catch { /* file may not exist */ }
+    const lines = existing.split('\n');
+    let changed = false;
+    for (const p of GIT_EXCLUDE_PATTERNS) {
+      if (!lines.includes(p)) {
+        lines.push(p);
+        changed = true;
+      }
+    }
+    if (changed) {
+      await fs.mkdir(path.dirname(excludePath), { recursive: true });
+      await fs.writeFile(excludePath, lines.join('\n') + '\n', 'utf-8');
+      logger.info('[WorktreeResolver] Updated git exclude', { repoDir });
+    }
+  } catch {
+    // best-effort: exclude 写入失败绝不阻断 worktree 创建
   }
-}
-
-// ─── B3b-i: 每 WU 专属 worktree（按 WU id 键控，跨 step 复用）───
-
-export interface WuWorktreeInfo {
-  worktreePath: string; // <worktreesDir>/wu-<wuId>
-  branch: string;       // task/<wuId>
-  baseBranch: string;   // 创建时探测/复用时沿用 metadata 记录
-  baseRepo: string;     // 共享 git 仓库根
-}
-
-/**
- * B3b-i: 确保 WU 专属 worktree 存在。
- * 目录 <worktreesDir>/wu-<wuId>、分支 task/<wuId>；同一 WU 的多个 step 复用同一 worktree
- * （目录含 .git 即视为已创建，直接复用，不重建）。
- * 创建失败：清理半成品（worktree 注册项 + 目录 + 分支）后抛错——
- * 调用方（agent-loop）走失败分支，绝不允许静默退回共享目录执行。
- */
-export async function ensureWuWorktree(opts: {
-  wuId: string;
-  repoDir: string;
-  worktreesDir: string;
-  baseBranch?: string;
-}): Promise<WuWorktreeInfo> {
-  const { wuId, repoDir, worktreesDir } = opts;
-  const worktreePath = path.join(worktreesDir, `wu-${wuId}`);
-  const branch = `task/${wuId}`;
-
-  if (fsSync.existsSync(path.join(worktreePath, '.git'))) {
-    logger.info('[WorktreeResolver] Reusing WU worktree', { worktreePath, wuId });
-    return { worktreePath, branch, baseBranch: opts.baseBranch || getDefaultBranch(repoDir), baseRepo: repoDir };
-  }
-
-  const baseBranch = opts.baseBranch || getDefaultBranch(repoDir);
-  try {
-    await createWorktree(worktreePath, baseBranch, repoDir, undefined, branch);
-  } catch (e) {
-    logger.error('[WorktreeResolver] WU worktree creation failed, cleaning up', { worktreePath, wuId, error: String(e) });
-    await cleanupFailedWuWorktree(worktreePath, branch, repoDir);
-    throw e;
-  }
-  logger.info('[WorktreeResolver] WU worktree created', { worktreePath, branch, baseBranch, repo: repoDir, wuId });
-  return { worktreePath, branch, baseBranch, baseRepo: repoDir };
-}
-
-/** ensureWuWorktree 失败兜底：清掉半成品（best-effort，绝不再抛错掩盖原始错误） */
-async function cleanupFailedWuWorktree(worktreePath: string, branch: string, repoDir: string): Promise<void> {
-  try {
-    await execSh(`git worktree remove --force "${worktreePath}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 10_000 });
-  } catch { /* best-effort */ }
-  try {
-    await fs.rm(worktreePath, { recursive: true, force: true });
-  } catch { /* best-effort */ }
-  try {
-    await execSh(`git branch -D "${branch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
-  } catch { /* best-effort */ }
 }
 
 /**
@@ -239,19 +164,6 @@ export async function resolveWorkspace(opts: {
   return worktree;
 }
 
-/** 两个目录是否属于同一 git 仓库（--git-common-dir 比较；判定失败=false，宁可不传播也不污染） */
-async function isSameGitRepo(a: string, b: string): Promise<boolean> {
-  try {
-    const [ra, rb] = await Promise.all([
-      execSh('git rev-parse --git-common-dir', { cwd: a, timeoutMs: 5_000 }),
-      execSh('git rev-parse --git-common-dir', { cwd: b, timeoutMs: 5_000 }),
-    ]);
-    return path.resolve(a, ra.stdout.trim()) === path.resolve(b, rb.stdout.trim());
-  } catch {
-    return false;
-  }
-}
-
 /**
  * 传播 harness 约束 + Claude 权限配置到 worktree
  */
@@ -259,16 +171,11 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
   try {
     // FIX #3: 复制 CLAUDE.md 到 worktree，使 buildAgentConstraintPrompt 去重逻辑生效
     // 主 repo CLAUDE.md 含 <!-- HARNESS_CONSTRAINTS_START --> 标记，
-    // buildAgentConstraintPrompt 检测到后只注入短引用，避免全量规则重复。
-    // 2026-07-28 修订：仅同仓库传播。频道链路 worktree 属于 WU 自己的工程仓、
-    // repoDir 是 studio 默认仓，跨仓复制过去就是 untracked 内容文件（不在 exclude），
-    // §10.5 提交守卫恒非空把 COMPLETE 反复打回（e2e 实测 16 步空转强制 in_review）。
+    // buildAgentConstraintPrompt 检测到后只注入短引用，避免全量规则重复
     if (repoDir) {
       const claudeMdSrc = path.join(repoDir, 'CLAUDE.md');
       const claudeMdDst = path.join(worktree, 'CLAUDE.md');
-      if (!fsSync.existsSync(claudeMdDst)
-        && fsSync.existsSync(claudeMdSrc)
-        && await isSameGitRepo(repoDir, worktree)) {
+      if (!fsSync.existsSync(claudeMdDst) && fsSync.existsSync(claudeMdSrc)) {
         fsSync.copyFileSync(claudeMdSrc, claudeMdDst);
       }
     }
@@ -323,116 +230,7 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
         },
       }, null, 2), 'utf-8');
     }
-
-    // §10 P0（2026-07-28 修订）: 工作区指南（skill 索引 + SDD 落盘要求）——
-    // 仓库已有 AGENTS.md / CLAUDE.md 一律不覆盖（原 AGENTS.md 无条件覆写会让 repo
-    // 已跟踪文件因 skill 索引漂移出现未提交改动，误伤 §10.5 提交守卫；现对齐
-    // CLAUDE.md「已存在不覆盖」并推广到两个文件）；
-    // 两者都没有时也不写根目录新文件（untracked 文件同样误伤守卫），改落
-    // `.studio/AGENTS.generated.md`（在工具产物 exclude 内，git status 不可见），
-    // prompt 侧（agent-loop buildContinuePrompt/buildReplyPrompt）指引 agent 按需阅读。
-    const agentsMd = buildAgentsMdContent();
-    if (agentsMd) {
-      const hasNativeGuide = fsSync.existsSync(path.join(worktree, 'AGENTS.md'))
-        || fsSync.existsSync(path.join(worktree, 'CLAUDE.md'));
-      if (!hasNativeGuide) {
-        const generatedPath = path.join(worktree, '.studio', 'AGENTS.generated.md');
-        fsSync.mkdirSync(path.dirname(generatedPath), { recursive: true });
-        fsSync.writeFileSync(generatedPath, agentsMd, 'utf-8');
-      }
-      copySkillFiles(worktree);
-    }
   } catch { logger.warn('[WorktreeResolver] Harness/Claude config init failed (non-blocking)', { taskId, executionId }); }
-}
-
-// ─── AGENTS.md 生成（§10 P0）───
-
-const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
-
-/**
- * 扫描 skills 目录，解析 SKILL.md frontmatter（name + description）。
- * studio-agent 是独立包，不能 import apps/api 的 manifest-loader —— 此处保留一份
- * 最小解析副本（只取索引所需的两个标量字段）。manifest 读取失败返回 null（静默跳过）。
- */
-function readSkillIndex(): Array<{ name: string; description: string }> | null {
-  try {
-    if (!fsSync.existsSync(SKILLS_DIR)) return [];
-    const dirs = fsSync.readdirSync(SKILLS_DIR, { withFileTypes: true });
-    const skills: Array<{ name: string; description: string }> = [];
-    for (const dir of dirs) {
-      if (!dir.isDirectory() || dir.name.startsWith('_')) continue;
-      const skillFile = path.join(SKILLS_DIR, dir.name, 'SKILL.md');
-      if (!fsSync.existsSync(skillFile)) continue;
-      try {
-        const content = fsSync.readFileSync(skillFile, 'utf-8');
-        const match = content.match(/^---\n([\s\S]*?)\n---/);
-        if (!match) continue;
-        let name = '';
-        let description = '';
-        let status = '';
-        for (const line of match[1].split('\n')) {
-          const kv = line.match(/^(\w+):\s*(.+)$/);
-          if (!kv) continue;
-          const cleaned = kv[2].replace(/^["']|["']$/g, '');
-          if (kv[1] === 'name') name = cleaned;
-          if (kv[1] === 'description') description = cleaned;
-          if (kv[1] === 'status') status = cleaned;
-        }
-        // status 缺省 = active；显式非 published 不进索引
-        if (!name || (status && status !== 'published')) continue;
-        skills.push({ name, description });
-      } catch { /* 单个 skill 解析失败跳过 */ }
-    }
-    return skills;
-  } catch {
-    return null; // manifest 读取失败 —— 静默跳过，不写 AGENTS.md
-  }
-}
-
-/**
- * index-on-demand：把活跃 skill 的 SKILL.md 原文（含 frontmatter）复制到
- * `<worktree>/.studio/skills/<name>/SKILL.md`，供 agent 按需阅读。
- * 活跃判定复用 readSkillIndex（status 缺省或 published、非 _ 前缀目录）。
- * 只复制 SKILL.md，不带 evals/ 等其他文件；失败静默（与既有分支口径一致）。
- */
-function copySkillFiles(worktree: string): void {
-  try {
-    const skills = readSkillIndex();
-    if (!skills) return;
-    for (const skill of skills) {
-      const src = path.join(SKILLS_DIR, skill.name, 'SKILL.md');
-      if (!fsSync.existsSync(src)) continue;
-      const dstDir = path.join(worktree, '.studio', 'skills', skill.name);
-      fsSync.mkdirSync(dstDir, { recursive: true });
-      fsSync.copyFileSync(src, path.join(dstDir, 'SKILL.md'));
-    }
-  } catch { /* 复制失败静默跳过 */ }
-}
-
-/**
- * 组装 AGENTS.md 内容：可用 skill 索引（name + 一句话 description）+ 全文指针 + SDD 落盘要求。
- * 只放索引行，不放 skill 正文（index-on-demand：全文由 copySkillFiles 落到 .studio/skills/）。
- */
-export function buildAgentsMdContent(): string | null {
-  const skills = readSkillIndex();
-  if (skills === null) return null;
-
-  return [
-    '# Studio Agent 工作区指南',
-    '',
-    '## 可用 Skills（索引）',
-    ...(skills.length > 0
-      ? skills.map(s => `- **${s.name}** — ${s.description || '（无描述）'}`)
-      : ['（当前无已发布的 skill）']),
-    ...(skills.length > 0
-      ? ['', '各 skill 全文位于 `.studio/skills/<name>/SKILL.md`，与任务相关时按需阅读。']
-      : []),
-    '',
-    '## SDD 落盘要求',
-    '- 产出设计文档时：写 `docs/sdd/<slug>/requirement.md`、`docs/sdd/<slug>/design.md`、`docs/sdd/<slug>/task.md`。',
-    '- 并在 `docs/sdd/_index.md` 登记该 slug（标题、状态、关联 REQ/任务）。',
-    '',
-  ].join('\n');
 }
 
 /**
@@ -710,4 +508,58 @@ export async function ensureDeps(worktree: string, repoDir: string): Promise<voi
       worktree, hash, error: String(e),
     });
   }
+}
+
+// ── B3b-i: WU 专属 worktree（按 WU id 键控，跨 step 复用）──
+
+export interface WuWorktreeInfo {
+  worktreePath: string;   // <worktreesDir>/wu-<wuId>
+  branch: string;         // task/<wuId>
+  baseBranch: string;     // 创建时探测/复用时沿用 metadata 记录
+  baseRepo: string;       // 共享 git 仓库根
+}
+
+/**
+ * B3b-i: 确保 WU 专属 worktree 存在。
+ * 同一 WU 多 step 复用（目录含 .git 即视为已创建，不重建）。
+ * 创建失败：清理半成品后抛错——调用方走失败分支，绝不允许退回共享目录。
+ */
+export async function ensureWuWorktree(opts: {
+  wuId: string;
+  repoDir: string;
+  worktreesDir: string;
+  baseBranch?: string;
+}): Promise<WuWorktreeInfo> {
+  const { wuId, repoDir, worktreesDir } = opts;
+  const worktreePath = path.join(worktreesDir, `wu-${wuId}`);
+  const branch = `task/${wuId}`;
+
+  if (fsSync.existsSync(path.join(worktreePath, '.git'))) {
+    logger.info('[WorktreeResolver] Reusing WU worktree', { worktreePath, wuId });
+    return { worktreePath, branch, baseBranch: opts.baseBranch || getDefaultBranch(repoDir), baseRepo: repoDir };
+  }
+
+  const baseBranch = opts.baseBranch || getDefaultBranch(repoDir);
+  try {
+    await createWorktree(worktreePath, baseBranch, repoDir, undefined, branch);
+  } catch (e) {
+    logger.error('[WorktreeResolver] WU worktree creation failed, cleaning up', { worktreePath, wuId, error: String(e) });
+    await cleanupFailedWuWorktree(worktreePath, branch, repoDir);
+    throw e;
+  }
+  logger.info('[WorktreeResolver] WU worktree created', { worktreePath, branch, baseBranch, repo: repoDir, wuId });
+  return { worktreePath, branch, baseBranch, baseRepo: repoDir };
+}
+
+/** ensureWuWorktree 失败兜底：清掉半成品（best-effort，绝不再抛错掩盖原始错误） */
+async function cleanupFailedWuWorktree(worktreePath: string, branch: string, repoDir: string): Promise<void> {
+  try {
+    await execSh(`git worktree remove --force "${worktreePath}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 10_000 });
+  } catch { /* best-effort */ }
+  try {
+    await fs.rm(worktreePath, { recursive: true, force: true });
+  } catch { /* best-effort */ }
+  try {
+    await execSh(`git branch -D "${branch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+  } catch { /* best-effort */ }
 }

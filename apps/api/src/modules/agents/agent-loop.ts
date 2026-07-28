@@ -18,6 +18,7 @@ import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../triggers/trigger-registry.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { loadManifest } from '../skills/manifest-loader.js';
+import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
 import { eventStore } from '../../core/event-store.js';
 import { getWorkspaceRecord, resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
@@ -25,6 +26,13 @@ import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
+
+/** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
+ *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用），默认 ~/.studio/logs/studio-events.jsonl。
+ *  调用时惰性解析：测试在 import 本模块后仍可改 env 生效。 */
+function studioEventsJsonlPath(): string {
+  return process.env.STUDIO_EVENTS_JSONL || join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+}
 
 /** B3b-i: 代码类 WU（执行面强制专属 worktree 隔离） */
 const CODE_WORKTREE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
@@ -35,9 +43,6 @@ const REVIEW_STEP_LIMIT = 30;
 /** B3b-i: 单条验证命令超时 10min；失败注入 prompt 的输出尾部上限 */
 const VERIFY_COMMAND_TIMEOUT_MS = 600_000;
 const VERIFY_FAIL_TAIL_CHARS = 2_000;
-
-/** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流） */
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const metricsFileStore = new FileStore();
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
@@ -113,7 +118,8 @@ export class AgentLoop {
     this.role = role;
     this.fileStore = fileStore ?? new FileStore();
     this.workUnitService = new WorkUnitService(this.fileStore);
-    this.acceptedTypes = this.parseAcceptedTypes(role.description);
+    // 决策 9: acceptedTypes 取 profile 显式字段（description 关键词解析已退役）
+    this.acceptedTypes = role.acceptedTypes ?? [];
     // W-4 fix + F3: parse channels from role.channels JSON（容错历史双重编码值）
     this.myChannels = parseChannels(role.channels);
     // §9.6: 执行面走 Executor 接口。profile.nodeId: undefined/'local' → LocalExecutor
@@ -375,7 +381,8 @@ export class AgentLoop {
       if (s.status !== 'unassigned') return false;
       // Assignee-aware claiming（@mention 语义，docs/vision-2026.md §3）：
       // 显式指派给某个 profile 的 WorkUnit 只能被该 profile 的 loop 认领；
-      // 未指派的保持频道作用域（§9.5: 频道 members 含本 profile + acceptedTypes 匹配）。
+      // 未指派的保持频道作用域（§9.5: 频道 members 含本 profile）。
+      // 决策 10：认领纯显式，不再有 acceptedTypes 类型过滤（推断只用于 skill 排序，不否决路由）。
       if (s.assigneeId) {
         if (s.assigneeId !== this.role.id) return false;
       } else if (s.channelId) {
@@ -388,7 +395,6 @@ export class AgentLoop {
           return false;
         }
       }
-      if (this.acceptedTypes.length > 0 && !this.acceptedTypes.includes(s.type)) return false;
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(0, 5)
@@ -463,24 +469,30 @@ export class AgentLoop {
     // R1 反馈环: 接住 injectContext 返回的 injectedIds，贯穿到 recordOutcome /
     // extractFromExecution 的 consumedKnowledge（断点 A：此前注入 id 被丢弃，
     // outcome 永远上报 consumedKnowledge: []，飞轮无反馈数据）。
-    // §10 P0: skill 索引段（## 本次任务 Skills）先于知识段注入，共用 2K 红线——
-    // skill 先占预算，剩余额度传给 injectContext（skill 是本次任务的主动指令）。
-    // A2A §4.1 机制 2: 成员花名册段（## 频道成员与委派）在 skill 之后、知识之前，
-    // 共用 2K 红线（优先级：skills index > roster > knowledge）。
+    // §10 P0 + 决策 7/13: 注入段共用 2K 红线，优先级 skills > persona > roster > knowledge——
+    // skill 段（## 本次任务 Skills）step 时计算，先占预算；persona 段（## 你的角色）次之；
+    // 成员花名册段（## 频道成员与委派）再次；剩余额度传给 injectContext。
     let skillSection = '';
     let skillTokens = 0;
+    let skillMatched: string[] = [];
     try {
-      const composed = await this.buildSkillSection(wu, metadata);
+      const composed = await this.buildSkillSection(wu);
       skillSection = composed.section;
       skillTokens = composed.tokens;
+      skillMatched = composed.matched;
     } catch {
       // Non-blocking: agent continues without skill section
     }
 
+    // 决策 13: `## 你的角色` 段（persona ?? description；为空则省略）。纯字符串组装，不抛错
+    const persona = this.buildPersonaSection(Math.max(0, INJECT_TOKEN_BUDGET - skillTokens));
+    const personaSection = persona.section;
+    const personaTokens = persona.tokens;
+
     let rosterSection = '';
     let rosterTokens = 0;
     try {
-      const roster = await this.buildRosterSection(wu, Math.max(0, INJECT_TOKEN_BUDGET - skillTokens));
+      const roster = await this.buildRosterSection(wu, Math.max(0, INJECT_TOKEN_BUDGET - skillTokens - personaTokens));
       rosterSection = roster.section;
       rosterTokens = roster.tokens;
     } catch {
@@ -492,14 +504,14 @@ export class AgentLoop {
     try {
       const ctx = await knowledgeService.injectContext(wu.type, {
         tags: [wu.type],
-        maxTokens: Math.max(0, INJECT_TOKEN_BUDGET - skillTokens - rosterTokens),
+        maxTokens: Math.max(0, INJECT_TOKEN_BUDGET - skillTokens - personaTokens - rosterTokens),
       });
       knowledgeContext = ctx.prompt;
       injectedKnowledgeIds = ctx.injectedIds ?? [];
     } catch {
       // Non-blocking: agent continues without knowledge context
     }
-    const leadSections = [skillSection, rosterSection].filter(s => s.length > 0).join('\n\n');
+    const leadSections = [skillSection, personaSection, rosterSection].filter(s => s.length > 0).join('\n\n');
     if (leadSections) {
       knowledgeContext = knowledgeContext
         ? `${leadSections}\n\n## 项目上下文\n${knowledgeContext}`
@@ -508,6 +520,11 @@ export class AgentLoop {
 
     // Session management — per-Agent session (GAP-2: RuntimeInstance.sessionId)
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
+    if (skillMatched.length > 0) {
+      // 决策 7: step 时匹配名单落盘 metadata.matchedSkills（随 recordResult 原子写入，
+      // 供 skill-demotion 成功率与被无视率度量——替代原 claim 时 fire-and-forget 落盘，消竞态）
+      metadataUpdates.matchedSkills = skillMatched;
+    }
     if (pendingReplies.length > 0) {
       // F5: 回复已注入 prompt，清除避免后续步骤重复注入（undefined 在 JSON 序列化时丢弃）
       metadataUpdates.pendingReplies = undefined;
@@ -669,7 +686,7 @@ export class AgentLoop {
       const executionTokens = result.usage && (result.usage.inputTokens + result.usage.outputTokens) > 0
         ? result.usage.inputTokens + result.usage.outputTokens
         : null;
-      void writeWorkunitTokenEvent(STUDIO_EVENTS_JSONL, {
+      void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
         workUnitId: wu.id,
         executionId: task.executionId,
         injectedTokens: estimateTokens(knowledgeContext.length),
@@ -768,41 +785,79 @@ export class AgentLoop {
   }
 
   /**
-   * §10 P0: 组装 `## 本次任务 Skills` 段（claim 时域匹配命中的 skill 索引）。
-   * index-on-demand：只放 name + 一句话 description + 全文指针
-   * （`.studio/skills/<name>/SKILL.md` 由 worktree-resolver 落盘，agent 按需阅读），不注入正文。
-   * 内存快照缺 matchedSkills 时回读一次 FileStore（claim 的匹配落盘是 fire-and-forget）。
-   * 预算：skill 段单独超过 2K 红线时按 chars/4 口径截断（知识段额度随之归零）。
+   * §10 P0 + 决策 7/11: 组装 `## 本次任务 Skills` 段 —— step 时计算（不再读 claim 落盘的
+   * metadata.matchedSkills，消竞态并吃到 skill 库最新版）。
+   * 匹配（selectSkillsWithDomain）：+skill 显式点名（wu.scope 解析）> 域匹配
+   * （role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）> scope 文本 > 其余按热度——
+   * 产出相关度排序全量列表，由 2K 预算块级截断（取代封顶 3）。
+   * index-on-demand：索引行 = name + description + triggers 摘要 + 全文指针
+   * （~/.studio/skills/<name>/SKILL.md，agent 按需阅读），不注入正文；段首协议行说明按需语义。
+   * 返回 matched = 实际进入注入段的 skill 名（调用方落盘 metadata.matchedSkills；
+   * 此处并发 knowledge:skill_used 事件，fire-and-forget，供度量/被无视率）。
    */
-  private async buildSkillSection(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<{ section: string; tokens: number }> {
-    const asNames = (v: unknown): string[] =>
-      Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string' && s.length > 0) : [];
-
-    let matchedSkills = asNames(metadata.matchedSkills);
-    if (matchedSkills.length === 0) {
-      try {
-        const snapshots = await this.fileStore.getIndex();
-        const fresh = snapshots.find(s => s.id === wu.id);
-        const freshMeta: WorkUnitMetadata = fresh?.metadata ? JSON.parse(fresh.metadata) : {};
-        matchedSkills = asNames(freshMeta.matchedSkills);
-      } catch { /* non-blocking — 回读失败按无 skill 处理 */ }
-    }
-    if (matchedSkills.length === 0) return { section: '', tokens: 0 };
-
+  private async buildSkillSection(wu: WorkUnitData): Promise<{ section: string; tokens: number; matched: string[] }> {
     const manifest = loadManifest();
-    const blocks: string[] = [];
-    for (const name of matchedSkills) {
-      const entry = manifest.find(e => e.name === name);
-      if (!entry) continue;
-      blocks.push(`### ${name}\n${entry.description || '（无描述）'}\n全文：.studio/skills/${name}/SKILL.md（按需阅读）`);
-    }
-    if (blocks.length === 0) return { section: '', tokens: 0 };
+    if (manifest.length === 0) return { section: '', tokens: 0, matched: [] };
 
-    let section = `## 本次任务 Skills\n\n${blocks.join('\n\n')}`;
+    const hints = parseSkillHintsFromScope(wu.scope ?? '');
+    const ranked = selectSkillsWithDomain(wu.scope ?? '', manifest, {
+      acceptedTypes: this.acceptedTypes,
+      wuType: wu.type,
+    }, hints);
+    if (ranked.length === 0) return { section: '', tokens: 0, matched: [] };
+
+    const header = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
+    let tokens = estimateTokens(header.length);
+    const blocks: string[] = [];
+    const matched: string[] = [];
+    for (const entry of ranked) {
+      const triggerSummary = Array.isArray(entry.triggers) && entry.triggers.length > 0
+        ? `｜触发：${entry.triggers.slice(0, 5).join(', ')}`
+        : '';
+      const block = `### ${entry.name}\n${entry.description || '（无描述）'}${triggerSummary}\n全文：~/.studio/skills/${entry.name}/SKILL.md`;
+      const blockTokens = estimateTokens(block.length + 2); // + \n\n 分隔符
+      if (tokens + blockTokens > INJECT_TOKEN_BUDGET) {
+        // 首个块即超预算：截断塞入，保证段不为空（沿用原整段截断口径）
+        if (blocks.length === 0) {
+          blocks.push(block.slice(0, Math.max(0, (INJECT_TOKEN_BUDGET - tokens) * 4)));
+          matched.push(entry.name);
+          tokens = INJECT_TOKEN_BUDGET;
+        }
+        break;
+      }
+      blocks.push(block);
+      matched.push(entry.name);
+      tokens += blockTokens;
+    }
+
+    // 度量（fire-and-forget）：每个实际注入的 skill 记一条 knowledge:skill_used 事件
+    for (const skillName of matched) {
+      void metricsFileStore.appendJsonl(studioEventsJsonlPath(), {
+        type: 'knowledge:skill_used',
+        source: 'agent-loop',
+        payload: JSON.stringify({ skillName, workUnitId: wu.id }),
+        createdAt: new Date().toISOString(),
+      }).catch(() => {});
+    }
+
+    return { section: `${header}\n\n${blocks.join('\n\n')}`, tokens, matched };
+  }
+
+  /**
+   * 决策 13: 组装 `## 你的角色` 段（角色自述）。
+   * 内容 = role.persona ?? role.description（皆空则段省略）；
+   * 与 skill/roster/知识段共用 2K 红线（skills > persona > roster > knowledge），
+   * 调用方传入剩余额度，超出按 chars/4 口径截断。
+   */
+  private buildPersonaSection(tokenBudget: number): { section: string; tokens: number } {
+    const persona = this.role.persona ?? this.role.description;
+    if (!persona || tokenBudget <= 0) return { section: '', tokens: 0 };
+
+    let section = `## 你的角色\n\n${persona}`;
     let tokens = estimateTokens(section.length);
-    if (tokens > INJECT_TOKEN_BUDGET) {
-      section = section.slice(0, INJECT_TOKEN_BUDGET * 4);
-      tokens = INJECT_TOKEN_BUDGET;
+    if (tokens > tokenBudget) {
+      section = section.slice(0, tokenBudget * 4);
+      tokens = tokenBudget;
     }
     return { section, tokens };
   }
@@ -1368,12 +1423,6 @@ ${rosterLines.join('\n')}
     await this.fileStore.appendMessage(wu.channelId, msg);
   }
 
-  /** Parse accepted WorkUnit types from role description */
-  private parseAcceptedTypes(description: string | null): string[] {
-    if (!description) return [];
-    const typeKeywords = ['task', 'bug', 'feature', 'refactor', 'test', 'docs', 'review', 'analysis'];
-    return typeKeywords.filter(kw => description.toLowerCase().includes(kw));
-  }
 }
 
 // ─── Exported pure functions (testable) ───

@@ -4,7 +4,11 @@
  * Priority:
  * 1. replyToId present → thread reply (inherit workUnitId from parent)
  * 2. @mention detected → create WorkUnit
- * 3. plain text → store only
+ * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
+ * 4. plain text → store only
+ *
+ * 决策 11: 路由层不认识 skill——`+skill名` token 保留在 scope 原文，
+ * 由 agent-loop step 时经 parseSkillHintsFromScope 解析（skill-selector.ts）。
  */
 import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
@@ -29,24 +33,13 @@ export function detectMention(content: string): string | null {
 }
 
 /**
- * §10.3 显式覆盖：解析消息中的 `+skill名` token（全部出现，按序去重）。
- * token 保留在原文中不改写；创建 WorkUnit 时写入 metadata.skillHints。
- */
-export function parseSkillHints(content: string): string[] {
-  const hints: string[] = [];
-  for (const match of content.matchAll(/\+([\w-]+)/g)) {
-    if (!hints.includes(match[1])) hints.push(match[1]);
-  }
-  return hints;
-}
-
-/**
  * Route a message based on its content and context.
  *
  * Priority order:
  * 1. replyToId → thread reply: inherit workUnitId from parent message
  * 2. @mention → create WorkUnit, associate with message
- * 3. plain text → store without workUnitId
+ * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
+ * 4. plain text → store without workUnitId（未配置默认角色 = 维持纯存储）
  *
  * F6 → B3a 工程归属链（决策 D2）：创建 WorkUnit 时解析工程归属 —
  * 显式 workspaceId > Requirement.projectId → PMO 项目 gitRepo（metadata.workspaceRoot
@@ -117,7 +110,6 @@ export async function routeMessage(
       if (pm) reroutedFrom = STUDIO_ROLE_NAME;
     }
     const scope = content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
-    const skillHints = parseSkillHints(content);
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
     // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
     const reqId = await resolveReqIdForDispatch({
@@ -164,8 +156,6 @@ export async function routeMessage(
         ...(reroutedFrom ? { reroutedFrom } : {}),
         // P0 修复 6: traceId 贯穿（audit requestId → WU metadata → agent-loop 日志）
         ...(options?.traceId ? { traceId: options.traceId } : {}),
-        // §10.3: +skill名 显式指定（token 保留在原文中，仅解析进 metadata）
-        ...(skillHints.length > 0 ? { skillHints } : {}),
         // B3a: 归属解析结果落档（来源区分供日志/审计）
         ownershipSource: ownership?.source ?? 'fallback',
         ...(ownership?.workspaceRoot ? { workspaceRoot: ownership.workspaceRoot } : {}),
@@ -229,6 +219,30 @@ export async function routeMessage(
     return message;
   }
 
-  // Priority 3: Plain storage
+  // 决策 12: 无 @ 兜底 —— 频道配置了默认角色 → 派给它建 WorkUnit（消息关联到该 WU）
+  const channel = await resolvedFs.getChannel(channelId);
+  if (channel?.defaultProfileId) {
+    const workUnit = await wuService.create({
+      scope: content,
+      channelId,
+      type: 'task',
+      status: 'unassigned',
+      assigneeId: channel.defaultProfileId,
+      metadata: { creationMode: 'channel-default' },
+    });
+    logger.info('[MessageRouting] WorkUnit created for channel default profile', {
+      channelId,
+      workUnitId: workUnit.id,
+      defaultProfileId: channel.defaultProfileId,
+    });
+    return channelMessageService.createHumanMessage(
+      channelId,
+      content,
+      undefined,
+      workUnit.id,
+    );
+  }
+
+  // Priority 4: Plain storage
   return channelMessageService.createHumanMessage(channelId, content);
 }

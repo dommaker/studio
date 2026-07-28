@@ -10,11 +10,7 @@ export type {
   JSONSchema,
   AgentConfig,
   AgentCapabilities,
-  AgentPersona,
-  AgentPersonaConstraints,
 } from './types.js';
-
-export { getPersona, listPersonas, DEFAULT_PERSONAS } from './registry.js';
 
 export type { AgentTask, ExecutionResult } from './services/session-manager.js';
 

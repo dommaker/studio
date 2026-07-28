@@ -42,6 +42,8 @@
 - 频道消息流滚动约定（2026-07，仿 QQ/微信）：打开/切换频道定位到最新一条；新消息仅当人在底部附近（≤80px）或是自己发送时跟随到底；"加载更早的消息"前插后按 scrollHeight 差值补偿，视口不跳。实现在 `ChannelDetailPage.tsx` 的 streamRef + useLayoutEffect。
 - 角色（AgentProfile）创建入口时间线：进 App 时 `App.tsx` 检测（studio 角色 provider=null → StudioRoleSetupModal 补 CLI；无用户角色 → FirstRoleSetupModal 建首个角色）；常规入口 = Agent 管理页"创建角色"按钮 → `/setup/roles` 向导（勾选扫描到的 runtime 批量建）；频道内快捷入口 = 成员面板"+ 创建新 Agent"（name + 描述 + CLI 下拉）。所有入口共用 `channelApi.createAgent` → `POST /agent-profiles`。
 - `AgentDashboardPage`（侧边栏 Agent 菜单）= 角色（profile）中心列表：`channelApi.listAllAgents()`（全量含 studio/inactive）按 `roleId` 合并 `monitoringApi.getAgentSummary()` 运行时状态；每行展示名称 / 背后 CLI(provider) / 描述 / profile 状态 / 运行时状态 / lastError。
+- 频道 @提及（`components/channel/ChannelInput.tsx`）：候选 = `GET /agent-profiles?status=active&channelId=`（服务端按频道成员过滤）；选中插入纯文本 `@name `（带尾随空格，无结构化 id），发送走 `POST /channels/:id/messages`，mention 解析在服务端 message-routing 完成。成员弹框 `ChannelMemberManager` 的 memberIds 必须经 useEffect 从 props membersJson 同步（channel 异步加载，useState 初始值只跑一次）。
+- 原生 `<select>` 约定（2026-07-27 起）：`theme.css` 已在 `:root`/`[data-theme="light"]` 声明 `color-scheme`（dark/light）并为 option 提供变量样式，弹出面板随主题；新增下拉框直接用 `.input` 类即可，禁止再写死背景/文字色。
 - 所有 API 模块返回的响应数据结构需与后端约定一致（如 `{ success, data }` 或 `{ data, total }`）。
 
 ## 修复历史

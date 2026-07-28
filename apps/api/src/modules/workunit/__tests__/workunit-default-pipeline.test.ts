@@ -3,7 +3,8 @@
  *
  * D10: 频道默认管线只展开第一跳，后续靠 agent DELEGATE。
  * 规则：type='feature' + channel.defaultPipeline 存在且非空
- *       -> 创建链头子 WU (type=pipeline[0], parentId=父.id, assigneeId=profile.id, status='unassigned')
+ *       -> 创建链头子 WU (type=阶段名，parentId=父.id, assigneeId=profile.id, status='unassigned')
+ * 决策 10：子 WU type = firstProfile.acceptedTypes[0]（阶段词表；原为角色名），缺省 'task'。
  * 无 defaultPipeline 时不展开。
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -29,16 +30,17 @@ describe('AC-6.3: WorkUnit create() defaultPipeline expansion', () => {
 
     const now = new Date().toISOString();
 
-    // Seed active profiles
+    // Seed active profiles（executor 带显式职能域；reviewer 不带 —— 覆盖缺省回退）
     executorProfileId = 'p-exec-wu';
     reviewerProfileId = 'p-rev-wu';
     for (const p of [
-      { id: executorProfileId, name: 'executor' },
+      { id: executorProfileId, name: 'executor', acceptedTypes: ['implement'] },
       { id: reviewerProfileId, name: 'reviewer' },
     ]) {
       await fileStore.createProfile({
         id: p.id, name: p.name, description: null,
         channels: '[]', status: 'active', createdAt: now, updatedAt: now,
+        ...('acceptedTypes' in p ? { acceptedTypes: p.acceptedTypes } : {}),
       });
     }
 
@@ -80,13 +82,13 @@ describe('AC-6.3: WorkUnit create() defaultPipeline expansion', () => {
     expect(children.length).toBe(1);
 
     const child = children[0];
-    expect(child.type).toBe('executor');          // pipeline[0] = profile name
+    expect(child.type).toBe('implement');         // 决策 10: 阶段名 = profile.acceptedTypes[0]（原为角色名）
     expect(child.assigneeId).toBe(executorProfileId);
     expect(child.status).toBe('unassigned');
     expect(child.channelId).toBe(channelId);
   });
 
-  it('only expands first hop (D10): pipeline=[a,b] -> 1 child type=a', async () => {
+  it('only expands first hop (D10): pipeline=[a,b] -> 1 child type=a 的阶段名', async () => {
     const parent = await service.create({
       type: 'feature',
       scope: 'multi-step feature',
@@ -95,7 +97,30 @@ describe('AC-6.3: WorkUnit create() defaultPipeline expansion', () => {
     const all = await fileStore.getIndex();
     const children = all.filter(s => s.parentId === parent.id);
     expect(children.length).toBe(1);
-    expect(children[0].type).toBe('executor');    // first item only
+    expect(children[0].type).toBe('implement');    // first item only
+  });
+
+  it('profile 无 acceptedTypes → 子 WU type 回退为 task', async () => {
+    const now = new Date().toISOString();
+    const fallbackChId = 'ch-pipeline-fallback';
+    await fileStore.createChannel({
+      id: fallbackChId, name: '#test-pipeline-fallback', type: 'rnd',
+      defaultWorkspaceId: null, defaultPath: null,
+      discordChannelId: null, discordWebhookUrl: null,
+      members: '[]', defaultPipeline: ['reviewer'], // reviewer 未声明 acceptedTypes
+      createdAt: now, updatedAt: now,
+    });
+
+    const parent = await service.create({
+      type: 'feature',
+      scope: 'fallback feature',
+      channelId: fallbackChId,
+    });
+    const all = await fileStore.getIndex();
+    const children = all.filter(s => s.parentId === parent.id);
+    expect(children.length).toBe(1);
+    expect(children[0].type).toBe('task');
+    expect(children[0].assigneeId).toBe(reviewerProfileId);
   });
 
   it('type=feature + no defaultPipeline -> no child WU', async () => {

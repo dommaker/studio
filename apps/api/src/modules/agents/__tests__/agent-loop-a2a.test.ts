@@ -12,6 +12,12 @@ import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.
 const { mockExecSync } = vi.hoisted(() => ({ mockExecSync: vi.fn() }));
 vi.mock('child_process', () => ({ execSync: mockExecSync }));
 
+// 决策 7：skill 匹配挪到 step 时后会读真实 skill 库 —— 隔离为不存在目录（manifest 为空），
+// 避免宿主 ~/.studio/skills 内容影响注入预算断言（manifest-loader 模块加载时读取 SKILLS_DIR）
+vi.hoisted(() => {
+  process.env.SKILLS_DIR = '/nonexistent/agent-loop-a2a-skills';
+});
+
 const { mockResolveWorkspaceRoot } = vi.hoisted(() => ({ mockResolveWorkspaceRoot: vi.fn() }));
 vi.mock('../../workspaces/workspace-store', () => ({ resolveWorkspaceRoot: mockResolveWorkspaceRoot }));
 

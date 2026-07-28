@@ -46,7 +46,7 @@ router.get('/', async (req: Request, res: Response) => {
 /** POST / — create AgentProfile */
 router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { name, description, channels, provider, status } = req.body;
+    const { name, description, channels, provider, status, preset, persona, acceptedTypes } = req.body;
 
     if (!name || typeof name !== 'string') {
       return res.status(400).json({
@@ -54,7 +54,7 @@ router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Res
       });
     }
 
-    const profile = await service.create({ name, description, channels, provider, status });
+    const profile = await service.create({ name, description, channels, provider, status, preset, persona, acceptedTypes });
     res.status(201).json(profile);
   } catch (error) {
     const msg = getErrorMessage(error);

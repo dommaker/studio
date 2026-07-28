@@ -1,6 +1,8 @@
 id: developer
 name: Developer
 description: 代码实现、TDD 流程、单元测试编写
+# 决策 8/9: 职能域（阶段词表）——创建 AgentProfile 时由 preset 带入
+acceptedTypes: [implement]
 
 templates:
   - .agents/templates/agent.md

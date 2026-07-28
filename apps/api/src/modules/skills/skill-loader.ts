@@ -2,16 +2,16 @@
  * SkillLoader API Service - file-based skill loading with session lifecycle
  *
  * Wraps @dommaker/studio-skill package loader.
- * Adds: session-level load/unload.
+ * Adds: session-level load cache（生产调用方仅 mcp/skill.tools.ts 的 loadSkill）。
  *
- * #75: load/unload lifecycle
+ * #75: loadSkill lifecycle
  */
 
+// string type removed — using string. See packages/studio-skill/src/types.ts
 import { logger, FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 // ── Types ──
 
@@ -20,6 +20,7 @@ export interface LoadedSkill {
   name: string;
   prompt: string;
   tools: string[];
+  tier: string;
   loadedAt: Date;
 }
 
@@ -35,11 +36,6 @@ export interface LoadSkillOptions {
   agentType?: string;
 }
 
-export interface UnloadSkillOptions {
-  sessionId: string;
-  skillName: string;
-}
-
 // ── File-based skill loading (.md with frontmatter) ──
 
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
@@ -48,6 +44,7 @@ interface SkillFrontmatter {
   name: string;
   description?: string;
   agentTypes?: string[];
+  tier?: string;
   tools?: string[];
   required?: string[];
   status?: string;
@@ -103,7 +100,7 @@ function getOrCreateSession(sessionId: string, agentType: string): SessionSkillS
   return state;
 }
 
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
 const fileStore = new FileStore();
 
 // ── Service ──
@@ -130,6 +127,7 @@ export class SkillLoaderService {
     let skillId: string;
     let prompt: string;
     let tools: string[];
+    let tier: string;
     let required: string[];
 
     if (!fileSkill) {
@@ -140,6 +138,7 @@ export class SkillLoaderService {
     skillId = `file:${skillName}`;
     prompt = fileSkill.prompt;
     tools = fileSkill.meta.tools || [];
+    tier = (fileSkill.meta.tier || 'standard') as string;
     required = fileSkill.meta.required || [];
 
     // Load required skills recursively
@@ -154,6 +153,7 @@ export class SkillLoaderService {
       name: skillName,
       prompt,
       tools,
+      tier,
       loadedAt: new Date(),
     };
 
@@ -170,6 +170,7 @@ export class SkillLoaderService {
     logger.info('[SkillLoader] Loaded skill', {
       sessionId,
       skillName,
+      tier: loaded.tier,
       toolCount: tools.length,
       source: 'file',
     });
@@ -177,67 +178,6 @@ export class SkillLoaderService {
     return loaded;
   }
 
-  /**
-   * Unload a skill from a session context.
-   * Removes prompt + tools from loaded state.
-   *
-   * #75: unloadSkill lifecycle
-   */
-  unloadSkill(options: UnloadSkillOptions): boolean {
-    const { sessionId, skillName } = options;
-    const state = sessionStates.get(sessionId);
-    if (!state) return false;
-
-    const existed = state.loaded.has(skillName);
-    state.loaded.delete(skillName);
-
-    if (existed) {
-      logger.info('[SkillLoader] Unloaded skill', { sessionId, skillName });
-    }
-
-    // Clean up empty sessions
-    if (state.loaded.size === 0) {
-      sessionStates.delete(sessionId);
-    }
-
-    return existed;
-  }
-
-  /**
-   * Get all loaded skills for a session.
-   */
-  getSessionSkills(sessionId: string): LoadedSkill[] {
-    const state = sessionStates.get(sessionId);
-    if (!state) return [];
-    return [...state.loaded.values()];
-  }
-
-  /**
-   * Get the combined prompt from all loaded skills for a session.
-   */
-  getSessionPrompt(sessionId: string): string {
-    const skills = this.getSessionSkills(sessionId);
-    if (skills.length === 0) return '';
-    return skills
-      .filter(s => s.prompt)
-      .map(s => `\n---\n${s.prompt}`)
-      .join('');
-  }
-
-  /**
-   * Clear all loaded skills for a session (cleanup).
-   */
-  clearSession(sessionId: string): void {
-    sessionStates.delete(sessionId);
-    logger.info('[SkillLoader] Cleared session', { sessionId });
-  }
-
-  /**
-   * Get active session count (for monitoring).
-   */
-  getActiveSessionCount(): number {
-    return sessionStates.size;
-  }
 }
 
 /** Singleton */

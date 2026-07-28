@@ -45,6 +45,8 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 - **requirement-gate Stage 2**：确定性检查（文件重叠/单向依赖/architectureContext），全部 soft warning，永不阻断
 - **outputFile 唯一性**：Claude 通过 Write tool 写文件，stdout 只有 "DONE"。文件丢失 = 数据丢失
 - **鉴权分层（2026-07-24 收紧，姿态 A）**：`/api/v1/channels` 在 PUBLIC_API —— GET（`/`、`/:id`、`/:id/messages`）保持**匿名公开**（Lurk Wall 围观本体，不要再给 GET 加中间件）；9 条写端点（建频道/发消息/删频道/archive/restore/PATCH/members/convert-to-task×2）= `requireAuth()+requireNotGuest()`。注意 `POST /:id/messages` 经 @mention 派单/恢复挂起 WU 可直接触发 agent 执行与 LLM 消耗，是收紧前最危险的匿名入口。requirements-docs PUT 同为 requireNotGuest
+- **消息路由优先级**（`message-routing.ts` routeMessage）：`replyToId` 线程回复（继承父消息 workUnitId）→ `@mention` 派单（建 WorkUnit，`metadata.creationMode='mention'`；§9.5 只匹配本频道 members，members 为空回退全量 active profile）→ 纯文本仅存储。mention = 纯文本 `@name`（无结构化 id），检测与 scope 剥离用 Unicode 正则 `[\p{L}\p{N}_-]+/u`；手打中文连写无空格（`@开发你好`）匹配不到——前端补全插入带尾随空格，主路径不受影响
+- **成员绑定**：`channel.members`（config.json 内 JSON 字符串数组）是成员关系唯一事实源，`AgentProfile.channels` 已废弃（启动时幂等迁移）；PATCH `/:id/members` 合并 add/remove 后整体回写；删除 profile 时由 AgentProfileService 反向清理各频道 members 悬空引用
 
 ## 修复历史
 

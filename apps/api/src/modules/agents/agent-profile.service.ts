@@ -3,9 +3,14 @@
  *
  * AS-025 Phase 2: name + description + channels
  * Storage: FileStore (迁移自 Prisma)
+ * 决策 9: create 支持 preset——从 `.agents/roles/<preset>.yaml` 带入
+ * description/persona/acceptedTypes（显式传入字段优先于预设）。
  */
 
 import { randomUUID } from 'crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import yaml from 'js-yaml';
 import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 
 /** 保留角色名：系统内置 studio 角色专用，用户不可创建/改名/删除 */
@@ -32,6 +37,48 @@ export interface CreateAgentProfileInput {
   channels?: string[];
   provider?: string;
   status?: string;
+  /** 决策 9: 角色预设名（.agents/roles/<preset>.yaml）——带入 description/persona/acceptedTypes */
+  preset?: string;
+  /** 角色自述（prompt「## 你的角色」段内容）；显式传入优先于预设 */
+  persona?: string;
+  /** 显式职能域（阶段词表）；显式传入优先于预设 */
+  acceptedTypes?: string[];
+}
+
+/** 角色预设 yaml 中可预填的字段 */
+export interface RolePreset {
+  description?: string;
+  persona?: string;
+  acceptedTypes?: string[];
+}
+
+/** .agents/roles 目录（默认 <cwd>/.agents/roles；STUDIO_ROLES_DIR 可覆盖——测试注入用） */
+function resolveRolesDir(): string {
+  return process.env.STUDIO_ROLES_DIR || path.join(process.cwd(), '.agents', 'roles');
+}
+
+/**
+ * 决策 9: 读取角色预设 `.agents/roles/<preset>.yaml` 的 description/persona/acceptedTypes。
+ * preset 名含路径字符（防目录穿越）、文件不存在或解析失败 → 返回 null。
+ */
+export function loadRolePreset(preset: string, rolesDir: string = resolveRolesDir()): RolePreset | null {
+  if (!/^[\w-]+$/.test(preset)) return null;
+  try {
+    const file = path.join(rolesDir, `${preset}.yaml`);
+    if (!fs.existsSync(file)) return null;
+    const parsed = yaml.load(fs.readFileSync(file, 'utf-8'));
+    if (!parsed || typeof parsed !== 'object') return null;
+    const p = parsed as Record<string, unknown>;
+    return {
+      description: typeof p.description === 'string' ? p.description : undefined,
+      persona: typeof p.persona === 'string' ? p.persona : undefined,
+      acceptedTypes: Array.isArray(p.acceptedTypes)
+        ? p.acceptedTypes.filter((t): t is string => typeof t === 'string' && t.length > 0)
+        : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export interface UpdateAgentProfileInput {
@@ -113,16 +160,30 @@ export class AgentProfileService {
       throw new Error(`Unique constraint: AgentProfile with name "${input.name}" already exists`);
     }
 
+    // 决策 9: preset 预填（显式传入字段优先于预设）；preset 提供了但读不到 → 拒绝创建（防手误静默丢配置）
+    let preset: RolePreset | null = null;
+    if (input.preset) {
+      preset = loadRolePreset(input.preset);
+      if (!preset) {
+        throw new Error(`Role preset not found or invalid: ${input.preset}（.agents/roles/${input.preset}.yaml）`);
+      }
+    }
+
     const now = new Date().toISOString();
     const data: AgentProfileData = {
       id: randomUUID(),
       name: input.name,
-      description: input.description ?? null,
+      description: input.description ?? preset?.description ?? null,
       channels: stringifyChannels(input.channels),
       provider: input.provider ?? null,
       status: input.status ?? 'active',
       createdAt: now,
       updatedAt: now,
+      // 决策 9/13: persona/acceptedTypes 显式字段（显式传入 > 预设；皆无则不写）
+      ...(input.persona ?? preset?.persona ? { persona: input.persona ?? preset?.persona } : {}),
+      ...(input.acceptedTypes ?? preset?.acceptedTypes
+        ? { acceptedTypes: input.acceptedTypes ?? preset?.acceptedTypes }
+        : {}),
     };
     await this.fileStore.createProfile(data);
     // F1: notify AgentLoopRegistry (mounts a loop when created already active)

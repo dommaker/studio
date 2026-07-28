@@ -15,9 +15,11 @@ import * as os from 'os';
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'triggers-test-'));
 process.env.SKILLS_DIR = testSkillsDir;
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-}));
+// importOriginal：skill-selector 还依赖 normalizeToStage，不能整包替换
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const orig = await importOriginal() as Record<string, unknown>;
+  return { ...orig, logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() } };
+});
 
 const { loadManifest, invalidateManifestCache } = await import('../manifest-loader.js');
 const { selectSkills, selectSkillsWithDomain } = await import('../skill-selector.js');
