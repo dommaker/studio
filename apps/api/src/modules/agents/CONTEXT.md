@@ -66,6 +66,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: review-agent 旧路径物理删除（D7 逾期收尾，723→190 行）— review()（生产零调用方，唯一路由 /review/diff 调的是 reviewDiff）、reviewParallel()（全仓零调用方，且 simple 档回退依赖 review()）及专属 hasChanges/isSimpleChange/fastPathReview 随删；reviewDiff/hasBranchChanges 保留，getReviewTimeoutMs 因 reviewDiff 共用保留；afterReview import 摘除。吸取评估：empty-diff 预检已由 reviewDiff「No diff between refs, auto-approving」分支覆盖（旧路径 reject、新链路 auto-approve 的语义差异是新链路既定选择）；fast-path（isSimpleChange → AC-compliance 快审）与多立场 stances 参数化未被新链路继承——由 reviewer 角色 + code-review skill 替代，随旧路径删除不留半成品。review-agent-empty-diff.test.ts 整文件删除
 - ✅ 2026-07-28: 任务规格档（tier）机制物理删除——agent-loop 的 AgentTask 构造摘除 `model: 'standard'` 死键（AgentTask.model 字段已随 studio-agent 删除；模型归算力提供方 CLI 自身配置）
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
 - ✅ `7e36fd19`: agent): 验收 e2e 抓出两修真链漏洞 — 提交守卫读合并视图 + 合并前数据防丢闸

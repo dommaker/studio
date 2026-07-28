@@ -89,7 +89,7 @@
 | ops-agent.service | apps/api/src/modules/agents/ops-agent.service.ts | Ops Agent — 系统生命周期守护 |
 | ops-rules | apps/api/src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | requirement-gate | apps/api/src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
-| review-agent.service | apps/api/src/modules/agents/review-agent.service.ts | Review Agent - 多立场代码审查 + G33 非阻断发现自动曝光 |
+| review-agent.service | apps/api/src/modules/agents/review-agent.service.ts | Review Agent - 跨分支 diff 多立场审查（/review/diff 管理端点）+ G33 非阻断发现自动曝光 |
 | review-report | apps/api/src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
 | session-summary-agent.service | apps/api/src/modules/agents/session-summary-agent.service.ts | SessionSummaryAgent — 会话级知识提取 (2026-05-25) |

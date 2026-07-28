@@ -10,7 +10,7 @@
  * 设计决策（design.md §1.2）：
  *   D5: 状态机驱动，不走 agent DELEGATE 协议
  *   D6: 绕过 DelegationGate（系统代派不是 agent 主动 DELEGATE）
- *   D7: 旧 reviewAgent.review() 保留至 AC Group 7
+ *   D7: 旧 reviewAgent.review() 已删除（2026-07-28，逾期收尾）；review-agent.service 仅保留 reviewDiff() 供 /review/diff 管理端点
  */
 
 import { randomUUID } from 'crypto';

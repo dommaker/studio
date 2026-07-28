@@ -34,7 +34,7 @@
 | ops-agent.service | src/modules/agents/ops-agent.service.ts | Ops Agent — 系统生命周期守护 |
 | ops-rules | src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | requirement-gate | src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
-| review-agent.service | src/modules/agents/review-agent.service.ts | Review Agent - 多立场代码审查 (daemon async spawn) |
+| review-agent.service | src/modules/agents/review-agent.service.ts | Review Agent - 跨分支 diff 多立场审查 (daemon async spawn) |
 | review-report | src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
 | session-summary-agent.service | src/modules/agents/session-summary-agent.service.ts | SessionSummaryAgent — 会话级知识提取 (2026-05-25) |
