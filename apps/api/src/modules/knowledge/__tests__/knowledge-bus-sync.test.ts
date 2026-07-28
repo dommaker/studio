@@ -1,17 +1,19 @@
 /**
- * scheduleVectorDbSync 测试（B48-2E + 向量库同步加固 df5f899 + R4 模块迁移）
+ * scheduleVectorDbSync 测试（B48-2E + 向量库同步加固 df5f899 + R4 模块迁移 + P4 日志策略）
  *
  * 验证：
  * 1. execFile 替代 exec（消除 shell wrapper），经 systemd-run 加 700M 内存帽 + flock 单写者
- * 2. 失败重试：指数退避 cap 120s，cap 10 次
+ * 2. 失败重试：指数退避 cap 120s，cap 10 次；P4 修订——空输出 = flock 锁竞争静默重排
+ *    （不告警不计失败），真实失败每个 episode 只 warn 一次（带 stderr 尾部），重试走
+ *    debug，放弃 error 一次，恢复 info 一次
  * 3. R4: 函数所有权在 knowledge-singletons.ts，knowledge-bus.service.js 保持兼容 re-export
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnType<typeof vi.fn>) {
+function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnType<typeof vi.fn>, loggerDebug?: ReturnType<typeof vi.fn>, loggerError?: ReturnType<typeof vi.fn>) {
   vi.doMock('child_process', () => ({ execFile: execFileMock, execFileSync: vi.fn() }));
   vi.doMock('@dommaker/studio-shared', () => ({
-    logger: { info: vi.fn(), warn: loggerWarn ?? vi.fn(), error: vi.fn() },
+    logger: { info: vi.fn(), warn: loggerWarn ?? vi.fn(), error: loggerError ?? vi.fn(), debug: loggerDebug ?? vi.fn() },
     FileStore: class {
       appendJsonl = vi.fn().mockResolvedValue(undefined);
     },
@@ -65,57 +67,123 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     expect(args).toContain('--base-dir');
   });
 
-  it('retries with exponential backoff — does NOT give up before 10 attempts', async () => {
-    const execFileMock = vi.fn().mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error) => void) => {
-      process.nextTick(() => cb(new Error('sync failed')));
+  it('real failure (with output): warn once per episode with stderr tail, retries silent, give-up error at >10', async () => {
+    const loggerWarn = vi.fn();
+    const loggerDebug = vi.fn();
+    const loggerError = vi.fn();
+    const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error, stdout: string, stderr: string) => void) => {
+      process.nextTick(() => cb(new Error('Command failed: systemd-run ...'),
+        'Found 1905 file(s) to ingest.\nVectorStore initialized',
+        'EmbeddingError: ONNX runtime crashed — real reason at the TAIL'));
+      return { pid: 123 };
+    });
+    mockDeps(execFileMock, loggerWarn, loggerDebug, loggerError);
+    const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
+
+    scheduleVectorDbSync();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    // 首次失败：warn 一次，带 stderr 尾部（含真实原因）
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    const warnMeta = loggerWarn.mock.calls[0][1] as { attempt: number; errorTail: string };
+    expect(warnMeta.attempt).toBe(1);
+    expect(warnMeta.errorTail).toContain('real reason at the TAIL');
+
+    // 继续失败：不再 warn，走 debug；多次重试仍在跑（未提前放弃）
+    await vi.advanceTimersByTimeAsync(200_000);
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerDebug.mock.calls.some(c => (c[0] as string).includes('retry failed'))).toBe(true);
+    expect(execFileMock.mock.calls.length).toBeGreaterThanOrEqual(5);
+
+    // 推进到 >10 次失败 → give-up error 一次
+    for (let i = 0; i < 10; i++) await vi.advanceTimersByTimeAsync(200_000);
+    const giveUpCalls = loggerError.mock.calls.filter(c => (c[0] as string).includes('gave up'));
+    expect(giveUpCalls).toHaveLength(1);
+    // give-up 后不再重排
+    const callsAtGiveUp = execFileMock.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(400_000);
+    expect(execFileMock.mock.calls.length).toBe(callsAtGiveUp);
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+  });
+
+  it('empty output failure = flock 锁竞争：静默重排，不 warn 不计失败', async () => {
+    const loggerWarn = vi.fn();
+    const loggerDebug = vi.fn();
+    const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error, stdout: string, stderr: string) => void) => {
+      process.nextTick(() => cb(new Error('Command failed: systemd-run ...'), '', ''));
+      return { pid: 123 };
+    });
+    mockDeps(execFileMock, loggerWarn, loggerDebug);
+    const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
+
+    scheduleVectorDbSync();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+
+    // 锁竞争重排：15s + 5s 防抖节奏，持续空输出失败也不 warn、不走退避计数
+    await vi.advanceTimersByTimeAsync(120_000);
+    expect(execFileMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(loggerWarn).not.toHaveBeenCalled();
+    expect(loggerDebug.mock.calls.some(c => (c[0] as string).includes('lock held'))).toBe(true);
+  });
+
+  it('失败后恢复 → info 记录 recovered（一个 episode 结束）', async () => {
+    const loggerWarn = vi.fn();
+    const loggerInfo = vi.fn();
+    let calls = 0;
+    const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
+      calls++;
+      if (calls <= 2) {
+        process.nextTick(() => cb(new Error('Command failed'), 'Found 10 file(s)', 'boom'));
+      } else {
+        process.nextTick(() => cb(null, 'Succeeded: 2\nFailed: 0\nTotal chunks: 4', ''));
+      }
+      return { pid: 123 };
+    });
+    mockDeps(execFileMock, loggerWarn, undefined, undefined);
+    vi.doMock('@dommaker/studio-shared', () => ({
+      logger: { info: loggerInfo, warn: loggerWarn, error: vi.fn(), debug: vi.fn() },
+      FileStore: class { appendJsonl = vi.fn().mockResolvedValue(undefined); },
+    }));
+    const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
+
+    scheduleVectorDbSync();
+    await vi.advanceTimersByTimeAsync(5_000);   // 第 1 次失败（warn）
+    await vi.advanceTimersByTimeAsync(20_000);  // 第 2 次失败（debug）
+    await vi.advanceTimersByTimeAsync(40_000);  // 第 3 次成功
+    expect(loggerWarn).toHaveBeenCalledTimes(1);
+    expect(loggerInfo.mock.calls.some(c => (c[0] as string).includes('recovered'))).toBe(true);
+    expect(loggerInfo.mock.calls.some(c => (c[0] as string).includes('synced'))).toBe(true);
+  });
+
+  it('backoff caps at 120s（真实失败时按指数退避重排）', async () => {
+    // 通过 execFile 调用时间点验证退避序列 10/20/40/80/120/120...（每次重排另加 5s 防抖）
+    const callTimes: number[] = [];
+    vi.setSystemTime(0);
+    const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error, stdout: string, stderr: string) => void) => {
+      callTimes.push(Date.now());
+      process.nextTick(() => cb(new Error('Command failed'), 'Found 10 file(s)', 'boom'));
       return { pid: 123 };
     });
     mockDeps(execFileMock);
     const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
 
-    // Initial call
     scheduleVectorDbSync();
-    await vi.advanceTimersByTimeAsync(5_000);
-    expect(execFileMock).toHaveBeenCalledTimes(1);
-
-    // Advance through 10 retries (exponential backoff)
-    for (let i = 0; i < 10; i++) {
-      await vi.advanceTimersByTimeAsync(200_000);
+    // 逐步推进：5s 防抖后第 1 次；之后 (backoff + 5s 防抖) 节奏
+    const steps = [5_000, 15_000, 25_000, 45_000, 85_000, 125_000, 125_000];
+    for (const s of steps) {
+      await vi.advanceTimersByTimeAsync(s);
     }
-
-    // Should have been called 11 times total (1 initial + 10 retries)
-    expect(execFileMock.mock.calls.length).toBeGreaterThanOrEqual(10);
-  });
-
-  it('backoff caps at 120s', async () => {
-    const backoffValues: number[] = [];
-    const loggerWarn = vi.fn().mockImplementation((_msg: string, meta: { backoffSec?: number }) => {
-      if (meta?.backoffSec !== undefined) backoffValues.push(meta.backoffSec);
-    });
-
-    const execFileMock = vi.fn().mockImplementation((_cmd: string, _args: string[], _opts: unknown, cb: (err: Error) => void) => {
-      process.nextTick(() => cb(new Error('sync failed')));
-      return { pid: 123 };
-    });
-    mockDeps(execFileMock, loggerWarn);
-    const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
-
-    scheduleVectorDbSync();
-
-    // Advance enough for 6 retries: 5+10+20+40+80+120+120 = 395s
-    for (let i = 0; i < 20; i++) {
-      await vi.advanceTimersByTimeAsync(30_000);
-    }
-
-    // backoffValues: [10, 20, 40, 80, 120, 120, ...]
-    expect(backoffValues.length).toBeGreaterThanOrEqual(5);
-    expect(backoffValues[0]).toBe(10);
-    expect(backoffValues[1]).toBe(20);
-    expect(backoffValues[2]).toBe(40);
-    expect(backoffValues[3]).toBe(80);
-    // All values from index 4 onward must be capped at 120
-    for (let i = 4; i < backoffValues.length; i++) {
-      expect(backoffValues[i]).toBeLessThanOrEqual(120);
+    expect(callTimes.length).toBeGreaterThanOrEqual(7);
+    const gaps = callTimes.slice(1).map((t, i) => t - callTimes[i]);
+    // 每次重排 = backoff + 5s 防抖
+    expect(gaps[0]).toBe(10_000 + 5_000);
+    expect(gaps[1]).toBe(20_000 + 5_000);
+    expect(gaps[2]).toBe(40_000 + 5_000);
+    expect(gaps[3]).toBe(80_000 + 5_000);
+    // cap 120s
+    for (let i = 4; i < gaps.length; i++) {
+      expect(gaps[i]).toBe(120_000 + 5_000);
     }
   });
 

@@ -83,6 +83,7 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: P4 vector-db sync 日志策略 — scheduleVectorDbSync：①错误日志从 slice(0,500) 头部改为 stderr 尾部 800 字符（原截断令 journal 永远看不到真实失败原因）②空输出失败 = flock 锁竞争（journal 实测存在 agent-HOME 作用域同款 sync 共用 /tmp/vector-db-sync.lock）→ 静默按 15s 重排，不告警不计失败 ③真实失败每个 episode 只 warn 一次，重试走 debug，>10 次放弃 error 一次，恢复 info 一次（原每 attempt 刷 journal）；退避序列与 10 次上限不变。失败窗口（09:38-09:41）定位为 studio-api 重启前后的瞬时故障 + 锁竞争，手动全量跑已恢复，根因待下次失败凭尾部日志确认；knowledge-bus-sync.test.ts 改写 6 例
 - ✅ 2026-07-27: B5 D18 — pattern-miner 的 tool:call trace 源从 ~/.studio/events/studio.jsonl 改读统一事件文件（utils/studio-events；兼容 payload 嵌套与历史扁平形态）
 - ✅ 2026-07-27: P0 修复 5 — knowledge-service/knowledge-singletons/resolution/evolution 的 ~/.studio/logs 事件文件统一走 utils/studio-log-path 测试隔离（VITEST → os.tmpdir()/studio-test-logs，生产行为不变）
 - ✅ 2026-07-24: /api/knowledge 挂 requireLocalhost；v1 写端点收 requireAuth+requireNotGuest

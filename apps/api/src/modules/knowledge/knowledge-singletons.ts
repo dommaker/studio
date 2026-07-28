@@ -111,6 +111,9 @@ let failCount = 0;  // #3: consecutive failure count for backoff
  * 5s 防抖：批量 ingest 15 条 → 只触发 1 次 sync。
  * 互斥锁：防止并发写入 LanceDB 导致 commit conflict。
  * 失败重试：指数退避（10s, 20s, 40s... cap 120s，最多 10 次）。
+ * 日志策略（P4 修订）：锁竞争（空输出）静默重排；真实失败每个 episode 只 warn
+ * 一次（带 stderr 尾部 800 字符——错误在尾部），重试走 debug，放弃 error 一次，
+ * 恢复 info 一次。
  */
 export function isVectorDbSyncing(): boolean {
   return syncInProgress;
@@ -154,29 +157,49 @@ export function scheduleVectorDbSync(): void {
         logger.info('[Knowledge] vector-db sync resumed after deferral', { waitedSec: waited });
       }
       if (err) {
+        const output = `${stdout ?? ''}\n${stderr ?? ''}`.trim();
         // optimize() failures are non-fatal (data already inserted)
-        const msg = err.message || '';
-        if (msg.includes('Succeeded:')) {
-          const summary = msg.match(/Succeeded:\s*\d+.*Failed:\s*\d+.*Total chunks:\s*\d+/s)?.[0];
+        if (output.includes('Succeeded:') || (err.message || '').includes('Succeeded:')) {
+          const summary = output.match(/Succeeded:\s*\d+.*Failed:\s*\d+.*Total chunks:\s*\d+/s)?.[0];
           logger.info('[Knowledge] vector-db synced (with optimize warning)', { summary });
           failCount = 0;
           return;
         }
+        // flock -n 未抢到锁（另一实例 / agent 作用域 sync 在写——journal 实测存在
+        // agent-HOME 作用域的同款 sync 共用 /tmp/vector-db-sync.lock）：预期内竞争，
+        // 静默按固定节奏重排，不计失败、不告警。空输出即锁竞争（systemd-run 级错误
+        // 一定有 stderr；mcp-local-rag 启动即打印 Found N file(s)，不可能空输出）。
+        if (output.length === 0) {
+          logger.debug('[Knowledge] vector-db sync skipped (lock held by another writer), rescheduled');
+          setTimeout(() => scheduleVectorDbSync(), 15_000);
+          return;
+        }
         // #3: re-schedule with exponential backoff on real failure (cap 10 attempts, 120s backoff)
+        // P4 修订：错误原因在输出尾部（原 slice(0,500) 只留头部命令行，journal 永远看不到
+        // 真实 stderr）；告警降级为每个失败 episode 只 warn 一次，重试静默（debug），
+        // 放弃时 error 一次，恢复时 info 一次 —— 不再每条 attempt 刷 journal。
         failCount++;
+        const errorTail = output.length > 800 ? output.slice(-800) : output;
+        if (failCount === 1) {
+          logger.warn('[Knowledge] vector-db sync failed, backing off (retries silent until give-up/recovery)', {
+            attempt: failCount, errorTail,
+          });
+        } else {
+          logger.debug('[Knowledge] vector-db sync retry failed', { attempt: failCount, errorTail });
+        }
         if (failCount > 10) {
           logger.error('[Knowledge] vector-db sync gave up after 10 attempts', {
-            totalAttempts: failCount, lastError: msg.slice(0, 500),
+            totalAttempts: failCount, errorTail,
           });
           failCount = 0;
           return;
         }
         const backoffSec = Math.min(10 * Math.pow(2, failCount - 1), 120);
-        logger.warn('[Knowledge] vector-db sync failed, retrying', {
-          attempt: failCount, backoffSec, error: msg.slice(0, 500),
-        });
         setTimeout(() => scheduleVectorDbSync(), backoffSec * 1000);
         return;
+      }
+      if (failCount > 0) {
+        logger.info('[Knowledge] vector-db sync recovered', { afterAttempts: failCount });
       }
       failCount = 0;
       // Extract summary line from stdout
