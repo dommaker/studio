@@ -324,3 +324,7 @@
 | merge-on-review-pass | apps/api/src/modules/workunit/merge-on-review-pass.ts | B3b-ii 评审通过后自动合并（决策 D1/D3 后半） |
 | timeout-release | apps/api/src/modules/workunit/timeout-release.ts | P0 修复（WU 超时机制）：workunit-timeout 触发器的 EXECUTE handler。 |
 | domain-vocab | packages/studio-shared/src/domain-vocab.ts | 职能域词表（决策 8，docs/plans/2026-07-27-agents-md-skill-governance.md） |
+| agent-registry | packages/studio-agent/src/services/agent-registry.ts | 注册新 Agent |
+| agent-loop-registry | apps/api/src/modules/agents/agent-loop-registry.ts | AgentLoopRegistry — profileId → running AgentLoop (F1: AgentLoop 动态挂载) |
+| tool-registry | apps/api/src/modules/mcp/tool-registry.ts | MCP Tool Registry — dynamic registration, health, rate limiting |
+| trigger-registry | apps/api/src/modules/triggers/trigger-registry.ts | Trigger Registry — singleton TriggerScheduler instance |
