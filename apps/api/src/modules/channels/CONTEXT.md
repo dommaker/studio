@@ -81,3 +81,4 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 - ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors
 - ✅ `7d5b0fda`: Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency
 - ✅ 2026-07-28: channel.routes 删除 `<!-- MODEL_TIER {...} -->` HTML 注释解析——旧 orchestrator 输出约定，B1-B6 后无写入方的死代码；parseAcGroupsFromMarkdown 结果类型同步摘除 modelTier/modelTierReason 字段
+- ✅ 2026-07-28: convert-to-task callLLM 迁移 SystemExecutor——AC-E2 建议不再直连已删除的 `/api/v1/llm/chat`，改 runJson 走 studio 角色绑定的 CLI（timeoutMs 15s）；角色未配置/失败时 suggest 依旧返回 {}（web ConvertToTaskDialog 本就对空建议优雅降级）；失败测试从 mock fetch 改为 mock callLLM

@@ -19,6 +19,13 @@ vi.mock('@dommaker/studio-shared', () => ({
   },
 }));
 
+// Mock SystemExecutor — applyPatches 走 LLM 失败 → append 兜底路径（确定性，不触真实 CLI）
+vi.mock('../../agents/system-executor.js', () => ({
+  getSystemExecutor: () => ({
+    run: vi.fn().mockRejectedValue(new Error('studio role not configured (test)')),
+  }),
+}));
+
 import {
   classifySddChange,
   parseFilesSection,

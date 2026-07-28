@@ -170,13 +170,14 @@ describe('AC-E1+E2: Convert to Task', () => {
     it('LLM call failure → returns empty suggestion (non-blocking)', async () => {
       const service = new ConvertToTaskService(undefined);
 
-      // Force LLM to fail by mocking fetch
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
+      // Force LLM to fail by mocking the internal call (SystemExecutor 未配置/出错同路径)
+      const llmSpy = vi.spyOn(service as unknown as Record<string, unknown>, 'callLLM' as never)
+        .mockRejectedValue(new Error('LLM unavailable'));
 
       const result = await service.suggest('Some message content', [], []);
       expect(result).toEqual({});
 
-      fetchSpy.mockRestore();
+      llmSpy.mockRestore();
     });
   });
 });

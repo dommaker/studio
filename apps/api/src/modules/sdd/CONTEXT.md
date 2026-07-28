@@ -26,3 +26,4 @@ SDD（变更规格）文档新鲜度服务：检测 `docs/sdd/` 规格文档与�
 
 <!-- SESSION_SUMMARY_FIXES -->
 - ✅ `389c9e87`: add await to all sdd-utils consumers after Phase 4 async migration
+- ✅ 2026-07-28: callLLM 迁移 SystemExecutor——删除直连 `POST /api/v1/llm/chat` 的死 HTTP 调用（端点早已随 proxy.ts 删除），SDD patch 改走 studio 角色绑定的 CLI（timeoutMs 120s）；角色未配置/调用失败仍落 append 兜底（行为与端点死亡期间一致）；测试补 system-executor mock 固定走兜底

@@ -2,12 +2,14 @@
  * AC-E2: Convert to Task Service
  *
  * Handles conversion of channel messages to WorkUnits (AC-E1)
- * and LLM-based suggestions for task creation (AC-E2).
+ * and LLM-based suggestions for task creation (AC-E2，走 SystemExecutor /
+ * studio 角色绑定的 CLI；角色未配置或调用失败时 suggest 返回空建议，非阻断).
  */
 import { logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService } from '../workunit/workunit.service.js';
 import type { WorkUnitData } from '../workunit/workunit.service.js';
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
+import { getSystemExecutor } from '../agents/system-executor.js';
 
 export interface ConvertInput {
   title?: string;
@@ -118,8 +120,6 @@ export class ConvertToTaskService {
     agents: Array<{ id: string; name: string; description?: string }>,
     projects: Array<{ name: string; path: string }>,
   ): Promise<ConvertSuggestion> {
-    const LLM_API_URL = process.env.LLM_API_URL || `http://localhost:${process.env.PORT || 3001}/api/v1/llm/chat`;
-
     const agentList = agents.map(a => `- ${a.name} (id: ${a.id})${a.description ? `: ${a.description}` : ''}`).join('\n');
     const projectList = projects.map(p => `- ${p.name} (${p.path})`).join('\n');
 
@@ -137,44 +137,19 @@ ${projectList || '(none)'}
 
 Return JSON only: {"title":"...","description":"...","suggestedAssigneeId":"...","suggestedProjectPath":"..."}`;
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
+    // LLM 调用走 SystemExecutor（studio 角色绑定的 CLI）；角色未配置/失败由 suggest() 兜空
+    const parsed = await getSystemExecutor().runJson<{
+      title?: string;
+      description?: string;
+      suggestedAssigneeId?: string;
+      suggestedProjectPath?: string;
+    }>(messageContent, { systemPrompt, timeoutMs: 15_000 });
 
-    try {
-      const res = await fetch(LLM_API_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: messageContent },
-          ],
-          temperature: 0.3,
-        }),
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeout);
-
-      if (!res.ok) return {};
-
-      const data = await res.json() as Record<string, unknown>;
-      const content = (data.content as string) || (data.choices as Array<{ message?: { content?: string } }>)?.[0]?.message?.content || '';
-
-      // Parse JSON from response
-      const jsonMatch = content.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) return {};
-
-      const parsed = JSON.parse(jsonMatch[0]);
-      return {
-        title: parsed.title || undefined,
-        description: parsed.description || undefined,
-        suggestedAssigneeId: parsed.suggestedAssigneeId || undefined,
-        suggestedProjectPath: parsed.suggestedProjectPath || undefined,
-      };
-    } catch (error) {
-      clearTimeout(timeout);
-      throw error;
-    }
+    return {
+      title: parsed.title || undefined,
+      description: parsed.description || undefined,
+      suggestedAssigneeId: parsed.suggestedAssigneeId || undefined,
+      suggestedProjectPath: parsed.suggestedProjectPath || undefined,
+    };
   }
 }
