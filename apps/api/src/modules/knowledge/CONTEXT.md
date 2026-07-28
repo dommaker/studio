@@ -63,7 +63,7 @@ knowledge/
 ├── entries.routes.ts          # 子路由：知识条目（/export /ask /gaps /unified）
 ├── evolution.routes.ts        # 子路由：知识进化（/evolution/*）
 ├── search.routes.ts           # 子路由：检索与解法指标（/resolutions /search /resolution/*）
-├── internal.routes.ts         # 子路由：内部端点（/sync-status /upsert /extract-*，无 auth）
+├── internal.routes.ts         # 子路由：内部端点（/sync-status /upsert，无 auth）
 └── import.routes.ts           # 文件导入路由
 ```
 
@@ -80,12 +80,13 @@ knowledge/
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
 - `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方，被 `buildKnowledgeContext` 替代）
 - `applicableAgents` 存储在 tags 中（`agent:executor` 格式），KnowledgeEntry 无此字段
-- **鉴权（2026-07-24 收紧）**：`/api/knowledge`（internal.routes，不在 /api/v1 大门内）2026-07-24 起挂载 requireLocalhost——此前全匿名：POST /upsert 可污染知识库、POST /extract-text-sync 盗用服务器 LLM key、GET /sync-status 有 heal 写副作用；本机脚本经回环调用不受影响。
+- **鉴权（2026-07-24 收紧）**：`/api/knowledge`（internal.routes，不在 /api/v1 大门内）2026-07-24 起挂载 requireLocalhost——此前全匿名：POST /upsert 可污染知识库、GET /sync-status 有 heal 写副作用；本机脚本经回环调用不受影响。（POST /extract-text-sync 已于 2026-07-28 删除：直连 DeepSeek HTTP API 时代的 debug 路由，绕过 CLI 且零调用方）
 - **鉴权（2026-07-24 收紧）**：/api/v1/knowledge 子路由写端点（documents 6 条、entries /ask+/unified、evolution 4 条、files /read-file、import /scan+/execute）与 /api/v1/knowledge-service 写 11 条已收 requireAuth+requireNotGuest；files/import 的 startsWith 路径前缀校验无分隔符（兄弟目录可绕，未修）；knowledge-service GET /entries/stats 被 :id 遮蔽（未修）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: 删除 debug 路由 POST /extract-text-sync——直连 DeepSeek HTTP API（DEEPSEEK_API_KEY）时代的遗留，违反"LLM 调用走角色绑定 CLI"原则且零调用方；知识提取统一走 SystemExecutor（studio 角色）。internal.routes.test/routes.test 同步移除对应用例
 - ✅ `efff512f`: knowledge): vector-db sync 日志降噪 + stderr 尾部留证 + 锁竞争静默（P4）
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
