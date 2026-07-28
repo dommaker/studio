@@ -48,7 +48,7 @@
 ## 注意事项
 
 - AgentLoop session token 限制为 100K（`SESSION_TOKEN_LIMIT`），超过后自动截断
-- **AgentProfile 持久化布局**：`~/.studio/data/agents/{id}/profile.json`（身份：name/description/provider/status/nodeId，模型见 `packages/studio-shared/src/file-store.ts`，无 systemPrompt 字段）+ 同目录 `state.json`（运行时实例）；原子写 + mkdir 锁，永久存在仅可显式 DELETE；保留名 `studio`（系统执行角色，provider 由 StudioRoleSetupModal 补配）
+- **AgentProfile 持久化布局**：`~/.studio/data/agents/{id}/profile.json`（身份：name/description/provider/status/nodeId，模型见 `packages/studio-shared/src/file-store.ts`，无 systemPrompt 字段）+ 同目录 `state.json`（运行时实例）；原子写 + mkdir 锁，永久存在仅可显式 DELETE；保留名 `studio`（系统执行角色，provider 缺省 `STUDIO_ROLE_DEFAULT_PROVIDER`='claude' 由 ensureStudioProfile seed/回填——仅空值才写，用户显式配置不覆盖，L2；UI StudioRoleSetupModal 仍可改配）
 - **prompt 注入架构 = index-on-demand（严禁全量注入）**：skills 走 4 层索引（claim 匹配 ≤3 存名 → prompt 只放 name+一句话描述+`.studio/skills/<name>/SKILL.md` 指针 → worktree AGENTS.md 索引行 → 全文落盘按需阅读，见 `agent-loop.ts` buildSkillSection / `studio-agent/worktree-resolver.ts`）；知识分层（rule/context 约束层按设计全量、signal 层 `[id] summary` 索引、reference 层只报条数，见 knowledge-service.injectContext）；roster 只放 `name（provider）：description` 索引行且不含自身；全部注入共享 2K token 红线硬截断。不注入：agent 完整记录、频道列表、成员 ID、记忆
 - A2A 协作 P1（2026-07-agent-to-agent-collab-design）：`ACTION: DELEGATE:@<profileName>:<scope>` 协议由 recordResult 拦截，经 workunit/delegation-gate 校验后建子单（`metadata.collab`）+ 发 delegate 卡片，拒绝则降级 NEED_INPUT；父 complete 守卫（未完结子 WU → 降级 progress）；发言层新鲜度检查（step 期间房间有外部新消息 → 结果帖拦截注入 pendingReplies，连续 2 次后照发）；花名册段（## 频道成员与委派）与 skill/知识段共用 2K 注入红线（优先级 skills > roster > knowledge）
 - Idle 心跳间隔固定 45 秒（`IDLE_HEARTBEAT_INTERVAL_MS`），配合超时扫描 5 分钟阈值
@@ -143,3 +143,4 @@
 - ✅ `78c6856d`: Prisma SQLite auto-parses JSON String fields — handle both string and object
 - ✅ `7d5b0fda`: Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency
 - ✅ 2026-07-28: auditor 摘除 tier 统计——modelTier 字段物理删除随动：每日审计不再从执行记录 input JSON 提取 modelTier，报告删「按模型档位」小节，saveTierStats（auditor → knowledge-bus `tier-stats-*` 条目）全链删除（收集方消失即成死链）；保留按 Agent 类型统计
+- ✅ 2026-07-28: L2 studio profile 缺省 provider seed——ensureStudioProfile 新增 `STUDIO_ROLE_DEFAULT_PROVIDER='claude'`：新建直接写入、存量 provider 空值回填、用户显式配置不覆盖（与 description 回填同口径）。根因：SystemExecutor 读 name='studio' 的 profile.provider 原恒 null，KnowledgeAgent 四类批处理周期性 StudioRoleNotConfiguredError（journal 一天 500+ 条）。选 claude 依据：与 AgentLoop `provider || 'claude'` 缺省同口径；本机 claude 经 ~/.claude/settings.json 走 DeepSeek anthropic 端点（决策 D8 便宜模型档意图由 CLI 自身配置承载）；SystemExecutor stdin 投递 prompt 仅 claude/codex 模板兼容（codex 与 DeepSeek wire 不兼容）
