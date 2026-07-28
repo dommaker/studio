@@ -82,3 +82,4 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 - ✅ `7d5b0fda`: Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency
 - ✅ 2026-07-28: channel.routes 删除 `<!-- MODEL_TIER {...} -->` HTML 注释解析——旧 orchestrator 输出约定，B1-B6 后无写入方的死代码；parseAcGroupsFromMarkdown 结果类型同步摘除 modelTier/modelTierReason 字段
 - ✅ 2026-07-28: convert-to-task callLLM 迁移 SystemExecutor——AC-E2 建议不再直连已删除的 `/api/v1/llm/chat`，改 runJson 走 studio 角色绑定的 CLI（timeoutMs 15s）；角色未配置/失败时 suggest 依旧返回 {}（web ConvertToTaskDialog 本就对空建议优雅降级）；失败测试从 mock fetch 改为 mock callLLM
+- ✅ 2026-07-28: L1 convert-to-task 人工指派卡死修复——convert 有 assigneeId（UI ConvertToTaskDialog 传 profile.id）时原直接建 active，是 §1.2-b 已确认的卡死态（myActive 按 instance.id 续跑查询、认领过滤要求 unassigned，两边都看不到；与 d7bd1e8 ownership resume 同类）；现统一建 unassigned（指名语义，由被指名 profile 的 loop 认领，与 @mention/委派口径一致）；全仓排查无依赖"直接 active"的调用方（channel.routes 仅透传、Dialog 不读 status）；测试改为断言 unassigned + claimWorkUnit 认领成功并改写 instance.id

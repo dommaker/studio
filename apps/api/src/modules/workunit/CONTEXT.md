@@ -25,7 +25,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 
 ## 注意事项
 
-- **assigneeId 双语义（§1.2-b，2026-07-28 全仓核对）**：同一字段两种含义按状态切换——**unassigned 时 = 被指名的 profile.id**（@mention 派发、A2A 委派、B3a 归属绑定复活；可见性由 AgentLoop.observe 的 unassigned 过滤保证：assigneeId 非空仅该 profile 的 loop 可见，null 走频道 members）；**认领后 = 认领方 loop 的 instance.id**（file-store.claimWorkUnit 只校验 status==='unassigned'，不校验既有 assigneeId，认领即改写；myActive/续跑按 instance.id 查询）。推论：active + assigneeId=profile.id 是卡死态（续跑查询与认领过滤都看不到）——已知残留：channels/convert-to-task.service.ts:69 有 assigneeId（UI 传 profile.id）直接建 active（未修，人工指派入口）。claim 的锁是 flock **悲观互斥锁**（mkdir 原子目录跨进程互斥），非乐观锁（无版本号/读后再验）；token 归因按双语义解析（instance→state.roleId 反查，本身就是 profile.id 则直接命中）
+- **assigneeId 双语义（§1.2-b，2026-07-28 全仓核对）**：同一字段两种含义按状态切换——**unassigned 时 = 被指名的 profile.id**（@mention 派发、A2A 委派、B3a 归属绑定复活；可见性由 AgentLoop.observe 的 unassigned 过滤保证：assigneeId 非空仅该 profile 的 loop 可见，null 走频道 members）；**认领后 = 认领方 loop 的 instance.id**（file-store.claimWorkUnit 只校验 status==='unassigned'，不校验既有 assigneeId，认领即改写；myActive/续跑按 instance.id 查询）。推论：active + assigneeId=profile.id 是卡死态（续跑查询与认领过滤都看不到）——channels/convert-to-task.service.ts 曾如此（UI 传 profile.id 直接建 active），L1（2026-07-28）已修为统一建 unassigned。claim 的锁是 flock **悲观互斥锁**（mkdir 原子目录跨进程互斥），非乐观锁（无版本号/读后再验）；token 归因按双语义解析（instance→state.roleId 反查，本身就是 profile.id 则直接命中）
 - 状态变更发布 `workunit.status_changed` 事件，requirements/rollup 据此汇总 REQ 状态
 - NEED_INPUT 挂起后由人在频道线程回复触发续跑
 - B3a（决策 D2）：WU metadata 增 workspaceRoot / ownershipSource / ownershipProjectId / waitingReason 字段承载工程归属；agent-loop 执行根目录解析 metadata.workspaceRoot 优先于 workspaceId 记录

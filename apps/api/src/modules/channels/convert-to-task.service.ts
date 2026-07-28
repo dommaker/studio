@@ -68,7 +68,11 @@ export class ConvertToTaskService {
       scope: input.title || found.message.content.slice(0, 500),
       channelId,
       type: 'task',
-      status: input.assigneeId ? 'active' : 'unassigned',
+      // L1（2026-07-28）：有 assigneeId 也建 unassigned——UI 传的是 profile.id（指名语义，
+      // §1.2-b），由被指名 profile 的 loop 认领（与 @mention/委派口径一致）。
+      // 直接建 active + assigneeId=profile.id 是卡死态：myActive 按 instance.id 续跑查询、
+      // 认领过滤要求 unassigned，两边都看不到该 WU（同 d7bd1e8 修过的 ownership resume）。
+      status: 'unassigned',
       assigneeId: input.assigneeId ?? null,
       projectPath: input.projectPath ?? null,
       workspaceId: input.workspaceId ?? channel?.defaultWorkspaceId ?? null,
