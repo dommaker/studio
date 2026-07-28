@@ -2,7 +2,7 @@
 name: tdd-implement
 description: "读取 SDD 按 TDD 实现代码：先写 FAIL 测试（RED），再实现让测试通过（GREEN）。"
 agentTypes: [implement, feature, bug, refactor]
-triggers: [TDD, 按 SDD 实现, FAIL 测试, RED GREEN, tdd implement, 功能实现, 让测试通过, 增量类型检查, feature implementation]
+triggers: [实现, TDD, 编码, 按 SDD 实现, FAIL 测试, RED GREEN, tdd implement, 功能实现, 让测试通过, 增量类型检查, feature implementation]
 status: published
 ---
 
@@ -60,6 +60,7 @@ status: published
 - 添加了测试未要求的功能
 - 跳过依赖分析直接串行实现
 - 全量 tsc 而不是增量检查
+- 拿到 SDD 后先全量扫代码"熟悉一下"（上下文地图已内联，重复探索 = 浪费）
 
 ---
 
@@ -98,12 +99,22 @@ git checkout -b feat/<slug>
 ```
 完整 SDD（requirement.md + design.md + task.md）:
     → 读 AC 定义、文件映射、依赖 DAG、测试规划、执行顺序
+    → 读 task.md 的 ## 上下文地图（相关文件/入口符号/依赖关系/内联代码片段）
     → 创建 task 跟踪（TaskCreate）
 
 轻量 PLAN（AC 列表 + 文件映射 + 测试规划）:
     → 直接用 PLAN 内容，无依赖 DAG 默认串行
     → task 跟踪可选
 ```
+
+**输入契约——不重复探索（"探索一次、工件传递"）**：
+
+- 探索已在 task-planner 阶段完成并固化在上下文地图里。**先读 task.md 上下文地图直接开工**，用地图内联的代码片段/签名定位实现，默认不重复探索代码库。
+- 地图给了 file:line 和代码原文，足以开工；"先扫一遍代码熟悉下"是违禁动作（危险信号见反模式）。
+- **确需探索的例外**：当地图与现状明显不符（文件不存在/签名对不上/依赖关系失效）时允许补探索，但必须：
+  1. 在输出中显式报备：【探索了 <范围>，因为地图第 <条目> 失效：<实际现状>】
+  2. 把修正**回写 task.md 上下文地图**（改对的那条，不是另起炉灶），保持工件与代码一致
+- 无 SDD/PLAN 输入（裸需求直跳实现）→ 没有上下文地图可用，此时探索是允许的，但产出仍要落盘（见 ⑦）。
 
 ```
 # 读取 SDD 后，为每个 AC 创建 task
@@ -265,6 +276,7 @@ docs/sdd/<slug>/{requirement,design,task}.md
 | 12 | 纯删除任务验证 | 纯删除任务有 grep 零残留 + tsc 无新错误 + 现有测试不回归 | 补充验证 |
 | 13 | 工作区干净 | `git status --short` 无输出（无未提交变更） | 停下，确认无遗漏文件后提交 |
 | 14 | 下游路由 | 全部 Phase 完成后 invoke code-review（禁止输出总结后直接结束） | 停下，invoke code-review |
+| 15 | 不重复探索 | 默认只读上下文地图开工；任何补探索已显式报备【范围+失效条目】并回写修正 task.md | 补报备 + 回写 task.md |
 
 全部通过后进入终端状态。
 

@@ -2,7 +2,7 @@
 name: task-planner
 description: "把设计文档转化为可执行的 SDD 三层文档（requirement.md + design.md + task.md）。"
 agentTypes: [plan]
-triggers: [任务规划, SDD 编写, 实现步骤规划, task planning, AC 定义, 文件映射, 接口定义, 契约测试规划, implementation plan]
+triggers: [拆解, 计划, SDD, 任务规划, SDD 编写, 实现步骤规划, task planning, AC 定义, 文件映射, 接口定义, 契约测试规划, implementation plan]
 status: published
 ---
 
@@ -17,6 +17,16 @@ status: published
 上游：**spec-review-skill**（PASS 的设计 Spec）或 **design-analyst**（需求已明确时直跳）。
 产出：SDD 三层文档 或 轻量 PLAN。
 下游：**sdd-review-skill**（审查 SDD 质量）或 **tdd-implement**（轻量 PLAN 直跳）。
+
+---
+
+## 产出落盘
+
+完整 SDD 落盘到 `docs/sdd/<slug>/`：
+
+- 三层文件：`docs/sdd/<slug>/requirement.md`、`design.md`、`task.md`
+- 在 `docs/sdd/_index.md` 登记该 slug（标题、状态、关联 REQ/任务）；`_index.md` 不存在则创建
+- 轻量 PLAN 不落盘 SDD，直接作为 tdd-implement 输入
 
 ---
 
@@ -86,7 +96,9 @@ if 改动单一 && 接口已定（无设计空间）:
 
 继续执行 = 涉及多模块/接口未定/需依赖分析。
 
-### ② 代码探索
+### ② 代码探索（只此一次）
+
+**探索发生在本阶段，且只发生在这里。** 下游（tdd-implement / code-review）默认不再探索代码库——它们消费本阶段固化的上下文地图。因此探索必须做到"一次到位"：凡是实现/评审需要看的代码，本阶段读完并内联进 task.md，不要留"到时候再读"的尾巴。
 
 识别涉及的模块，**并行探索**：
 
@@ -100,10 +112,11 @@ if 改动单一 && 接口已定（无设计空间）:
 有依赖的模块 → 按依赖顺序串行探索
 ```
 
-探索产出：
+探索产出（写入 task.md 上下文地图，见 ⑤）：
 - 每个模块的文件清单
-- 现有接口和类型定义
+- 现有接口和类型定义（**签名原文内联**，不是只给路径）
 - 调用链和依赖关系
+- 实现需要对照修改的**关键代码片段**（原文内联 + file:line 定位）
 
 ### ③ 编写 requirement.md
 
@@ -146,6 +159,12 @@ version: "1.0"
 ```
 
 内容：
+- **上下文地图（必备节，"探索一次、工件传递"的载体）**：`## 上下文地图`，包含：
+  - 相关文件清单（具体路径 + 每个文件的职责一句话）
+  - 入口符号（函数/类/接口名 + file:line 定位）
+  - 依赖关系（文件 DAG / 调用链）
+  - **关键代码片段/签名直接内联**（接口签名、要对照修改的现有实现、相关类型定义，原文代码块内联——不是只给路径让下游自己去读）
+  - 契约：tdd-implement 读此节直接开工，默认不再探索；上下文地图不全 = 本 skill 的产出缺陷，不是下游补探索的理由
 - 契约测试规划（每个 AC → 测试文件 → 测试用例）
 - 执行顺序（依赖分析结果：并行/串行）
 - 里程碑节点
@@ -207,6 +226,7 @@ Requirement.AC ↔ Design.文件映射 ↔ Task.契约测试
 | 10 | 风险继承 | task.md 每个 Phase 标注风险等级，与 spec 一致 | 补充风险标注 |
 | 11 | 就绪度评估 | task.md 有 `implementationReady` 判定 + 5 条件检查清单 | 补就绪度评估 |
 | 12 | 就绪度证据 | ready=true 时每条条件有具体证据；ready=false 时缺口已标注 | 补证据或标注缺口 |
+| 13 | 上下文地图 | task.md 有 `## 上下文地图` 节：文件清单+入口符号+依赖关系齐全，关键代码片段/签名已内联（非仅路径） | 回 ② 补探索并内联 |
 
 全部通过后进入终端状态。
 
