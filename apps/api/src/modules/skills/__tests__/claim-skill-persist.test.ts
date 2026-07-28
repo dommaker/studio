@@ -49,7 +49,7 @@ describe('§10 P0 → 决策 7: claim 不再落盘 metadata.matchedSkills', () =
   const baseSnapshot = {
     id: 'wu-1', status: 'unassigned', scope: '实现用户登录', type: 'feature',
     parentId: null, assigneeId: null, failureType: null,
-    retryCount: 0, timeoutAt: null, channelId: null, projectPath: null,
+    retryCount: 0, timeoutAt: new Date(Date.now() + 3600000).toISOString(), channelId: null, projectPath: null,
     metadata: null, claimedAt: null, completedAt: null,
     createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
   };

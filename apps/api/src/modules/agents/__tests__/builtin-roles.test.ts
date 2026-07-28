@@ -17,7 +17,13 @@ import {
   ensureBuiltinRoleMembers,
   migrateBuiltinRolesToProjectChannels,
 } from '../builtin-roles.js';
-import { parseAcceptedTypesFromDescription } from '../../skills/skill-selector.js';
+
+/** Inline keyword extraction — replaced acceptedTypesFromDescription (removed per decision 9) */
+function acceptedTypesFromDescription(text: string): string[] {
+  const parts = text.split(/[。.\s]+/);
+  const tail = parts[parts.length - 1];
+  return tail ? tail.split(/\s+/).filter(k => k.length > 0) : [];
+}
 
 function createChannelData(id: string, overrides?: Record<string, unknown>) {
   const now = new Date().toISOString();
@@ -60,11 +66,11 @@ describe('B4a: ensureBuiltinRoles', () => {
     const roles = await ensureBuiltinRoles(fileStore);
     const byName = new Map(roles.map(r => [r.name, r]));
     // mention 指名 pm 的 WU 默认 type=task，pm 必须能认领 task
-    expect(parseAcceptedTypesFromDescription(byName.get('pm')!.description).sort())
+    expect(acceptedTypesFromDescription(byName.get('pm')!.description).sort())
       .toEqual(['analysis', 'feature', 'task']);
-    expect(parseAcceptedTypesFromDescription(byName.get('dev')!.description).sort())
+    expect(acceptedTypesFromDescription(byName.get('dev')!.description).sort())
       .toEqual(['bug', 'feature', 'refactor', 'task']);
-    expect(parseAcceptedTypesFromDescription(byName.get('reviewer')!.description).sort())
+    expect(acceptedTypesFromDescription(byName.get('reviewer')!.description).sort())
       .toEqual(['analysis', 'review']);
   });
 
@@ -211,7 +217,7 @@ describe('B4a: migrateBuiltinRolesToProjectChannels', () => {
   it('BUILTIN_ROLES 定义与 seed 一致（防漂移）', () => {
     expect(BUILTIN_ROLES.map(r => r.name).sort()).toEqual(['dev', 'pm', 'reviewer']);
     for (const role of BUILTIN_ROLES) {
-      expect(parseAcceptedTypesFromDescription(role.description).length).toBeGreaterThan(0);
+      expect(acceptedTypesFromDescription(role.description).length).toBeGreaterThan(0);
     }
   });
 });

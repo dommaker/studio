@@ -77,6 +77,28 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
     } else { throw e; }
   }
   logger.info('[WorktreeResolver] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
+  await writeGitExclude(repoDir);
+}
+
+/** 工具产物 exclude 规则（写入 .git/info/exclude，git status 不再看到这些产物） */
+const GIT_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/'];
+
+async function writeGitExclude(repoDir: string): Promise<void> {
+  const excludePath = path.join(repoDir, '.git', 'info', 'exclude');
+  let existing = '';
+  try { existing = await fs.readFile(excludePath, 'utf-8'); } catch { /* file may not exist */ }
+  const lines = existing.split('\n');
+  let changed = false;
+  for (const p of GIT_EXCLUDE_PATTERNS) {
+    if (!lines.includes(p)) {
+      lines.push(p);
+      changed = true;
+    }
+  }
+  if (changed) {
+    await fs.writeFile(excludePath, lines.join('\n') + '\n', 'utf-8');
+    logger.info('[WorktreeResolver] Updated git exclude', { repoDir });
+  }
 }
 
 /**
