@@ -13,7 +13,7 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type ModelTier } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
@@ -27,7 +27,6 @@ import {
   getConstraintMeta,
 } from './output-capture.js';
 import {
-  getSessionTimeout,
   checkPrerequisites,
   buildAugmentedPrompt,
   buildSessionCommand,
@@ -101,7 +100,6 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     // agent-loop 链路不用它 —— 走 parameters.sessionId + parameters.sessionResume（见下）。
     const provider = task.provider || 'claude';
     const sessionFlags = provider === 'claude' ? ((task.parameters?.sessionFlags as string) || '') : '';
-    const taskTier = (task.model as ModelTier) || 'standard';
     const agentRole = (task.parameters?.agentRole as string) || 'executor';
     const sessionId = task.executionId;
 
@@ -121,7 +119,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     });
 
     logger.info('[AgentRunner] Lightweight session spawning', {
-      taskId: task.id, executionId: task.executionId, taskTier, sessionFlags,
+      taskId: task.id, executionId: task.executionId, sessionFlags,
     });
 
     const childRef: { current: ChildProcess | null } = { current: null };
@@ -140,7 +138,8 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       const { stdout } = await execSh(cmd, {
         cwd: worktree,
         env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', agentHome, withWorkUnitEnv: true }),
-        timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
+        // 扁平默认 30min（原 fast/standard/premium tier 分档已删）
+        timeoutMs: task.timeoutMs ?? 30 * 60_000,
         maxBuffer: 10 * 1024 * 1024,
         childRef,
       });

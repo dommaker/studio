@@ -3,7 +3,7 @@
  *
  * Source-code verification (implementation moved to runner-lightweight.ts):
  * - execSh timeoutMs uses task.timeoutMs when available
- * - Falls back to getSessionTimeout(tier) * 60 * 1000 when not set
+ * - Falls back to flat default (30 * 60_000) when not set
  * - AgentTask interface includes optional timeoutMs field
  */
 
@@ -33,8 +33,8 @@ describe('executeLightweight timeout resolution', () => {
     expect(runnerLightweightSrc).toMatch(/task\.timeoutMs/);
   });
 
-  test('falls back to getSessionTimeout when task.timeoutMs not set', () => {
-    // The fallback pattern: task.timeoutMs ?? getSessionTimeout(...) * 60 * 1000
+  test('falls back to flat default when task.timeoutMs not set', () => {
+    // The fallback pattern: task.timeoutMs ?? 30 * 60_000
     expect(runnerLightweightSrc).toMatch(/task\.timeoutMs\s*\?\?/);
   });
 });

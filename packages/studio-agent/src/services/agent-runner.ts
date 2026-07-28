@@ -41,7 +41,7 @@ export type OutputEvent = StreamEvent;
 
 // ─── Function re-exports (保持原 agent-runner.js 导入路径兼容) ───
 
-export { getSessionTimeout, buildAugmentedPrompt } from './runner-params.js';
+export { buildAugmentedPrompt } from './runner-params.js';
 export { hasRecentActivity } from './runner-output.js';
 
 const DEFAULT_MAX_SESSIONS = 5;

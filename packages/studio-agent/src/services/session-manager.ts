@@ -18,7 +18,7 @@ import * as os from 'os';
 import { logger, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile, resolveProviderDefinition, buildHealthProbeCommand, type ProviderId } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
-import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
+import { skillLoader } from '@dommaker/studio-skill';
 import { buildSpawnArgs } from '../cli-adapter.js';
 
 import {
@@ -57,9 +57,6 @@ export interface AgentTask {
   id: string;
   executionId: string;
   provider: ProviderId;
-  /** 任务规格档（fast/standard/premium）——控制 session 超时/最大轮数/skill 注入档。
-   *  不是模型名：模型由角色绑定的 CLI 自身配置决定，spawn 一律不传 model。 */
-  model?: string;
   prompt: string;
   notifyTarget?: string;
   parameters?: {
@@ -73,7 +70,7 @@ export interface AgentTask {
   };
   /** 实时进度回调 — 每轮 session 后调用，用于推送到 Channel */
   onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
-  /** P3: 覆盖 tier 默认超时 (ms)。提供时替代 getSessionTimeout(tier)。 */
+  /** P3: 覆盖扁平默认超时 (ms)。提供时替代默认 30min。 */
   timeoutMs?: number;
   /** §9.6 P1: 远程节点 ID。undefined/'local' → LocalExecutor，否则 RemoteExecutor。 */
   nodeId?: string;
@@ -383,7 +380,6 @@ export class AgentExecutor {
           session: sessionCount,
           isFirstSession,
           isNewSession,
-          taskTier: (task.model as string) || 'standard',
         });
 
         // Track child process for external stop()
@@ -714,8 +710,7 @@ export class AgentExecutor {
     const outputStyleSection = `## 输出风格\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
 
     // O2i: Skill on-demand injection
-    const skillTier = (task.model as SkillTier) || 'standard';
-    const skillsToInject = skillLoader.load({ tier: skillTier });
+    const skillsToInject = skillLoader.load({});
     const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
     // [Skill Discovery] Log injected skills for Agent Network analysis

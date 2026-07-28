@@ -627,7 +627,6 @@ export class AgentLoop {
           STUDIO_TRACE_ID: traceId ?? '',
         },
       },
-      model: 'standard',
       timeoutMs: 120_000,
     };
 

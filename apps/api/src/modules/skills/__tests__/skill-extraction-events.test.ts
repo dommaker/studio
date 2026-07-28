@@ -52,7 +52,6 @@ const SKILL_MD_CONTENT = `---
 name: test-skill
 description: "Test"
 trigger: always
-tier: standard
 status: published
 ---
 ## Test skill body`;

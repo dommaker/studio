@@ -30,7 +30,6 @@ export interface SkillRecord {
   prompt?: string | null;
   trigger?: string | null;
   agentTypes?: string | null;  // JSON array
-  tier?: string | null;
   tools?: string | null;       // JSON array
   required?: string | null;    // JSON array
   autoLoad: boolean;
@@ -56,7 +55,6 @@ export interface SkillCreateInput {
   prompt?: string | null;
   trigger?: string | null;
   agentTypes?: string | null;
-  tier?: string | null;
   tools?: string | null;
   required?: string | null;
   autoLoad?: boolean;
@@ -75,7 +73,6 @@ export interface SkillUpdateInput {
   prompt?: string | null;
   trigger?: string | null;
   agentTypes?: string | null;
-  tier?: string | null;
   tools?: string | null;
   required?: string | null;
   autoLoad?: boolean;
@@ -225,7 +222,6 @@ export class SkillStore {
       prompt: input.prompt ?? null,
       trigger: input.trigger ?? null,
       agentTypes: input.agentTypes ?? null,
-      tier: input.tier ?? null,
       tools: input.tools ?? null,
       required: input.required ?? null,
       autoLoad: input.autoLoad ?? false,
@@ -274,7 +270,6 @@ export class SkillStore {
     if (data.prompt !== undefined) record.prompt = data.prompt;
     if (data.trigger !== undefined) record.trigger = data.trigger;
     if (data.agentTypes !== undefined) record.agentTypes = data.agentTypes;
-    if (data.tier !== undefined) record.tier = data.tier;
     if (data.tools !== undefined) record.tools = data.tools;
     if (data.required !== undefined) record.required = data.required;
     if (data.autoLoad !== undefined) record.autoLoad = data.autoLoad;
@@ -340,7 +335,6 @@ export class SkillStore {
         `name: '${record.name}'`,
         `version: ${record.version || 1}`,
         `agentTypes: [${agentTypes.map((a: string) => `'${a}'`).join(', ')}]`,
-        `tier: '${record.tier || 'standard'}'`,
         `status: '${record.status || 'draft'}'`,
         '---',
       ].join('\n');

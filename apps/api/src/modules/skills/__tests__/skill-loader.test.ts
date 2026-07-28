@@ -3,7 +3,6 @@
  *
  * #73: File-driven loading
  * #75: load/unload lifecycle
- * #76: tier-based tool permission binding
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
@@ -48,7 +47,6 @@ const TDD_SKILL_MD = `---
 name: tdd-workflow
 description: "TDD workflow"
 agentTypes: [executor]
-tier: fast
 status: published
 ---
 ## TDD
@@ -80,7 +78,6 @@ describe('SkillLoaderService', () => {
       expect(loaded).not.toBeNull();
       expect(loaded!.name).toBe('tdd-workflow');
       expect(loaded!.prompt).toContain('## TDD');
-      expect(loaded!.tier).toBe('fast');
       expect(loaded!.skillId).toBe('file:tdd-workflow');
 
       removeSkillFile('tdd-workflow');
@@ -111,7 +108,6 @@ describe('SkillLoaderService', () => {
 name: main-skill
 description: "Main skill"
 agentTypes: [executor]
-tier: standard
 required: [base-skill]
 status: published
 ---
@@ -121,7 +117,6 @@ status: published
 name: base-skill
 description: "Base skill"
 agentTypes: [executor]
-tier: fast
 status: published
 ---
 ## Base`;
@@ -153,7 +148,6 @@ status: published
       createSkillFile('test-skill', `---
 name: test-skill
 description: "Test"
-tier: fast
 status: published
 ---
 ## Test`);
@@ -184,7 +178,6 @@ status: published
       createSkillFile('test-skill', `---
 name: test-skill
 description: "Test"
-tier: fast
 status: published
 ---
 ## Section 1`);
@@ -204,7 +197,6 @@ status: published
       createSkillFile('test-skill', `---
 name: test-skill
 description: "Test"
-tier: fast
 status: published
 ---
 ## Test`);
@@ -222,7 +214,6 @@ status: published
       createSkillFile('skill-a', `---
 name: skill-a
 description: "A"
-tier: fast
 status: published
 ---
 ## A`);
@@ -235,70 +226,6 @@ status: published
     });
   });
 
-  // ── #76: tier-based tool permission binding ──
-
-  describe('tool permissions (#76)', () => {
-    it('should return tools for fast tier', () => {
-      const tools = service.getToolsForTier('fast');
-      expect(tools).toContain('Read');
-      expect(tools).toContain('Bash');
-      expect(tools).not.toContain('Edit');
-      expect(tools).not.toContain('WebFetch');
-    });
-
-    it('should return tools for standard tier', () => {
-      const tools = service.getToolsForTier('standard');
-      expect(tools).toContain('Read');
-      expect(tools).toContain('Edit');
-      expect(tools).toContain('Write');
-      expect(tools).not.toContain('WebFetch');
-    });
-
-    it('should return tools for premium tier', () => {
-      const tools = service.getToolsForTier('premium');
-      expect(tools).toContain('Read');
-      expect(tools).toContain('Edit');
-      expect(tools).toContain('WebFetch');
-      expect(tools).toContain('WebSearch');
-    });
-
-    it('should check if tool is allowed for tier', () => {
-      expect(service.isToolAllowedForTier('Read', 'fast')).toBe(true);
-      expect(service.isToolAllowedForTier('Edit', 'fast')).toBe(false);
-      expect(service.isToolAllowedForTier('Edit', 'standard')).toBe(true);
-      expect(service.isToolAllowedForTier('WebFetch', 'standard')).toBe(false);
-      expect(service.isToolAllowedForTier('WebFetch', 'premium')).toBe(true);
-    });
-
-    it('should get session tools filtered by tier', async () => {
-      createSkillFile('tool-skill', `---
-name: tool-skill
-description: "Tools"
-tier: premium
-tools: [Read, Edit, WebFetch]
-status: published
----
-## Tools`);
-
-      await service.loadSkill({ sessionId: 'test-session', skillName: 'tool-skill' });
-
-      const fastTools = service.getSessionTools('test-session', 'fast');
-      expect(fastTools).toEqual(['Read']);
-
-      const standardTools = service.getSessionTools('test-session', 'standard');
-      expect(standardTools).toContain('Read');
-      expect(standardTools).toContain('Edit');
-      expect(standardTools).not.toContain('WebFetch');
-
-      const premiumTools = service.getSessionTools('test-session', 'premium');
-      expect(premiumTools).toContain('Read');
-      expect(premiumTools).toContain('Edit');
-      expect(premiumTools).toContain('WebFetch');
-
-      removeSkillFile('tool-skill');
-    });
-  });
-
   // ── .md file-based loading (flat structure) ──
 
   describe('file-based loading (.md)', () => {
@@ -306,7 +233,6 @@ status: published
 name: file-skill
 description: "Test skill from file"
 agentTypes: [executor]
-tier: fast
 status: published
 ---
 ## Test Skill
@@ -331,7 +257,6 @@ This is a test skill loaded from a .md file.`;
       expect(loaded).not.toBeNull();
       expect(loaded!.name).toBe('file-skill');
       expect(loaded!.prompt).toContain('## Test Skill');
-      expect(loaded!.tier).toBe('fast');
       expect(loaded!.skillId).toBe('file:file-skill');
     });
   });

@@ -3,8 +3,8 @@
  *
  * AC:
  * - runTask passes state.config.timeoutMs as AgentTask.timeoutMs
- * - executeLightweight uses task.timeoutMs when provided (overrides tier default)
- * - executeLightweight falls back to getSessionTimeout(tier) when task.timeoutMs not set
+ * - executeLightweight uses task.timeoutMs when provided (overrides flat default)
+ * - executeLightweight falls back to flat default (30min) when task.timeoutMs not set
  * - reviewAgent uses complexity-based timeout: simple=10, medium=15, complex=25
  */
 

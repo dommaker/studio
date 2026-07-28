@@ -50,7 +50,7 @@ describe('LocalExecutor', () => {
     mockExecuteLightweight.mockResolvedValue(result);
     const task = {
       id: 't-1', executionId: 'e-1', provider: 'claude', prompt: 'do it',
-      parameters: {}, model: 'standard', timeoutMs: 1000,
+      parameters: {}, timeoutMs: 1000,
     } as unknown as AgentTask;
 
     const out = await new LocalExecutor().execute(task);

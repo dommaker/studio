@@ -23,7 +23,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 | selectSkills | skill-selector.ts | 三层策略技能匹配：声明 triggers 时匹配 triggers（替代长 description），否则匹配 description（排除 NOT-for）；consumers 含 loop 的 skill 不参与 |
 | selectSkillsWithDomain, parseAcceptedTypesFromDescription | skill-selector.ts | §10 域匹配（角色 acceptedTypes ∪ WU type）∩ skill.agentTypes 为主、scope 匹配为次，去重封顶 3 |
 | SkillRecord, SkillCreateInput, SkillUpdateInput | skill-store.ts | 技能元数据的类型定义及文件型 CRUD |
-| LoadedSkill, SessionSkillState, LoadSkillOptions, UnloadSkillOptions | skill-loader.ts | 技能加载相关的类型定义及层级工具权限 |
+| LoadedSkill, SessionSkillState, LoadSkillOptions, UnloadSkillOptions | skill-loader.ts | 技能加载相关的类型定义 |
 | aggregateSkillUsage, scanSkillDemotions, approveDemotion, rejectDemotion, DemotionProposalStore | skill-demotion.ts | §10.6 降级通路：skill_used 事件 + WU 终态聚合 → 降级提案（只提案不自动生效；approve 改 frontmatter status，正文逐字节保留）；提案存 ~/.studio/data/skills/demotion-proposals.json |
 | router | skill-demotion-routes.ts | 降级提案列表（?scan=true 触发扫描）/ 审批路由，挂载至 /api/v1/skills/demotion-proposals（先于 /api/v1/skills 注册） |
 | validateSkillForPromotion, promoteSkill, extractReferencedPaths | skill-promotion.ts | D11 promote 门禁：① SKILL.md 存在 ② frontmatter name+description+triggers ③ 引用路径（~/ 与绝对路径，glob 退化父目录）真实存在；通过后 frontmatter status=published（正文逐字节保留）+ manifest 缓存失效 + 索引同名 draft/testing 同步。接入 routes POST /:id/publish（拒绝 → 400 + reasons） |
@@ -32,7 +32,6 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 
 **上游（本目录依赖）**
 - `@dommaker/studio-shared`（多个文件：logger、FileStore、modelGateway、recordDecision）
-- `@dommaker/studio-skill`（skill-loader.ts 中的 SkillTier 类型）
 - `express`（routes.ts、skill-proposal-routes.ts 中的 Router）
 - Node.js 内置模块：fs、path、os、crypto
 - `../channels/channel-message.service.js`（skill-proposal-routes.ts 使用）
@@ -55,13 +54,13 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 - `loadManifest()` 使用内存缓存，变更需重启进程或调用 invalidateManifestCache（promoteSkill 已自动调用）
 - 两个路由文件均导出 `Router` 实例，需分别挂载到 Express 应用的不同路径（/api/v1/skills 与 /api/v1/skills/proposals）
 - skill-selector 匹配时会排除 `NOT-for` 子句，避免排除项关键词触发误匹配
-- 技能加载器根据 `tier`（fast/standard/premium）控制可访问的工具集合，不同层级工具权限不同
 - 所有日志使用 `@dommaker/studio-shared` 的 logger 实例，统一日志格式
 - **鉴权（2026-07-24 收紧）**：skills 7 条写（POST /、PATCH、DELETE、publish、deprecate、restore、usage）+ demotion-proposals approve/reject + proposals 5 条写已收 requireAuth+requireNotGuest。GET /api/v1/skills/proposals 被 skills 的 GET /:id 遮蔽，属路由顺序 bug（未修）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: 任务规格档（tier）机制物理删除——skill-loader 删 TIER_TOOL_ACCESS/getToolsForTier/isToolAllowedForTier（生产零调用方）与 getSessionTools（仅测试引用，整方法删除），LoadedSkill.tier/SkillFrontmatter.tier 摘除；skill-store 的 SkillRecord.tier 字段及 create/update 透传、writeSkillMd 的 tier frontmatter 行删除；skill-extraction 生成 SKILL.md 不再写 tier 行；seed-skills 脚本 tier 键同步删除
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-27: B5 顺手修 — claim-skill-persist 2 用例修复：B3a claim 写 timeoutAt 后首次 upsertSnapshot 不再是 matchedSkills 那次（生产行为验证无回归），测试改为按 metadata 内容定位目标调用

@@ -21,7 +21,6 @@
 | `registerCommand`, `getCommand`, `runCommand`, `Command` | cli/command | 命令注册与执行框架 |
 | `formatError`, `createCliError`, `CliError`, `ERROR_CODES` | cli/error | 统一错误处理与格式化为字符串 |
 | `loadConfigEnv`, `AgentStudioConfig` | config | 系统级配置加载 (~/.studio/config.env) 及类型定义 |
-| `ModelTier` | config/model-tier | 任务规格档位标签（2026-07-28 起不再映射模型名——模型由角色绑定的 CLI 自身配置决定） |
 | `LEVEL_CONFIG`, `getLevelConfig`, `getLevelSalary` 等 | constants/levels | 全局统一的职级配置与辅助函数 |
 | `RESPONSIBILITY_CHAIN`, `CHANGE_TYPE_EXPERTS`, `Stage`, `Role` 等 | constants/responsibility-chain | 责任链模型类型与常量定义 |
 | `STAGE_DEFINITIONS`, `StageDefinition` | constants/stage-definitions | 开发阶段详细定义、关键词与推荐函数 |
@@ -49,6 +48,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: 任务规格档（fast/standard/premium tier）机制物理删除——`ModelTier` 类型与 config/model-tier.ts 整文件删除（消费方全灭：TIER_MAX_TURNS 零读取方、getSessionTimeout 仅兜底且生产构造方都显式传 timeoutMs、skill tier 过滤恒通过、TIER_TOOL_ACCESS 零调用方）；session 超时改扁平默认 30min，skillLoader.load 不再按 tier 过滤
 - ✅ 2026-07-28: model-tier.ts 瘦身为纯 `ModelTier` 类型（任务规格/超时档位标签，runner-params TIER_TIMEOUTS 等仍在用）；getModelForTier/getModelTierConfig 删除——"tier→模型名"全局映射对 claude 静默无效（无 modelFlag）、对 kimi/codex/opencode 强行覆盖用户 CLI 配置，违反算力提供方原则
 - ✅ `240f7885`: passwordHash 泄露 + workspace 端点 Admin 加硬 + 本地 CLI 扫描修复
 - ✅ `ddccf47a`: studio-shared): FileStore 原子写与 index 并发写加锁

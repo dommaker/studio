@@ -13,9 +13,6 @@ export * from './llm/index';
 // 导出 Harness 模块
 export * from './harness/index';
 
-// 导出 Model Tier（类型安全，无依赖，可安全引入前端）
-export { type ModelTier } from './config/model-tier';
-
 // 导出统一配置 API
 export { loadConfigEnv, type LlmProvider } from './config/index';
 

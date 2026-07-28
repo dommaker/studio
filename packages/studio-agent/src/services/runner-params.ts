@@ -2,7 +2,6 @@
  * Runner Params — 参数构建（agent-runner.ts 拆分模块）
  *
  * 从 agent-runner.ts 按职责拆出的 spawn/prompt 参数构建逻辑：
- *   - 任务规格档（task-size tier）常量与 session 超时/轮数映射（STRATEGY_HINTS / TIER_TIMEOUTS / TIER_MAX_TURNS）
  *   - prompt 构建（buildPrompt / buildAugmentedPrompt / SDD task 层解析）
  *   - spawn 命令构建（session flag / --add-dir / cmd 组装 / env / agent HOME）
  *   - 前置检查（checkPrerequisites）
@@ -14,10 +13,10 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
-import { logger, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles, type ModelTier } from '@dommaker/studio-shared';
+import { logger, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
-import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
+import { skillLoader } from '@dommaker/studio-skill';
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
 
 import type { ExecutorConfig, AgentTask, PrerequisiteCheck } from './session-manager.js';
@@ -32,18 +31,6 @@ const STRATEGY_HINTS: Record<number, string> = {
   3: '\u26a0\ufe0f\u26a0\ufe0f\u26a0\ufe0f \u4e25\u91cd\u963b\u585e \u2014 \u8fde\u7eed 3 \u6b21\u65e0\u8fdb\u5c55\u3002\u5f3a\u5236\u5207\u6362\u6a21\u5f0f\uff1a1) \u5148\u4e0d\u8981\u5199\u4ee3\u7801\uff0c\u8bfb REQUIREMENTS.md \u548c\u73b0\u6709\u4ee3\u7801\uff1b2) \u5199\u51fa 3 \u6b65\u4ee5\u5185\u7684 mini plan\uff1b3) \u53ea\u5b9e\u73b0\u7b2c 1 \u6b65\uff0c\u8dd1\u6d4b\u8bd5\uff1b4) \u8dd1\u901a\u540e\u518d\u7ee7\u7eed',
   4: '\ud83d\udd34 \u6700\u540e\u4e00\u6b21\u673a\u4f1a \u2014 \u653e\u5f03\u5f53\u524d\u65b9\u5411\uff0c\u4ece\u7b2c 0 \u884c\u91cd\u65b0\u5f00\u59cb\uff0c\u7528\u6700\u7b80\u5355\u3001\u6700\u6734\u7d20\u7684\u65b9\u5f0f\u5b9e\u73b0\uff08\u54ea\u6015\u4ee3\u7801\u4e11\uff09\uff0c\u5148\u8ba9\u6d4b\u8bd5\u901a\u8fc7\u3002',
 };
-
-// 任务规格档（task-size tier）：fast/standard/premium 是「任务大小」标签，
-// 控制 session 超时与最大轮数；与模型选择无关（模型归角色绑定 CLI 自身配置）。
-const TIER_TIMEOUTS: Record<ModelTier, number> = { fast: 15, standard: 30, premium: 45 };
-const TIER_MAX_TURNS: Record<ModelTier, number> = { fast: 8, standard: 15, premium: 25 };
-
-/** Returns session timeout in minutes based on task-size tier. Unknown/missing tier → 30min default. */
-export function getSessionTimeout(tier?: string): number {
-  if (tier && tier in TIER_TIMEOUTS) return TIER_TIMEOUTS[tier as ModelTier];
-  return 30;
-}
-
 
 // ========================================
 // SP-004 Step 5: SDD task layer resolution
@@ -218,8 +205,7 @@ export function buildPrompt(
   };
   const outputStyleSection = `## \u8f93\u51fa\u98ce\u683c\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
 
-  const skillTier = (task.model as SkillTier) || 'standard';
-  const skillsToInject = skillLoader.load({ tier: skillTier });
+  const skillsToInject = skillLoader.load({});
   const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
   if (session === 1 || !progress) {

@@ -41,7 +41,6 @@ const MOCK_SKILL_MD = [
   'name: disk-skill',
   'description: from disk',
   'agentTypes: [executor]',
-  'tier: fast',
   'status: published',
   '---',
   '## Disk prompt content',
@@ -59,7 +58,7 @@ describe('SkillLoader', () => {
   describe('public API', () => {
     it('load() returns empty when no skills loaded', () => {
       const loader = new SkillLoader();
-      const skills = loader.load({ agentType: 'executor', tier: 'fast' });
+      const skills = loader.load({ agentType: 'executor' });
       expect(skills).toEqual([]);
     });
 
@@ -77,7 +76,7 @@ describe('SkillLoader', () => {
       const loader = new SkillLoader();
       const prompt = loader.formatForPrompt([{
         id: 'test', name: 'Test Skill', description: 'A test',
-        agentTypes: [], tier: 'fast', prompt: '',
+        agentTypes: [], prompt: '',
       }]);
       expect(prompt).toContain('Test Skill');
       expect(prompt).toContain('A test');
@@ -164,7 +163,6 @@ describe('SkillLoader', () => {
       expect(skill).toBeDefined();
       expect(skill!.description).toBe('from disk');
       expect(skill!.agentTypes).toEqual(['executor']);
-      expect(skill!.tier).toBe('fast');
       expect(skill!.prompt).toBe('## Disk prompt content');
     });
 
@@ -174,13 +172,13 @@ describe('SkillLoader', () => {
         if (String(p).includes('skill-a')) {
           return [
             '---', 'name: skill-a', 'description: A',
-            'agentTypes: [executor]', 'tier: fast', 'status: published', '---', '## A',
+            'agentTypes: [executor]', 'status: published', '---', '## A',
           ].join('\n');
         }
         if (String(p).includes('skill-b')) {
           return [
             '---', 'name: skill-b', 'description: B',
-            'agentTypes: [reviewer]', 'tier: standard', 'status: published', '---', '## B',
+            'agentTypes: [reviewer]', 'status: published', '---', '## B',
           ].join('\n');
         }
         return '';
@@ -248,7 +246,7 @@ describe('SkillLoader', () => {
       loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
       await new Promise(r => setTimeout(r, 10));
 
-      const skills = loader.load({ agentType: 'executor', tier: 'fast' });
+      const skills = loader.load({ agentType: 'executor' });
       expect(skills).toEqual([]);
     });
 
@@ -274,25 +272,25 @@ describe('SkillLoader', () => {
         if (path.includes('green-only-tdd')) {
           return [
             '---', 'name: green-only-tdd', 'description: TDD',
-            'agentTypes: [executor]', 'tier: fast', 'status: published', '---', '## TDD',
+            'agentTypes: [executor]', 'status: published', '---', '## TDD',
           ].join('\n');
         }
         if (path.includes('multi-stance-review')) {
           return [
             '---', 'name: multi-stance-review', 'description: Review',
-            'agentTypes: [reviewer]', 'tier: standard', 'status: published', '---', '## Review',
+            'agentTypes: [reviewer]', 'status: published', '---', '## Review',
           ].join('\n');
         }
         if (path.includes('tool-risk')) {
           return [
             '---', 'name: tool-risk', 'description: Risk',
-            'agentTypes: [executor]', 'tier: fast', 'status: published', '---', '## Risk',
+            'agentTypes: [executor]', 'status: published', '---', '## Risk',
           ].join('\n');
         }
         if (path.includes('contract-test-writing')) {
           return [
             '---', 'name: contract-test-writing', 'description: Contract',
-            'agentTypes: [analyst]', 'tier: premium', 'status: published', '---', '## Contract',
+            'agentTypes: [analyst]', 'status: published', '---', '## Contract',
           ].join('\n');
         }
         return '';
@@ -307,18 +305,6 @@ describe('SkillLoader', () => {
 
       const execSkills = loader.load({ agentType: 'executor' });
       expect(execSkills.every(s => s.agentTypes.includes('executor'))).toBe(true);
-    });
-
-    it('should filter by tier threshold', async () => {
-      const loader = new SkillLoader();
-      loader.init({ skill: { findMany: vi.fn().mockResolvedValue([]) } } as any);
-      await new Promise(r => setTimeout(r, 10));
-
-      const fastSkills = loader.load({ agentType: 'reviewer', tier: 'fast' });
-      expect(fastSkills.some(s => s.id === 'multi-stance-review')).toBe(false);
-
-      const standardSkills = loader.load({ agentType: 'reviewer', tier: 'standard' });
-      expect(standardSkills.some(s => s.id === 'multi-stance-review')).toBe(true);
     });
 
     it('should respect exclude option', async () => {

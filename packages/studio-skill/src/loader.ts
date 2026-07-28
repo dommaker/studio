@@ -8,11 +8,10 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type { SkillDefinition, SkillTier } from './types.js';
+import type { SkillDefinition } from './types.js';
 
 export interface LoadOptions {
   agentType?: string;
-  tier?: SkillTier;
   exclude?: string[];
 }
 
@@ -29,7 +28,6 @@ interface SkillFrontmatter {
   name: string;
   description?: string;
   agentTypes?: string[];
-  tier?: SkillTier;
   tools?: string[];
   required?: string[];
   status?: string;
@@ -64,7 +62,6 @@ function frontmatterToSkillDefinition(meta: SkillFrontmatter, prompt: string): S
     name: meta.name,
     description: meta.description || '',
     agentTypes: meta.agentTypes || [],
-    tier: (meta.tier || 'standard') as SkillTier,
     tools: meta.tools,
     requires: meta.required,
     prompt,
@@ -109,15 +106,11 @@ export class SkillLoader {
   load(options: LoadOptions): SkillDefinition[] {
     this.maybeRefreshCache();
 
-    const { agentType, tier, exclude = [] } = options;
+    const { agentType, exclude = [] } = options;
 
     return this.cache.filter(s => {
       if (exclude.includes(s.id)) return false;
       if (agentType && s.agentTypes.length > 0 && !s.agentTypes.includes(agentType)) return false;
-      if (tier) {
-        const tierRank: Record<string, number> = { fast: 1, standard: 2, premium: 3 };
-        if (tierRank[s.tier] > tierRank[tier]) return false;
-      }
       return true;
     });
   }

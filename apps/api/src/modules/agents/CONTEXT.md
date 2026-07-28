@@ -66,6 +66,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: 任务规格档（tier）机制物理删除——agent-loop 的 AgentTask 构造摘除 `model: 'standard'` 死键（AgentTask.model 字段已随 studio-agent 删除；模型归算力提供方 CLI 自身配置）
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
 - ✅ `7e36fd19`: agent): 验收 e2e 抓出两修真链漏洞 — 提交守卫读合并视图 + 合并前数据防丢闸
 - ✅ 2026-07-28: 方案 A（模型归算力提供方）— review-agent.service 删除 4 处 dead `const model = getModelForTier('standard')`（从未进 spawn 命令）；daemon task-executor 不再向 buildSpawnArgs 传 tier 解析出的模型名（原对 kimi/codex/opencode 强覆盖用户 CLI 配置、对 claude 静默无效）、daemon session-manager 日志改记 tier 标签。模型一律由角色绑定 CLI 的自身配置决定；10 处测试 mock 死键同步删除

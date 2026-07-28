@@ -1,7 +1,7 @@
 /**
  * runner-params 单元测试
  *
- * 覆盖纯参数构建函数：tier 超时、prompt 拼接、session flag、--add-dir、
+ * 覆盖纯参数构建函数：prompt 拼接、session flag、--add-dir、
  * spawn cmd 组装、agent HOME、spawn env，以及 SDD task 层解析（mock SDD 读取）。
  */
 
@@ -26,7 +26,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 import {
-  getSessionTimeout,
   buildAugmentedPrompt,
   buildSessionFlag,
   buildAddDirArgs,
@@ -48,20 +47,6 @@ function makeTask(overrides: Partial<AgentTask> = {}): AgentTask {
     ...overrides,
   };
 }
-
-describe('getSessionTimeout', () => {
-  test('tier 映射 fast/standard/premium', () => {
-    expect(getSessionTimeout('fast')).toBe(15);
-    expect(getSessionTimeout('standard')).toBe(30);
-    expect(getSessionTimeout('premium')).toBe(45);
-  });
-
-  test('未知/缺省 tier 回退 30', () => {
-    expect(getSessionTimeout(undefined)).toBe(30);
-    expect(getSessionTimeout('')).toBe(30);
-    expect(getSessionTimeout('enterprise')).toBe(30);
-  });
-});
 
 describe('buildAugmentedPrompt', () => {
   test('无 knowledgeContext 时原样返回', () => {
@@ -157,7 +142,7 @@ describe('resolveAgentHome', () => {
 
 describe('buildSessionEnv', () => {
   test('基础：STUDIO_EXECUTION_ID + HOME 注入', () => {
-    const env = buildSessionEnv({ task: makeTask(), tier: 'standard', role: 'executor', agentHome: '/home/x' });
+    const env = buildSessionEnv({ task: makeTask(), role: 'executor', agentHome: '/home/x' });
     expect(env.STUDIO_EXECUTION_ID).toBe('exec-abcdef123456');
     expect(env.HOME).toBe('/home/x');
     expect(env.STUDIO_WORKUNIT_ID).toBeUndefined();

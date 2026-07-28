@@ -43,7 +43,6 @@ vi.mock('@dommaker/studio-skill', () => ({
     loadSingle: vi.fn((name: string) => ({
       prompt: `Mock prompt for ${name}`,
       tools: [],
-      tier: 'standard',
       requires: [],
     })),
     get: vi.fn(),

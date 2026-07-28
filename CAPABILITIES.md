@@ -29,7 +29,6 @@
 | error | packages/studio-shared/src/cli/error.ts | 错误处理 |
 | formatter | packages/studio-shared/src/cli/formatter.ts | 输出格式化器 |
 | parser | packages/studio-shared/src/cli/parser.ts | 参数解析器 |
-| model-tier | packages/studio-shared/src/config/model-tier.ts | Model Tier 任务规格档位标签（2026-07-28 起不再映射模型名） |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
 | responsibility-chain | packages/studio-shared/src/constants/responsibility-chain.ts | 责任链模型 - 类型定义 |
 | stage-definitions | packages/studio-shared/src/constants/stage-definitions.ts | Stage Definitions - 阶段定义 + 关键词 + 推荐函数 |

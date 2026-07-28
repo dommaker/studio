@@ -256,7 +256,6 @@ export class SkillExtractionService {
           `name: '${skillName}'`,
           'version: 1',
           `agentTypes: ['executor']`,
-          `tier: 'standard'`,
           `status: 'draft'`,
           '---',
         ].join('\n');
