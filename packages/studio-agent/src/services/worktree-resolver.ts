@@ -77,7 +77,7 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
     } else { throw e; }
   }
   logger.info('[WorktreeResolver] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });
-  writeGitExclude(repoDir).catch(() => { /* best-effort: exclude writing failure must not block worktree creation */ });
+  await writeGitExclude(repoDir);
 }
 
 /** 工具产物 exclude 规则（写入 .git/info/exclude，git status 不再看到这些产物） */
