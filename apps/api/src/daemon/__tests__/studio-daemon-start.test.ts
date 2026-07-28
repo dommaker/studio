@@ -40,7 +40,7 @@ describe('B4a: daemon.start() 不再创建 reviewer worktree', () => {
     // 在模块 import 时定型，必须先设 env 再动态 import
     scratchRepo = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-start-repo-'));
     worktreesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'daemon-start-wt-'));
-    execSync('git init -q && git commit -q --allow-empty -m init', { cwd: scratchRepo });
+    execSync('git init -q && git config user.email "test@test" && git config user.name "test" && git commit -q --allow-empty -m init', { cwd: scratchRepo });
     process.env.REPO_DIR = scratchRepo;
     process.env.WORKTREES_DIR = worktreesDir;
     ({ daemon } = await import('../studio-daemon.js'));
@@ -48,7 +48,7 @@ describe('B4a: daemon.start() 不再创建 reviewer worktree', () => {
   });
 
   afterAll(() => {
-    daemon.stop();
+    daemon?.stop();
     fs.rmSync(scratchRepo, { recursive: true, force: true });
     fs.rmSync(worktreesDir, { recursive: true, force: true });
   });
