@@ -8,7 +8,7 @@
 |------|------|------|
 | agent-completer | packages/studio-agent/src/services/agent-completer.ts | Agent Completer - TypeScript 实现的任务完成处理器 |
 | agent-executor | packages/studio-agent/src/services/agent-executor.ts | Agent Executor - Session Loop 执行模型 (daemon async spawn) |
-| agent-registry | packages/studio-agent/src/services/agent-registry.ts | 注册新 Agent |
+
 | types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
 | export | packages/studio-audit/src/cli/export.ts | Mock 数据 |
 | log | packages/studio-audit/src/cli/log.ts | Mock 数据 |
@@ -135,7 +135,7 @@
 | permission.service | apps/api/src/modules/mcp/permission.service.ts | MCP Permission Service — role×tool access control + audit logging |
 | routes | apps/api/src/modules/mcp/routes.ts | MCP HTTP Routes |
 | server | apps/api/src/modules/mcp/server.ts | MCP Server - Model Context Protocol 服务器 |
-| tool-registry | apps/api/src/modules/mcp/tool-registry.ts | MCP Tool Registry — dynamic registration, health, rate limiting |
+
 | tools | apps/api/src/modules/mcp/tools.ts | MCP Tools 定义 — 含 createWorkUnit (PMO→Channel→Agent) |
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | notify.service | apps/api/src/modules/outbound-notify/notify.service.ts | NotifyService - 通知服务 |
@@ -190,7 +190,7 @@
 
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
 | failure-classifier | apps/api/src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
-| prompt-builder | apps/api/src/modules/knowledge/consumers/prompt-builder.ts | Unified knowledge injection entry point. |
+
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | knowledge-service.routes | apps/api/src/modules/knowledge/knowledge-service.routes.ts | KnowledgeService HTTP API + SSE |
 | knowledge-service | apps/api/src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |
@@ -217,7 +217,7 @@
 | skill-store | apps/api/src/modules/skills/skill-store.ts | SkillStore — File-based CRUD for Skill metadata |
 | cron-matcher | apps/api/src/modules/triggers/cron-matcher.ts | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
 | trigger-action | apps/api/src/modules/triggers/trigger-action.ts | Execute a CREATE action — creates a WorkUnit from trigger payload. |
-| trigger-registry | apps/api/src/modules/triggers/trigger-registry.ts | Trigger Registry — singleton TriggerScheduler with eventBus injection |
+
 | trigger-scheduler | apps/api/src/modules/triggers/trigger-scheduler.ts | TriggerScheduler — SCHEDULE tick + EVENT EventBus subscription |
 | trigger-store | apps/api/src/modules/triggers/trigger-store.ts | Trigger Store — YAML-based trigger config persistence (3.28c-4) |
 | trigger.routes | apps/api/src/modules/triggers/trigger.routes.ts | Trigger Routes — REST API for trigger management (3.28c-4) |
@@ -229,7 +229,7 @@
 | workunit | apps/web/src/api/workunit.ts | WorkUnit API — Agent Network §3.28c-1 |
 | workunitStore | apps/web/src/stores/workunitStore.ts | WorkUnit Store — Agent Network §3.28c-1 |
 | cli-adapter | packages/studio-agent/src/cli-adapter.ts | CLI Adapter — translate common spawn params to provider-specific args |
-| registry | packages/studio-agent/src/registry.ts | Agent Persona 注册表 |
+
 | file-store | packages/studio-shared/src/file-store.ts | FileStore — AN 运行时数据文件存储基类 |
 | anomaly-detector | packages/studio-shared/src/stats/anomaly-detector.ts | 计算数组的均值和标准差（总体标准差） |
 | system-health | apps/api/src/modules/agents/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
@@ -240,7 +240,7 @@
 | project.routes | apps/api/src/modules/projects/project.routes.ts | AC-D3: Project Discovery API |
 | providers | packages/studio-shared/src/providers.ts | Provider Registry — single source of truth for agent CLI providers (F4) |
 | events-dir | packages/studio-shared/src/utils/events-dir.ts | R2 事件目录统一（断点 D，docs/plans/2026-07-flywheel-repair.md）。 |
-| agent-loop-registry | apps/api/src/modules/agents/agent-loop-registry.ts | AgentLoopRegistry — profileId → running AgentLoop (F1: AgentLoop 动态挂载) |
+
 | knowledge-singletons | apps/api/src/modules/knowledge/knowledge-singletons.ts | knowledge-singletons — 知识子系统共享单例的唯一所有者 (R4 收敛, 断点 H) |
 | req-binding | apps/api/src/modules/requirements/req-binding.ts | REQ 绑定解析（vision §5.3）— @mention 派发 / convert-to-task 共用。 |
 | requirement.routes | apps/api/src/modules/requirements/requirement.routes.ts | Requirement API 路由 — REQ 需求编号体系（vision §5.3） |
@@ -323,3 +323,4 @@
 | skill-promotion | apps/api/src/modules/skills/skill-promotion.ts | D11 skill promote 门禁（draft → published）。 |
 | merge-on-review-pass | apps/api/src/modules/workunit/merge-on-review-pass.ts | B3b-ii 评审通过后自动合并（决策 D1/D3 后半） |
 | timeout-release | apps/api/src/modules/workunit/timeout-release.ts | P0 修复（WU 超时机制）：workunit-timeout 触发器的 EXECUTE handler。 |
+| domain-vocab | packages/studio-shared/src/domain-vocab.ts | 职能域词表（决策 8，docs/plans/2026-07-27-agents-md-skill-governance.md） |
