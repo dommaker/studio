@@ -68,7 +68,6 @@ function registerExecutor(worktree: string) {
   (daemon as any).manager.register({
     name: 'executor',
     worktree,
-    modelTier: 'fast',
     timeoutMs: 5 * 60 * 1000,
     persistent: false,
   });
@@ -145,7 +144,6 @@ describe('execSync 事件循环阻塞验证', () => {
     mgr.register({
       name: 'executor-2',
       worktree: wt2,
-      modelTier: 'fast',
       timeoutMs: 5 * 60 * 1000,
       persistent: false,
     });

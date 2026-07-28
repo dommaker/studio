@@ -9,7 +9,6 @@ export interface TaskLog {
   session: string;
   sessionId: string;
   taskIndex: number;
-  model: string;
   phase: string;           // analyst | executor | review
   command: string;         // cli 命令（隐藏 api key）
   durationMs: number;

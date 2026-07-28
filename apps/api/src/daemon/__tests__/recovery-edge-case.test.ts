@@ -71,7 +71,7 @@ describe('Session 过期恢复边界情况', () => {
 
     // Step 1: 正常创建 session 并跑一个任务
     const mgr1 = new SessionManager();
-    mgr1.register({ name: 'test', worktree: wt, modelTier: 'fast', timeoutMs: 60_000, persistent: true });
+    mgr1.register({ name: 'test', worktree: wt, timeoutMs: 60_000, persistent: true });
     const r1 = await mgr1.runTask('test', {
       prompt: '在 src/data.ts 中把 data 改为 1。完成后输出 "DONE"',
       outputFile: path.join(wt, '.daemon', 'out1.txt'),
@@ -107,7 +107,7 @@ describe('Session 过期恢复边界情况', () => {
 
     // Step 3: 重新注册（模拟 daemon 重启）
     const mgr2 = new SessionManager();
-    mgr2.register({ name: 'test', worktree: wt, modelTier: 'fast', timeoutMs: 60_000, persistent: true });
+    mgr2.register({ name: 'test', worktree: wt, timeoutMs: 60_000, persistent: true });
     const status = mgr2.getStatus('test');
     console.log('重启后 session-id:', status?.sessionId || 'unknown');
 

@@ -248,7 +248,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
         session: sessionCount,
         isFirstSession,
         isNewSession,
-        modelTier: taskTier,
+        taskTier,
       });
 
       const childRef: { current: ChildProcess | null } = { current: null };
@@ -268,7 +268,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: buildSessionEnv({ task, tier: taskTier, role: 'executor', agentHome }),
+          env: buildSessionEnv({ task, role: 'executor', agentHome }),
           timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
           maxBuffer: 10 * 1024 * 1024,
           childRef,
@@ -316,7 +316,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           stdout,
           executionId: task.executionId,
           agentRole: 'executor',
-          modelTier: (task.model as string) || 'standard',
           stage: task.parameters?.stage as string,
           sessionCount,
           isFirstSession,
@@ -378,7 +377,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
             sessionId: sessionId.slice(0, 8),
             sessionScope: 'per-execution',
             goalId,
-            model: (task.model as string) || 'standard',
+            taskTier,
             totalInputTokens: cumulativeInputTokens,
             cacheReadTokens: cumulativeCacheHitTokens,
             cacheCreationTokens: cumulativeCacheCreationTokens,
@@ -436,7 +435,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           sessionId: sessionId.slice(0, 8),
           sessionScope: 'per-execution',
           goalId,
-          model: (task.model as string) || 'standard',
+          taskTier,
           totalInputTokens: cumulativeInputTokens,
           cacheReadTokens: cumulativeCacheHitTokens,
           cacheCreationTokens: cumulativeCacheCreationTokens,
@@ -480,7 +479,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
             sessionId: sessionId.slice(0, 8),
             sessionScope: 'per-execution',
             goalId,
-            model: (task.model as string) || 'standard',
+            taskTier,
             totalInputTokens: cumulativeInputTokens,
             cacheReadTokens: cumulativeCacheHitTokens,
             cacheCreationTokens: cumulativeCacheCreationTokens,
@@ -512,7 +511,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           sessionId: sessionId.slice(0, 8),
           sessionScope: 'per-execution',
           goalId,
-          model: (task.model as string) || 'standard',
+          taskTier,
           totalInputTokens: cumulativeInputTokens,
           cacheReadTokens: cumulativeCacheHitTokens,
           cacheCreationTokens: cumulativeCacheCreationTokens,

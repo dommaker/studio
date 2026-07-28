@@ -235,7 +235,7 @@ describe('stripDesignSubsections', () => {
   it('removes 实现指南, 参考模式, 注意事项 subsections', () => {
     const content = `
 ### group-1
-<!-- MODEL_TIER {"tier":"fast"} -->
+<!-- some html comment -->
 
 #### 验收标准
 - [ ] AC1: do something

@@ -1,6 +1,6 @@
 /**
  * auditor-reports — 洞察与报告输出单元测试
- * analyzeSessionTrends / trackTrends / saveTierStats / postToSystemChannel
+ * analyzeSessionTrends / trackTrends / postToSystemChannel
  */
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
@@ -36,7 +36,6 @@ import { FileStore } from '@dommaker/studio-shared';
 import {
   analyzeSessionTrends,
   trackTrends,
-  saveTierStats,
   postToSystemChannel,
 } from '../auditor-reports.js';
 
@@ -203,38 +202,6 @@ describe('analyzeSessionTrends()', () => {
     // 最长会话 70 > 50 turns；平均 62 > 30
     expect(joined).toContain('最长会话 70 turns');
     expect(joined).toContain('平均会话 62 turns');
-  });
-});
-
-// ── saveTierStats ──
-
-describe('saveTierStats()', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('does nothing for empty tier stats', async () => {
-    await saveTierStats(new Map());
-    expect(mockSave).not.toHaveBeenCalled();
-  });
-
-  it('saves tier success rates to knowledge bus', async () => {
-    const tierStats = new Map([
-      ['standard', { total: 10, failed: 2 }],
-      ['fast', { total: 0, failed: 0 }],
-    ]);
-    await saveTierStats(tierStats);
-
-    expect(mockSave).toHaveBeenCalledTimes(1);
-    const entry = mockSave.mock.calls[0][0];
-    expect(entry.id).toMatch(/^tier-stats-\d{4}-\d{2}-\d{2}$/);
-    expect(entry.title).toBe('tier_success_rate');
-    expect(entry.tags).toEqual(['audit', 'tier_stats']);
-    expect(entry.contributors).toEqual(['auditor-agent']);
-
-    const stats = JSON.parse(entry.content);
-    expect(stats).toEqual([
-      { tier: 'standard', total: 10, failed: 2, successRate: 80 },
-      { tier: 'fast', total: 0, failed: 0, successRate: 100 },
-    ]);
   });
 });
 

@@ -121,7 +121,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     });
 
     logger.info('[AgentRunner] Lightweight session spawning', {
-      taskId: task.id, executionId: task.executionId, modelTier: taskTier, sessionFlags,
+      taskId: task.id, executionId: task.executionId, taskTier, sessionFlags,
     });
 
     const childRef: { current: ChildProcess | null } = { current: null };
@@ -139,7 +139,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     try {
       const { stdout } = await execSh(cmd, {
         cwd: worktree,
-        env: buildSessionEnv({ task, tier: taskTier, role: agentRole as 'analyst' | 'executor', agentHome, withWorkUnitEnv: true }),
+        env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', agentHome, withWorkUnitEnv: true }),
         timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
         maxBuffer: 10 * 1024 * 1024,
         childRef,
@@ -168,7 +168,6 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         stdout,
         executionId: task.executionId,
         agentRole,
-        modelTier: (task.model as string) || 'standard',
         sessionCount: 1,
         isFirstSession: true,
         sessionMs,

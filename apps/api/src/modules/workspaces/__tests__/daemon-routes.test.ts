@@ -22,7 +22,6 @@ function createTask(workspaceId: string, overrides: Record<string, any> = {}): R
     path: '/test/path',
     prompt: 'Do something',
     agent: 'executor',
-    modelTier: 'standard',
     runtimeId: null,
     parentGoalId: null,
     status: 'pending',

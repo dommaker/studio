@@ -165,20 +165,20 @@ describe('buildSessionEnv', () => {
 
   test('goalId → STUDIO_GOAL_ID', () => {
     const task = makeTask({ parameters: { goalId: 'goal-9' } });
-    const env = buildSessionEnv({ task, tier: 'standard', role: 'executor', agentHome: '/home/x' });
+    const env = buildSessionEnv({ task, role: 'executor', agentHome: '/home/x' });
     expect(env.STUDIO_GOAL_ID).toBe('goal-9');
   });
 
   test('withWorkUnitEnv：注入 STUDIO_WORKUNIT_ID 与 extraEnv', () => {
     const task = makeTask({ parameters: { workUnitId: 'wu-7', extraEnv: { FOO: 'bar' } } });
-    const env = buildSessionEnv({ task, tier: 'standard', role: 'executor', agentHome: '/home/x', withWorkUnitEnv: true });
+    const env = buildSessionEnv({ task, role: 'executor', agentHome: '/home/x', withWorkUnitEnv: true });
     expect(env.STUDIO_WORKUNIT_ID).toBe('wu-7');
     expect(env.FOO).toBe('bar');
   });
 
   test('无 withWorkUnitEnv：不注入 STUDIO_WORKUNIT_ID / extraEnv', () => {
     const task = makeTask({ parameters: { workUnitId: 'wu-7', extraEnv: { FOO: 'bar' } } });
-    const env = buildSessionEnv({ task, tier: 'standard', role: 'executor', agentHome: '/home/x' });
+    const env = buildSessionEnv({ task, role: 'executor', agentHome: '/home/x' });
     expect(env.STUDIO_WORKUNIT_ID).toBeUndefined();
     expect(env.FOO).toBeUndefined();
   });

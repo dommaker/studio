@@ -66,3 +66,4 @@
 - ✅ 2026-07-28: fix(agent-home-auth) — runner-params 新增 `ensureAgentHomeCliConfig(agentHome)`：spawn 前把 host `~/.claude/settings.json` 的 env 块按鉴权/模型前缀过滤注入隔离 agent HOME（只补缺、不带 hooks、best-effort 幂等），修复 HOME 隔离导致 claude CLI 401 authentication_failed（首 step 失败 + 后续 resume Session ID not found）；runner-lightweight 与 runner-execution 两条 spawn 路径均已接入
 - ✅ 2026-07-27: B3b-i — worktree-resolver 新增 ensureWuWorktree/WuWorktreeInfo（每 WU 专属 worktree，目录/分支按 WU id 键控，含 .git 即复用；失败兜底清理 worktree 注册项+目录+分支后抛错）；createWorktree 增第 5 可选参 branchName（缺省保持 task/<basename> 原行为）；经 agent-executor 门面与包入口导出，dist 已重建
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
+- ✅ 2026-07-28: modelTier 元数据透传物理删除——recordSessionMetrics 不再收/写 modelTier（agent_session 事件 schema 去掉该键，modelName 保留为 CLI 回报的真实模型）；spawn 日志键 modelTier→taskTier；AgentTask.model 语义定格为「任务规格档」（控制 TIER_TIMEOUTS/TIER_MAX_TURNS/skill 注入档，注释改写，非常量删除）；buildSessionEnv 摘除从未使用的 tier 死参

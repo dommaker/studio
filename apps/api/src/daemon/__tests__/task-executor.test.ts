@@ -78,7 +78,6 @@ function makeTask(overrides?: Partial<ClaimedTask>): ClaimedTask {
     path: '/test',
     prompt: 'do something',
     agent: 'executor',
-    modelTier: 'standard',
     sessionId: null,
     status: 'running',
     createdAt: '2026-06-01T00:00:00Z',

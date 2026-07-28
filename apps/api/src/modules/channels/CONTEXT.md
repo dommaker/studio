@@ -80,3 +80,4 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
 - ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors
 - ✅ `7d5b0fda`: Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency
+- ✅ 2026-07-28: channel.routes 删除 `<!-- MODEL_TIER {...} -->` HTML 注释解析——旧 orchestrator 输出约定，B1-B6 后无写入方的死代码；parseAcGroupsFromMarkdown 结果类型同步摘除 modelTier/modelTierReason 字段

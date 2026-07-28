@@ -139,3 +139,4 @@
 - ✅ `e82b47e6`: 知识飞轮自动闭环 — 消除 ingest 手动标记 + Auditor Circuit #8
 - ✅ `78c6856d`: Prisma SQLite auto-parses JSON String fields — handle both string and object
 - ✅ `7d5b0fda`: Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency
+- ✅ 2026-07-28: auditor 摘除 tier 统计——modelTier 字段物理删除随动：每日审计不再从执行记录 input JSON 提取 modelTier，报告删「按模型档位」小节，saveTierStats（auditor → knowledge-bus `tier-stats-*` 条目）全链删除（收集方消失即成死链）；保留按 Agent 类型统计

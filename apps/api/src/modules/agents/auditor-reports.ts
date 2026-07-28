@@ -197,48 +197,6 @@ export function trackTrends(snapshot: {
   return insights;
 }
 
-// ── Save Tier Stats (Auditor → Analyst feedback loop) ──
-
-export async function saveTierStats(
-  tierStats: Map<string, { total: number; failed: number }>,
-): Promise<void> {
-  if (tierStats.size === 0) return;
-
-  try {
-    const stats = [...tierStats.entries()].map(([tier, s]) => ({
-      tier,
-      total: s.total,
-      failed: s.failed,
-      successRate: s.total > 0 ? Math.round((1 - s.failed / s.total) * 100) : 100,
-    }));
-
-    const { sharedStore: tierStatsStore } = await import('../knowledge/knowledge-bus.service.js');
-    tierStatsStore.save({
-      id: `tier-stats-${new Date().toISOString().slice(0, 10)}`,
-      type: 'guideline' as any,
-      title: 'tier_success_rate',
-      content: JSON.stringify(stats),
-      maturity: 'active' as any,
-      layer: 'project',
-      created: new Date().toISOString(),
-      lastReferenced: new Date().toISOString(),
-      contributors: ['auditor-agent'],
-      projects: [],
-      tags: ['audit', 'tier_stats'],
-      applicablePhases: [],
-      sourceReferences: [],
-      referencedBy: [],
-      executionResults: [],
-      consumptionMode: 'reference' as any,
-      origin: 'agent' as any,
-    } as any);
-
-    logger.info('[AuditorAgent] Tier stats saved', { tiers: stats.length });
-  } catch (err) {
-    logger.warn('[AuditorAgent] Failed to save tier stats', { error: String(err) });
-  }
-}
-
 // ── Post to Channel ──
 
 export async function postToSystemChannel(fileStore: FileStore, content: string): Promise<void> {

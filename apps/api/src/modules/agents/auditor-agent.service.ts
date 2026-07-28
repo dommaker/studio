@@ -81,9 +81,8 @@ export class AuditorAgent {
         new Date(e.created).getTime() >= yesterday.getTime()
       ).length;
 
-      // 4. Agent-type × tier 3D 交叉分析
+      // 4. Agent-type 交叉分析
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
-      const tierStats = new Map<string, { total: number; failed: number }>();
 
       for (const e of recentExecs) {
         const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
@@ -92,19 +91,6 @@ export class AuditorAgent {
         ag.total++;
         if (e.status === 'closed') ag.failed++;
         agentTypeStats.set(agentType, ag);
-
-        // Extract modelTier from input JSON or default to 'standard'
-        let tier = 'standard';
-        try {
-          if (eMeta.input) {
-            const parsed = typeof eMeta.input === 'string' ? JSON.parse(eMeta.input) : eMeta.input;
-            tier = (parsed as any)?.modelTier || 'standard';
-          }
-        } catch { /* use default */ }
-        const tr = tierStats.get(tier) || { total: 0, failed: 0 };
-        tr.total++;
-        if (e.status === 'closed') tr.failed++;
-        tierStats.set(tier, tr);
       }
 
       // 5. WorkUnit 状态分布
@@ -131,14 +117,6 @@ export class AuditorAgent {
           .map(([type, s]) => {
             const rate = s.total > 0 ? Math.round((1 - s.failed / s.total) * 100) : 100;
             return `- **${type}**: ${s.total} 次 (成功: ${s.total - s.failed}, 失败: ${s.failed}, 成功率: ${rate}%)`;
-          }),
-        '',
-        '### 按模型档位',
-        ...[...tierStats.entries()]
-          .sort((a, b) => b[1].total - a[1].total)
-          .map(([tier, s]) => {
-            const rate = s.total > 0 ? Math.round((1 - s.failed / s.total) * 100) : 100;
-            return `- **${tier}**: ${s.total} 次 (成功: ${s.total - s.failed}, 失败: ${s.failed}, 成功率: ${rate}%)`;
           }),
         '',
         '### WorkUnit 状态',
@@ -203,10 +181,7 @@ export class AuditorAgent {
       // 8. Escalate anomalies to Triage (Phase 3)
       await this.escalateToTriage(agentTypeStats, successRate, total, failed);
 
-      // 9. 保存 tier 成功率 → Analyst 反馈回路
-      await this.saveTierStats(tierStats);
-
-      // 10. Better-Harness: 失败 → eval case 生成
+      // 9. Better-Harness: 失败 → eval case 生成
       const execsForEval = recentExecs.map(e => {
         const eMeta = e.metadata ? JSON.parse(e.metadata) : {};
         return { id: e.id, goalId: e.parentId ?? undefined, status: e.status, error: eMeta.error ?? null, agentType: eMeta.agentType ?? null, input: eMeta.input ?? null };
@@ -303,12 +278,6 @@ export class AuditorAgent {
     highSensitiveOpsCount: number; avgTurns: number; maxTurnCount: number;
   }): string[] {
     return reports.trackTrends(snapshot);
-  }
-
-  private async saveTierStats(
-    tierStats: Map<string, { total: number; failed: number }>,
-  ): Promise<void> {
-    return reports.saveTierStats(tierStats);
   }
 
   private async postToSystemChannel(content: string): Promise<void> {

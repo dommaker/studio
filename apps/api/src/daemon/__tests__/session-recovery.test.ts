@@ -122,7 +122,6 @@ describe('Session 过期自动重建', () => {
     mgr.register({
       name: 'test-session',
       worktree: wt,
-      modelTier: 'fast',
       timeoutMs: 60_000,
       persistent: true,
     });
@@ -157,7 +156,6 @@ describe('Session 过期自动重建', () => {
     mgr.register({
       name: 'test-session-recovered',
       worktree: wt,
-      modelTier: 'fast',
       timeoutMs: 60_000,
       persistent: true,
     });
@@ -201,7 +199,6 @@ describe('Session 过期自动重建', () => {
     mgr1.register({
       name: 'restart-session',
       worktree: wt,
-      modelTier: 'fast',
       timeoutMs: 60_000,
       persistent: true,
     });
@@ -220,7 +217,6 @@ describe('Session 过期自动重建', () => {
     mgr2.register({
       name: 'restart-session',
       worktree: wt,
-      modelTier: 'fast',
       timeoutMs: 60_000,
       persistent: true,
     });

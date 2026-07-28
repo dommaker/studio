@@ -32,12 +32,10 @@ const projectDiscoveryService = new ProjectDiscoveryService();
 function parseAcGroupsFromMarkdown(content: string): Array<{
   id: string; acs: string[]; files: string[]; dependencies: string[];
   implementationNotes: string; codePatterns: string[]; gotchas: string[];
-  modelTier?: string; modelTierReason?: string;
 }> {
   const groups: Array<{
     id: string; acs: string[]; files: string[]; dependencies: string[];
     implementationNotes: string; codePatterns: string[]; gotchas: string[];
-    modelTier?: string; modelTierReason?: string;
   }> = [];
   const lines = content.split('\n');
 
@@ -60,16 +58,8 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
       continue;
     }
 
-    // MODEL_TIER HTML comment: <!-- MODEL_TIER {"tier":"fast","reason":"..."} -->
-    const modelTierMatch = line.match(/<!--\s*MODEL_TIER\s+(\{.+\})\s*-->/);
-    if (modelTierMatch && currentGroup) {
-      try {
-        const mt = JSON.parse(modelTierMatch[1]);
-        currentGroup.modelTier = mt.tier;
-        currentGroup.modelTierReason = mt.reason || '';
-      } catch { /* ignore malformed */ }
-      continue;
-    }
+    // MODEL_TIER HTML 注释解析已删除（2026-07-28）：旧 orchestrator 输出约定，
+    // B1-B6 后无写入方；tier 概念退役，模型归角色绑定 CLI 自身配置。
 
     const inFreeText = currentSection !== null && FREE_TEXT_SECTIONS.has(currentSection);
 

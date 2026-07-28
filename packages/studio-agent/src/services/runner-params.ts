@@ -2,7 +2,7 @@
  * Runner Params — 参数构建（agent-runner.ts 拆分模块）
  *
  * 从 agent-runner.ts 按职责拆出的 spawn/prompt 参数构建逻辑：
- *   - tier 常量与 session 超时映射（STRATEGY_HINTS / TIER_TIMEOUTS / TIER_MAX_TURNS）
+ *   - 任务规格档（task-size tier）常量与 session 超时/轮数映射（STRATEGY_HINTS / TIER_TIMEOUTS / TIER_MAX_TURNS）
  *   - prompt 构建（buildPrompt / buildAugmentedPrompt / SDD task 层解析）
  *   - spawn 命令构建（session flag / --add-dir / cmd 组装 / env / agent HOME）
  *   - 前置检查（checkPrerequisites）
@@ -33,10 +33,12 @@ const STRATEGY_HINTS: Record<number, string> = {
   4: '\ud83d\udd34 \u6700\u540e\u4e00\u6b21\u673a\u4f1a \u2014 \u653e\u5f03\u5f53\u524d\u65b9\u5411\uff0c\u4ece\u7b2c 0 \u884c\u91cd\u65b0\u5f00\u59cb\uff0c\u7528\u6700\u7b80\u5355\u3001\u6700\u6734\u7d20\u7684\u65b9\u5f0f\u5b9e\u73b0\uff08\u54ea\u6015\u4ee3\u7801\u4e11\uff09\uff0c\u5148\u8ba9\u6d4b\u8bd5\u901a\u8fc7\u3002',
 };
 
+// 任务规格档（task-size tier）：fast/standard/premium 是「任务大小」标签，
+// 控制 session 超时与最大轮数；与模型选择无关（模型归角色绑定 CLI 自身配置）。
 const TIER_TIMEOUTS: Record<ModelTier, number> = { fast: 15, standard: 30, premium: 45 };
 const TIER_MAX_TURNS: Record<ModelTier, number> = { fast: 8, standard: 15, premium: 25 };
 
-/** Returns session timeout in minutes based on model tier. Unknown/missing tier → 30min default. */
+/** Returns session timeout in minutes based on task-size tier. Unknown/missing tier → 30min default. */
 export function getSessionTimeout(tier?: string): number {
   if (tier && tier in TIER_TIMEOUTS) return TIER_TIMEOUTS[tier as ModelTier];
   return 30;
@@ -433,7 +435,6 @@ export async function ensureAgentHomeCliConfig(agentHome: string, hostHomeDir: s
 
 export interface SessionEnvOptions {
   task: AgentTask;
-  tier: ModelTier;
   role: 'analyst' | 'executor';
   agentHome: string;
   /** lightweight 模式追加注入 STUDIO_WORKUNIT_ID + parameters.extraEnv（loop 模式不注入） */

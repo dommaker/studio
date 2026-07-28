@@ -68,7 +68,6 @@ function registerExecutor(worktree: string) {
   (daemon as any).manager.register({
     name: 'executor',
     worktree,
-    modelTier: 'fast',
     timeoutMs: 5 * 60 * 1000,
     persistent: false,
   });

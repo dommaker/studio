@@ -80,7 +80,7 @@ describe('SessionManager', () => {
   it('registers session with valid UUID', () => {
     const worktree = path.join(TEST_DIR, 'analyst');
     manager.register({
-      name: 'analyst', worktree, modelTier: 'standard',
+      name: 'analyst', worktree,
       timeoutMs: 60000, persistent: true,
     });
 
@@ -104,7 +104,7 @@ describe('SessionManager', () => {
     fs.writeFileSync(path.join(worktree, '.daemon', 'daemon-pid'), String(process.pid));
 
     manager.register({
-      name: 'analyst2', worktree, modelTier: 'premium',
+      name: 'analyst2', worktree,
       timeoutMs: 60000, persistent: true,
     });
 
@@ -120,7 +120,7 @@ describe('SessionManager', () => {
     fs.writeFileSync(path.join(worktree, '.daemon', 'session-id'), 'not-a-uuid');
 
     manager.register({
-      name: 'analyst3', worktree, modelTier: 'standard',
+      name: 'analyst3', worktree,
       timeoutMs: 60000, persistent: true,
     });
 
@@ -139,7 +139,7 @@ describe('SessionManager', () => {
   it('rejects concurrent task on same session', async () => {
     const worktree = path.join(TEST_DIR, 'concurrent');
     manager.register({
-      name: 'concurrent', worktree, modelTier: 'standard',
+      name: 'concurrent', worktree,
       timeoutMs: 5000, persistent: false,
     });
 
@@ -152,11 +152,11 @@ describe('SessionManager', () => {
   it('getAllStatus returns all registered sessions', () => {
     manager.register({
       name: 's1', worktree: path.join(TEST_DIR, 's1'),
-      modelTier: 'standard', timeoutMs: 60000, persistent: true,
+      timeoutMs: 60000, persistent: true,
     });
     manager.register({
       name: 's2', worktree: path.join(TEST_DIR, 's2'),
-      modelTier: 'premium', timeoutMs: 60000, persistent: false,
+      timeoutMs: 60000, persistent: false,
     });
 
     const all = manager.getAllStatus();
@@ -180,7 +180,7 @@ describe('SessionManager', () => {
     it('delegates to agentRunner.executeLightweight with correct task', async () => {
       const worktree = path.join(TEST_DIR, 'p9-1');
       manager.register({
-        name: 'p9-1', worktree, modelTier: 'standard',
+        name: 'p9-1', worktree,
         timeoutMs: 5000, persistent: false,
       });
 
@@ -192,13 +192,12 @@ describe('SessionManager', () => {
       expect(task.parameters.worktree).toBe(worktree);
       expect(task.parameters.agentRole).toBe('executor');
       expect(task.parameters.sessionFlags).toContain('--session-id');
-      expect(task.model).toBe('standard');
     });
 
     it('analyst session passes agentRole=analyst', async () => {
       const worktree = path.join(TEST_DIR, 'p9-analyst');
       manager.register({
-        name: 'analyst', worktree, modelTier: 'premium',
+        name: 'analyst', worktree,
         timeoutMs: 5000, persistent: false,
       });
 
@@ -206,13 +205,12 @@ describe('SessionManager', () => {
 
       const task = mockExecuteLightweight.mock.calls[0][0];
       expect(task.parameters.agentRole).toBe('analyst');
-      expect(task.model).toBe('premium');
     });
 
     it('subsequent task uses --continue flag', async () => {
       const worktree = path.join(TEST_DIR, 'p9-cont');
       manager.register({
-        name: 'p9-cont', worktree, modelTier: 'standard',
+        name: 'p9-cont', worktree,
         timeoutMs: 5000, persistent: false,
       });
 
@@ -229,7 +227,7 @@ describe('SessionManager', () => {
     it('success returns TaskResult with output', async () => {
       const worktree = path.join(TEST_DIR, 'p9-ok');
       manager.register({
-        name: 'p9-ok', worktree, modelTier: 'standard',
+        name: 'p9-ok', worktree,
         timeoutMs: 5000, persistent: false,
       });
 
@@ -252,7 +250,7 @@ describe('SessionManager', () => {
 
       const worktree = path.join(TEST_DIR, 'p9-fail');
       manager.register({
-        name: 'p9-fail', worktree, modelTier: 'standard',
+        name: 'p9-fail', worktree,
         timeoutMs: 5000, persistent: false,
       });
 
@@ -264,7 +262,7 @@ describe('SessionManager', () => {
     it('taskCount increments on success', async () => {
       const worktree = path.join(TEST_DIR, 'p9-count');
       manager.register({
-        name: 'p9-count', worktree, modelTier: 'standard',
+        name: 'p9-count', worktree,
         timeoutMs: 5000, persistent: false,
       });
 
@@ -276,7 +274,7 @@ describe('SessionManager', () => {
     it('ensureWorktree writes bypassPermissions to .claude/settings.json', () => {
       const worktree = path.join(TEST_DIR, 'p9-settings');
       manager.register({
-        name: 'p9-settings', worktree, modelTier: 'standard',
+        name: 'p9-settings', worktree,
         timeoutMs: 5000, persistent: false,
       });
 

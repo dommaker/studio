@@ -121,7 +121,6 @@ describeIf('Executor Daemon 实战测试', () => {
     (daemon as any).manager.register({
       name: 'executor',
       worktree: executorWt,
-      modelTier: 'fast',
       timeoutMs: 5 * 60 * 1000,
       persistent: false,
     });

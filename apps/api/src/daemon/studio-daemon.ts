@@ -26,7 +26,6 @@ class StudioDaemon {
     this.manager.register({
       name: 'analyst',
       worktree: REPO_DIR,
-      modelTier: 'premium',
       timeoutMs: 30 * 60 * 1000, // 30 min
       persistent: true,
     });
@@ -48,13 +47,12 @@ class StudioDaemon {
   }
 
   /** Ad-hoc session: create unique session, run job, cleanup. No isBusy guard. */
-  async submitAdhocJob(job: JobSpec, options: { worktree: string; modelTier?: 'premium' | 'standard' | 'fast'; timeoutMs?: number }): Promise<TaskResult> {
+  async submitAdhocJob(job: JobSpec, options: { worktree: string; timeoutMs?: number }): Promise<TaskResult> {
     if (!this.started) throw new Error('Daemon not started');
     const name = `analyst-${Date.now()}-${Math.random().toString(36).slice(2, 4)}`;
     this.manager.registerAdhoc({
       name,
       worktree: options.worktree,
-      modelTier: options.modelTier || 'premium',
       timeoutMs: options.timeoutMs || 30 * 60_000,
       persistent: false,
     });

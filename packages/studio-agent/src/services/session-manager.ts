@@ -57,6 +57,8 @@ export interface AgentTask {
   id: string;
   executionId: string;
   provider: ProviderId;
+  /** 任务规格档（fast/standard/premium）——控制 session 超时/最大轮数/skill 注入档。
+   *  不是模型名：模型由角色绑定的 CLI 自身配置决定，spawn 一律不传 model。 */
   model?: string;
   prompt: string;
   notifyTarget?: string;
@@ -381,7 +383,7 @@ export class AgentExecutor {
           session: sessionCount,
           isFirstSession,
           isNewSession,
-          modelTier: (task.model as string) || 'standard',
+          taskTier: (task.model as string) || 'standard',
         });
 
         // Track child process for external stop()
@@ -453,7 +455,6 @@ export class AgentExecutor {
             stdout,
             executionId: task.executionId,
             agentRole: 'executor',
-            modelTier: (task.model as string) || 'standard',
             stage: task.parameters?.stage as string,
             sessionCount,
             isFirstSession,

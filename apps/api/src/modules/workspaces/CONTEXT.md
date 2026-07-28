@@ -48,3 +48,4 @@
 - ✅ `0d1ef570`: ci): resolve type errors found by package-level tsc build
 - ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
+- ✅ 2026-07-28: task-routes 建任务不再写 modelTier（原缺省 'standard'）——tier→模型名解析已随方案 A 退役，字段成惰性元数据后物理删除；task-routes/gc-service/daemon-routes 测试夹具同步摘除

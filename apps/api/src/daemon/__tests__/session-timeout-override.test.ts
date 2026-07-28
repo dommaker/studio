@@ -62,7 +62,6 @@ describe('SessionManager.runTask — timeout override', () => {
     manager.register({
       name: 'analyst',
       worktree: '/tmp/repo',
-      modelTier: 'premium',
       timeoutMs: 30 * 60 * 1000, // 30 min
       persistent: true,
     });
@@ -82,7 +81,6 @@ describe('SessionManager.runTask — timeout override', () => {
     manager.register({
       name: 'reviewer',
       worktree: '/tmp/review',
-      modelTier: 'standard',
       timeoutMs: 15 * 60 * 1000,
       persistent: true,
     });
@@ -94,7 +92,6 @@ describe('SessionManager.runTask — timeout override', () => {
 
     const task = mockExecuteLightweight.mock.calls[0][0];
     expect(task.timeoutMs).toBe(15 * 60 * 1000);
-    expect(task.model).toBe('standard');
   });
 
   test('ad-hoc session uses provided timeoutMs', async () => {
@@ -102,7 +99,6 @@ describe('SessionManager.runTask — timeout override', () => {
     manager.registerAdhoc({
       name: 'adhoc-test',
       worktree: '/tmp/adhoc',
-      modelTier: 'fast',
       timeoutMs: 10 * 60 * 1000,
       persistent: false,
     });
