@@ -68,6 +68,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: 验收修复 A — recordResult 提交守卫/自动验证改读「持久化 + 本 step metadataUpdates」合并视图：首个 step 的 worktreePath 尚未落库，只看持久化值会让首 step COMPLETE 退到主仓库（干净）做检查而漏拦（最小 e2e 实测：dev 在 worktree 改了未提交 → 守卫查主仓库放行 → 假 complete → 假合并）；agent-loop-commit-guard.test.ts 补 cwd 感知用例
 - ✅ `05f21551`: agents): SessionSummary checkpoint commit 失效时校验回退（P5）
 - ✅ `2dca78ab`: agent): 非 claude provider 会话续用改 cwd 维度形态（P3）
 - ✅ `b70951bb`: agent): harness 传播停写根目录 AGENTS.md/CLAUDE.md，杜绝 untracked 污染（P2）

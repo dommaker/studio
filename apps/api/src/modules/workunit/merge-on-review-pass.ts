@@ -6,6 +6,8 @@
  *   把 task/<wuId> 分支合并回 base 分支（git --no-ff，在 baseRepo 上操作）。
  *
  * 流程：
+ *   0. 数据防丢闸：worktree 有未提交改动（或 git status 失败）→ 不合并不强删，
+ *      WU 置 blocked + 频道列清单转人工（worktree/分支保留）
  *   1. git merge --no-ff task/<wuId>（baseRepo）
  *   2. 失败 → merge --abort，重试一次：先在 worktree 把 task 分支 rebase 到
  *      baseBranch，成功则回 baseRepo 再 merge
@@ -34,11 +36,23 @@ const GIT_OP_TIMEOUT_MS = 15_000;
 export type MergeOnReviewPassOutcome =
   | { attempted: false; reason: 'no-worktree' | 'already-merged' }
   | { attempted: true; merged: true; mergeCommit: string }
-  | { attempted: true; merged: false; conflictFiles: string[] };
+  | { attempted: true; merged: false; conflictFiles: string[]; reason?: 'conflict' | 'uncommitted-changes' };
 
 /** shell 单引号转义（branch/路径/提交信息统一过它进 bash -c） */
 function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** worktree 是否有未提交改动（git 失败按 dirty 处理——宁可转人工也不丢数据） */
+async function listDirtyFiles(worktreePath: string, cwd: string): Promise<string[] | null> {
+  try {
+    const { stdout } = await execSh(`git -C ${shq(worktreePath)} status --porcelain`, {
+      cwd, timeoutMs: GIT_OP_TIMEOUT_MS,
+    });
+    return stdout.split('\n').map(l => l.trim()).filter(Boolean);
+  } catch {
+    return null;
+  }
 }
 
 /** 取冲突文件清单（merge/rebase 冲突现场，diff-filter=U；失败返回 []） */
@@ -127,6 +141,30 @@ export async function mergeWorktreeBranchOnReviewPass(
 
   const title = String(meta.title ?? wu.scope ?? '').slice(0, 50);
   const scopeSummary = (wu.scope ?? '').replace(/\s+/g, ' ').trim().slice(0, 50);
+
+  // 数据防丢闸：worktree 有未提交改动时绝不合并/强删（下方清理是
+  // `git worktree remove --force`，会静默丢弃未提交工作——e2e 实测发生过一次：
+  // dev 改了未提交、合并 "Already up to date" 假成功、--force 删除丢弃改动）。
+  // 转人工：WU 置 blocked + 频道列改动清单，worktree 与分支保留。
+  if (worktreePath) {
+    const dirtyFiles = await listDirtyFiles(worktreePath, baseRepo);
+    if (dirtyFiles === null || dirtyFiles.length > 0) {
+      await wuService.markMergeConflict(wu.id, dirtyFiles ?? []);
+      const fileList = dirtyFiles?.length
+        ? `\n未提交文件：\n${dirtyFiles.map(f => `- ${f}`).join('\n')}`
+        : '（git status 调用失败，按有改动处理）';
+      await postSystemMessage(
+        fileStore,
+        wu,
+        `任务「${title}」的 worktree 仍有未提交改动，未执行自动合并，已转人工处理${fileList}`,
+      ).catch(err => logger.warn('[MergeOnReviewPass] post dirty message failed', { wuId: wu.id, error: String(err) }));
+      logger.warn('[MergeOnReviewPass] dirty worktree escalated to human (merge skipped)', {
+        wuId: wu.id, branch, worktreePath, dirtyCount: dirtyFiles?.length ?? -1,
+      });
+      return { attempted: true, merged: false, conflictFiles: dirtyFiles ?? [], reason: 'uncommitted-changes' };
+    }
+  }
+
   const mergeCmd = `git -C ${shq(baseRepo)} merge --no-ff ${shq(branch)} -m ${shq(`merge: ${wu.id} ${scopeSummary}`)}`;
 
   const merged = await tryMergeWithRebaseRetry(mergeCmd, baseRepo, baseBranch, branch, worktreePath);

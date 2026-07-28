@@ -1071,7 +1071,12 @@ ${rosterLines.join('\n')}
     const wu = await this.workUnitService.getById(wuId);
     if (!wu) return;
 
-    const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    const persisted = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    // 提交守卫/自动验证必须以「持久化 + 本 step metadataUpdates」的合并视图为准：
+    // 首个 step 的 worktreePath 等字段由 agentStep 经 result.metadataUpdates 传入、
+    // 此刻尚未落库；只看持久化值会让首 step 的 COMPLETE 退到主仓库（干净）做检查而漏拦
+    // （e2e 实测：dev 在 worktree 改了未提交，守卫查主仓库放行 → 假 complete）。
+    const metadata: WorkUnitMetadata = { ...persisted, ...result.metadataUpdates };
     // P0 修复 6: traceId（与 agentStep 同一来源，供日志行携带）
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 

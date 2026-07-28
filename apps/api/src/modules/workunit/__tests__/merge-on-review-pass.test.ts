@@ -98,6 +98,54 @@ afterEach(() => {
 });
 
 describe('B3b-ii: 评审通过后自动合并', () => {
+  it('数据防丢闸：worktree 有未提交改动 → 不合并不强删，WU blocked + 频道列清单转人工', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('status --porcelain')) return { stdout: ' M README.md\n?? .studio/AGENTS.generated.md\n', stderr: '' };
+      if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta());
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({
+      attempted: true, merged: false,
+      conflictFiles: ['M README.md', '?? .studio/AGENTS.generated.md'],
+      reason: 'uncommitted-changes',
+    });
+    const cmds = calledCommands();
+    // 绝不合并、绝不强删 worktree、不删分支
+    expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(false);
+    expect(cmds.some(c => c.includes('worktree remove'))).toBe(false);
+    expect(cmds.some(c => c.includes('branch -d'))).toBe(false);
+
+    const updated = await wuService.getById(wu.id);
+    expect(updated!.status).toBe('blocked');
+    const meta = JSON.parse(updated!.metadata!) as WorkUnitMetadata;
+    expect(meta.mergeConflict).toBe(true);
+    expect(meta.mergedAt).toBeUndefined();
+
+    const msgs = await studioMessages(wu.id);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].content).toContain('未提交改动');
+    expect(msgs[0].content).toContain('README.md');
+  });
+
+  it('数据防丢闸：git status 调用失败按有改动处理（宁可转人工不丢数据）', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('status --porcelain')) throw new Error('worktree gone');
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta());
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome.attempted).toBe(true);
+    expect(outcome.merged).toBe(false);
+    expect(calledCommands().some(c => c.includes('worktree remove'))).toBe(false);
+    expect((await wuService.getById(wu.id))!.status).toBe('blocked');
+  });
+
   it('合并成功：--no-ff merge → 记 mergedAt/mergeCommit → 清理 worktree+分支 → 频道通知', async () => {
     const wu = await createWu(worktreeMeta());
 
