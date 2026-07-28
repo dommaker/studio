@@ -188,7 +188,7 @@ describe('Bug B: agent-loop 会话续用传参（sessionResume）', () => {
     const sessionId = step1.metadataUpdates?.sessionId;
     expect(typeof sessionId).toBe('string');
 
-    // 同一 WU 第二步：续用传 sessionId + sessionResume（runner 模板 --session 不变）
+    // 同一 WU 第二步：续用传 sessionId + sessionResume（cli-adapter 侧转 --continue，见 cli-adapter 头部实证）
     (kimiLoop as unknown as InstanceHolder).instance!.sessionId = sessionId!;
     // 手动持久化 sessionId 到 WU metadata → agentStep 续用判定（metadata.sessionId === instance.sessionId）
     await wuService.update(wu.id, { metadata: { sessionId: sessionId! } });

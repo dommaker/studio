@@ -62,21 +62,19 @@ describe('buildSpawnArgs', () => {
       expect(result.args).not.toContain('--session-id');
     });
 
-    it('kimi: resume keeps --session (本来就是续用语义)', () => {
+    it('kimi: resume 改 --continue（cwd 维度续用，0.29.0 实测；Studio UUID 不接）', () => {
       const result = buildSpawnArgs('kimi', { worktreeDir: '/tmp/test', sessionId: '01HZX', sessionResume: true });
-      expect(result.args).toEqual(['--output-format', 'stream-json', '--session', '01HZX']);
+      expect(result.args).toEqual(['--output-format', 'stream-json', '--continue']);
     });
 
-    it('codex: resume keeps exec resume subcommand', () => {
+    it('codex: resume 改 exec resume --last（cwd 过滤最新会话；仅 --help 实证）', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
-      expect(result.args).toEqual(['exec', 'resume', 'sess-123', '--json']);
+      expect(result.args).toEqual(['exec', 'resume', '--last', '--json']);
     });
 
-    it('opencode: resume keeps --session (continue 语义，--help 查证)', () => {
+    it('opencode: resume 改 --continue（cwd 维度续用，1.18.4 实测；Studio UUID 不接）', () => {
       const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test', sessionId: 'sess-123', sessionResume: true });
-      const idx = result.args.indexOf('--session');
-      expect(idx).not.toBe(-1);
-      expect(result.args[idx + 1]).toBe('sess-123');
+      expect(result.args).toEqual(['run', '--format', 'json', '--continue']);
     });
   });
 
@@ -91,9 +89,9 @@ describe('buildSpawnArgs', () => {
       expect(result.args).toEqual(['exec', '--json']);
     });
 
-    it('uses exec resume subcommand for sessionId', () => {
+    it('新建时丢弃 sessionId（exec resume 是续用语义，未知 id 会报错）', () => {
       const result = buildSpawnArgs('codex', { worktreeDir: '/tmp/test', sessionId: 'sess-123' });
-      expect(result.args).toEqual(['exec', 'resume', 'sess-123', '--json']);
+      expect(result.args).toEqual(['exec', '--json']);
     });
   });
 
@@ -103,9 +101,9 @@ describe('buildSpawnArgs', () => {
       expect(result.command).toBe('kimi');
     });
 
-    it('uses --output-format stream-json and --session for sessionId', () => {
+    it('uses --output-format stream-json; 新建丢弃 sessionId（--session 为续用语义，0.29.0 实测未知 id 报错）', () => {
       const result = buildSpawnArgs('kimi', { worktreeDir: '/tmp/test', sessionId: '01HZX' });
-      expect(result.args).toEqual(['--output-format', 'stream-json', '--session', '01HZX']);
+      expect(result.args).toEqual(['--output-format', 'stream-json']);
     });
   });
 
@@ -133,11 +131,9 @@ describe('buildSpawnArgs', () => {
       expect(result.args).toEqual(['run', '--format', 'json']);
     });
 
-    it('uses --session flag for sessionId', () => {
+    it('新建丢弃 sessionId（--session 为续用语义，1.18.4 实测未知 id 报 Session not found）', () => {
       const result = buildSpawnArgs('opencode', { worktreeDir: '/tmp/test', sessionId: 'sess-123' });
-      const idx = result.args.indexOf('--session');
-      expect(idx).not.toBe(-1);
-      expect(result.args[idx + 1]).toBe('sess-123');
+      expect(result.args).toEqual(['run', '--format', 'json']);
     });
   });
 });

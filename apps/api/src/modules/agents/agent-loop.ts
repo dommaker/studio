@@ -607,11 +607,12 @@ export class AgentLoop {
       provider: taskProvider,
       prompt,
       parameters: {
-        // 续用：sessionId + sessionResume → runner 按 provider 换 resume 语法（claude --resume）。
+        // 续用：sessionId + sessionResume → cli-adapter 按 provider 换续用形态
+        // （claude --resume <id>；kimi/opencode --continue、codex exec resume --last ——
+        // Studio UUID 对这三家无意义，靠 CLI 自己的 cwd 维度会话记录续用，实证见 cli-adapter 头部）。
         // 新建：仅 claude 把新 sessionId 传给 CLI（--session-id 建会话 —— 不建则后续 --resume
         // 找不到会话，2.1.80 实测报 "No conversation found"）；kimi/codex/opencode 的 session
-        // 参数均续用语义（registry 注释 + --help 查证），对未使用过的 id 会报错 → 新建不传，
-        // CLI 自建会话（与修复前行为一致）。
+        // 参数均续用语义（实测未知 id 报 Session not found）→ 新建不传，CLI 自建会话。
         sessionId: resumeSessionId ?? (newSessionId && taskProvider === 'claude' ? newSessionId : undefined),
         ...(resumeSessionId ? { sessionResume: true } : {}),
         maxTurns: 50,
