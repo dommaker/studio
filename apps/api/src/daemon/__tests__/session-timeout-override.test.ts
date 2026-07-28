@@ -5,7 +5,6 @@
  * - runTask passes state.config.timeoutMs as AgentTask.timeoutMs
  * - executeLightweight uses task.timeoutMs when provided (overrides flat default)
  * - executeLightweight falls back to flat default (30min) when task.timeoutMs not set
- * - reviewAgent uses complexity-based timeout: simple=10, medium=15, complex=25
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
