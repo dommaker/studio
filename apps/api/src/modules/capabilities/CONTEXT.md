@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/capabilities 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/capabilities/CONTEXT.md, apps/api/src/modules/capabilities/routes.ts
+
 ## 职责
 
 提供能力注册表的读取与 API 暴露，包括从文件系统加载工具/技能定义，并通过 Express 路由对外提供服务。同时定义能力类型（Capability）和注册表（Registry）接口，支持缓存与阶段（Stage）识别。
@@ -43,5 +46,6 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup

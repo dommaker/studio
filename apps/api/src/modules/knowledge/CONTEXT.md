@@ -3,6 +3,9 @@
 > 此文件描述 apps/api/src/modules/knowledge 目录的职责和上下文
 > Updated: 2026-06-11 (GAP-7 元数据驱动注入 + error logging 修复)
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/CONTEXT.md, apps/api/src/modules/knowledge/knowledge-singletons.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/evolution.service.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/resolution.service.ts, apps/api/src/modules/knowledge/documents.routes.ts, apps/api/src/modules/knowledge/entries.routes.ts, apps/api/src/modules/knowledge/evolution.routes.ts, apps/api/src/modules/knowledge/files.routes.ts, apps/api/src/modules/knowledge/import.routes.ts, apps/api/src/modules/knowledge/knowledge-service.routes.ts, apps/api/src/modules/knowledge/internal.routes.ts, apps/api/src/modules/knowledge/knowledge-sync.service.ts, apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/improver-scheduler.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts, apps/api/src/modules/knowledge/search.routes.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/document-store.ts, apps/api/src/modules/knowledge/env-snapper.ts, apps/api/src/modules/knowledge/evolution-scheduler.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/rule-scanner.ts, apps/api/src/modules/knowledge/preference-observer.ts
+
 ## 职责
 
 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。
@@ -83,6 +86,13 @@ knowledge/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `efff512f`: knowledge): vector-db sync 日志降噪 + stderr 尾部留证 + 锁竞争静默（P4）
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ `105844e3`: knowledge): 修复 injectContext 单复数 bug 并执行 2K 注入红线（wireup ②③同批）
+- ✅ `cdec4b8d`: knowledge): R4 清理行为模式读端残尸，知识页标题与实际 7 个 tab 一致
+- ✅ `dddc4b18`: knowledge): R3 解法库口径 pending+canonical + R5 seed 去重改 title+内容 hash
+- ✅ `df5f8998`: knowledge): 向量库同步加固 — 700M 内存帽 + flock 单写者 + 超时放宽至 30min
 - ✅ 2026-07-28: P4 vector-db sync 日志策略 — scheduleVectorDbSync：①错误日志从 slice(0,500) 头部改为 stderr 尾部 800 字符（原截断令 journal 永远看不到真实失败原因）②空输出失败 = flock 锁竞争（journal 实测存在 agent-HOME 作用域同款 sync 共用 /tmp/vector-db-sync.lock）→ 静默按 15s 重排，不告警不计失败 ③真实失败每个 episode 只 warn 一次，重试走 debug，>10 次放弃 error 一次，恢复 info 一次（原每 attempt 刷 journal）；退避序列与 10 次上限不变。失败窗口（09:38-09:41）定位为 studio-api 重启前后的瞬时故障 + 锁竞争，手动全量跑已恢复，根因待下次失败凭尾部日志确认；knowledge-bus-sync.test.ts 改写 6 例
 - ✅ 2026-07-27: B5 D18 — pattern-miner 的 tool:call trace 源从 ~/.studio/events/studio.jsonl 改读统一事件文件（utils/studio-events；兼容 payload 嵌套与历史扁平形态）
 - ✅ 2026-07-27: P0 修复 5 — knowledge-service/knowledge-singletons/resolution/evolution 的 ~/.studio/logs 事件文件统一走 utils/studio-log-path 测试隔离（VITEST → os.tmpdir()/studio-test-logs，生产行为不变）

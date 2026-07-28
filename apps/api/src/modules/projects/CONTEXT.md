@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/projects 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/projects/CONTEXT.md, apps/api/src/modules/projects/project-discovery.service.ts, apps/api/src/modules/projects/project.routes.ts
+
 ## 职责
 
 Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息并对外提供查询 API，供频道默认工程、WorkUnit 工程绑定等流程使用。
@@ -25,5 +28,6 @@ Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
 - ✅ 2026-07-27: D6 排除清单第一层 — STUDIO_PROJECTS_EXCLUDE / options.exclude（目录名 / 绝对路径边界前缀），命中即跳过不递归
 - ✅ 2026-07-24: 挂载收 requireAuth+requireAdmin

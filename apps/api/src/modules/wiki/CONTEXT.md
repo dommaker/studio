@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/wiki 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/wiki/CONTEXT.md, apps/api/src/modules/wiki/wiki.routes.ts, apps/api/src/modules/wiki/wiki.service.ts
+
 ## 职责
 
 本目录实现 Wiki 文档的查询与更新 API，基于 SDD（Software Design Document）文件读取，提供列表搜索、图谱构建、文档详情与内容更新功能。所有读取操作均为 SDD-only（不依赖数据库），符合 B2-008 规范。
@@ -36,6 +39,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-24: PUT /:id 收 requireAuth+requireNotGuest
 - ✅ `389c9e87`: add await to all sdd-utils consumers after Phase 4 async migration
 - ✅ `5b7ec85c`: web): 修复 4 个生产崩溃 + 菜单冗余整合

@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/skills 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/skills/CONTEXT.md, apps/api/src/modules/skills/routes.ts, apps/api/src/modules/skills/skill-promotion.ts, apps/api/src/modules/skills/skill-demotion.ts, apps/api/src/modules/skills/skill-extraction.service.ts, apps/api/src/modules/skills/skill-loader.ts, apps/api/src/modules/skills/skill-demotion-routes.ts, apps/api/src/modules/skills/skill-proposal-routes.ts, apps/api/src/modules/skills/manifest-generator.ts, apps/api/src/modules/skills/manifest-loader.ts, apps/api/src/modules/skills/skill-selector.ts, apps/api/src/modules/skills/skill-store.ts
+
 ## 职责
 
 skills 模块负责技能（Skill）的完整生命周期管理，包括基于文件的技能元数据存储（SkillStore）、提案存储（ProposalStore）、技能目录扫描与加载（manifest-loader）、基于描述的技能匹配（skill-selector）、从 WorkUnit 执行中提取可复用模式（skill-extraction.service）以及对应的 REST API 路由（routes.ts、skill-proposal-routes.ts）。所有数据存储已从 Prisma 迁移至文件系统。
@@ -59,6 +62,8 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-27: B5 顺手修 — claim-skill-persist 2 用例修复：B3a claim 写 timeoutAt 后首次 upsertSnapshot 不再是 matchedSkills 那次（生产行为验证无回归），测试改为按 metadata 内容定位目标调用
 - ✅ 2026-07-27: D11 promote 门禁 — 新增 skill-promotion.ts（SKILL.md 存在/frontmatter 三要素/引用路径三校验），接入 POST /:id/publish（拒绝 400+reasons；通过翻磁盘 frontmatter published + 索引同步 + manifest 缓存失效），11 条单测
 - ✅ 2026-07-27: P0 修复 5 — skill-loader/skill-extraction/skill-demotion 的 studio-events.jsonl 走 utils/studio-log-path 测试隔离（生产行为不变）

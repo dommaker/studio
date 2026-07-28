@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/workunit 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md, apps/api/src/modules/workunit/waiting-input.ts, apps/api/src/modules/workunit/workunit.service.ts, apps/api/src/modules/workunit/merge-on-review-pass.ts, apps/api/src/modules/workunit/delegation-gate.ts, apps/api/src/modules/workunit/timeout-release.ts, apps/api/src/modules/workunit/workunit.routes.ts
+
 ## 职责
 
 WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领（Claim）与状态机；F5 双向沟通的 NEED_INPUT 挂起/恢复与超时提醒。
@@ -33,6 +36,12 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `d7bd1e85`: workunit): ownership 归属绑定后 WU 置回 unassigned，修复永久卡死
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ `f588061f`: spec4-post-p3): Prisma removal test cleanup — 19 files
+- ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
+- ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
 - ✅ 2026-07-28: 修 ownership resume 卡死 — B3a 归属绑定后 WU 由置 active 改为置回 unassigned（保留 assigneeId=profile id）：此类 WU 创建即挂起从未被认领，active + assigneeId=profileId 时 loop 续跑查询（myActive 按 instance.id）与认领过滤（要求 unassigned）都看不到它，永久卡死；回 unassigned 后指名 profile 的 loop 在 unassigned 过滤中认领（claim 改写 assigneeId 为 instance.id）。agent 提问型 NEED_INPUT 的 resume（WU 已认领过）仍回 active 不变。同时修正 claim doc 注释：file-store.claimWorkUnit 只校验 status==='unassigned'，不校验 assigneeId 且认领即改写
 - ✅ 2026-07-27: B3b-ii 评审通过后自动合并（决策 D1/D3 后半）— 新增 merge-on-review-pass.ts：reviewPassed 收口 best-effort 触发 task/<wuId> --no-ff 合并回 base 分支（冲突 → abort + worktree rebase 重试一次 → 仍冲突清理现场取冲突文件清单，频道 Studio 消息转人工并置 blocked；成功 → worktree remove + branch -d + metadata.mergedAt/mergeCommit + 频道通知）；mergedAt 防重，无 worktree 落档旁路；workunit.service 增 markMergeConflict（直写快照 done→blocked）与 4 个 metadata 字段
 - ✅ 2026-07-27: B3b-i — WorkUnitMetadata 新增 worktreePath/worktreeBranch/worktreeBaseBranch/worktreeBaseRepo（每 WU 专属 worktree 落档）与 verifyCommands/verifyReport/verifyFailCount/verifyFailHint（COMPLETE 前自动验证：覆盖命令、全绿摘要、失败计数与提示）

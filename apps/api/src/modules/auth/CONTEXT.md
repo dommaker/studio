@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/auth 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/auth/CONTEXT.md, apps/api/src/modules/auth/service.ts, apps/api/src/modules/auth/routes.ts, apps/api/src/modules/auth/email.service.ts, apps/api/src/modules/auth/oauth.routes.ts, apps/api/src/modules/auth/oauth.service.ts
+
 ## 职责
 
 负责 API 用户认证与会话管理，包括注册、登录、Guest Session 创建、认证状态查询及 JWT 令牌管理。同时集成 OAuth 认证流程（参见 oauth.routes.ts 与 oauth.service.ts）和邮件验证（email.service.ts），并支持可配置的认证模式（none / on）。
@@ -48,6 +51,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `240f7885`: passwordHash 泄露 + workspace 端点 Admin 加硬 + 本地 CLI 扫描修复
 - ✅ 2026-07-24: API 鉴权收紧（姿态 A）— `requireNotGuest` 补 STUDIO_AUTH=none 放行分支；新增 `requireLocalhost` 中间件；确认 guest session（userId=null）实际过不了 requireAuth/大门，真实暴露面=PUBLIC_API 前缀+/api/knowledge；审查表 docs/plans/2026-07-api-auth-tightening.md
 - ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
 - ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)

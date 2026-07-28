@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/requirements 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/requirements/CONTEXT.md, apps/api/src/modules/requirements/ownership-resolver.ts, apps/api/src/modules/requirements/requirement.routes.ts, apps/api/src/modules/requirements/requirement.service.ts, apps/api/src/modules/requirements/req-binding.ts, apps/api/src/modules/requirements/rollup.ts
+
 ## 职责
 
 REQ 需求编号体系（vision §5.3）：一个需求（`REQ-<序号>`）= 一组 WorkUnit。负责 REQ 的创建、绑定解析与状态汇总，需求文档/SDD/产物以编号关联，UI 按编号串联全链路。
@@ -29,5 +32,6 @@ REQ 需求编号体系（vision §5.3）：一个需求（`REQ-<序号>`）= 一
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-27: B3a 工程归属链（决策 D2）— Requirement 增 projectId 挂接 PMO 项目（创建/更新校验存在，路由 POST/PATCH 暴露）；新增 ownership-resolver.ts（显式 > Requirement→PMO gitRepo > 频道默认 > none，各步容错）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest

@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/monitoring 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/monitoring/CONTEXT.md, apps/api/src/modules/monitoring/metrics.service.ts, apps/api/src/modules/monitoring/monitoring.routes.ts, apps/api/src/modules/monitoring/monitoring.service.ts
+
 ## 职责
 
 负责聚合 Agent Network 的监控指标，包括 Agent 摘要、统计信息、飞轮指标（M1）和封装开销（M2），通过 HTTP 路由对外暴露。
@@ -39,6 +42,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ 2026-07-27: B5 D16 — 新增 metrics.service（aggregateOverview 纯函数 + 60s 缓存）与 GET /overview 端点
 - ✅ 2026-07-27: P0 修复 5 — monitoring.service 的 studio-events.jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（agent 运行时/统计属内部运营信息）

@@ -53,6 +53,9 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `2dca78ab`: agent): 非 claude provider 会话续用改 cwd 维度形态（P3）
+- ✅ `b70951bb`: agent): harness 传播停写根目录 AGENTS.md/CLAUDE.md，杜绝 untracked 污染（P2）
+- ✅ `fed49d2b`: agent): 提交守卫排除工具产物 + 会话续用改 resume 语义
 - ✅ 2026-07-28: P3 非 claude 会话续用修通 — cli-adapter 逐 provider 实证修订：kimi 0.29.0/opencode 1.18.4 实测 `--session <未知id>` 报 Session not found（Studio UUID 对 CLI 无意义），续用改 `--continue`（cwd 维度，实测续用成功、异 cwd 不串、无前会话优雅新开）；codex 改 `exec resume --last`（--help 实证：cwd 过滤最新会话；运行未验证——本机 codex 与 DeepSeek wire_api=chat 不兼容）；新建对 kimi/codex/opencode 一律丢弃 sessionId（RESUME_ONLY_SESSION_PROVIDERS）；claude --resume 行为不回归；cli-adapter.test.ts 改写 22 例
 - ✅ 2026-07-28: P2 harness 传播污染修复 — propagateHarnessConfig 停写/覆写 worktree 根 AGENTS.md、CLAUDE.md（已有不覆盖，对齐原 CLAUDE.md 行为；原 AGENTS.md 无条件覆写令 repo 已跟踪文件随 skill 索引漂移误伤 §10.5 提交守卫），无原生指南时生成内容改落 `.studio/AGENTS.generated.md`（exclude 内，零 untracked 污染）；agent-loop base prompt 加「.studio/AGENTS.generated.md 存在则阅读」指引；worktree-agents-md.test.ts 改写为新语义 7 例（无/有/有且内容不同/CLAUDE.md/draft/复制失败/manifest 失败）
 - ✅ 2026-07-28: fix(guard-and-resume) — ①提交守卫误伤：createWorktree 新建后写仓库级 `.git/info/exclude`（`.claude/`、`.studio/`、`.daemon/`、`.agent.log` 四行工具产物，幂等 best-effort；复用/主 workspace 路径不写）②会话续用 flag：cli-adapter 加 `SpawnParams.sessionResume`（claude 续用 `--resume` 替换 `--session-id`，其余 provider 模板不变）+ runner-lightweight 透传 + AgentTask.parameters.sessionResume 类型；sessionFlags 核查非死参数（旧 daemon session-manager 仍在用）

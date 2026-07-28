@@ -2,6 +2,9 @@
 
 > AS-020 P2/P4/P5/P6: Workspace 管理 + Daemon 通信 + 任务分发
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workspaces/CONTEXT.md, apps/api/src/modules/workspaces/daemon-routes.ts, apps/api/src/modules/workspaces/discover-proxy.ts, apps/api/src/modules/workspaces/local-workspace.ts, apps/api/src/modules/workspaces/task-routes.ts, apps/api/src/modules/workspaces/token.routes.ts, apps/api/src/modules/workspaces/workspace.routes.ts, apps/api/src/modules/workspaces/ws-gateway.ts, apps/api/src/modules/workspaces/workspace-store.ts, apps/api/src/modules/workspaces/gc-service.ts
+
 ## 职责
 
 远程 Workspace 注册/心跳、Token 管理、WS 网关（Daemon 通信）、目录发现代理、任务 claim/事件回报、GC 清理。
@@ -36,6 +39,9 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ `240f7885`: passwordHash 泄露 + workspace 端点 Admin 加硬 + 本地 CLI 扫描修复
+- ✅ `bdae85bc`: ws-gateway): msg.result 非空断言替换为 guard
 - ✅ 2026-07-24: API 鉴权收紧 — daemon-routes `GET /status` 补 requireAuth+requireAdmin（此前全文件唯一无鉴权端点，泄露 daemon session 名 + worktree 服务器路径）；同批修正"guest token 能过 requireAuth"的错误前提（实测 guest userId=null 过不了）
 - ✅ 2026-07 安全修复：workspaces 模块 12 个 UI 端点（workspace CRUD/runtimes、token.routes×3、task-routes×3、discover-proxy）从 `requireAuth()` 收紧为 `requireAuth()+requireAdmin()` —— 此前 guest token（/auth/guest-session 公开可领）即可读服务器路径/CLI 信息、删 workspace、甚至签发 workspace token 冒名节点；`requireAdmin` = `requireRole('Admin')` 语义化包装；同批修复 `requireRole` 在 STUDIO_AUTH=none 下因无 session 恒 401 的既有缺陷（none 模式直接放行，pmo/outputs 等 Admin 端点本地恢复可用）
 - ✅ 2026-07 频道角色修复：本地 CLI 扫描改走 provider 注册表（修漏扫 kimi），结果写入 workspace.runtimes 修复断链 bug（原写 ~/.studio/workspace-runtimes/ 无读取方），每次启动 + GET /workspaces/runtimes 时重扫

@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/harness 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/harness/CONTEXT.md, apps/api/src/modules/harness/routes.ts, apps/api/src/modules/harness/agents.routes.ts, apps/api/src/modules/harness/constraints.routes.ts, apps/api/src/modules/harness/cso.routes.ts, apps/api/src/modules/harness/dashboard.routes.ts, apps/api/src/modules/harness/diagnostics.routes.ts, apps/api/src/modules/harness/guards.routes.ts, apps/api/src/modules/harness/knowledge.routes.ts, apps/api/src/modules/harness/proposals.routes.ts, apps/api/src/modules/harness/runtime.ts, apps/api/src/modules/harness/sessions.routes.ts, apps/api/src/modules/harness/traces.routes.ts, apps/api/src/modules/harness/evolution.service.ts
+
 ## 职责
 
 Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生命周期、
@@ -46,6 +49,7 @@ Harness 监控与治理 API（FL-029 / T-015）：轨迹采集分析、约束生
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `bebc72d1`: API 鉴权收紧 — auth→admin 11 端点升级 + CSO 双挂载绕过修复
 - ✅ 2026-07-24: API 鉴权收紧 — /api/v1/harness 挂载收 requireAuth+requireAdmin（含 /verify 命令执行、/check-spec 路径探测、proposals 执行面）；/api/v1/cso 拆分只挂 csoRoutes（消除双挂载绕过），/validate 保持公开
 - ✅ `ee1e354d`: B39 harness 集成修复 — A5 checkConstraint + S13 routes 类型化
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
