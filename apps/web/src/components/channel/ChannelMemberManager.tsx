@@ -23,9 +23,24 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
   const [newAgentDesc, setNewAgentDesc] = useState('');
   const [newAgentProvider, setNewAgentProvider] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const { detected, loading: providersLoading, noneDetected } = useDetectedProviders();
   const providerOptions = buildProviderOptions(detected, providersLoading || noneDetected);
+
+  // membersJson 是异步加载的 — 初始 '[]' 只是占位，props 到达/切换频道时必须重新同步，
+  // 否则刷新页面或切换频道后成员列表停留在初始空值（state 初始化器只跑一次）。
+  useEffect(() => {
+    try { setMemberIds(JSON.parse(membersJson)); } catch { setMemberIds([]); }
+  }, [membersJson]);
+
+  // 切换频道时收起弹层与创建表单，避免把上个频道的上下文带过去
+  useEffect(() => {
+    setIsOpen(false);
+    setShowCreateForm(false);
+    setCreateError(null);
+  }, [channelId]);
 
   // 打开创建表单后默认选中第一个可用 CLI
   useEffect(() => {
@@ -83,7 +98,9 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
   };
 
   const handleCreateAgent = async () => {
-    if (!newAgentName.trim() || !newAgentProvider) return;
+    if (!newAgentName.trim() || !newAgentProvider || creating) return;
+    setCreating(true);
+    setCreateError(null);
     try {
       const res = await channelApi.createAgent({
         name: newAgentName.trim(),
@@ -92,6 +109,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
         channels: [channelId],
       });
       const newAgent = res.data;
+      // 创建即加入本频道（成员关系事实源 = channel.members）
       await channelApi.updateMembers(channelId, { add: [newAgent.id] });
       setMemberIds((prev) => [...new Set([...prev, newAgent.id])]);
       setNewAgentName('');
@@ -100,6 +118,9 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
       setShowCreateForm(false);
     } catch (e) {
       console.error('Failed to create agent', e);
+      setCreateError(e instanceof Error ? e.message : '创建失败，请重试');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -180,6 +201,7 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
                   placeholder="Agent 名称"
                   className="input"
                   autoFocus
+                  disabled={creating}
                   onKeyDown={(e) => e.key === 'Enter' && handleCreateAgent()}
                 />
                 <input
@@ -188,30 +210,36 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
                   onChange={(e) => setNewAgentDesc(e.target.value)}
                   placeholder="描述（可选）"
                   className="input"
+                  disabled={creating}
                 />
                 <select
                   value={newAgentProvider}
                   onChange={(e) => setNewAgentProvider(e.target.value)}
                   className="input"
                   title="背后的 CLI"
+                  disabled={creating}
                 >
                   {providerOptions.map((o) => (
                     <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
                   ))}
                 </select>
+                {createError && (
+                  <p className="mc-drawer-note" style={{ color: 'var(--error)', margin: 0 }}>{createError}</p>
+                )}
                 <div style={{ display: 'flex', gap: 6 }}>
                   <button
                     onClick={handleCreateAgent}
                     className="mc-btn mc-btn-primary"
                     style={{ flex: 1 }}
-                    disabled={!newAgentName.trim() || !newAgentProvider}
+                    disabled={!newAgentName.trim() || !newAgentProvider || creating}
                   >
-                    创建
+                    {creating ? '创建中…' : '创建并加入频道'}
                   </button>
                   <button
-                    onClick={() => { setShowCreateForm(false); setNewAgentName(''); setNewAgentDesc(''); setNewAgentProvider(''); }}
+                    onClick={() => { setShowCreateForm(false); setNewAgentName(''); setNewAgentDesc(''); setNewAgentProvider(''); setCreateError(null); }}
                     className="mc-btn"
                     style={{ flex: 1 }}
+                    disabled={creating}
                   >
                     取消
                   </button>

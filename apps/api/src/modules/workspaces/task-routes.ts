@@ -70,7 +70,7 @@ async function appendEvent(workspaceId: string, event: Record<string, any>): Pro
 router.post('/:id/tasks', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const { id: workspaceId } = req.params;
-    const { path: taskPath, prompt, agent, modelTier, runtimeId, parentGoalId } = req.body;
+    const { path: taskPath, prompt, agent, runtimeId, parentGoalId } = req.body;
 
     if (!taskPath || typeof taskPath !== 'string') {
       return res.status(400).json({
@@ -121,7 +121,6 @@ router.post('/:id/tasks', requireAuth(), requireAdmin(), async (req: Request, re
       path: taskPath,
       prompt,
       agent,
-      modelTier: modelTier || 'standard',
       runtimeId: runtimeId || null,
       parentGoalId: parentGoalId || null,
       status: 'pending',

@@ -4,9 +4,9 @@
  * 挂载 internalRoutes 到 express app（route-registry 的 /api/knowledge 挂载层自
  * 2026-07-24 起为 requireLocalhost——本测试经 127.0.0.1 直连 router，不含挂载中间件），覆盖：
  * GET /sync-status（200，新鲜度检测结构）、
- * POST /upsert（400 缺字段 / 200 写入 KnowledgeStore + Document 投影 created→updated）、
- * POST /extract-text-sync（400 参数校验）。
+ * POST /upsert（400 缺字段 / 200 写入 KnowledgeStore + Document 投影 created→updated）。
  * HOME 指向临时目录隔离 sharedStore 与 FileStore。
+ * （2026-07-28: /extract-text-sync 路由已删除，对应 400 校验测试一并移除。）
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
@@ -88,9 +88,4 @@ describe('internal.routes', () => {
     expect(doc.tags).toEqual(['auth', 'design-doc']);
   });
 
-  it('POST /extract-text-sync 400 without content/source', async () => {
-    const res = await api('POST', '/extract-text-sync', {});
-    expect(res.status).toBe(400);
-    expect(res.json.error).toBe('content and source are required');
-  });
 });

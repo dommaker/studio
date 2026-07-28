@@ -150,10 +150,14 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(wu!.scope).toBe('do this task');
       expect(wu!.channelId).toBe(channelId);
       expect(wu!.type).toBe('task');
-      expect(wu!.status).toBe('unassigned');
+      // B3a 归属链（决策 D2）：测试频道无默认工程、无显式/需求归属
+      // → WU 立即 NEED_INPUT 挂起（blocked），等人回复工程名/路径
+      expect(wu!.status).toBe('blocked');
       const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
       expect(meta.matched).toBe(true);
       expect(meta.mentionName).toBe('TestAgent');
+      expect(meta.waitingForInput).toBe(true);
+      expect(meta.waitingReason).toBe('ownership');
     });
 
     it('creates WorkUnit with matched=false when Agent not found', async () => {
@@ -428,6 +432,12 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(detectMention('@my-agent do this')).toBe('my-agent');
       expect(detectMention('@my_agent do this')).toBe('my_agent');
     });
+
+    it('supports Unicode (CJK) names', () => {
+      expect(detectMention('@开发 你好')).toBe('开发');
+      expect(detectMention('@测试')).toBe('测试');
+      expect(detectMention('@开发 test')).toBe('开发');
+    });
   });
 
   // ── §9.5: mention 匹配以 channel.members 为界 ──
@@ -478,6 +488,21 @@ describe('Message Routing (AC-B1-B4)', () => {
 
       const wu = await findWu(result.workUnitId!);
       expect(wu!.assigneeId).toBe(agent.id);
+    });
+
+    it('matches a CJK-named member and strips the mention from scope', async () => {
+      const agent = activeProfile('cjk-agent-1', '开发');
+      await fileStore.createProfile(agent);
+      await fileStore.updateChannel(channelId, { members: JSON.stringify([agent.id]) });
+
+      const result = await routeMessage(channelId, '@开发 看一下这个问题', undefined, fileStore);
+
+      const wu = await findWu(result.workUnitId!);
+      expect(wu!.assigneeId).toBe(agent.id);
+      expect(wu!.scope).toBe('看一下这个问题');
+      const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
+      expect(meta.matched).toBe(true);
+      expect(meta.mentionName).toBe('开发');
     });
   });
 });

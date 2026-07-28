@@ -28,17 +28,17 @@
 | request-logger | src/middleware/request-logger.ts | 请求日志中间件 |
 | docs-freshness.routes | src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
-| auditor-agent.service | src/modules/agents/auditor-agent.service.ts | Auditor Agent — 跨任务审计 + 周期洞察 |
-| knowledge-agent.service | src/modules/agents/knowledge-agent.service.ts | Knowledge Agent - 从执行结果中异步提取知识 |
-| monitor-agent.service | src/modules/agents/monitor-agent.service.ts | Monitor Agent - 健康监控 + NA Step 7 渐进告警 |
-| ops-agent.service | src/modules/agents/ops-agent.service.ts | Ops Agent — 系统生命周期守护 |
+| auditor.service | src/modules/agents/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
+| knowledge-curator.service | src/modules/agents/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
+| monitor.service | src/modules/agents/monitor.service.ts | Monitor Service - 健康监控 + NA Step 7 渐进告警 |
+| ops.service | src/modules/agents/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | requirement-gate | src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
-| review-agent.service | src/modules/agents/review-agent.service.ts | Review Agent - 多立场代码审查 (daemon async spawn) |
+| review.service | src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查 (daemon async spawn) |
 | review-report | src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
-| session-summary-agent.service | src/modules/agents/session-summary-agent.service.ts | SessionSummaryAgent — 会话级知识提取 (2026-05-25) |
-| triage-agent.service | src/modules/agents/triage-agent.service.ts | Triage Agent Service — incident response: diagnose → classify → act → resolve/escalate |
+| session-summary.service | src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
+| triage.service | src/modules/agents/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | src/modules/agents/types.ts | Agent 团队类型定义 |
 | audit-subscriber | src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
@@ -80,11 +80,6 @@
 | routes | src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理 |
 | rule-scanner | src/modules/knowledge/rule-scanner.ts | RuleScanner (G-002) — 从源码/harness 约束/配置中提取业务规则 |
 | routes | src/modules/lark/routes.ts | 飞书机器人交互回调 |
-| config.routes | src/modules/llm/config.routes.ts | LLM Config API 路由 |
-| config.service | src/modules/llm/config.service.ts | LLM Config Service - 分层配置解析 |
-| creation-analyzer | src/modules/llm/creation-analyzer.ts | 创建意图分析器 - 从自然语言生成 Skill/Workflow 配置 |
-| intent-analyzer | src/modules/llm/intent-analyzer.ts | LLM 意图分析器 - 使用 /api/v1/llm/chat（统一使用 Studio LLM 配置） |
-| proxy | src/modules/llm/proxy.ts | 获取 LLM 配置 |
 | admin.routes | src/modules/mcp/admin.routes.ts | MCP Admin Routes — tool management, permissions, audit |
 | permission.service | src/modules/mcp/permission.service.ts | MCP Permission Service — role×tool access control + audit logging |
 | routes | src/modules/mcp/routes.ts | MCP HTTP Routes |

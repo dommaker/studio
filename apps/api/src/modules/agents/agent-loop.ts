@@ -2,13 +2,14 @@
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
 // Knowledge search analysis preserved as module-level exports.
 import { execSync } from 'child_process';
-import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, resolveEventsDir, estimateTokens, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
-import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
+import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { resolveProviderDefinition, buildHealthProbeCommand, execSh } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
-import { appendFileSync, existsSync, mkdirSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import * as os from 'os';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
+import { ensureWuWorktree } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
 import { RemoteExecutor, RemoteNodeUnreachableError } from './remote-executor.js';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
@@ -19,7 +20,9 @@ import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
 import { eventStore } from '../../core/event-store.js';
-import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
+import { getWorkspaceRecord, resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -30,6 +33,16 @@ const SESSION_TOKEN_LIMIT = 100_000;
 function studioEventsJsonlPath(): string {
   return process.env.STUDIO_EVENTS_JSONL || join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
 }
+
+/** B3b-i: 代码类 WU（执行面强制专属 worktree 隔离） */
+const CODE_WORKTREE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
+/** 步骤数上限：超限强制 in_review 交人工。review WU 单独放宽——
+ *  评审职责是读不是写，无提交守卫豁免后正常 ≤5 步收口；阈值仅是防死循环的安全阀 */
+const STEP_LIMIT = 15;
+const REVIEW_STEP_LIMIT = 30;
+/** B3b-i: 单条验证命令超时 10min；失败注入 prompt 的输出尾部上限 */
+const VERIFY_COMMAND_TIMEOUT_MS = 600_000;
+const VERIFY_FAIL_TAIL_CHARS = 2_000;
 const metricsFileStore = new FileStore();
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
@@ -51,7 +64,9 @@ export interface KnowledgeSearchAnalysis {
 
 /** Agent output action after parsing */
 export interface StepResult {
-  action: 'progress' | 'complete' | 'need_input' | 'delegate';
+  // 'failed': CLI 执行失败（runner 返回 success:false）的显式分支——记 consecutiveStuck、
+  // 不发频道消息，达到 3 次走既有 blocked 路径（W-3 接线，见 agentStep）
+  action: 'progress' | 'complete' | 'need_input' | 'delegate' | 'failed';
   summary: string;
   /** A2A §4.1: DELEGATE 协议解析结果（action='delegate' 时存在） */
   delegate?: { targetName: string; scope: string };
@@ -411,6 +426,8 @@ export class AgentLoop {
   private async agentStep(target: Target): Promise<StepResult> {
     const wu = target.workUnit;
     const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    // P0 修复 6: traceId 贯穿 — 频道消息 → WU metadata → 执行参数（extraEnv）与日志行
+    const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
     // §4.2 发言层新鲜度检查：step 开始记录频道版本（recordResult 回帖前比对）。
     // 读取失败按 undefined 处理 —— 跳过检查直接发帖，绝不阻断执行。
@@ -428,6 +445,11 @@ export class AgentLoop {
       ? metadata.commitGuardHint
       : null;
 
+    // B3b-i 自动验证：上一轮 COMPLETE 因验证失败被打回时 recordResult 写入的提示（注入后即消费）
+    const verifyFailHint = typeof metadata.verifyFailHint === 'string' && metadata.verifyFailHint.length > 0
+      ? metadata.verifyFailHint
+      : null;
+
     // §6-2 父 complete 守卫：上一轮 COMPLETE 因子任务未完结被打回时的提示（注入后即消费）
     const childGuardHint = typeof metadata.childGuardHint === 'string' && metadata.childGuardHint.length > 0
       ? metadata.childGuardHint
@@ -440,6 +462,7 @@ export class AgentLoop {
         : buildContinuePrompt(wu);
     let prompt = basePrompt;
     if (commitGuardHint) prompt = `${prompt}\n\n## 提交提醒\n\n${commitGuardHint}`;
+    if (verifyFailHint) prompt = `${prompt}\n\n## 验证失败\n\n${verifyFailHint}`;
     if (childGuardHint) prompt = `${prompt}\n\n## 子任务提醒\n\n${childGuardHint}`;
 
     // GAP-5: Knowledge injection — non-blocking
@@ -510,39 +533,105 @@ export class AgentLoop {
       // §10.5: 提示已注入 prompt，清除避免后续步骤重复注入
       metadataUpdates.commitGuardHint = undefined;
     }
+    if (verifyFailHint) {
+      // B3b-i: 提示已注入 prompt，清除避免后续步骤重复注入
+      metadataUpdates.verifyFailHint = undefined;
+    }
     if (childGuardHint) {
       // §6-2: 提示已注入 prompt，清除避免后续步骤重复注入
       metadataUpdates.childGuardHint = undefined;
     }
-    const agentSessionId = this.instance?.sessionId;
-    if (!agentSessionId) {
-      const newId = randomUUID();
-      metadataUpdates.sessionId = newId;
+    // 续用判定（fix/guard-and-resume）：同一 WU 内才续用。claude 会话按 (HOME, cwd) 存储
+    // （2.1.80 实测：异 cwd --resume 报 "No conversation found with session ID"），
+    // B3b-i 每 WU 独立 worktree → 跨 WU 续用必失败；WU metadata.sessionId 由本 WU 首 step
+    // 写入，与 instance.sessionId 相等才说明会话是在本 WU（同一 worktree/cwd）建立的。
+    const resumeSessionId = this.instance?.sessionId && metadata.sessionId === this.instance.sessionId
+      ? this.instance.sessionId
+      : null;
+    let newSessionId: string | null = null;
+    if (!resumeSessionId) {
+      newSessionId = randomUUID();
+      metadataUpdates.sessionId = newSessionId;
       metadataUpdates.startedAt = new Date().toISOString();
       // Persist sessionId to RuntimeInstance for cross-WorkUnit continuity
       if (this.instance) {
-        await this.fileStore.updateState(this.instance.id, { sessionId: newId });
-        this.instance.sessionId = newId;
+        await this.fileStore.updateState(this.instance.id, { sessionId: newSessionId });
+        this.instance.sessionId = newSessionId;
       }
     } else {
       metadataUpdates.sessionResumes = (metadata.sessionResumes ?? 0) + 1;
     }
 
-    // F6: WorkUnit 绑定工程 → 解析 workspace 的 repo 路径，经 parameters.workspaceRoot
+    // F6 → B3a: WorkUnit 绑定工程 → 解析执行根目录，经 parameters.workspaceRoot
     // 传给 agent-runner（resolveWorkspace Priority 1：直接以该目录为 cwd）。
-    // 未绑定或解析失败 → 不传，保持现有 fallback 行为。
-    const workspaceRoot = wu.workspaceId ? await this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
+    // metadata.workspaceRoot（B3a 归属链：Requirement→PMO gitRepo / 人工回复绑定）优先；
+    // 否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）；都没有 → 不传，保持现有 fallback。
+    //
+    // B3b-i（决策 D1）：代码类 WU（task/bug/feature/refactor）解析出 git 仓库根后，
+    // 不再直接改共享目录 —— 执行 cwd 换成该仓库的专属 worktree
+    // （<worktreesDir>/wu-<wuId>，分支 task/<wuId>）。同一 WU 跨 step 复用：
+    // 首个 step 创建并把 worktreePath/branch/baseBranch/baseRepo 记入 metadata，
+    // 后续 step 经 ensureWuWorktree 按目录存在性复用。创建失败走 B1 失败分支
+    // （action='failed' → consecutiveStuck → 3 次 blocked），绝不静默退回共享目录。
+    // 解析不出 git 仓库（无绑定根 / 根目录无 .git）→ 维持现状。
+    let workspaceRoot = await this.resolveExecutionWorkspaceRoot(wu, metadata);
+    if (CODE_WORKTREE_TYPES.has(wu.type) && workspaceRoot && isGitRepoRoot(workspaceRoot)) {
+      try {
+        const info = await ensureWuWorktree({
+          wuId: wu.id,
+          repoDir: workspaceRoot,
+          worktreesDir: resolveWorktreesDir(),
+          baseBranch: typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
+            ? metadata.worktreeBaseBranch
+            : undefined,
+        });
+        if (metadata.worktreePath !== info.worktreePath) {
+          metadataUpdates.worktreePath = info.worktreePath;
+          metadataUpdates.worktreeBranch = info.branch;
+          metadataUpdates.worktreeBaseBranch = info.baseBranch;
+          metadataUpdates.worktreeBaseRepo = info.baseRepo;
+        }
+        workspaceRoot = info.worktreePath;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        logger.error(`[AgentLoop] Worktree creation failed for ${wu.id}: ${message}`, { traceId });
+        // 首 step 失败：会话未建立，重置避免下步 --resume 空 id
+        if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
+        return {
+          action: 'failed' as const,
+          summary: `worktree 创建失败: ${message.slice(0, 500)}`,
+          metadataUpdates: {
+            ...metadataUpdates,
+            errorType: 'worktree_creation_failed',
+            errorDetail: message.slice(0, 500),
+            errorAt: new Date().toISOString(),
+          },
+        };
+      }
+    } else if (wu.type === 'review') {
+      // B3b-i: review WU 继承父 WU worktree（评审能看到 diff）；父无 worktree → 维持现状
+      const parentWorktree = await this.resolveParentWorktreePath(wu);
+      if (parentWorktree) workspaceRoot = parentWorktree;
+    }
 
     // AgentTask with new interface: provider, sessionId, maxTurns, knowledgeContext
+    const taskProvider = (this.role.provider || 'claude') as AgentTask['provider'];
     const task: AgentTask = {
       id: wu.id,
       executionId: `${wu.id}-${Date.now()}`,
       // F4: profile provider (registry id) → AgentTask. Cast via AgentTask['provider'] because
       // apps/api tsc resolves studio-agent types from its (possibly stale) dist/index.d.ts.
-      provider: (this.role.provider || 'claude') as AgentTask['provider'],
+      provider: taskProvider,
       prompt,
       parameters: {
-        sessionId: agentSessionId ?? undefined,
+        // 续用：sessionId + sessionResume → cli-adapter 按 provider 换续用形态
+        // （claude --resume <id>；kimi/opencode --continue、codex exec resume --last ——
+        // Studio UUID 对这三家无意义，靠 CLI 自己的 cwd 维度会话记录续用，实证见 cli-adapter 头部）。
+        // 新建：仅 claude 把新 sessionId 传给 CLI（--session-id 建会话 —— 不建则后续 --resume
+        // 找不到会话，2.1.80 实测报 "No conversation found"）；kimi/codex/opencode 的 session
+        // 参数均续用语义（实测未知 id 报 Session not found）→ 新建不传，CLI 自建会话。
+        sessionId: resumeSessionId ?? (newSessionId && taskProvider === 'claude' ? newSessionId : undefined),
+        ...(resumeSessionId ? { sessionResume: true } : {}),
         maxTurns: 50,
         knowledgeContext: knowledgeContext || undefined,
         agentRole: 'executor',
@@ -552,16 +641,44 @@ export class AgentLoop {
         extraEnv: {
           STUDIO_WORKUNIT_ID: wu.id,
           STUDIO_CHANNEL_ID: wu.channelId ?? '',
+          STUDIO_TRACE_ID: traceId ?? '',
         },
       },
-      model: 'standard',
       timeoutMs: 120_000,
     };
 
     try {
       // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
       const result: ExecutionResult = await this.executor.execute(task);
+
+      // W-3 接线：runner 失败时返回 { success:false } 而不抛错、且无 outputText ——
+      // 直接落入 parseAgentOutput 会得到默认 progress（空 summary），导致 consecutiveStuck
+      // 被清零、每 3s 重试、往频道发空消息。显式失败分支：action='failed'，由 recordResult
+      // 记 consecutiveStuck + errorType/errorDetail，不发频道消息；连续 3 次走 blocked 路径。
+      // 不带 channelVersion —— 失败不是发言，无需新鲜度检查（避免被降级为 progress）。
+      if (result.success === false) {
+        const detail = (result.error ?? '未知错误').slice(0, 500);
+        logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
+        // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
+        if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
+        return {
+          action: 'failed' as const,
+          summary: `CLI 执行失败: ${detail}`,
+          metadataUpdates: {
+            ...metadataUpdates,
+            errorType: 'execution_failed',
+            errorDetail: detail,
+            errorAt: new Date().toISOString(),
+          },
+        };
+      }
+
       const stepResult = parseAgentOutput(result.outputText ?? '');
+
+      // 执行成功 → 清除上一轮失败标记（undefined 在 JSON 序列化时丢弃）
+      metadataUpdates.errorType = undefined;
+      metadataUpdates.errorDetail = undefined;
+      metadataUpdates.errorAt = undefined;
 
       // M2 成本红线度量: 每次 CLI 执行完成记一条 workunit:tokens 事件
       // （注入估算 chars/4 vs 2K 红线；执行 tokens 取自 CLI usage，未回报则记 null 不编造）。
@@ -574,6 +691,12 @@ export class AgentLoop {
         executionId: task.executionId,
         injectedTokens: estimateTokens(knowledgeContext.length),
         executionTokens,
+        // D16: 缓存命中率数据源（CLI 回报 usage 时才有；未回报则缺省不编造）
+        ...(result.usage ? {
+          inputTokens: result.usage.inputTokens,
+          cacheReadTokens: result.usage.cacheReadTokens,
+          cacheCreationTokens: result.usage.cacheCreationTokens,
+        } : {}),
       }).catch(() => {});
 
       // wireup④ token 预算数据源: 本次 executionTokens 累加进 metadata._cumulativeTokens，
@@ -582,7 +705,7 @@ export class AgentLoop {
       metadataUpdates._cumulativeTokens = (metadata._cumulativeTokens ?? 0) + (executionTokens ?? 0);
 
       // T-1.1: Record tool:call events for PatternMiner data source
-      // R2: 写入统一事件目录（STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）
+      // D18: 写入统一事件文件（~/.studio/logs/studio-events.jsonl）
       // R2-fix: outputText 是 extractResult 后的纯文本（不含 stream-json 事件行），
       // 必须优先取 rawOutput（原始 stdout）——否则 parseStreamEvents 恒产 0 条。
       const toolTraceSource = result.rawOutput ?? result.outputText;
@@ -618,6 +741,18 @@ export class AgentLoop {
       // Session truncation: detect input_tokens exceeding threshold
       this.checkSessionTruncation(result.outputText, metadataUpdates);
 
+      // P0 修复（reviewReport 回传断链）：review 子 WU 报告 COMPLETE 时，把 reviewer
+      // 最终输出解析为结构化结论写入 metadata.reviewReport —— 这是 ReviewDispatcher
+      // 路径 B 判定父 WU 过/拒的唯一数据源。解析失败不写（dispatcher 转人工，不误拒）。
+      if (wu.type === 'review' && stepResult.action === 'complete') {
+        const report = parseReviewReport(result.outputText ?? '');
+        if (report) {
+          metadataUpdates.reviewReport = report;
+        } else {
+          logger.warn(`[AgentLoop] Review WU ${wu.id} completed without parseable REVIEW_RESULT — 由 ReviewDispatcher 转人工`);
+        }
+      }
+
       // AC-4.3/4.4: Cache tracking — extract input_tokens from result events
       const tokens = extractInputTokens(result.outputText ?? '');
       if (tokens !== null) {
@@ -626,10 +761,13 @@ export class AgentLoop {
 
       return { ...stepResult, metadataUpdates, channelVersion };
     } catch (err) {
-      // W-3 fix: executeLightweight failure returns error result instead of throwing
-      // This allows recordResult to update metadata and monitoring to handle it (consecutiveStuck → blocked)
+      // W-3 fix: executeLightweight 失败返回 { success:false } 不抛错 —— 已在上方
+      // success===false 显式分支接线（consecutiveStuck → blocked）；本 catch 只覆盖
+      // 真正抛出的异常（如 spawn 失败），保持 need_input 语义。
+      // 首 step 抛异常：会话未建立，重置避免下步 --resume 空 id
+      if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(`[AgentLoop] agentStep execute failed: ${message}`);
+      logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
       // AC-8.7: 远程节点不可达 → need_input，由人工评估是否需要切换节点
       if (err instanceof RemoteNodeUnreachableError) {
         return {
@@ -766,6 +904,17 @@ ${rosterLines.join('\n')}
   }
 
   /**
+   * B3a 归属链：执行根目录解析 — metadata.workspaceRoot（Requirement→PMO gitRepo /
+   * 人工回复绑定的直接路径）优先；否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）。
+   */
+  private async resolveExecutionWorkspaceRoot(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<string | null> {
+    if (typeof metadata.workspaceRoot === 'string' && metadata.workspaceRoot.length > 0) {
+      return metadata.workspaceRoot;
+    }
+    return wu.workspaceId ? this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
+  }
+
+  /**
    * F6: 解析 WorkUnit 绑定工程的执行根目录（workspace.workspaceRoot）。
    * 记录缺失/无 workspaceRoot/读取失败 → null（保持未绑定的默认行为）。
    */
@@ -780,6 +929,40 @@ ${rosterLines.join('\n')}
       logger.warn(`[AgentLoop] Workspace resolution failed for ${workspaceId}: ${err instanceof Error ? err.message : String(err)}`);
       return null;
     }
+  }
+
+  /**
+   * B3b-i: review WU 继承父 WU 的 worktree 路径（评审在父 worktree 里执行，能看到 diff）。
+   * 父缺失/无 worktreePath/读取失败 → null（维持现状）。
+   */
+  private async resolveParentWorktreePath(wu: WorkUnitData): Promise<string | null> {
+    if (!wu.parentId) return null;
+    try {
+      const parent = await this.workUnitService.getById(wu.parentId);
+      const parentMeta: WorkUnitMetadata = parent?.metadata ? JSON.parse(parent.metadata) : {};
+      return typeof parentMeta.worktreePath === 'string' && parentMeta.worktreePath.length > 0
+        ? parentMeta.worktreePath
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * B3b-i: 提交守卫/自动验证的 git cwd 解析（recordResult 侧只读消费，不创建）。
+   * 代码类 WU 有专属 worktree → 在 worktree 下跑 git status；
+   * review WU → 父 WU worktree；否则回退 B3a/F6 的共享根解析。
+   */
+  private async resolveExecutionCwd(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<string | null> {
+    if (CODE_WORKTREE_TYPES.has(wu.type)
+      && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0) {
+      return metadata.worktreePath;
+    }
+    if (wu.type === 'review') {
+      const parentWorktree = await this.resolveParentWorktreePath(wu);
+      if (parentWorktree) return parentWorktree;
+    }
+    return this.resolveExecutionWorkspaceRoot(wu, metadata);
   }
 
   /**
@@ -802,6 +985,69 @@ ${rosterLines.join('\n')}
     } catch {
       return null;
     }
+  }
+
+  /**
+   * B3b-i（决策 D3 前半）: 解析 WU 的验证命令 —— 覆盖优先于约定。
+   * 覆盖：metadata.verifyCommands > workspace 记录 verifyCommands（字符串数组）；
+   * 约定：worktree package.json scripts 存在 test/typecheck/lint 则依次跑
+   * （按 lockfile 选 pnpm/npm）；都没有 → 空数组（跳过验证，维持现状）。
+   */
+  private async resolveVerifyCommands(
+    wu: WorkUnitData,
+    metadata: WorkUnitMetadata,
+    worktreePath: string,
+  ): Promise<{ commands: string[]; source: 'override' | 'convention' }> {
+    const asCommands = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((c): c is string => typeof c === 'string' && c.trim().length > 0) : [];
+
+    const fromMeta = asCommands(metadata.verifyCommands);
+    if (fromMeta.length > 0) return { commands: fromMeta, source: 'override' };
+
+    if (wu.workspaceId) {
+      try {
+        const ws = await getWorkspaceRecord(wu.workspaceId);
+        const fromWs = asCommands(ws?.verifyCommands);
+        if (fromWs.length > 0) return { commands: fromWs, source: 'override' };
+      } catch { /* 记录读取失败按无覆盖处理 */ }
+    }
+
+    try {
+      const pkgRaw = readFileSync(join(worktreePath, 'package.json'), 'utf-8');
+      const scripts = (JSON.parse(pkgRaw) as { scripts?: Record<string, unknown> }).scripts ?? {};
+      const names = ['test', 'typecheck', 'lint'].filter(n => typeof scripts[n] === 'string');
+      if (names.length === 0) return { commands: [], source: 'convention' };
+      const pm = existsSync(join(worktreePath, 'pnpm-lock.yaml')) ? 'pnpm' : 'npm';
+      return { commands: names.map(n => `${pm} run ${n}`), source: 'convention' };
+    } catch {
+      return { commands: [], source: 'convention' };
+    }
+  }
+
+  /**
+   * B3b-i: 在 WU 的 worktree 里依次跑验证命令（单条 10min 超时）。
+   * 任一失败 → 返回 failure（命令 + 输出尾部截 2000 字符）；全过 → ran 为全部命令。
+   */
+  private async runWuVerification(
+    wu: WorkUnitData,
+    metadata: WorkUnitMetadata,
+    worktreePath: string,
+  ): Promise<{
+    ran: string[];
+    source: 'override' | 'convention';
+    failure?: { command: string; tail: string };
+  }> {
+    const { commands, source } = await this.resolveVerifyCommands(wu, metadata, worktreePath);
+    const ran: string[] = [];
+    for (const command of commands) {
+      try {
+        await execSh(command, { cwd: worktreePath, timeoutMs: VERIFY_COMMAND_TIMEOUT_MS });
+        ran.push(command);
+      } catch (err) {
+        return { ran, source, failure: { command, tail: extractExecOutputTail(err, VERIFY_FAIL_TAIL_CHARS) } };
+      }
+    }
+    return { ran, source };
   }
 
   /** Record execution outcome to knowledge service (GAP-6, non-blocking).
@@ -831,6 +1077,19 @@ ${rosterLines.join('\n')}
     } catch {
       // Non-blocking
     }
+  }
+
+  /**
+   * 首 step（新建会话）执行失败时重置 sessionId：CLI 会话未必已建立（可能根本没 spawn 到），
+   * 不重置则下一步按续用发 `--resume <从未建立的 id>`（claude 必报 "No conversation found"）。
+   * 续用 step 失败不调用 —— 会话已存在，保留下一步继续 resume。
+   */
+  private async resetUnestablishedSession(metadataUpdates: Partial<WorkUnitMetadata>): Promise<void> {
+    if (this.instance) {
+      this.instance.sessionId = null;
+      await this.fileStore.updateState(this.instance.id, { sessionId: null }).catch(() => {});
+    }
+    delete metadataUpdates.sessionId;
   }
 
   /** Check execution output for input_tokens exceeding threshold, reset session if needed */
@@ -866,14 +1125,24 @@ ${rosterLines.join('\n')}
     const wu = await this.workUnitService.getById(wuId);
     if (!wu) return;
 
-    const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    const persisted = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    // 提交守卫/自动验证必须以「持久化 + 本 step metadataUpdates」的合并视图为准：
+    // 首个 step 的 worktreePath 等字段由 agentStep 经 result.metadataUpdates 传入、
+    // 此刻尚未落库；只看持久化值会让首 step 的 COMPLETE 退到主仓库（干净）做检查而漏拦
+    // （e2e 实测：dev 在 worktree 改了未提交，守卫查主仓库放行 → 假 complete）。
+    const metadata: WorkUnitMetadata = { ...persisted, ...result.metadataUpdates };
+    // P0 修复 6: traceId（与 agentStep 同一来源，供日志行携带）
+    const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
     // §10.5 提交守卫（发生在状态迁移之前，与 stepCount 守卫同层 —— 不动 VALID_TRANSITIONS）。
     // 路径解析或 git 调用失败一律静默跳过，绝不因基础设施故障阻断完成。
+    // B3b-i: cwd 改走 resolveExecutionCwd —— 代码类 WU 在专属 worktree 下跑 git status。
+    // review WU 整体豁免：评审职责是读不是写（cwd 解析到父 WU worktree，dev 的提交/
+    // 工具产物与评审无关），工作区洁净不是它的责任——否则 COMPLETE 被反复打回空转。
     let action = result.action;
     const guardUpdates: Partial<WorkUnitMetadata> = {};
     let noCommitNotice = false;
-    const workspaceRoot = wu.workspaceId ? await this.resolveBoundWorkspaceRoot(wu.workspaceId) : null;
+    const workspaceRoot = wu.type === 'review' ? null : await this.resolveExecutionCwd(wu, metadata);
     if (workspaceRoot) {
       if (action === 'complete' && this.hasUncommittedChanges(workspaceRoot)) {
         // COMPLETE 守卫：有未提交改动 → 打回按 PROGRESS 处理，提示注入下一轮 prompt
@@ -910,6 +1179,41 @@ ${rosterLines.join('\n')}
         action = 'progress';
         guardUpdates.childGuardHint = `存在未完结子任务（${unfinishedChildren.join(', ')}），等待其全部完成后再报告 COMPLETE`;
         logger.info(`[AgentLoop] Child guard: COMPLETE downgraded for ${wuId} (unfinished children: ${unfinishedChildren.length})`);
+      }
+    }
+
+    // B3b-i（决策 D3 前半）: COMPLETE 前自动验证 —— 仅代码类 WU（有专属 worktree）。
+    // 提交守卫/子任务守卫已通过（action 仍为 complete）才跑；命令解析：覆盖 > 约定（见 resolveVerifyCommands）。
+    // 全绿 → verifyReport 落档 + 频道简报；任一失败 → 降级 progress，失败命令+输出尾部注入下一轮 prompt，
+    // verifyFailCount ≥3 → blocked。无 worktree / 无命令可跑 → 跳过（维持现状）。
+    let verifyBlocked = false;
+    let verifyPassNotice: string | null = null;
+    if (action === 'complete'
+      && CODE_WORKTREE_TYPES.has(wu.type)
+      && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0) {
+      const outcome = await this.runWuVerification(wu, metadata, metadata.worktreePath);
+      if (outcome.failure) {
+        const failCount = (metadata.verifyFailCount ?? 0) + 1;
+        guardUpdates.verifyFailCount = failCount;
+        guardUpdates.verifyFailHint = [
+          `自动验证未通过（第 ${failCount} 次），请先修复再报告完成`,
+          `失败命令: ${outcome.failure.command}`,
+          `输出尾部:\n${outcome.failure.tail}`,
+        ].join('\n');
+        action = 'progress';
+        verifyBlocked = failCount >= 3;
+        logger.info(`[AgentLoop] Verify guard: COMPLETE downgraded for ${wuId} (command failed: ${outcome.failure.command}, count ${failCount})`);
+      } else {
+        guardUpdates.verifyFailCount = 0;
+        if (outcome.ran.length > 0) {
+          guardUpdates.verifyReport = {
+            commands: outcome.ran,
+            source: outcome.source,
+            passedAt: new Date().toISOString(),
+          };
+          verifyPassNotice = `✅ 自动验证通过（${outcome.ran.length} 条）：${outcome.ran.join('；')}`;
+          logger.info(`[AgentLoop] Verify guard: all passed for ${wuId}`, { commands: outcome.ran, source: outcome.source });
+        }
       }
     }
 
@@ -1006,13 +1310,35 @@ ${rosterLines.join('\n')}
       metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, stepCount, consecutiveStuck },
     });
 
+    // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志
+    if (traceId) {
+      logger.info(`[AgentLoop] Step recorded for ${wuId}`, { traceId, action, stepCount });
+    }
+
     // §10.5: 连续 3 步无新提交 → 频道提醒一次（计数已归零，之后每 3 步再提醒）
     if (noCommitNotice) {
       await this.postToDiscussionSpace(wuId, `任务 ${wuId} 连续 3 步无新提交，请注意及时 commit`);
     }
 
-    // Monitoring: step limit
-    if (stepCount > 15) {
+    // B3b-i: 自动验证连续失败 ≥3 次 → blocked 并频道说明（优先于 step limit / 状态迁移）
+    if (verifyBlocked) {
+      if (wu.status !== 'blocked') {
+        await this.workUnitService.transitionStatus(wuId, 'blocked');
+      }
+      await this.postToDiscussionSpace(
+        wuId,
+        `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
+      );
+      return;
+    }
+
+    // B3b-i: 验证全绿 → 频道简报（跑了哪几条；仅当 COMPLETE 未被其他守卫拦截）
+    if (verifyPassNotice && action === 'complete') {
+      await this.postToDiscussionSpace(wuId, verifyPassNotice);
+    }
+
+    // Monitoring: step limit（review WU 用放宽阈值，见 REVIEW_STEP_LIMIT 注释）
+    if (stepCount > (wu.type === 'review' ? REVIEW_STEP_LIMIT : STEP_LIMIT)) {
       // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
       if (wu.status === 'blocked') {
         await this.workUnitService.transitionStatus(wuId, 'active');
@@ -1024,25 +1350,34 @@ ${rosterLines.join('\n')}
     // Monitoring: stuck detection
     if (consecutiveStuck >= 3) {
       await this.workUnitService.transitionStatus(wuId, 'blocked');
-      await this.postToDiscussionSpace(wuId, '连续 3 步无进展，等待人类介入');
+      // W-3 接线：执行失败导致的 blocked 在频道说明失败原因（summary 含 CLI 错误详情）
+      const stuckReason = action === 'failed' && result.summary ? `（${result.summary}）` : '';
+      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`);
       return;
     }
 
     // State transitions by action (§10.5: 使用守卫降级后的 action；§4.2: 新鲜度拦截时不发帖)
+    // 非空守卫：summary 为空（如 CLI 成功但无文本输出）不发帖，避免频道空消息。
     switch (action) {
       case 'progress':
-        if (!skipResultPost) await this.postToDiscussionSpace(wuId, result.summary);
+        if (!skipResultPost && result.summary.trim().length > 0) await this.postToDiscussionSpace(wuId, result.summary);
         if (wu.status === 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'active');
         }
         break;
       case 'complete':
-        if (!skipResultPost) await this.postToDiscussionSpace(wuId, result.summary);
+        if (!skipResultPost && result.summary.trim().length > 0) await this.postToDiscussionSpace(wuId, result.summary);
         // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
         if (wu.status === 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'active');
         }
         await this.workUnitService.transitionStatus(wuId, 'in_review');
+        // P0 修复（reviewReport 回传断链）：review 子 WU 不再被二次评审
+        // （ReviewDispatcher 路径 A 跳过 type=review），complete 后直接收口 done，
+        // 触发路径 B 读取 metadata.reviewReport 判定父 WU reviewPassed/reviewRejected。
+        if (wu.type === 'review') {
+          await this.workUnitService.transitionStatus(wuId, 'done');
+        }
         break;
       case 'need_input':
         if (!skipResultPost) await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`);
@@ -1050,6 +1385,10 @@ ${rosterLines.join('\n')}
         if (wu.status !== 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'blocked');
         }
+        break;
+      case 'failed':
+        // W-3 接线：CLI 执行失败 —— 不发频道消息、不做状态迁移（保持 active 待重试）；
+        // consecutiveStuck 已在上方累计，满 3 次走 blocked 路径并说明失败原因。
         break;
     }
   }
@@ -1112,6 +1451,34 @@ export function isProcessAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+/** B3b-i: 判断路径是否 git 仓库根（.git 存在即可，与 createWorktree 校验口径一致） */
+export function isGitRepoRoot(root: string): boolean {
+  try {
+    return existsSync(join(root, '.git'));
+  } catch {
+    return false;
+  }
+}
+
+/** B3b-i: worktrees 根目录解析（与 AgentRunner config 口径一致：WORKTREES_DIR > ~/worktrees） */
+export function resolveWorktreesDir(): string {
+  return process.env.WORKTREES_DIR || join(os.homedir(), 'worktrees');
+}
+
+/** B3b-i: 从 execSh 拒绝错误提取输出尾部（stderr/stdout/message 拼接后截 maxChars） */
+export function extractExecOutputTail(err: unknown, maxChars: number): string {
+  let text = '';
+  if (err && typeof err === 'object') {
+    const rec = err as Record<string, unknown>;
+    text = [rec.stderr, rec.stdout, rec.message]
+      .filter((s): s is string => typeof s === 'string' && s.length > 0)
+      .join('\n');
+  } else {
+    text = String(err);
+  }
+  return text.slice(-maxChars);
 }
 
 /** Find the anchor message (first message, no replyToId) for a WorkUnit */
@@ -1177,8 +1544,58 @@ export function dynamicInterval(result: { action: string }): number {
     case 'delegate':   return 3_000; // A2A: 委派后父按 progress 继续
     case 'complete':   return 10_000;
     case 'need_input': return 30_000;
+    case 'failed':     return 15_000; // W-3: 失败重试降速（原误判 progress 时每 3s 重试）
     default:           return 15_000;
   }
+}
+
+/**
+ * P0 修复（reviewReport 回传断链）：解析 reviewer 最终输出为结构化审查结论。
+ * 约定格式（已写入 review 子 WU scope）：输出以
+ *   REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"...","issues":[...]}
+ * 结尾的行。宽松策略：优先解析 REVIEW_RESULT 行 JSON；失败则从输出尾部提取
+ * verdict 关键词；仍失败 → null（不写 reviewReport，由 ReviewDispatcher 转人工）。
+ */
+export function parseReviewReport(text: string): { approved: boolean; reason?: string; issues?: Array<{ severity: string; message: string }> } | null {
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const match = lines[i].match(/REVIEW_RESULT:\s*(\{.*\})\s*$/);
+    if (!match) continue;
+    try {
+      const parsed = JSON.parse(match[1]) as { verdict?: unknown; summary?: unknown; issues?: unknown };
+      if (parsed.verdict === 'pass' || parsed.verdict === 'reject') {
+        return {
+          approved: parsed.verdict === 'pass',
+          reason: typeof parsed.summary === 'string' ? parsed.summary : undefined,
+          issues: normalizeReviewIssues(parsed.issues),
+        };
+      }
+    } catch { /* JSON 损坏 → 落到关键词兜底 */ }
+    break; // 已找到（最末一条）REVIEW_RESULT 行，不再向上扫描更早的行
+  }
+
+  // 兜底：输出尾部 verdict 关键词（ reviewer 未按约定格式但给出了结论词）
+  const tail = lines.slice(-10).join('\n');
+  if (/verdict["'\s:]+reject/i.test(tail)) {
+    return { approved: false, reason: '（关键词兜底判定）' };
+  }
+  if (/verdict["'\s:]+pass/i.test(tail)) {
+    return { approved: true, reason: '（关键词兜底判定）' };
+  }
+  return null;
+}
+
+/** REVIEW_RESULT issues 字段归一化：只保留 { severity, message } 形状，非法项丢弃 */
+function normalizeReviewIssues(raw: unknown): Array<{ severity: string; message: string }> | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const issues = raw
+    .filter((i): i is Record<string, unknown> => i !== null && typeof i === 'object')
+    .map(i => ({
+      severity: typeof i.severity === 'string' ? i.severity : 'info',
+      message: typeof i.message === 'string' ? i.message : JSON.stringify(i),
+    }))
+    .filter(i => i.message.length > 0);
+  return issues.length > 0 ? issues : undefined;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -1194,7 +1611,7 @@ ${wu.scope}
 
 ## 要求
 
-继续上次工作。每步结束后输出：
+继续上次工作。若 .studio/AGENTS.generated.md 存在，先阅读（工作区指南：可用 skill 索引 + SDD 落盘要求）；仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
   ACTION: NEED_INPUT:<需要什么>   需要人类输入
@@ -1214,7 +1631,7 @@ ${replyText}
 
 ## 要求
 
-根据回复调整方案，继续工作。每步结束后输出：
+根据回复调整方案，继续工作。若 .studio/AGENTS.generated.md 存在，先阅读（工作区指南：可用 skill 索引 + SDD 落盘要求）；仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
   ACTION: NEED_INPUT:<需要什么>   需要人类输入`;
@@ -1293,6 +1710,11 @@ export interface WorkunitTokenEventArgs {
   executionTokens: number | null;
   /** LLM 提取 tokens（可选；R3 提取异步入库，通常由 knowledge:extraction 事件单独度量） */
   extractionTokens?: number;
+  /** D16: CLI usage 的 input tokens（缓存命中率分子分母用；有 usage 时写入） */
+  inputTokens?: number;
+  /** D16: CLI usage 的 cache read / creation tokens（缓存命中率用；有 usage 时写入） */
+  cacheReadTokens?: number;
+  cacheCreationTokens?: number;
 }
 
 /**
@@ -1315,6 +1737,9 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
       executionSource: executionTokens !== null ? 'cli-usage' : 'unavailable',
       totalTokens: args.injectedTokens + (executionTokens ?? 0),
       ...(typeof args.extractionTokens === 'number' ? { extractionTokens: args.extractionTokens } : {}),
+      ...(typeof args.inputTokens === 'number' ? { inputTokens: args.inputTokens } : {}),
+      ...(typeof args.cacheReadTokens === 'number' ? { cacheReadTokens: args.cacheReadTokens } : {}),
+      ...(typeof args.cacheCreationTokens === 'number' ? { cacheCreationTokens: args.cacheCreationTokens } : {}),
     }),
     createdAt: new Date().toISOString(),
   });
@@ -1323,17 +1748,19 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
 // ─── tool:call event recording ───
 
 /**
- * R2: tool trace 文件路径 — 经统一 resolver 解析
- * （STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）。懒解析以支持运行时/测试注入 env。
+ * D18 事件入口统一: tool:call trace 写入统一事件文件
+ * （~/.studio/logs/studio-events.jsonl，测试期经 studio-log-path 隔离）。
+ * 懒解析以支持运行时/测试注入 env。
  */
 export function resolveToolTraceFile(): string {
-  return join(resolveEventsDir(), 'studio.jsonl');
+  return resolveStudioEventsFile();
 }
 
 /**
  * Write tool:call events extracted from stream-json output to a JSONL file.
  * Returns the count of tool calls written.
  * T-1.1: Wiring tool:call recording for PatternMiner data source.
+ * D18: StudioEvent 形态（payload 嵌套），与 daemon/task-executor 的 tool:call 一致。
  */
 export function writeToolCallEvents(outputText: string, filePath: string): number {
   const events = parseStreamEvents(outputText);
@@ -1347,11 +1774,15 @@ export function writeToolCallEvents(outputText: string, filePath: string): numbe
   for (const call of toolCalls) {
     const event = JSON.stringify({
       type: 'tool:call',
-      tool: call.name,
-      success: true,
-      durationMs: 0,
-      timestamp: now,
-      caller: 'agent-loop',
+      source: 'agent-loop',
+      payload: JSON.stringify({
+        tool: call.name,
+        success: true,
+        durationMs: 0,
+        timestamp: now,
+        caller: 'agent-loop',
+      }),
+      createdAt: new Date(now).toISOString(),
     });
     appendFileSync(filePath, event + '\n', 'utf-8');
   }

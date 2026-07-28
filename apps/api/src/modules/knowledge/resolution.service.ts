@@ -13,6 +13,7 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type {
   Resolution,
   CreateResolutionInput,
@@ -21,7 +22,7 @@ import type {
 } from '@dommaker/studio-shared';
 
 const KNOWLEDGE_DIR = path.join(os.homedir(), '.studio', 'knowledge');
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 // ── Helpers ──

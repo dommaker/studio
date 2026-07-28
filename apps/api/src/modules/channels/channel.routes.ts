@@ -32,12 +32,10 @@ const projectDiscoveryService = new ProjectDiscoveryService();
 function parseAcGroupsFromMarkdown(content: string): Array<{
   id: string; acs: string[]; files: string[]; dependencies: string[];
   implementationNotes: string; codePatterns: string[]; gotchas: string[];
-  modelTier?: string; modelTierReason?: string;
 }> {
   const groups: Array<{
     id: string; acs: string[]; files: string[]; dependencies: string[];
     implementationNotes: string; codePatterns: string[]; gotchas: string[];
-    modelTier?: string; modelTierReason?: string;
   }> = [];
   const lines = content.split('\n');
 
@@ -60,16 +58,8 @@ function parseAcGroupsFromMarkdown(content: string): Array<{
       continue;
     }
 
-    // MODEL_TIER HTML comment: <!-- MODEL_TIER {"tier":"fast","reason":"..."} -->
-    const modelTierMatch = line.match(/<!--\s*MODEL_TIER\s+(\{.+\})\s*-->/);
-    if (modelTierMatch && currentGroup) {
-      try {
-        const mt = JSON.parse(modelTierMatch[1]);
-        currentGroup.modelTier = mt.tier;
-        currentGroup.modelTierReason = mt.reason || '';
-      } catch { /* ignore malformed */ }
-      continue;
-    }
+    // MODEL_TIER HTML 注释解析已删除（2026-07-28）：旧 orchestrator 输出约定，
+    // B1-B6 后无写入方；tier 概念退役，模型归角色绑定 CLI 自身配置。
 
     const inFreeText = currentSection !== null && FREE_TEXT_SECTIONS.has(currentSection);
 
@@ -355,6 +345,10 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
     return res.status(404).json({ success: false, error: 'Channel not found' });
   }
 
+  // P0 修复 6: traceId — 复用 audit 中间件落在 req 上的 requestId（同一次 HTTP 请求同值），
+  // 没有则新建（如单测直连路由）；@mention 建 WU 时写入 metadata.traceId。
+  const traceId = (req as any).requestId ?? randomUUID();
+
   // F6: 调用方可显式指定 workspaceId（缺省走频道默认工程）
   const message = await routeMessage(
     channelId,
@@ -365,6 +359,7 @@ router.post('/:id/messages', requireAuth(), requireNotGuest(), async (req, res) 
       workspaceId: typeof workspaceId === 'string' && workspaceId ? workspaceId : undefined,
       // REQ 需求编号（vision §5.3）：调用方可显式指定（缺省走 #REQ-XXXX token / 自动新建）
       reqId: typeof reqId === 'string' && reqId ? reqId : undefined,
+      traceId,
     },
   );
 
@@ -467,6 +462,15 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
       data.defaultPipeline = validated.value;
     }
     await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
+    // B4a: 频道绑定工程 → 自动把内置角色（pm/dev/reviewer）加入 members（幂等，best-effort）
+    if (defaultWorkspaceId !== undefined && data.defaultWorkspaceId) {
+      try {
+        const { ensureBuiltinRoleMembers } = await import('../agents/builtin-roles.js');
+        await ensureBuiltinRoleMembers(fileStore, id);
+      } catch (e) {
+        logger.warn('[Channel] Auto-join builtin roles failed (non-blocking)', { channelId: id, error: String(e) });
+      }
+    }
     const updated = await fileStore.getChannel(id);
     if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
     res.json({ success: true, data: updated });

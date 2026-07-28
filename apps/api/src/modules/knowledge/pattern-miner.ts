@@ -5,13 +5,17 @@
  * 滑动窗口 N=3 挖掘工具序列模式，每日运行。
  */
 
-import { logger, FileStore, resolveEventsDir } from '@dommaker/studio-shared';
+import { logger, FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../skills/skill-store.js';
 import { sharedStore } from './knowledge-bus.service.js';
 import { readFileSync, existsSync } from 'fs';
-import path from 'path';
+import {
+  resolveStudioEventsFile,
+  parseStudioEventPayload,
+  getStudioEventTime,
+} from '../../utils/studio-events.js';
 
-// R2: 事件目录经 resolveEventsDir() 统一解析（STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events）
+// D18: tool:call trace 读自统一事件文件（~/.studio/logs/studio-events.jsonl，测试期隔离）
 const fileStore = new FileStore();
 
 interface ToolTraceEvent {
@@ -165,7 +169,8 @@ export class PatternMiner {
   }
 
   private loadTracesSince(since: number): ToolTraceEvent[] {
-    const filePath = path.join(resolveEventsDir(), 'studio.jsonl');
+    // D18: 统一事件文件；兼容 payload 嵌套（agent-loop/task-executor/mcp）与历史扁平形态
+    const filePath = resolveStudioEventsFile();
     if (!existsSync(filePath)) return [];
 
     try {
@@ -176,11 +181,21 @@ export class PatternMiner {
         .map(line => {
           try { return JSON.parse(line); } catch { return null; }
         })
-        .filter((e: any) => e && e.type === 'tool:call' && e.timestamp > since && !(e.tool || '').startsWith('__'))
-        .map((e: any) => ({
-          type: e.type, tool: e.tool, success: e.success,
-          durationMs: e.durationMs, timestamp: e.timestamp, riskLevel: e.riskLevel,
-        }));
+        .filter((e: any) => e && e.type === 'tool:call')
+        .map((e: any) => {
+          const p = parseStudioEventPayload(e) ?? {};
+          const flat = { ...p, ...e };
+          const ts = getStudioEventTime(e);
+          return {
+            type: 'tool:call',
+            tool: flat.tool,
+            success: flat.success,
+            durationMs: flat.durationMs,
+            timestamp: Number.isFinite(ts) ? ts : 0,
+            riskLevel: flat.riskLevel,
+          };
+        })
+        .filter((e: ToolTraceEvent) => e.timestamp > since && !(e.tool || '').startsWith('__'));
     } catch { return []; }
   }
 

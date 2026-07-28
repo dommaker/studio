@@ -13,8 +13,11 @@
 import { logger, FileStore, parseChannels } from '@dommaker/studio-shared';
 import { channelMessageService } from './channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
-import { resumeWaitingWorkUnit } from '../workunit/waiting-input.js';
+import { resumeWaitingWorkUnit, postStudioSystemMessage } from '../workunit/waiting-input.js';
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
+import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/ownership-resolver.js';
+import { STUDIO_ROLE_NAME } from '../agents/agent-profile.service.js';
+import { PM_ROLE_NAME } from '../agents/builtin-roles.js';
 
 const fileStore = new FileStore();
 const workUnitService = new WorkUnitService();
@@ -24,7 +27,8 @@ const workUnitService = new WorkUnitService();
  * Returns the first matched name, or null if no @mention found.
  */
 export function detectMention(content: string): string | null {
-  const match = content.match(/@([\w-]+)/);
+  // \w 只等价于 [A-Za-z0-9_]，中文等 Unicode 名字匹配不到 — 用 \p{L}/\p{N} 放宽
+  const match = content.match(/@([\p{L}\p{N}_-]+)/u);
   return match ? match[1] : null;
 }
 
@@ -37,18 +41,25 @@ export function detectMention(content: string): string | null {
  * 3. 决策 12: 频道配置了 defaultProfileId → 无 @ 消息派给默认角色建 WorkUnit
  * 4. plain text → store without workUnitId（未配置默认角色 = 维持纯存储）
  *
- * F6: 创建 WorkUnit 时绑定工程 — options.workspaceId 显式指定优先，
- * 否则回落到频道 defaultWorkspaceId。
+ * F6 → B3a 工程归属链（决策 D2）：创建 WorkUnit 时解析工程归属 —
+ * 显式 workspaceId > Requirement.projectId → PMO 项目 gitRepo（metadata.workspaceRoot
+ * 落档，agent-loop 直接作为执行根目录）> 频道 defaultWorkspaceId（降级为默认提示）
+ * > 无归属：WU 照常创建但立即 NEED_INPUT 挂起（blocked + waitingForInput，
+ * waitingReason='ownership'），并向频道发 Studio 系统消息问人；
+ * 线程回复经 waiting-input 解析绑定工程后复活。
  *
  * REQ 需求编号（vision §5.3）：@mention 派发时绑定需求 —
  * options.reqId 显式指定 > 消息文本 #REQ-XXXX token > 自动新建（best-effort）。
+ *
+ * P0 修复 6：options.traceId 链路追踪 id — 仅 @mention 建 WU 时写入 metadata.traceId；
+ * 线程回复不建 WU，不动。
  */
 export async function routeMessage(
   channelId: string,
   content: string,
   replyToId?: string,
   fs?: FileStore,
-  options?: { workspaceId?: string | null; reqId?: string | null },
+  options?: { workspaceId?: string | null; reqId?: string | null; traceId?: string | null },
 ) {
   const resolvedFs = fs ?? fileStore;
   // Use resolved FileStore for WorkUnitService (supports test injection)
@@ -83,16 +94,22 @@ export async function routeMessage(
   const mentionName = detectMention(content);
   if (mentionName) {
     const allProfiles = await resolvedFs.listProfiles({ status: 'active' });
-    // F6: 显式 workspaceId 优先，其次频道默认工程
     const channel = await resolvedFs.getChannel(channelId);
     // §9.5: mention 匹配以 channel.members 为界 — 只能 @ 到本频道成员（修越界 bug）。
     // members 为空（历史频道未回填）时回退到全量 active profile 匹配，保持既有行为。
     const memberIds = parseChannels(channel?.members);
-    const agent = allProfiles.find(p =>
-      p.name === mentionName && (memberIds.length === 0 || memberIds.includes(p.id))
-    ) ?? null;
-    const scope = content.replace(/@[\w-]+\s*/, '');
-    const workspaceId = options?.workspaceId ?? channel?.defaultWorkspaceId ?? null;
+    const inScope = (p: (typeof allProfiles)[number]) => memberIds.length === 0 || memberIds.includes(p.id);
+    let agent = allProfiles.find(p => p.name === mentionName && inScope(p)) ?? null;
+    // B4a（决策 D7）: @studio 特殊路由 — studio 是系统角色不执行任务，
+    // 改派给 pm（metadata.reroutedFrom='studio'）并向频道发系统消息说明；
+    // pm 不存在/被禁用/不在本频道时按未命中处理（assigneeId=null）。
+    let reroutedFrom: string | undefined;
+    if (mentionName === STUDIO_ROLE_NAME) {
+      const pm = allProfiles.find(p => p.name === PM_ROLE_NAME && inScope(p)) ?? null;
+      agent = pm;
+      if (pm) reroutedFrom = STUDIO_ROLE_NAME;
+    }
+    const scope = content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
     // best-effort：绑定失败不阻断 WorkUnit 创建（log + 不带 reqId 继续）。
     const reqId = await resolveReqIdForDispatch({
@@ -105,11 +122,29 @@ export async function routeMessage(
       logger.warn('[MessageRouting] REQ binding failed (non-blocking)', { error: String(err) });
       return null;
     });
+    // B3a 工程归属链（决策 D2）：显式 > Requirement→PMO gitRepo > 频道默认 > 无归属挂起。
+    // 解析故障返回 null，走旧绑定规则兜底。
+    const ownership = await resolveWorkspaceForWU({
+      explicitWorkspaceId: options?.workspaceId,
+      reqId,
+      channelId,
+      fileStore: resolvedFs,
+    }).catch(err => {
+      logger.warn('[MessageRouting] Ownership resolution failed, falling back to legacy workspace binding', {
+        error: String(err),
+      });
+      return null;
+    });
+    // ownership 非 null 时其字段为权威解析结果（source=requirement/none 的 null 不再回落）；
+    // 仅解析故障（null）回退旧绑定规则（不挂起，保可用性）。
+    const workspaceId = ownership ? ownership.workspaceId : (options?.workspaceId ?? channel?.defaultWorkspaceId ?? null);
+    const parked = ownership?.source === 'none';
     const workUnit = await wuService.create({
       scope,
       channelId,
       type: 'task',
-      status: 'unassigned',
+      // B3a: 无归属 → 立即 NEED_INPUT 挂起（blocked），等人回复工程名/路径
+      status: parked ? 'blocked' : 'unassigned',
       assigneeId: agent?.id ?? null,
       workspaceId,
       reqId,
@@ -117,6 +152,22 @@ export async function routeMessage(
         mentionName,
         matched: !!agent,
         creationMode: 'mention',
+        // B4a: @studio 改派标记（WU 实际派给 pm，非 studio 本身）
+        ...(reroutedFrom ? { reroutedFrom } : {}),
+        // P0 修复 6: traceId 贯穿（audit requestId → WU metadata → agent-loop 日志）
+        ...(options?.traceId ? { traceId: options.traceId } : {}),
+        // B3a: 归属解析结果落档（来源区分供日志/审计）
+        ownershipSource: ownership?.source ?? 'fallback',
+        ...(ownership?.workspaceRoot ? { workspaceRoot: ownership.workspaceRoot } : {}),
+        ...(ownership?.projectId ? { ownershipProjectId: ownership.projectId } : {}),
+        ...(parked
+          ? {
+              waitingForInput: true,
+              waitingQuestion: OWNERSHIP_WAITING_QUESTION,
+              waitingSince: new Date().toISOString(),
+              waitingReason: 'ownership',
+            }
+          : {}),
       },
     });
     logger.info('[MessageRouting] WorkUnit created from @mention', {
@@ -126,13 +177,46 @@ export async function routeMessage(
       matched: !!agent,
       workspaceId,
       reqId,
+      ownershipSource: ownership?.source ?? 'fallback',
+      parked,
+      reroutedFrom,
+      traceId: options?.traceId ?? undefined,
     });
-    return channelMessageService.createHumanMessage(
+    const message = await channelMessageService.createHumanMessage(
       channelId,
       content,
       undefined,
       workUnit.id,
     );
+    // B4a: @studio 改派 → 频道发 Studio 系统消息说明（best-effort，挂在派发消息线程）
+    if (reroutedFrom) {
+      await postStudioSystemMessage(
+        resolvedFs,
+        channelId,
+        `studio 是系统角色，你的消息已转给 @${PM_ROLE_NAME}`,
+        { replyToId: message.id, workUnitId: workUnit.id },
+      ).catch(err =>
+        logger.warn('[MessageRouting] Post studio-reroute notice failed (non-blocking)', {
+          workUnitId: workUnit.id,
+          error: String(err),
+        })
+      );
+    }
+    // B3a: 无归属挂起 → 频道发 Studio 系统消息提问（挂在派发消息线程，回复即触发解析）
+    if (parked) {
+      await postStudioSystemMessage(
+        resolvedFs,
+        channelId,
+        `任务「${scope.slice(0, 50)}」正在等待你的回复：${OWNERSHIP_WAITING_QUESTION}`,
+        { replyToId: message.id, workUnitId: workUnit.id },
+      ).catch(err =>
+        logger.warn('[MessageRouting] Post ownership question failed (non-blocking)', {
+          workUnitId: workUnit.id,
+          error: String(err),
+        })
+      );
+    }
+    return message;
   }
 
   // 决策 12: 无 @ 兜底 —— 频道配置了默认角色 → 派给它建 WorkUnit（消息关联到该 WU）

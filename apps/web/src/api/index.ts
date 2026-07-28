@@ -360,12 +360,3 @@ export const workspaceTokenApi = {
   list: () => api.get('/workspace-tokens'),
   revoke: (id: string) => api.delete(`/workspace-tokens/${id}`),
 };
-
-// LLM Config API — AS-020 P9
-export const llmConfigApi = {
-  list: (scope?: string) => api.get('/llm/configs', { params: { scope } }),
-  save: (data: { scope: string; provider: string; model: string; baseUrl?: string }) =>
-    api.post('/llm/configs', data),
-  delete: (id: string) => api.delete(`/llm/configs/${id}`),
-  test: (scope: string) => api.post(`/llm/configs/test`, { scope }),
-};

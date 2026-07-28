@@ -48,12 +48,12 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
   'knowledge-circuit': {
     // R5: 原 harness/src/knowledge/{lifecycle,ingest}.ts 已移除（npm 依赖，见上方说明）；
     // knowledge-singletons.ts 为 R4 后共享单例/向量同步/质量门所在地。
-    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor.service.ts'],
     title: 'Knowledge Circuit Self-Check',
     knowledgeType: 'architecture',
   },
   'knowledge-sync': {
-    files: ['apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/knowledge/routes.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/knowledge/routes.ts', 'apps/api/src/modules/agents/monitor.service.ts'],
     title: 'KnowledgeSync Service',
     knowledgeType: 'architecture',
   },
@@ -63,15 +63,15 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'architecture',
   },
   'knowledgestore-bp': {
-    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor-agent.service.ts'],
+    files: ['apps/api/src/modules/knowledge/knowledge-bus.service.ts', 'apps/api/src/modules/knowledge/knowledge-singletons.ts', 'apps/api/src/modules/knowledge/knowledge-sync.service.ts', 'apps/api/src/modules/agents/monitor.service.ts'],
     title: 'KnowledgeStore Breakpoint Fixes',
     knowledgeType: 'architecture',
   },
   'knowledge-engine-flywheel': {
     files: [
       'apps/api/src/modules/knowledge/*.ts',
-      'apps/api/src/modules/agents/monitor-agent.service.ts',
-      'apps/api/src/modules/agents/auditor-agent.service.ts',
+      'apps/api/src/modules/agents/monitor.service.ts',
+      'apps/api/src/modules/agents/auditor.service.ts',
       // R5: agent-event-listener.ts 已随 pipeline-removal 删除（fb13e2b）；
       // 会话→知识提取现由 agent-loop 触发（R3 extractFromConversation）。
       'apps/api/src/modules/agents/agent-loop.ts',
@@ -311,7 +311,7 @@ class KnowledgeSyncService {
   }
 
   /**
-   * Full sync cycle: detect + heal. Called by MonitorAgent hourly.
+   * Full sync cycle: detect + heal. Called by MonitorService hourly.
    */
   async runSyncCycle(repoDir?: string): Promise<{ stale: StaleReport[]; unmonitored: UnmonitoredReport[]; healed: string[] }> {
     const startTime = Date.now();

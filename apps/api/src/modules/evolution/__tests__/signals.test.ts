@@ -46,11 +46,13 @@ describe('loadWindowSignals', () => {
       JSON.stringify({ timestamp: now - 1000, constraintId: 'c1' }),
       JSON.stringify({ timestamp: now - 48 * 3600_000, constraintId: 'old' }),
     ].join('\n') + '\n');
-    fs.writeFileSync(path.join(paths.eventsDir, 'studio.jsonl'), [
-      JSON.stringify({ type: 'tool:call', timestamp: now - 1000, caller: 'developer', success: false }),
-      JSON.stringify({ type: 'file:change', timestamp: now - 1000 }),
-    ].join('\n') + '\n');
+    // D18: tool:call 与 knowledge:outcome 同一统一事件文件；扁平与 payload 嵌套两种形态都要兼容
     fs.writeFileSync(paths.studioEventsFile, [
+      // 历史扁平形态
+      JSON.stringify({ type: 'tool:call', timestamp: now - 1000, caller: 'developer', success: false }),
+      // StudioEvent 新形态（payload 嵌套）
+      JSON.stringify({ type: 'tool:call', source: 'mcp', payload: JSON.stringify({ tool: 'Read', success: true, timestamp: now - 1000 }), createdAt: new Date(now - 1000).toISOString() }),
+      JSON.stringify({ type: 'file:change', timestamp: now - 1000 }),
       JSON.stringify({ type: 'knowledge:outcome:success', createdAt: new Date(now - 1000).toISOString(), payload: '{}' }),
       JSON.stringify({ type: 'knowledge:consumption', createdAt: new Date(now - 1000).toISOString(), payload: '{}' }),
     ].join('\n') + '\n');
@@ -58,7 +60,9 @@ describe('loadWindowSignals', () => {
     const sig = await loadWindowSignals(paths, 24, fileStore);
     expect(sig.constraintTraces).toHaveLength(1);
     expect(sig.constraintTraces[0].constraintId).toBe('c1');
-    expect(sig.toolCalls).toHaveLength(1);
+    expect(sig.toolCalls).toHaveLength(2);
+    expect(sig.toolCalls[0].success).toBe(false);       // 扁平形态字段保留
+    expect(sig.toolCalls[1].tool).toBe('Read');         // payload 嵌套形态字段拉平
     expect(sig.outcomes).toHaveLength(1);
   });
 

@@ -3,6 +3,9 @@
 > 此文件描述 apps/api/src/modules/knowledge 目录的职责和上下文
 > Updated: 2026-06-11 (GAP-7 元数据驱动注入 + error logging 修复)
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/knowledge/CONTEXT.md, apps/api/src/modules/knowledge/knowledge-singletons.ts, apps/api/src/modules/knowledge/pattern-miner.ts, apps/api/src/modules/knowledge/evolution.service.ts, apps/api/src/modules/knowledge/knowledge-service.ts, apps/api/src/modules/knowledge/resolution.service.ts, apps/api/src/modules/knowledge/documents.routes.ts, apps/api/src/modules/knowledge/entries.routes.ts, apps/api/src/modules/knowledge/evolution.routes.ts, apps/api/src/modules/knowledge/files.routes.ts, apps/api/src/modules/knowledge/import.routes.ts, apps/api/src/modules/knowledge/knowledge-service.routes.ts, apps/api/src/modules/knowledge/internal.routes.ts, apps/api/src/modules/knowledge/knowledge-sync.service.ts, apps/api/src/modules/knowledge/decision-chain-extractor.ts, apps/api/src/modules/knowledge/improver-scheduler.service.ts, apps/api/src/modules/knowledge/knowledge-bus.service.ts, apps/api/src/modules/knowledge/search.routes.ts, apps/api/src/modules/knowledge/routes.ts, apps/api/src/modules/knowledge/document-store.ts, apps/api/src/modules/knowledge/env-snapper.ts, apps/api/src/modules/knowledge/evolution-scheduler.ts, apps/api/src/modules/knowledge/eval-case-generator.ts, apps/api/src/modules/knowledge/rule-scanner.ts, apps/api/src/modules/knowledge/preference-observer.ts
+
 ## 职责
 
 知识引擎：让系统越来越聪明。三层分离架构（Producer → Engine → Consumer）。
@@ -58,7 +61,7 @@ knowledge/
 ├── entries.routes.ts          # 子路由：知识条目（/export /ask /gaps /unified）
 ├── evolution.routes.ts        # 子路由：知识进化（/evolution/*）
 ├── search.routes.ts           # 子路由：检索与解法指标（/resolutions /search /resolution/*）
-├── internal.routes.ts         # 子路由：内部端点（/sync-status /upsert /extract-*，无 auth）
+├── internal.routes.ts         # 子路由：内部端点（/sync-status /upsert，无 auth）
 └── import.routes.ts           # 文件导入路由
 ```
 
@@ -75,12 +78,23 @@ knowledge/
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
 - `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方；替代者 `buildKnowledgeContext` 亦已于 2026-07-27 清理，现注入入口为 `knowledgeService.injectContext`）
 - `applicableAgents` 存储在 tags 中（`agent:executor` 格式），KnowledgeEntry 无此字段
-- **鉴权（2026-07-24 收紧）**：`/api/knowledge`（internal.routes，不在 /api/v1 大门内）2026-07-24 起挂载 requireLocalhost——此前全匿名：POST /upsert 可污染知识库、POST /extract-text-sync 盗用服务器 LLM key、GET /sync-status 有 heal 写副作用；本机脚本经回环调用不受影响。
+- **鉴权（2026-07-24 收紧）**：`/api/knowledge`（internal.routes，不在 /api/v1 大门内）2026-07-24 起挂载 requireLocalhost——此前全匿名：POST /upsert 可污染知识库、GET /sync-status 有 heal 写副作用；本机脚本经回环调用不受影响。（POST /extract-text-sync 已于 2026-07-28 删除：直连 DeepSeek HTTP API 时代的 debug 路由，绕过 CLI 且零调用方）
 - **鉴权（2026-07-24 收紧）**：/api/v1/knowledge 子路由写端点（documents 6 条、entries /ask+/unified、evolution 4 条、files /read-file、import /scan+/execute）与 /api/v1/knowledge-service 写 11 条已收 requireAuth+requireNotGuest；files/import 的 startsWith 路径前缀校验无分隔符（兄弟目录可绕，未修）；knowledge-service GET /entries/stats 被 :id 遮蔽（未修）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: 删除 debug 路由 POST /extract-text-sync——直连 DeepSeek HTTP API（DEEPSEEK_API_KEY）时代的遗留，违反"LLM 调用走角色绑定 CLI"原则且零调用方；知识提取统一走 SystemExecutor（studio 角色）。internal.routes.test/routes.test 同步移除对应用例
+- ✅ `efff512f`: knowledge): vector-db sync 日志降噪 + stderr 尾部留证 + 锁竞争静默（P4）
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ `105844e3`: knowledge): 修复 injectContext 单复数 bug 并执行 2K 注入红线（wireup ②③同批）
+- ✅ `cdec4b8d`: knowledge): R4 清理行为模式读端残尸，知识页标题与实际 7 个 tab 一致
+- ✅ `dddc4b18`: knowledge): R3 解法库口径 pending+canonical + R5 seed 去重改 title+内容 hash
+- ✅ `df5f8998`: knowledge): 向量库同步加固 — 700M 内存帽 + flock 单写者 + 超时放宽至 30min
+- ✅ 2026-07-28: P4 vector-db sync 日志策略 — scheduleVectorDbSync：①错误日志从 slice(0,500) 头部改为 stderr 尾部 800 字符（原截断令 journal 永远看不到真实失败原因）②空输出失败 = flock 锁竞争（journal 实测存在 agent-HOME 作用域同款 sync 共用 /tmp/vector-db-sync.lock）→ 静默按 15s 重排，不告警不计失败 ③真实失败每个 episode 只 warn 一次，重试走 debug，>10 次放弃 error 一次，恢复 info 一次（原每 attempt 刷 journal）；退避序列与 10 次上限不变。失败窗口（09:38-09:41）定位为 studio-api 重启前后的瞬时故障 + 锁竞争，手动全量跑已恢复，根因待下次失败凭尾部日志确认；knowledge-bus-sync.test.ts 改写 6 例
+- ✅ 2026-07-27: B5 D18 — pattern-miner 的 tool:call trace 源从 ~/.studio/events/studio.jsonl 改读统一事件文件（utils/studio-events；兼容 payload 嵌套与历史扁平形态）
+- ✅ 2026-07-27: P0 修复 5 — knowledge-service/knowledge-singletons/resolution/evolution 的 ~/.studio/logs 事件文件统一走 utils/studio-log-path 测试隔离（VITEST → os.tmpdir()/studio-test-logs，生产行为不变）
 - ✅ 2026-07-24: /api/knowledge 挂 requireLocalhost；v1 写端点收 requireAuth+requireNotGuest
 - ✅ `e5142f65`: ci): resolve logger.error type errors in knowledge/routes.ts
 - ✅ `11ba99fa`: ci): resolve type errors in migrated agent/knowledge files

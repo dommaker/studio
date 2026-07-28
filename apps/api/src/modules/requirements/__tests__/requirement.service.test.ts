@@ -142,6 +142,56 @@ describe('RequirementService (vision §5.3)', () => {
     });
   });
 
+  describe('B3a: projectId 挂接（决策 D2）', () => {
+    // projectExists stub：只认 'proj-ok'，不碰真实 ~/.studio/projects
+    const exists = async (id: string) => id === 'proj-ok';
+    let svc: RequirementService;
+
+    beforeEach(() => {
+      svc = new RequirementService(fileStore, { projectExists: exists });
+    });
+
+    it('create 带 projectId → 落档；不带 → null', async () => {
+      const linked = await svc.create({ title: '挂项目', projectId: 'proj-ok' });
+      expect(linked.projectId).toBe('proj-ok');
+      expect((await svc.get(linked.id))!.projectId).toBe('proj-ok');
+
+      const plain = await svc.create({ title: '不挂项目' });
+      expect(plain.projectId).toBeNull();
+    });
+
+    it('create 带不存在的 projectId → 抛错且不落档', async () => {
+      await expect(svc.create({ title: '挂空项目', projectId: 'proj-gone' }))
+        .rejects.toThrow('Project not found: proj-gone');
+      expect((await svc.list()).length).toBe(0);
+    });
+
+    it('update 挂接 / 更换 / 清除（null）projectId', async () => {
+      const req = await svc.create({ title: '需求' });
+
+      const linked = await svc.update(req.id, { projectId: 'proj-ok' });
+      expect(linked.projectId).toBe('proj-ok');
+
+      const cleared = await svc.update(req.id, { projectId: null });
+      expect(cleared.projectId).toBeNull();
+      expect((await svc.get(req.id))!.projectId).toBeNull();
+    });
+
+    it('update 带不存在的 projectId → 抛错且原值不变', async () => {
+      const req = await svc.create({ title: '需求', projectId: 'proj-ok' });
+
+      await expect(svc.update(req.id, { projectId: 'proj-gone' }))
+        .rejects.toThrow('Project not found: proj-gone');
+      expect((await svc.get(req.id))!.projectId).toBe('proj-ok');
+    });
+
+    it('projectId 缺省校验走真实 projectService（默认 deps）', async () => {
+      // 默认 projectExists 查真实 ~/.studio/projects —— 不存在的 id 一律抛错
+      await expect(service.create({ title: '需求', projectId: 'proj-definitely-not-exists-b3a' }))
+        .rejects.toThrow('Project not found');
+    });
+  });
+
   describe('getChain', () => {
     it('returns requirement + workunit summaries (id/title/status/assignee)', async () => {
       const req = await service.create({ title: '链路需求' });

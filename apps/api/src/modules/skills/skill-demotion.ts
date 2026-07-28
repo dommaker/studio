@@ -24,8 +24,9 @@ import * as path from 'path';
 import * as os from 'os';
 import { randomUUID } from 'crypto';
 import { FileStore, logger } from '@dommaker/studio-shared';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
 const DEFAULT_STORE_FILE = path.join(os.homedir(), '.studio', 'data', 'skills', 'demotion-proposals.json');
 

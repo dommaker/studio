@@ -6,13 +6,18 @@ import { describe, it, expect, vi, beforeAll, afterAll, beforeEach, afterEach } 
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpHome, tmpEvents, mockLogger, mockGetStats } = vi.hoisted(() => {
+const { tmpHome, tmpEvents, eventsFile, mockLogger, mockGetStats } = vi.hoisted(() => {
   const fs = require('fs');
   const path = require('path');
   const os = require('os');
+  const tmpEvents = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-rules-events-'));
+  const eventsFile = path.join(tmpEvents, 'studio-events.jsonl');
+  // D18: 统一事件文件按测试文件隔离（resolveStudioEventsFile 懒读 env）
+  process.env.STUDIO_EVENTS_FILE = eventsFile;
   return {
     tmpHome: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-rules-home-')),
-    tmpEvents: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-rules-events-')),
+    tmpEvents,
+    eventsFile,
     mockLogger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
     mockGetStats: vi.fn(() => ({ total: 0 })),
   };
@@ -23,10 +28,10 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('@dommaker/studio-shared', () => ({
-  logger: mockLogger,
-  resolveEventsDir: () => tmpEvents,
-}));
+vi.mock('@dommaker/studio-shared', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@dommaker/studio-shared')>();
+  return { ...actual, logger: mockLogger };
+});
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { getStats: mockGetStats },
@@ -52,11 +57,12 @@ const fileStoreStub = {
 } as any;
 
 function writeSessionEvents(count: number): void {
+  // D18: 历史扁平形态（timestamp 顶层）写入统一事件文件 —— 读方经 getStudioEventTime 兼容
   const eventsJsonl = Array.from({ length: count }, (_, i) => JSON.stringify({
     id: `evt-rules-${i}`,
     type: 'session:summary', source: 'test', payload: '{}', timestamp: new Date().toISOString(),
   })).join('\n');
-  fs.writeFileSync(path.join(tmpEvents, 'studio.jsonl'), eventsJsonl + '\n', 'utf-8');
+  fs.writeFileSync(eventsFile, eventsJsonl + '\n', 'utf-8');
 }
 
 // ── classifyError ──
@@ -159,7 +165,7 @@ describe('generateSuggestions()', () => {
   });
 
   it('skips skill audit when active sessions < 5', async () => {
-    fs.unlinkSync(path.join(tmpEvents, 'studio.jsonl'));
+    fs.unlinkSync(eventsFile);
     try {
       const suggestions = await generateSuggestions(fileStoreStub, new Map(), new Map());
       expect(suggestions.filter(s => s.skillId).length).toBe(0);
@@ -293,7 +299,7 @@ describe('analyzeCircuitHealth()', () => {
 // ── studioEventsJsonl ──
 
 describe('studioEventsJsonl()', () => {
-  it('resolves studio.jsonl under events dir', () => {
-    expect(studioEventsJsonl()).toBe(path.join(tmpEvents, 'studio.jsonl'));
+  it('resolves 统一事件文件（D18，STUDIO_EVENTS_FILE 可覆盖）', () => {
+    expect(studioEventsJsonl()).toBe(eventsFile);
   });
 });

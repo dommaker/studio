@@ -10,16 +10,15 @@
 
 | 导出 | 文件 | 说明 |
 | --- | --- | --- |
-| `SkillDefinition` | `types.ts` | Skill 类型定义，包含 id、name、description、agentTypes、tier、requires、tools、prompt |
-| `SkillTier` | `types.ts` | 推理档位：'fast'\|'standard'\|'premium' |
-| `LoadOptions` | `loader.ts` | `load()` 的参数接口：agentType、tier、exclude |
+| `SkillDefinition` | `types.ts` | Skill 类型定义，包含 id、name、description、agentTypes、requires、tools、prompt |
+| `LoadOptions` | `loader.ts` | `load()` 的参数接口：agentType、exclude |
 | `SkillLoader` | `loader.ts` | 技能加载器类，支持缓存（5 分钟 TTL）和懒加载 |
 | `skillLoader` | `loader.ts` | `SkillLoader` 的单例实例 |
 | `matchIntent` | `intent-router.ts` | 根据任务文本与 skill name/description 匹配，返回按匹配数降序排列的 skill id 数组 |
 
 ## 依赖关系
 
-上游：仅依赖 Node 内置模块（`fs`、`path`、`os`）及同目录 `types.ts`（提供类型 `SkillDefinition`、`SkillTier`）。
+上游：仅依赖 Node 内置模块（`fs`、`path`、`os`）及同目录 `types.ts`（提供类型 `SkillDefinition`）。
 
 下游：
 - `apps/api` 模块：`review-agent.service.ts`、`prompt-builder.ts`、`skill.tools.ts`、`skill-loader.ts`
@@ -32,3 +31,8 @@
 - Frontmatter 解析使用简易行正则，不依赖 YAML 库（`definition/index.ts` 为空文件，仅用作占位）。
 - `matchIntent` 使用简单的关键词包含计数算法，不涉及 NLP 或语义匹配。
 - `SkillLoader` 实例 `skillLoader` 是全局单例，导出时直接实例化，内部 `customSkillsProvided` 标记未在源码完整展现，但用于区分是否已手动注册自定义技能。
+
+## 修复历史
+
+<!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: 任务规格档（tier）机制物理删除——`SkillTier` 类型与 `SkillDefinition.tier` 字段删除（无任何 SKILL.md 声明 tier，过滤恒为全通过）；`LoadOptions.tier` 与 load() 的 tierRank 过滤块摘除，frontmatter tier 键不再解析（存量磁盘文件中的 tier 行惰性忽略）

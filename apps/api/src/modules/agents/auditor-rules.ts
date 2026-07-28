@@ -1,7 +1,7 @@
 /**
  * Auditor Agent — 审计规则（检测 → 建议）
  *
- * 从 auditor-agent.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
+ * 从 auditor.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
  * 本模块负责纯分析检测逻辑，产出 Suggestion 列表：
  *   - 错误归类（classifyError）
  *   - 技能/agent-type 建议规则（B3-005）
@@ -12,14 +12,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger, resolveEventsDir } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { skillStore } from '../skills/skill-store.js';
+import { resolveStudioEventsFile, getStudioEventTime } from '../../utils/studio-events.js';
 
-/** R2 事件目录统一: studio.jsonl 经 resolveEventsDir() 懒解析（STUDIO_EVENTS_DIR > EVENTS_DIR > ~/.studio/events） */
+/** D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl（测试期隔离）。保留函数名兼容既有调用方/测试。 */
 export function studioEventsJsonl(): string {
-  return path.join(resolveEventsDir(), 'studio.jsonl');
+  return resolveStudioEventsFile();
 }
 
 export interface Suggestion {
@@ -97,7 +98,7 @@ export async function analyzeUserModel(): Promise<Suggestion[]> {
       }
     }
   } catch (e: any) {
-    logger.warn('[AuditorAgent] User model analysis failed', { error: String(e) });
+    logger.warn('[AuditorService] User model analysis failed', { error: String(e) });
   }
   return suggestions;
 }
@@ -331,12 +332,12 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
     } catch { /* non-blocking */ }
 
     } catch (e) {
-      logger.warn('[AuditorAgent] OKR circuit health check failed', { error: String(e) });
+      logger.warn('[AuditorService] OKR circuit health check failed', { error: String(e) });
     }
 
-    logger.info('[AuditorAgent] Circuit health analyzed', { total, typeCount: byType.length, types: typeSummary });
+    logger.info('[AuditorService] Circuit health analyzed', { total, typeCount: byType.length, types: typeSummary });
   } catch (e) {
-    logger.warn('[AuditorAgent] Circuit health analysis failed', { error: String(e) });
+    logger.warn('[AuditorService] Circuit health analysis failed', { error: String(e) });
   }
   return suggestions;
 }
@@ -358,12 +359,12 @@ export async function generateSuggestions(
     try {
       const allEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
       activeSessionCount = allEvents.filter(
-        (e: any) => e.type === 'session:summary' && new Date(e.timestamp).getTime() >= fourWeeksAgo.getTime()
+        (e: any) => e.type === 'session:summary' && getStudioEventTime(e) >= fourWeeksAgo.getTime()
       ).length;
     } catch { activeSessionCount = 0; }
 
     if (activeSessionCount < 5) {
-      logger.info('[AuditorAgent] Skipping skill audit — insufficient active sessions', { activeSessionCount });
+      logger.info('[AuditorService] Skipping skill audit — insufficient active sessions', { activeSessionCount });
     } else {
       // Query skills with sufficient usage for analysis
       const skills = skillStore.list({ usageCount: { gte: 3 } });
@@ -414,7 +415,7 @@ export async function generateSuggestions(
             const allEvents = await fileStore.readJsonl<any>(studioEventsJsonl());
             recentUsage = allEvents.filter(
               (e: any) => e.type === 'skill:used'
-                && new Date(e.timestamp).getTime() >= fourWeeksAgo.getTime()
+                && getStudioEventTime(e) >= fourWeeksAgo.getTime()
                 && String(e.payload || '').includes(skill.id)
             ).length;
           } catch { recentUsage = 0; }
@@ -481,7 +482,7 @@ export async function generateSuggestions(
       }
     }
   } catch (err) {
-    logger.warn('[AuditorAgent] Failed to generate suggestions', { error: String(err) });
+    logger.warn('[AuditorService] Failed to generate suggestions', { error: String(err) });
   }
 
   return suggestions;

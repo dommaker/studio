@@ -39,7 +39,7 @@ function getDefaultBranch(cwd: string): string {
 /**
  * 创建 worktree（真 git worktree add）
  */
-export async function createWorktree(worktree: string, baseBranch: string, repoDir: string, task?: AgentTask): Promise<void> {
+export async function createWorktree(worktree: string, baseBranch: string, repoDir: string, task?: AgentTask, branchName?: string): Promise<void> {
   // Validate repoDir is a git repository
   if (!fsSync.existsSync(path.join(repoDir, '.git'))) {
     throw new Error(`repoDir is not a git repository: ${repoDir}`);
@@ -62,17 +62,17 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
   }
 
   // 创建 git worktree — 分支名必须包含完整 executionId，确保 findTaskBranch 能找到
-  const branchName = `task/${path.basename(worktree)}`;
+  const resolvedBranch = branchName ?? `task/${path.basename(worktree)}`;
   try {
     await execSh(
-      `git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`,
+      `git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`,
       { cwd: repoDir, timeoutMs: 30_000 },
     );
   } catch (e: any) {
     if (e.message?.includes("already exists")) {
       try {
-        await execSh(`git branch -D "${branchName}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
-        await execSh(`git worktree add -b "${branchName}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
+        await execSh(`git branch -D "${resolvedBranch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+        await execSh(`git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
       } catch (e2: any) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
     } else { throw e; }
   }
@@ -481,4 +481,58 @@ export async function ensureDeps(worktree: string, repoDir: string): Promise<voi
       worktree, hash, error: String(e),
     });
   }
+}
+
+// ── B3b-i: WU 专属 worktree（按 WU id 键控，跨 step 复用）──
+
+export interface WuWorktreeInfo {
+  worktreePath: string;   // <worktreesDir>/wu-<wuId>
+  branch: string;         // task/<wuId>
+  baseBranch: string;     // 创建时探测/复用时沿用 metadata 记录
+  baseRepo: string;       // 共享 git 仓库根
+}
+
+/**
+ * B3b-i: 确保 WU 专属 worktree 存在。
+ * 同一 WU 多 step 复用（目录含 .git 即视为已创建，不重建）。
+ * 创建失败：清理半成品后抛错——调用方走失败分支，绝不允许退回共享目录。
+ */
+export async function ensureWuWorktree(opts: {
+  wuId: string;
+  repoDir: string;
+  worktreesDir: string;
+  baseBranch?: string;
+}): Promise<WuWorktreeInfo> {
+  const { wuId, repoDir, worktreesDir } = opts;
+  const worktreePath = path.join(worktreesDir, `wu-${wuId}`);
+  const branch = `task/${wuId}`;
+
+  if (fsSync.existsSync(path.join(worktreePath, '.git'))) {
+    logger.info('[WorktreeResolver] Reusing WU worktree', { worktreePath, wuId });
+    return { worktreePath, branch, baseBranch: opts.baseBranch || getDefaultBranch(repoDir), baseRepo: repoDir };
+  }
+
+  const baseBranch = opts.baseBranch || getDefaultBranch(repoDir);
+  try {
+    await createWorktree(worktreePath, baseBranch, repoDir, undefined, branch);
+  } catch (e) {
+    logger.error('[WorktreeResolver] WU worktree creation failed, cleaning up', { worktreePath, wuId, error: String(e) });
+    await cleanupFailedWuWorktree(worktreePath, branch, repoDir);
+    throw e;
+  }
+  logger.info('[WorktreeResolver] WU worktree created', { worktreePath, branch, baseBranch, repo: repoDir, wuId });
+  return { worktreePath, branch, baseBranch, baseRepo: repoDir };
+}
+
+/** ensureWuWorktree 失败兜底：清掉半成品（best-effort，绝不再抛错掩盖原始错误） */
+async function cleanupFailedWuWorktree(worktreePath: string, branch: string, repoDir: string): Promise<void> {
+  try {
+    await execSh(`git worktree remove --force "${worktreePath}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 10_000 });
+  } catch { /* best-effort */ }
+  try {
+    await fs.rm(worktreePath, { recursive: true, force: true });
+  } catch { /* best-effort */ }
+  try {
+    await execSh(`git branch -D "${branch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
+  } catch { /* best-effort */ }
 }

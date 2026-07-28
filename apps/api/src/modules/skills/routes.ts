@@ -8,6 +8,7 @@ import { Router, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
 import { skillStore } from './skill-store.js';
 import { proposalStore } from './proposal-store.js';
+import { promoteSkill } from './skill-promotion.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 
 const router = Router();
@@ -150,7 +151,8 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res
 
 /**
  * POST /api/v1/skills/:id/publish
- * draft → published
+ * draft → published（D11 promote 门禁：SKILL.md 存在 + frontmatter 三要素 + 引用路径真实，
+ * 任一不满足拒绝并说明原因；通过后磁盘 frontmatter 同步 published 进匹配池）
  */
 router.post('/:id/publish', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
@@ -160,7 +162,12 @@ router.post('/:id/publish', requireAuth(), requireNotGuest(), async (req: Reques
       return res.status(400).json({ error: `Cannot publish skill with status '${skill.status}'` });
     }
 
-    const updated = skillStore.update(req.params.id, { status: 'published' });
+    const result = promoteSkill(skill.name);
+    if (!result.ok) {
+      return res.status(400).json({ error: 'Promote gate rejected', reasons: result.errors });
+    }
+
+    const updated = skillStore.get(req.params.id);
     res.json({ data: updated });
   } catch (error) {
     logger.error({ error }, 'Failed to publish skill');

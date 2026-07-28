@@ -12,12 +12,11 @@ import { logger } from '@dommaker/studio-shared';
 // TODO(cleanup): @dommaker/studio-task 为 pipeline 时代队列，全库无存活生产者；
 // 默认关闭（启动/停止由 STUDIO_TASK_QUEUE_ENABLED=true 恢复）。
 // 包暂不删除 — 12 个 task-queue 测试为预存失败。
-import { llmConfigService } from './modules/llm/config.service.js';
 import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
-import { monitorAgent } from './modules/agents/monitor-agent.service.js';
-import { auditorAgent } from './modules/agents/auditor-agent.service.js';
+import { monitorService } from './modules/agents/monitor.service.js';
+import { auditorService } from './modules/agents/auditor.service.js';
 import { daemon } from './daemon/studio-daemon.js';
 import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';
@@ -78,11 +77,11 @@ async function start() {
     });
 
     // SessionSummary: 提取上次会话以来的知识（非 Goal 维度）
-    import('./modules/agents/session-summary-agent.service.js').then(({ sessionSummaryAgent }) => {
+    import('./modules/agents/session-summary.service.js').then(({ sessionSummaryService }) => {
       // 启动时跑一次
-      setTimeout(() => sessionSummaryAgent.summarize(), 3000);
+      setTimeout(() => sessionSummaryService.summarize(), 3000);
       // 每 6 小时增量跑一次（daemon 长期运行不丢分析）
-      setInterval(() => sessionSummaryAgent.summarize(), 6 * 60 * 60 * 1000);
+      setInterval(() => sessionSummaryService.summarize(), 6 * 60 * 60 * 1000);
     }).catch(err => logger.warn('[SessionSummary] Import failed', { error: String(err) }));
 
     // G-002: 冷启动业务规则扫描（异步，不阻塞启动）
@@ -95,11 +94,11 @@ async function start() {
       envSnapper.startPeriodicSnapshots();
     });
 
-    // G-004: 决策链提取（KK 提取时自动触发，见 knowledge-agent.service.ts）
+    // G-004: 决策链提取（KK 提取时自动触发，见 knowledge-curator.service.ts）
 
     // P1b: 冷启动知识导入（异步，不阻塞启动）
-    import('./modules/agents/knowledge-agent.service.js').then(({ knowledgeAgent }) => {
-      knowledgeAgent.coldStartAll().catch(() => { /* non-blocking */ });
+    import('./modules/agents/knowledge-curator.service.js').then(({ knowledgeCurator }) => {
+      knowledgeCurator.coldStartAll().catch(() => { /* non-blocking */ });
     });
 
     // 注册路由
@@ -125,21 +124,31 @@ async function start() {
     logger.info('[WsGateway] Attached to HTTP server at /ws/daemon');
 
     // ── 核心服务 ──
-    monitorAgent.start();
-    auditorAgent.start();
-    daemon.start();
+    monitorService.start();
+    auditorService.start();
+    // B4a（决策 D8）: daemon.start() 已摘除 —— studio-daemon 是 pipeline 时代
+    // session 管理器，submitJob/submitAdhocJob 全库无生产调用方（仅测试），
+    // 且其 reviewer session 每次启动新建 git worktree（daemon/reviewer-* 分支
+    // 从不合从不删，泄漏源头）。代码文件保留：daemon-routes / discord /
+    // ops.service / cli 仍消费 getStatus/isStarted（未启动时安全降级为空状态）。
     // REQ 需求编号体系（vision §5.3）：WorkUnit 终态 → Requirement done 状态汇总
     try {
       const { initRequirementRollup } = await import('./modules/requirements/rollup.js');
       initRequirementRollup();
       logger.info('[Requirement] Rollup subscribed (workunit.status_changed → done)');
     } catch (e) { logger.warn('[Requirement] Rollup init failed', { error: String(e) }); }
-    // ── Ops Agent: runtime health loop ──
+    // B3a 工程归属链（决策 D2）：WorkUnit 状态 → PMO 项目进度回写
     try {
-      const { createOpsAgent } = await import('./modules/agents/ops-agent.service.js');
-      const opsAgent = createOpsAgent();
-      opsAgent.start();
-    } catch (e) { logger.warn('[OpsAgent] Failed to start', { error: String(e) }); }
+      const { initPmoProgressRollup } = await import('./modules/pmo/progress-rollup.js');
+      initPmoProgressRollup();
+      logger.info('[PMO] Progress rollup subscribed (workunit.status_changed → project progress)');
+    } catch (e) { logger.warn('[PMO] Progress rollup init failed', { error: String(e) }); }
+    // ── Ops Service: runtime health loop ──
+    try {
+      const { createOpsService } = await import('./modules/agents/ops.service.js');
+      const opsService = createOpsService();
+      opsService.start();
+    } catch (e) { logger.warn('[OpsService] Failed to start', { error: String(e) }); }
     startAuditSubscriber();
     try { startEvolutionScheduler(); } catch { logger.warn('Evolution scheduler unavailable'); }
 
@@ -156,6 +165,13 @@ async function start() {
       try {
         await ensureStudioProfile(fileStore);
       } catch (e) { logger.warn('[StudioRole] ensureStudioProfile failed', { error: String(e) }); }
+      // B4a（决策 D7）: 内置角色 seed（pm/dev/reviewer，幂等、不覆盖用户改动、可禁用）
+      // + 一次性迁移：已绑定工程的存量频道补内置角色成员（幂等）
+      try {
+        const { ensureBuiltinRoles, migrateBuiltinRolesToProjectChannels } = await import('./modules/agents/builtin-roles.js');
+        await ensureBuiltinRoles(fileStore);
+        await migrateBuiltinRolesToProjectChannels(fileStore);
+      } catch (e) { logger.warn('[BuiltinRoles] Seed/migration failed', { error: String(e) }); }
       const profiles = await fileStore.listProfiles({ status: 'active' });
       const scheduler = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
       scheduler.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)
@@ -210,6 +226,12 @@ async function start() {
     registerExecuteHandler('workunit-input-reminder-scan', async () => {
       const { scanWaitingForInputReminders } = await import('./modules/workunit/waiting-input.js');
       await scanWaitingForInputReminders();
+    });
+
+    // ── P0: WorkUnit 执行超时释放 handler（workunit-timeout 触发器）──
+    registerExecuteHandler('workunit-timeout-scan', async () => {
+      const { scanTimedOutWorkUnits } = await import('./modules/workunit/timeout-release.js');
+      await scanTimedOutWorkUnits();
     });
 
     // ── E1 约束进化（vision §6）：每日扫描 handler + 频道审核 watcher ──
@@ -356,8 +378,8 @@ async function start() {
       detachWsGateway();
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }
       stopEvolutionScheduler();
-      monitorAgent.stop();
-      auditorAgent.stop();
+      monitorService.stop();
+      auditorService.stop();
       stopAuditSubscriber();
       // Deprecated meeting services removed from startup — stops are no-ops
       try { await stopHealthMonitor(); } catch {}

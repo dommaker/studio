@@ -58,16 +58,16 @@ vi.mock('../../knowledge/knowledge-sync.service.js', () => ({
   knowledgeSync: { runSyncCycle: mockRunSyncCycle },
 }));
 
-vi.mock('../triage-agent.service.js', () => ({
-  triageAgent: { handleAlert: mockHandleAlert },
+vi.mock('../triage.service.js', () => ({
+  triageService: { handleAlert: mockHandleAlert },
 }));
 
 vi.mock('../monitor-alerts.js', () => ({
   emitMonitorEvent: mockEmitEvent,
 }));
 
-vi.mock('../knowledge-agent.service.js', () => ({
-  knowledgeAgent: { runDailyMaintenance: mockRunDailyMaintenance },
+vi.mock('../knowledge-curator.service.js', () => ({
+  knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
 }));
 
 import {
@@ -160,7 +160,7 @@ describe('systemTriageCheck confirm window', () => {
     await systemTriageCheck();
 
     expect(mockLogger.info).toHaveBeenCalledWith(
-      '[MonitorAgent] System anomaly resolved',
+      '[MonitorService] System anomaly resolved',
       expect.objectContaining({ type: 'resource_critical', wasSeen: 1 }),
     );
     expect(mockHandleAlert.mock.calls.filter(c => c[0]?.type === 'resource_critical')).toHaveLength(0);
@@ -213,7 +213,7 @@ describe('runCircuitCheckAndRepair', () => {
 
     await runCircuitCheckAndRepair();
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      '[MonitorAgent] KnowledgeSync detected issues',
+      '[MonitorService] KnowledgeSync detected issues',
       expect.objectContaining({ healed: 1 }),
     );
   });
@@ -224,7 +224,7 @@ describe('runCircuitCheckAndRepair', () => {
 
     mockRunSyncCycle.mockRejectedValueOnce(new Error('boom'));
     await expect(runCircuitCheckAndRepair()).resolves.toBeUndefined();
-    expect(mockLogger.warn).toHaveBeenCalledWith('[MonitorAgent] KnowledgeSync check failed', expect.anything());
+    expect(mockLogger.warn).toHaveBeenCalledWith('[MonitorService] KnowledgeSync check failed', expect.anything());
   });
 });
 

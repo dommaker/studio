@@ -1,4 +1,4 @@
-// TriageAgent destructive-action gating test — STUDIO_TRIAGE_DESTRUCTIVE flag
+// TriageService destructive-action gating test — STUDIO_TRIAGE_DESTRUCTIVE flag
 // 验证：默认（flag off）破坏性命令（rm -rf / pkill / tmux kill-session / find -delete）
 // 不会真正执行，只发出 dry-run echo；flag on 时才按原样执行。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -67,7 +67,7 @@ vi.mock('child_process', () => ({
   }),
 }));
 
-const { triageAgent, guarded } = await import('../triage-agent.service.js');
+const { triageService, guarded } = await import('../triage.service.js');
 
 const DRY_RUN_PREFIX = `echo '[Triage] DRY-RUN`;
 // 破坏性 token：出现即说明该命令"含破坏性意图"
@@ -82,7 +82,7 @@ const DESTRUCTIVE_TYPES = [
   'execution_heartbeat_lost', // tmux kill-session
 ];
 
-describe('TriageAgent destructive action gating', () => {
+describe('TriageService destructive action gating', () => {
   beforeEach(() => {
     incidentStore.length = 0;
     execCalls.length = 0;
@@ -118,7 +118,7 @@ describe('TriageAgent destructive action gating', () => {
   describe('flag off (default)', () => {
     for (const type of DESTRUCTIVE_TYPES) {
       it(`${type}: destructive command is NOT executed, only dry-run echo`, { timeout: 30000 }, async () => {
-        const result = await triageAgent.handleAlert({
+        const result = await triageService.handleAlert({
           type,
           severity: 'critical',
           message: `test ${type}`,
@@ -141,7 +141,7 @@ describe('TriageAgent destructive action gating', () => {
     }
 
     it('read-only diagnose commands still run (observability kept)', { timeout: 30000 }, async () => {
-      await triageAgent.handleAlert({
+      await triageService.handleAlert({
         type: 'execution_stuck',
         severity: 'critical',
         message: 'test read-only diagnose',
@@ -157,9 +157,9 @@ describe('TriageAgent destructive action gating', () => {
     it('executes destructive commands verbatim', { timeout: 60000 }, async () => {
       process.env.STUDIO_TRIAGE_DESTRUCTIVE = 'true';
 
-      await triageAgent.handleAlert({ type: 'execution_stuck', severity: 'critical', message: 't', details: { executionId: 'e1' } });
-      await triageAgent.handleAlert({ type: 'zombie', severity: 'critical', message: 't' });
-      await triageAgent.handleAlert({ type: 'resource_critical', severity: 'critical', message: 't' });
+      await triageService.handleAlert({ type: 'execution_stuck', severity: 'critical', message: 't', details: { executionId: 'e1' } });
+      await triageService.handleAlert({ type: 'zombie', severity: 'critical', message: 't' });
+      await triageService.handleAlert({ type: 'resource_critical', severity: 'critical', message: 't' });
 
       const rawDestructive = execCalls.filter(
         (cmd) => DESTRUCTIVE_RE.test(cmd) && !cmd.startsWith(DRY_RUN_PREFIX),

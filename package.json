@@ -49,7 +49,6 @@
     "prepare": "node scripts/harness-sync.js"
   },
   "devDependencies": {
-    "@dommaker/harness": "^0.16.4",
     "@types/node": "^20.0.0",
     "typescript": "^5.3.0",
     "vitest": "^4.1.2"
@@ -59,6 +58,7 @@
     "pnpm": ">=8.0.0"
   },
   "dependencies": {
+    "@dommaker/harness": "^0.16.5",
     "tsx": "^4.22.3"
   }
 }

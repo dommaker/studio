@@ -18,7 +18,6 @@ const BUILTIN_SKILLS = [
     description: '测试驱动开发工作流：写失败测试→最小实现→通过→重构→循环',
     trigger: 'goal_start',
     agentTypes: JSON.stringify(['executor']),
-    tier: 'fast',
     prompt: `## TDD 工作流
 
 严格按以下流程工作：
@@ -37,7 +36,6 @@ const BUILTIN_SKILLS = [
     description: '多立场代码审查：质疑者/架构师/执行者/实用主义者轮流审查',
     trigger: 'review',
     agentTypes: JSON.stringify(['reviewer']),
-    tier: 'standard',
     prompt: `## 审查流程
 
 你要用 4 个立场轮流审查代码，每个立场关注不同的维度：
@@ -62,7 +60,6 @@ const BUILTIN_SKILLS = [
     description: '第5立场审查：检测 fallback/hack/workaround/临时方案等技术债模式',
     trigger: 'review',
     agentTypes: JSON.stringify(['reviewer']),
-    tier: 'standard',
     prompt: `## 第5立场：法证审查 (Forensic)
 
 在前4立场之后，用法证视角审查代码变更，专注检测：
@@ -85,7 +82,6 @@ const BUILTIN_SKILLS = [
     description: '集成验证：合并分支→typecheck→test→冲突分析',
     trigger: 'integration',
     agentTypes: JSON.stringify(['executor']),
-    tier: 'standard',
     prompt: `## 集成验证
 
 你是集成验证者。合并所有并行 sub-agent 的工作并验证。
@@ -121,7 +117,6 @@ async function seedSkills() {
       status: 'published',
       trigger: skill.trigger,
       agentTypes: skill.agentTypes,
-      tier: skill.tier,
       prompt: skill.prompt,
       isBuiltin: true,
       createdAt: existing?.createdAt || now,

@@ -11,10 +11,25 @@ import { randomUUID } from 'crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
-import { eventBus, FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 
 /** 保留角色名：系统内置 studio 角色专用，用户不可创建/改名/删除 */
 export const STUDIO_ROLE_NAME = 'studio';
+
+/** B4a: studio 角色定位描述（种子默认值；用户自定义后不覆盖） */
+export const STUDIO_ROLE_DESCRIPTION = '系统角色：平台维护性 LLM 调用与系统提醒署名，不执行任务';
+
+/**
+ * L2（2026-07-28）：studio 角色缺省 provider（种子默认值；用户显式配置后不覆盖）。
+ *
+ * 决策 D8：studio 是系统级 LLM 调用身份，配便宜模型档——按架构原则「模型归算力
+ * 提供方」，具体模型由 CLI 自身配置决定（本机 claude → DeepSeek anthropic 兼容端点，
+ * ANTHROPIC_MODEL / ANTHROPIC_DEFAULT_HAIKU_MODEL 决定档位，见 ~/.claude/settings.json）。
+ * 选 claude 的依据：① 与 AgentLoop 的 provider 缺省（profile.provider || 'claude'）同口径；
+ * ② SystemExecutor 经 stdin 投递 prompt，内建 provider 模板里仅 claude/codex
+ * promptViaStdin=true，而 codex 本机与 DeepSeek wire_api 不兼容（见 cli-adapter 头部注释）。
+ */
+export const STUDIO_ROLE_DEFAULT_PROVIDER = 'claude';
 
 export interface CreateAgentProfileInput {
   name: string;
@@ -87,19 +102,37 @@ export type AgentProfileWithOnline = AgentProfileData & {
  * studio 角色是系统任务执行身份（systemExecutor 读其 provider），
  * 不通过 AgentProfileService.create 走事件流（避免触发 agentLoopRegistry mount），
  * 直接 fileStore.createProfile。已存在则跳过。
+ *
+ * B4a: description 定位为"系统角色不执行任务"——新建直接写入；
+ * 存量仅在 description 为空（旧默认）时回填，用户自定义不覆盖。
+ * L2: provider 同口径——新建写入 STUDIO_ROLE_DEFAULT_PROVIDER；
+ * 存量 provider 为空（未配置）时回填，用户显式配置的 provider 不覆盖。
  */
 export async function ensureStudioProfile(fileStore: FileStore): Promise<AgentProfileData> {
   const all = await fileStore.listProfiles();
   const existing = all.find(p => p.name === STUDIO_ROLE_NAME);
-  if (existing) return existing;
+  if (existing) {
+    const patch: Partial<AgentProfileData> = {};
+    if (!existing.description || !existing.description.trim()) {
+      patch.description = STUDIO_ROLE_DESCRIPTION;
+    }
+    if (!existing.provider) {
+      patch.provider = STUDIO_ROLE_DEFAULT_PROVIDER;
+    }
+    if (Object.keys(patch).length === 0) {
+      return existing;
+    }
+    await fileStore.updateProfile(existing.id, patch);
+    return { ...existing, ...patch };
+  }
 
   const now = new Date().toISOString();
   const data: AgentProfileData = {
     id: randomUUID(),
     name: STUDIO_ROLE_NAME,
-    description: null,
+    description: STUDIO_ROLE_DESCRIPTION,
     channels: '[]',
-    provider: null,
+    provider: STUDIO_ROLE_DEFAULT_PROVIDER,
     status: 'active',
     createdAt: now,
     updatedAt: now,
@@ -204,10 +237,19 @@ export class AgentProfileService {
     }
 
     // Add isOnline field (check RuntimeState via FileStore)
+    // Online 语义 = loop 存活：status idle/active 且心跳新鲜（刚启动未及首次心跳时按 startedAt 宽限）。
+    // 阈值与 agent-timeout-scan 一致（5 分钟）— 空闲 loop 不再误显示为离线。
+    const ONLINE_TIMEOUT_MS = 5 * 60 * 1000;
+    const onlineThreshold = Date.now() - ONLINE_TIMEOUT_MS;
     const agentIds = profiles.map(p => p.id);
     const allStates = await this.fileStore.listStates();
-    const activeStates = allStates.filter(s => s.status === 'active' && agentIds.includes(s.roleId));
-    const onlineSet = new Set(activeStates.map(ri => ri.roleId));
+    const aliveStates = allStates.filter(s =>
+      (s.status === 'active' || s.status === 'idle') && agentIds.includes(s.roleId) &&
+      (s.lastHeartbeat
+        ? new Date(s.lastHeartbeat).getTime() >= onlineThreshold
+        : new Date(s.startedAt).getTime() >= onlineThreshold)
+    );
+    const onlineSet = new Set(aliveStates.map(ri => ri.roleId));
 
     // F2: surface latest startup failure per profile (status === 'error' states only)
     const errorByRole = new Map<string, { lastError: string; lastErrorAt: string | null }>();
@@ -276,6 +318,16 @@ export class AgentProfileService {
     }
 
     await this.fileStore.deleteProfile(id);
+    // 清理 channel.members 中的悬空引用（channel.members 是成员关系唯一事实源）
+    const channels = await this.fileStore.listChannels();
+    for (const ch of channels) {
+      const ids = parseChannels(ch.members);
+      if (ids.includes(id)) {
+        await this.fileStore.updateChannel(ch.id, {
+          members: JSON.stringify(ids.filter(m => m !== id)),
+        });
+      }
+    }
     // F1: notify AgentLoopRegistry (unmounts the loop)
     eventBus.publish('agent-profile.deleted', { profileId: id });
   }

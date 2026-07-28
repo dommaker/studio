@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/spec-reviews 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/spec-reviews/CONTEXT.md, apps/api/src/modules/spec-reviews/routes.ts, apps/api/src/modules/spec-reviews/spec-review.service.ts
+
 ## 职责
 
 该模块提供 Spec 审查相关的 API 路由和后端服务，包括创建审查、查询审查、获取详情、提交审批等核心功能，支持绕过审批操作，并触发通知。数据持久化使用 FileStore（文件存储）替代原有 Prisma 依赖。
@@ -34,6 +37,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零

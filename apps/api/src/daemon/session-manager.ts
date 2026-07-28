@@ -2,9 +2,8 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger, getModelForTier, parseStreamEvents, extractUsage, extractWriteContent } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractUsage, extractWriteContent } from '@dommaker/studio-shared';
 import { readSessionIdFile } from '@dommaker/studio-shared/node';
-import type { ModelTier } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
 import { writeTaskLog, classifyTaskError } from './task-logger.js';
 import type { TaskLog } from './task-logger.js';
@@ -12,7 +11,6 @@ import type { TaskLog } from './task-logger.js';
 export interface SessionConfig {
   name: string;
   worktree: string;
-  modelTier: ModelTier;
   timeoutMs: number;
   persistent: boolean;
 }
@@ -156,7 +154,6 @@ export class SessionManager {
 
     const startTime = Date.now();
     const isFirstTask = state.taskCount === 0;
-    const model = getModelForTier(state.config.modelTier);
     const phase = sessionName === 'analyst' ? 'analyst' : 'executor';
     const isAnalyst = sessionName === 'analyst';
 
@@ -174,7 +171,6 @@ export class SessionManager {
       session: sessionName,
       sessionId: state.sessionId,
       taskIndex,
-      model,
       phase,
       command: '',
       durationMs: Date.now() - startTime,
@@ -189,7 +185,6 @@ export class SessionManager {
       session: sessionName,
       task: taskIndex,
       isFirstTask,
-      model,
       isNewSession: state.isNewSession,
       sessionFlag,
       sessionId: state.sessionId,
@@ -202,7 +197,6 @@ export class SessionManager {
         id: execId,
         executionId: state.sessionId,
         provider: 'claude',
-        model: state.config.modelTier,
         prompt: job.prompt,
         timeoutMs: state.config.timeoutMs,
         parameters: {

@@ -1,7 +1,7 @@
 /**
  * Auditor Agent — 洞察与报告输出
  *
- * 从 auditor-agent.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
+ * 从 auditor.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
  * 本模块负责报告侧：
  *   - 开发会话行为趋势分析（session:summary → behavioral insights）
  *   - B13-011: 每日快照 + 7 日趋势检测
@@ -14,36 +14,31 @@ import * as path from 'path';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
-import { studioEventsJsonl } from './auditor-rules.js';
+import { readStudioEvents, parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
 
 /**
  * 分析开发会话行为趋势 (session:summary → behavioral insights)
  *
- * 读取统一事件目录（~/.studio/events，env 可覆盖）studio.jsonl 中的
+ * D18：读取统一事件文件（~/.studio/logs/studio-events.jsonl，测试期隔离）中的
  * session:summary 事件，聚合最近 24h 的行为信号，产出入门级洞察。
+ * 兼容 payload 嵌套（session-summary-generator）与历史扁平形态。
  * 不自动进化约束 — 行为约束的执行机制（Claude Code hooks）与代码约束（harness check）不同。
  */
 export async function analyzeSessionTrends(since: Date): Promise<string[]> {
-  const lines: string[] = [];
+  const events: Array<Record<string, any>> = [];
   try {
-    const eventsFile = studioEventsJsonl();
-    if (!fs.existsSync(eventsFile)) return [];
-
-    const raw = fs.readFileSync(eventsFile, 'utf-8');
-    for (const line of raw.split('\n')) {
-      if (!line.trim()) continue;
-      try {
-        const evt = JSON.parse(line);
-        if (evt.type === 'session:summary' && new Date(evt.timestamp) >= since) {
-          lines.push(line);
-        }
-      } catch {}
+    const rows = await readStudioEvents();
+    const sinceMs = since.getTime();
+    for (const row of rows) {
+      if (row.type !== 'session:summary' || getStudioEventTime(row) < sinceMs) continue;
+      const { payload: _p, ...top } = row;
+      events.push({ ...(parseStudioEventPayload(row) ?? {}), ...top });
     }
   } catch { return []; }
 
-  if (lines.length === 0) return [];
+  if (events.length === 0) return [];
 
   // Aggregate metrics
   let totalSessions = 0;
@@ -54,17 +49,16 @@ export async function analyzeSessionTrends(since: Date): Promise<string[]> {
   let totalTurnCount = 0;
   let maxTurnCount = 0;
 
-  for (const line of lines) {
-    try {
-      const evt = JSON.parse(line);
-      totalSessions++;
-      if (evt.deepAnalysis) deepAnalysisCount++;
-      if (evt.deepAnalysis && !evt.knowledgeCaptured) missingCaptureCount++;
-      if (evt.sensitiveOpsCount > 0) sensitiveOpsSessions++;
-      if (evt.sensitiveOpsCount >= 3) highSensitiveOpsCount++;
-      totalTurnCount += (evt.turnCount || 0);
-      if ((evt.turnCount || 0) > maxTurnCount) maxTurnCount = evt.turnCount;
-    } catch {}
+  for (const evt of events) {
+    totalSessions++;
+    // 字段兼容：扁平形态 turnCount vs generator 形态 eventCount
+    const turns = evt.turnCount ?? evt.eventCount ?? 0;
+    if (evt.deepAnalysis) deepAnalysisCount++;
+    if (evt.deepAnalysis && !evt.knowledgeCaptured) missingCaptureCount++;
+    if (evt.sensitiveOpsCount > 0) sensitiveOpsSessions++;
+    if (evt.sensitiveOpsCount >= 3) highSensitiveOpsCount++;
+    totalTurnCount += turns;
+    if (turns > maxTurnCount) maxTurnCount = turns;
   }
 
   const insights: string[] = [];
@@ -203,55 +197,13 @@ export function trackTrends(snapshot: {
   return insights;
 }
 
-// ── Save Tier Stats (Auditor → Analyst feedback loop) ──
-
-export async function saveTierStats(
-  tierStats: Map<string, { total: number; failed: number }>,
-): Promise<void> {
-  if (tierStats.size === 0) return;
-
-  try {
-    const stats = [...tierStats.entries()].map(([tier, s]) => ({
-      tier,
-      total: s.total,
-      failed: s.failed,
-      successRate: s.total > 0 ? Math.round((1 - s.failed / s.total) * 100) : 100,
-    }));
-
-    const { sharedStore: tierStatsStore } = await import('../knowledge/knowledge-bus.service.js');
-    tierStatsStore.save({
-      id: `tier-stats-${new Date().toISOString().slice(0, 10)}`,
-      type: 'guideline' as any,
-      title: 'tier_success_rate',
-      content: JSON.stringify(stats),
-      maturity: 'active' as any,
-      layer: 'project',
-      created: new Date().toISOString(),
-      lastReferenced: new Date().toISOString(),
-      contributors: ['auditor-agent'],
-      projects: [],
-      tags: ['audit', 'tier_stats'],
-      applicablePhases: [],
-      sourceReferences: [],
-      referencedBy: [],
-      executionResults: [],
-      consumptionMode: 'reference' as any,
-      origin: 'agent' as any,
-    } as any);
-
-    logger.info('[AuditorAgent] Tier stats saved', { tiers: stats.length });
-  } catch (err) {
-    logger.warn('[AuditorAgent] Failed to save tier stats', { error: String(err) });
-  }
-}
-
 // ── Post to Channel ──
 
 export async function postToSystemChannel(fileStore: FileStore, content: string): Promise<void> {
   try {
     const channel = (await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
     if (!channel) {
-      logger.warn('[AuditorAgent] System channel not found');
+      logger.warn('[AuditorService] System channel not found');
       return;
     }
 
@@ -263,6 +215,6 @@ export async function postToSystemChannel(fileStore: FileStore, content: string)
       { meta: { cardType: 'audit-report', source: 'auditor-agent' } },
     );
   } catch (e) {
-    logger.warn('[AuditorAgent] Failed to post to system channel', { error: String(e) });
+    logger.warn('[AuditorService] Failed to post to system channel', { error: String(e) });
   }
 }

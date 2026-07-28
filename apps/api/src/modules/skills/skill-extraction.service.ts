@@ -13,8 +13,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { skillStore } from './skill-store.js';
 import { proposalStore } from './proposal-store.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 export interface ExtractedSkillProposal {
@@ -255,7 +256,6 @@ export class SkillExtractionService {
           `name: '${skillName}'`,
           'version: 1',
           `agentTypes: ['executor']`,
-          `tier: 'standard'`,
           `status: 'draft'`,
           '---',
         ].join('\n');

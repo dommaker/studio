@@ -106,7 +106,6 @@ describe('executeSessionLoop', () => {
       executionId: `exec-loop-${Date.now()}`,
       provider: 'claude',
       prompt: 'do something',
-      model: 'standard',
       parameters: { workspaceRoot: wsRoot },
       ...overrides,
     };

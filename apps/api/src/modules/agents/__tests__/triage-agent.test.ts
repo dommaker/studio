@@ -1,4 +1,4 @@
-// TriageAgent + MonitorAgent integration test
+// TriageService + MonitorService integration test
 import { describe, it, expect, vi, afterAll, beforeEach } from 'vitest';
 
 // In-memory incident store for mock FileStore (replaces mock Prisma)
@@ -58,10 +58,10 @@ const mockPrisma = {
 vi.mock('@dommaker/studio-prisma', () => ({ prisma: mockPrisma }));
 
 // Use dynamic import after mock setup
-const { triageAgent } = await import('../triage-agent.service.js');
+const { triageService } = await import('../triage.service.js');
 const { systemHealthCheck } = await import('../monitor-system-probes.js');
 
-describe('TriageAgent + MonitorAgent', () => {
+describe('TriageService + MonitorService', () => {
   beforeEach(() => {
     incidentStore.length = 0;
     vi.clearAllMocks();
@@ -93,7 +93,7 @@ describe('TriageAgent + MonitorAgent', () => {
 
   // ── handleAlert cross-execution ──
 
-  describe('TriageAgent.handleAlert()', () => {
+  describe('TriageService.handleAlert()', () => {
     // Helper: find incident from in-memory store
     function findIncident(id: string): any {
       return incidentStore.find((i: any) => i.id === id) || null;
@@ -106,7 +106,7 @@ describe('TriageAgent + MonitorAgent', () => {
 
     it('creates an Incident record with valid ID format', async () => {
       // Use resource_critical - avoids ACT phase (resolves immediately as minor)
-      const result = await triageAgent.handleAlert({
+      const result = await triageService.handleAlert({
         type: 'resource_critical',
         severity: 'warning',
         message: 'Test: disk at 92%',
@@ -123,7 +123,7 @@ describe('TriageAgent + MonitorAgent', () => {
     });
 
     it('reaches terminal state (resolved or escalated)', async () => {
-      const result = await triageAgent.handleAlert({
+      const result = await triageService.handleAlert({
         type: 'resource_critical',
         severity: 'warning',
         message: 'Test: disk at 91%',
@@ -144,7 +144,7 @@ describe('TriageAgent + MonitorAgent', () => {
     });
 
     it('writes structured triageLog as JSON array', { timeout: 30000 }, async () => {
-      const result = await triageAgent.handleAlert({
+      const result = await triageService.handleAlert({
         type: 'resource_critical',
         severity: 'warning',
         message: 'Disk at 95%',
@@ -168,7 +168,7 @@ describe('TriageAgent + MonitorAgent', () => {
     });
 
     it('includes diagnose and classify phases in triageLog', async () => {
-      const result = await triageAgent.handleAlert({
+      const result = await triageService.handleAlert({
         type: 'resource_critical',
         severity: 'warning',
         message: 'Disk at 93%',
@@ -189,7 +189,7 @@ describe('TriageAgent + MonitorAgent', () => {
     // ── 执行级事件处理 (FL-037 Phase 1) ──
 
     it('handles execution_stuck type and reaches terminal state', { timeout: 30000 }, async () => {
-      const result = await triageAgent.handleAlert({
+      const result = await triageService.handleAlert({
         type: 'execution_stuck',
         severity: 'critical',
         message: 'Test: execution stuck 35min',
@@ -207,7 +207,7 @@ describe('TriageAgent + MonitorAgent', () => {
     });
 
     it('handles execution_session_exhausted and escalates to human', { timeout: 30000 }, async () => {
-      const result = await triageAgent.handleAlert({
+      const result = await triageService.handleAlert({
         type: 'execution_session_exhausted',
         severity: 'critical',
         message: 'Test: 5 sessions exhausted',

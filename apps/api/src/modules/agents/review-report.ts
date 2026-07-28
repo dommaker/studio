@@ -69,7 +69,6 @@ export function buildReviewPrompt(params: {
   taskDescription: string;
   acceptanceCriteria?: string[];
   cycle: number;
-  previousReportPath?: string;
   /** 🆕 外部立场配置（从 RoleConfig 加载，回退硬编码） */
   stances?: { id: string; name: string; prompt: string; reviewerFocus?: string }[];
   /** D7: Analyst 产物上下文（files, gotchas, architectureContext） */
@@ -80,7 +79,7 @@ export function buildReviewPrompt(params: {
     implementationNotes?: string;
   };
 }): string {
-  const { taskDescription, acceptanceCriteria, cycle, previousReportPath, stances, acGroupContext } = params;
+  const { taskDescription, acceptanceCriteria, cycle, stances, acGroupContext } = params;
 
   const acList = acceptanceCriteria?.length
     ? acceptanceCriteria.map((c, i) => `${i + 1}. ${c}`).join('\n')
@@ -109,10 +108,6 @@ export function buildReviewPrompt(params: {
     `### 立场 ${i + 1}: ${s.name} (${s.id}) — ${s.focus}`
   ).join('\n');
 
-  const previousInstructions = cycle > 1 && previousReportPath
-    ? `\n## 上一轮审查报告\n请先读取 \`.review-report.json\`，确认上一轮发现的问题是否已修复。`
-    : '';
-
   return `## 你的角色：代码审查者（多立场轮询）
 
 这是第 ${cycle} 轮审查。你在一个隔离的 worktree 中，包含 Executor 的代码变更。
@@ -139,7 +134,6 @@ ${acGroupContext.architectureContext?.dangerZones ? `**危险区域**: ${(acGrou
 - \`constraintsDiscovered\`: 实现过程中发现的 AC 未覆盖的限制
 
 使用这些信息来理解**为什么**这样实现，而不只是**做了什么**。如果 Executor 标记了 uncertainties，这些区域是审查重点。
-${previousInstructions}
 
 ---
 

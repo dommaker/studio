@@ -120,7 +120,7 @@ describe('AC-E1+E2: Convert to Task', () => {
       expect(found!.message.replyToId).toBeNull();
     });
 
-    it('with assigneeId → WorkUnit.status = active', async () => {
+    it('with assigneeId (profile.id) → unassigned + 指名，loop 可认领（L1）', async () => {
       const { channelId, msgId } = await createFsMessage('assign me');
       const agentId = `agent-e1-${Date.now()}`;
       const now = new Date().toISOString();
@@ -129,8 +129,18 @@ describe('AC-E1+E2: Convert to Task', () => {
       const workUnit = await service.convert(channelId, msgId, { assigneeId: agentId });
       testWorkUnitIds.push(workUnit.id);
 
+      // §1.2-b 双语义：unassigned 时 assigneeId = 被指名的 profile.id；
+      // 直接 active + assigneeId=profile.id 是卡死态（myActive 按 instance.id、认领要求 unassigned）
       expect(workUnit.assigneeId).toBe(agentId);
-      expect(workUnit.status).toBe('active');
+      expect(workUnit.status).toBe('unassigned');
+
+      // 被指名 profile 的 loop 可认领：claim 只校验 status==='unassigned'，认领即改写为 instance.id
+      const instanceId = `inst-e1-${Date.now()}`;
+      const claimed = await fileStore.claimWorkUnit(workUnit.id, instanceId);
+      expect(claimed).toBe(true);
+      const snapshot = (await fileStore.getIndex()).find(s => s.id === workUnit.id);
+      expect(snapshot?.status).toBe('active');
+      expect(snapshot?.assigneeId).toBe(instanceId);
     });
 
     it('without assigneeId → WorkUnit.status = unassigned', async () => {
@@ -170,13 +180,14 @@ describe('AC-E1+E2: Convert to Task', () => {
     it('LLM call failure → returns empty suggestion (non-blocking)', async () => {
       const service = new ConvertToTaskService(undefined);
 
-      // Force LLM to fail by mocking fetch
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Network error'));
+      // Force LLM to fail by mocking the internal call (SystemExecutor 未配置/出错同路径)
+      const llmSpy = vi.spyOn(service as unknown as Record<string, unknown>, 'callLLM' as never)
+        .mockRejectedValue(new Error('LLM unavailable'));
 
       const result = await service.suggest('Some message content', [], []);
       expect(result).toEqual({});
 
-      fetchSpy.mockRestore();
+      llmSpy.mockRestore();
     });
   });
 });

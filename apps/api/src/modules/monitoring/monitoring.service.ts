@@ -3,8 +3,9 @@ import { FileStore } from '@dommaker/studio-shared';
 import type { AuditReport, FlywheelMetrics } from '../knowledge/knowledge-service.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 /** M2 成本红线（vision §3）：知识/约束注入 ≤ 2K tokens/任务 */
 export const INJECTED_TOKEN_BUDGET = 2_000;

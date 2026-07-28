@@ -29,7 +29,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
   // (session-summary-generator constructs `new FileStore()` at import time).
   ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getModelForTier: vi.fn(() => 'claude-sonnet-4-6'),
 }));
 
 vi.mock('../metrics.js', () => ({
@@ -63,13 +62,12 @@ import { daemon } from '../studio-daemon.js';
 
 const WORKTREES_DIR = path.join(os.tmpdir(), 'daemon-block-test');
 
-/** Register executor session in the daemon (daemon.start() only registers analyst+reviewer) */
+/** Register executor session in the daemon (daemon.start() only registers analyst) */
 function registerExecutor(worktree: string) {
   fs.mkdirSync(worktree, { recursive: true });
   (daemon as any).manager.register({
     name: 'executor',
     worktree,
-    modelTier: 'fast',
     timeoutMs: 5 * 60 * 1000,
     persistent: false,
   });
@@ -146,7 +144,6 @@ describe('execSync 事件循环阻塞验证', () => {
     mgr.register({
       name: 'executor-2',
       worktree: wt2,
-      modelTier: 'fast',
       timeoutMs: 5 * 60 * 1000,
       persistent: false,
     });

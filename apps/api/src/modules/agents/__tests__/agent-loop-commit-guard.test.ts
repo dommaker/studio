@@ -156,6 +156,38 @@ describe('§10.5: 提交守卫', () => {
     expect(step.metadataUpdates).toHaveProperty('commitGuardHint', undefined);
   });
 
+  it('首 step COMPLETE：worktreePath 仅在 metadataUpdates（未落库）时，守卫以合并视图检查 worktree 而非主仓库', async () => {
+    // cwd 感知 mock：worktree 脏、主仓库干净 —— 修复前守卫查主仓库放行（假 complete）
+    mockExecSync.mockImplementation((cmd: string, opts?: { cwd?: string }) => {
+      if (String(cmd).includes('rev-parse')) return 'h1\n';
+      return opts?.cwd === '/tmp/wt-dirty' ? ' M README.md\n' : '';
+    });
+    mockResolveWorkspaceRoot.mockResolvedValue('/tmp/main-clean');
+    const wu = await setupWorkUnit(); // 持久化 metadata 无 worktreePath（首 step 未落库）
+
+    await (agentLoop as unknown as RecordResultCapable).recordResult(
+      { workUnit: wu },
+      {
+        action: 'complete',
+        summary: '做完了',
+        metadataUpdates: {
+          worktreePath: '/tmp/wt-dirty',
+          worktreeBranch: 'task/x',
+          worktreeBaseBranch: 'master',
+          worktreeBaseRepo: '/tmp/main-clean',
+        },
+      },
+    );
+
+    // 守卫应命中 worktree 的脏状态 → 打回 progress（保持 active）
+    const after = (await wuService.getById(wu.id))!;
+    expect(after.status).toBe('active');
+    const meta: WorkUnitMetadata = JSON.parse(after.metadata!);
+    expect(meta.commitGuardHint).toBe(COMMIT_HINT);
+    // 本 step 的 worktree 落档仍正常写入
+    expect(meta.worktreePath).toBe('/tmp/wt-dirty');
+  });
+
   it('COMPLETE + 干净 worktree → 正常进入 in_review', async () => {
     mockGit('', 'h1\n');
     const wu = await setupWorkUnit();

@@ -7,7 +7,7 @@
  *   GET    /api/v1/workunits/:id      — get by id
  *   PUT    /api/v1/workunits/:id      — update
  *   DELETE /api/v1/workunits/:id      — delete
- *   POST   /api/v1/workunits/:id/claim   — claim (optimistic lock)
+ *   POST   /api/v1/workunits/:id/claim   — claim（flock 悲观互斥锁）
  *   POST   /api/v1/workunits/:id/unclaim — unclaim
  *   POST   /api/v1/workunits/:id/status  — transition status (state machine)
  *   POST   /api/v1/workunits/:id/review-passed   — review approved (in_review → done)
@@ -199,7 +199,7 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req: Request, res
   }
 });
 
-/** POST /:id/claim — claim WorkUnit (optimistic lock) */
+/** POST /:id/claim — claim WorkUnit（flock 悲观互斥锁） */
 router.post('/:id/claim', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
     const { agentId } = req.body;

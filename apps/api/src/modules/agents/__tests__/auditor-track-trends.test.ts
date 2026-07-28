@@ -1,5 +1,5 @@
 /**
- * AuditorAgent B13-011 — trackTrends 单元测试
+ * AuditorService B13-011 — trackTrends 单元测试
  *
  * 不依赖 Prisma，直接测试 trackTrends 方法的文件读写和趋势检测逻辑。
  */
@@ -12,8 +12,8 @@ const snapshotFile = path.join(os.homedir(), '.studio', 'auditor', 'daily-snapsh
 
 // Dynamic import to avoid Prisma initialization at module level
 async function getAgent() {
-  const { AuditorAgent } = await import('../auditor-agent.service.js');
-  return new AuditorAgent();
+  const { AuditorService } = await import('../auditor.service.js');
+  return new AuditorService();
 }
 
 function makeSnapshot(overrides: Record<string, unknown> = {}) {
@@ -30,7 +30,7 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('AuditorAgent.trackTrends (B13-011)', () => {
+describe('AuditorService.trackTrends (B13-011)', () => {
   let savedContent: string | null = null;
 
   beforeEach(() => {

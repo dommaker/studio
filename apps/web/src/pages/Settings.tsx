@@ -1,5 +1,5 @@
 // 设置页面 - API 配置 + 通知 + 公司 + 主题语言
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api, runtimeWorkflowApi } from '../api';
 import { WorkspaceStatusBar } from '../components/WorkspaceStatusBar';
@@ -16,17 +16,6 @@ interface Config {
   telegram: { enabled: boolean; botToken: string; chatId: string };
   contextMonitor: { enabled: boolean; warningThreshold: number; criticalThreshold: number };
   roleExecution: { maxConcurrent: number; tokenWarningThreshold: number; showTokenUsage: boolean };
-}
-
-interface MaskedLLMConfig {
-  id: string;
-  scope: string;
-  provider: string;
-  baseUrl: string | null;
-  apiKeyMasked: string;
-  model: string;
-  options: Record<string, any> | null;
-  isActive: boolean;
 }
 
 interface Company { id: string; name: string; size: string }
@@ -49,184 +38,6 @@ function LanguageSettings() {
           </div>
         </button>
       ))}
-    </div>
-  );
-}
-
-const LLM_SCOPES = [
-  { value: 'studio', label: 'Studio（全局默认）' },
-  { value: 'orchestrator', label: 'Orchestrator（编排器）' },
-  { value: 'agent_default', label: 'Agent 默认' },
-  { value: 'agent_codex', label: 'Agent Codex' },
-  { value: 'agent_claude', label: 'Agent Claude' },
-  { value: 'agent_opencode', label: 'Agent OpenCode' },
-];
-
-const LLM_PROVIDERS = [
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'deepseek', label: 'DeepSeek' },
-  { value: 'tencent', label: '腾讯云' },
-  { value: 'custom', label: '自定义' },
-];
-
-function LLMConfigSection() {
-  const [configs, setConfigs] = useState<MaskedLLMConfig[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [showAdd, setShowAdd] = useState(false);
-  const [testing, setTesting] = useState<string | null>(null);
-  const [testResult, setTestResult] = useState<{ key: string; success: boolean; latencyMs: number; error?: string } | null>(null);
-  const [form, setForm] = useState({ scope: 'studio', provider: 'openai', baseUrl: '', apiKey: '', model: '' });
-  const [saving, setSaving] = useState(false);
-
-  const loadConfigs = useCallback(async () => {
-    try {
-      const { data } = await api.get('/settings/llm');
-      setConfigs(data.data || []);
-    } catch (err) {
-      console.error('Failed to load LLM configs:', err);
-      toast.error('加载 LLM 配置失败');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { loadConfigs(); }, [loadConfigs]);
-
-  const handleSave = async () => {
-    if (!form.apiKey || !form.model) return;
-    setSaving(true);
-    try {
-      await api.post('/settings/llm', form);
-      setForm({ scope: 'studio', provider: 'openai', baseUrl: '', apiKey: '', model: '' });
-      setShowAdd(false);
-      await loadConfigs();
-    } catch (err) {
-      console.error('Failed to save LLM config:', err);
-      toast.error('保存失败');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleTest = async (scope: string) => {
-    setTesting(scope);
-    setTestResult(null);
-    try {
-      const { data } = await api.post(`/settings/llm/${scope}/test`);
-      setTestResult({ key: scope, ...data });
-    } catch (err) {
-      setTestResult({ key: scope, success: false, latencyMs: 0, error: String(err) });
-    } finally {
-      setTesting(null);
-    }
-  };
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('确定删除此配置？')) return;
-    try {
-      await api.delete(`/settings/llm/${id}`);
-      await loadConfigs();
-    } catch (err) {
-      console.error('Failed to delete LLM config:', err);
-      toast.error('删除配置失败');
-    }
-  };
-
-  if (loading) {
-    return <div className="text-sm" style={{ color: 'var(--text-tertiary)' }}>加载中...</div>;
-  }
-
-  return (
-    <div className="space-y-4">
-      {/* 已保存的配置 */}
-      {configs.length > 0 ? (
-        <div className="space-y-2">
-          {configs.map(c => (
-            <div key={c.id} className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--accent-primary)', color: 'white' }}>{c.scope}</span>
-                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)' }}>{c.provider}</span>
-                  <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{c.model}</span>
-                </div>
-                <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                  Key: {c.apiKeyMasked} {c.baseUrl && `• ${c.baseUrl}`}
-                </div>
-              </div>
-              <div className="flex items-center gap-2">
-                {testResult?.key === c.scope && (
-                  <span className={`text-xs ${testResult.success ? 'u-ok' : 'u-err'}`}>
-                    {testResult.success ? `${testResult.latencyMs}ms` : `失败: ${testResult.error?.slice(0, 30)}`}
-                  </span>
-                )}
-                <button onClick={() => handleTest(c.scope)} disabled={testing === c.scope}
-                  className="px-2 py-1 text-xs rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}>
-                  {testing === c.scope ? '测试中...' : '测试'}
-                </button>
-                <button onClick={() => handleDelete(c.id)}
-                  className="px-2 py-1 text-xs rounded u-err" style={{ background: 'var(--bg-elevated)' }}>
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="p-4 rounded-lg text-center text-sm" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>
-          尚未配置 LLM，添加一个即可使用 AI 功能
-        </div>
-      )}
-
-      {/* 添加配置 */}
-      {showAdd ? (
-        <div className="p-4 rounded-xl space-y-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Scope</label>
-              <select value={form.scope} onChange={e => setForm({ ...form, scope: e.target.value })}
-                className="input w-full text-sm">
-                {LLM_SCOPES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Provider</label>
-              <select value={form.provider} onChange={e => setForm({ ...form, provider: e.target.value })}
-                className="input w-full text-sm">
-                {LLM_PROVIDERS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-              </select>
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>API Key</label>
-            <input type="password" placeholder="sk-xxx..." value={form.apiKey}
-              onChange={e => setForm({ ...form, apiKey: e.target.value })} className="input w-full text-sm" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Model</label>
-              <input type="text" placeholder="gpt-4o" value={form.model}
-                onChange={e => setForm({ ...form, model: e.target.value })} className="input w-full text-sm" />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Base URL（可选）</label>
-              <input type="text" placeholder="默认" value={form.baseUrl}
-                onChange={e => setForm({ ...form, baseUrl: e.target.value })} className="input w-full text-sm" />
-            </div>
-          </div>
-          <div className="flex justify-end gap-2">
-            <button onClick={() => { setShowAdd(false); setForm({ scope: 'studio', provider: 'openai', baseUrl: '', apiKey: '', model: '' }); }}
-              className="btn btn-secondary text-sm">取消</button>
-            <button onClick={handleSave} disabled={saving || !form.apiKey || !form.model}
-              className="btn btn-primary text-sm">{saving ? '保存中...' : '保存'}</button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={() => setShowAdd(true)}
-          className="w-full p-3 rounded-lg text-sm text-center transition" style={{ background: 'var(--bg-tertiary)', border: '1px dashed var(--border-subtle)', color: 'var(--text-secondary)' }}>
-          + 添加 LLM 配置
-        </button>
-      )}
     </div>
   );
 }
@@ -421,19 +232,10 @@ export function Settings() {
     <div className="p-6 max-w-4xl mx-auto min-h-full overflow-y-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>⚙️ 设置</h1>
-        <p style={{ color: 'var(--text-secondary)' }}>配置 Agent API Keys、Studio LLM 和通知</p>
+        <p style={{ color: 'var(--text-secondary)' }}>配置通知、算力接入与偏好</p>
       </div>
 
       <div className="space-y-8">
-        {/* 🧠 LLM 配置（加密存储） */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🧠 LLM 配置</h2>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            API Key 加密存储在数据库中（AES-256-GCM），服务重启后自动恢复。支持按 scope 配置不同模型。
-          </p>
-          <LLMConfigSection />
-        </section>
-
         {/* 🎭 角色执行配置 */}
         <section className="space-y-6">
           <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🎭 角色执行配置</h2>

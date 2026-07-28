@@ -2,7 +2,6 @@
  * Runner Params — 参数构建（agent-runner.ts 拆分模块）
  *
  * 从 agent-runner.ts 按职责拆出的 spawn/prompt 参数构建逻辑：
- *   - tier 常量与 session 超时映射（STRATEGY_HINTS / TIER_TIMEOUTS / TIER_MAX_TURNS）
  *   - prompt 构建（buildPrompt / buildAugmentedPrompt / SDD task 层解析）
  *   - spawn 命令构建（session flag / --add-dir / cmd 组装 / env / agent HOME）
  *   - 前置检查（checkPrerequisites）
@@ -14,10 +13,10 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as os from 'os';
-import { logger, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles, type ModelTier } from '@dommaker/studio-shared';
+import { logger, readSddDoc, findSddDocById, parseTaskDocContractTests, parseTaskDocTestFiles } from '@dommaker/studio-shared';
 import { execSh, resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
-import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
+import { skillLoader } from '@dommaker/studio-skill';
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
 
 import type { ExecutorConfig, AgentTask, PrerequisiteCheck } from './session-manager.js';
@@ -32,16 +31,6 @@ const STRATEGY_HINTS: Record<number, string> = {
   3: '\u26a0\ufe0f\u26a0\ufe0f\u26a0\ufe0f \u4e25\u91cd\u963b\u585e \u2014 \u8fde\u7eed 3 \u6b21\u65e0\u8fdb\u5c55\u3002\u5f3a\u5236\u5207\u6362\u6a21\u5f0f\uff1a1) \u5148\u4e0d\u8981\u5199\u4ee3\u7801\uff0c\u8bfb REQUIREMENTS.md \u548c\u73b0\u6709\u4ee3\u7801\uff1b2) \u5199\u51fa 3 \u6b65\u4ee5\u5185\u7684 mini plan\uff1b3) \u53ea\u5b9e\u73b0\u7b2c 1 \u6b65\uff0c\u8dd1\u6d4b\u8bd5\uff1b4) \u8dd1\u901a\u540e\u518d\u7ee7\u7eed',
   4: '\ud83d\udd34 \u6700\u540e\u4e00\u6b21\u673a\u4f1a \u2014 \u653e\u5f03\u5f53\u524d\u65b9\u5411\uff0c\u4ece\u7b2c 0 \u884c\u91cd\u65b0\u5f00\u59cb\uff0c\u7528\u6700\u7b80\u5355\u3001\u6700\u6734\u7d20\u7684\u65b9\u5f0f\u5b9e\u73b0\uff08\u54ea\u6015\u4ee3\u7801\u4e11\uff09\uff0c\u5148\u8ba9\u6d4b\u8bd5\u901a\u8fc7\u3002',
 };
-
-const TIER_TIMEOUTS: Record<ModelTier, number> = { fast: 15, standard: 30, premium: 45 };
-const TIER_MAX_TURNS: Record<ModelTier, number> = { fast: 8, standard: 15, premium: 25 };
-
-/** Returns session timeout in minutes based on model tier. Unknown/missing tier → 30min default. */
-export function getSessionTimeout(tier?: string): number {
-  if (tier && tier in TIER_TIMEOUTS) return TIER_TIMEOUTS[tier as ModelTier];
-  return 30;
-}
-
 
 // ========================================
 // SP-004 Step 5: SDD task layer resolution
@@ -216,8 +205,7 @@ export function buildPrompt(
   };
   const outputStyleSection = `## \u8f93\u51fa\u98ce\u683c\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
 
-  const skillTier = (task.model as SkillTier) || 'standard';
-  const skillsToInject = skillLoader.load({ tier: skillTier });
+  const skillsToInject = skillLoader.load({});
   const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
   if (session === 1 || !progress) {
@@ -371,9 +359,68 @@ export function resolveAgentHome(task: AgentTask): string {
     : `/tmp/agent-loop/${(task.parameters?.workUnitId as string) || task.executionId}`;
 }
 
+/** 鉴权/模型相关 env 键前缀 — 只复制这些前缀的键；hooks 等其它 host 配置不带入隔离 HOME。 */
+const CLI_AUTH_ENV_PREFIXES = ['ANTHROPIC_', 'CLAUDE_', 'OPENAI_', 'DEEPSEEK_', 'KIMI_', 'MOONSHOT_'];
+
+/**
+ * Propagate CLI auth/model env from host `~/.claude/settings.json` (`env` block) into the
+ * isolated agent HOME. Without it, `HOME=<agentHome> claude` fails with 401
+ * authentication_failed (host settings 里的 hooks 等配置有意不复制).
+ *
+ * Merge semantics: `<agentHome>/.claude/settings.json` 已存在的 env 键优先 —— 只补缺，
+ * 不覆盖 agent 自己的改动。Best-effort + 幂等：host 文件缺失/读取失败/写入失败均仅
+ * logger.warn，绝不阻断 spawn。
+ */
+export async function ensureAgentHomeCliConfig(agentHome: string, hostHomeDir: string = os.homedir()): Promise<void> {
+  try {
+    // 1. Host env（鉴权来源）—— 缺失/损坏仅 warn 跳过
+    let hostEnv: unknown;
+    try {
+      hostEnv = JSON.parse(await fs.readFile(path.join(hostHomeDir, '.claude', 'settings.json'), 'utf-8'))?.env;
+    } catch (err) {
+      logger.warn('[AgentRunner] host claude settings.json missing/unreadable, skipping agent HOME auth injection', { error: String(err) });
+      return;
+    }
+
+    // 2. 前缀过滤：只挑鉴权/模型键（字符串值）
+    const authEnv: Record<string, string> = {};
+    if (hostEnv && typeof hostEnv === 'object') {
+      for (const [key, value] of Object.entries(hostEnv)) {
+        if (typeof value === 'string' && CLI_AUTH_ENV_PREFIXES.some((p) => key.startsWith(p))) {
+          authEnv[key] = value;
+        }
+      }
+    }
+    if (Object.keys(authEnv).length === 0) {
+      logger.warn('[AgentRunner] host claude settings.json has no auth/model env keys, skipping injection', { agentHome });
+      return;
+    }
+
+    // 3. 合并写入 <agentHome>/.claude/settings.json —— 只补缺；既有文件损坏则不动它
+    const settingsPath = path.join(agentHome, '.claude', 'settings.json');
+    let existing: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(await fs.readFile(settingsPath, 'utf-8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) existing = parsed;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        logger.warn('[AgentRunner] agent HOME settings.json unparsable, leaving it untouched', { settingsPath, error: String(err) });
+        return;
+      }
+    }
+    const existingEnv = existing.env && typeof existing.env === 'object' && !Array.isArray(existing.env)
+      ? existing.env as Record<string, unknown>
+      : {};
+    const merged = { ...existing, env: { ...authEnv, ...existingEnv } };
+    await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+    await fs.writeFile(settingsPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf-8');
+  } catch (err) {
+    logger.warn('[AgentRunner] ensureAgentHomeCliConfig failed (best-effort)', { agentHome, error: String(err) });
+  }
+}
+
 export interface SessionEnvOptions {
   task: AgentTask;
-  tier: ModelTier;
   role: 'analyst' | 'executor';
   agentHome: string;
   /** lightweight 模式追加注入 STUDIO_WORKUNIT_ID + parameters.extraEnv（loop 模式不注入） */

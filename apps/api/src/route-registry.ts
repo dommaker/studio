@@ -67,9 +67,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Skill proposal routes
   const { default: skillProposalRoutes } = await import('./modules/skills/skill-proposal-routes.js') as { default: Router };
 
-  // LLM Config routes (加密配置)
-  const { default: llmConfigRoutes } = await import('./modules/llm/config.routes.js') as { default: Router };
-
   // Knowledge Import routes (冷启动导入)
   const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };
 
@@ -136,8 +133,8 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     try {
       const status = await Promise.race([
         (async () => {
-          const { createOpsAgent } = await import('./modules/agents/ops-agent.service.js');
-          return await createOpsAgent().getStatus();
+          const { createOpsService } = await import('./modules/agents/ops.service.js');
+          return await createOpsService().getStatus();
         })(),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
       ]);
@@ -213,7 +210,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/iron-laws', router: ironLawsRoutes, comment: 'Iron Laws (ex-runtime-proxy)' },
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
     { path: '/api/v1/events', router: eventRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD' },
-    { path: '/api/v1/settings/llm', router: llmConfigRoutes, middleware: admin, comment: '§12.11: 加密 LLM 配置' },
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },
     { path: '/api/v1/outputs', router: outputsRoutes },
     { path: '/api/v1/runtime-config', router: runtimeConfigRoutes, middleware: admin, comment: 'TaskWorker 配置' },

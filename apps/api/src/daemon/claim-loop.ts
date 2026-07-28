@@ -16,7 +16,6 @@ export interface ClaimedTask {
   path: string;
   prompt: string;
   agent: string;
-  modelTier: string | null;
   sessionId: string | null;
   status: string;
   createdAt: string;

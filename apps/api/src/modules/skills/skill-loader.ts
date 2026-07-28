@@ -7,7 +7,7 @@
  * #75: loadSkill lifecycle
  */
 
-import { type SkillTier } from '@dommaker/studio-skill';
+// string type removed — using string. See packages/studio-skill/src/types.ts
 import { logger, FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -20,7 +20,7 @@ export interface LoadedSkill {
   name: string;
   prompt: string;
   tools: string[];
-  tier: SkillTier;
+  tier: string;
   loadedAt: Date;
 }
 
@@ -44,7 +44,7 @@ interface SkillFrontmatter {
   name: string;
   description?: string;
   agentTypes?: string[];
-  tier?: SkillTier;
+  tier?: string;
   tools?: string[];
   required?: string[];
   status?: string;
@@ -127,7 +127,7 @@ export class SkillLoaderService {
     let skillId: string;
     let prompt: string;
     let tools: string[];
-    let tier: SkillTier;
+    let tier: string;
     let required: string[];
 
     if (!fileSkill) {
@@ -138,7 +138,7 @@ export class SkillLoaderService {
     skillId = `file:${skillName}`;
     prompt = fileSkill.prompt;
     tools = fileSkill.meta.tools || [];
-    tier = (fileSkill.meta.tier || 'standard') as SkillTier;
+    tier = (fileSkill.meta.tier || 'standard') as string;
     required = fileSkill.meta.required || [];
 
     // Load required skills recursively

@@ -3,6 +3,9 @@
 > 最后更新: 2026-05-05
 > Agent 执行器 — session loop 模型 + git worktree 隔离 + 文件桥上下文传递
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/package.json, packages/studio-agent/CONTEXT.md
+
 ## 职责
 
 Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude Code → session loop 监控 → 完成判定。

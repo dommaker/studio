@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/pmo 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/progress-rollup.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/okr-anomaly-detector.ts, apps/api/src/modules/pmo/project.service.ts
+
 ## 职责
 
 项目管理办公室（PMO）模块，负责 OKR（目标与关键结果）管理与项目管理（项目 CRUD、PMO 号自动生成），并提供 REST API 路由。同时包含已停用的 OKR 异常检测功能（默认不启用）。
@@ -16,6 +19,7 @@
 | `projectService` 实例 | `project.service.ts` | 项目服务单例 |
 | `parsePmoNumberFromCommand` | `project.service.ts` | 从命令中解析 PMO 号 |
 | `PROJECT_STATUS` 常量 | `project.service.ts` | 项目状态枚举 |
+| `initPmoProgressRollup` / `syncProjectProgress` | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement 关联 WU 的完结比例回写 progress；全部完结 → completed（best-effort） |
 | `detectAnomalies` | `okr-anomaly-detector.ts` | OKR 异常检测（默认停用） |
 | 默认导出 Express Router | `routes.ts` | 提供 `/project`、`/objective`、`/key-result` 等 REST 路由 |
 
@@ -49,6 +53,11 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ 2026-07-27: B5 D18 顺手修 — okr.service 读 knowledge:* 事件的时间口径从顶层 `e.timestamp`（StudioEvent 形态下不存在，恒被过滤、指标恒空）改为 getStudioEventTime（createdAt 优先、兼容历史 timestamp），10 处
+- ✅ 2026-07-27: B3a 工程归属链（决策 D2）— 新增 progress-rollup.ts：订阅 workunit.status_changed，WU 关联 Requirement 挂 projectId 时按该项目全部关联 WU 完结比例回写 progress（口径同 REQ 汇总 TERMINAL_WORKUNIT_STATUSES），全部完结置 completed（skipValidation 系统直写）；best-effort 不阻断
+- ✅ 2026-07-27: P0 修复 5 — executions/studio-events jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `0d1ef570`: ci): resolve type errors found by package-level tsc build
 - ✅ `1ac014a8`: ci): resolve type errors in worktree-resolver + okr.service

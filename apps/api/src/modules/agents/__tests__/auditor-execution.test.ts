@@ -25,8 +25,8 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('../triage-agent.service.js', () => ({
-  triageAgent: { handleAlert: mockHandleAlert },
+vi.mock('../triage.service.js', () => ({
+  triageService: { handleAlert: mockHandleAlert },
 }));
 
 vi.mock('../../knowledge/resolution.service.js', () => ({

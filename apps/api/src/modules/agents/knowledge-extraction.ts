@@ -1,7 +1,7 @@
 /**
  * Knowledge Agent — 提取 prompt 单一来源
  *
- * 从 knowledge-agent.service.ts 拆分（提取/冷启动/分析分离）。
+ * 从 knowledge-curator.service.ts 拆分（提取/冷启动/分析分离）。
  * 本模块现仅保留提取 prompt 相关导出：
  *   - EXTRACT_FROM_TEXT_SYSTEM_PROMPT  R3 通用文本知识提取 prompt（单一来源）
  *   - getExtractFromTextSystemPrompt   E1 文件覆盖 getter

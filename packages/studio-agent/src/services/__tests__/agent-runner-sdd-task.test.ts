@@ -27,7 +27,6 @@ function makeTask(params: Record<string, unknown> = {}) {
     id: 'task-001',
     executionId: 'exec-001',
     prompt: 'Test task',
-    model: 'standard',
     parameters: params,
   } as any;
 }

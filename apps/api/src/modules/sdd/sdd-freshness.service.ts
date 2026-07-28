@@ -21,30 +21,7 @@ import {
 } from '@dommaker/studio-shared';
 import type { SddFrontmatter } from '@dommaker/studio-shared';
 import { logger } from '@dommaker/studio-shared';
-
-// ── LLM 调用 ──
-
-const LLM_API_URL = process.env.LLM_API_URL || `http://localhost:${process.env.PORT || 3001}/api/v1/llm/chat`;
-
-async function callLLM(messages: Array<{ role: string; content: string }>): Promise<string | null> {
-  try {
-    const res = await fetch(LLM_API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, temperature: 0.3 }),
-    });
-    if (!res.ok) {
-      logger.error('[SddFreshness] LLM error', { status: res.status });
-      return null;
-    }
-    const data = await res.json() as Record<string, unknown>;
-    const choices = data.choices as Array<{ message?: { content?: string } }> | undefined;
-    return (data.content as string) || choices?.[0]?.message?.content || null;
-  } catch (error) {
-    logger.error('[SddFreshness] LLM call failed', { error: String(error) });
-    return null;
-  }
-}
+import { getSystemExecutor } from '../agents/system-executor.js';
 
 // ── ChangeLevel (aligned with SP-002 change.types.ts) ──
 export type ChangeLevel = 'L1' | 'L2' | 'L3' | 'L4';
@@ -331,7 +308,7 @@ export class SddFreshnessService {
       return;
     }
 
-    // Generate patch (stub — actual LLM call is a TODO)
+    // Generate patch (LLM via SystemExecutor；失败时 generatePatch 内部转 append 兜底)
     const patchedBody = await this.generatePatch(
       doc.body,
       layer,
@@ -453,10 +430,16 @@ ${plan.matchedFiles.join(', ')}
 - 不要添加 "Code Changes Detected" 之类的临时标记
 - 如果变更不影响该层文档内容，原样输出当前文档`;
 
-    const result = await callLLM([
-      { role: 'system', content: '你是 SDD 文档维护专家。只输出文档内容，不要解释。' },
-      { role: 'user', content: prompt },
-    ]);
+    // LLM 调用走 SystemExecutor（studio 角色绑定的 CLI）；角色未配置/调用失败 → append 兜底
+    let result: string | null = null;
+    try {
+      result = (await getSystemExecutor().run(prompt, {
+        systemPrompt: '你是 SDD 文档维护专家。只输出文档内容，不要解释。',
+        timeoutMs: 120_000,
+      })).output;
+    } catch (error) {
+      logger.error('[SddFreshness] LLM call failed', { error: String(error) });
+    }
 
     if (result) {
       logger.info(`[SddFreshness] LLM patch generated for ${layer}, ${result.length} chars`);
