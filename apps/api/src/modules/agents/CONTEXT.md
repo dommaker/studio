@@ -66,6 +66,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: P2 配套 — buildContinuePrompt/buildReplyPrompt 要求段加「`.studio/AGENTS.generated.md` 存在则先阅读（工作区指南：skill 索引 + SDD 落盘要求），根 AGENTS.md/CLAUDE.md 优先」指引（propagateHarnessConfig 停写根目录文件后，生成指南的 prompt 侧入口）
 - ✅ 2026-07-28: P1 review WU 守卫豁免 — §10.5 提交守卫对 type=review 整体跳过（评审只读，cwd 是父 WU worktree，dev 提交/工具产物残留导致 COMPLETE 被反复打回空转 16 步）；stepCount 强制 in_review 上限 review 放宽至 30（REVIEW_STEP_LIMIT），保证 COMPLETE 后 in_review→done 自动收口；补 agent-loop-review-wu.test.ts 5 例
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ `f54153e1`: agents): isOnline 语义从 instance status 改为 loop 存活检测

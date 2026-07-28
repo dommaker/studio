@@ -305,15 +305,21 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
       }, null, 2), 'utf-8');
     }
 
-    // §10 P0: 写 AGENTS.md / CLAUDE.md（skill 索引 + SDD 落盘要求）——
-    // codex/kimi/opencode 原生读 AGENTS.md，claude 读 CLAUDE.md，四家 CLI 全覆盖。
-    // CLAUDE.md 已存在（如上方从 repoDir 传播的工程级约束）时不覆盖。
+    // §10 P0（2026-07-28 修订）: 工作区指南（skill 索引 + SDD 落盘要求）——
+    // 仓库已有 AGENTS.md / CLAUDE.md 一律不覆盖（原 AGENTS.md 无条件覆写会让 repo
+    // 已跟踪文件因 skill 索引漂移出现未提交改动，误伤 §10.5 提交守卫；现对齐
+    // CLAUDE.md「已存在不覆盖」并推广到两个文件）；
+    // 两者都没有时也不写根目录新文件（untracked 文件同样误伤守卫），改落
+    // `.studio/AGENTS.generated.md`（在工具产物 exclude 内，git status 不可见），
+    // prompt 侧（agent-loop buildContinuePrompt/buildReplyPrompt）指引 agent 按需阅读。
     const agentsMd = buildAgentsMdContent();
     if (agentsMd) {
-      fsSync.writeFileSync(path.join(worktree, 'AGENTS.md'), agentsMd, 'utf-8');
-      const claudeMdPath = path.join(worktree, 'CLAUDE.md');
-      if (!fsSync.existsSync(claudeMdPath)) {
-        fsSync.writeFileSync(claudeMdPath, agentsMd, 'utf-8');
+      const hasNativeGuide = fsSync.existsSync(path.join(worktree, 'AGENTS.md'))
+        || fsSync.existsSync(path.join(worktree, 'CLAUDE.md'));
+      if (!hasNativeGuide) {
+        const generatedPath = path.join(worktree, '.studio', 'AGENTS.generated.md');
+        fsSync.mkdirSync(path.dirname(generatedPath), { recursive: true });
+        fsSync.writeFileSync(generatedPath, agentsMd, 'utf-8');
       }
       copySkillFiles(worktree);
     }

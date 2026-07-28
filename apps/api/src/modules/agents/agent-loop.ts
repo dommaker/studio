@@ -1557,7 +1557,7 @@ ${wu.scope}
 
 ## 要求
 
-继续上次工作。每步结束后输出：
+继续上次工作。若 .studio/AGENTS.generated.md 存在，先阅读（工作区指南：可用 skill 索引 + SDD 落盘要求）；仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
   ACTION: NEED_INPUT:<需要什么>   需要人类输入
@@ -1577,7 +1577,7 @@ ${replyText}
 
 ## 要求
 
-根据回复调整方案，继续工作。每步结束后输出：
+根据回复调整方案，继续工作。若 .studio/AGENTS.generated.md 存在，先阅读（工作区指南：可用 skill 索引 + SDD 落盘要求）；仓库根有 AGENTS.md/CLAUDE.md 时以它们为准。每步结束后输出：
   ACTION: PROGRESS:<summary>      完成一步，继续中
   ACTION: COMPLETE:<summary>      全部完成
   ACTION: NEED_INPUT:<需要什么>   需要人类输入`;
