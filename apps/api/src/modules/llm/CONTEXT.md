@@ -40,6 +40,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: P5c — 运行时 llm-configs.json 补配 scope='studio' → deepseek/deepseek-v4-flash（= MODEL_TIER_FAST，决策 D8：studio 角色干的都是格式化分析，配便宜模型档；此前无记录，resolve 落 env 兜底 DEEPSEEK_MODEL||deepseek-chat）；repo 无代码变更
 - ✅ 2026-07-24: API 鉴权收紧 — /api/v1/settings/llm 挂载收 requireAuth+requireAdmin（LLM 配置含 key 管理 + /:scope/test 真实外呼）；CONTEXT 挂载路径修正（/api/v1/llm/config → /api/v1/settings/llm）
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
