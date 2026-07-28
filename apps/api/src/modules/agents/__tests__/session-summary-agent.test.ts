@@ -107,4 +107,39 @@ describe('SessionSummary checkpoint 失效回退（P5b）', () => {
     expect(result.commits).toBeGreaterThan(0);
     expect(mockLoggerWarn.mock.calls.some(c => (c[0] as string).includes('Git log failed'))).toBe(false);
   });
+
+  it('stale 标记去重：旧 ⚠️ 警告块随 marker 一并清除，多次运行不叠加', async () => {
+    // 夹具：src/ 下 CONTEXT.md 已带一轮旧 stale 块（marker + ⚠️ 行）
+    const srcDir = path.join(tmpRepo, 'src');
+    fs.mkdirSync(srcDir, { recursive: true });
+    const ctxFile = path.join(srcDir, 'CONTEXT.md');
+    fs.writeFileSync(ctxFile, '# src\n\n<!-- STALE_SINCE: 2026-07-01 -->\n⚠️ 以下文件已变更，本节可能过期: src/old.ts\n\n## 职责\n\n旧内容。\n');
+    fs.writeFileSync(path.join(srcDir, 'foo.ts'), 'export const a = 1;\n');
+    const git = (cmd: string) => execSync(`git -C "${tmpRepo}" ${cmd}`, { stdio: 'pipe' });
+    git('add src');
+    git('-c user.name=t -c user.email=t@t commit -qm "fix: 修复 foo 崩溃"');
+
+    const { sessionSummaryAgent } = await import('../session-summary-agent.service.js');
+    await sessionSummaryAgent.summarize();
+
+    const countBlocks = () => {
+      const s = fs.readFileSync(ctxFile, 'utf-8');
+      return {
+        warns: (s.match(/⚠️ 以下文件已变更/g) || []).length,
+        markers: (s.match(/<!-- STALE_SINCE:/g) || []).length,
+      };
+    };
+    expect(countBlocks()).toEqual({ warns: 1, markers: 1 });
+
+    // 再来一轮 fix → 仍只有一块
+    fs.writeFileSync(path.join(srcDir, 'foo.ts'), 'export const a = 2;\n');
+    git('add src/foo.ts');
+    git('-c user.name=t -c user.email=t@t commit -qm "fix: 再次修复 foo"');
+    vi.resetModules();
+    const again = await import('../session-summary-agent.service.js');
+    await again.sessionSummaryAgent.summarize();
+    expect(countBlocks()).toEqual({ warns: 1, markers: 1 });
+    // 内容仍包含最新变更文件
+    expect(fs.readFileSync(ctxFile, 'utf-8')).toContain('src/foo.ts');
+  });
 });

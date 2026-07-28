@@ -311,8 +311,11 @@ class SessionSummaryAgent {
 
         const content = fs.readFileSync(ctxFile, 'utf-8');
         const staleMarker = `<!-- STALE_SINCE: ${new Date().toISOString().slice(0, 10)} -->`;
-        // Remove old stale markers, add new one
-        const cleaned = content.replace(/<!-- STALE_SINCE:.*?-->\n?/g, '');
+        // Remove old stale markers AND their ⚠️ warning lines, then add fresh one
+        // （原实现只清 marker 不清 ⚠️ 行，每次运行多叠一条警告块——CONTEXT.md 越积越长）
+        const cleaned = content
+          .replace(/<!-- STALE_SINCE:.*?-->\n?/g, '')
+          .replace(/^⚠️ 以下文件已变更，本节可能过期:.*\n+/gm, '');
         const withStale = cleaned.replace(/(## 核心导出|## 职责|verifiedAt)/, `${staleMarker}\n⚠️ 以下文件已变更，本节可能过期: ${[...new Set(changed)].join(', ')}\n\n$1`);
         if (withStale !== cleaned) {
           fs.writeFileSync(ctxFile, withStale, 'utf-8');
