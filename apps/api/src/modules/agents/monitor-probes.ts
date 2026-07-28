@@ -1,7 +1,7 @@
 /**
  * Monitor Agent — 任务/WorkUnit 级探测
  *
- * 从 monitor-agent.service.ts 拆分（探测/告警/报告分离，零行为变更）。
+ * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责产生 MonitorAlert 的各项任务级检查：
  *   - 失败趋势 / 进度停滞 / 总执行时间（含主动终止）
  *   - blocked 24h 自动放弃 / 会话文件健康 / 工具调用异常模式
@@ -124,9 +124,9 @@ export async function checkTotalExecutionTime(fileStore: FileStore): Promise<Mon
       const elapsedMin = Math.round(elapsed / 60_000);
       try {
         await agentRunner.stop(exec.id);
-        logger.info('[MonitorAgent] Stopped timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
+        logger.info('[MonitorService] Stopped timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
       } catch (stopErr) {
-        logger.warn('[MonitorAgent] Failed to stop workUnit process', { workUnitId: exec.id.slice(0, 8), error: String(stopErr) });
+        logger.warn('[MonitorService] Failed to stop workUnit process', { workUnitId: exec.id.slice(0, 8), error: String(stopErr) });
       }
       // Update status via FileStore
       try {
@@ -138,9 +138,9 @@ export async function checkTotalExecutionTime(fileStore: FileStore): Promise<Mon
             completedAt: new Date().toISOString(),
           });
         }
-        logger.info('[MonitorAgent] Auto-closed timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
+        logger.info('[MonitorService] Auto-closed timed-out workUnit', { workUnitId: exec.id.slice(0, 8), elapsedMin });
       } catch (dbErr) {
-        logger.error('[MonitorAgent] Failed to update workUnit status', { workUnitId: exec.id.slice(0, 8), error: String(dbErr) });
+        logger.error('[MonitorService] Failed to update workUnit status', { workUnitId: exec.id.slice(0, 8), error: String(dbErr) });
       }
     } else if (elapsed > TIME_ESCALATE_MS) {
       alerts.push({
@@ -172,19 +172,19 @@ export async function autoAbandonStaleBlocked(fileStore: FileStore): Promise<voi
     .slice(0, 20);
 
   for (const exec of stale) {
-    logger.warn('[MonitorAgent] Auto-abandoning stale blocked workUnit', { workUnitId: exec.id });
+    logger.warn('[MonitorService] Auto-abandoning stale blocked workUnit', { workUnitId: exec.id });
     try {
       const current = (await fileStore.getIndex()).find(s => s.id === exec.id);
       if (current) {
         await fileStore.upsertSnapshot({ ...current, status: 'closed' });
       }
     } catch (e) {
-      logger.error('[MonitorAgent] Failed to auto-abandon', { executionId: exec.id, error: String(e) });
+      logger.error('[MonitorService] Failed to auto-abandon', { executionId: exec.id, error: String(e) });
     }
   }
 
   if (stale.length > 0) {
-    logger.info('[MonitorAgent] Auto-abandoned', { count: stale.length });
+    logger.info('[MonitorService] Auto-abandoned', { count: stale.length });
   }
 }
 
@@ -259,7 +259,7 @@ export async function checkToolPatterns(): Promise<MonitorAlert[]> {
       }
     }
   } catch (e) {
-    logger.warn('[MonitorAgent] Tool pattern check failed', { error: String(e) });
+    logger.warn('[MonitorService] Tool pattern check failed', { error: String(e) });
   }
   return alerts;
 }

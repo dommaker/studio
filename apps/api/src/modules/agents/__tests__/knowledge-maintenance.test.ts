@@ -90,7 +90,7 @@ describe('semanticDedup (F1a)', () => {
     expect(mockStoreUpdate).toHaveBeenCalledWith('a', {
       sourceReferences: [{ workflow: 'w1', timestamp: '1' }, { workflow: 'w2', timestamp: '2' }],
     });
-    expect(mockLogger.info).toHaveBeenCalledWith('[KnowledgeAgent] Semantic dedup merged', {
+    expect(mockLogger.info).toHaveBeenCalledWith('[KnowledgeCurator] Semantic dedup merged', {
       keep: 'a', archived: 'b', reason: '同一问题',
     });
   });
@@ -106,7 +106,7 @@ describe('semanticDedup (F1a)', () => {
     mockStoreList.mockReturnValue([entry('a'), entry('b')]);
     mockRunJson.mockRejectedValue(new Error('down'));
     expect(await semanticDedup()).toBe(0);
-    expect(mockLogger.warn).toHaveBeenCalledWith('[KnowledgeAgent] Semantic dedup batch failed', expect.objectContaining({ type: 'pitfall' }));
+    expect(mockLogger.warn).toHaveBeenCalledWith('[KnowledgeCurator] Semantic dedup batch failed', expect.objectContaining({ type: 'pitfall' }));
   });
 });
 
@@ -178,7 +178,7 @@ describe('validateFreshness (F1c)', () => {
   it('git 命令失败 → warn 容错返回 0', async () => {
     mockGitLog.stdout = new Error('not a git repo');
     expect(await validateFreshness()).toBe(0);
-    expect(mockLogger.warn).toHaveBeenCalledWith('[KnowledgeAgent] Freshness validation failed', expect.objectContaining({}));
+    expect(mockLogger.warn).toHaveBeenCalledWith('[KnowledgeCurator] Freshness validation failed', expect.objectContaining({}));
   });
 });
 
@@ -197,7 +197,7 @@ describe('resolveContradictions (F1d)', () => {
     expect(await resolveContradictions()).toBe(1);
     expect(mockStoreUpdate).toHaveBeenCalledTimes(1);
     expect(mockStoreUpdate).toHaveBeenCalledWith('b', { maturity: 'draft' });
-    expect(mockLogger.info).toHaveBeenCalledWith('[KnowledgeAgent] Contradiction detected', expect.objectContaining({ tag: 'cache' }));
+    expect(mockLogger.info).toHaveBeenCalledWith('[KnowledgeCurator] Contradiction detected', expect.objectContaining({ tag: 'cache' }));
   });
 
   it('无矛盾 → 0；无共同 tag 的分组 → 不调 LLM', async () => {

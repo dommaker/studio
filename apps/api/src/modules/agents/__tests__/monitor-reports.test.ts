@@ -49,8 +49,8 @@ vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
   sharedStore: { list: vi.fn(() => []) },
 }));
 
-vi.mock('../triage-agent.service.js', () => ({
-  triageAgent: { handleAlert: vi.fn(() => Promise.resolve()) },
+vi.mock('../triage.service.js', () => ({
+  triageService: { handleAlert: vi.fn(() => Promise.resolve()) },
 }));
 
 vi.mock('@dommaker/harness', async (importOriginal) => {

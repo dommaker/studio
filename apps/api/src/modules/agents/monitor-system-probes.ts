@@ -1,7 +1,7 @@
 /**
  * Monitor Agent — 系统/知识级探测与自修复
  *
- * 从 monitor-agent.service.ts 拆分（探测/告警/报告分离，零行为变更）。
+ * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责系统面检查：
  *   - B1-008: 系统健康探测（内存/磁盘/僵尸进程/CPU/存储）
  *   - 系统异常 3 次确认窗口 → Triage
@@ -15,7 +15,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import type { TriageIncidentInput } from './types.js';
-import { triageAgent } from './triage-agent.service.js';
+import { triageService } from './triage.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
 import { sharedStore, sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
 import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
@@ -29,7 +29,7 @@ const SYSTEM_HEALTH_CONFIRM_COUNT = 3;
 const SYSTEM_HEALTH_CONFIRM_WINDOW_MS = 60 * 1000; // 60s between checks (Monitor polls every 5 min, so this is per-check, not per-second)
 
 /**
- * 知识循环的实例级状态（由 MonitorAgent 实例持有并传入，保持 per-instance 语义）。
+ * 知识循环的实例级状态（由 MonitorService 实例持有并传入，保持 per-instance 语义）。
  */
 export interface KnowledgeCycleState {
   lastDecayRun: number;
@@ -59,14 +59,14 @@ export async function gcStaleWorktrees(): Promise<void> {
           const stat = fs.statSync(wtPath);
           if (stat.isDirectory() && stat.mtimeMs < cutoff) {
             fs.rmSync(wtPath, { recursive: true, force: true });
-            logger.info('[MonitorAgent] GC removed stale worktree', { path: wtPath, age: Math.round((Date.now() - stat.mtimeMs) / 3600000) + 'h' });
+            logger.info('[MonitorService] GC removed stale worktree', { path: wtPath, age: Math.round((Date.now() - stat.mtimeMs) / 3600000) + 'h' });
           }
         } catch { /* skip */ }
       }
     }
   } catch (e) {
     // Non-blocking — GC failure must not crash the monitor loop, but MUST be logged
-    logger.warn('[MonitorAgent] gcStaleWorktrees failed', { error: String(e) });
+    logger.warn('[MonitorService] gcStaleWorktrees failed', { error: String(e) });
   }
 }
 
@@ -78,21 +78,21 @@ export async function gcStaleWorktrees(): Promise<void> {
 
 /**
  * Circuit check → repair → write meta-knowledge to store.
- * Runs at MonitorAgent startup + hourly. Makes knowledge system self-documenting.
+ * Runs at MonitorService startup + hourly. Makes knowledge system self-documenting.
  */
 export async function runCircuitCheckAndRepair(): Promise<void> {
   try {
     // KnowledgeSync: detect staleness + unmonitored + heal
     const syncResult = await knowledgeSync.runSyncCycle();
     if (syncResult.stale.length > 0 || syncResult.unmonitored.length > 0) {
-      logger.warn('[MonitorAgent] KnowledgeSync detected issues', {
+      logger.warn('[MonitorService] KnowledgeSync detected issues', {
         staleScopes: syncResult.stale.map(s => ({ scope: s.scope, changedFiles: s.changedFiles, hours: s.stalenessHours })),
         unmonitored: syncResult.unmonitored.map(u => ({ scope: u.scope, reason: u.reason })),
         healed: syncResult.healed,
       });
     }
   } catch (e) {
-    logger.warn('[MonitorAgent] KnowledgeSync check failed', { error: String(e) });
+    logger.warn('[MonitorService] KnowledgeSync check failed', { error: String(e) });
   }
 }
 
@@ -104,17 +104,17 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
 
     const { score, details } = doctor.healthScore();
 
-    logger.info('[MonitorAgent] Knowledge health score', { score, issueCount: details.length });
+    logger.info('[MonitorService] Knowledge health score', { score, issueCount: details.length });
 
     if (score < 60) {
       // Escalate to Triage
-      triageAgent.handleAlert({
+      triageService.handleAlert({
         type: 'knowledge_health_degraded',
         severity: 'warning',
         message: `知识库健康评分: ${score}/100`,
         details: { score, issues: details },
       }).catch(err => {
-        logger.warn('[MonitorAgent] Knowledge health triage failed', { error: String(err) });
+        logger.warn('[MonitorService] Knowledge health triage failed', { error: String(err) });
       });
 
       // Also emit as alert
@@ -136,12 +136,12 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
         const result = sharedLifecycle.tryPromote(entry.id);
         if (result) {
           promoted++;
-          logger.info('[MonitorAgent] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
+          logger.info('[MonitorService] Knowledge promoted', { entryId: entry.id, from: result.from, to: result.to, reason: result.reason });
         }
       } catch { /* individual entry failure is non-blocking */ }
     }
     if (promoted > 0) {
-      logger.info('[MonitorAgent] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
+      logger.info('[MonitorService] Knowledge promotion cycle completed', { promoted, scanned: allEntries.length });
     }
 
     // Daily cycle: decay + lint + LLM maintenance
@@ -150,16 +150,16 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       const lintReport = linter.run(true);
       state.lastDecayRun = Date.now();
 
-      // F1: KnowledgeAgent LLM-powered maintenance (semantic dedup, quality, freshness, contradictions)
+      // F1: KnowledgeCurator LLM-powered maintenance (semantic dedup, quality, freshness, contradictions)
       try {
-        const { knowledgeAgent } = await import('./knowledge-agent.service.js');
-        const maintenance = await knowledgeAgent.runDailyMaintenance();
-        logger.info('[MonitorAgent] KnowledgeAgent daily maintenance', maintenance);
+        const { knowledgeCurator } = await import('./knowledge-curator.service.js');
+        const maintenance = await knowledgeCurator.runDailyMaintenance();
+        logger.info('[MonitorService] KnowledgeCurator daily maintenance', maintenance);
       } catch (err) {
-        logger.warn('[MonitorAgent] KnowledgeAgent maintenance failed', { error: String(err) });
+        logger.warn('[MonitorService] KnowledgeCurator maintenance failed', { error: String(err) });
       }
 
-      logger.info('[MonitorAgent] Knowledge decay cycle completed', {
+      logger.info('[MonitorService] Knowledge decay cycle completed', {
         decayChanges: decayChanges.length,
         autoFixed: lintReport.fixed,
       });
@@ -184,14 +184,14 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
         }).trim();
         if (result && result !== '{}') {
           const data = JSON.parse(result);
-          logger.info('[MonitorAgent] User model updated', { newSessions: (data as any).newSessions, changes: (data as any).changes?.length });
+          logger.info('[MonitorService] User model updated', { newSessions: (data as any).newSessions, changes: (data as any).changes?.length });
         }
       } catch (e: any) {
-        logger.warn('[MonitorAgent] User model update failed (non-blocking)', { error: String(e) });
+        logger.warn('[MonitorService] User model update failed (non-blocking)', { error: String(e) });
       }
     }
   } catch (err) {
-    logger.warn('[MonitorAgent] Knowledge health check failed', { error: String(err) });
+    logger.warn('[MonitorService] Knowledge health check failed', { error: String(err) });
   }
 }
 
@@ -316,7 +316,7 @@ export async function systemHealthCheck(): Promise<TriageIncidentInput[]> {
       });
     }
   } catch (e) {
-    logger.warn('[MonitorAgent] System health check error', { error: String(e) });
+    logger.warn('[MonitorService] System health check error', { error: String(e) });
   }
 
   return anomalies;
@@ -337,15 +337,15 @@ export async function systemTriageCheck(): Promise<void> {
     if (prev) {
       prev.count++;
       if (prev.count >= SYSTEM_HEALTH_CONFIRM_COUNT) {
-        logger.error('[MonitorAgent] System anomaly confirmed, triggering Triage', {
+        logger.error('[MonitorService] System anomaly confirmed, triggering Triage', {
           type: anomaly.type,
           confirmCount: prev.count,
         });
         systemHealthCounters.delete(key);
 
         // Fire-and-forget: triage runs async
-        triageAgent.handleAlert(anomaly).catch(err => {
-          logger.error('[MonitorAgent] Triage handleAlert failed', { error: String(err) });
+        triageService.handleAlert(anomaly).catch(err => {
+          logger.error('[MonitorService] Triage handleAlert failed', { error: String(err) });
         });
       }
     } else {
@@ -357,7 +357,7 @@ export async function systemTriageCheck(): Promise<void> {
   for (const [key, counter] of systemHealthCounters) {
     if (!activeKeys.has(key)) {
       systemHealthCounters.delete(key);
-      logger.info('[MonitorAgent] System anomaly resolved', { type: key, wasSeen: counter.count });
+      logger.info('[MonitorService] System anomaly resolved', { type: key, wasSeen: counter.count });
     }
   }
 }

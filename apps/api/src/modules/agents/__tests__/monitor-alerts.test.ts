@@ -37,8 +37,8 @@ vi.mock('../../knowledge/knowledge-service.js', () => ({
   knowledgeService: { recordPattern: mockRecordPattern },
 }));
 
-vi.mock('../triage-agent.service.js', () => ({
-  triageAgent: { handleAlert: mockHandleAlert },
+vi.mock('../triage.service.js', () => ({
+  triageService: { handleAlert: mockHandleAlert },
 }));
 
 const { mockNotifyAlert } = vi.hoisted(() => ({

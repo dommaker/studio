@@ -1,7 +1,7 @@
 /**
  * Monitor Agent — G31 数据生命周期：知识沉淀闸门 + TTL 清理
  *
- * 从 monitor-agent.service.ts 拆分（探测/告警/报告分离，零行为变更）。
+ * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责每日 23:55 的数据生命周期管理：
  *   - 沉淀闸门：清理前从即将过期的数据中提取知识，成功后标记 precipitated
  *   - TTL 清理：Session / WorkUnit / 统一事件文件（D18: studio-events.jsonl）/ StudioEvent / sessions 归档 / traces 备份
@@ -16,7 +16,7 @@ import { studioEventsJsonl } from './monitor-alerts.js';
 import { getStudioEventTime } from '../../utils/studio-events.js';
 
 /**
- * 生命周期的实例级状态（由 MonitorAgent 实例持有并传入，保持 per-instance 语义）。
+ * 生命周期的实例级状态（由 MonitorService 实例持有并传入，保持 per-instance 语义）。
  */
 export interface LifecycleState {
   lastPrecipitateRun: string;
@@ -41,7 +41,7 @@ export async function precipitate(fileStore: FileStore, state: LifecycleState): 
   // 2. .agent.log 归档: 提取执行失败模式
   results.sessions = await precipitateSessionLogs();
 
-  logger.info('[MonitorAgent] Precipitation completed', results);
+  logger.info('[MonitorService] Precipitation completed', results);
   return results;
 }
 
@@ -59,7 +59,7 @@ async function precipitateStudioEvents(fileStore: FileStore): Promise<boolean> {
     const unmarked = allEvents.filter((e: any) => !e.precipitated && inWindow(e));
 
     if (unmarked.length === 0) {
-      logger.info('[MonitorAgent] Precipitate: no unprompted StudioEvents');
+      logger.info('[MonitorService] Precipitate: no unprompted StudioEvents');
       return true;
     }
 
@@ -72,10 +72,10 @@ async function precipitateStudioEvents(fileStore: FileStore): Promise<boolean> {
       'utf-8',
     );
 
-    logger.info('[MonitorAgent] Precipitate StudioEvent: marked', { count: unmarked.length });
+    logger.info('[MonitorService] Precipitate StudioEvent: marked', { count: unmarked.length });
     return true;
   } catch (e) {
-    logger.warn('[MonitorAgent] Precipitate StudioEvent failed', { error: String(e) });
+    logger.warn('[MonitorService] Precipitate StudioEvent failed', { error: String(e) });
     return false;
   }
 }
@@ -112,10 +112,10 @@ async function precipitateSessionLogs(): Promise<boolean> {
 
     if (errorSnippets.length === 0) return true;
 
-    logger.info('[MonitorAgent] Precipitate sessions: done', { files: files.length });
+    logger.info('[MonitorService] Precipitate sessions: done', { files: files.length });
     return true;
   } catch (e) {
-    logger.warn('[MonitorAgent] Precipitate sessions failed', { error: String(e) });
+    logger.warn('[MonitorService] Precipitate sessions failed', { error: String(e) });
     return false;
   }
 }
@@ -139,18 +139,18 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
     if (state.lastDataLifecycleRun === today) return;
     state.lastDataLifecycleRun = today;
 
-    logger.info('[MonitorAgent] Data lifecycle TTL cleanup starting', { date: today });
+    logger.info('[MonitorService] Data lifecycle TTL cleanup starting', { date: today });
 
     // G31: 先沉淀后清理 — 沉淀失败的数据源不清理
     const gate = await precipitate(fileStore, state);
-    logger.info('[MonitorAgent] Precipitation gate', gate);
+    logger.info('[MonitorService] Precipitation gate', gate);
 
     // 1. 文件存储不设 TTL（JSONL append-only，清理无意义）
     try {
       const channelCutoff = new Date(Date.now() - 30 * 24 * 3600_000);
-      logger.info('[MonitorAgent] TTL: ChannelMessage skipped (file storage)', { cutoff: channelCutoff.toISOString() });
+      logger.info('[MonitorService] TTL: ChannelMessage skipped (file storage)', { cutoff: channelCutoff.toISOString() });
     } catch (e) {
-      logger.warn('[MonitorAgent] TTL: ChannelMessage skipped with error', { error: String(e) });
+      logger.warn('[MonitorService] TTL: ChannelMessage skipped with error', { error: String(e) });
     }
 
     // 1b. Delete expired Session records (FileStore)
@@ -169,9 +169,9 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
           }
         }
       } catch { /* no sessions dir */ }
-      if (deleted > 0) logger.info('[MonitorAgent] TTL: Session cleaned', { deleted });
+      if (deleted > 0) logger.info('[MonitorService] TTL: Session cleaned', { deleted });
     } catch (e) {
-      logger.warn('[MonitorAgent] TTL: Session cleanup failed', { error: String(e) });
+      logger.warn('[MonitorService] TTL: Session cleanup failed', { error: String(e) });
     }
 
     // 2. Delete WorkUnit older than 90 days (replaces GoalExecution TTL)
@@ -182,13 +182,13 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
       for (const wu of toDelete) {
         await fileStore.removeSnapshot(wu.id);
       }
-      logger.info('[MonitorAgent] TTL: WorkUnit cleaned', { deleted: toDelete.length, cutoff: new Date(execCutoffMs).toISOString() });
+      logger.info('[MonitorService] TTL: WorkUnit cleaned', { deleted: toDelete.length, cutoff: new Date(execCutoffMs).toISOString() });
     } catch (e) {
-      logger.warn('[MonitorAgent] TTL: WorkUnit cleanup failed', { error: String(e) });
+      logger.warn('[MonitorService] TTL: WorkUnit cleanup failed', { error: String(e) });
     }
 
     // 4. FileStore disk check (no VACUUM needed for file-based storage)
-    logger.info('[MonitorAgent] TTL: disk cleanup completed (FileStore — no VACUUM needed)');
+    logger.info('[MonitorService] TTL: disk cleanup completed (FileStore — no VACUUM needed)');
 
     // 5. Truncate 统一事件文件（D18: studio-events.jsonl）keeping only last 7 days
     try {
@@ -214,10 +214,10 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
           }
         }
         fs.writeFileSync(eventsFile, keepLines.join('\n') + '\n', 'utf-8');
-        logger.info('[MonitorAgent] TTL: studio-events.jsonl truncated', { kept: keepLines.length, removed: removedCount });
+        logger.info('[MonitorService] TTL: studio-events.jsonl truncated', { kept: keepLines.length, removed: removedCount });
       }
     } catch (e) {
-      logger.warn('[MonitorAgent] TTL: studio-events.jsonl truncation failed', { error: String(e) });
+      logger.warn('[MonitorService] TTL: studio-events.jsonl truncation failed', { error: String(e) });
     }
 
     // 6. (removed: knowledge.md truncation — dead chain, KnowledgeStore replaces)
@@ -236,12 +236,12 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
           'utf-8',
         );
         const deleted = allEvents.length - filtered.length;
-        logger.info('[MonitorAgent] TTL: StudioEvent cleaned', { deleted });
+        logger.info('[MonitorService] TTL: StudioEvent cleaned', { deleted });
       } catch (e) {
-        logger.warn('[MonitorAgent] TTL: StudioEvent cleanup failed', { error: String(e) });
+        logger.warn('[MonitorService] TTL: StudioEvent cleanup failed', { error: String(e) });
       }
     } else {
-      logger.warn('[MonitorAgent] TTL: StudioEvent cleanup skipped (precipitation failed)');
+      logger.warn('[MonitorService] TTL: StudioEvent cleanup skipped (precipitation failed)');
     }
 
     // 8. sessions 归档 log: 删除 >30d 的文件（需沉淀成功）
@@ -261,13 +261,13 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
               }
             } catch { /* skip */ }
           }
-          logger.info('[MonitorAgent] TTL: sessions cleaned', { deleted, total: files.length });
+          logger.info('[MonitorService] TTL: sessions cleaned', { deleted, total: files.length });
         }
       } catch (e) {
-        logger.warn('[MonitorAgent] TTL: sessions cleanup failed', { error: String(e) });
+        logger.warn('[MonitorService] TTL: sessions cleanup failed', { error: String(e) });
       }
     } else {
-      logger.warn('[MonitorAgent] TTL: sessions cleanup skipped (precipitation failed)');
+      logger.warn('[MonitorService] TTL: sessions cleanup skipped (precipitation failed)');
     }
 
     // 10. traces.log: 清理 >30d 的备份文件
@@ -286,14 +286,14 @@ export async function dataLifecycle(fileStore: FileStore, state: LifecycleState)
             }
           } catch { /* skip */ }
         }
-        logger.info('[MonitorAgent] TTL: traces backup cleaned', { deleted, total: files.length });
+        logger.info('[MonitorService] TTL: traces backup cleaned', { deleted, total: files.length });
       }
     } catch (e) {
-      logger.warn('[MonitorAgent] TTL: traces cleanup failed', { error: String(e) });
+      logger.warn('[MonitorService] TTL: traces cleanup failed', { error: String(e) });
     }
 
-    logger.info('[MonitorAgent] Data lifecycle TTL cleanup completed', { date: today });
+    logger.info('[MonitorService] Data lifecycle TTL cleanup completed', { date: today });
   } catch (e: any) {
-    logger.warn('[MonitorAgent] Data lifecycle TTL failed', { error: String(e) });
+    logger.warn('[MonitorService] Data lifecycle TTL failed', { error: String(e) });
   }
 }

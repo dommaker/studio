@@ -1,7 +1,7 @@
 /**
  * Monitor Agent — 告警分发 / Triage 升级 / 事件写入
  *
- * 从 monitor-agent.service.ts 拆分（探测/告警/报告分离，零行为变更）。
+ * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责告警出口侧：
  *   - 告警日志分级 + 统一事件写入（D18: utils/studio-events）+ notifyAlert 通知出口（P0 修复 4）
  *   - FL-037: critical 告警升级 Triage
@@ -12,7 +12,7 @@ import { logger } from '@dommaker/studio-shared';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { notifyAlert } from '../../utils/notifier.js';
 import type { MonitorAlert } from './types.js';
-import { triageAgent } from './triage-agent.service.js';
+import { triageService } from './triage.service.js';
 import { resolveStudioEventsFile, writeStudioEvent } from '../../utils/studio-events.js';
 
 /**
@@ -38,11 +38,11 @@ export function emitMonitorEvent(data: Record<string, unknown>): void {
 export function dispatchMonitorAlerts(alerts: MonitorAlert[]): void {
   for (const alert of alerts) {
     if (alert.level === 'critical') {
-      logger.error('[MonitorAgent] CRITICAL', alert);
+      logger.error('[MonitorService] CRITICAL', alert);
     } else if (alert.level === 'warning') {
-      logger.warn('[MonitorAgent] WARNING', alert);
+      logger.warn('[MonitorService] WARNING', alert);
     } else {
-      logger.info('[MonitorAgent] INFO', alert);
+      logger.info('[MonitorService] INFO', alert);
     }
     // Emit to studio events file + 通知出口（P0 修复 4：频道 + 企业微信 webhook）
     if (alert.level === 'critical' || alert.level === 'warning') {
@@ -78,7 +78,7 @@ export function escalateToTriage(alerts: MonitorAlert[]): void {
     const incidentType = sourceToType[alert.source];
     if (!incidentType) continue;
 
-    triageAgent.handleAlert({
+    triageService.handleAlert({
       type: incidentType,
       severity: 'critical',
       message: alert.message,
@@ -88,7 +88,7 @@ export function escalateToTriage(alerts: MonitorAlert[]): void {
         monitorSource: alert.source,
       },
     }).catch(err => {
-      logger.error('[MonitorAgent] Triage escalation failed', {
+      logger.error('[MonitorService] Triage escalation failed', {
         source: alert.source,
         incidentType,
         error: String(err),

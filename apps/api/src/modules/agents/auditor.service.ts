@@ -1,5 +1,5 @@
 /**
- * Auditor Agent — 跨任务审计 + 周期洞察
+ * Auditor Service — 跨任务审计 + 周期洞察
  *
  * 2026-05-09: 初始实现。每日扫描审计事件和执行结果，产出入门级洞察。
  * 远期 B4-001：系统级 GC + 模型 tier 成功率矩阵 + 约束效果评估。
@@ -19,7 +19,7 @@ import * as reports from './auditor-reports.js';
 
 const AUDIT_INTERVAL_MS = 24 * 60 * 60 * 1000; // Daily
 
-export class AuditorAgent {
+export class AuditorService {
   private interval: NodeJS.Timeout | null = null;
   private fileStore: FileStore;
 
@@ -30,14 +30,14 @@ export class AuditorAgent {
   start(): void {
     if (this.interval) return;
     this.interval = setInterval(() => this.dailyAudit(), AUDIT_INTERVAL_MS);
-    logger.info('[AuditorAgent] Started', { interval: '24h' });
+    logger.info('[AuditorService] Started', { interval: '24h' });
     // 首次启动 5 分钟后跑一次
     setTimeout(() => this.dailyAudit(), 5 * 60 * 1000);
   }
 
   stop(): void {
     if (this.interval) { clearInterval(this.interval); this.interval = null; }
-    logger.info('[AuditorAgent] Stopped');
+    logger.info('[AuditorService] Stopped');
   }
 
   // ── Daily Audit ──
@@ -203,9 +203,9 @@ export class AuditorAgent {
         tags: ['auditor'],
       }).catch(() => { /* non-blocking */ });
 
-      logger.info('[AuditorAgent] Daily audit completed', { total, failed, successRate });
+      logger.info('[AuditorService] Daily audit completed', { total, failed, successRate });
     } catch (e) {
-      logger.error('[AuditorAgent] Daily audit failed', { error: String(e) });
+      logger.error('[AuditorService] Daily audit failed', { error: String(e) });
     }
   }
 
@@ -285,4 +285,4 @@ export class AuditorAgent {
   }
 }
 
-export const auditorAgent = new AuditorAgent();
+export const auditorService = new AuditorService();

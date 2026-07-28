@@ -1,7 +1,7 @@
 /**
  * Monitor Agent — 报告：轨迹评估 / 每日洞察 / 交互模式观察
  *
- * 从 monitor-agent.service.ts 拆分（探测/告警/报告分离，零行为变更）。
+ * 从 monitor.service.ts 拆分（探测/告警/报告分离，零行为变更）。
  * 本模块负责聚合类输出：
  *   - G4: 结构化轨迹评估（monitor:trajectory）
  *   - DailyReflection: 每日开发洞察聚合（#系统 channel + Discord）
@@ -30,7 +30,7 @@ function flattenEvent(e: Record<string, unknown>): Record<string, any> {
 }
 
 /**
- * 报告的实例级状态（由 MonitorAgent 实例持有并传入，保持 per-instance 语义）。
+ * 报告的实例级状态（由 MonitorService 实例持有并传入，保持 per-instance 语义）。
  */
 export interface ReportState {
   lastDailyReflectionTs: number;
@@ -95,7 +95,7 @@ export async function evaluateTrajectory(fileStore: FileStore): Promise<void> {
       verdict: efficiency >= 60 ? 'good' : efficiency >= 30 ? 'degraded' : 'poor',
     };
 
-    logger.info('[MonitorAgent] Trajectory eval', report);
+    logger.info('[MonitorService] Trajectory eval', report);
 
     // Emit for Discord notification
     emitMonitorEvent(report);
@@ -109,7 +109,7 @@ export async function evaluateTrajectory(fileStore: FileStore): Promise<void> {
       });
     }
   } catch (e) {
-    logger.warn('[MonitorAgent] Trajectory eval failed', { error: String(e) });
+    logger.warn('[MonitorService] Trajectory eval failed', { error: String(e) });
   }
 }
 
@@ -215,7 +215,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
         void writeStudioEvent('pattern_report', { distribution, recurring: recurringData, date: today }, { source: 'monitor' });
 
         preferenceObserver.updateFromPatternReport(distribution, recurringData).catch((e) => {
-          logger.warn('[MonitorAgent] updateFromPatternReport failed', { error: String(e) });
+          logger.warn('[MonitorService] updateFromPatternReport failed', { error: String(e) });
         });
       }
     } catch { /* best-effort */ }
@@ -385,9 +385,9 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
         await channelMessageService.createAgentMessage(sysChannel.id, 'DailyReflection', content, {
           meta: { cardType: 'daily_reflection', date: today },
         });
-        logger.info('[MonitorAgent] DailyReflection posted', { date: today });
+        logger.info('[MonitorService] DailyReflection posted', { date: today });
       }
-    } catch (e: any) { logger.warn('[MonitorAgent] DailyReflection channel post failed', { error: String(e) }); }
+    } catch (e: any) { logger.warn('[MonitorService] DailyReflection channel post failed', { error: String(e) }); }
 
     // G30: Record daily reflection event（D18：统一写入入口）
     void writeStudioEvent('daily_reflection', { date: today, summaryLength: content.length }, { source: 'monitor' });
@@ -403,7 +403,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       }
     } catch { /* Discord best-effort */ }
   } catch (e: any) {
-    logger.warn('[MonitorAgent] DailyReflection failed', { error: String(e) });
+    logger.warn('[MonitorService] DailyReflection failed', { error: String(e) });
   }
 }
 

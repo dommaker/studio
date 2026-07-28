@@ -40,7 +40,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} }));
-vi.mock('../triage-agent.service.js', () => ({ triageAgent: { handleAlert: vi.fn(() => Promise.resolve()) } }));
+vi.mock('../triage.service.js', () => ({ triageService: { handleAlert: vi.fn(() => Promise.resolve()) } }));
 
 import { precipitate, dataLifecycle } from '../monitor-lifecycle.js';
 
@@ -166,7 +166,7 @@ describe('dataLifecycle (每日 23:55 TTL)', () => {
     await dataLifecycle(fileStore, state);
 
     expect(mockLogger.warn).toHaveBeenCalledWith(
-      '[MonitorAgent] TTL: StudioEvent cleanup skipped (precipitation failed)',
+      '[MonitorService] TTL: StudioEvent cleanup skipped (precipitation failed)',
     );
   });
 });

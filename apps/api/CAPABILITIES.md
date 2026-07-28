@@ -28,17 +28,17 @@
 | request-logger | src/middleware/request-logger.ts | 请求日志中间件 |
 | docs-freshness.routes | src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
-| auditor-agent.service | src/modules/agents/auditor-agent.service.ts | Auditor Agent — 跨任务审计 + 周期洞察 |
-| knowledge-agent.service | src/modules/agents/knowledge-agent.service.ts | Knowledge Agent - 从执行结果中异步提取知识 |
-| monitor-agent.service | src/modules/agents/monitor-agent.service.ts | Monitor Agent - 健康监控 + NA Step 7 渐进告警 |
-| ops-agent.service | src/modules/agents/ops-agent.service.ts | Ops Agent — 系统生命周期守护 |
+| auditor.service | src/modules/agents/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
+| knowledge-curator.service | src/modules/agents/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
+| monitor.service | src/modules/agents/monitor.service.ts | Monitor Service - 健康监控 + NA Step 7 渐进告警 |
+| ops.service | src/modules/agents/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | requirement-gate | src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
-| review-agent.service | src/modules/agents/review-agent.service.ts | Review Agent - 跨分支 diff 多立场审查 (daemon async spawn) |
+| review.service | src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查 (daemon async spawn) |
 | review-report | src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
 | session-summary-agent.service | src/modules/agents/session-summary-agent.service.ts | SessionSummaryAgent — 会话级知识提取 (2026-05-25) |
-| triage-agent.service | src/modules/agents/triage-agent.service.ts | Triage Agent Service — incident response: diagnose → classify → act → resolve/escalate |
+| triage.service | src/modules/agents/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | src/modules/agents/types.ts | Agent 团队类型定义 |
 | audit-subscriber | src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |
 | routes | src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |

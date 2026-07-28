@@ -1,5 +1,5 @@
 /**
- * MonitorAgent — CPU load average monitoring
+ * MonitorService — CPU load average monitoring
  *
  * AC: systemHealthCheck() detects CPU overload and returns anomaly.
  *   - load > cores×2 → warning
@@ -17,7 +17,7 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, loadavg: mockLoadavg, cpus: mockCpus };
 });
 
-// Mock all dependencies before importing MonitorAgent
+// Mock all dependencies before importing MonitorService
 vi.mock('@dommaker/harness', () => ({
   KnowledgeLinter: class { validateEntry() { return []; } },
   KnowledgeHealthScorer: class {},
@@ -63,13 +63,13 @@ vi.mock('../../knowledge/preference-observer.js', () => ({
   preferenceObserver: { record: vi.fn() },
 }));
 
-vi.mock('../triage-agent.service.js', () => ({
-  triageAgent: { handleAlert: vi.fn() },
+vi.mock('../triage.service.js', () => ({
+  triageService: { handleAlert: vi.fn() },
 }));
 
 import { systemHealthCheck } from '../monitor-system-probes.js';
 
-describe('MonitorAgent CPU load monitoring', () => {
+describe('MonitorService CPU load monitoring', () => {
   beforeEach(() => {
     mockLoadavg.mockReset();
     mockCpus.mockReset();

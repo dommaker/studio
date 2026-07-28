@@ -67,7 +67,7 @@ const fileStore = new FileStore();
  * 写入趋势数据到 data/trends/ 目录。
  * 替代原 recordTrend 写入 knowledge/ 的行为。
  * 被 knowledgeService.recordTrend/recordAnalystAccuracy、
- * monitorAgent.precipitateRouting、signalAggregator.upsertTrend 共用。
+ * monitorService.precipitateRouting、signalAggregator.upsertTrend 共用。
  */
 export function writeTrendData(filename: string, content: string): void {
   fs.mkdirSync(DATA_TRENDS_DIR, { recursive: true });
@@ -325,7 +325,7 @@ export interface AuditReport {
    * M1: 引用次数最多的条目（top 5）。
    * 数据源 = store 条目的 referencedBy 计数（harness KnowledgeLifecycle.recordReference 维护；
    * 注意 recordReference 并不维护 ~/.studio/knowledge/.consumption-stats.json —— 该文件是
-   * monitor-agent 写的每日聚合摘要 {date,dailyEvents,searchHits}，不含条目级数据）。
+   * monitor.service 写的每日聚合摘要 {date,dailyEvents,searchHits}，不含条目级数据）。
    */
   topReferenced: Array<{ id: string; title: string; references: number }>;
   /** M1: 近 30 天 LLM 提取活动（knowledge:extraction 事件实算） */
@@ -482,7 +482,7 @@ export class KnowledgeService {
    * R3 会话提取（断点 B）：任务 COMPLETE 时由 agent-loop 触发一次 LLM 提取
    * （根因/模式/可复用经验），结果以 proposal（maturity=draft）入库。
    *
-   * - LLM 路径复用 KnowledgeAgent 的提取链路：systemExecutor.run +
+   * - LLM 路径复用 KnowledgeCurator 的提取链路：systemExecutor.run +
    *   getExtractFromTextSystemPrompt()（单一 prompt 来源，不复制；E1 支持
    *   ~/.studio/prompt-overrides/knowledge.extract-from-text.md 文件覆盖）。
    * - proposal 须经审核（promote → verified）才参与注入（见 injectContext 的
@@ -500,10 +500,10 @@ export class KnowledgeService {
       const transcript = buildConversationTranscript(messages);
       if (!transcript) return;
 
-      // 复用 KnowledgeAgent 的提取 prompt（动态 import 避免静态循环依赖：
-      // knowledge-agent.service 已静态引用本模块的 validateKnowledgeForm/writeTrendData）
+      // 复用 KnowledgeCurator 的提取 prompt（动态 import 避免静态循环依赖：
+      // knowledge-curator.service 已静态引用本模块的 validateKnowledgeForm/writeTrendData）
       // E1: 经 getter 取值以支持 prompt-override 文件覆盖（约束进化提案生效路径）
-      const { getExtractFromTextSystemPrompt } = await import('../agents/knowledge-agent.service.js');
+      const { getExtractFromTextSystemPrompt } = await import('../agents/knowledge-curator.service.js');
 
       const startMs = Date.now();
       const execResult = await getSystemExecutor().run(transcript, {

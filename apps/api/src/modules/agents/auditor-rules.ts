@@ -1,7 +1,7 @@
 /**
  * Auditor Agent — 审计规则（检测 → 建议）
  *
- * 从 auditor-agent.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
+ * 从 auditor.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
  * 本模块负责纯分析检测逻辑，产出 Suggestion 列表：
  *   - 错误归类（classifyError）
  *   - 技能/agent-type 建议规则（B3-005）
@@ -98,7 +98,7 @@ export async function analyzeUserModel(): Promise<Suggestion[]> {
       }
     }
   } catch (e: any) {
-    logger.warn('[AuditorAgent] User model analysis failed', { error: String(e) });
+    logger.warn('[AuditorService] User model analysis failed', { error: String(e) });
   }
   return suggestions;
 }
@@ -332,12 +332,12 @@ export async function analyzeCircuitHealth(fileStore: FileStore): Promise<Sugges
     } catch { /* non-blocking */ }
 
     } catch (e) {
-      logger.warn('[AuditorAgent] OKR circuit health check failed', { error: String(e) });
+      logger.warn('[AuditorService] OKR circuit health check failed', { error: String(e) });
     }
 
-    logger.info('[AuditorAgent] Circuit health analyzed', { total, typeCount: byType.length, types: typeSummary });
+    logger.info('[AuditorService] Circuit health analyzed', { total, typeCount: byType.length, types: typeSummary });
   } catch (e) {
-    logger.warn('[AuditorAgent] Circuit health analysis failed', { error: String(e) });
+    logger.warn('[AuditorService] Circuit health analysis failed', { error: String(e) });
   }
   return suggestions;
 }
@@ -364,7 +364,7 @@ export async function generateSuggestions(
     } catch { activeSessionCount = 0; }
 
     if (activeSessionCount < 5) {
-      logger.info('[AuditorAgent] Skipping skill audit — insufficient active sessions', { activeSessionCount });
+      logger.info('[AuditorService] Skipping skill audit — insufficient active sessions', { activeSessionCount });
     } else {
       // Query skills with sufficient usage for analysis
       const skills = skillStore.list({ usageCount: { gte: 3 } });
@@ -482,7 +482,7 @@ export async function generateSuggestions(
       }
     }
   } catch (err) {
-    logger.warn('[AuditorAgent] Failed to generate suggestions', { error: String(err) });
+    logger.warn('[AuditorService] Failed to generate suggestions', { error: String(err) });
   }
 
   return suggestions;

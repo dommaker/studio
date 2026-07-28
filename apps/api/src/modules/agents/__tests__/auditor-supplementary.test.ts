@@ -1,5 +1,5 @@
 /**
- * Supplementary test: AuditorAgent edge cases
+ * Supplementary test: AuditorService edge cases
  *
  * Verifies:
  * - circuitSuggestions variable is defined (catches ReferenceError)
@@ -8,16 +8,16 @@
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 
-describe('AuditorAgent supplementary edge cases', () => {
+describe('AuditorService supplementary edge cases', () => {
   it('circuitSuggestions is defined before usage', async () => {
     // This test catches the bug: circuitSuggestions is used at line 183
     // but never defined as a local variable, causing ReferenceError at runtime.
     // The fix is to define it: `const circuitSuggestions = await this.analyzeKnowledgeCircuit();`
-    const { AuditorAgent } = await import('../auditor-agent.service.js');
-    const agent = new AuditorAgent() as any;
+    const { AuditorService } = await import('../auditor.service.js');
+    const agent = new AuditorService() as any;
 
     // Check that the runAudit method body references circuitSuggestions
-    const runAuditSrc = AuditorAgent.prototype.runAudit?.toString() || '';
+    const runAuditSrc = AuditorService.prototype.runAudit?.toString() || '';
     const hasVarDef = /\bconst\s+circuitSuggestions\b/.test(runAuditSrc);
     const hasRef = /\bcircuitSuggestions\b/.test(runAuditSrc);
 
@@ -35,8 +35,8 @@ describe('AuditorAgent supplementary edge cases', () => {
   });
 
   it('analyzeUserModel handles missing file gracefully', async () => {
-    const { AuditorAgent } = await import('../auditor-agent.service.js');
-    const agent = new AuditorAgent() as any;
+    const { AuditorService } = await import('../auditor.service.js');
+    const agent = new AuditorService() as any;
 
     // Should not throw when user model file doesn't exist
     const result = await agent.analyzeUserModel();
@@ -44,8 +44,8 @@ describe('AuditorAgent supplementary edge cases', () => {
   });
 
   it('analyzeUserModel handles malformed state file', async () => {
-    const { AuditorAgent } = await import('../auditor-agent.service.js');
-    const agent = new AuditorAgent() as any;
+    const { AuditorService } = await import('../auditor.service.js');
+    const agent = new AuditorService() as any;
 
     // Should not throw when processing unexpected data shape
     const result = await agent.analyzeUserModel();

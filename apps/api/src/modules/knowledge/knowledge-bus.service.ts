@@ -3,7 +3,7 @@
  *
  * TODO(R4-followup): KnowledgeBus 类的 write/search API 与 KnowledgeService 重复，
  * 消费者（evolution.service / knowledge-sync /
- * discovery-exposure / knowledge-agent / routes）应逐步迁移到 knowledgeService，
+ * discovery-exposure / knowledge-curator / routes）应逐步迁移到 knowledgeService，
  * 之后删除本类。新代码禁止直接使用 KnowledgeBus，请用 knowledgeService。
  *
  * 共享单例（sharedStore/sharedLifecycle/sharedIngest/sharedQuery/sharedInjector/
@@ -239,7 +239,7 @@ export class KnowledgeBus {
     }
   }
 
-  /** KnowledgeAgent: 记录架构/工具/流程决策 */
+  /** KnowledgeCurator: 记录架构/工具/流程决策 */
   async recordDecision(entry: DecisionRecord): Promise<void> {
     try {
       const title = `${entry.topic}: ${entry.decision}`;

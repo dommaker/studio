@@ -11,17 +11,17 @@
 
 ## 核心导出
 
-- `monitor-agent.service.ts` — MonitorAgent 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorAgent` / `monitorAgent` 不变。
+- `monitor.service.ts` — MonitorService 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorService` / `monitorService`。
   - `monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/工具模式）
   - `monitor-system-probes.ts` — 系统/知识级探测与自修复（systemHealthCheck/worktree GC/知识健康循环/KnowledgeSync）
   - `monitor-alerts.ts` — 告警分发（+ notifyAlert 出口：频道/企业微信 webhook）/Triage 升级（FL-037）/统一事件写入（D18: utils/studio-events）
   - `monitor-reports.ts` — 轨迹评估（G4）/每日洞察（DailyReflection）/交互模式观察（B9-025）
   - `monitor-lifecycle.ts` — G31 知识沉淀闸门 + 每日 23:55 数据 TTL 清理
-- `auditor-agent.service.ts` — AuditorAgent 门面（跨任务审计 + 周期洞察，每 24h 日审），T3 拆分后仅保留聚合/委托逻辑；对外导出 `AuditorAgent` / `auditorAgent` 不变。
+- `auditor.service.ts` — AuditorService 门面（跨任务审计 + 周期洞察，每 24h 日审），T3 拆分后仅保留聚合/委托逻辑；对外导出 `AuditorService` / `auditorService`。
   - `auditor-rules.ts` — 审计规则（错误归类/技能与 agent-type 建议 B3-005/用户模型质量/知识电路健康 I2）
   - `auditor-execution.ts` — 建议执行（低风险自动应用/确认卡片+铃铛通知/RKB Resolution 创建/Triage 升级/eval case 生成）
   - `auditor-reports.ts` — 洞察与报告输出（会话行为趋势/B13-011 七日趋势/tier 成功率反馈/#系统 推送）
-- `knowledge-agent.service.ts` — KnowledgeAgent 门面（知识库冷启动 + F1 每日维护），T3 拆分后保留公共 API（coldStartAll / runDailyMaintenance 聚合）；对外导出 `KnowledgeAgent` / `knowledgeAgent` / `EXTRACT_FROM_TEXT_SYSTEM_PROMPT` / `getExtractFromTextSystemPrompt` 不变。
+- `knowledge-curator.service.ts` — KnowledgeCurator 门面（知识库冷启动 + F1 每日维护），T3 拆分后保留公共 API（coldStartAll / runDailyMaintenance 聚合）；对外导出 `KnowledgeCurator` / `knowledgeCurator` / `EXTRACT_FROM_TEXT_SYSTEM_PROMPT` / `getExtractFromTextSystemPrompt`。
   - `knowledge-extraction.ts` — 提取 prompt 单一来源（EXTRACT_FROM_TEXT_SYSTEM_PROMPT + E1 文件覆盖 getter）
   - `knowledge-cold-start.ts` — 冷启动四源导入（P1b: docs/code/git/manual）+ Discord 通知
   - `knowledge-maintenance.ts` — 语料分析（F1：语义去重/质量评估/过期验证/矛盾审查）
@@ -42,7 +42,7 @@
   - 子模块：`auditor-rules.js`、`auditor-execution.js`、`auditor-reports.js`
 - 下游
   - **apps/api/src**（cli/server.ts、index.ts、route-registry.ts）—— API 入口挂载 agents 路由及启动时初始化
-  - **apps/api/src/modules/knowledge**（internal.routes.ts、knowledge-service.ts）—— 知识模块依赖本目录的 knowledge-agent.service 等
+  - **apps/api/src/modules/knowledge**（internal.routes.ts、knowledge-service.ts）—— 知识模块依赖本目录的 knowledge-curator.service 等
   - **apps/api/src/modules/workunit**（waiting-input.ts）—— 等待输入流程引用 agent 实例
 
 ## 注意事项
@@ -66,6 +66,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: *-agent.service 整批去 agent 化改名——review/triage/ops/monitor/auditor-agent.service.ts → review/triage/ops/monitor/auditor.service.ts（类与导出同步：ReviewService·reviewService、TriageService·triageService、OpsService·createOpsService、MonitorService·monitorService、AuditorService·auditorService）；knowledge-agent.service.ts → knowledge-curator.service.ts（KnowledgeCurator·knowledgeCurator，避让 modules/knowledge 的 knowledgeService 撞名；职责为冷启动导入 + F1 每日语料维护，curator 贴切）；日志前缀 [XAgent]→[XService]/[KnowledgeCurator] 全量同步（含 monitor-*/auditor-*/knowledge-* 拆分文件与测试断言）；保留项：'OpsAgent' 频道消息作者名（channel-review.ts 约定的消息署名）、'triage-agent' FailureAction 枚举字面量、审计卡片 source:'auditor-agent' 与 ops source/addedBy:'ops-agent' 数据标签（均为数据/行为约定而非命名遗留，改动会与存量数据失配）；session-summary-agent.service.ts 不在本批范围
 - ✅ 2026-07-28: review-agent 旧路径物理删除（D7 逾期收尾，723→190 行）— review()（生产零调用方，唯一路由 /review/diff 调的是 reviewDiff）、reviewParallel()（全仓零调用方，且 simple 档回退依赖 review()）及专属 hasChanges/isSimpleChange/fastPathReview 随删；reviewDiff/hasBranchChanges 保留，getReviewTimeoutMs 因 reviewDiff 共用保留；afterReview import 摘除。吸取评估：empty-diff 预检已由 reviewDiff「No diff between refs, auto-approving」分支覆盖（旧路径 reject、新链路 auto-approve 的语义差异是新链路既定选择）；fast-path（isSimpleChange → AC-compliance 快审）与多立场 stances 参数化未被新链路继承——由 reviewer 角色 + code-review skill 替代，随旧路径删除不留半成品。review-agent-empty-diff.test.ts 整文件删除
 - ✅ 2026-07-28: 任务规格档（tier）机制物理删除——agent-loop 的 AgentTask 构造摘除 `model: 'standard'` 死键（AgentTask.model 字段已随 studio-agent 删除；模型归算力提供方 CLI 自身配置）
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）

@@ -1,7 +1,7 @@
 /**
  * Knowledge Agent — 冷启动子模块
  *
- * 从 knowledge-agent.service.ts 拆分（提取/冷启动/分析分离，零行为变更）。
+ * 从 knowledge-curator.service.ts 拆分（提取/冷启动/分析分离，零行为变更）。
  * P1b: 四源冷启动导入（docs/code/git/manual）+ Discord 通知。
  */
 
@@ -59,7 +59,7 @@ export async function coldStartAll(): Promise<void> {
     const importedCount = results.reduce((sum, r) => sum + r.entries.length, 0);
     const totalErrors = results.reduce((sum, r) => sum + r.errors.length, 0);
 
-    logger.info('[KnowledgeAgent] Cold start import completed', {
+    logger.info('[KnowledgeCurator] Cold start import completed', {
       importedCount,
       totalErrors,
       sources: results.map(r => r.source.type),
@@ -74,7 +74,7 @@ export async function coldStartAll(): Promise<void> {
       );
     } catch { /* non-blocking */ }
   } catch (err) {
-    logger.error('[KnowledgeAgent] Cold start import failed', { error: String(err) });
+    logger.error('[KnowledgeCurator] Cold start import failed', { error: String(err) });
   }
 }
 

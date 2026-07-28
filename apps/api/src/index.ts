@@ -15,8 +15,8 @@ import { logger } from '@dommaker/studio-shared';
 import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
-import { monitorAgent } from './modules/agents/monitor-agent.service.js';
-import { auditorAgent } from './modules/agents/auditor-agent.service.js';
+import { monitorService } from './modules/agents/monitor.service.js';
+import { auditorService } from './modules/agents/auditor.service.js';
 import { daemon } from './daemon/studio-daemon.js';
 import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';
@@ -94,11 +94,11 @@ async function start() {
       envSnapper.startPeriodicSnapshots();
     });
 
-    // G-004: 决策链提取（KK 提取时自动触发，见 knowledge-agent.service.ts）
+    // G-004: 决策链提取（KK 提取时自动触发，见 knowledge-curator.service.ts）
 
     // P1b: 冷启动知识导入（异步，不阻塞启动）
-    import('./modules/agents/knowledge-agent.service.js').then(({ knowledgeAgent }) => {
-      knowledgeAgent.coldStartAll().catch(() => { /* non-blocking */ });
+    import('./modules/agents/knowledge-curator.service.js').then(({ knowledgeCurator }) => {
+      knowledgeCurator.coldStartAll().catch(() => { /* non-blocking */ });
     });
 
     // 注册路由
@@ -124,13 +124,13 @@ async function start() {
     logger.info('[WsGateway] Attached to HTTP server at /ws/daemon');
 
     // ── 核心服务 ──
-    monitorAgent.start();
-    auditorAgent.start();
+    monitorService.start();
+    auditorService.start();
     // B4a（决策 D8）: daemon.start() 已摘除 —— studio-daemon 是 pipeline 时代
     // session 管理器，submitJob/submitAdhocJob 全库无生产调用方（仅测试），
     // 且其 reviewer session 每次启动新建 git worktree（daemon/reviewer-* 分支
     // 从不合从不删，泄漏源头）。代码文件保留：daemon-routes / discord /
-    // ops-agent / cli 仍消费 getStatus/isStarted（未启动时安全降级为空状态）。
+    // ops.service / cli 仍消费 getStatus/isStarted（未启动时安全降级为空状态）。
     // REQ 需求编号体系（vision §5.3）：WorkUnit 终态 → Requirement done 状态汇总
     try {
       const { initRequirementRollup } = await import('./modules/requirements/rollup.js');
@@ -143,12 +143,12 @@ async function start() {
       initPmoProgressRollup();
       logger.info('[PMO] Progress rollup subscribed (workunit.status_changed → project progress)');
     } catch (e) { logger.warn('[PMO] Progress rollup init failed', { error: String(e) }); }
-    // ── Ops Agent: runtime health loop ──
+    // ── Ops Service: runtime health loop ──
     try {
-      const { createOpsAgent } = await import('./modules/agents/ops-agent.service.js');
-      const opsAgent = createOpsAgent();
-      opsAgent.start();
-    } catch (e) { logger.warn('[OpsAgent] Failed to start', { error: String(e) }); }
+      const { createOpsService } = await import('./modules/agents/ops.service.js');
+      const opsService = createOpsService();
+      opsService.start();
+    } catch (e) { logger.warn('[OpsService] Failed to start', { error: String(e) }); }
     startAuditSubscriber();
     try { startEvolutionScheduler(); } catch { logger.warn('Evolution scheduler unavailable'); }
 
@@ -378,8 +378,8 @@ async function start() {
       detachWsGateway();
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }
       stopEvolutionScheduler();
-      monitorAgent.stop();
-      auditorAgent.stop();
+      monitorService.stop();
+      auditorService.stop();
       stopAuditSubscriber();
       // Deprecated meeting services removed from startup — stops are no-ops
       try { await stopHealthMonitor(); } catch {}

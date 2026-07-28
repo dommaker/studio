@@ -1,5 +1,5 @@
 /**
- * Ops Agent — 系统生命周期守护
+ * Ops Service — 系统生命周期守护
  *
  * 负责：启动安全检查、进程管理、配置校验、数据完整性、运行时健康
  * 缺口：启动阶段独立于 Monitor/Auditor 运行，保护 Monitor 管不到的部分
@@ -37,7 +37,7 @@ interface HealthStatus {
   timestamp: string;
 }
 
-export class OpsAgent {
+export class OpsService {
   private interval: NodeJS.Timeout | null = null;
   private port: number;
   private rules: OpsRules;
@@ -221,13 +221,13 @@ export class OpsAgent {
     if (this.interval) return;
     this.stopped = false;
     this.interval = setInterval(() => this.healthCheck(), intervalMs);
-    logger.info('[OpsAgent] Started', { intervalMs, port: this.port });
+    logger.info('[OpsService] Started', { intervalMs, port: this.port });
   }
 
   stop(): void {
     this.stopped = true;
     if (this.interval) { clearInterval(this.interval); this.interval = null; }
-    logger.info('[OpsAgent] Stopped');
+    logger.info('[OpsService] Stopped');
   }
 
   private async healthCheck(): Promise<void> {
@@ -236,11 +236,11 @@ export class OpsAgent {
     try {
       const status = await this.getStatus();
       if (this.stopped) return; // re-check after async gap
-      logger.info('[OpsAgent] Health check', status);
+      logger.info('[OpsService] Health check', status);
 
       // Critical: API not responding → check if daemon is busy before restart
       if (!status.apiResponding) {
-        logger.error('[OpsAgent] CRITICAL: API not responding on port', { port: this.port });
+        logger.error('[OpsService] CRITICAL: API not responding on port', { port: this.port });
         // B13-009: Record incident to KnowledgeService
         try {
           const { knowledgeService } = await import('../knowledge/knowledge-service.js');
@@ -265,17 +265,17 @@ export class OpsAgent {
             const runningExecs = snapshots.filter(s => s.parentId !== null).length;
             if (runningExecs > 0) {
               daemonBusy = true;
-              logger.info('[OpsAgent] Executor sessions active', { runningExecs });
+              logger.info('[OpsService] Executor sessions active', { runningExecs });
             }
           } catch {}
         }
         if (this.stopped) return; // re-check after async gap
         if (daemonBusy) {
-          logger.warn('[OpsAgent] Daemon busy — skipping auto-restart to avoid killing running tasks');
+          logger.warn('[OpsService] Daemon busy — skipping auto-restart to avoid killing running tasks');
         } else {
           // Self-exit instead of spawning `systemctl restart` which creates orphan processes
           // and cascade loops. Systemd's Restart=always will handle the restart naturally.
-          logger.error('[OpsAgent] API unresponsive and daemon idle — exiting for systemd restart');
+          logger.error('[OpsService] API unresponsive and daemon idle — exiting for systemd restart');
           process.exit(1);
         }
         // Push alert to #系统 Channel
@@ -294,7 +294,7 @@ export class OpsAgent {
       // Critical conditions → escalate
       const pct = parseInt(status.disk.usePercent);
       if (pct > this.rules.checks.disk_threshold_critical) {
-        logger.error('[OpsAgent] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
+        logger.error('[OpsService] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
         // B13-009: Record incident to KnowledgeService
         try {
           const { knowledgeService } = await import('../knowledge/knowledge-service.js');
@@ -311,24 +311,24 @@ export class OpsAgent {
       const lastGC = (this as any)._lastGc || 0;
       if (Date.now() - lastGC > 60 * 60 * 1000) {
         const cleaned = await this.cleanupWorktrees();
-        if (cleaned > 0) logger.info('[OpsAgent] Worktree GC cleaned', { cleaned });
+        if (cleaned > 0) logger.info('[OpsService] Worktree GC cleaned', { cleaned });
         (this as any)._lastGc = Date.now();
       }
 
       if (process.env.CLOUDFLARED_ENABLED === 'true' && !this.isCloudflaredRunning()) {
-        logger.warn('[OpsAgent] Cloudflared not running, restarting...');
+        logger.warn('[OpsService] Cloudflared not running, restarting...');
         try {
           execSync(`nohup cloudflared tunnel --url http://localhost:${this.port} --no-autoupdate > /tmp/cloudflared.log 2>&1 &`, { stdio: 'pipe' });
-          logger.info('[OpsAgent] Cloudflared restarted');
+          logger.info('[OpsService] Cloudflared restarted');
         } catch (e: any) {
-          logger.error('[OpsAgent] Failed to restart cloudflared', { error: String(e) });
+          logger.error('[OpsService] Failed to restart cloudflared', { error: String(e) });
         }
       }
 
       // Proxy health: detect SYN-SENT → restart ss-local with rate limiting
       await this.checkProxyHealth();
     } catch (e: any) {
-      logger.warn('[OpsAgent] Health check failed', { error: String(e) });
+      logger.warn('[OpsService] Health check failed', { error: String(e) });
     }
   }
 
@@ -424,18 +424,18 @@ export class OpsAgent {
       if (synSentCount < 2) {
         // Proxy healthy (or acceptable transient state) — reset stale counter
         if (synSentCount === 0 && this.proxyRestartCount > 0) {
-          logger.info('[OpsAgent] Proxy recovered', { proxyPort: PROXY_PORT });
+          logger.info('[OpsService] Proxy recovered', { proxyPort: PROXY_PORT });
           this.proxyRestartCount = 0;
         }
         return;
       }
 
       // Proxy is dead (2+ SYN-SENT)
-      logger.warn('[OpsAgent] Proxy health degraded', { proxyPort: PROXY_PORT, synSentCount });
+      logger.warn('[OpsService] Proxy health degraded', { proxyPort: PROXY_PORT, synSentCount });
 
       // Check rate limit
       if (this.proxyRestartCount >= MAX_RESTARTS_PER_HOUR) {
-        logger.error('[OpsAgent] Proxy restart limit exhausted', {
+        logger.error('[OpsService] Proxy restart limit exhausted', {
           proxyPort: PROXY_PORT,
           restarts: this.proxyRestartCount,
           windowStart: new Date(this.proxyRestartWindowStart).toISOString(),
@@ -446,7 +446,7 @@ export class OpsAgent {
 
       // Restart proxy service
       this.proxyRestartCount++;
-      logger.info('[OpsAgent] Restarting proxy service', {
+      logger.info('[OpsService] Restarting proxy service', {
         proxyPort: PROXY_PORT,
         attempt: this.proxyRestartCount,
         maxPerHour: MAX_RESTARTS_PER_HOUR,
@@ -455,7 +455,7 @@ export class OpsAgent {
         encoding: 'utf-8', timeout: 10_000, stdio: 'pipe',
       });
     } catch (e: any) {
-      logger.warn('[OpsAgent] Proxy health check failed', { error: String(e) });
+      logger.warn('[OpsService] Proxy health check failed', { error: String(e) });
     }
   }
 
@@ -479,7 +479,7 @@ export class OpsAgent {
         createdAt: new Date().toISOString(),
       });
     } catch (e) {
-      logger.warn('[OpsAgent] Failed to emit proxy alert', { error: String(e) });
+      logger.warn('[OpsService] Failed to emit proxy alert', { error: String(e) });
     }
   }
 
@@ -546,12 +546,12 @@ export class OpsAgent {
             } catch { /* git cleanup best-effort */ }
             fs.rmSync(fullPath, { recursive: true, force: true });
             cleaned++;
-            logger.info('[OpsAgent] Cleaned old worktree', { path: fullPath, age: Math.round((Date.now() - stat.mtimeMs) / 86400000) + 'd' });
+            logger.info('[OpsService] Cleaned old worktree', { path: fullPath, age: Math.round((Date.now() - stat.mtimeMs) / 86400000) + 'd' });
           }
         } catch { /* skip problematic entries */ }
       }
     } catch (e: any) {
-      logger.warn('[OpsAgent] Worktree GC failed', { error: String(e) });
+      logger.warn('[OpsService] Worktree GC failed', { error: String(e) });
     }
     return cleaned;
   }
@@ -620,13 +620,13 @@ export class OpsAgent {
 }
 
 /** Factory — port from env or default */
-export function createOpsAgent(port?: number): OpsAgent {
-  return new OpsAgent(port || parseInt(process.env.PORT || '3001', 10));
+export function createOpsService(port?: number): OpsService {
+  return new OpsService(port || parseInt(process.env.PORT || '3001', 10));
 }
 
 // ── Health endpoint factory ──
 import { Router, Request, Response } from 'express';
-export function createHealthRoutes(ops: OpsAgent): Router {
+export function createHealthRoutes(ops: OpsService): Router {
   const router = Router();
   router.get('/', async (_req: Request, res: Response) => {
     try {

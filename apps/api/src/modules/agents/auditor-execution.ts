@@ -1,7 +1,7 @@
 /**
  * Auditor Agent — 建议执行 / 升级 / 闭环
  *
- * 从 auditor-agent.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
+ * 从 auditor.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
  * 本模块负责对审计结果的动作侧：
  *   - 低风险建议自动应用（B3-005）
  *   - 高风险建议推送确认卡片 + 铃铛通知
@@ -33,11 +33,11 @@ export async function applyLowRiskSuggestions(suggestions: Suggestion[]): Promis
           successRate: s.data?.successRate as number,
         });
         applied.push(`Skill "${s.skillName}" successRate updated`);
-        logger.info('[AuditorAgent] Auto-applied skill_weight', { skillId: s.skillId, skillName: s.skillName });
+        logger.info('[AuditorService] Auto-applied skill_weight', { skillId: s.skillId, skillName: s.skillName });
       } else if (s.type === 'skill_status' && s.skillId) {
         skillStore.update(s.skillId, { status: 'published' });
         applied.push(`Skill "${s.skillName}" auto-published`);
-        logger.info('[AuditorAgent] Auto-applied skill_status', { skillId: s.skillId, skillName: s.skillName });
+        logger.info('[AuditorService] Auto-applied skill_status', { skillId: s.skillId, skillName: s.skillName });
       } else if (s.type === 'model_weight_tune') {
         // Update user model state: mark concept trend as stable
         const fs = await import('fs');
@@ -51,16 +51,16 @@ export async function applyLowRiskSuggestions(suggestions: Suggestion[]): Promis
             state.patterns[concept].trend = 'stable';
             fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf-8');
             applied.push(`概念 "${concept}" 趋势已固化为 stable`);
-            logger.info('[AuditorAgent] Auto-applied model_weight_tune', { concept });
+            logger.info('[AuditorService] Auto-applied model_weight_tune', { concept });
           }
         }
       } else if (s.type === 'circuit_fix' && s.risk === 'low') {
         // Low-risk circuit fix: just record that we tried
         applied.push(`电路建议已记录: ${s.detail.slice(0, 80)}`);
-        logger.info('[AuditorAgent] Recorded circuit suggestion', { detail: s.detail });
+        logger.info('[AuditorService] Recorded circuit suggestion', { detail: s.detail });
       }
     } catch (err) {
-      logger.warn('[AuditorAgent] Failed to apply low-risk suggestion', {
+      logger.warn('[AuditorService] Failed to apply low-risk suggestion', {
         type: s.type,
         skillId: s.skillId,
         error: String(err),
@@ -124,14 +124,14 @@ export async function pushConfirmationCards(fileStore: FileStore, suggestions: S
           link: `/channels/${channel.id}`,
         });
       }
-      logger.info('[AuditorAgent] Push notifications sent', { users: userIds.length, suggestions: suggestions.length });
+      logger.info('[AuditorService] Push notifications sent', { users: userIds.length, suggestions: suggestions.length });
     } catch (notifErr: any) {
-      logger.warn('[AuditorAgent] Bell notification failed (non-blocking)', { error: String(notifErr) });
+      logger.warn('[AuditorService] Bell notification failed (non-blocking)', { error: String(notifErr) });
     }
 
-    logger.info('[AuditorAgent] Pushed suggestion confirmation cards + notifications', { count: suggestions.length });
+    logger.info('[AuditorService] Pushed suggestion confirmation cards + notifications', { count: suggestions.length });
   } catch (err) {
-    logger.warn('[AuditorAgent] Failed to push suggestion cards', { error: String(err) });
+    logger.warn('[AuditorService] Failed to push suggestion cards', { error: String(err) });
   }
 }
 
@@ -172,7 +172,7 @@ export async function autoCreateResolutions(
       });
     }
   } catch (err) {
-    logger.warn('[AuditorAgent] autoCreateResolutions failed', { error: String(err) });
+    logger.warn('[AuditorService] autoCreateResolutions failed', { error: String(err) });
   }
 }
 
@@ -190,8 +190,8 @@ export async function escalateToTriage(
       const failureRate = stats.failed / stats.total;
       if (failureRate > 0.3) {
         try {
-          const { triageAgent } = await import('./triage-agent.service.js');
-          triageAgent.handleAlert({
+          const { triageService } = await import('./triage.service.js');
+          triageService.handleAlert({
             type: 'agent_type_failure_trend',
             severity: 'critical',
             message: `Agent type "${agentType}" failure rate ${(failureRate * 100).toFixed(0)}% (${stats.failed}/${stats.total})`,
@@ -202,13 +202,13 @@ export async function escalateToTriage(
               failed: stats.failed,
             },
           }).catch(err => {
-            logger.error('[AuditorAgent] Triage escalation failed (agent_type)', {
+            logger.error('[AuditorService] Triage escalation failed (agent_type)', {
               agentType,
               error: String(err),
             });
           });
         } catch (err) {
-          logger.warn('[AuditorAgent] Failed to import triageAgent for agent_type_failure_trend', { error: String(err) });
+          logger.warn('[AuditorService] Failed to import triageService for agent_type_failure_trend', { error: String(err) });
         }
       }
     }
@@ -217,8 +217,8 @@ export async function escalateToTriage(
   // Overall successRate < 50% → workunit_health_degraded
   if (total >= 5 && overallSuccessRate < 50) {
     try {
-      const { triageAgent } = await import('./triage-agent.service.js');
-      triageAgent.handleAlert({
+      const { triageService } = await import('./triage.service.js');
+      triageService.handleAlert({
         type: 'workunit_health_degraded',
         severity: 'critical',
         message: `WorkUnit success rate ${overallSuccessRate}% (${failed}/${total} failed) below 50% threshold`,
@@ -228,12 +228,12 @@ export async function escalateToTriage(
           failed,
         },
       }).catch(err => {
-        logger.error('[AuditorAgent] Triage escalation failed (workunit_health)', {
+        logger.error('[AuditorService] Triage escalation failed (workunit_health)', {
           error: String(err),
         });
       });
     } catch (err) {
-      logger.warn('[AuditorAgent] Failed to import triageAgent for workunit_health_degraded', { error: String(err) });
+      logger.warn('[AuditorService] Failed to import triageService for workunit_health_degraded', { error: String(err) });
     }
   }
 }
@@ -265,7 +265,7 @@ export async function generateEvalCases(recentExecs: Array<{
     const { evalCaseGenerator } = await import('../knowledge/eval-case-generator.js');
     await evalCaseGenerator.generateFromFailures(failures);
   } catch (err) {
-    logger.warn('[AuditorAgent] Eval case generation failed', { error: String(err) });
+    logger.warn('[AuditorService] Eval case generation failed', { error: String(err) });
   }
 }
 

@@ -1,7 +1,7 @@
 /**
  * Auditor Agent — 洞察与报告输出
  *
- * 从 auditor-agent.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
+ * 从 auditor.service.ts 拆分（审计规则/执行/报告分离，零行为变更）。
  * 本模块负责报告侧：
  *   - 开发会话行为趋势分析（session:summary → behavioral insights）
  *   - B13-011: 每日快照 + 7 日趋势检测
@@ -203,7 +203,7 @@ export async function postToSystemChannel(fileStore: FileStore, content: string)
   try {
     const channel = (await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
     if (!channel) {
-      logger.warn('[AuditorAgent] System channel not found');
+      logger.warn('[AuditorService] System channel not found');
       return;
     }
 
@@ -215,6 +215,6 @@ export async function postToSystemChannel(fileStore: FileStore, content: string)
       { meta: { cardType: 'audit-report', source: 'auditor-agent' } },
     );
   } catch (e) {
-    logger.warn('[AuditorAgent] Failed to post to system channel', { error: String(e) });
+    logger.warn('[AuditorService] Failed to post to system channel', { error: String(e) });
   }
 }

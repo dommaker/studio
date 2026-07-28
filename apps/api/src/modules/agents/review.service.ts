@@ -1,5 +1,5 @@
 /**
- * Review Agent - 跨分支 diff 多立场审查 (daemon async spawn)
+ * Review Service - 跨分支 diff 多立场审查 (daemon async spawn)
  *
  * 唯一职责：reviewDiff() —— 审查 baseRef..headRef 之间的全部变更（拓扑无关，不依赖 worktree），
  * 在 repoPath 中 spawn Claude Code 执行多立场审查，结果经 .review-report.json 回收。
@@ -30,7 +30,7 @@ function getReviewTimeoutMs(complexity?: 'simple' | 'medium' | 'complex'): numbe
   return minutes * 60 * 1000;
 }
 
-export class ReviewAgent {
+export class ReviewService {
   /**
    * 参数化跨分支 diff 审查（拓扑无关）
    *
@@ -45,7 +45,7 @@ export class ReviewAgent {
       const hasDiff = await this.hasBranchChanges(repoPath, baseRef, headRef);
       if (!hasDiff) {
         const durationMs = Date.now() - startTime;
-        logger.info('[ReviewAgent] No diff between refs, auto-approving', { baseRef, headRef, durationMs });
+        logger.info('[ReviewService] No diff between refs, auto-approving', { baseRef, headRef, durationMs });
         return { approved: true, score: 100, issues: [], suggestions: [] };
       }
 
@@ -98,7 +98,7 @@ export class ReviewAgent {
         `2>&1`,
       ].join(' ');
 
-      logger.info('[ReviewAgent] Starting branch diff review', { baseRef, headRef, repoPath });
+      logger.info('[ReviewService] Starting branch diff review', { baseRef, headRef, repoPath });
 
       try {
         await execSh(cmd, {
@@ -109,13 +109,13 @@ export class ReviewAgent {
         });
       } catch (execErr: any) {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
-        logger.error('[ReviewAgent] reviewDiff Claude Code failed', { baseRef, headRef, error: errMsg.slice(0, 200) });
+        logger.error('[ReviewService] reviewDiff Claude Code failed', { baseRef, headRef, error: errMsg.slice(0, 200) });
         return { approved: false, score: 0, issues: [{ severity: 'error', message: `审查异常: ${errMsg.slice(0, 200)}` }], suggestions: [] };
       }
 
       const reportPath = path.join(repoPath, '.review-report.json');
       if (!fs.existsSync(reportPath)) {
-        logger.warn('[ReviewAgent] reviewDiff report not found, rejecting', { baseRef, headRef });
+        logger.warn('[ReviewService] reviewDiff report not found, rejecting', { baseRef, headRef });
         return { approved: false, score: 0, issues: [{ severity: 'error', message: '审查报告未生成' }], suggestions: [] };
       }
 
@@ -130,7 +130,7 @@ export class ReviewAgent {
       const reviewScore = errorIssues > 0 ? 50 : totalIssues > 0 ? 80 : 100;
 
       const durationMs = Date.now() - startTime;
-      logger.info('[ReviewAgent] reviewDiff completed', { baseRef, headRef, approved: report.overallApproved, score: reviewScore, issueCount: totalIssues, durationMs });
+      logger.info('[ReviewService] reviewDiff completed', { baseRef, headRef, approved: report.overallApproved, score: reviewScore, issueCount: totalIssues, durationMs });
 
       const allIssues = [
         ...(report.issues ?? []).map(i => ({ severity: i.severity, message: i.message, file: i.file, line: i.line })),
@@ -159,14 +159,14 @@ export class ReviewAgent {
       const totalErrorIssues = allIssues.filter(i => i.severity === 'error').length;
       const finalApproved = totalErrorIssues > 0 ? false : report.overallApproved;
       if (totalErrorIssues > 0 && report.overallApproved) {
-        logger.warn('[ReviewAgent] reviewDiff override: error issues present, forcing rejection', {
+        logger.warn('[ReviewService] reviewDiff override: error issues present, forcing rejection', {
           baseRef, headRef, totalErrorIssues,
         });
       }
 
       return { approved: finalApproved, score: reviewScore, issues: allIssues, suggestions: report.suggestions ?? [] };
     } catch (error) {
-      logger.error('[ReviewAgent] reviewDiff failed', { baseRef, headRef, error: String(error) });
+      logger.error('[ReviewService] reviewDiff failed', { baseRef, headRef, error: String(error) });
       return { approved: false, score: 0, issues: [{ severity: 'error', message: `审查异常: ${String(error).slice(0, 200)}` }], suggestions: [] };
     }
   }
@@ -187,4 +187,4 @@ export class ReviewAgent {
   }
 }
 
-export const reviewAgent = new ReviewAgent();
+export const reviewService = new ReviewService();

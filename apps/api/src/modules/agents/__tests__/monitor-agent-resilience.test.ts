@@ -1,5 +1,5 @@
 /**
- * MonitorAgent resilience tests
+ * MonitorService resilience tests
  *
  * 覆盖：超时 WorkUnit（>2.5h）自动终止（agentRunner.stop + close snapshot）。
  */
@@ -55,13 +55,13 @@ vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
 vi.mock('../../knowledge/knowledge-service.js', () => ({ knowledgeService: {} }));
 vi.mock('../../knowledge/knowledge-sync.service.js', () => ({ knowledgeSync: {} }));
 vi.mock('../../knowledge/preference-observer.js', () => ({ preferenceObserver: { record: vi.fn() } }));
-vi.mock('../triage-agent.service.js', () => ({ triageAgent: { handleAlert: vi.fn() } }));
+vi.mock('../triage.service.js', () => ({ triageService: { handleAlert: vi.fn() } }));
 
 vi.mock('../../daemon/studio-daemon.js', () => ({
   daemon: { getStatus: mockDaemonGetStatus },
 }));
 
-import { monitorAgent } from '../monitor-agent.service.js';
+import { monitorService } from '../monitor.service.js';
 import { agentRunner } from '@dommaker/studio-agent';
 
 /** Create minimal WorkUnitSnapshot for test fixtures */
@@ -89,7 +89,7 @@ function makeSnapshot(overrides: Record<string, unknown>): Record<string, unknow
 
 // ── Auto-fail time-critical workUnits (>2.5h) ──
 
-describe('MonitorAgent auto-fail time-critical workUnits', () => {
+describe('MonitorService auto-fail time-critical workUnits', () => {
   beforeEach(() => {
     mockGetIndex.mockReset();
     mockGetIndex.mockResolvedValue([]);
@@ -106,7 +106,7 @@ describe('MonitorAgent auto-fail time-critical workUnits', () => {
     ]);
     vi.mocked(agentRunner.stop).mockResolvedValue(undefined);
 
-    const alerts = await (monitorAgent as any).checkTotalExecutionTime();
+    const alerts = await (monitorService as any).checkTotalExecutionTime();
 
     // Should generate a critical alert
     expect(alerts).toEqual(expect.arrayContaining([
@@ -132,7 +132,7 @@ describe('MonitorAgent auto-fail time-critical workUnits', () => {
       makeSnapshot({ id: 'exec-ok', status: 'active', parentId: 'parent-1', claimedAt: oneHourAgo, createdAt: oneHourAgo }),
     ]);
 
-    const alerts = await (monitorAgent as any).checkTotalExecutionTime();
+    const alerts = await (monitorService as any).checkTotalExecutionTime();
 
     // Should NOT call agentRunner.stop
     expect(agentRunner.stop).not.toHaveBeenCalled();

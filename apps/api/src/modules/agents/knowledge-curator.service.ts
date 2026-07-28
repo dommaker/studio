@@ -1,12 +1,12 @@
 /**
- * Knowledge Agent - 知识库冷启动与每日维护
+ * Knowledge Curator - 知识库冷启动与每日维护
  *
  * 结构（T3 拆分：提取/冷启动/分析分离；本文件为门面，保留聚合逻辑）：
  *   - knowledge-extraction.ts  提取 prompt 单一来源（EXTRACT_FROM_TEXT_SYSTEM_PROMPT
  *                              + E1 文件覆盖 getter，KnowledgeService.extractFromConversation 经此取用）
  *   - knowledge-cold-start.ts  冷启动四源导入（P1b: docs/code/git/manual）
  *   - knowledge-maintenance.ts 语料分析（F1 每日维护：语义去重/质量评估/过期验证/矛盾审查）
- * 门面保留：KnowledgeAgent/knowledgeAgent 公共 API（coldStartAll + runDailyMaintenance 聚合）。
+ * 门面保留：KnowledgeCurator/knowledgeCurator 公共 API（coldStartAll + runDailyMaintenance 聚合）。
  * 注意：knowledge-service.ts 有自己独立的门禁实现 ingestConversationEntry，与本门面无关。
  */
 
@@ -20,7 +20,7 @@ import * as maintenance from './knowledge-maintenance.js';
  */
 export { EXTRACT_FROM_TEXT_SYSTEM_PROMPT, getExtractFromTextSystemPrompt } from './knowledge-extraction.js';
 
-export class KnowledgeAgent {
+export class KnowledgeCurator {
 
   private fileStore: FileStore;
 
@@ -44,7 +44,7 @@ export class KnowledgeAgent {
   // ── LLM-Powered Daily Maintenance (F1) ──────────────────
 
   /**
-   * 每日知识维护入口（由 MonitorAgent daily cycle 调用）
+   * 每日知识维护入口（由 MonitorService daily cycle 调用）
    * 执行 4 个 LLM 驱动的质量操作：语义去重、内容质量评估、过期验证、矛盾审查
    */
   async runDailyMaintenance(): Promise<{
@@ -54,7 +54,7 @@ export class KnowledgeAgent {
     contradictionsResolved: number;
   }> {
     const startTime = Date.now();
-    logger.info('[KnowledgeAgent] Daily maintenance started');
+    logger.info('[KnowledgeCurator] Daily maintenance started');
 
     const results = {
       dedupMerged: 0,
@@ -76,11 +76,11 @@ export class KnowledgeAgent {
       // 4. Contradiction resolution
       results.contradictionsResolved = await this.resolveContradictions();
     } catch (err) {
-      logger.error('[KnowledgeAgent] Daily maintenance failed', { error: String(err) });
+      logger.error('[KnowledgeCurator] Daily maintenance failed', { error: String(err) });
     }
 
     const durationMs = Date.now() - startTime;
-    logger.info('[KnowledgeAgent] Daily maintenance completed', { ...results, durationMs });
+    logger.info('[KnowledgeCurator] Daily maintenance completed', { ...results, durationMs });
 
     return results;
   }
@@ -104,4 +104,4 @@ export class KnowledgeAgent {
   }
 }
 
-export const knowledgeAgent = new KnowledgeAgent();
+export const knowledgeCurator = new KnowledgeCurator();

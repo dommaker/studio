@@ -5,7 +5,7 @@
  * 而是写覆盖文件 `~/.studio/prompt-overrides/<templateId>.md`，prompt 构建时
  * 优先读覆盖文件。覆盖目录可用 `STUDIO_PROMPT_OVERRIDES_DIR` 覆盖（测试注入）。
  *
- * 当前支持的 templateId（prompt-builder / knowledge-agent 内的接线处）：
+ * 当前支持的 templateId（prompt-builder / knowledge-curator 内的接线处）：
  *   - knowledge.rules-section      注入区段「## 系统约束」（{content} = 动态条目行）
  *   - knowledge.context-section    注入区段「## 上下文」（{content} = 动态条目行）
  *   - knowledge.signals-section    注入区段「## 近期信号」（{content} = 动态信号行）

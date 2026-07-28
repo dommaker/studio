@@ -1,5 +1,5 @@
 /**
- * Monitor Agent - 健康监控 + NA Step 7 渐进告警
+ * Monitor Service - 健康监控 + NA Step 7 渐进告警
  *
  * 每 5 分钟轮询：
  *   - 失败趋势
@@ -27,7 +27,7 @@ import { isWorkspaceConnected } from '../workspaces/ws-gateway.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 
-export class MonitorAgent {
+export class MonitorService {
   private interval: NodeJS.Timeout | null = null;
   private circuitCheckInterval: NodeJS.Timeout | null = null;
   private fileStore: FileStore;
@@ -43,7 +43,7 @@ export class MonitorAgent {
   start(): void {
     if (this.interval) return;
     this.interval = setInterval(() => this.check().catch(e => {
-      logger.error('[MonitorAgent] Check failed', { error: String(e) });
+      logger.error('[MonitorService] Check failed', { error: String(e) });
     }), CHECK_INTERVAL);
 
     // Circuit self-check at startup — detect + auto-repair + write meta-knowledge
@@ -52,7 +52,7 @@ export class MonitorAgent {
     // Periodic circuit check (hourly)
     this.circuitCheckInterval = setInterval(() => this.runCircuitCheckAndRepair(), 60 * 60 * 1000);
 
-    logger.info('[MonitorAgent] Started', { checkInterval: CHECK_INTERVAL });
+    logger.info('[MonitorService] Started', { checkInterval: CHECK_INTERVAL });
   }
 
   stop(): void {
@@ -64,7 +64,7 @@ export class MonitorAgent {
       clearInterval(this.circuitCheckInterval);
       this.circuitCheckInterval = null;
     }
-    logger.info('[MonitorAgent] Stopped');
+    logger.info('[MonitorService] Stopped');
   }
 
   private async check(): Promise<void> {
@@ -174,20 +174,20 @@ export class MonitorAgent {
         if (!profile.nodeId || profile.nodeId === 'local') continue;
         const connected = isWorkspaceConnected(profile.id);
         if (!connected && profile.status === 'active') {
-          logger.warn('[MonitorAgent] Node offline', { profile: profile.name, nodeId: profile.nodeId });
+          logger.warn('[MonitorService] Node offline', { profile: profile.name, nodeId: profile.nodeId });
           try {
             await this.fileStore.updateProfile(profile.id, {
               status: 'inactive',
             });
           } catch (updateErr) {
-            logger.warn('[MonitorAgent] Failed to mark profile offline', { error: String(updateErr) });
+            logger.warn('[MonitorService] Failed to mark profile offline', { error: String(updateErr) });
           }
         }
       }
     } catch (err) {
-      logger.warn('[MonitorAgent] checkNodeOffline failed', { error: String(err) });
+      logger.warn('[MonitorService] checkNodeOffline failed', { error: String(err) });
     }
   }
 }
 
-export const monitorAgent = new MonitorAgent();
+export const monitorService = new MonitorService();

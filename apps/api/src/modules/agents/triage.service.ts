@@ -1,4 +1,4 @@
-// Triage Agent Service — incident response: diagnose → classify → act → resolve/escalate
+// Triage Service — incident response: diagnose → classify → act → resolve/escalate
 import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
 import { classifySystemError } from '../triage/error-class.js';
 import { knowledgeService } from '../knowledge/knowledge-service.js';
@@ -30,7 +30,7 @@ interface PhaseResult {
   triage?: SystemTriageResult;
 }
 
-class TriageAgent {
+class TriageService {
   private fileStore: FileStore;
 
   constructor(fileStore?: FileStore) {
@@ -56,7 +56,7 @@ class TriageAgent {
     });
 
     eventBus.publish('incident.created', { incidentId, type: input.type, severity: input.severity });
-    logger.info('[TriageAgent] Incident created', { incidentId, type: input.type });
+    logger.info('[TriageService] Incident created', { incidentId, type: input.type });
 
     const triageLog: TriageLogEntry[] = [];
 
@@ -113,7 +113,7 @@ class TriageAgent {
       }
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      logger.error('[TriageAgent] Fatal error', { incidentId, error: errMsg });
+      logger.error('[TriageService] Fatal error', { incidentId, error: errMsg });
       return await this.forceEscalate(incidentId, triageLog, `Fatal: ${errMsg}`);
     }
   }
@@ -272,7 +272,7 @@ class TriageAgent {
       const matched = await knowledgeService.matchResolutions(input.message);
       if (matched.resolutions.length > 0) {
         resolutionHint = matched.resolutions[0].fix;
-        logger.info('[TriageAgent] Resolution matched', { incidentType, title: matched.resolutions[0].title });
+        logger.info('[TriageService] Resolution matched', { incidentType, title: matched.resolutions[0].title });
         // B13-001: Verify matched resolution (pending→verified→canonical)
         try { await knowledgeService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
       }
@@ -380,7 +380,7 @@ class TriageAgent {
           systemPrompt: '你是 SRE 故障诊断专家。简短回答，给出可执行的修复建议。',
         });
         llmDiagnosis = execResult.output;
-        logger.info('[TriageAgent] LLM fallback diagnosis', { incidentType, diagnosis: llmDiagnosis.slice(0, 200) });
+        logger.info('[TriageService] LLM fallback diagnosis', { incidentType, diagnosis: llmDiagnosis.slice(0, 200) });
       } catch { /* LLM unavailable — fall through to escalate */ }
 
       return {
@@ -439,7 +439,7 @@ class TriageAgent {
       });
     } catch { /* non-blocking */ }
 
-    logger.info('[TriageAgent] Incident resolved', { incidentId, resolution });
+    logger.info('[TriageService] Incident resolved', { incidentId, resolution });
     return { incidentId, resolved: true, resolution };
   }
 
@@ -463,7 +463,7 @@ class TriageAgent {
     });
 
     eventBus.publish('incident.escalated', { incidentId, triage });
-    logger.warn('[TriageAgent] Incident escalated', { incidentId });
+    logger.warn('[TriageService] Incident escalated', { incidentId });
     return { incidentId, resolved: false, resolution: 'escalated_to_human' };
   }
 
@@ -487,7 +487,7 @@ class TriageAgent {
     });
 
     eventBus.publish('incident.escalated', { incidentId, reason });
-    logger.error('[TriageAgent] Force escalated', { incidentId, reason });
+    logger.error('[TriageService] Force escalated', { incidentId, reason });
     return { incidentId, resolved: false, resolution: reason };
   }
 
@@ -516,4 +516,4 @@ class TriageAgent {
   }
 }
 
-export const triageAgent = new TriageAgent();
+export const triageService = new TriageService();
