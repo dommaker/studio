@@ -2,29 +2,30 @@
  * auditor-reports — 洞察与报告输出单元测试
  * analyzeSessionTrends / trackTrends / saveTierStats / postToSystemChannel
  */
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpHome, tmpEvents, eventsFile, mockSave } = vi.hoisted(() => {
-  const fs = require('fs');
-  const path = require('path');
-  const os = require('os');
+const { tmpHome, tmpEvents, eventsFile, mockSave, origHomedir } = vi.hoisted(() => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const os = require('node:os');
   const tmpEvents = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-events-'));
   const eventsFile = path.join(tmpEvents, 'studio-events.jsonl');
   // D18: 统一事件文件按测试文件隔离（resolveStudioEventsFile 懒读 env）
   process.env.STUDIO_EVENTS_FILE = eventsFile;
+  // homedir 直接补丁：vi.mock 对内建模块在本 vitest 4.1.10 环境不生效（2026-07-28 实测），
+  // 经 require 补丁 module.exports 才能让 FileStore 默认目录落进 tmpHome
+  const orig = os.homedir;
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-home-'));
+  os.homedir = () => tmpHome;
   return {
-    tmpHome: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-home-')),
+    tmpHome,
     tmpEvents,
     eventsFile,
     mockSave: vi.fn(),
+    origHomedir: orig,
   };
-});
-
-vi.mock('os', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('os')>();
-  return { ...actual, homedir: () => tmpHome };
 });
 
 vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
@@ -38,6 +39,13 @@ import {
   saveTierStats,
   postToSystemChannel,
 } from '../auditor-reports.js';
+
+// 还原 homedir 补丁 + 清理 tmpHome（同 worker 后续文件不受影响）
+afterAll(() => {
+  const os = require('node:os');
+  os.homedir = origHomedir;
+  fs.rmSync(tmpHome, { recursive: true, force: true });
+});
 
 const snapshotFile = path.join(tmpHome, '.studio', 'auditor', 'daily-snapshots.jsonl');
 

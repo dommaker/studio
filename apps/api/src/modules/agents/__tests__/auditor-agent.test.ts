@@ -3,11 +3,30 @@
  *
  * Migrated from Prisma Skill to file-based SkillStore (D-005).
  * Still uses Prisma for Company, Channel, ChannelMessage, StudioEvent.
+ *
+ * 隔离（2026-07-28 flake 修复）：os.homedir 直接补丁到 tmpHome。vi.mock('os') /
+ * vi.mock('node:os') 在本 vitest 4.1.10 环境对内建模块不生效（实测 FileStore 仍落
+ * /root/.studio/data）——必须经 require 在模块加载前补丁 module.exports（vi.hoisted
+ * 先于 import 求值，skill-store 的模块级 DATA_DIR 也被正确重定向）。
+ * 此前本文件用真实 home 的 FileStore，与其他并行测试文件互相把对方的 #系统 频道当
+ * 「stale」删掉（pushConfirmationCards 的卡片发到别的频道 id）→ 并行必现失败，
+ * 且污染线上数据目录。
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+
+const { tmpHome, origHomedir } = vi.hoisted(() => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const os = require('node:os');
+  const orig = os.homedir;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-agent-home-'));
+  os.homedir = () => tmp;
+  return { tmpHome: tmp, origHomedir: orig };
+});
+
 import { FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../../skills/skill-store.js';
 
@@ -66,10 +85,13 @@ describe('AuditorAgent B3-005', () => {
   afterAll(async () => {
     // Cleanup test skills from SkillStore
     skillStore.deleteMany({ companyId: testCompanyId });
-    // Restore env + drop tmp events dir
+    // Restore env + drop tmp events dir + 还原 homedir 补丁（同 worker 后续文件不受影响）
+    const os = require('node:os');
+    os.homedir = origHomedir;
     if (prevStudioEventsFile === undefined) delete process.env.STUDIO_EVENTS_FILE;
     else process.env.STUDIO_EVENTS_FILE = prevStudioEventsFile;
     if (testEventsDir) fs.rmSync(testEventsDir, { recursive: true, force: true });
+    fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
   beforeEach(async () => {
