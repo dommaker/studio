@@ -2,7 +2,7 @@
 name: design-analyst
 description: "把模糊需求变成结构化设计文档（方案对比、AC 定义、风险评估），或对系统/架构/方案做评估分析。"
 agentTypes: [design, analysis]
-triggers: [需求分析, 设计探索, 方案对比, 需求澄清, 系统审计, 现状审计, requirement analysis, design spec, architecture evaluation, 风险评估]
+triggers: [需求, 设计, 方案, 需求分析, 设计探索, 方案对比, 需求澄清, 系统审计, 现状审计, requirement analysis, design spec, architecture evaluation, 风险评估]
 status: published
 ---
 
