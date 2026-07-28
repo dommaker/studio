@@ -29,7 +29,7 @@
 | error | packages/studio-shared/src/cli/error.ts | 错误处理 |
 | formatter | packages/studio-shared/src/cli/formatter.ts | 输出格式化器 |
 | parser | packages/studio-shared/src/cli/parser.ts | 参数解析器 |
-| model-tier | packages/studio-shared/src/config/model-tier.ts | Model Tier → 模型名映射（2026-05-08） |
+| model-tier | packages/studio-shared/src/config/model-tier.ts | Model Tier 任务规格档位标签（2026-07-28 起不再映射模型名） |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
 | responsibility-chain | packages/studio-shared/src/constants/responsibility-chain.ts | 责任链模型 - 类型定义 |
 | stage-definitions | packages/studio-shared/src/constants/stage-definitions.ts | Stage Definitions - 阶段定义 + 关键词 + 推荐函数 |
@@ -131,10 +131,6 @@
 | routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理 |
 | rule-scanner | apps/api/src/modules/knowledge/rule-scanner.ts | RuleScanner (G-002) — 从源码/harness 约束/配置中提取业务规则 |
 | routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
-| config.routes | apps/api/src/modules/llm/config.routes.ts | LLM Config API 路由 |
-| config.service | apps/api/src/modules/llm/config.service.ts | LLM Config Service - 加密存储 + 分层配置解析 |
-| creation-analyzer | apps/api/src/modules/llm/creation-analyzer.ts | 创建意图分析器 - 从自然语言生成 Skill/Workflow 配置 |
-| intent-analyzer | apps/api/src/modules/llm/intent-analyzer.ts | LLM 意图分析器 - 使用 /api/v1/llm/chat（统一使用 Studio LLM 配置） |
 
 | admin.routes | apps/api/src/modules/mcp/admin.routes.ts | MCP Admin Routes — tool management, permissions, audit |
 | permission.service | apps/api/src/modules/mcp/permission.service.ts | MCP Permission Service — role×tool access control + audit logging |

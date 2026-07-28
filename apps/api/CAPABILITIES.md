@@ -81,11 +81,6 @@
 | routes | src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理 |
 | rule-scanner | src/modules/knowledge/rule-scanner.ts | RuleScanner (G-002) — 从源码/harness 约束/配置中提取业务规则 |
 | routes | src/modules/lark/routes.ts | 飞书机器人交互回调 |
-| config.routes | src/modules/llm/config.routes.ts | LLM Config API 路由 |
-| config.service | src/modules/llm/config.service.ts | LLM Config Service - 分层配置解析 |
-| creation-analyzer | src/modules/llm/creation-analyzer.ts | 创建意图分析器 - 从自然语言生成 Skill/Workflow 配置 |
-| intent-analyzer | src/modules/llm/intent-analyzer.ts | LLM 意图分析器 - 使用 /api/v1/llm/chat（统一使用 Studio LLM 配置） |
-| proxy | src/modules/llm/proxy.ts | 获取 LLM 配置 |
 | admin.routes | src/modules/mcp/admin.routes.ts | MCP Admin Routes — tool management, permissions, audit |
 | permission.service | src/modules/mcp/permission.service.ts | MCP Permission Service — role×tool access control + audit logging |
 | routes | src/modules/mcp/routes.ts | MCP HTTP Routes |

@@ -12,7 +12,6 @@ import { logger } from '@dommaker/studio-shared';
 // TODO(cleanup): @dommaker/studio-task 为 pipeline 时代队列，全库无存活生产者；
 // 默认关闭（启动/停止由 STUDIO_TASK_QUEUE_ENABLED=true 恢复）。
 // 包暂不删除 — 12 个 task-queue 测试为预存失败。
-import { llmConfigService } from './modules/llm/config.service.js';
 import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';

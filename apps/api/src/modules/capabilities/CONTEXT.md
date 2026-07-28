@@ -31,7 +31,7 @@
 
 **下游引用**：
 - apps/api/src/app.ts（挂载路由）
-- apps/api/src/modules/llm/intent-analyzer.ts（可能使用能力信息分析意图）
+- ~~apps/api/src/modules/llm/intent-analyzer.ts~~（2026-07-28 随 llm 模块下线删除）
 - apps/api/src/route-registry.ts（注册路由路径）
 
 ## 注意事项
