@@ -92,7 +92,7 @@
 | review.service | apps/api/src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查（/review/diff 管理端点）+ G33 非阻断发现自动曝光 |
 | review-report | apps/api/src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
-| session-summary-agent.service | apps/api/src/modules/agents/session-summary-agent.service.ts | SessionSummaryAgent — 会话级知识提取 (2026-05-25) |
+| session-summary.service | apps/api/src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
 | triage.service | apps/api/src/modules/agents/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | apps/api/src/modules/agents/types.ts | Agent 团队类型定义 |
 | audit-subscriber | apps/api/src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |

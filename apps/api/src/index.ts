@@ -77,11 +77,11 @@ async function start() {
     });
 
     // SessionSummary: 提取上次会话以来的知识（非 Goal 维度）
-    import('./modules/agents/session-summary-agent.service.js').then(({ sessionSummaryAgent }) => {
+    import('./modules/agents/session-summary.service.js').then(({ sessionSummaryService }) => {
       // 启动时跑一次
-      setTimeout(() => sessionSummaryAgent.summarize(), 3000);
+      setTimeout(() => sessionSummaryService.summarize(), 3000);
       // 每 6 小时增量跑一次（daemon 长期运行不丢分析）
-      setInterval(() => sessionSummaryAgent.summarize(), 6 * 60 * 60 * 1000);
+      setInterval(() => sessionSummaryService.summarize(), 6 * 60 * 60 * 1000);
     }).catch(err => logger.warn('[SessionSummary] Import failed', { error: String(err) }));
 
     // G-002: 冷启动业务规则扫描（异步，不阻塞启动）

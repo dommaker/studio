@@ -2,7 +2,7 @@
 /**
  * fill-context-docs.ts — CONTEXT.md LLM 填充器
  *
- * harness sync-docs 只生成 CONTEXT.md 空骨架（占位小节 + session-summary-agent
+ * harness sync-docs 只生成 CONTEXT.md 空骨架（占位小节 + session-summary
  * 后续插入的 ⚠️ / STALE_SINCE 过期标记）。本脚本用 LLM 按目录源码填充内容，
  * 是 studio 侧的知识消费者（harness 保持零-LLM 原语）。
  *
@@ -12,7 +12,7 @@
  *     · 占位小节（空 / 纯 <!-- --> 注释 / harness 默认问题行）→ LLM 生成填充
  *     · 人工写过内容的小节 → 原样保留，永不覆盖
  *     · 其余小节（修复历史 等）→ 原样保留
- *   - 清除 ⚠️ 过期警告行与 <!-- STALE_SINCE --> 标记（session-summary-agent 会按新提交重新打标）
+ *   - 清除 ⚠️ 过期警告行与 <!-- STALE_SINCE --> 标记（session-summary 会按新提交重新打标）
  *   - 成本可控：
  *     · 增量：填充记录（.harness/context-fill-state.json）记载 filledAt，
  *       仅当目录源码 git 最后提交晚于 filledAt 才重填（CONTEXT.md 自身提交除外）

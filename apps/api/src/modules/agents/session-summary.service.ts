@@ -1,5 +1,5 @@
 /**
- * SessionSummaryAgent — 会话级知识提取 (2026-05-25)
+ * SessionSummaryService — 会话级知识提取 (2026-05-25)
  *
  * 在 daemon 启动时运行，提取上次会话以来所有非 WorkUnit 维度的知识：
  *   - git log 中的 fix/feat/refactor commits → KnowledgeBus patterns
@@ -32,7 +32,7 @@ interface CommitInfo {
   files: string[];
 }
 
-class SessionSummaryAgent {
+class SessionSummaryService {
   /**
    * 启动时调用。读取上次 checkpoint 以来的变更，提取知识。
    */
@@ -348,4 +348,4 @@ class SessionSummaryAgent {
   }
 }
 
-export const sessionSummaryAgent = new SessionSummaryAgent();
+export const sessionSummaryService = new SessionSummaryService();

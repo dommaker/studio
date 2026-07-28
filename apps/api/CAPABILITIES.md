@@ -37,7 +37,7 @@
 | review.service | src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查 (daemon async spawn) |
 | review-report | src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
-| session-summary-agent.service | src/modules/agents/session-summary-agent.service.ts | SessionSummaryAgent — 会话级知识提取 (2026-05-25) |
+| session-summary.service | src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
 | triage.service | src/modules/agents/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | src/modules/agents/types.ts | Agent 团队类型定义 |
 | audit-subscriber | src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |

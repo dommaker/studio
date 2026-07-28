@@ -71,9 +71,9 @@ describe('SessionSummary checkpoint 失效回退（P5b）', () => {
 
   it('checkpoint commit 不在仓库 → 回退跑通，不报 Git log failed，checkpoint 自愈为有效 hash', async () => {
     writeCheckpoint('730d534eb46536e88eb391bedfd24813a3da8488'); // 不存在的 hash
-    const { sessionSummaryAgent } = await import('../session-summary-agent.service.js');
+    const { sessionSummaryService } = await import('../session-summary.service.js');
 
-    const result = await sessionSummaryAgent.summarize();
+    const result = await sessionSummaryService.summarize();
 
     expect(result.commits).toBeGreaterThan(0);
     // 不再出现周期性的 Git log failed
@@ -89,9 +89,9 @@ describe('SessionSummary checkpoint 失效回退（P5b）', () => {
     // 从第一个提交起算 → 后两个提交入增量
     const firstCommit = execSync(`git -C "${tmpRepo}" rev-list --max-parents=0 HEAD`, { encoding: 'utf-8' }).trim();
     writeCheckpoint(firstCommit);
-    const { sessionSummaryAgent } = await import('../session-summary-agent.service.js');
+    const { sessionSummaryService } = await import('../session-summary.service.js');
 
-    const result = await sessionSummaryAgent.summarize();
+    const result = await sessionSummaryService.summarize();
 
     expect(result.commits).toBe(2);
     expect(mockLoggerWarn.mock.calls.some(c => (c[0] as string).includes('Git log failed'))).toBe(false);
@@ -100,9 +100,9 @@ describe('SessionSummary checkpoint 失效回退（P5b）', () => {
   });
 
   it('无 checkpoint 文件 → 默认 HEAD~50/短仓库兜底，不报错', async () => {
-    const { sessionSummaryAgent } = await import('../session-summary-agent.service.js');
+    const { sessionSummaryService } = await import('../session-summary.service.js');
 
-    const result = await sessionSummaryAgent.summarize();
+    const result = await sessionSummaryService.summarize();
 
     expect(result.commits).toBeGreaterThan(0);
     expect(mockLoggerWarn.mock.calls.some(c => (c[0] as string).includes('Git log failed'))).toBe(false);
@@ -119,8 +119,8 @@ describe('SessionSummary checkpoint 失效回退（P5b）', () => {
     git('add src');
     git('-c user.name=t -c user.email=t@t commit -qm "fix: 修复 foo 崩溃"');
 
-    const { sessionSummaryAgent } = await import('../session-summary-agent.service.js');
-    await sessionSummaryAgent.summarize();
+    const { sessionSummaryService } = await import('../session-summary.service.js');
+    await sessionSummaryService.summarize();
 
     const countBlocks = () => {
       const s = fs.readFileSync(ctxFile, 'utf-8');
@@ -136,8 +136,8 @@ describe('SessionSummary checkpoint 失效回退（P5b）', () => {
     git('add src/foo.ts');
     git('-c user.name=t -c user.email=t@t commit -qm "fix: 再次修复 foo"');
     vi.resetModules();
-    const again = await import('../session-summary-agent.service.js');
-    await again.sessionSummaryAgent.summarize();
+    const again = await import('../session-summary.service.js');
+    await again.sessionSummaryService.summarize();
     expect(countBlocks()).toEqual({ warns: 1, markers: 1 });
     // 内容仍包含最新变更文件
     expect(fs.readFileSync(ctxFile, 'utf-8')).toContain('src/foo.ts');
