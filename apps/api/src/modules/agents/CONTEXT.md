@@ -68,6 +68,7 @@
 <!-- SESSION_SUMMARY_FIXES -->
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
 - ✅ `7e36fd19`: agent): 验收 e2e 抓出两修真链漏洞 — 提交守卫读合并视图 + 合并前数据防丢闸
+- ✅ 2026-07-28: 方案 A（模型归算力提供方）— review-agent.service 删除 4 处 dead `const model = getModelForTier('standard')`（从未进 spawn 命令）；daemon task-executor 不再向 buildSpawnArgs 传 tier 解析出的模型名（原对 kimi/codex/opencode 强覆盖用户 CLI 配置、对 claude 静默无效）、daemon session-manager 日志改记 tier 标签。模型一律由角色绑定 CLI 的自身配置决定；10 处测试 mock 死键同步删除
 - ✅ 2026-07-28: 验收修复 A — recordResult 提交守卫/自动验证改读「持久化 + 本 step metadataUpdates」合并视图：首个 step 的 worktreePath 尚未落库，只看持久化值会让首 step COMPLETE 退到主仓库（干净）做检查而漏拦（最小 e2e 实测：dev 在 worktree 改了未提交 → 守卫查主仓库放行 → 假 complete → 假合并）；agent-loop-commit-guard.test.ts 补 cwd 感知用例
 - ✅ `05f21551`: agents): SessionSummary checkpoint commit 失效时校验回退（P5）
 - ✅ `2dca78ab`: agent): 非 claude provider 会话续用改 cwd 维度形态（P3）

@@ -10,7 +10,7 @@ import { spawn, type ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { logger, getModelForTier, type ModelTier, parseStreamLine as parseStreamLineShared, extractFilePath, type StreamEvent, FileStore } from '@dommaker/studio-shared';
+import { logger, parseStreamLine as parseStreamLineShared, extractFilePath, type StreamEvent, FileStore } from '@dommaker/studio-shared';
 import { buildSpawnArgs, type AgentCliParams } from './cli-adapter.js';
 import { resolveStudioLogFile } from '../utils/studio-log-path.js';
 import type { ProviderName } from './cli-scanner.js';
@@ -74,8 +74,8 @@ export class TaskExecutor {
     }
 
     // Build spawn args
+    // 不传 model —— 由角色绑定的 CLI 自身配置决定（2026-07-28 退役 tier→模型名映射）
     const spawnArgs = buildSpawnArgs(runtime.provider, {
-      model: getModelForTier((task.modelTier || 'standard') as ModelTier),
       outputFormat: 'stream-json',
       sessionId: task.sessionId ?? undefined,
       maxTurns: this.config.maxTurns ?? DEFAULT_MAX_TURNS,

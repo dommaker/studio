@@ -12,7 +12,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
   // `new FileStore()` at module scope for JSONL event writes).
   ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getModelForTier: vi.fn(() => 'claude-sonnet-4-20250514'),
   parseStreamLine: vi.fn((line: string) => {
     try { return JSON.parse(line); } catch { return null; }
   }),

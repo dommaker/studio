@@ -2,7 +2,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import { logger, getModelForTier, parseStreamEvents, extractUsage, extractWriteContent } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractUsage, extractWriteContent } from '@dommaker/studio-shared';
 import { readSessionIdFile } from '@dommaker/studio-shared/node';
 import type { ModelTier } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
@@ -156,7 +156,8 @@ export class SessionManager {
 
     const startTime = Date.now();
     const isFirstTask = state.taskCount === 0;
-    const model = getModelForTier(state.config.modelTier);
+    // tier 仅作任务规格标签记入日志；模型由角色绑定的 CLI 自身配置决定（2026-07-28 起不再解析 tier→模型名）
+    const model = state.config.modelTier;
     const phase = sessionName === 'analyst' ? 'analyst' : 'executor';
     const isAnalyst = sessionName === 'analyst';
 

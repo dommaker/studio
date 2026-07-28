@@ -19,7 +19,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
   // Spread real module: FileStore & other exports must exist
   ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getModelForTier: vi.fn(() => 'claude-sonnet-4-6'),
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({

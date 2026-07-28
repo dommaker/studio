@@ -12,7 +12,6 @@ vi.mock('@dommaker/studio-shared/node', () => ({
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getModelForTier: vi.fn(() => 'claude-sonnet-4-6'),
   buildSpawnEnv: vi.fn(() => ({})),
   formatConstraintsForPrompt: vi.fn(() => ''),
 }));

@@ -32,7 +32,6 @@ vi.mock('@dommaker/studio-agent', () => ({
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getModelForTier: (tier: string) => `model-${tier}`,
   parseStreamEvents: vi.fn(),
   extractUsage: vi.fn(),
   extractWriteContent: vi.fn(),

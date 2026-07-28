@@ -6,7 +6,7 @@
  *   审查结果写入 .review-report.json，供修复循环使用。
  */
 
-import { logger, getModelForTier } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { formatConstraintsForPrompt } from '@dommaker/studio-shared';
 import { afterReview } from '@dommaker/studio-shared/harness/hooks';
 import { execSh } from '@dommaker/studio-shared/node';
@@ -149,8 +149,6 @@ export class ReviewAgent {
       });
       const promptFile = path.join(worktree, '.review-prompt.md');
       fs.writeFileSync(promptFile, reviewPrompt, 'utf-8');
-
-      const model = getModelForTier('standard');
 
       // 写入 .claude/settings.json 使 root daemon 无需 --dangerously-skip-permissions
       // CLI flag 被 root 用户禁用，但 settings-based bypassPermissions 无此限制
@@ -415,8 +413,6 @@ export class ReviewAgent {
       }, null, 2), 'utf-8');
     }
 
-    const model = getModelForTier('standard');
-
     // Run all sub-agent reviews in parallel
     const results = await Promise.all(reviewTasks.map(async (task) => {
       try {
@@ -519,8 +515,6 @@ export class ReviewAgent {
 
       const promptFile = path.join(repoPath, '.review-prompt.md');
       fs.writeFileSync(promptFile, reviewPrompt, 'utf-8');
-
-      const model = getModelForTier('standard');
 
       // 写入 .claude/settings.json 使 root daemon 无需 --dangerously-skip-permissions
       // CLI flag 被 root 用户禁用，但 settings-based bypassPermissions 无此限制
@@ -679,8 +673,6 @@ export class ReviewAgent {
       const prompt = buildReviewPrompt({ taskDescription, acceptanceCriteria: acs, cycle: 1, stances: [acOnlyStance] });
       const promptFile = path.join(worktree, '.review-prompt.md');
       fs.writeFileSync(promptFile, prompt, 'utf-8');
-
-      const model = getModelForTier('standard');
       const reportPath = path.join(worktree, '.review-report.json');
       // Clean old report so Claude writes fresh one
       try { fs.unlinkSync(reportPath); } catch {}
