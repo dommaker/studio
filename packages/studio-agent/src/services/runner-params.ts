@@ -371,6 +371,66 @@ export function resolveAgentHome(task: AgentTask): string {
     : `/tmp/agent-loop/${(task.parameters?.workUnitId as string) || task.executionId}`;
 }
 
+/** 鉴权/模型相关 env 键前缀 — 只复制这些前缀的键；hooks 等其它 host 配置不带入隔离 HOME。 */
+const CLI_AUTH_ENV_PREFIXES = ['ANTHROPIC_', 'CLAUDE_', 'OPENAI_', 'DEEPSEEK_', 'KIMI_', 'MOONSHOT_'];
+
+/**
+ * Propagate CLI auth/model env from host `~/.claude/settings.json` (`env` block) into the
+ * isolated agent HOME. Without it, `HOME=<agentHome> claude` fails with 401
+ * authentication_failed (host settings 里的 hooks 等配置有意不复制).
+ *
+ * Merge semantics: `<agentHome>/.claude/settings.json` 已存在的 env 键优先 —— 只补缺，
+ * 不覆盖 agent 自己的改动。Best-effort + 幂等：host 文件缺失/读取失败/写入失败均仅
+ * logger.warn，绝不阻断 spawn。
+ */
+export async function ensureAgentHomeCliConfig(agentHome: string, hostHomeDir: string = os.homedir()): Promise<void> {
+  try {
+    // 1. Host env（鉴权来源）—— 缺失/损坏仅 warn 跳过
+    let hostEnv: unknown;
+    try {
+      hostEnv = JSON.parse(await fs.readFile(path.join(hostHomeDir, '.claude', 'settings.json'), 'utf-8'))?.env;
+    } catch (err) {
+      logger.warn('[AgentRunner] host claude settings.json missing/unreadable, skipping agent HOME auth injection', { error: String(err) });
+      return;
+    }
+
+    // 2. 前缀过滤：只挑鉴权/模型键（字符串值）
+    const authEnv: Record<string, string> = {};
+    if (hostEnv && typeof hostEnv === 'object') {
+      for (const [key, value] of Object.entries(hostEnv)) {
+        if (typeof value === 'string' && CLI_AUTH_ENV_PREFIXES.some((p) => key.startsWith(p))) {
+          authEnv[key] = value;
+        }
+      }
+    }
+    if (Object.keys(authEnv).length === 0) {
+      logger.warn('[AgentRunner] host claude settings.json has no auth/model env keys, skipping injection', { agentHome });
+      return;
+    }
+
+    // 3. 合并写入 <agentHome>/.claude/settings.json —— 只补缺；既有文件损坏则不动它
+    const settingsPath = path.join(agentHome, '.claude', 'settings.json');
+    let existing: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(await fs.readFile(settingsPath, 'utf-8'));
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) existing = parsed;
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+        logger.warn('[AgentRunner] agent HOME settings.json unparsable, leaving it untouched', { settingsPath, error: String(err) });
+        return;
+      }
+    }
+    const existingEnv = existing.env && typeof existing.env === 'object' && !Array.isArray(existing.env)
+      ? existing.env as Record<string, unknown>
+      : {};
+    const merged = { ...existing, env: { ...authEnv, ...existingEnv } };
+    await fs.mkdir(path.dirname(settingsPath), { recursive: true });
+    await fs.writeFile(settingsPath, `${JSON.stringify(merged, null, 2)}\n`, 'utf-8');
+  } catch (err) {
+    logger.warn('[AgentRunner] ensureAgentHomeCliConfig failed (best-effort)', { agentHome, error: String(err) });
+  }
+}
+
 export interface SessionEnvOptions {
   task: AgentTask;
   tier: ModelTier;

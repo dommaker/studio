@@ -40,11 +40,13 @@
 - **门面模式**：agent-executor.ts 作为门面重新导出 session-manager.ts、agent-runner.ts、worktree-resolver.ts、output-capture.ts 的公共类型与函数，外部应通过门面导入。
 - **避免循环依赖**：拆分后的子模块（runner-params、runner-output、runner-execution、runner-lightweight）不得反向依赖 agent-runner.ts 或 session-manager.ts 的类；状态通过 `RunnerExecutionState` 接口传入。
 - **Session 循环与轻量路径**：AgentRunner 提供两套执行路径：多 session 循环（runner-execution.ts）和轻量单 session（runner-lightweight.ts），后者跳过 SDD 解析、REQUIREMENTS.md、contract tests、Iron Laws、依赖缓存等，适用于简单任务。
+- **Agent HOME 鉴权注入**：两条路径 spawn 前都会调 `ensureAgentHomeCliConfig(agentHome)`（runner-params.ts），把 host `~/.claude/settings.json` 的 `env` 块按鉴权/模型前缀（ANTHROPIC_/CLAUDE_/OPENAI_/DEEPSEEK_/KIMI_/MOONSHOT_）注入隔离 HOME 的 `.claude/settings.json`；缺了它 claude CLI 在隔离 HOME 下 401。只补缺不覆盖、不带 hooks、best-effort 幂等。
 - **Cache 与性能**：AgentRegistry 使用外部 CacheStore（如 Redis），注意 TTL 和缓存键约定（`agent:` 前缀）。
 - **类型安全**：角色定义（DEFAULT_PERSONAS）直接从文件加载，修改时需同步类型约束（AgentPersonaConstraints）。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: fix(agent-home-auth) — runner-params 新增 `ensureAgentHomeCliConfig(agentHome)`：spawn 前把 host `~/.claude/settings.json` 的 env 块按鉴权/模型前缀过滤注入隔离 agent HOME（只补缺、不带 hooks、best-effort 幂等），修复 HOME 隔离导致 claude CLI 401 authentication_failed（首 step 失败 + 后续 resume Session ID not found）；runner-lightweight 与 runner-execution 两条 spawn 路径均已接入
 - ✅ 2026-07-27: B3b-i — worktree-resolver 新增 ensureWuWorktree/WuWorktreeInfo（每 WU 专属 worktree，目录/分支按 WU id 键控，含 .git 即复用；失败兜底清理 worktree 注册项+目录+分支后抛错）；createWorktree 增第 5 可选参 branchName（缺省保持 task/<basename> 原行为）；经 agent-executor 门面与包入口导出，dist 已重建
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

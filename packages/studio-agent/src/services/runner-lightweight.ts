@@ -32,6 +32,7 @@ import {
   buildAugmentedPrompt,
   buildSessionCommand,
   resolveAgentHome,
+  ensureAgentHomeCliConfig,
   buildSessionEnv,
 } from './runner-params.js';
 import type { RunnerExecutionState } from './runner-execution.js';
@@ -126,6 +127,8 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     // Ensure per-Agent HOME directory exists (GAP-2)
     const agentHome = resolveAgentHome(task);
     await fs.mkdir(agentHome, { recursive: true });
+    // GAP-2 auth: 隔离 HOME 注入 CLI 鉴权/模型 env（best-effort，不阻断 spawn）
+    await ensureAgentHomeCliConfig(agentHome);
 
     try {
       const { stdout } = await execSh(cmd, {
