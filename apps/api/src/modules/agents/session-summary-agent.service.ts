@@ -43,7 +43,11 @@ class SessionSummaryAgent {
 
     try {
       const cp = this.readCheckpoint();
-      const commits = this.getNewCommits(cp.lastCommit);
+      // checkpoint 的 lastCommit 可能已不在仓库（历史被改写 / 换过 REPO_DIR）——
+      // 直接用会让 git log 每次启动都报 Invalid revision range 且 checkpoint 永不更新
+      // （getNewCommits 失败返回 [] → 不写新 checkpoint → 周期性报错）。先校验再回退。
+      const sinceCommit = this.resolveSinceCommit(cp.lastCommit);
+      const commits = this.getNewCommits(sinceCommit);
       commitCount = commits.length;
 
       if (commits.length === 0) {
@@ -106,10 +110,36 @@ class SessionSummaryAgent {
 
   // ── Git ──
 
+  /** rev 是否存在于仓库（git cat-file -e；失败=false） */
+  private commitExists(rev: string): boolean {
+    try {
+      execSync(`git cat-file -e "${rev}^{commit}"`, { cwd: REPO_DIR, stdio: 'pipe', timeout: 5_000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * 解析有效的 sinceCommit：checkpoint 值存在则用之；否则回退 HEAD~50（与
+   * readCheckpoint 默认值同口径），HEAD~50 也不存在（仓库不足 50 提交）则返回 ''
+   * （getNewCommits 以 --max-count=50 兜底）。
+   */
+  private resolveSinceCommit(checkpointCommit: string): string {
+    if (checkpointCommit && this.commitExists(checkpointCommit)) return checkpointCommit;
+    if (checkpointCommit) {
+      logger.info('[SessionSummary] Checkpoint commit missing from repo, falling back', { stale: checkpointCommit });
+    }
+    if (this.commitExists('HEAD~50')) return 'HEAD~50';
+    return '';
+  }
+
   private getNewCommits(sinceCommit: string): CommitInfo[] {
     try {
+      // sinceCommit 为空（短仓库兜底）：全量但封顶 50 条
+      const range = sinceCommit ? `${sinceCommit}..HEAD` : '--max-count=50';
       const out = execSync(
-        `git log ${sinceCommit}..HEAD --format="%H||%s" --name-only`,
+        `git log ${range} --format="%H||%s" --name-only`,
         { cwd: REPO_DIR, encoding: 'utf-8', timeout: 10_000, stdio: 'pipe' },
       );
       const result = this.parseGitLog(out);
