@@ -245,6 +245,25 @@ describe('§8.4.3 aggregateTreeTokens', () => {
     expect(child?.profileName).toBe('AgentB');
   });
 
+  it('未认领指名子 WU（assigneeId=profile id，@mention/委派语义）→ profileName 直接按 profile 归因', async () => {
+    writeState(INSTANCE_1, PROFILE_A);
+    await fileStore.createProfile({ id: PROFILE_A, name: 'AgentA', description: null, channels: '[]', provider: 'claude', status: 'active', createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' });
+    await fileStore.createProfile({ id: PROFILE_B, name: 'AgentB', description: null, channels: '[]', provider: 'claude', status: 'active', createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' });
+    writeIndex([
+      makeWu('wu-root', INSTANCE_1, { collab: { rootId: 'wu-root', depth: 0, chain: [PROFILE_A], delegationCount: 0 } }),
+      // 委派的未认领子 WU：assigneeId 是目标 profile id（§1.2-b），没有 state 可查
+      makeWu('wu-child', PROFILE_B, { collab: { rootId: 'wu-root', depth: 1, chain: [PROFILE_A, PROFILE_B], delegationCount: 0 } }),
+    ]);
+    writeEvents([
+      tokenEvent('wu-root', { injected: 100, execution: 900 }, new Date().toISOString()),
+    ]);
+
+    const report = await aggregateTreeTokens('wu-root', fileStore, { eventsFile });
+    const child = report.nodes.find(n => n.workUnitId === 'wu-child');
+    // 修复前恒 null（instance 反查 miss）；修复后按 profile id 直接归因
+    expect(child?.profileName).toBe('AgentB');
+  });
+
   it('无事件文件 -> 全零，不抛错', async () => {
     writeIndex([makeWu('wu-root', null)]);
     const report = await aggregateTreeTokens('wu-root', fileStore, { eventsFile });

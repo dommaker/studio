@@ -4,10 +4,12 @@
  * 数据源：
  *   - ~/.studio/logs/studio-events.jsonl 的 `workunit:tokens` 事件
  *     （payload: { workUnitId, injectedTokens, executionTokens|null, totalTokens }，agent-loop.ts M2）
- *   - FileStore workunits/index.json（assigneeId = 实例 id，metadata 可能含 collab.rootId）
+ *   - FileStore workunits/index.json（assigneeId 双语义：认领后 = 实例 id；
+ *     未认领（unassigned，@mention/委派指名）= profile id。metadata 可能含 collab.rootId）
  *   - FileStore agents/\<id\>/state.json（RuntimeState.id = 实例 id → roleId = profileId）
  *
- * 归因链：event.workUnitId → WU.assigneeId（实例）→ state.roleId（profile）。
+ * 归因链：event.workUnitId → WU.assigneeId（实例）→ state.roleId（profile）；
+ * assigneeId 本身就是 profile id 时（未认领指名）直接按 profile 归因。
  * 无法归因的事件（WU 缺失 / 未 claim / 实例无 state）跳过，不编造归属。
  *
  * 树口径（保持简单，文档化）：
@@ -278,7 +280,8 @@ export async function aggregateTreeTokens(
     // 文件不存在 -> 全零
   }
 
-  // 3. 读 profiles 拿 name（assigneeId 是 instance id，需经 state.roleId 反查 profile）
+  // 3. 读 profiles 拿 name（assigneeId 双语义：认领后 = instance id，需经 state.roleId
+  // 反查 profile；未认领指名时本身就是 profile id，直接命中 profileNameById）
   const allStates = await fileStore.listStates().catch(() => []);
   const allProfiles = await fileStore.listProfiles().catch(() => []);
   const instanceToProfile = new Map<string, string>();
@@ -295,7 +298,9 @@ export async function aggregateTreeTokens(
   let rootTotal = 0;
   for (const [wuId, snap] of treeNodes) {
     const tokens = perWuTokens.get(wuId);
-    const profileId = snap.assigneeId ? instanceToProfile.get(snap.assigneeId) : undefined;
+    const profileId = snap.assigneeId
+      ? (instanceToProfile.get(snap.assigneeId) ?? (profileNameById.has(snap.assigneeId) ? snap.assigneeId : undefined))
+      : undefined;
     const profileName = profileId ? profileNameById.get(profileId) ?? null : null;
     const injected = tokens?.injected ?? null;
     const execution = tokens?.execution ?? null;

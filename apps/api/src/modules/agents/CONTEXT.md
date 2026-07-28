@@ -2,8 +2,10 @@
 
 > 此文件描述 apps/api/src/modules/agents 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/auditor-reports.ts, apps/api/src/modules/agents/auditor-rules.ts, apps/api/src/modules/agents/monitor-alerts.ts, apps/api/src/modules/agents/monitor-lifecycle.ts, apps/api/src/modules/agents/monitor-reports.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/builtin-roles.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/review-dispatcher.ts, apps/api/src/modules/agents/system-executor.ts, apps/api/src/modules/agents/token-usage.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/remote-executor.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/knowledge-maintenance.ts, apps/api/src/modules/agents/agent-loop-registry.ts, apps/api/src/modules/agents/token-usage.routes.ts, apps/api/src/modules/agents/executor.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/auditor-doc-freshness.ts, apps/api/src/modules/agents/auditor-execution.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/knowledge-analysis.ts, apps/api/src/modules/agents/knowledge-extraction.ts, apps/api/src/modules/agents/monitor-probes.ts, apps/api/src/modules/agents/types.ts, apps/api/src/modules/agents/knowledge-cold-start.ts, apps/api/src/modules/agents/monitor-system-probes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/agent-context.ts, apps/api/src/modules/agents/data-analyst-agent.service.ts
+
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/session-summary-agent.service.ts
 
 ## 职责
 
@@ -66,6 +68,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `05f21551`: agents): SessionSummary checkpoint commit 失效时校验回退（P5）
 - ✅ `2dca78ab`: agent): 非 claude provider 会话续用改 cwd 维度形态（P3）
 - ✅ `b70951bb`: agent): harness 传播停写根目录 AGENTS.md/CLAUDE.md，杜绝 untracked 污染（P2）
 - ✅ `42b7ce27`: agent): review WU 豁免提交守卫 + stepCount 上限放宽至 30（P1）

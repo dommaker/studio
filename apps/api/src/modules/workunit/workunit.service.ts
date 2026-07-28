@@ -540,7 +540,8 @@ export class WorkUnitService {
   }
 
   /**
-   * Claim a WorkUnit (optimistic lock with flock).
+   * Claim a WorkUnit（flock 悲观互斥锁，mkdir 原子目录跨进程互斥；非乐观锁——
+   * 无版本号/读后再验，冲突在锁内以 status!=='unassigned' 拒绝）。
    * Only succeeds when status is 'unassigned' — file-store.claimWorkUnit 不校验
    * 既有 assigneeId，认领成功会把 assigneeId 改写为认领方（loop 传入 instance.id）。
    * mention 指名（assigneeId=profile id）的可见性由 AgentLoop.observe 的
