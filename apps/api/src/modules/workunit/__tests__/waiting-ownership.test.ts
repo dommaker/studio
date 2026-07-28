@@ -2,11 +2,13 @@
  * B3a 工程归属链（决策 D2）— waiting-input 回复解析绑定测试
  *
  * 覆盖：
- * - 唯一命中 → 绑定 metadata.workspaceRoot + 复活（blocked → active）+ 写回 Requirement.projectId
+ * - 唯一命中 → 绑定 metadata.workspaceRoot + 置回 unassigned（保留 assigneeId=profile id，
+ *   待指名 loop 认领；WU 创建即挂起从未被认领，置 active 会对所有 loop 不可见而卡死）
+ *   + 写回 Requirement.projectId
  * - 已有 gitRepo 相同的 PMO 项目 → 复用（不新建）
  * - 多候选 → 继续等待 + 频道列候选
  * - 无命中 → 继续等待 + 列出全部可选工程
- * - 非 ownership 挂起的回复不受影响（走原 F5 路径）
+ * - 非 ownership 挂起的回复不受影响（走原 F5 路径，blocked → active）
  *
  * 约定：discovery 根用 STUDIO_PROJECTS_ROOT 指向 tmp fixture；
  * PMO 项目写真实 ~/.studio/projects（workspace-binding.test.ts 同款约定），afterEach 清理。
@@ -48,6 +50,10 @@ function makeDiscoveredProject(name: string): string {
   return dir;
 }
 
+/** mention 指名语义：无归属挂起 WU 的 assigneeId 是路由写入的 profile id（非 instance id） */
+const MENTIONED_PROFILE_ID = 'profile-dev';
+const MENTIONED_INSTANCE_ID = 'instance-dev-1';
+
 /** 造一个等待工程归属的挂起 WU（blocked + waitingReason='ownership'）及 anchor 消息 */
 async function createOwnershipParkedWu(reqId?: string) {
   const wu = await wuService.create({
@@ -55,7 +61,7 @@ async function createOwnershipParkedWu(reqId?: string) {
     channelId,
     type: 'task',
     status: 'blocked',
-    assigneeId: 'instance-1',
+    assigneeId: MENTIONED_PROFILE_ID,
     reqId: reqId ?? null,
     metadata: {
       waitingForInput: true,
@@ -125,7 +131,10 @@ describe('B3a: 回复解析绑定工程（唯一命中）', () => {
 
     expect(resumed).toBe(true);
     const after = await findWu(wu.id);
-    expect(after.status).toBe('active');
+    // 置回 unassigned（非 active）：WU 从未被认领，active + assigneeId=profileId 会对所有 loop 不可见
+    expect(after.status).toBe('unassigned');
+    // mention 点名语义保留：assigneeId 仍为指名 profile id，等该 profile 的 loop 认领
+    expect(after.assigneeId).toBe(MENTIONED_PROFILE_ID);
     const meta = metaOf(after);
     expect(meta.waitingForInput).toBe(false);
     expect(meta.workspaceRoot).toBe(repoDir);
@@ -174,6 +183,23 @@ describe('B3a: 回复解析绑定工程（唯一命中）', () => {
 
     expect(resumed).toBe(true);
     expect(metaOf(await findWu(wu.id)).workspaceRoot).toBe(repoDir);
+  });
+
+  it('复活后 unassigned + assigneeId=profile id → 可被指名 loop 认领（claim 改写为 instance id）', async () => {
+    makeDiscoveredProject('alpha');
+    const { wu } = await createOwnershipParkedWu();
+
+    const resumed = await resumeWaitingWorkUnit(wu.id, 'alpha', fileStore);
+    expect(resumed).toBe(true);
+
+    // 指名 profile 的 loop 在 unassigned 过滤中看到后认领（agent-loop.ts runLoop 同款路径：
+    // 过滤按 role.id 匹配 assigneeId，claim 传入 instance.id）
+    const claimed = await wuService.claim(wu.id, MENTIONED_INSTANCE_ID);
+
+    expect(claimed.status).toBe('active');
+    expect(claimed.assigneeId).toBe(MENTIONED_INSTANCE_ID);
+    // 归属回复保留到首次 agentStep 注入（buildReplyPrompt 含 scope + 回复，注入后即清除）
+    expect(metaOf(await findWu(wu.id)).pendingReplies).toEqual(['alpha']);
   });
 });
 
@@ -243,6 +269,8 @@ describe('B3a: 非 ownership 挂起不受影响', () => {
     const resumed = await resumeWaitingWorkUnit(wu.id, 'alpha', fileStore);
 
     expect(resumed).toBe(true);
+    // F5 路径行为不变：WU 已被认领过（assigneeId=instance id），直接回 active 由原 loop 续跑
+    expect((await findWu(wu.id)).status).toBe('active');
     const meta = metaOf(await findWu(wu.id));
     expect(meta.workspaceRoot).toBeUndefined(); // 不做工程绑定
     expect(meta.pendingReplies).toEqual(['alpha']);

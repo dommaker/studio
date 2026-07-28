@@ -541,7 +541,10 @@ export class WorkUnitService {
 
   /**
    * Claim a WorkUnit (optimistic lock with flock).
-   * Only succeeds when assigneeId is null and status is 'unassigned'.
+   * Only succeeds when status is 'unassigned' — file-store.claimWorkUnit 不校验
+   * 既有 assigneeId，认领成功会把 assigneeId 改写为认领方（loop 传入 instance.id）。
+   * mention 指名（assigneeId=profile id）的可见性由 AgentLoop.observe 的
+   * unassigned 过滤保证（仅被指名 profile 的 loop 可见），而非 claim 本身。
    * AS-025 §3.28c-5: After claim, auto-loads matching skills for the agent session.
    * @throws Error if claim fails (already claimed or invalid state)
    */
