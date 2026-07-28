@@ -18,7 +18,6 @@ function makeSkill(overrides: Partial<SkillDefinition> = {}): SkillDefinition {
     name: 'test-skill',
     description: 'Test skill',
     agentTypes: [],
-    tier: 'standard',
     prompt: 'test prompt',
     ...overrides,
   };
