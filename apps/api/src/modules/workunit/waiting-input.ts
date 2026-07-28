@@ -6,7 +6,8 @@
  *   不依赖已挂载的 AgentLoop —— 无 loop 时同样解除挂起，待 loop 轮询拾取。
  * - B3a 工程归属链（决策 D2）：metadata.waitingReason === 'ownership' 的挂起，
  *   回复先按工程名/路径解析（project-discovery 候选）——唯一命中则绑定工程
- *   （metadata.workspaceRoot）并写回 Requirement.projectId 供下次继承，随后复活；
+ *   （metadata.workspaceRoot）并写回 Requirement.projectId 供下次继承，随后置回
+ *   unassigned（保留 assigneeId=profile id），由被指名 profile 的 loop 认领执行；
  *   多候选/无命中则继续等待并向频道列出候选。
  * - scanWaitingForInputReminders: SCHEDULE trigger（workunit-input-reminder）的 handler，
  *   对挂起超过阈值的 WorkUnit 向频道发一次提醒（每次挂起只提醒一次，恢复时重置）。
@@ -76,8 +77,11 @@ export async function resumeWaitingWorkUnit(
 
 /**
  * B3a 归属链：把人类回复解析为工程归属（project-discovery 候选）。
- * 唯一命中 → 绑定 metadata.workspaceRoot + 复活 WU + 写回 Requirement.projectId（best-effort）；
+ * 唯一命中 → 绑定 metadata.workspaceRoot + 置回 unassigned（保留 assigneeId=profile id，
+ * 指名 loop 认领后转 active）+ 写回 Requirement.projectId（best-effort）；
  * 多候选/无命中 → 继续等待并向频道列出候选（或提示无匹配）。
+ * pendingReplies 保留归属回复原文：首次 agentStep 经 buildReplyPrompt 注入
+ * （prompt 本身含 scope，注入后即清除），不会跨步骤重复注入。
  * @returns true = 已绑定并解除挂起；false = 继续等待
  */
 async function resolveOwnershipFromReply(
@@ -112,7 +116,12 @@ async function resolveOwnershipFromReply(
         pendingReplies,
       },
     });
-    await wuService.transitionStatus(wu.id, 'active');
+    // 置回 unassigned 而非 active：此 WU 创建即挂起、从未被认领，assigneeId 仍是
+    // mention 路由写入的 profile id。置 active 会让它对所有人不可见——loop 续跑
+    // 查询按 instance.id 过滤（myActive），认领过滤又要求 status==='unassigned'，
+    // 结果永久卡死。回 unassigned 保留 mention 点名语义：该 profile 的 loop 在
+    // unassigned 过滤里看到并认领（claim 会把 assigneeId 改写为 instance.id）。
+    await wuService.transitionStatus(wu.id, 'unassigned');
     // 写回 Requirement.projectId（best-effort）：同需求下次派发直接继承工程
     if (wu.reqId) {
       await bindRequirementToProject(wu.reqId, hit, fileStore).catch(err =>
