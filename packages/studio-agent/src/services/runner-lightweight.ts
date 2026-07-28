@@ -13,7 +13,7 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger, getModelForTier, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type ModelTier } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type ModelTier } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
@@ -102,7 +102,6 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     const provider = task.provider || 'claude';
     const sessionFlags = provider === 'claude' ? ((task.parameters?.sessionFlags as string) || '') : '';
     const taskTier = (task.model as ModelTier) || 'standard';
-    const model = getModelForTier(taskTier);
     const agentRole = (task.parameters?.agentRole as string) || 'executor';
     const sessionId = task.executionId;
 
@@ -122,7 +121,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     });
 
     logger.info('[AgentRunner] Lightweight session spawning', {
-      taskId: task.id, executionId: task.executionId, model, sessionFlags,
+      taskId: task.id, executionId: task.executionId, modelTier: taskTier, sessionFlags,
     });
 
     const childRef: { current: ChildProcess | null } = { current: null };

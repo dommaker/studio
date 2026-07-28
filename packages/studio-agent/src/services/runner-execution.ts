@@ -12,7 +12,7 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger, getModelForTier, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type ModelTier } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type ModelTier } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute } from '@dommaker/studio-shared/harness/hooks';
 
@@ -223,7 +223,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       const sessionFlag = buildSessionFlag(provider, sessionCount, isNewSession, sessionId, task.executionId);
 
       const taskTier = (task.model as ModelTier) || 'standard';
-      const model = getModelForTier(taskTier);
 
       // Write prompt file
       const promptFile = path.join(worktree, '.daemon', 'prompt.md');
@@ -249,7 +248,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
         session: sessionCount,
         isFirstSession,
         isNewSession,
-        model,
+        modelTier: taskTier,
       });
 
       const childRef: { current: ChildProcess | null } = { current: null };

@@ -53,6 +53,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: spawn 链路退役 tier→模型名解析（方案 A：模型归算力提供方，由 CLI 自身配置决定）— runner-lightweight/runner-execution/session-manager 删除 getModelForTier 调用（本就未传入 spawn 参数，仅日志用），日志字段 model → modelTier 标签；getModelForTier 本体从 studio-shared 删除
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
 - ✅ 2026-07-28: 验收修复 C（P2 续）— ①propagateHarnessConfig 的 repoDir CLAUDE.md 复制改为仅同仓库传播（isSameGitRepo 经 --git-common-dir 判定，失败=false）：频道链路 worktree 属 WU 工程仓、repoDir 是 studio 默认仓，跨仓复制即 untracked 内容文件（不在 exclude），提交守卫恒非空把 COMPLETE 反复打回（e2e 实测 dev 提交后仍 16 步空转强制 in_review）②WORKTREE_EXCLUDE_PATTERNS 增补 `.harness/`（propagateHarnessConfig 无条件创建，模板存在时即污染源）；worktree-agents-md.test.ts 补 3 例（跨仓/同仓/非 git）
 - ✅ `2dca78ab`: agent): 非 claude provider 会话续用改 cwd 维度形态（P3）

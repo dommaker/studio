@@ -15,7 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile, resolveProviderDefinition, buildHealthProbeCommand, type ProviderId } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
 import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
@@ -338,8 +338,6 @@ export class AgentExecutor {
               : '--continue')
           : '';
 
-        const model = getModelForTier((task.model as 'fast' | 'standard' | 'premium') || 'standard');
-
         // Write prompt to file, pipe via stdin (same pattern as SessionManager)
         const promptFile = path.join(worktree, '.daemon', 'prompt.md');
         fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
@@ -383,7 +381,7 @@ export class AgentExecutor {
           session: sessionCount,
           isFirstSession,
           isNewSession,
-          model,
+          modelTier: (task.model as string) || 'standard',
         });
 
         // Track child process for external stop()
