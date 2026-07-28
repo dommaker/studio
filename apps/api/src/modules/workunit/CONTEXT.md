@@ -2,8 +2,10 @@
 
 > 此文件描述 apps/api/src/modules/workunit 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md, apps/api/src/modules/workunit/waiting-input.ts, apps/api/src/modules/workunit/workunit.service.ts, apps/api/src/modules/workunit/merge-on-review-pass.ts, apps/api/src/modules/workunit/delegation-gate.ts, apps/api/src/modules/workunit/timeout-release.ts, apps/api/src/modules/workunit/workunit.routes.ts
+
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md, apps/api/src/modules/workunit/merge-on-review-pass.ts
 
 ## 职责
 
@@ -37,6 +39,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `7e36fd19`: agent): 验收 e2e 抓出两修真链漏洞 — 提交守卫读合并视图 + 合并前数据防丢闸
 - ✅ 2026-07-28: 验收修复 B — merge-on-review-pass 加数据防丢闸：worktree 有未提交改动（或 git status 调用失败）时绝不合并/强删（原流程 `git merge` 对无提交分支 "Already up to date" 假成功后 `worktree remove --force` 静默丢弃未提交工作），转 blocked + 频道列清单转人工，worktree/分支保留；补测试 2 例
 - ✅ 2026-07-28: P5d assigneeId 语义全仓核对 — 唯一两处注释/行为不符已修：①claim 注释 "optimistic lock" 误名（实为 flock 悲观互斥锁，workunit.service/workunit.routes 三处）②token-usage 注释把 assigneeId 绝对化为实例 id（与 §1.2-b 双语义矛盾），并把树报表未认领指名节点的归因补上 profile.id 直查（原恒 null，补测试 1 例）；assigneeId 双语义写入注意事项；其余条目（waiting-input/agent-loop/delegation-gate/timeout-release/file-store/message-routing）核对均一致
 - ✅ `d7bd1e85`: workunit): ownership 归属绑定后 WU 置回 unassigned，修复永久卡死

@@ -14,6 +14,7 @@ import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { execSync } from 'node:child_process';
 
 // SKILLS_DIR 在 worktree-resolver 模块加载时读取 —— 必须先设再 import
 const testSkillsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agents-md-skills-'));
@@ -154,5 +155,58 @@ describe('propagateHarnessConfig → 工作区指南（P2 修订语义）', () =
     // 恢复目录供后续用例
     fs.rmSync(testSkillsDir, { force: true });
     fs.mkdirSync(testSkillsDir, { recursive: true });
+  });
+});
+
+describe('propagateHarnessConfig → repoDir CLAUDE.md 传播（2026-07-28 同仓限定）', () => {
+  // 跨仓复制 = untracked 内容文件污染源（§10.5 提交守卫恒非空，e2e 实测 16 步空转）。
+  // 同仓传播是 FIX #3 原意图（worktree checkout 一般已含 CLAUDE.md，缺失才补）。
+  const git = (cwd: string, cmd: string) =>
+    execSync(`git -C "${cwd}" ${cmd}`, { stdio: 'pipe' });
+
+  function makeRepo(): string {
+    const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'claudemd-repo-'));
+    git(repo, 'init -q');
+    fs.writeFileSync(path.join(repo, 'README.md'), 'x\n');
+    git(repo, 'add README.md');
+    git(repo, '-c user.name=t -c user.email=t@t commit -qm init');
+    return repo;
+  }
+
+  test('跨仓：repoDir 与 worktree 属于不同 git 仓库 → 不复制（杜绝 untracked 污染）', async () => {
+    const repoA = makeRepo();  // 扮演 studio 默认仓（带 CLAUDE.md）
+    fs.writeFileSync(path.join(repoA, 'CLAUDE.md'), '# studio 约束\n');
+    const repoB = makeRepo();  // 扮演 WU 工程仓
+    const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'claudemd-wts-')), 'wt');
+    git(repoB, `worktree add "${wt}" -q`);
+
+    await propagateHarnessConfig(wt, 'task-1', 'exec-1', repoA);
+
+    expect(fs.existsSync(path.join(wt, 'CLAUDE.md'))).toBe(false);
+    // 工具产物（.claude/.studio/.harness）由 createWorktree 的 exclude 机制覆盖，
+    // 本用例只断言 CLAUDE.md 不成为污染源
+    expect(git(wt, 'status --porcelain').toString()).not.toContain('CLAUDE.md');
+  });
+
+  test('同仓：worktree 属于 repoDir 同一仓库且缺 CLAUDE.md → 复制（FIX #3 原意图保留）', async () => {
+    const repo = makeRepo();
+    // CLAUDE.md 只在主 checkout（untracked），worktree checkout 没有
+    fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '# 工程级约束\n');
+    const wt = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'claudemd-wts-')), 'wt');
+    git(repo, `worktree add "${wt}" -q`);
+    expect(fs.existsSync(path.join(wt, 'CLAUDE.md'))).toBe(false);
+
+    await propagateHarnessConfig(wt, 'task-1', 'exec-1', repo);
+
+    expect(fs.readFileSync(path.join(wt, 'CLAUDE.md'), 'utf-8')).toBe('# 工程级约束\n');
+  });
+
+  test('非 git 目录（判定失败）→ 不复制（宁可不传播也不污染）', async () => {
+    const repoDir = fs.mkdtempSync(path.join(os.tmpdir(), 'claudemd-nogit-'));
+    fs.writeFileSync(path.join(repoDir, 'CLAUDE.md'), '# x\n');
+
+    await propagateHarnessConfig(worktree, 'task-1', 'exec-1', repoDir);
+
+    expect(fs.existsSync(path.join(worktree, 'CLAUDE.md'))).toBe(false);
   });
 });

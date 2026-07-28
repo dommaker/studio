@@ -22,7 +22,7 @@ import { ensureWuWorktree, createWorktree, resolveWorkspace } from '../worktree-
 import type { AgentTask } from '../session-manager.js';
 
 const TEST_TIMEOUT = 30_000;
-const PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log'];
+const PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/'];
 
 const tmpRoots: string[] = [];
 

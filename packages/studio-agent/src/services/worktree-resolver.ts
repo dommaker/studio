@@ -88,9 +88,10 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
  * runner 执行期写入 worktree 的工具产物（全部 untracked）——
  * 不写进 exclude 会让 `git status --porcelain` 恒非空，提交守卫把"不改代码的角色"
  * （如 reviewer）的 COMPLETE 永远打回。刻意不含 AGENTS.md：它是内容文件，
- * agent 可能 legit 修改（且 propagateHarnessConfig 覆盖既有 AGENTS.md 是另一已知问题）。
+ * agent 可能 legit 修改。.harness/ 由 propagateHarnessConfig 无条件创建
+ * （模板缺失时为空目录，有模板文件时即 untracked 污染源）。
  */
-const WORKTREE_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log'] as const;
+const WORKTREE_EXCLUDE_PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/'] as const;
 
 /**
  * 新建 worktree 后，把工具产物写进仓库级 `.git/info/exclude`（不写 repo 文件）。
@@ -238,6 +239,19 @@ export async function resolveWorkspace(opts: {
   return worktree;
 }
 
+/** 两个目录是否属于同一 git 仓库（--git-common-dir 比较；判定失败=false，宁可不传播也不污染） */
+async function isSameGitRepo(a: string, b: string): Promise<boolean> {
+  try {
+    const [ra, rb] = await Promise.all([
+      execSh('git rev-parse --git-common-dir', { cwd: a, timeoutMs: 5_000 }),
+      execSh('git rev-parse --git-common-dir', { cwd: b, timeoutMs: 5_000 }),
+    ]);
+    return path.resolve(a, ra.stdout.trim()) === path.resolve(b, rb.stdout.trim());
+  } catch {
+    return false;
+  }
+}
+
 /**
  * 传播 harness 约束 + Claude 权限配置到 worktree
  */
@@ -245,11 +259,16 @@ export async function propagateHarnessConfig(worktree: string, taskId: string, e
   try {
     // FIX #3: 复制 CLAUDE.md 到 worktree，使 buildAgentConstraintPrompt 去重逻辑生效
     // 主 repo CLAUDE.md 含 <!-- HARNESS_CONSTRAINTS_START --> 标记，
-    // buildAgentConstraintPrompt 检测到后只注入短引用，避免全量规则重复
+    // buildAgentConstraintPrompt 检测到后只注入短引用，避免全量规则重复。
+    // 2026-07-28 修订：仅同仓库传播。频道链路 worktree 属于 WU 自己的工程仓、
+    // repoDir 是 studio 默认仓，跨仓复制过去就是 untracked 内容文件（不在 exclude），
+    // §10.5 提交守卫恒非空把 COMPLETE 反复打回（e2e 实测 16 步空转强制 in_review）。
     if (repoDir) {
       const claudeMdSrc = path.join(repoDir, 'CLAUDE.md');
       const claudeMdDst = path.join(worktree, 'CLAUDE.md');
-      if (!fsSync.existsSync(claudeMdDst) && fsSync.existsSync(claudeMdSrc)) {
+      if (!fsSync.existsSync(claudeMdDst)
+        && fsSync.existsSync(claudeMdSrc)
+        && await isSameGitRepo(repoDir, worktree)) {
         fsSync.copyFileSync(claudeMdSrc, claudeMdDst);
       }
     }
