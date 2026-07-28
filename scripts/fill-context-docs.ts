@@ -110,7 +110,7 @@ export interface RunSummary {
 }
 
 export interface RunDeps {
-  /** LLM 生成（单测注入 mock）；缺省走 modelGateway */
+  /** LLM 生成（单测/调用方注入）；缺省则真实 fill 报错（modelGateway 已随 llm-configs 子系统删除，dry-run 不受影响） */
   generate?: (system: string, user: string) => Promise<GeneratedSections>;
   /** 目录源码 git 最后提交时间（秒级 unix ts；无提交返回 null） */
   gitLastCommitTs?: (dir: string) => number | null;
@@ -505,70 +505,6 @@ export function saveState(statePath: string, state: FillState): void {
   fs.writeFileSync(statePath, JSON.stringify(state, null, 2) + '\n', 'utf-8');
 }
 
-// ─── LLM（延迟初始化；单测注入 mock 不经过这里） ───
-
-interface LlmBackend {
-  generate: (system: string, user: string) => Promise<GeneratedSections>;
-  usageSince: (ts: number) => { calls: number; prompt: number; completion: number };
-}
-
-async function createLlmBackend(): Promise<LlmBackend> {
-  const shared = await import('@dommaker/studio-shared');
-  const { modelGateway, getProviderApiKey } = shared;
-
-  // 与 apps/api 启动一致的 provider 初始化：env provider + ~/.studio/llm-configs.json
-  modelGateway.loadFromEnv();
-  const configsPath = path.join(process.env.HOME || '~', '.studio', 'llm-configs.json');
-  try {
-    const configs = JSON.parse(fs.readFileSync(configsPath, 'utf-8')) as Array<Record<string, any>>;
-    for (const c of configs) {
-      if (!c.isActive || (c.scope !== 'studio' && c.scope !== 'orchestrator')) continue;
-      const apiKey = getProviderApiKey(c.provider);
-      if (!apiKey) continue;
-      const envBase = process.env[`${String(c.provider).toUpperCase()}_BASE_URL`];
-      modelGateway.addProvider({
-        name: `${c.scope}:${c.provider}`,
-        baseUrl: c.baseUrl || envBase || '',
-        apiKey,
-        model: c.model || '',
-        priority: c.scope === 'orchestrator' ? 0 : 1,
-        ...(c.provider === 'anthropic' ? { protocol: 'anthropic' as const } : {}),
-      });
-    }
-  } catch {
-    // 无 llm-configs.json 时仅用 env provider
-  }
-
-  if (!modelGateway.isAvailable()) {
-    throw new Error('modelGateway 无可用 provider（检查 ~/.studio/llm-configs.json 与 API key 环境变量）');
-  }
-
-  const generate = async (system: string, user: string): Promise<GeneratedSections> => {
-    let lastErr: unknown;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        return await modelGateway.promptJson<GeneratedSections>(user, system);
-      } catch (err) {
-        lastErr = err;
-        // 瞬时 token/网络错误：退避重试
-        await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
-      }
-    }
-    throw lastErr;
-  };
-
-  const usageSince = (ts: number) => {
-    const recent = modelGateway.getRecentUsage(500).filter(u => u.timestamp >= ts);
-    return {
-      calls: recent.length,
-      prompt: recent.reduce((s, u) => s + u.promptTokens, 0),
-      completion: recent.reduce((s, u) => s + u.completionTokens, 0),
-    };
-  };
-
-  return { generate, usageSince };
-}
-
 // ─── 主流程 ───
 
 export async function runFill(options: RunOptions, deps: RunDeps = {}): Promise<RunSummary> {
@@ -621,8 +557,6 @@ export async function runFill(options: RunOptions, deps: RunDeps = {}): Promise<
   if (dryRun) return summary;
 
   // 执行
-  const startedAt = Date.now();
-  let backend: LlmBackend | null = null;
   const stateUpdates: FillState = {};
 
   for (const plan of summary.plans) {
@@ -646,16 +580,15 @@ export async function runFill(options: RunOptions, deps: RunDeps = {}): Promise<
         continue;
       }
 
-      // fill
-      if (!backend) {
-        backend = deps.generate
-          ? { generate: deps.generate, usageSince: () => ({ calls: 0, prompt: 0, completion: 0 }) }
-          : await createLlmBackend();
+      // fill — LLM backend 必须经 deps.generate 注入
+      // （内置 createLlmBackend 依赖的 modelGateway 已随 llm-configs 子系统删除）
+      if (!deps.generate) {
+        throw new Error('LLM backend 未注入且内置 modelGateway 已删除：真实 fill 暂不可用，可先 dry-run 评估；恢复需改接 SystemExecutor');
       }
       const digest = collectSourceDigest(path.join(repoRoot, dir), dir);
       const downstream = collectDownstream(getIndex(), repoRoot, dir);
       const { system, user } = buildPrompts(dir, digest, original, decision.sectionsToFill, downstream);
-      const generated = await backend.generate(system, user);
+      const generated = await deps.generate(system, user);
       const merged = mergeGenerated(original, generated, decision.sectionsToFill);
       fs.writeFileSync(absCtx, merged, 'utf-8');
       summary.filled.push(dir);
@@ -673,13 +606,7 @@ export async function runFill(options: RunOptions, deps: RunDeps = {}): Promise<
     saveState(statePath, { ...state, ...stateUpdates });
   }
 
-  if (backend && !deps.generate) {
-    const usage = backend.usageSince(startedAt);
-    summary.llmCalls = usage.calls;
-    summary.tokens = { prompt: usage.prompt, completion: usage.completion };
-  } else {
-    summary.llmCalls = summary.filled.length;
-  }
+  summary.llmCalls = summary.filled.length;
 
   return summary;
 }

@@ -97,7 +97,6 @@ OKR → PMO 项目（gitRepo 为工程锚点）→ Requirement（挂 PMO 项目�
 
 | 变量 | 用途 | 说明/示例 |
 |------|------|-----------|
-| `MODEL_TIER_FAST` / `MODEL_TIER_STANDARD` / `MODEL_TIER_PREMIUM` | 逻辑档位 → 实际模型名映射 | 默认 `deepseek-v4-flash` / `deepseek-v4-flash` / `deepseek-v4-pro[1m]` |
 | `DEEPSEEK_API_KEY`（+`DEEPSEEK_BASE_URL`/`DEEPSEEK_MODEL`）、`OPENAI_API_KEY` 或 `LLM_API_KEY`（+`LLM_BASE_URL`/`LLM_MODEL`） | provider 级密钥 | 按序探测，先中先用 |
 | `LLM_API_KEY_USER` / `LLM_BASE_URL_USER` / `LLM_MODEL_USER` | 用户级覆盖 | 优先级最高 |
 | `STUDIO_BASE_URL` / `STUDIO_API_KEY` | 历史统一 LLM 密钥对 | 仍残留于 `~/.studio/config.env`；当前代码已不读取（走上面的 provider key），列出以免误配 |

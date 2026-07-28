@@ -139,10 +139,6 @@ export async function studioUp(configPath?: string) {
     console.error('Pre-flight failed:', err.message?.slice(0, 200));
   }
 
-  if (!process.env.MODEL_TIER_FAST) process.env.MODEL_TIER_FAST = 'deepseek-v4-flash';
-  if (!process.env.MODEL_TIER_STANDARD) process.env.MODEL_TIER_STANDARD = 'deepseek-v4-flash';
-  if (!process.env.MODEL_TIER_PREMIUM) process.env.MODEL_TIER_PREMIUM = 'deepseek-v4-pro[1m]';
-
   // 启动服务器（index.ts auto-starts on import）
   console.log('Starting server...');
   await import('../index.js');

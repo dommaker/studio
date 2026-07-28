@@ -55,3 +55,4 @@
 - ✅ `6d6ada83`: spec4-p2): Phase 2 收尾 — FileStore mock 更新 + writeJsonl 方法
 - ✅ `5408f1dc`: web): 修复 ProjectDetailPage 加载任务失败阻塞页面 + 修复 monitoring/stats 500
 - ✅ `5b7ec85c`: web): 修复 4 个生产崩溃 + 菜单冗余整合
+- ✅ 2026-07-28: config 摘除 `anthropicModel` 字段（`ANTHROPIC_MODEL` env 直读）——全仓零消费方（模型选择归各 CLI 自身配置，provider 注册表注释所述的 ANTHROPIC_MODEL 是 CLI 自身 env，与本字段无关）

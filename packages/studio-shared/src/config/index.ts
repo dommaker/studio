@@ -63,7 +63,6 @@ export interface AgentStudioConfig {
   anthropicApiKey1?: string;
   anthropicApiKey2?: string;
   anthropicBaseUrl?: string;
-  anthropicModel?: string;
 }
 
 // 默认配置
@@ -103,7 +102,6 @@ export function loadAgentStudioConfig(): AgentStudioConfig {
     anthropicApiKey1: process.env.ANTHROPIC_API_KEY_1 || process.env.ANTHROPIC_API_KEY,
     anthropicApiKey2: process.env.ANTHROPIC_API_KEY_2,
     anthropicBaseUrl: process.env.ANTHROPIC_BASE_URL,
-    anthropicModel: process.env.ANTHROPIC_MODEL,
   };
 }
 
