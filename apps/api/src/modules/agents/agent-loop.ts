@@ -28,6 +28,10 @@ const SESSION_TOKEN_LIMIT = 100_000;
 
 /** B3b-i: 代码类 WU（执行面强制专属 worktree 隔离） */
 const CODE_WORKTREE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
+/** 步骤数上限：超限强制 in_review 交人工。review WU 单独放宽——
+ *  评审职责是读不是写，无提交守卫豁免后正常 ≤5 步收口；阈值仅是防死循环的安全阀 */
+const STEP_LIMIT = 15;
+const REVIEW_STEP_LIMIT = 30;
 /** B3b-i: 单条验证命令超时 10min；失败注入 prompt 的输出尾部上限 */
 const VERIFY_COMMAND_TIMEOUT_MS = 600_000;
 const VERIFY_FAIL_TAIL_CHARS = 2_000;
@@ -1073,10 +1077,12 @@ ${rosterLines.join('\n')}
     // §10.5 提交守卫（发生在状态迁移之前，与 stepCount 守卫同层 —— 不动 VALID_TRANSITIONS）。
     // 路径解析或 git 调用失败一律静默跳过，绝不因基础设施故障阻断完成。
     // B3b-i: cwd 改走 resolveExecutionCwd —— 代码类 WU 在专属 worktree 下跑 git status。
+    // review WU 整体豁免：评审职责是读不是写（cwd 解析到父 WU worktree，dev 的提交/
+    // 工具产物与评审无关），工作区洁净不是它的责任——否则 COMPLETE 被反复打回空转。
     let action = result.action;
     const guardUpdates: Partial<WorkUnitMetadata> = {};
     let noCommitNotice = false;
-    const workspaceRoot = await this.resolveExecutionCwd(wu, metadata);
+    const workspaceRoot = wu.type === 'review' ? null : await this.resolveExecutionCwd(wu, metadata);
     if (workspaceRoot) {
       if (action === 'complete' && this.hasUncommittedChanges(workspaceRoot)) {
         // COMPLETE 守卫：有未提交改动 → 打回按 PROGRESS 处理，提示注入下一轮 prompt
@@ -1271,8 +1277,8 @@ ${rosterLines.join('\n')}
       await this.postToDiscussionSpace(wuId, verifyPassNotice);
     }
 
-    // Monitoring: step limit
-    if (stepCount > 15) {
+    // Monitoring: step limit（review WU 用放宽阈值，见 REVIEW_STEP_LIMIT 注释）
+    if (stepCount > (wu.type === 'review' ? REVIEW_STEP_LIMIT : STEP_LIMIT)) {
       // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
       if (wu.status === 'blocked') {
         await this.workUnitService.transitionStatus(wuId, 'active');

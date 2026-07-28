@@ -59,12 +59,14 @@
 - **B3b-i 每 WU worktree 隔离（决策 D1）**：代码类 WU（task/bug/feature/refactor）解析出 git 仓库根后执行 cwd 强制走专属 worktree（`<worktreesDir>/wu-<wuId>`，分支 `task/<wuId>`，agent-loop 首个 step 经 `ensureWuWorktree` 创建并落档 metadata.worktreePath/Branch/BaseBranch/BaseRepo，后续 step 复用）；review WU 继承父 worktreePath（看 diff）；创建失败走 B1 failed 分支（3 次 blocked），不退回共享目录；提交守卫/自动验证的 git cwd 统一走 `resolveExecutionCwd`
 - **会话续用模型（fix/guard-and-resume）**：续用判定收窄到同一 WU（WU metadata.sessionId === instance.sessionId）——claude 会话按 (agent HOME, cwd) 存储（2.1.80 实测：`--session-id` 撞已存在 id 报 "already in use"、异 cwd `--resume` 报 "No conversation found"），B3b-i 每 WU 独立 worktree 令跨 WU 续用物理不成立。续用 step 传 `parameters.sessionId + sessionResume: true`（runner 侧 claude 换 `--resume`）；新建 step 仅 claude 传新 sessionId 建会话（kimi/codex/opencode 的 session 参数均续用语义，新建不传）；首 step 执行失败重置 sessionId（下一步按新建重试，不 --resume 从未建立的会话）
 - **B3b-i COMPLETE 前自动验证（决策 D3 前半）**：提交/子任务守卫通过后在 WU worktree 跑验证——覆盖（metadata.verifyCommands > workspace 记录 verifyCommands）> 约定（package.json scripts 的 test/typecheck/lint，按 lockfile 选 pnpm/npm，单条 10min）；全绿写 metadata.verifyReport 并发频道简报；失败降级 progress（verifyFailHint 注入下一轮，尾部截 2000），verifyFailCount ≥3 转 blocked
+- **review WU 守卫豁免（2026-07-28）**：§10.5 提交守卫（COMPLETE 打回 + PROGRESS 无提交监视）对 `type === 'review'` 整体跳过——评审职责是读不是写，cwd 解析到父 WU worktree，dev 提交与工具产物残留不归评审管，否则 COMPLETE 被反复打回空转；stepCount 强制 in_review 上限对 review 放宽为 30（`REVIEW_STEP_LIMIT`，其余类型仍 15 `STEP_LIMIT`），保证 reviewer COMPLETE 能走 in_review→done 自动收口（agent-loop.ts `recordResult`）
 - `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
 - **鉴权（2026-07-24 收紧）**：legacy agents POST `/`、PUT `/:agentId` 与 agent-profiles/agent-instances 写 = `requireAuth()+requireNotGuest()`；`POST /review/diff`（任意路径写+spawn claude）与 instances `POST /:id/terminate` = `requireAuth()+requireAdmin()`；legacy DELETE 原有 requireRole('Admin') 不变。另知：agent-configs `:id` 路径拼接无校验（穿越面，未修）、/review/diff 的 baseRef/headRef shell 拼接（Admin 门后，未修）
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: P1 review WU 守卫豁免 — §10.5 提交守卫对 type=review 整体跳过（评审只读，cwd 是父 WU worktree，dev 提交/工具产物残留导致 COMPLETE 被反复打回空转 16 步）；stepCount 强制 in_review 上限 review 放宽至 30（REVIEW_STEP_LIMIT），保证 COMPLETE 后 in_review→done 自动收口；补 agent-loop-review-wu.test.ts 5 例
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ `f54153e1`: agents): isOnline 语义从 instance status 改为 loop 存活检测
 - ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
