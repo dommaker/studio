@@ -3,7 +3,7 @@
 > 此文件描述 apps/api/src/modules/workunit 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md, apps/api/src/modules/workunit/waiting-input.ts, apps/api/src/modules/workunit/workunit.service.ts, apps/api/src/modules/workunit/merge-on-review-pass.ts, apps/api/src/modules/workunit/delegation-gate.ts, apps/api/src/modules/workunit/timeout-release.ts, apps/api/src/modules/workunit/workunit.routes.ts
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md
 
 ## 职责
 
@@ -37,6 +37,8 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `39b6af5f`: channels): L1 convert-to-task 人工指派卡死修复（指派统一建 unassigned 指名）
+- ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
 - ✅ `7e36fd19`: agent): 验收 e2e 抓出两修真链漏洞 — 提交守卫读合并视图 + 合并前数据防丢闸
 - ✅ 2026-07-28: 验收修复 B — merge-on-review-pass 加数据防丢闸：worktree 有未提交改动（或 git status 调用失败）时绝不合并/强删（原流程 `git merge` 对无提交分支 "Already up to date" 假成功后 `worktree remove --force` 静默丢弃未提交工作），转 blocked + 频道列清单转人工，worktree/分支保留；补测试 2 例

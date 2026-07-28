@@ -3,7 +3,7 @@
 > 此文件描述 packages/studio-agent/src 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/src/CONTEXT.md, packages/studio-agent/src/index.ts, packages/studio-agent/src/cli-adapter.ts, packages/studio-agent/src/registry.ts, packages/studio-agent/src/types.ts
+⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/src/CONTEXT.md
 
 ## 职责
 
@@ -53,6 +53,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加
 - ✅ 2026-07-28: 任务规格档（tier）机制物理删除——runner-params 删 TIER_TIMEOUTS/TIER_MAX_TURNS/getSessionTimeout（零读取方/仅兜底）；runner-execution/runner-lightweight 的 session 超时兜底改扁平默认 30min（`task.timeoutMs ?? 30 * 60_000`），taskTier 日志键全删；AgentTask.model 字段删除（原 tier 标签语义，模型归算力提供方 CLI 自身配置）；skill 注入改 `skillLoader.load({})` 不再按 tier 过滤；agent-runner 停发 getSessionTimeout re-export；自指测试 agent-runner-max-turns/agent-runner-tier-timeout 删除
 - ✅ 2026-07-28: spawn 链路退役 tier→模型名解析（方案 A：模型归算力提供方，由 CLI 自身配置决定）— runner-lightweight/runner-execution/session-manager 删除 getModelForTier 调用（本就未传入 spawn 参数，仅日志用），日志字段 model → modelTier 标签；getModelForTier 本体从 studio-shared 删除
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
