@@ -759,7 +759,10 @@ describe('AgentLoop', () => {
       await (agentLoop as unknown as { agentStep(t: unknown): Promise<unknown> }).agentStep(target);
 
       const secondCallParams = mockExecuteLightweight.mock.calls[1][0].parameters;
-      expect(secondCallParams.sessionId).toBeUndefined();
+      // fix/guard-and-resume: session 截断后 instance.sessionId 置 null，下一步按
+      // non-resume 路径生成新 sessionId（新生命周期），不再传 undefined。
+      expect(secondCallParams.sessionId).toMatch(/^[0-9a-f]{8}-/);
+      expect(secondCallParams.sessionResume).toBeUndefined();
     });
 
     it('does not reset sessionId when input_tokens below threshold', async () => {

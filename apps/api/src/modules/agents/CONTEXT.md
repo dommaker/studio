@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/agents 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/auditor-reports.ts, apps/api/src/modules/agents/auditor-rules.ts, apps/api/src/modules/agents/monitor-alerts.ts, apps/api/src/modules/agents/monitor-lifecycle.ts, apps/api/src/modules/agents/monitor-reports.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/builtin-roles.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/review-dispatcher.ts, apps/api/src/modules/agents/system-executor.ts, apps/api/src/modules/agents/token-usage.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/remote-executor.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/knowledge-maintenance.ts, apps/api/src/modules/agents/agent-loop-registry.ts, apps/api/src/modules/agents/token-usage.routes.ts, apps/api/src/modules/agents/executor.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/auditor-doc-freshness.ts, apps/api/src/modules/agents/auditor-execution.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/knowledge-analysis.ts, apps/api/src/modules/agents/knowledge-extraction.ts, apps/api/src/modules/agents/monitor-probes.ts, apps/api/src/modules/agents/types.ts, apps/api/src/modules/agents/knowledge-cold-start.ts, apps/api/src/modules/agents/monitor-system-probes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/agent-context.ts, apps/api/src/modules/agents/data-analyst-agent.service.ts
+
 ## 职责
 
 负责管理 Agent 的配置（profile）、运行实例（instance）、决策循环（loop）以及内部审计 Agent（Auditor）等核心编排逻辑。提供 REST API 进行 CRUD 操作，并通过事件驱动机制实现 Agent 的自动挂载、运行和终止。
@@ -54,6 +57,7 @@
 - 所有 Agent 数据均通过 `FileStore` 存储（已从 Prisma 迁移）
 - 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件（测试环境隔离到 `os.tmpdir()/studio-test-logs/`，见 `utils/studio-log-path.ts`）
 - **B3b-i 每 WU worktree 隔离（决策 D1）**：代码类 WU（task/bug/feature/refactor）解析出 git 仓库根后执行 cwd 强制走专属 worktree（`<worktreesDir>/wu-<wuId>`，分支 `task/<wuId>`，agent-loop 首个 step 经 `ensureWuWorktree` 创建并落档 metadata.worktreePath/Branch/BaseBranch/BaseRepo，后续 step 复用）；review WU 继承父 worktreePath（看 diff）；创建失败走 B1 failed 分支（3 次 blocked），不退回共享目录；提交守卫/自动验证的 git cwd 统一走 `resolveExecutionCwd`
+- **会话续用模型（fix/guard-and-resume）**：续用判定收窄到同一 WU（WU metadata.sessionId === instance.sessionId）——claude 会话按 (agent HOME, cwd) 存储（2.1.80 实测：`--session-id` 撞已存在 id 报 "already in use"、异 cwd `--resume` 报 "No conversation found"），B3b-i 每 WU 独立 worktree 令跨 WU 续用物理不成立。续用 step 传 `parameters.sessionId + sessionResume: true`（runner 侧 claude 换 `--resume`）；新建 step 仅 claude 传新 sessionId 建会话（kimi/codex/opencode 的 session 参数均续用语义，新建不传）；首 step 执行失败重置 sessionId（下一步按新建重试，不 --resume 从未建立的会话）
 - **B3b-i COMPLETE 前自动验证（决策 D3 前半）**：提交/子任务守卫通过后在 WU worktree 跑验证——覆盖（metadata.verifyCommands > workspace 记录 verifyCommands）> 约定（package.json scripts 的 test/typecheck/lint，按 lockfile 选 pnpm/npm，单条 10min）；全绿写 metadata.verifyReport 并发频道简报；失败降级 progress（verifyFailHint 注入下一轮，尾部截 2000），verifyFailCount ≥3 转 blocked
 - `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
 - **鉴权（2026-07-24 收紧）**：legacy agents POST `/`、PUT `/:agentId` 与 agent-profiles/agent-instances 写 = `requireAuth()+requireNotGuest()`；`POST /review/diff`（任意路径写+spawn claude）与 instances `POST /:id/terminate` = `requireAuth()+requireAdmin()`；legacy DELETE 原有 requireRole('Admin') 不变。另知：agent-configs `:id` 路径拼接无校验（穿越面，未修）、/review/diff 的 baseRef/headRef shell 拼接（Admin 门后，未修）
@@ -61,6 +65,14 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `f54153e1`: agents): isOnline 语义从 instance status 改为 loop 存活检测
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ `6eef7200`: agents,web): 清理行为模式读端残块 + 提案卡已审核态按 maturity 派生 + 文档约定补充
+- ✅ `07e8b650`: agent-loop): R2 tool:call 接线改读 rawOutput + wireup④ _cumulativeTokens 累计写回
+- ✅ `03a3c3eb`: agents): triage 修复动作默认 dry-run，危险命令需 STUDIO_TRIAGE_DESTRUCTIVE=true 显式开启
+- ✅ `11b8e70b`: spec4-cr): align middleware auth paths with service + remove studio-prisma
+- ✅ `f588061f`: spec4-post-p3): Prisma removal test cleanup — 19 files
 - ✅ 2026-07-27: B5 D18 事件入口统一（决策 D18）— monitor-alerts/monitor-reports/monitor-lifecycle/auditor-rules/auditor-reports/agent-loop 的读写全部收敛到统一事件文件（~/.studio/logs/studio-events.jsonl，经 utils/studio-events；STUDIO_EVENTS_FILE 可覆盖）：emitMonitorEvent 改写 StudioEvent 形态（字段入 payload）；DailyReflection 读方统一后可读到 session:summary/knowledge:consumption（原读 studio.jsonl 恒空）；TTL/沉淀闸门时间口径经 getStudioEventTime 兼容 createdAt 与历史 timestamp；tool:call traces 改 StudioEvent 形态；workunit:tokens 事件 payload 增补 inputTokens/cacheReadTokens/cacheCreationTokens（D16 缓存命中率数据源）
 - ✅ 2026-07-27: B4a 内置角色 + reviewer worktree 死代码清除（决策 D7/D8）— 新增 builtin-roles.ts：启动幂等 seed pm/dev/reviewer（不覆盖用户改动、inactive 尊重可禁用；description 尾部英文关键词即 acceptedTypes 来源，reviewer 必含 'reviewer' 字样供 ReviewDispatcher 锚定）；ensureBuiltinRoleMembers / migrateBuiltinRolesToProjectChannels 供频道绑工程自动加入与存量迁移；ensureStudioProfile 回填 studio 定位描述（仅空/旧默认时写，用户自定义不覆盖）；studio-daemon 摘除 reviewer session/worktree（daemon/reviewer-* 分支泄漏源头），index.ts 不再 daemon.start()（submitJob/submitAdhocJob 无生产调用方，文件保留供 getStatus/isStarted 消费方）
 - ✅ 2026-07-27: B3b-i 每 WU worktree 隔离 + 提交前自动验证（决策 D1/D3 前半）— agent-loop 对代码类 WU 强制专属 worktree 执行（ensureWuWorktree 按 WU id 键控复用，失败走 failed 分支不退共享目录；review 继承父 worktree）；提交守卫 git cwd 切 resolveExecutionCwd；recordResult 接受 COMPLETE 前跑验证（覆盖>约定>跳过，失败降级+verifyFailCount≥3 转 blocked，全绿写 verifyReport 发频道）

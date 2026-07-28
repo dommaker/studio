@@ -51,7 +51,9 @@ import type { AgentTask, ExecutionResult } from './session-manager.js';
  *        stream-json parsing, event emission, metrics.
  *
  * Caller provides the full prompt — no buildPrompt enrichment.
- * Session flags (session-id/continue) come from task.parameters.sessionFlags.
+ * Session 语义两个通道：旧 daemon 链路走 parameters.sessionFlags（claude --session-id/--continue
+ * 原样拼接）；agent-loop 链路走 parameters.sessionId + parameters.sessionResume
+ * （经 cli-adapter 按 provider 生成，claude 续用为 --resume）。
  */
 export async function executeLightweightSession(state: RunnerExecutionState, task: AgentTask): Promise<ExecutionResult> {
   const { config, runningProcesses } = state;
@@ -94,6 +96,9 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     // Session management — caller provides flags via parameters
     // F4: sessionFlags 是 claude 专属语法（--session-id/--continue）；其它 provider 的
     // session 由 registry spawn 模板处理（buildSpawnArgs 传入 parameters.sessionId）。
+    // 核查（fix/guard-and-resume）：sessionFlags 唯一设置方是旧 daemon 链路
+    // apps/api/src/daemon/session-manager.ts（首 task --session-id、后续 --continue，无 Bug B）；
+    // agent-loop 链路不用它 —— 走 parameters.sessionId + parameters.sessionResume（见下）。
     const provider = task.provider || 'claude';
     const sessionFlags = provider === 'claude' ? ((task.parameters?.sessionFlags as string) || '') : '';
     const taskTier = (task.model as ModelTier) || 'standard';
@@ -107,6 +112,8 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       spawnParams: {
         worktreeDir: worktree,
         sessionId: task.parameters?.sessionId as string | undefined,
+        // 续用标记（agent-loop）：claude 换 --resume，其余 provider 模板不变
+        sessionResume: task.parameters?.sessionResume === true,
         maxTurns: task.parameters?.maxTurns as number | undefined,
       },
       worktree,
