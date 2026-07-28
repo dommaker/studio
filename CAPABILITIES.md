@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-24
+> 最后更新: 2026-07-28
 
 ---
 
@@ -29,7 +29,6 @@
 | error | packages/studio-shared/src/cli/error.ts | 错误处理 |
 | formatter | packages/studio-shared/src/cli/formatter.ts | 输出格式化器 |
 | parser | packages/studio-shared/src/cli/parser.ts | 参数解析器 |
-| model-tier | packages/studio-shared/src/config/model-tier.ts | Model Tier → 模型名映射（2026-05-08） |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
 | responsibility-chain | packages/studio-shared/src/constants/responsibility-chain.ts | 责任链模型 - 类型定义 |
 | stage-definitions | packages/studio-shared/src/constants/stage-definitions.ts | Stage Definitions - 阶段定义 + 关键词 + 推荐函数 |
@@ -84,17 +83,17 @@
 | types | packages/studio-task/src/types.ts | CLI 命令选项和输出类型 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
-| auditor-agent.service | apps/api/src/modules/agents/auditor-agent.service.ts | Auditor Agent — 跨任务审计 + 周期洞察 |
-| knowledge-agent.service | apps/api/src/modules/agents/knowledge-agent.service.ts | Knowledge Agent - 从执行结果中异步提取知识 |
-| monitor-agent.service | apps/api/src/modules/agents/monitor-agent.service.ts | Monitor Agent - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
-| ops-agent.service | apps/api/src/modules/agents/ops-agent.service.ts | Ops Agent — 系统生命周期守护 |
+| auditor.service | apps/api/src/modules/agents/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
+| knowledge-curator.service | apps/api/src/modules/agents/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
+| monitor.service | apps/api/src/modules/agents/monitor.service.ts | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
+| ops.service | apps/api/src/modules/agents/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | apps/api/src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | requirement-gate | apps/api/src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
-| review-agent.service | apps/api/src/modules/agents/review-agent.service.ts | Review Agent - 多立场代码审查 + G33 非阻断发现自动曝光 |
+| review.service | apps/api/src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查（/review/diff 管理端点）+ G33 非阻断发现自动曝光 |
 | review-report | apps/api/src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
-| session-summary-agent.service | apps/api/src/modules/agents/session-summary-agent.service.ts | SessionSummaryAgent — 会话级知识提取 (2026-05-25) |
-| triage-agent.service | apps/api/src/modules/agents/triage-agent.service.ts | Triage Agent Service — incident response: diagnose → classify → act → resolve/escalate |
+| session-summary.service | apps/api/src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
+| triage.service | apps/api/src/modules/agents/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | apps/api/src/modules/agents/types.ts | Agent 团队类型定义 |
 | audit-subscriber | apps/api/src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
@@ -131,10 +130,6 @@
 | routes | apps/api/src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理 |
 | rule-scanner | apps/api/src/modules/knowledge/rule-scanner.ts | RuleScanner (G-002) — 从源码/harness 约束/配置中提取业务规则 |
 | routes | apps/api/src/modules/lark/routes.ts | 飞书机器人交互回调 |
-| config.routes | apps/api/src/modules/llm/config.routes.ts | LLM Config API 路由 |
-| config.service | apps/api/src/modules/llm/config.service.ts | LLM Config Service - 加密存储 + 分层配置解析 |
-| creation-analyzer | apps/api/src/modules/llm/creation-analyzer.ts | 创建意图分析器 - 从自然语言生成 Skill/Workflow 配置 |
-| intent-analyzer | apps/api/src/modules/llm/intent-analyzer.ts | LLM 意图分析器 - 使用 /api/v1/llm/chat（统一使用 Studio LLM 配置） |
 
 | admin.routes | apps/api/src/modules/mcp/admin.routes.ts | MCP Admin Routes — tool management, permissions, audit |
 | permission.service | apps/api/src/modules/mcp/permission.service.ts | MCP Permission Service — role×tool access control + audit logging |
@@ -321,3 +316,10 @@
 | discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
 | useDetectedProviders | apps/web/src/hooks/useDetectedProviders.ts | 当前运行环境已安装的 agent CLI 列表。 |
+| builtin-roles | apps/api/src/modules/agents/builtin-roles.ts | B4a 内置角色 seed（决策 D7/D8）— pm / dev / reviewer |
+| metrics.service | apps/api/src/modules/monitoring/metrics.service.ts | D16 监控指标聚合（B5）— 任务流健康 / 入口转化 / 人工干预 / 周期 / 角色 / 工程质量 / Token / 告警。 |
+| progress-rollup | apps/api/src/modules/pmo/progress-rollup.ts | B3a 工程归属链（决策 D2）：PMO 项目进度回写。 |
+| ownership-resolver | apps/api/src/modules/requirements/ownership-resolver.ts | B3a 工程归属链（决策 D2）— WorkUnit 创建时的工程归属解析。 |
+| skill-promotion | apps/api/src/modules/skills/skill-promotion.ts | D11 skill promote 门禁（draft → published）。 |
+| merge-on-review-pass | apps/api/src/modules/workunit/merge-on-review-pass.ts | B3b-ii 评审通过后自动合并（决策 D1/D3 后半） |
+| timeout-release | apps/api/src/modules/workunit/timeout-release.ts | P0 修复（WU 超时机制）：workunit-timeout 触发器的 EXECUTE handler。 |

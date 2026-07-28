@@ -9,8 +9,9 @@ import { logger, FileStore } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
 import { skillStore } from '../skills/skill-store.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 type PatternType =

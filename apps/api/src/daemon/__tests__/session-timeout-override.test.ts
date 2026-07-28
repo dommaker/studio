@@ -3,9 +3,8 @@
  *
  * AC:
  * - runTask passes state.config.timeoutMs as AgentTask.timeoutMs
- * - executeLightweight uses task.timeoutMs when provided (overrides tier default)
- * - executeLightweight falls back to getSessionTimeout(tier) when task.timeoutMs not set
- * - reviewAgent uses complexity-based timeout: simple=10, medium=15, complex=25
+ * - executeLightweight uses task.timeoutMs when provided (overrides flat default)
+ * - executeLightweight falls back to flat default (30min) when task.timeoutMs not set
  */
 
 import { describe, test, expect, vi, beforeEach } from 'vitest';
@@ -32,7 +31,6 @@ vi.mock('@dommaker/studio-agent', () => ({
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getModelForTier: (tier: string) => `model-${tier}`,
   parseStreamEvents: vi.fn(),
   extractUsage: vi.fn(),
   extractWriteContent: vi.fn(),
@@ -63,7 +61,6 @@ describe('SessionManager.runTask — timeout override', () => {
     manager.register({
       name: 'analyst',
       worktree: '/tmp/repo',
-      modelTier: 'premium',
       timeoutMs: 30 * 60 * 1000, // 30 min
       persistent: true,
     });
@@ -83,7 +80,6 @@ describe('SessionManager.runTask — timeout override', () => {
     manager.register({
       name: 'reviewer',
       worktree: '/tmp/review',
-      modelTier: 'standard',
       timeoutMs: 15 * 60 * 1000,
       persistent: true,
     });
@@ -95,7 +91,6 @@ describe('SessionManager.runTask — timeout override', () => {
 
     const task = mockExecuteLightweight.mock.calls[0][0];
     expect(task.timeoutMs).toBe(15 * 60 * 1000);
-    expect(task.model).toBe('standard');
   });
 
   test('ad-hoc session uses provided timeoutMs', async () => {
@@ -103,7 +98,6 @@ describe('SessionManager.runTask — timeout override', () => {
     manager.registerAdhoc({
       name: 'adhoc-test',
       worktree: '/tmp/adhoc',
-      modelTier: 'fast',
       timeoutMs: 10 * 60 * 1000,
       persistent: false,
     });

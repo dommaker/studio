@@ -27,12 +27,14 @@ L1 和 L2 本质不同：L1 是单次捕获，L2 是跨时间窗口的综合。
    - 读取时间窗口内创建/修改的知识条目
    - 提取 tags / type / title / body / sourceReferences
 
-2. **Channel / ChannelMessage**：Prisma 表
-   - 读取时间窗口内的 Channel 讨论
+2. **Channel 讨论**：FileStore 频道消息（`~/.studio/data/channels/<channelId>/messages.jsonl`）
+   - 频道元数据在同目录 `config.json`；先扫描 `~/.studio/data/channels/*/config.json` 定位目标频道
+   - 读取时间窗口内的消息（JSONL，按 createdAt 过滤）
    - 提取决策点、争论焦点、共识结论
 
-3. **StudioEvent**：Prisma 表
-   - 读取时间窗口内的事件（type: feedback / correction / failure）
+3. **StudioEvent 事件流**：`~/.studio/logs/studio-events.jsonl`
+   - JSONL 事件流（字段：type / source / payload / createdAt；payload 为 JSON 字符串）
+   - 读取时间窗口内 type 为 feedback / correction / failure 类的事件
    - 提取失败模式、用户纠正
 
 ### 待接入（Agent Network 实现后）
@@ -50,11 +52,11 @@ L1 和 L2 本质不同：L1 是单次捕获，L2 是跨时间窗口的综合。
    - find ~/.studio/knowledge/*.md -mtime -7
    - 解析 frontmatter 提取 tags/type/title/created
 3. 获取 Channel 讨论：
-   - SELECT * FROM ChannelMessage WHERE createdAt > <7days ago>
+   - 扫描 ~/.studio/data/channels/*/messages.jsonl，按 createdAt 过滤时间窗口
    - 提取决策相关消息（agentName, content, 关键词匹配）
 4. 获取反馈事件：
-   - SELECT * FROM StudioEvent WHERE type IN ('feedback','correction','failure') AND timestamp > <7days ago>
-   - 提取 payload 中的教训
+   - 读 ~/.studio/logs/studio-events.jsonl，过滤 type IN ('feedback','correction','failure') 且 createdAt 在窗口内
+   - 提取 payload（JSON 字符串，需二次解析）中的教训
 ```
 
 ---

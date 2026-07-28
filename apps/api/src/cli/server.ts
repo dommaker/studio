@@ -121,8 +121,8 @@ export async function studioUp(configPath?: string) {
   // ── Ops Pre-flight Guard ──
   // Replace old --accept-data-loss db push + port check with full pre-flight
   try {
-    const { createOpsAgent } = await import('../modules/agents/ops-agent.service.js');
-    const ops = createOpsAgent(port);
+    const { createOpsService } = await import('../modules/agents/ops.service.js');
+    const ops = createOpsService(port);
     const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
     const preflight = await ops.preflight(process.env.REPO_DIR, frontendDist);
 
@@ -138,10 +138,6 @@ export async function studioUp(configPath?: string) {
   } catch (err: any) {
     console.error('Pre-flight failed:', err.message?.slice(0, 200));
   }
-
-  if (!process.env.MODEL_TIER_FAST) process.env.MODEL_TIER_FAST = 'deepseek-v4-flash';
-  if (!process.env.MODEL_TIER_STANDARD) process.env.MODEL_TIER_STANDARD = 'deepseek-v4-flash';
-  if (!process.env.MODEL_TIER_PREMIUM) process.env.MODEL_TIER_PREMIUM = 'deepseek-v4-pro[1m]';
 
   // 启动服务器（index.ts auto-starts on import）
   console.log('Starting server...');
@@ -216,16 +212,16 @@ export async function studioStatus() {
     }
   } catch { /* optional */ }
 
-  // 6. G4: Trajectory eval
+  // 6. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
   try {
     const fs = await import('fs');
-    const path = await import('path');
-    const { resolveEventsDir } = await import('@dommaker/studio-shared');
-    const sf = path.join(resolveEventsDir(), 'studio.jsonl');
+    const { resolveStudioEventsFile, parseStudioEventPayload } = await import('../utils/studio-events.js');
+    const sf = resolveStudioEventsFile();
     if (fs.existsSync(sf)) {
       const lines = fs.readFileSync(sf, 'utf-8').split('\n').filter(Boolean);
       const trajectory = lines.map(l => { try { return JSON.parse(l); } catch { return null; } })
         .filter((e: any) => e?.type === 'monitor:trajectory')
+        .map((e: any) => ({ ...(parseStudioEventPayload(e) ?? {}), ...e }))
         .pop();
       if (trajectory) {
         const emoji = trajectory.verdict === 'good' ? '✅' : trajectory.verdict === 'degraded' ? '⚠️' : '❌';

@@ -130,7 +130,11 @@ describe('SystemExecutor', () => {
 
   describe('AC-1.7 provider=null 抛 StudioRoleNotConfiguredError', () => {
     it('studio 角色 provider=null 时抛 StudioRoleNotConfiguredError', async () => {
-      await ensureStudioProfile(fileStore);  // provider 默认 null
+      await ensureStudioProfile(fileStore);
+      // L2 后 seed 自带缺省 provider，显式清空以覆盖未配置路径
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: null });
       await expect(executor.run('test')).rejects.toBeInstanceOf(StudioRoleNotConfiguredError);
       expect(mockExecSh).not.toHaveBeenCalled();
     });

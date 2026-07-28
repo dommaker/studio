@@ -1,7 +1,7 @@
 /**
  * Knowledge Agent — 语料分析（每日维护）子模块
  *
- * 从 knowledge-agent.service.ts 拆分（提取/冷启动/分析分离，零行为变更）。
+ * 从 knowledge-curator.service.ts 拆分（提取/冷启动/分析分离，零行为变更）。
  * LLM-Powered Daily Maintenance (F1) 的 4 个质量操作，由门面 runDailyMaintenance 聚合调用：
  *   - semanticDedup         F1a 语义去重（同 type 分批送 LLM，archive 重复并合并 sourceReferences）
  *   - assessQuality         F1b 内容质量评估（低质量 archive，proven 不动）
@@ -92,7 +92,7 @@ ${entryList}
             sharedStore.update(dup.keep, { sourceReferences: deduped });
             merged++;
 
-            logger.info('[KnowledgeAgent] Semantic dedup merged', {
+            logger.info('[KnowledgeCurator] Semantic dedup merged', {
               keep: dup.keep,
               archived: mergeId,
               reason: dup.reason,
@@ -100,7 +100,7 @@ ${entryList}
           }
         }
       } catch (err) {
-        logger.warn('[KnowledgeAgent] Semantic dedup batch failed', { type, error: String(err) });
+        logger.warn('[KnowledgeCurator] Semantic dedup batch failed', { type, error: String(err) });
       }
     }
   }
@@ -163,7 +163,7 @@ ${entryList}
         sharedStore.update(assessment.id, { maturity: 'archived' });
         archived++;
 
-        logger.info('[KnowledgeAgent] Quality assessment archived', {
+        logger.info('[KnowledgeCurator] Quality assessment archived', {
           id: assessment.id,
           title: entry.title,
           reason: assessment.reason,
@@ -171,7 +171,7 @@ ${entryList}
         });
       }
     } catch (err) {
-      logger.warn('[KnowledgeAgent] Quality assessment batch failed', { error: String(err) });
+      logger.warn('[KnowledgeCurator] Quality assessment batch failed', { error: String(err) });
     }
   }
 
@@ -245,17 +245,17 @@ ${context}
           sharedStore.update(r.id, { maturity: 'draft' });
           updated++;
 
-          logger.info('[KnowledgeAgent] Freshness validation marked stale', {
+          logger.info('[KnowledgeCurator] Freshness validation marked stale', {
             id: r.id,
             reason: r.reason,
           });
         }
       } catch (err) {
-        logger.warn('[KnowledgeAgent] Freshness validation batch failed', { error: String(err) });
+        logger.warn('[KnowledgeCurator] Freshness validation batch failed', { error: String(err) });
       }
     }
   } catch (err) {
-    logger.warn('[KnowledgeAgent] Freshness validation failed', { error: String(err) });
+    logger.warn('[KnowledgeCurator] Freshness validation failed', { error: String(err) });
   }
 
   return updated;
@@ -336,7 +336,7 @@ ${entryList}
           resolved++;
         }
 
-        logger.info('[KnowledgeAgent] Contradiction detected', {
+        logger.info('[KnowledgeCurator] Contradiction detected', {
           tag,
           entries: contradiction.entries,
           description: contradiction.description,
@@ -344,7 +344,7 @@ ${entryList}
         });
       }
     } catch (err) {
-      logger.warn('[KnowledgeAgent] Contradiction check failed', { tag, error: String(err) });
+      logger.warn('[KnowledgeCurator] Contradiction check failed', { tag, error: String(err) });
     }
   }
 

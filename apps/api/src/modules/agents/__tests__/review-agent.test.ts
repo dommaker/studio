@@ -1,19 +1,19 @@
-// ReviewAgent reviewDiff + hasBranchChanges tests
+// ReviewService reviewDiff + hasBranchChanges tests
 import { describe, it, expect } from 'vitest';
 import * as path from 'path';
-import { reviewAgent } from '../review-agent.service.js';
+import { reviewService } from '../review.service.js';
 import { execSh } from '@dommaker/studio-shared/node';
 
 const isCI = !!process.env.CI;
 const describeIf = isCI ? describe.skip : describe;
 const repoDir = path.resolve(process.cwd());
 
-describeIf('ReviewAgent (topology-agnostic)', () => {
+describeIf('ReviewService (topology-agnostic)', () => {
   // ── hasBranchChanges (fast, no Claude) ──
 
   describe('hasBranchChanges', () => {
     it('returns true when branches/refs differ', async () => {
-      const result = await (reviewAgent as any).hasBranchChanges(
+      const result = await (reviewService as any).hasBranchChanges(
         repoDir,
         'HEAD~1',
         'HEAD',
@@ -22,7 +22,7 @@ describeIf('ReviewAgent (topology-agnostic)', () => {
     });
 
     it('returns false when both refs are the same', async () => {
-      const result = await (reviewAgent as any).hasBranchChanges(
+      const result = await (reviewService as any).hasBranchChanges(
         repoDir,
         'origin/master',
         'origin/master',
@@ -31,7 +31,7 @@ describeIf('ReviewAgent (topology-agnostic)', () => {
     });
 
     it('handles invalid refs gracefully (empty diff = no match)', async () => {
-      const result = await (reviewAgent as any).hasBranchChanges(
+      const result = await (reviewService as any).hasBranchChanges(
         repoDir,
         'nonexistent-abc-123',
         'also-nonexistent-xyz-789',
@@ -47,7 +47,7 @@ describeIf('ReviewAgent (topology-agnostic)', () => {
 
   describe('reviewDiff error handling', () => {
     it('gracefully handles invalid refs without throwing', async () => {
-      const result = await reviewAgent.reviewDiff({
+      const result = await reviewService.reviewDiff({
         baseRef: 'nonexistent-ref-abc',
         headRef: 'also-nonexistent-xyz',
         repoPath: repoDir,
@@ -65,7 +65,7 @@ describeIf('ReviewAgent (topology-agnostic)', () => {
 
   describe.skipIf(!process.env.RUN_CLAUDE_REVIEW_TESTS)('reviewDiff with real branches (requires Claude)', () => {
     it('returns valid ReviewResult shape', { timeout: 120000 }, async () => {
-      const result = await reviewAgent.reviewDiff({
+      const result = await reviewService.reviewDiff({
         baseRef: 'origin/master',
         headRef: 'origin/main',
         repoPath: repoDir,

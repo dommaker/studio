@@ -100,7 +100,7 @@ describe('coldStartAll (P1b 四源冷启动)', () => {
     expect(config.manualEntries[0]).toMatchObject({ title: 'Agent Network Flow', type: 'process' });
     expect(config.manualEntries[1]).toMatchObject({ title: '8-Agent System', type: 'model' });
 
-    expect(mockLogger.info).toHaveBeenCalledWith('[KnowledgeAgent] Cold start import completed', {
+    expect(mockLogger.info).toHaveBeenCalledWith('[KnowledgeCurator] Cold start import completed', {
       importedCount: 2,
       totalErrors: 1,
       sources: ['docs', 'git'],
@@ -122,7 +122,7 @@ describe('coldStartAll (P1b 四源冷启动)', () => {
 
     const config = importerConfigs[0];
     expect(config.docPaths).toEqual([path.join(tmpProject, 'README.md')]);
-    expect(mockLogger.info).toHaveBeenCalledWith('[KnowledgeAgent] Cold start import completed', {
+    expect(mockLogger.info).toHaveBeenCalledWith('[KnowledgeCurator] Cold start import completed', {
       importedCount: 0,
       totalErrors: 0,
       sources: [],
@@ -132,7 +132,7 @@ describe('coldStartAll (P1b 四源冷启动)', () => {
   it('importAll 失败 → logger.error，静默不抛、不发通知', async () => {
     mockImportAll.mockRejectedValue(new Error('importer crashed'));
     await expect(coldStartAll()).resolves.toBeUndefined();
-    expect(mockLogger.error).toHaveBeenCalledWith('[KnowledgeAgent] Cold start import failed', { error: 'Error: importer crashed' });
+    expect(mockLogger.error).toHaveBeenCalledWith('[KnowledgeCurator] Cold start import failed', { error: 'Error: importer crashed' });
     expect(mockDiscordSendText).not.toHaveBeenCalled();
   });
 });

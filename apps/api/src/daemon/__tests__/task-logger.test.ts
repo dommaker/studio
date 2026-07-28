@@ -69,7 +69,6 @@ describe('writeTaskLog', () => {
       session: 'test-session',
       sessionId: 'sess-123',
       taskIndex: 1,
-      model: 'claude-sonnet-4-6',
       phase: 'executor',
       command: 'claude --prompt "test"',
       durationMs: 5000,
@@ -90,7 +89,6 @@ describe('writeTaskLog', () => {
       session: 'test',
       sessionId: 'sess-1',
       taskIndex: 0,
-      model: 'test',
       phase: 'analyst',
       command: 'test',
       durationMs: 0,
@@ -103,5 +101,41 @@ describe('writeTaskLog', () => {
     };
 
     expect(() => writeTaskLog(log)).not.toThrow();
+  });
+
+  it('P0 修复 5: vitest 下写入 os.tmpdir()/studio-test-logs，不污染生产 ~/.studio/logs', () => {
+    // 用未来日期 + 唯一 session 名，避免与真实日志/其他测试撞文件
+    const log: TaskLog = {
+      timestamp: '2099-01-01T10:00:00.000Z',
+      session: 'iso-test-session-xq9',
+      sessionId: 'sess-iso',
+      taskIndex: 1,
+      phase: 'executor',
+      command: 'test',
+      durationMs: 1,
+      success: true,
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheHitTokens: 0,
+    };
+
+    const isolatedFile = path.join(os.tmpdir(), 'studio-test-logs', 'tasks-2099-01-01.jsonl');
+    fs.rmSync(isolatedFile, { force: true });
+    try {
+      writeTaskLog(log);
+
+      // 写入落在隔离目录
+      expect(fs.existsSync(isolatedFile)).toBe(true);
+      const rows = fs.readFileSync(isolatedFile, 'utf-8').trim().split('\n').map(l => JSON.parse(l));
+      expect(rows.some(r => r.session === 'iso-test-session-xq9')).toBe(true);
+
+      // 生产路径（若存在同名文件）不含本条测试记录
+      const prodFile = path.join(os.homedir(), '.studio', 'logs', 'tasks-2099-01-01.jsonl');
+      if (fs.existsSync(prodFile)) {
+        expect(fs.readFileSync(prodFile, 'utf-8')).not.toContain('iso-test-session-xq9');
+      }
+    } finally {
+      fs.rmSync(isolatedFile, { force: true });
+    }
   });
 });

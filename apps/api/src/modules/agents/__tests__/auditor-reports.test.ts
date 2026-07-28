@@ -1,25 +1,31 @@
 /**
  * auditor-reports — 洞察与报告输出单元测试
- * analyzeSessionTrends / trackTrends / saveTierStats / postToSystemChannel
+ * analyzeSessionTrends / trackTrends / postToSystemChannel
  */
-import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 
-const { tmpHome, tmpEvents, mockSave } = vi.hoisted(() => {
-  const fs = require('fs');
-  const path = require('path');
-  const os = require('os');
+const { tmpHome, tmpEvents, eventsFile, mockSave, origHomedir } = vi.hoisted(() => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const os = require('node:os');
+  const tmpEvents = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-events-'));
+  const eventsFile = path.join(tmpEvents, 'studio-events.jsonl');
+  // D18: 统一事件文件按测试文件隔离（resolveStudioEventsFile 懒读 env）
+  process.env.STUDIO_EVENTS_FILE = eventsFile;
+  // homedir 直接补丁：vi.mock 对内建模块在本 vitest 4.1.10 环境不生效（2026-07-28 实测），
+  // 经 require 补丁 module.exports 才能让 FileStore 默认目录落进 tmpHome
+  const orig = os.homedir;
+  const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-home-'));
+  os.homedir = () => tmpHome;
   return {
-    tmpHome: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-home-')),
-    tmpEvents: fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-reports-events-')),
+    tmpHome,
+    tmpEvents,
+    eventsFile,
     mockSave: vi.fn(),
+    origHomedir: orig,
   };
-});
-
-vi.mock('os', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('os')>();
-  return { ...actual, homedir: () => tmpHome };
 });
 
 vi.mock('../../knowledge/knowledge-bus.service.js', () => ({
@@ -30,22 +36,17 @@ import { FileStore } from '@dommaker/studio-shared';
 import {
   analyzeSessionTrends,
   trackTrends,
-  saveTierStats,
   postToSystemChannel,
 } from '../auditor-reports.js';
 
-const snapshotFile = path.join(tmpHome, '.studio', 'auditor', 'daily-snapshots.jsonl');
-
-const prevEventsDir = process.env.STUDIO_EVENTS_DIR;
-
-beforeAll(() => {
-  process.env.STUDIO_EVENTS_DIR = tmpEvents;
-});
-
+// 还原 homedir 补丁 + 清理 tmpHome（同 worker 后续文件不受影响）
 afterAll(() => {
-  if (prevEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
-  else process.env.STUDIO_EVENTS_DIR = prevEventsDir;
+  const os = require('node:os');
+  os.homedir = origHomedir;
+  fs.rmSync(tmpHome, { recursive: true, force: true });
 });
+
+const snapshotFile = path.join(tmpHome, '.studio', 'auditor', 'daily-snapshots.jsonl');
 
 function makeSnapshot(overrides: Record<string, unknown> = {}) {
   return {
@@ -62,10 +63,11 @@ function makeSnapshot(overrides: Record<string, unknown> = {}) {
 }
 
 function writeSessionEvents(events: Array<Record<string, unknown>>): void {
+  // D18: 历史扁平形态（字段在顶层）写入统一事件文件 —— 读方需兼容
   const jsonl = events.map(e => JSON.stringify({
-    source: 'test', payload: '{}', ...e,
+    source: 'test', ...e,
   })).join('\n');
-  fs.writeFileSync(path.join(tmpEvents, 'studio.jsonl'), jsonl + '\n', 'utf-8');
+  fs.writeFileSync(eventsFile, jsonl + '\n', 'utf-8');
 }
 
 // ── trackTrends ──
@@ -133,7 +135,7 @@ describe('analyzeSessionTrends()', () => {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
   beforeEach(() => {
-    try { fs.unlinkSync(path.join(tmpEvents, 'studio.jsonl')); } catch {}
+    try { fs.unlinkSync(eventsFile); } catch {}
     try { fs.unlinkSync(snapshotFile); } catch {}
   });
 
@@ -161,6 +163,27 @@ describe('analyzeSessionTrends()', () => {
     expect(insights[0]).toContain('知识捕获率: 100%');
   });
 
+  it('D18: 兼容 StudioEvent 新形态（payload 嵌套 + createdAt + eventCount）', async () => {
+    const jsonl = [
+      JSON.stringify({
+        type: 'session:summary', source: 'claude',
+        payload: JSON.stringify({ sessionId: 's1', agentId: 'claude', filesChanged: [], toolsUsed: ['Bash'], patternType: 'ci_fix', eventCount: 20, durationMs: 60000 }),
+        createdAt: new Date().toISOString(),
+      }),
+      JSON.stringify({
+        type: 'session:summary', source: 'claude',
+        payload: JSON.stringify({ sessionId: 's2', agentId: 'claude', filesChanged: [], toolsUsed: [], patternType: 'unknown', eventCount: 40 }),
+        createdAt: new Date().toISOString(),
+      }),
+    ].join('\n');
+    fs.writeFileSync(eventsFile, jsonl + '\n', 'utf-8');
+
+    const insights = await analyzeSessionTrends(since);
+    expect(insights[0]).toContain('开发会话: 2 次');
+    // eventCount 映射为 turns：平均 (20+40)/2 = 30 —— 不触发 >30 偏高告警
+    expect(insights.join('\n')).not.toContain('平均会话');
+  });
+
   it('flags sensitive ops, capture degradation and long sessions', async () => {
     writeSessionEvents([
       { type: 'session:summary', timestamp: new Date().toISOString(), deepAnalysis: true, knowledgeCaptured: false, sensitiveOpsCount: 3, turnCount: 60 },
@@ -179,38 +202,6 @@ describe('analyzeSessionTrends()', () => {
     // 最长会话 70 > 50 turns；平均 62 > 30
     expect(joined).toContain('最长会话 70 turns');
     expect(joined).toContain('平均会话 62 turns');
-  });
-});
-
-// ── saveTierStats ──
-
-describe('saveTierStats()', () => {
-  beforeEach(() => vi.clearAllMocks());
-
-  it('does nothing for empty tier stats', async () => {
-    await saveTierStats(new Map());
-    expect(mockSave).not.toHaveBeenCalled();
-  });
-
-  it('saves tier success rates to knowledge bus', async () => {
-    const tierStats = new Map([
-      ['standard', { total: 10, failed: 2 }],
-      ['fast', { total: 0, failed: 0 }],
-    ]);
-    await saveTierStats(tierStats);
-
-    expect(mockSave).toHaveBeenCalledTimes(1);
-    const entry = mockSave.mock.calls[0][0];
-    expect(entry.id).toMatch(/^tier-stats-\d{4}-\d{2}-\d{2}$/);
-    expect(entry.title).toBe('tier_success_rate');
-    expect(entry.tags).toEqual(['audit', 'tier_stats']);
-    expect(entry.contributors).toEqual(['auditor-agent']);
-
-    const stats = JSON.parse(entry.content);
-    expect(stats).toEqual([
-      { tier: 'standard', total: 10, failed: 2, successRate: 80 },
-      { tier: 'fast', total: 0, failed: 0, successRate: 100 },
-    ]);
   });
 });
 

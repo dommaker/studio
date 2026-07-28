@@ -86,7 +86,6 @@ async function verifyAssumption2() {
         STUDIO_CHANNEL_ID: '',
       },
     },
-    model: 'standard',
     timeoutMs: 60_000,
   };
 

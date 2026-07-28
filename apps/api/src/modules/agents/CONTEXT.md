@@ -2,23 +2,26 @@
 
 > 此文件描述 apps/api/src/modules/agents 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/auditor-execution.ts, apps/api/src/modules/agents/auditor-reports.ts, apps/api/src/modules/agents/auditor-rules.ts, apps/api/src/modules/agents/auditor.service.ts, apps/api/src/modules/agents/knowledge-cold-start.ts, apps/api/src/modules/agents/knowledge-curator.service.ts, apps/api/src/modules/agents/knowledge-extraction.ts, apps/api/src/modules/agents/knowledge-maintenance.ts, apps/api/src/modules/agents/monitor-alerts.ts, apps/api/src/modules/agents/monitor-lifecycle.ts, apps/api/src/modules/agents/monitor-probes.ts, apps/api/src/modules/agents/monitor-reports.ts, apps/api/src/modules/agents/monitor-system-probes.ts, apps/api/src/modules/agents/monitor.service.ts, apps/api/src/modules/agents/ops.service.ts, apps/api/src/modules/agents/review-dispatcher.ts, apps/api/src/modules/agents/review.service.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/triage.service.ts, apps/api/src/modules/agents/review-report.ts, apps/api/src/modules/agents/types.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/session-summary-agent.service.ts
+
 ## 职责
 
 负责管理 Agent 的配置（profile）、运行实例（instance）、决策循环（loop）以及内部审计 Agent（Auditor）等核心编排逻辑。提供 REST API 进行 CRUD 操作，并通过事件驱动机制实现 Agent 的自动挂载、运行和终止。
 
 ## 核心导出
 
-- `monitor-agent.service.ts` — MonitorAgent 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorAgent` / `monitorAgent` 不变。
+- `monitor.service.ts` — MonitorService 门面（健康监控 + 渐进告警，每 5min 轮询），T3 拆分后仅保留聚合/调度逻辑与实例状态；对外导出 `MonitorService` / `monitorService`。
   - `monitor-probes.ts` — 任务/WorkUnit 级探测（失败趋势/停滞/超时/工具模式）
   - `monitor-system-probes.ts` — 系统/知识级探测与自修复（systemHealthCheck/worktree GC/知识健康循环/KnowledgeSync）
-  - `monitor-alerts.ts` — 告警分发/Triage 升级（FL-037）/studio.jsonl 事件写入
+  - `monitor-alerts.ts` — 告警分发（+ notifyAlert 出口：频道/企业微信 webhook）/Triage 升级（FL-037）/统一事件写入（D18: utils/studio-events）
   - `monitor-reports.ts` — 轨迹评估（G4）/每日洞察（DailyReflection）/交互模式观察（B9-025）
   - `monitor-lifecycle.ts` — G31 知识沉淀闸门 + 每日 23:55 数据 TTL 清理
-- `auditor-agent.service.ts` — AuditorAgent 门面（跨任务审计 + 周期洞察，每 24h 日审），T3 拆分后仅保留聚合/委托逻辑；对外导出 `AuditorAgent` / `auditorAgent` 不变。
+- `auditor.service.ts` — AuditorService 门面（跨任务审计 + 周期洞察，每 24h 日审），T3 拆分后仅保留聚合/委托逻辑；对外导出 `AuditorService` / `auditorService`。
   - `auditor-rules.ts` — 审计规则（错误归类/技能与 agent-type 建议 B3-005/用户模型质量/知识电路健康 I2）
   - `auditor-execution.ts` — 建议执行（低风险自动应用/确认卡片+铃铛通知/RKB Resolution 创建/Triage 升级/eval case 生成）
   - `auditor-reports.ts` — 洞察与报告输出（会话行为趋势/B13-011 七日趋势/tier 成功率反馈/#系统 推送）
-- `knowledge-agent.service.ts` — KnowledgeAgent 门面（知识库冷启动 + F1 每日维护），T3 拆分后保留公共 API（coldStartAll / runDailyMaintenance 聚合）；对外导出 `KnowledgeAgent` / `knowledgeAgent` / `EXTRACT_FROM_TEXT_SYSTEM_PROMPT` / `getExtractFromTextSystemPrompt` 不变。
+- `knowledge-curator.service.ts` — KnowledgeCurator 门面（知识库冷启动 + F1 每日维护），T3 拆分后保留公共 API（coldStartAll / runDailyMaintenance 聚合）；对外导出 `KnowledgeCurator` / `knowledgeCurator` / `EXTRACT_FROM_TEXT_SYSTEM_PROMPT` / `getExtractFromTextSystemPrompt`。
   - `knowledge-extraction.ts` — 提取 prompt 单一来源（EXTRACT_FROM_TEXT_SYSTEM_PROMPT + E1 文件覆盖 getter）
   - `knowledge-cold-start.ts` — 冷启动四源导入（P1b: docs/code/git/manual）+ Discord 通知
   - `knowledge-maintenance.ts` — 语料分析（F1：语义去重/质量评估/过期验证/矛盾审查）
@@ -39,26 +42,61 @@
   - 子模块：`auditor-rules.js`、`auditor-execution.js`、`auditor-reports.js`
 - 下游
   - **apps/api/src**（cli/server.ts、index.ts、route-registry.ts）—— API 入口挂载 agents 路由及启动时初始化
-  - **apps/api/src/modules/knowledge**（internal.routes.ts、knowledge-service.ts）—— 知识模块依赖本目录的 knowledge-agent.service 等
+  - **apps/api/src/modules/knowledge**（internal.routes.ts、knowledge-service.ts）—— 知识模块依赖本目录的 knowledge-curator.service 等
   - **apps/api/src/modules/workunit**（waiting-input.ts）—— 等待输入流程引用 agent 实例
 
 ## 注意事项
 
 - AgentLoop session token 限制为 100K（`SESSION_TOKEN_LIMIT`），超过后自动截断
-- **AgentProfile 持久化布局**：`~/.studio/data/agents/{id}/profile.json`（身份：name/description/provider/status/nodeId，模型见 `packages/studio-shared/src/file-store.ts`，无 systemPrompt 字段）+ 同目录 `state.json`（运行时实例）；原子写 + mkdir 锁，永久存在仅可显式 DELETE；保留名 `studio`（系统执行角色，provider 由 StudioRoleSetupModal 补配）
+- **AgentProfile 持久化布局**：`~/.studio/data/agents/{id}/profile.json`（身份：name/description/provider/status/nodeId，模型见 `packages/studio-shared/src/file-store.ts`，无 systemPrompt 字段）+ 同目录 `state.json`（运行时实例）；原子写 + mkdir 锁，永久存在仅可显式 DELETE；保留名 `studio`（系统执行角色，provider 缺省 `STUDIO_ROLE_DEFAULT_PROVIDER`='claude' 由 ensureStudioProfile seed/回填——仅空值才写，用户显式配置不覆盖，L2；UI StudioRoleSetupModal 仍可改配）
 - **prompt 注入架构 = index-on-demand（严禁全量注入）**：skills 走 4 层索引（claim 匹配 ≤3 存名 → prompt 只放 name+一句话描述+`.studio/skills/<name>/SKILL.md` 指针 → worktree AGENTS.md 索引行 → 全文落盘按需阅读，见 `agent-loop.ts` buildSkillSection / `studio-agent/worktree-resolver.ts`）；知识分层（rule/context 约束层按设计全量、signal 层 `[id] summary` 索引、reference 层只报条数，见 knowledge-service.injectContext）；roster 只放 `name（provider）：description` 索引行且不含自身；全部注入共享 2K token 红线硬截断。不注入：agent 完整记录、频道列表、成员 ID、记忆
 - A2A 协作 P1（2026-07-agent-to-agent-collab-design）：`ACTION: DELEGATE:@<profileName>:<scope>` 协议由 recordResult 拦截，经 workunit/delegation-gate 校验后建子单（`metadata.collab`）+ 发 delegate 卡片，拒绝则降级 NEED_INPUT；父 complete 守卫（未完结子 WU → 降级 progress）；发言层新鲜度检查（step 期间房间有外部新消息 → 结果帖拦截注入 pendingReplies，连续 2 次后照发）；花名册段（## 频道成员与委派）与 skill/知识段共用 2K 注入红线（优先级 skills > roster > knowledge）
 - Idle 心跳间隔固定 45 秒（`IDLE_HEARTBEAT_INTERVAL_MS`），配合超时扫描 5 分钟阈值
 - `AgentLoopRegistry.mount()` 幂等且不抛错，失败仅标记为 failed 状态
 - 路由层统一使用 `getErrorMessage` 捕获异常，并返回标准错误码（如 `INTERNAL_ERROR`、`NOT_FOUND`）
 - 所有 Agent 数据均通过 `FileStore` 存储（已从 Prisma 迁移）
-- 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件
+- 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件（测试环境隔离到 `os.tmpdir()/studio-test-logs/`，见 `utils/studio-log-path.ts`）
+- **B3b-i 每 WU worktree 隔离（决策 D1）**：代码类 WU（task/bug/feature/refactor）解析出 git 仓库根后执行 cwd 强制走专属 worktree（`<worktreesDir>/wu-<wuId>`，分支 `task/<wuId>`，agent-loop 首个 step 经 `ensureWuWorktree` 创建并落档 metadata.worktreePath/Branch/BaseBranch/BaseRepo，后续 step 复用）；review WU 继承父 worktreePath（看 diff）；创建失败走 B1 failed 分支（3 次 blocked），不退回共享目录；提交守卫/自动验证的 git cwd 统一走 `resolveExecutionCwd`
+- **会话续用模型（fix/guard-and-resume，P3 修订）**：续用判定收窄到同一 WU（WU metadata.sessionId === instance.sessionId）——claude 会话按 (agent HOME, cwd) 存储（2.1.80 实测：`--session-id` 撞已存在 id 报 "already in use"、异 cwd `--resume` 报 "No conversation found"），B3b-i 每 WU 独立 worktree 令跨 WU 续用物理不成立。续用 step 传 `parameters.sessionId + sessionResume: true`，cli-adapter 按 provider 换形态：claude `--resume <id>`；kimi/opencode `--continue`、codex `exec resume --last`（cwd 维度续用——Studio UUID 对这三家无意义，kimi/opencode 实测未知 id 报 Session not found；codex 2026-07-28 运行实证补齐：stdin 免 `-` 占位、同 cwd 上下文连续、异 cwd 不串会话且无前会话优雅新开，见 cli-adapter 头部实证记录）；新建 step 仅 claude 传新 sessionId 建会话（其余三家新建不传，CLI 自建会话）；首 step 执行失败重置 sessionId（下一步按新建重试，不 --resume 从未建立的会话）
+- **B3b-i COMPLETE 前自动验证（决策 D3 前半）**：提交/子任务守卫通过后在 WU worktree 跑验证——覆盖（metadata.verifyCommands > workspace 记录 verifyCommands）> 约定（package.json scripts 的 test/typecheck/lint，按 lockfile 选 pnpm/npm，单条 10min）；全绿写 metadata.verifyReport 并发频道简报；失败降级 progress（verifyFailHint 注入下一轮，尾部截 2000），verifyFailCount ≥3 转 blocked
+- **review WU 守卫豁免（2026-07-28）**：§10.5 提交守卫（COMPLETE 打回 + PROGRESS 无提交监视）对 `type === 'review'` 整体跳过——评审职责是读不是写，cwd 解析到父 WU worktree，dev 提交与工具产物残留不归评审管，否则 COMPLETE 被反复打回空转；stepCount 强制 in_review 上限对 review 放宽为 30（`REVIEW_STEP_LIMIT`，其余类型仍 15 `STEP_LIMIT`），保证 reviewer COMPLETE 能走 in_review→done 自动收口（agent-loop.ts `recordResult`）
 - `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
 - **鉴权（2026-07-24 收紧）**：legacy agents POST `/`、PUT `/:agentId` 与 agent-profiles/agent-instances 写 = `requireAuth()+requireNotGuest()`；`POST /review/diff`（任意路径写+spawn claude）与 instances `POST /:id/terminate` = `requireAuth()+requireAdmin()`；legacy DELETE 原有 requireRole('Admin') 不变。另知：agent-configs `:id` 路径拼接无校验（穿越面，未修）、/review/diff 的 baseRef/headRef shell 拼接（Admin 门后，未修）
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `8df569a9`: agents): L2 studio profile 缺省 provider seed（STUDIO_ROLE_DEFAULT_PROVIDER='claude'）
+- ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加
+- ✅ 2026-07-28: *-agent.service 整批去 agent 化改名——review/triage/ops/monitor/auditor-agent.service.ts → review/triage/ops/monitor/auditor.service.ts（类与导出同步：ReviewService·reviewService、TriageService·triageService、OpsService·createOpsService、MonitorService·monitorService、AuditorService·auditorService）；knowledge-agent.service.ts → knowledge-curator.service.ts（KnowledgeCurator·knowledgeCurator，避让 modules/knowledge 的 knowledgeService 撞名；职责为冷启动导入 + F1 每日语料维护，curator 贴切）；日志前缀 [XAgent]→[XService]/[KnowledgeCurator] 全量同步（含 monitor-*/auditor-*/knowledge-* 拆分文件与测试断言）；保留项：'OpsAgent' 频道消息作者名（channel-review.ts 约定的消息署名）、'triage-agent' FailureAction 枚举字面量、审计卡片 source:'auditor-agent' 与 ops source/addedBy:'ops-agent' 数据标签（均为数据/行为约定而非命名遗留，改动会与存量数据失配）；session-summary-agent.service.ts 当时不在批范围，次日补齐（见下条）
+- ✅ 2026-07-28: session-summary-agent.service.ts 去 agent 化收尾——→ session-summary.service.ts（SessionSummaryService·sessionSummaryService；index.ts 动态 import、测试文件改名与引用、CAPABILITIES×2 同步；日志前缀本为 [SessionSummary] 无需动；fill-context-docs 注释同步新名；CHANGELOG 历史条目保留旧名）
+- ✅ 2026-07-28: review-agent 旧路径物理删除（D7 逾期收尾，723→190 行）— review()（生产零调用方，唯一路由 /review/diff 调的是 reviewDiff）、reviewParallel()（全仓零调用方，且 simple 档回退依赖 review()）及专属 hasChanges/isSimpleChange/fastPathReview 随删；reviewDiff/hasBranchChanges 保留，getReviewTimeoutMs 因 reviewDiff 共用保留；afterReview import 摘除。吸取评估：empty-diff 预检已由 reviewDiff「No diff between refs, auto-approving」分支覆盖（旧路径 reject、新链路 auto-approve 的语义差异是新链路既定选择）；fast-path（isSimpleChange → AC-compliance 快审）与多立场 stances 参数化未被新链路继承——由 reviewer 角色 + code-review skill 替代，随旧路径删除不留半成品。review-agent-empty-diff.test.ts 整文件删除
+- ✅ 2026-07-28: 任务规格档（tier）机制物理删除——agent-loop 的 AgentTask 构造摘除 `model: 'standard'` 死键（AgentTask.model 字段已随 studio-agent 删除；模型归算力提供方 CLI 自身配置）
+- ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
+- ✅ `7e36fd19`: agent): 验收 e2e 抓出两修真链漏洞 — 提交守卫读合并视图 + 合并前数据防丢闸
+- ✅ 2026-07-28: 方案 A（模型归算力提供方）— review-agent.service 删除 4 处 dead `const model = getModelForTier('standard')`（从未进 spawn 命令）；daemon task-executor 不再向 buildSpawnArgs 传 tier 解析出的模型名（原对 kimi/codex/opencode 强覆盖用户 CLI 配置、对 claude 静默无效）、daemon session-manager 日志改记 tier 标签。模型一律由角色绑定 CLI 的自身配置决定；10 处测试 mock 死键同步删除
+- ✅ 2026-07-28: 验收修复 A — recordResult 提交守卫/自动验证改读「持久化 + 本 step metadataUpdates」合并视图：首个 step 的 worktreePath 尚未落库，只看持久化值会让首 step COMPLETE 退到主仓库（干净）做检查而漏拦（最小 e2e 实测：dev 在 worktree 改了未提交 → 守卫查主仓库放行 → 假 complete → 假合并）；agent-loop-commit-guard.test.ts 补 cwd 感知用例
+- ✅ `05f21551`: agents): SessionSummary checkpoint commit 失效时校验回退（P5）
+- ✅ `2dca78ab`: agent): 非 claude provider 会话续用改 cwd 维度形态（P3）
+- ✅ `b70951bb`: agent): harness 传播停写根目录 AGENTS.md/CLAUDE.md，杜绝 untracked 污染（P2）
+- ✅ `42b7ce27`: agent): review WU 豁免提交守卫 + stepCount 上限放宽至 30（P1）
+- ✅ `fed49d2b`: agent): 提交守卫排除工具产物 + 会话续用改 resume 语义
+- ✅ 2026-07-28: P2 配套 — buildContinuePrompt/buildReplyPrompt 要求段加「`.studio/AGENTS.generated.md` 存在则先阅读（工作区指南：skill 索引 + SDD 落盘要求），根 AGENTS.md/CLAUDE.md 优先」指引（propagateHarnessConfig 停写根目录文件后，生成指南的 prompt 侧入口）
+- ✅ 2026-07-28: P1 review WU 守卫豁免 — §10.5 提交守卫对 type=review 整体跳过（评审只读，cwd 是父 WU worktree，dev 提交/工具产物残留导致 COMPLETE 被反复打回空转 16 步）；stepCount 强制 in_review 上限 review 放宽至 30（REVIEW_STEP_LIMIT），保证 COMPLETE 后 in_review→done 自动收口；补 agent-loop-review-wu.test.ts 5 例
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `f54153e1`: agents): isOnline 语义从 instance status 改为 loop 存活检测
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ `6eef7200`: agents,web): 清理行为模式读端残块 + 提案卡已审核态按 maturity 派生 + 文档约定补充
+- ✅ `07e8b650`: agent-loop): R2 tool:call 接线改读 rawOutput + wireup④ _cumulativeTokens 累计写回
+- ✅ `03a3c3eb`: agents): triage 修复动作默认 dry-run，危险命令需 STUDIO_TRIAGE_DESTRUCTIVE=true 显式开启
+- ✅ `11b8e70b`: spec4-cr): align middleware auth paths with service + remove studio-prisma
+- ✅ `f588061f`: spec4-post-p3): Prisma removal test cleanup — 19 files
+- ✅ 2026-07-27: B5 D18 事件入口统一（决策 D18）— monitor-alerts/monitor-reports/monitor-lifecycle/auditor-rules/auditor-reports/agent-loop 的读写全部收敛到统一事件文件（~/.studio/logs/studio-events.jsonl，经 utils/studio-events；STUDIO_EVENTS_FILE 可覆盖）：emitMonitorEvent 改写 StudioEvent 形态（字段入 payload）；DailyReflection 读方统一后可读到 session:summary/knowledge:consumption（原读 studio.jsonl 恒空）；TTL/沉淀闸门时间口径经 getStudioEventTime 兼容 createdAt 与历史 timestamp；tool:call traces 改 StudioEvent 形态；workunit:tokens 事件 payload 增补 inputTokens/cacheReadTokens/cacheCreationTokens（D16 缓存命中率数据源）
+- ✅ 2026-07-27: B4a 内置角色 + reviewer worktree 死代码清除（决策 D7/D8）— 新增 builtin-roles.ts：启动幂等 seed pm/dev/reviewer（不覆盖用户改动、inactive 尊重可禁用；description 尾部英文关键词即 acceptedTypes 来源，reviewer 必含 'reviewer' 字样供 ReviewDispatcher 锚定）；ensureBuiltinRoleMembers / migrateBuiltinRolesToProjectChannels 供频道绑工程自动加入与存量迁移；ensureStudioProfile 回填 studio 定位描述（仅空/旧默认时写，用户自定义不覆盖）；studio-daemon 摘除 reviewer session/worktree（daemon/reviewer-* 分支泄漏源头），index.ts 不再 daemon.start()（submitJob/submitAdhocJob 无生产调用方，文件保留供 getStatus/isStarted 消费方）
+- ✅ 2026-07-27: B3b-i 每 WU worktree 隔离 + 提交前自动验证（决策 D1/D3 前半）— agent-loop 对代码类 WU 强制专属 worktree 执行（ensureWuWorktree 按 WU id 键控复用，失败走 failed 分支不退共享目录；review 继承父 worktree）；提交守卫 git cwd 切 resolveExecutionCwd；recordResult 接受 COMPLETE 前跑验证（覆盖>约定>跳过，失败降级+verifyFailCount≥3 转 blocked，全绿写 verifyReport 发频道）
+- ✅ 2026-07-27: B3a 工程归属链（决策 D2）— agent-loop 执行根目录解析抽为 resolveExecutionWorkspaceRoot：metadata.workspaceRoot（Requirement→PMO gitRepo / 人工回复绑定的直接路径）优先于 wu.workspaceId 记录解析（agentStep 与提交守卫两处消费点同步切换）
+- ✅ 2026-07-27: P0 观测性后半 — ①monitor-alerts warning/critical 接 notifyAlert 出口（utils/notifier.ts：频道「系统」/STUDIO_ALERT_CHANNEL_ID + 企业微信 WECOM_WEBHOOK_URL，双 sink 独立降级；discord-notifier 保留未动）②agent-loop traceId 贯穿（metadata.traceId → extraEnv.STUDIO_TRACE_ID + 失败/锚点日志行带 traceId）③~/.studio/logs 写路径测试隔离（agent-loop/triage/system-executor/ops/token-usage 改走 utils/studio-log-path，VITEST → os.tmpdir()/studio-test-logs）
+- ✅ 2026-07-27: P0 信任链三修 — ①agentStep 接 success===false 显式失败分支（action='failed'：consecutiveStuck 累计、不发频道、3 次 blocked 说明原因；recordResult 空 summary 不发帖）②reviewReport 断链接上（reviewer 输出 REVIEW_RESULT 行 → agentStep 解析写 metadata.reviewReport；review 子 WU complete 直接收口 done；无 report 转人工不再默认拒绝；dispatcher members 改 parseChannels 安全解析）
 - ✅ 2026-07-27: isOnline 语义修正 — 从「instance status=active」改为「loop 存活」：status idle/active 且心跳新鲜（≤5min，与 agent-timeout-scan 同阈值；null 心跳按 startedAt 宽限）。此前空闲 loop 恒显示「Online: 否」误导。另：delete profile 时清理所有 channel.members 中的悬空引用
 - ✅ 2026-07-24: API 鉴权收紧 — agents/profiles/instances 写端点收 requireNotGuest，/review/diff 与 terminate 收 requireAdmin
 - ✅ 2026-07 频道角色排查沉淀：AgentProfile 持久化布局与 index-on-demand 注入架构写入注意事项（排查结论：无全量注入问题，skills/知识/roster 均为索引方式）
@@ -107,3 +145,6 @@
 - ✅ `e82b47e6`: 知识飞轮自动闭环 — 消除 ingest 手动标记 + Auditor Circuit #8
 - ✅ `78c6856d`: Prisma SQLite auto-parses JSON String fields — handle both string and object
 - ✅ `7d5b0fda`: Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency
+- ✅ 2026-07-28: auditor 摘除 tier 统计——modelTier 字段物理删除随动：每日审计不再从执行记录 input JSON 提取 modelTier，报告删「按模型档位」小节，saveTierStats（auditor → knowledge-bus `tier-stats-*` 条目）全链删除（收集方消失即成死链）；保留按 Agent 类型统计
+- ✅ 2026-07-28: L2 studio profile 缺省 provider seed——ensureStudioProfile 新增 `STUDIO_ROLE_DEFAULT_PROVIDER='claude'`：新建直接写入、存量 provider 空值回填、用户显式配置不覆盖（与 description 回填同口径）。根因：SystemExecutor 读 name='studio' 的 profile.provider 原恒 null，KnowledgeAgent 四类批处理周期性 StudioRoleNotConfiguredError（journal 一天 500+ 条）。选 claude 依据：与 AgentLoop `provider || 'claude'` 缺省同口径；本机 claude 经 ~/.claude/settings.json 走 DeepSeek anthropic 端点（决策 D8 便宜模型档意图由 CLI 自身配置承载）；SystemExecutor stdin 投递 prompt 仅 claude/codex 模板兼容（codex 与 DeepSeek wire 不兼容）
+- ✅ 2026-07-28: L3 codex 会话续用运行实证（结论固化在 cli-adapter 头部）——用 CODEX_HOME 隔离 + volcengine-agent-plan（responses wire）实测 0.144.4：`exec --json` stdin 投 prompt 无需 `-` 占位；`exec resume --last --json` 同 cwd 命中最新会话（上下文连续）、异 cwd 过滤生效不串会话、该 cwd 无前会话时优雅新开（exit 0，与 kimi/opencode --continue 同构）→ AgentLoop 续用语义在 codex 成立。另证实本机默认 config.toml（DeepSeek wire_api=chat）在 0.144.4 连配置加载都失败，-c 覆盖无法绕过，跑 codex 需先换 responses wire 网关

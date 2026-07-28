@@ -3,7 +3,7 @@
 // 计划迁移到 agent-profiles / workunit API（见 docs/vision-2026.md），迁移前请勿在此扩展新功能。
 import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
-import { reviewAgent } from './review-agent.service.js';
+import { reviewService } from './review.service.js';
 import { requireAuth, requireAdmin, requireNotGuest, requireRole } from '../../middleware/auth.js';
 import { eventStore } from '../../core/event-store.js';
 import { logger } from '@dommaker/studio-shared';
@@ -151,7 +151,7 @@ router.post('/review/diff', requireAuth(), requireAdmin(), async (req: Request, 
       return res.status(400).json({ error: { code: 'MISSING_PARAM', message: 'baseRef and headRef are required' } });
     }
     const repoDir = repoPath || process.env.REPO_DIR || '/root/projects/studio';
-    const result = await reviewAgent.reviewDiff({ baseRef, headRef, repoPath: repoDir, description, acceptanceCriteria, stances });
+    const result = await reviewService.reviewDiff({ baseRef, headRef, repoPath: repoDir, description, acceptanceCriteria, stances });
     res.json(result);
   } catch (error) {
     logger.error('[Agents] Review diff failed', { error: String(error) });

@@ -12,7 +12,7 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger, getModelForTier, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type ModelTier } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute } from '@dommaker/studio-shared/harness/hooks';
 
@@ -36,7 +36,6 @@ import {
   getConstraintMeta,
 } from './output-capture.js';
 import {
-  getSessionTimeout,
   buildPrompt,
   resolveSddTaskData,
   checkPrerequisites,
@@ -44,6 +43,7 @@ import {
   buildAddDirArgs,
   buildSessionCommand,
   resolveAgentHome,
+  ensureAgentHomeCliConfig,
   buildSessionEnv,
 } from './runner-params.js';
 import { hasRecentActivity, queryResolutionHints } from './runner-output.js';
@@ -221,9 +221,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       const isFirstSession = sessionCount === 1;
       const sessionFlag = buildSessionFlag(provider, sessionCount, isNewSession, sessionId, task.executionId);
 
-      const taskTier = (task.model as ModelTier) || 'standard';
-      const model = getModelForTier(taskTier);
-
       // Write prompt file
       const promptFile = path.join(worktree, '.daemon', 'prompt.md');
       fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
@@ -248,7 +245,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
         session: sessionCount,
         isFirstSession,
         isNewSession,
-        model,
       });
 
       const childRef: { current: ChildProcess | null } = { current: null };
@@ -262,12 +258,15 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       // Ensure per-Agent HOME directory exists (GAP-2)
       const agentHome = resolveAgentHome(task);
       await fs.mkdir(agentHome, { recursive: true });
+      // GAP-2 auth: 隔离 HOME 注入 CLI 鉴权/模型 env（best-effort，不阻断 spawn）
+      await ensureAgentHomeCliConfig(agentHome);
 
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: buildSessionEnv({ task, tier: taskTier, role: 'executor', agentHome }),
-          timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
+          env: buildSessionEnv({ task, role: 'executor', agentHome }),
+          // 扁平默认 30min（原 fast/standard/premium tier 分档已删）
+          timeoutMs: task.timeoutMs ?? 30 * 60_000,
           maxBuffer: 10 * 1024 * 1024,
           childRef,
         });
@@ -314,7 +313,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           stdout,
           executionId: task.executionId,
           agentRole: 'executor',
-          modelTier: (task.model as string) || 'standard',
           stage: task.parameters?.stage as string,
           sessionCount,
           isFirstSession,
@@ -376,7 +374,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
             sessionId: sessionId.slice(0, 8),
             sessionScope: 'per-execution',
             goalId,
-            model: (task.model as string) || 'standard',
             totalInputTokens: cumulativeInputTokens,
             cacheReadTokens: cumulativeCacheHitTokens,
             cacheCreationTokens: cumulativeCacheCreationTokens,
@@ -434,7 +431,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           sessionId: sessionId.slice(0, 8),
           sessionScope: 'per-execution',
           goalId,
-          model: (task.model as string) || 'standard',
           totalInputTokens: cumulativeInputTokens,
           cacheReadTokens: cumulativeCacheHitTokens,
           cacheCreationTokens: cumulativeCacheCreationTokens,
@@ -478,7 +474,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
             sessionId: sessionId.slice(0, 8),
             sessionScope: 'per-execution',
             goalId,
-            model: (task.model as string) || 'standard',
             totalInputTokens: cumulativeInputTokens,
             cacheReadTokens: cumulativeCacheHitTokens,
             cacheCreationTokens: cumulativeCacheCreationTokens,
@@ -510,7 +505,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
           sessionId: sessionId.slice(0, 8),
           sessionScope: 'per-execution',
           goalId,
-          model: (task.model as string) || 'standard',
           totalInputTokens: cumulativeInputTokens,
           cacheReadTokens: cumulativeCacheHitTokens,
           cacheCreationTokens: cumulativeCacheCreationTokens,

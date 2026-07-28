@@ -2,8 +2,8 @@
  * R3: KnowledgeService.extractFromConversation + 提案注入闸门
  *
  * 自足测试（不依赖真实 LLM / 真实 HOME）：
- * - modelGateway mock：复用 KnowledgeAgent 底层 LLM 路径（promptJson + provider/tier）
- * - knowledge-agent.service mock：仅提供 EXTRACT_FROM_TEXT_SYSTEM_PROMPT（验证 prompt 复用）
+ * - modelGateway mock：复用 KnowledgeCurator 底层 LLM 路径（promptJson + provider/tier）
+ * - knowledge-curator.service mock：仅提供 EXTRACT_FROM_TEXT_SYSTEM_PROMPT（验证 prompt 复用）
  * - knowledge-singletons mock：避免模块加载副作用（pkill / vector-db sync timer）
  *
  * 覆盖：
@@ -48,7 +48,7 @@ vi.mock('../../agents/system-executor.js', async (importOriginal) => {
 });
 
 // R3: prompt 复用验证点 — 本模块导出共享 prompt 常量 + E1 override getter
-vi.mock('../../agents/knowledge-agent.service.js', () => ({
+vi.mock('../../agents/knowledge-curator.service.js', () => ({
   EXTRACT_FROM_TEXT_SYSTEM_PROMPT: 'shared-extraction-system-prompt',
   getExtractFromTextSystemPrompt: () => 'shared-extraction-system-prompt',
 }));

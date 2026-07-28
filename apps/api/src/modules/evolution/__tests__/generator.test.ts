@@ -163,7 +163,8 @@ describe('generateEvolutionProposals (E1)', () => {
   });
 
   it('(c) role caller with repeated tool failures → role-preset proposal; non-role callers ignored', async () => {
-    writeToolCallEvents(path.join(paths.eventsDir, 'studio.jsonl'));
+    // D18: tool:call 与 outcome 同一统一事件文件
+    writeToolCallEvents(paths.studioEventsFile);
 
     const result = await generateEvolutionProposals({ fileStore, paths, windowHours: 24 });
     expect(result.created.length).toBe(1);

@@ -1,9 +1,11 @@
-// Monitoring Routes — Agent Network (MVP-2 + MVP-6)
+// Monitoring Routes — Agent Network (MVP-2 + MVP-6 + D16)
 import { Router, type Request, type Response } from 'express';
 import { MonitoringService } from './monitoring.service.js';
+import { MetricsService } from './metrics.service.js';
 
 const router = Router();
 const service = new MonitoringService();
+const metricsService = new MetricsService();
 
 /** GET /agents — AgentProfile + RuntimeInstance aggregation */
 router.get('/agents', async (_req: Request, res: Response) => {
@@ -42,6 +44,22 @@ router.get('/flywheel', async (_req: Request, res: Response) => {
 router.get('/overhead', async (_req: Request, res: Response) => {
   try {
     const result = await service.getOverheadStats();
+    res.json(result);
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
+/**
+ * GET /overview — D16: 监控指标聚合（任务流健康/入口转化/人工干预北极星/端到端周期/
+ * 角色维度/工程质量/Token/告警）。Query: windowDays（默认 7，1-90 clamp）。60s 缓存。
+ */
+router.get('/overview', async (req: Request, res: Response) => {
+  try {
+    const raw = Number(req.query.windowDays);
+    const windowDays = Number.isFinite(raw) && raw > 0 ? Math.min(Math.max(Math.floor(raw), 1), 90) : undefined;
+    const result = await metricsService.getOverviewMetrics({ windowDays });
     res.json(result);
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);

@@ -13,7 +13,7 @@ import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
-import { logger, getModelForTier, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage, type ModelTier } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
@@ -27,11 +27,11 @@ import {
   getConstraintMeta,
 } from './output-capture.js';
 import {
-  getSessionTimeout,
   checkPrerequisites,
   buildAugmentedPrompt,
   buildSessionCommand,
   resolveAgentHome,
+  ensureAgentHomeCliConfig,
   buildSessionEnv,
 } from './runner-params.js';
 import type { RunnerExecutionState } from './runner-execution.js';
@@ -50,7 +50,9 @@ import type { AgentTask, ExecutionResult } from './session-manager.js';
  *        stream-json parsing, event emission, metrics.
  *
  * Caller provides the full prompt — no buildPrompt enrichment.
- * Session flags (session-id/continue) come from task.parameters.sessionFlags.
+ * Session 语义两个通道：旧 daemon 链路走 parameters.sessionFlags（claude --session-id/--continue
+ * 原样拼接）；agent-loop 链路走 parameters.sessionId + parameters.sessionResume
+ * （经 cli-adapter 按 provider 生成，claude 续用为 --resume）。
  */
 export async function executeLightweightSession(state: RunnerExecutionState, task: AgentTask): Promise<ExecutionResult> {
   const { config, runningProcesses } = state;
@@ -93,10 +95,11 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     // Session management — caller provides flags via parameters
     // F4: sessionFlags 是 claude 专属语法（--session-id/--continue）；其它 provider 的
     // session 由 registry spawn 模板处理（buildSpawnArgs 传入 parameters.sessionId）。
+    // 核查（fix/guard-and-resume）：sessionFlags 唯一设置方是旧 daemon 链路
+    // apps/api/src/daemon/session-manager.ts（首 task --session-id、后续 --continue，无 Bug B）；
+    // agent-loop 链路不用它 —— 走 parameters.sessionId + parameters.sessionResume（见下）。
     const provider = task.provider || 'claude';
     const sessionFlags = provider === 'claude' ? ((task.parameters?.sessionFlags as string) || '') : '';
-    const taskTier = (task.model as ModelTier) || 'standard';
-    const model = getModelForTier(taskTier);
     const agentRole = (task.parameters?.agentRole as string) || 'executor';
     const sessionId = task.executionId;
 
@@ -106,6 +109,8 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
       spawnParams: {
         worktreeDir: worktree,
         sessionId: task.parameters?.sessionId as string | undefined,
+        // 续用标记（agent-loop）：claude 换 --resume，其余 provider 模板不变
+        sessionResume: task.parameters?.sessionResume === true,
         maxTurns: task.parameters?.maxTurns as number | undefined,
       },
       worktree,
@@ -114,7 +119,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     });
 
     logger.info('[AgentRunner] Lightweight session spawning', {
-      taskId: task.id, executionId: task.executionId, model, sessionFlags,
+      taskId: task.id, executionId: task.executionId, sessionFlags,
     });
 
     const childRef: { current: ChildProcess | null } = { current: null };
@@ -126,12 +131,15 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     // Ensure per-Agent HOME directory exists (GAP-2)
     const agentHome = resolveAgentHome(task);
     await fs.mkdir(agentHome, { recursive: true });
+    // GAP-2 auth: 隔离 HOME 注入 CLI 鉴权/模型 env（best-effort，不阻断 spawn）
+    await ensureAgentHomeCliConfig(agentHome);
 
     try {
       const { stdout } = await execSh(cmd, {
         cwd: worktree,
-        env: buildSessionEnv({ task, tier: taskTier, role: agentRole as 'analyst' | 'executor', agentHome, withWorkUnitEnv: true }),
-        timeoutMs: task.timeoutMs ?? getSessionTimeout(taskTier) * 60 * 1000,
+        env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', agentHome, withWorkUnitEnv: true }),
+        // 扁平默认 30min（原 fast/standard/premium tier 分档已删）
+        timeoutMs: task.timeoutMs ?? 30 * 60_000,
         maxBuffer: 10 * 1024 * 1024,
         childRef,
       });
@@ -159,7 +167,6 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         stdout,
         executionId: task.executionId,
         agentRole,
-        modelTier: (task.model as string) || 'standard',
         sessionCount: 1,
         isFirstSession: true,
         sessionMs,

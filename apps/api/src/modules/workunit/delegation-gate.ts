@@ -19,6 +19,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { FileStore, parseChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import type { WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 /** 协作元数据（WorkUnitMetadata.collab 的具象类型） */
 export type CollabMeta = NonNullable<WorkUnitMetadata['collab']>;
@@ -86,7 +87,7 @@ export interface DelegationCheckResult {
 /** §4.3 树级 token 预算上限 */
 export const TREE_TOKEN_BUDGET = 400_000;
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 /**
  * §4.3 P2 树级预算闸门：按 collab.rootId 聚合 studio-events.jsonl 的

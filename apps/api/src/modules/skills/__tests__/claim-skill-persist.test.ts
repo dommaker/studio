@@ -47,6 +47,15 @@ const { invalidateManifestCache } = await import('../manifest-loader.js');
 describe('§10 P0: claim 持久化 metadata.matchedSkills', () => {
   let service: WorkUnitService;
 
+  /**
+   * B3a 后 claim 链路有多次 upsertSnapshot：第一次是 timeoutAt 列写入（metadata 原样），
+   * matchedSkills 落盘是 autoLoad 异步链上的后续调用 —— 按 metadata 内容定位目标调用。
+   */
+  const findMatchedSkillsUpsert = () =>
+    mockFileStore.upsertSnapshot.mock.calls
+      .map(c => c[0])
+      .find(s => s?.metadata && String(s.metadata).includes('matchedSkills'));
+
   const baseSnapshot = {
     id: 'wu-1', status: 'unassigned', scope: '实现用户登录', type: 'feature',
     parentId: null, assigneeId: null, failureType: null,
@@ -79,12 +88,12 @@ describe('§10 P0: claim 持久化 metadata.matchedSkills', () => {
   it('域匹配命中后写入 metadata.matchedSkills', async () => {
     await service.claim('wu-1', 'inst-1');
 
-    // autoLoad 是 fire-and-forget —— 等待异步链落盘
+    // autoLoad 是 fire-and-forget —— 等待异步链落盘（跳过 B3a timeoutAt 的首次 upsert）
     await vi.waitFor(() => {
-      expect(mockFileStore.upsertSnapshot).toHaveBeenCalled();
+      expect(findMatchedSkillsUpsert()).toBeTruthy();
     });
 
-    const updated = mockFileStore.upsertSnapshot.mock.calls[0][0];
+    const updated = findMatchedSkillsUpsert();
     expect(updated.id).toBe('wu-1');
     const meta = JSON.parse(updated.metadata);
     expect(meta.matchedSkills).toEqual(['feature-dev']);
@@ -97,9 +106,9 @@ describe('§10 P0: claim 持久化 metadata.matchedSkills', () => {
 
     // WU type = feature 仍能命中 agentTypes [feature]
     await vi.waitFor(() => {
-      expect(mockFileStore.upsertSnapshot).toHaveBeenCalled();
+      expect(findMatchedSkillsUpsert()).toBeTruthy();
     });
-    const updated = mockFileStore.upsertSnapshot.mock.calls[0][0];
+    const updated = findMatchedSkillsUpsert();
     expect(JSON.parse(updated.metadata).matchedSkills).toEqual(['feature-dev']);
   });
 });

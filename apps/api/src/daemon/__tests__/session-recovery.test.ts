@@ -52,7 +52,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
   // (session-summary-generator constructs `new FileStore()` at import time).
   ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getModelForTier: vi.fn(() => 'claude-sonnet-4-6'),
 }));
 
 vi.mock('../metrics.js', () => ({
@@ -123,7 +122,6 @@ describe('Session 过期自动重建', () => {
     mgr.register({
       name: 'test-session',
       worktree: wt,
-      modelTier: 'fast',
       timeoutMs: 60_000,
       persistent: true,
     });
@@ -158,7 +156,6 @@ describe('Session 过期自动重建', () => {
     mgr.register({
       name: 'test-session-recovered',
       worktree: wt,
-      modelTier: 'fast',
       timeoutMs: 60_000,
       persistent: true,
     });
@@ -202,7 +199,6 @@ describe('Session 过期自动重建', () => {
     mgr1.register({
       name: 'restart-session',
       worktree: wt,
-      modelTier: 'fast',
       timeoutMs: 60_000,
       persistent: true,
     });
@@ -221,7 +217,6 @@ describe('Session 过期自动重建', () => {
     mgr2.register({
       name: 'restart-session',
       worktree: wt,
-      modelTier: 'fast',
       timeoutMs: 60_000,
       persistent: true,
     });

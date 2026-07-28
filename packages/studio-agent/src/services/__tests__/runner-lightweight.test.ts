@@ -100,7 +100,6 @@ describe('executeLightweightSession', () => {
       executionId: `exec-lw-${Date.now()}`,
       provider: 'claude',
       prompt: 'do something',
-      model: 'standard',
       parameters: { workspaceRoot: wsRoot, workUnitId: 'wu-lw-1' },
       ...overrides,
     };
@@ -132,7 +131,7 @@ describe('executeLightweightSession', () => {
     expect(state.runningProcesses.size).toBe(0);
   });
 
-  test('timeoutMs：task.timeoutMs 覆盖优先，缺省回退 tier 超时', async () => {
+  test('timeoutMs：task.timeoutMs 覆盖优先，缺省回退扁平默认 30min', async () => {
     await executeLightweightSession(state, makeTask({ timeoutMs: 5_000 }));
     expect(findSpawnCall()[1].timeoutMs).toBe(5_000);
 

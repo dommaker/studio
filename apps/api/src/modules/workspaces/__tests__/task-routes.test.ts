@@ -65,7 +65,6 @@ function createTask(workspaceId: string, overrides: Record<string, any> = {}): R
     path: '/test/path',
     prompt: 'Do something',
     agent: 'executor',
-    modelTier: 'standard',
     runtimeId: null,
     parentGoalId: null,
     status: 'pending',
@@ -118,15 +117,13 @@ describe('Task creation', () => {
     expect(task.path).toBe('/src/main.ts');
     expect(task.prompt).toBe('Fix the bug');
     expect(task.agent).toBe('executor');
-    expect(task.modelTier).toBe('standard');
     expect(task.runtimeId).toBeNull();
     expect(task.parentGoalId).toBeNull();
   });
 
   it('creates task with optional fields', () => {
     const rt = addRuntime(WID, { provider: 'claude' });
-    const task = createTask(WID, { modelTier: 'premium', runtimeId: rt.id, parentGoalId: 'goal-123' });
-    expect(task.modelTier).toBe('premium');
+    const task = createTask(WID, { runtimeId: rt.id, parentGoalId: 'goal-123' });
     expect(task.runtimeId).toBe(rt.id);
     expect(task.parentGoalId).toBe('goal-123');
   });

@@ -1,5 +1,5 @@
 /**
- * OpsAgent proxy health + rate limiting tests
+ * OpsService proxy health + rate limiting tests
  *
  * AC-2: checkProxyHealth() with SYN-SENT detection + restart rate limit (3/hour)
  */
@@ -7,21 +7,21 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { createOpsAgent, OpsAgent } from '../ops-agent.service.js';
+import { createOpsService, OpsService } from '../ops.service.js';
 
-describe('OpsAgent proxy health (AC-2)', () => {
+describe('OpsService proxy health (AC-2)', () => {
   // ============================================================
   // Rate limiting logic
   // ============================================================
   describe('proxy restart rate limiting', () => {
     it('AC-2.1: starts with zero restart count', () => {
-      const ops = createOpsAgent(19999);
+      const ops = createOpsService(19999);
       expect((ops as any).proxyRestartCount).toBe(0);
       expect((ops as any).proxyRestartWindowStart).toBe(0);
     });
 
     it('AC-2.2: resetCounter clears after window expiry', () => {
-      const ops = createOpsAgent(19999);
+      const ops = createOpsService(19999);
       // Simulate: had restarts 2 hours ago
       (ops as any).proxyRestartCount = 3;
       (ops as any).proxyRestartWindowStart = Date.now() - 2 * 60 * 60 * 1000;
@@ -34,7 +34,7 @@ describe('OpsAgent proxy health (AC-2)', () => {
     });
 
     it('AC-2.3: counter not reset when within window', () => {
-      const ops = createOpsAgent(19999);
+      const ops = createOpsService(19999);
       // Simulate: had 2 restarts 30 min ago
       (ops as any).proxyRestartCount = 2;
       (ops as any).proxyRestartWindowStart = Date.now() - 30 * 60 * 1000;
@@ -45,7 +45,7 @@ describe('OpsAgent proxy health (AC-2)', () => {
     });
 
     it('AC-2.4: max 3 restarts per hour ceiling', () => {
-      const ops = createOpsAgent(19999);
+      const ops = createOpsService(19999);
       (ops as any).proxyRestartCount = 3;
       (ops as any).proxyRestartWindowStart = Date.now();
 
@@ -86,7 +86,7 @@ describe('OpsAgent proxy health (AC-2)', () => {
   // ============================================================
   describe('getStatus() contract', () => {
     it('AC-2.7: getStatus returns required health fields', async () => {
-      const ops = createOpsAgent(19999);
+      const ops = createOpsService(19999);
       const status = await ops.getStatus();
       expect(status).toHaveProperty('disk');
       expect(status).toHaveProperty('memory');

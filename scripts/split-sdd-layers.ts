@@ -344,7 +344,7 @@ function rebuildRequirementBody(
 /**
  * Strip design-layer H4 subsections from markdown AC Groups content.
  * Removes: #### 实现指南, #### 参考模式, #### ⚠️ 注意事项
- * Keeps: #### 验收标准, #### 涉及文件, #### 依赖: xxx, H3 group headers, MODEL_TIER comments
+ * Keeps: #### 验收标准, #### 涉及文件, #### 依赖: xxx, H3 group headers, HTML comments
  */
 function stripDesignSubsections(content: string): string {
   const lines = content.split('\n');

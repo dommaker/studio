@@ -15,7 +15,6 @@ const testSkills = [
     name: 'TDD Workflow',
     description: 'Test-driven development workflow',
     agentTypes: ['executor'],
-    tier: 'fast' as const,
     prompt: '## TDD Steps\n1. Write failing test\n2. Implement\n3. Refactor\n\nThis is a long prompt with detailed instructions that should NOT appear in the index.',
   },
   {
@@ -23,7 +22,6 @@ const testSkills = [
     name: 'Multi-Stance Review',
     description: 'Review from multiple perspectives',
     agentTypes: ['reviewer'],
-    tier: 'standard' as const,
     prompt: '## Review Process\n1. Read code\n2. Check patterns\n3. Report issues\n\nDetailed review instructions that should NOT appear in index.',
   },
   {
@@ -31,7 +29,6 @@ const testSkills = [
     name: 'Behaviour Constraints',
     description: 'Always-on constraints',
     agentTypes: ['executor'],
-    tier: 'fast' as const,
     prompt: '## Constraints\n- No any type\n- TDD required\n\nDetailed constraint text that should NOT appear in index.',
   },
 ];
@@ -92,7 +89,6 @@ describe('SkillLoader metadata+index mode', () => {
         name: 'No Description',
         description: '',
         agentTypes: [],
-        tier: 'fast' as const,
         prompt: 'Full prompt content',
       },
     ]);

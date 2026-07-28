@@ -135,21 +135,33 @@ describe('POST / (create event)', () => {
     expect(stored.payload).toBe('raw-string');
   });
 
-  it('handles missing payload as empty object', async () => {
+  it('D18: 空 payload（缺失 / {} / null）拒绝落盘 → 400', async () => {
+    for (const payload of [undefined, {}, null]) {
+      vi.clearAllMocks();
+      const { res } = await invokeRoute(routes, 'post', '/', {
+        body: { type: 'knowledge:consumption', source: 'test', payload },
+      });
+
+      expect(res.status).toHaveBeenCalledWith(400);
+      expect(res.json).toHaveBeenCalledWith({ error: 'payload must be a non-empty object' });
+      expect(mockAppendJsonl).not.toHaveBeenCalled();
+    }
+  });
+
+  it('D18: 空 payload 字符串 "{}" 同样拒绝', async () => {
     const { res } = await invokeRoute(routes, 'post', '/', {
-      body: { type: 'no-payload', source: 'test' },
+      body: { type: 'knowledge:consumption', source: 'test', payload: '{}' },
     });
 
-    expect(res.status).toHaveBeenCalledWith(201);
-    const stored = mockAppendJsonl.mock.calls[0][1];
-    expect(stored.payload).toBe('{}');
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(mockAppendJsonl).not.toHaveBeenCalled();
   });
 
   it('returns 500 on FileStore error', async () => {
     mockAppendJsonl.mockRejectedValueOnce(new Error('Disk full'));
 
     const { res } = await invokeRoute(routes, 'post', '/', {
-      body: { type: 'err', source: 'test' },
+      body: { type: 'err', source: 'test', payload: { key: 'x' } },
     });
 
     expect(res.status).toHaveBeenCalledWith(500);

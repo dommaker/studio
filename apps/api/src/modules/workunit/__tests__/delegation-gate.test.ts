@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit.service.js';
 import {
   checkDelegation,
@@ -249,7 +250,8 @@ describe('DelegationGate (A2A §4.1/§4.2)', () => {
   it('预算：checkTreeBudget 超限 -> fail + reason 含数字', async () => {
     const parent = await makeParent();
     // 写入超预算的 token 事件
-    const eventsFile = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+    // P0 修复 5：模块在测试环境已隔离到 os.tmpdir()/studio-test-logs，夹具写同一路径
+    const eventsFile = resolveStudioLogFile('studio-events.jsonl');
     fs.mkdirSync(path.dirname(eventsFile), { recursive: true });
     const overBudget = TREE_TOKEN_BUDGET + 10_000;
     fs.writeFileSync(eventsFile, JSON.stringify({

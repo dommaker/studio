@@ -11,12 +11,11 @@ import { join } from 'path';
  *                            启动时仍会把它默认设为 ~/.studio/events）
  *   3. 默认 `~/.studio/events`
  *
- * 所有 studio.jsonl 事件读写方（agent-loop tool traces、PatternMiner、
- * MonitorAgent、AuditorAgent、MCP emitEvent …）必须经此函数解析，
- * 禁止再硬编码 `~/events`。
- *
- * 注意：`~/.studio/logs/studio-events.jsonl`（knowledge consumption/outcome、
- * OKR 等 StudioEvent 流）是另一条已统一的流，不在本 resolver 范围内。
+ * ⚠️ D18（B5，2026-07-27）变更：apps/api 内的事件读写已全部收敛到
+ * `~/.studio/logs/studio-events.jsonl`（单一文件单一入口，见
+ * apps/api/src/utils/studio-events.ts 的 writeStudioEvent/readStudioEvents）。
+ * 本 resolver 目前仅服务仓库外的遗留消费方（如 events-daemon 的目录约定），
+ * apps/api 内不再有生产调用方；新代码请使用 utils/studio-events。
  */
 export function resolveEventsDir(): string {
   return process.env.STUDIO_EVENTS_DIR || process.env.EVENTS_DIR || join(homedir(), '.studio', 'events');

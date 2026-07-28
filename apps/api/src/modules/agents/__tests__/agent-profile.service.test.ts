@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
-import { AgentProfileService, ensureStudioProfile } from '../agent-profile.service.js';
+import { AgentProfileService, ensureStudioProfile, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER } from '../agent-profile.service.js';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-profile-test-'));
@@ -340,13 +340,94 @@ describe('AC Group 1: studio role', () => {
   });
 
   describe('ensureStudioProfile', () => {
-    it('首次调用创建 name=studio 的 profile，provider=null', async () => {
+    it('首次调用创建 name=studio 的 profile，provider=缺省值（L2）', async () => {
       const profile = await ensureStudioProfile(fileStore);
       expect(profile.name).toBe('studio');
-      expect(profile.provider).toBeNull();
+      expect(profile.provider).toBe(STUDIO_ROLE_DEFAULT_PROVIDER);
       expect(profile.status).toBe('active');
       expect(profile.channels).toBe('[]');
-      expect(profile.description).toBeNull();
+      // B4a: studio 定位描述随种子写入
+      expect(profile.description).toBe(STUDIO_ROLE_DESCRIPTION);
+    });
+
+    it('存量 studio provider 为空（未配置）时回填缺省 provider（L2）', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-noprovider', name: 'studio', description: STUDIO_ROLE_DESCRIPTION,
+        channels: '[]', provider: null, status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.id).toBe('studio-noprovider');
+      expect(profile.provider).toBe(STUDIO_ROLE_DEFAULT_PROVIDER);
+      // 落盘确认 + 幂等（第二次调用结果不变）
+      const onDisk = await fileStore.getProfile('studio-noprovider');
+      expect(onDisk!.provider).toBe(STUDIO_ROLE_DEFAULT_PROVIDER);
+      const again = await ensureStudioProfile(fileStore);
+      expect(again.provider).toBe(STUDIO_ROLE_DEFAULT_PROVIDER);
+    });
+
+    it('存量 studio provider 为用户显式配置时不覆盖（L2）', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-custom-provider', name: 'studio', description: STUDIO_ROLE_DESCRIPTION,
+        channels: '[]', provider: 'kimi', status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.provider).toBe('kimi');
+      const onDisk = await fileStore.getProfile('studio-custom-provider');
+      expect(onDisk!.provider).toBe('kimi');
+    });
+
+    it('存量 studio description 与 provider 同时为空时一并回填', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-legacy-both', name: 'studio', description: null,
+        channels: '[]', provider: null, status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.description).toBe(STUDIO_ROLE_DESCRIPTION);
+      expect(profile.provider).toBe(STUDIO_ROLE_DEFAULT_PROVIDER);
+      const onDisk = await fileStore.getProfile('studio-legacy-both');
+      expect(onDisk!.description).toBe(STUDIO_ROLE_DESCRIPTION);
+      expect(onDisk!.provider).toBe(STUDIO_ROLE_DEFAULT_PROVIDER);
+    });
+
+    it('存量 studio description 为空（旧默认）时回填定位描述', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-legacy', name: 'studio', description: null,
+        channels: '[]', provider: null, status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.id).toBe('studio-legacy');
+      expect(profile.description).toBe(STUDIO_ROLE_DESCRIPTION);
+      // 落盘确认 + 幂等（第二次调用结果不变）
+      const onDisk = await fileStore.getProfile('studio-legacy');
+      expect(onDisk!.description).toBe(STUDIO_ROLE_DESCRIPTION);
+      const again = await ensureStudioProfile(fileStore);
+      expect(again.description).toBe(STUDIO_ROLE_DESCRIPTION);
+    });
+
+    it('存量 studio description 为用户自定义时不覆盖', async () => {
+      const now = new Date().toISOString();
+      await fileStore.createProfile({
+        id: 'studio-custom', name: 'studio', description: '用户自定义的系统角色说明',
+        channels: '[]', provider: null, status: 'active',
+        createdAt: now, updatedAt: now,
+      });
+
+      const profile = await ensureStudioProfile(fileStore);
+      expect(profile.description).toBe('用户自定义的系统角色说明');
+      const onDisk = await fileStore.getProfile('studio-custom');
+      expect(onDisk!.description).toBe('用户自定义的系统角色说明');
     });
 
     it('已存在时跳过创建（幂等）', async () => {

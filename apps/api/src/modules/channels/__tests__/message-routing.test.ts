@@ -150,10 +150,14 @@ describe('Message Routing (AC-B1-B4)', () => {
       expect(wu!.scope).toBe('do this task');
       expect(wu!.channelId).toBe(channelId);
       expect(wu!.type).toBe('task');
-      expect(wu!.status).toBe('unassigned');
+      // B3a 归属链（决策 D2）：测试频道无默认工程、无显式/需求归属
+      // → WU 立即 NEED_INPUT 挂起（blocked），等人回复工程名/路径
+      expect(wu!.status).toBe('blocked');
       const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
       expect(meta.matched).toBe(true);
       expect(meta.mentionName).toBe('TestAgent');
+      expect(meta.waitingForInput).toBe(true);
+      expect(meta.waitingReason).toBe('ownership');
     });
 
     it('creates WorkUnit with matched=false when Agent not found', async () => {

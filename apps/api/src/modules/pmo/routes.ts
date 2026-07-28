@@ -9,10 +9,11 @@ import { FileStore } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'node:fs';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 const router = Router();
-const EXECUTIONS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'executions.jsonl');
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 // ============================================
 // Project API（GEN-005）

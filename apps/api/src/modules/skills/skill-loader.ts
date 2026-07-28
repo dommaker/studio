@@ -2,17 +2,16 @@
  * SkillLoader API Service - file-based skill loading with session lifecycle
  *
  * Wraps @dommaker/studio-skill package loader.
- * Adds: session-level load/unload, tier-based tool permissions.
+ * Adds: session-level load/unload.
  *
  * #75: load/unload lifecycle
- * #76: tier-based tool permission binding
  */
 
-import { type SkillTier } from '@dommaker/studio-skill';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 // ── Types ──
 
@@ -21,7 +20,6 @@ export interface LoadedSkill {
   name: string;
   prompt: string;
   tools: string[];
-  tier: SkillTier;
   loadedAt: Date;
 }
 
@@ -42,14 +40,6 @@ export interface UnloadSkillOptions {
   skillName: string;
 }
 
-// ── Tier -> tool access mapping ──
-
-const TIER_TOOL_ACCESS: Record<SkillTier, Set<string>> = {
-  fast: new Set(['Read', 'Glob', 'Grep', 'Bash']),
-  standard: new Set(['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'NotebookEdit']),
-  premium: new Set(['Read', 'Glob', 'Grep', 'Bash', 'Edit', 'Write', 'NotebookEdit', 'WebFetch', 'WebSearch']),
-};
-
 // ── File-based skill loading (.md with frontmatter) ──
 
 const SKILLS_DIR = process.env.SKILLS_DIR || path.join(os.homedir(), '.studio', 'skills');
@@ -58,7 +48,6 @@ interface SkillFrontmatter {
   name: string;
   description?: string;
   agentTypes?: string[];
-  tier?: SkillTier;
   tools?: string[];
   required?: string[];
   status?: string;
@@ -114,7 +103,7 @@ function getOrCreateSession(sessionId: string, agentType: string): SessionSkillS
   return state;
 }
 
-const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
 
 // ── Service ──
@@ -141,7 +130,6 @@ export class SkillLoaderService {
     let skillId: string;
     let prompt: string;
     let tools: string[];
-    let tier: SkillTier;
     let required: string[];
 
     if (!fileSkill) {
@@ -152,7 +140,6 @@ export class SkillLoaderService {
     skillId = `file:${skillName}`;
     prompt = fileSkill.prompt;
     tools = fileSkill.meta.tools || [];
-    tier = (fileSkill.meta.tier || 'standard') as SkillTier;
     required = fileSkill.meta.required || [];
 
     // Load required skills recursively
@@ -167,7 +154,6 @@ export class SkillLoaderService {
       name: skillName,
       prompt,
       tools,
-      tier,
       loadedAt: new Date(),
     };
 
@@ -184,7 +170,6 @@ export class SkillLoaderService {
     logger.info('[SkillLoader] Loaded skill', {
       sessionId,
       skillName,
-      tier: loaded.tier,
       toolCount: tools.length,
       source: 'file',
     });
@@ -237,47 +222,6 @@ export class SkillLoaderService {
       .filter(s => s.prompt)
       .map(s => `\n---\n${s.prompt}`)
       .join('');
-  }
-
-  /**
-   * Get all allowed tools for a session (union of all loaded skill tools,
-   * filtered by tier permission).
-   *
-   * #76: tier-based tool permission binding
-   */
-  getSessionTools(sessionId: string, tier: SkillTier = 'standard'): string[] {
-    const skills = this.getSessionSkills(sessionId);
-    const allowedByTier = TIER_TOOL_ACCESS[tier] || TIER_TOOL_ACCESS.standard;
-
-    const tools = new Set<string>();
-    for (const skill of skills) {
-      for (const tool of skill.tools) {
-        if (allowedByTier.has(tool)) {
-          tools.add(tool);
-        }
-      }
-    }
-    return [...tools];
-  }
-
-  /**
-   * Get allowed tools for a specific tier.
-   * Used by tool permission service to enforce tier-based access.
-   *
-   * #76: tier-based tool permission binding
-   */
-  getToolsForTier(tier: SkillTier): string[] {
-    return [...(TIER_TOOL_ACCESS[tier] || TIER_TOOL_ACCESS.standard)];
-  }
-
-  /**
-   * Check if a tool is allowed for a given tier.
-   *
-   * #76: tier-based tool permission binding
-   */
-  isToolAllowedForTier(toolName: string, tier: SkillTier): boolean {
-    const allowed = TIER_TOOL_ACCESS[tier] || TIER_TOOL_ACCESS.standard;
-    return allowed.has(toolName);
   }
 
   /**

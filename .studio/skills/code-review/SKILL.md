@@ -2,7 +2,7 @@
 name: code-review
 description: "实现完成且测试通过后，对代码执行多维度质量审查（AC 覆盖、质量、架构一致性、安全、边界）。"
 agentTypes: [review]
-triggers: [代码审查, code review, 代码质量, AC 覆盖, 安全审查, OWASP, 架构一致性, 边界情况, review PR]
+triggers: [评审, 审查, review, 代码审查, code review, 代码质量, AC 覆盖, 安全审查, OWASP, 架构一致性, 边界情况, review PR]
 status: published
 ---
 
@@ -17,9 +17,17 @@ status: published
 上游：**tdd-implement**（需要 PASS 状态的实现代码 + 原始 spec/AC 作为输入）。
 
 输入：实现代码文件 + SDD 或轻量 PLAN + 测试文件。
-产出：审查报告（通过 / 有 critical 问题需修复）。
+产出：审查报告（通过 / 有 critical 问题需修复），以 `REVIEW_RESULT:` 协议行结尾（见"输出协议"）。
 
 本 Skill 是开发链的**终点**。审查通过后，代码可提交。
+
+---
+
+## 输入契约——不做全量探索（"探索一次、工件传递"）
+
+- 评审对象是 **SDD 文档 + 本次 diff**：拿 `git diff`（实现分支 vs 基线）对照 SDD 三层文档评审。task.md 的上下文地图已内联关键代码/签名，先读地图。
+- **代码抽查即可**：对 diff 中的关键 hunks、地图标注的入口符号做定点核对；**不做全量代码库探索**（探索已在 task-planner 阶段完成，全量重扫 = 重复劳动）。
+- diff 与 SDD 对不上（多出未规划的改动 / 缺少 AC 要求的改动）→ 这本身就是 finding，按严重程度记入 issues，不靠扩大探索范围解决。
 
 ---
 
@@ -168,6 +176,20 @@ Agent 可能说的借口 + 逐条反驳：
 
 ---
 
+## 输出协议
+
+审查报告正文之后，**必须以一行 `REVIEW_RESULT:` 协议行结尾**（系统按此行机器解析，对接 B1 reviewReport 链路）：
+
+```
+REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"一句话结论","issues":[{"severity":"error"|"warn"|"info","message":"问题描述"}]}
+```
+
+- `verdict`：存在 critical 问题 → `reject`；否则 `pass`
+- `severity` 映射：critical → `error`，warning → `warn`，info → `info`
+- 协议行必须是输出的**最后一行**，JSON 单行、合法可解析；正文可任意长，协议行不可省略
+
+---
+
 ## 自检
 
 自检修复最多 3 轮。超过 3 轮仍未全部通过 → 停下报告，不继续循环。
@@ -183,6 +205,7 @@ Agent 可能说的借口 + 逐条反驳：
 | 5 | warning 全记录 | 所有已知 warning 问题已标记 | 列出遗漏项 |
 | 6 | SDD status 同步 | SDD frontmatter status = `done`（无 SDD 则跳过） | 阻断，先更新 status |
 | 7 | Spec status 同步 | 对应 spec frontmatter status 已更新（无 spec 则跳过） | invoke doc-manager-skill (update-spec-status) |
+| 8 | 输出协议 | 报告以合法 `REVIEW_RESULT:` 单行 JSON 结尾，verdict 与 critical 计数一致 | 补上/修正协议行 |
 
 全部通过 → 审查通过，代码可提交。自检 #7 不阻断——spec status 由 doc-manager-skill 在终端状态更新。
 

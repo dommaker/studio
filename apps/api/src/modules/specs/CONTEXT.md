@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/specs 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/specs/CONTEXT.md, apps/api/src/modules/specs/routes.ts
+
 ## 职责
 
 提供 Specs 模块的 HTTP API 路由，包括变更分析、变更历史查询和门禁验证（待实现）。遵循 SP-002 变更分级流程，通过调用外部 SDK 中的服务处理 Spec 变更相关的业务逻辑。
@@ -28,4 +31,5 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest

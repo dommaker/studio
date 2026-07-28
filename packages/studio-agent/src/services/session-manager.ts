@@ -15,10 +15,10 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
-import { logger, getModelForTier, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
+import { logger, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
 import { execSh, resolveSessionId, readSessionIdFile, resolveProviderDefinition, buildHealthProbeCommand, type ProviderId } from '@dommaker/studio-shared/node';
 import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
-import { skillLoader, type SkillTier } from '@dommaker/studio-skill';
+import { skillLoader } from '@dommaker/studio-skill';
 import { buildSpawnArgs } from '../cli-adapter.js';
 
 import {
@@ -57,11 +57,12 @@ export interface AgentTask {
   id: string;
   executionId: string;
   provider: ProviderId;
-  model?: string;
   prompt: string;
   notifyTarget?: string;
   parameters?: {
     sessionId?: string;
+    /** true = sessionId 指向已存在会话（续用），cli-adapter 按 provider 换 resume 语法（claude --resume） */
+    sessionResume?: boolean;
     maxTurns?: number;
     knowledgeContext?: string;
     agentRole?: string;
@@ -69,7 +70,7 @@ export interface AgentTask {
   };
   /** 实时进度回调 — 每轮 session 后调用，用于推送到 Channel */
   onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
-  /** P3: 覆盖 tier 默认超时 (ms)。提供时替代 getSessionTimeout(tier)。 */
+  /** P3: 覆盖扁平默认超时 (ms)。提供时替代默认 30min。 */
   timeoutMs?: number;
   /** §9.6 P1: 远程节点 ID。undefined/'local' → LocalExecutor，否则 RemoteExecutor。 */
   nodeId?: string;
@@ -336,8 +337,6 @@ export class AgentExecutor {
               : '--continue')
           : '';
 
-        const model = getModelForTier((task.model as 'fast' | 'standard' | 'premium') || 'standard');
-
         // Write prompt to file, pipe via stdin (same pattern as SessionManager)
         const promptFile = path.join(worktree, '.daemon', 'prompt.md');
         fsSync.mkdirSync(path.dirname(promptFile), { recursive: true });
@@ -381,7 +380,6 @@ export class AgentExecutor {
           session: sessionCount,
           isFirstSession,
           isNewSession,
-          model,
         });
 
         // Track child process for external stop()
@@ -453,7 +451,6 @@ export class AgentExecutor {
             stdout,
             executionId: task.executionId,
             agentRole: 'executor',
-            modelTier: (task.model as string) || 'standard',
             stage: task.parameters?.stage as string,
             sessionCount,
             isFirstSession,
@@ -713,8 +710,7 @@ export class AgentExecutor {
     const outputStyleSection = `## 输出风格\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
 
     // O2i: Skill on-demand injection
-    const skillTier = (task.model as SkillTier) || 'standard';
-    const skillsToInject = skillLoader.load({ tier: skillTier });
+    const skillsToInject = skillLoader.load({});
     const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
 
     // [Skill Discovery] Log injected skills for Agent Network analysis

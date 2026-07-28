@@ -2,8 +2,9 @@
  * MCP Tool Registry — dynamic registration, health, rate limiting
  */
 
-import { logger, resolveEventsDir } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { preferenceObserver } from '../knowledge/preference-observer.js';
+import { writeStudioEvent } from '../../utils/studio-events.js';
 
 export type ToolRiskLevel = 'low' | 'medium' | 'high';
 
@@ -147,25 +148,16 @@ export class MCPToolRegistry {
     stats.avgDuration = Math.round((stats.avgDuration * (stats.totalCalls - 1) + duration) / stats.totalCalls);
     stats.lastCallAt = Date.now();
 
-    // G2: Trace all tool calls (R2: 统一事件目录)
+    // G2: Trace all tool calls（D18: 统一事件文件，fire-and-forget）
     try {
-      const fs = require('fs');
-      const path = require('path');
-      const dir = resolveEventsDir();
-      fs.mkdirSync(dir, { recursive: true });
       const tool = this.tools.get(name);
-      fs.appendFileSync(
-        path.join(dir, 'studio.jsonl'),
-        JSON.stringify({
-          type: 'tool:call',
-          tool: name,
-          riskLevel: tool?.riskLevel || 'low',
-          success,
-          durationMs: duration,
-          caller,
-          timestamp: Date.now(),
-        }) + '\n',
-      );
+      void writeStudioEvent('tool:call', {
+        tool: name,
+        riskLevel: tool?.riskLevel || 'low',
+        success,
+        durationMs: duration,
+        caller,
+      }, { source: 'mcp' });
     } catch { /* non-blocking */ }
 
     // G-001: 更新用户偏好（异步，不阻塞）

@@ -91,7 +91,6 @@ describe('F6: executeLightweight workspace cwd', () => {
       executionId: `exec-f6-${Date.now()}`,
       provider: 'claude',
       prompt: 'do something',
-      model: 'standard',
       parameters: {
         workspaceRoot: wsRoot,
         workUnitId: 'wu-f6-1',

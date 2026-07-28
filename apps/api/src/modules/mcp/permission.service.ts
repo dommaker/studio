@@ -6,10 +6,14 @@ import { randomUUID } from 'crypto';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, logger } from '@dommaker/studio-shared';
+import { isTestEnv, resolveStudioLogsDir } from '../../utils/studio-log-path.js';
 
 const fileStore = new FileStore();
 const PERMS_PATH = path.join(os.homedir(), '.studio', 'mcp-permissions.json');
-const AUDIT_PATH = path.join(os.homedir(), '.studio', 'mcp-audit-logs.jsonl');
+// P0 修复 5：测试（VITEST / NODE_ENV=test）改写到 os.tmpdir()/studio-test-logs，生产路径不变
+const AUDIT_PATH = isTestEnv()
+  ? path.join(resolveStudioLogsDir(), 'mcp-audit-logs.jsonl')
+  : path.join(os.homedir(), '.studio', 'mcp-audit-logs.jsonl');
 
 interface MCPPermissionRecord {
   id: string;

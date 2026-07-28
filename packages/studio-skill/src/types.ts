@@ -5,8 +5,6 @@
  * 元数据 + prompt 内容，按需通过 MCP loadSkill 加载。
  */
 
-export type SkillTier = 'fast' | 'standard' | 'premium';
-
 export interface SkillDefinition {
   /** 唯一标识，如 'tdd-workflow' */
   id: string;
@@ -16,8 +14,6 @@ export interface SkillDefinition {
   description: string;
   /** 适用的 Agent 类型 */
   agentTypes: string[];
-  /** 推理档位（低于此档位不加载） */
-  tier: SkillTier;
   /** 依赖的其他 skill id（可选） */
   requires?: string[];
   /** 关联的 tool name（可选） */

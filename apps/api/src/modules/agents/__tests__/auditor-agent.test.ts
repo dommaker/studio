@@ -3,11 +3,30 @@
  *
  * Migrated from Prisma Skill to file-based SkillStore (D-005).
  * Still uses Prisma for Company, Channel, ChannelMessage, StudioEvent.
+ *
+ * 隔离（2026-07-28 flake 修复）：os.homedir 直接补丁到 tmpHome。vi.mock('os') /
+ * vi.mock('node:os') 在本 vitest 4.1.10 环境对内建模块不生效（实测 FileStore 仍落
+ * /root/.studio/data）——必须经 require 在模块加载前补丁 module.exports（vi.hoisted
+ * 先于 import 求值，skill-store 的模块级 DATA_DIR 也被正确重定向）。
+ * 此前本文件用真实 home 的 FileStore，与其他并行测试文件互相把对方的 #系统 频道当
+ * 「stale」删掉（pushConfirmationCards 的卡片发到别的频道 id）→ 并行必现失败，
+ * 且污染线上数据目录。
  */
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
+
+const { tmpHome, origHomedir } = vi.hoisted(() => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const os = require('node:os');
+  const orig = os.homedir;
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-service-home-'));
+  os.homedir = () => tmp;
+  return { tmpHome: tmp, origHomedir: orig };
+});
+
 import { FileStore } from '@dommaker/studio-shared';
 import { skillStore } from '../../skills/skill-store.js';
 
@@ -17,9 +36,9 @@ let testSkillLowSR: string;   // successRate < 0.3
 let testSkillHighSR: string;  // successRate >= 0.8 + draft
 let testSkillNormal: string;  // normal, shouldn't trigger
 let testEventsDir: string;
-let prevStudioEventsDir: string | undefined;
+let prevStudioEventsFile: string | undefined;
 
-describe('AuditorAgent B3-005', () => {
+describe('AuditorService B3-005', () => {
   const fileStore = new FileStore();
 
   beforeAll(async () => {
@@ -49,27 +68,30 @@ describe('AuditorAgent B3-005', () => {
       }
     }
 
-    // Create session:summary events in a tmp STUDIO_EVENTS_DIR — the code under
-    // test resolves studio.jsonl via resolveEventsDir() (STUDIO_EVENTS_DIR >
-    // EVENTS_DIR > ~/.studio/events). Keeps fixtures out of the real home dir.
-    prevStudioEventsDir = process.env.STUDIO_EVENTS_DIR;
+    // Create session:summary events in a tmp STUDIO_EVENTS_FILE — D18 后代码
+    // 经 utils/studio-events 的 resolveStudioEventsFile() 懒解析统一事件文件。
+    // Keeps fixtures out of the real home dir.
+    prevStudioEventsFile = process.env.STUDIO_EVENTS_FILE;
     testEventsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-events-'));
-    process.env.STUDIO_EVENTS_DIR = testEventsDir;
+    process.env.STUDIO_EVENTS_FILE = path.join(testEventsDir, 'studio-events.jsonl');
     const eventsJsonl = Array.from({ length: 5 }, (_, i) => JSON.stringify({
       id: `evt-summary-${Date.now()}-${i}`,
       type: 'session:summary', source: 'test', payload: '{}', timestamp: new Date().toISOString(),
     })).join('\n');
-    fs.appendFileSync(path.join(testEventsDir, 'studio.jsonl'), eventsJsonl + '\n');
+    fs.appendFileSync(process.env.STUDIO_EVENTS_FILE, eventsJsonl + '\n');
     testChannelId = channelId;
   });
 
   afterAll(async () => {
     // Cleanup test skills from SkillStore
     skillStore.deleteMany({ companyId: testCompanyId });
-    // Restore env + drop tmp events dir
-    if (prevStudioEventsDir === undefined) delete process.env.STUDIO_EVENTS_DIR;
-    else process.env.STUDIO_EVENTS_DIR = prevStudioEventsDir;
+    // Restore env + drop tmp events dir + 还原 homedir 补丁（同 worker 后续文件不受影响）
+    const os = require('node:os');
+    os.homedir = origHomedir;
+    if (prevStudioEventsFile === undefined) delete process.env.STUDIO_EVENTS_FILE;
+    else process.env.STUDIO_EVENTS_FILE = prevStudioEventsFile;
     if (testEventsDir) fs.rmSync(testEventsDir, { recursive: true, force: true });
+    fs.rmSync(tmpHome, { recursive: true, force: true });
   });
 
   beforeEach(async () => {
@@ -109,8 +131,8 @@ describe('AuditorAgent B3-005', () => {
 
   describe('generateSuggestions()', () => {
     it('detects skill_weight: successRate < 0.3 + usageCount >= 5', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
       const errorByAgentType = new Map<string, Map<string, number>>();
@@ -126,8 +148,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('detects skill_status: successRate >= 0.8 + status = draft', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
       const errorByAgentType = new Map<string, Map<string, number>>();
@@ -142,8 +164,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('does NOT trigger skill_weight for normal successRate skills', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
       const errorByAgentType = new Map<string, Map<string, number>>();
@@ -157,8 +179,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('detects param_tuning: agent-type timeout >= 3 + total >= 5', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
       agentTypeStats.set('executor', { total: 10, failed: 6 });
@@ -179,8 +201,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('does NOT trigger param_tuning when timeout < 3', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
       agentTypeStats.set('executor', { total: 10, failed: 6 });
@@ -198,8 +220,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('detects prompt_optimization: failureRate > 0.3 + llm/model dominant (>=40%)', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
       agentTypeStats.set('analyst', { total: 10, failed: 5 }); // 50% failure rate
@@ -220,8 +242,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('does NOT trigger prompt_optimization when llm errors < 40%', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
       agentTypeStats.set('analyst', { total: 10, failed: 5 });
@@ -240,8 +262,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('returns empty suggestions when no issues detected', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       // Only normal skills, no error data
       const agentTypeStats = new Map<string, { total: number; failed: number }>();
@@ -286,8 +308,8 @@ describe('AuditorAgent B3-005', () => {
 
   describe('applyLowRiskSuggestions()', () => {
     it('auto-applies skill_weight: updates successRate in store', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const suggestions = [{
         type: 'skill_weight',
@@ -309,8 +331,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('auto-applies skill_status: draft -> published', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const suggestions = [{
         type: 'skill_status',
@@ -331,8 +353,8 @@ describe('AuditorAgent B3-005', () => {
     });
 
     it('writes both types of suggestions when mixed', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const suggestions = [
         {
@@ -367,8 +389,8 @@ describe('AuditorAgent B3-005', () => {
 
   describe('pushConfirmationCards()', () => {
     it('creates auditor_suggestion card in system channel', async () => {
-      const { AuditorAgent } = await import('../auditor-agent.service.js');
-      const agent = new AuditorAgent();
+      const { AuditorService } = await import('../auditor.service.js');
+      const agent = new AuditorService();
 
       const suggestions = [{
         type: 'param_tuning',

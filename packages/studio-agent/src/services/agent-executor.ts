@@ -29,12 +29,14 @@ export type { IAgentRunner } from './agent-runner.js';
 // Re-export worktree-resolver functions
 export {
   createWorktree,
+  ensureWuWorktree,
   propagateHarnessConfig,
   buildCachePrefix,
   writeRequirementsMd,
   writeContractTests,
   ensureDeps,
 } from './worktree-resolver.js';
+export type { WuWorktreeInfo } from './worktree-resolver.js';
 
 // Re-export output-capture functions
 export {

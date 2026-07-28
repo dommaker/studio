@@ -26,7 +26,6 @@ function addTask(workspaceId: string, overrides: Record<string, any> = {}): Reco
     path: '/test',
     prompt: 'test',
     agent: 'executor',
-    modelTier: 'standard',
     runtimeId: null,
     status: 'pending',
     result: null,

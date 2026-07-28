@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/channels 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/CONTEXT.md, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/channel.routes.ts
+
 ## 职责
 
 Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal 创建 → 执行管线。
@@ -27,7 +30,7 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 
 **本模块依赖**：
 - `@dommaker/studio-shared` — FileStore（Channel / RequirementsDoc 等文件存储，已替代 studio-prisma DB）, logger, modelGateway, eventBus, toKebab, writeSddDoc
-- `daemon/studio-daemon` — Claude Code session 管理（submitAdhocJob）
+- `agents/builtin-roles` — B4a 内置角色（PATCH 绑工程时自动加入 members）
 - `agents/requirement-gate` — 质量门验证
 - `agents/monitor-agent` — 管线监控
 
@@ -46,6 +49,14 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `39b6af5f`: channels): L1 convert-to-task 人工指派卡死修复（指派统一建 unassigned 指名）
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `9d7ec92c`: channels): @mention 正则放宽到 Unicode 支持 CJK 名称
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ `f588061f`: spec4-post-p3): Prisma removal test cleanup — 19 files
+- ✅ 2026-07-27: B4a @studio 路由改派 + 工程频道自动加入内置角色（决策 D7）— message-routing 命中 @studio 不再建指向 studio 的 WU，改派 pm（assigneeId=pm.id + metadata.reroutedFrom='studio'，频道发 Studio 系统消息"已转给 @pm"；pm 缺失/被禁用/不在频道成员内按未命中处理，§9.5 成员边界对 pm 同样生效）；channel.routes PATCH 设 defaultWorkspaceId 为非空时自动把 pm/dev/reviewer 加入 members（幂等、best-effort、响应含最新 members）；依赖关系删去 daemon/studio-daemon 陈旧行（代码本无引用）
+- ✅ 2026-07-27: B3a 工程归属链（决策 D2）— message-routing 建 WU 改走 ownership-resolver：显式 workspaceId > Requirement.projectId→PMO gitRepo（metadata.workspaceRoot 落档，agent-loop 直接作 cwd）> 频道 defaultWorkspaceId（降级为默认提示）> 无归属时 WU 立即 NEED_INPUT 挂起（blocked + waitingReason='ownership'）并发 Studio 系统消息问人，线程回复经 waiting-input 解析绑定后复活。注意：message-routing.test.ts 中「无归属建 WU」断言由 unassigned 改为 blocked（新行为即需求本身）
+- ✅ 2026-07-27: P0 修复 6 traceId 入口 — 消息 POST 复用 audit 中间件落在 req 的 requestId（没有则 randomUUID）传入 routeMessage；@mention 建 WU 写 metadata.traceId（线程回复不动）；频道写操作纳入 audit 关键操作（audit.jsonl requestId 不再为空）
 - ✅ 2026-07-27: @mention 正则放宽到 Unicode — `detectMention` 与 scope 剥离正则从 `[\w-]` 改为 `[\p{L}\p{N}_-]+/u`（`\w` 不匹配中文，中文名 agent 被 @ 永远落纯存储不派单）；补 CJK 用例
 - ✅ 2026-07-24: API 鉴权收紧 — channels 12 条路由曾零鉴权且在 PUBLIC_API 前缀下匿名可达（P0：匿名发消息可触发 agent 执行/LLM 消耗）；GET 保持公开，写端点收 requireAuth+requireNotGuest；requirements-doc PUT 同步收紧
 - ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
@@ -70,3 +81,6 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 - ✅ `f80cfeae`: 203 TypeScript 错误全部清零
 - ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors
 - ✅ `7d5b0fda`: Phase 0 — 7 Critical bugs in pipeline quality gates and concurrency
+- ✅ 2026-07-28: channel.routes 删除 `<!-- MODEL_TIER {...} -->` HTML 注释解析——旧 orchestrator 输出约定，B1-B6 后无写入方的死代码；parseAcGroupsFromMarkdown 结果类型同步摘除 modelTier/modelTierReason 字段
+- ✅ 2026-07-28: convert-to-task callLLM 迁移 SystemExecutor——AC-E2 建议不再直连已删除的 `/api/v1/llm/chat`，改 runJson 走 studio 角色绑定的 CLI（timeoutMs 15s）；角色未配置/失败时 suggest 依旧返回 {}（web ConvertToTaskDialog 本就对空建议优雅降级）；失败测试从 mock fetch 改为 mock callLLM
+- ✅ 2026-07-28: L1 convert-to-task 人工指派卡死修复——convert 有 assigneeId（UI ConvertToTaskDialog 传 profile.id）时原直接建 active，是 §1.2-b 已确认的卡死态（myActive 按 instance.id 续跑查询、认领过滤要求 unassigned，两边都看不到；与 d7bd1e8 ownership resume 同类）；现统一建 unassigned（指名语义，由被指名 profile 的 loop 认领，与 @mention/委派口径一致）；全仓排查无依赖"直接 active"的调用方（channel.routes 仅透传、Dialog 不读 status）；测试改为断言 unassigned + claimWorkUnit 认领成功并改写 instance.id

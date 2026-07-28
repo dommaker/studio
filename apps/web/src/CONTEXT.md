@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/web/src 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/web/src/CONTEXT.md, apps/web/src/App.tsx, apps/web/src/index.css, apps/web/src/types.ts
+
 ## 职责
 
 该目录是 Agent Studio Web 前端应用的主源码目录，负责管理路由、全局状态、API 客户端、UI 组件和样式。它通过 React 应用入口 (App.tsx) 组织页面懒加载，并通过 axios 封装与后端 RESTful API 及 SSE 通信，提供认证、通道、工作单元、监控、需求等模块的交互界面。
@@ -44,6 +47,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: llm-configs 子系统下线（web 侧）— Settings 页「🧠 LLM 配置」卡片（LLMConfigSection + LLM_SCOPES/LLM_PROVIDERS/MaskedLLMConfig）、未挂载的 LlmConfigDisplay 组件及其测试、api/index.ts 的 llmConfigApi 一并删除；后端 /api/v1/settings/llm 路由与同日子系统移除，模型选择归角色绑定 CLI 的自身配置
+- ✅ `66c2bd93`: web): ChannelMemberManager 异步数据同步 + 创建提交态 + select 深色适配
 - ✅ 2026-07-27: ChannelMemberManager 成员列表刷新丢失修复 — memberIds 曾只用 useState 初始值消费 membersJson（channel 异步到达后不同步，刷新/切频道即显示空），改为 useEffect 同步；创建表单加提交态（创建中…/禁用）与行内错误，按钮文案「创建并加入频道」；全局原生 select 白面板修复 — theme.css `:root`/`[data-theme=light]` 加 color-scheme + option 变量样式（全项目 19 处 select 共性）
 - ✅ 2026-07 频道角色修复：频道打开自动定位最新消息（此前停在顶部）；provider 下拉从硬编码 4 项改为运行环境扫描（useDetectedProviders）；频道成员面板创建 Agent 补 CLI/描述；AgentDashboardPage 从 runtime 实例列表改为 profile 中心（名称/CLI/描述/状态），页头加"创建角色"入口
 - ✅ `5b7ec85c`: web): 修复 4 个生产崩溃 + 菜单冗余整合

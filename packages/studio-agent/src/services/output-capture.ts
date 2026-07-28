@@ -79,7 +79,6 @@ export async function recordSessionMetrics(opts: {
   stdout: string;
   executionId: string;
   agentRole: string;
-  modelTier: string;
   stage?: string;
   sessionCount: number;
   isFirstSession: boolean;
@@ -108,7 +107,6 @@ export async function recordSessionMetrics(opts: {
       source: 'agent-executor',
       executionId: opts.executionId,
       agentRole: opts.agentRole,
-      modelTier: opts.modelTier,
       modelName: metrics.modelName,
       stage: opts.stage,
       sessionCount: opts.sessionCount,

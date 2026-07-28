@@ -50,7 +50,7 @@ describe('LocalExecutor', () => {
     mockExecuteLightweight.mockResolvedValue(result);
     const task = {
       id: 't-1', executionId: 'e-1', provider: 'claude', prompt: 'do it',
-      parameters: {}, model: 'standard', timeoutMs: 1000,
+      parameters: {}, timeoutMs: 1000,
     } as unknown as AgentTask;
 
     const out = await new LocalExecutor().execute(task);
@@ -90,7 +90,16 @@ describe('AgentLoop agentStep via Executor interface', () => {
     mockExecuteLightweight.mockResolvedValue(makeResult());
 
     const agentLoop = new AgentLoop(mockRole, fileStore);
-    // 注入运行中实例（sessionId 已存在 → 不触发 updateState 持久化分支）
+    // FileStore 里建 state，让 agentStep 内 updateState 不抛 "not found"
+    await fileStore.createState('instance-exec', {
+      id: 'instance-exec', roleId: mockRole.id, sessionId: null,
+      status: 'active', currentWorkUnitId: null,
+      startedAt: new Date().toISOString(), terminatedAt: null,
+      lastHeartbeat: null, metadata: null, pid: process.pid,
+    });
+    // fix/guard-and-resume: WU metadata.sessionId 须与 instance.sessionId 相等才进入
+    // 续用路径（避开 non-resume → newSessionId → updateState 持久化），否则 metadata=null
+    // 导致每次新建、覆盖原有 exec 逻辑。
     (agentLoop as unknown as { instance: unknown }).instance = {
       id: 'instance-exec',
       roleId: mockRole.id,
@@ -108,7 +117,7 @@ describe('AgentLoop agentStep via Executor interface', () => {
         id: 'wu-exec-1', type: 'task', scope: 'test', channelId: 'ch-1',
         status: 'active', assigneeId: 'instance-exec', parentId: null,
         failureType: null, retryCount: 0, timeoutAt: null,
-        projectPath: null, metadata: null, claimedAt: null,
+        projectPath: null, metadata: JSON.stringify({ sessionId: 'sess-existing' }), claimedAt: null,
         completedAt: null, createdAt: new Date(), updatedAt: new Date(),
       },
     };

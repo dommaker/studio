@@ -89,7 +89,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => ({
   // (session-summary-generator constructs `new FileStore()` at import time).
   ...(await importOriginal<typeof import('@dommaker/studio-shared')>()),
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
-  getModelForTier: vi.fn(() => 'claude-sonnet-4-6'),
 }));
 
 vi.mock('../metrics.js', () => ({
@@ -113,16 +112,15 @@ describeIf('Executor Daemon 实战测试', () => {
     // 清理
     try { fs.rmSync(WORKTREES_DIR, { recursive: true, force: true }); } catch {}
 
-    // 启动 daemon（注册 analyst + reviewer）
+    // 启动 daemon（注册 analyst；B4a 起 reviewer session/worktree 已摘除）
     daemon.start();
 
-    // Register executor session — daemon.start() only registers analyst+reviewer
+    // Register executor session — daemon.start() only registers analyst
     const executorWt = path.join(WORKTREES_DIR, 'executor');
     fs.mkdirSync(executorWt, { recursive: true });
     (daemon as any).manager.register({
       name: 'executor',
       worktree: executorWt,
-      modelTier: 'fast',
       timeoutMs: 5 * 60 * 1000,
       persistent: false,
     });
