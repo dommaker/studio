@@ -18,11 +18,12 @@ import {
   migrateBuiltinRolesToProjectChannels,
 } from '../builtin-roles.js';
 
-/** Inline keyword extraction — replaced acceptedTypesFromDescription (removed per decision 9) */
+/** Inline keyword extraction — replaced parseAcceptedTypesFromDescription (removed per decision 9) */
 function acceptedTypesFromDescription(text: string): string[] {
-  const parts = text.split(/[。.\s]+/);
-  const tail = parts[parts.length - 1];
-  return tail ? tail.split(/\s+/).filter(k => k.length > 0) : [];
+  // Description format: "中文说明。keyword1 keyword2 ..."
+  const idx = text.lastIndexOf('。');
+  const tail = idx >= 0 ? text.slice(idx + 1) : text;
+  return tail.trim().split(/\s+/).filter(k => k.length > 0);
 }
 
 function createChannelData(id: string, overrides?: Record<string, unknown>) {

@@ -96,6 +96,7 @@ async function writeGitExclude(repoDir: string): Promise<void> {
     }
   }
   if (changed) {
+    await fs.mkdir(path.dirname(excludePath), { recursive: true });
     await fs.writeFile(excludePath, lines.join('\n') + '\n', 'utf-8');
     logger.info('[WorktreeResolver] Updated git exclude', { repoDir });
   }
