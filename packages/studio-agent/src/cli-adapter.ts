@@ -22,9 +22,14 @@
  *   claude 2.1.80  — --resume <id>（既有实测：--session-id 撞已存在 id 报 already in use）
  *   kimi 0.29.0    — --continue（实测：续用 cwd 上一会话成功；cwd 无前会话时优雅新开不报错）
  *   opencode 1.18.4 — --continue（实测：cwd 维度续用成功；异 cwd 不串会话、无前会话新开）
- *   codex 0.144.4  — exec resume --last（--help：--last 取最新会话，默认按 cwd 过滤。
- *                    ⚠️ 仅 --help 实证，运行未验证：本机 codex 与 DeepSeek provider
- *                    wire_api=chat 配置不兼容，无法发起真实会话；stdin 形态亦未验证）
+ *   codex 0.144.4  — exec resume --last（2026-07-28 运行实证，CODEX_HOME 隔离 +
+ *                    volcengine-agent-plan responses wire：① stdin 投 prompt 无需 `-` 占位；
+ *                    ② 同 cwd 命中最新会话、上下文连续（cached tokens + 暗号记忆）；
+ *                    ③ 异 cwd 过滤生效不串会话，该 cwd 无前会话时优雅新开不报错（exit 0，
+ *                    与 kimi/opencode --continue 同构）。
+ *                    ⚠️ 本机默认 ~/.codex/config.toml（DeepSeek wire_api=chat）在 0.144.4
+ *                    连配置加载都失败（启动即拒 "no longer supported"，-c 覆盖无法绕过），
+ *                    跑 codex 需先把 provider 换成 wire_api=responses 的可用网关）
  */
 
 import { resolveProviderDefinition, buildArgsFromTemplate, type ProviderId } from '@dommaker/studio-shared/node';
