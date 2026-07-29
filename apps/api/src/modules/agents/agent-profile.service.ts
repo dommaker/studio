@@ -12,6 +12,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import yaml from 'js-yaml';
 import { eventBus, FileStore, parseChannels, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
+import { resolveDefaultProvider } from './default-provider.js';
 
 /** 保留角色名：系统内置 studio 角色专用，用户不可创建/改名/删除 */
 export const STUDIO_ROLE_NAME = 'studio';
@@ -175,7 +176,9 @@ export class AgentProfileService {
       name: input.name,
       description: input.description ?? preset?.description ?? null,
       channels: stringifyChannels(input.channels),
-      provider: input.provider ?? null,
+      // F1: provider 缺省时打戳为本机扫描到的默认 CLI（不再留 null 靠运行时隐式兜底）；
+      // 一个都没扫到 → null + warning（resolveDefaultProvider 内部），启动健康探测会显性失败
+      provider: input.provider || resolveDefaultProvider(),
       status: input.status ?? 'active',
       createdAt: now,
       updatedAt: now,

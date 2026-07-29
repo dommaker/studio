@@ -2,12 +2,17 @@
  * AgentProfile CRUD 测试 — AS-025 Phase 2
  * Storage: FileStore（迁移自 Prisma）
  */
-import { describe, it, expect, afterAll, beforeAll, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterAll, beforeAll, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { FileStore, eventBus } from '@dommaker/studio-shared';
 import { AgentProfileService, ensureStudioProfile, STUDIO_ROLE_DESCRIPTION, STUDIO_ROLE_DEFAULT_PROVIDER } from '../agent-profile.service.js';
+
+// F1: provider 缺省打戳的扫描结果 mock 为固定 'claude'（真机扫描结果随机器漂移，测试要确定）
+vi.mock('../default-provider.js', () => ({
+  resolveDefaultProvider: vi.fn(() => 'claude'),
+}));
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-profile-test-'));
@@ -136,10 +141,10 @@ describe('AgentProfile CRUD', () => {
     expect(profile.provider).toBe('claude');
   });
 
-  it('create without provider defaults to null', async () => {
+  it('create without provider 打戳为扫描到的默认 provider（F1，不再留 null 靠运行时隐式兜底）', async () => {
     const profile = await service.create({ name: 'test-no-provider' });
     testProfileIds.push(profile.id);
-    expect(profile.provider).toBeNull();
+    expect(profile.provider).toBe('claude'); // default-provider mock 固定 'claude'
   });
 
   it('update provider field', async () => {
@@ -161,24 +166,26 @@ describe('AgentProfile CRUD', () => {
   it('list with provider filter', async () => {
     const c1 = await service.create({ name: 'test-list-provider-1', provider: 'claude' });
     const c2 = await service.create({ name: 'test-list-provider-2', provider: 'codex' });
-    const c3 = await service.create({ name: 'test-list-provider-3' });
+    const c3 = await service.create({ name: 'test-list-provider-3' }); // F1: 缺省打戳 'claude'
     testProfileIds.push(c1.id, c2.id, c3.id);
 
     const claudeOnly = await service.list({ provider: 'claude' });
     const claudeIds = claudeOnly.data.map(p => p.id);
     expect(claudeIds).toContain(c1.id);
     expect(claudeIds).not.toContain(c2.id);
-    expect(claudeIds).not.toContain(c3.id);
+    expect(claudeIds).toContain(c3.id);
   });
 
   it('list with provider=null returns only null-provider profiles', async () => {
     const withProvider = await service.create({ name: 'test-provider-filter', provider: 'claude' });
-    const withoutProvider = await service.create({ name: 'test-null-provider-filter' });
-    testProfileIds.push(withProvider.id, withoutProvider.id);
+    // F1: create 缺省会打戳，null 态只能经 update 到达
+    const cleared = await service.create({ name: 'test-null-provider-filter', provider: 'claude' });
+    await service.update(cleared.id, { provider: null });
+    testProfileIds.push(withProvider.id, cleared.id);
 
     const result = await service.list({ provider: null });
     const ids = result.data.map(p => p.id);
-    expect(ids).toContain(withoutProvider.id);
+    expect(ids).toContain(cleared.id);
     expect(ids).not.toContain(withProvider.id);
   });
 });

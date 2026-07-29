@@ -1,8 +1,9 @@
 /**
- * AC-2.3: 无用户角色时弹框提醒
+ * AC-2.3（F2，2026-07-28）: 无已配置 provider 的用户角色时弹框提醒
  *
- * 检测到无任何用户角色（不含 studio）时弹框，用户填 name/description/provider
- * 创建第一个角色。关闭后 sessionStorage 标记。
+ * 检测到不存在任何 provider 非空的 active 角色（不含 studio）时弹框——
+ * 角色存在但 provider 为空 = 没有可用执行体，与"没有角色"同样需要引导。
+ * 用户填 name/description/provider 创建第一个角色。关闭后 sessionStorage 标记。
  *
  * 样式遵循方向 A「Mission Control」设计体系（docs/specs/ui/style-guide.md），
  * 一律消费 theme.css 组件类（modal-* / input / btn），禁止内联写死颜色。

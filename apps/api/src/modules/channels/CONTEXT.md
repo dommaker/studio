@@ -30,7 +30,6 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 
 **本模块依赖**：
 - `@dommaker/studio-shared` — FileStore（Channel / RequirementsDoc 等文件存储，已替代 studio-prisma DB）, logger, modelGateway, eventBus, toKebab, writeSddDoc
-- `agents/builtin-roles` — B4a 内置角色（PATCH 绑工程时自动加入 members）
 - `agents/requirement-gate` — 质量门验证
 - `agents/monitor-agent` — 管线监控
 
@@ -51,6 +50,7 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: F5 @studio 入口解锚 + seed 退役（2026-07-28 分析文档决策 6）— message-routing @studio 转派目标从硬编码 pm 改为频道 `defaultProfileId`（与决策 12 同字段），未配置/inactive/越界 → 未指派走 claim 涌现；channel.routes PATCH 新增 `defaultProfileId` 可配置（'' /null 清除，非空校验 active profile）；删除 PATCH 绑工程自动加内置三角色 members 的 B4a 逻辑（内置 seed 已随 F4/F5 退役，`agents/builtin-roles.ts` 删除）
 - ✅ `39b6af5f`: channels): L1 convert-to-task 人工指派卡死修复（指派统一建 unassigned 指名）
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ `9d7ec92c`: channels): @mention 正则放宽到 Unicode 支持 CJK 名称

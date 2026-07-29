@@ -24,6 +24,8 @@ vi.mock('@dommaker/studio-shared/node', () => ({
   execSh: mockExecSh,
   resolveProviderDefinition: mockResolveProvider,
   buildArgsFromTemplate: mockBuildArgs,
+  // F1: default-provider → cli-scanner 模块初始化需要（返回空 = 本测试不涉及 CLI 探测）
+  listScanProviders: vi.fn(() => []),
 }));
 
 import { SystemExecutor, StudioRoleNotConfiguredError, SystemExecutorJsonParseError } from '../system-executor.js';

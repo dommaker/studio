@@ -95,6 +95,9 @@ export interface WorkUnitMetadata {
     issues?: Array<{ severity: string; message: string }>;
   };
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
+  // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
+  excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
+  selfReview?: boolean;       // 本评审 WU 未排除实现者（频道内无其他 active 成员）→ 可能是自评，台账/提醒据此标记
   [key: string]: unknown;     // 允许扩展字段
 }
 

@@ -1,8 +1,10 @@
 /**
- * AC-2.4: WorkUnit in_review 无 reviewer 角色时前端提醒横幅
+ * AC-2.4（F4 2026-07-28 改口径）: WorkUnit in_review 且频道无可认领成员时的前端提醒横幅
  *
- * 检测条件：WorkUnit status='in_review' 且频道成员中无 reviewer 角色
- * （reviewer = description 含 'reviewer' 关键词的 profile）
+ * 检测条件：WorkUnit status='in_review' 且频道成员为空——
+ * F4 reviewer 解锚后评审子 WU 未指派走 claim 涌现，任何频道成员都可认领；
+ * 真正需要提醒的只剩"无人可领"（评审将滞留，需加成员或人工处理）。
+ * （单成员 = 实现者本人时为自评兜底，服务端已发频道系统消息提醒，前端不重复。）
  */
 export interface ReviewHintProps {
   /** WorkUnit 状态 */
@@ -13,15 +15,9 @@ export interface ReviewHintProps {
   onSetupClick?: () => void;
 }
 
-function hasReviewer(members: ReviewHintProps['channelMembers']): boolean {
-  return members.some(m =>
-    m.description?.toLowerCase().includes('reviewer')
-  );
-}
-
 export function ReviewHint({ status, channelMembers, onSetupClick }: ReviewHintProps) {
   if (status !== 'in_review') return null;
-  if (hasReviewer(channelMembers)) return null;
+  if (channelMembers.length > 0) return null;
 
   return (
     <div
@@ -38,7 +34,7 @@ export function ReviewHint({ status, channelMembers, onSetupClick }: ReviewHintP
       }}
       data-testid="review-hint"
     >
-      <span>建议创建 reviewer 角色以启用自动审查</span>
+      <span>频道内没有可认领评审的成员，评审将滞留——请添加成员或人工评审</span>
       {onSetupClick && (
         <button
           onClick={onSetupClick}

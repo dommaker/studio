@@ -48,6 +48,18 @@ const metricsFileStore = new FileStore();
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
 
+/** F4（reviewer 解锚，决策 5）：安全解析 WU metadata.excludeAssignee ——
+ *  评审 WU 禁止认领的 profile id；缺失/损坏/非字符串一律 null（不排除） */
+function parseExcludeAssignee(metadata: unknown): string | null {
+  try {
+    const m = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
+    const v = (m as { excludeAssignee?: unknown } | null)?.excludeAssignee;
+    return typeof v === 'string' && v ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * §10 P0: 注入总预算（skill 段 + 知识段共用的 2K 红线）。
  * 必须与 knowledge-service 的 INJECT_TOKEN_BUDGET 保持一致——
@@ -395,6 +407,9 @@ export class AgentLoop {
           return false;
         }
       }
+      // F4（reviewer 解锚，决策 5）：评审 WU 排除实现者 —— metadata.excludeAssignee
+      // 命中的 profile 不可见（自评兜底场景 dispatcher 不设该字段，此处自然放行）
+      if (parseExcludeAssignee(s.metadata) === this.role.id) return false;
       return true;
     }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(0, 5)

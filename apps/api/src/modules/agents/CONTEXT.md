@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/agents 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts
+
 ## 职责
 
 负责管理 Agent 的配置（profile）、运行实例（instance）、决策循环（loop）以及内部审计 Agent（Auditor）等核心编排逻辑。提供 REST API 进行 CRUD 操作，并通过事件驱动机制实现 Agent 的自动挂载、运行和终止。
@@ -23,6 +26,7 @@
   - `knowledge-cold-start.ts` — 冷启动四源导入（P1b: docs/code/git/manual）+ Discord 通知
   - `knowledge-maintenance.ts` — 语料分析（F1：语义去重/质量评估/过期验证/矛盾审查）
 - `default-triggers.ts` — 10 个系统默认 trigger 注册（含 `doc-semantic-review` 周级文档语义审查，2026-07 文档治理闭环 P1）
+- `default-provider.ts` — F1 provider 默认选取工具（2026-07-28 分析文档）：`resolveDefaultProvider()` 取 `scanAllProviders()` 第一个（扫不到 → null + warn，不再隐式兜底 claude）；`backfillProfileProviders()` 启动时回填存量空 provider 的 active 角色（不含 studio，幂等）。`agent-profile.service.create` 缺省 provider 经此打戳
 - `executor.ts` — §9.6 Executor 接口（AgentLoop 执行面抽象）：P0 `LocalExecutor` 原样委托 `agentRunner.executeLightweight`；P1 远程节点执行经同一接口接入
 
 ## 依赖关系
@@ -54,13 +58,16 @@
 - 所有 Agent 数据均通过 `FileStore` 存储（已从 Prisma 迁移）
 - 审计日志写入 `~/.studio/logs/studio-events.jsonl` 文件
 - `agent-profile.service.ts` 在创建 profile 时会发布 `agent-profile.created` 事件，由 `AgentLoopRegistry` 监听并自动挂载 loop
-- **mention 派单调度链**：`WorkUnitService.create` 发 `workunit.created` 事件 → TriggerScheduler 唤醒对应 AgentLoop.observe（另有 15s 轮询兜底）→ 过滤（assigneeId 精确匹配 / 频道成员）→ claim（assigneeId 改写为 instance.id）→ agentStep → LocalExecutor → runner-lightweight spawn CLI → recordResult 解析 ACTION → postToDiscussionSpace 直接 `fileStore.appendMessage`（**不走 EventBus/SSE**，前端靠轮询消息接口看到回复）
+- **mention 派单调度链**：`WorkUnitService.create` 发 `workunit.created` 事件 → TriggerScheduler 唤醒对应 AgentLoop.observe（另有 15s 轮询兜底）→ 过滤（assigneeId 精确匹配 / 频道成员 / F4 `metadata.excludeAssignee` 排除实现者）→ claim（assigneeId 改写为 instance.id）→ agentStep → LocalExecutor → runner-lightweight spawn CLI → recordResult 解析 ACTION → postToDiscussionSpace 直接 `fileStore.appendMessage`（**不走 EventBus/SSE**，前端靠轮询消息接口看到回复）
+- **F4 review 派发（2026-07-28 分析文档决策 5）**：ReviewDispatcher 不再按 description 含 'reviewer' 找具名角色（字符串锚点已废除，`builtin-roles.ts` 已删除）——父 WU 进 in_review → 建 `assigneeId=null` 的未指派 review 子 WU 走 claim 涌现；实现者（assigneeId 两种形态：profile id / instance id→state.roleId）写入 `metadata.excludeAssignee` 禁止自领；频道内除实现者外无 active 成员（或 members 未回填）→ 自评兜底：不排除 + `metadata.selfReview=true` + 频道系统消息提醒人工复核
 - **isOnline 语义（2026-07-27 起）** = loop 存活：state status 为 idle/active 且心跳新鲜（≤5min，与 agent-timeout-scan 同阈值；null 心跳按 startedAt 宽限）。另知一坑（未修）：手动 `POST /agent-instances` 只建 idle 记录、并不起 loop，null 心跳约 2 分钟内被 timeout-scan 终止（假在线）
 - **鉴权（2026-07-24 收紧）**：legacy agents POST `/`、PUT `/:agentId` 与 agent-profiles/agent-instances 写 = `requireAuth()+requireNotGuest()`；`POST /review/diff`（任意路径写+spawn claude）与 instances `POST /:id/terminate` = `requireAuth()+requireAdmin()`；legacy DELETE 原有 requireRole('Admin') 不变。另知：agent-configs `:id` 路径拼接无校验（穿越面，未修）、/review/diff 的 baseRef/headRef shell 拼接（Admin 门后，未修）
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-28: F1+F4+seed 退役（2026-07-28 分析文档，决策 5/6）— 新增 `default-provider.ts`（provider 缺省打戳 + 启动回填，替代 null+隐式 claude 兜底）；ReviewDispatcher 解锚（评审子 WU 未指派涌现 + excludeAssignee 排除实现者 + 自评兜底 selfReview 标记，不再依赖 description 含 'reviewer'）；agent-loop observe 未指派过滤新增 excludeAssignee 剔除；删除 `builtin-roles.ts`（pm/dev/reviewer 内置 seed 三函数，角色创建走用户入口/preset 模板 `.agents/roles/*.yaml`）
+- ✅ `01c2ee93`: CI 脆弱点 — STUDIO_EVENTS_JSONL 可覆盖 + 测试事件隔离
 - ✅ 2026-07-24: API 鉴权收紧 — agents/profiles/instances 写端点收 requireNotGuest，/review/diff 与 terminate 收 requireAdmin
 - ✅ 2026-07 频道角色排查沉淀：AgentProfile 持久化布局与 index-on-demand 注入架构写入注意事项（排查结论：无全量注入问题，skills/知识/roster 均为索引方式）
 - ✅ `11ba99fa`: ci): resolve type errors in migrated agent/knowledge files

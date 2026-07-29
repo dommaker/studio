@@ -165,13 +165,14 @@ async function start() {
       try {
         await ensureStudioProfile(fileStore);
       } catch (e) { logger.warn('[StudioRole] ensureStudioProfile failed', { error: String(e) }); }
-      // B4a（决策 D7）: 内置角色 seed（pm/dev/reviewer，幂等、不覆盖用户改动、可禁用）
-      // + 一次性迁移：已绑定工程的存量频道补内置角色成员（幂等）
+      // F1（2026-07-28 分析文档）: 回填存量角色空 provider（幂等;不含 studio）。
+      // 内置三角色 seed（B4a 决策 D7）已随 reviewer/pm 解锚退役（F4/F5）——
+      // 角色创建走用户入口（FirstRoleSetupModal / 角色向导 / preset 模板），不再系统 seed。
       try {
-        const { ensureBuiltinRoles, migrateBuiltinRolesToProjectChannels } = await import('./modules/agents/builtin-roles.js');
-        await ensureBuiltinRoles(fileStore);
-        await migrateBuiltinRolesToProjectChannels(fileStore);
-      } catch (e) { logger.warn('[BuiltinRoles] Seed/migration failed', { error: String(e) }); }
+        const { backfillProfileProviders } = await import('./modules/agents/default-provider.js');
+        const stamped = await backfillProfileProviders(fileStore);
+        if (stamped > 0) logger.info('[DefaultProvider] Startup backfill done', { stamped });
+      } catch (e) { logger.warn('[DefaultProvider] Backfill failed', { error: String(e) }); }
       const profiles = await fileStore.listProfiles({ status: 'active' });
       const scheduler = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
       scheduler.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)

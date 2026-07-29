@@ -1,9 +1,11 @@
 /**
- * B4a（决策 D7）: @studio 特殊路由测试
+ * F5（2026-07-28 分析文档决策 6）: @studio 特殊路由测试
  *
- * - @studio 不建指向 studio 的 WU，改派给 pm（assigneeId=pm.id，
- *   metadata.reroutedFrom='studio'），并向频道发 Studio 系统消息
- * - pm 不存在/被禁用/不在频道成员内 → 按未命中处理（assigneeId=null）
+ * - @studio 不建指向 studio 的 WU；转派目标 = 频道 defaultProfileId 入口角色
+ *   （assigneeId=入口角色 id，metadata.reroutedFrom='studio'），频道发 Studio 系统消息
+ * - 未配置 defaultProfileId / 角色 inactive / 不在频道成员内 → 未指派（assigneeId=null），
+ *   走 claim 涌现，无系统消息
+ * - @普通角色 直达，不受 @studio 特殊路由影响
  */
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import fs from 'node:fs';
@@ -12,7 +14,6 @@ import os from 'node:os';
 import { FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { routeMessage } from '../message-routing.js';
 import { channelMessageService } from '../channel-message.service.js';
-import { ensureBuiltinRoles } from '../../agents/builtin-roles.js';
 import { STUDIO_ROLE_DESCRIPTION } from '../../agents/agent-profile.service.js';
 
 let channelId: string;
@@ -35,7 +36,7 @@ async function studioSystemMessages(): Promise<string[]> {
   return msgs.filter(m => m.authorType === 'agent' && m.agentName === 'Studio').map(m => m.content);
 }
 
-describe('B4a: @studio 路由改派', () => {
+describe('F5: @studio 路由 → 频道入口角色 / 未指派', () => {
   beforeAll(async () => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-routing-test-'));
   });
@@ -60,15 +61,22 @@ describe('B4a: @studio 路由改派', () => {
     channelMessageService.setFileStore(fileStore);
   });
 
-  it('@studio + pm 存在 → WU 派给 pm，带 reroutedFrom，频道收到系统消息', async () => {
+  it('@studio + 频道配了 defaultProfileId → WU 派给入口角色，带 reroutedFrom，频道收到系统消息', async () => {
     await fileStore.createProfile(profile('studio-1', 'studio', 'active', STUDIO_ROLE_DESCRIPTION));
-    const [pm] = (await ensureBuiltinRoles(fileStore)).filter(r => r.name === 'pm');
+    await fileStore.createProfile(profile('entry-1', 'pm'));
 
     const result = await routeMessage(channelId, '@studio 帮我看下这个需求', undefined, fileStore);
 
-    const wu = await findWu(result.workUnitId!);
+    // defaultProfileId 未配置 → 未指派（先验证默认行为）
+    let wu = await findWu(result.workUnitId!);
+    expect(wu!.assigneeId).toBeNull();
+
+    // 配置入口角色后 → 转派
+    await fileStore.updateChannel(channelId, { defaultProfileId: 'entry-1' });
+    const result2 = await routeMessage(channelId, '@studio 帮我看下这个需求', undefined, fileStore);
+    wu = await findWu(result2.workUnitId!);
     expect(wu).toBeTruthy();
-    expect(wu!.assigneeId).toBe(pm.id);
+    expect(wu!.assigneeId).toBe('entry-1');
     const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
     expect(meta.mentionName).toBe('studio');
     expect(meta.reroutedFrom).toBe('studio');
@@ -81,16 +89,16 @@ describe('B4a: @studio 路由改派', () => {
 
   it('@studio 不会把 WU 派给 studio profile 本身', async () => {
     await fileStore.createProfile(profile('studio-1', 'studio'));
-    const roles = await ensureBuiltinRoles(fileStore);
-    const pm = roles.find(r => r.name === 'pm')!;
+    await fileStore.createProfile(profile('entry-1', 'pm'));
+    await fileStore.updateChannel(channelId, { defaultProfileId: 'entry-1' });
 
     const result = await routeMessage(channelId, '@studio 任务', undefined, fileStore);
     const wu = await findWu(result.workUnitId!);
     expect(wu!.assigneeId).not.toBe('studio-1');
-    expect(wu!.assigneeId).toBe(pm.id);
+    expect(wu!.assigneeId).toBe('entry-1');
   });
 
-  it('@studio + pm 不存在 → 按未命中处理（assigneeId=null，无系统消息）', async () => {
+  it('@studio + 未配置 defaultProfileId → 未指派（assigneeId=null，无系统消息）', async () => {
     await fileStore.createProfile(profile('studio-1', 'studio'));
 
     const result = await routeMessage(channelId, '@studio 帮我看下', undefined, fileStore);
@@ -105,10 +113,9 @@ describe('B4a: @studio 路由改派', () => {
     expect(sysMsgs.some(c => c.includes('系统角色'))).toBe(false);
   });
 
-  it('@studio + pm 被禁用（inactive）→ 按未命中处理', async () => {
-    const roles = await ensureBuiltinRoles(fileStore);
-    const pm = roles.find(r => r.name === 'pm')!;
-    await fileStore.updateProfile(pm.id, { status: 'inactive' });
+  it('@studio + 入口角色 inactive → 未指派', async () => {
+    await fileStore.createProfile(profile('entry-1', 'pm', 'inactive'));
+    await fileStore.updateChannel(channelId, { defaultProfileId: 'entry-1' });
 
     const result = await routeMessage(channelId, '@studio 帮我看下', undefined, fileStore);
 
@@ -119,10 +126,12 @@ describe('B4a: @studio 路由改派', () => {
     expect(meta.reroutedFrom).toBeUndefined();
   });
 
-  it('@studio + pm 不在频道 members 内 → 按未命中处理（§9.5 成员边界）', async () => {
-    const roles = await ensureBuiltinRoles(fileStore);
-    // 频道 members 非空但不含 pm
-    await fileStore.updateChannel(channelId, { members: JSON.stringify(['someone-else']) });
+  it('@studio + 入口角色不在频道 members 内 → 未指派（§9.5 成员边界）', async () => {
+    await fileStore.createProfile(profile('entry-1', 'pm'));
+    await fileStore.updateChannel(channelId, {
+      defaultProfileId: 'entry-1',
+      members: JSON.stringify(['someone-else']), // 频道 members 非空但不含入口角色
+    });
 
     const result = await routeMessage(channelId, '@studio 帮我看下', undefined, fileStore);
 
@@ -130,17 +139,15 @@ describe('B4a: @studio 路由改派', () => {
     expect(wu!.assigneeId).toBeNull();
     const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
     expect(meta.reroutedFrom).toBeUndefined();
-    expect(roles.find(r => r.name === 'pm')).toBeTruthy(); // pm 存在但越界
   });
 
   it('@pm 正常直达（不受 studio 特殊路由影响）', async () => {
-    const roles = await ensureBuiltinRoles(fileStore);
-    const pm = roles.find(r => r.name === 'pm')!;
+    await fileStore.createProfile(profile('pm-1', 'pm'));
 
     const result = await routeMessage(channelId, '@pm 拆解这个需求', undefined, fileStore);
 
     const wu = await findWu(result.workUnitId!);
-    expect(wu!.assigneeId).toBe(pm.id);
+    expect(wu!.assigneeId).toBe('pm-1');
     const meta = wu!.metadata ? JSON.parse(wu!.metadata) : {};
     expect(meta.reroutedFrom).toBeUndefined();
     const sysMsgs = await studioSystemMessages();
