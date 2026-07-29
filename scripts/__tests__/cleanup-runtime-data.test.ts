@@ -72,10 +72,13 @@ function buildFixture(): Fixture {
   fs.mkdirSync(knowledgeDir, { recursive: true });
   fs.writeFileSync(path.join(knowledgeDir, 'guideline-test-lq-1.md'), 'test');
   fs.writeFileSync(path.join(knowledgeDir, 'guideline-test-lq-2.md'), 'test');
+  fs.writeFileSync(path.join(knowledgeDir, 'guideline-test-search-1-pitfall.md'), 'test');
+  fs.writeFileSync(path.join(knowledgeDir, 'guideline-test-search-1-pattern.md'), 'test');
   fs.writeFileSync(path.join(knowledgeDir, 'keep.md'), 'keep');
   fs.writeFileSync(path.join(knowledgeDir, 'index.json'), JSON.stringify([
     { id: 'keep', path: 'keep.md' },
-    { id: 'guideline-test-lq-1', path: 'guideline-test-lq-1.md' },
+    { id: 'test-lq-1', path: 'guideline-test-lq-1.md' },
+    { id: 'test-search-1-pitfall', path: 'guideline-test-search-1-pitfall.md' },
   ]));
 
   return { root, studioRoot, repoRoot, agentsDir };
@@ -111,8 +114,8 @@ describe('cleanup-runtime-data', () => {
     expect(summary.events.duplicateLines).toBe(2);
     expect(summary.events.othersLeftInPlace).toEqual(['other.jsonl']);
     // e
-    expect(summary.knowledge.testFilesRemoved).toBe(2);
-    expect(summary.knowledge.indexEntriesRemoved).toBe(1);
+    expect(summary.knowledge.testFilesRemoved).toBe(4);
+    expect(summary.knowledge.indexEntriesRemoved).toBe(2);
     // f: dry-run 时目录尚未归档，迁移会扫到全部可读 profile（含 inactive）；1 个双编码待重写
     expect(summary.channelsMigration).toEqual({ scanned: 4, rewritten: 1 });
 
@@ -159,6 +162,8 @@ describe('cleanup-runtime-data', () => {
     // e: 测试污染文件归档，keep.md 与 index.json 保留条目正确
     expect(fs.existsSync(path.join(fx.repoRoot, '.harness', 'knowledge', 'guideline-test-lq-1.md'))).toBe(false);
     expect(fs.existsSync(path.join(summary.backupDir, 'repo', '.harness', 'knowledge', 'guideline-test-lq-1.md'))).toBe(true);
+    expect(fs.existsSync(path.join(fx.repoRoot, '.harness', 'knowledge', 'guideline-test-search-1-pitfall.md'))).toBe(false);
+    expect(fs.existsSync(path.join(summary.backupDir, 'repo', '.harness', 'knowledge', 'guideline-test-search-1-pitfall.md'))).toBe(true);
     expect(fs.existsSync(path.join(fx.repoRoot, '.harness', 'knowledge', 'keep.md'))).toBe(true);
     const index = JSON.parse(fs.readFileSync(path.join(fx.repoRoot, '.harness', 'knowledge', 'index.json'), 'utf-8'));
     expect(index).toEqual([{ id: 'keep', path: 'keep.md' }]);
