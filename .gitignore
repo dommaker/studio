@@ -5,6 +5,10 @@ node_modules/
 dist/
 build/
 
+# API 前端构建产物落盘（apps/api/frontend/dist 由 prod/deploy.sh 同步，
+# 历史手工拷贝的 stale 副本以 dist.stale-* 隔离；整个目录不入库）
+apps/api/frontend/
+
 # Environment files (secrets — NEVER commit real values)
 .env
 .env.local
