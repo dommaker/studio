@@ -292,11 +292,104 @@ body {
   border-color: var(--accent-primary);
 }
 
-/* 原生 select 弹出面板：option 由浏览器绘制，显式跟随主题变量，避免默认白底 */
-select.input option,
-select option {
+/* === 下拉选择组件（components/ui/Select，原生 select 的主题感知替代） === */
+/* 触发器视觉对齐 .input；选项面板 portal 到 body、fixed 定位（位置由组件行内注入） */
+.select-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: var(--fs-base);
   color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.select-trigger:hover {
+  border-color: var(--border-emphasis);
+}
+
+.select-trigger:focus,
+.select-trigger:focus-visible {
+  border-color: var(--accent-primary);
+}
+
+.select-trigger:disabled {
+  opacity: .45;
+  cursor: not-allowed;
+}
+
+.select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-placeholder {
+  color: var(--text-tertiary);
+}
+
+.select-arrow {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  flex-shrink: 0;
+}
+
+.select-panel {
+  position: fixed;
+  z-index: 100; /* 须高于 .modal-overlay 的 50 */
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 3px;
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 2px;
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  font-size: var(--fs-base);
+  color: var(--text-primary);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.select-option-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-option:hover,
+.select-option.is-highlighted {
+  background: var(--bg-hover);
+}
+
+.select-option.is-selected,
+.select-option.is-selected:hover {
+  background: var(--bg-active);
+}
+
+.select-option.is-disabled,
+.select-option.is-disabled:hover {
+  background: none;
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.select-check {
+  color: var(--accent-primary);
+  flex-shrink: 0;
 }
 
 /* === 标签组件 === */
