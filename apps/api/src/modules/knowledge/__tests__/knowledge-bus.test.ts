@@ -6,8 +6,6 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 const isCI = !!process.env.CI;
 const describeIf = isCI ? describe.skip : describe;
 import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 
 // ── Mocks (vi.mock is hoisted before imports) ──
 
@@ -25,15 +23,18 @@ vi.mock('@dommaker/studio-prisma', () => ({
 }));
 
 // Knowledge-bus mock — isolated temp store
-if (!(globalThis as any).__kbTestTempDir) {
-  (globalThis as any).__kbTestTempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-test-'));
-}
-
 vi.mock('../knowledge-bus.service.js', async () => {
   const harness = await vi.importActual<any>('@dommaker/harness');
   const { FileKnowledgeStore, KnowledgeLifecycle, KnowledgeIngest, KnowledgeQuery, KnowledgeInjector } = harness;
 
-  const dir = (globalThis as any).__kbTestTempDir;
+  // vi.mock 工厂在 import 求值时执行，早于模块体任何赋值——mkdtemp 必须在工厂内
+  // 完成。若在模块体赋值 globalThis 再读，工厂拿到的是 undefined，FileKnowledgeStore
+  // 会回落到默认 .harness/knowledge（cwd 相对），把测试条目写进真实知识库。
+  const fsm = await import('node:fs');
+  const pathm = await import('node:path');
+  const osm = await import('node:os');
+  const dir = fsm.mkdtempSync(pathm.join(osm.tmpdir(), 'kb-test-'));
+  (globalThis as any).__kbTestTempDir = dir;
   const store = new FileKnowledgeStore({ baseDir: dir });
   const lifecycle = new KnowledgeLifecycle(store, {
     autoPromoteSources: ['triage', 'auditor', 'evolution', 'posteval', 'analyst'],

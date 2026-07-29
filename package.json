@@ -58,7 +58,7 @@
     "pnpm": ">=8.0.0"
   },
   "dependencies": {
-    "@dommaker/harness": "^0.16.5",
+    "@dommaker/harness": "^0.16.6",
     "tsx": "^4.22.3"
   }
 }

@@ -17,7 +17,7 @@
  *   b. 归档引用了已不存在 profile 的孤儿 state.json
  *   c. 归档旧 DB 残留文件（data.db / data/data.db / data/data.db.bak* / data/studio.db）
  *   d. 合并 ~/events/studio.jsonl → ~/.studio/events/studio.jsonl（按行去重），归档源文件
- *   e. 删除仓库 .harness/knowledge/ 下 guideline-test-lq-* 测试污染文件（含 index.json 条目）
+ *   e. 删除仓库 .harness/knowledge/ 下测试污染文件（guideline-test-lq-* / guideline-test-search-*，含 index.json 条目）
  *   f. 归一化存活 profile 的 channels 字段为单层 JSON 编码（见 file-store.ts）
  */
 
@@ -228,12 +228,17 @@ async function mergeEvents(summary: CleanupSummary, opts: CleanupOptions): Promi
   await archivePath(source, path.join('home-events', 'studio.jsonl'), opts);
 }
 
-/** e. 删除仓库 .harness/knowledge/ 下 guideline-test-lq-* 测试污染文件（含 index.json 条目） */
+/** 测试污染匹配（knowledge-bus 测试历史泄漏）：文件名带类型前缀（guideline-test-lq-<ts>.md），index.json 的 id 不带（test-lq-<ts>） */
+const KNOWLEDGE_TEST_RE = /^(?:guideline-)?test-(?:lq|search)-\d+/;
+
+const isKnowledgeTestFile = (name: string): boolean => KNOWLEDGE_TEST_RE.test(name);
+
+/** e. 删除仓库 .harness/knowledge/ 下测试污染文件（含 index.json 条目） */
 async function cleanKnowledgeTestFiles(summary: CleanupSummary, opts: CleanupOptions): Promise<void> {
   const knowledgeDir = path.join(opts.repoRoot, '.harness', 'knowledge');
 
   for (const entry of await readDirSafe(knowledgeDir)) {
-    if (!entry.isFile() || !entry.name.startsWith('guideline-test-lq-')) continue;
+    if (!entry.isFile() || !isKnowledgeTestFile(entry.name)) continue;
     summary.knowledge.testFilesRemoved++;
     await archivePath(
       path.join(knowledgeDir, entry.name),
@@ -248,8 +253,8 @@ async function cleanKnowledgeTestFiles(summary: CleanupSummary, opts: CleanupOpt
     const index = JSON.parse(await fs.promises.readFile(indexFile, 'utf-8')) as Array<{ id?: string; path?: string }>;
     if (!Array.isArray(index)) return;
     const kept = index.filter(e => {
-      const hit = (typeof e.id === 'string' && e.id.includes('guideline-test-lq-'))
-        || (typeof e.path === 'string' && e.path.includes('guideline-test-lq-'));
+      const hit = (typeof e.id === 'string' && KNOWLEDGE_TEST_RE.test(e.id))
+        || (typeof e.path === 'string' && KNOWLEDGE_TEST_RE.test(e.path));
       return !hit;
     });
     summary.knowledge.indexEntriesRemoved = index.length - kept.length;
@@ -328,7 +333,7 @@ export function formatSummary(summary: CleanupSummary): string {
     }
   }
 
-  lines.push(`[e] knowledge 测试污染: 删除 guideline-test-lq-* 文件 ${summary.knowledge.testFilesRemoved} 个；index.json 移除 ${summary.knowledge.indexEntriesRemoved} 条`);
+  lines.push(`[e] knowledge 测试污染: 删除测试文件 ${summary.knowledge.testFilesRemoved} 个；index.json 移除 ${summary.knowledge.indexEntriesRemoved} 条`);
   lines.push(`[f] channels 迁移    : 扫描 profile ${summary.channelsMigration.scanned} 个，重写 ${summary.channelsMigration.rewritten} 个`);
   lines.push('');
   lines.push(dryRun ? 'dry-run：以上动作均未执行。加 --apply 实际执行。' : `完成。归档内容位于 ${summary.backupDir}`);
