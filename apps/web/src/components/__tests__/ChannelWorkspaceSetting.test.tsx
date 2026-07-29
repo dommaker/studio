@@ -33,22 +33,24 @@ describe('ChannelWorkspaceSetting', () => {
 
   it('renders workspace options', async () => {
     render(<ChannelWorkspaceSetting channelId="ch-1" />);
-    expect(await screen.findByText('公司电脑')).toBeInTheDocument();
+    // 自定义 Select：选项在打开的面板中（portal 到 body）
+    fireEvent.click(screen.getByTitle('默认工程'));
+    expect(await screen.findByRole('option', { name: '公司电脑' })).toBeInTheDocument();
   });
 
   it('shows current workspace as selected', async () => {
     render(<ChannelWorkspaceSetting channelId="ch-1" defaultWorkspaceId="ws-2" />);
-    await screen.findByText('公司电脑');
-    const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('ws-2');
+    // 触发器显示当前选中项文案
+    await waitFor(() => {
+      expect(screen.getByTitle('默认工程').textContent).toContain('个人 PC');
+    });
   });
 
   it('updates channel workspace on change', async () => {
     (channelApi.update as any).mockResolvedValue({});
     render(<ChannelWorkspaceSetting channelId="ch-1" />);
-    await screen.findByText('公司电脑');
-
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ws-1' } });
+    fireEvent.click(screen.getByTitle('默认工程'));
+    fireEvent.click(await screen.findByRole('option', { name: '公司电脑' }));
 
     await waitFor(() => {
       expect(channelApi.update).toHaveBeenCalledWith('ch-1', expect.objectContaining({

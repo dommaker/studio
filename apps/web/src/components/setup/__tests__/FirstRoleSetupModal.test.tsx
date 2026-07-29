@@ -39,7 +39,9 @@ describe('FirstRoleSetupModal (AC-2.3)', () => {
     render(<FirstRoleSetupModal open={true} onClose={onClose} onCreate={onCreate} />);
 
     fireEvent.change(screen.getByTestId('first-role-name'), { target: { value: 'dev-agent' } });
-    fireEvent.change(screen.getByTestId('first-role-provider'), { target: { value: 'codex' } });
+    // 自定义 Select：点触发器 → 点选项
+    fireEvent.click(screen.getByTestId('first-role-provider'));
+    fireEvent.click(screen.getByRole('option', { name: 'codex' }));
     fireEvent.click(screen.getByTestId('first-role-create'));
 
     expect(onCreate).toHaveBeenCalledWith({ name: 'dev-agent', description: undefined, provider: 'codex' });

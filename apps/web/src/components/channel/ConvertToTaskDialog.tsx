@@ -2,6 +2,7 @@
 // 2026-07 视觉重构（方向 A Mission Control）：深色变量重绘；交互语义零变更
 import { useState, useEffect } from 'react';
 import { channelApi, type AgentProfile, type ConvertSuggestion, type LocalProject } from '../../api/channel';
+import { Select } from '../ui';
 
 interface Props {
   open: boolean;
@@ -110,31 +111,29 @@ export function ConvertToTaskDialog({ open, onClose, messageId, channelId, messa
           </div>
           <div>
             <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>分配给</label>
-            <select
+            <Select
               value={assigneeId}
-              onChange={e => setAssigneeId(e.target.value)}
+              onChange={setAssigneeId}
+              options={[
+                { value: '', label: '未分配' },
+                ...agents.map(a => ({ value: a.id, label: a.name })),
+              ]}
               className="input"
               style={{ width: '100%' }}
-            >
-              <option value="">未分配</option>
-              {agents.map(a => (
-                <option key={a.id} value={a.id}>{a.name}</option>
-              ))}
-            </select>
+            />
           </div>
           <div>
             <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>项目</label>
-            <select
+            <Select
               value={projectPath}
-              onChange={e => setProjectPath(e.target.value)}
+              onChange={setProjectPath}
+              options={[
+                { value: '', label: '无' },
+                ...projects.map(p => ({ value: p.path, label: p.name })),
+              ]}
               className="input"
               style={{ width: '100%' }}
-            >
-              <option value="">无</option>
-              {projects.map(p => (
-                <option key={p.path} value={p.path}>{p.name}</option>
-              ))}
-            </select>
+            />
           </div>
         </div>
 

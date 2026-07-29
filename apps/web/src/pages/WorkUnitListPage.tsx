@@ -6,6 +6,7 @@ import { DiscussionPanel } from '../components/DiscussionPanel';
 import { ReviewHint } from '../components/workunit/ReviewHint';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { channelApi, type AgentProfile } from '../api/channel';
+import { Select } from '../components/ui';
 
 /** F6：WU 展示状态唯一派生口径（铁律：禁止各自读 metadata.attestations 解释） */
 const deriveWu = (wu: { status: string; metadata?: string | null }): DerivedWuState =>
@@ -119,15 +120,12 @@ export function WorkUnitListPage() {
                 </div>
                 <div>
                   <label className="text-xs u-text-3 mb-1 block">Type</label>
-                  <select
+                  <Select
                     className="px-3 py-2 rounded u-surface u-text border u-border-2 outline-none"
                     value={newType}
-                    onChange={e => setNewType(e.target.value)}
-                  >
-                    {Object.entries(typeLabels).map(([v, l]) => (
-                      <option key={v} value={v}>{l}</option>
-                    ))}
-                  </select>
+                    onChange={setNewType}
+                    options={Object.entries(typeLabels).map(([v, l]) => ({ value: v, label: l }))}
+                  />
                 </div>
                 <button
                   className="btn btn-primary"

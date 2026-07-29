@@ -3,9 +3,14 @@
  *
  * 检测到 studio 角色 provider 未配置时弹框，用户选 provider 后 PATCH 更新。
  * 用户关闭后 sessionStorage 标记，本次会话不再弹。
+ *
+ * 样式遵循方向 A「Mission Control」设计体系（docs/specs/ui/style-guide.md），
+ * 一律消费 theme.css 组件类（modal-* / input / btn），禁止内联写死颜色。
  */
 import { useState, useEffect } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
+import { Select } from '../ui';
+import '../../styles/theme.css';
 
 export interface StudioRoleSetupModalProps {
   open: boolean;
@@ -44,34 +49,42 @@ export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupM
   };
 
   return (
-    <div className="modal-overlay" onClick={handleDismiss} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <div className="modal" onClick={(e) => e.stopPropagation()} style={{ background: 'white', padding: '24px', borderRadius: '8px', minWidth: '320px' }}>
-        <h2 style={{ marginTop: 0 }}>系统执行角色未配置</h2>
-        <p style={{ color: '#666', fontSize: '14px' }}>
-          系统内部任务（知识维护、诊断、提取等）需要选择一个 CLI 作为执行角色。
-        </p>
-        <div style={{ marginBottom: '16px' }}>
-          <label htmlFor="studio-provider-select" style={{ display: 'block', marginBottom: '8px', fontWeight: 500 }}>选择 CLI</label>
-          <select
-            id="studio-provider-select"
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc' }}
-            data-testid="studio-provider-select"
-          >
-            {providerOptions.map((o) => (
-              <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
-            ))}
-          </select>
-          {noneDetected && (
-            <p style={{ color: '#999', fontSize: '13px', margin: '6px 0 0' }}>
-              未在服务器上检测到已安装的 CLI，请确认安装后再选择。
-            </p>
-          )}
+    <div className="modal-overlay" onClick={handleDismiss}>
+      <div className="modal" style={{ maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h2 className="modal-title">系统执行角色未配置</h2>
+          <button className="modal-close" onClick={handleDismiss} aria-label="关闭">×</button>
         </div>
-        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-          <button onClick={handleDismiss} style={{ padding: '8px 16px' }}>稍后</button>
-          <button onClick={handleSave} disabled={!selected} style={{ padding: '8px 16px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px' }} data-testid="studio-provider-save">
+        <div className="modal-body">
+          <p className="u-text-2" style={{ margin: '0 0 12px', fontSize: 'var(--fs-sm)' }}>
+            系统内部任务（知识维护、诊断、提取等）需要选择一个 CLI 作为执行角色。
+          </p>
+          <div>
+            <label htmlFor="studio-provider-select" className="u-text" style={{ display: 'block', marginBottom: '4px', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>选择 CLI</label>
+            <Select
+              id="studio-provider-select"
+              className="input"
+              value={selected}
+              onChange={setSelected}
+              options={providerOptions}
+              style={{ width: '100%' }}
+              data-testid="studio-provider-select"
+            />
+            {noneDetected && (
+              <p className="u-text-2" style={{ margin: '6px 0 0', fontSize: 'var(--fs-sm)' }}>
+                未在服务器上检测到已安装的 CLI，请确认安装后再选择。
+              </p>
+            )}
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-secondary" onClick={handleDismiss}>稍后</button>
+          <button
+            className="btn btn-primary"
+            onClick={handleSave}
+            disabled={!selected}
+            data-testid="studio-provider-save"
+          >
             确认
           </button>
         </div>

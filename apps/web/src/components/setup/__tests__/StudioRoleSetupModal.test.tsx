@@ -32,7 +32,9 @@ describe('StudioRoleSetupModal (AC-2.2)', () => {
     const onClose = vi.fn();
     render(<StudioRoleSetupModal open={true} onClose={onClose} onSave={onSave} />);
 
-    fireEvent.change(screen.getByTestId('studio-provider-select'), { target: { value: 'kimi' } });
+    // 自定义 Select：点触发器 → 点选项（选项面板 portal 到 body）
+    fireEvent.click(screen.getByTestId('studio-provider-select'));
+    fireEvent.click(screen.getByRole('option', { name: 'kimi' }));
     fireEvent.click(screen.getByTestId('studio-provider-save'));
 
     expect(onSave).toHaveBeenCalledWith('kimi');

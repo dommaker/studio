@@ -8,6 +8,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { Select } from '../components/ui';
 
 type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction' | 'resolution';
 
@@ -204,14 +205,15 @@ export function KnowledgePage() {
       {activeTab === 'unified' && (
         <div>
           <div className="flex gap-2 mb-4">
-            <select value={unifiedMode} onChange={e => { setUnifiedMode(e.target.value); setUnifiedOffset(0); }}
-              className="px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
-              <option value="">全部类型</option>
-              <option value="rule">规则 (rule)</option>
-              <option value="context">上下文 (context)</option>
-              <option value="signal">信号 (signal)</option>
-              <option value="reference">参考 (reference)</option>
-            </select>
+            <Select value={unifiedMode} onChange={v => { setUnifiedMode(v); setUnifiedOffset(0); }}
+              options={[
+                { value: '', label: '全部类型' },
+                { value: 'rule', label: '规则 (rule)' },
+                { value: 'context', label: '上下文 (context)' },
+                { value: 'signal', label: '信号 (signal)' },
+                { value: 'reference', label: '参考 (reference)' },
+              ]}
+              className="px-3 py-2 rounded-lg text-sm" />
             <span className="text-sm self-center" style={{ color: 'var(--text-tertiary)' }}>
               {unifiedTotal} 条
             </span>
@@ -222,20 +224,22 @@ export function KnowledgePage() {
           {showManualEntry && (
             <div className="mb-4 p-4 rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
               <div className="grid grid-cols-2 gap-3 mb-3">
-                <select value={manualForm.type} onChange={e => setManualForm({ ...manualForm, type: e.target.value })}
-                  className="px-3 py-2 rounded text-sm" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
-                  <option value="guideline">指南</option>
-                  <option value="pitfall">踩坑</option>
-                  <option value="architecture">架构</option>
-                  <option value="process">流程</option>
-                </select>
-                <select value={manualForm.consumptionMode} onChange={e => setManualForm({ ...manualForm, consumptionMode: e.target.value })}
-                  className="px-3 py-2 rounded text-sm" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }}>
-                  <option value="reference">参考 (reference)</option>
-                  <option value="signal">信号 (signal)</option>
-                  <option value="rule">规则 (rule)</option>
-                  <option value="context">上下文 (context)</option>
-                </select>
+                <Select value={manualForm.type} onChange={v => setManualForm({ ...manualForm, type: v })}
+                  options={[
+                    { value: 'guideline', label: '指南' },
+                    { value: 'pitfall', label: '踩坑' },
+                    { value: 'architecture', label: '架构' },
+                    { value: 'process', label: '流程' },
+                  ]}
+                  className="px-3 py-2 rounded text-sm" />
+                <Select value={manualForm.consumptionMode} onChange={v => setManualForm({ ...manualForm, consumptionMode: v })}
+                  options={[
+                    { value: 'reference', label: '参考 (reference)' },
+                    { value: 'signal', label: '信号 (signal)' },
+                    { value: 'rule', label: '规则 (rule)' },
+                    { value: 'context', label: '上下文 (context)' },
+                  ]}
+                  className="px-3 py-2 rounded text-sm" />
               </div>
               <input type="text" placeholder="标题" value={manualForm.title} onChange={e => setManualForm({ ...manualForm, title: e.target.value })}
                 className="w-full px-3 py-2 rounded text-sm mb-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />

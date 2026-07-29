@@ -43,7 +43,7 @@
 - 角色（AgentProfile）创建入口时间线：进 App 时 `App.tsx` 检测（studio 角色 provider=null → StudioRoleSetupModal 补 CLI；**无任何 provider 非空的 active 用户角色** → FirstRoleSetupModal 建首个角色——F2 2026-07-28，原"无用户角色"条件被内置 seed 废掉后改为此口径）；常规入口 = Agent 管理页"创建角色"按钮 → `/setup/roles` 向导（勾选扫描到的 runtime 批量建）；频道内快捷入口 = 成员面板"+ 创建新 Agent"（name + 描述 + CLI 下拉）。所有入口共用 `channelApi.createAgent` → `POST /agent-profiles`（服务端 F1：provider 缺省打戳为扫描到的默认 CLI）。
 - `AgentDashboardPage`（侧边栏 Agent 菜单）= 角色（profile）中心列表：`channelApi.listAllAgents()`（全量含 studio/inactive）按 `roleId` 合并 `monitoringApi.getAgentSummary()` 运行时状态；每行展示名称 / 背后 CLI(provider) / 描述 / profile 状态 / 运行时状态 / lastError。
 - 频道 @提及（`components/channel/ChannelInput.tsx`）：候选 = `GET /agent-profiles?status=active&channelId=`（服务端按频道成员过滤）；选中插入纯文本 `@name `（带尾随空格，无结构化 id），发送走 `POST /channels/:id/messages`，mention 解析在服务端 message-routing 完成。成员弹框 `ChannelMemberManager` 的 memberIds 必须经 useEffect 从 props membersJson 同步（channel 异步加载，useState 初始值只跑一次）。
-- 原生 `<select>` 约定（2026-07-27 起）：`theme.css` 已在 `:root`/`[data-theme="light"]` 声明 `color-scheme`（dark/light）并为 option 提供变量样式，弹出面板随主题；新增下拉框直接用 `.input` 类即可，禁止再写死背景/文字色。
+- 下拉选择约定（2026-07-29 起）：原生 `<select>` **弃用**（弹出面板由 OS 绘制、无法适配主题），一律用 `components/ui/Select`（options 数组传入；触发器视觉对齐 `.input`，面板 portal 到 body、fixed 定位、z-index 100，键盘导航 + listbox ARIA，零动画全 token；样式类 `.select-*` 在 theme.css，规范见 style-guide §4.6）。theme.css 的 `color-scheme` 声明保留（滚动条等原生控件仍需按主题渲染）。
 - 所有 API 模块返回的响应数据结构需与后端约定一致（如 `{ success, data }` 或 `{ data, total }`）。
 - **F6 派生口径铁律（决策 1，2026-07-28 分析文档）**：WU 状态/证据的展示一律过 `@dommaker/studio-shared` 的 `deriveDisplayState()`（列表页徽章/计数/按钮、抽屉详情/REQ 链路节点、RequirementChainPanel；进度统计用 `workFinished` 所有权口径）——禁止各自读 `metadata.attestations` 自行解释。列表页「待人工」pill = 派生过滤（done ∧ ¬l3 + 手写 in_review）；done 缺 l3 显示「确认」按钮（服务端幂等补写 l3）；`SelfReviewBadge`（components/workunit/）标记自评（评审 WU 自身 selfReview / 父 WU 台账 l2.selfReview）。MonitoringPage「证据台账」区块读 `/monitoring/overview` 的 evidence 段。
 - **PMO 页（决策 2/4 + PMO-b）**：PMOPage 有「新建 PMO」表单（标题/需求描述/gitRepo/交付策略，projectApi.create）；卡片显示杂务徽章与交付策略。ProjectDetailPage 头部显示 REQ 别名/分支/交付策略，「📦 交付」区块（projectApi.getDelivery/deliver）：台账（WU 完成度 + 三层证据缺口 + missing 清单）、auto-merge 显示交付合并按钮（human-only，409 缺口/冲突内联展示）、branch-only 只显示自行合并说明。
@@ -51,6 +51,8 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-29: StudioRoleSetupModal 按 style-guide §4.3 规范重写 — 旧版全量内联硬编码浅色样式（white 底、#2563eb 按钮、#666/#999 文字，规范 §6 反例同类）改为 modal-* 结构 + `.btn btn-secondary/primary` + `u-text/u-text-2` + Select 组件，与 FirstRoleSetupModal 同构；行为与 data-testid 零变更
+- ✅ 2026-07-29: 自定义主题感知 Select 替换全部原生 select（18 处 / 11 文件）— 新增 `components/ui/Select.tsx`（触发器 `.select-trigger` 视觉对齐 `.input`；选项面板 portal 到 `document.body`、fixed 定位、宽对齐触发器、max-height 240px、z-index 100；Enter/Space/↑↓/Escape 键盘导航 + listbox/option ARIA；点外部/滚动/resize 关闭；零动画全 token）；theme.css 增 `.select-*` 组件类并删除 2026-07-27 的 `select option` 死规则（全仓已无原生 select，`color-scheme` 保留）；style-guide §4.6 新增组件条目、§4.2 改为 input/textarea 通用；相关测试改为「点触发器 → 点选项」交互
 - ✅ 2026-07-28: llm-configs 子系统下线（web 侧）— Settings 页「🧠 LLM 配置」卡片（LLMConfigSection + LLM_SCOPES/LLM_PROVIDERS/MaskedLLMConfig）、未挂载的 LlmConfigDisplay 组件及其测试、api/index.ts 的 llmConfigApi 一并删除；后端 /api/v1/settings/llm 路由与同日子系统移除，模型选择归角色绑定 CLI 的自身配置
 - ✅ `66c2bd93`: web): ChannelMemberManager 异步数据同步 + 创建提交态 + select 深色适配
 - ✅ 2026-07-27: ChannelMemberManager 成员列表刷新丢失修复 — memberIds 曾只用 useState 初始值消费 membersJson（channel 异步到达后不同步，刷新/切频道即显示空），改为 useEffect 同步；创建表单加提交态（创建中…/禁用）与行内错误，按钮文案「创建并加入频道」；全局原生 select 白面板修复 — theme.css `:root`/`[data-theme=light]` 加 color-scheme + option 变量样式（全项目 19 处 select 共性）

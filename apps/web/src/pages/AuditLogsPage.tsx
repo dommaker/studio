@@ -7,6 +7,7 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { getApiBase } from '../utils/api';
+import { Select } from '../components/ui';
 
 interface AuditLog {
   id: string;
@@ -205,37 +206,36 @@ export const AuditLogsPage: React.FC = () => {
 
       {/* Filters */}
       <div className="flex items-center gap-4 mb-4">
-        <select
+        <Select
           value={filters.action}
-          onChange={(e) => setFilters({ ...filters, action: e.target.value })}
+          onChange={(v) => setFilters({ ...filters, action: v })}
+          options={[
+            { value: '', label: t('auditLogs.filters.allActions', '全部操作') },
+            ...actions.map(action => ({ value: action, label: action })),
+          ]}
           className="px-3 py-2 border rounded-lg text-sm"
-        >
-          <option value="">{t('auditLogs.filters.allActions', '全部操作')}</option>
-          {actions.map(action => (
-            <option key={action} value={action}>{action}</option>
-          ))}
-        </select>
+        />
 
-        <select
+        <Select
           value={filters.resource}
-          onChange={(e) => setFilters({ ...filters, resource: e.target.value })}
+          onChange={(v) => setFilters({ ...filters, resource: v })}
+          options={[
+            { value: '', label: t('auditLogs.filters.allResources', '全部资源') },
+            ...resources.map(resource => ({ value: resource, label: resource })),
+          ]}
           className="px-3 py-2 border rounded-lg text-sm"
-        >
-          <option value="">{t('auditLogs.filters.allResources', '全部资源')}</option>
-          {resources.map(resource => (
-            <option key={resource} value={resource}>{resource}</option>
-          ))}
-        </select>
+        />
 
-        <select
+        <Select
           value={filters.status}
-          onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          onChange={(v) => setFilters({ ...filters, status: v })}
+          options={[
+            { value: '', label: t('auditLogs.filters.allStatus', '全部状态') },
+            { value: 'success', label: t('auditLogs.status.success', '成功') },
+            { value: 'failure', label: t('auditLogs.status.failure', '失败') },
+          ]}
           className="px-3 py-2 border rounded-lg text-sm"
-        >
-          <option value="">{t('auditLogs.filters.allStatus', '全部状态')}</option>
-          <option value="success">{t('auditLogs.status.success', '成功')}</option>
-          <option value="failure">{t('auditLogs.status.failure', '失败')}</option>
-        </select>
+        />
 
         <input
           type="text"

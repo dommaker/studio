@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { workspaceApi } from '../api';
 import { channelApi } from '../api/channel';
+import { Select } from './ui';
 
 interface Workspace {
   id: string;
@@ -26,20 +27,21 @@ export const ChannelWorkspaceSetting: React.FC<ChannelWorkspaceSettingProps> = (
     });
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const value = e.target.value;
+  const handleChange = (value: string) => {
     setSelected(value);
     channelApi.update(channelId, { defaultWorkspaceId: value });
   };
 
   return (
-    <select role="combobox" value={selected} onChange={handleChange} className="mc-btn" title="默认工程">
-      <option value="">默认工程：无</option>
-      {workspaces.map((ws) => (
-        <option key={ws.id} value={ws.id}>
-          {ws.name}
-        </option>
-      ))}
-    </select>
+    <Select
+      value={selected}
+      onChange={handleChange}
+      options={[
+        { value: '', label: '默认工程：无' },
+        ...workspaces.map((ws) => ({ value: ws.id, label: ws.name })),
+      ]}
+      className="mc-btn"
+      title="默认工程"
+    />
   );
 };

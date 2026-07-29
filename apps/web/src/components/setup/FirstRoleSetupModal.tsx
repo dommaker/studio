@@ -10,6 +10,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
+import { Select } from '../ui';
 import '../../styles/theme.css';
 
 export interface FirstRoleSetupModalProps {
@@ -99,18 +100,15 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
           </div>
           <div>
             <label htmlFor="first-role-provider" className="u-text" style={{ display: 'block', marginBottom: '4px', fontSize: 'var(--fs-sm)', fontWeight: 500 }}>CLI</label>
-            <select
+            <Select
               id="first-role-provider"
               className="input"
               value={provider}
-              onChange={(e) => setProvider(e.target.value)}
+              onChange={setProvider}
+              options={providerOptions}
               style={{ width: '100%' }}
               data-testid="first-role-provider"
-            >
-              {providerOptions.map((o) => (
-                <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
-              ))}
-            </select>
+            />
             {noneDetected && (
               <p className="u-text-2" style={{ margin: '6px 0 0', fontSize: 'var(--fs-sm)' }}>
                 未在服务器上检测到已安装的 CLI，请确认安装后再选择。
