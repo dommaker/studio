@@ -2,7 +2,7 @@
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
 // Knowledge search analysis preserved as module-level exports.
 import { execSync } from 'child_process';
-import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, withAttestation, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { resolveProviderDefinition, buildHealthProbeCommand, execSh } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
@@ -1215,6 +1215,14 @@ ${rosterLines.join('\n')}
           `失败命令: ${outcome.failure.command}`,
           `输出尾部:\n${outcome.failure.tail}`,
         ].join('\n');
+        // F6（决策 1）：验证失败同样落台账 l1（rejected 留痕，后续全绿 approved 覆盖）
+        guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
+          verdict: 'rejected',
+          by: this.role.id,
+          at: new Date().toISOString(),
+          kind: 'verify',
+          summary: `失败命令: ${outcome.failure.command}`.slice(0, 300),
+        });
         action = 'progress';
         verifyBlocked = failCount >= 3;
         logger.info(`[AgentLoop] Verify guard: COMPLETE downgraded for ${wuId} (command failed: ${outcome.failure.command}, count ${failCount})`);
@@ -1226,6 +1234,14 @@ ${rosterLines.join('\n')}
             source: outcome.source,
             passedAt: new Date().toISOString(),
           };
+          // F6（决策 1）：验证全绿落台账 l1
+          guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
+            verdict: 'approved',
+            by: this.role.id,
+            at: new Date().toISOString(),
+            kind: 'verify',
+            summary: outcome.ran.join('；').slice(0, 300),
+          });
           verifyPassNotice = `✅ 自动验证通过（${outcome.ran.length} 条）：${outcome.ran.join('；')}`;
           logger.info(`[AgentLoop] Verify guard: all passed for ${wuId}`, { commands: outcome.ran, source: outcome.source });
         }

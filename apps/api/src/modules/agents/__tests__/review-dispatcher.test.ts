@@ -154,6 +154,17 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(meta.selfReview).toBe(true);
   });
 
+  it('R3: 评审子 WU scope 为 diff-only 输入契约（+code-review + needs-info 出口 + reviewInput 落档）', async () => {
+    const { child } = await createParentAndReview('实现功能 R3', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(child!.scope).toContain('diff-only');
+    expect(child!.scope).toContain('+code-review');
+    expect(child!.scope).toContain('needs-info');
+    expect(child!.scope).toContain('REVIEW_RESULT');
+    const meta = metaOf(child!.metadata);
+    expect(meta.reviewInput).toEqual({ mode: 'diff-only', skill: 'code-review' });
+  });
+
   it('AC-4.3: 已有未完结 review 子 WU -> 跳过（同父唯一性）', async () => {
     const parent = await wuService.create({
       scope: '实现功能 C',
@@ -195,6 +206,51 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
 
     const updatedParent = await wuService.getById(parent.id);
     expect(updatedParent!.status).toBe('done');
+  });
+
+  it('F6: child done + approved -> 父台账落 l2（agent-review，ref 指回子 WU）', async () => {
+    const { parent, child } = await createParentAndReview('实现功能 D2', executorProfile.id);
+    expect(child).toBeDefined();
+
+    // 评审者认领（assigneeId = profile id 形态）→ 台账 by 应解析为 reviewer profile id
+    await wuService.update(child!.id, { assigneeId: reviewerProfile.id });
+    await wuService.transitionStatus(child!.id, 'active');
+    await wuService.transitionStatus(child!.id, 'in_review');
+    const childMeta = metaOf((await wuService.getById(child!.id))!.metadata);
+    childMeta.reviewReport = { approved: true, reason: '代码质量良好' };
+    await wuService.update(child!.id, { metadata: childMeta });
+    await wuService.transitionStatus(child!.id, 'done');
+    await new Promise(r => setTimeout(r, 100));
+
+    const updatedParent = await wuService.getById(parent.id);
+    const att = metaOf(updatedParent!.metadata).attestations;
+    expect(att?.l2?.verdict).toBe('approved');
+    expect(att?.l2?.kind).toBe('agent-review');
+    expect(att?.l2?.by).toBe(reviewerProfile.id);
+    expect(att?.l2?.ref).toBe(child!.id);
+    expect(att?.l2?.selfReview).toBeUndefined();
+  });
+
+  it('F6 决策 5: 自评兜底场景 -> 父台账 l2 带 selfReview 标记', async () => {
+    await fileStore.updateChannel('ch-test', {
+      members: stringifyChannels([executorProfile.id]),
+    });
+    const { parent, child } = await createParentAndReview('实现功能 D3', executorProfile.id);
+    expect(child).toBeDefined();
+    expect(metaOf(child!.metadata).selfReview).toBe(true);
+
+    await wuService.transitionStatus(child!.id, 'active');
+    await wuService.transitionStatus(child!.id, 'in_review');
+    const childMeta = metaOf((await wuService.getById(child!.id))!.metadata);
+    childMeta.reviewReport = { approved: true };
+    await wuService.update(child!.id, { metadata: childMeta });
+    await wuService.transitionStatus(child!.id, 'done');
+    await new Promise(r => setTimeout(r, 100));
+
+    const updatedParent = await wuService.getById(parent.id);
+    const att = metaOf(updatedParent!.metadata).attestations;
+    expect(att?.l2?.verdict).toBe('approved');
+    expect(att?.l2?.selfReview).toBe(true);
   });
 
   it('AC-4.5: child done + rejected -> 父 reviewRejected', async () => {

@@ -68,15 +68,14 @@ export class ReviewDispatcher {
   }
 
   /**
-   * 实现者 profile id 解析：assigneeId 有两种形态——指名未认领时是 profile id，
+   * assigneeId 有两种形态——指名未认领时是 profile id，
    * 已认领后被 claim 改写为 instance id（instance.state.roleId 才是 profile id）。
-   * 排除约束必须落在 profile id 上（agent-loop observe 按 this.role.id 比对）。
+   * 排除约束/台账归属必须落在 profile id 上（agent-loop observe 按 this.role.id 比对）。
    */
-  private async resolveImplementerProfileId(parent: WorkUnitData): Promise<string | null> {
-    const id = parent.assigneeId;
-    if (!id) return null;
-    if (await this.fileStore.getProfile(id)) return id;
-    const state = await this.fileStore.getState(id).catch(() => null);
+  private async resolveProfileId(assigneeId: string | null): Promise<string | null> {
+    if (!assigneeId) return null;
+    if (await this.fileStore.getProfile(assigneeId)) return assigneeId;
+    const state = await this.fileStore.getState(assigneeId).catch(() => null);
     return state?.roleId ?? null;
   }
 
@@ -98,7 +97,7 @@ export class ReviewDispatcher {
     // 成员已知且除实现者外无他人 → 自评兜底（不加排除 + selfReview 标记 + 频道提醒）；
     // 成员未知（历史频道未回填 members）同样保守处理为自评兜底。
     const members = await this.getChannelActiveMembers(parent.channelId);
-    const implementerId = await this.resolveImplementerProfileId(parent);
+    const implementerId = await this.resolveProfileId(parent.assigneeId);
     const eligible = members?.filter(p => p.id !== implementerId) ?? null;
     const selfReview = !eligible || eligible.length === 0;
 
@@ -145,17 +144,37 @@ export class ReviewDispatcher {
       },
       ...(opts.excludeAssignee ? { excludeAssignee: opts.excludeAssignee } : {}),
       ...(opts.selfReview ? { selfReview: true } : {}),
+      // R3: 评审输入契约落档（审计用——台账可追溯本评审的输入形态）
+      reviewInput: { mode: 'diff-only', skill: 'code-review' },
     };
+
+    // R3 评审输入契约（2026-07-28 分析文档 §4-R3）：diff-only + code-review skill。
+    // 独立性保障：只给代码差异，不给实现叙述当判断依据（父 scope 仅作背景定位）；
+    // 上下文失效（diff 取不到/变更无法定位）→ verdict=needs-info 报备，
+    // parseReviewReport 对非 pass/reject 一律返回 null → ReviewDispatcher 转人工（不猜不硬判）。
+    const baseBranch = typeof parentMeta.worktreeBaseBranch === 'string' && parentMeta.worktreeBaseBranch.length > 0
+      ? parentMeta.worktreeBaseBranch
+      : null;
+    const diffHint = baseBranch
+      ? `git log ${baseBranch}..HEAD --oneline 看提交清单，git diff ${baseBranch}...HEAD 看全部变更`
+      : 'git log 看提交清单，git diff 看全部变更（先确认相对哪个基线分支）';
+    const scope = `审查代码变更（diff-only 输入契约）+code-review
+
+你只审查代码差异本身——实现者的任务描述仅作背景定位，不作为通过依据。
+1. 在工作区执行 ${diffHint}；
+2. 按 code-review skill 的标准逐文件审查差异；
+3. 上下文失效（diff 取不到/仓库状态异常/变更无法定位）时不要猜测——verdict 报 "needs-info" 转人工；
+4. 背景（仅供定位）：${parent.scope?.slice(0, 200) ?? ''}
+
+完成审查后，除 ACTION 行外，还必须在输出的最后一行给出结构化结论：
+REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结论","issues":[{"severity":"error"|"warn"|"info","message":"问题描述"}]}
+（verdict=pass 通过 / reject 打回 / needs-info 上下文不足转人工；summary、issues 可省略。缺少该行将转人工评审。）`;
 
     const child = await this.workUnitService.create({
       type: 'review',
       // P0 修复（reviewReport 回传断链）：scope 写入 REVIEW_RESULT 输出约定 ——
       // 评审方 AgentLoop complete 时据此解析结构化结论写入 metadata.reviewReport
-      scope: `审查代码变更：${parent.scope?.slice(0, 200) ?? ''}
-
-完成审查后，除 ACTION 行外，还必须在输出的最后一行给出结构化结论：
-REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"一句话结论","issues":[{"severity":"error"|"warn"|"info","message":"问题描述"}]}
-（verdict=pass 通过 / reject 打回；summary、issues 可省略。缺少该行将转人工评审。）`,
+      scope,
       // F4: 未指派 —— 任何频道成员可认领（排除实现者由 metadata.excludeAssignee 约束）
       assigneeId: null,
       status: 'unassigned',
@@ -201,13 +220,24 @@ REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"一句话结论","issues":[
       return;
     }
 
+    // F6（决策 1）：评审结论同时落父 WU 台账 l2——by 取评审者 profile id，
+    // selfReview 透传子 WU 标记（人类待办/指标据此捞自评），ref 指回评审子 WU。
+    const reviewerProfileId = await this.resolveProfileId(child.assigneeId);
+    const attestation = {
+      by: reviewerProfileId ?? child.assigneeId ?? child.id,
+      kind: 'agent-review' as const,
+      ...(childMeta.selfReview === true ? { selfReview: true } : {}),
+      ref: child.id,
+      ...(typeof report.reason === 'string' ? { summary: report.reason.slice(0, 200) } : {}),
+    };
+
     if (report.approved) {
-      await this.workUnitService.reviewPassed(parent.id);
+      await this.workUnitService.reviewPassed(parent.id, attestation);
     } else {
       const reason = report.reason
         ?? report.issues?.filter(i => i.severity === 'error').map(i => i.message).join('; ')
         ?? 'reviewer 拒绝';
-      await this.workUnitService.reviewRejected(parent.id, reason);
+      await this.workUnitService.reviewRejected(parent.id, reason, attestation);
     }
   }
 

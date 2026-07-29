@@ -65,21 +65,27 @@ describe('review API authorType 校验（A2A §4.4）', () => {
     expect(mockReviewPassed).not.toHaveBeenCalled();
   });
 
-  it('review-passed：authorType=human → 正常执行', async () => {
+  it('review-passed：authorType=human → 正常执行，落台账 l3（human-confirm）', async () => {
     mockReviewPassed.mockClear();
     const res = await post('/wu-1/review-passed', { body: { authorType: 'human' } });
     expect(res.status).toBe(200);
-    expect(mockReviewPassed).toHaveBeenCalledWith('wu-1');
+    expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', expect.objectContaining({
+      kind: 'human-confirm',
+      by: expect.any(String),
+    }));
   });
 
-  it('review-passed：缺省 authorType（UI/人类调用不发送）→ 正常执行', async () => {
+  it('review-passed：缺省 authorType（UI/人类调用不发送）→ 正常执行，落台账 l3', async () => {
     mockReviewPassed.mockClear();
     const res = await post('/wu-1/review-passed');
     expect(res.status).toBe(200);
-    expect(mockReviewPassed).toHaveBeenCalledWith('wu-1');
+    expect(mockReviewPassed).toHaveBeenCalledWith('wu-1', expect.objectContaining({
+      kind: 'human-confirm',
+      by: expect.any(String),
+    }));
   });
 
-  it('review-rejected：agent → 403；human → 正常执行', async () => {
+  it('review-rejected：agent → 403；human → 正常执行，落台账 l3', async () => {
     mockReviewRejected.mockClear();
     const forbidden = await post('/wu-1/review-rejected', { body: { authorType: 'agent', reason: '不行' } });
     expect(forbidden.status).toBe(403);
@@ -87,6 +93,9 @@ describe('review API authorType 校验（A2A §4.4）', () => {
 
     const ok = await post('/wu-1/review-rejected', { body: { authorType: 'human', reason: '重做' } });
     expect(ok.status).toBe(200);
-    expect(mockReviewRejected).toHaveBeenCalledWith('wu-1', '重做');
+    expect(mockReviewRejected).toHaveBeenCalledWith('wu-1', '重做', expect.objectContaining({
+      kind: 'human-confirm',
+      by: expect.any(String),
+    }));
   });
 });

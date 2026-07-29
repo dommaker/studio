@@ -105,6 +105,12 @@ describe('parseReviewReport', () => {
     expect(parseReviewReport('ACTION: COMPLETE:做完了但没有结论行')).toBeNull();
     expect(parseReviewReport('')).toBeNull();
   });
+
+  it('R3: verdict=needs-info → null（上下文失效报备，走转人工而非误拒）', () => {
+    expect(
+      parseReviewReport('REVIEW_RESULT: {"verdict":"needs-info","summary":"diff 取不到，仓库状态异常"}'),
+    ).toBeNull();
+  });
 });
 
 describe('P0: reviewReport 回传链路', () => {
