@@ -101,3 +101,13 @@ pnpm start  # 启动生产服务
 | `packages/studio-task` | 提供任务队列管理（TaskQueue）和任务执行器（TaskWorker），以及任务相关的 CLI 命令（查看队列、运行、重试、清理）和类型定义，支撑 studio 的任务调度与执行能力。 |
 <!-- /AUTO-GENERATED:modules -->
 <!-- /PRESERVE:modules -->
+
+<!-- PRESERVE:release-flow -->
+## 发布流程（代码写完后怎么上线）
+
+**唯一权威说明：`/root/projects/studio-config/SHIP.md`**。一句话：`studio-ship` 走 PR → CI → auto-merge → 盯到合并；合并后 cron 每分钟 `auto-deploy.sh` 在生产 checkout `/root/projects/studio-prod`（git worktree，与开发仓解耦）上部署 → 健康检查 → 失败自动回滚。
+
+- 部署状态：`studio-ship deploy-state`（state.json）或 Discord 告警频道
+- 部署日志：`/var/log/studio-deploy.log`
+- 本仓的任何分支/脏树/本地领先状态都**不影响**部署（2026-07-29 起）
+<!-- /PRESERVE:release-flow -->

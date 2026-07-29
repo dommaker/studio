@@ -21,7 +21,7 @@
     "dev:stop": "./scripts/dev/stop.sh",
     "dev:status": "./scripts/dev/status.sh",
     "dev:logs": "./scripts/dev/logs.sh",
-    "=== 生产环境 ===": "生产部署/启停脚本维护在私有运维仓（不随本仓发布），本仓只保留通用 start",
+    "=== 生产环境 ===": "生产部署/启停脚本在 /root/projects/studio-config（scripts/prod/* + scripts/auto-deploy.sh），流程见该仓 SHIP.md；本仓只保留通用 start",
     "start": "npx tsx apps/api/src/index.ts",
     "=== 数据库 ===": "(Spec 4 Phase 4 — DB已移除, 全部使用 FileStore)",
     "=== 单独启动 ===": "",
