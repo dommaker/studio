@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-28
+> 最后更新: 2026-07-29
 
 ---
 
@@ -316,7 +316,7 @@
 | discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
 | useDetectedProviders | apps/web/src/hooks/useDetectedProviders.ts | 当前运行环境已安装的 agent CLI 列表。 |
-| builtin-roles | apps/api/src/modules/agents/builtin-roles.ts | B4a 内置角色 seed（决策 D7/D8）— pm / dev / reviewer |
+
 | metrics.service | apps/api/src/modules/monitoring/metrics.service.ts | D16 监控指标聚合（B5）— 任务流健康 / 入口转化 / 人工干预 / 周期 / 角色 / 工程质量 / Token / 告警。 |
 | progress-rollup | apps/api/src/modules/pmo/progress-rollup.ts | B3a 工程归属链（决策 D2）：PMO 项目进度回写。 |
 | ownership-resolver | apps/api/src/modules/requirements/ownership-resolver.ts | B3a 工程归属链（决策 D2）— WorkUnit 创建时的工程归属解析。 |
@@ -328,3 +328,4 @@
 | agent-loop-registry | apps/api/src/modules/agents/agent-loop-registry.ts | AgentLoopRegistry — profileId → running AgentLoop (F1: AgentLoop 动态挂载) |
 | tool-registry | apps/api/src/modules/mcp/tool-registry.ts | MCP Tool Registry — dynamic registration, health, rate limiting |
 | trigger-registry | apps/api/src/modules/triggers/trigger-registry.ts | Trigger Registry — singleton TriggerScheduler instance |
+| default-provider | apps/api/src/modules/agents/default-provider.ts | F1 provider 默认选取工具（2026-07-28 内置角色与信任模型分析，决策见 |
