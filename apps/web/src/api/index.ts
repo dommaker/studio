@@ -332,7 +332,34 @@ export const projectApi = {
   parseCommand: (command: string) =>
     api.post('/pmo/project/parse-command', { command }),
 
+  // 🆕 PMO-b: 交付台账
+  getDelivery: (id: string) => api.get(`/pmo/project/${id}/delivery`),
+
+  // 🆕 PMO-b: 交付合并（human-only；branch-only 返回 409 BRANCH_ONLY）
+  deliver: (id: string) => api.post(`/pmo/project/${id}/deliver`),
+
 };
+
+// 🆕 PMO-b: 交付台账（GET /pmo/project/:id/delivery 响应形状）
+export interface DeliveryStatus {
+  projectId: string;
+  pmoNumber: string;
+  branch: string;
+  policy: 'auto-merge' | 'branch-only';
+  gitRepo?: string;
+  wu: { total: number; finished: number; inFlight: number };
+  evidence: {
+    l1Missing: string[];
+    l2Missing: string[];
+    l3Missing: string[];
+    selfReviewCount: number;
+  };
+  deliverable: boolean;
+  missing: string[];
+  deliveredAt?: string | null;
+  deliveredBy?: string | null;
+  deliverCommit?: string | null;
+}
 
 // Wiki API (B2-008)
 export const wikiApi = {

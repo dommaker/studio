@@ -49,8 +49,12 @@ export interface WorkUnitMetadata {
   // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
   worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
   worktreeBranch?: string;    // 专属分支名（task/<wuId>）
-  worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测）
+  worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测；PMO-b：归属 PMO 时为 PMO 分支）
   worktreeBaseRepo?: string;  // 共享 git 仓库根（worktree 的母仓库）
+  // PMO-b（决策 3）：WU 归属的 PMO 项目与集成分支（agent-loop 首 step 落档；
+  // 非空时 merge-on-review-pass 合到 PMO 分支的集成交合 worktree，而非 baseRepo 当前分支）
+  pmoProjectId?: string;
+  pmoBranch?: string;
   // B3b-i COMPLETE 前自动验证（决策 D3 前半，约定优先可覆盖）
   verifyCommands?: string[];  // 覆盖验证命令（优先级高于 package.json scripts 约定；workspace 记录同名字段次之）
   verifyReport?: {            // 最近一次全绿的验证摘要（COMPLETE 接受前写入）

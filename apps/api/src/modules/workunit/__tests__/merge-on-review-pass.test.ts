@@ -146,6 +146,49 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect((await wuService.getById(wu.id))!.status).toBe('blocked');
   });
 
+  it('PMO-b：落档 pmoBranch → 合到 PMO 分支的集成交合（不动 baseRepo checkout）', async () => {
+    const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11', pmoProjectId: 'proj-1' }));
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: true, mergeCommit: HEAD });
+    const cmds = calledCommands();
+    // 集成分支确保（rev-parse verify / branch）与交合 worktree add
+    expect(cmds.some(c => c.includes('rev-parse --verify') && c.includes('PMO-11'))).toBe(true);
+    expect(cmds.some(c => c.includes('worktree add') && c.includes('pmo-proj-1') && c.includes('PMO-11'))).toBe(true);
+    // merge 落在集成交合，而非 baseRepo
+    const mergeCmd = cmds.find(c => c.includes('merge --no-ff'));
+    expect(mergeCmd).toBeDefined();
+    expect(mergeCmd).toContain('pmo-proj-1');
+    expect(mergeCmd).not.toContain(`git -C '${REPO}'`);
+    // mergeCommit 读集成交合 HEAD
+    expect(cmds.some(c => c.includes('rev-parse HEAD') && c.includes('pmo-proj-1'))).toBe(true);
+    // 频道通知说 PMO 分支
+    const msgs = await studioMessages(wu.id);
+    expect(msgs.some(m => m.content.includes('已合并到 PMO-11'))).toBe(true);
+  });
+
+  it('PMO-b：集成交合准备失败 → 转人工（不静默回落错误目标）', async () => {
+    mockExecSh.mockImplementation(async (cmd: string) => {
+      if (cmd.includes('worktree add') && cmd.includes('pmo-proj-1')) {
+        throw new Error('PMO-11 is already checked out at /elsewhere');
+      }
+      if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
+      return { stdout: '', stderr: '' };
+    });
+    const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11', pmoProjectId: 'proj-1' }));
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome.attempted).toBe(true);
+    expect(outcome.merged).toBe(false);
+    // 未执行 merge；WU blocked 转人工
+    expect(calledCommands().some(c => c.includes('merge --no-ff'))).toBe(false);
+    expect((await wuService.getById(wu.id))!.status).toBe('blocked');
+    const msgs = await studioMessages(wu.id);
+    expect(msgs.some(m => m.content.includes('PMO 集成分支') && m.content.includes('转人工'))).toBe(true);
+  });
+
   it('合并成功：--no-ff merge → 记 mergedAt/mergeCommit → 清理 worktree+分支 → 频道通知', async () => {
     const wu = await createWu(worktreeMeta());
 

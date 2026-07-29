@@ -48,6 +48,10 @@ export interface UpdateProjectInput {
   completedAt?: string | null;
   deliveryPolicy?: DeliveryPolicy;
   requirementsDocId?: string | null;
+  /** PMO-b：交付落档（deliverProject 写入） */
+  deliveredAt?: string | null;
+  deliveredBy?: string | null;
+  deliverCommit?: string | null;
 }
 
 export interface ProjectListOptions {
@@ -87,6 +91,10 @@ export interface ProjectData {
   /** 决策 2：杂务 PMO（频道常青小活归集），isChore + channelId 联合标识 */
   isChore?: boolean;
   channelId?: string | null;
+  /** PMO-b：auto-merge 交付记录（人确认交付后落档；branch-only 永不写） */
+  deliveredAt?: string | null;
+  deliveredBy?: string | null;
+  deliverCommit?: string | null;
 }
 
 /** 交付策略缺省解析：未设置一律 branch-only（不碰合并/发布链路是默认姿态） */

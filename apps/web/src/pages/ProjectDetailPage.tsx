@@ -11,7 +11,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectApi, api } from '../api';
+import { projectApi, api, type DeliveryStatus } from '../api';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { Timeline } from '../components/Timeline';
 import { IronLawWarningBanner } from '../components/IronLawWarningBanner';
@@ -103,6 +103,11 @@ export function ProjectDetailPage() {
   const [copySuccess, setCopySuccess] = useState(false);
   const [copiedStep, setCopiedStep] = useState<number | null>(null);
 
+  // 🆕 PMO-b: 交付台账 + 交付合并（决策 1：合并动作为 human-only 手动触发）
+  const [delivery, setDelivery] = useState<DeliveryStatus | null>(null);
+  const [delivering, setDelivering] = useState(false);
+  const [deliverError, setDeliverError] = useState<{ message: string; missing?: string[]; conflictFiles?: string[] } | null>(null);
+
   useEffect(() => {
     if (!projectId) return;
     loadData();
@@ -129,6 +134,12 @@ export function ProjectDetailPage() {
         const docsRes = await api.get(`/knowledge/${projectId}`);
         setDocuments(docsRes.data?.documents || []);
       } catch { setDocuments([]); }
+
+      // 🆕 PMO-b: 加载交付台账（best-effort，不阻塞页面）
+      try {
+        const deliveryRes = await projectApi.getDelivery(projectId!);
+        setDelivery(deliveryRes.data);
+      } catch { setDelivery(null); }
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Failed to load project');
       setLoading(false);
@@ -163,6 +174,36 @@ export function ProjectDetailPage() {
       toast.error(`归档失败: ${err.response?.data?.error?.message || err.message}`);
     } finally {
       setArchiveLoading(false);
+    }
+  };
+
+  // 🆕 PMO-b: 交付合并（409 时展示缺口/冲突清单）
+  const handleDeliver = async () => {
+    if (!projectId) return;
+    setDelivering(true);
+    setDeliverError(null);
+    try {
+      const res = await projectApi.deliver(projectId);
+      toast.success(`交付成功${res.data?.deliverCommit ? ` (${String(res.data.deliverCommit).slice(0, 7)})` : ''}`);
+      // 刷新台账与项目信息（显示 deliveredAt/deliveredBy/deliverCommit）
+      try {
+        const deliveryRes = await projectApi.getDelivery(projectId);
+        setDelivery(deliveryRes.data);
+      } catch { /* best-effort */ }
+      loadData();
+    } catch (err: any) {
+      const errData = err?.response?.data?.error;
+      if (err?.response?.status === 409 && errData) {
+        setDeliverError({
+          message: errData.message || '交付被拒绝',
+          missing: errData.missing,
+          conflictFiles: errData.conflictFiles,
+        });
+      } else {
+        toast.error(errData?.message || err?.message || '交付失败');
+      }
+    } finally {
+      setDelivering(false);
     }
   };
 
@@ -240,6 +281,84 @@ export function ProjectDetailPage() {
           </div>
         )}
       </div>
+
+      {/* 🆕 PMO-b: 交付（台账 + human-only 合并） */}
+      {delivery && (
+        <div className="u-surface rounded-lg shadow p-4 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-medium u-text-2">📦 交付</h3>
+            {delivery.deliverable ? (
+              <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium">✓ 可交付</span>
+            ) : (
+              <span className="text-xs px-2 py-1 rounded u-warn-dim u-warn font-medium">未达成</span>
+            )}
+          </div>
+
+          {/* 台账概览：策略 / 分支 / WU 完成度 / 证据三层 / 自评 */}
+          <div className="text-sm u-text-2 flex flex-wrap gap-x-4 gap-y-1 mb-2">
+            <span>交付策略: {delivery.policy === 'auto-merge' ? '自动合并' : '分支交付'}</span>
+            <span>分支: {delivery.branch}</span>
+            <span>WU: {delivery.wu.finished}/{delivery.wu.total} 完成</span>
+            <span>L1: {delivery.evidence.l1Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l1Missing.length}`}</span>
+            <span>L2: {delivery.evidence.l2Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l2Missing.length}`}</span>
+            <span>L3: {delivery.evidence.l3Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l3Missing.length}`}</span>
+            <span>自评: {delivery.evidence.selfReviewCount}</span>
+          </div>
+
+          {/* 缺口清单（deliverable=false 时） */}
+          {!delivery.deliverable && delivery.missing.length > 0 && (
+            <ul className="text-xs u-err list-disc pl-5 space-y-0.5 mb-2">
+              {delivery.missing.map((m, i) => (
+                <li key={i}>{m}</li>
+              ))}
+            </ul>
+          )}
+
+          {/* 已交付记录（时间 / 人 / commit 短哈希） */}
+          {delivery.deliveredAt && (
+            <div className="text-xs u-ok u-ok-dim rounded p-2 mb-2">
+              已交付: {new Date(delivery.deliveredAt).toLocaleString('zh-CN')}
+              {delivery.deliveredBy && ` · ${delivery.deliveredBy}`}
+              {delivery.deliverCommit && ` · ${delivery.deliverCommit.slice(0, 7)}`}
+            </div>
+          )}
+
+          {/* 交付动作：auto-merge 给按钮；branch-only 给说明 */}
+          {delivery.policy === 'auto-merge' ? (
+            <div>
+              <button
+                onClick={handleDeliver}
+                disabled={delivering || !!delivery.deliveredAt}
+                className="px-4 py-2 u-ok-bg u-on-accent rounded u-hover-bg disabled:opacity-50"
+              >
+                {delivering ? '交付中...' : delivery.deliveredAt ? '已交付' : '交付合并'}
+              </button>
+              {/* 409：缺口 / 冲突文件清单 */}
+              {deliverError && (
+                <div className="mt-2 text-xs u-err u-err-dim rounded p-2">
+                  <div className="font-medium mb-1">{deliverError.message}</div>
+                  {deliverError.missing && deliverError.missing.length > 0 && (
+                    <ul className="list-disc pl-5 space-y-0.5">
+                      {deliverError.missing.map((m, i) => (
+                        <li key={i}>{m}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {deliverError.conflictFiles && deliverError.conflictFiles.length > 0 && (
+                    <div className="mt-1">
+                      冲突文件: {deliverError.conflictFiles.join(', ')}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-xs u-text-3">
+              分支交付模式：证据齐后请自行合并分支 {delivery.branch} 并走下游发布链路
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 📈 项目进展（AS-010 增强） */}
       <div className="u-surface rounded-lg shadow p-4 mb-6">
