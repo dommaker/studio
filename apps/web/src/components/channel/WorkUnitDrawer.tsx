@@ -11,7 +11,7 @@ import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
-import { deriveDisplayState } from '@dommaker/studio-shared';
+import { deriveDisplayState } from '@dommaker/studio-shared/web';
 
 export type DrawerState = { kind: 'wu'; id: string } | { kind: 'req'; id: string } | null;
 

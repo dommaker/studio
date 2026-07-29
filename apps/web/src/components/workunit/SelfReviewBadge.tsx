@@ -1,4 +1,4 @@
-import { deriveDisplayState } from '@dommaker/studio-shared';
+import { deriveDisplayState } from '@dommaker/studio-shared/web';
 
 /**
  * F6（决策 5）自评标记：频道内除实现者外无人可评时，评审由实现者自评兜底。

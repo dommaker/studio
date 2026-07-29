@@ -1,6 +1,6 @@
 // REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain
 import { useEffect, useState } from 'react';
-import { deriveDisplayState } from '@dommaker/studio-shared';
+import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { Modal } from '../ui/Modal';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 
