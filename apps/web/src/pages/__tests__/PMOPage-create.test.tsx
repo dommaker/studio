@@ -70,7 +70,9 @@ describe('PMO-a: 新建 PMO 表单', () => {
     fireEvent.change(screen.getByPlaceholderText('项目标题'), { target: { value: '证据链看板' } });
     fireEvent.change(screen.getByPlaceholderText('需求背景、验收标准等'), { target: { value: '展示 L1/L2/L3 证据' } });
     fireEvent.change(screen.getByPlaceholderText('/path/to/repo'), { target: { value: '/root/projects/studio' } });
-    fireEvent.change(screen.getByDisplayValue('分支交付（不碰合并/发布）'), { target: { value: 'auto-merge' } });
+    // 自定义 Select：触发器按钮显示当前项，点开后选目标项
+    fireEvent.click(screen.getByRole('button', { name: '分支交付（不碰合并/发布）' }));
+    fireEvent.click(screen.getByRole('option', { name: '自动合并（缺证据拒绝）' }));
 
     // 提交后列表返回新项目（模拟刷新）
     mockGet.mockImplementation((url: string) => {

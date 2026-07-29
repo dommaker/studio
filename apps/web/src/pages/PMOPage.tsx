@@ -4,6 +4,7 @@ import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { api, projectApi } from '../api';
 import { channelApi, type Channel } from '../api/channel';
 import { toast } from '../utils/toast';
+import { Select } from '../components/ui';
 import '../styles/theme.css';
 
 // 🆕 AS-016: 获取当前季度
@@ -431,14 +432,15 @@ export function PMOPage({ companyId }: PMOPageProps) {
                   </div>
                   <div>
                     <label className="text-sm u-text-2 mb-1">交付策略</label>
-                    <select
+                    <Select
                       value={newDeliveryPolicy}
-                      onChange={(e) => setNewDeliveryPolicy(e.target.value as 'branch-only' | 'auto-merge')}
+                      onChange={(v) => setNewDeliveryPolicy(v as 'branch-only' | 'auto-merge')}
+                      options={[
+                        { value: 'branch-only', label: '分支交付（不碰合并/发布）' },
+                        { value: 'auto-merge', label: '自动合并（缺证据拒绝）' },
+                      ]}
                       className="w-full px-3 py-2 border rounded-lg"
-                    >
-                      <option value="branch-only">分支交付（不碰合并/发布）</option>
-                      <option value="auto-merge">自动合并（缺证据拒绝）</option>
-                    </select>
+                    />
                   </div>
                 </div>
                 <div className="flex gap-3 justify-end">
@@ -726,15 +728,12 @@ export function PMOPage({ companyId }: PMOPageProps) {
                       </div>
                       <div>
                         <label className="text-xs u-text-3">自动度量</label>
-                        <select
+                        <Select
                           value={kr.metricType || ''}
-                          onChange={(e) => updateKR(kr.id, 'metricType', e.target.value)}
+                          onChange={(v) => updateKR(kr.id, 'metricType', v)}
+                          options={METRIC_TYPE_OPTIONS}
                           className="w-full px-2 py-1 text-sm border rounded"
-                        >
-                          {METRIC_TYPE_OPTIONS.map(opt => (
-                            <option key={opt.value} value={opt.value}>{opt.label}</option>
-                          ))}
-                        </select>
+                        />
                       </div>
                     </div>
                     {/* B8 Phase 1.5: inline validation */}
@@ -786,16 +785,12 @@ export function PMOPage({ companyId }: PMOPageProps) {
             {channels.length === 0 ? (
               <p style={{ color: 'var(--text-tertiary)' }}>无可用 Channel，请先创建</p>
             ) : (
-              <select
+              <Select
                 value={selectedChannelId}
-                onChange={(e) => setSelectedChannelId(e.target.value)}
+                onChange={setSelectedChannelId}
+                options={channels.map(ch => ({ value: ch.id, label: ch.name }))}
                 className="w-full p-2 rounded mb-4"
-                style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border-default)' }}
-              >
-                {channels.map(ch => (
-                  <option key={ch.id} value={ch.id}>{ch.name}</option>
-                ))}
-              </select>
+              />
             )}
             <div className="flex gap-3 justify-end">
               <button

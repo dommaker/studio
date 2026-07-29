@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../../api/monitoring';
+import { Select } from '../ui';
 
 const TYPE_LABELS: Record<string, string> = {
   rnd: '研发',
@@ -119,11 +120,12 @@ export function ChannelRail({ activeChannelId }: Props) {
             rows={2}
           />
           <div className="mc-newchan-row">
-            <select value={newType} onChange={e => setNewType(e.target.value)} aria-label="频道类型">
-              <option value="rnd">研发</option>
-              <option value="decision">决策</option>
-              <option value="system">系统</option>
-            </select>
+            <Select
+              value={newType}
+              onChange={setNewType}
+              options={Object.entries(TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+              aria-label="频道类型"
+            />
             <button className="mc-btn mc-btn-primary" onClick={handleCreate}>创建</button>
             <button className="mc-btn" onClick={() => { setShowNewForm(false); setNewName(''); setNewAgents(''); }}>
               取消

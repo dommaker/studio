@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { channelApi, type AgentProfile } from '../../api/channel';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
+import { Select } from '../ui';
 
 interface ChannelMemberManagerProps {
   channelId: string;
@@ -212,17 +213,14 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
                   className="input"
                   disabled={creating}
                 />
-                <select
+                <Select
                   value={newAgentProvider}
-                  onChange={(e) => setNewAgentProvider(e.target.value)}
+                  onChange={setNewAgentProvider}
+                  options={providerOptions}
                   className="input"
                   title="背后的 CLI"
                   disabled={creating}
-                >
-                  {providerOptions.map((o) => (
-                    <option key={o.value} value={o.value} disabled={o.disabled}>{o.label}</option>
-                  ))}
-                </select>
+                />
                 {createError && (
                   <p className="mc-drawer-note" style={{ color: 'var(--error)', margin: 0 }}>{createError}</p>
                 )}

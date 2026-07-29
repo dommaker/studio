@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useChannelList, type ChannelListItem } from '../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../api/monitoring';
 import { agentDotClass } from '../components/channel/ChannelRail';
+import { Select } from '../components/ui';
 
 const TYPE_LABELS: Record<string, string> = {
   rnd: '研发',
@@ -86,11 +87,13 @@ export function ChannelListPage() {
               rows={2}
             />
             <div className="flex items-center gap-2">
-              <select value={newType} onChange={e => setNewType(e.target.value)} className="input" style={{ padding: '3px 6px' }}>
-                <option value="rnd">研发</option>
-                <option value="decision">决策</option>
-                <option value="system">系统</option>
-              </select>
+              <Select
+                value={newType}
+                onChange={setNewType}
+                options={Object.entries(TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+                className="input"
+                style={{ padding: '3px 6px' }}
+              />
               <button onClick={handleCreate} className="mc-btn mc-btn-primary">
                 创建
               </button>
