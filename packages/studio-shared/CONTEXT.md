@@ -3,7 +3,7 @@
 > 此文件描述 packages/studio-shared 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-07-29 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/package.json, packages/studio-shared/CONTEXT.md
+⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/package.json
 
 ## 职责
 
@@ -39,6 +39,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `3b1596b0`: studio-shared): 隔离 Node-only top-level 副作用 + 新增前端专用入口 /web
 - ✅ `eb25b481`: build): studio-shared 类型出口切 dist/index.d.ts（apps/web 构建隔离）
 - ✅ 2026-07-27: B5 D18 — events-dir.ts 注释更新：apps/api 内事件读写已全部收敛到 ~/.studio/logs/studio-events.jsonl（apps/api/src/utils/studio-events.ts 单一入口），resolveEventsDir 仅剩仓外遗留消费方（如 events-daemon 目录约定），仓内无生产调用方
 - ✅ 2026-07 频道角色排查沉淀：新建本文件 —— provider 注册表与 FileStore 布局是频道角色修复探明的跨模块核心知识

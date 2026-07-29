@@ -22,16 +22,20 @@ export interface AuditEvent {
   actorRole?: string;
 }
 
-const AUDIT_DIR = path.join(os.homedir(), '.harness', 'audit');
+// 惰性求值：避免模块加载时调用 os.homedir()（前端 bundle 不具备 Node polyfill）
+function getAuditDir(): string {
+  return path.join(os.homedir(), '.harness', 'audit');
+}
 
 function getAuditFile(): string {
   const date = new Date().toISOString().slice(0, 10);
-  return path.join(AUDIT_DIR, `${date}.jsonl`);
+  return path.join(getAuditDir(), `${date}.jsonl`);
 }
 
 function ensureDir(): void {
-  if (!fs.existsSync(AUDIT_DIR)) {
-    fs.mkdirSync(AUDIT_DIR, { recursive: true });
+  const dir = getAuditDir();
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
   }
 }
 

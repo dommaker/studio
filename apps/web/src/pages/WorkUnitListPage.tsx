@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { deriveDisplayState, type DerivedWuState } from '@dommaker/studio-shared';
+import { deriveDisplayState, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { ReviewHint } from '../components/workunit/ReviewHint';

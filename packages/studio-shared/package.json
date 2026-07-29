@@ -9,6 +9,10 @@
       "types": "./dist/index.d.ts",
       "default": "./src/index.ts"
     },
+    "./web": {
+      "types": "./dist/web.d.ts",
+      "default": "./src/web.ts"
+    },
     "./node": {
       "types": "./dist/node.d.ts",
       "default": "./src/node.ts"

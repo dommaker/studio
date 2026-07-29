@@ -9,8 +9,6 @@ export * from './utils/index';
 export * from './llm/index';
 // 导出 Harness 模块
 export * from './harness/index';
-// 导出统一配置 API
-export { loadConfigEnv } from './config/index';
 // 导出 Constants 模块
 export * from './constants/levels';
 export * from './constants/responsibility-chain';

@@ -2,7 +2,7 @@
 // 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；质量门/编辑/进度轮询逻辑零变更
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { deriveDisplayState } from '@dommaker/studio-shared';
+import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { api } from '../../api';
 import { requirementApi } from '../../api/requirements';
 import type { ChannelMessage } from '../../api/channel';

@@ -332,3 +332,4 @@
 | attestation | packages/studio-shared/src/attestation.ts | F6 信任证据模型（2026-07-28 内置角色与流水线信任模型分析，决策 1） |
 | delivery | apps/api/src/modules/pmo/delivery.ts | PMO-b（2026-07-28 分析文档 §4.5，决策 1）：交付守卫与台账。 |
 | pmo-branch-resolver | apps/api/src/modules/requirements/pmo-branch-resolver.ts | PMO-b（2026-07-28 分析文档 §4.5，决策 3）：WU → PMO 分支解析。 |
+| web | packages/studio-shared/src/web.ts | 前端专用入口 - 仅导出无 Node 依赖的纯逻辑/类型模块 |

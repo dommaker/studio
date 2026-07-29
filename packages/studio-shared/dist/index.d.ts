@@ -6,7 +6,7 @@
 export * from './utils/index';
 export * from './llm/index';
 export * from './harness/index';
-export { loadConfigEnv, type LlmProvider } from './config/index';
+export type { LlmProvider } from './config/index';
 export * from './constants/levels';
 export * from './constants/responsibility-chain';
 export * from './constants/stage-definitions';
