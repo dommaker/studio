@@ -2,6 +2,7 @@
 // 2026-07 视觉重构（方向 A Mission Control）：mc-card 视觉重绘；质量门/编辑/进度轮询逻辑零变更
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { deriveDisplayState } from '@dommaker/studio-shared';
 import { api } from '../../api';
 import { requirementApi } from '../../api/requirements';
 import type { ChannelMessage } from '../../api/channel';
@@ -135,8 +136,10 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
         if (chain) {
           const workunits = chain.workunits || [];
           const total = workunits.length;
+          // F6-b：进度 = 所有权口径 workFinished（活干完没），不看信任列（人确认没）
           const completed = workunits.filter(w =>
-            w.status === 'done' || w.status === 'completed' || w.status === 'succeeded'
+            deriveDisplayState({ status: w.status, metadata: w.metadata }).workFinished
+            || w.status === 'completed' || w.status === 'succeeded'
           ).length;
           setProgress({ total, completed });
         }

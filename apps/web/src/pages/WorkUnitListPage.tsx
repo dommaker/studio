@@ -1,9 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { deriveDisplayState, type DerivedWuState } from '@dommaker/studio-shared';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { ReviewHint } from '../components/workunit/ReviewHint';
+import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { channelApi, type AgentProfile } from '../api/channel';
+
+/** F6：WU 展示状态唯一派生口径（铁律：禁止各自读 metadata.attestations 解释） */
+const deriveWu = (wu: { status: string; metadata?: string | null }): DerivedWuState =>
+  deriveDisplayState({ status: wu.status, metadata: wu.metadata });
 
 const statusLabels: Record<string, string> = {
   unassigned: '待分配',
@@ -43,6 +49,7 @@ export function WorkUnitListPage() {
   const [newScope, setNewScope] = useState('');
   const [newType, setNewType] = useState('task');
   const [creating, setCreating] = useState(false);
+  const [humanOnly, setHumanOnly] = useState(false);
 
   useEffect(() => {
     loadWorkUnits();
@@ -84,12 +91,13 @@ export function WorkUnitListPage() {
           </div>
         </div>
 
-        {/* Stats */}
+        {/* Stats —— F6-b：计数走派生列（双轨期与存储状态并存比对） */}
         <div className="flex gap-6 mt-4">
           <StatBadge label="总数" value={total} color="u-accent" />
-          <StatBadge label="待分配" value={workunits.filter(w => w.status === 'unassigned').length} color="u-text-3" />
-          <StatBadge label="执行中" value={workunits.filter(w => w.status === 'active').length} color="u-accent" />
-          <StatBadge label="审查中" value={workunits.filter(w => w.status === 'in_review').length} color="u-warn" />
+          <StatBadge label="待分配" value={workunits.filter(w => deriveWu(w).column === 'unassigned').length} color="u-text-3" />
+          <StatBadge label="执行中" value={workunits.filter(w => deriveWu(w).column === 'active').length} color="u-accent" />
+          <StatBadge label="审查中" value={workunits.filter(w => deriveWu(w).column === 'in_review').length} color="u-warn" />
+          <StatBadge label="待人工" value={workunits.filter(w => deriveWu(w).needsHuman).length} color="u-err" />
         </div>
       </div>
 
@@ -132,21 +140,30 @@ export function WorkUnitListPage() {
             </div>
           )}
 
-          {/* Filters */}
+          {/* Filters —— 状态 pill 走服务端过滤（存储状态）；待人工 pill 是派生维度，客户端过滤 */}
           <div className="flex gap-2 mt-4">
             {STATUS_OPTIONS.map(s => (
               <button
                 key={s}
                 className={`text-xs px-3 py-1 rounded-full transition-colors ${
-                  (statusFilter ?? 'all') === s
+                  !humanOnly && (statusFilter ?? 'all') === s
                     ? 'u-accent-dim u-accent'
                     : 'u-surface-2 u-text-3 u-hover-bg'
                 }`}
-                onClick={() => setStatusFilter(s === 'all' ? null : s)}
+                onClick={() => { setHumanOnly(false); setStatusFilter(s === 'all' ? null : s); }}
               >
                 {s === 'all' ? '全部' : statusLabels[s] ?? s}
               </button>
             ))}
+            <button
+              className={`text-xs px-3 py-1 rounded-full transition-colors ${
+                humanOnly ? 'u-err-dim u-err' : 'u-surface-2 u-text-3 u-hover-bg'
+              }`}
+              onClick={() => setHumanOnly(!humanOnly)}
+              title="活已干完但人还没确认（手写审查中 + done 缺人工确认）"
+            >
+              待人工
+            </button>
           </div>
 
           {/* Error */}
@@ -165,7 +182,7 @@ export function WorkUnitListPage() {
             </div>
           ) : (
             <div className="space-y-2 mt-4">
-              {workunits.map(wu => (
+              {(humanOnly ? workunits.filter(w => deriveWu(w).needsHuman) : workunits).map(wu => (
                 <WorkUnitRow
                   key={wu.id}
                   wu={wu}
@@ -195,6 +212,9 @@ function WorkUnitRow({
   const [rejectReason, setRejectReason] = useState('');
   const [channelMembers, setChannelMembers] = useState<AgentProfile[]>([]);
   const navigate = useNavigate();
+  // F6-b：徽章/按钮的展示判断一律过派生函数（通过/拒绝的调用资格仍看存储状态，
+  // 因为服务端状态机以存储为准；done 缺 l3 时"确认"调同一端点幂等补写）
+  const derived = deriveWu(wu);
 
   // AC-2.4: expanded 时获取频道成员，用于 ReviewHint 判断是否有 reviewer
   useEffect(() => {
@@ -212,9 +232,10 @@ function WorkUnitRow({
       >
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`text-xs px-2 py-0.5 rounded ${statusColors[wu.status] || 'u-surface-2 u-text-3'}`}>
-              {statusLabels[wu.status] ?? wu.status}
+            <span className={`text-xs px-2 py-0.5 rounded ${statusColors[derived.column] || 'u-surface-2 u-text-3'}`}>
+              {statusLabels[derived.column] ?? derived.column}
             </span>
+            <SelfReviewBadge wu={wu} />
             <span className="text-xs u-text-2">{typeLabels[wu.type] ?? wu.type}</span>
             {wu.reqId && (
               <span className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent" title="REQ 需求编号">
@@ -247,6 +268,16 @@ function WorkUnitRow({
                 拒绝
               </button>
             </>
+          )}
+          {/* F6-b：done 但缺人工确认（l3）→ 确认按钮（幂等补写台账，不改状态） */}
+          {wu.status === 'done' && derived.needsHuman && (
+            <button
+              className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
+              title="agent 评审已通过，人工确认后出审查列"
+              onClick={e => { e.stopPropagation(); onReviewPassed(); }}
+            >
+              确认
+            </button>
           )}
           <span className="u-text-2 text-sm">{expanded ? '▾' : '▸'}</span>
         </div>

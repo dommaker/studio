@@ -148,7 +148,7 @@ describe('Requirement API (vision §5.3)', () => {
     expect(json.success).toBe(true);
     expect(json.data.requirement.id).toBe(created.id);
     expect(json.data.workunits).toEqual([
-      { id: wu.id, title: '链路任务', status: 'unassigned', assigneeId: 'agent-9' },
+      { id: wu.id, title: '链路任务', status: 'unassigned', assigneeId: 'agent-9', metadata: null },
     ]);
   });
 

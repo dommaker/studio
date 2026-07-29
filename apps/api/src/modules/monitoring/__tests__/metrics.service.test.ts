@@ -322,3 +322,53 @@ describe('MetricsService', () => {
     expect(m.taskFlow.byStatus).toEqual({});
   });
 });
+
+describe('aggregateOverview — F6 证据台账（决策 1）', () => {
+  it('分层达成 / 自评 / 人类待办 / 双轨偏差 / 派生列分布', () => {
+    const input = makeInput();
+    // wu-a: done + l1/l2 approved（自评）→ engaged，needsHuman（缺 l3）
+    input.snapshots[0] = makeWu({
+      id: 'wu-a', status: 'done', assigneeId: 'inst-1',
+      createdAt: iso(T - 5 * D), claimedAt: iso(T - 4.5 * D), completedAt: iso(T - 1 * D), updatedAt: iso(T - 1 * D),
+      metadataObj: {
+        attestations: {
+          l1: { verdict: 'approved', by: 'dev', at: iso(T - 1 * D), kind: 'verify' },
+          l2: { verdict: 'approved', by: 'dev', at: iso(T - 1 * D), kind: 'agent-review', selfReview: true },
+        },
+      },
+    });
+    // wu-b: done + l2 + l3 → 派生列 done，双轨一致
+    input.snapshots[1] = makeWu({
+      id: 'wu-b', status: 'done', assigneeId: 'inst-2',
+      createdAt: iso(T - 6 * D), claimedAt: iso(T - 6 * D), completedAt: iso(T - 2 * D), updatedAt: iso(T - 2 * D),
+      metadataObj: {
+        attestations: {
+          l2: { verdict: 'approved', by: 'reviewer', at: iso(T - 2 * D), kind: 'agent-review' },
+          l3: { verdict: 'approved', by: 'Alice', at: iso(T - 2 * D), kind: 'human-confirm' },
+        },
+      },
+    });
+    // wu-d: blocked 无证据 → legacy 透传；wu-e: unassigned legacy
+
+    const m = aggregateOverview(input);
+    expect(m.evidence.engaged).toBe(2);
+    expect(m.evidence.l1Approved).toBe(1);
+    expect(m.evidence.l2Approved).toBe(2);
+    expect(m.evidence.l3Approved).toBe(1);
+    expect(m.evidence.selfReviewCount).toBe(1);
+    // needsHuman：wu-a（done 缺 l3）= 1
+    expect(m.evidence.needsHuman).toBe(1);
+    // 双轨偏差：wu-a 存储 done 但派生列 in_review = 1
+    expect(m.evidence.derivedMismatch).toBe(1);
+    expect(m.evidence.derivedByColumn).toEqual({ done: 1, in_review: 1, active: 1, blocked: 1, unassigned: 1 });
+    expect(m.evidence.description).toBeTruthy();
+  });
+
+  it('无证据快照 → 全 0 但派生列分布仍有值（双轨：存储即派生）', () => {
+    const m = aggregateOverview(makeInput());
+    expect(m.evidence.engaged).toBe(0);
+    expect(m.evidence.needsHuman).toBe(0);
+    expect(m.evidence.derivedMismatch).toBe(0);
+    expect(m.evidence.derivedByColumn).toEqual({ done: 2, active: 1, blocked: 1, unassigned: 1 });
+  });
+});

@@ -1,5 +1,6 @@
 // REQ 全链路面板（vision §5.3）— 展示 GET /requirements/:id/chain
 import { useEffect, useState } from 'react';
+import { deriveDisplayState } from '@dommaker/studio-shared';
 import { Modal } from '../ui/Modal';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 
@@ -85,17 +86,21 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
               <div className="text-sm u-text-3">暂无关联 WorkUnit</div>
             ) : (
               <ul className="space-y-1.5">
-                {chain.workunits.map(wu => (
+                {chain.workunits.map(wu => {
+                  // F6-b：徽章走派生列（唯一口径）
+                  const column = deriveDisplayState({ status: wu.status, metadata: wu.metadata }).column;
+                  return (
                   <li key={wu.id} className="flex items-center gap-2 text-sm">
-                    <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${wuStatusColors[wu.status] ?? 'u-surface-2 u-text-2'}`}>
-                      {wuStatusLabels[wu.status] ?? wu.status}
+                    <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${wuStatusColors[column] ?? 'u-surface-2 u-text-2'}`}>
+                      {wuStatusLabels[column] ?? column}
                     </span>
                     <span className="truncate" style={{ color: 'var(--text-primary, #111)' }}>{wu.title}</span>
                     {wu.assigneeId && (
                       <span className="text-xs u-text-3 flex-shrink-0">@{wu.assigneeId.slice(0, 8)}</span>
                     )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>

@@ -20,6 +20,7 @@ export interface RequirementChainWorkUnit {
   title: string;
   status: string;
   assigneeId: string | null;
+  metadata?: string | null;  // F6-b：链路节点徽章走 deriveDisplayState
 }
 
 export interface RequirementChain {

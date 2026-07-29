@@ -14,7 +14,7 @@
 
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { FileStore, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { FileStore, deriveDisplayState, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { readStudioEvents, parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
 
 /** D16: 聚合缓存（60s——要扫 index + 多个 jsonl，避免连打） */
@@ -141,6 +141,25 @@ export interface AlertMetrics {
   byLevel: Record<string, number>;
 }
 
+/** F6（决策 1）证据台账指标：信任分层达成 + 双轨比对。派生口径一律过 deriveDisplayState */
+export interface EvidenceMetrics {
+  description: string;
+  /** 证据模型已介入的 WU 数（有任何一层 attestation；存量 legacy 不计） */
+  engaged: number;
+  /** 各层达成数（approved 才算；当前快照口径，不按窗口） */
+  l1Approved: number;
+  l2Approved: number;
+  l3Approved: number;
+  /** l2 中自评数（决策 5：selfReview 占比高 = 评审独立性不足，频道该加成员或配评审 provider） */
+  selfReviewCount: number;
+  /** 人类待办 = 手写 in_review + done ∧ ¬l3（证据已介入） */
+  needsHuman: number;
+  /** 双轨比对：派生列 ≠ 存储状态的 WU 数。验证期观察——持续降到 0 附近才可停止手写 in_review */
+  derivedMismatch: number;
+  /** 派生列分布（展示口径；看板/列表应与之一致，不一致说明有 UI 绕派生函数） */
+  derivedByColumn: Record<string, number>;
+}
+
 export interface OverviewMetrics {
   windowDays: number;
   generatedAt: string;
@@ -152,6 +171,8 @@ export interface OverviewMetrics {
   quality: QualityMetrics;
   tokens: TokenMetrics;
   alerts: AlertMetrics;
+  /** F6 证据台账（决策 1；双轨期与门模型并存比对） */
+  evidence: EvidenceMetrics;
   /** 数据源状态：有任何 WU 或事件数据 → 'events'，全空 → 'insufficient-data' */
   source: 'events' | 'insufficient-data';
 }
@@ -521,6 +542,42 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     byLevel: alertLevels,
   };
 
+  // ── F6 证据台账（决策 1）：全快照口径（非窗口），派生一律过 deriveDisplayState ──
+  let engaged = 0;
+  let l1Approved = 0;
+  let l2Approved = 0;
+  let l3Approved = 0;
+  let selfReviewCount = 0;
+  let needsHuman = 0;
+  let derivedMismatch = 0;
+  const derivedByColumn: Record<string, number> = {};
+  for (const s of input.snapshots) {
+    const d = deriveDisplayState({ status: s.status, metadata: s.metadata });
+    derivedByColumn[d.column] = (derivedByColumn[d.column] ?? 0) + 1;
+    if (d.column !== s.status) derivedMismatch++;
+    if (!d.hasAttestations) {
+      if (s.status === 'in_review') needsHuman++; // 手写 in_review 本来就在人工队列
+      continue;
+    }
+    engaged++;
+    if (d.evidence.l1) l1Approved++;
+    if (d.evidence.l2) l2Approved++;
+    if (d.evidence.l3) l3Approved++;
+    if (d.evidence.selfReview) selfReviewCount++;
+    if (d.needsHuman) needsHuman++;
+  }
+  const evidence: EvidenceMetrics = {
+    description: 'F6 证据台账：l1 自动验证 / l2 agent 评审 / l3 人工确认的分层达成数（快照口径）。selfReviewCount 高 = 评审独立性不足；needsHuman = 等人工确认的队列长度；derivedMismatch 是双轨比对——派生列与存储状态不一致的 WU 数，持续为 0 才可停止手写 in_review',
+    engaged,
+    l1Approved,
+    l2Approved,
+    l3Approved,
+    selfReviewCount,
+    needsHuman,
+    derivedMismatch,
+    derivedByColumn,
+  };
+
   const hasData = input.snapshots.length > 0 || input.wuEvents.length > 0 || input.events.length > 0;
   return {
     windowDays,
@@ -533,6 +590,7 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     quality,
     tokens,
     alerts,
+    evidence,
     source: hasData ? 'events' : 'insufficient-data',
   };
 }

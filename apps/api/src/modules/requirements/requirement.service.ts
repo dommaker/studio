@@ -182,6 +182,7 @@ export class RequirementService {
         title: extractWorkUnitTitle(s.metadata, s.scope),
         status: s.status,
         assigneeId: s.assigneeId,
+        metadata: s.metadata,  // F6-b：链路节点徽章走 deriveDisplayState，需要台账
       })),
     };
   }
