@@ -9,14 +9,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { eventBus } from '../../event-bus';
-const AUDIT_DIR = path.join(os.homedir(), '.harness', 'audit');
+// 惰性求值：避免模块加载时调用 os.homedir()（前端 bundle 不具备 Node polyfill）
+function getAuditDir() {
+    return path.join(os.homedir(), '.harness', 'audit');
+}
 function getAuditFile() {
     const date = new Date().toISOString().slice(0, 10);
-    return path.join(AUDIT_DIR, `${date}.jsonl`);
+    return path.join(getAuditDir(), `${date}.jsonl`);
 }
 function ensureDir() {
-    if (!fs.existsSync(AUDIT_DIR)) {
-        fs.mkdirSync(AUDIT_DIR, { recursive: true });
+    const dir = getAuditDir();
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
     }
 }
 /**

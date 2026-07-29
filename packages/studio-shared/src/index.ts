@@ -13,8 +13,9 @@ export * from './llm/index';
 // 导出 Harness 模块
 export * from './harness/index';
 
-// 导出统一配置 API
-export { loadConfigEnv, type LlmProvider } from './config/index';
+// 导出统一配置 API（仅类型，避免前端引入 config 模块的 fs/path/os top-level 副作用）
+// 后端需要 loadConfigEnv 等运行时配置请使用 '@dommaker/studio-shared/node'
+export type { LlmProvider } from './config/index';
 
 // 导出 Constants 模块
 export * from './constants/levels';
