@@ -502,6 +502,25 @@ router.patch('/:id/members', requireAuth(), requireNotGuest(), async (req, res) 
   }
 });
 
+/**
+ * POST /api/v1/channels/:id/chore-pmo — 决策 2：登记频道杂务 PMO（find-or-create，幂等）。
+ * 登记后，本频道无 token 的派发消息自动归集到杂务 PMO 的 REQ 别名（req-binding 只查不建）。
+ */
+router.post('/:id/chore-pmo', requireAuth(), requireNotGuest(), async (req, res) => {
+  try {
+    const channel = await fileStore.getChannel(req.params.id);
+    if (!channel) {
+      return res.status(404).json({ success: false, error: `Channel not found: ${req.params.id}` });
+    }
+    const project = await projectService.ensureChoreProject(channel.id, channel.name);
+    res.status(201).json({ success: true, data: project });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    logger.warn('[Channel] ensure chore PMO failed', { channelId: req.params.id, error: msg });
+    res.status(500).json({ success: false, error: msg });
+  }
+});
+
 // POST /api/v1/channels/:id/messages/:messageId/convert-to-task (AC-E1)
 router.post('/:id/messages/:messageId/convert-to-task', requireAuth(), requireNotGuest(), async (req, res) => {
   const { id: channelId, messageId } = req.params;

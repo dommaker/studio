@@ -167,11 +167,25 @@ async function resolveOwnershipFromReply(
  * B3a 归属链：把人工选定的工程写回 Requirement.projectId 供下次继承。
  * 优先复用 gitRepo 锚定同一路径的既有 PMO 项目；没有则以发现结果新建
  * （新建项目即归属链的工程锚点）。已有 projectId 的需求不覆盖。
+ * 决策 2/4：别名视图（杂务/统一编号 PMO）已自带 projectId —— 若其 PMO 缺 gitRepo，
+ * 把人工答案写回 PMO.gitRepo（PMO = 归属的唯一回答点，一次绑定终身有效）。
  */
 async function bindRequirementToProject(reqId: string, hit: LocalProject, fileStore: FileStore): Promise<void> {
   const reqService = new RequirementService(fileStore);
   const requirement = await reqService.get(reqId);
-  if (!requirement || requirement.projectId) return;
+  if (!requirement) return;
+
+  if (requirement.projectId) {
+    // 别名/已挂接：PMO 缺 gitRepo 才补写（不覆盖既有锚点）
+    const backing = await projectService.get(requirement.projectId);
+    if (backing && !backing.gitRepo) {
+      await projectService.update(backing.id, { gitRepo: hit.path });
+      logger.info('[WaitingInput] PMO gitRepo bound from human reply', {
+        reqId, projectId: backing.id, gitRepo: hit.path,
+      });
+    }
+    return;
+  }
 
   const existing = (await projectService.list({ limit: 1000 })).find(p => p.gitRepo === hit.path);
   const project = existing ?? (await projectService.create({ title: hit.name, gitRepo: hit.path }));

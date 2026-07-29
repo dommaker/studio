@@ -110,6 +110,11 @@ interface Project {
   status: string;
   progress: number;
   createdAt: string;
+  // 🆕 PMO-a: REQ 只读别名 / 交付策略 / 分支 / 杂务标记
+  reqAlias?: string | null;
+  deliveryPolicy?: string;
+  gitBranch?: string | null;
+  isChore?: boolean;
   OKR?: { id: string; title: string };
 }
 
@@ -162,6 +167,14 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const [publishProjectId, setPublishProjectId] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [publishing, setPublishing] = useState(false);
+
+  // 🆕 PMO-a: 新建 PMO 内联表单（决策 2/4：deliveryPolicy 创建时选定，默认 branch-only）
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newRequirement, setNewRequirement] = useState('');
+  const [newGitRepo, setNewGitRepo] = useState('');
+  const [newDeliveryPolicy, setNewDeliveryPolicy] = useState<'branch-only' | 'auto-merge'>('branch-only');
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -280,6 +293,35 @@ export function PMOPage({ companyId }: PMOPageProps) {
     }
   };
 
+  // 🆕 PMO-a: 创建 PMO（companyId 由服务端解析；成功后刷新列表并清空表单）
+  const handleCreateProject = async () => {
+    if (!newTitle.trim()) {
+      toast.warning('请输入标题');
+      return;
+    }
+    setCreating(true);
+    try {
+      await projectApi.create({
+        title: newTitle.trim(),
+        requirement: newRequirement.trim() || undefined,
+        gitRepo: newGitRepo.trim() || undefined,
+        deliveryPolicy: newDeliveryPolicy,
+      });
+      toast.success('创建成功');
+      setShowCreateForm(false);
+      setNewTitle('');
+      setNewRequirement('');
+      setNewGitRepo('');
+      setNewDeliveryPolicy('branch-only');
+      loadData();
+    } catch (err: any) {
+      const msg = err?.response?.data?.error?.message || err?.message || '创建 PMO 失败';
+      toast.error(msg);
+    } finally {
+      setCreating(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
@@ -329,9 +371,97 @@ export function PMOPage({ companyId }: PMOPageProps) {
           </div>
         ) : activeTab === 'projects' ? (
           <div className="space-y-3">
+            {/* 🆕 PMO-a: 新建 PMO 按钮 + 内联表单 */}
+            {!showCreateForm ? (
+              <button
+                onClick={() => setShowCreateForm(true)}
+                className="w-full p-4 rounded-xl transition-all text-left"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  border: '2px dashed var(--border-default)',
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-lg">+ 新建 PMO</span>
+                </div>
+                <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                  直接下达项目指令，自动生成 PMO 号
+                </div>
+              </button>
+            ) : (
+              <div
+                className="p-4 rounded-xl space-y-3"
+                style={{
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-default)',
+                }}
+              >
+                <div className="font-medium" style={{ color: 'var(--text-primary)' }}>新建 PMO</div>
+                <div>
+                  <label className="text-sm u-text-2 mb-1">标题 *</label>
+                  <input
+                    type="text"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    placeholder="项目标题"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm u-text-2 mb-1">需求描述</label>
+                  <textarea
+                    value={newRequirement}
+                    onChange={(e) => setNewRequirement(e.target.value)}
+                    className="w-full px-3 py-2 border rounded-lg"
+                    rows={3}
+                    placeholder="需求背景、验收标准等"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-sm u-text-2 mb-1">工程路径 (gitRepo)</label>
+                    <input
+                      type="text"
+                      value={newGitRepo}
+                      onChange={(e) => setNewGitRepo(e.target.value)}
+                      className="w-full px-3 py-2 border rounded-lg"
+                      placeholder="/path/to/repo"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm u-text-2 mb-1">交付策略</label>
+                    <select
+                      value={newDeliveryPolicy}
+                      onChange={(e) => setNewDeliveryPolicy(e.target.value as 'branch-only' | 'auto-merge')}
+                      className="w-full px-3 py-2 border rounded-lg"
+                    >
+                      <option value="branch-only">分支交付（不碰合并/发布）</option>
+                      <option value="auto-merge">自动合并（缺证据拒绝）</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex gap-3 justify-end">
+                  <button
+                    onClick={() => setShowCreateForm(false)}
+                    className="px-4 py-2 u-text-2 u-hover-text"
+                  >
+                    取消
+                  </button>
+                  <button
+                    onClick={handleCreateProject}
+                    disabled={creating}
+                    className="px-4 py-2 u-accent-bg u-on-accent rounded-lg u-hover-bg disabled:opacity-50"
+                  >
+                    {creating ? '创建中...' : '创建'}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {projects.length === 0 ? (
               <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>
-                暂无项目，在首页下达 CEO 指令创建
+                暂无项目，点击上方「新建 PMO」创建
               </div>
             ) : (
               projects.map(project => (
@@ -353,11 +483,26 @@ export function PMOPage({ companyId }: PMOPageProps) {
                         {project.pmoNumber}
                       </div>
                       <div>
-                        <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                        <div className="font-medium flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
                           {project.title}
+                          {/* 🆕 PMO-a: 杂务徽章 */}
+                          {project.isChore && (
+                            <span className="text-xs px-1.5 py-0.5 rounded" style={{
+                              background: 'rgba(255, 152, 0, 0.12)',
+                              color: '#FF9800',
+                            }}>
+                              杂务
+                            </span>
+                          )}
                         </div>
                         <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
                           {project.description || '无描述'}
+                          {/* 🆕 PMO-a: 交付策略小字标注 */}
+                          {project.deliveryPolicy && (
+                            <span className="ml-2" style={{ color: 'var(--text-tertiary)' }}>
+                              · {project.deliveryPolicy}
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

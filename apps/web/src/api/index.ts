@@ -278,9 +278,8 @@ export const authApi = {
 
 // Project API - GEN-005: PMO 项目管理
 export const projectApi = {
-  // 创建项目（自动生成 PMO 号）
+  // 创建项目（自动生成 PMO 号；PMO-a: companyId 由服务端解析，前端不再传）
   create: (data: {
-    companyId: string;
     title: string;
     description?: string;
     requirement?: string;
@@ -288,6 +287,8 @@ export const projectApi = {
     priority?: string;
     gitBranch?: string;
     gitRepo?: string;
+    deliveryPolicy?: 'auto-merge' | 'branch-only';
+    requirementsDocId?: string;
   }) => api.post('/pmo/project', data),
 
   // 获取项目列表

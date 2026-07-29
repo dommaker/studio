@@ -52,11 +52,17 @@ router.get('/project', async (req: Request, res: Response) => {
  */
 router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo } = req.body;
+    const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo, deliveryPolicy, requirementsDocId } = req.body;
 
     if (!title) {
       return res.status(400).json({
         error: { code: 'MISSING_FIELDS', message: 'title is required' },
+      });
+    }
+    // PMO-a：交付策略白名单校验（缺省 branch-only）
+    if (deliveryPolicy !== undefined && deliveryPolicy !== 'auto-merge' && deliveryPolicy !== 'branch-only') {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: "deliveryPolicy must be 'auto-merge' or 'branch-only'" },
       });
     }
 
@@ -69,6 +75,8 @@ router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, r
       priority,
       gitBranch,
       gitRepo,
+      deliveryPolicy,
+      requirementsDocId,
     });
 
     res.status(201).json(project);

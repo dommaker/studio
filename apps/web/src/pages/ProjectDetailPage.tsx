@@ -59,6 +59,10 @@ interface Project {
   progress: number;
   gitBranch?: string;
   gitRepo?: string;
+  // 🆕 PMO-a: REQ 只读别名 / 交付策略 / 杂务标记
+  reqAlias?: string | null;
+  deliveryPolicy?: string;
+  isChore?: boolean;
   worktreePath?: string;
   startedAt?: string;
   completedAt?: string;
@@ -221,6 +225,18 @@ export function ProjectDetailPage() {
         {project.OKR && (
           <div className="text-sm u-text-2 mt-1">
             OKR: {project.OKR.title} ({project.OKR.quarter})
+          </div>
+        )}
+        {/* 🆕 PMO-a: REQ 别名 / 分支 / 交付策略（有值才显示） */}
+        {(project.reqAlias || project.gitBranch || project.deliveryPolicy) && (
+          <div className="text-sm u-text-2 mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {project.reqAlias && <span>REQ 别名: {project.reqAlias}</span>}
+            {project.gitBranch && <span>分支: {project.gitBranch}</span>}
+            {project.deliveryPolicy && (
+              <span>
+                交付策略: {project.deliveryPolicy === 'auto-merge' ? '自动合并' : '分支交付'}
+              </span>
+            )}
           </div>
         )}
       </div>
