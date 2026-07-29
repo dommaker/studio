@@ -87,20 +87,21 @@ export default function App() {
     loadExecutions();
   }, [loadAgents, loadExecutions]);
 
-  // AC-2.1~2.3: 启动时检测 studio 角色 provider + 无用户角色
+  // AC-2.1~2.3: 启动时检测 studio 角色 provider + 是否有已配置 provider 的用户角色
   useEffect(() => {
     if (!isAuthenticated) return;
     channelApi.listAgents(undefined, { includeSystem: true })
       .then((res) => {
         const profiles = res.data.data;
         const studio = profiles.find(p => p.name === 'studio');
-        const userRoles = profiles.filter(p => p.name !== 'studio');
         // AC-2.2: studio provider=null 且未 dismiss -> 弹框
         if (studio && !studio.provider && !isStudioRoleSetupDismissed()) {
           setStudioRoleSetupOpen(true);
         }
-        // AC-2.3: 无用户角色且未 dismiss -> 弹框
-        if (userRoles.length === 0 && !isFirstRoleSetupDismissed()) {
+        // AC-2.3（F2，2026-07-28）: 无任何 provider 非空的 active 用户角色且未 dismiss -> 弹框
+        // （内置三角色 seed 已退役；角色存在但 provider 为空 = 没有可用执行体，同样需要引导）
+        const hasConfiguredRole = profiles.some(p => p.name !== 'studio' && p.status === 'active' && !!p.provider);
+        if (!hasConfiguredRole && !isFirstRoleSetupDismissed()) {
           setFirstRoleSetupOpen(true);
         }
       })
