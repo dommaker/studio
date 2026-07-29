@@ -24,6 +24,9 @@ export * from './constants/stage-definitions';
 // 导出职能域词表（决策 8：阶段导向单一词表 + legacy 归一化）
 export * from './domain-vocab';
 
+// 导出 F6 信任证据模型（决策 1：attestations + 唯一派生口径 deriveDisplayState）
+export * from './attestation';
+
 // 导出 Types 模块
 export * from './types/stance';
 export * from './types/goal-status';

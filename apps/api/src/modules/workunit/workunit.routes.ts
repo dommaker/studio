@@ -29,7 +29,7 @@ import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
-import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
+import { requireAuth, requireNotGuest, type AuthRequest } from '../../middleware/auth.js';
 
 const router = Router();
 const fileStore = new FileStore();
@@ -253,7 +253,12 @@ router.post('/:id/review-passed', requireAuth(), requireNotGuest(), async (req: 
         error: { code: 'FORBIDDEN', message: 'Review actions are human-only (authorType=agent rejected)' },
       });
     }
-    const wu = await service.reviewPassed(req.params.id);
+    // F6（决策 1）：人工确认落台账 l3 —— by 取登录用户名（本地模式回落 Local User/id）
+    const user = (req as AuthRequest).user;
+    const wu = await service.reviewPassed(req.params.id, {
+      by: user?.name ?? user?.email ?? user?.id ?? 'human',
+      kind: 'human-confirm',
+    });
     res.json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);
@@ -276,7 +281,12 @@ router.post('/:id/review-rejected', requireAuth(), requireNotGuest(), async (req
         error: { code: 'FORBIDDEN', message: 'Review actions are human-only (authorType=agent rejected)' },
       });
     }
-    const wu = await service.reviewRejected(req.params.id, req.body?.reason);
+    // F6（决策 1）：人工否决同样落台账 l3（rejected 留痕）
+    const user = (req as AuthRequest).user;
+    const wu = await service.reviewRejected(req.params.id, req.body?.reason, {
+      by: user?.name ?? user?.email ?? user?.id ?? 'human',
+      kind: 'human-confirm',
+    });
     res.json(wu);
   } catch (error) {
     const msg = getErrorMessage(error);

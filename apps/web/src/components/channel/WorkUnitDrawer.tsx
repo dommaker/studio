@@ -10,6 +10,8 @@ import {
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
+import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
+import { deriveDisplayState } from '@dommaker/studio-shared';
 
 export type DrawerState = { kind: 'wu'; id: string } | { kind: 'req'; id: string } | null;
 
@@ -35,6 +37,11 @@ export function wuStatusClass(status: string): string {
   if (status === 'blocked') return 'mc-status mc-status-need';
   if (status === 'done' || status === 'closed') return 'mc-status mc-status-done';
   return 'mc-status mc-status-pending';
+}
+
+/** F6：WU 展示状态唯一派生口径（铁律：徽章/样式只准看派生列，禁止各自解释 attestations） */
+function deriveWuColumn(wu: { status: string; metadata?: string | null }): string {
+  return deriveDisplayState({ status: wu.status, metadata: wu.metadata }).column;
 }
 
 export function formatTokens(n: number): string {
@@ -111,10 +118,11 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   return (
     <div>
       <div className="mc-drawer-subject">
-        <span className={wuStatusClass(wu.status)}>
-          {wu.status === 'active' ? <span className="mc-dot" /> : null}
-          {WU_STATUS_LABELS[wu.status] ?? wu.status}
+        <span className={wuStatusClass(deriveWuColumn(wu))}>
+          {deriveWuColumn(wu) === 'active' ? <span className="mc-dot" /> : null}
+          {WU_STATUS_LABELS[deriveWuColumn(wu)] ?? deriveWuColumn(wu)}
         </span>
+        <SelfReviewBadge wu={wu} />
         <span className="mc-drawer-subject-title">{title}</span>
       </div>
 
@@ -267,9 +275,9 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
           {i > 0 && <div className="mc-chain-arrow">↓</div>}
           <button className="mc-chain-node" onClick={() => onOpenWu(wu.id)}>
             <div className="mc-chain-node-top">
-              <span className={wuStatusClass(wu.status)}>
-                {wu.status === 'active' ? <span className="mc-dot" /> : null}
-                {WU_STATUS_LABELS[wu.status] ?? wu.status}
+              <span className={wuStatusClass(deriveWuColumn(wu))}>
+                {deriveWuColumn(wu) === 'active' ? <span className="mc-dot" /> : null}
+                {WU_STATUS_LABELS[deriveWuColumn(wu)] ?? deriveWuColumn(wu)}
               </span>
               <span className="mc-mono">{wu.id}</span>
               {wu.assigneeId && <span className="mc-dim" style={{ marginLeft: 'auto' }}>@{wu.assigneeId.slice(0, 8)}</span>}

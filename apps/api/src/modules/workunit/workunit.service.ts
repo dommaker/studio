@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore, withAttestation, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent, type WuAttestations } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass } from './merge-on-review-pass.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
@@ -49,8 +49,12 @@ export interface WorkUnitMetadata {
   // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
   worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
   worktreeBranch?: string;    // 专属分支名（task/<wuId>）
-  worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测）
+  worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测；PMO-b：归属 PMO 时为 PMO 分支）
   worktreeBaseRepo?: string;  // 共享 git 仓库根（worktree 的母仓库）
+  // PMO-b（决策 3）：WU 归属的 PMO 项目与集成分支（agent-loop 首 step 落档；
+  // 非空时 merge-on-review-pass 合到 PMO 分支的集成交合 worktree，而非 baseRepo 当前分支）
+  pmoProjectId?: string;
+  pmoBranch?: string;
   // B3b-i COMPLETE 前自动验证（决策 D3 前半，约定优先可覆盖）
   verifyCommands?: string[];  // 覆盖验证命令（优先级高于 package.json scripts 约定；workspace 记录同名字段次之）
   verifyReport?: {            // 最近一次全绿的验证摘要（COMPLETE 接受前写入）
@@ -98,7 +102,21 @@ export interface WorkUnitMetadata {
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
   selfReview?: boolean;       // 本评审 WU 未排除实现者（频道内无其他 active 成员）→ 可能是自评，台账/提醒据此标记
+  reviewInput?: { mode: string; skill: string };  // R3: 评审输入契约落档（diff-only + code-review），审计用
+  // F6 信任证据模型（决策 1）：分层证据台账，l1 自动验证 / l2 agent 评审 / l3 人工确认。
+  // 写入方：l1=agent-loop 验证守卫；l2/l3=reviewPassed/reviewRejected（attestation 入参）。
+  // 消费铁律：展示/指标只准过 studio-shared 的 deriveDisplayState()，禁止各自解释。
+  attestations?: WuAttestations;
   [key: string]: unknown;     // 允许扩展字段
+}
+
+/** F6: reviewPassed/reviewRejected 的证据来源——agent-review 写 l2，human-confirm 写 l3 */
+export interface ReviewAttestationSource {
+  by: string;                 // l2: 评审者 profile id；l3: 人类用户名
+  kind: 'agent-review' | 'human-confirm';
+  selfReview?: boolean;       // l2 自评兜底标记（决策 5）
+  ref?: string;               // l2: 评审子 WU id
+  summary?: string;
 }
 
 export interface CreateWorkUnitInput {
@@ -673,17 +691,36 @@ export class WorkUnitService {
    * Review passed: in_review → done. Emits workunit.review.passed.
    * Resets consecutive rejection counter.
    * B3b-ii：收口处触发 worktree 分支自动合并（best-effort，不阻断 done 迁移）。
+   * F6（决策 1）：attestation 入参带来源时写台账——agent-review → l2，human-confirm → l3。
+   * F6-b：human-confirm 且当前已是 done → 幂等补写 l3（agent 评审通过的 WU 等人工确认，
+   * 人类待办 = done ∧ ¬l3 必须有确认出口），不改状态、不重复触发合并。
    */
-  async reviewPassed(id: string): Promise<WorkUnitData> {
+  async reviewPassed(id: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData> {
     const snapshots = await this.fileStore.getIndex();
     const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
+      // F6-b 唯一豁免：done + human-confirm → 只补台账 l3
+      if (current.status === 'done' && attestation?.kind === 'human-confirm') {
+        return this.writeHumanConfirmation(current, attestation);
+      }
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
     }
 
     const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
     delete metadata._consecutiveReviewRejections;
+    if (attestation) {
+      const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
+      metadata.attestations = withAttestation(metadata.attestations, level, {
+        verdict: 'approved',
+        by: attestation.by,
+        at: new Date().toISOString(),
+        kind: attestation.kind,
+        ...(attestation.summary ? { summary: attestation.summary } : {}),
+        ...(attestation.selfReview === true ? { selfReview: true } : {}),
+        ...(attestation.ref ? { ref: attestation.ref } : {}),
+      });
+    }
 
     const now = new Date();
     const isoNow = now.toISOString();
@@ -723,9 +760,37 @@ export class WorkUnitService {
   }
 
   /**
-   * B3b-ii: 自动合并冲突转人工 — 置 blocked 并落档 mergeConflict/conflictFiles。
-   * done → blocked 不在 VALID_TRANSITIONS（同 reviewRejected 3 次拒绝自动 blocked 先例，直写快照）。
+   * F6-b：done WU 的人工确认（l3 补写）——只更新台账，不动状态/.completedAt，
+   * 不发 status_changed（状态没变），不触发合并。幂等：重复确认覆盖 l3 最新值。
    */
+  private async writeHumanConfirmation(
+    current: WorkUnitSnapshot,
+    attestation: ReviewAttestationSource,
+  ): Promise<WorkUnitData> {
+    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    metadata.attestations = withAttestation(metadata.attestations, 'l3', {
+      verdict: 'approved',
+      by: attestation.by,
+      at: new Date().toISOString(),
+      kind: 'human-confirm',
+      ...(attestation.summary ? { summary: attestation.summary } : {}),
+    });
+
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      metadata: JSON.stringify(metadata),
+      updatedAt: new Date().toISOString(),
+    };
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: current.id,
+      timestamp: updated.updatedAt,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+    return snapshotToData(updated);
+  }
   async markMergeConflict(id: string, conflictFiles: string[]): Promise<WorkUnitData> {
     const snapshots = await this.fileStore.getIndex();
     const current = snapshots.find(s => s.id === id);
@@ -765,8 +830,9 @@ export class WorkUnitService {
   /**
    * Review rejected: in_review → active (or → blocked after 3 consecutive rejections).
    * Emits workunit.review.rejected.
+   * F6（决策 1）：attestation 入参带来源时写台账（verdict=rejected 留痕；返工后重审 approved 覆盖）。
    */
-  async reviewRejected(id: string, reason?: string): Promise<WorkUnitData> {
+  async reviewRejected(id: string, reason?: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData> {
     const snapshots = await this.fileStore.getIndex();
     const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
@@ -778,6 +844,18 @@ export class WorkUnitService {
     const rejections = (metadata._consecutiveReviewRejections ?? 0) + 1;
     metadata._consecutiveReviewRejections = rejections;
     if (reason) metadata._lastRejectionReason = reason;
+    if (attestation) {
+      const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
+      metadata.attestations = withAttestation(metadata.attestations, level, {
+        verdict: 'rejected',
+        by: attestation.by,
+        at: new Date().toISOString(),
+        kind: attestation.kind,
+        ...(attestation.summary ?? reason ? { summary: attestation.summary ?? reason } : {}),
+        ...(attestation.selfReview === true ? { selfReview: true } : {}),
+        ...(attestation.ref ? { ref: attestation.ref } : {}),
+      });
+    }
 
     // 3 consecutive rejections → auto-block
     const newStatus = rejections >= 3 ? 'blocked' : 'active';

@@ -1,13 +1,14 @@
 // MonitoringPage — Agent Network MVP-6
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats } from '../api/monitoring';
+import { monitoringApi, type MonitoringStats, type FlywheelStats, type OverheadStats, type EvidenceStats } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeEntryItem } from '../api/knowledge';
 
 export function MonitoringPage() {
   const [data, setData] = useState<MonitoringStats | null>(null);
   const [flywheel, setFlywheel] = useState<FlywheelStats | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
+  const [evidence, setEvidence] = useState<EvidenceStats | null>(null);
   // 审核闭环：proposal 待审列表（maturity=draft，与 proposalsPendingReview 计数同库口径）
   const [proposals, setProposals] = useState<KnowledgeEntryItem[] | null>(null);
   const [approvingIds, setApprovingIds] = useState<Set<string>>(new Set());
@@ -27,6 +28,8 @@ export function MonitoringPage() {
     // M1/M2 区块独立加载，失败不影响主面板
     monitoringApi.getFlywheel().then(r => setFlywheel(r.data)).catch(() => setFlywheel(null));
     monitoringApi.getOverhead().then(r => setOverhead(r.data)).catch(() => setOverhead(null));
+    // F6 证据台账独立加载，失败不影响主面板
+    monitoringApi.getOverview().then(r => setEvidence(r.data.evidence)).catch(() => setEvidence(null));
     // 待审列表独立加载，失败不阻塞其他区块
     knowledgeApi.listPendingReview().then(r => setProposals(r.data.entries)).catch(() => setProposals(null));
   };
@@ -116,6 +119,24 @@ export function MonitoringPage() {
                   <StatCard label="失败/阻塞" value={data.recent.failedLast24h} color="u-err" />
                 </div>
               </Section>
+
+              {/* F6 证据台账（决策 1）：信任分层达成 + 双轨比对 */}
+              {evidence && (
+                <Section title="证据台账（信任分层）">
+                  <div className="grid grid-cols-4 gap-3">
+                    <StatCard label="L1 自动验证" value={evidence.l1Approved} color="u-ok" />
+                    <StatCard label="L2 agent 评审" value={evidence.l2Approved} color="u-ok" />
+                    <StatCard label="L3 人工确认" value={evidence.l3Approved} color="u-ok" />
+                    <StatCard label="自评（L2）" value={evidence.selfReviewCount} color="u-warn" />
+                    <StatCard label="待人工确认" value={evidence.needsHuman} color="u-err" />
+                    <StatCard label="双轨偏差" value={evidence.derivedMismatch} color="u-warn" />
+                    <StatCard label="已介入 WU" value={evidence.engaged} color="u-accent" />
+                  </div>
+                  <p className="text-xs u-text-3 mt-2">
+                    双轨偏差 = 派生列与存储状态不一致的 WU 数（验证期指标，持续为 0 才可停止手写 in_review）
+                  </p>
+                </Section>
+              )}
 
               {/* M1: 飞轮指标 */}
               <Section title="飞轮指标">

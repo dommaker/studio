@@ -33,7 +33,13 @@ async function findWuByMessage(workUnitId: string | null | undefined) {
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-binding-test-'));
   fileStore = new FileStore(tmpDir);
-  reqService = new RequirementService(fileStore);
+  // 中性化 PMO 依赖（默认实现会读真实 ~/.studio/projects，并行测试下被 routes 测试的真实项目串扰）
+  reqService = new RequirementService(fileStore, {
+    getProjectByAlias: async () => null,
+    findChoreProject: async () => null,
+    listAliasProjects: async () => [],
+    getProjectByPmoNumber: async () => null,
+  });
   await fileStore.createChannel({
     id: channelId, name: '#req-binding', type: 'rnd',
     defaultWorkspaceId: null, defaultPath: null,
@@ -229,5 +235,40 @@ describe('resolveReqIdForDispatch', () => {
     });
     expect(autoId).toMatch(/^REQ-\d{4}$/);
     expect(autoId).not.toBe(existing.id);
+  });
+
+  it('决策 4：#PMO-n token 经别名层解析（命中统一编号 PMO → 绑其 REQ 别名）', async () => {
+    const deps = {
+      getProjectByAlias: async () => null,
+      findChoreProject: async () => null,
+      listAliasProjects: async () => [],
+      getProjectByPmoNumber: async (n: string) => n === 'PMO-11'
+        ? { id: 'proj-11', pmoNumber: 'PMO-11', reqAlias: 'REQ-0011' } as never
+        : null,
+    };
+    expect(await resolveReqIdForDispatch({
+      content: '做 #PMO-11 的下一步', channelId, createdBy: 'mention', fileStore, deps,
+    })).toBe('REQ-0011');
+    // 大小写不敏感 + PM-n 同号归一
+    expect(await resolveReqIdForDispatch({
+      content: '继续 #pm-011', channelId, createdBy: 'mention', fileStore,
+      deps: {
+        ...deps,
+        getProjectByPmoNumber: async () => ({ id: 'proj-11', pmoNumber: 'PMO-11', reqAlias: 'REQ-0011' }) as never,
+      },
+    })).toBe('REQ-0011');
+  });
+
+  it('决策 4：#PMO-n 命中无别名存量项目 → 拒绝歧义，降级自动新建', async () => {
+    const deps = {
+      getProjectByAlias: async () => null,
+      findChoreProject: async () => null,
+      listAliasProjects: async () => [],
+      getProjectByPmoNumber: async () => ({ id: 'proj-old', pmoNumber: 'PM-001', reqAlias: null }) as never,
+    };
+    const id = await resolveReqIdForDispatch({
+      content: '做 #PM-001 相关', channelId, createdBy: 'mention', fileStore, deps,
+    });
+    expect(id).toMatch(/^REQ-\d{4}$/); // legacy 自动新建（tmp FileStore）
   });
 });

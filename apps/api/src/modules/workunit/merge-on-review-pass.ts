@@ -3,7 +3,12 @@
  *
  * reviewPassed 收口触发（best-effort，不阻断 done 状态迁移）：
  *   WU metadata 有 worktreeBranch + worktreeBaseRepo + worktreeBaseBranch 时，
- *   把 task/<wuId> 分支合并回 base 分支（git --no-ff，在 baseRepo 上操作）。
+ *   把 task/<wuId> 分支合并回目标分支（git --no-ff）。
+ *
+ * PMO-b（决策 3，2026-07-28 分析文档 §4.5）：metadata.pmoBranch 落档的 WU，
+ *   目标 = PMO 分支——在 <worktreesDir>/pmo-<projectId> 集成交合 worktree 上执行
+ *   （不动 baseRepo 当前 checkout；冲突集中在单一合并点；分支名 = PMO id）。
+ *   未落档 → 维持现状：合 baseRepo 当前分支（git -C baseRepo merge）。
  *
  * 流程：
  *   0. 数据防丢闸：worktree 有未提交改动（或 git status 失败）→ 不合并不强删，
@@ -26,7 +31,15 @@
 import { randomUUID } from 'crypto';
 import { logger, type FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
+import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { WorkUnitService, WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
+
+/** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > ~/worktrees） */
+function resolveWorktreesDir(): string {
+  return process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
+}
 
 /** git 操作超时：merge 60s / rebase 120s / 其余轻量命令 15s */
 const MERGE_TIMEOUT_MS = 60_000;
@@ -167,7 +180,41 @@ export async function mergeWorktreeBranchOnReviewPass(
 
   const mergeCmd = `git -C ${shq(baseRepo)} merge --no-ff ${shq(branch)} -m ${shq(`merge: ${wu.id} ${scopeSummary}`)}`;
 
-  const merged = await tryMergeWithRebaseRetry(mergeCmd, baseRepo, baseBranch, branch, worktreePath);
+  // PMO-b（决策 3）：落档 pmoBranch 的 WU 合到 PMO 分支的集成交合 worktree
+  // （不动 baseRepo 当前 checkout；冲突集中在单一合并点）。无落档 → 现状（合 baseRepo 当前分支）。
+  let mergeContext: { cmd: string; cwd: string; targetBranch: string };
+  if (meta.pmoBranch && meta.pmoProjectId) {
+    let integration: { worktreePath: string };
+    try {
+      integration = await ensurePmoIntegrationWorktree({
+        repoDir: baseRepo,
+        worktreesDir: resolveWorktreesDir(),
+        projectId: meta.pmoProjectId,
+        branch: meta.pmoBranch,
+        baseBranch,
+      });
+    } catch (err) {
+      // 集成交合建不起来（如 PMO 分支被意外检出）→ 转人工，不静默回落错目标
+      const message = err instanceof Error ? err.message : String(err);
+      await wuService.markMergeConflict(wu.id, []);
+      await postSystemMessage(
+        fileStore,
+        wu,
+        `任务「${title}」的 PMO 集成分支 ${meta.pmoBranch} 准备失败（${message.slice(0, 200)}），已转人工处理`,
+      ).catch(e => logger.warn('[MergeOnReviewPass] post pmo-setup message failed', { wuId: wu.id, error: String(e) }));
+      logger.warn('[MergeOnReviewPass] pmo integration worktree setup failed', { wuId: wu.id, pmoBranch: meta.pmoBranch, error: message });
+      return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
+    }
+    mergeContext = {
+      cmd: `git -C ${shq(integration.worktreePath)} merge --no-ff ${shq(branch)} -m ${shq(`merge: ${wu.id} ${scopeSummary}`)}`,
+      cwd: integration.worktreePath,
+      targetBranch: meta.pmoBranch,
+    };
+  } else {
+    mergeContext = { cmd: mergeCmd, cwd: baseRepo, targetBranch: baseBranch };
+  }
+
+  const merged = await tryMergeWithRebaseRetry(mergeContext.cmd, mergeContext.cwd, mergeContext.targetBranch, branch, worktreePath);
   // 注：本包 tsconfig 未开 strict，真值判断不收窄可辨识联合，须用 === false 字面量比较
   if (merged.ok === false) {
     // 转人工：WU 置 blocked + 频道系统消息（冲突文件清单）
@@ -178,19 +225,19 @@ export async function mergeWorktreeBranchOnReviewPass(
     await postSystemMessage(
       fileStore,
       wu,
-      `任务「${title}」自动合并到 ${baseBranch} 失败（重试后仍冲突），已转人工处理${fileList}`,
+      `任务「${title}」自动合并到 ${mergeContext.targetBranch} 失败（重试后仍冲突），已转人工处理${fileList}`,
     ).catch(err => logger.warn('[MergeOnReviewPass] post conflict message failed', { wuId: wu.id, error: String(err) }));
     logger.warn('[MergeOnReviewPass] merge conflict escalated to human', {
-      wuId: wu.id, branch, baseBranch, conflictFiles: merged.conflictFiles,
+      wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, conflictFiles: merged.conflictFiles,
     });
     return { attempted: true, merged: false, conflictFiles: merged.conflictFiles };
   }
 
-  // 合并成功：记录 mergeCommit → 清理 worktree/分支 → 落档 metadata → 频道通知
+  // 合并成功：记录 mergeCommit（PMO-b：读集成交合 HEAD）→ 清理 worktree/分支 → 落档 metadata → 频道通知
   let mergeCommit = '';
   try {
-    const { stdout } = await execSh(`git -C ${shq(baseRepo)} rev-parse HEAD`, {
-      cwd: baseRepo, timeoutMs: GIT_OP_TIMEOUT_MS,
+    const { stdout } = await execSh(`git -C ${shq(mergeContext.cwd)} rev-parse HEAD`, {
+      cwd: mergeContext.cwd, timeoutMs: GIT_OP_TIMEOUT_MS,
     });
     mergeCommit = stdout.trim();
   } catch (err) {
@@ -227,9 +274,9 @@ export async function mergeWorktreeBranchOnReviewPass(
   await postSystemMessage(
     fileStore,
     wu,
-    `任务「${title}」已合并到 ${baseBranch}（merge commit ${mergeCommit.slice(0, 7) || '未知'}）`,
+    `任务「${title}」已合并到 ${mergeContext.targetBranch}（merge commit ${mergeCommit.slice(0, 7) || '未知'}）`,
   ).catch(err => logger.warn('[MergeOnReviewPass] post merged message failed', { wuId: wu.id, error: String(err) }));
-  logger.info('[MergeOnReviewPass] branch merged', { wuId: wu.id, branch, baseBranch, mergeCommit });
+  logger.info('[MergeOnReviewPass] branch merged', { wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, mergeCommit });
   return { attempted: true, merged: true, mergeCommit };
 }
 

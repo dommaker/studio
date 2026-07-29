@@ -16,6 +16,11 @@
 | `FileStore` | `src/file-store.ts` | 全部运行时数据的文件存储（原子写 tmp+rename + mkdir 锁 withLock），baseDir 默认 `~/.studio/data` |
 | `AgentProfileData` / `RuntimeStateData` | `src/file-store.ts` | Agent 身份模型（`{id,name,description,channels(废弃),status,provider,nodeId}`，**无 systemPrompt 字段**）与运行时实例模型 |
 | `eventBus` | `src/event-bus*` | 进程内事件总线（agent-profile.created 等触发 AgentLoopRegistry mount） |
+| `deriveDisplayState()` / `parseAttestations()` / `withAttestation()` | `src/attestation.ts` | F6 信任证据模型（决策 1）：l1 自动验证 / l2 agent 评审 / l3 人工确认 + 唯一派生口径 |
+
+## 约束
+
+- **F6 派生口径铁律**：WU 状态/证据的所有展示与指标只准调 `deriveDisplayState()`（src/attestation.ts），禁止 UI/API/指标各自读 `metadata.attestations` 自行解释——口径分叉 = 可读性崩坏。改派生规则只能改这一个函数。
 
 ## 依赖关系
 

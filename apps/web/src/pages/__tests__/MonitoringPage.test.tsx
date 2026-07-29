@@ -42,6 +42,15 @@ vi.mock('../../api/monitoring', () => ({
         timestamp: '2026-07-19T00:00:00Z',
       },
     }),
+    getOverview: vi.fn().mockResolvedValue({
+      data: {
+        evidence: {
+          engaged: 6, l1Approved: 5, l2Approved: 4, l3Approved: 2,
+          selfReviewCount: 1, needsHuman: 3, derivedMismatch: 0,
+          derivedByColumn: { done: 3, in_review: 2, active: 1 },
+        },
+      },
+    }),
   },
 }));
 
@@ -102,6 +111,18 @@ describe('MonitoringPage', () => {
     expect(screen.getByText('800')).toBeDefined(); // avgInjectedTokens
     expect(screen.getByText('40%')).toBeDefined(); // injectedBudgetUsedPct
     expect(screen.getByText('2.5%')).toBeDefined(); // avgOverheadRatio
+  });
+
+  it('renders F6 证据台账 block（信任分层 + 双轨偏差）', async () => {
+    render(<MonitoringPage />);
+    expect(await screen.findByText('证据台账（信任分层）')).toBeDefined();
+    expect(screen.getByText('L1 自动验证')).toBeDefined();
+    expect(screen.getByText('L2 agent 评审')).toBeDefined();
+    expect(screen.getByText('L3 人工确认')).toBeDefined();
+    expect(screen.getByText('待人工确认')).toBeDefined();
+    expect(screen.getByText('双轨偏差')).toBeDefined();
+    expect(screen.getByText('自评（L2）')).toBeDefined();
+    expect(screen.getByText('6')).toBeDefined(); // engaged（已介入 WU，页面唯一）
   });
 
   // ── 审核闭环：待审区从纯计数升级为列表（标题/年龄/approve） ──

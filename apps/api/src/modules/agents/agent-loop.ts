@@ -2,14 +2,14 @@
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
 // Knowledge search analysis preserved as module-level exports.
 import { execSync } from 'child_process';
-import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, withAttestation, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { resolveProviderDefinition, buildHealthProbeCommand, execSh } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
 import { join } from 'path';
 import * as os from 'os';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
-import { ensureWuWorktree } from '@dommaker/studio-agent';
+import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
 import { RemoteExecutor, RemoteNodeUnreachableError } from './remote-executor.js';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
@@ -21,6 +21,7 @@ import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
 import { eventStore } from '../../core/event-store.js';
 import { getWorkspaceRecord, resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
+import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 
@@ -592,19 +593,43 @@ export class AgentLoop {
     let workspaceRoot = await this.resolveExecutionWorkspaceRoot(wu, metadata);
     if (CODE_WORKTREE_TYPES.has(wu.type) && workspaceRoot && isGitRepoRoot(workspaceRoot)) {
       try {
+        // PMO-b（决策 3）：WU 归属 PMO → base 从默认分支改为 PMO 分支（分支名 = PMO id），
+        // per-WU 临时分支从 PMO 分支拉、向 PMO 分支合（merge-on-review-pass 消费 pmoBranch 落档）。
+        // 解析/建支失败回落默认 base，绝不阻断执行。
+        let pmoBaseBranch: string | null = null;
+        const pmoResolution = await resolvePmoBranchForWU(wu, this.fileStore).catch(() => null);
+        if (pmoResolution) {
+          try {
+            await ensureBranchExists({
+              repoDir: workspaceRoot,
+              branch: pmoResolution.branch,
+              baseBranch: typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
+                ? metadata.worktreeBaseBranch
+                : getDefaultBranch(workspaceRoot),
+            });
+            pmoBaseBranch = pmoResolution.branch;
+          } catch (err) {
+            logger.warn(`[AgentLoop] PMO branch ensure failed, falling back to default base: ${err instanceof Error ? err.message : String(err)}`, { traceId });
+          }
+        }
         const info = await ensureWuWorktree({
           wuId: wu.id,
           repoDir: workspaceRoot,
           worktreesDir: resolveWorktreesDir(),
-          baseBranch: typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
-            ? metadata.worktreeBaseBranch
-            : undefined,
+          baseBranch: pmoBaseBranch
+            ?? (typeof metadata.worktreeBaseBranch === 'string' && metadata.worktreeBaseBranch.length > 0
+              ? metadata.worktreeBaseBranch
+              : undefined),
         });
         if (metadata.worktreePath !== info.worktreePath) {
           metadataUpdates.worktreePath = info.worktreePath;
           metadataUpdates.worktreeBranch = info.branch;
           metadataUpdates.worktreeBaseBranch = info.baseBranch;
           metadataUpdates.worktreeBaseRepo = info.baseRepo;
+          if (pmoResolution && pmoBaseBranch) {
+            metadataUpdates.pmoProjectId = pmoResolution.projectId;
+            metadataUpdates.pmoBranch = pmoResolution.branch;
+          }
         }
         workspaceRoot = info.worktreePath;
       } catch (err) {
@@ -1215,6 +1240,14 @@ ${rosterLines.join('\n')}
           `失败命令: ${outcome.failure.command}`,
           `输出尾部:\n${outcome.failure.tail}`,
         ].join('\n');
+        // F6（决策 1）：验证失败同样落台账 l1（rejected 留痕，后续全绿 approved 覆盖）
+        guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
+          verdict: 'rejected',
+          by: this.role.id,
+          at: new Date().toISOString(),
+          kind: 'verify',
+          summary: `失败命令: ${outcome.failure.command}`.slice(0, 300),
+        });
         action = 'progress';
         verifyBlocked = failCount >= 3;
         logger.info(`[AgentLoop] Verify guard: COMPLETE downgraded for ${wuId} (command failed: ${outcome.failure.command}, count ${failCount})`);
@@ -1226,6 +1259,14 @@ ${rosterLines.join('\n')}
             source: outcome.source,
             passedAt: new Date().toISOString(),
           };
+          // F6（决策 1）：验证全绿落台账 l1
+          guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
+            verdict: 'approved',
+            by: this.role.id,
+            at: new Date().toISOString(),
+            kind: 'verify',
+            summary: outcome.ran.join('；').slice(0, 300),
+          });
           verifyPassNotice = `✅ 自动验证通过（${outcome.ran.length} 条）：${outcome.ran.join('；')}`;
           logger.info(`[AgentLoop] Verify guard: all passed for ${wuId}`, { commands: outcome.ran, source: outcome.source });
         }

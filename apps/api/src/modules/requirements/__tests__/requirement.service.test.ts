@@ -23,7 +23,13 @@ let workUnitService: WorkUnitService;
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'req-service-test-'));
   fileStore = new FileStore(tmpDir);
-  service = new RequirementService(fileStore);
+  // 中性化 PMO 依赖（默认实现会读真实 ~/.studio/projects，并行测试下被 routes 测试的真实项目串扰）
+  service = new RequirementService(fileStore, {
+    getProjectByAlias: async () => null,
+    findChoreProject: async () => null,
+    listAliasProjects: async () => [],
+    getProjectByPmoNumber: async () => null,
+  });
   workUnitService = new WorkUnitService(fileStore);
 });
 
@@ -299,5 +305,119 @@ describe('RequirementService (vision §5.3)', () => {
         unsubscribe();
       }
     });
+  });
+});
+
+/**
+ * PMO-a 别名层（2026-07-28 分析文档，决策 4/2）
+ * get/list 别名感知、createFromDispatch 杂务归集、update/maybeRollUpToDone 别名只读。
+ * 全部经 stub 依赖注入，不碰真实 ~/.studio/projects。
+ */
+describe('PMO-a：REQ → PMO 只读别名层（决策 4/2）', () => {
+  const aliasProject = {
+    id: 'proj_chore1',
+    pmoNumber: 'PMO-11',
+    title: '杂务 · #rnd',
+    description: '频道杂务 PMO',
+    requirement: null,
+    companyId: null,
+    okrId: null,
+    status: 'active',
+    priority: 'normal',
+    progress: 0,
+    gitBranch: 'PMO-11',
+    gitRepo: '/repo/x',
+    specFilePath: null,
+    requirementsDocId: 'doc-1',
+    startedAt: null,
+    completedAt: null,
+    createdAt: '2026-07-29T00:00:00.000Z',
+    updatedAt: '2026-07-29T00:00:00.000Z',
+    reqAlias: 'REQ-0011',
+    deliveryPolicy: 'branch-only' as const,
+    isChore: true,
+    channelId: 'ch-rnd',
+  };
+
+  function aliasService() {
+    return new RequirementService(fileStore, {
+      projectExists: async () => true,
+      getProjectByAlias: async id => (id === 'REQ-0011' ? aliasProject : null),
+      findChoreProject: async cid => (cid === 'ch-rnd' ? aliasProject : null),
+      listAliasProjects: async () => [aliasProject],
+    });
+  }
+
+  it('get：别名命中 → 投影为 REQ 视图（状态映射 + projectId=PMO id + docs 来自 requirementsDocId）', async () => {
+    const svc = aliasService();
+    const view = await svc.get('REQ-0011');
+    expect(view).not.toBeNull();
+    expect(view!.id).toBe('REQ-0011');
+    expect(view!.seq).toBe(11);
+    expect(view!.status).toBe('in-progress'); // active → in-progress
+    expect(view!.projectId).toBe('proj_chore1');
+    expect(view!.docs).toEqual(['doc-1']);
+    expect(view!.createdBy).toBe('pmo-alias');
+  });
+
+  it('get：别名未命中 → 回落 legacy 记录', async () => {
+    const svc = aliasService();
+    const legacy = await svc.create({ title: '老需求' });
+    expect((await svc.get(legacy.id))!.title).toBe('老需求');
+  });
+
+  it('list：legacy + 别名视图合并去重（别名优先）', async () => {
+    const svc = aliasService();
+    await svc.create({ title: '老需求' });
+    const all = await svc.list();
+    expect(all.map(r => r.id).sort()).toEqual(['REQ-0001', 'REQ-0011']);
+    // channelId 过滤同样作用于别名视图
+    const filtered = await svc.list({ channelId: 'ch-rnd' });
+    expect(filtered.map(r => r.id)).toEqual(['REQ-0011']);
+  });
+
+  it('createFromDispatch：频道已登记杂务 PMO → 小活归集到杂务别名（不新建对象）', async () => {
+    const svc = aliasService();
+    const req = await svc.createFromDispatch('帮我改个错别字', 'ch-rnd', 'mention');
+    expect(req.id).toBe('REQ-0011');
+    // legacy 存储里没有新建
+    expect((await svc.list()).filter(r => r.createdBy !== 'pmo-alias').length).toBe(0);
+  });
+
+  it('createFromDispatch：未登记杂务 PMO → legacy 自动新建', async () => {
+    const svc = new RequirementService(fileStore, {
+      findChoreProject: async () => null,
+      getProjectByAlias: async () => null,
+      listAliasProjects: async () => [],
+    });
+    const req = await svc.createFromDispatch('全新任务', 'ch-x', 'mention');
+    expect(req.id).toMatch(/^REQ-\d{4}$/);
+    expect(req.createdBy).toBe('mention');
+  });
+
+  it('update：别名视图只读 → 抛错；legacy 正常更新', async () => {
+    const svc = aliasService();
+    await expect(svc.update('REQ-0011', { title: '改名' })).rejects.toThrow('read-only PMO alias');
+    const legacy = await svc.create({ title: '老需求' });
+    await svc.update(legacy.id, { title: '改名成功' });
+    expect((await svc.get(legacy.id))!.title).toBe('改名成功');
+  });
+
+  it('maybeRollUpToDone：别名视图跳过（PMO 状态由 progress-rollup 拥有）', async () => {
+    const svc = aliasService();
+    const wu = await workUnitService.create({ scope: '杂活', reqId: 'REQ-0011' });
+    await workUnitService.claim(wu.id, 'inst-1');
+    await workUnitService.transitionStatus(wu.id, 'in_review');
+    await workUnitService.transitionStatus(wu.id, 'done');
+    expect(await svc.maybeRollUpToDone('REQ-0011')).toBe(false);
+  });
+
+  it('getChain：别名视图也可出链路（WU 挂别名 reqId）', async () => {
+    const svc = aliasService();
+    await workUnitService.create({ scope: '杂活一', reqId: 'REQ-0011' });
+    const chain = await svc.getChain('REQ-0011');
+    expect(chain).not.toBeNull();
+    expect(chain!.requirement.id).toBe('REQ-0011');
+    expect(chain!.workunits.length).toBe(1);
   });
 });

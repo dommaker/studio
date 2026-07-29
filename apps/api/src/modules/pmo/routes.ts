@@ -2,14 +2,22 @@
 import { Router, Request, Response } from 'express';
 import { okrService, OKRService } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand } from './project.service.js';
+import { getDeliveryStatus, deliverProject } from './delivery.js';
 import { logger } from '../../utils/logger.js';
-import { requireAuth, requireNotGuest, requireRole } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
+import { requireAuth, requireNotGuest, requireRole, type AuthRequest } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { FileStore } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'node:fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+
+/** A2A §4.4 同款约定：agent 身份调用一律 403（交付权只在人） */
+function resolveCallerAuthorType(req: Request): string {
+  const fromBody = typeof req.body?.authorType === 'string' ? req.body.authorType : undefined;
+  const fromHeader = req.headers['x-author-type'];
+  return fromBody ?? (typeof fromHeader === 'string' ? fromHeader : 'human');
+}
 
 const router = Router();
 const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
@@ -52,11 +60,17 @@ router.get('/project', async (req: Request, res: Response) => {
  */
 router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo } = req.body;
+    const { companyId, title, description, requirement, okrId, priority, gitBranch, gitRepo, deliveryPolicy, requirementsDocId } = req.body;
 
     if (!title) {
       return res.status(400).json({
         error: { code: 'MISSING_FIELDS', message: 'title is required' },
+      });
+    }
+    // PMO-a：交付策略白名单校验（缺省 branch-only）
+    if (deliveryPolicy !== undefined && deliveryPolicy !== 'auto-merge' && deliveryPolicy !== 'branch-only') {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: "deliveryPolicy must be 'auto-merge' or 'branch-only'" },
       });
     }
 
@@ -69,6 +83,8 @@ router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, r
       priority,
       gitBranch,
       gitRepo,
+      deliveryPolicy,
+      requirementsDocId,
     });
 
     res.status(201).json(project);
@@ -99,6 +115,64 @@ router.get('/project/:id', async (req: Request, res: Response) => {
     logger.error({ error }, 'Failed to get project');
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to get project' },
+    });
+  }
+});
+
+/**
+ * GET /api/v1/pmo/project/:id/delivery
+ * PMO-b：交付台账（WU 汇总 + 证据齐缺 + deliverable 标记；branch-only 交付的就是这份回答）
+ */
+router.get('/project/:id/delivery', async (req: Request, res: Response) => {
+  try {
+    const status = await getDeliveryStatus(req.params.id);
+    if (!status) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: 'Project not found' },
+      });
+    }
+    res.json(status);
+  } catch (error) {
+    logger.error({ error }, 'Failed to get delivery status');
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: 'Failed to get delivery status' },
+    });
+  }
+});
+
+/**
+ * POST /api/v1/pmo/project/:id/deliver
+ * PMO-b：auto-merge 交付（human-only）——证据齐才把 PMO 分支合入默认分支（本地，不 push）。
+ * 缺证据 409 硬拒；branch-only 409 并附分支名（交付动作在下游发布链路，studio 不碰）。
+ */
+router.post('/project/:id/deliver', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    if (resolveCallerAuthorType(req) === 'agent') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Delivery is human-only (authorType=agent rejected)' },
+      });
+    }
+    const user = (req as AuthRequest).user;
+    const outcome = await deliverProject(req.params.id, user?.name ?? user?.email ?? user?.id ?? 'human');
+    // 注：本包 tsconfig 未开 strict，可辨识联合须用 === 字面量比较收窄（merge-on-review-pass 同款）
+    if (outcome.delivered === true) {
+      return res.json(outcome);
+    }
+    if (outcome.reason === 'not-found') {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Project not found' } });
+    }
+    res.status(409).json({
+      error: {
+        code: outcome.reason.toUpperCase().replace(/-/g, '_'),
+        message: outcome.detail ?? outcome.reason,
+        missing: outcome.missing,
+        conflictFiles: outcome.conflictFiles,
+      },
+    });
+  } catch (error) {
+    logger.error({ error }, 'Failed to deliver project');
+    res.status(500).json({
+      error: { code: 'INTERNAL_ERROR', message: (error as Error).message },
     });
   }
 });

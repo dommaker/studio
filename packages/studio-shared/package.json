@@ -3,16 +3,16 @@
   "version": "0.1.0",
   "description": "Studio shared utilities and CLI framework",
   "main": "src/index.ts",
-  "types": "src/index.ts",
+  "types": "./dist/index.d.ts",
   "exports": {
-    ".": "./src/index.ts",
-    "./node": "./src/node.ts",
-    "./cli": "./src/cli/index.ts",
-    "./constants": "./src/constants/levels.ts",
-    "./harness": "./src/harness/index.ts",
-    "./harness/hooks": "./src/harness/hooks/index.ts",
-    "./harness/runtime/bootstrap": "./src/harness/runtime/bootstrap.ts",
-    "./stats/*": "./src/stats/*"
+    ".": { "types": "./dist/index.d.ts", "default": "./src/index.ts" },
+    "./node": { "types": "./dist/node.d.ts", "default": "./src/node.ts" },
+    "./cli": { "types": "./dist/cli/index.d.ts", "default": "./src/cli/index.ts" },
+    "./constants": { "types": "./dist/constants/levels.d.ts", "default": "./src/constants/levels.ts" },
+    "./harness": { "types": "./dist/harness/index.d.ts", "default": "./src/harness/index.ts" },
+    "./harness/hooks": { "types": "./dist/harness/hooks/index.d.ts", "default": "./src/harness/hooks/index.ts" },
+    "./harness/runtime/bootstrap": { "types": "./dist/harness/runtime/bootstrap.d.ts", "default": "./src/harness/runtime/bootstrap.ts" },
+    "./stats/*": { "types": "./dist/stats/*.d.ts", "default": "./src/stats/*" }
   },
   "scripts": {
     "build": "tsc",

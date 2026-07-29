@@ -141,16 +141,16 @@ describe('ProjectService — FileStore 迁移', () => {
       });
 
       expect(result).toBeDefined();
-      expect(result.pmoNumber).toMatch(/^PM-\d{3}$/);
+      expect(result.pmoNumber).toMatch(/^PMO-\d+$/);
       expect(mockWriteJson).toHaveBeenCalled();
       const [filePath, data] = mockWriteJson.mock.calls[0];
       expect(filePath).toBe(projectFilePath(data.id));
       expect(data.status).toBe('pending');
-      expect(data.pmoNumber).toBe('PM-001');
+      expect(data.pmoNumber).toBe('PMO-1');
     });
 
     it('PMO 号递增', async () => {
-      // Existing project with PM-003 → new should be PM-004
+      // Existing project with PM-003 → new should be PMO-4（统一编号）
       mockReadDir.mockResolvedValue([dirEnt('proj-001.json'), dirEnt('proj-002.json')]);
       mockReadJson
         .mockResolvedValueOnce(sampleProject({ id: 'proj-001', pmoNumber: 'PM-001' }))
@@ -161,7 +161,33 @@ describe('ProjectService — FileStore 迁移', () => {
         title: 'Another Project',
       });
 
-      expect(result.pmoNumber).toBe('PM-004');
+      expect(result.pmoNumber).toBe('PMO-4');
+    });
+
+    it('PMO-a：reqAlias 同号 / gitBranch 默认=pmoNumber / deliveryPolicy 默认 branch-only', async () => {
+      mockReadDir.mockResolvedValue([dirEnt('proj-001.json')]);
+      mockReadJson.mockResolvedValue(sampleProject({ id: 'proj-001', pmoNumber: 'PM-010' }));
+
+      const result = await projectService.create({ title: '新项目' });
+
+      expect(result.pmoNumber).toBe('PMO-11');
+      expect(result.reqAlias).toBe('REQ-0011');
+      expect(result.gitBranch).toBe('PMO-11');
+      expect(result.deliveryPolicy).toBe('branch-only');
+    });
+
+    it('PMO-a：显式 gitBranch / deliveryPolicy=auto-merge 可覆盖默认', async () => {
+      mockReadDir.mockResolvedValue([]);
+      mockReadJson.mockResolvedValue(null);
+
+      const result = await projectService.create({
+        title: '自定义',
+        gitBranch: 'feature/custom',
+        deliveryPolicy: 'auto-merge',
+      });
+
+      expect(result.gitBranch).toBe('feature/custom');
+      expect(result.deliveryPolicy).toBe('auto-merge');
     });
   });
 
@@ -398,26 +424,98 @@ describe('ProjectService — FileStore 迁移', () => {
 });
 
 // ── generatePmoNumber ──
-describe('generatePmoNumber', () => {
-  it('首次创建 → 返回 PM-001', async () => {
+describe('generatePmoNumber（决策 4：统一编号，PM/PMO/REQ 两序列 max+1，新格式 PMO-<n>）', () => {
+  it('首次创建 → 返回 PMO-1', async () => {
     mockReadDir.mockResolvedValue([]);
 
     const result = await generatePmoNumber();
 
-    expect(result).toBe('PM-001');
+    expect(result).toBe('PMO-1');
   });
 
-  it('递增 → 返回 PM-00X', async () => {
+  it('递增 → max(PM, PMO, REQ)+1', async () => {
     mockReadDir.mockResolvedValue([
       dirEnt('proj-001.json'),
       dirEnt('proj-002.json'),
     ] as unknown as fs.Dirent[]);
     mockReadJson
       .mockResolvedValueOnce(sampleProject({ id: 'proj-001', pmoNumber: 'PM-001' }))
-      .mockResolvedValueOnce(sampleProject({ id: 'proj-002', pmoNumber: 'PM-005' }));
+      .mockResolvedValueOnce(sampleProject({ id: 'proj-002', pmoNumber: 'PMO-5' }));
 
     const result = await generatePmoNumber();
 
-    expect(result).toBe('PM-006');
+    expect(result).toBe('PMO-6');
+  });
+
+  it('REQ 序列纳入 max（决策 4 修正版：两序列重叠，取大者+1）', async () => {
+    // 项目目录：只有 PM-003；requirements 目录：有 REQ-0009.json + index.json nextSeq=11
+    mockReadDir.mockImplementation(async (dir: string) => {
+      if (String(dir).includes('requirements')) {
+        return [dirEnt('REQ-0009.json'), dirEnt('index.json')] as unknown as fs.Dirent[];
+      }
+      return [dirEnt('proj-001.json')] as unknown as fs.Dirent[];
+    });
+    mockReadJson.mockImplementation(async (p: string) => {
+      if (String(p).endsWith('index.json')) return { nextSeq: 11 };
+      return sampleProject({ id: 'proj-001', pmoNumber: 'PM-003' });
+    });
+
+    const result = await generatePmoNumber();
+
+    expect(result).toBe('PMO-11');
+  });
+});
+
+// ── PMO-a：别名层与杂务 PMO（决策 2/4）──
+describe('PMO-a：getByReqAlias / getByPmoNumber 归一 / ensureChoreProject', () => {
+  it('getByReqAlias：命中 reqAlias 的统一编号对象；无别名存量返回 null', async () => {
+    mockReadDir.mockResolvedValue([dirEnt('proj-1.json'), dirEnt('proj-2.json')]);
+    mockReadJson
+      .mockResolvedValueOnce(sampleProject({ id: 'proj-1', pmoNumber: 'PM-001', reqAlias: null }))
+      .mockResolvedValueOnce(sampleProject({ id: 'proj-2', pmoNumber: 'PMO-11', reqAlias: 'REQ-0011' }));
+
+    expect((await projectService.getByReqAlias('REQ-0011'))!.id).toBe('proj-2');
+    expect(await projectService.getByReqAlias('REQ-0001')).toBeNull();
+  });
+
+  it('getByPmoNumber：数字归一（PMO-11 / PM-011 同号），精确匹配优先', async () => {
+    mockReadDir.mockResolvedValue([dirEnt('proj-1.json')]);
+    mockReadJson.mockResolvedValue(sampleProject({ id: 'proj-1', pmoNumber: 'PMO-11' }));
+
+    expect((await projectService.getByPmoNumber('PMO-11'))!.id).toBe('proj-1');
+    expect((await projectService.getByPmoNumber('PM-011'))!.id).toBe('proj-1');
+    expect(await projectService.getByPmoNumber('PMO-12')).toBeNull();
+    expect(await projectService.getByPmoNumber('garbage')).toBeNull();
+  });
+
+  it('ensureChoreProject：find-or-create 幂等；杂务 PMO 直接 active + branch-only', async () => {
+    // readJson 返回最近一次 writeJson 写入的对象（模拟 FileStore 读己之写）
+    mockReadJson.mockImplementation(async () => mockWriteJson.mock.calls.at(-1)?.[1] ?? null);
+    // 第一次：无杂务 → 创建（create 内部 readAllProjects 空 → PMO-1）
+    mockReadDir.mockResolvedValue([]);
+
+    const created = await projectService.ensureChoreProject('ch-1', '#测试频道');
+    expect(created.isChore).toBe(true);
+    expect(created.channelId).toBe('ch-1');
+    expect(created.status).toBe('active');
+    expect(created.deliveryPolicy).toBe('branch-only');
+    expect(created.title).toContain('杂务');
+    expect(created.reqAlias).toMatch(/^REQ-\d{4}$/);
+
+    // 第二次：已有杂务 → 直接返回不再创建（mockWriteJson 调用次数不增）
+    const callsBefore = mockWriteJson.mock.calls.length;
+    mockReadDir.mockResolvedValue([dirEnt(`${created.id}.json`)]);
+    const again = await projectService.ensureChoreProject('ch-1', '#测试频道');
+    expect(again.id).toBe(created.id);
+    expect(mockWriteJson.mock.calls.length).toBe(callsBefore);
+  });
+
+  it('findChoreProject：只查不建（未登记返回 null）', async () => {
+    mockReadDir.mockResolvedValue([dirEnt('proj-1.json')]);
+    mockReadJson.mockResolvedValue(sampleProject({ id: 'proj-1', isChore: true, channelId: 'ch-9' }));
+
+    expect((await projectService.findChoreProject('ch-9'))!.id).toBe('proj-1');
+    expect(await projectService.findChoreProject('ch-other')).toBeNull();
+    expect(mockWriteJson).not.toHaveBeenCalled();
   });
 });

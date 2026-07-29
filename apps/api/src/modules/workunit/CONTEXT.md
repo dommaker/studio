@@ -16,7 +16,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - `waiting-input.ts` — F5 双向沟通：NEED_INPUT 挂起 WorkUnit 的恢复与超时提醒；B3a：waitingReason='ownership' 的挂起按回复解析工程归属（project-discovery 唯一命中 → 绑定 metadata.workspaceRoot + 写回 Requirement.projectId + 置回 unassigned（保留 assigneeId=profile id，待指名 loop 认领；此类 WU 从未被认领，置 active 会对所有 loop 不可见而卡死）；多候选/无命中 → 继续等待列候选）；导出 `postStudioSystemMessage`（Studio 系统消息统一形态）
 - `timeout-release.ts` — workunit-timeout-scan handler：执行超时 WU 释放回 unassigned（记 metadata.timeoutReleasedAt/timeoutReleaseCount + 频道系统消息），≥3 次转 blocked
 - `delegation-gate.ts` — A2A 委派闸门（§4.1/§4.2，纯代码零 LLM）：成员/自派生/深度(P1=1)/宽度3/树8/环/重复委派校验，预算留桩（TODO §4.3 P2）
-- `merge-on-review-pass.ts` — B3b-ii 评审通过后自动合并（决策 D1/D3 后半）：reviewPassed 收口触发（best-effort，不阻断 done 迁移），task/<wuId> --no-ff 合并回 base 分支 → 冲突则 rebase 重试一次 → 仍冲突清理现场、取冲突文件清单、频道 Studio 系统消息转人工并置 blocked（metadata.mergeConflict/conflictFiles）；成功则移除 worktree、删 task 分支、记 metadata.mergedAt/mergeCommit 并发频道通知；mergedAt 为防重哨兵，无 worktree 落档的 WU 直接旁路
+- `merge-on-review-pass.ts` — B3b-ii 评审通过后自动合并（决策 D1/D3 后半 + PMO-b 决策 3）：reviewPassed 收口触发（best-effort，不阻断 done 迁移），task/<wuId> --no-ff 合并回目标分支 → 冲突则 rebase 重试一次 → 仍冲突清理现场、取冲突文件清单、频道 Studio 系统消息转人工并置 blocked（metadata.mergeConflict/conflictFiles）；成功则移除 worktree、删 task 分支、记 metadata.mergedAt/mergeCommit 并发频道通知；mergedAt 为防重哨兵，无 worktree 落档的 WU 直接旁路。**PMO-b：metadata.pmoBranch 落档的 WU 目标 = PMO 分支**（`<worktreesDir>/pmo-<projectId>` 集成交合 worktree，不动 baseRepo 当前 checkout；集成交合建不起来直接转人工，不静默回落错目标）
 
 ## 依赖关系
 
@@ -31,6 +31,8 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - B3a（决策 D2）：WU metadata 增 workspaceRoot / ownershipSource / ownershipProjectId / waitingReason 字段承载工程归属；agent-loop 执行根目录解析 metadata.workspaceRoot 优先于 workspaceId 记录
 - B3b-i（决策 D1/D3 前半）：WU metadata 增 worktreePath/worktreeBranch/worktreeBaseBranch/worktreeBaseRepo（代码类 WU 专属 worktree 落档，review 子 WU 经 `...parentMeta` 拷贝天然继承）与 verifyCommands/verifyReport/verifyFailCount/verifyFailHint（自动验证）；覆盖命令也可放在 workspace 记录的 verifyCommands 字段
 - B3b-ii（决策 D1/D3 后半）：WU metadata 增 mergedAt/mergeCommit/mergeConflict/conflictFiles；reviewPassed 收口触发自动合并（merge-on-review-pass.ts，git 全走 execSh，冲突转人工置 blocked 走 `markMergeConflict` 直写快照——done→blocked 同 reviewRejected 先例绕过 VALID_TRANSITIONS）
+- F6（2026-07-28 分析文档，决策 1）：WU metadata 增 `attestations`（l1 自动验证 / l2 agent 评审 / l3 人工确认台账）——写入方：l1=agent-loop 验证守卫；l2/l3=reviewPassed/reviewRejected 的 attestation 入参（agent-review→l2 含 selfReview/ref；human-confirm→l3，done 态幂等补写不改状态机）。**消费铁律：展示/指标只准过 studio-shared 的 `deriveDisplayState()`，禁止各自解释**
+- PMO-b（决策 3）：WU metadata 增 pmoProjectId/pmoBranch（agent-loop 首 step 落档，worktree base 与合并目标从默认分支改 PMO 分支）
 - review-passed/review-rejected 拒绝 authorType=agent 的调用（403，A2A §4.4：验收权只在人；UI/人类调用不发送 authorType 或发送 'human'）
 - **鉴权（2026-07-24 收紧）**：11 条写端点（CRUD/claim/unclaim/review/status/讨论区发消息/编辑消息）= `requireAuth()+requireNotGuest()`；GET 只读保持大门层。注意 authorType/agentName 仍是自声明身份（不作凭证，已知局限）
 

@@ -76,9 +76,23 @@ export interface OverheadStats {
   timestamp: string;
 }
 
+/** F6（决策 1）证据台账（/monitoring/overview 的 evidence 段） */
+export interface EvidenceStats {
+  engaged: number;
+  l1Approved: number;
+  l2Approved: number;
+  l3Approved: number;
+  selfReviewCount: number;
+  needsHuman: number;
+  derivedMismatch: number;
+  derivedByColumn: Record<string, number>;
+}
+
 export const monitoringApi = {
   getAgentSummary: () => api.get<AgentSummary>('/monitoring/agents'),
   getStats: () => api.get<MonitoringStats>('/monitoring/stats'),
   getFlywheel: () => api.get<FlywheelStats>('/monitoring/flywheel'),
   getOverhead: () => api.get<OverheadStats>('/monitoring/overhead'),
+  /** F6：概览（只消费 evidence 段，其余字段不声明不依赖） */
+  getOverview: () => api.get<{ evidence: EvidenceStats }>('/monitoring/overview'),
 };

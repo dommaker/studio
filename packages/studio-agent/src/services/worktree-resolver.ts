@@ -18,7 +18,7 @@ import type { AgentTask } from './session-manager.js';
 import { execSync } from 'child_process';
 
 /** 检测仓库默认分支名（不猜 main/master） */
-function getDefaultBranch(cwd: string): string {
+export function getDefaultBranch(cwd: string): string {
   try {
     const remoteHead = execSync('git symbolic-ref refs/remotes/origin/HEAD', {
       cwd, encoding: 'utf-8', timeout: 5000, stdio: ['pipe', 'pipe', 'pipe'],
@@ -562,4 +562,47 @@ async function cleanupFailedWuWorktree(worktreePath: string, branch: string, rep
   try {
     await execSh(`git branch -D "${branch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
   } catch { /* best-effort */ }
+}
+
+/**
+ * PMO-b（决策 3）：确保分支存在（幂等）。不存在则从 baseBranch 创建。
+ * PMO 分支 = PMO id（project.service create 默认 gitBranch=pmoNumber）。
+ */
+export async function ensureBranchExists(opts: {
+  repoDir: string;
+  branch: string;
+  baseBranch: string;
+}): Promise<void> {
+  const { repoDir, branch, baseBranch } = opts;
+  try {
+    await execSh(`git rev-parse --verify "${branch}"`, { cwd: repoDir, timeoutMs: 5_000 });
+    return; // 已存在
+  } catch { /* 不存在 → 创建 */ }
+  await execSh(`git branch "${branch}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 10_000 });
+  logger.info('[WorktreeResolver] Branch created', { branch, baseBranch, repoDir });
+}
+
+/**
+ * PMO-b（决策 3）：确保 PMO 集成交合 worktree 存在（<worktreesDir>/pmo-<projectId>）。
+ * per-WU 临时分支在这里合入 PMO 分支——冲突集中在单一合并点，
+ * 主仓库 checkout 不被打扰（merge 不落在 baseRepo 当前分支上）。
+ * 分支不存在先从 baseBranch 创建；worktree 复用按 .git 存在性判断。
+ */
+export async function ensurePmoIntegrationWorktree(opts: {
+  repoDir: string;
+  worktreesDir: string;
+  projectId: string;
+  branch: string;
+  baseBranch: string;
+}): Promise<{ worktreePath: string }> {
+  const { repoDir, worktreesDir, projectId, branch, baseBranch } = opts;
+  await ensureBranchExists({ repoDir, branch, baseBranch });
+  const worktreePath = path.join(worktreesDir, `pmo-${projectId}`);
+  if (fsSync.existsSync(path.join(worktreePath, '.git'))) {
+    logger.info('[WorktreeResolver] Reusing PMO integration worktree', { worktreePath, projectId });
+    return { worktreePath };
+  }
+  await execSh(`git worktree add "${worktreePath}" "${branch}"`, { cwd: repoDir, timeoutMs: 30_000 });
+  logger.info('[WorktreeResolver] PMO integration worktree created', { worktreePath, branch, projectId });
+  return { worktreePath };
 }

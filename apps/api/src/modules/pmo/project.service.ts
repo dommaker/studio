@@ -27,6 +27,11 @@ export interface CreateProjectInput {
   gitBranch?: string;
   gitRepo?: string;
   requirementsDocId?: string;
+  /** F6/PMO-a：交付策略（默认 branch-only——不碰合并与发布链路，只标记证据齐缺） */
+  deliveryPolicy?: DeliveryPolicy;
+  /** 决策 2：杂务 PMO 标记与归属频道（长期分支，小活归集） */
+  isChore?: boolean;
+  channelId?: string | null;
 }
 
 export interface UpdateProjectInput {
@@ -41,6 +46,12 @@ export interface UpdateProjectInput {
   gitRepo?: string;
   startedAt?: string | null;
   completedAt?: string | null;
+  deliveryPolicy?: DeliveryPolicy;
+  requirementsDocId?: string | null;
+  /** PMO-b：交付落档（deliverProject 写入） */
+  deliveredAt?: string | null;
+  deliveredBy?: string | null;
+  deliverCommit?: string | null;
 }
 
 export interface ProjectListOptions {
@@ -50,6 +61,9 @@ export interface ProjectListOptions {
   limit?: number;
   offset?: number;
 }
+
+/** PMO 交付策略：auto-merge=studio 执行合并（缺证据硬拒）；branch-only=默认，只标证据齐缺 */
+export type DeliveryPolicy = 'auto-merge' | 'branch-only';
 
 export interface ProjectData {
   id: string;
@@ -70,6 +84,22 @@ export interface ProjectData {
   completedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /** PMO-a（决策 4）：REQ 只读别名（REQ-XXXX），统一编号对象才有；存量 legacy 项目为 null/缺省 */
+  reqAlias?: string | null;
+  /** PMO-a：交付策略（缺省 = branch-only，见 resolveDeliveryPolicy） */
+  deliveryPolicy?: DeliveryPolicy;
+  /** 决策 2：杂务 PMO（频道常青小活归集），isChore + channelId 联合标识 */
+  isChore?: boolean;
+  channelId?: string | null;
+  /** PMO-b：auto-merge 交付记录（人确认交付后落档；branch-only 永不写） */
+  deliveredAt?: string | null;
+  deliveredBy?: string | null;
+  deliverCommit?: string | null;
+}
+
+/** 交付策略缺省解析：未设置一律 branch-only（不碰合并/发布链路是默认姿态） */
+export function resolveDeliveryPolicy(project: Pick<ProjectData, 'deliveryPolicy'>): DeliveryPolicy {
+  return project.deliveryPolicy ?? 'branch-only';
 }
 
 // ============================================
@@ -135,21 +165,54 @@ function isErrnoError(err: unknown): err is NodeJS.ErrnoException {
 // PMO 号生成（全局递增）
 // ============================================
 
+/** 从 pmoNumber 提取数字（兼容 PM-001 与 PMO-42 两种格式）；无法解析返回 null */
+export function parsePmoSeq(pmoNumber: string | null | undefined): number | null {
+  const m = pmoNumber?.match(/^PMO?-(\d+)$/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** REQ 序号目录（决策 4：统一编号需把 REQ 序列纳入 max 扫描） */
+const REQUIREMENTS_DIR = path.join(os.homedir(), '.studio', 'data', 'requirements');
+
+/** 存量 REQ 最大序号（文件 + index.json nextSeq-1；目录不存在/读取失败 → 0） */
+async function scanMaxRequirementSeq(): Promise<number> {
+  try {
+    // 不带 withFileTypes 时返回文件名字符串；防御 mock/异常返回 Dirent 的情形
+    const entries = await fs.promises.readdir(REQUIREMENTS_DIR);
+    let max = 0;
+    for (const entry of entries) {
+      const name = typeof entry === 'string' ? entry : (entry as { name?: string }).name ?? '';
+      const m = name.match(/^REQ-(\d+)\.json$/);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    const idx = await fileStore.readJson<{ nextSeq?: number }>(path.join(REQUIREMENTS_DIR, 'index.json'));
+    if (typeof idx?.nextSeq === 'number' && idx.nextSeq > 1) max = Math.max(max, idx.nextSeq - 1);
+    return max;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * 统一编号（决策 4 修正版）：新编号 = max(PM/PMO 两序列, REQ 序列) + 1，
+ * 新格式 PMO-<n>（不补零，即分支名；存量 PM-XXX 格式保留不迁移）。
+ * REQ-x 与 PMO-x 同号同对象（REQ 退化为只读别名，见 requirement.service 别名层）。
+ */
 export async function generatePmoNumber(): Promise<string> {
   const projects = await readAllProjects();
 
   let maxNum = 0;
   for (const proj of projects) {
-    const match = proj.pmoNumber?.match(/PM-(\d+)/);
-    if (match) {
-      const num = parseInt(match[1]);
-      if (num > maxNum) maxNum = num;
-    }
+    const num = parsePmoSeq(proj.pmoNumber);
+    if (num !== null && num > maxNum) maxNum = num;
   }
+  maxNum = Math.max(maxNum, await scanMaxRequirementSeq());
 
   const nextNumber = maxNum + 1;
-  const pmoNumber = `PM-${nextNumber.toString().padStart(3, '0')}`;
-  logger.info({ pmoNumber }, 'Generated PMO number');
+  const pmoNumber = `PMO-${nextNumber}`;
+  logger.info({ pmoNumber }, 'Generated PMO number (unified sequence)');
 
   return pmoNumber;
 }
@@ -177,6 +240,9 @@ export const projectService = {
     const pmoNumber = await generatePmoNumber();
     const id = generateId();
     const now = new Date().toISOString();
+    // 决策 4：REQ 别名与 PMO 同号（REQ-0042 ↔ PMO-42）；决策 3/§4.5：分支名 = PMO id
+    const seq = parsePmoSeq(pmoNumber);
+    const reqAlias = seq !== null ? `REQ-${String(seq).padStart(4, '0')}` : null;
 
     const project: ProjectData = {
       id,
@@ -189,7 +255,7 @@ export const projectService = {
       status: 'pending',
       priority: input.priority || 'normal',
       progress: 0,
-      gitBranch: input.gitBranch || null,
+      gitBranch: input.gitBranch || pmoNumber,  // 分支名 = PMO id（显式指定可覆盖）
       gitRepo: input.gitRepo || null,
       specFilePath: null,
       requirementsDocId: input.requirementsDocId || null,
@@ -197,10 +263,13 @@ export const projectService = {
       completedAt: null,
       createdAt: now,
       updatedAt: now,
+      reqAlias,
+      deliveryPolicy: input.deliveryPolicy ?? 'branch-only',
+      ...(input.isChore ? { isChore: true, channelId: input.channelId ?? null } : {}),
     };
 
     await fileStore.writeJson(projectPath(id), project);
-    logger.info({ projectId: id, pmoNumber }, 'Project created');
+    logger.info({ projectId: id, pmoNumber, reqAlias }, 'Project created');
     return project;
   },
 
@@ -208,9 +277,45 @@ export const projectService = {
     return fileStore.readJson<ProjectData>(projectPath(projectId));
   },
 
+  /** 决策 4 别名层：按 REQ 别名反查 PMO（REQ-XXXX → 统一编号对象）；存量无别名 → null */
+  async getByReqAlias(reqId: string): Promise<ProjectData | null> {
+    const projects = await readAllProjects();
+    return projects.find(p => p.reqAlias === reqId) || null;
+  },
+
+  /**
+   * 决策 2：频道杂务 PMO —— find-or-create（同频道幂等）。
+   * 小活归集的长期分支；deliveryPolicy 固定 branch-only，状态直接 active。
+   */
+  async ensureChoreProject(channelId: string, channelName?: string | null): Promise<ProjectData> {
+    const projects = await readAllProjects();
+    const existing = projects.find(p => p.isChore === true && p.channelId === channelId);
+    if (existing) return existing;
+    const project = await this.create({
+      title: `杂务 · ${channelName ?? channelId}`,
+      description: '频道杂务 PMO（决策 2）：小活归集的常青容器，需求级工作请单建 PMO',
+      deliveryPolicy: 'branch-only',
+      isChore: true,
+      channelId,
+    });
+    // 杂务 PMO 直接 active（不等 publish；进度回写不读 pending，但 active 语义更正）
+    return this.updateStatus(project.id, PROJECT_STATUS.ACTIVE, true);
+  },
+
+  /** 决策 2 读取路径：只查不建（热路径零副作用——找不到返回 null 走 legacy） */
+  async findChoreProject(channelId: string): Promise<ProjectData | null> {
+    const projects = await readAllProjects();
+    return projects.find(p => p.isChore === true && p.channelId === channelId) || null;
+  },
+
   async getByPmoNumber(pmoNumber: string): Promise<ProjectData | null> {
     const projects = await readAllProjects();
-    return projects.find(p => p.pmoNumber === pmoNumber) || null;
+    const exact = projects.find(p => p.pmoNumber === pmoNumber);
+    if (exact) return exact;
+    // 数字归一匹配（#PMO-42 / #PM-042 / #PM-42 同号；决策 4 统一编号后新旧格式并存）
+    const seq = parsePmoSeq(pmoNumber);
+    if (seq === null) return null;
+    return projects.find(p => parsePmoSeq(p.pmoNumber) === seq) || null;
   },
 
   async list(options: ProjectListOptions = {}): Promise<ProjectData[]> {
