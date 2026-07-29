@@ -440,7 +440,7 @@ router.put('/:id/restore', requireAuth(), requireNotGuest(), async (req, res) =>
 // PATCH /api/v1/channels/:id — update channel settings
 router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
   const { id } = req.params;
-  const { name, defaultWorkspaceId, defaultPath, defaultPipeline } = req.body;
+  const { name, defaultWorkspaceId, defaultPath, defaultPipeline, defaultProfileId } = req.body;
   try {
     const data: Record<string, unknown> = {};
     if (name !== undefined) data.name = name;
@@ -461,16 +461,20 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
       }
       data.defaultPipeline = validated.value;
     }
-    await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
-    // B4a: 频道绑定工程 → 自动把内置角色（pm/dev/reviewer）加入 members（幂等，best-effort）
-    if (defaultWorkspaceId !== undefined && data.defaultWorkspaceId) {
-      try {
-        const { ensureBuiltinRoleMembers } = await import('../agents/builtin-roles.js');
-        await ensureBuiltinRoleMembers(fileStore, id);
-      } catch (e) {
-        logger.warn('[Channel] Auto-join builtin roles failed (non-blocking)', { channelId: id, error: String(e) });
+    // F5（决策 6）: 入口角色 defaultProfileId 可配置 — '' / null → 清除（@studio 与无 @ 消息回退未指派）；
+    // 非空校验为已存在的 active profile（不强制频道成员，成员边界在路由时按 §9.5 判定）
+    if (defaultProfileId !== undefined) {
+      if (defaultProfileId === '' || defaultProfileId === null) {
+        data.defaultProfileId = null;
+      } else {
+        const all = await fileStore.listProfiles({ status: 'active' });
+        if (!all.some(p => p.id === defaultProfileId)) {
+          return res.status(400).json({ success: false, error: `defaultProfileId ${defaultProfileId} 不是已存在的 active 角色` });
+        }
+        data.defaultProfileId = defaultProfileId;
       }
     }
+    await fileStore.updateChannel(id, data as Partial<import('@dommaker/studio-shared').ChannelData>);
     const updated = await fileStore.getChannel(id);
     if (!updated) return res.status(404).json({ success: false, error: 'Channel not found' });
     res.json({ success: true, data: updated });

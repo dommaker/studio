@@ -17,7 +17,6 @@ import { resumeWaitingWorkUnit, postStudioSystemMessage } from '../workunit/wait
 import { resolveReqIdForDispatch } from '../requirements/req-binding.js';
 import { OWNERSHIP_WAITING_QUESTION, resolveWorkspaceForWU } from '../requirements/ownership-resolver.js';
 import { STUDIO_ROLE_NAME } from '../agents/agent-profile.service.js';
-import { PM_ROLE_NAME } from '../agents/builtin-roles.js';
 
 const fileStore = new FileStore();
 const workUnitService = new WorkUnitService();
@@ -100,14 +99,21 @@ export async function routeMessage(
     const memberIds = parseChannels(channel?.members);
     const inScope = (p: (typeof allProfiles)[number]) => memberIds.length === 0 || memberIds.includes(p.id);
     let agent = allProfiles.find(p => p.name === mentionName && inScope(p)) ?? null;
-    // B4a（决策 D7）: @studio 特殊路由 — studio 是系统角色不执行任务，
-    // 改派给 pm（metadata.reroutedFrom='studio'）并向频道发系统消息说明；
-    // pm 不存在/被禁用/不在本频道时按未命中处理（assigneeId=null）。
+    // F5（2026-07-28 分析文档决策 6）: @studio 特殊路由 — studio 是系统角色不执行任务；
+    // 转派目标 = 频道 defaultProfileId 入口角色（与决策 12 同字段），未配置/inactive/越界
+    // → 未指派（assigneeId=null），走 claim 涌现（agent-loop observe 未指派过滤）。
+    // 转派成功：metadata.reroutedFrom='studio' + 频道发 Studio 系统消息说明。
     let reroutedFrom: string | undefined;
+    let reroutedToName: string | undefined;
     if (mentionName === STUDIO_ROLE_NAME) {
-      const pm = allProfiles.find(p => p.name === PM_ROLE_NAME && inScope(p)) ?? null;
-      agent = pm;
-      if (pm) reroutedFrom = STUDIO_ROLE_NAME;
+      const entry = channel?.defaultProfileId
+        ? allProfiles.find(p => p.id === channel.defaultProfileId && inScope(p)) ?? null
+        : null;
+      agent = entry;
+      if (entry) {
+        reroutedFrom = STUDIO_ROLE_NAME;
+        reroutedToName = entry.name;
+      }
     }
     const scope = content.replace(/@[\p{L}\p{N}_-]+\s*/u, '');
     // REQ 需求编号（vision §5.3）：显式 > #REQ-XXXX token > 自动新建。
@@ -188,12 +194,12 @@ export async function routeMessage(
       undefined,
       workUnit.id,
     );
-    // B4a: @studio 改派 → 频道发 Studio 系统消息说明（best-effort，挂在派发消息线程）
+    // F5: @studio 改派 → 频道发 Studio 系统消息说明（best-effort，挂在派发消息线程）
     if (reroutedFrom) {
       await postStudioSystemMessage(
         resolvedFs,
         channelId,
-        `studio 是系统角色，你的消息已转给 @${PM_ROLE_NAME}`,
+        `studio 是系统角色，你的消息已转给 @${reroutedToName}`,
         { replyToId: message.id, workUnitId: workUnit.id },
       ).catch(err =>
         logger.warn('[MessageRouting] Post studio-reroute notice failed (non-blocking)', {
