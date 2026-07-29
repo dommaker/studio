@@ -2,6 +2,9 @@
 
 > 此文件描述 apps/api/src/modules/skills 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-07-28 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/skills/CONTEXT.md, apps/api/src/modules/skills/manifest-loader.ts, apps/api/src/modules/skills/skill-loader.ts, apps/api/src/modules/skills/skill-demotion.ts, apps/api/src/modules/skills/skill-selector.ts
+
 ## 职责
 
 skills 模块负责技能（Skill）的完整生命周期管理，包括基于文件的技能元数据存储（SkillStore）、提案存储（ProposalStore）、技能目录扫描与加载（manifest-loader）、基于描述的技能匹配（skill-selector）、从 WorkUnit 执行中提取可复用模式（skill-extraction.service）以及对应的 REST API 路由（routes.ts、skill-proposal-routes.ts）。所有数据存储已从 Prisma 迁移至文件系统。
@@ -55,6 +58,7 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `2a51e54f`: skill_used 口径校准 — uses 按 (skill, workUnitId) 去重
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
 - ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零
