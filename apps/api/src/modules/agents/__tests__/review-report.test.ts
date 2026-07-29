@@ -3,7 +3,8 @@
 // - agentStep：review 子 WU complete 时把 reviewer 输出解析写入 metadataUpdates.reviewReport
 // - recordResult：review 子 WU complete → in_review → done（收口，触发 dispatcher 路径 B）
 // - ReviewDispatcher：scope 含 REVIEW_RESULT 约定；无 report → 父保持 in_review + 频道转人工
-// - findReviewerInChannel：members 损坏/非数组 → 安全按无成员处理（不静默崩掉派发）
+// - ReviewDispatcher：scope 含 REVIEW_RESULT 约定；无 report → 父保持 in_review + 频道转人工
+// - F4: members 损坏/非数组 → 不抛错，按成员未知保守创建自评兜底子 WU（评审链不断）
 // 真实 FileStore（tmpdir）+ 真实 WorkUnitService；CLI 执行与 knowledge-service mock
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
@@ -240,8 +241,9 @@ describe('P0: reviewReport 回传链路', () => {
     expect(sysMsg!.content).toContain('REVIEW_RESULT');
   });
 
-  it('findReviewerInChannel：members 损坏/非数组 → 按无成员处理，不创建子 WU 不抛错', async () => {
-    // 非数组 JSON 值（旧裸 JSON.parse 会得到 "oops"，随后静默跳过派发）
+  it('F4: members 损坏/非数组 → 不抛错，按成员未知保守创建自评兜底子 WU', async () => {
+    // 非数组 JSON 值（旧裸 JSON.parse 会得到 "oops"）—— F4 后不再静默跳过派发：
+    // 成员未知 → 自评兜底（不排除实现者 + selfReview 标记），评审链不断
     await fileStore.updateChannel(channelId, { members: '"oops"' });
 
     const parent = await wuService.create({
@@ -252,7 +254,11 @@ describe('P0: reviewReport 回传链路', () => {
     await new Promise(r => setTimeout(r, 100));
 
     const snapshots = await fileStore.getIndex();
-    expect(snapshots.find(s => s.parentId === parent.id && s.type === 'review')).toBeUndefined();
+    const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
+    expect(child).toBeDefined();
+    const meta: WorkUnitMetadata = JSON.parse(child!.metadata!);
+    expect(meta.excludeAssignee).toBeUndefined();
+    expect(meta.selfReview).toBe(true);
 
     // 损坏 JSON 同样安全
     await fileStore.updateChannel(channelId, { members: '{broken json' });
@@ -264,6 +270,8 @@ describe('P0: reviewReport 回传链路', () => {
     await new Promise(r => setTimeout(r, 100));
 
     const snapshots2 = await fileStore.getIndex();
-    expect(snapshots2.find(s => s.parentId === parent2.id && s.type === 'review')).toBeUndefined();
+    const child2 = snapshots2.find(s => s.parentId === parent2.id && s.type === 'review');
+    expect(child2).toBeDefined();
+    expect(JSON.parse(child2!.metadata!).selfReview).toBe(true);
   });
 });

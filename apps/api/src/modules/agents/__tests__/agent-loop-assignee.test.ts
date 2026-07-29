@@ -172,6 +172,30 @@ describe('Assignee-aware claiming（observe 过滤）', () => {
     expect(resolveTarget(obs)).toBeNull();
   });
 
+  it('(d2) F4 评审排除实现者：metadata.excludeAssignee=本 profile 的未指派 WU 不可见；排除他人则可见', async () => {
+    const excluded = await wuService.create({
+      scope: '审查代码变更：我实现的活', channelId: MY_CHANNEL, type: 'review',
+      status: 'unassigned', assigneeId: null,
+      metadata: { excludeAssignee: SELF_ROLE_ID },
+    });
+    const notExcluded = await wuService.create({
+      scope: '审查代码变更：别人实现的活', channelId: MY_CHANNEL, type: 'review',
+      status: 'unassigned', assigneeId: null,
+      metadata: { excludeAssignee: OTHER_ROLE_ID },
+    });
+    const selfReviewFallback = await wuService.create({
+      scope: '审查代码变更：自评兜底', channelId: MY_CHANNEL, type: 'review',
+      status: 'unassigned', assigneeId: null,
+      metadata: { selfReview: true }, // 自评兜底不设 excludeAssignee → 可见
+    });
+
+    const obs = await observe();
+    const ids = obs.unassigned.map(w => w.id);
+    expect(ids).not.toContain(excluded.id);
+    expect(ids).toContain(notExcluded.id);
+    expect(ids).toContain(selfReviewFallback.id);
+  });
+
   it('(e) myActive 作用域：仅拾取 assigneeId === 本实例 id 的 active/blocked WorkUnit', async () => {
     const mine = await wuService.create({
       scope: '我的进行中任务', channelId: MY_CHANNEL, type: 'task',

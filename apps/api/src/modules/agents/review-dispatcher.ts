@@ -2,10 +2,16 @@
  * ReviewDispatcher - AC-4.1 ~ AC-4.5: 状态机驱动的 review 系统代派
  *
  * 订阅 workunit.status_changed：
- *   路径 A：父 WU -> in_review -> 找频道内 reviewer 角色 -> 创建 review 子 WU（绕过 DelegationGate）
+ *   路径 A：父 WU -> in_review -> 创建 review 子 WU（未指派，走 claim 涌现；绕过 DelegationGate）
  *   路径 B：子 WU（type=review）-> done -> 解析 metadata.reviewReport -> 父 WU reviewPassed/reviewRejected
- *     （reviewReport 由 reviewer 的 AgentLoop 在子 WU complete 时解析 REVIEW_RESULT 写入；
+ *     （reviewReport 由评审方的 AgentLoop 在子 WU complete 时解析 REVIEW_RESULT 写入；
  *       缺失/无法解析 -> 不默认拒绝，频道发系统消息转人工，父 WU 保持 in_review）
+ *
+ * F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：
+ *   不再按 description 含 'reviewer' 找具名角色（字符串锚点已废除）——评审子 WU
+ *   assigneeId=null 未指派，任何频道成员可认领；metadata.excludeAssignee=实现者 profile id
+ *   保证"不许自己审自己"（agent-loop observe 过滤）。频道内除实现者外无其他 active 成员时
+ *   自评兜底：不加排除、metadata.selfReview=true、频道发系统消息提醒人工复核。
  *
  * 设计决策（design.md §1.2）：
  *   D5: 状态机驱动，不走 agent DELEGATE 协议
@@ -50,30 +56,33 @@ export class ReviewDispatcher {
     });
   }
 
-  /** 检查频道是否有 reviewer 角色（description 含 'reviewer'） */
-  private async findReviewerInChannel(channelId: string): Promise<AgentProfileData | null> {
+  /** 频道 active 成员（不含 studio）；members 未回填（历史频道）返回 null = 成员未知 */
+  private async getChannelActiveMembers(channelId: string): Promise<AgentProfileData[] | null> {
     const channel = await this.fileStore.getChannel(channelId);
     // P0 修复：安全解析 members —— 损坏 JSON / 非数组 / 双重编码一律按无成员处理
-    // （此前裸 JSON.parse 只对语法错误兜底，非数组值会让派发静默跳过）
     const memberIds = parseChannels(channel?.members);
     if (memberIds.length === 0) return null;
 
     const allProfiles = await this.fileStore.listProfiles({ status: 'active' });
-    const members = allProfiles.filter(p => memberIds.includes(p.id) && p.name !== 'studio');
-    if (members.length === 0) return null;
+    return allProfiles.filter(p => memberIds.includes(p.id) && p.name !== 'studio');
+  }
 
-    const reviewer = members.find(p =>
-      p.description?.toLowerCase().includes('reviewer'),
-    );
-    return reviewer ?? null;
+  /**
+   * 实现者 profile id 解析：assigneeId 有两种形态——指名未认领时是 profile id，
+   * 已认领后被 claim 改写为 instance id（instance.state.roleId 才是 profile id）。
+   * 排除约束必须落在 profile id 上（agent-loop observe 按 this.role.id 比对）。
+   */
+  private async resolveImplementerProfileId(parent: WorkUnitData): Promise<string | null> {
+    const id = parent.assigneeId;
+    if (!id) return null;
+    if (await this.fileStore.getProfile(id)) return id;
+    const state = await this.fileStore.getState(id).catch(() => null);
+    return state?.roleId ?? null;
   }
 
   /** 父 WU 进入 in_review 时的处理 */
   private async handleParentInReview(parent: WorkUnitData): Promise<void> {
     if (!parent.channelId) return;
-
-    const reviewer = await this.findReviewerInChannel(parent.channelId);
-    if (!reviewer) return; // 无 reviewer 角色 -> 前端提醒（AC-2.4），不卡流程
 
     // 同父唯一性校验：已有未完结 review 子 WU -> 跳过
     const snapshots = await this.fileStore.getIndex();
@@ -85,11 +94,37 @@ export class ReviewDispatcher {
     );
     if (existingReview) return;
 
-    await this.createReviewWorkUnit(parent, reviewer);
+    // F4: 评审子 WU 未指派走涌现；排除实现者（决策 5 衔接顺序）：
+    // 成员已知且除实现者外无他人 → 自评兜底（不加排除 + selfReview 标记 + 频道提醒）；
+    // 成员未知（历史频道未回填 members）同样保守处理为自评兜底。
+    const members = await this.getChannelActiveMembers(parent.channelId);
+    const implementerId = await this.resolveImplementerProfileId(parent);
+    const eligible = members?.filter(p => p.id !== implementerId) ?? null;
+    const selfReview = !eligible || eligible.length === 0;
+
+    const child = await this.createReviewWorkUnit(parent, {
+      excludeAssignee: selfReview ? null : implementerId,
+      selfReview,
+    });
+
+    if (selfReview) {
+      // 决策 5：提醒是给人看的（建议人工复核/加成员），自评是保流转的——二者不冲突
+      await this.postSystemMessage(
+        parent,
+        `任务「${(parent.scope ?? '').slice(0, 50)}」已进入评审（#${child.id.slice(0, 8)}）：频道内无其他可评审成员，未排除实现者，可能由实现者自评——建议人工复核或为频道添加成员`,
+      ).catch(err =>
+        logger.warn('[ReviewDispatcher] Post self-review notice failed (non-blocking)', {
+          parentId: parent.id, error: String(err),
+        })
+      );
+    }
   }
 
-  /** 创建 review 子 WU（绕过 DelegationGate，design.md D6） */
-  private async createReviewWorkUnit(parent: WorkUnitData, reviewer: AgentProfileData): Promise<WorkUnitData> {
+  /** 创建 review 子 WU（未指派走 claim 涌现；绕过 DelegationGate，design.md D6） */
+  private async createReviewWorkUnit(
+    parent: WorkUnitData,
+    opts: { excludeAssignee: string | null; selfReview: boolean },
+  ): Promise<WorkUnitData> {
     const parentMeta = parent.metadata ? JSON.parse(parent.metadata) as WorkUnitMetadata : {};
     const parentCollab = parentMeta.collab ?? {
       rootId: parent.id,
@@ -103,22 +138,26 @@ export class ReviewDispatcher {
       collab: {
         rootId: parentCollab.rootId,
         depth: parentCollab.depth + 1,
-        chain: [...parentCollab.chain, reviewer.id],
+        // 评审人未知（涌现认领），chain 不含评审者；认领后由 loop 侧谱系自证
+        chain: [...parentCollab.chain],
         delegatedBy: { profileId: parent.assigneeId ?? '', workUnitId: parent.id },
         delegationCount: 0,
       },
+      ...(opts.excludeAssignee ? { excludeAssignee: opts.excludeAssignee } : {}),
+      ...(opts.selfReview ? { selfReview: true } : {}),
     };
 
     const child = await this.workUnitService.create({
       type: 'review',
       // P0 修复（reviewReport 回传断链）：scope 写入 REVIEW_RESULT 输出约定 ——
-      // reviewer 的 AgentLoop complete 时据此解析结构化结论写入 metadata.reviewReport
+      // 评审方 AgentLoop complete 时据此解析结构化结论写入 metadata.reviewReport
       scope: `审查代码变更：${parent.scope?.slice(0, 200) ?? ''}
 
 完成审查后，除 ACTION 行外，还必须在输出的最后一行给出结构化结论：
 REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"一句话结论","issues":[{"severity":"error"|"warn"|"info","message":"问题描述"}]}
 （verdict=pass 通过 / reject 打回；summary、issues 可省略。缺少该行将转人工评审。）`,
-      assigneeId: reviewer.id,
+      // F4: 未指派 —— 任何频道成员可认领（排除实现者由 metadata.excludeAssignee 约束）
+      assigneeId: null,
       status: 'unassigned',
       channelId: parent.channelId,
       parentId: parent.id,
@@ -127,10 +166,11 @@ REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"一句话结论","issues":[
       metadata: childMeta,
     });
 
-    logger.info('[ReviewDispatcher] Created review child WU', {
+    logger.info('[ReviewDispatcher] Created review child WU (unassigned)', {
       parentId: parent.id,
       childId: child.id,
-      reviewer: reviewer.name,
+      excludeAssignee: opts.excludeAssignee,
+      selfReview: opts.selfReview,
     });
 
     return child;
