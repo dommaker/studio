@@ -323,3 +323,44 @@ export async function aggregateTreeTokens(
     budgetRemaining: TREE_TOKEN_BUDGET - rootTotal,
   };
 }
+
+/**
+ * 按 WU id 集合求和 token 总消耗（PMO 交付台账用——项目链路真实成本）。
+ * 事件读取与计数口径同 getAgentTokenUsage：只认 workunit:tokens 事件，
+ * totalTokens 优先、缺省 injected+execution；payload 损坏/撕裂行跳过。
+ * 事件文件不存在/不可读 → 返回 0，绝不抛错（best-effort）。
+ */
+export async function sumTokensForWorkUnits(
+  workUnitIds: Set<string>,
+  opts?: { eventsFile?: string; fileStore?: FileStore },
+): Promise<number> {
+  if (workUnitIds.size === 0) return 0;
+  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
+  const fileStore = opts?.fileStore ?? new FileStore();
+
+  let rows: Array<Record<string, unknown>> = [];
+  try {
+    rows = await fileStore.readJsonl<Record<string, unknown>>(eventsFile);
+  } catch {
+    return 0; // 事件文件不存在/不可读 → 0
+  }
+
+  let sum = 0;
+  for (const row of rows) {
+    if (row?.type !== 'workunit:tokens') continue;
+    let payload: Record<string, unknown>;
+    try {
+      payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload as Record<string, unknown>) ?? {};
+    } catch {
+      continue; // payload 损坏的行跳过，不编造
+    }
+    const wuId = typeof payload.workUnitId === 'string' ? payload.workUnitId : null;
+    if (!wuId || !workUnitIds.has(wuId)) continue;
+
+    const injected = typeof payload.injectedTokens === 'number' && Number.isFinite(payload.injectedTokens) ? payload.injectedTokens : 0;
+    const execution = typeof payload.executionTokens === 'number' && Number.isFinite(payload.executionTokens) ? payload.executionTokens : 0;
+    const total = typeof payload.totalTokens === 'number' && Number.isFinite(payload.totalTokens) ? payload.totalTokens : injected + execution;
+    sum += total;
+  }
+  return sum;
+}

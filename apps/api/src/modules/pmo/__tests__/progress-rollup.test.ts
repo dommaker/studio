@@ -3,8 +3,9 @@
  *
  * 覆盖：
  * - WU 状态变化（事件）→ 按项目下全部 Requirement 关联 WU 的完结比例重算 progress
- * - 全部完结 → status 置 completed（completedAt/progress=100）
- * - Requirement 无 projectId / 项目已 completed / 无关联 WU → 不动作
+ * - 全部完结 → 证据感知翻转：证据齐 → completed（completedAt/progress=100）；
+ *   证据缺口 → active/pending 置 in_review（等证据验收），已 in_review 不动
+ * - Requirement 无 projectId / 项目已 completed（不回退）/ 无关联 WU → 不动作
  * - 订阅解绑（off）后不再回写
  *
  * 约定：PMO 项目写真实 ~/.studio/projects（workspace-binding.test.ts 同款约定），
@@ -19,6 +20,10 @@ import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId,
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
+
+/** 三层证据齐全的 metadata（l1 自动验证 / l2 agent 评审 / l3 人工确认） */
+const att = (kind: string) => ({ verdict: 'approved', by: 'x', at: '2026-07-29T00:30:00Z', kind });
+const fullEvidence = { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } };
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -74,11 +79,11 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     expect(after!.status).toBe(PROJECT_STATUS.PENDING);
   });
 
-  it('全部完结 → status=completed + progress=100 + completedAt', async () => {
+  it('全部完结且证据齐 → status=completed + progress=100 + completedAt', async () => {
     const project = await createRealProject();
     const req = await reqService.create({ title: '需求', projectId: project.id });
-    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id });
-    await wuService.create({ scope: 'w2', type: 'task', status: 'closed', reqId: req.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id, metadata: fullEvidence });
+    await wuService.create({ scope: 'w2', type: 'task', status: 'closed', reqId: req.id, metadata: fullEvidence });
 
     await syncProjectProgress(project.id, fileStore);
 
@@ -88,11 +93,57 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     expect(after!.completedAt).toBeTruthy();
   });
 
+  it('全部完结但缺 L3 人工确认 → 置 in_review（不冒充 completed）', async () => {
+    const project = await createRealProject();
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({
+      scope: 'w1', type: 'task', status: 'done', reqId: req.id,
+      metadata: { attestations: { l1: att('verify'), l2: att('agent-review') } },
+    });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.status).toBe(PROJECT_STATUS.IN_REVIEW);
+    expect(after!.progress).toBe(100);
+    expect(after!.completedAt).toBeFalsy();
+  });
+
+  it('active 项目全部完结但证据缺口 → 同样置 in_review', async () => {
+    const project = await createRealProject();
+    await projectService.update(project.id, { status: PROJECT_STATUS.ACTIVE });
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id }); // 无证据
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.IN_REVIEW);
+  });
+
+  it('已 in_review 且证据仍缺 → 不动；证据补齐后重算 → 翻 completed（读取纠偏路径）', async () => {
+    const project = await createRealProject();
+    await projectService.update(project.id, { status: PROJECT_STATUS.ACTIVE });
+    await projectService.updateStatus(project.id, PROJECT_STATUS.IN_REVIEW);
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    const wu = await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id }); // 无证据
+
+    await syncProjectProgress(project.id, fileStore);
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.IN_REVIEW);
+
+    // 幂等补写证据（不产生状态事件），读取时重算纠偏
+    await wuService.update(wu.id, { metadata: fullEvidence });
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.status).toBe(PROJECT_STATUS.COMPLETED);
+    expect(after!.progress).toBe(100);
+  });
+
   it('只统计该项目下的 WU（其他需求的 WU 不影响）', async () => {
     const project = await createRealProject();
     const req = await reqService.create({ title: '需求', projectId: project.id });
     const otherReq = await reqService.create({ title: '无关需求' });
-    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id, metadata: fullEvidence });
     await wuService.create({ scope: 'w2', type: 'task', status: 'active', reqId: otherReq.id });
     await wuService.create({ scope: 'w3', type: 'task', status: 'active' }); // 无 reqId
 
@@ -130,6 +181,19 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     expect(after!.progress).toBe(100); // 未被重算为 0
   });
 
+  it('已 completed 项目即使证据有缺口也不回退（不翻回 in_review）', async () => {
+    const project = await createRealProject();
+    await projectService.update(project.id, { status: PROJECT_STATUS.ACTIVE });
+    await projectService.updateStatus(project.id, PROJECT_STATUS.IN_REVIEW);
+    await projectService.updateStatus(project.id, PROJECT_STATUS.COMPLETED);
+    const req = await reqService.create({ title: '需求', projectId: project.id });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', reqId: req.id }); // 无证据
+
+    await syncProjectProgress(project.id, fileStore);
+
+    expect((await projectService.get(project.id))!.status).toBe(PROJECT_STATUS.COMPLETED);
+  });
+
   it('无关联 WU → 不动作（progress 保持原值）', async () => {
     const project = await createRealProject();
     await reqService.create({ title: '需求', projectId: project.id });
@@ -152,10 +216,10 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     expect(after!.status).toBe(PROJECT_STATUS.PENDING);
   });
 
-  it('analysis 派生链全部完结 → completed + progress=100（口径同主路径）', async () => {
+  it('analysis 派生链全部完结且证据齐 → completed + progress=100（口径同主路径）', async () => {
     const project = await createRealProject();
-    await wuService.create({ scope: 'w1', type: 'task', status: 'done', metadata: { pmoId: project.id } });
-    await wuService.create({ scope: 'w2', type: 'task', status: 'closed', metadata: { pmoId: project.id } });
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', metadata: { pmoId: project.id, ...fullEvidence } });
+    await wuService.create({ scope: 'w2', type: 'task', status: 'closed', metadata: { pmoId: project.id, ...fullEvidence } });
 
     await syncProjectProgress(project.id, fileStore);
 
@@ -198,7 +262,7 @@ describe('initPmoProgressRollup（事件接线）', () => {
   it('workunit.status_changed → 回写关联项目进度；off 后不再回写', async () => {
     const project = await createRealProject();
     const req = await reqService.create({ title: '需求', projectId: project.id });
-    const wu = await wuService.create({ scope: 'w1', type: 'task', status: 'unassigned', reqId: req.id });
+    const wu = await wuService.create({ scope: 'w1', type: 'task', status: 'unassigned', reqId: req.id, metadata: fullEvidence });
     const off = initPmoProgressRollup(fileStore);
     try {
       // unassigned → active → in_review → done，每次状态变化都触发回写
@@ -216,7 +280,7 @@ describe('initPmoProgressRollup（事件接线）', () => {
 
   it('无 reqId 但 metadata.pmoId 存在 → 回退按 pmoId 回写进度', async () => {
     const project = await createRealProject();
-    const wu = await wuService.create({ scope: 'w1', type: 'task', status: 'unassigned', metadata: { pmoId: project.id } });
+    const wu = await wuService.create({ scope: 'w1', type: 'task', status: 'unassigned', metadata: { pmoId: project.id, ...fullEvidence } });
     const off = initPmoProgressRollup(fileStore);
     try {
       await wuService.transitionStatus(wu.id, 'active');

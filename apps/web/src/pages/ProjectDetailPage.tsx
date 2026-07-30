@@ -11,7 +11,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectApi, api, type DeliveryStatus } from '../api';
+import { projectApi, api, type DeliveryStatus, type DeliveryGap } from '../api';
+import { workunitApi } from '../api/workunit';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { Timeline } from '../components/Timeline';
 import { IronLawWarningBanner } from '../components/IronLawWarningBanner';
@@ -86,6 +87,13 @@ const cloudIdeSteps = [
   { step: 3, text: 'File → Open Folder → 粘贴项目路径' },
 ];
 
+// 🆕 F6-c: 缺口层 → 人话文案
+const GAP_LAYER_LABELS: Record<'l1' | 'l2' | 'l3', string> = {
+  l1: '缺 L1 自动验证',
+  l2: '缺 L2 agent 评审',
+  l3: '缺 L3 人工确认',
+};
+
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
@@ -107,6 +115,8 @@ export function ProjectDetailPage() {
   const [delivery, setDelivery] = useState<DeliveryStatus | null>(null);
   const [delivering, setDelivering] = useState(false);
   const [deliverError, setDeliverError] = useState<{ message: string; missing?: string[]; conflictFiles?: string[] } | null>(null);
+  // 🆕 F6-c: 缺口行动按钮的独立 loading 态（key = `${wuId}:${action}`），防重复点击
+  const [gapActionPending, setGapActionPending] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     if (!projectId) return;
@@ -162,18 +172,81 @@ export function ProjectDetailPage() {
     setTimeout(() => setCopySuccess(false), 2000);
   };
 
-  // 归档知识库
+  // 归档知识库：把项目文档中未归档的全部置 archived（human-only）
+  const archivableDocs = documents.filter(d => d.status !== 'archived');
+
   const handleArchive = async () => {
-    if (!project) return;
-    
+    if (!projectId || archivableDocs.length === 0) return;
+
     try {
       setArchiveLoading(true);
-      const response = await api.post(`/executions/${project.id}/archive`);
-      toast.success(`任务已归档！文件: ${response.data.fileName}`);
-    } catch (err: any) {
-      toast.error(`归档失败: ${err.response?.data?.error?.message || err.message}`);
+      const results = await Promise.allSettled(
+        archivableDocs.map(doc => api.post(`/knowledge/${doc.id}/archive`)),
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      const succeeded = results.length - failed;
+      if (failed === 0) {
+        toast.success(`已归档 ${succeeded} 篇文档`);
+      } else {
+        toast.error(`归档失败 ${failed} 篇（成功 ${succeeded} 篇）`);
+      }
+      // 刷新文档列表
+      try {
+        const docsRes = await api.get(`/knowledge/${projectId}`);
+        setDocuments(docsRes.data?.documents || []);
+      } catch { /* best-effort */ }
     } finally {
       setArchiveLoading(false);
+    }
+  };
+
+  // 🆕 F6-c: 重新拉台账 + 全量数据（缺口行动成功后刷新）
+  const refreshDelivery = async () => {
+    if (!projectId) return;
+    try {
+      const deliveryRes = await projectApi.getDelivery(projectId);
+      setDelivery(deliveryRes.data);
+    } catch { /* best-effort */ }
+    loadData();
+  };
+
+  // 🆕 F6-c: 缺口行动——重跑 L1 验证 / 补派 L2 评审 / L3 人工确认
+  const handleGapAction = async (gap: DeliveryGap, action: 'verify' | 'dispatchReview' | 'reviewPassed') => {
+    const key = `${gap.id}:${action}`;
+    setGapActionPending(prev => ({ ...prev, [key]: true }));
+    try {
+      if (action === 'verify') {
+        const res = await workunitApi.verify(gap.id);
+        if (res.data?.verified) {
+          toast.success('验证通过，L1 已补齐');
+          await refreshDelivery();
+        } else {
+          const failedCmds = (res.data?.failed || []).map(f => f.command).join('；');
+          toast.error(`验证未通过${failedCmds ? `：${failedCmds}` : ''}`);
+        }
+      } else if (action === 'dispatchReview') {
+        await workunitApi.dispatchReview(gap.id);
+        toast.success('已创建评审 WorkUnit，待 agent 认领');
+        await refreshDelivery();
+      } else {
+        await workunitApi.reviewPassed(gap.id);
+        toast.success('已确认，L3 已补齐');
+        await refreshDelivery();
+      }
+    } catch (err: any) {
+      const status = err?.response?.status;
+      const errData = err?.response?.data?.error;
+      if (action === 'verify' && status === 422) {
+        toast.error(err?.response?.data?.hint || '未配置验证命令（verifyCommands）');
+      } else if (action === 'verify' && status === 409) {
+        toast.error(errData?.message || '无 worktree，无法重跑验证');
+      } else if (action === 'dispatchReview' && status === 409) {
+        toast.info('评审已在途或已完成');
+      } else {
+        toast.error(errData?.message || err?.message || '操作失败');
+      }
+    } finally {
+      setGapActionPending(prev => ({ ...prev, [key]: false }));
     }
   };
 
@@ -218,8 +291,9 @@ export function ProjectDetailPage() {
     return { completed, inProgress, pending, blocked, total, progress };
   };
 
-  // 计算 Token 消耗
+  // 计算 Token 消耗（delivery 存在时优先用 WU 链路台账口径；否则回退老 Execution 累加）
   const getTokenStats = () => {
+    if (delivery) return delivery.tokens;
     const executions = project?.Execution || [];
     const totalTokens = executions.reduce((sum, exec) => {
       const params = exec.parameters as any;
@@ -241,6 +315,18 @@ export function ProjectDetailPage() {
   const progressStats = getProgressStats();
   const tokenStats = getTokenStats();
   const tasksByStatus = getTasksByStatus();
+
+  // 证据缺口摘要（L1/L2/L3 缺的层为 0 不显示），用于进展卡的琥珀警告条
+  const evidenceGapSummary = delivery
+    ? [
+        { label: 'L1', n: delivery.evidence.l1Missing.length },
+        { label: 'L2', n: delivery.evidence.l2Missing.length },
+        { label: 'L3', n: delivery.evidence.l3Missing.length },
+      ]
+        .filter(g => g.n > 0)
+        .map(g => `${g.label} 缺 ${g.n}`)
+        .join(' · ')
+    : '';
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="u-text-2">加载中...</div></div>;
@@ -289,22 +375,30 @@ export function ProjectDetailPage() {
         )}
       </div>
 
-      {/* 🆕 PMO-b: 交付（台账 + human-only 合并） */}
+      {/* 🆕 PMO-b: 交付（台账 + human-only 合并 + F6-c 缺口行动） */}
       {delivery && (
         <div className="u-surface rounded-lg shadow p-4 mb-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium u-text-2">📦 交付</h3>
-            {delivery.deliverable ? (
+            {delivery.deliveredAt ? (
+              <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium">✓ 已交付</span>
+            ) : delivery.deliverable ? (
               <span className="text-xs px-2 py-1 rounded u-ok-dim u-ok font-medium">✓ 可交付</span>
+            ) : delivery.wu.inFlight > 0 ? (
+              <span className="text-xs px-2 py-1 rounded u-accent-dim u-accent font-medium">
+                🔄 进行中 {delivery.wu.finished}/{delivery.wu.total}
+              </span>
             ) : (
-              <span className="text-xs px-2 py-1 rounded u-warn-dim u-warn font-medium">未达成</span>
+              <span className="text-xs px-2 py-1 rounded u-warn-dim u-warn font-medium">
+                ⏳ 待验收:证据还差 {delivery.evidence.l1Missing.length + delivery.evidence.l2Missing.length + delivery.evidence.l3Missing.length} 项
+              </span>
             )}
           </div>
 
           {/* 台账概览：策略 / 分支 / WU 完成度 / 证据三层 / 自评 */}
           <div className="text-sm u-text-2 flex flex-wrap gap-x-4 gap-y-1 mb-2">
             <span>交付策略: {delivery.policy === 'auto-merge' ? '自动合并' : '分支交付'}</span>
-            <span>分支: {delivery.branch}</span>
+            <span>分支: {delivery.branch || '—'}</span>
             <span>WU: {delivery.wu.finished}/{delivery.wu.total} 完成</span>
             <span>L1: {delivery.evidence.l1Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l1Missing.length}`}</span>
             <span>L2: {delivery.evidence.l2Missing.length === 0 ? '✓' : `缺 ${delivery.evidence.l2Missing.length}`}</span>
@@ -312,13 +406,60 @@ export function ProjectDetailPage() {
             <span>自评: {delivery.evidence.selfReviewCount}</span>
           </div>
 
-          {/* 缺口清单（deliverable=false 时） */}
-          {!delivery.deliverable && delivery.missing.length > 0 && (
-            <ul className="text-xs u-err list-disc pl-5 space-y-0.5 mb-2">
-              {delivery.missing.map((m, i) => (
-                <li key={i}>{m}</li>
-              ))}
-            </ul>
+          {/* 无 WU 时的非缺口提示 */}
+          {delivery.wu.total === 0 && (
+            <div className="text-xs u-text-3 mb-2">无关联 WorkUnit</div>
+          )}
+
+          {/* 🆕 F6-c: 缺口行动清单（已完成但证据有缺口的 WU，逐行给补齐动作） */}
+          {!delivery.deliverable && delivery.gaps.length > 0 && (
+            <div className="mb-2">
+              {delivery.wu.inFlight > 0 && (
+                <div className="text-xs u-text-3 mb-1">{delivery.wu.inFlight} 个 WorkUnit 仍在途</div>
+              )}
+              <div className="space-y-1">
+                {delivery.gaps.map(gap => (
+                  <div key={gap.id} className="flex items-center justify-between gap-2 text-xs u-surface-2 rounded px-2 py-1.5">
+                    <div className="min-w-0">
+                      <span className="u-text font-medium">{gap.title}</span>
+                      <span className="u-text-3 ml-1">{gap.type}</span>
+                      <div className="u-warn">
+                        {gap.missing.map(layer => GAP_LAYER_LABELS[layer]).join(' · ')}
+                      </div>
+                    </div>
+                    <div className="flex gap-1 flex-shrink-0">
+                      {gap.missing.includes('l1') && (
+                        <button
+                          onClick={() => handleGapAction(gap, 'verify')}
+                          disabled={!!gapActionPending[`${gap.id}:verify`]}
+                          className="px-2 py-1 rounded u-accent-dim u-accent u-hover-bg disabled:opacity-50"
+                        >
+                          {gapActionPending[`${gap.id}:verify`] ? '验证中...' : '重跑验证'}
+                        </button>
+                      )}
+                      {gap.missing.includes('l2') && (
+                        <button
+                          onClick={() => handleGapAction(gap, 'dispatchReview')}
+                          disabled={!!gapActionPending[`${gap.id}:dispatchReview`]}
+                          className="px-2 py-1 rounded u-accent-dim u-accent u-hover-bg disabled:opacity-50"
+                        >
+                          {gapActionPending[`${gap.id}:dispatchReview`] ? '派发中...' : '派发评审'}
+                        </button>
+                      )}
+                      {gap.missing.includes('l3') && (
+                        <button
+                          onClick={() => handleGapAction(gap, 'reviewPassed')}
+                          disabled={!!gapActionPending[`${gap.id}:reviewPassed`]}
+                          className="px-2 py-1 rounded u-ok-dim u-ok u-hover-bg disabled:opacity-50"
+                        >
+                          {gapActionPending[`${gap.id}:reviewPassed`] ? '确认中...' : '人工确认'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {/* 已交付记录（时间 / 人 / commit 短哈希） */}
@@ -360,9 +501,12 @@ export function ProjectDetailPage() {
               )}
             </div>
           ) : (
-            <div className="text-xs u-text-3">
-              分支交付模式：证据齐后请自行合并分支 {delivery.branch} 并走下游发布链路
-            </div>
+            // branch-only：证据齐且未交付才提示手动合并；证据未齐时缺口行动清单就是指引
+            delivery.deliverable && !delivery.deliveredAt && (
+              <div className="text-xs u-text-3">
+                证据已齐:请合并分支 {delivery.branch} 并走下游发布链路
+              </div>
+            )
           )}
         </div>
       )}
@@ -388,29 +532,58 @@ export function ProjectDetailPage() {
           <span className="text-2xl font-bold u-text">{progressStats.progress}%</span>
         </div>
         
-        {/* 统计卡片 */}
-        <div className="grid grid-cols-5 gap-2">
-          <div className="p-2 rounded-lg u-ok-dim text-center">
-            <div className="text-lg font-bold u-ok">{progressStats.completed}</div>
-            <div className="text-xs u-text-2">✅ 完成</div>
+        {/* 统计卡片：老 Task 链路五卡 / WU 链路六卡（tasks 为空且有台账时） */}
+        {tasks.length === 0 && delivery ? (
+          <div className="grid grid-cols-6 gap-2">
+            <div className="p-2 rounded-lg u-ok-dim text-center">
+              <div className="text-lg font-bold u-ok">{delivery.wu.finished}</div>
+              <div className="text-xs u-text-2">✅ 完成</div>
+            </div>
+            <div className="p-2 rounded-lg u-warn-dim text-center">
+              <div className="text-lg font-bold u-warn">{delivery.wu.byStatus.inReview}</div>
+              <div className="text-xs u-text-2">👀 待验收</div>
+            </div>
+            <div className="p-2 rounded-lg u-accent-dim text-center">
+              <div className="text-lg font-bold u-accent">{delivery.wu.byStatus.active}</div>
+              <div className="text-xs u-text-2">🔄 进行中</div>
+            </div>
+            <div className="p-2 rounded-lg u-surface-2 text-center">
+              <div className="text-lg font-bold u-text-2">{delivery.wu.byStatus.unassigned}</div>
+              <div className="text-xs u-text-2">⏳ 待领取</div>
+            </div>
+            <div className="p-2 rounded-lg u-err-dim text-center">
+              <div className="text-lg font-bold u-err">{delivery.wu.byStatus.blocked}</div>
+              <div className="text-xs u-text-2">🚫 阻塞</div>
+            </div>
+            <div className="p-2 rounded-lg u-accent-dim text-center">
+              <div className="text-lg font-bold u-accent">{delivery.tokens.toLocaleString()}</div>
+              <div className="text-xs u-text-2">💰 Token</div>
+            </div>
           </div>
-          <div className="p-2 rounded-lg u-accent-dim text-center">
-            <div className="text-lg font-bold u-accent">{progressStats.inProgress}</div>
-            <div className="text-xs u-text-2">🔄 进行中</div>
+        ) : (
+          <div className="grid grid-cols-5 gap-2">
+            <div className="p-2 rounded-lg u-ok-dim text-center">
+              <div className="text-lg font-bold u-ok">{progressStats.completed}</div>
+              <div className="text-xs u-text-2">✅ 完成</div>
+            </div>
+            <div className="p-2 rounded-lg u-accent-dim text-center">
+              <div className="text-lg font-bold u-accent">{progressStats.inProgress}</div>
+              <div className="text-xs u-text-2">🔄 进行中</div>
+            </div>
+            <div className="p-2 rounded-lg u-surface-2 text-center">
+              <div className="text-lg font-bold u-text-2">{progressStats.pending}</div>
+              <div className="text-xs u-text-2">⏳ 待领取</div>
+            </div>
+            <div className="p-2 rounded-lg u-err-dim text-center">
+              <div className="text-lg font-bold u-err">{progressStats.blocked}</div>
+              <div className="text-xs u-text-2">🚫 阻塞</div>
+            </div>
+            <div className="p-2 rounded-lg u-accent-dim text-center">
+              <div className="text-lg font-bold u-accent">{tokenStats.toLocaleString()}</div>
+              <div className="text-xs u-text-2">💰 Token</div>
+            </div>
           </div>
-          <div className="p-2 rounded-lg u-surface-2 text-center">
-            <div className="text-lg font-bold u-text-2">{progressStats.pending}</div>
-            <div className="text-xs u-text-2">⏳ 待领取</div>
-          </div>
-          <div className="p-2 rounded-lg u-err-dim text-center">
-            <div className="text-lg font-bold u-err">{progressStats.blocked}</div>
-            <div className="text-xs u-text-2">🚫 阻塞</div>
-          </div>
-          <div className="p-2 rounded-lg u-accent-dim text-center">
-            <div className="text-lg font-bold u-accent">{tokenStats.toLocaleString()}</div>
-            <div className="text-xs u-text-2">💰 Token</div>
-          </div>
-        </div>
+        )}
         
         {/* 时间线进度（可视化状态转换） */}
         <div className="mt-4 flex items-center gap-2">
@@ -441,6 +614,18 @@ export function ProjectDetailPage() {
             );
           })}
         </div>
+
+        {/* 证据提示条：存量 completed 缺证据给警告；in_review 说明自动翻转 */}
+        {project.status === 'completed' && delivery && !delivery.deliverable && evidenceGapSummary && (
+          <div className="mt-3 text-xs u-warn u-warn-dim rounded p-2">
+            ⚠️ 项目已标记完成，但交付证据未齐（{evidenceGapSummary}）——在上方交付卡补齐后才算真正交付
+          </div>
+        )}
+        {project.status === 'in_review' && delivery && !delivery.deliverable && (
+          <div className="mt-3 text-xs u-accent u-accent-dim rounded p-2">
+            交付证据补齐后，项目将自动标记完成
+          </div>
+        )}
       </div>
 
       {/* 📋 任务看板 */}
@@ -647,13 +832,15 @@ export function ProjectDetailPage() {
         >
           ☁️ Cloud IDE
         </button>
-        <button
-          onClick={handleArchive}
-          disabled={archiveLoading}
-          className="px-4 py-2 u-ok-bg u-on-accent rounded u-hover-bg disabled:opacity-50"
-        >
-          {archiveLoading ? '归档中...' : '📦 归档'}
-        </button>
+        {archivableDocs.length > 0 && (
+          <button
+            onClick={handleArchive}
+            disabled={archiveLoading}
+            className="px-4 py-2 u-ok-bg u-on-accent rounded u-hover-bg disabled:opacity-50"
+          >
+            {archiveLoading ? '归档中...' : '📦 归档知识'}
+          </button>
+        )}
         <button
           onClick={handleCopyPath}
           className="px-4 py-2 u-surface-2 u-text rounded u-hover-bg"

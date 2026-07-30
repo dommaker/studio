@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, withAttestation, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent, type WuAttestations } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore, withAttestation, deriveDisplayState, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent, type WuAttestations } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass } from './merge-on-review-pass.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
@@ -706,15 +706,23 @@ export class WorkUnitService {
    * F6（决策 1）：attestation 入参带来源时写台账——agent-review → l2，human-confirm → l3。
    * F6-b：human-confirm 且当前已是 done → 幂等补写 l3（agent 评审通过的 WU 等人工确认，
    * 人类待办 = done ∧ ¬l3 必须有确认出口），不改状态、不重复触发合并。
+   * F6-c（断点 3）：agent-review 且当前已是 done 且 l2 缺失 → 幂等补写 l2
+   * （人工直推 done 抢跑评审链，迟到的评审结论无处落账的补票口），同不改状态、不触发合并。
    */
   async reviewPassed(id: string, attestation?: ReviewAttestationSource): Promise<WorkUnitData> {
     const snapshots = await this.fileStore.getIndex();
     const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
     if (current.status !== 'in_review') {
-      // F6-b 唯一豁免：done + human-confirm → 只补台账 l3
+      // F6-b 豁免：done + human-confirm → 只补台账 l3
       if (current.status === 'done' && attestation?.kind === 'human-confirm') {
         return this.writeHumanConfirmation(current, attestation);
+      }
+      // F6-c 豁免：done + agent-review + l2 缺失（approved 口径，同 deriveDisplayState）→ 只补台账 l2；
+      // l2 已达成时重复回传仍是非法迁移（不放宽状态机）
+      if (current.status === 'done' && attestation?.kind === 'agent-review'
+        && !deriveDisplayState({ status: current.status, metadata: current.metadata }).evidence.l2) {
+        return this.writeAgentReviewAttestation(current, attestation);
       }
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
     }
@@ -772,8 +780,10 @@ export class WorkUnitService {
   }
 
   /**
-   * F6-b：done WU 的人工确认（l3 补写）——只更新台账，不动状态/.completedAt，
-   * 不发 status_changed（状态没变），不触发合并。幂等：重复确认覆盖 l3 最新值。
+   * F6-b：done WU 的人工确认（l3 补写）——只更新台账，不动状态/.completedAt，不触发合并。
+   * 幂等：重复确认覆盖 l3 最新值。
+   * 2026-07-30 起补写后发 status_changed（状态值不变也发）——pmo progress-rollup 已改为
+   * 证据感知（证据不齐置 in_review），l3 常是最后一块证据，不发事件项目状态无法即时翻转。
    */
   private async writeHumanConfirmation(
     current: WorkUnitSnapshot,
@@ -801,6 +811,99 @@ export class WorkUnitService {
     };
     await this.fileStore.appendEvent(event);
     await this.fileStore.upsertSnapshot(updated);
+    this.publishStatusChanged(updated); // 状态值不变也发：让 pmo rollup 即时重估交付证据
+    return snapshotToData(updated);
+  }
+
+  /**
+   * F6-c（断点 3）：done WU 的迟到 agent 评审（l2 补写）——与 writeHumanConfirmation 同模式：
+   * 只更新台账，不动状态/completedAt，不触发合并。幂等：l2 缺失（含 stale rejected）时补写/覆盖。
+   * 与 l3 路径的差异：补写完发 status_changed（状态值不变也发）——
+   * pmo/progress-rollup 按证据齐备度重估项目状态，缺事件则永远按缺 l2 的旧口径。
+   */
+  private async writeAgentReviewAttestation(
+    current: WorkUnitSnapshot,
+    attestation: ReviewAttestationSource,
+  ): Promise<WorkUnitData> {
+    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    metadata.attestations = withAttestation(metadata.attestations, 'l2', {
+      verdict: 'approved',
+      by: attestation.by,
+      at: new Date().toISOString(),
+      kind: 'agent-review',
+      ...(attestation.summary ? { summary: attestation.summary } : {}),
+      ...(attestation.selfReview === true ? { selfReview: true } : {}),
+      ...(attestation.ref ? { ref: attestation.ref } : {}),
+    });
+
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      metadata: JSON.stringify(metadata),
+      updatedAt: new Date().toISOString(),
+    };
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: current.id,
+      timestamp: updated.updatedAt,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+    this.publishStatusChanged(updated);
+    return snapshotToData(updated);
+  }
+
+  /**
+   * F6-c（断点 2）：人工触发 L1 验证（POST /:id/verify）的结果落台账——
+   * 只补写 l1（approved/rejected 留痕），全绿时同写 verifyReport（与 agent-loop 守卫同结构；
+   * 失败不写——verifyReport 语义是全绿摘要，metrics 按存在计通过），
+   * 不动状态机/verifyFailCount。写完发 status_changed（状态值不变也发）让 pmo rollup 重估。
+   */
+  async recordL1Verification(id: string, input: {
+    by: string;
+    ran: string[];
+    source: 'override' | 'convention';
+    failure?: { command: string; tail: string };
+  }): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const current = snapshots.find(s => s.id === id);
+    if (!current) throw new Error('WorkUnit not found');
+
+    const now = new Date().toISOString();
+    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    metadata.attestations = withAttestation(metadata.attestations, 'l1', input.failure
+      ? {
+          verdict: 'rejected',
+          by: input.by,
+          at: now,
+          kind: 'verify',
+          summary: `失败命令: ${input.failure.command}`.slice(0, 300),
+        }
+      : {
+          verdict: 'approved',
+          by: input.by,
+          at: now,
+          kind: 'verify',
+          summary: input.ran.join('；').slice(0, 300),
+        });
+    if (!input.failure) {
+      metadata.verifyReport = { commands: input.ran, source: input.source, passedAt: now };
+    }
+
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      metadata: JSON.stringify(metadata),
+      updatedAt: now,
+    };
+    const event: WorkUnitEvent = {
+      type: 'updated',
+      wuId: current.id,
+      timestamp: now,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+    this.publishStatusChanged(updated);
     return snapshotToData(updated);
   }
   async markMergeConflict(id: string, conflictFiles: string[]): Promise<WorkUnitData> {

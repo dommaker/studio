@@ -338,3 +338,5 @@
 | useWorkUnitEvents | apps/web/src/hooks/useWorkUnitEvents.ts | WorkUnit 事件订阅 — workunit.created / workunit.status_changed（SSE） |
 | execution-step-events | apps/api/src/modules/agents/execution-step-events.ts | 执行步事件（WU 过程可视化） |
 | useWorkUnitStreamEvents | apps/web/src/hooks/useWorkUnitStreamEvents.ts | WU 步内流式订阅（Layer B）— SSE `workunit.execution.stream` 实时 chunk |
+| wu-verification | apps/api/src/modules/agents/wu-verification.ts | B3b-i（决策 D3 前半）WU 自动验证 —— 从 agent-loop 抽出的可复用实现（2026-07-30 F6-c 断链修复）。 |
+| evidence-summary | apps/api/src/modules/pmo/evidence-summary.ts | PMO 证据台账共享口径（2026-07-30 抽取）：delivery.ts 台账与 progress-rollup.ts |

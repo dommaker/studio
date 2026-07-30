@@ -7,17 +7,17 @@
  *     台账标记可交付/缺什么，分支与证据交下游（发布系统各有链路）。
  *
  * 台账口径：WU 证据（l1 自动验证 / l2 agent 评审 / l3 人工确认）一律过
- * deriveDisplayState 派生（铁律：禁止各自解释 attestations）。
- * l1 只对代码类 WU（task/bug/feature/refactor）要求；l2/l3 对所有已完成 WU 要求。
+ * evidence-summary 共享口径（底层仍走 deriveDisplayState 派生，铁律：禁止各自解释 attestations）。
+ * l1 只对代码类 WU（task/bug/feature/refactor）要求；l2 豁免 review/analysis
+ * （dispatcher 不派评审，验收闸是人工 L3）；l3 对所有已完成 WU 要求。
  */
-import { FileStore, deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/studio-shared';
+import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { projectService, resolveDeliveryPolicy, type DeliveryPolicy, type ProjectData } from './project.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
-import { parseWuMetaPmoId } from './progress-rollup.js';
+import { selectProjectSnapshots, summarizeEvidence } from './evidence-summary.js';
+import { sumTokensForWorkUnits } from '../agents/token-usage.service.js';
 
-/** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
-const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
 const GIT_OP_TIMEOUT_MS = 15_000;
 const MERGE_TIMEOUT_MS = 60_000;
 
@@ -27,7 +27,13 @@ export interface DeliveryStatus {
   branch: string | null;
   policy: DeliveryPolicy;
   gitRepo: string | null;
-  wu: { total: number; finished: number; inFlight: number };
+  wu: {
+    total: number;
+    finished: number;
+    inFlight: number;
+    /** 在途 WU 的状态分布（done/closed 只计入 finished；供前端进展卡按 WU 口径渲染） */
+    byStatus: { unassigned: number; active: number; inReview: number; blocked: number };
+  };
   evidence: {
     /** 缺各层证据的 WU id（已完成但证据不齐） */
     l1Missing: string[];
@@ -36,10 +42,14 @@ export interface DeliveryStatus {
     /** l2 中自评数（决策 5：评审独立性参考，不阻断交付） */
     selfReviewCount: number;
   };
-  /** 可交付 = 有 WU 且全部完成且证据齐（l1 限代码类） */
+  /** 可交付 = 有 WU 且全部完成且证据齐（l1 限代码类，l2 豁免 review/analysis） */
   deliverable: boolean;
   /** 人话缺口清单（branch-only 标记 / auto-merge 拒绝原因共用） */
   missing: string[];
+  /** 项目 WU 链路 token 总消耗（studio-events.jsonl 的 workunit:tokens 事件求和，best-effort） */
+  tokens: number;
+  /** 已完成但证据有缺口的 WU 明细（供前端渲染行动清单；missing 顺序固定 l1→l2→l3） */
+  gaps: Array<{ id: string; title: string; type: string; missing: Array<'l1' | 'l2' | 'l3'> }>;
   deliveredAt: string | null;
   deliveredBy: string | null;
   deliverCommit: string | null;
@@ -50,10 +60,23 @@ export interface DeliveryDeps {
   listRequirements?: () => Promise<Array<{ id: string; projectId?: string | null }>>;
   getIndex?: () => Promise<WorkUnitSnapshot[]>;
   updateProject?: (id: string, input: Record<string, unknown>) => Promise<ProjectData>;
+  /** token 聚合注入点（测试用；缺省走 token-usage.service 的 sumTokensForWorkUnits） */
+  sumTokens?: (workUnitIds: Set<string>) => Promise<number>;
 }
 
 function shq(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+/** WU 展示名：metadata.title 优先（metadata 是 JSON 字符串，解析失败/缺失回退 scope） */
+function wuTitle(s: WorkUnitSnapshot): string {
+  if (s.metadata) {
+    try {
+      const title = (JSON.parse(s.metadata) as { title?: unknown }).title;
+      if (typeof title === 'string' && title.length > 0) return title;
+    } catch { /* 坏 JSON 回退 scope */ }
+  }
+  return s.scope;
 }
 
 /** PMO 台账：WU 汇总 + 证据齐缺（只读，无任何副作用） */
@@ -71,31 +94,29 @@ export async function getDeliveryStatus(
     ?? (async () => new RequirementService(fs).list());
   const getIndex = deps?.getIndex ?? (async () => fs.getIndex());
 
-  const linkedReqs = (await listRequirements()).filter(r => r.projectId === projectId);
-  const reqIds = new Set(linkedReqs.map(r => r.id));
-  const index = await getIndex();
-  let snapshots = index.filter(s => s.reqId && reqIds.has(s.reqId));
-  if (snapshots.length === 0) {
-    // analysis 派生链（analysis-handoff）：task WU 无 reqId，仅 metadata.pmoId 溯源
-    snapshots = index.filter(s => parseWuMetaPmoId(s.metadata) === projectId);
-  }
+  const snapshots = selectProjectSnapshots(projectId, await listRequirements(), await getIndex());
+  const summary = summarizeEvidence(snapshots);
+  const { l1Missing, l2Missing, l3Missing, selfReviewCount, deliverable } = summary;
+  const inFlight = summary.inFlight;
 
-  let finished = 0;
-  const l1Missing: string[] = [];
-  const l2Missing: string[] = [];
-  const l3Missing: string[] = [];
-  let selfReviewCount = 0;
-  for (const s of snapshots) {
-    const d = deriveDisplayState({ status: s.status, metadata: s.metadata });
-    if (!d.workFinished) continue;
-    finished++;
-    if (CODE_TYPES.has(s.type) && !d.evidence.l1) l1Missing.push(s.id);
-    if (!d.evidence.l2) l2Missing.push(s.id);
-    if (!d.evidence.l3) l3Missing.push(s.id);
-    if (d.evidence.selfReview) selfReviewCount++;
-  }
+  // gaps：已完成但有证据缺口的 WU 明细（missing 顺序固定 l1→l2→l3，供前端渲染行动清单）
+  const missingByWu = new Map<string, Array<'l1' | 'l2' | 'l3'>>();
+  const pushGap = (id: string, level: 'l1' | 'l2' | 'l3') => {
+    const arr = missingByWu.get(id) ?? [];
+    arr.push(level);
+    missingByWu.set(id, arr);
+  };
+  for (const id of l1Missing) pushGap(id, 'l1');
+  for (const id of l2Missing) pushGap(id, 'l2');
+  for (const id of l3Missing) pushGap(id, 'l3');
+  const gaps = snapshots
+    .filter(s => missingByWu.has(s.id))
+    .map(s => ({ id: s.id, title: wuTitle(s), type: s.type, missing: missingByWu.get(s.id)! }));
 
-  const inFlight = snapshots.length - finished;
+  // token 聚合 best-effort：事件文件缺失/聚合失败按 0，不拖垮台账主流程
+  const sumTokens = deps?.sumTokens ?? sumTokensForWorkUnits;
+  const tokens = await sumTokens(new Set(snapshots.map(s => s.id))).catch(() => 0);
+
   const missing: string[] = [];
   if (snapshots.length === 0) missing.push('无关联 WorkUnit');
   if (inFlight > 0) missing.push(`${inFlight} 个 WorkUnit 未完成`);
@@ -103,19 +124,18 @@ export async function getDeliveryStatus(
   if (l2Missing.length > 0) missing.push(`${l2Missing.length} 个 WorkUnit 缺 L2 agent 评审（${l2Missing.slice(0, 3).join(', ')}${l2Missing.length > 3 ? '…' : ''}）`);
   if (l3Missing.length > 0) missing.push(`${l3Missing.length} 个 WorkUnit 缺 L3 人工确认（${l3Missing.slice(0, 3).join(', ')}${l3Missing.length > 3 ? '…' : ''}）`);
 
-  const deliverable = snapshots.length > 0 && inFlight === 0
-    && l1Missing.length === 0 && l2Missing.length === 0 && l3Missing.length === 0;
-
   return {
     projectId: project.id,
     pmoNumber: project.pmoNumber,
     branch: project.gitBranch || project.pmoNumber || null,
     policy: resolveDeliveryPolicy(project),
     gitRepo: project.gitRepo ?? null,
-    wu: { total: snapshots.length, finished, inFlight },
+    wu: { total: summary.total, finished: summary.finished, inFlight, byStatus: summary.byStatus },
     evidence: { l1Missing, l2Missing, l3Missing, selfReviewCount },
     deliverable,
     missing,
+    tokens,
+    gaps,
     deliveredAt: project.deliveredAt ?? null,
     deliveredBy: project.deliveredBy ?? null,
     deliverCommit: project.deliverCommit ?? null,
