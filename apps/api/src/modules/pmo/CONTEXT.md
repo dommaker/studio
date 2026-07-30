@@ -3,7 +3,7 @@
 > 此文件描述 apps/api/src/modules/pmo 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-07-30 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/analysis-handoff.ts, apps/api/src/modules/pmo/project.service.ts
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/delivery.ts, apps/api/src/modules/pmo/progress-rollup.ts, apps/api/src/modules/pmo/routes.ts
 
 ## 职责
 
@@ -61,6 +61,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `c136ce66`: pmo): analysis 派生链进度回写按 metadata.pmoId 回退归属
 - ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
