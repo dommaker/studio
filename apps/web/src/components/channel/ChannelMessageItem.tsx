@@ -2,6 +2,7 @@
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
 import { useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
+import { AuthorAvatar } from './AuthorAvatar';
 import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
@@ -90,6 +91,7 @@ export function ChannelMessageItem({
 
       {/* Author label + hover actions */}
       <div className="mc-msg-head">
+        <AuthorAvatar isHuman={isHuman} agentName={message.agentName} />
         <span className={isHuman ? 'mc-author' : 'mc-author mc-author-agent'}>
           {isHuman ? 'You' : `@${message.agentName || 'Agent'}`}
         </span>

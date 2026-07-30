@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { deriveDisplayState, type DerivedWuState } from '@dommaker/studio-shared/web';
 import { useWorkUnitStore } from '../stores/workunitStore';
 import { DiscussionPanel } from '../components/DiscussionPanel';
+import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { ReviewHint } from '../components/workunit/ReviewHint';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { channelApi, type AgentProfile } from '../api/channel';
@@ -315,6 +316,10 @@ function WorkUnitRow({
               </pre>
             </div>
           )}
+          {/* 执行过程（思考/工具调用/用量，SSE 步级刷新）——与频道页右抽屉同一视图 */}
+          <div className="mt-2">
+            <ExecutionSteps workUnitId={wu.id} />
+          </div>
           <DiscussionPanel workUnitId={wu.id} />
         </div>
       )}
