@@ -154,7 +154,13 @@ describe('RequirementService (vision §5.3)', () => {
     let svc: RequirementService;
 
     beforeEach(() => {
-      svc = new RequirementService(fileStore, { projectExists: exists });
+      svc = new RequirementService(fileStore, {
+        projectExists: exists,
+        getProjectByAlias: async () => null,
+        findChoreProject: async () => null,
+        listAliasProjects: async () => [],
+        getProjectByPmoNumber: async () => null,
+      });
     });
 
     it('create 带 projectId → 落档；不带 → null', async () => {
