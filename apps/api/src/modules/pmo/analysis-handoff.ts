@@ -108,6 +108,12 @@ export class AnalysisHandoff {
             // PMO 溯源（progress-rollup / delivery 台账消费）
             pmoId: meta.pmoId,
             pmoNumber: meta.pmoNumber,
+            // B3a 归属链继承：analysis WU 的 workspaceRoot（publish 时由 project.gitRepo
+            // 落档）传给 task 子 WU——agent-loop 据此走 per-WU worktree + PMO 分支合并，
+            // 不继承则 task 直接在共享开发仓落地。
+            ...(typeof meta.workspaceRoot === 'string' && meta.workspaceRoot.length > 0
+              ? { workspaceRoot: meta.workspaceRoot }
+              : {}),
           },
         });
         created.push(scope);

@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/pmo 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/progress-rollup.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/okr-anomaly-detector.ts, apps/api/src/modules/pmo/project.service.ts
+<!-- STALE_SINCE: 2026-07-30 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/analysis-handoff.ts, apps/api/src/modules/pmo/project.service.ts
 
 ## 职责
 
@@ -22,7 +22,8 @@
 | `parsePmoNumberFromCommand` | `project.service.ts` | 从命令中解析 PMO 号 |
 | `PROJECT_STATUS` 常量 | `project.service.ts` | 项目状态枚举 |
 | `initPmoProgressRollup` / `syncProjectProgress` | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement（含决策 4 别名视图）关联 WU 的完结比例回写 progress；全部完结 → completed（best-effort） |
-| `AnalysisHandoff` / `initAnalysisHandoff` | `analysis-handoff.ts` | PMO 分析接力：订阅 workunit.status_changed——analysis → in_review 频道提示人工确认（ReviewDispatcher 对 analysis 不派自动评审）；→ done（人工确认）按 metadata.analysisTasks 建未指派 task 子 WU 派工（analysisTasksSpawnedAt 幂等） |
+| `AnalysisHandoff` / `initAnalysisHandoff` | `analysis-handoff.ts` | PMO 分析接力：订阅 workunit.status_changed——analysis → in_review 频道提示人工确认（ReviewDispatcher 对 analysis 不派自动评审）；→ done（人工确认）按 metadata.analysisTasks 建未指派 task 子 WU 派工（analysisTasksSpawnedAt 幂等；task 继承 analysis 的 workspaceRoot → 归属链接通 per-WU worktree + PMO 分支） |
+| `projectService.publish` | `project.service.ts` | 发频道卡片 + 建 analysis WU（scope 含只读约束 + TASK 输出约定）；metadata 落 pmoId/pmoNumber + workspaceRoot=project.gitRepo（B3a 归属链起点，2026-07-30 接通——此前 task WU 无归属根，直接在共享开发仓落地） |
 | `getDeliveryStatus` / `deliverProject` | `delivery.ts` | PMO-b 交付守卫：台账（WU 汇总 + l1/l2/l3 证据齐缺 + deliverable）与 auto-merge 交付（证据齐才本地合并 PMO 分支 → 默认分支，不 push；branch-only 只标记不碰链路） |
 | `detectAnomalies` | `okr-anomaly-detector.ts` | OKR 异常检测（默认停用） |
 | 默认导出 Express Router | `routes.ts` | 提供 `/project`、`/objective`、`/key-result` 等 REST 路由（含 `GET /project/:id/delivery`、`POST /project/:id/deliver`（human-only）） |
@@ -60,6 +61,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-27: B5 D18 顺手修 — okr.service 读 knowledge:* 事件的时间口径从顶层 `e.timestamp`（StudioEvent 形态下不存在，恒被过滤、指标恒空）改为 getStudioEventTime（createdAt 优先、兼容历史 timestamp），10 处

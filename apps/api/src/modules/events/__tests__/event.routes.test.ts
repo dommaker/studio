@@ -255,6 +255,23 @@ describe('GET / (query events)', () => {
     expect(total).toBe(0);
   });
 
+  it('filters by workUnitId（payload.workUnitId 匹配；损坏 payload 行跳过）', async () => {
+    mockReadJsonl.mockResolvedValueOnce([
+      { type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-1', step: 1 }), createdAt: '2026-07-18T10:00:00.000Z' },
+      { type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-2', step: 1 }), createdAt: '2026-07-18T11:00:00.000Z' },
+      { type: 'workunit:execution_step', source: 'agent-loop', payload: 'broken-json', createdAt: '2026-07-18T12:00:00.000Z' },
+      { type: 'workunit:execution_step', source: 'agent-loop', payload: JSON.stringify({ workUnitId: 'wu-1', step: 2 }), createdAt: '2026-07-18T13:00:00.000Z' },
+    ]);
+
+    const { res } = await invokeRoute(routes, 'get', '/', {
+      query: { type: 'workunit:execution_step', workUnitId: 'wu-1' },
+    });
+
+    const { events } = res.json.mock.calls[0][0];
+    expect(events).toHaveLength(2);
+    expect(events.every((e: any) => JSON.parse(e.payload).workUnitId === 'wu-1')).toBe(true);
+  });
+
   it('returns 500 on FileStore error', async () => {
     mockReadJsonl.mockRejectedValueOnce(new Error('Read error'));
 

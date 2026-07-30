@@ -207,6 +207,29 @@ describe('SystemExecutor', () => {
       );
     });
 
+    it('env 注入 IS_SANDBOX=1（root guard 放行；host 已设则尊重 host）', async () => {
+      await ensureStudioProfile(fileStore);
+      const profiles = await fileStore.listProfiles();
+      const studio = profiles.find(p => p.name === 'studio')!;
+      await fileStore.updateProfile(studio.id, { provider: 'claude' });
+
+      mockExecSh.mockResolvedValue({ stdout: '{}', stderr: '' });
+      const prev = process.env.IS_SANDBOX;
+      delete process.env.IS_SANDBOX;
+      try {
+        await executor.run('test');
+        expect(mockExecSh.mock.calls[0][1].env.IS_SANDBOX).toBe('1');
+
+        process.env.IS_SANDBOX = 'host-value';
+        mockExecSh.mockClear();
+        await executor.run('test');
+        expect(mockExecSh.mock.calls[0][1].env.IS_SANDBOX).toBe('host-value');
+      } finally {
+        if (prev === undefined) delete process.env.IS_SANDBOX;
+        else process.env.IS_SANDBOX = prev;
+      }
+    });
+
     it('传 systemPrompt 时合并到 stdin（systemPrompt + prompt）', async () => {
       await ensureStudioProfile(fileStore);
       const profiles = await fileStore.listProfiles();

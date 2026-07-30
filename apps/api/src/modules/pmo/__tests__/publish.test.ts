@@ -153,6 +153,22 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('B3a 归属链：gitRepo 落 metadata.workspaceRoot；无 gitRepo 不带该字段', async () => {
+    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: '/root/projects/demo' }));
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    expect(mockWuCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ workspaceRoot: '/root/projects/demo' }),
+      })
+    );
+
+    mockWuCreate.mockClear();
+    mockReadJson.mockResolvedValue(sampleProject({ gitRepo: null }));
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+    const meta = mockWuCreate.mock.calls[0][0].metadata as Record<string, unknown>;
+    expect('workspaceRoot' in meta).toBe(false);
+  });
+
   it('analysis scope 含只读约束（2026-07-30：分析阶段禁止改文件）+ TASK 输出约定', async () => {
     await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
 

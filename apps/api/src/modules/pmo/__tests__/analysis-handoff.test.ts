@@ -122,6 +122,26 @@ describe('AnalysisHandoff（PMO 分析接力）', () => {
     expect(snapshots.filter(s => s.parentId === wu.id).length).toBe(1);
   });
 
+  it('B3a 归属链继承：analysis 的 workspaceRoot 传给 task 子 WU（无则不 inherited）', async () => {
+    const wu = await createAnalysisWu({
+      analysisTasks: ['任务一'],
+      workspaceRoot: '/root/projects/demo',
+    });
+    await emitStatus(wu, 'done');
+
+    const snapshots = await fileStore.getIndex();
+    const children = snapshots.filter(s => s.parentId === wu.id);
+    expect(children.length).toBe(1);
+    expect(metaOf(children[0].metadata).workspaceRoot).toBe('/root/projects/demo');
+
+    // 无 workspaceRoot 的 analysis：子 WU 不带该字段（不编造）
+    const wu2 = await createAnalysisWu({ analysisTasks: ['任务二'] });
+    await emitStatus(wu2, 'done');
+    const children2 = (await fileStore.getIndex()).filter(s => s.parentId === wu2.id);
+    expect(children2.length).toBe(1);
+    expect(metaOf(children2[0].metadata).workspaceRoot).toBeUndefined();
+  });
+
   it('无 TASK 拆分行：不派生，频道提示可手动转任务', async () => {
     const wu = await createAnalysisWu({});
     await emitStatus(wu, 'done');

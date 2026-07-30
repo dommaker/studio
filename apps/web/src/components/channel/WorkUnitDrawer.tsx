@@ -4,15 +4,17 @@ import { useEffect, useState } from 'react';
 import {
   workunitApi,
   parseWorkunitTokenEvents,
+  parseExecutionStepEvents,
   type WorkUnit,
   type WorkunitTokenEvent,
+  type ExecutionStepEvent,
 } from '../../api/workunit';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
-import { deriveDisplayState } from '@dommaker/studio-shared/web';
+import { deriveDisplayState, parseAttestations, type AttestationEntry } from '@dommaker/studio-shared/web';
 
 export type DrawerState = { kind: 'wu'; id: string } | { kind: 'req'; id: string } | null;
 
@@ -84,10 +86,12 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
 function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) => void }) {
   const [wu, setWu] = useState<WorkUnit | null>(null);
   const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
+  const [steps, setSteps] = useState<ExecutionStepEvent[] | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
   const [error, setError] = useState('');
   const [showTreeTokens, setShowTreeTokens] = useState(false);
-  // WU 事件（SSE）：状态变化时重拉详情（认领/审查/完成即时可见）
+  const [confirming, setConfirming] = useState(false);
+  // WU 事件（SSE）：状态变化/执行步事件时重拉详情（认领/审查/完成/执行过程即时可见）
   const [eventTick, setEventTick] = useState(0);
   useWorkUnitEvents(() => setEventTick(t => t + 1));
 
@@ -95,6 +99,7 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
     let alive = true;
     setWu(null);
     setTokens(null);
+    setSteps(null);
     setError('');
     workunitApi.get(id)
       .then(r => { if (alive) setWu(r.data); })
@@ -102,6 +107,9 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
     workunitApi.listTokenEvents()
       .then(r => { if (alive) setTokens(parseWorkunitTokenEvents(r.data.events || [], id)); })
       .catch(() => { if (alive) setTokens([]); });
+    workunitApi.listExecutionStepEvents(id)
+      .then(r => { if (alive) setSteps(parseExecutionStepEvents(r.data.events || [], id)); })
+      .catch(() => { if (alive) setSteps([]); });
     monitoringApi.getOverhead()
       .then(r => { if (alive) setOverhead(r.data); })
       .catch(() => {});
@@ -113,11 +121,26 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
 
   const meta = parseMeta(wu.metadata);
   const title = meta.title || wu.scope;
+  // F6 派生（铁律：needsHuman/证据判断一律过 deriveDisplayState，不自行读 attestations 字段）
+  const derived = deriveDisplayState({ status: wu.status, metadata: wu.metadata });
+  const attestations = parseAttestations(wu.metadata);
   const injectedSum = (tokens ?? []).reduce((s, t) => s + t.injectedTokens, 0);
   const execKnown = (tokens ?? []).filter(t => t.executionTokens !== null);
   const execSum = execKnown.reduce((s, t) => s + (t.executionTokens ?? 0), 0);
   const totalSum = (tokens ?? []).reduce((s, t) => s + t.totalTokens, 0);
   const maxBar = Math.max(totalSum, 1);
+
+  /** 人工确认入口：in_review = 审查硬门（过→done；analysis 过后自动拆任务派工）；
+   *  done 缺 l3 = L3 人工验收留痕（不阻断流程）。同调 reviewPassed（服务端幂等）。 */
+  const handleReviewPassed = async () => {
+    setConfirming(true);
+    try {
+      await workunitApi.reviewPassed(id);
+      setEventTick(t => t + 1);
+    } finally {
+      setConfirming(false);
+    }
+  };
 
   return (
     <div>
@@ -147,6 +170,86 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       <div className="mc-kv"><span className="mc-kv-k">创建</span><span className="mc-kv-v">{formatTime(wu.createdAt)}</span></div>
       {wu.claimedAt && <div className="mc-kv"><span className="mc-kv-k">认领</span><span className="mc-kv-v">{formatTime(wu.claimedAt)}</span></div>}
       {wu.completedAt && <div className="mc-kv"><span className="mc-kv-k">完成</span><span className="mc-kv-v">{formatTime(wu.completedAt)}</span></div>}
+
+      {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕 + 人工确认入口。
+          语义：L2 是流程硬门（过了即推进）；L3 是人工背书台账，不阻断流程（done 缺 l3 时展示回审查列）。 */}
+      <div className="mc-block-label">证据台账</div>
+      {attestations === undefined && (
+        <div className="mc-drawer-note">存量 WU，证据模型未介入（按存储状态展示）</div>
+      )}
+      {attestations !== undefined && (['l1', 'l2', 'l3'] as const).map(level => {
+        const entry: AttestationEntry | undefined = attestations[level];
+        const label = level === 'l1' ? 'L1 自动验证' : level === 'l2' ? 'L2 Agent 评审' : 'L3 人工验收';
+        return (
+          <div className="mc-kv" key={level}>
+            <span className="mc-kv-k">{label}</span>
+            <span className="mc-kv-v">
+              {entry
+                ? `${entry.verdict === 'approved' ? '✓' : '✗'} ${entry.kind} · ${entry.by.slice(0, 8)} · ${formatTime(entry.at)}`
+                : '—'}
+            </span>
+          </div>
+        );
+      })}
+      {attestations?.l2?.summary && (
+        <div className="mc-drawer-note">评审结论：{attestations.l2.summary}</div>
+      )}
+      {wu.status === 'in_review' && (
+        <div style={{ margin: '4px 0 8px' }}>
+          <button
+            className="mc-wu-link"
+            disabled={confirming}
+            title="审查硬门：通过→done（analysis 通过后按 TASK 拆分自动派工）；拒绝请在列表行操作"
+            onClick={handleReviewPassed}
+          >
+            {confirming ? '提交中…' : '通过（审查闸门）'}
+          </button>
+        </div>
+      )}
+      {wu.status === 'done' && derived.needsHuman && (
+        <div style={{ margin: '4px 0 8px' }}>
+          <button
+            className="mc-wu-link"
+            disabled={confirming}
+            title="流程已由 Agent 评审推进完成；此确认为 L3 人工验收留痕，不阻断流程，确认后出审查列"
+            onClick={handleReviewPassed}
+          >
+            {confirming ? '提交中…' : '人工验收确认（L3 留痕）'}
+          </button>
+        </div>
+      )}
+
+      {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
+          频道只留里程碑，过程明细在这里；完整 transcript 见 agent HOME 的 claude projects 文件。 */}
+      <div className="mc-block-label">执行过程</div>
+      {steps === null && <div className="mc-drawer-note">加载中…</div>}
+      {steps !== null && steps.length === 0 && (
+        <div className="mc-drawer-note">暂无执行过程记录（仅记录本能力上线后的执行步）</div>
+      )}
+      {steps !== null && steps.length > 0 && steps.map(s => (
+        <div key={`${s.executionId}-${s.step}`} style={{ marginBottom: 8 }}>
+          <div className="mc-kv">
+            <span className="mc-kv-k">#{s.step}{s.action ? ` · ${s.action}` : ''}</span>
+            <span className="mc-kv-v">
+              {formatTime(s.at)}
+              {s.usage ? ` · ${formatTokens(s.usage.inputTokens + s.usage.outputTokens)} tok` : ''}
+            </span>
+          </div>
+          {s.thinking.map((t, i) => (
+            <div key={`t${i}`} className="mc-drawer-note" style={{ whiteSpace: 'pre-wrap' }}>
+              思考：{t}
+            </div>
+          ))}
+          {s.toolCalls.map((c, i) => (
+            <div key={`c${i}`} className="mc-drawer-note" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+              {c.tool}{c.summary ? `  ${c.summary}` : ''}
+            </div>
+          ))}
+          {s.skills.length > 0 && (
+            <div className="mc-drawer-note">skills：{s.skills.join(', ')}</div>
+          )}
+        </div>
+      ))}
 
       {wu.status === 'blocked' && meta.waitingForInput && meta.waitingQuestion && (
         <>

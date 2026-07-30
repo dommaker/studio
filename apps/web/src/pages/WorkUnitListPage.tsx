@@ -271,11 +271,12 @@ function WorkUnitRow({
               </button>
             </>
           )}
-          {/* F6-b：done 但缺人工确认（l3）→ 确认按钮（幂等补写台账，不改状态） */}
+          {/* F6-b：done 但缺人工确认（l3）→ 确认按钮（幂等补写台账，不改状态）。
+              语义：L2 agent 评审已是流程硬门（过了即推进），此按钮是 L3 人工验收留痕，不阻断流程。 */}
           {wu.status === 'done' && derived.needsHuman && (
             <button
               className="text-xs px-2 py-1 rounded u-ok-dim u-ok u-hover-bg"
-              title="agent 评审已通过，人工确认后出审查列"
+              title="流程已由 Agent 评审推进完成；此确认为 L3 人工验收留痕，不阻断流程，确认后出审查列"
               onClick={e => { e.stopPropagation(); onReviewPassed(); }}
             >
               确认

@@ -25,6 +25,7 @@ import { getWorkspaceRecord, resolveWorkspaceRoot } from '../workspaces/workspac
 import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { emitExecutionStepEvent } from './execution-step-events.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -776,6 +777,18 @@ export class AgentLoop {
           writeToolCallEvents(toolTraceSource, resolveToolTraceFile());
         } catch { /* non-blocking */ }
       }
+
+      // WU 过程可视化：执行步事件（本步思考/工具调用/skill 注入/用量 → 事件流落盘 + SSE，
+      // WU 详情抽屉消费；不进频道、不写 metadata 防膨胀）。fire-and-forget。
+      void emitExecutionStepEvent({
+        workUnitId: wu.id,
+        executionId: task.executionId,
+        sessionId: resumeSessionId ?? newSessionId ?? undefined,
+        step: (metadata.stepCount ?? 0) + 1,
+        action: stepResult.action,
+        rawOutput: toolTraceSource,
+        skills: skillMatched,
+      }).catch(() => {});
 
       // GAP-6: recordOutcome + extractFromExecution (non-blocking)
       // R1: 携带本次注入的知识条目 id，反馈环才有数据
