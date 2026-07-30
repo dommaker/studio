@@ -118,6 +118,26 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     expect(s!.evidence.l3Missing).toEqual([legacy.id]);
     expect(s!.deliverable).toBe(false);
   });
+
+  it('analysis 派生链：无关联 Requirement 时按 metadata.pmoId 回退归属', async () => {
+    const ready = wu({ reqId: null, metadataObj: { pmoId: 'proj-1', attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
+    const other = wu({ reqId: null, metadataObj: { pmoId: 'proj-2', attestations: {} } });
+    const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ reqs: [], snapshots: [ready, other] }));
+    expect(s!.wu).toEqual({ total: 1, finished: 1, inFlight: 0 }); // proj-2 的 WU 不计入
+    expect(s!.missing).not.toContain('无关联 WorkUnit');
+    expect(s!.deliverable).toBe(true);
+  });
+
+  it('pmoId 回退：证据缺口如实列出（缺 L1 不因回退豁免）；坏 metadata 容错', async () => {
+    const gaps = wu({ reqId: null, metadataObj: { pmoId: 'proj-1', attestations: { l2: att('agent-review'), l3: att('human-confirm') } } });
+    const broken = wu({ reqId: null, metadata: '{broken-json' });
+    const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ reqs: [], snapshots: [gaps, broken] }));
+    expect(s!.wu.total).toBe(1);
+    expect(s!.deliverable).toBe(false);
+    expect(s!.evidence.l1Missing).toEqual([gaps.id]); // task 类型缺 l1
+    expect(s!.missing.join(' ')).toContain('L1 自动验证');
+    expect(s!.missing).not.toContain('无关联 WorkUnit');
+  });
 });
 
 describe('deliverProject（PMO-b 交付守卫）', () => {

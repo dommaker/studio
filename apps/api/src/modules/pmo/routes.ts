@@ -3,6 +3,7 @@ import { Router, Request, Response } from 'express';
 import { okrService, OKRService } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand } from './project.service.js';
 import { getDeliveryStatus, deliverProject } from './delivery.js';
+import { syncProjectProgress } from './progress-rollup.js';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireNotGuest, requireRole, type AuthRequest } from '../../middleware/auth.js';  // 🆕 SEC-001 / SEC-002
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
@@ -102,6 +103,9 @@ router.post('/project', requireAuth(), requireNotGuest(), async (req: Request, r
  */
 router.get('/project/:id', async (req: Request, res: Response) => {
   try {
+    // 读取时重算进度（best-effort）：analysis 派生链无 Requirement 归属，事件入口此前接不上，存量项目进度滞留
+    await syncProjectProgress(req.params.id).catch(err =>
+      logger.warn({ projectId: req.params.id, error: String(err) }, '[PMO] Progress resync on read failed (non-blocking)'));
     const project = await projectService.get(req.params.id);
 
     if (!project) {

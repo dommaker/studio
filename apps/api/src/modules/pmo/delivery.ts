@@ -14,6 +14,7 @@ import { FileStore, deriveDisplayState, type WorkUnitSnapshot } from '@dommaker/
 import { execSh } from '@dommaker/studio-shared/node';
 import { projectService, resolveDeliveryPolicy, type DeliveryPolicy, type ProjectData } from './project.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
+import { parseWuMetaPmoId } from './progress-rollup.js';
 
 /** 代码类 WU（与 agent-loop CODE_WORKTREE_TYPES 同集——有专属 worktree 才跑自动验证） */
 const CODE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
@@ -72,7 +73,12 @@ export async function getDeliveryStatus(
 
   const linkedReqs = (await listRequirements()).filter(r => r.projectId === projectId);
   const reqIds = new Set(linkedReqs.map(r => r.id));
-  const snapshots = (await getIndex()).filter(s => s.reqId && reqIds.has(s.reqId));
+  const index = await getIndex();
+  let snapshots = index.filter(s => s.reqId && reqIds.has(s.reqId));
+  if (snapshots.length === 0) {
+    // analysis 派生链（analysis-handoff）：task WU 无 reqId，仅 metadata.pmoId 溯源
+    snapshots = index.filter(s => parseWuMetaPmoId(s.metadata) === projectId);
+  }
 
   let finished = 0;
   const l1Missing: string[] = [];
