@@ -21,31 +21,30 @@ export function ReviewHint({ status, channelMembers, onSetupClick }: ReviewHintP
 
   return (
     <div
+      className="u-warn-dim u-warn"
       style={{
         padding: '8px 12px',
-        background: '#fef3c7',
-        border: '1px solid #f59e0b',
+        border: '1px solid var(--warning-border)',
         borderRadius: '4px',
+        marginTop: '8px',
         marginBottom: '8px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        fontSize: '14px',
+        gap: '12px',
+        fontSize: 'var(--fs-base)',
       }}
       data-testid="review-hint"
     >
-      <span>频道内没有可认领评审的成员，评审将滞留——请添加成员或人工评审</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <span aria-hidden="true">⚠</span>
+        <span>频道内没有可认领评审的成员，评审将滞留——请添加成员或人工评审</span>
+      </span>
       {onSetupClick && (
         <button
+          className="btn btn-warning btn-sm"
           onClick={onSetupClick}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: '#2563eb',
-            cursor: 'pointer',
-            textDecoration: 'underline',
-            fontSize: '14px',
-          }}
+          style={{ flexShrink: 0 }}
           data-testid="review-hint-setup"
         >
           去设置
