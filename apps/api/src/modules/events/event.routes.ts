@@ -15,7 +15,7 @@ import * as path from 'path';
 import { generateSessionSummary } from './session-summary-generator.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
-import { writeStudioEvent, isEmptyEventPayload } from '../../utils/studio-events.js';
+import { writeStudioEvent, isEmptyEventPayload, parseStudioEventPayload } from '../../utils/studio-events.js';
 
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
@@ -69,13 +69,14 @@ router.post('/', requireAuth(), requireNotGuest(), async (req: Request, res: Res
  * GET /api/v1/events
  * Query StudioEvents with optional filters.
  * Query params:
- *   type   — filter by event type (string, optional)
- *   since  — ISO date string, only events after this timestamp (optional)
- *   limit  — max results (number, default 50, max 200)
+ *   type       — filter by event type (string, optional)
+ *   since      — ISO date string, only events after this timestamp (optional)
+ *   limit      — max results (number, default 50, max 200)
+ *   workUnitId — filter by payload.workUnitId（WU 过程回放：type=workunit:execution_step 时配套使用）
  */
 router.get('/', async (req: Request, res: Response) => {
   try {
-    const { type, since, limit: limitStr } = req.query;
+    const { type, since, limit: limitStr, workUnitId } = req.query;
     const limit = Math.min(Math.max(parseInt(String(limitStr || '50'), 10) || 50, 1), 200);
 
     const where: Record<string, unknown> = {};
@@ -90,6 +91,10 @@ router.get('/', async (req: Request, res: Response) => {
     let filtered = allEvents;
     if (typeof type === 'string' && type) {
       filtered = filtered.filter((e: any) => e.type === type);
+    }
+    if (typeof workUnitId === 'string' && workUnitId) {
+      filtered = filtered.filter((e: any) =>
+        (parseStudioEventPayload<{ workUnitId?: string }>(e))?.workUnitId === workUnitId);
     }
     if (typeof since === 'string' && since) {
       const sinceDate = new Date(since);

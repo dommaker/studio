@@ -27,8 +27,27 @@ export function execSh(cmd, opts) {
         let stdout = '';
         let stderr = '';
         let settled = false;
+        let lineBuf = '';
+        const emitLine = (line) => {
+            if (!opts.onLine)
+                return;
+            try {
+                opts.onLine(line);
+            }
+            catch { /* 观测回调异常绝不影响被观测进程 */ }
+        };
         child.stdout?.on('data', (data) => {
-            stdout += data.toString();
+            const chunk = data.toString();
+            stdout += chunk;
+            if (opts.onLine) {
+                lineBuf += chunk;
+                let idx;
+                while ((idx = lineBuf.indexOf('\n')) >= 0) {
+                    const line = lineBuf.slice(0, idx);
+                    lineBuf = lineBuf.slice(idx + 1);
+                    emitLine(line);
+                }
+            }
             if (opts.maxBuffer && stdout.length > opts.maxBuffer) {
                 settled = true;
                 child.kill();
@@ -81,6 +100,12 @@ export function execSh(cmd, opts) {
             clearTimeout(timeout);
             if (opts.childRef)
                 opts.childRef.current = null;
+            // 冲刷无换行结尾的尾部行（超时/maxBuffer 等已 settle 路径同样冲刷——尾部对观测仍有价值）
+            if (opts.onLine && lineBuf.length > 0) {
+                const tail = lineBuf;
+                lineBuf = '';
+                emitLine(tail);
+            }
             if (settled)
                 return;
             settled = true;

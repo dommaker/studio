@@ -71,6 +71,109 @@ export function parseWorkunitTokenEvents(
   return out;
 }
 
+/** WU 过程可视化：agent-loop 每步执行结束写入的 workunit:execution_step 事件（payload 解析后） */
+export interface ExecutionStepToolCall {
+  tool: string;
+  /** 面向人读的输入摘要（file_path / command / pattern…，已截断） */
+  summary: string;
+}
+
+export interface ExecutionStepEvent {
+  workUnitId: string;
+  executionId: string;
+  sessionId?: string;
+  /** 1 基步号 */
+  step: number;
+  action?: string;
+  /** 模型思考摘要（≤3 条，已截断） */
+  thinking: string[];
+  /** 本步工具调用（≤30 条） */
+  toolCalls: ExecutionStepToolCall[];
+  /** 本步注入的 skill 名单 */
+  skills: string[];
+  text?: string;
+  usage?: { inputTokens: number; outputTokens: number; model?: string };
+  at: string;
+}
+
+/**
+ * 从 GET /events?type=workunit:execution_step 的响应行解析执行步事件。
+ * 兼容历史无 workUnitId 过滤的调用方：传 workUnitId 时顺带按它过滤；
+ * 损坏行/缺 step 的行跳过；按 step → at 升序（回放顺序）。
+ */
+export function parseExecutionStepEvents(
+  rows: Array<{ payload: unknown; createdAt?: string }>,
+  workUnitId?: string,
+): ExecutionStepEvent[] {
+  const out: ExecutionStepEvent[] = [];
+  for (const row of rows) {
+    try {
+      const p = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+      if (!p || typeof p.step !== 'number') continue;
+      if (workUnitId && p.workUnitId !== workUnitId) continue;
+      out.push({
+        workUnitId: p.workUnitId,
+        executionId: p.executionId ?? '',
+        sessionId: p.sessionId,
+        step: p.step,
+        action: typeof p.action === 'string' ? p.action : undefined,
+        thinking: Array.isArray(p.thinking) ? p.thinking.filter((t: unknown) => typeof t === 'string') : [],
+        toolCalls: Array.isArray(p.toolCalls)
+          ? p.toolCalls.filter((c: any) => c && typeof c.tool === 'string').map((c: any) => ({ tool: c.tool, summary: typeof c.summary === 'string' ? c.summary : '' }))
+          : [],
+        skills: Array.isArray(p.skills) ? p.skills.filter((s: unknown) => typeof s === 'string') : [],
+        text: typeof p.text === 'string' ? p.text : undefined,
+        usage: p.usage && typeof p.usage.inputTokens === 'number' ? p.usage : undefined,
+        at: typeof p.at === 'string' ? p.at : (row.createdAt ?? ''),
+      });
+    } catch {
+      // 跳过损坏行
+    }
+  }
+  out.sort((a, b) => a.step - b.step || a.at.localeCompare(b.at));
+  return out;
+}
+
+
+/** Layer B 步内流式 chunk（SSE `workunit.execution.stream`，SSE-only 无 REST 回放——落盘归档是 execution_step 的事） */
+export interface ExecutionStreamChunk {
+  workUnitId: string;
+  executionId: string;
+  step: number;
+  kind: 'step-start' | 'thinking' | 'text' | 'tool' | 'result';
+  text?: string;
+  tool?: string;
+  summary?: string;
+  isError?: boolean;
+  at: string;
+}
+
+/**
+ * 解析 SSE 信封 data → ExecutionStreamChunk（损坏/缺关键字段 → null，跳过不编造）。
+ */
+export function parseExecutionStreamChunk(data: unknown): ExecutionStreamChunk | null {
+  try {
+    const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
+    if (!p || typeof p !== 'object') return null;
+    if (typeof p.workUnitId !== 'string' || typeof p.step !== 'number') return null;
+    if (!['step-start', 'thinking', 'text', 'tool', 'result'].includes(String(p.kind))) return null;
+    return {
+      workUnitId: p.workUnitId,
+      executionId: typeof p.executionId === 'string' ? p.executionId : '',
+      step: p.step,
+      kind: p.kind as ExecutionStreamChunk['kind'],
+      text: typeof p.text === 'string' ? p.text : undefined,
+      tool: typeof p.tool === 'string' ? p.tool : undefined,
+      summary: typeof p.summary === 'string' ? p.summary : undefined,
+      isError: p.isError === true ? true : undefined,
+      at: typeof p.at === 'string' ? p.at : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+
 export const workunitApi = {
   list: (params?: {
     type?: string;
@@ -125,6 +228,13 @@ export const workunitApi = {
     api.get<{ events: Array<{ payload: unknown; createdAt?: string }>; total: number }>(
       '/events',
       { params: { type: 'workunit:tokens', limit } },
+    ),
+
+  /** WU 过程可视化：执行步事件（思考/工具/skill/用量，服务端按 workUnitId 过滤） */
+  listExecutionStepEvents: (workUnitId: string, limit = 100) =>
+    api.get<{ events: Array<{ payload: unknown; createdAt?: string }>; total: number }>(
+      '/events',
+      { params: { type: 'workunit:execution_step', workUnitId, limit } },
     ),
 
   /** AC-5.4: 树级 token 开销聚合 */

@@ -39,6 +39,19 @@ describe('useWorkUnitEvents', () => {
     expect(onChange).toHaveBeenCalledTimes(1);
   });
 
+  it('workunit.execution.step（执行过程事件）同样触发回调', () => {
+    let handler: ((msg: any) => void) | null = null;
+    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    const onChange = vi.fn();
+    renderHook(() => useWorkUnitEvents(onChange));
+
+    act(() => {
+      handler!({ event_type: 'workunit.execution.step', data: { workUnitId: 'wu-1', step: 1 } });
+    });
+    act(() => { vi.advanceTimersByTime(400); });
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
   it('忽略非 workunit 事件类型', () => {
     let handler: ((msg: any) => void) | null = null;
     mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });

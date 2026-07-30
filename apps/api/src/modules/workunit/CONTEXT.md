@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/workunit 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md
+<!-- STALE_SINCE: 2026-07-30 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md, apps/api/src/modules/workunit/workunit.service.ts
 
 ## 职责
 
@@ -40,6 +40,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ `39b6af5f`: channels): L1 convert-to-task 人工指派卡死修复（指派统一建 unassigned 指名）
 - ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）

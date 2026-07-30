@@ -78,6 +78,9 @@ export async function setup() {
       env: {
         ...process.env,
         PORT: String(API_PORT),
+        // 覆盖 .env 中的 production 配置，确保测试 server auth bypass
+        STUDIO_AUTH: 'none',
+        NODE_ENV: 'test',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,

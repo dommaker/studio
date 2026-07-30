@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/web/src 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/web/src/CONTEXT.md, apps/web/src/App.tsx, apps/web/src/index.css, apps/web/src/types.ts
+<!-- STALE_SINCE: 2026-07-30 -->
+⚠️ 以下文件已变更，本节可能过期: apps/web/src/CONTEXT.md
 
 ## 职责
 
@@ -18,13 +18,14 @@
 | `channelApi` | `api/channel.ts` | 频道、消息、Agent 配置相关 API |
 | `monitoringApi` | `api/monitoring.ts` | 监控、飞轮指标、开销 API |
 | `requirementApi` | `api/requirements.ts` | 需求（REQ）CRUD 及关联工作单元链 API |
-| `workunitApi` | `api/workunit.ts` | 工作单元（WorkUnit）全生命周期 API + token 度量事件查询/解析 |
+| `workunitApi` | `api/workunit.ts` | 工作单元（WorkUnit）全生命周期 API + token 度量事件查询/解析 + 执行步事件查询/解析（`listExecutionStepEvents`/`parseExecutionStepEvents`，WU 过程可视化） |
 | `useWebSocket` / `WebSocketProvider` | `api/websocket.tsx` | SSE 客户端 hook 及 Context Provider（替代原生 WebSocket） |
-| `useWorkUnitEvents` | `hooks/useWorkUnitEvents.ts` | workunit.created/status_changed（SSE）订阅 hook（防抖合并）；WorkUnitListPage 列表与 WorkUnitDrawer 详情据此实时刷新 |
+| `useWorkUnitEvents` | `hooks/useWorkUnitEvents.ts` | workunit.created/status_changed/execution.step（SSE）订阅 hook（防抖合并）；WorkUnitListPage 列表与 WorkUnitDrawer 详情据此实时刷新（execution.step 驱动执行过程近实时更新） |
+| `useWorkUnitStreamEvents` | `hooks/useWorkUnitStreamEvents.ts` | workunit.execution.stream（Layer B 步内流式，SSE-only）订阅 hook：按 workUnitId 过滤、内存保留当前步 ≤50 条、新步 step-start 清空；WorkUnitDrawer「执行过程」实时区块消费 |
 | `useChannelList` | `hooks/useChannelList.ts` | 频道列表数据 hook（ChannelListPage 与 ChannelRail 共用：列表/未读 SSE/新建） |
 | `useDetectedProviders` / `buildProviderOptions` | `hooks/useDetectedProviders.ts` | 运行环境已装 agent CLI 探测（GET /workspaces/runtimes，服务端聚合前 best-effort 重扫本机）；provider 下拉统一数据源（FirstRoleSetupModal / StudioRoleSetupModal / ChannelMemberManager 创建表单），一个都没扫到时回退 4 个内置全量可选 |
 | `ChannelRail` | `components/channel/ChannelRail.tsx` | Mission Control 左栏：频道列表（未读 badge、agent 在线数）+ Agent 状态 |
-| `WorkUnitDrawer` | `components/channel/WorkUnitDrawer.tsx` | 右抽屉：WorkUnit 详情（含 token 开销与全局开销红线）/ REQ 全链路，只展示真实 API 数据 |
+| `WorkUnitDrawer` | `components/channel/WorkUnitDrawer.tsx` | 右抽屉：WorkUnit 详情（证据台账 L1/L2/L3 + 人工确认入口（in_review=审查硬门/done 缺 l3=L3 留痕不阻断）、执行过程（步级时间线 + 步内实时流区块，REST 卡片落位后实时区自动让位）、token 开销与全局开销红线）/ REQ 全链路，只展示真实 API 数据 |
 | `AuthModal` | `components/AuthModal.tsx` | 隐身认证模态框（双击手势触发） |
 
 ## 依赖关系
@@ -54,6 +55,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ 2026-07-29: StudioRoleSetupModal 按 style-guide §4.3 规范重写 — 旧版全量内联硬编码浅色样式（white 底、#2563eb 按钮、#666/#999 文字，规范 §6 反例同类）改为 modal-* 结构 + `.btn btn-secondary/primary` + `u-text/u-text-2` + Select 组件，与 FirstRoleSetupModal 同构；行为与 data-testid 零变更
 - ✅ 2026-07-29: 自定义主题感知 Select 替换全部原生 select（18 处 / 11 文件）— 新增 `components/ui/Select.tsx`（触发器 `.select-trigger` 视觉对齐 `.input`；选项面板 portal 到 `document.body`、fixed 定位、宽对齐触发器、max-height 240px、z-index 100；Enter/Space/↑↓/Escape 键盘导航 + listbox/option ARIA；点外部/滚动/resize 关闭；零动画全 token）；theme.css 增 `.select-*` 组件类并删除 2026-07-27 的 `select option` 死规则（全仓已无原生 select，`color-scheme` 保留）；style-guide §4.6 新增组件条目、§4.2 改为 input/textarea 通用；相关测试改为「点触发器 → 点选项」交互
 - ✅ 2026-07-28: llm-configs 子系统下线（web 侧）— Settings 页「🧠 LLM 配置」卡片（LLMConfigSection + LLM_SCOPES/LLM_PROVIDERS/MaskedLLMConfig）、未挂载的 LlmConfigDisplay 组件及其测试、api/index.ts 的 llmConfigApi 一并删除；后端 /api/v1/settings/llm 路由与同日子系统移除，模型选择归角色绑定 CLI 的自身配置

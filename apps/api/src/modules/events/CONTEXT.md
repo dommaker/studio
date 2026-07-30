@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/events 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/events/CONTEXT.md, apps/api/src/modules/events/event.routes.ts, apps/api/src/modules/events/session-summary-generator.ts, apps/api/src/modules/events/migration.sql, apps/api/src/modules/events/sse.routes.ts
+<!-- STALE_SINCE: 2026-07-30 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/events/CONTEXT.md, apps/api/src/modules/events/sse.routes.ts, apps/api/src/modules/events/workunit-events-bridge.ts
 
 ## 职责
 
@@ -14,11 +14,13 @@
 | 模块 | 路由 | 用途 |
 |------|------|------|
 | event.routes.ts | POST /api/v1/events | 创建 StudioEvent |
-| event.routes.ts | GET /api/v1/events | 查询 StudioEvent (type/since/limit 过滤) |
+| event.routes.ts | GET /api/v1/events | 查询 StudioEvent (type/since/limit/workUnitId 过滤；workUnitId 按 payload.workUnitId 匹配，供 WU 执行步回放) |
 | event.routes.ts | POST /api/v1/events/agent-events | 批量写入 AgentEvent[] |
 | sse.routes.ts | GET /api/v1/events/stream | SSE 实时事件流 |
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
 | workunit-events-bridge.ts | initWorkunitEventsBridge() | eventBus 的 workunit.created/status_changed → 'events' 频道（前端 WU 列表/抽屉实时刷新）；index.ts 启动时调用，幂等 |
+| （agent-loop 直发） | workunit.execution.step | WU 执行步事件（思考/工具/skill/用量）：agent-loop 每步结束经 eventStore.publish 直发（不经过桥），`workunit.` 前缀自动落 workunits topic；落盘形态 `workunit:execution_step` 供 GET /events 回放 |
+| （agent-loop 直发） | workunit.execution.stream | WU 步内流式 chunk（Layer B，2026-07-30）：step 执行中 CLI stdout 按行提炼 thinking/text/tool/result 直发，**SSE-only 不落盘**（行级体量防膨胀；步级归档走 execution.step）；同前缀落 workunits topic |
 | session-summary-generator.ts | generateSessionSummary() | session:end → session:summary 聚合 |
 | session-summary-generator.ts | classifyPattern() (内部) | 根据文件/工具序列分类模式 |
 
@@ -51,6 +53,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-27: B5 D18 — event.routes 写入改走统一入口 writeStudioEvent；POST / 空 payload 从默认 '{}' 落盘改为 400 拒收（空 payload knowledge 事件的唯一生产入口被封堵）

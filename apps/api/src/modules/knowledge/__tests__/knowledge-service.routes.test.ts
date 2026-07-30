@@ -5,7 +5,9 @@ import type { AddressInfo } from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { knowledgeServiceRoutes } from '../knowledge-service.routes.js';
+import type { Router } from 'express';
+
+let knowledgeServiceRoutes: Router;
 
 describe('KnowledgeService routes', () => {
   it('exports a valid Express router', () => {
@@ -54,7 +56,8 @@ beforeAll(async () => {
   sharedIngest = singletons.sharedIngest;
   sharedStore = singletons.sharedStore;
 
-  const { knowledgeServiceRoutes: routes } = await import('../knowledge-service.routes.js');
+  const routes = (await import('../knowledge-service.routes.js')).knowledgeServiceRoutes;
+  knowledgeServiceRoutes = routes;
   const app = express();
   app.use(express.json());
   app.use('/api/v1/knowledge-service', routes);

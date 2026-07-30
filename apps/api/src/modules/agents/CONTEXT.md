@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/agents 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/agent-profile.service.ts
+<!-- STALE_SINCE: 2026-07-30 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/review-dispatcher.ts
 
 ## 职责
 
@@ -28,6 +28,7 @@
 - `default-triggers.ts` — 10 个系统默认 trigger 注册（含 `doc-semantic-review` 周级文档语义审查，2026-07 文档治理闭环 P1）
 - `default-provider.ts` — F1 provider 默认选取工具（2026-07-28 分析文档）：`resolveDefaultProvider()` 取 `scanAllProviders()` 第一个（扫不到 → null + warn，不再隐式兜底 claude）；`backfillProfileProviders()` 启动时回填存量空 provider 的 active 角色（不含 studio，幂等）。`agent-profile.service.create` 缺省 provider 经此打戳
 - `executor.ts` — §9.6 Executor 接口（AgentLoop 执行面抽象）：P0 `LocalExecutor` 原样委托 `agentRunner.executeLightweight`；P1 远程节点执行经同一接口接入
+- `execution-step-events.ts` — WU 过程可视化（2026-07-30）：Layer A 步级——每个 agent step 结束把 stream-json rawOutput 提炼成 `workunit:execution_step` 事件（thinking ≤3×500 字符 / toolCalls ≤30×160 字符摘要 / skills 注入名单 / usage），落盘 studio-events.jsonl（REST 回放）+ `workunit.execution.step` SSE 信封（自动落 workunits topic）；Layer B 步内流式——execSh `onLine` 把 CLI stdout 按行透传（runner-lightweight 接线 `AgentTask.onStreamLine`），每行提炼成轻量 chunk（thinking/text/tool/result，≤500 字符、单行 ≤10 条）经 `workunit.execution.stream` SSE 直发，**只发 SSE 不落盘**（行级体量防膨胀），agent-loop 在 spawn 前合成 step-start 信号。不进频道、不写 metadata 防膨胀；fire-and-forget 绝不影响任务流程。完整 transcript 不回放这里——查 agent HOME 的 `.claude/projects/<cwd-slug>/<sessionId>.jsonl`
 
 ## 依赖关系
 
@@ -71,6 +72,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ 2026-07-28: F1+F4+seed 退役（2026-07-28 分析文档，决策 5/6）— 新增 `default-provider.ts`（provider 缺省打戳 + 启动回填，替代 null+隐式 claude 兜底）；ReviewDispatcher 解锚（评审子 WU 未指派涌现 + excludeAssignee 排除实现者 + 自评兜底 selfReview 标记，不再依赖 description 含 'reviewer'）；agent-loop observe 未指派过滤新增 excludeAssignee 剔除；删除 `builtin-roles.ts`（pm/dev/reviewer 内置 seed 三函数，角色创建走用户入口/preset 模板 `.agents/roles/*.yaml`）
 - ✅ `01c2ee93`: CI 脆弱点 — STUDIO_EVENTS_JSONL 可覆盖 + 测试事件隔离
 - ✅ 2026-07-24: API 鉴权收紧 — agents/profiles/instances 写端点收 requireNotGuest，/review/diff 与 terminate 收 requireAdmin

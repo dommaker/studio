@@ -3,8 +3,8 @@
 > 最后更新: 2026-05-05
 > Agent 执行器 — session loop 模型 + git worktree 隔离 + 文件桥上下文传递
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/package.json, packages/studio-agent/CONTEXT.md
+<!-- STALE_SINCE: 2026-07-30 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/CONTEXT.md
 
 ## 职责
 
@@ -98,5 +98,6 @@ worktree/
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ `bdf5fd4a`: test): fix 27 CI test failures across 8 files
 - ✅ `da1d7696`: ci): governance continue-on-error + fix vitest watch mode

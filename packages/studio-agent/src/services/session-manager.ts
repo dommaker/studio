@@ -70,6 +70,11 @@ export interface AgentTask {
   };
   /** 实时进度回调 — 每轮 session 后调用，用于推送到 Channel */
   onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
+  /**
+   * 步内 stream-json 行回调（WU 过程可视化 Layer B）：CLI stdout 每个完整行到达即回调。
+   * 仅 LocalExecutor 同进程有意义；RemoteExecutor 跨进程不可序列化，直接丢弃。
+   */
+  onStreamLine?: (line: string) => void;
   /** P3: 覆盖扁平默认超时 (ms)。提供时替代默认 30min。 */
   timeoutMs?: number;
   /** §9.6 P1: 远程节点 ID。undefined/'local' → LocalExecutor，否则 RemoteExecutor。 */
@@ -614,7 +619,7 @@ export class AgentExecutor {
 
     // 磁盘空间
     try {
-      const { stdout } = await execSh('df -h . | tail -1 | awk "{print \$4}"', {
+      const { stdout } = await execSh("df -h . | tail -1 | awk '{print $4}'", {
         cwd: this.config.worktreesDir,
         timeoutMs: 5_000,
       });

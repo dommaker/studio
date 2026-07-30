@@ -456,7 +456,15 @@ ${project.requirement || ''}
 TASK: <任务描述>
 需求很小无需拆分时可不输出 TASK 行。结论由人工确认后，系统按 TASK 行自动建任务并派工。`,
       channelId: input.channelId,
-      metadata: { pmoId: project.id, pmoNumber: project.pmoNumber },
+      metadata: {
+        pmoId: project.id,
+        pmoNumber: project.pmoNumber,
+        // B3a 归属链接线：gitRepo 落 metadata.workspaceRoot，agent-loop 执行根解析
+        // （resolveExecutionWorkspaceRoot）优先消费——analysis 及其派生 task WU
+        // （analysis-handoff 继承该字段）才能走 per-WU worktree + PMO 分支，
+        // 否则直接在共享开发仓落地、review 审的也不是隔离分支。
+        ...(project.gitRepo ? { workspaceRoot: project.gitRepo } : {}),
+      },
     });
 
     const updatedProject = await this.updateStatus(input.projectId, 'active');

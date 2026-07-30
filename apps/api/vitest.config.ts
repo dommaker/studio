@@ -13,6 +13,8 @@ export default defineConfig({
     },
     // SQLite 不支持并发写入, 串行执行测试文件
     maxConcurrency: 1,
+    // 测试环境跳过认证（.env 中 STUDIO_AUTH=on / NODE_ENV=production 是 production 配置）
+    env: { STUDIO_AUTH: 'none', NODE_ENV: 'test' },
   },
   resolve: {
     alias: {

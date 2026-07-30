@@ -336,3 +336,5 @@
 | workunit-events-bridge | apps/api/src/modules/events/workunit-events-bridge.ts | WorkUnit 事件 → SSE 桥 |
 | analysis-handoff | apps/api/src/modules/pmo/analysis-handoff.ts | Analysis Handoff — PMO 分析接力（分析结论 → 拆任务 → 派工） |
 | useWorkUnitEvents | apps/web/src/hooks/useWorkUnitEvents.ts | WorkUnit 事件订阅 — workunit.created / workunit.status_changed（SSE） |
+| execution-step-events | apps/api/src/modules/agents/execution-step-events.ts | 执行步事件（WU 过程可视化） |
+| useWorkUnitStreamEvents | apps/web/src/hooks/useWorkUnitStreamEvents.ts | WU 步内流式订阅（Layer B）— SSE `workunit.execution.stream` 实时 chunk |

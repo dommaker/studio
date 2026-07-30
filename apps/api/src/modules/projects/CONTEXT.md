@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/projects 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/projects/CONTEXT.md, apps/api/src/modules/projects/project-discovery.service.ts, apps/api/src/modules/projects/project.routes.ts
+<!-- STALE_SINCE: 2026-07-30 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/projects/CONTEXT.md, apps/api/src/modules/projects/project-discovery.service.ts
 
 ## 职责
 
@@ -29,6 +29,7 @@ Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
 - ✅ 2026-07-29: 工程即叶子（命中标记即剪枝，monorepo 子包不再重复列出）；/api/v1/projects 挂载 admin→auth
 - ✅ 2026-07-27: D6 排除清单第一层 — STUDIO_PROJECTS_EXCLUDE / options.exclude（目录名 / 绝对路径边界前缀），命中即跳过不递归
