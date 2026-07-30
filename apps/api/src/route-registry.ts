@@ -198,7 +198,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/triggers', router: triggerRouter, middleware: admin, comment: '3.28c-4: Trigger CRUD + status' },
     { path: '/api/v1/evolution', router: evolutionRoutes, middleware: admin, comment: 'E1 约束进化：提案列表/审批/手动扫描 (vision §6)' },
     { path: '/api/v1/monitoring', router: monitoringRoutes, middleware: admin, comment: 'MVP-2/6: Agent + WorkUnit monitoring' },
-    { path: '/api/v1/projects', router: projectRoutes, middleware: admin, comment: 'AC-D1+D3: Local project discovery' },
+    { path: '/api/v1/projects', router: projectRoutes, middleware: auth, comment: 'AC-D1+D3: Local project discovery（登录即可：PMO 新建表单工程下拉依赖）' },
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },

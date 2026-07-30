@@ -153,6 +153,15 @@ describe('AC-5: PMO Publish API', () => {
     );
   });
 
+  it('analysis scope 含只读约束（2026-07-30：分析阶段禁止改文件）+ TASK 输出约定', async () => {
+    await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
+
+    const scope = mockWuCreate.mock.calls[0][0].scope as string;
+    expect(scope).toContain('只读分析');
+    expect(scope).toContain('禁止创建/修改/删除任何文件');
+    expect(scope).toContain('TASK:');
+  });
+
   it('ChannelMessage meta contains pmoId', async () => {
     await projectService.publish({ projectId: 'proj-1', channelId: 'ch-1' });
 

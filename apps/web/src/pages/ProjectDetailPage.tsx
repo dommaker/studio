@@ -258,6 +258,13 @@ export function ProjectDetailPage() {
     <div className="p-6 max-w-5xl mx-auto">
       {/* Header */}
       <div className="mb-6">
+        <button
+          onClick={() => navigate('/pmo')}
+          className="text-sm mb-2"
+          style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+        >
+          ← 返回
+        </button>
         <div className="flex items-center gap-3 mb-2">
           <PmoNumberBadge pmoNumber={project.pmoNumber} status={project.status as any} size="lg" />
           <h1 className="text-2xl font-bold">{project.title}</h1>

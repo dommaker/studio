@@ -98,6 +98,10 @@ export interface WorkUnitMetadata {
     reason?: string;
     issues?: Array<{ severity: string; message: string }>;
   };
+  // PMO 分析接力（analysis-handoff）：analysis WU COMPLETE 时 agent-loop 解析 TASK: 行落档；
+  // 人工确认（reviewPassed → done）后由 analysis-handoff 据此建未指派 task 子 WU 派工
+  analysisTasks?: string[];       // TASK: 拆分行解析结果（≤8 条，每条 ≤300 字符）
+  analysisTasksSpawnedAt?: string; // 子 WU 已建时间戳（幂等哨兵：存在即不再重复派生）
   traceId?: string;           // P0 修复 6: 链路追踪 id（频道消息 req → WU → agent-loop 日志；与 audit requestId 同值）
   // F4 reviewer 解锚（2026-07-28 分析文档，决策 5）：评审 WU 未指派走 claim 涌现时的约束/标记
   excludeAssignee?: string;   // 禁止认领的 profile id（评审排除实现者；agent-loop observe 未指派过滤据此剔除）
@@ -199,6 +203,9 @@ export const WU_TIMEOUT_MINUTES: Record<string, number> = {
   analysis: 30,
 };
 export const WU_DEFAULT_TIMEOUT_MINUTES = 60;
+
+/** analysis 任务拆分上限（agent-loop 解析 TASK: 行 / analysis-handoff 派生子 WU 共用） */
+export const ANALYSIS_TASKS_MAX = 8;
 
 /** claim 时的 timeoutAt 决策：metadata.timeoutAt 显式值优先，否则按 WU type 给默认时长 */
 function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date {
@@ -601,6 +608,8 @@ export class WorkUnitService {
       await this.update(id, { timeoutAt });
       wu.timeoutAt = timeoutAt.toISOString();
     }
+    // 认领即状态变化（unassigned → active）：补发 status_changed（WU 列表实时刷新/接力订阅消费）
+    this.publishStatusChanged(wu);
     return snapshotToData(wu);
   }
 
@@ -629,6 +638,9 @@ export class WorkUnitService {
     };
     await this.fileStore.appendEvent(event);
     await this.fileStore.upsertSnapshot(updated);
+
+    // 释放回池（→ unassigned）同样发 status_changed（列表实时刷新/重新派工可见）
+    this.publishStatusChanged(updated);
 
     return snapshotToData(updated);
   }
@@ -878,6 +890,9 @@ export class WorkUnitService {
     };
     await this.fileStore.appendEvent(event);
     await this.fileStore.upsertSnapshot(updated);
+
+    // in_review → active/blocked 也是状态变化：补发 status_changed（列表实时刷新）
+    this.publishStatusChanged(updated);
 
     if (newStatus === 'blocked') {
       logger.warn('[WorkUnit] Auto-blocked after 3 consecutive review rejections', { workUnitId: id });

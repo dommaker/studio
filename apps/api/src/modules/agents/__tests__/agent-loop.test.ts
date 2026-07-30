@@ -859,6 +859,68 @@ describe('AgentLoop', () => {
     });
   });
 
+  describe('同角色单活实例守卫（2026-07-30）', () => {
+    const holderState = (overrides: Record<string, unknown>) => ({
+      id: 'holder-instance',
+      roleId: 'role-1',
+      sessionId: null,
+      status: 'idle',
+      currentWorkUnitId: null,
+      startedAt: new Date().toISOString(),
+      terminatedAt: null,
+      lastHeartbeat: new Date().toISOString(),
+      metadata: null,
+      pid: process.ppid, // 测试进程父进程：存活且 ≠ process.pid
+      ...overrides,
+    });
+
+    it('活实例（异 pid 存活 + 心跳新鲜）持有者存在 → start() standby 返回 false 并记 error 状态', async () => {
+      await fileStore.createState('holder-instance', holderState({}));
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      const started = await agentLoop.start();
+
+      expect(started).toBe(false);
+      // 持有者状态不被打扰
+      const holder = await fileStore.getState('holder-instance');
+      expect(holder!.status).toBe('idle');
+      // 本实例不再建 idle 状态，而是留下带 standby 原因的 error 状态
+      const states = await fileStore.listStates();
+      const mine = states.filter(s => s.roleId === 'role-1' && s.id !== 'holder-instance');
+      expect(mine.some(s => s.status === 'idle')).toBe(false);
+      const errState = mine.find(s => s.status === 'error');
+      expect(errState).toBeDefined();
+      expect(errState!.lastError).toContain('活实例');
+    });
+
+    it('持有者 pid 存活但心跳停摆（>120s）→ 视为不活，正常挂载', async () => {
+      await fileStore.createState('holder-instance', holderState({
+        lastHeartbeat: new Date(Date.now() - 10 * 60_000).toISOString(),
+        startedAt: new Date(Date.now() - 30 * 60_000).toISOString(),
+      }));
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      const started = await agentLoop.start();
+
+      expect(started).toBe(true);
+      const states = await fileStore.listStates();
+      expect(states.some(s => s.roleId === 'role-1' && s.status === 'idle' && s.id !== 'holder-instance')).toBe(true);
+    });
+
+    it('持有者 pid 已死 → 走 stale 清理后正常挂载（守卫不误伤）', async () => {
+      await fileStore.createState('holder-instance', holderState({
+        pid: 999_999_999,
+      }));
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      const started = await agentLoop.start();
+
+      expect(started).toBe(true);
+      const holder = await fileStore.getState('holder-instance');
+      expect(holder!.status).toBe('terminated');
+    });
+  });
+
   describe('AC-4.3/4.4: extractInputTokens()', () => {
     it('returns null for empty string', () => {
       expect(extractInputTokens('')).toBeNull();

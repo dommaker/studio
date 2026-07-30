@@ -176,10 +176,22 @@ async function start() {
       const profiles = await fileStore.listProfiles({ status: 'active' });
       const scheduler = getTriggerScheduler(); // Singleton — shared with trigger.routes.ts
       scheduler.start(); // Start tick interval for SCHEDULE triggers (workunit-timeout, poll-fallback)
-      registerDefaultTriggers(scheduler);
 
-      // F1: profile 生命周期事件（create/activate/deactivate/delete）→ 动态挂载/卸载
-      agentLoopRegistry.subscribeToEvents();
+      // 2026-07-30 走查修复：同一 ~/.studio 多实例（dev/prod 并存）时，只允许一个实例
+      // 挂载 agent loop + 注册系统触发器 —— 否则同 profile 被重复挂载（认领竞争、频道重复
+      // 回复、定时 WU 重复创建）。STUDIO_AGENT_LOOP_ENABLED=false 的实例 standby：
+      // 仍提供 REST/UI 与事件订阅（ReviewDispatcher/AnalysisHandoff 有幂等哨兵，状态变更
+      // 由谁发起就在谁进程内触发，故两侧都保留），但不认领、不发言、不建定时 WU。
+      const agentLoopEnabled = process.env.STUDIO_AGENT_LOOP_ENABLED !== 'false';
+      if (!agentLoopEnabled) {
+        logger.info('[AgentLoop] STUDIO_AGENT_LOOP_ENABLED=false — 本实例 standby：不挂载 loop、不注册系统触发器');
+      }
+      if (agentLoopEnabled) {
+        registerDefaultTriggers(scheduler);
+
+        // F1: profile 生命周期事件（create/activate/deactivate/delete）→ 动态挂载/卸载
+        agentLoopRegistry.subscribeToEvents();
+      }
 
       // AC-4.1: ReviewDispatcher subscribes to workunit.status_changed
       try {
@@ -188,14 +200,29 @@ async function start() {
         logger.info('[ReviewDispatcher] Subscribed to workunit.status_changed');
       } catch (e) { logger.warn('[ReviewDispatcher] Failed to subscribe', { error: String(e) }); }
 
-      for (const profile of profiles) {
-        const entry = await agentLoopRegistry.mount(profile);
-        if (entry.status === 'running') {
-          logger.info(`[AgentLoop] Started for profile ${profile.name}`);
+      // WorkUnit 事件 → SSE（前端 WU 列表/抽屉实时刷新）
+      try {
+        const { initWorkunitEventsBridge } = await import('./modules/events/workunit-events-bridge.js');
+        initWorkunitEventsBridge();
+      } catch (e) { logger.warn('[Events] WorkUnit events bridge failed', { error: String(e) }); }
+
+      // PMO 分析接力：analysis 确认 → 拆 task WU 派工
+      try {
+        const { initAnalysisHandoff } = await import('./modules/pmo/analysis-handoff.js');
+        initAnalysisHandoff();
+        logger.info('[AnalysisHandoff] Subscribed to workunit.status_changed');
+      } catch (e) { logger.warn('[AnalysisHandoff] Failed to subscribe', { error: String(e) }); }
+
+      if (agentLoopEnabled) {
+        for (const profile of profiles) {
+          const entry = await agentLoopRegistry.mount(profile);
+          if (entry.status === 'running') {
+            logger.info(`[AgentLoop] Started for profile ${profile.name}`);
+          }
         }
-      }
-      if (profiles.length === 0) {
-        logger.info('[AgentLoop] No active profiles found, skipping auto-start');
+        if (profiles.length === 0) {
+          logger.info('[AgentLoop] No active profiles found, skipping auto-start');
+        }
       }
     } catch (e) { logger.warn('[AgentLoop] Failed to start', { error: String(e) }); }
 

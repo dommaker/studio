@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { api, projectApi } from '../api';
-import { channelApi, type Channel } from '../api/channel';
+import { channelApi, type Channel, type AgentProfile, type LocalProject } from '../api/channel';
 import { toast } from '../utils/toast';
 import { Select } from '../components/ui';
 import '../styles/theme.css';
@@ -14,6 +14,18 @@ function getCurrentQuarter(): string {
   const month = now.getMonth();
   const quarter = Math.floor(month / 3) + 1;
   return `${year}-Q${quarter}`;
+}
+
+/** 容错解析 id 数组 JSON（历史数据可能双重编码）；非数组/损坏 → [] */
+function parseIdArray(raw?: string | null): string[] {
+  if (!raw) return [];
+  try {
+    let v: unknown = JSON.parse(raw);
+    if (typeof v === 'string') v = JSON.parse(v);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && x.length > 0) : [];
+  } catch {
+    return [];
+  }
 }
 
 interface KR {
@@ -168,14 +180,21 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const [publishProjectId, setPublishProjectId] = useState<string | null>(null);
   const [selectedChannelId, setSelectedChannelId] = useState('');
   const [publishing, setPublishing] = useState(false);
+  // 发起弹窗：所选频道可响应的 Agent 成员（谁会认领一目了然；空 → 提前警示）
+  const [channelAgents, setChannelAgents] = useState<AgentProfile[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
 
-  // 🆕 PMO-a: 新建 PMO 内联表单（决策 2/4：deliveryPolicy 创建时选定，默认 branch-only）
+  // 🆕 PMO-a: 新建 PMO 弹窗（决策 2/4：deliveryPolicy 创建时选定，默认 branch-only）
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newRequirement, setNewRequirement] = useState('');
   const [newGitRepo, setNewGitRepo] = useState('');
   const [newDeliveryPolicy, setNewDeliveryPolicy] = useState<'branch-only' | 'auto-merge'>('branch-only');
   const [creating, setCreating] = useState(false);
+  // 工程下拉：打开弹窗时实时扫描（与角色 CLI 扫描同一交互模式）
+  const [discoveredProjects, setDiscoveredProjects] = useState<LocalProject[]>([]);
+  const [projectsScanning, setProjectsScanning] = useState(false);
+  const [projectsScanError, setProjectsScanError] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -233,6 +252,31 @@ export function PMOPage({ companyId }: PMOPageProps) {
     }
   };
 
+  // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径 ——
+  // channel.members 非空 → 仅成员；为空（历史频道未回填）→ 回退 profile.channels（空 = 全频道可见）
+  useEffect(() => {
+    if (!showPublishDialog || !selectedChannelId) return;
+    let cancelled = false;
+    setAgentsLoading(true);
+    channelApi.listAllAgents()
+      .then(res => {
+        if (cancelled) return;
+        const active = (res.data?.data || []).filter(p => p.status === 'active' && p.name !== 'studio');
+        const ch = channels.find(c => c.id === selectedChannelId);
+        const memberIds = parseIdArray(ch?.members);
+        const responders = memberIds.length > 0
+          ? active.filter(p => memberIds.includes(p.id))
+          : active.filter(p => {
+              const chs = parseIdArray(typeof p.channels === 'string' ? p.channels : JSON.stringify(p.channels ?? []));
+              return chs.length === 0 || chs.includes(selectedChannelId);
+            });
+        setChannelAgents(responders);
+      })
+      .catch(() => { if (!cancelled) setChannelAgents([]); })
+      .finally(() => { if (!cancelled) setAgentsLoading(false); });
+    return () => { cancelled = true; };
+  }, [showPublishDialog, selectedChannelId, channels]);
+
   const handlePublishClick = (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
     setPublishProjectId(projectId);
@@ -245,11 +289,12 @@ export function PMOPage({ companyId }: PMOPageProps) {
     setPublishing(true);
     try {
       await projectApi.publish(publishProjectId, selectedChannelId);
-      toast.success('发布成功');
+      toast.success('已发起需求讨论');
       setShowPublishDialog(false);
-      loadData();
+      // 闭环：发起后直达频道，可看到需求消息与 agent 的实时回复
+      navigate(`/channels/${selectedChannelId}`);
     } catch (err) {
-      const msg = (err as Error).message || '发布失败';
+      const msg = (err as Error).message || '发起失败';
       toast.error(msg);
     } finally {
       setPublishing(false);
@@ -292,6 +337,26 @@ export function PMOPage({ companyId }: PMOPageProps) {
       console.error('Failed to create OKR:', err);
       toast.error('创建 OKR 失败');
     }
+  };
+
+  // 工程扫描：打开新建弹窗时调 GET /projects/discover 取最新列表（服务端 60s 缓存）
+  const loadDiscoveredProjects = async () => {
+    setProjectsScanning(true);
+    setProjectsScanError(false);
+    try {
+      const res = await channelApi.discoverProjects();
+      setDiscoveredProjects(res.data?.data || []);
+    } catch {
+      setDiscoveredProjects([]);
+      setProjectsScanError(true);
+    } finally {
+      setProjectsScanning(false);
+    }
+  };
+
+  const handleOpenCreateForm = () => {
+    setShowCreateForm(true);
+    loadDiscoveredProjects();
   };
 
   // 🆕 PMO-a: 创建 PMO（companyId 由服务端解析；成功后刷新列表并清空表单）
@@ -372,94 +437,19 @@ export function PMOPage({ companyId }: PMOPageProps) {
           </div>
         ) : activeTab === 'projects' ? (
           <div className="space-y-3">
-            {/* 🆕 PMO-a: 新建 PMO 按钮 + 内联表单 */}
-            {!showCreateForm ? (
-              <button
-                onClick={() => setShowCreateForm(true)}
-                className="w-full p-4 rounded-xl transition-all text-left"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '2px dashed var(--border-default)',
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">+ 新建 PMO</span>
-                </div>
-                <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
-                  直接下达项目指令，自动生成 PMO 号
-                </div>
-              </button>
-            ) : (
-              <div
-                className="p-4 rounded-xl space-y-3"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-default)',
-                }}
-              >
-                <div className="font-medium" style={{ color: 'var(--text-primary)' }}>新建 PMO</div>
-                <div>
-                  <label className="text-sm u-text-2 mb-1">标题 *</label>
-                  <input
-                    type="text"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                    placeholder="项目标题"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm u-text-2 mb-1">需求描述</label>
-                  <textarea
-                    value={newRequirement}
-                    onChange={(e) => setNewRequirement(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
-                    rows={3}
-                    placeholder="需求背景、验收标准等"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-sm u-text-2 mb-1">工程路径 (gitRepo)</label>
-                    <input
-                      type="text"
-                      value={newGitRepo}
-                      onChange={(e) => setNewGitRepo(e.target.value)}
-                      className="w-full px-3 py-2 border rounded-lg"
-                      placeholder="/path/to/repo"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm u-text-2 mb-1">交付策略</label>
-                    <Select
-                      value={newDeliveryPolicy}
-                      onChange={(v) => setNewDeliveryPolicy(v as 'branch-only' | 'auto-merge')}
-                      options={[
-                        { value: 'branch-only', label: '分支交付（不碰合并/发布）' },
-                        { value: 'auto-merge', label: '自动合并（缺证据拒绝）' },
-                      ]}
-                      className="w-full px-3 py-2 border rounded-lg"
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-3 justify-end">
-                  <button
-                    onClick={() => setShowCreateForm(false)}
-                    className="px-4 py-2 u-text-2 u-hover-text"
-                  >
-                    取消
-                  </button>
-                  <button
-                    onClick={handleCreateProject}
-                    disabled={creating}
-                    className="px-4 py-2 u-accent-bg u-on-accent rounded-lg u-hover-bg disabled:opacity-50"
-                  >
-                    {creating ? '创建中...' : '创建'}
-                  </button>
-                </div>
+            {/* 🆕 PMO-a: 新建 PMO 入口（表单为规范 modal，见页面底部） */}
+            <button
+              onClick={handleOpenCreateForm}
+              className="card w-full p-3 text-left cursor-pointer"
+              style={{ borderStyle: 'dashed', color: 'var(--text-secondary)' }}
+            >
+              <div className="flex items-center gap-2">
+                <span>+ 新建 PMO</span>
               </div>
-            )}
+              <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+                直接下达项目指令，自动生成 PMO 号
+              </div>
+            </button>
 
             {projects.length === 0 ? (
               <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>
@@ -469,18 +459,13 @@ export function PMOPage({ companyId }: PMOPageProps) {
               projects.map(project => (
                 <div
                   key={project.id}
-                  className="p-4 rounded-xl transition-all cursor-pointer hover:scale-[1.01]"
-                  style={{
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-default)',
-                  }}
+                  className="card p-3 cursor-pointer"
                   onClick={() => navigate(`/pmo/project/${project.id}`)}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div
-                        className="px-2 py-1 rounded text-sm font-bold"
-                        style={{ background: 'var(--accent-primary)', color: '#fff' }}
+                        className="px-2 py-1 rounded text-sm font-bold u-accent-bg"
                       >
                         {project.pmoNumber}
                       </div>
@@ -530,15 +515,10 @@ export function PMOPage({ companyId }: PMOPageProps) {
                         <button
                           onClick={(e) => handlePublishClick(e, project.id)}
                           disabled={channels.length === 0}
-                          className="text-xs px-3 py-1 rounded font-medium transition-all"
-                          style={{
-                            background: channels.length === 0 ? 'var(--bg-tertiary)' : 'var(--accent-primary)',
-                            color: channels.length === 0 ? 'var(--text-tertiary)' : '#fff',
-                            cursor: channels.length === 0 ? 'not-allowed' : 'pointer',
-                          }}
-                          title={channels.length === 0 ? '无可用 Channel' : '发布到 Channel'}
+                          className="btn btn-primary btn-sm"
+                          title={channels.length === 0 ? '无可用 Channel' : '选择频道，发起需求讨论'}
                         >
-                          发布
+                          发起讨论
                         </button>
                       )}
                     </div>
@@ -549,18 +529,14 @@ export function PMOPage({ companyId }: PMOPageProps) {
           </div>
         ) : (
           <div className="space-y-3">
-            {/* 🆕 AS-016: 创建 OKR 按钮 */}
+            {/* 🆕 AS-016: 创建 OKR 按钮（打开弹窗） */}
             <button
-              onClick={handleCreateOKR}
-              className="w-full p-4 rounded-xl transition-all text-left"
-              style={{
-                background: 'var(--bg-secondary)',
-                border: '2px dashed var(--border-default)',
-                color: 'var(--text-secondary)',
-              }}
+              onClick={() => setShowOKRDialog(true)}
+              className="card w-full p-3 text-left cursor-pointer"
+              style={{ borderStyle: 'dashed', color: 'var(--text-secondary)' }}
             >
               <div className="flex items-center gap-2">
-                <span className="text-lg">+ 创建 OKR</span>
+                <span>+ 创建 OKR</span>
               </div>
               <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
                 为新季度设置目标和关键结果
@@ -575,11 +551,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
               okrs.map(okr => (
                 <div
                   key={okr.id}
-                  className="p-4 rounded-xl transition-all"
-                  style={{
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-default)',
-                  }}
+                  className="card p-3"
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div>
@@ -777,36 +749,143 @@ export function PMOPage({ companyId }: PMOPageProps) {
         </div>
       )}
 
-      {/* AC-6: Publish dialog */}
+      {/* 🆕 PMO-a: 新建 PMO 弹窗（style-guide §4.3 标准结构） */}
+      {showCreateForm && (
+        <div className="modal-overlay" onClick={() => setShowCreateForm(false)}>
+          <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">新建 PMO</h2>
+              <button className="modal-close" onClick={() => setShowCreateForm(false)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div>
+                  <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>标题 *</label>
+                  <input
+                    type="text"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    className="input"
+                    style={{ width: '100%' }}
+                    placeholder="项目标题"
+                  />
+                </div>
+                <div>
+                  <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>需求描述</label>
+                  <textarea
+                    value={newRequirement}
+                    onChange={(e) => setNewRequirement(e.target.value)}
+                    className="input"
+                    style={{ width: '100%', resize: 'none' }}
+                    rows={3}
+                    placeholder="需求背景、验收标准等"
+                  />
+                </div>
+                <div>
+                  <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>工程路径 (gitRepo)</label>
+                  <Select
+                    value={newGitRepo}
+                    onChange={setNewGitRepo}
+                    options={[
+                      { value: '', label: '（不关联工程）' },
+                      ...discoveredProjects.map(p => ({ value: p.path, label: `${p.name}（${p.path}）` })),
+                    ]}
+                    placeholder={projectsScanning ? '正在扫描本地工程…' : '选择扫描到的工程'}
+                    disabled={projectsScanning}
+                    aria-label="工程路径"
+                    className="input"
+                    style={{ width: '100%' }}
+                  />
+                  {projectsScanError && (
+                    <div className="text-xs mt-1 u-text-3">
+                      工程扫描失败（需要管理员权限）。
+                      <button
+                        onClick={loadDiscoveredProjects}
+                        className="u-accent"
+                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
+                      >
+                        重试
+                      </button>
+                    </div>
+                  )}
+                  {!projectsScanning && !projectsScanError && discoveredProjects.length === 0 && (
+                    <div className="text-xs mt-1 u-text-3">
+                      未扫描到本地工程（检查 STUDIO_PROJECTS_ROOT 配置）
+                    </div>
+                  )}
+                </div>
+                <div>
+                  <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>交付策略</label>
+                  <Select
+                    value={newDeliveryPolicy}
+                    onChange={(v) => setNewDeliveryPolicy(v as 'branch-only' | 'auto-merge')}
+                    options={[
+                      { value: 'branch-only', label: '分支交付（不碰合并/发布）' },
+                      { value: 'auto-merge', label: '自动合并（缺证据拒绝）' },
+                    ]}
+                    className="input"
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button onClick={() => setShowCreateForm(false)} className="btn btn-secondary">
+                取消
+              </button>
+              <button onClick={handleCreateProject} disabled={creating} className="btn btn-primary">
+                {creating ? '创建中...' : '创建'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AC-6: 发起需求讨论弹窗（选择目标频道） */}
       {showPublishDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: 'rgba(0,0,0,0.5)' }}>
-          <div className="p-6 rounded-xl w-96" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>
-            <h3 className="text-lg font-bold mb-4" style={{ color: 'var(--text-primary)' }}>发布到 Channel</h3>
-            {channels.length === 0 ? (
-              <p style={{ color: 'var(--text-tertiary)' }}>无可用 Channel，请先创建</p>
-            ) : (
-              <Select
-                value={selectedChannelId}
-                onChange={setSelectedChannelId}
-                options={channels.map(ch => ({ value: ch.id, label: ch.name }))}
-                className="w-full p-2 rounded mb-4"
-              />
-            )}
-            <div className="flex gap-3 justify-end">
-              <button
-                onClick={() => setShowPublishDialog(false)}
-                className="px-4 py-2 rounded"
-                style={{ color: 'var(--text-secondary)' }}
-              >
+        <div className="modal-overlay" onClick={() => setShowPublishDialog(false)}>
+          <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">发起需求讨论</h2>
+              <button className="modal-close" onClick={() => setShowPublishDialog(false)} aria-label="关闭">×</button>
+            </div>
+            <div className="modal-body">
+              {channels.length === 0 ? (
+                <p className="u-text-3 text-sm">无可用 Channel，请先创建</p>
+              ) : (
+                <>
+                  <Select
+                    value={selectedChannelId}
+                    onChange={setSelectedChannelId}
+                    options={channels.map(ch => ({ value: ch.id, label: ch.name }))}
+                    className="input"
+                    style={{ width: '100%' }}
+                  />
+                  {agentsLoading ? (
+                    <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>加载频道成员…</p>
+                  ) : channelAgents.length > 0 ? (
+                    <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>
+                      会响应的 Agent（{channelAgents.length}）：{channelAgents.map(a => a.name).join('、')}
+                      ——需求发到频道后由 TA 们认领并开始分析
+                    </p>
+                  ) : (
+                    <p className="u-warn text-sm" style={{ marginTop: 8 }}>
+                      ⚠ 该频道没有可响应的 Agent 成员，发起后需求可能无人认领；请先在频道里添加成员
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="modal-footer">
+              <button onClick={() => setShowPublishDialog(false)} className="btn btn-secondary">
                 取消
               </button>
               <button
                 onClick={handlePublishConfirm}
                 disabled={publishing || channels.length === 0}
-                className="px-4 py-2 rounded u-on-accent"
-                style={{ background: publishing ? 'var(--bg-tertiary)' : 'var(--accent-primary)' }}
+                className="btn btn-primary"
               >
-                {publishing ? '发布中...' : '确认发布'}
+                {publishing ? '发起中...' : '确认发起'}
               </button>
             </div>
           </div>

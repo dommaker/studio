@@ -22,6 +22,7 @@
 | `parsePmoNumberFromCommand` | `project.service.ts` | 从命令中解析 PMO 号 |
 | `PROJECT_STATUS` 常量 | `project.service.ts` | 项目状态枚举 |
 | `initPmoProgressRollup` / `syncProjectProgress` | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement（含决策 4 别名视图）关联 WU 的完结比例回写 progress；全部完结 → completed（best-effort） |
+| `AnalysisHandoff` / `initAnalysisHandoff` | `analysis-handoff.ts` | PMO 分析接力：订阅 workunit.status_changed——analysis → in_review 频道提示人工确认（ReviewDispatcher 对 analysis 不派自动评审）；→ done（人工确认）按 metadata.analysisTasks 建未指派 task 子 WU 派工（analysisTasksSpawnedAt 幂等） |
 | `getDeliveryStatus` / `deliverProject` | `delivery.ts` | PMO-b 交付守卫：台账（WU 汇总 + l1/l2/l3 证据齐缺 + deliverable）与 auto-merge 交付（证据齐才本地合并 PMO 分支 → 默认分支，不 push；branch-only 只标记不碰链路） |
 | `detectAnomalies` | `okr-anomaly-detector.ts` | OKR 异常检测（默认停用） |
 | 默认导出 Express Router | `routes.ts` | 提供 `/project`、`/objective`、`/key-result` 等 REST 路由（含 `GET /project/:id/delivery`、`POST /project/:id/deliver`（human-only）） |
@@ -51,6 +52,7 @@
 - 统一编号（决策 4 修正版）：新 PMO 编号 = max(PM/PMO, REQ 两序列)+1，格式 PMO-<n>（即分支名）；`reqAlias` 与 pmoNumber 同号（REQ-XXXX 只读别名）；存量 PM-XXX/REQ-XXXX 不迁移（编号重叠，scripts/migrate-req-to-pmo.ts 出映射报告）。
 - 交付策略 `deliveryPolicy`：`branch-only`（默认，不碰合并/发布链路，只出台账标记）/ `auto-merge`（POST /project/:id/deliver 人工触发，缺证据 409 硬拒，主仓 checkout 非默认分支拒绝，合并冲突不自动 rebase 转人工）。
 - 杂务 PMO（决策 2）：`isChore + channelId` 联合标识，`ensureChoreProject` find-or-create（POST /channels/:id/chore-pmo 登记）；热路径只查不建（findChoreProject）。
+- **发起讨论（publish）全链路（2026-07-29 接力补齐）**：pending 项目 publish → 频道发需求消息 + 建未指派 analysis WU（scope 含 TASK 输出契约 + 「只读分析」约束——2026-07-30 走查修复：分析阶段曾直接改目标仓库文件，现 prompt 层明确禁止 Edit/Write/删改命令，结论只以 markdown 回复不落盘）→ 频道成员 loop 认领分析 → COMPLETE 时 agent-loop 解析 `TASK: <任务描述>` 行落 metadata.analysisTasks（parseTaskBreakdown，≤8 条/条 ≤300 字符）→ in_review（不派自动评审，频道提示人工确认）→ 人工「通过」（reviewPassed）→ analysis-handoff 按 analysisTasks 建未指派 task 子 WU（频道成员涌现认领 = 派工）。与交付策略 deliveryPolicy 无关（deliveryPolicy 只被 delivery.ts 交付守卫消费）。
 - 所有服务都基于 FileStore（JSON 文件）而非数据库。
 - 测试中使用了 mock，注意 mock 目录与测试数据的路径约定。
 - **鉴权（2026-07-24 收紧）**：7 条写端点（POST /project、PUT /project/:id、PUT /project/:id/status、POST /project/:id/publish、POST /okr、PUT /okr/:id、PUT /projects/:id/okr）已收 requireAuth+requireNotGuest（此前 import 的 requireNotGuest 只声明未使用）；DELETE project/okr 原有 requireRole('Admin') 不变。OKR 写的 roleId 为 body 自声明、checkPermission 据此校验，属已知局限（未修）。

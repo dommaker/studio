@@ -9,6 +9,7 @@ import {
 } from '../../api/workunit';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
+import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
@@ -86,6 +87,9 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
   const [error, setError] = useState('');
   const [showTreeTokens, setShowTreeTokens] = useState(false);
+  // WU 事件（SSE）：状态变化时重拉详情（认领/审查/完成即时可见）
+  const [eventTick, setEventTick] = useState(0);
+  useWorkUnitEvents(() => setEventTick(t => t + 1));
 
   useEffect(() => {
     let alive = true;
@@ -102,7 +106,7 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       .then(r => { if (alive) setOverhead(r.data); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [id]);
+  }, [id, eventTick]);
 
   if (error) return <div className="mc-drawer-note">加载失败: {error}</div>;
   if (!wu) return <div className="mc-drawer-note">加载中…</div>;

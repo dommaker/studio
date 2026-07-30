@@ -20,6 +20,7 @@
 | `requirementApi` | `api/requirements.ts` | 需求（REQ）CRUD 及关联工作单元链 API |
 | `workunitApi` | `api/workunit.ts` | 工作单元（WorkUnit）全生命周期 API + token 度量事件查询/解析 |
 | `useWebSocket` / `WebSocketProvider` | `api/websocket.tsx` | SSE 客户端 hook 及 Context Provider（替代原生 WebSocket） |
+| `useWorkUnitEvents` | `hooks/useWorkUnitEvents.ts` | workunit.created/status_changed（SSE）订阅 hook（防抖合并）；WorkUnitListPage 列表与 WorkUnitDrawer 详情据此实时刷新 |
 | `useChannelList` | `hooks/useChannelList.ts` | 频道列表数据 hook（ChannelListPage 与 ChannelRail 共用：列表/未读 SSE/新建） |
 | `useDetectedProviders` / `buildProviderOptions` | `hooks/useDetectedProviders.ts` | 运行环境已装 agent CLI 探测（GET /workspaces/runtimes，服务端聚合前 best-effort 重扫本机）；provider 下拉统一数据源（FirstRoleSetupModal / StudioRoleSetupModal / ChannelMemberManager 创建表单），一个都没扫到时回退 4 个内置全量可选 |
 | `ChannelRail` | `components/channel/ChannelRail.tsx` | Mission Control 左栏：频道列表（未读 badge、agent 在线数）+ Agent 状态 |
@@ -47,6 +48,8 @@
 - 所有 API 模块返回的响应数据结构需与后端约定一致（如 `{ success, data }` 或 `{ data, total }`）。
 - **F6 派生口径铁律（决策 1，2026-07-28 分析文档）**：WU 状态/证据的展示一律过 `@dommaker/studio-shared` 的 `deriveDisplayState()`（列表页徽章/计数/按钮、抽屉详情/REQ 链路节点、RequirementChainPanel；进度统计用 `workFinished` 所有权口径）——禁止各自读 `metadata.attestations` 自行解释。列表页「待人工」pill = 派生过滤（done ∧ ¬l3 + 手写 in_review）；done 缺 l3 显示「确认」按钮（服务端幂等补写 l3）；`SelfReviewBadge`（components/workunit/）标记自评（评审 WU 自身 selfReview / 父 WU 台账 l2.selfReview）。MonitoringPage「证据台账」区块读 `/monitoring/overview` 的 evidence 段。
 - **PMO 页（决策 2/4 + PMO-b）**：PMOPage 有「新建 PMO」表单（标题/需求描述/gitRepo/交付策略，projectApi.create）；卡片显示杂务徽章与交付策略。ProjectDetailPage 头部显示 REQ 别名/分支/交付策略，「📦 交付」区块（projectApi.getDelivery/deliver）：台账（WU 完成度 + 三层证据缺口 + missing 清单）、auto-merge 显示交付合并按钮（human-only，409 缺口/冲突内联展示）、branch-only 只显示自行合并说明。
+- **PMO 发起讨论弹窗（2026-07-29）**：选频道后实时解析「会响应的 Agent」（与 AgentLoop.observe 同口径——channel.members 非空取成员交集；空则回退 profile.channels，空 channels = 全频道可见；数据源 listAllAgents 客户端过滤 active/非 studio），0 人可响应时显示 ⚠ 警示（不阻断发起）；确认后跳转该频道闭环。
+- **频道线程内过程消息折叠（2026-07-29）**：ChannelDetailPage 线程回复里连续 ≥3 条「过程消息」聚合为一组默认折叠（`collapseProcessReplies`）；里程碑不折叠 = 人类消息 / 卡片消息 / NEED_INPUT 等待回复 / 最后一条回复（最新状态恒可见）。频道只留里程碑、过程可展开——防止 agent 每步 summary 淹没讨论。
 
 ## 修复历史
 

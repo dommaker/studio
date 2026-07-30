@@ -28,6 +28,7 @@ export interface AgentProfile {
   description: string | null;
   status: string;
   provider?: string | null;
+  channels?: string | string[] | null; // JSON string of channel ID array（历史数据可能双重编码）
   isOnline?: boolean;
   lastError?: string | null;
 }

@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-29
+> 最后更新: 2026-07-30
 
 ---
 
@@ -333,3 +333,6 @@
 | delivery | apps/api/src/modules/pmo/delivery.ts | PMO-b（2026-07-28 分析文档 §4.5，决策 1）：交付守卫与台账。 |
 | pmo-branch-resolver | apps/api/src/modules/requirements/pmo-branch-resolver.ts | PMO-b（2026-07-28 分析文档 §4.5，决策 3）：WU → PMO 分支解析。 |
 | web | packages/studio-shared/src/web.ts | 前端专用入口 - 仅导出无 Node 依赖的纯逻辑/类型模块 |
+| workunit-events-bridge | apps/api/src/modules/events/workunit-events-bridge.ts | WorkUnit 事件 → SSE 桥 |
+| analysis-handoff | apps/api/src/modules/pmo/analysis-handoff.ts | Analysis Handoff — PMO 分析接力（分析结论 → 拆任务 → 派工） |
+| useWorkUnitEvents | apps/web/src/hooks/useWorkUnitEvents.ts | WorkUnit 事件订阅 — workunit.created / workunit.status_changed（SSE） |

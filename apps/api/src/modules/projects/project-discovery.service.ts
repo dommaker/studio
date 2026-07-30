@@ -4,6 +4,10 @@
  * Scans local directories for projects (CLAUDE.md / package.json / .git/).
  * Pure service — no database persistence. In-memory caching.
  *
+ * 工程即叶子（2026-07-29）：命中标记的目录不再递归内部 —— monorepo 只列根，
+ * 子包（apps/web 等）不重复出现；非工程中间目录（分组目录、无标记的 packages/）
+ * 仍会继续下钻，嵌套工程可被找到。
+ *
  * D6 排除清单（第一层）：env STUDIO_PROJECTS_EXCLUDE（冒号分隔）或 options.exclude，
  * 规则命中目录名（精确）或绝对路径（目录边界前缀）即跳过，不递归进入。
  */
@@ -122,9 +126,10 @@ export class ProjectDiscoveryService {
           hasClaudeMd: projectInfo.hasClaudeMd,
           language: projectInfo.language,
         });
+        // 工程即叶子：命中后不再递归内部，避免 monorepo 子包被重复列出
+        continue;
       }
-      // Always recurse into subdirectories (except at max depth)
-      // to find projects inside non-project intermediate dirs (e.g. packages/)
+      // 仅对非工程目录递归（如分组目录、无标记的 packages/），以发现嵌套工程
       if (depth < 2) {
         const subResults = await this.scanDirectory(fullPath, depth + 1);
         results.push(...subResults);

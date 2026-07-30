@@ -3,11 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockGet, mockPost, mockChannelList, mockCreate } = vi.hoisted(() => ({
+const { mockGet, mockPost, mockChannelList, mockCreate, mockDiscoverProjects } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
   mockChannelList: vi.fn(),
   mockCreate: vi.fn(),
+  mockDiscoverProjects: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -24,6 +25,7 @@ vi.mock('../../api', () => ({
 vi.mock('../../api/channel', () => ({
   channelApi: {
     list: mockChannelList,
+    discoverProjects: mockDiscoverProjects,
   },
 }));
 
@@ -38,6 +40,9 @@ describe('PMO-a: 新建 PMO 表单', () => {
     vi.clearAllMocks();
     mockChannelList.mockResolvedValue({ data: { data: [] } });
     mockCreate.mockResolvedValue({ data: { id: 'p2', pmoNumber: 'PMO-12' } });
+    mockDiscoverProjects.mockResolvedValue({
+      data: { data: [{ name: 'studio', path: '/root/projects/studio', hasClaudeMd: true, language: 'typescript' }] },
+    });
 
     mockGet.mockImplementation((url: string) => {
       if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });
@@ -62,14 +67,17 @@ describe('PMO-a: 新建 PMO 表单', () => {
       expect(screen.getByText('既有项目')).toBeTruthy();
     });
 
-    // 打开内联表单
+    // 打开新建弹窗
     fireEvent.click(screen.getByText('+ 新建 PMO'));
     expect(screen.getByPlaceholderText('项目标题')).toBeTruthy();
 
     // 填写字段
     fireEvent.change(screen.getByPlaceholderText('项目标题'), { target: { value: '证据链看板' } });
     fireEvent.change(screen.getByPlaceholderText('需求背景、验收标准等'), { target: { value: '展示 L1/L2/L3 证据' } });
-    fireEvent.change(screen.getByPlaceholderText('/path/to/repo'), { target: { value: '/root/projects/studio' } });
+    // 工程路径：下拉选择扫描到的工程（打开弹窗时触发 discoverProjects 扫描）
+    await waitFor(() => expect(mockDiscoverProjects).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: '工程路径' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'studio（/root/projects/studio）' }));
     // 自定义 Select：触发器按钮显示当前项，点开后选目标项
     fireEvent.click(screen.getByRole('button', { name: '分支交付（不碰合并/发布）' }));
     fireEvent.click(screen.getByRole('option', { name: '自动合并（缺证据拒绝）' }));

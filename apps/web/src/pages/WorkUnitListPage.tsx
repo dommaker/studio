@@ -6,6 +6,7 @@ import { DiscussionPanel } from '../components/DiscussionPanel';
 import { ReviewHint } from '../components/workunit/ReviewHint';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { channelApi, type AgentProfile } from '../api/channel';
+import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
 import { Select } from '../components/ui';
 
 /** F6：WU 展示状态唯一派生口径（铁律：禁止各自读 metadata.attestations 解释） */
@@ -55,6 +56,9 @@ export function WorkUnitListPage() {
   useEffect(() => {
     loadWorkUnits();
   }, []);
+
+  // WU 事件（SSE）：创建/状态变化时刷新列表（防抖合并在 hook 内）
+  useWorkUnitEvents(() => { loadWorkUnits(); });
 
   const handleCreate = async () => {
     if (!newScope.trim()) return;
