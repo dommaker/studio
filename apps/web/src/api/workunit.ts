@@ -135,6 +135,45 @@ export function parseExecutionStepEvents(
 }
 
 
+/** Layer B 步内流式 chunk（SSE `workunit.execution.stream`，SSE-only 无 REST 回放——落盘归档是 execution_step 的事） */
+export interface ExecutionStreamChunk {
+  workUnitId: string;
+  executionId: string;
+  step: number;
+  kind: 'step-start' | 'thinking' | 'text' | 'tool' | 'result';
+  text?: string;
+  tool?: string;
+  summary?: string;
+  isError?: boolean;
+  at: string;
+}
+
+/**
+ * 解析 SSE 信封 data → ExecutionStreamChunk（损坏/缺关键字段 → null，跳过不编造）。
+ */
+export function parseExecutionStreamChunk(data: unknown): ExecutionStreamChunk | null {
+  try {
+    const p = (typeof data === 'string' ? JSON.parse(data) : data) as Record<string, unknown> | null;
+    if (!p || typeof p !== 'object') return null;
+    if (typeof p.workUnitId !== 'string' || typeof p.step !== 'number') return null;
+    if (!['step-start', 'thinking', 'text', 'tool', 'result'].includes(String(p.kind))) return null;
+    return {
+      workUnitId: p.workUnitId,
+      executionId: typeof p.executionId === 'string' ? p.executionId : '',
+      step: p.step,
+      kind: p.kind as ExecutionStreamChunk['kind'],
+      text: typeof p.text === 'string' ? p.text : undefined,
+      tool: typeof p.tool === 'string' ? p.tool : undefined,
+      summary: typeof p.summary === 'string' ? p.summary : undefined,
+      isError: p.isError === true ? true : undefined,
+      at: typeof p.at === 'string' ? p.at : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+
 export const workunitApi = {
   list: (params?: {
     type?: string;

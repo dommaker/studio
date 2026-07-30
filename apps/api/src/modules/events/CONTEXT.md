@@ -20,6 +20,7 @@
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
 | workunit-events-bridge.ts | initWorkunitEventsBridge() | eventBus 的 workunit.created/status_changed → 'events' 频道（前端 WU 列表/抽屉实时刷新）；index.ts 启动时调用，幂等 |
 | （agent-loop 直发） | workunit.execution.step | WU 执行步事件（思考/工具/skill/用量）：agent-loop 每步结束经 eventStore.publish 直发（不经过桥），`workunit.` 前缀自动落 workunits topic；落盘形态 `workunit:execution_step` 供 GET /events 回放 |
+| （agent-loop 直发） | workunit.execution.stream | WU 步内流式 chunk（Layer B，2026-07-30）：step 执行中 CLI stdout 按行提炼 thinking/text/tool/result 直发，**SSE-only 不落盘**（行级体量防膨胀；步级归档走 execution.step）；同前缀落 workunits topic |
 | session-summary-generator.ts | generateSessionSummary() | session:end → session:summary 聚合 |
 | session-summary-generator.ts | classifyPattern() (内部) | 根据文件/工具序列分类模式 |
 

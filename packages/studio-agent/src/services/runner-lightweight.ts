@@ -142,6 +142,8 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         timeoutMs: task.timeoutMs ?? 30 * 60_000,
         maxBuffer: 10 * 1024 * 1024,
         childRef,
+        // Layer B: 步内行级透传（agent-loop → SSE 实时过程；undefined 时零开销）
+        onLine: task.onStreamLine,
       });
 
       fsSync.writeFileSync(logFile, stdout, 'utf-8');

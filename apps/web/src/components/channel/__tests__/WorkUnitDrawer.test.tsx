@@ -2,13 +2,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
-const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockGetChain, mockGetOverhead } = vi.hoisted(() => ({
+const { mockWuGet, mockListTokenEvents, mockListExecSteps, mockReviewPassed, mockGetChain, mockGetOverhead, mockStreamChunks } = vi.hoisted(() => ({
   mockWuGet: vi.fn(),
   mockListTokenEvents: vi.fn(),
   mockListExecSteps: vi.fn(),
   mockReviewPassed: vi.fn(),
   mockGetChain: vi.fn(),
   mockGetOverhead: vi.fn(),
+  mockStreamChunks: vi.fn(),
 }));
 
 vi.mock('../../../api/workunit', async () => {
@@ -35,6 +36,11 @@ vi.mock('../../../api/monitoring', () => ({
 // WU 事件 hook（SSE）— 测试无 WebSocketProvider，置空
 vi.mock('../../../hooks/useWorkUnitEvents', () => ({
   useWorkUnitEvents: () => {},
+}));
+
+// Layer B 步内流式 hook — 由用例控制返回的实时 chunk
+vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
+  useWorkUnitStreamEvents: () => mockStreamChunks(),
 }));
 
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
@@ -113,6 +119,7 @@ describe('WorkUnitDrawer', () => {
     mockReviewPassed.mockResolvedValue({ data: { ...WU, status: 'done' } });
     mockGetOverhead.mockResolvedValue({ data: OVERHEAD });
     mockGetChain.mockResolvedValue({ data: { data: CHAIN } });
+    mockStreamChunks.mockReturnValue([]);
   });
 
   it('renders nothing when drawer is null', () => {
@@ -250,5 +257,44 @@ describe('WorkUnitDrawer', () => {
     await waitFor(() => expect(screen.getByText('通过（审查闸门）')).toBeTruthy());
     fireEvent.click(screen.getByText('通过（审查闸门）'));
     await waitFor(() => expect(mockReviewPassed).toHaveBeenCalledWith('WU-1017'));
+  });
+
+  it('Layer B 实时区块：渲染执行中 chunk（思考/工具/result），step-start 不渲染', async () => {
+    mockStreamChunks.mockReturnValue([
+      { workUnitId: 'WU-1017', executionId: 'e1', step: 8, kind: 'step-start', at: 't0' },
+      { workUnitId: 'WU-1017', executionId: 'e1', step: 8, kind: 'thinking', text: '先看现有实现', at: 't1' },
+      { workUnitId: 'WU-1017', executionId: 'e1', step: 8, kind: 'tool', tool: 'Read', summary: '/a/workunit.service.ts', at: 't2' },
+      { workUnitId: 'WU-1017', executionId: 'e1', step: 8, kind: 'result', text: '', at: 't3' },
+    ]);
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getByText('第 8 步进行中')).toBeTruthy());
+    expect(screen.getByText('实时')).toBeTruthy();
+    expect(screen.getByText('思考：先看现有实现')).toBeTruthy();
+    expect(screen.getByText(/Read\s+\/a\/workunit\.service\.ts/)).toBeTruthy();
+    expect(screen.getByText(/✓ 回合结束/)).toBeTruthy();
+    // 实时区存在时不显示「暂无执行过程记录」空态
+    expect(screen.queryByText(/暂无执行过程记录/)).toBeNull();
+  });
+
+  it('实时区块让位：REST 步级卡片覆盖同 step 后该 step 的实时 chunk 不再展示', async () => {
+    mockStreamChunks.mockReturnValue([
+      { workUnitId: 'WU-1017', executionId: 'e1', step: 1, kind: 'thinking', text: '已归档的思考', at: 't1' },
+      { workUnitId: 'WU-1017', executionId: 'e2', step: 2, kind: 'thinking', text: '进行中的思考', at: 't2' },
+    ]);
+    mockListExecSteps.mockResolvedValue({
+      data: {
+        events: [
+          { payload: JSON.stringify({ workUnitId: 'WU-1017', executionId: 'e1', step: 1, action: 'progress', thinking: ['已归档的思考'], toolCalls: [], skills: [], at: '2026-07-19T09:35:00Z' }), createdAt: '2026-07-19T09:35:00Z' },
+        ],
+        total: 1,
+      },
+    });
+    renderDrawer({ kind: 'wu', id: 'WU-1017' });
+    await waitFor(() => expect(screen.getByText('#1 · progress')).toBeTruthy());
+    // step 1 已被 REST 卡片覆盖 → 实时区只剩 step 2
+    expect(screen.getByText('第 2 步进行中')).toBeTruthy();
+    const archived = screen.getAllByText('思考：已归档的思考');
+    expect(archived).toHaveLength(1); // 只有步级卡片里那一份（实时区不重复展示）
+    expect(screen.getByText('思考：进行中的思考')).toBeTruthy();
   });
 });

@@ -19,6 +19,12 @@ export interface ExecShOptions {
   childRef?: { current: ChildProcess | null };
   /** Content to pipe to child's stdin. When set, stdio uses 'pipe' for stdin. */
   stdin?: string;
+  /**
+   * 行级 stdout 回调（Layer B 步内流式）：每个完整行到达即回调（不等进程结束），
+   * 进程关闭时冲刷无换行结尾的尾部。回调异常被吞掉——绝不影响被观测进程。
+   * 与 stdout 聚合返回值并行存在，互不影响。
+   */
+  onLine?: (line: string) => void;
 }
 
 export interface SessionIdOptions {
@@ -59,9 +65,27 @@ export function execSh(
     let stdout = '';
     let stderr = '';
     let settled = false;
+    let lineBuf = '';
+
+    const emitLine = (line: string) => {
+      if (!opts.onLine) return;
+      try {
+        opts.onLine(line);
+      } catch { /* 观测回调异常绝不影响被观测进程 */ }
+    };
 
     child.stdout?.on('data', (data: Buffer) => {
-      stdout += data.toString();
+      const chunk = data.toString();
+      stdout += chunk;
+      if (opts.onLine) {
+        lineBuf += chunk;
+        let idx: number;
+        while ((idx = lineBuf.indexOf('\n')) >= 0) {
+          const line = lineBuf.slice(0, idx);
+          lineBuf = lineBuf.slice(idx + 1);
+          emitLine(line);
+        }
+      }
       if (opts.maxBuffer && stdout.length > opts.maxBuffer) {
         settled = true;
         child.kill();
@@ -110,6 +134,12 @@ export function execSh(
     child.on('close', (code, signal) => {
       clearTimeout(timeout);
       if (opts.childRef) opts.childRef.current = null;
+      // 冲刷无换行结尾的尾部行（超时/maxBuffer 等已 settle 路径同样冲刷——尾部对观测仍有价值）
+      if (opts.onLine && lineBuf.length > 0) {
+        const tail = lineBuf;
+        lineBuf = '';
+        emitLine(tail);
+      }
       if (settled) return;
       settled = true;
       if (code === 0) {

@@ -25,7 +25,7 @@ import { getWorkspaceRecord, resolveWorkspaceRoot } from '../workspaces/workspac
 import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
-import { emitExecutionStepEvent } from './execution-step-events.js';
+import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -679,9 +679,12 @@ export class AgentLoop {
 
     // AgentTask with new interface: provider, sessionId, maxTurns, knowledgeContext
     const taskProvider = (this.role.provider || 'claude') as AgentTask['provider'];
+    const executionId = `${wu.id}-${Date.now()}`;
+    // 本步步号（与 recordResult 的 stepCount+1 同口径）——Layer A 执行步事件与 Layer B 步内流式共用
+    const stepNo = (metadata.stepCount ?? 0) + 1;
     const task: AgentTask = {
       id: wu.id,
-      executionId: `${wu.id}-${Date.now()}`,
+      executionId,
       // F4: profile provider (registry id) → AgentTask. Cast via AgentTask['provider'] because
       // apps/api tsc resolves studio-agent types from its (possibly stale) dist/index.d.ts.
       provider: taskProvider,
@@ -708,9 +711,16 @@ export class AgentLoop {
         },
       },
       timeoutMs: 120_000,
+      // Layer B（WU 过程可视化）：步内 stream-json 行级透传 → SSE 实时过程。
+      // fire-and-forget；仅 LocalExecutor 同进程有效（RemoteExecutor 函数不可序列化，丢弃）。
+      onStreamLine: (line) => {
+        void emitExecutionStreamLine({ workUnitId: wu.id, executionId, step: stepNo, line }).catch(() => {});
+      },
     };
 
     try {
+      // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
+      void emitExecutionStreamStepStart({ workUnitId: wu.id, executionId, step: stepNo }).catch(() => {});
       // §9.6: 经 Executor 接口执行（P0 恒为 LocalExecutor → agentRunner.executeLightweight）
       const result: ExecutionResult = await this.executor.execute(task);
 
@@ -784,7 +794,7 @@ export class AgentLoop {
         workUnitId: wu.id,
         executionId: task.executionId,
         sessionId: resumeSessionId ?? newSessionId ?? undefined,
-        step: (metadata.stepCount ?? 0) + 1,
+        step: stepNo,
         action: stepResult.action,
         rawOutput: toolTraceSource,
         skills: skillMatched,

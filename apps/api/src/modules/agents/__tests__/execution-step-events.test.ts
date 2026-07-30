@@ -7,6 +7,8 @@
  *  - buildExecutionStepEvent：stream-json 全量解析（thinking/toolCalls/text/usage/skills）、
  *    空内容 → null（不产空信号）、截断纪律
  *  - emitExecutionStepEvent：落盘 studio-events（STUDIO_EVENTS_FILE 隔离）+ 永不抛出
+ *  - Layer B buildExecutionStreamChunks：单行 stream-json → thinking/text/tool/result chunk、
+ *    降噪（system/user 跳过）、条数/长度上限；emit*Stream*：SSE-only 不落盘 + 永不抛出
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
@@ -18,6 +20,9 @@ import {
   buildExecutionStepEvent,
   emitExecutionStepEvent,
   EXECUTION_STEP_EVENT_TYPE,
+  buildExecutionStreamChunks,
+  emitExecutionStreamLine,
+  emitExecutionStreamStepStart,
 } from '../execution-step-events.js';
 
 /** 造一段 claude stream-json stdout（assistant 事件 + result 事件） */
@@ -177,6 +182,87 @@ describe('emitExecutionStepEvent', () => {
   it('null 内容 → false 且不落盘；异常输入不抛出', async () => {
     const ok = await emitExecutionStepEvent({ workUnitId: 'w', executionId: 'e', step: 1, rawOutput: '' });
     expect(ok).toBe(false);
+    expect(fs.existsSync(eventsFile)).toBe(false);
+  });
+});
+
+// ─── Layer B：步内流式 chunk ───
+
+describe('buildExecutionStreamChunks', () => {
+  const base = { workUnitId: 'wu-1', executionId: 'exec-1', step: 2 };
+
+  it('assistant 混合块 → thinking/text/tool 三类 chunk（顺序保持）', () => {
+    const chunks = buildExecutionStreamChunks({
+      ...base,
+      line: JSON.stringify(ASSISTANT([
+        { type: 'thinking', thinking: '  先查 events 路由  ' },
+        { type: 'text', text: '我来查一下' },
+        { type: 'tool_use', name: 'Grep', input: { pattern: 'workUnitId' } },
+      ])),
+    });
+    expect(chunks.map(c => c.kind)).toEqual(['thinking', 'text', 'tool']);
+    expect(chunks[0].text).toBe('先查 events 路由');
+    expect(chunks[1].text).toBe('我来查一下');
+    expect(chunks[2]).toMatchObject({ tool: 'Grep', summary: 'workUnitId' });
+    expect(chunks.every(c => c.workUnitId === 'wu-1' && c.step === 2)).toBe(true);
+  });
+
+  it('event.content 载体（无 message 包装）同样解析', () => {
+    const chunks = buildExecutionStreamChunks({
+      ...base,
+      line: JSON.stringify({ type: 'assistant', content: [{ type: 'text', text: 'hi' }] }),
+    });
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toMatchObject({ kind: 'text', text: 'hi' });
+  });
+
+  it('result 恒产一条（空文本也产——回合结束信号）；is_error 透传', () => {
+    const ok = buildExecutionStreamChunks({ ...base, line: JSON.stringify({ type: 'result', result: ' ACTION: COMPLETE ' }) });
+    expect(ok).toHaveLength(1);
+    expect(ok[0]).toMatchObject({ kind: 'result', text: 'ACTION: COMPLETE' });
+    expect(ok[0].isError).toBeUndefined();
+
+    const bad = buildExecutionStreamChunks({ ...base, line: JSON.stringify({ type: 'result', result: '', is_error: true }) });
+    expect(bad).toHaveLength(1);
+    expect(bad[0]).toMatchObject({ kind: 'result', isError: true });
+    expect(bad[0].text).toBeUndefined();
+  });
+
+  it('非 JSON 行 / system / user(tool_result) → []（降噪）', () => {
+    expect(buildExecutionStreamChunks({ ...base, line: 'not json' })).toEqual([]);
+    expect(buildExecutionStreamChunks({ ...base, line: JSON.stringify({ type: 'system', subtype: 'init' }) })).toEqual([]);
+    expect(buildExecutionStreamChunks({ ...base, line: JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x' }] } }) })).toEqual([]);
+  });
+
+  it('单行超 10 块截断到 10（容量纪律）', () => {
+    const blocks = Array.from({ length: 15 }, (_, i) => ({ type: 'text', text: `t${i}` }));
+    const chunks = buildExecutionStreamChunks({ ...base, line: JSON.stringify(ASSISTANT(blocks)) });
+    expect(chunks).toHaveLength(10);
+    expect(chunks[9].text).toBe('t9');
+  });
+
+  it('超长文本截断到 500 字符', () => {
+    const chunks = buildExecutionStreamChunks({
+      ...base,
+      line: JSON.stringify(ASSISTANT([{ type: 'thinking', thinking: 'x'.repeat(800) }])),
+    });
+    expect(chunks[0].text!.length).toBe(501); // 500 + …
+  });
+});
+
+describe('emitExecutionStreamLine / emitExecutionStreamStepStart', () => {
+  it('SSE-only：不落盘 studio-events，且不抛出', async () => {
+    await emitExecutionStreamLine({
+      workUnitId: 'wu-1', executionId: 'exec-1', step: 1,
+      line: JSON.stringify(ASSISTANT([{ type: 'text', text: 'hi' }])),
+    });
+    await emitExecutionStreamStepStart({ workUnitId: 'wu-1', executionId: 'exec-1', step: 1 });
+    // 不落盘——事件文件不应被创建（Layer A 才落盘）
+    expect(fs.existsSync(eventsFile)).toBe(false);
+  });
+
+  it('非 JSON 行静默跳过；异常输入不抛出', async () => {
+    await expect(emitExecutionStreamLine({ workUnitId: 'w', executionId: 'e', step: 1, line: 'garbage' })).resolves.toBeUndefined();
     expect(fs.existsSync(eventsFile)).toBe(false);
   });
 });
