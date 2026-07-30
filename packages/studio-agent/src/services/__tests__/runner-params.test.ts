@@ -167,6 +167,21 @@ describe('buildSessionEnv', () => {
     expect(env.STUDIO_WORKUNIT_ID).toBeUndefined();
     expect(env.FOO).toBeUndefined();
   });
+
+  // 2026-07-30 走查实锤：root + cwd settings bypassPermissions 下，claude --resume
+  // 自注入 --dangerously-skip-permissions 被 root guard 秒拒（code 1）；IS_SANDBOX=1 放行。
+  test('IS_SANDBOX 默认注入 1（root 下 --resume 自愈），host 已设则尊重 host', () => {
+    const saved = process.env.IS_SANDBOX;
+    try {
+      delete process.env.IS_SANDBOX;
+      expect(buildSessionEnv({ task: makeTask(), role: 'executor', agentHome: '/home/x' }).IS_SANDBOX).toBe('1');
+      process.env.IS_SANDBOX = '0';
+      expect(buildSessionEnv({ task: makeTask(), role: 'executor', agentHome: '/home/x' }).IS_SANDBOX).toBe('0');
+    } finally {
+      if (saved === undefined) delete process.env.IS_SANDBOX;
+      else process.env.IS_SANDBOX = saved;
+    }
+  });
 });
 
 describe('resolveSddTaskData', () => {

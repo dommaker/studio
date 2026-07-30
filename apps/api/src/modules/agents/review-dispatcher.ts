@@ -41,8 +41,10 @@ export class ReviewDispatcher {
     eventBus.subscribe('workunit.status_changed', async (payload: { workunit: WorkUnitData }) => {
       const wu = payload.workunit;
       // 路径 A：父 WU 进入 in_review -> 尝试创建 review 子 WU
-      // （跳过 type='review' 的 WU：review 子 WU 不需要再被 review）
-      if (wu.status === 'in_review' && wu.type !== 'review') {
+      // （跳过 type='review'：review 子 WU 不需要再被 review；
+      //   跳过 type='analysis'：分析结论的评审 = 人工确认（F6 l3），diff-only 契约
+      //   对非代码产物恒 needs-info 转人工纯噪声；接力提示与派工见 pmo/analysis-handoff.ts）
+      if (wu.status === 'in_review' && wu.type !== 'review' && wu.type !== 'analysis') {
         await this.handleParentInReview(wu).catch(err =>
           logger.warn('[ReviewDispatcher] handleParentInReview failed', { wuId: wu.id, error: String(err) }),
         );
@@ -147,6 +149,22 @@ export class ReviewDispatcher {
       // R3: 评审输入契约落档（审计用——台账可追溯本评审的输入形态）
       reviewInput: { mode: 'diff-only', skill: 'code-review' },
     };
+
+    // 会话/执行簿记绝不继承到子 WU（2026-07-30 走查实锤）：继承 sessionId 会让子 WU
+    // 误续用父 WU 的 CLI 会话 —— agent-loop 续用守卫是 metadata.sessionId === instance.sessionId，
+    // 共享 ~/.studio 多实例下可错位命中；且 root + bypassPermissions settings 下
+    // claude --resume 自注入 --dangerously-skip-permissions 被 root guard 秒拒（code 1）。
+    // 跨 WU 续用本就违反"同一 WU 内才续用"约定（异 cwd 会话不存在）。
+    delete childMeta.sessionId;
+    delete childMeta.startedAt;
+    delete childMeta.sessionResumes;
+    delete childMeta.stepCount;
+    delete childMeta.consecutiveStuck;
+    delete childMeta.errorType;
+    delete childMeta.errorDetail;
+    delete childMeta.errorAt;
+    delete childMeta._cumulativeTokens;
+    delete childMeta.lastInputTokens;
 
     // R3 评审输入契约（2026-07-28 分析文档 §4-R3）：diff-only + code-review skill。
     // 独立性保障：只给代码差异，不给实现叙述当判断依据（父 scope 仅作背景定位）；

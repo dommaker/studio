@@ -18,6 +18,7 @@
 | event.routes.ts | POST /api/v1/events/agent-events | 批量写入 AgentEvent[] |
 | sse.routes.ts | GET /api/v1/events/stream | SSE 实时事件流 |
 | sse.routes.ts | GET /api/v1/events/clients | SSE 客户端列表 (debug) |
+| workunit-events-bridge.ts | initWorkunitEventsBridge() | eventBus 的 workunit.created/status_changed → 'events' 频道（前端 WU 列表/抽屉实时刷新）；index.ts 启动时调用，幂等 |
 | session-summary-generator.ts | generateSessionSummary() | session:end → session:summary 聚合 |
 | session-summary-generator.ts | classifyPattern() (内部) | 根据文件/工具序列分类模式 |
 
@@ -29,18 +30,20 @@
 
 ## 测试
 
-两个测试文件，41 个用例：
+三个测试文件，42+ 个用例：
 
 | 文件 | 用例数 | 覆盖内容 |
 |------|--------|---------|
 | `__tests__/event.routes.test.ts` | 24 | POST/GET/agent-events: 创建/查询/验证/空 payload 拒收（D18）/错误路径 |
 | `__tests__/session-summary-generator.test.ts` | 17 | classifyPattern 13种模式 + generateSessionSummary 边界情况 |
+| `__tests__/workunit-events-bridge.test.ts` | 1 | workunit.* 事件转发 'events' 频道（信封形状） |
 
 ## 注意事项
 
 - StudioEvent 用 jsonl 文件存储（D18 起统一经 `../../utils/studio-events.js` 的 writeStudioEvent 写入；空 payload 拒绝落盘）
 - POST /api/v1/events 的 payload 为空（{} / null / 缺失 / '{}'）→ 400（D18：空事件不产信号只产噪音，调用方自查）
 - SSE 使用 EventBus pub/sub (B0-002)，不依赖数据库
+- **SSE 帧格式（2026-07-29 修复）**：只写 `id:` + `data:` 匿名事件（不写 `event:` 命名行——EventSource.onmessage 只收匿名事件），且 data 是完整信封 `{event_type, event_id, timestamp, data}`（此前只发内层 payload，客户端按 event_type 分发恒失败，全站 SSE 实际不通）。topic 映射：execution./runtime.→executions、node.→nodes、task.→tasks、goal.→goals、knowledge.→knowledge、workunit.→workunits、channel.→channels、其余→all（客户端默认订阅 all 全收）
 - session:summary 在 session:end 时触发，fire-and-forget
 - patternType 分类规则：纯 deterministic，不调 LLM
 - **鉴权（2026-07-24 收紧）**：event.routes 的 POST /、/agent-events 已收 requireAuth+requireNotGuest；GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。

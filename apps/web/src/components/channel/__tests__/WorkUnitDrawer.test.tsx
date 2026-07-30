@@ -25,6 +25,11 @@ vi.mock('../../../api/monitoring', () => ({
   monitoringApi: { getOverhead: mockGetOverhead },
 }));
 
+// WU 事件 hook（SSE）— 测试无 WebSocketProvider，置空
+vi.mock('../../../hooks/useWorkUnitEvents', () => ({
+  useWorkUnitEvents: () => {},
+}));
+
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
 
 const WU = {

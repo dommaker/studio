@@ -12,7 +12,7 @@ import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
 import { RemoteExecutor, RemoteNodeUnreachableError } from './remote-executor.js';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
+import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
 import { checkDelegation, effectiveParentCollab, resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT, type CollabMeta } from '../workunit/delegation-gate.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../triggers/trigger-registry.js';
@@ -20,6 +20,7 @@ import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
 import { eventStore } from '../../core/event-store.js';
+import { ChannelMessageService } from '../channels/channel-message.service.js';
 import { getWorkspaceRecord, resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
@@ -48,6 +49,8 @@ const metricsFileStore = new FileStore();
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
+/** 单活实例守卫：心跳/启动时间新鲜度阈值（idle 心跳 45s 一跳，留近 3 跳余量） */
+const LIVE_HOLDER_THRESHOLD_MS = 120_000;
 
 /** F4（reviewer 解锚，决策 5）：安全解析 WU metadata.excludeAssignee ——
  *  评审 WU 禁止认领的 profile id；缺失/损坏/非字符串一律 null（不排除） */
@@ -178,6 +181,25 @@ export class AgentLoop {
       if (stalePrev) {
         logger.info(`[AgentLoop] Cleaning up stale instance ${stalePrev.id} (PID ${stalePrev.pid})`);
         await this.fileStore.updateState(stalePrev.id, { status: 'terminated' }).catch(() => {});
+      }
+
+      // 同角色单活实例守卫（2026-07-30 走查修复）：另一进程持有的活实例存在时 standby。
+      // 判活 = 异 pid 进程存活 且 心跳新鲜（lastHeartbeat/startedAt 在阈值内）。
+      // 防 dev/prod 双实例共享同一 ~/.studio 时同 profile 被重复挂载（认领竞争、频道重复
+      // 回复、会话续用错位命中）。持有者死亡/心跳停摆后，下次挂载（重启或 profile 生命周期
+      // 事件）自动接管。stale 清理只管死 pid，管不了两个活进程——本守卫补这一层。
+      const liveHolder = allStates.find(s => {
+        if (s.roleId !== this.role.id) return false;
+        if (s.status === 'error' || s.status === 'terminated') return false;
+        if (!s.pid || s.pid === process.pid || !isProcessAlive(s.pid)) return false;
+        const beat = s.lastHeartbeat ?? s.startedAt;
+        return !!beat && (Date.now() - new Date(beat).getTime()) < LIVE_HOLDER_THRESHOLD_MS;
+      });
+      if (liveHolder) {
+        const message = `role 已有活实例 ${liveHolder.id}（pid ${liveHolder.pid}，心跳新鲜）持有，本实例 standby —— 持有者退出后重启本实例即可接管`;
+        logger.warn(`[AgentLoop] ${this.role.name}: ${message}`);
+        await this.recordStartupFailure(message);
+        return false;
       }
 
       const now = new Date().toISOString();
@@ -790,6 +812,17 @@ export class AgentLoop {
           metadataUpdates.reviewReport = report;
         } else {
           logger.warn(`[AgentLoop] Review WU ${wu.id} completed without parseable REVIEW_RESULT — 由 ReviewDispatcher 转人工`);
+        }
+      }
+
+      // PMO 分析接力（analysis-handoff）：analysis WU COMPLETE 时解析 TASK: 拆分行
+      // 写入 metadata.analysisTasks —— 人工确认（reviewPassed → done）后由
+      // analysis-handoff 据此建未指派 task 子 WU（频道成员涌现认领 = 派工）。
+      // 解析失败/无 TASK 行不写（确认后仅提示可手动拆，不阻断完成）。
+      if (wu.type === 'analysis' && stepResult.action === 'complete') {
+        const tasks = parseTaskBreakdown(result.outputText ?? '');
+        if (tasks.length > 0) {
+          metadataUpdates.analysisTasks = tasks;
         }
       }
 
@@ -1457,26 +1490,18 @@ ${rosterLines.join('\n')}
       .map(s => s.id);
   }
 
-  /** Post message directly to discussion space (no EventBus) */
+  /** Post message to discussion space（经 ChannelMessageService：eventBus + SSE，频道页实时可见） */
   private async postToDiscussionSpace(workUnitId: string, content: string): Promise<void> {
+    if (!content.trim()) return;
     const wu = await this.workUnitService.getById(workUnitId);
     if (!wu?.channelId) return;
 
     const anchor = await findAnchorMessage(workUnitId, this.fileStore);
-
-    const now = new Date().toISOString();
-    const msg: ChannelMessageData = {
-      id: randomUUID(),
-      channelId: wu.channelId,
-      authorType: 'agent',
-      agentName: this.role.name,
-      content,
-      replyToId: anchor?.id ?? null,
-      meta: '{}',
+    // 绑定本 loop 的 fileStore（测试注入临时 store；生产与全局同目录），事件形状与全局 service 一致
+    await new ChannelMessageService(this.fileStore).createAgentMessage(wu.channelId, this.role.name, content, {
+      replyToId: anchor?.id,
       workUnitId,
-      createdAt: now,
-    };
-    await this.fileStore.appendMessage(wu.channelId, msg);
+    });
   }
 
 }
@@ -1652,6 +1677,29 @@ function normalizeReviewIssues(raw: unknown): Array<{ severity: string; message:
     }))
     .filter(i => i.message.length > 0);
   return issues.length > 0 ? issues : undefined;
+}
+
+/** analysis 任务拆分上限（防模型刷行刷屏；常量定义在 workunit.service，此处复用） */
+const ANALYSIS_TASK_MAX_CHARS = 300;
+
+/**
+ * PMO 分析接力：解析 analysis WU 输出中的 TASK: 拆分行（约定见 publish 的 scope 契约）。
+ * 每行一条 `TASK: <任务描述>`；去空白/去重/封顶 8 条/单条截 300 字符；
+ * 无 TASK 行返回 []（调用方据此不写 analysisTasks，不阻断 COMPLETE）。
+ */
+export function parseTaskBreakdown(text: string): string[] {
+  const tasks: string[] = [];
+  const seen = new Set<string>();
+  for (const line of text.split('\n')) {
+    const match = line.match(/^\s*TASK:\s*(\S.*)$/);
+    if (!match) continue;
+    const task = match[1].trim().slice(0, ANALYSIS_TASK_MAX_CHARS);
+    if (!task || seen.has(task)) continue;
+    seen.add(task);
+    tasks.push(task);
+    if (tasks.length >= ANALYSIS_TASKS_MAX) break;
+  }
+  return tasks;
 }
 
 function sleep(ms: number): Promise<void> {

@@ -35,18 +35,23 @@ describe('AC-D1: Project Discovery Service', () => {
     await mkdir(notProject);
     await writeFile(join(notProject, 'readme.txt'), 'just a file');
 
-    // monorepo/parent-project: has CLAUDE.md + sub-project (monorepo)
+    // monorepo/parent-project: has CLAUDE.md + sub-projects inside (pruned: project = leaf)
     const monorepo = join(tempRoot, 'monorepo');
     await mkdir(monorepo);
     await writeFile(join(monorepo, 'CLAUDE.md'), '# Monorepo');
-    // Sub-project (one level deep — should be detected)
+    // Sub-project (one level deep — NOT detected: recursion stops at monorepo)
     const subProject = join(monorepo, 'packages', 'sub-pkg');
     await mkdir(subProject, { recursive: true });
     await writeFile(join(subProject, 'package.json'), JSON.stringify({ name: 'sub-pkg' }));
-    // Deep nested (two levels deep — should NOT be detected)
+    // Deep nested (also NOT detected: pruned at monorepo)
     const deepProject = join(monorepo, 'packages', 'deep', 'nested');
     await mkdir(deepProject, { recursive: true });
     await writeFile(join(deepProject, 'package.json'), JSON.stringify({ name: 'deep' }));
+
+    // group-dir: no markers — intermediate dirs are still traversed to find nested projects
+    const groupInner = join(tempRoot, 'group-dir', 'inner-proj');
+    await mkdir(groupInner, { recursive: true });
+    await writeFile(join(groupInner, 'package.json'), JSON.stringify({ name: 'inner-proj' }));
 
     service = new ProjectDiscoveryService({ roots: [tempRoot] });
   });
@@ -89,18 +94,27 @@ describe('AC-D1: Project Discovery Service', () => {
     expect(withoutMd!.hasClaudeMd).toBe(false);
   });
 
-  it('monorepo: detects top-level + one-level sub-directory', async () => {
+  it('monorepo: 工程即叶子 — 命中顶层后不再递归内部子包', async () => {
     const projects = await service.discover();
     const parent = projects.find(p => p.name === 'monorepo');
     const sub = projects.find(p => p.name === 'sub-pkg');
     expect(parent).toBeDefined();
-    expect(sub).toBeDefined();
+    expect(sub).toBeUndefined();
   });
 
   it('monorepo: does not detect deeply nested projects (2+ levels)', async () => {
     const projects = await service.discover();
     const deep = projects.find(p => p.name === 'nested');
     expect(deep).toBeUndefined();
+  });
+
+  it('非工程中间目录仍会下钻，嵌套工程可被发现', async () => {
+    const projects = await service.discover();
+    const group = projects.find(p => p.name === 'group-dir');
+    const inner = projects.find(p => p.name === 'inner-proj');
+    expect(group).toBeUndefined();
+    expect(inner).toBeDefined();
+    expect(inner!.path).toBe(join(tempRoot, 'group-dir', 'inner-proj'));
   });
 
   it('returns empty array when root does not exist', async () => {
@@ -151,10 +165,10 @@ describe('D6: STUDIO_PROJECTS_EXCLUDE 排除清单', () => {
       await mkdir(dir);
       await writeFile(join(dir, 'CLAUDE.md'), `# ${name}`);
     }
-    // mono（CLAUDE.md）+ mono/packages/inner（package.json）：验证目录名规则对嵌套生效
-    await mkdir(join(tempRoot, 'mono', 'packages', 'inner'), { recursive: true });
-    await writeFile(join(tempRoot, 'mono', 'CLAUDE.md'), '# mono');
-    await writeFile(join(tempRoot, 'mono', 'packages', 'inner', 'package.json'), JSON.stringify({ name: 'inner' }));
+    // nest（无标记分组目录）+ nest/packages/inner（package.json）：验证目录名规则对嵌套生效
+    // （注意：若父级带工程标记，按"工程即叶子"规则根本不会下钻，排除规则无从体现）
+    await mkdir(join(tempRoot, 'nest', 'packages', 'inner'), { recursive: true });
+    await writeFile(join(tempRoot, 'nest', 'packages', 'inner', 'package.json'), JSON.stringify({ name: 'inner' }));
   });
 
   afterAll(async () => {
@@ -218,7 +232,7 @@ describe('D6: STUDIO_PROJECTS_EXCLUDE 排除清单', () => {
     });
 
     const names = await discoverNames(service);
-    expect(names).toContain('mono');   // 父级工程保留
+    expect(names).toContain('keep-a');    // 其它工程不受影响
     expect(names).not.toContain('inner'); // packages/ 被排除 → 内部工程不发现
   });
 
@@ -226,7 +240,7 @@ describe('D6: STUDIO_PROJECTS_EXCLUDE 排除清单', () => {
     const service = new ProjectDiscoveryService({ roots: [tempRoot] });
 
     const names = await discoverNames(service);
-    for (const name of ['keep-a', 'skip-b', 'skip-path', 'prefix', 'prefix2', 'mono', 'inner']) {
+    for (const name of ['keep-a', 'skip-b', 'skip-path', 'prefix', 'prefix2', 'inner']) {
       expect(names).toContain(name);
     }
   });

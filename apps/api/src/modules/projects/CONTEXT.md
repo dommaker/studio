@@ -22,12 +22,14 @@ Project Discovery（AC-D1 + AC-D3）：发现已注册的工程（repo）信息�
 ## 注意事项
 
 - 只读发现层，不负责工程注册（注册在 workspaces 模块）
+- **工程即叶子（2026-07-29）**：命中标记（CLAUDE.md / package.json / .git）的目录不再递归内部 —— monorepo 只列根目录，子包不重复出现；非工程中间目录（分组目录、无标记 packages/）仍继续下钻
 - **D6 排除清单（第一层，2026-07-27）**：env `STUDIO_PROJECTS_EXCLUDE`（冒号分隔）或构造参数 `exclude` —— 规则命中目录名（精确）或绝对路径（目录边界前缀，不误伤同名前缀目录）即跳过且不递归
-- **鉴权（2026-07-24 收紧）**：/api/v1/projects 挂载层已收 requireAuth+requireAdmin（GET /discover 会扫描服务器目录、回显绝对路径）。
+- **鉴权（2026-07-29 放宽）**：/api/v1/projects 挂载层为 requireAuth（登录即可；PMO 新建表单的工程下拉依赖 GET /discover）。曾收 requireAuth+requireAdmin（2026-07-24，顾虑：扫描服务器目录、回显绝对路径），但非 admin 部署下 PMO 新建不可用，故放宽。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
 - ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
+- ✅ 2026-07-29: 工程即叶子（命中标记即剪枝，monorepo 子包不再重复列出）；/api/v1/projects 挂载 admin→auth
 - ✅ 2026-07-27: D6 排除清单第一层 — STUDIO_PROJECTS_EXCLUDE / options.exclude（目录名 / 绝对路径边界前缀），命中即跳过不递归
 - ✅ 2026-07-24: 挂载收 requireAuth+requireAdmin

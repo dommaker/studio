@@ -36,6 +36,8 @@ function getTopicFromEventType(eventType: string): string {
   if (eventType.startsWith('goal.')) return 'goals';
   if (eventType.startsWith('runtime.')) return 'executions';
   if (eventType.startsWith('knowledge.')) return 'knowledge';
+  if (eventType.startsWith('workunit.')) return 'workunits';
+  if (eventType.startsWith('channel.')) return 'channels';
   return 'all';
 }
 
@@ -49,7 +51,8 @@ function ensureEventSubscription() {
       const topic = getTopicFromEventType(event.event_type);
       for (const client of clients.values()) {
         if (client.topics.has('all') || client.topics.has(topic)) {
-          sendSSE(client, event.event_type, event.data, event.event_id);
+          // 转发完整信封（event_type/event_id/timestamp/data）——客户端按 event_type 分发
+          sendSSE(client, event.event_type, event, event.event_id);
         }
       }
     } catch (error) {
@@ -63,7 +66,8 @@ function sendSSE(client: SSEClient, eventType: string, data: any, eventId?: stri
   try {
     const id = eventId || uuidv4();
     client.res.write(`id: ${id}\n`);
-    client.res.write(`event: ${eventType}\n`);
+    // 不写 `event:` 行（匿名事件）：EventSource.onmessage 只接收匿名事件，
+    // 命名事件必须按类型逐个 addEventListener —— 前端统一从 data.event_type 分发。
     client.res.write(`data: ${JSON.stringify(data)}\n\n`);
     client.lastEventId = id;
   } catch {

@@ -443,7 +443,18 @@ export const projectService = {
     const workUnitService = new WorkUnitService();
     const workUnit = await workUnitService.create({
       type: 'analysis',
-      scope: `分析需求 ${project.pmoNumber}: ${project.title}\n\n${project.requirement || ''}`,
+      scope: `分析需求 ${project.pmoNumber}: ${project.title}
+
+${project.requirement || ''}
+
+## 工作方式约束（只读分析，重要）
+你是分析角色，只读不改：禁止创建/修改/删除任何文件（不使用 Edit/Write/NotebookEdit），禁止执行会改变工作区状态的命令（git commit/checkout/clean、包管理器 install、写临时脚本等）。只用 Read/Grep/Glob 和只读 Bash（git log/diff/status、ls、cat、grep 等）。分析结论直接以 markdown 输出在回复里，不落盘。
+
+## 输出约定（分析接力）
+
+分析完成后，除 ACTION 行外，逐行输出拆分后的实现任务（每条一行，3~8 条，每条可被独立认领、独立完成）：
+TASK: <任务描述>
+需求很小无需拆分时可不输出 TASK 行。结论由人工确认后，系统按 TASK 行自动建任务并派工。`,
       channelId: input.channelId,
       metadata: { pmoId: project.id, pmoNumber: project.pmoNumber },
     });

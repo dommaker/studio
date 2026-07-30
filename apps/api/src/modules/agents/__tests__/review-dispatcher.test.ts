@@ -165,6 +165,51 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     expect(meta.reviewInput).toEqual({ mode: 'diff-only', skill: 'code-review' });
   });
 
+  it('2026-07-30: 子 WU 不继承父 WU 的会话/执行簿记（防跨 WU 会话续用），域血缘保留', async () => {
+    const parent = await wuService.create({
+      scope: '实现功能 S',
+      type: 'feature',
+      channelId: 'ch-test',
+      assigneeId: executorProfile.id,
+      status: 'active',
+      metadata: {
+        pmoId: 'proj-1',
+        pmoNumber: 'PM-001',
+        sessionId: 'sess-parent-123',
+        startedAt: '2026-07-29T00:00:00Z',
+        sessionResumes: 2,
+        stepCount: 3,
+        consecutiveStuck: 1,
+        _cumulativeTokens: 999,
+        lastInputTokens: 123,
+        errorType: 'execution_failed',
+        errorDetail: 'x',
+        errorAt: '2026-07-29T01:00:00Z',
+      },
+    });
+    await wuService.transitionStatus(parent.id, 'in_review');
+    await new Promise(r => setTimeout(r, 100));
+
+    const snapshots = await fileStore.getIndex();
+    const child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
+    expect(child).toBeDefined();
+    const meta = metaOf(child!.metadata);
+    // 会话/执行簿记一律不继承
+    expect(meta.sessionId).toBeUndefined();
+    expect(meta.startedAt).toBeUndefined();
+    expect(meta.sessionResumes).toBeUndefined();
+    expect(meta.stepCount).toBeUndefined();
+    expect(meta.consecutiveStuck).toBeUndefined();
+    expect(meta._cumulativeTokens).toBeUndefined();
+    expect(meta.lastInputTokens).toBeUndefined();
+    expect(meta.errorType).toBeUndefined();
+    expect(meta.errorDetail).toBeUndefined();
+    expect(meta.errorAt).toBeUndefined();
+    // 域血缘字段保留
+    expect(meta.pmoId).toBe('proj-1');
+    expect(meta.pmoNumber).toBe('PM-001');
+  });
+
   it('AC-4.3: 已有未完结 review 子 WU -> 跳过（同父唯一性）', async () => {
     const parent = await wuService.create({
       scope: '实现功能 C',
@@ -287,5 +332,21 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
     const sysMsg = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('转人工'));
     expect(sysMsg).toBeDefined();
+  });
+
+  it('PMO 分析接力：analysis WU in_review -> 不派 review 子 WU（人工确认，analysis-handoff 接管）', async () => {
+    const analysis = await wuService.create({
+      scope: '分析需求 PMO-1: 测试',
+      type: 'analysis',
+      channelId: 'ch-test',
+      assigneeId: executorProfile.id,
+      status: 'active',
+    });
+    await wuService.transitionStatus(analysis.id, 'in_review');
+    await new Promise(r => setTimeout(r, 100));
+
+    const snapshots = await fileStore.getIndex();
+    const reviewChild = snapshots.find(s => s.parentId === analysis.id && s.type === 'review');
+    expect(reviewChild).toBeUndefined();
   });
 });

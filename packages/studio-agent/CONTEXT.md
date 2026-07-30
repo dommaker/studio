@@ -65,6 +65,10 @@ worktree/
 - Session 1: 全量 prompt（约束注入 + TDD 指令 + 读 REQUIREMENTS.md）
 - Session 2+: 极短续接（"读 REQUIREMENTS.md + .progress.json，继续从 {currentStep}"）
 
+### Spawn env 约定（2026-07-30）
+
+`buildSessionEnv`（runner-params.ts）在 `process.env` 基础上补 `IS_SANDBOX=1`（host 已设则尊重 host）：cwd 的 `.claude/settings.json` 声明 `bypassPermissions` 时，claude `--resume` 续用会话会自注入 `--dangerously-skip-permissions`，而 root guard（`getuid()===0 && IS_SANDBOX!=="1"`）直接 exit 1 —— root 机器上同 WU 第 2+ step 曾全部秒败（2026-07-29 review WU 三连败实锤 + 最小复现验证）。IS_SANDBOX=1 是 CLI 预留的沙箱声明，不放宽任何权限（settings 本就声明 bypassPermissions）。
+
 ## 依赖
 
 | 依赖 | 说明 |

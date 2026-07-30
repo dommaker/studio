@@ -52,6 +52,41 @@ function groupIntoThreads(messages: ChannelMessage[]): Array<ChannelMessage | Th
   return result;
 }
 
+/** 线程回复渲染项：单条消息，或被折叠的连续过程消息组 */
+type ReplyItem =
+  | { kind: 'msg'; msg: ChannelMessage }
+  | { kind: 'group'; key: string; messages: ChannelMessage[] };
+
+/**
+ * 线程内过程消息折叠/聚合：连续 ≥3 条「过程消息」收成一组（默认折叠，点击展开）。
+ * 里程碑消息不折叠：人类消息、卡片消息、等待回复（NEED_INPUT）、最后一条回复（最新状态）。
+ */
+function collapseProcessReplies(
+  replies: ChannelMessage[],
+  isMilestone: (m: ChannelMessage, isLast: boolean) => boolean,
+): ReplyItem[] {
+  const items: ReplyItem[] = [];
+  let run: ChannelMessage[] = [];
+  const flush = () => {
+    if (run.length >= 3) {
+      items.push({ kind: 'group', key: `proc-${run[0].id}`, messages: run });
+    } else {
+      for (const m of run) items.push({ kind: 'msg', msg: m });
+    }
+    run = [];
+  };
+  replies.forEach((m, i) => {
+    if (isMilestone(m, i === replies.length - 1)) {
+      flush();
+      items.push({ kind: 'msg', msg: m });
+    } else {
+      run.push(m);
+    }
+  });
+  flush();
+  return items;
+}
+
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [channel, setChannel] = useState<any>(null);
@@ -198,6 +233,8 @@ export function ChannelDetailPage() {
 
   // AC-C3: Thread expand/collapse state
   const [expandedThreads, setExpandedThreads] = useState<Set<string>>(new Set());
+  // 线程内过程消息组的展开状态（默认折叠，key = proc-<首条消息 id>）
+  const [expandedProcGroups, setExpandedProcGroups] = useState<Set<string>>(new Set());
 
   const toggleThread = useCallback((anchorId: string) => {
     setExpandedThreads(prev => {
@@ -207,6 +244,26 @@ export function ChannelDetailPage() {
       return next;
     });
   }, []);
+
+  const toggleProcGroup = useCallback((key: string) => {
+    setExpandedProcGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  // 里程碑判定（不折叠）：人类消息 / 卡片消息 / 等待回复 / 最后一条回复
+  const isMilestoneReply = useCallback((m: ChannelMessage, isLast: boolean) => {
+    if (isLast || m.authorType === 'human' || isWaitingForInput(m)) return true;
+    try {
+      const meta = JSON.parse(typeof m.meta === 'string' ? m.meta : '{}');
+      return !!meta.cardType;
+    } catch {
+      return false;
+    }
+  }, [isWaitingForInput]);
 
   const openWu = useCallback((wuId: string) => setDrawer({ kind: 'wu', id: wuId }), []);
   const openReq = useCallback((reqId: string) => setDrawer({ kind: 'req', id: reqId }), []);
@@ -343,7 +400,22 @@ export function ChannelDetailPage() {
                           })}
                           {expanded && item.replies.length > 0 && (
                             <div className="mc-thread-replies">
-                              {item.replies.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
+                              {collapseProcessReplies(item.replies, isMilestoneReply).map(ri =>
+                                ri.kind === 'msg' ? (
+                                  renderMessageItem(ri.msg, { isThreadReply: true })
+                                ) : expandedProcGroups.has(ri.key) ? (
+                                  <div key={ri.key}>
+                                    <button onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
+                                      收起 {ri.messages.length} 条过程消息
+                                    </button>
+                                    {ri.messages.map(reply => renderMessageItem(reply, { isThreadReply: true }))}
+                                  </div>
+                                ) : (
+                                  <button key={ri.key} onClick={() => toggleProcGroup(ri.key)} className="mc-collapse-toggle">
+                                    ▸ {ri.messages.length} 条过程消息
+                                  </button>
+                                )
+                              )}
                             </div>
                           )}
                         </div>

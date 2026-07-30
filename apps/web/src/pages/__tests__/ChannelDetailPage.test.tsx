@@ -18,7 +18,7 @@ vi.mock('../../api', () => ({
 
 vi.mock('../../hooks/useChannelEvents', () => ({
   useChannelMessages: () => ({
-    messages: MESSAGES,
+    messages: currentMessages,
     loading: false,
     hasMore: false,
     sendMessage: mockSendMessage,
@@ -71,7 +71,7 @@ import { ChannelDetailPage } from '../ChannelDetailPage';
 const now = Date.now();
 const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString();
 
-const MESSAGES = [
+const MESSAGES: any[] = [
   // 活跃消息（NEED_INPUT 挂起，线程锚点）
   {
     id: 'm-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'librarian',
@@ -92,9 +92,31 @@ const MESSAGES = [
   })),
 ];
 
+// 过程消息折叠夹具：锚点 + 4 条连续过程回复 + 最后一条（里程碑：最新状态恒显示）
+const PROCESS_MESSAGES: any[] = [
+  {
+    id: 'p-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+    content: '需求已收到，开始分析', workUnitId: 'WU-2000', replyToId: null,
+    meta: '{}', createdAt: iso(0),
+  },
+  ...[2, 3, 4, 5].map(i => ({
+    id: `p-${i}`, channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+    content: `过程步骤 ${i}`, workUnitId: 'WU-2000', replyToId: 'p-1',
+    meta: '{}', createdAt: iso(i),
+  })),
+  {
+    id: 'p-6', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
+    content: '分析结论：拆成 3 个任务', workUnitId: 'WU-2000', replyToId: 'p-1',
+    meta: '{}', createdAt: iso(6),
+  },
+];
+
 const REQS = [
   { id: 'REQ-0042', seq: 42, title: '主界面视觉方向稿', status: 'in-progress', createdAt: iso(-100), createdBy: '张弛' },
 ];
+
+// useChannelEvents mock 的当前消息集（默认 MESSAGES，单测可替换为 PROCESS_MESSAGES 等夹具）
+let currentMessages: any[] = MESSAGES;
 
 const renderPage = () =>
   render(
@@ -108,6 +130,7 @@ const renderPage = () =>
 describe('ChannelDetailPage — Mission Control 三栏', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentMessages = MESSAGES;
     mockApiGet.mockResolvedValue({ data: { data: { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '[]' } } });
     mockListWorkunits.mockResolvedValue({
       data: { data: [{ id: 'WU-1018', metadata: JSON.stringify({ waitingForInput: true }) }] },
@@ -175,5 +198,25 @@ describe('ChannelDetailPage — Mission Control 三栏', () => {
     expect(screen.queryByText('补充：SDD-012 强相关')).toBeNull();
     fireEvent.click(screen.getByText('▸ 1 条回复'));
     expect(screen.getByText('补充：SDD-012 强相关')).toBeTruthy();
+  });
+
+  it('collapses ≥3 consecutive process replies inside a thread; milestones stay visible', async () => {
+    currentMessages = PROCESS_MESSAGES;
+    renderPage();
+    // 展开线程
+    await waitFor(() => expect(screen.getByText('需求已收到，开始分析')).toBeTruthy());
+    fireEvent.click(screen.getByText('▸ 5 条回复'));
+
+    // 4 条连续过程消息收成一组（默认折叠）；最后一条（最新状态）直接可见
+    expect(screen.getByText('分析结论：拆成 3 个任务')).toBeTruthy();
+    expect(screen.queryByText('过程步骤 3')).toBeNull();
+    const toggle = screen.getByText('▸ 4 条过程消息');
+    expect(toggle).toBeTruthy();
+
+    // 展开组 → 过程消息可见；再收起
+    fireEvent.click(toggle);
+    expect(screen.getByText('过程步骤 3')).toBeTruthy();
+    fireEvent.click(screen.getByText('收起 4 条过程消息'));
+    expect(screen.queryByText('过程步骤 3')).toBeNull();
   });
 });

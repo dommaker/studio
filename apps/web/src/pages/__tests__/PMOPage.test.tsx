@@ -3,10 +3,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockGet, mockPost, mockChannelList } = vi.hoisted(() => ({
+const { mockGet, mockPost, mockChannelList, mockListAllAgents } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
   mockChannelList: vi.fn(),
+  mockListAllAgents: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -22,6 +23,7 @@ vi.mock('../../api', () => ({
 vi.mock('../../api/channel', () => ({
   channelApi: {
     list: mockChannelList,
+    listAllAgents: mockListAllAgents,
   },
 }));
 
@@ -34,7 +36,7 @@ const mockProjects = [
 ];
 
 const mockChannels = [
-  { id: 'ch-1', name: '#general', type: 'rnd' },
+  { id: 'ch-1', name: '#general', type: 'rnd', members: '["agent-1"]' },
 ];
 
 describe('AC-6: PMO publish button', () => {
@@ -42,6 +44,10 @@ describe('AC-6: PMO publish button', () => {
     vi.clearAllMocks();
     mockGet.mockResolvedValue({ data: { data: [] } });
     mockChannelList.mockResolvedValue({ data: { data: mockChannels } });
+    mockListAllAgents.mockResolvedValue({ data: { data: [
+      { id: 'agent-1', name: 'dev', status: 'active', description: null, channels: '[]' },
+      { id: 'agent-2', name: 'pm', status: 'active', description: null, channels: '["ch-9"]' },
+    ] } });
 
     // Mock the loadData Promise.all — companies, okr, project
     mockGet.mockImplementation((url: string) => {
@@ -63,7 +69,7 @@ describe('AC-6: PMO publish button', () => {
     renderPMO();
 
     await waitFor(() => {
-      const buttons = screen.getAllByText('发布');
+      const buttons = screen.getAllByText('发起讨论');
       expect(buttons.length).toBeGreaterThan(0);
     });
   });
@@ -84,7 +90,7 @@ describe('AC-6: PMO publish button', () => {
       expect(screen.getByText('Active Project')).toBeTruthy();
     });
 
-    expect(screen.queryAllByText('发布')).toHaveLength(0);
+    expect(screen.queryAllByText('发起讨论')).toHaveLength(0);
   });
 
   it('disables button when no channels available', async () => {
@@ -93,9 +99,39 @@ describe('AC-6: PMO publish button', () => {
     renderPMO();
 
     await waitFor(() => {
-      const btn = screen.getAllByText('发布')[0].closest('button');
+      const btn = screen.getAllByText('发起讨论')[0].closest('button');
       expect(btn).toBeTruthy();
       expect(btn!.disabled).toBe(true);
     });
+  });
+
+  it('dialog shows responder agents resolved from channel members', async () => {
+    renderPMO();
+
+    await waitFor(() => expect(screen.getAllByText('发起讨论').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('发起讨论')[0]);
+
+    // members=["agent-1"] → 只显示 dev（pm 不在 members 里）
+    await waitFor(() => expect(screen.getByText(/会响应的 Agent（1）：dev/)).toBeTruthy());
+  });
+
+  it('dialog falls back to profile.channels when members empty; warns when nobody responds', async () => {
+    // 历史频道 members 未回填 → 回退 profile.channels 口径（dev channels=[] 全频道可见）
+    mockChannelList.mockResolvedValue({ data: { data: [{ id: 'ch-1', name: '#general', type: 'rnd', members: '[]' }] } });
+
+    renderPMO();
+    await waitFor(() => expect(screen.getAllByText('发起讨论').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('发起讨论')[0]);
+    await waitFor(() => expect(screen.getByText(/会响应的 Agent（1）：dev/)).toBeTruthy());
+  });
+
+  it('dialog warns when channel has no responder', async () => {
+    mockChannelList.mockResolvedValue({ data: { data: [{ id: 'ch-1', name: '#general', type: 'rnd', members: '["agent-x"]' }] } });
+
+    renderPMO();
+    await waitFor(() => expect(screen.getAllByText('发起讨论').length).toBeGreaterThan(0));
+    fireEvent.click(screen.getAllByText('发起讨论')[0]);
+
+    await waitFor(() => expect(screen.getByText(/无人认领/)).toBeTruthy());
   });
 });
