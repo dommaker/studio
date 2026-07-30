@@ -1,7 +1,9 @@
 import { defineConfig } from 'vitest/config';
 
 const baseExclude = ['**/node_modules/**', '**/*.spec.ts', '**/e2e/**', '**/*.e2e.test.ts', '**/trigger-eval.test.ts'];
-const baseTest = { globals: true, environment: 'node' as const, pool: 'forks' as const };
+// 覆盖 .env 中的 production 配置，确保测试环境 auth bypass + Lurk Wall 关闭
+const testEnv = { STUDIO_AUTH: 'none', NODE_ENV: 'test' };
+const baseTest = { globals: true, environment: 'node' as const, pool: 'forks' as const, env: testEnv };
 
 export default defineConfig({
   test: {
@@ -30,6 +32,7 @@ export default defineConfig({
           include: ['apps/web/src/**/*.test.{ts,tsx}'],
           exclude: baseExclude,
           environment: 'jsdom',
+          env: testEnv,
           setupFiles: ['./apps/web/src/test/setup.ts'],
         },
         esbuild: { jsx: 'automatic' },

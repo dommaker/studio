@@ -121,7 +121,7 @@ export async function checkPrerequisites(config: Pick<ExecutorConfig, 'repoDir' 
   }
 
   try {
-    const { stdout } = await execSh('df -h . | tail -1 | awk "{print \$4}"', {
+    const { stdout } = await execSh("df -h . | tail -1 | awk '{print $4}'", {
       cwd: config.worktreesDir,
       timeoutMs: 5_000,
     });

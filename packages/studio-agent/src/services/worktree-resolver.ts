@@ -264,7 +264,7 @@ export function buildCachePrefix(repoDir: string): string {
   try {
     const claudeMd = fsSync.readFileSync(path.join(repoDir, 'CLAUDE.md'), 'utf-8');
     lines.push(claudeMd);
-  } catch {}
+  } catch { /* CLAUDE.md may not exist in the repo */ }
   lines.push('');
   return lines.join('\n');
 }

@@ -15,7 +15,7 @@
     "dev": "pnpm -r dev",
     "test": "vitest run",
     "test:e2e": "vitest run --config vitest.e2e.config.ts",
-    "lint": "pnpm -r lint",
+    "lint": "ESLINT_USE_FLAT_CONFIG=false pnpm -r lint",
     "=== 开发环境 ===": "",
     "dev:start": "./scripts/dev/start.sh",
     "dev:stop": "./scripts/dev/stop.sh",

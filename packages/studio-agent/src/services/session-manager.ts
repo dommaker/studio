@@ -619,7 +619,7 @@ export class AgentExecutor {
 
     // 磁盘空间
     try {
-      const { stdout } = await execSh('df -h . | tail -1 | awk "{print \$4}"', {
+      const { stdout } = await execSh("df -h . | tail -1 | awk '{print $4}'", {
         cwd: this.config.worktreesDir,
         timeoutMs: 5_000,
       });

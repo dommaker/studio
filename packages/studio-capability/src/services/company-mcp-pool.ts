@@ -127,13 +127,14 @@ export interface MCPUsageRecord {
 /**
  * MCP 配置
  */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface CompanyMCPPoolConfig {
 }
 
 // ==================== CompanyMCPPool 类 ====================
 
 export class CompanyMCPPool {
-  private cache = new Map<string, any>();
+  private cache = new Map<string, unknown>();
 
   constructor(_config: CompanyMCPPoolConfig) {
   }
@@ -384,7 +385,7 @@ export class CompanyMCPPool {
 
     // 这里应该调用实际的 MCP 客户端获取工具列表
     // 简化实现：从缓存读取
-    const tools = await this.cache.get(`company:${companyId}:mcp:${mcpKey}:tools`);
+    const tools = this.cache.get(`company:${companyId}:mcp:${mcpKey}:tools`) as MCPTool[] | undefined;
     return tools ?? [];
   }
 
