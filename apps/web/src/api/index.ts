@@ -341,13 +341,25 @@ export const projectApi = {
 };
 
 // 🆕 PMO-b: 交付台账（GET /pmo/project/:id/delivery 响应形状）
+export interface DeliveryGap {
+  id: string;
+  title: string;
+  type: string;
+  missing: Array<'l1' | 'l2' | 'l3'>;
+}
+
 export interface DeliveryStatus {
   projectId: string;
   pmoNumber: string;
-  branch: string;
+  branch: string | null;
   policy: 'auto-merge' | 'branch-only';
-  gitRepo?: string;
-  wu: { total: number; finished: number; inFlight: number };
+  gitRepo: string | null;
+  wu: {
+    total: number;
+    finished: number;
+    inFlight: number;
+    byStatus: { unassigned: number; active: number; inReview: number; blocked: number };
+  };
   evidence: {
     l1Missing: string[];
     l2Missing: string[];
@@ -356,9 +368,13 @@ export interface DeliveryStatus {
   };
   deliverable: boolean;
   missing: string[];
-  deliveredAt?: string | null;
-  deliveredBy?: string | null;
-  deliverCommit?: string | null;
+  /** 项目 WU 链路 token 总消耗 */
+  tokens: number;
+  /** 已完成但证据有缺口的 WU 明细 */
+  gaps: DeliveryGap[];
+  deliveredAt: string | null;
+  deliveredBy: string | null;
+  deliverCommit: string | null;
 }
 
 // Wiki API (B2-008)

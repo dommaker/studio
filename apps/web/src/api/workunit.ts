@@ -217,6 +217,14 @@ export const workunitApi = {
   reviewRejected: (id: string, reason?: string) =>
     api.post<WorkUnit>(`/workunits/${id}/review-rejected`, { reason }),
 
+  /** F6-c: 人工重跑 L1 自动验证（human-only，只动台账不动状态） */
+  verify: (id: string, commands?: string[]) =>
+    api.post<VerifyResult>(`/workunits/${id}/verify`, commands ? { commands } : {}),
+
+  /** F6-c: 人工补派 L2 agent 评审（human-only） */
+  dispatchReview: (id: string) =>
+    api.post<DispatchReviewResult>(`/workunits/${id}/dispatch-review`),
+
   getMessages: (id: string, params?: { before?: string; limit?: number }) =>
     api.get(`/workunits/${id}/messages`, { params }),
 
@@ -255,4 +263,21 @@ export interface TreeTokenReport {
   }>;
   rootTotal: number;
   budgetRemaining: number;
+}
+
+/** F6-c: POST /workunits/:id/verify 响应体（200；400/409 走 error 信封，422 为 {verified:false, reason, hint}） */
+export interface VerifyResult {
+  verified: boolean;
+  /** 验证通过时的报告（metadata.verifyReport 或 {commands, source}） */
+  report?: unknown;
+  /** 验证失败时的失败命令与输出尾巴 */
+  failed?: Array<{ command: string; tail: string }>;
+  /** 422 no-commands 时的原因与提示 */
+  reason?: string;
+  hint?: string;
+}
+
+/** F6-c: POST /workunits/:id/dispatch-review 响应体 */
+export interface DispatchReviewResult {
+  reviewWorkUnitId: string;
 }
