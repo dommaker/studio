@@ -3,7 +3,7 @@
 > 此文件描述 apps/api/src/modules/pmo 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-07-30 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/delivery.ts, apps/api/src/modules/pmo/progress-rollup.ts, apps/api/src/modules/pmo/routes.ts
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/delivery.ts, apps/api/src/modules/pmo/evidence-summary.ts, apps/api/src/modules/pmo/progress-rollup.ts, apps/api/src/modules/pmo/routes.ts
 
 ## 职责
 
@@ -21,10 +21,11 @@
 | `resolveDeliveryPolicy` | `project.service.ts` | 交付策略缺省解析（未设置 = branch-only） |
 | `parsePmoNumberFromCommand` | `project.service.ts` | 从命令中解析 PMO 号 |
 | `PROJECT_STATUS` 常量 | `project.service.ts` | 项目状态枚举 |
-| `initPmoProgressRollup` / `syncProjectProgress` / `parseWuMetaPmoId` | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement（含决策 4 别名视图）关联 WU 的完结比例回写 progress；全部完结 → completed（best-effort）。analysis 派生链无 reqId：事件入口与统计均回退按 metadata.pmoId 归属（口径不变）；`GET /project/:id` 读取时触发一次重算（存量项目进度纠偏） |
+| `initPmoProgressRollup` / `syncProjectProgress` / `parseWuMetaPmoId`（re-export） | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement（含决策 4 别名视图）关联 WU 的完结比例回写 progress（语义=「活干完了多少」，in_review 计入完结）；全部完结按证据翻转（2026-07-30 根因修复）：deliverable → completed，证据缺口 → active/pending 置 in_review（等证据验收，已 in_review 不动，completed/cancelled 不回退；skipValidation 直写）。同项目回写按 projectId 串行化（防相邻事件并发覆盖）；幂等补写证据不产生状态事件，靠 `GET /project/:id` 读取时重算纠偏 |
+| `selectProjectSnapshots` / `summarizeEvidence` / `parseWuMetaPmoId` / `CODE_TYPES` | `evidence-summary.ts` | 共享证据口径（2026-07-30 抽取，delivery 台账与 progress-rollup 状态翻转共用）：归属（Requirement.projectId → reqId 集合，空则回退 metadata.pmoId）+ 逐快照 deriveDisplayState 派生 l1（仅代码类）/l2（豁免 review/analysis——对齐 review-dispatcher.ts:47 跳过集，analysis 验收闸=人工 L3）/l3 齐缺 + deliverable 判定 |
 | `AnalysisHandoff` / `initAnalysisHandoff` | `analysis-handoff.ts` | PMO 分析接力：订阅 workunit.status_changed——analysis → in_review 频道提示人工确认（ReviewDispatcher 对 analysis 不派自动评审）；→ done（人工确认）按 metadata.analysisTasks 建未指派 task 子 WU 派工（analysisTasksSpawnedAt 幂等；task 继承 analysis 的 workspaceRoot → 归属链接通 per-WU worktree + PMO 分支） |
 | `projectService.publish` | `project.service.ts` | 发频道卡片 + 建 analysis WU（scope 含只读约束 + TASK 输出约定）；metadata 落 pmoId/pmoNumber + workspaceRoot=project.gitRepo（B3a 归属链起点，2026-07-30 接通——此前 task WU 无归属根，直接在共享开发仓落地） |
-| `getDeliveryStatus` / `deliverProject` | `delivery.ts` | PMO-b 交付守卫：台账（WU 汇总 + l1/l2/l3 证据齐缺 + deliverable）与 auto-merge 交付（证据齐才本地合并 PMO 分支 → 默认分支，不 push；branch-only 只标记不碰链路）。关联 WU 判定同 progress-rollup：Requirement 链路为空时回退按 metadata.pmoId 归属（复用 parseWuMetaPmoId） |
+| `getDeliveryStatus` / `deliverProject` | `delivery.ts` | PMO-b 交付守卫：台账（WU 汇总 + l1/l2/l3 证据齐缺 + deliverable，口径走 evidence-summary）与 auto-merge 交付（证据齐才本地合并 PMO 分支 → 默认分支，不 push；branch-only 只标记不碰链路）。台账新增 `tokens`（sumTokensForWorkUnits 按项目 WU id 集求和 studio-events.jsonl 的 workunit:tokens，best-effort 出错按 0）与 `gaps`（已完成但证据有缺口的 WU 明细：id/title（metadata.title 回退 scope）/type/missing 按 l1→l2→l3 有序） |
 | `detectAnomalies` | `okr-anomaly-detector.ts` | OKR 异常检测（默认停用） |
 | 默认导出 Express Router | `routes.ts` | 提供 `/project`、`/objective`、`/key-result` 等 REST 路由（含 `GET /project/:id/delivery`、`POST /project/:id/deliver`（human-only）） |
 
@@ -61,6 +62,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-30: 证据感知交付口径（根因修复「项目已完成 vs 交付未达成打架」）— 新增 evidence-summary.ts 共享证据口径（parseWuMetaPmoId 迁入，progress-rollup re-export 兼容）；progress-rollup 全部完结不再无条件 completed：deliverable → completed，证据缺口 → active/pending 置 in_review（completed/cancelled 不回退；同项目回写串行化防并发覆盖）；l2 豁免 review/analysis（对齐 review-dispatcher.ts:47 跳过集，修规则自相矛盾）；delivery 台账新增 tokens/gaps 字段；token-usage.service 新增 sumTokensForWorkUnits（只增不改）
 - ✅ `c136ce66`: pmo): analysis 派生链进度回写按 metadata.pmoId 回退归属
 - ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId

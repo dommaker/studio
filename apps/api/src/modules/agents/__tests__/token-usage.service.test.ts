@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, type WorkUnitSnapshot } from '@dommaker/studio-shared';
 
-import { getAgentTokenUsage, invalidateTokenUsageCache, aggregateTreeTokens } from '../token-usage.service.js';
+import { getAgentTokenUsage, invalidateTokenUsageCache, aggregateTreeTokens, sumTokensForWorkUnits } from '../token-usage.service.js';
 import { TREE_TOKEN_BUDGET } from '../../workunit/delegation-gate.js';
 
 let tmpDir: string;
@@ -271,5 +271,38 @@ describe('§8.4.3 aggregateTreeTokens', () => {
     expect(report.budgetRemaining).toBe(TREE_TOKEN_BUDGET);
     expect(report.nodes[0].injectedTokens).toBeNull();
     expect(report.nodes[0].executionTokens).toBeNull();
+  });
+});
+
+describe('sumTokensForWorkUnits（PMO 台账：项目 WU 链路 token 求和）', () => {
+  it('按 WU id 集求和 totalTokens；集外 WU / 他类型事件不计入', async () => {
+    writeEvents([
+      tokenEvent('wu-1', { injected: 100, execution: 900 }, new Date().toISOString()),
+      tokenEvent('wu-2', { injected: 200, execution: 800 }, new Date().toISOString()),
+      tokenEvent('wu-3', { injected: 999, execution: 999 }, new Date().toISOString()), // 集外
+      JSON.stringify({ type: 'knowledge:skill_used', payload: JSON.stringify({ skillName: 'x' }), createdAt: new Date().toISOString() }),
+    ]);
+
+    const sum = await sumTokensForWorkUnits(new Set(['wu-1', 'wu-2']), { eventsFile, fileStore });
+    expect(sum).toBe(2000); // (100+900) + (200+800)
+  });
+
+  it('totalTokens 缺失按 injected+execution 兜底；payload 损坏/撕裂行跳过', async () => {
+    writeEvents([
+      JSON.stringify({
+        type: 'workunit:tokens',
+        payload: JSON.stringify({ workUnitId: 'wu-1', injectedTokens: 5, executionTokens: 7 }),
+        createdAt: new Date().toISOString(),
+      }),
+      JSON.stringify({ type: 'workunit:tokens', payload: '{broken', createdAt: new Date().toISOString() }),
+      '{torn-line',
+    ]);
+
+    expect(await sumTokensForWorkUnits(new Set(['wu-1']), { eventsFile, fileStore })).toBe(12);
+  });
+
+  it('事件文件不存在 / 空 id 集 → 0，不抛错', async () => {
+    expect(await sumTokensForWorkUnits(new Set(['wu-1']), { eventsFile, fileStore })).toBe(0);
+    expect(await sumTokensForWorkUnits(new Set(), { eventsFile, fileStore })).toBe(0);
   });
 });

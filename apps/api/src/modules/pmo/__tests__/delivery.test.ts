@@ -57,12 +57,14 @@ function makeDeps(input: {
   project?: ProjectData | null;
   reqs?: Array<{ id: string; projectId?: string | null }>;
   snapshots?: WorkUnitSnapshot[];
+  sumTokens?: (workUnitIds: Set<string>) => Promise<number>;
 }) {
   return {
     getProject: async () => input.project === undefined ? project({}) : input.project,
     listRequirements: async () => input.reqs ?? [{ id: 'REQ-0011', projectId: 'proj-1' }],
     getIndex: async () => input.snapshots ?? [],
     updateProject: vi.fn(async (id: string, patch: Record<string, unknown>) => project({ id, ...patch } as ProjectData)),
+    sumTokens: input.sumTokens ?? (async () => 0),
   };
 }
 
@@ -84,20 +86,67 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     const s = await getDeliveryStatus('proj-1', undefined, deps);
     expect(s!.deliverable).toBe(true);
     expect(s!.missing).toEqual([]);
-    expect(s!.wu).toEqual({ total: 1, finished: 1, inFlight: 0 });
+    expect(s!.wu).toEqual({ total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } });
+    expect(s!.tokens).toBe(0); // 缺省 sumTokens 注入为 0
+    expect(s!.gaps).toEqual([]);
 
     const gaps = wu({ metadataObj: { attestations: { l2: att('agent-review', { selfReview: true }) } } });
     const doing = wu({ status: 'active', metadataObj: {} });
     const s2 = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [gaps, doing] }));
     expect(s2!.deliverable).toBe(false);
-    expect(s2!.wu).toEqual({ total: 2, finished: 1, inFlight: 1 });
+    expect(s2!.wu).toEqual({ total: 2, finished: 1, inFlight: 1, byStatus: { unassigned: 0, active: 1, inReview: 0, blocked: 0 } });
     expect(s2!.evidence.l1Missing).toEqual([gaps.id]); // task 类型缺 l1
     expect(s2!.evidence.l3Missing).toEqual([gaps.id]);
     expect(s2!.evidence.l2Missing).toEqual([]);
     expect(s2!.evidence.selfReviewCount).toBe(1);
+    // gaps 明细：只含已完成且有缺口的 WU，missing 顺序 l1→l2→l3，标题回退 scope
+    expect(s2!.gaps).toEqual([{ id: gaps.id, title: 's', type: 'task', missing: ['l1', 'l3'] }]);
     expect(s2!.missing.join(' ')).toContain('1 个 WorkUnit 未完成');
     expect(s2!.missing.join(' ')).toContain('L1 自动验证');
     expect(s2!.missing.join(' ')).toContain('L3 人工确认');
+  });
+
+  it('analysis/review 类 WU 豁免 L2（dispatcher 不派评审，验收闸是人工 L3）；缺 L3 仍不可交付', async () => {
+    const analysis = wu({ type: 'analysis', metadataObj: { attestations: { l3: att('human-confirm') } } });
+    const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [analysis] }));
+    expect(s!.evidence.l2Missing).toEqual([]); // 无 l2 不计缺口
+    expect(s!.deliverable).toBe(true);
+
+    const review = wu({ type: 'review', metadataObj: { attestations: { l3: att('human-confirm') } } });
+    const s2 = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [review] }));
+    expect(s2!.evidence.l2Missing).toEqual([]);
+    expect(s2!.deliverable).toBe(true);
+
+    const noL3 = wu({ type: 'analysis', metadataObj: {} });
+    const s3 = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [noL3] }));
+    expect(s3!.evidence.l2Missing).toEqual([]);
+    expect(s3!.evidence.l3Missing).toEqual([noL3.id]);
+    expect(s3!.deliverable).toBe(false);
+    expect(s3!.gaps).toEqual([{ id: noL3.id, title: 's', type: 'analysis', missing: ['l3'] }]);
+  });
+
+  it('tokens/gaps 契约：token 按项目 WU id 集求和注入；gaps 标题取 metadata.title，坏 JSON 回退 scope', async () => {
+    const titled = wu({ metadataObj: { title: '实现登录页', attestations: { l1: att('verify') } } });
+    const broken = wu({ metadata: '{broken-json', scope: 'broken-scope' });
+    const sumTokens = vi.fn(async () => 12345);
+    const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ snapshots: [titled, broken], sumTokens }));
+
+    expect(s!.tokens).toBe(12345);
+    expect(sumTokens).toHaveBeenCalledWith(new Set([titled.id, broken.id]));
+    expect(s!.gaps).toEqual([
+      { id: titled.id, title: '实现登录页', type: 'task', missing: ['l2', 'l3'] },
+      { id: broken.id, title: 'broken-scope', type: 'task', missing: ['l1', 'l2', 'l3'] },
+    ]);
+  });
+
+  it('token 聚合失败 → tokens=0（best-effort，不拖垮台账主流程）', async () => {
+    const ready = wu({ metadataObj: { attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
+    const s = await getDeliveryStatus('proj-1', undefined, makeDeps({
+      snapshots: [ready],
+      sumTokens: async () => { throw new Error('io error'); },
+    }));
+    expect(s!.tokens).toBe(0);
+    expect(s!.deliverable).toBe(true);
   });
 
   it('非代码类 WU 不要求 l1；无关联 WU → 不可交付', async () => {
@@ -123,7 +172,7 @@ describe('getDeliveryStatus（PMO-b 台账）', () => {
     const ready = wu({ reqId: null, metadataObj: { pmoId: 'proj-1', attestations: { l1: att('verify'), l2: att('agent-review'), l3: att('human-confirm') } } });
     const other = wu({ reqId: null, metadataObj: { pmoId: 'proj-2', attestations: {} } });
     const s = await getDeliveryStatus('proj-1', undefined, makeDeps({ reqs: [], snapshots: [ready, other] }));
-    expect(s!.wu).toEqual({ total: 1, finished: 1, inFlight: 0 }); // proj-2 的 WU 不计入
+    expect(s!.wu).toEqual({ total: 1, finished: 1, inFlight: 0, byStatus: { unassigned: 0, active: 0, inReview: 0, blocked: 0 } }); // proj-2 的 WU 不计入
     expect(s!.missing).not.toContain('无关联 WorkUnit');
     expect(s!.deliverable).toBe(true);
   });
