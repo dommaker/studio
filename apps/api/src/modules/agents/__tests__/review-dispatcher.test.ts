@@ -50,6 +50,16 @@ function metaOf(raw: string | null): WorkUnitMetadata {
   return raw ? JSON.parse(raw) as WorkUnitMetadata : {};
 }
 
+/** 事件链异步收口轮询（替代定长 sleep，防监听器累积/CI 负载下的时序抖动） */
+async function waitFor(cond: () => Promise<boolean>, timeoutMs = 3000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await cond()) return;
+    await new Promise(r => setTimeout(r, 25));
+  }
+  throw new Error('waitFor timeout');
+}
+
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatcher-'));
   fileStore = new FileStore(tmpDir);
@@ -348,5 +358,210 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     const snapshots = await fileStore.getIndex();
     const reviewChild = snapshots.find(s => s.parentId === analysis.id && s.type === 'review');
     expect(reviewChild).toBeUndefined();
+  });
+
+  // ─── F6-c 断点 3：dispatchReviewNow 人工补派 ───
+
+  it('F6-c: in_review 父 WU 缺评审子 WU -> dispatchReviewNow 补派成功（未指派 + excludeAssignee=实现者）', async () => {
+    // 直接建 in_review（create 只发 workunit.created，不触发路径 A 自动派单）
+    const parent = await wuService.create({
+      scope: '实现功能 G', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'in_review',
+    });
+
+    const child = await dispatcher.dispatchReviewNow(parent.id);
+
+    expect(child.type).toBe('review');
+    expect(child.status).toBe('unassigned');
+    expect(child.assigneeId).toBeNull();
+    expect(child.parentId).toBe(parent.id);
+    const meta = metaOf(child.metadata);
+    expect(meta.excludeAssignee).toBe(executorProfile.id);
+    expect(meta.reviewInput).toEqual({ mode: 'diff-only', skill: 'code-review' });
+  });
+
+  it('F6-c: done 父 WU（人工直推，l2 缺失）-> dispatchReviewNow 补派成功', async () => {
+    const parent = await wuService.create({
+      scope: '实现功能 H', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'in_review',
+    });
+    await wuService.transitionStatus(parent.id, 'done');
+    await new Promise(r => setTimeout(r, 100));
+
+    const child = await dispatcher.dispatchReviewNow(parent.id);
+    expect(child.type).toBe('review');
+    expect(child.parentId).toBe(parent.id);
+  });
+
+  it('F6-c: type=review/analysis -> 拒绝补派（设计如此：analysis 验收闸是人工 L3）', async () => {
+    const review = await wuService.create({
+      scope: '评审 X', type: 'review', channelId: 'ch-test', status: 'in_review',
+    });
+    await expect(dispatcher.dispatchReviewNow(review.id)).rejects.toThrow('not reviewable');
+
+    const analysis = await wuService.create({
+      scope: '分析 X', type: 'analysis', channelId: 'ch-test', status: 'in_review',
+    });
+    await expect(dispatcher.dispatchReviewNow(analysis.id)).rejects.toThrow('not reviewable');
+  });
+
+  it('F6-c: status 不在 in_review/done（active）-> 拒绝补派', async () => {
+    const parent = await wuService.create({
+      scope: '实现功能 I', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'active',
+    });
+    await expect(dispatcher.dispatchReviewNow(parent.id)).rejects.toThrow('Cannot dispatch review');
+  });
+
+  it('F6-c: l2 已达成 -> 拒绝补派（409 语义）；l2 rejected 留痕 -> 允许重派', async () => {
+    const parent = await wuService.create({
+      scope: '实现功能 J', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'in_review',
+      metadata: {
+        attestations: {
+          l2: { verdict: 'approved', by: 'reviewer-1', at: '2026-07-30T00:00:00Z', kind: 'agent-review' },
+        },
+      },
+    });
+    await expect(dispatcher.dispatchReviewNow(parent.id)).rejects.toThrow('already present');
+
+    const rejected = await wuService.create({
+      scope: '实现功能 J2', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'in_review',
+      metadata: {
+        attestations: {
+          l2: { verdict: 'rejected', by: 'reviewer-1', at: '2026-07-30T00:00:00Z', kind: 'agent-review' },
+        },
+      },
+    });
+    const child = await dispatcher.dispatchReviewNow(rejected.id);
+    expect(child.type).toBe('review');
+  });
+
+  it('F6-c: 已有未完结评审子 WU -> 拒绝补派（同父唯一性）', async () => {
+    const parent = await wuService.create({
+      scope: '实现功能 K', type: 'feature', channelId: 'ch-test',
+      assigneeId: executorProfile.id, status: 'in_review',
+    });
+    await wuService.create({
+      scope: '在途评审', type: 'review', parentId: parent.id,
+      channelId: 'ch-test', status: 'active',
+    });
+    await expect(dispatcher.dispatchReviewNow(parent.id)).rejects.toThrow('already in flight');
+  });
+
+  it('F6-c: WU 不存在 / 无频道 -> 拒绝补派', async () => {
+    await expect(dispatcher.dispatchReviewNow('wu-x')).rejects.toThrow('not found');
+    const noChannel = await wuService.create({
+      scope: '实现功能 L', type: 'feature', status: 'in_review',
+    });
+    await expect(dispatcher.dispatchReviewNow(noChannel.id)).rejects.toThrow('no channel');
+  });
+
+  // ─── F6-c 断点 3：handleReviewChildDone 对 done 父 WU 的幂等补写 ───
+
+  /** 建父 WU（active → in_review 触发路径 A）并轮询等评审子 WU 落地 */
+  async function createParentAndReviewWait(scope: string, assigneeId: string | null) {
+    const parent = await wuService.create({
+      scope, type: 'feature', channelId: 'ch-test', assigneeId, status: 'active',
+    });
+    await wuService.transitionStatus(parent.id, 'in_review');
+    let child;
+    await waitFor(async () => {
+      const snapshots = await fileStore.getIndex();
+      child = snapshots.find(s => s.parentId === parent.id && s.type === 'review');
+      return !!child;
+    });
+    return { parent, child: child! };
+  }
+
+  it('F6-c: 父被人工直推 done（l2 缺失）-> 子 done + approved 补写父台账 l2，状态保持 done', async () => {
+    const { parent, child } = await createParentAndReviewWait('实现功能 M', executorProfile.id);
+
+    // 人工直推 done（存量双轨路径，不带 attestation → l2 缺失）
+    await wuService.reviewPassed(parent.id);
+    expect((await wuService.getById(parent.id))!.status).toBe('done');
+
+    // 评审子 WU 迟到回传 approved
+    await wuService.update(child.id, { assigneeId: reviewerProfile.id });
+    await wuService.transitionStatus(child.id, 'active');
+    await wuService.transitionStatus(child.id, 'in_review');
+    const childMeta = metaOf((await wuService.getById(child.id))!.metadata);
+    childMeta.reviewReport = { approved: true, reason: '迟到但通过' };
+    await wuService.update(child.id, { metadata: childMeta });
+    await wuService.transitionStatus(child.id, 'done');
+
+    await waitFor(async () => {
+      const p = await wuService.getById(parent.id);
+      return metaOf(p!.metadata).attestations?.l2?.verdict === 'approved';
+    });
+    const updatedParent = await wuService.getById(parent.id);
+    expect(updatedParent!.status).toBe('done'); // 不动状态
+    const att = metaOf(updatedParent!.metadata).attestations;
+    expect(att?.l2?.kind).toBe('agent-review');
+    expect(att?.l2?.by).toBe(reviewerProfile.id);
+    expect(att?.l2?.ref).toBe(child.id);
+  });
+
+  it('F6-c: 父 done（l2 缺失）+ 子 done 无 reviewReport -> 静默跳过，不写台账不发转人工', async () => {
+    const { parent, child } = await createParentAndReviewWait('实现功能 N', executorProfile.id);
+    await wuService.reviewPassed(parent.id);
+
+    await wuService.transitionStatus(child.id, 'active');
+    await wuService.transitionStatus(child.id, 'in_review');
+    await wuService.transitionStatus(child.id, 'done');
+    await new Promise(r => setTimeout(r, 150)); // 断言「不发生」，给事件链留窗口
+
+    const updatedParent = await wuService.getById(parent.id);
+    expect(updatedParent!.status).toBe('done');
+    expect(metaOf(updatedParent!.metadata).attestations?.l2).toBeUndefined();
+    const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+    expect(messages.some(m => m.content.includes('转人工'))).toBe(false);
+  });
+
+  it('F6-c: 父 done（l2 缺失）+ 子 done rejected -> 不打回已收口 WU，频道发人工复核提醒，l2 保持缺失', async () => {
+    const { parent, child } = await createParentAndReviewWait('实现功能 O', executorProfile.id);
+    await wuService.reviewPassed(parent.id);
+
+    await wuService.transitionStatus(child.id, 'active');
+    await wuService.transitionStatus(child.id, 'in_review');
+    const childMeta = metaOf((await wuService.getById(child.id))!.metadata);
+    childMeta.reviewReport = { approved: false, reason: '缺少错误处理' };
+    await wuService.update(child.id, { metadata: childMeta });
+    await wuService.transitionStatus(child.id, 'done');
+
+    let notice;
+    await waitFor(async () => {
+      const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
+      notice = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('人工复核'));
+      return !!notice;
+    });
+    expect(notice!.content).toContain('缺少错误处理');
+
+    const updatedParent = await wuService.getById(parent.id);
+    expect(updatedParent!.status).toBe('done'); // 不打回
+    expect(metaOf(updatedParent!.metadata).attestations?.l2).toBeUndefined();
+  });
+
+  it('F6-c: 父 done 且 l2 已达成 -> 子 done 仍跳过（其余情况维持现状）', async () => {
+    const { parent, child } = await createParentAndReviewWait('实现功能 P', executorProfile.id);
+
+    // 人工直推 done 并自带 l2 已达成（如另一评审链已落账）
+    await wuService.reviewPassed(parent.id, {
+      by: 'human-lead', kind: 'agent-review', ref: 'wu-other',
+    });
+    expect(metaOf((await wuService.getById(parent.id))!.metadata).attestations?.l2?.verdict).toBe('approved');
+
+    await wuService.transitionStatus(child.id, 'active');
+    await wuService.transitionStatus(child.id, 'in_review');
+    const childMeta = metaOf((await wuService.getById(child.id))!.metadata);
+    childMeta.reviewReport = { approved: true, reason: '重复结论' };
+    await wuService.update(child.id, { metadata: childMeta });
+    await wuService.transitionStatus(child.id, 'done');
+    await new Promise(r => setTimeout(r, 150)); // 断言「不发生」，给事件链留窗口
+
+    // l2 保持原值（ref 不被迟到结论覆盖）
+    const att = metaOf((await wuService.getById(parent.id))!.metadata).attestations;
+    expect(att?.l2?.ref).toBe('wu-other');
   });
 });

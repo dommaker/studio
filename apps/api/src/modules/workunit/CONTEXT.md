@@ -33,6 +33,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - B3b-i（决策 D1/D3 前半）：WU metadata 增 worktreePath/worktreeBranch/worktreeBaseBranch/worktreeBaseRepo（代码类 WU 专属 worktree 落档，review 子 WU 经 `...parentMeta` 拷贝天然继承）与 verifyCommands/verifyReport/verifyFailCount/verifyFailHint（自动验证）；覆盖命令也可放在 workspace 记录的 verifyCommands 字段
 - B3b-ii（决策 D1/D3 后半）：WU metadata 增 mergedAt/mergeCommit/mergeConflict/conflictFiles；reviewPassed 收口触发自动合并（merge-on-review-pass.ts，git 全走 execSh，冲突转人工置 blocked 走 `markMergeConflict` 直写快照——done→blocked 同 reviewRejected 先例绕过 VALID_TRANSITIONS）
 - F6（2026-07-28 分析文档，决策 1）：WU metadata 增 `attestations`（l1 自动验证 / l2 agent 评审 / l3 人工确认台账）——写入方：l1=agent-loop 验证守卫；l2/l3=reviewPassed/reviewRejected 的 attestation 入参（agent-review→l2 含 selfReview/ref；human-confirm→l3，done 态幂等补写不改状态机）。**消费铁律：展示/指标只准过 studio-shared 的 `deriveDisplayState()`，禁止各自解释**
+- **F6-c 证据断链修复（2026-07-30）**：①`POST /:id/verify`（human-only，断点 2）人工重跑 L1——仅代码类 WU（否则 400）+ worktree 落档（否则 409），body.commands 视为 metadata.verifyCommands 覆盖，无可跑命令 422 `{verified:false,reason:'no-commands',hint}`；全绿落 l1 approved + verifyReport，失败只落 l1 rejected（**绝不写 verifyReport**——metrics 按其存在计通过，失败写入会虚增通过率），不动 status/verifyFailCount；service 方法 `recordL1Verification`。②`POST /:id/dispatch-review`（human-only，断点 3）人工补派评审，委托 ReviewDispatcher.dispatchReviewNow（守卫见 agents/CONTEXT.md），200 `{reviewWorkUnitId}`。③reviewPassed 新增 F6-c 幂等豁免：done + agent-review + l2 未达成（deriveDisplayState approved 口径，rejected 留痕不算）→ `writeAgentReviewAttestation` 只补写 l2（不动状态/completedAt、不触发合并；l2 已达成时重复回传仍抛 Cannot review）。**幂等补写证据后（l1/l2/l3 路径）均发 status_changed（状态值不变也发）**——pmo/progress-rollup 按证据齐备度重估；l3 人工确认路径（writeHumanConfirmation）2026-07-30 起同样补发（原为 F6-b 不发约定，rollup 证据感知化后 l3 常是最后一块证据，不发则项目状态无法即时翻转）
 - PMO-b（决策 3）：WU metadata 增 pmoProjectId/pmoBranch（agent-loop 首 step 落档，worktree base 与合并目标从默认分支改 PMO 分支）
 - review-passed/review-rejected 拒绝 authorType=agent 的调用（403，A2A §4.4：验收权只在人；UI/人类调用不发送 authorType 或发送 'human'）
 - **鉴权（2026-07-24 收紧）**：11 条写端点（CRUD/claim/unclaim/review/status/讨论区发消息/编辑消息）= `requireAuth()+requireNotGuest()`；GET 只读保持大门层。注意 authorType/agentName 仍是自声明身份（不作凭证，已知局限）
@@ -40,6 +41,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-30: F6-c WorkUnit 三层证据断链修复 — workunit.service 增 `recordL1Verification`（人工重跑 L1 落台账，断点 2）与 reviewPassed F6-c 幂等豁免（done + agent-review + l2 未达成 → `writeAgentReviewAttestation` 只补 l2，断点 3）；workunit.routes 增 human-only 端点 `POST /:id/verify`、`POST /:id/dispatch-review`；幂等补写证据后发 status_changed（状态值不变也发）让 pmo rollup 重估；agents 侧配套（wu-verification 抽出/强制收口补验证/dispatchReviewNow/handleReviewChildDone 放宽）见 agents/CONTEXT.md
 - ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ `39b6af5f`: channels): L1 convert-to-task 人工指派卡死修复（指派统一建 unassigned 指名）
 - ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加

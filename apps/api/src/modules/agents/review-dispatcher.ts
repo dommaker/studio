@@ -20,7 +20,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { eventBus, logger, parseChannels, type FileStore, type AgentProfileData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { readCollab } from '../workunit/delegation-gate.js';
 import { findAnchorMessage } from './agent-loop.js';
@@ -86,19 +86,30 @@ export class ReviewDispatcher {
     if (!parent.channelId) return;
 
     // 同父唯一性校验：已有未完结 review 子 WU -> 跳过
+    if (await this.hasUnfinishedReviewChild(parent.id)) return;
+
+    await this.createReviewChildFor(parent);
+  }
+
+  /** 同父唯一性：已有未完结 review 子 WU */
+  private async hasUnfinishedReviewChild(parentId: string): Promise<boolean> {
     const snapshots = await this.fileStore.getIndex();
-    const existingReview = snapshots.some(s =>
-      s.parentId === parent.id
+    return snapshots.some(s =>
+      s.parentId === parentId
       && s.type === 'review'
       && s.status !== 'done'
       && s.status !== 'closed',
     );
-    if (existingReview) return;
+  }
 
-    // F4: 评审子 WU 未指派走涌现；排除实现者（决策 5 衔接顺序）：
-    // 成员已知且除实现者外无他人 → 自评兜底（不加排除 + selfReview 标记 + 频道提醒）；
-    // 成员未知（历史频道未回填 members）同样保守处理为自评兜底。
-    const members = await this.getChannelActiveMembers(parent.channelId);
+  /**
+   * 建评审子 WU + 自评兜底频道提醒（路径 A 事件链与 F6-c 人工补派共用）。
+   * F4: 评审子 WU 未指派走涌现；排除实现者（决策 5 衔接顺序）：
+   * 成员已知且除实现者外无他人 → 自评兜底（不加排除 + selfReview 标记 + 频道提醒）；
+   * 成员未知（历史频道未回填 members）同样保守处理为自评兜底。
+   */
+  private async createReviewChildFor(parent: WorkUnitData): Promise<WorkUnitData> {
+    const members = await this.getChannelActiveMembers(parent.channelId!);
     const implementerId = await this.resolveProfileId(parent.assigneeId);
     const eligible = members?.filter(p => p.id !== implementerId) ?? null;
     const selfReview = !eligible || eligible.length === 0;
@@ -119,6 +130,42 @@ export class ReviewDispatcher {
         })
       );
     }
+
+    return child;
+  }
+
+  /**
+   * F6-c（断点 3）：人工补派评审（POST /api/v1/workunits/:id/dispatch-review 的服务层，同步调用）。
+   * 复用路径 A 的建单逻辑（excludeAssignee/自评兜底/同父唯一性不变）。守卫：
+   *   type=review/analysis → 拒绝（设计如此：review 不再被评审；analysis 验收闸是人工 L3）；
+   *   status 不在 in_review/done → 拒绝（active/blocked 等应先走正常收口）；
+   *   deriveDisplayState 判定 l2 已达成 → 拒绝（无需补派；rejected 留痕不算达成，允许重派）；
+   *   无频道 → 拒绝（评审子 WU 经频道涌现认领，无频道必卡死）；
+   *   已有未完结评审子 WU → 拒绝（同父唯一性）。
+   * 返回新建的 review 子 WU。
+   */
+  async dispatchReviewNow(parentWuId: string): Promise<WorkUnitData> {
+    const parent = await this.workUnitService.getById(parentWuId);
+    if (!parent) throw new Error(`WorkUnit ${parentWuId} not found`);
+    if (parent.type === 'review' || parent.type === 'analysis') {
+      throw new Error(`WorkUnit type ${parent.type} is not reviewable (review 不再被评审；analysis 验收闸是人工 L3)`);
+    }
+    if (parent.status !== 'in_review' && parent.status !== 'done') {
+      throw new Error(`Cannot dispatch review: current status is ${parent.status}, expected in_review/done`);
+    }
+    if (deriveDisplayState({ status: parent.status, metadata: parent.metadata }).evidence.l2) {
+      throw new Error('L2 review evidence already present — 无需补派');
+    }
+    if (!parent.channelId) {
+      throw new Error('WorkUnit has no channel — 评审子 WU 无法经频道涌现认领');
+    }
+    if (await this.hasUnfinishedReviewChild(parent.id)) {
+      throw new Error('Review child already in flight — 已有未完结的评审子 WU');
+    }
+
+    const child = await this.createReviewChildFor(parent);
+    logger.info('[ReviewDispatcher] Review re-dispatched manually', { parentId: parent.id, childId: child.id, parentStatus: parent.status });
+    return child;
   }
 
   /** 创建 review 子 WU（未指派走 claim 涌现；绕过 DelegationGate，design.md D6） */
@@ -217,7 +264,12 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
   private async handleReviewChildDone(child: WorkUnitData): Promise<void> {
     const parent = await this.workUnitService.getById(child.parentId!);
     if (!parent) return;
-    if (parent.status !== 'in_review') return; // 父已被手动处理 -> 跳过
+    // F6-c（断点 3）：父 status==='in_review' 正常收口（现状）；
+    // 父已被人工直推 done 且 l2 缺失（approved 口径）→ 走 reviewPassed 的幂等补写把迟到结论落账；
+    // 其余情况（done 已有 l2 / active 等）仍跳过。
+    const parentDoneMissingL2 = parent.status === 'done'
+      && !deriveDisplayState({ status: parent.status, metadata: parent.metadata }).evidence.l2;
+    if (parent.status !== 'in_review' && !parentDoneMissingL2) return; // 父已被手动处理 -> 跳过
 
     const childMeta = child.metadata ? JSON.parse(child.metadata) as WorkUnitMetadata : {};
     const report = childMeta.reviewReport as
@@ -225,6 +277,14 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       | undefined;
 
     if (!report) {
+      // 父已 done：无可补写的结论，静默跳过（转人工提醒对一个已收口的 WU 是纯噪声）
+      if (parent.status !== 'in_review') {
+        logger.warn('[ReviewDispatcher] Review child done without reviewReport; parent already done — 跳过', {
+          childId: child.id,
+          parentId: parent.id,
+        });
+        return;
+      }
       // P0 修复：reviewer 输出无法解析 → 不再默认 reviewRejected（误杀）。
       // 父 WU 保持 in_review 不动，频道发系统消息转人工裁决。
       logger.warn('[ReviewDispatcher] Review child done without parseable reviewReport — 转人工', {
@@ -250,8 +310,25 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
     };
 
     if (report.approved) {
+      // 父 in_review → 正常 reviewPassed 收口；父 done 缺 l2 → F6-c 幂等补写 l2（不动状态）
       await this.workUnitService.reviewPassed(parent.id, attestation);
     } else {
+      // 父已 done：迟到的 reject 不打回人工已收口的 WU（验收权只在人，A2A §4.4），
+      // 频道发系统消息请人工复核；l2 保持缺失，可由 dispatch-review 重派或人工处置
+      if (parent.status === 'done') {
+        const reason = report.reason
+          ?? report.issues?.filter(i => i.severity === 'error').map(i => i.message).join('; ')
+          ?? 'reviewer 拒绝';
+        logger.warn('[ReviewDispatcher] Late review rejected but parent already done — 转人工复核', {
+          childId: child.id,
+          parentId: parent.id,
+        });
+        await this.postSystemMessage(
+          parent,
+          `任务「${(parent.scope ?? '').slice(0, 50)}」的迟到审查结论为 reject（${reason.slice(0, 200)}），但任务已由人工收口 done，请人工复核是否需要返工`,
+        );
+        return;
+      }
       const reason = report.reason
         ?? report.issues?.filter(i => i.severity === 'error').map(i => i.message).join('; ')
         ?? 'reviewer 拒绝';

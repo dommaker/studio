@@ -401,4 +401,77 @@ describe('B3b-i: 每 WU worktree 隔离 + 自动验证', () => {
     // review 子 WU complete 直接收口 done（P0 修复路径）
     expect((await wuService.getById(reviewWu.id))!.status).toBe('done');
   });
+
+  // ─── F6-c 断点 1：步骤超限强制收口补跑 L1 ───
+
+  it('强制收口（progress 超限）：代码类 + worktree + 验证全绿 → in_review + l1 approved + verifyReport', async () => {
+    const wu = await createWu('task', {
+      workspaceRoot: repoRoot, worktreePath: WT(),
+      verifyCommands: ['make check'], stepCount: 15,
+    });
+
+    await loop().recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
+
+    expect(mockExecSh).toHaveBeenCalledTimes(1);
+    expect(mockExecSh).toHaveBeenCalledWith('make check', expect.objectContaining({ cwd: WT(), timeoutMs: 600_000 }));
+    expect((await wuService.getById(wu.id))!.status).toBe('in_review');
+    const meta = await metaOf(wu.id);
+    expect(meta.attestations?.l1?.verdict).toBe('approved');
+    expect(meta.attestations?.l1?.kind).toBe('verify');
+    expect(meta.verifyReport?.commands).toEqual(['make check']);
+    const texts = await channelTexts(wu.id);
+    expect(texts.some(t => t.includes('步骤数超限'))).toBe(true);
+  });
+
+  it('强制收口（progress 超限）：验证失败 → 仍 in_review + l1 rejected，不计 verifyFailCount、不写 verifyReport', async () => {
+    mockExecSh.mockRejectedValue(Object.assign(new Error('exit 1'), { stderr: 'boom' }));
+    const wu = await createWu('task', {
+      workspaceRoot: repoRoot, worktreePath: WT(),
+      verifyCommands: ['make check'], stepCount: 15,
+    });
+
+    await loop().recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
+
+    expect((await wuService.getById(wu.id))!.status).toBe('in_review');
+    const meta = await metaOf(wu.id);
+    expect(meta.attestations?.l1?.verdict).toBe('rejected');
+    expect(meta.attestations?.l1?.summary).toContain('make check');
+    expect(meta.verifyFailCount).toBeUndefined();
+    expect(meta.verifyReport).toBeUndefined();
+  });
+
+  it('强制收口：非代码类（analysis）即使有 worktree 落档也不跑验证、不落 l1', async () => {
+    const wu = await createWu('analysis', {
+      workspaceRoot: repoRoot, worktreePath: WT(), stepCount: 15,
+    });
+
+    await loop().recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
+
+    expect(mockExecSh).not.toHaveBeenCalled();
+    expect((await wuService.getById(wu.id))!.status).toBe('in_review');
+    expect((await metaOf(wu.id)).attestations?.l1).toBeUndefined();
+  });
+
+  it('强制收口：代码类但无 worktree → 不跑验证、不落 l1（维持现状）', async () => {
+    const wu = await createWu('task', { workspaceRoot: repoRoot, stepCount: 15 });
+
+    await loop().recordResult({ workUnit: wu }, { action: 'progress', summary: '继续中' });
+
+    expect(mockExecSh).not.toHaveBeenCalled();
+    expect((await wuService.getById(wu.id))!.status).toBe('in_review');
+    expect((await metaOf(wu.id)).attestations?.l1).toBeUndefined();
+  });
+
+  it('超限 + COMPLETE：COMPLETE 守卫本 step 已跑验证 → 强制收口不重复跑（execSh 仅一次）', async () => {
+    const wu = await createWu('task', {
+      workspaceRoot: repoRoot, worktreePath: WT(),
+      verifyCommands: ['make check'], stepCount: 15,
+    });
+
+    await loop().recordResult({ workUnit: wu }, { action: 'complete', summary: '做完了' });
+
+    expect(mockExecSh).toHaveBeenCalledTimes(1);
+    expect((await wuService.getById(wu.id))!.status).toBe('in_review');
+    expect((await metaOf(wu.id)).attestations?.l1?.verdict).toBe('approved');
+  });
 });

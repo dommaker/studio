@@ -12,6 +12,8 @@
  *   POST   /api/v1/workunits/:id/status  — transition status (state machine)
  *   POST   /api/v1/workunits/:id/review-passed   — review approved (in_review → done)
  *   POST   /api/v1/workunits/:id/review-rejected — review rejected (in_review → active/blocked)
+ *   POST   /api/v1/workunits/:id/verify          — F6-c 断点 2：人工重跑 L1 自动验证（human-only，不动状态）
+ *   POST   /api/v1/workunits/:id/dispatch-review — F6-c 断点 3：人工补派 agent 评审（human-only）
  *
  * 涌现路径 (AS-025 §5.15):
  *   POST   /api/v1/workunits/from-message — convert ChannelMessage to WorkUnit
@@ -24,8 +26,9 @@
 
 import { Router, type Request, type Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
-import { WorkUnitService } from './workunit.service.js';
+import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
+import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
@@ -295,6 +298,108 @@ router.post('/:id/review-rejected', requireAuth(), requireNotGuest(), async (req
     }
     if (msg.includes('Cannot review')) {
       return res.status(400).json({ error: { code: 'INVALID_TRANSITION', message: msg } });
+    }
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
+  }
+});
+
+/**
+ * POST /:id/verify — F6-c（断点 2）：人工重跑 L1 自动验证（human-only，验收权只在人同 A2A §4.4）。
+ * 仅代码类 WU（task/bug/feature/refactor）且有 worktree 落档；body.commands 可选
+ * （传了视为 metadata.verifyCommands 覆盖）。只补写台账 l1/verifyReport，不动 WU status；
+ * 写完发 status_changed（状态值不变也发）让 pmo rollup 按证据齐备度重估。
+ */
+router.post('/:id/verify', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    if (resolveCallerAuthorType(req) === 'agent') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Verify actions are human-only (authorType=agent rejected)' },
+      });
+    }
+    const wu = await service.getById(req.params.id);
+    if (!wu) {
+      return res.status(404).json({
+        error: { code: 'NOT_FOUND', message: `WorkUnit ${req.params.id} not found` },
+      });
+    }
+    if (!CODE_WORKTREE_TYPES.has(wu.type)) {
+      return res.status(400).json({
+        error: { code: 'INVALID_INPUT', message: `仅代码类 WU（task/bug/feature/refactor）支持 L1 验证（当前 type=${wu.type}）` },
+      });
+    }
+    const metadata: WorkUnitMetadata = wu.metadata ? JSON.parse(wu.metadata) : {};
+    const worktreePath = typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0
+      ? metadata.worktreePath
+      : null;
+    if (!worktreePath) {
+      return res.status(409).json({
+        error: { code: 'NO_WORKTREE', message: 'WU 无 worktree 落档（metadata.worktreePath 为空），无法验证' },
+      });
+    }
+    // body.commands 视为 metadata.verifyCommands 覆盖（同 resolveVerifyCommands 的覆盖语义）
+    const bodyCommands = Array.isArray(req.body?.commands)
+      ? (req.body.commands as unknown[]).filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+      : [];
+    const effectiveMeta: WorkUnitMetadata = bodyCommands.length > 0
+      ? { ...metadata, verifyCommands: bodyCommands }
+      : metadata;
+
+    const { commands } = await resolveVerifyCommands(wu, effectiveMeta, worktreePath);
+    if (commands.length === 0) {
+      return res.status(422).json({
+        verified: false,
+        reason: 'no-commands',
+        hint: '请在 WU metadata.verifyCommands 或 worktree 的 package.json scripts(test/typecheck/lint)中配置验证命令',
+      });
+    }
+
+    const outcome = await runWuVerification(wu, effectiveMeta, worktreePath);
+    // F6（决策 1）：人工重跑同样落台账 l1——by 取登录用户名（本地模式回落 Local User/id）
+    const user = (req as AuthRequest).user;
+    const updated = await service.recordL1Verification(wu.id, {
+      by: user?.name ?? user?.email ?? user?.id ?? 'human',
+      ran: outcome.ran,
+      source: outcome.source,
+      failure: outcome.failure,
+    });
+
+    if (outcome.failure) {
+      return res.json({ verified: false, failed: [outcome.failure] });
+    }
+    const report = (JSON.parse(updated.metadata ?? '{}') as WorkUnitMetadata).verifyReport
+      ?? { commands: outcome.ran, source: outcome.source };
+    res.json({ verified: true, report });
+  } catch (error) {
+    res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: getErrorMessage(error) } });
+  }
+});
+
+/**
+ * POST /:id/dispatch-review — F6-c（断点 3）：人工补派 agent 评审（human-only）。
+ * 父 WU 被人工直推 done（或 in_review 但评审子 WU 缺失）时补建 review 子 WU，
+ * 走与 ReviewDispatcher 路径 A 相同的未指派涌现 + excludeAssignee/自评兜底逻辑。
+ */
+router.post('/:id/dispatch-review', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
+  try {
+    if (resolveCallerAuthorType(req) === 'agent') {
+      return res.status(403).json({
+        error: { code: 'FORBIDDEN', message: 'Review actions are human-only (authorType=agent rejected)' },
+      });
+    }
+    // 与 index.ts 启动时同款动态 import：避免路由模块加载时拉起整个 agents 模块图
+    const { getReviewDispatcher } = await import('../agents/review-dispatcher.js') as typeof import('../agents/review-dispatcher.js');
+    const child = await getReviewDispatcher().dispatchReviewNow(req.params.id);
+    res.json({ reviewWorkUnitId: child.id });
+  } catch (error) {
+    const msg = getErrorMessage(error);
+    if (msg.includes('not found')) {
+      return res.status(404).json({ error: { code: 'NOT_FOUND', message: msg } });
+    }
+    if (msg.includes('already')) {
+      return res.status(409).json({ error: { code: 'ALREADY_SATISFIED', message: msg } });
+    }
+    if (msg.includes('Cannot dispatch') || msg.includes('not reviewable') || msg.includes('no channel')) {
+      return res.status(400).json({ error: { code: 'INVALID_INPUT', message: msg } });
     }
     res.status(500).json({ error: { code: 'INTERNAL_ERROR', message: msg } });
   }

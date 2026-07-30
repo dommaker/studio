@@ -3,9 +3,9 @@
 // Knowledge search analysis preserved as module-level exports.
 import { execSync } from 'child_process';
 import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, withAttestation, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
-import { resolveProviderDefinition, buildHealthProbeCommand, execSh } from '@dommaker/studio-shared/node';
+import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'fs';
+import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import * as os from 'os';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
@@ -21,11 +21,12 @@ import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
 import { eventStore } from '../../core/event-store.js';
 import { ChannelMessageService } from '../channels/channel-message.service.js';
-import { getWorkspaceRecord, resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
+import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
+import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -37,15 +38,11 @@ function studioEventsJsonlPath(): string {
   return process.env.STUDIO_EVENTS_JSONL || join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
 }
 
-/** B3b-i: 代码类 WU（执行面强制专属 worktree 隔离） */
-const CODE_WORKTREE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);
+/** B3b-i: 代码类 WU 判定与验证实现已抽到 ./wu-verification.js（F6-c，供强制收口与 /verify 端点复用） */
 /** 步骤数上限：超限强制 in_review 交人工。review WU 单独放宽——
  *  评审职责是读不是写，无提交守卫豁免后正常 ≤5 步收口；阈值仅是防死循环的安全阀 */
 const STEP_LIMIT = 15;
 const REVIEW_STEP_LIMIT = 30;
-/** B3b-i: 单条验证命令超时 10min；失败注入 prompt 的输出尾部上限 */
-const VERIFY_COMMAND_TIMEOUT_MS = 600_000;
-const VERIFY_FAIL_TAIL_CHARS = 2_000;
 const metricsFileStore = new FileStore();
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
@@ -1084,67 +1081,9 @@ ${rosterLines.join('\n')}
   }
 
   /**
-   * B3b-i（决策 D3 前半）: 解析 WU 的验证命令 —— 覆盖优先于约定。
-   * 覆盖：metadata.verifyCommands > workspace 记录 verifyCommands（字符串数组）；
-   * 约定：worktree package.json scripts 存在 test/typecheck/lint 则依次跑
-   * （按 lockfile 选 pnpm/npm）；都没有 → 空数组（跳过验证，维持现状）。
+   * B3b-i（决策 D3 前半）验证命令解析与执行已抽到 ./wu-verification.js（F6-c）——
+   * resolveVerifyCommands / runWuVerification 为模块级导出，行为不变。
    */
-  private async resolveVerifyCommands(
-    wu: WorkUnitData,
-    metadata: WorkUnitMetadata,
-    worktreePath: string,
-  ): Promise<{ commands: string[]; source: 'override' | 'convention' }> {
-    const asCommands = (v: unknown): string[] =>
-      Array.isArray(v) ? v.filter((c): c is string => typeof c === 'string' && c.trim().length > 0) : [];
-
-    const fromMeta = asCommands(metadata.verifyCommands);
-    if (fromMeta.length > 0) return { commands: fromMeta, source: 'override' };
-
-    if (wu.workspaceId) {
-      try {
-        const ws = await getWorkspaceRecord(wu.workspaceId);
-        const fromWs = asCommands(ws?.verifyCommands);
-        if (fromWs.length > 0) return { commands: fromWs, source: 'override' };
-      } catch { /* 记录读取失败按无覆盖处理 */ }
-    }
-
-    try {
-      const pkgRaw = readFileSync(join(worktreePath, 'package.json'), 'utf-8');
-      const scripts = (JSON.parse(pkgRaw) as { scripts?: Record<string, unknown> }).scripts ?? {};
-      const names = ['test', 'typecheck', 'lint'].filter(n => typeof scripts[n] === 'string');
-      if (names.length === 0) return { commands: [], source: 'convention' };
-      const pm = existsSync(join(worktreePath, 'pnpm-lock.yaml')) ? 'pnpm' : 'npm';
-      return { commands: names.map(n => `${pm} run ${n}`), source: 'convention' };
-    } catch {
-      return { commands: [], source: 'convention' };
-    }
-  }
-
-  /**
-   * B3b-i: 在 WU 的 worktree 里依次跑验证命令（单条 10min 超时）。
-   * 任一失败 → 返回 failure（命令 + 输出尾部截 2000 字符）；全过 → ran 为全部命令。
-   */
-  private async runWuVerification(
-    wu: WorkUnitData,
-    metadata: WorkUnitMetadata,
-    worktreePath: string,
-  ): Promise<{
-    ran: string[];
-    source: 'override' | 'convention';
-    failure?: { command: string; tail: string };
-  }> {
-    const { commands, source } = await this.resolveVerifyCommands(wu, metadata, worktreePath);
-    const ran: string[] = [];
-    for (const command of commands) {
-      try {
-        await execSh(command, { cwd: worktreePath, timeoutMs: VERIFY_COMMAND_TIMEOUT_MS });
-        ran.push(command);
-      } catch (err) {
-        return { ran, source, failure: { command, tail: extractExecOutputTail(err, VERIFY_FAIL_TAIL_CHARS) } };
-      }
-    }
-    return { ran, source };
-  }
 
   /** Record execution outcome to knowledge service (GAP-6, non-blocking).
    *  R1: consumedKnowledge = 本次 agentStep 经 injectContext 实际注入的知识条目 id。 */
@@ -1284,10 +1223,13 @@ ${rosterLines.join('\n')}
     // verifyFailCount ≥3 → blocked。无 worktree / 无命令可跑 → 跳过（维持现状）。
     let verifyBlocked = false;
     let verifyPassNotice: string | null = null;
+    // F6-c：本 step 是否已跑过验证（COMPLETE 守卫）——步骤超限强制收口路径据此避免重复跑
+    let verifyGuardRan = false;
     if (action === 'complete'
       && CODE_WORKTREE_TYPES.has(wu.type)
       && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0) {
-      const outcome = await this.runWuVerification(wu, metadata, metadata.worktreePath);
+      const outcome = await runWuVerification(wu, metadata, metadata.worktreePath);
+      verifyGuardRan = true;
       if (outcome.failure) {
         const failCount = (metadata.verifyFailCount ?? 0) + 1;
         guardUpdates.verifyFailCount = failCount;
@@ -1403,6 +1345,43 @@ ${rosterLines.join('\n')}
 
     const stepCount = (metadata.stepCount ?? 0) + 1;
     let consecutiveStuck = action === 'progress' ? 0 : (metadata.consecutiveStuck ?? 0) + 1;
+
+    // F6-c（断点 1）：步骤超限强制收口前补跑 L1 —— COMPLETE 验证守卫只在 action=complete 时跑，
+    // 超限路径（任意 action）此前完全跳过验证，代码类 WU 被强制 in_review 时永远缺 l1。
+    // 台账写法与 COMPLETE 守卫同结构（approved 全绿 + verifyReport / rejected 留痕），
+    // 但不计 verifyFailCount、不改 blocked 语义——仍按原计划进 in_review 交人工。
+    // 本 step COMPLETE 守卫已跑过验证时不重复跑；无命令可跑 → 不写 attestation（维持现状）。
+    // attestation 合进下方同一次 metadata 原子写回，不单独写库（防竞态）。
+    const forceClosing = stepCount > (wu.type === 'review' ? REVIEW_STEP_LIMIT : STEP_LIMIT);
+    if (forceClosing && !verifyGuardRan
+      && CODE_WORKTREE_TYPES.has(wu.type)
+      && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0) {
+      const outcome = await runWuVerification(wu, metadata, metadata.worktreePath);
+      if (outcome.failure) {
+        guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
+          verdict: 'rejected',
+          by: this.role.id,
+          at: new Date().toISOString(),
+          kind: 'verify',
+          summary: `失败命令: ${outcome.failure.command}`.slice(0, 300),
+        });
+        logger.info(`[AgentLoop] Force-close verify: l1 rejected for ${wuId} (command failed: ${outcome.failure.command})`);
+      } else if (outcome.ran.length > 0) {
+        guardUpdates.verifyReport = {
+          commands: outcome.ran,
+          source: outcome.source,
+          passedAt: new Date().toISOString(),
+        };
+        guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
+          verdict: 'approved',
+          by: this.role.id,
+          at: new Date().toISOString(),
+          kind: 'verify',
+          summary: outcome.ran.join('；').slice(0, 300),
+        });
+        logger.info(`[AgentLoop] Force-close verify: all passed for ${wuId}`, { commands: outcome.ran, source: outcome.source });
+      }
+    }
 
     // F5: NEED_INPUT 挂起标记（等待人类回复）；其他结果清除挂起标记（恢复后继续执行）
     const waitingUpdates: Partial<WorkUnitMetadata> = action === 'need_input'
@@ -1569,20 +1548,6 @@ export function isGitRepoRoot(root: string): boolean {
 /** B3b-i: worktrees 根目录解析（与 AgentRunner config 口径一致：WORKTREES_DIR > ~/worktrees） */
 export function resolveWorktreesDir(): string {
   return process.env.WORKTREES_DIR || join(os.homedir(), 'worktrees');
-}
-
-/** B3b-i: 从 execSh 拒绝错误提取输出尾部（stderr/stdout/message 拼接后截 maxChars） */
-export function extractExecOutputTail(err: unknown, maxChars: number): string {
-  let text = '';
-  if (err && typeof err === 'object') {
-    const rec = err as Record<string, unknown>;
-    text = [rec.stderr, rec.stdout, rec.message]
-      .filter((s): s is string => typeof s === 'string' && s.length > 0)
-      .join('\n');
-  } else {
-    text = String(err);
-  }
-  return text.slice(-maxChars);
 }
 
 /** Find the anchor message (first message, no replyToId) for a WorkUnit */
