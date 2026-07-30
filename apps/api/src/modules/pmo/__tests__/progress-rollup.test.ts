@@ -15,7 +15,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { eventBus, FileStore } from '@dommaker/studio-shared';
-import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId } from '../progress-rollup.js';
+import { initPmoProgressRollup, syncProjectProgress, syncProjectProgressByReqId, parseWuMetaPmoId } from '../progress-rollup.js';
 import { projectService, PROJECT_STATUS, type ProjectData } from '../project.service.js';
 import { RequirementService } from '../../requirements/requirement.service.js';
 import { WorkUnitService } from '../../workunit/workunit.service.js';
@@ -139,8 +139,45 @@ describe('syncProjectProgress（B3a 进度回写）', () => {
     expect((await projectService.get(project.id))!.progress).toBe(0);
   });
 
+  it('analysis 派生链：无 Requirement，按 metadata.pmoId 回退统计（他项目 WU 不计入）', async () => {
+    const project = await createRealProject();
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', metadata: { pmoId: project.id } });
+    await wuService.create({ scope: 'w2', type: 'task', status: 'active', metadata: { pmoId: project.id } });
+    await wuService.create({ scope: 'w3', type: 'task', status: 'done', metadata: { pmoId: 'proj-other' } });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.progress).toBe(50);
+    expect(after!.status).toBe(PROJECT_STATUS.PENDING);
+  });
+
+  it('analysis 派生链全部完结 → completed + progress=100（口径同主路径）', async () => {
+    const project = await createRealProject();
+    await wuService.create({ scope: 'w1', type: 'task', status: 'done', metadata: { pmoId: project.id } });
+    await wuService.create({ scope: 'w2', type: 'task', status: 'closed', metadata: { pmoId: project.id } });
+
+    await syncProjectProgress(project.id, fileStore);
+
+    const after = await projectService.get(project.id);
+    expect(after!.status).toBe(PROJECT_STATUS.COMPLETED);
+    expect(after!.progress).toBe(100);
+    expect(after!.completedAt).toBeTruthy();
+  });
+
   it('项目不存在 → 不抛错', async () => {
     await expect(syncProjectProgress('proj-no-such', fileStore)).resolves.toBeUndefined();
+  });
+});
+
+describe('parseWuMetaPmoId', () => {
+  it('解析 metadata.pmoId；坏 JSON / 非字符串 / 空值容错为 null', () => {
+    expect(parseWuMetaPmoId(JSON.stringify({ pmoId: 'proj-1' }))).toBe('proj-1');
+    expect(parseWuMetaPmoId('{broken')).toBeNull();
+    expect(parseWuMetaPmoId(JSON.stringify({ pmoId: 42 }))).toBeNull();
+    expect(parseWuMetaPmoId(JSON.stringify({}))).toBeNull();
+    expect(parseWuMetaPmoId(null)).toBeNull();
+    expect(parseWuMetaPmoId(undefined)).toBeNull();
   });
 });
 
@@ -165,6 +202,23 @@ describe('initPmoProgressRollup（事件接线）', () => {
     const off = initPmoProgressRollup(fileStore);
     try {
       // unassigned → active → in_review → done，每次状态变化都触发回写
+      await wuService.transitionStatus(wu.id, 'active');
+      await wuService.transitionStatus(wu.id, 'in_review');
+      await wuService.transitionStatus(wu.id, 'done');
+
+      const synced = await waitFor(async () => (await projectService.get(project.id))!.status === PROJECT_STATUS.COMPLETED);
+      expect(synced).toBe(true);
+      expect((await projectService.get(project.id))!.progress).toBe(100);
+    } finally {
+      off();
+    }
+  });
+
+  it('无 reqId 但 metadata.pmoId 存在 → 回退按 pmoId 回写进度', async () => {
+    const project = await createRealProject();
+    const wu = await wuService.create({ scope: 'w1', type: 'task', status: 'unassigned', metadata: { pmoId: project.id } });
+    const off = initPmoProgressRollup(fileStore);
+    try {
       await wuService.transitionStatus(wu.id, 'active');
       await wuService.transitionStatus(wu.id, 'in_review');
       await wuService.transitionStatus(wu.id, 'done');

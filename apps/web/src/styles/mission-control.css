@@ -267,6 +267,24 @@
 }
 .mc-author { font-weight: 600; color: var(--text-primary); }
 .mc-author-agent { color: var(--accent-primary); }
+
+/* 消息作者头像：Agent = 名 hash 稳定色（组件内联 background）；人类 = 品牌色 */
+.mc-avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: #f5f7fa;
+  flex-shrink: 0;
+  align-self: center;
+  object-fit: cover;
+  user-select: none;
+}
+.mc-avatar-human { background: var(--accent-primary); color: var(--bg-primary); }
 .mc-time { color: var(--text-muted); font-size: var(--fs-xs); }
 .mc-msg-body { color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
 .mc-msg-actions { display: inline-flex; gap: 6px; margin-left: 8px; opacity: 0; }
@@ -662,3 +680,15 @@
 .u-on-accent { color: var(--bg-primary); }
 .u-on-bright { color: #f5f7fa; }
 .u-ph::placeholder { color: var(--text-muted); }
+
+/* 着色底 + u-hover-bg 组合修正：u-hover-bg 会把背景改写成 --bg-hover（近黑），
+   实心按钮上的 on-accent 黑字随之消失（hover 变黑看不见字）；dim 按钮则丢着色底。
+   这里按语义色各自保住底色，改用 brightness 做 hover 反馈（对齐 .btn-primary:hover）。 */
+.u-accent-bg.u-hover-bg:hover { background: var(--accent-primary); filter: brightness(1.1); }
+.u-ok-bg.u-hover-bg:hover { background: var(--success); filter: brightness(1.1); }
+.u-err-bg.u-hover-bg:hover { background: var(--error); filter: brightness(1.1); }
+.u-warn-bg.u-hover-bg:hover { background: var(--warning); filter: brightness(1.1); }
+.u-accent-dim.u-hover-bg:hover { background: var(--accent-dim); filter: brightness(1.3); }
+.u-ok-dim.u-hover-bg:hover { background: var(--success-dim); filter: brightness(1.3); }
+.u-err-dim.u-hover-bg:hover { background: var(--error-dim); filter: brightness(1.3); }
+.u-warn-dim.u-hover-bg:hover { background: var(--warning-dim); filter: brightness(1.3); }

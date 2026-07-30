@@ -4,15 +4,13 @@ import { useEffect, useState } from 'react';
 import {
   workunitApi,
   parseWorkunitTokenEvents,
-  parseExecutionStepEvents,
   type WorkUnit,
   type WorkunitTokenEvent,
-  type ExecutionStepEvent,
 } from '../../api/workunit';
 import { requirementApi, type RequirementChain } from '../../api/requirements';
 import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
-import { useWorkUnitStreamEvents } from '../../hooks/useWorkUnitStreamEvents';
+import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { deriveDisplayState, parseAttestations, type AttestationEntry } from '@dommaker/studio-shared/web';
@@ -87,7 +85,6 @@ export function WorkUnitDrawer({ drawer, onClose, onOpenWu, onOpenReq }: Props) 
 function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) => void }) {
   const [wu, setWu] = useState<WorkUnit | null>(null);
   const [tokens, setTokens] = useState<WorkunitTokenEvent[] | null>(null);
-  const [steps, setSteps] = useState<ExecutionStepEvent[] | null>(null);
   const [overhead, setOverhead] = useState<OverheadStats | null>(null);
   const [error, setError] = useState('');
   const [showTreeTokens, setShowTreeTokens] = useState(false);
@@ -95,14 +92,11 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   // WU 事件（SSE）：状态变化/执行步事件时重拉详情（认领/审查/完成/执行过程即时可见）
   const [eventTick, setEventTick] = useState(0);
   useWorkUnitEvents(() => setEventTick(t => t + 1));
-  // Layer B 步内流式：执行中的实时 chunk（内存态，步级 REST 卡片落位后自动让位）
-  const liveChunks = useWorkUnitStreamEvents(id);
 
   useEffect(() => {
     let alive = true;
     setWu(null);
     setTokens(null);
-    setSteps(null);
     setError('');
     workunitApi.get(id)
       .then(r => { if (alive) setWu(r.data); })
@@ -110,9 +104,6 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
     workunitApi.listTokenEvents()
       .then(r => { if (alive) setTokens(parseWorkunitTokenEvents(r.data.events || [], id)); })
       .catch(() => { if (alive) setTokens([]); });
-    workunitApi.listExecutionStepEvents(id)
-      .then(r => { if (alive) setSteps(parseExecutionStepEvents(r.data.events || [], id)); })
-      .catch(() => { if (alive) setSteps([]); });
     monitoringApi.getOverhead()
       .then(r => { if (alive) setOverhead(r.data); })
       .catch(() => {});
@@ -223,68 +214,8 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       )}
 
       {/* WU 过程可视化：执行步事件流（思考/工具调用/skill 注入/用量），SSE 步级刷新。
-          频道只留里程碑，过程明细在这里；完整 transcript 见 agent HOME 的 claude projects 文件。
-          Layer B：执行中的步内实时 chunk（SSE-only 不落盘）；REST 步级卡片落位（同 step）后实时区自动让位。 */}
-      <div className="mc-block-label">执行过程</div>
-      {(() => {
-        const maxPersistedStep = (steps ?? []).reduce((m, s) => Math.max(m, s.step), 0);
-        const live = liveChunks.filter(c => c.step > maxPersistedStep);
-        if (live.length === 0) return null;
-        const currentStep = live[live.length - 1].step;
-        return (
-          <div style={{ marginBottom: 8 }}>
-            <div className="mc-kv">
-              <span className="mc-kv-k">
-                <span className="mc-status mc-status-running"><span className="mc-dot" />实时</span>
-              </span>
-              <span className="mc-kv-v">第 {currentStep} 步进行中</span>
-            </div>
-            {live.filter(c => c.kind !== 'step-start').map((c, i) => (
-              c.kind === 'tool' ? (
-                <div key={i} className="mc-drawer-note" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {c.tool}{c.summary ? `  ${c.summary}` : ''}
-                </div>
-              ) : (
-                <div key={i} className="mc-drawer-note" style={{ whiteSpace: 'pre-wrap' }}>
-                  {c.kind === 'thinking'
-                    ? `思考：${c.text}`
-                    : c.kind === 'result'
-                      ? `${c.isError ? '✗' : '✓'} ${c.text || '回合结束'}`
-                      : c.text}
-                </div>
-              )
-            ))}
-          </div>
-        );
-      })()}
-      {steps === null && <div className="mc-drawer-note">加载中…</div>}
-      {steps !== null && steps.length === 0 && liveChunks.length === 0 && (
-        <div className="mc-drawer-note">暂无执行过程记录（仅记录本能力上线后的执行步）</div>
-      )}
-      {steps !== null && steps.length > 0 && steps.map(s => (
-        <div key={`${s.executionId}-${s.step}`} style={{ marginBottom: 8 }}>
-          <div className="mc-kv">
-            <span className="mc-kv-k">#{s.step}{s.action ? ` · ${s.action}` : ''}</span>
-            <span className="mc-kv-v">
-              {formatTime(s.at)}
-              {s.usage ? ` · ${formatTokens(s.usage.inputTokens + s.usage.outputTokens)} tok` : ''}
-            </span>
-          </div>
-          {s.thinking.map((t, i) => (
-            <div key={`t${i}`} className="mc-drawer-note" style={{ whiteSpace: 'pre-wrap' }}>
-              思考：{t}
-            </div>
-          ))}
-          {s.toolCalls.map((c, i) => (
-            <div key={`c${i}`} className="mc-drawer-note" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-              {c.tool}{c.summary ? `  ${c.summary}` : ''}
-            </div>
-          ))}
-          {s.skills.length > 0 && (
-            <div className="mc-drawer-note">skills：{s.skills.join(', ')}</div>
-          )}
-        </div>
-      ))}
+          频道只留里程碑，过程明细在这里；完整 transcript 见 agent HOME 的 claude projects 文件。 */}
+      <ExecutionSteps workUnitId={id} />
 
       {wu.status === 'blocked' && meta.waitingForInput && meta.waitingQuestion && (
         <>

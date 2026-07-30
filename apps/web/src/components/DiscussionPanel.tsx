@@ -1,6 +1,7 @@
 // DiscussionPanel — WorkUnit 讨论空间（MVP-4）
 import { useState, useEffect, useRef } from 'react';
 import { workunitApi } from '../api/workunit';
+import { AuthorAvatar } from './channel/AuthorAvatar';
 
 interface Message {
   id: string;
@@ -68,12 +69,15 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
         ) : (
           messages.map(msg => (
             <div key={msg.id} className="text-xs">
-              <span className={`font-medium ${msg.authorType === 'agent' ? 'u-accent' : 'u-accent'}`}>
-                {msg.authorType === 'agent' ? (msg.agentName || 'Agent') : 'Human'}
-              </span>
-              <span className="u-text-2 ml-2">
-                {new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
-              </span>
+              <div className="flex items-center gap-1.5">
+                <AuthorAvatar isHuman={msg.authorType !== 'agent'} agentName={msg.agentName} />
+                <span className={`font-medium ${msg.authorType === 'agent' ? 'u-accent' : 'u-accent'}`}>
+                  {msg.authorType === 'agent' ? (msg.agentName || 'Agent') : 'Human'}
+                </span>
+                <span className="u-text-2">
+                  {new Date(msg.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
               <div className="mt-0.5 u-text-3 whitespace-pre-wrap">{msg.content}</div>
             </div>
           ))

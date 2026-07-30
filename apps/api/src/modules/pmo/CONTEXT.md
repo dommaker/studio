@@ -21,10 +21,10 @@
 | `resolveDeliveryPolicy` | `project.service.ts` | 交付策略缺省解析（未设置 = branch-only） |
 | `parsePmoNumberFromCommand` | `project.service.ts` | 从命令中解析 PMO 号 |
 | `PROJECT_STATUS` 常量 | `project.service.ts` | 项目状态枚举 |
-| `initPmoProgressRollup` / `syncProjectProgress` | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement（含决策 4 别名视图）关联 WU 的完结比例回写 progress；全部完结 → completed（best-effort） |
+| `initPmoProgressRollup` / `syncProjectProgress` / `parseWuMetaPmoId` | `progress-rollup.ts` | B3a：订阅 workunit.status_changed，按项目下全部 Requirement（含决策 4 别名视图）关联 WU 的完结比例回写 progress；全部完结 → completed（best-effort）。analysis 派生链无 reqId：事件入口与统计均回退按 metadata.pmoId 归属（口径不变）；`GET /project/:id` 读取时触发一次重算（存量项目进度纠偏） |
 | `AnalysisHandoff` / `initAnalysisHandoff` | `analysis-handoff.ts` | PMO 分析接力：订阅 workunit.status_changed——analysis → in_review 频道提示人工确认（ReviewDispatcher 对 analysis 不派自动评审）；→ done（人工确认）按 metadata.analysisTasks 建未指派 task 子 WU 派工（analysisTasksSpawnedAt 幂等；task 继承 analysis 的 workspaceRoot → 归属链接通 per-WU worktree + PMO 分支） |
 | `projectService.publish` | `project.service.ts` | 发频道卡片 + 建 analysis WU（scope 含只读约束 + TASK 输出约定）；metadata 落 pmoId/pmoNumber + workspaceRoot=project.gitRepo（B3a 归属链起点，2026-07-30 接通——此前 task WU 无归属根，直接在共享开发仓落地） |
-| `getDeliveryStatus` / `deliverProject` | `delivery.ts` | PMO-b 交付守卫：台账（WU 汇总 + l1/l2/l3 证据齐缺 + deliverable）与 auto-merge 交付（证据齐才本地合并 PMO 分支 → 默认分支，不 push；branch-only 只标记不碰链路） |
+| `getDeliveryStatus` / `deliverProject` | `delivery.ts` | PMO-b 交付守卫：台账（WU 汇总 + l1/l2/l3 证据齐缺 + deliverable）与 auto-merge 交付（证据齐才本地合并 PMO 分支 → 默认分支，不 push；branch-only 只标记不碰链路）。关联 WU 判定同 progress-rollup：Requirement 链路为空时回退按 metadata.pmoId 归属（复用 parseWuMetaPmoId） |
 | `detectAnomalies` | `okr-anomaly-detector.ts` | OKR 异常检测（默认停用） |
 | 默认导出 Express Router | `routes.ts` | 提供 `/project`、`/objective`、`/key-result` 等 REST 路由（含 `GET /project/:id/delivery`、`POST /project/:id/deliver`（human-only）） |
 
