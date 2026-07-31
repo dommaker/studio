@@ -554,7 +554,7 @@ export class AgentLoop {
         : leadSections;
     }
 
-    // Session management — per-Agent session (GAP-2: RuntimeInstance.sessionId)
+    // Session management — per-WU session (RuntimeInstance.sessionId, cwd-scoped)
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
     if (skillMatched.length > 0) {
       // 决策 7: step 时匹配名单落盘 metadata.matchedSkills（随 recordResult 原子写入，
@@ -578,7 +578,8 @@ export class AgentLoop {
       metadataUpdates.childGuardHint = undefined;
     }
     // 续用判定（fix/guard-and-resume）：同一 WU 内才续用。claude 会话按 (HOME, cwd) 存储
-    // （2.1.80 实测：异 cwd --resume 报 "No conversation found with session ID"），
+    // （2.1.80 实测：异 cwd --resume 报 "No conversation found with session ID"）。
+    // HOME 不再 per-agent 隔离（GAP-2 已移除），会话区分靠 cwd；token 由 process.env 透传。
     // B3b-i 每 WU 独立 worktree → 跨 WU 续用必失败；WU metadata.sessionId 由本 WU 首 step
     // 写入，与 instance.sessionId 相等才说明会话是在本 WU（同一 worktree/cwd）建立的。
     const resumeSessionId = this.instance?.sessionId && metadata.sessionId === this.instance.sessionId
