@@ -1,6 +1,7 @@
 // Channel message renderer — AC-C2: reply button + AC-C3: thread + AC-E3: Convert to Task
 // 2026-07 视觉重构（方向 A Mission Control）：纯文本行 + 卡片族视觉重绘；交互语义零变更
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { ChannelMessage } from '../../api/channel';
 import { AuthorAvatar } from './AuthorAvatar';
 import { RequirementsDocCard } from './RequirementsDocCard';
@@ -63,6 +64,9 @@ export function ChannelMessageItem({
   const [needSent, setNeedSent] = useState(false);
   const canConvert = !message.workUnitId && isHuman && !!channelId;
   const reqId: string | undefined = meta.requirementId || meta.reqId;
+  // 2026-07 §5.7: 里程碑消息 meta.pmoId（老消息没有 → undefined，不渲染 PMO chip）
+  const pmoId: string | undefined = typeof meta.pmoId === 'string' ? meta.pmoId : undefined;
+  const navigate = useNavigate();
 
   const handleConverted = () => {
     setConvertOpen(false);
@@ -148,12 +152,32 @@ export function ChannelMessageItem({
         )
       )}
 
-      {/* Footer: WU/REQ 链接（开右抽屉）+ 线程开关 */}
-      {(message.workUnitId || reqId || (isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0)) && (
+      {/* Footer: WU/REQ 链接（开右抽屉）+ WU/PMO 直跳 + 线程开关 */}
+      {(message.workUnitId || reqId || pmoId || (isThreadAnchor && threadReplyCount !== undefined && threadReplyCount > 0)) && (
         <div className="mc-card-foot">
           {message.workUnitId && onOpenWorkUnit && (
             <button className="mc-wu-link" onClick={() => onOpenWorkUnit(message.workUnitId!)} title="打开 WorkUnit 详情">
               {message.workUnitId} ›
+            </button>
+          )}
+          {message.workUnitId && (
+            <button
+              className="mc-wu-link"
+              onClick={() => navigate(`/workunits/${message.workUnitId}`)}
+              title="新页面打开 WorkUnit 详情"
+              aria-label="新页面打开 WorkUnit 详情"
+            >
+              ↗
+            </button>
+          )}
+          {pmoId && (
+            <button
+              className="mc-wu-link"
+              onClick={() => navigate(`/pmo/project/${pmoId}`)}
+              title="打开项目详情"
+              aria-label="打开项目详情"
+            >
+              PMO ›
             </button>
           )}
           {reqId && onOpenRequirement && (

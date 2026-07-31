@@ -1,6 +1,22 @@
 // Monitoring API — Agent Network (MVP-2 + MVP-6)
 import { api } from './index';
 
+/** 2026-07-31 全流程串联（§6.1）：instance 当前 WU 聚合信息（后端并行落地中，字段可能暂缺，消费方防御性处理） */
+export interface AgentCurrentWorkUnit {
+  id: string;
+  title: string;
+  type: string;
+  status: string;
+  claimedAt: string | null;
+}
+
+/** instance 当前 WU 归属的 PMO 项目（PMO 即 REQ 只读别名） */
+export interface AgentPmoRef {
+  id: string;
+  pmoNumber: string;
+  title: string;
+}
+
 export interface AgentInfo {
   id: string;
   /** 对应 AgentProfile.id，用于与 profile（provider 等）合并展示 */
@@ -11,6 +27,12 @@ export interface AgentInfo {
   startedAt: string;
   lastError?: string | null;
   lastErrorAt?: string | null;
+  /** §6.1 聚合：当前 WU 详情（无任务或后端未上线时为 null/undefined） */
+  currentWorkUnit?: AgentCurrentWorkUnit | null;
+  /** §6.1 聚合：当前 WU 所属 PMO */
+  pmo?: AgentPmoRef | null;
+  /** §6.1 聚合：instance 所在频道 */
+  channelId?: string | null;
 }
 
 export interface AgentSummary {

@@ -20,9 +20,9 @@ import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
 import { eventStore } from '../../core/event-store.js';
-import { ChannelMessageService } from '../channels/channel-message.service.js';
+import { ChannelMessageService, type MessageMeta } from '../channels/channel-message.service.js';
 import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
-import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
+import { resolvePmoBranchForWU, resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
@@ -127,6 +127,8 @@ export class AgentLoop {
   private loopPromise: Promise<void> | null = null;
   private lastIdleHeartbeatAt = 0;
   private executor: Executor;
+  /** 2026-07 PMO-flow UX（§6-2）：最后一次已发布的 instance 状态（SSE 去重——状态不变不发） */
+  private lastPublishedStatus: string | null = null;
 
   constructor(role: AgentProfileData, fileStore?: FileStore) {
     this.role = role;
@@ -331,6 +333,8 @@ export class AgentLoop {
             currentWorkUnitId: target.workUnit.id,
             status: 'active',
           }).catch(() => {});
+          // 2026-07 PMO-flow UX（§6-2）：忙闲变化 SSE（仅状态实际变化时发一次）
+          this.publishInstanceStatus('active', target.workUnit.id);
         }
 
         const result = await this.agentStep(target);
@@ -361,6 +365,32 @@ export class AgentLoop {
       this.lastIdleHeartbeatAt = nowMs;
     }
     await this.fileStore.updateState(this.instance.id, update).catch(() => {});
+    // 2026-07 PMO-flow UX（§6-2）：进入 idle 发一次 SSE；45s 节流心跳重入不重复发
+    this.publishInstanceStatus('idle', null);
+  }
+
+  /**
+   * 2026-07 PMO-flow UX（§6-2）：instance 忙闲变化发 SSE（agent.instance.status_changed）。
+   * 形状与 recordStartupFailure 的 agent.health.failed 一致（events topic 信封；
+   * sse.routes 无 agent.* 显式映射 → 落 all topic，前端订阅 all 即收，无需改路由）。
+   * 仅在 status 相对上次发布实际变化时发（lastPublishedStatus 去重）——
+   * updateIdleState 的 45s 节流分支反复进入 idle 不刷屏。best-effort，绝不阻断主循环。
+   */
+  private publishInstanceStatus(status: string, currentWorkUnitId: string | null): void {
+    if (!this.instance || this.lastPublishedStatus === status) return;
+    this.lastPublishedStatus = status;
+    eventStore.publish('events', JSON.stringify({
+      event_type: 'agent.instance.status_changed',
+      event_id: randomUUID(),
+      timestamp: new Date().toISOString(),
+      data: {
+        profileId: this.role.id,
+        instanceId: this.instance.id,
+        name: this.role.name,
+        status,
+        currentWorkUnitId,
+      },
+    })).catch(() => {}); // best-effort
   }
 
   /** Stop the agent loop and clean up */
@@ -1416,9 +1446,11 @@ ${rosterLines.join('\n')}
       if (wu.status !== 'blocked') {
         await this.workUnitService.transitionStatus(wuId, 'blocked');
       }
+      // 2026-07 PMO-flow UX（§6-3）：验证失败打回/转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
       await this.postToDiscussionSpace(
         wuId,
         `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
+        await this.milestoneMeta(wu, metadata),
       );
       return;
     }
@@ -1443,7 +1475,8 @@ ${rosterLines.join('\n')}
       await this.workUnitService.transitionStatus(wuId, 'blocked');
       // W-3 接线：执行失败导致的 blocked 在频道说明失败原因（summary 含 CLI 错误详情）
       const stuckReason = action === 'failed' && result.summary ? `（${result.summary}）` : '';
-      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`);
+      // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
+      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`, await this.milestoneMeta(wu, metadata));
       return;
     }
 
@@ -1457,7 +1490,10 @@ ${rosterLines.join('\n')}
         }
         break;
       case 'complete':
-        if (!skipResultPost && result.summary.trim().length > 0) await this.postToDiscussionSpace(wuId, result.summary);
+        // 2026-07 PMO-flow UX（§6-3）：COMPLETE 完成汇报里程碑 —— meta 带 pmoId（可解析时）+ atHuman
+        if (!skipResultPost && result.summary.trim().length > 0) {
+          await this.postToDiscussionSpace(wuId, result.summary, await this.milestoneMeta(wu, metadata));
+        }
         // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
         if (wu.status === 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'active');
@@ -1471,7 +1507,10 @@ ${rosterLines.join('\n')}
         }
         break;
       case 'need_input':
-        if (!skipResultPost) await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`);
+        // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
+        if (!skipResultPost) {
+          await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, await this.milestoneMeta(wu, metadata));
+        }
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
         if (wu.status !== 'blocked') {
           await this.workUnitService.transitionStatus(wuId, 'blocked');
@@ -1492,8 +1531,9 @@ ${rosterLines.join('\n')}
       .map(s => s.id);
   }
 
-  /** Post message to discussion space（经 ChannelMessageService：eventBus + SSE，频道页实时可见） */
-  private async postToDiscussionSpace(workUnitId: string, content: string): Promise<void> {
+  /** Post message to discussion space（经 ChannelMessageService：eventBus + SSE，频道页实时可见）。
+   *  meta 仅里程碑消息携带（2026-07 PMO-flow UX §6-3：pmoId/atHuman），普通 progress 不带。 */
+  private async postToDiscussionSpace(workUnitId: string, content: string, meta?: MessageMeta): Promise<void> {
     if (!content.trim()) return;
     const wu = await this.workUnitService.getById(workUnitId);
     if (!wu?.channelId) return;
@@ -1503,7 +1543,27 @@ ${rosterLines.join('\n')}
     await new ChannelMessageService(this.fileStore).createAgentMessage(wu.channelId, this.role.name, content, {
       replyToId: anchor?.id,
       workUnitId,
+      ...(meta ? { meta } : {}),
     });
+  }
+
+  /**
+   * 2026-07 PMO-flow UX（§6-3）：里程碑消息 meta 的归属 PMO 解析。
+   * 解析链复用 pmo-branch-resolver（①ownershipProjectId ②reqId→Requirement.projectId ③pmoProjectId）；
+   * metadata 用「持久化 + 本 step metadataUpdates」合并视图（pmoProjectId 可能本 step 刚落档）。
+   * best-effort —— 解析失败/无归属 → null（消息 meta 不携带 pmoId）。
+   */
+  private async resolveMilestonePmoId(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<string | null> {
+    return resolvePmoProjectIdForWU(
+      { reqId: wu.reqId ?? null, metadata: JSON.stringify(metadata) },
+      this.fileStore,
+    ).catch(() => null);
+  }
+
+  /** 2026-07 PMO-flow UX（§6-3）：里程碑消息 meta（pmoId 解析不到则不携带；atHuman 标记需人看） */
+  private async milestoneMeta(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<MessageMeta> {
+    const pmoId = await this.resolveMilestonePmoId(wu, metadata);
+    return { ...(pmoId ? { pmoId } : {}), atHuman: true };
   }
 
 }

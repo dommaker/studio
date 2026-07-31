@@ -100,6 +100,8 @@ describe('P0: scanTimedOutWorkUnits（workunit-timeout-scan handler）', () => {
     expect(messages[0].agentName).toBe('Studio');
     expect(messages[0].content).toContain('超时');
     expect(messages[0].content).toContain('释放回任务池');
+    // 释放回池非「需要人看」里程碑：meta 保持空（2026-07 §6-3 不动非转人工消息）
+    expect(messages[0].meta).toBe('{}');
   });
 
   it('未超时 / 非 active 的 WU 不受影响', async () => {
@@ -144,6 +146,8 @@ describe('P0: scanTimedOutWorkUnits（workunit-timeout-scan handler）', () => {
     expect(messages[0].agentName).toBe('Studio');
     expect(messages[0].content).toContain('blocked');
     expect(messages[0].content).toContain('人工介入');
+    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 meta 带 atHuman（无归属 → 不携带 pmoId）
+    expect(JSON.parse(messages[0].meta)).toEqual({ atHuman: true });
   });
 
   it('释放后可重新认领并获得新的 timeoutAt', async () => {

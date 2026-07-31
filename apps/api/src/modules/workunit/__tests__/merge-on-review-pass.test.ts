@@ -129,6 +129,8 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toContain('未提交改动');
     expect(msgs[0].content).toContain('README.md');
+    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 meta 带 atHuman（无归属 → 不携带 pmoId）
+    expect(JSON.parse(msgs[0].meta)).toEqual({ atHuman: true });
   });
 
   it('数据防丢闸：git status 调用失败按有改动处理（宁可转人工不丢数据）', async () => {
@@ -186,7 +188,10 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(calledCommands().some(c => c.includes('merge --no-ff'))).toBe(false);
     expect((await wuService.getById(wu.id))!.status).toBe('blocked');
     const msgs = await studioMessages(wu.id);
-    expect(msgs.some(m => m.content.includes('PMO 集成分支') && m.content.includes('转人工'))).toBe(true);
+    const humanMsg = msgs.find(m => m.content.includes('PMO 集成分支') && m.content.includes('转人工'));
+    expect(humanMsg).toBeDefined();
+    // 2026-07 PMO-flow UX（§6-3）：转人工里程碑 meta 带 atHuman（proj-1 不存在 → 不携带 pmoId）
+    expect(JSON.parse(humanMsg!.meta)).toEqual({ atHuman: true });
   });
 
   it('合并成功：--no-ff merge → 记 mergedAt/mergeCommit → 清理 worktree+分支 → 频道通知', async () => {
@@ -217,6 +222,8 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toContain(`已合并到 ${BASE}`);
     expect(msgs[0].content).toContain(HEAD.slice(0, 7));
+    // 合并成功通知非「需要人看」里程碑：meta 保持空（2026-07 §6-3 不动非转人工消息）
+    expect(msgs[0].meta).toBe('{}');
   });
 
   it('冲突重试成功：首次 merge 失败 → abort → worktree rebase 到 base → 再 merge 成功', async () => {
@@ -287,6 +294,8 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(msgs[0].content).toContain('转人工');
     expect(msgs[0].content).toContain('src/a.ts');
     expect(msgs[0].content).toContain('src/b.ts');
+    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 meta 带 atHuman（无归属 → 不携带 pmoId）
+    expect(JSON.parse(msgs[0].meta)).toEqual({ atHuman: true });
   });
 
   it('冲突转人工（rebase 成功但二次 merge 仍冲突）：冲突文件取自 baseRepo 现场', async () => {

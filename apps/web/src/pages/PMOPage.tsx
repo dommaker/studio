@@ -3,6 +3,9 @@ import { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { api, projectApi } from '../api';
 import { channelApi, type Channel, type AgentProfile, type LocalProject } from '../api/channel';
+import { requirementApi } from '../api/requirements';
+import { knowledgeApi } from '../api/knowledge';
+import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { toast } from '../utils/toast';
 import { Select } from '../components/ui';
 import '../styles/theme.css';
@@ -141,6 +144,10 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const [okrs, setOKRs] = useState<OKR[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // 🆕 AC-6: 卡片徽章数据（WU 完成度 / 文档计数；批量并行、失败静默不显示）
+  const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
+  const [docCounts, setDocCounts] = useState<Record<string, number>>({});
   
   // 🆕 B8: OKR 创建弹窗 — 支持 KR 编辑
   const [showOKRDialog, setShowOKRDialog] = useState(false);
@@ -200,6 +207,47 @@ export function PMOPage({ companyId }: PMOPageProps) {
     loadData();
     loadChannels();
   }, [companyId]);
+
+  // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain + 一次 knowledge；失败静默）
+  useEffect(() => {
+    if (projects.length === 0) {
+      setWuStats({});
+      setDocCounts({});
+      return;
+    }
+    let cancelled = false;
+
+    const withAlias = projects.filter((p): p is Project & { reqAlias: string } => !!p.reqAlias);
+    Promise.allSettled(withAlias.map(async p => {
+      const res = await requirementApi.getChain(p.reqAlias);
+      const wus = res.data?.data?.workunits ?? [];
+      // 完成口径 = workFinished 所有权口径（F6 铁律）
+      const finished = wus.filter(w =>
+        deriveDisplayState({ status: w.status, metadata: w.metadata }).workFinished).length;
+      return { id: p.id, finished, total: wus.length };
+    })).then(results => {
+      if (cancelled) return;
+      const next: Record<string, { finished: number; total: number }> = {};
+      for (const r of results) {
+        if (r.status === 'fulfilled') next[r.value.id] = { finished: r.value.finished, total: r.value.total };
+      }
+      setWuStats(next);
+    });
+
+    Promise.allSettled(projects.map(async p => {
+      const res = await knowledgeApi.listByProject(p.id);
+      return { id: p.id, count: res.data?.documents?.length ?? 0 };
+    })).then(results => {
+      if (cancelled) return;
+      const next: Record<string, number> = {};
+      for (const r of results) {
+        if (r.status === 'fulfilled') next[r.value.id] = r.value.count;
+      }
+      setDocCounts(next);
+    });
+
+    return () => { cancelled = true; };
+  }, [projects]);
 
   const loadData = async () => {
     try {
@@ -488,6 +536,23 @@ export function PMOPage({ companyId }: PMOPageProps) {
                           {project.deliveryPolicy && (
                             <span className="ml-2" style={{ color: 'var(--text-tertiary)' }}>
                               · {project.deliveryPolicy}
+                            </span>
+                          )}
+                          {/* 🆕 AC-6: WU 完成度 + 文档计数徽章（数据缺失/为 0 不显示） */}
+                          {wuStats[project.id] && wuStats[project.id].total > 0 && (
+                            <span className="ml-2 px-1.5 py-0.5 rounded" style={{
+                              background: 'var(--bg-tertiary)',
+                              color: 'var(--text-secondary)',
+                            }}>
+                              WU {wuStats[project.id].finished}/{wuStats[project.id].total}
+                            </span>
+                          )}
+                          {(docCounts[project.id] ?? 0) > 0 && (
+                            <span className="ml-1 px-1.5 py-0.5 rounded" style={{
+                              background: 'var(--bg-tertiary)',
+                              color: 'var(--text-secondary)',
+                            }}>
+                              📄 {docCounts[project.id]}
                             </span>
                           )}
                         </div>
