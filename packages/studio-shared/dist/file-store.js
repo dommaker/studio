@@ -39,7 +39,12 @@ const DEFAULT_LOCK_TIMEOUT_MS = 5000;
 export class FileStore {
     baseDir;
     constructor(baseDir) {
-        this.baseDir = baseDir ?? path.join(os.homedir(), '.studio', 'data');
+        // CWD 陷阱修复：baseDir 解耦 HOME。
+        // buildSessionEnv 把 claude CLI 子进程 HOME 设成 agentHome（GAP-2 隔离），
+        // 子进程里 new FileStore() 无参构造时 os.homedir() 返回 agentHome，baseDir 漂移到
+        // ~/.studio/data/agents/<profile-id>/.studio/data 产生嵌套。STUDIO_DATA_DIR env
+        // 由 API server bootstrap 显式设置并经 buildSessionEnv 透传，提供绝对路径锚点。
+        this.baseDir = baseDir ?? process.env.STUDIO_DATA_DIR ?? path.join(os.homedir(), '.studio', 'data');
     }
     // ─── 内部工具方法 ───
     /** 确保目录存在 */
@@ -301,6 +306,18 @@ export class FileStore {
         if (!existing)
             throw new Error(`RuntimeState not found for agent: ${agentId}`);
         await this.writeJson(this.statePath(agentId), { ...existing, ...patch });
+    }
+    /** 删除 RuntimeState（state.json）。保留同目录 profile.json。 */
+    async deleteState(agentId) {
+        const statePath = this.statePath(agentId);
+        try {
+            await fs.promises.unlink(statePath);
+        }
+        catch (err) {
+            if (isErrnoError(err) && err.code === 'ENOENT')
+                throw new Error(`RuntimeState not found for agent: ${agentId}`);
+            throw err;
+        }
     }
     /** 创建新的 RuntimeState（不是 upsert，确保第一次创建不会覆盖已有） */
     async createState(agentId, data) {

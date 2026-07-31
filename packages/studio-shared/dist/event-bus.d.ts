@@ -6,6 +6,7 @@ declare class StudioEventBus {
     subscribe(channel: string, handler: EventHandler): void;
     unsubscribe(channel: string, handler: EventHandler): void;
     once(channel: string, handler: EventHandler): void;
+    unsubscribeAll(channel: string): void;
     private matchPattern;
     clear(): void;
 }

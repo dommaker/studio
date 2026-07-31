@@ -7,7 +7,7 @@
  * flock claim 并发测试
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -192,6 +192,25 @@ describe('FileStore', () => {
     it('should return empty array when no states', async () => {
       const states = await store.listStates();
       expect(states).toHaveLength(0);
+    });
+
+    it('should delete state by agentId', async () => {
+      await store.createState('agent1', makeState('agent1'));
+      await store.deleteState('agent1');
+      const loaded = await store.getState('agent1');
+      expect(loaded).toBeNull();
+    });
+
+    it('should throw on deleting non-existent state', async () => {
+      await expect(store.deleteState('nonexistent')).rejects.toThrow('RuntimeState not found');
+    });
+
+    it('deleteState should not affect profile.json in same agent dir', async () => {
+      await store.createProfile(makeProfile('agent1'));
+      await store.createState('agent1', makeState('agent1'));
+      await store.deleteState('agent1');
+      const profile = await store.getProfile('agent1');
+      expect(profile).not.toBeNull();
     });
   });
 
@@ -1109,5 +1128,55 @@ main().catch(err => {
 
       expect(await store.getIndex()).toEqual([]);
     }, 30000);
+  });
+});
+
+// CWD 陷阱修复：FileStore baseDir 解耦 HOME，改读 STUDIO_DATA_DIR env。
+// 根因：buildSessionEnv 把 claude CLI 子进程 HOME 设成 agentHome（GAP-2 隔离），
+// 子进程里 new FileStore() 无参构造时 os.homedir() 返回 agentHome，baseDir 漂移到
+// ~/.studio/data/agents/<profile-id>/.studio/data 产生嵌套。解耦后 env 优先于 homedir。
+describe('FileStore baseDir resolution (STUDIO_DATA_DIR decouples from HOME)', () => {
+  const prevEnv = process.env.STUDIO_DATA_DIR;
+
+  afterEach(() => {
+    if (prevEnv === undefined) delete process.env.STUDIO_DATA_DIR;
+    else process.env.STUDIO_DATA_DIR = prevEnv;
+    vi.restoreAllMocks();
+  });
+
+  it('uses STUDIO_DATA_DIR env when baseDir arg omitted (not os.homedir)', async () => {
+    const envDir = createTempDir();
+    const homedirFallback = createTempDir();
+    process.env.STUDIO_DATA_DIR = envDir;
+    vi.spyOn(os, 'homedir').mockReturnValue(homedirFallback);
+
+    const store = new FileStore();
+    await store.createProfile(makeProfile('p-env', 'env-agent'));
+
+    expect(fs.existsSync(path.join(envDir, 'agents', 'p-env', 'profile.json'))).toBe(true);
+    expect(fs.existsSync(path.join(homedirFallback, 'agents', 'p-env', 'profile.json'))).toBe(false);
+  });
+
+  it('explicit baseDir arg overrides STUDIO_DATA_DIR env', async () => {
+    const envDir = createTempDir();
+    const argDir = createTempDir();
+    process.env.STUDIO_DATA_DIR = envDir;
+
+    const store = new FileStore(argDir);
+    await store.createProfile(makeProfile('p-arg', 'arg-agent'));
+
+    expect(fs.existsSync(path.join(argDir, 'agents', 'p-arg', 'profile.json'))).toBe(true);
+    expect(fs.existsSync(path.join(envDir, 'agents', 'p-arg', 'profile.json'))).toBe(false);
+  });
+
+  it('falls back to os.homedir()/.studio/data when neither arg nor env set', async () => {
+    const homedirFallback = createTempDir();
+    delete process.env.STUDIO_DATA_DIR;
+    vi.spyOn(os, 'homedir').mockReturnValue(homedirFallback);
+
+    const store = new FileStore();
+    await store.createProfile(makeProfile('p-home', 'home-agent'));
+
+    expect(fs.existsSync(path.join(homedirFallback, '.studio', 'data', 'agents', 'p-home', 'profile.json'))).toBe(true);
   });
 });
