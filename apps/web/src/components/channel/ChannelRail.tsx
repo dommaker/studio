@@ -53,6 +53,21 @@ export function ChannelRail({ activeChannelId }: Props) {
     return m;
   }, [agentSummary]);
 
+  // 可见 Agent 列表：按 roleId 去重（取最新一条，agents 已按 startedAt 降序）+ 过滤 terminated
+  // terminated 是历史运行实例残留，频道侧栏只展示当前活跃角色（与 AgentDashboardPage 同模式）
+  const visibleAgents = useMemo(() => {
+    const seen = new Set<string>();
+    return (agentSummary?.agents ?? []).filter(a => {
+      if (a.status === 'terminated') return false;
+      const key = a.roleId || a.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [agentSummary]);
+
+  const onlineCount = visibleAgents.filter(a => a.status === 'idle' || a.status === 'active').length;
+
   // 频道 agent 在线数：members ∩ 非 terminated agent（无 members 配置则不显示，不编造）
   const chanCounts = (membersJson?: string): { online: number; total: number } | null => {
     if (!membersJson) return null;
@@ -164,10 +179,10 @@ export function ChannelRail({ activeChannelId }: Props) {
 
       <div className="mc-agents">
         <div className="mc-sec-label">
-          Agents{agentSummary ? ` · ${agentSummary.summary.idle + agentSummary.summary.active}/${agentSummary.summary.total}` : ''}
+          Agents{agentSummary ? ` · ${onlineCount}/${visibleAgents.length}` : ''}
         </div>
         {!agentSummary && <div className="mc-rail-empty">加载中…</div>}
-        {agentSummary?.agents.map(a => (
+        {visibleAgents.map(a => (
           <div className="mc-agent" key={a.id} title={a.lastError || undefined}>
             <span className={agentDotClass(a.status)} />
             <span className="mc-agent-name">@{a.name}</span>

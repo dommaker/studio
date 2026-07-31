@@ -164,6 +164,13 @@ export class AgentLoop {
 
       const allStates = await this.fileStore.listStates();
 
+      // 2026-07-30 走查修复：清理该 roleId 的 terminated 历史实例（防累积）
+      // 每次 API 重启都创建新 idle 实例，旧 terminated state.json 不清理会无限累积
+      // （~/.studio/data/agents/<id>/state.json 残留，监控/频道侧栏显示历史噪音）
+      for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'terminated')) {
+        await this.fileStore.deleteState(s.id).catch(() => {});
+      }
+
       // F2: recovery — a successful probe clears previous error states for this role
       for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'error')) {
         await this.fileStore.updateState(s.id, {
@@ -175,7 +182,7 @@ export class AgentLoop {
       }
 
       // AC-4.6: Detect and clean up stale previous instances for this role
-      const stalePrev = allStates.find(s => s.roleId === this.role.id && s.status !== 'error' && s.pid && !isProcessAlive(s.pid));
+      const stalePrev = allStates.find(s => s.roleId === this.role.id && s.status !== 'error' && s.status !== 'terminated' && s.pid && !isProcessAlive(s.pid));
       if (stalePrev) {
         logger.info(`[AgentLoop] Cleaning up stale instance ${stalePrev.id} (PID ${stalePrev.pid})`);
         await this.fileStore.updateState(stalePrev.id, { status: 'terminated' }).catch(() => {});
@@ -554,7 +561,7 @@ export class AgentLoop {
         : leadSections;
     }
 
-    // Session management — per-Agent session (GAP-2: RuntimeInstance.sessionId)
+    // Session management — per-WU session (RuntimeInstance.sessionId, cwd-scoped)
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
     if (skillMatched.length > 0) {
       // 决策 7: step 时匹配名单落盘 metadata.matchedSkills（随 recordResult 原子写入，
@@ -578,7 +585,8 @@ export class AgentLoop {
       metadataUpdates.childGuardHint = undefined;
     }
     // 续用判定（fix/guard-and-resume）：同一 WU 内才续用。claude 会话按 (HOME, cwd) 存储
-    // （2.1.80 实测：异 cwd --resume 报 "No conversation found with session ID"），
+    // （2.1.80 实测：异 cwd --resume 报 "No conversation found with session ID"）。
+    // HOME 不再 per-agent 隔离（GAP-2 已移除），会话区分靠 cwd；token 由 process.env 透传。
     // B3b-i 每 WU 独立 worktree → 跨 WU 续用必失败；WU metadata.sessionId 由本 WU 首 step
     // 写入，与 instance.sessionId 相等才说明会话是在本 WU（同一 worktree/cwd）建立的。
     const resumeSessionId = this.instance?.sessionId && metadata.sessionId === this.instance.sessionId

@@ -48,6 +48,11 @@ class StudioEventBus {
     once(channel, handler) {
         this.emitter.once(channel, handler);
     }
+    // 按频道清空所有监听器（测试隔离用；各测试文件 afterEach 已在可选调用）
+    unsubscribeAll(channel) {
+        this.emitter.removeAllListeners(channel);
+        this.listeners.delete(channel);
+    }
     // 通配符匹配：events:* 匹配 events:task
     matchPattern(pattern, channel) {
         if (pattern === channel)

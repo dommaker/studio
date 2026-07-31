@@ -11,7 +11,6 @@
 
 import type { ChildProcess } from 'child_process';
 import * as path from 'path';
-import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
@@ -30,8 +29,6 @@ import {
   checkPrerequisites,
   buildAugmentedPrompt,
   buildSessionCommand,
-  resolveAgentHome,
-  ensureAgentHomeCliConfig,
   buildSessionEnv,
 } from './runner-params.js';
 import type { RunnerExecutionState } from './runner-execution.js';
@@ -128,16 +125,10 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
     const sessionStart = Date.now();
     await emitSessionStart(sessionId, task.executionId, 1);
 
-    // Ensure per-Agent HOME directory exists (GAP-2)
-    const agentHome = resolveAgentHome(task);
-    await fs.mkdir(agentHome, { recursive: true });
-    // GAP-2 auth: 隔离 HOME 注入 CLI 鉴权/模型 env（best-effort，不阻断 spawn）
-    await ensureAgentHomeCliConfig(agentHome);
-
     try {
       const { stdout } = await execSh(cmd, {
         cwd: worktree,
-        env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', agentHome, withWorkUnitEnv: true }),
+        env: buildSessionEnv({ task, role: agentRole as 'analyst' | 'executor', withWorkUnitEnv: true }),
         // 扁平默认 30min（原 fast/standard/premium tier 分档已删）
         timeoutMs: task.timeoutMs ?? 30 * 60_000,
         maxBuffer: 10 * 1024 * 1024,
