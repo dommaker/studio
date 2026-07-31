@@ -859,6 +859,52 @@ describe('AgentLoop', () => {
     });
   });
 
+  describe('Terminated history cleanup (2026-07-30)', () => {
+    it('start() 删除该 roleId 的 terminated 历史实例（防累积）', async () => {
+      // 历史累积的 terminated 实例
+      await fileStore.createState('old-term-1', {
+        id: 'old-term-1', roleId: 'role-1', sessionId: null,
+        status: 'terminated', currentWorkUnitId: null,
+        startedAt: '2026-07-01T00:00:00Z', terminatedAt: '2026-07-01T00:05:00Z',
+        lastHeartbeat: null, metadata: null, pid: 1000,
+      });
+      await fileStore.createState('old-term-2', {
+        id: 'old-term-2', roleId: 'role-1', sessionId: null,
+        status: 'terminated', currentWorkUnitId: null,
+        startedAt: '2026-07-02T00:00:00Z', terminatedAt: '2026-07-02T00:05:00Z',
+        lastHeartbeat: null, metadata: null, pid: 1001,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+
+      const states = await fileStore.listStates();
+      const oldTerm1 = states.find(s => s.id === 'old-term-1');
+      const oldTerm2 = states.find(s => s.id === 'old-term-2');
+      expect(oldTerm1).toBeUndefined();
+      expect(oldTerm2).toBeUndefined();
+      // 新 idle 实例存在
+      const idle = states.find(s => s.roleId === 'role-1' && s.status === 'idle');
+      expect(idle).toBeDefined();
+    });
+
+    it('start() 不删除其他 roleId 的 terminated 历史', async () => {
+      await fileStore.createState('other-role-term', {
+        id: 'other-role-term', roleId: 'role-other', sessionId: null,
+        status: 'terminated', currentWorkUnitId: null,
+        startedAt: '2026-07-01T00:00:00Z', terminatedAt: '2026-07-01T00:05:00Z',
+        lastHeartbeat: null, metadata: null, pid: 1002,
+      });
+
+      agentLoop = new AgentLoop(mockRole, fileStore);
+      await agentLoop.start();
+
+      const otherTerm = await fileStore.getState('other-role-term');
+      expect(otherTerm).not.toBeNull();
+      expect(otherTerm!.status).toBe('terminated');
+    });
+  });
+
   describe('同角色单活实例守卫（2026-07-30）', () => {
     const holderState = (overrides: Record<string, unknown>) => ({
       id: 'holder-instance',

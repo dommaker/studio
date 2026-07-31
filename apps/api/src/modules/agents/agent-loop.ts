@@ -164,6 +164,13 @@ export class AgentLoop {
 
       const allStates = await this.fileStore.listStates();
 
+      // 2026-07-30 走查修复：清理该 roleId 的 terminated 历史实例（防累积）
+      // 每次 API 重启都创建新 idle 实例，旧 terminated state.json 不清理会无限累积
+      // （~/.studio/data/agents/<id>/state.json 残留，监控/频道侧栏显示历史噪音）
+      for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'terminated')) {
+        await this.fileStore.deleteState(s.id).catch(() => {});
+      }
+
       // F2: recovery — a successful probe clears previous error states for this role
       for (const s of allStates.filter(s => s.roleId === this.role.id && s.status === 'error')) {
         await this.fileStore.updateState(s.id, {
@@ -175,7 +182,7 @@ export class AgentLoop {
       }
 
       // AC-4.6: Detect and clean up stale previous instances for this role
-      const stalePrev = allStates.find(s => s.roleId === this.role.id && s.status !== 'error' && s.pid && !isProcessAlive(s.pid));
+      const stalePrev = allStates.find(s => s.roleId === this.role.id && s.status !== 'error' && s.status !== 'terminated' && s.pid && !isProcessAlive(s.pid));
       if (stalePrev) {
         logger.info(`[AgentLoop] Cleaning up stale instance ${stalePrev.id} (PID ${stalePrev.pid})`);
         await this.fileStore.updateState(stalePrev.id, { status: 'terminated' }).catch(() => {});
