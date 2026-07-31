@@ -23,7 +23,8 @@
 | `KnowledgeMetricsSource` (接口) | `monitoring.service.ts` | 知识度量源接口，定义 `getFlywheelMetrics` 和 `getAuditReport` 方法 |
 | `FlywheelStats` (接口) | `monitoring.service.ts` | M1 飞轮指标类型，包含 quality、hitRate、freshness 等字段 |
 | `OverheadStats` (接口) | `monitoring.service.ts` | M2 封装开销指标类型，包含 injectedTokens、executionTokens 等字段 |
-| `AgentSummary` (接口) | `monitoring.service.ts` | Agent 摘要类型；agents 数组含 `roleId`（= AgentProfile.id），前端 AgentDashboard 据此合并 profile 信息（provider 等） |
+| `AgentSummary` (接口) | `monitoring.service.ts` | Agent 摘要类型；agents 数组含 `roleId`（= AgentProfile.id），前端 AgentDashboard 据此合并 profile 信息（provider 等）；2026-07 PMO-flow UX 起每项另含 `currentWorkUnit{id,title,type,status,claimedAt}` / `pmo{id,pmoNumber,title}` / `channelId`（均可 null，向后兼容） |
+| `AgentCurrentWorkUnit` / `AgentPmoSummary` / `MonitoringServiceDeps` (接口) | `monitoring.service.ts` | /monitoring/agents 聚合的当前 WU 快照 / 归属 PMO 摘要 / 可注入依赖（`listProjects`，测试 stub 避免碰真实 ~/.studio/projects） |
 
 ## 依赖关系
 
@@ -39,10 +40,12 @@
 - 监控数据窗口默认 30 天，由 `KnowledgeMetricsSource` 的 `windowDays` 参数控制。
 - **D16 /overview（2026-07-27）**：聚合八组指标（任务流健康/入口转化/人工干预北极星/端到端周期/角色维度/工程质量/Token/告警），数据源 = WU index.json + workunits/events.jsonl + 统一事件文件（D18）+ 频道人类消息；窗口默认 7d（query 1-90 clamp），60s 缓存；数据不足显式 0/null + `source='insufficient-data'` 不编造；每组带 `description` 大白话。
 - **鉴权（2026-07-24 收紧）**：`/api/v1/monitoring` 挂载级 `requireAuth()+requireAdmin()`（route-registry）。GET 端点此前无挂载中间件、仅靠 Lurk Wall 大门兜底。
+- **/agents 聚合（2026-07-31 PMO-flow UX §6-1）**：`getAgentSummary` 每 agent 附 `currentWorkUnit`（WU 快照，title = metadata.title ?? scope 原样）+ `pmo`（归属链复用 pmo-branch-resolver 的 `resolvePmoProjectIdForWU`：①metadata.ownershipProjectId ②reqId→Requirement.projectId（决策 4 别名镜像：REQ-\d+ 先查项目 reqAlias）③metadata.pmoProjectId）+ `channelId`。读取效率：WU index / requirements / projects 各读一次后内存 map 匹配（`loadCurrentWuContexts`），不逐 agent 串行读文件；projects 默认 lazy import projectService.list 大页，测试经 `MonitoringServiceDeps.listProjects` 注入。悬空 currentWorkUnitId（WU 已不存在）→ 三字段 null，裸 id 字段保持原样。
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-31: PMO-flow UX §6-1 — `getAgentSummary` 聚合扩展：每 agent 附 `currentWorkUnit{id,title,type,status,claimedAt}`（title = metadata.title ?? scope）+ `pmo{id,pmoNumber,title}`（归属链走 requirements 模块 `resolvePmoProjectIdForWU`，map 版 deps 批量内存匹配：WU index/requirements/projects 各读一次）+ `channelId`；新增 `AgentCurrentWorkUnit`/`AgentPmoSummary`/`MonitoringServiceDeps` 类型与 `loadCurrentWuContexts` 私有方法；向后兼容（既有字段不动，悬空 WU/归属不到 → null）；补测试 8 例（三归属链/别名链/回落/null/批量读取计数）
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ 2026-07-27: B5 D16 — 新增 metrics.service（aggregateOverview 纯函数 + 60s 缓存）与 GET /overview 端点
 - ✅ 2026-07-27: P0 修复 5 — monitoring.service 的 studio-events.jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）

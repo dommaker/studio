@@ -35,6 +35,7 @@ import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WorkUnitService, WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
+import type { MessageMeta } from '../channels/channel-message.service.js';
 
 /** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > ~/worktrees） */
 function resolveWorktreesDir(): string {
@@ -106,11 +107,13 @@ async function findAnchor(workUnitId: string, fileStore: FileStore): Promise<Cha
   return anchors[0] ?? null;
 }
 
-/** 向 WU 所在频道发 Studio 系统消息（形态参照 waiting-input.postStudioSystemMessage） */
+/** 向 WU 所在频道发 Studio 系统消息（形态参照 waiting-input.postStudioSystemMessage）。
+ *  meta 仅 blocked 转人工里程碑携带（2026-07 PMO-flow UX §6-3：pmoId/atHuman），合并成功通知不带。 */
 async function postSystemMessage(
   fileStore: FileStore,
   wu: WorkUnitData,
   content: string,
+  meta?: MessageMeta,
 ): Promise<void> {
   if (!wu.channelId) return;
   const anchor = await findAnchor(wu.id, fileStore).catch(() => null);
@@ -121,11 +124,25 @@ async function postSystemMessage(
     agentName: 'Studio',
     content,
     replyToId: anchor?.id ?? null,
-    meta: '{}',
+    meta: meta ? JSON.stringify(meta) : '{}',
     workUnitId: wu.id,
     createdAt: new Date().toISOString(),
   };
   await fileStore.appendMessage(wu.channelId, msg);
+}
+
+/**
+ * 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 meta（pmoId 可解析时携带 + atHuman）。
+ * pmo-branch-resolver 走 lazy import——本模块被 workunit.service 静态依赖，
+ * 静态引入 pmo-branch-resolver（→ project.service → workunit.service）会成循环（同头部依赖说明）。
+ */
+async function milestoneMeta(fileStore: FileStore, wu: WorkUnitData): Promise<MessageMeta> {
+  const { resolvePmoProjectIdForWU } = await import('../requirements/pmo-branch-resolver.js');
+  const pmoId = await resolvePmoProjectIdForWU(
+    { reqId: wu.reqId ?? null, metadata: wu.metadata },
+    fileStore,
+  ).catch(() => null); // best-effort：解析不到不带 pmoId
+  return { ...(pmoId ? { pmoId } : {}), atHuman: true };
 }
 
 /**
@@ -170,6 +187,7 @@ export async function mergeWorktreeBranchOnReviewPass(
         fileStore,
         wu,
         `任务「${title}」的 worktree 仍有未提交改动，未执行自动合并，已转人工处理${fileList}`,
+        await milestoneMeta(fileStore, wu),
       ).catch(err => logger.warn('[MergeOnReviewPass] post dirty message failed', { wuId: wu.id, error: String(err) }));
       logger.warn('[MergeOnReviewPass] dirty worktree escalated to human (merge skipped)', {
         wuId: wu.id, branch, worktreePath, dirtyCount: dirtyFiles?.length ?? -1,
@@ -201,6 +219,7 @@ export async function mergeWorktreeBranchOnReviewPass(
         fileStore,
         wu,
         `任务「${title}」的 PMO 集成分支 ${meta.pmoBranch} 准备失败（${message.slice(0, 200)}），已转人工处理`,
+        await milestoneMeta(fileStore, wu),
       ).catch(e => logger.warn('[MergeOnReviewPass] post pmo-setup message failed', { wuId: wu.id, error: String(e) }));
       logger.warn('[MergeOnReviewPass] pmo integration worktree setup failed', { wuId: wu.id, pmoBranch: meta.pmoBranch, error: message });
       return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
@@ -226,6 +245,7 @@ export async function mergeWorktreeBranchOnReviewPass(
       fileStore,
       wu,
       `任务「${title}」自动合并到 ${mergeContext.targetBranch} 失败（重试后仍冲突），已转人工处理${fileList}`,
+      await milestoneMeta(fileStore, wu),
     ).catch(err => logger.warn('[MergeOnReviewPass] post conflict message failed', { wuId: wu.id, error: String(err) }));
     logger.warn('[MergeOnReviewPass] merge conflict escalated to human', {
       wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, conflictFiles: merged.conflictFiles,

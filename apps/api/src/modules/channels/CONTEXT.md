@@ -50,6 +50,7 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-31: PMO-flow UX §6-3 — `MessageMeta` 增 `pmoId?: string`（里程碑消息归属 PMO 项目 id，NotificationBell 跳转 PMO 详情用；与既有 `atHuman` 同由写入方按需携带，service 合并/透传逻辑不变）
 - ✅ 2026-07-28: F5 @studio 入口解锚 + seed 退役（2026-07-28 分析文档决策 6）— message-routing @studio 转派目标从硬编码 pm 改为频道 `defaultProfileId`（与决策 12 同字段），未配置/inactive/越界 → 未指派走 claim 涌现；channel.routes PATCH 新增 `defaultProfileId` 可配置（'' /null 清除，非空校验 active profile）；删除 PATCH 绑工程自动加内置三角色 members 的 B4a 逻辑（内置 seed 已随 F4/F5 退役，`agents/builtin-roles.ts` 删除）
 - ✅ `39b6af5f`: channels): L1 convert-to-task 人工指派卡死修复（指派统一建 unassigned 指名）
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId

@@ -1,6 +1,9 @@
 // Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6)
 import { FileStore } from '@dommaker/studio-shared';
 import type { AuditReport, FlywheelMetrics } from '../knowledge/knowledge-service.js';
+import type { ProjectData } from '../pmo/project.service.js';
+import type { RequirementWithProject } from '../requirements/requirement.service.js';
+import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
@@ -64,6 +67,36 @@ export interface OverheadStats {
   timestamp: string;
 }
 
+/** 2026-07 PMO-flow UX（§6-1）：/monitoring/agents 聚合的当前 WU 快照 */
+export interface AgentCurrentWorkUnit {
+  id: string;
+  /** metadata.title ?? scope（原样，不截断） */
+  title: string;
+  type: string;
+  status: string;
+  claimedAt: string | null;
+}
+
+/** 2026-07 PMO-flow UX（§6-1）：/monitoring/agents 聚合的归属 PMO 摘要 */
+export interface AgentPmoSummary {
+  id: string;
+  pmoNumber: string;
+  title: string;
+}
+
+/** getAgentSummary 内部聚合：单个当前 WU 的展示快照 + 归属 */
+interface CurrentWuContext {
+  currentWorkUnit: AgentCurrentWorkUnit;
+  pmo: AgentPmoSummary | null;
+  channelId: string | null;
+}
+
+/** /monitoring/agents PMO 归属聚合的可注入依赖（测试 stub 避免碰真实 ~/.studio/projects） */
+export interface MonitoringServiceDeps {
+  /** 全量 PMO 项目读取（默认 projectService.list 大页；getAgentSummary 每次调用批量读一次） */
+  listProjects?: () => Promise<ProjectData[]>;
+}
+
 export interface AgentSummary {
   agents: Array<{
     id: string;
@@ -75,6 +108,12 @@ export interface AgentSummary {
     startedAt: string;
     lastError: string | null;
     lastErrorAt: string | null;
+    /** 2026-07 PMO-flow UX：当前 WU 快照（无 currentWorkUnitId 或 WU 已不存在 → null） */
+    currentWorkUnit: AgentCurrentWorkUnit | null;
+    /** 2026-07 PMO-flow UX：归属 PMO（解析链 ①ownershipProjectId ②reqId→Requirement.projectId ③pmoProjectId；解析不到 → null） */
+    pmo: AgentPmoSummary | null;
+    /** 2026-07 PMO-flow UX：当前 WU 所在频道（无当前 WU → null） */
+    channelId: string | null;
   }>;
   summary: {
     total: number;
@@ -111,13 +150,26 @@ function countByStatus(snapshots: Array<{ status: string; completedAt: string | 
   return snapshots.filter(s => s.status === status).length;
 }
 
+/** WU metadata.title 安全解析（损坏/缺失/非字符串 → null，调用方回落 scope） */
+function parseMetadataTitle(metadata: string | null): string | null {
+  if (!metadata) return null;
+  try {
+    const meta = JSON.parse(metadata) as { title?: unknown };
+    return typeof meta.title === 'string' && meta.title ? meta.title : null;
+  } catch {
+    return null;
+  }
+}
+
 export class MonitoringService {
   private fileStore: FileStore;
   private knowledge: KnowledgeMetricsSource | null;
+  private deps: MonitoringServiceDeps | null;
 
-  constructor(fileStore?: FileStore, knowledge?: KnowledgeMetricsSource) {
+  constructor(fileStore?: FileStore, knowledge?: KnowledgeMetricsSource, deps?: MonitoringServiceDeps) {
     this.fileStore = fileStore ?? new FileStore();
     this.knowledge = knowledge ?? null;
+    this.deps = deps ?? null;
   }
 
   /** 缺省取生产 knowledgeService 单例（lazy import，避免模块加载期副作用/循环依赖） */
@@ -127,6 +179,72 @@ export class MonitoringService {
       this.knowledge = mod.knowledgeService;
     }
     return this.knowledge;
+  }
+
+  /** 全量 PMO 项目读取（deps 注入优先；缺省 lazy import 生产单例，理由同 getKnowledge） */
+  private async listProjects(): Promise<ProjectData[]> {
+    if (this.deps?.listProjects) return this.deps.listProjects();
+    const mod = await import('../pmo/project.service.js');
+    return mod.projectService.list({ limit: 100000 });
+  }
+
+  /**
+   * 2026-07 PMO-flow UX（§6-1）：批量加载当前 WU 聚合上下文。
+   * WU 快照 / requirement / project 各读一次（FileStore JSON），内存 map 匹配——
+   * 不逐 agent 串行读文件。WU 不存在于 index（悬空 currentWorkUnitId）→ 无 map 项（调用方得 null）。
+   */
+  private async loadCurrentWuContexts(wuIds: string[]): Promise<Map<string, CurrentWuContext>> {
+    const contexts = new Map<string, CurrentWuContext>();
+    if (wuIds.length === 0) return contexts;
+
+    const idSet = new Set(wuIds);
+    const snapshots = (await this.fileStore.getIndex()).filter(s => idSet.has(s.id));
+    if (snapshots.length === 0) return contexts;
+
+    const reqIds = new Set(snapshots.map(s => s.reqId).filter((id): id is string => !!id));
+    const [requirements, projects] = await Promise.all([
+      reqIds.size > 0
+        ? this.fileStore.listRequirements()
+        : Promise.resolve([] as RequirementWithProject[]),
+      this.listProjects().catch(() => [] as ProjectData[]),
+    ]);
+    const reqById = new Map((requirements as RequirementWithProject[]).map(r => [r.id, r]));
+    const projectById = new Map(projects.map(p => [p.id, p]));
+
+    // 决策 4 别名层镜像（RequirementService.get 口径）：REQ-\d+ 先查统一编号 PMO 别名
+    // （别名视图 projectId = PMO 自身 id），查不到再回落 legacy REQ 记录
+    const getRequirement = async (id: string): Promise<{ projectId?: string | null } | null> => {
+      if (/^REQ-\d+$/i.test(id)) {
+        const alias = projects.find(p => p.reqAlias === id.toUpperCase());
+        if (alias) return { projectId: alias.id };
+      }
+      return reqById.get(id) ?? null;
+    };
+    const resolverDeps = {
+      getProject: async (id: string) => projectById.get(id) ?? null,
+      getRequirement,
+    };
+
+    for (const s of snapshots) {
+      const projectId = await resolvePmoProjectIdForWU(
+        { reqId: s.reqId ?? null, metadata: s.metadata },
+        undefined,
+        resolverDeps,
+      );
+      const project = projectId ? projectById.get(projectId) ?? null : null;
+      contexts.set(s.id, {
+        currentWorkUnit: {
+          id: s.id,
+          title: parseMetadataTitle(s.metadata) ?? s.scope,
+          type: s.type,
+          status: s.status,
+          claimedAt: s.claimedAt,
+        },
+        pmo: project ? { id: project.id, pmoNumber: project.pmoNumber, title: project.title } : null,
+        channelId: s.channelId,
+      });
+    }
+    return contexts;
   }
 
   async getAgentSummary(): Promise<AgentSummary> {
@@ -141,18 +259,28 @@ export class MonitoringService {
     const profiles = allProfiles.filter(p => roleIds.includes(p.id));
     const roleNameMap = new Map(profiles.map(p => [p.id, p.name]));
 
-    const agents = states.map(inst => ({
-      id: inst.id,
-      // 2026-07：暴露 roleId，前端据此与 AgentProfile 合并展示（provider 等）
-      roleId: inst.roleId,
-      name: roleNameMap.get(inst.roleId) ?? 'unknown',
-      status: inst.status,
-      currentWorkUnitId: inst.currentWorkUnitId,
-      startedAt: inst.startedAt,
-      // F2: 启动失败原因（health probe 等）暴露给监控页
-      lastError: inst.lastError ?? null,
-      lastErrorAt: inst.lastErrorAt ?? null,
-    }));
+    // 2026-07 PMO-flow UX：批量预取当前 WU 聚合上下文（各数据源读一次，内存匹配）
+    const wuIds = [...new Set(states.map(i => i.currentWorkUnitId).filter((id): id is string => !!id))];
+    const wuContexts = await this.loadCurrentWuContexts(wuIds);
+
+    const agents = states.map(inst => {
+      const wuCtx = inst.currentWorkUnitId ? wuContexts.get(inst.currentWorkUnitId) ?? null : null;
+      return {
+        id: inst.id,
+        // 2026-07：暴露 roleId，前端据此与 AgentProfile 合并展示（provider 等）
+        roleId: inst.roleId,
+        name: roleNameMap.get(inst.roleId) ?? 'unknown',
+        status: inst.status,
+        currentWorkUnitId: inst.currentWorkUnitId,
+        startedAt: inst.startedAt,
+        // F2: 启动失败原因（health probe 等）暴露给监控页
+        lastError: inst.lastError ?? null,
+        lastErrorAt: inst.lastErrorAt ?? null,
+        currentWorkUnit: wuCtx?.currentWorkUnit ?? null,
+        pmo: wuCtx?.pmo ?? null,
+        channelId: wuCtx?.channelId ?? null,
+      };
+    });
 
     const summary = {
       total: agents.length,

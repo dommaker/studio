@@ -24,6 +24,7 @@ import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, ty
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { readCollab } from '../workunit/delegation-gate.js';
 import { findAnchorMessage } from './agent-loop.js';
+import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
 
 export class ReviewDispatcher {
   private subscribed = false;
@@ -336,10 +337,18 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
     }
   }
 
-  /** 向父 WU 所在频道发系统消息（转人工通知；形态同 waiting-input 提醒） */
+  /**
+   * 向父 WU 所在频道发系统消息（转人工通知；形态同 waiting-input 提醒）。
+   * 2026-07 PMO-flow UX（§6-3）：评审结果类转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
+   * （NotificationBell 监听 meta.atHuman 的 SSE 消息，pmoId 供跳转 PMO 详情）。
+   */
   private async postSystemMessage(parent: WorkUnitData, content: string): Promise<void> {
     if (!parent.channelId) return;
     const anchor = await findAnchorMessage(parent.id, this.fileStore);
+    const pmoId = await resolvePmoProjectIdForWU(
+      { reqId: parent.reqId ?? null, metadata: parent.metadata },
+      this.fileStore,
+    ).catch(() => null); // best-effort：解析不到不带 pmoId，不阻断发帖
     const msg: ChannelMessageData = {
       id: randomUUID(),
       channelId: parent.channelId,
@@ -347,7 +356,7 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       agentName: 'Studio',
       content,
       replyToId: anchor?.id ?? null,
-      meta: '{}',
+      meta: JSON.stringify({ ...(pmoId ? { pmoId } : {}), atHuman: true }),
       workUnitId: parent.id,
       createdAt: new Date().toISOString(),
     };

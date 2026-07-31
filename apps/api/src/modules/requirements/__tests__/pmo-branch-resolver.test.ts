@@ -5,7 +5,7 @@
  *       gitBranch 缺省回落 pmoNumber / 无关联返回 null / 逐级容错。
  */
 import { describe, it, expect } from 'vitest';
-import { resolvePmoBranchForWU } from '../pmo-branch-resolver.js';
+import { resolvePmoBranchForWU, resolvePmoProjectIdForWU } from '../pmo-branch-resolver.js';
 import type { ProjectData } from '../../pmo/project.service.js';
 
 function project(overrides: Partial<ProjectData>): ProjectData {
@@ -95,5 +95,112 @@ describe('resolvePmoBranchForWU（PMO-b 决策 3）', () => {
       { getProject: async () => { throw new Error('fs exploded'); } },
     );
     expect(r).toBeNull();
+  });
+});
+
+describe('resolvePmoProjectIdForWU（2026-07 PMO-flow UX §6：只出项目 id）', () => {
+  it('① metadata.ownershipProjectId 命中且项目存在 → 项目 id', async () => {
+    const r = await resolvePmoProjectIdForWU(
+      { metadata: JSON.stringify({ ownershipProjectId: 'proj-1' }) },
+      undefined,
+      { getProject: async id => (id === 'proj-1' ? project({}) : null) },
+    );
+    expect(r).toBe('proj-1');
+  });
+
+  it('② reqId → Requirement.projectId 命中（① 缺失时）', async () => {
+    const r = await resolvePmoProjectIdForWU(
+      { reqId: 'REQ-0011' },
+      undefined,
+      {
+        getProject: async id => (id === 'proj-1' ? project({}) : null),
+        getRequirement: async () => ({ projectId: 'proj-1' }),
+      },
+    );
+    expect(r).toBe('proj-1');
+  });
+
+  it('③ metadata.pmoProjectId 命中（①② 均落空时）', async () => {
+    const r = await resolvePmoProjectIdForWU(
+      { reqId: 'REQ-0011', metadata: JSON.stringify({ pmoProjectId: 'proj-3' }) },
+      undefined,
+      {
+        getProject: async id => (id === 'proj-3' ? project({ id: 'proj-3' }) : null),
+        getRequirement: async () => null,
+      },
+    );
+    expect(r).toBe('proj-3');
+  });
+
+  it('链序优先：① 优先于 ②，② 优先于 ③', async () => {
+    const r = await resolvePmoProjectIdForWU(
+      {
+        reqId: 'REQ-0011',
+        metadata: JSON.stringify({ ownershipProjectId: 'proj-a', pmoProjectId: 'proj-c' }),
+      },
+      undefined,
+      {
+        getProject: async id => project({ id }),
+        getRequirement: async () => ({ projectId: 'proj-b' }),
+      },
+    );
+    expect(r).toBe('proj-a');
+
+    const r2 = await resolvePmoProjectIdForWU(
+      { reqId: 'REQ-0011', metadata: JSON.stringify({ pmoProjectId: 'proj-c' }) },
+      undefined,
+      {
+        getProject: async id => project({ id }),
+        getRequirement: async () => ({ projectId: 'proj-b' }),
+      },
+    );
+    expect(r2).toBe('proj-b');
+  });
+
+  it('单级项目不存在 → 落下一级；全失败 → null', async () => {
+    // ① 指向不存在项目 → 落 ②
+    const r = await resolvePmoProjectIdForWU(
+      { reqId: 'REQ-0011', metadata: JSON.stringify({ ownershipProjectId: 'ghost' }) },
+      undefined,
+      {
+        getProject: async id => (id === 'proj-1' ? project({}) : null),
+        getRequirement: async () => ({ projectId: 'proj-1' }),
+      },
+    );
+    expect(r).toBe('proj-1');
+
+    // 全落空
+    expect(
+      await resolvePmoProjectIdForWU(
+        { reqId: 'REQ-0001', metadata: JSON.stringify({ pmoProjectId: 'ghost' }) },
+        undefined,
+        { getProject: async () => null, getRequirement: async () => ({ projectId: 'ghost' }) },
+      ),
+    ).toBeNull();
+    expect(await resolvePmoProjectIdForWU({}, undefined, { getProject: async () => null })).toBeNull();
+    expect(
+      await resolvePmoProjectIdForWU({ metadata: '{broken' }, undefined, { getProject: async () => null }),
+    ).toBeNull();
+  });
+
+  it('依赖抛错 → 容错继续下一级 / 返回 null', async () => {
+    const r = await resolvePmoProjectIdForWU(
+      { reqId: 'REQ-0011', metadata: JSON.stringify({ ownershipProjectId: 'proj-1', pmoProjectId: 'proj-3' }) },
+      undefined,
+      {
+        getProject: async id => (id === 'proj-3' ? project({ id: 'proj-3' }) : null),
+        getRequirement: async () => { throw new Error('fs exploded'); },
+      },
+    );
+    // ① 项目不存在（getProject 只对 proj-3 命中）→ ② 抛错容错 → ③ 命中
+    expect(r).toBe('proj-3');
+
+    expect(
+      await resolvePmoProjectIdForWU(
+        { metadata: JSON.stringify({ ownershipProjectId: 'proj-1' }) },
+        undefined,
+        { getProject: async () => { throw new Error('fs exploded'); } },
+      ),
+    ).toBeNull();
   });
 });

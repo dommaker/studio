@@ -245,7 +245,15 @@ function WorkUnitRow({
                 {wu.reqId}
               </span>
             )}
-            <span className="font-medium u-text truncate">{wu.scope}</span>
+            {/* 标题 = 详情页链接（↗ 深链枢纽）；行其余区域点击仍为行内展开 */}
+            <Link
+              to={`/workunits/${wu.id}`}
+              className="font-medium u-text truncate u-hover-accent"
+              title="打开 WorkUnit 详情页"
+              onClick={e => e.stopPropagation()}
+            >
+              {wu.scope}
+            </Link>
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs u-text-2">
             <span>ID: {wu.id.slice(0, 8)}...</span>

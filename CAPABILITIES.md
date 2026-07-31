@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-30
+> 最后更新: 2026-07-31
 
 ---
 
@@ -340,3 +340,5 @@
 | useWorkUnitStreamEvents | apps/web/src/hooks/useWorkUnitStreamEvents.ts | WU 步内流式订阅（Layer B）— SSE `workunit.execution.stream` 实时 chunk |
 | wu-verification | apps/api/src/modules/agents/wu-verification.ts | B3b-i（决策 D3 前半）WU 自动验证 —— 从 agent-loop 抽出的可复用实现（2026-07-30 F6-c 断链修复）。 |
 | evidence-summary | apps/api/src/modules/pmo/evidence-summary.ts | PMO 证据台账共享口径（2026-07-30 抽取）：delivery.ts 台账与 progress-rollup.ts |
+| pipelineUtils | apps/web/src/components/pmo/pipelineUtils.ts | WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。 |
+| agentStatus | apps/web/src/utils/agentStatus.ts | 状态推导：instance.status + 当前 WU.status → 卡片状态键。 |

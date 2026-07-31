@@ -342,6 +342,8 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
     const sysMsg = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('转人工'));
     expect(sysMsg).toBeDefined();
+    // 2026-07 PMO-flow UX（§6-3）：评审结果转人工里程碑 meta 带 atHuman（无归属 → 不携带 pmoId）
+    expect(JSON.parse(sysMsg!.meta)).toEqual({ atHuman: true });
   });
 
   it('PMO 分析接力：analysis WU in_review -> 不派 review 子 WU（人工确认，analysis-handoff 接管）', async () => {

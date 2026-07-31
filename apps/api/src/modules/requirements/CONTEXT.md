@@ -17,7 +17,7 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 - `requirement.routes.ts` — Requirement API 路由
 - `req-binding.ts` — REQ 绑定解析（显式 reqId > #REQ-XXXX token > #PMO-n/#PM-n token（决策 4 别名层解析，无别名存量拒绝歧义降级）> 自动新建），@mention 派发 / convert-to-task 共用
 - `ownership-resolver.ts` — B3a 工程归属解析（决策 D2）：显式 workspaceId > Requirement.projectId → PMO gitRepo > 频道默认 > none
-- `pmo-branch-resolver.ts` — PMO-b（决策 3）：WU → PMO 分支解析（metadata.ownershipProjectId > reqId→REQ→PMO；branch = gitBranch || pmoNumber，透出 deliveryPolicy），agent-loop worktree base 与 merge-on-review-pass 的目标分支来源
+- `pmo-branch-resolver.ts` — PMO-b（决策 3）：WU → PMO 分支解析（metadata.ownershipProjectId > reqId→REQ→PMO；branch = gitBranch || pmoNumber，透出 deliveryPolicy），agent-loop worktree base 与 merge-on-review-pass 的目标分支来源；`resolvePmoProjectIdForWU`（2026-07 PMO-flow UX §6）：同链序只出项目 id（补第 ③ 级 metadata.pmoProjectId，项目存在校验逐级容错），monitoring /agents 聚合（map 版 deps 批量内存匹配）与里程碑消息 meta.pmoId（agent-loop/ReviewDispatcher/timeout-release/merge-on-review-pass）共用
 - `rollup.ts` — REQ 状态汇总：订阅 `workunit.status_changed` 事件回写需求整体状态（别名视图跳过，PMO 侧 progress-rollup 拥有）
 
 ## 依赖关系
@@ -36,6 +36,7 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-31: PMO-flow UX §6 — pmo-branch-resolver 新增 `resolvePmoProjectIdForWU`：WU → 归属 PMO 项目 id 解析（链序 ①metadata.ownershipProjectId ②reqId→Requirement.projectId ③metadata.pmoProjectId，项目存在校验逐级容错、全失败 null；无 gitBranch/pmoNumber 的项目也能命中——与 resolvePmoBranchForWU 的分支语义分离）；消费方 = monitoring /agents 聚合 + 四类里程碑消息 meta.pmoId；补测试 6 例
 - ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-27: B3a 工程归属链（决策 D2）— Requirement 增 projectId 挂接 PMO 项目（创建/更新校验存在，路由 POST/PATCH 暴露）；新增 ownership-resolver.ts（显式 > Requirement→PMO gitRepo > 频道默认 > none，各步容错）
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest

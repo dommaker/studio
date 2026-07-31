@@ -92,6 +92,9 @@ export interface WorkUnitMetadata {
   timeoutAt?: string;         // 显式超时刻 ISO 8601（claim 时优先于默认时长）
   timeoutReleasedAt?: string; // 最近一次超时释放时间 ISO 8601
   timeoutReleaseCount?: number; // 超时释放次数（≥3 → blocked，不再自动回池）
+  // 2026-07 PMO-flow UX（§4 terminate 语义修正）：AgentInstanceService.terminate 强制释放留痕
+  manualRelease?: boolean;    // 强制停止实例后 WU 被置 blocked 转人工（blockForManualRelease 写入）
+  manualReleaseReason?: string; // 强制释放原因（如 terminate instance <id>）
   /** AC-4.5: reviewer 角色 complete 时写入，ReviewDispatcher 据此调 reviewPassed/reviewRejected */
   reviewReport?: {
     approved: boolean;
@@ -920,6 +923,56 @@ export class WorkUnitService {
     const updated: WorkUnitSnapshot = {
       ...current,
       status: 'blocked',
+      metadata: JSON.stringify(metadata),
+      updatedAt: isoNow,
+    };
+
+    const event: WorkUnitEvent = {
+      type: 'blocked',
+      wuId: id,
+      timestamp: isoNow,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+
+    this.publishStatusChanged(updated);
+
+    this.aggregateParentStatus(id).catch(err =>
+      logger.warn('[WorkUnit] aggregateParentStatus failed', { workUnitId: id, error: String(err) })
+    );
+
+    return snapshotToData(updated);
+  }
+
+  /**
+   * 2026-07 PMO-flow UX（§4 terminate 语义修正）：强制释放转人工——
+   * AgentInstanceService.terminate 在 unclaim 之后调用，WU 直接置 blocked
+   * （unassigned → blocked 不在 VALID_TRANSITIONS，活 loop 不认领 blocked WU，
+   * 避免 terminate 后 ≤15s 被同一 loop 重新认领回弹；事件溯源形态同 markMergeConflict）。
+   * assigneeId/claimedAt 清空 + metadata.manualRelease 留痕（语义同 mergeConflict 审计字段）。
+   * 终态（done/closed）WU 不动——工作已收口，无可释放（terminate 与完成的竞态防护）。
+   */
+  async blockForManualRelease(id: string, reason: string): Promise<WorkUnitData> {
+    const snapshots = await this.fileStore.getIndex();
+    const current = snapshots.find(s => s.id === id);
+    if (!current) throw new Error('WorkUnit not found');
+
+    if (current.status === 'done' || current.status === 'closed') {
+      return snapshotToData(current);
+    }
+
+    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    metadata.manualRelease = true;
+    metadata.manualReleaseReason = reason;
+
+    const now = new Date();
+    const isoNow = now.toISOString();
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      status: 'blocked',
+      assigneeId: null,
+      claimedAt: null,
       metadata: JSON.stringify(metadata),
       updatedAt: isoNow,
     };

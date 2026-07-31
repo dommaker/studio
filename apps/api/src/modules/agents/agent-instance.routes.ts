@@ -6,7 +6,7 @@
  *   POST   /api/v1/agent-instances          — create
  *   GET    /api/v1/agent-instances/:id      — get by id
  *   PATCH  /api/v1/agent-instances/:id      — update
- *   POST   /api/v1/agent-instances/:id/terminate — terminate + unclaim WorkUnit
+ *   POST   /api/v1/agent-instances/:id/terminate — 强制停止：unclaim + WorkUnit 置 blocked 转人工 + 实例 terminated
  */
 
 import { Router, type Request, type Response } from 'express';
@@ -104,7 +104,7 @@ router.patch('/:id', requireAuth(), requireNotGuest(), async (req: Request, res:
   }
 });
 
-/** POST /:id/terminate — force terminate instance + unclaim WorkUnit */
+/** POST /:id/terminate — 强制停止实例：unclaim 当前 WorkUnit 并置 blocked 转人工（2026-07 §4 语义修正，活 loop 不会重新认领）+ 实例置 terminated */
 router.post('/:id/terminate', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
   try {
     const instance = await service.terminate(req.params.id);

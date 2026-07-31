@@ -13,6 +13,8 @@ export interface Requirement {
   createdBy: string;
   docs?: string[];
   description?: string;
+  /** B3a 工程归属链：挂接的 PMO 项目 id（后端已返回；WU 详情页归属条经此解析 PMO） */
+  projectId?: string | null;
 }
 
 export interface RequirementChainWorkUnit {

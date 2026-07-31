@@ -12,10 +12,17 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, api, type DeliveryStatus, type DeliveryGap } from '../api';
-import { workunitApi } from '../api/workunit';
+import { workunitApi, type WorkUnit } from '../api/workunit';
+import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
+import { monitoringApi, type AgentInfo } from '../api/monitoring';
+import { knowledgeApi, type KnowledgeDoc } from '../api/knowledge';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { Timeline } from '../components/Timeline';
 import { IronLawWarningBanner } from '../components/IronLawWarningBanner';
+import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
+import { ProjectActivity } from '../components/pmo/ProjectActivity';
+import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
+import { DocReaderDrawer } from '../components/knowledge/DocReaderDrawer';
 import { toast } from '../utils/toast';
 import type { StatsPhase, NodeExecution } from '../types';
 
@@ -64,9 +71,11 @@ interface Project {
   reqAlias?: string | null;
   deliveryPolicy?: string;
   isChore?: boolean;
+  channelId?: string | null;
   worktreePath?: string;
   startedAt?: string;
   completedAt?: string;
+  deliveredAt?: string | null;
   createdAt: string;
   OKR?: { id: string; title: string; quarter: string };
   Execution?: Execution[];
@@ -94,15 +103,31 @@ const GAP_LAYER_LABELS: Record<'l1' | 'l2' | 'l3', string> = {
   l3: '缺 L3 人工确认',
 };
 
+// 🆕 AC-5: 项目状态 stepper（讨论 → 进行中 → 待验收 → 已交付；delivered 归并到 completed）
+const PROJECT_STEPS = [
+  { key: 'pending', label: '讨论' },
+  { key: 'active', label: '进行中' },
+  { key: 'in_review', label: '待验收' },
+  { key: 'completed', label: '已交付' },
+] as const;
+
 export function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [documents, setDocuments] = useState<any[]>([]);  // 🆕 知识库文档
+  const [documents, setDocuments] = useState<KnowledgeDoc[]>([]);  // 知识库文档
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // 🆕 AC-5: 进度管道（REQ chain WU + 详情补全 + agent 名册）/ 文档阅读器 / 原始需求折叠
+  const [chainWus, setChainWus] = useState<RequirementChainWorkUnit[]>([]);
+  const [wuDetails, setWuDetails] = useState<Record<string, WorkUnit>>({});
+  const [agents, setAgents] = useState<AgentInfo[]>([]);
+  const [chainLoading, setChainLoading] = useState(false);
+  const [readerDocId, setReaderDocId] = useState<string | null>(null);
+  const [requirementExpanded, setRequirementExpanded] = useState(false);
   
   // 弹窗状态
   const [showVscodeGuide, setShowVscodeGuide] = useState(false);
@@ -141,7 +166,7 @@ export function ProjectDetailPage() {
 
       // 加载知识库文档（best-effort，不阻塞页面）
       try {
-        const docsRes = await api.get(`/knowledge/${projectId}`);
+        const docsRes = await knowledgeApi.listByProject(projectId!);
         setDocuments(docsRes.data?.documents || []);
       } catch { setDocuments([]); }
 
@@ -150,6 +175,31 @@ export function ProjectDetailPage() {
         const deliveryRes = await projectApi.getDelivery(projectId!);
         setDelivery(deliveryRes.data);
       } catch { setDelivery(null); }
+
+      // 🆕 AC-5: 进度管道数据（best-effort）——REQ 链路 WU + 详情补全（type/时间戳，chain 不含）+ agent 名册
+      if (projectData.reqAlias) {
+        setChainLoading(true);
+        try {
+          const chainRes = await requirementApi.getChain(projectData.reqAlias);
+          const wus = chainRes.data?.data?.workunits ?? [];
+          setChainWus(wus);
+          const [detailResults, agentsRes] = await Promise.all([
+            Promise.allSettled(wus.map(wu => workunitApi.get(wu.id))),
+            monitoringApi.getAgentSummary().catch(() => null),
+          ]);
+          const details: Record<string, WorkUnit> = {};
+          detailResults.forEach((r, i) => {
+            if (r.status === 'fulfilled' && r.value?.data) details[wus[i].id] = r.value.data;
+          });
+          setWuDetails(details);
+          setAgents(agentsRes?.data?.agents ?? []);
+        } catch {
+          setChainWus([]);
+          setWuDetails({});
+        } finally {
+          setChainLoading(false);
+        }
+      }
     } catch (err: any) {
       setError(err.response?.data?.error?.message || 'Failed to load project');
       setLoading(false);
@@ -192,7 +242,7 @@ export function ProjectDetailPage() {
       }
       // 刷新文档列表
       try {
-        const docsRes = await api.get(`/knowledge/${projectId}`);
+        const docsRes = await knowledgeApi.listByProject(projectId);
         setDocuments(docsRes.data?.documents || []);
       } catch { /* best-effort */ }
     } finally {
@@ -316,6 +366,24 @@ export function ProjectDetailPage() {
   const tokenStats = getTokenStats();
   const tasksByStatus = getTasksByStatus();
 
+  // 🆕 AC-5: 管道 WU = chain 条目 + 详情补全（type/时间戳）；项目动态由 WU 时间戳 + deliveredAt 拼装
+  const pipelineWus: PipelineWorkUnit[] = chainWus.map(wu => {
+    const d = wuDetails[wu.id];
+    return {
+      ...wu,
+      type: d?.type,
+      createdAt: d?.createdAt ?? null,
+      claimedAt: d?.claimedAt ?? null,
+      completedAt: d?.completedAt ?? null,
+    };
+  });
+  const agentNameById: Record<string, string> = {};
+  for (const a of agents) agentNameById[a.id] = a.name;
+  const timelineEntries = buildProjectTimeline(pipelineWus, {
+    deliveredAt: delivery?.deliveredAt ?? project?.deliveredAt ?? null,
+    agentNameById,
+  });
+
   // 证据缺口摘要（L1/L2/L3 缺的层为 0 不显示），用于进展卡的琥珀警告条
   const evidenceGapSummary = delivery
     ? [
@@ -373,6 +441,115 @@ export function ProjectDetailPage() {
             )}
           </div>
         )}
+        {/* 🆕 AC-5: 原始需求描述（可折叠，>120 字默认收起） */}
+        {project.requirement && (
+          <div className="mt-2 p-2 rounded u-surface-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs u-text-3">原始需求</span>
+              {project.requirement.length > 120 && (
+                <button
+                  onClick={() => setRequirementExpanded(v => !v)}
+                  className="text-xs u-accent"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                >
+                  {requirementExpanded ? '收起' : '展开'}
+                </button>
+              )}
+            </div>
+            <p className="text-sm u-text-2 mt-1 whitespace-pre-wrap">
+              {requirementExpanded || project.requirement.length <= 120
+                ? project.requirement
+                : `${project.requirement.slice(0, 120)}…`}
+            </p>
+          </div>
+        )}
+        {/* 🆕 AC-5: 项目状态 stepper（当前阶段高亮）+ 去频道 */}
+        <div className="mt-3 flex items-center gap-2 flex-wrap">
+          {PROJECT_STEPS.map((s, i) => {
+            const statusKey = project.status === 'delivered' ? 'completed' : project.status;
+            const currentIdx = PROJECT_STEPS.findIndex(x => x.key === statusKey);
+            return (
+              <React.Fragment key={s.key}>
+                <span
+                  className={`px-3 py-1 rounded-full text-xs font-medium ${
+                    i === currentIdx ? 'u-accent-bg u-on-accent' :
+                    currentIdx > i ? 'u-ok-dim u-ok' :
+                    'u-surface-2 u-text-3'
+                  }`}
+                >
+                  {s.label}
+                </span>
+                {i < PROJECT_STEPS.length - 1 && (
+                  <span className={`text-xs ${currentIdx > i ? 'u-ok' : 'u-text-3'}`}>→</span>
+                )}
+              </React.Fragment>
+            );
+          })}
+          {project.status === 'cancelled' && (
+            <span className="text-xs px-2 py-1 rounded u-err-dim u-err">已取消</span>
+          )}
+          {project.channelId && (
+            <button
+              onClick={() => navigate(`/channels/${project.channelId}`)}
+              className="ml-auto px-3 py-1.5 rounded text-xs u-accent-dim u-accent u-hover-bg"
+            >
+              💬 去频道
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* 🆕 AC-5: 进度管道（REQ 链路五泳道，WU 小卡可点 → /workunits/:id） */}
+      <div className="u-surface rounded-lg shadow p-4 mb-6">
+        <h3 className="text-sm font-medium u-text-2 mb-3">🚦 进度管道</h3>
+        <ProjectPipeline workunits={pipelineWus} agents={agents} loading={chainLoading} />
+      </div>
+
+      {/* 📚 知识库（AC-5：卡片点开抽屉阅读器） */}
+      <div className="u-surface rounded-lg shadow p-4 mb-6">
+        <h3 className="text-sm font-medium u-text-2 mb-3">📚 知识库 ({documents.length})</h3>
+        {documents.length === 0 ? (
+          <div className="text-sm u-text-3">暂无文档产出</div>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {/* requirement */}
+            <div className="p-3 rounded-lg u-warn-dim">
+              <div className="text-xs u-warn mb-2">📄 需求文档</div>
+              <div className="space-y-1">
+                {documents.filter(d => d.type === 'requirement').map(doc => (
+                  <div key={doc.id} onClick={() => setReaderDocId(doc.id)} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
+                    <div className="font-medium">{doc.title}</div>
+                    <div className="text-xs u-text-3">v{doc.version}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* design/spec */}
+            <div className="p-3 rounded-lg u-accent-dim">
+              <div className="text-xs u-accent mb-2">📐 设计/规范</div>
+              <div className="space-y-1">
+                {documents.filter(d => d.type === 'design' || d.type === 'spec').map(doc => (
+                  <div key={doc.id} onClick={() => setReaderDocId(doc.id)} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
+                    <div className="font-medium">{doc.title}</div>
+                    <div className="text-xs u-text-3">{doc.type} v{doc.version}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* execution/archive */}
+            <div className="p-3 rounded-lg u-accent-dim">
+              <div className="text-xs u-accent mb-2">📦 执行/归档</div>
+              <div className="space-y-1">
+                {documents.filter(d => ['execution', 'archive'].includes(d.type)).map(doc => (
+                  <div key={doc.id} onClick={() => setReaderDocId(doc.id)} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
+                    <div className="font-medium">{doc.title}</div>
+                    <div className="text-xs u-text-3">{doc.type}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 🆕 PMO-b: 交付（台账 + human-only 合并 + F6-c 缺口行动） */}
@@ -428,6 +605,13 @@ export function ProjectDetailPage() {
                       </div>
                     </div>
                     <div className="flex gap-1 flex-shrink-0">
+                      {/* AC-5: gap.id 即 WU id，直跳 WU 详情 */}
+                      <button
+                        onClick={() => navigate(`/workunits/${gap.id}`)}
+                        className="px-2 py-1 rounded u-surface-2 u-text-2 u-hover-bg"
+                      >
+                        查看 WU ›
+                      </button>
                       {gap.missing.includes('l1') && (
                         <button
                           onClick={() => handleGapAction(gap, 'verify')}
@@ -696,51 +880,6 @@ export function ProjectDetailPage() {
         </div>
       )}
 
-      {/* 📚 知识库 */}
-      {documents.length > 0 && (
-        <div className="u-surface rounded-lg shadow p-4 mb-6">
-          <h3 className="text-sm font-medium u-text-2 mb-3">📚 知识库 ({documents.length})</h3>
-          <div className="grid grid-cols-3 gap-2">
-            {/* requirement */}
-            <div className="p-3 rounded-lg u-warn-dim">
-              <div className="text-xs u-warn mb-2">📄 需求文档</div>
-              <div className="space-y-1">
-                {documents.filter(d => d.type === 'requirement').map(doc => (
-                  <div key={doc.id} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
-                    <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs u-text-3">v{doc.version}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* design/spec */}
-            <div className="p-3 rounded-lg u-accent-dim">
-              <div className="text-xs u-accent mb-2">📐 设计/规范</div>
-              <div className="space-y-1">
-                {documents.filter(d => d.type === 'design' || d.type === 'spec').map(doc => (
-                  <div key={doc.id} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
-                    <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs u-text-3">{doc.type} v{doc.version}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* execution/archive */}
-            <div className="p-3 rounded-lg u-accent-dim">
-              <div className="text-xs u-accent mb-2">📦 执行/归档</div>
-              <div className="space-y-1">
-                {documents.filter(d => ['execution', 'archive'].includes(d.type)).map(doc => (
-                  <div key={doc.id} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
-                    <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs u-text-3">{doc.type}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 📦 执行历史（AS-010 增强） */}
       {project.Execution && project.Execution.length > 0 && (
         <div className="u-surface rounded-lg shadow p-4 mb-6">
@@ -818,6 +957,12 @@ export function ProjectDetailPage() {
         </div>
       )}
 
+      {/* 🆕 AC-5: 项目动态（WU 时间戳 + deliveredAt 前端拼装，倒序 ≤20 条） */}
+      <div className="u-surface rounded-lg shadow p-4 mb-6">
+        <h3 className="text-sm font-medium u-text-2 mb-3">🕐 项目动态</h3>
+        <ProjectActivity entries={timelineEntries} />
+      </div>
+
       {/* 🛠️ 工具栏 */}
       <div className="flex flex-wrap gap-2">
         <button
@@ -848,6 +993,9 @@ export function ProjectDetailPage() {
           {copySuccess ? '✓ 已复制' : '📋 复制路径'}
         </button>
       </div>
+
+      {/* 🆕 AC-5: 知识库文档阅读抽屉 */}
+      <DocReaderDrawer documentId={readerDocId} onClose={() => setReaderDocId(null)} />
 
       {/* VS Code 弹窗 */}
       {showVscodeGuide && (

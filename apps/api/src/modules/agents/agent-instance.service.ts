@@ -74,13 +74,24 @@ export class AgentInstanceService {
     return { data, total };
   }
 
+  /**
+   * 强制停止实例（2026-07 PMO-flow UX §4 语义修正）：
+   *   1. unclaim 当前 WorkUnit；
+   *   2. 该 WU 置 blocked 转人工（blockForManualRelease）——blocked 不在 loop 认领集合内，
+   *      避免活 loop ≤15s 重新认领同一 WU 导致释放无效（旧行为只 unclaim）；
+   *   3. 实例状态置 terminated。
+   * WU 侧操作为 best-effort（WU 缺失/读写失败不阻断实例终止）。
+   */
   async terminate(id: string): Promise<RuntimeStateData> {
     const instance = await this.fileStore.getState(id);
     if (!instance) throw new Error('Instance not found');
 
-    // Unclaim current WorkUnit if any (best-effort)
+    // Unclaim current WorkUnit if any, then block it for manual handling (best-effort)
     if (instance.currentWorkUnitId) {
-      await this.workUnitService.unclaim(instance.currentWorkUnitId).catch(() => {});
+      const workUnitId = instance.currentWorkUnitId;
+      await this.workUnitService.unclaim(workUnitId)
+        .then(() => this.workUnitService.blockForManualRelease(workUnitId, `terminate instance ${id}`))
+        .catch(() => {});
     }
 
     const now = new Date().toISOString();

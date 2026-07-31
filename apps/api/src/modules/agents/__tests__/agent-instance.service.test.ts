@@ -6,6 +6,7 @@ import os from 'node:os';
 import { FileStore, type RuntimeStateData } from '@dommaker/studio-shared';
 
 import { AgentInstanceService } from '../agent-instance.service';
+import { WorkUnitService } from '../../workunit/workunit.service.js';
 
 function createTempDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'agent-instance-test-'));
@@ -151,7 +152,7 @@ describe('AgentInstanceService', () => {
       expect(result.terminatedAt).not.toBeNull();
     });
 
-    it('should unclaim current WorkUnit when currentWorkUnitId exists', async () => {
+    it('should unclaim current WorkUnit and block it for manual release when currentWorkUnitId exists', async () => {
       // Set up a WorkUnit snapshot in FileStore
       const now = new Date().toISOString();
       await fileStore.upsertSnapshot({
@@ -162,14 +163,37 @@ describe('AgentInstanceService', () => {
       });
       await fileStore.createState('inst-1', { ...mockState, currentWorkUnitId: 'wu-1' });
 
-      await service.terminate('inst-1');
+      const result = await service.terminate('inst-1');
 
-      // Verify WorkUnit was unclaimed via FileStore
+      // 实例 terminated + currentWorkUnitId 清空
+      expect(result.status).toBe('terminated');
+      expect(result.currentWorkUnitId).toBeNull();
+
+      // 2026-07 §4 语义修正：WU 不再回 unassigned（活 loop ≤15s 会重新认领），
+      // 而是置 blocked 转人工 + assigneeId/claimedAt 清空 + metadata.manualRelease 留痕
       const snapshots = await fileStore.getIndex();
       const wu = snapshots.find(s => s.id === 'wu-1');
       expect(wu).toBeDefined();
       expect(wu!.assigneeId).toBeNull();
-      expect(wu!.status).toBe('unassigned');
+      expect(wu!.claimedAt).toBeNull();
+      expect(wu!.status).toBe('blocked');
+      const meta = JSON.parse(wu!.metadata!) as { manualRelease?: boolean; manualReleaseReason?: string };
+      expect(meta.manualRelease).toBe(true);
+      expect(meta.manualReleaseReason).toBe('terminate instance inst-1');
+
+      // loop 不认领 blocked WU（claim 只认 unassigned）——释放不会回弹
+      const wuService = new WorkUnitService(fileStore);
+      await expect(wuService.claim('wu-1', 'other-instance')).rejects.toThrow();
+    });
+
+    it('should terminate successfully even when currentWorkUnitId is dangling (best-effort)', async () => {
+      // currentWorkUnitId 指向不存在的 WU —— unclaim/block 失败不阻断实例终止
+      await fileStore.createState('inst-1', { ...mockState, currentWorkUnitId: 'wu-ghost' });
+
+      const result = await service.terminate('inst-1');
+
+      expect(result.status).toBe('terminated');
+      expect(result.currentWorkUnitId).toBeNull();
     });
 
     it('should throw when instance not found', async () => {

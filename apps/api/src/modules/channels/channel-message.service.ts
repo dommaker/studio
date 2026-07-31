@@ -11,6 +11,8 @@ export interface MessageMeta {
   cardData?: Record<string, unknown>;
   crossChannelRef?: string;
   atHuman?: boolean;
+  /** 2026-07 PMO-flow UX：里程碑消息归属 PMO 项目 id（NotificationBell 跳转 PMO 详情用；解析不到则不携带） */
+  pmoId?: string;
   risks?: string[];
   [key: string]: unknown;
 }

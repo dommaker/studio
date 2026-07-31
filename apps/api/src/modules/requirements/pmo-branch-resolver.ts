@@ -35,6 +35,19 @@ function parseOwnershipProjectId(metadata: string | null | undefined): string | 
   }
 }
 
+/** metadata.pmoProjectId（agent-loop 首 step 落档，PMO-b 决策 3）安全解析 */
+function parsePmoProjectId(metadata: string | null | undefined): string | null {
+  if (!metadata) return null;
+  try {
+    const meta = JSON.parse(metadata) as { pmoProjectId?: unknown };
+    return typeof meta.pmoProjectId === 'string' && meta.pmoProjectId
+      ? meta.pmoProjectId
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function resolvePmoBranchForWU(
   wu: { reqId?: string | null; metadata?: string | null },
   fileStore?: FileStore,
@@ -64,4 +77,47 @@ export async function resolvePmoBranchForWU(
   const branch = project.gitBranch || project.pmoNumber;
   if (!branch) return null;
   return { projectId: project.id, branch, deliveryPolicy: resolveDeliveryPolicy(project) };
+}
+
+/**
+ * 2026-07 PMO-flow UX（设计文档 §6）：WU → 归属 PMO 项目 id 解析（只出项目 id，
+ * 不含分支/交付策略——无 gitBranch/pmoNumber 的项目也能命中）。
+ * 解析链顺序与 resolvePmoBranchForWU 一致，并补第 ③ 级（agent-loop 首 step 落档字段）：
+ *   1. metadata.ownershipProjectId → 项目存在
+ *   2. wu.reqId → Requirement.projectId（决策 4 别名感知由 getRequirement 实现侧保证）→ 项目存在
+ *   3. metadata.pmoProjectId → 项目存在
+ * 逐级容错（单级读取失败/项目不存在 → 继续下一级），全失败返回 null = 无 PMO 归属。
+ * 消费方：monitoring /agents 聚合（注入 map 版 deps 批量内存匹配，避免逐 WU 读文件）、
+ * agent-loop / ReviewDispatcher / timeout-release / merge-on-review-pass 里程碑消息 meta.pmoId。
+ */
+export async function resolvePmoProjectIdForWU(
+  wu: { reqId?: string | null; metadata?: string | null },
+  fileStore?: FileStore,
+  deps?: PmoBranchResolverDeps,
+): Promise<string | null> {
+  const getProject = deps?.getProject ?? (async (id: string) => projectService.get(id));
+  const getRequirement = deps?.getRequirement
+    ?? (async (id: string) => new RequirementService(fileStore).get(id));
+
+  // 1. metadata.ownershipProjectId 直查
+  const ownershipProjectId = parseOwnershipProjectId(wu.metadata);
+  if (ownershipProjectId && (await getProject(ownershipProjectId).catch(() => null))) {
+    return ownershipProjectId;
+  }
+
+  // 2. reqId → REQ projectId → 项目存在
+  if (wu.reqId) {
+    const req = await getRequirement(wu.reqId).catch(() => null);
+    if (req?.projectId && (await getProject(req.projectId).catch(() => null))) {
+      return req.projectId;
+    }
+  }
+
+  // 3. metadata.pmoProjectId（agent-loop 首 step 落档）
+  const pmoProjectId = parsePmoProjectId(wu.metadata);
+  if (pmoProjectId && (await getProject(pmoProjectId).catch(() => null))) {
+    return pmoProjectId;
+  }
+
+  return null;
 }
