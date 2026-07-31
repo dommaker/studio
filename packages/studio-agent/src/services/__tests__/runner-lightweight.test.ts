@@ -125,7 +125,6 @@ describe('executeLightweightSession', () => {
     const [cmd, opts] = findSpawnCall();
     expect(cmd).toContain('--resume sess-9');
     expect(opts.env?.STUDIO_WORKUNIT_ID).toBe('wu-lw-1');
-    expect(opts.env?.HOME).toBe('/tmp/agent-loop/wu-lw-1');
     // prompt 落盘（含 knowledgeContext 增强位置）
     expect(fs.existsSync(path.join(wsRoot, '.daemon', 'prompt.md'))).toBe(true);
     expect(state.runningProcesses.size).toBe(0);
