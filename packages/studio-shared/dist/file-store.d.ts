@@ -231,6 +231,8 @@ export declare class FileStore {
     /** 列出所有 RuntimeState */
     listStates(): Promise<RuntimeStateData[]>;
     updateState(agentId: string, patch: Partial<RuntimeStateData>): Promise<void>;
+    /** 删除 RuntimeState（state.json）。保留同目录 profile.json。 */
+    deleteState(agentId: string): Promise<void>;
     /** 创建新的 RuntimeState（不是 upsert，确保第一次创建不会覆盖已有） */
     createState(agentId: string, data: RuntimeStateData): Promise<void>;
     getChannel(id: string): Promise<ChannelData | null>;

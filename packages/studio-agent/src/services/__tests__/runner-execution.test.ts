@@ -137,7 +137,6 @@ describe('executeSessionLoop', () => {
     expect(cmd).toContain('--session-id');
     expect(cmd).toContain(`--name "executor-${task.executionId.slice(0, 8)}"`);
     expect(opts.env?.STUDIO_EXECUTION_ID).toBe(task.executionId);
-    expect(opts.env?.HOME).toBe(`/tmp/agent-loop/${task.executionId}`);
     expect(opts.timeoutMs).toBe(30 * 60 * 1000);
 
     // 文件桥：REQUIREMENTS.md 与 .agent.log 落盘

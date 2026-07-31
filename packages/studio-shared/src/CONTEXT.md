@@ -4,8 +4,8 @@
 > 请阅读本目录的源代码，然后填写以下各节。
 > 如果使用 AI 编码助手，将本文件内容作为 prompt 请求它分析并填写。
 
-<!-- STALE_SINCE: 2026-07-29 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/src/index.ts, packages/studio-shared/src/web.ts
+<!-- STALE_SINCE: 2026-07-31 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/src/file-store.ts
 
 ## 职责
 
@@ -48,6 +48,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `44be7b44`: studio-shared): FileStore baseDir 解耦 HOME + deleteState 方法
 - ✅ `3b1596b0`: studio-shared): 隔离 Node-only top-level 副作用 + 新增前端专用入口 /web
 - ✅ 2026-07-28: 任务规格档（fast/standard/premium tier）机制物理删除——`ModelTier` 类型与 config/model-tier.ts 整文件删除（消费方全灭：TIER_MAX_TURNS 零读取方、getSessionTimeout 仅兜底且生产构造方都显式传 timeoutMs、skill tier 过滤恒通过、TIER_TOOL_ACCESS 零调用方）；session 超时改扁平默认 30min，skillLoader.load 不再按 tier 过滤
 - ✅ 2026-07-28: model-tier.ts 瘦身为纯 `ModelTier` 类型（任务规格/超时档位标签，runner-params TIER_TIMEOUTS 等仍在用）；getModelForTier/getModelTierConfig 删除——"tier→模型名"全局映射对 claude 静默无效（无 modelFlag）、对 kimi/codex/opencode 强行覆盖用户 CLI 配置，违反算力提供方原则

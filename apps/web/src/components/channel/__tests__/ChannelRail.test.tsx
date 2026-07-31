@@ -31,11 +31,12 @@ const CHANNELS = [
 
 const AGENT_SUMMARY = {
   agents: [
-    { id: 'a1', name: 'coder-1', status: 'active', currentWorkUnitId: 'WU-1', startedAt: '' },
-    { id: 'a2', name: 'reviewer', status: 'idle', currentWorkUnitId: null, startedAt: '' },
-    { id: 'a3', name: 'archived', status: 'terminated', currentWorkUnitId: null, startedAt: '' },
+    { id: 'a1', roleId: 'r1', name: 'coder-1', status: 'active', currentWorkUnitId: 'WU-1', startedAt: '2026-07-30T01:00:00Z' },
+    { id: 'a2', roleId: 'r2', name: 'reviewer', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-30T01:00:00Z' },
+    { id: 'a3', roleId: 'r3', name: 'archived', status: 'terminated', currentWorkUnitId: null, startedAt: '2026-07-30T01:00:00Z' },
+    { id: 'a4', roleId: 'r1', name: 'coder-1-old', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-29T01:00:00Z' },
   ],
-  summary: { total: 3, idle: 1, active: 1, error: 0, terminated: 1 },
+  summary: { total: 4, idle: 2, active: 1, error: 0, terminated: 1 },
 };
 
 const renderRail = (activeChannelId = 'ch-1') =>
@@ -114,7 +115,11 @@ describe('ChannelRail', () => {
     const row = screen.getByText('@coder-1').closest('.mc-agent')!;
     expect(row.querySelector('.mc-dot-busy')).toBeTruthy();
     expect(screen.getByText('@reviewer')).toBeTruthy();
-    // 汇总：idle+active/total
-    expect(screen.getByText(/2\/3/)).toBeTruthy();
+    // terminated 不显示
+    expect(screen.queryByText('@archived')).toBeNull();
+    // 同 roleId 去重：旧实例 coder-1-old 不显示
+    expect(screen.queryByText('@coder-1-old')).toBeNull();
+    // 汇总：online/visible = 2/2（active+idle / 非 terminated 去重后）
+    expect(screen.getByText(/Agents · 2\/2/)).toBeTruthy();
   });
 });

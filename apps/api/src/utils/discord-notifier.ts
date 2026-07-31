@@ -118,10 +118,13 @@ export class DiscordNotifier {
       const payload = JSON.stringify(body);
 
       return new Promise((resolve) => {
+        // token 经子进程 env 传入、shell 内展开 —— 不拼进命令字符串，
+        // 避免 exec 报错时整条命令（含明文 token）落日志
         exec(
           `curl -s --proxy ${this.proxyUrl} -X POST "https://discord.com/api/v10/channels/${channelId}/messages" ` +
-          `-H "Authorization: Bot ${this.botToken}" -H "Content-Type: application/json" ` +
+          `-H "Authorization: Bot $DISCORD_BOT_TOKEN" -H "Content-Type: application/json" ` +
           `-d '${payload.replace(/'/g, "'\\''")}'`,
+          { env: { ...process.env, DISCORD_BOT_TOKEN: this.botToken } },
           (error, stdout) => {
             if (error) {
               logger.error('[DiscordNotifier] curl failed', { error: String(error) });

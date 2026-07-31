@@ -42,8 +42,6 @@ import {
   buildSessionFlag,
   buildAddDirArgs,
   buildSessionCommand,
-  resolveAgentHome,
-  ensureAgentHomeCliConfig,
   buildSessionEnv,
 } from './runner-params.js';
 import { hasRecentActivity, queryResolutionHints } from './runner-output.js';
@@ -255,16 +253,10 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
 
       await emitSessionStart(sessionId, task.executionId, sessionCount);
 
-      // Ensure per-Agent HOME directory exists (GAP-2)
-      const agentHome = resolveAgentHome(task);
-      await fs.mkdir(agentHome, { recursive: true });
-      // GAP-2 auth: 隔离 HOME 注入 CLI 鉴权/模型 env（best-effort，不阻断 spawn）
-      await ensureAgentHomeCliConfig(agentHome);
-
       try {
         const { stdout } = await execSh(cmd, {
           cwd: worktree,
-          env: buildSessionEnv({ task, role: 'executor', agentHome }),
+          env: buildSessionEnv({ task, role: 'executor' }),
           // 扁平默认 30min（原 fast/standard/premium tier 分档已删）
           timeoutMs: task.timeoutMs ?? 30 * 60_000,
           maxBuffer: 10 * 1024 * 1024,

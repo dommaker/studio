@@ -36,6 +36,11 @@ export function loadConfigEnv() {
 }
 // 启动时自动加载 config.env
 loadConfigEnv();
+// CWD 陷阱修复：固定数据目录绝对路径，防止 claude CLI 子进程（HOME=agentHome）
+// 里 FileStore baseDir 随 os.homedir() 漂移到嵌套路径（~/.studio/data/agents/<id>/.studio/data）。
+// ??= 不覆盖子进程继承到的父进程值（buildSessionEnv 经 ...process.env 透传）。
+// 必须早于任何 FileStore 实例化。
+process.env.STUDIO_DATA_DIR ??= path.join(os.homedir(), '.studio', 'data');
 // 默认配置
 const DEFAULT_CONFIG = {
     worktreesDir: path.join(os.homedir(), 'worktrees'),
