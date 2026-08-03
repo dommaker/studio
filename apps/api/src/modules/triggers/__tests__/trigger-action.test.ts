@@ -141,3 +141,67 @@ describe('TriggerAction — B3 幂等去重（2026-08-03 token-burn issue）', (
     expect(b).not.toBeNull();
   });
 });
+
+describe('TriggerAction — assigneeRole 点名（系统维护任务钉死角色）', () => {
+  let tmpDir: string;
+  let fileStore: FileStore;
+
+  beforeAll(async () => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trigger-action-role-test-'));
+    fileStore = new FileStore(tmpDir);
+    setTriggerActionFileStore(fileStore);
+    const now = new Date().toISOString();
+    await fileStore.createProfile({
+      id: 'studio-profile-id', name: 'studio', description: '系统任务执行身份',
+      channels: '[]', status: 'active', provider: 'claude',
+      createdAt: now, updatedAt: now,
+    });
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('assigneeRole 解析为 profile id 写入 WU assigneeId（独占认领）', async () => {
+    const action: TriggerAction = {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: { type: 'analysis', scope: 'Pinned task', assigneeRole: 'studio' },
+    };
+
+    const result = await executeCreateAction(action, 'pinned-trigger');
+    expect(result).not.toBeNull();
+
+    const snapshots = await fileStore.getIndex();
+    const wu = snapshots.find(s => s.id === result!.id);
+    expect(wu?.assigneeId).toBe('studio-profile-id');
+  });
+
+  it('assigneeRole 角色不存在：回退 unassigned，不阻塞创建', async () => {
+    const action: TriggerAction = {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: { type: 'analysis', scope: 'Fallback task', assigneeRole: 'ghost-role' },
+    };
+
+    const result = await executeCreateAction(action, 'fallback-trigger');
+    expect(result).not.toBeNull();
+
+    const snapshots = await fileStore.getIndex();
+    const wu = snapshots.find(s => s.id === result!.id);
+    expect(wu?.assigneeId).toBeFalsy();
+  });
+
+  it('不带 assigneeRole：保持原行为（unassigned 竞争认领）', async () => {
+    const action: TriggerAction = {
+      type: 'CREATE',
+      target: 'WorkUnit',
+      payload: { type: 'analysis', scope: 'Plain task' },
+    };
+
+    const result = await executeCreateAction(action, 'plain-trigger');
+    const snapshots = await fileStore.getIndex();
+    const wu = snapshots.find(s => s.id === result!.id);
+    expect(wu?.assigneeId).toBeFalsy();
+  });
+});

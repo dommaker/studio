@@ -127,7 +127,21 @@ export async function executeCreateAction(
     }
   }
 
-  const { type, scope, channelId, metadata } = action.payload;
+  const { type, scope, channelId, metadata, assigneeRole } = action.payload;
+
+  // 系统维护类任务点名角色（如 'studio'）：解析为 profile id 写入 assigneeId，
+  // 认领语义为独占（仅该 profile 的 loop 可见），消除「谁抢到谁执行」的不确定性。
+  // 角色不存在时回退 unassigned（频道竞争认领的老行为），不阻塞创建。
+  let assigneeId: string | undefined;
+  if (assigneeRole) {
+    const profiles = await fileStore.listProfiles();
+    const role = profiles.find(p => p.name === assigneeRole);
+    if (role) {
+      assigneeId = role.id;
+    } else {
+      logger.warn(`[TriggerAction] assigneeRole "${assigneeRole}" not found, falling back to unassigned`, { triggerId });
+    }
+  }
 
   const mergedMetadata = {
     ...(metadata || {}),
@@ -140,6 +154,7 @@ export async function executeCreateAction(
     type,
     scope,
     channelId: channelId || null,
+    assigneeId,
     metadata: mergedMetadata,
   });
 

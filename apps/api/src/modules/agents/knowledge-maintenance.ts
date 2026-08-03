@@ -65,7 +65,7 @@ ${entryList}
       try {
         const result = await getSystemExecutor().runJson<{ duplicates: Array<{ keep: string; merge: string[]; reason: string }> }>(
           prompt,
-          { systemPrompt: '你是知识库去重专家。判断哪些知识条目在语义上是重复的。只合并真正重复的，不要合并相关但不同的条目。' },
+          { systemPrompt: '你是知识库去重专家。判断哪些知识条目在语义上是重复的。只合并真正重复的，不要合并相关但不同的条目。', eventSource: 'knowledge-maintenance' },
         );
 
         if (!result.duplicates?.length) continue;
@@ -149,7 +149,7 @@ ${entryList}
     try {
       const result = await getSystemExecutor().runJson<{ assessments: Array<{ id: string; keep: boolean; reason: string; score: number }> }>(
         prompt,
-        { systemPrompt: '你是知识质量评估专家。严格评估每条知识的价值。只删除真正无价值的条目，有疑问的保留。' },
+        { systemPrompt: '你是知识质量评估专家。严格评估每条知识的价值。只删除真正无价值的条目，有疑问的保留。', eventSource: 'knowledge-maintenance' },
       );
 
       if (!result.assessments?.length) continue;
@@ -233,7 +233,7 @@ ${context}
       try {
         const result = await getSystemExecutor().runJson<{ results: Array<{ id: string; stillValid: boolean; reason: string }> }>(
           prompt,
-          { systemPrompt: '你是代码-知识一致性检查专家。判断知识条目描述的内容是否与最新代码一致。如果不确定，标记为 stillValid=true。' },
+          { systemPrompt: '你是代码-知识一致性检查专家。判断知识条目描述的内容是否与最新代码一致。如果不确定，标记为 stillValid=true。', eventSource: 'knowledge-maintenance' },
         );
 
         if (!result.results?.length) continue;
@@ -313,7 +313,7 @@ ${entryList}
     try {
       const result = await getSystemExecutor().runJson<{ contradictions: Array<{ entries: string[]; description: string; resolution: string }> }>(
         prompt,
-        { systemPrompt: '你是知识一致性检查专家。只报告真正的矛盾（对同一问题给出相反建议），不要报告互补或不同角度的知识。' },
+        { systemPrompt: '你是知识一致性检查专家。只报告真正的矛盾（对同一问题给出相反建议），不要报告互补或不同角度的知识。', eventSource: 'knowledge-maintenance' },
       );
 
       if (!result.contradictions?.length) continue;
