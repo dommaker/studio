@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/monitoring 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/monitoring/CONTEXT.md, apps/api/src/modules/monitoring/monitoring.service.ts, apps/api/src/modules/monitoring/metrics.service.ts, apps/api/src/modules/monitoring/monitoring.routes.ts
-
 ## 职责
 
 负责聚合 Agent Network 的监控指标，包括 Agent 摘要、统计信息、飞轮指标（M1）和封装开销（M2），通过 HTTP 路由对外暴露。
@@ -41,14 +38,3 @@
 - **D16 /overview（2026-07-27）**：聚合八组指标（任务流健康/入口转化/人工干预北极星/端到端周期/角色维度/工程质量/Token/告警），数据源 = WU index.json + workunits/events.jsonl + 统一事件文件（D18）+ 频道人类消息；窗口默认 7d（query 1-90 clamp），60s 缓存；数据不足显式 0/null + `source='insufficient-data'` 不编造；每组带 `description` 大白话。
 - **鉴权（2026-07-24 收紧）**：`/api/v1/monitoring` 挂载级 `requireAuth()+requireAdmin()`（route-registry）。GET 端点此前无挂载中间件、仅靠 Lurk Wall 大门兜底。
 - **/agents 聚合（2026-07-31 PMO-flow UX §6-1）**：`getAgentSummary` 每 agent 附 `currentWorkUnit`（WU 快照，title = metadata.title ?? scope 原样）+ `pmo`（归属链复用 pmo-branch-resolver 的 `resolvePmoProjectIdForWU`：①metadata.ownershipProjectId ②reqId→Requirement.projectId（决策 4 别名镜像：REQ-\d+ 先查项目 reqAlias）③metadata.pmoProjectId）+ `channelId`。读取效率：WU index / requirements / projects 各读一次后内存 map 匹配（`loadCurrentWuContexts`），不逐 agent 串行读文件；projects 默认 lazy import projectService.list 大页，测试经 `MonitoringServiceDeps.listProjects` 注入。悬空 currentWorkUnitId（WU 已不存在）→ 三字段 null，裸 id 字段保持原样。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ 2026-07-31: PMO-flow UX §6-1 — `getAgentSummary` 聚合扩展：每 agent 附 `currentWorkUnit{id,title,type,status,claimedAt}`（title = metadata.title ?? scope）+ `pmo{id,pmoNumber,title}`（归属链走 requirements 模块 `resolvePmoProjectIdForWU`，map 版 deps 批量内存匹配：WU index/requirements/projects 各读一次）+ `channelId`；新增 `AgentCurrentWorkUnit`/`AgentPmoSummary`/`MonitoringServiceDeps` 类型与 `loadCurrentWuContexts` 私有方法；向后兼容（既有字段不动，悬空 WU/归属不到 → null）；补测试 8 例（三归属链/别名链/回落/null/批量读取计数）
-- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
-- ✅ 2026-07-27: B5 D16 — 新增 metrics.service（aggregateOverview 纯函数 + 60s 缓存）与 GET /overview 端点
-- ✅ 2026-07-27: P0 修复 5 — monitoring.service 的 studio-events.jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
-- ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（agent 运行时/统计属内部运营信息）
-- ✅ 2026-07 频道角色修复：`getAgentSummary` agents 映射新增 `roleId`，支撑前端 AgentDashboard 与 AgentProfile 合并展示（provider/描述等）
-- ✅ `f80cfeae`: 203 TypeScript 错误全部清零

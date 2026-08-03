@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/capabilities 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/capabilities/CONTEXT.md, apps/api/src/modules/capabilities/routes.ts
-
 ## 职责
 
 提供能力注册表的读取与 API 暴露，包括从文件系统加载工具/技能定义，并通过 Express 路由对外提供服务。同时定义能力类型（Capability）和注册表（Registry）接口，支持缓存与阶段（Stage）识别。
@@ -42,10 +39,3 @@
 - `getStageFromYaml` 目前仅定义但未在已有代码片段中调用，需确认实际使用场景。
 - 缓存变量 `cachedRegistry` 和 `lastLoadTime` 为模块级，多请求共享，需注意并发访问安全性（当前为同步读取，无锁）.
 - **鉴权（2026-07-24 收紧）**：5 条写端点（POST /registry/refresh、/sync、/、/batch、PUT /:capabilityId）已收 requireAuth+requireNotGuest（requireNotGuest 从"仅 import 未使用"变为实际使用）；DELETE 原有 requireRole('Admin') 不变。GET /stages、/registry 响应含工具定义相对路径，属低危信息泄露（未修）。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
-- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
-- ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup

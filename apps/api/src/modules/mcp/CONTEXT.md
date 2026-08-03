@@ -31,9 +31,6 @@
 | `workunit.tools.ts` | 1 | createWorkUnit |
 | **合计** | **26** | |
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/mcp/CONTEXT.md, apps/api/src/modules/mcp/system.tools.ts, apps/api/src/modules/mcp/tool-registry.ts, apps/api/src/modules/mcp/permission.service.ts, apps/api/src/modules/mcp/routes.ts, apps/api/src/modules/mcp/devops.tools.ts, apps/api/src/modules/mcp/economy.tools.ts, apps/api/src/modules/mcp/knowledge.tools.ts, apps/api/src/modules/mcp/pmo.tools.ts, apps/api/src/modules/mcp/safety.tools.ts, apps/api/src/modules/mcp/skill.tools.ts, apps/api/src/modules/mcp/spec.tools.ts, apps/api/src/modules/mcp/task.tools.ts, apps/api/src/modules/mcp/tool-store.ts, apps/api/src/modules/mcp/tools.ts, apps/api/src/modules/mcp/workunit.tools.ts
-
 ## 核心导出
 
 - `getToolSchemas()` — 获取所有 tool 的 JSON schema（不含 handler）
@@ -53,18 +50,3 @@
 - 风险级别按工具名前缀自动分配（create/store/extract/approve/assign/update 等 → medium，delete/drop/truncate → high，其余 → low）。
 - 权限模型默认 executor（本地 Agent）可调用所有 tool。
 - **HTTP 端点鉴权分层（2026-07-24 收紧）**：`GET /tools`、`GET /health` 保持公开（Lurk）；`POST /tools/:name` → `requireAuth+requireAdmin`（roleId 自声明 + executor seed 默认全允许，此前在 PUBLIC_API 前缀下匿名可执行任意 tool 含 devops/git）；`POST /messages`、`GET /sse` → `requireLocalhost`（真实客户端为本机 agent，`STUDIO_MCP_URL` 默认 localhost SSE）；`/admin/*` → `requireAuth+requireAdmin`（此前裸奔，注释谎称由 route-registry 提供 requireAuth）。permission.service 的 RBAC 是 agent 角色维度，与 HTTP 用户鉴权是两层。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
-- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
-- ✅ `f588061f`: spec4-post-p3): Prisma removal test cleanup — 19 files
-- ✅ 2026-07-27: B5 D18 — emitEvent / tool-registry recordCall 的 tool:call 改写统一事件文件（StudioEvent 形态，经 utils/studio-events）；systemHealth 探活改看统一文件 mtime。注意：仓外 events-daemon（若有部署）不再能经 ~/.studio/events/studio.jsonl 路由 agent: 事件到 Discord
-- ✅ 2026-07-27: P0 修复 5 — permission.service 审计日志测试隔离：VITEST/NODE_ENV=test 时 AUDIT_PATH 改写 os.tmpdir()/studio-test-logs/mcp-audit-logs.jsonl，生产路径不变；已被污染的 ~/.studio/mcp-audit-logs.jsonl 归档为 .test-polluted.bak
-- ✅ 2026-07-24: API 鉴权收紧 — `POST /tools/:name` 收 requireAuth+requireAdmin（此前 PUBLIC_API 前缀下匿名可执行任意 tool）；`POST /messages`、`GET /sse` 限 requireLocalhost（本机 agent 不受影响）；`/admin/*` 补 requireAuth+requireAdmin
-- ✅ `1773bfdf`: db-removal): migrate 11 files from Prisma → FileStore (59 calls eliminated)
-- ✅ `3281bd80`: P6.5): Skill 元数据注入合规 + MCP SSE transport + fileKnowledge 移除
-- ✅ `ee1e354d`: B39 harness 集成修复 — A5 checkConstraint + S13 routes 类型化
-- ✅ `c0beddbd`: B38 错误日志修复 + GAP-7 元数据驱动注入
-- ✅ `f80cfeae`: 203 TypeScript 错误全部清零

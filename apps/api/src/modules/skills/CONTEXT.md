@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/skills 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/skills/CONTEXT.md, apps/api/src/modules/skills/skill-extraction.service.ts, apps/api/src/modules/skills/skill-loader.ts, apps/api/src/modules/skills/skill-store.ts, apps/api/src/modules/skills/routes.ts, apps/api/src/modules/skills/skill-promotion.ts, apps/api/src/modules/skills/skill-demotion.ts, apps/api/src/modules/skills/manifest-loader.ts, apps/api/src/modules/skills/skill-selector.ts, apps/api/src/modules/skills/skill-demotion-routes.ts, apps/api/src/modules/skills/skill-proposal-routes.ts, apps/api/src/modules/skills/manifest-generator.ts
-
 ## 职责
 
 skills 模块负责技能（Skill）的完整生命周期管理，包括基于文件的技能元数据存储（SkillStore）、提案存储（ProposalStore）、技能目录扫描与加载（manifest-loader）、基于描述的技能匹配（skill-selector）、从 WorkUnit 执行中提取可复用模式（skill-extraction.service）以及对应的 REST API 路由（routes.ts、skill-proposal-routes.ts）。所有数据存储已从 Prisma 迁移至文件系统。
@@ -54,17 +51,3 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 - 技能加载器按 SKILL.md frontmatter 的 `tier` 字段记录技能层级（fast/standard/premium）
 - 所有日志使用 `@dommaker/studio-shared` 的 logger 实例，统一日志格式
 - **鉴权（2026-07-24 收紧）**：skills 7 条写（POST /、PATCH、DELETE、publish、deprecate、restore、usage）+ demotion-proposals approve/reject + proposals 5 条写已收 requireAuth+requireNotGuest。GET /api/v1/skills/proposals 被 skills 的 GET /:id 遮蔽，属路由顺序 bug（未修）。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
-- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
-- ✅ `2a51e54f`: skill_used 口径校准 — uses 按 (skill, workUnitId) 去重
-- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
-- ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
-- ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零
-- ✅ `bdf5fd4a`: test): fix 27 CI test failures across 8 files
-- ✅ `32fe0dc3`: merge integration — normalizeTriggerDir + workflowTypeToTriggerDir + vitest aliases
-- ✅ `309f6061`: review pipeline — diff scope + discoveredIssues exposure
-- ✅ `adb7a9c2`: skill-loader trigger normalization + SKILL.md generation

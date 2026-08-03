@@ -24,9 +24,3 @@
 - 路由挂载于 /api/v1/dingtalk 前缀，由 route-registry 统一注册
 - ActionCard 按钮点击（/action）仅返回静态 HTML，不再执行实际会议操作
 - 健康检查（/health）返回 JSON 格式 { status: 'ok', service: 'dingtalk-callback' }
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `f80cfeae`: 203 TypeScript 错误全部清零
-- ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors

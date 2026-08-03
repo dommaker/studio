@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/web/src 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/web/src/CONTEXT.md, apps/web/src/App.tsx, apps/web/src/index.css, apps/web/src/types.ts
-
 ## 职责
 
 该目录是 Agent Studio Web 前端应用的主源码目录，负责管理路由、全局状态、API 客户端、UI 组件和样式。它通过 React 应用入口 (App.tsx) 组织页面懒加载，并通过 axios 封装与后端 RESTful API 及 SSE 通信，提供认证、通道、工作单元、监控、需求等模块的交互界面。
@@ -55,16 +52,3 @@
 - **PMO 发起讨论弹窗（2026-07-29）**：选频道后实时解析「会响应的 Agent」（与 AgentLoop.observe 同口径——channel.members 非空取成员交集；空则回退 profile.channels，空 channels = 全频道可见；数据源 listAllAgents 客户端过滤 active/非 studio），0 人可响应时显示 ⚠ 警示（不阻断发起）；确认后跳转该频道闭环。
 - **频道线程内过程消息折叠（2026-07-29）**：ChannelDetailPage 线程回复里连续 ≥3 条「过程消息」聚合为一组默认折叠（`collapseProcessReplies`）；里程碑不折叠 = 人类消息 / 卡片消息 / NEED_INPUT 等待回复 / 最后一条回复（最新状态恒可见）。频道只留里程碑、过程可展开——防止 agent 每步 summary 淹没讨论。
 - **通知/消息可点击跳转（2026-07-31，§5.7）**：NotificationBell 从 SSE payload 取 `message.workUnitId` + `message.meta.pmoId`（老消息缺 pmoId → null，防御），每条通知右侧「WU」「PMO」直跳小按钮（stopPropagation + 标记已读 + 收起）；点本体优先级 WU 详情 `/workunits/:id` > PMO 详情 `/pmo/project/:id` > 频道。ChannelMessageItem 的 WU chip（仍开右抽屉）旁加「↗」直跳 `/workunits/:id`；`meta.pmoId` 存在时渲染「PMO ›」chip 直跳 `/pmo/project/:id`。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `cb5509ba`: web): F2 FirstRoleSetupModal 触发条件改为无已配置 provider 的角色
-- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
-- ✅ 2026-07-29: StudioRoleSetupModal 按 style-guide §4.3 规范重写 — 旧版全量内联硬编码浅色样式（white 底、#2563eb 按钮、#666/#999 文字，规范 §6 反例同类）改为 modal-* 结构 + `.btn btn-secondary/primary` + `u-text/u-text-2` + Select 组件，与 FirstRoleSetupModal 同构；行为与 data-testid 零变更
-- ✅ 2026-07-29: 自定义主题感知 Select 替换全部原生 select（18 处 / 11 文件）— 新增 `components/ui/Select.tsx`（触发器 `.select-trigger` 视觉对齐 `.input`；选项面板 portal 到 `document.body`、fixed 定位、宽对齐触发器、max-height 240px、z-index 100；Enter/Space/↑↓/Escape 键盘导航 + listbox/option ARIA；点外部/滚动/resize 关闭；零动画全 token）；theme.css 增 `.select-*` 组件类并删除 2026-07-27 的 `select option` 死规则（全仓已无原生 select，`color-scheme` 保留）；style-guide §4.6 新增组件条目、§4.2 改为 input/textarea 通用；相关测试改为「点触发器 → 点选项」交互
-- ✅ 2026-07-28: llm-configs 子系统下线（web 侧）— Settings 页「🧠 LLM 配置」卡片（LLMConfigSection + LLM_SCOPES/LLM_PROVIDERS/MaskedLLMConfig）、未挂载的 LlmConfigDisplay 组件及其测试、api/index.ts 的 llmConfigApi 一并删除；后端 /api/v1/settings/llm 路由与同日子系统移除，模型选择归角色绑定 CLI 的自身配置
-- ✅ `66c2bd93`: web): ChannelMemberManager 异步数据同步 + 创建提交态 + select 深色适配
-- ✅ 2026-07-27: ChannelMemberManager 成员列表刷新丢失修复 — memberIds 曾只用 useState 初始值消费 membersJson（channel 异步到达后不同步，刷新/切频道即显示空），改为 useEffect 同步；创建表单加提交态（创建中…/禁用）与行内错误，按钮文案「创建并加入频道」；全局原生 select 白面板修复 — theme.css `:root`/`[data-theme=light]` 加 color-scheme + option 变量样式（全项目 19 处 select 共性）
-- ✅ 2026-07 频道角色修复：频道打开自动定位最新消息（此前停在顶部）；provider 下拉从硬编码 4 项改为运行环境扫描（useDetectedProviders）；频道成员面板创建 Agent 补 CLI/描述；AgentDashboardPage 从 runtime 实例列表改为 profile 中心（名称/CLI/描述/状态），页头加"创建角色"入口
-- ✅ `5b7ec85c`: web): 修复 4 个生产崩溃 + 菜单冗余整合

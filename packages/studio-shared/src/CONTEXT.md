@@ -4,9 +4,6 @@
 > 请阅读本目录的源代码，然后填写以下各节。
 > 如果使用 AI 编码助手，将本文件内容作为 prompt 请求它分析并填写。
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/src/CONTEXT.md, packages/studio-shared/src/file-store.ts, packages/studio-shared/src/event-bus.ts, packages/studio-shared/src/index.ts, packages/studio-shared/src/web.ts, packages/studio-shared/src/attestation.ts, packages/studio-shared/src/domain-vocab.ts, packages/studio-shared/src/node.ts, packages/studio-shared/src/providers.ts
-
 ## 职责
 
 本目录是 Agent-Studio 的前后端共享库，提供 CLI 框架、配置管理、常量定义、事件总线与文件存储等通用基础设施，为 apps/api 等多个上层模块提供复用的工具与类型。
@@ -44,17 +41,3 @@
 - 事件总线支持通配符（`*`）模式订阅，Handler 异常不会影响其他监听器
 - 级别与责任链常量为单一数据源，其他模块不应重复定义
 - `constants/` 下各文件应保持无外部依赖（仅内部引用），便于前端复用
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `44be7b44`: studio-shared): FileStore baseDir 解耦 HOME + deleteState 方法
-- ✅ `3b1596b0`: studio-shared): 隔离 Node-only top-level 副作用 + 新增前端专用入口 /web
-- ✅ 2026-07-28: 任务规格档（fast/standard/premium tier）机制物理删除——`ModelTier` 类型与 config/model-tier.ts 整文件删除（消费方全灭：TIER_MAX_TURNS 零读取方、getSessionTimeout 仅兜底且生产构造方都显式传 timeoutMs、skill tier 过滤恒通过、TIER_TOOL_ACCESS 零调用方）；session 超时改扁平默认 30min，skillLoader.load 不再按 tier 过滤
-- ✅ 2026-07-28: model-tier.ts 瘦身为纯 `ModelTier` 类型（任务规格/超时档位标签，runner-params TIER_TIMEOUTS 等仍在用）；getModelForTier/getModelTierConfig 删除——"tier→模型名"全局映射对 claude 静默无效（无 modelFlag）、对 kimi/codex/opencode 强行覆盖用户 CLI 配置，违反算力提供方原则
-- ✅ `240f7885`: passwordHash 泄露 + workspace 端点 Admin 加硬 + 本地 CLI 扫描修复
-- ✅ `ddccf47a`: studio-shared): FileStore 原子写与 index 并发写加锁
-- ✅ `6d6ada83`: spec4-p2): Phase 2 收尾 — FileStore mock 更新 + writeJsonl 方法
-- ✅ `5408f1dc`: web): 修复 ProjectDetailPage 加载任务失败阻塞页面 + 修复 monitoring/stats 500
-- ✅ `5b7ec85c`: web): 修复 4 个生产崩溃 + 菜单冗余整合
-- ✅ 2026-07-28: config 摘除 `anthropicModel` 字段（`ANTHROPIC_MODEL` env 直读）——全仓零消费方（模型选择归各 CLI 自身配置，provider 注册表注释所述的 ANTHROPIC_MODEL 是 CLI 自身 env，与本字段无关）
