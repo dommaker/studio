@@ -3,6 +3,9 @@
  *
  * 展示节点扫到的 runtime 清单，用户勾选 + 填 name/description -> 批量创建 AgentProfile。
  * 空清单时提示"未检测到 CLI"。
+ *
+ * 样式遵循方向 A「Mission Control」设计体系（docs/specs/ui/style-guide.md），
+ * 一律消费 theme.css 组件类（card / input / btn / tag）与 u-* 语义工具类，禁止写死颜色。
  */
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -85,87 +88,94 @@ export function RolesSetup() {
     }
   };
 
-  if (loading) return <div style={{ padding: '24px' }}>加载中...</div>;
+  if (loading) {
+    return (
+      <div className="h-full flex items-center justify-center u-text-2" style={{ background: 'var(--bg-primary)' }}>
+        加载中...
+      </div>
+    );
+  }
 
   return (
-    <div style={{ maxWidth: '720px', margin: '40px auto', padding: '0 24px' }}>
-      <h1>角色初始化向导</h1>
-      <p style={{ color: '#666' }}>从已注册的节点 runtime 创建 AgentProfile。</p>
+    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <h1 className="page-title">角色初始化向导</h1>
+        <p className="page-subtitle">从已注册的节点 runtime 创建 AgentProfile。</p>
+      </div>
 
-      {runtimes.length === 0 ? (
-        <div style={{ padding: '24px', background: '#f3f4f6', borderRadius: '8px', textAlign: 'center' }}>
-          <p>未检测到 CLI，请先在节点上安装 claude/kimi/codex/opencode 之一。</p>
-          <p style={{ fontSize: '14px', color: '#999' }}>节点 daemon start 后会自动扫描并上报 runtime 清单。</p>
-        </div>
-      ) : (
-        <>
-          <div style={{ marginBottom: '16px' }}>
-            <p style={{ fontWeight: 500, marginBottom: '8px' }}>检测到 {runtimes.length} 个 runtime：</p>
-            {runtimes.map(rt => {
-              const key = `${rt.nodeId}:${rt.provider}`;
-              const isSelected = !!selected[key];
-              return (
-                <div key={key} style={{ border: '1px solid #e5e7eb', borderRadius: '8px', marginBottom: '12px', padding: '12px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(key)}
-                    />
-                    <span style={{ fontWeight: 500 }}>{rt.provider}</span>
-                    <span style={{ color: '#666', fontSize: '14px' }}>v{rt.version}</span>
-                    <span style={{ color: '#999', fontSize: '12px' }}>@ {rt.workspaceName}</span>
-                  </label>
-                  {isSelected && (
-                    <div style={{ marginLeft: '24px', marginTop: '8px', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '8px' }}>
-                      <input
-                        type="text"
-                        placeholder="角色名称（如 dev-agent）"
-                        value={selected[key].name}
-                        onChange={(e) => updateField(key, 'name', e.target.value)}
-                        style={{ padding: '6px 8px', border: '1px solid #ccc', borderRadius: '4px' }}
-                        data-testid={`role-name-${key}`}
-                      />
-                      <input
-                        type="text"
-                        placeholder="描述（可选）"
-                        value={selected[key].description}
-                        onChange={(e) => updateField(key, 'description', e.target.value)}
-                        style={{ padding: '6px 8px', border: '1px solid #ccc', borderRadius: '4px' }}
-                      />
+      <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className="max-w-5xl mt-4">
+          {runtimes.length === 0 ? (
+            <div className="card p-4 text-center">
+              <p className="u-text">未检测到 CLI，请先在节点上安装 claude/kimi/codex/opencode 之一。</p>
+              <p className="text-sm u-text-3 mt-1">节点 daemon start 后会自动扫描并上报 runtime 清单。</p>
+            </div>
+          ) : (
+            <>
+              <div className="mb-4">
+                <p className="u-text font-medium mb-2">检测到 {runtimes.length} 个 runtime：</p>
+                {runtimes.map(rt => {
+                  const key = `${rt.nodeId}:${rt.provider}`;
+                  const isSelected = !!selected[key];
+                  return (
+                    <div key={key} className="card p-3 mb-3">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(key)}
+                          style={{ accentColor: 'var(--accent-primary)' }}
+                        />
+                        <span className="u-text font-medium">{rt.provider}</span>
+                        <span className="u-text-2 text-sm">v{rt.version}</span>
+                        <span className="u-text-3 text-xs">@ {rt.workspaceName}</span>
+                      </label>
+                      {isSelected && (
+                        <div className="ml-6 mt-2 grid gap-2" style={{ gridTemplateColumns: '1fr 2fr' }}>
+                          <input
+                            type="text"
+                            placeholder="角色名称（如 dev-agent）"
+                            value={selected[key].name}
+                            onChange={(e) => updateField(key, 'name', e.target.value)}
+                            className="input"
+                            data-testid={`role-name-${key}`}
+                          />
+                          <input
+                            type="text"
+                            placeholder="描述（可选）"
+                            value={selected[key].description}
+                            onChange={(e) => updateField(key, 'description', e.target.value)}
+                            className="input"
+                          />
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
 
-          {error && <div style={{ color: 'red', marginBottom: '12px' }}>{error}</div>}
+              {error && <div className="u-err mb-3">{error}</div>}
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              onClick={() => navigate('/')}
-              style={{ padding: '8px 16px' }}
-            >
-              跳过
-            </button>
-            <button
-              onClick={handleCreate}
-              disabled={creating || Object.keys(selected).length === 0}
-              style={{
-                padding: '8px 16px',
-                background: Object.keys(selected).length > 0 ? '#2563eb' : '#ccc',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-              }}
-              data-testid="roles-setup-create"
-            >
-              {creating ? '创建中...' : '创建选中角色'}
-            </button>
-          </div>
-        </>
-      )}
+              <div className="flex gap-2">
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => navigate('/')}
+                >
+                  跳过
+                </button>
+                <button
+                  className="btn btn-primary"
+                  onClick={handleCreate}
+                  disabled={creating || Object.keys(selected).length === 0}
+                  data-testid="roles-setup-create"
+                >
+                  {creating ? '创建中...' : '创建选中角色'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

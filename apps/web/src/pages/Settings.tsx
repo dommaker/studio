@@ -33,8 +33,8 @@ function LanguageSettings() {
           }}>
           <span className="text-2xl">{lang.flag}</span>
           <div>
-            <div className="font-medium" style={{ color: 'var(--text-primary)' }}>{lang.name}</div>
-            <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{lang.code === 'zh-CN' ? '默认语言' : 'English'}</div>
+            <div className="font-medium u-text">{lang.name}</div>
+            <div className="text-xs u-text-3">{lang.code === 'zh-CN' ? '默认语言' : 'English'}</div>
           </div>
         </button>
       ))}
@@ -61,8 +61,8 @@ function ThemeSettings() {
             boxShadow: theme === t.value ? 'var(--shadow-glow)' : 'none',
           }}>
           <div className="text-2xl mb-2">{t.icon}</div>
-          <div className="font-medium mb-1" style={{ color: 'var(--text-primary)' }}>{t.label}</div>
-          <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{t.desc}</div>
+          <div className="font-medium mb-1 u-text">{t.label}</div>
+          <div className="text-xs u-text-3">{t.desc}</div>
         </button>
       ))}
     </div>
@@ -222,250 +222,250 @@ export function Settings() {
 
   if (loading) {
     return (
-      <div className="p-6 max-w-4xl mx-auto min-h-full flex items-center justify-center">
+      <div className="h-full flex items-center justify-center" style={{ background: 'var(--bg-primary)' }}>
         <div className="loading-spinner"></div>
       </div>
     );
   }
 
   return (
-    <div className="p-6 max-w-4xl mx-auto min-h-full overflow-y-auto">
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>⚙️ 设置</h1>
-        <p style={{ color: 'var(--text-secondary)' }}>配置通知、算力接入与偏好</p>
+    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <h1 className="page-title">⚙️ 设置</h1>
+        <p className="page-subtitle">配置通知、算力接入与偏好</p>
       </div>
 
-      <div className="space-y-8">
-        {/* 🎭 角色执行配置 */}
-        <section className="space-y-6">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🎭 角色执行配置</h2>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>控制会议内角色并行执行的参数</p>
-          <div className="space-y-4 p-4 rounded-xl" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>并发上限</label>
-              <div className="flex items-center gap-4">
-                <input type="number" min="1" max="5" value={config.roleExecution.maxConcurrent}
-                  onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, maxConcurrent: parseInt(e.target.value) || 3 })}
-                  className="input w-20" />
-                <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>个角色同时执行（推荐 2-3）</span>
+      <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className="max-w-5xl space-y-8 mt-4">
+          {/* 🎭 角色执行配置 */}
+          <section className="space-y-4">
+            <h2 className="mc-block-label" style={{ margin: 0 }}>🎭 角色执行配置</h2>
+            <p className="text-sm u-text-2">控制会议内角色并行执行的参数</p>
+            <div className="card p-4 space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 u-text-2">并发上限</label>
+                <div className="flex items-center gap-4">
+                  <input type="number" min="1" max="5" value={config.roleExecution.maxConcurrent}
+                    onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, maxConcurrent: parseInt(e.target.value) || 3 })}
+                    className="input w-20" />
+                  <span className="text-sm u-text-3">个角色同时执行（推荐 2-3）</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2 u-text-2">Token 警告阈值</label>
+                <div className="flex items-center gap-4">
+                  <input type="number" min="1000" step="5000" value={config.roleExecution.tokenWarningThreshold}
+                    onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, tokenWarningThreshold: parseInt(e.target.value) || 15000 })}
+                    className="input w-24" />
+                  <span className="text-sm u-text-3">Token（超出时提醒）</span>
+                </div>
+                <p className="text-xs mt-1 u-text-3">参考：需求分析 ~3000、代码生成 ~10000、复杂任务 ~20000</p>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={config.roleExecution.showTokenUsage}
+                    onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, showTokenUsage: e.target.checked })}
+                    className="w-4 h-4 rounded" style={{ accentColor: 'var(--accent-primary)' }} />
+                  <span className="text-sm u-text-2">执行时显示 Token 消耗</span>
+                </label>
               </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Token 警告阈值</label>
-              <div className="flex items-center gap-4">
-                <input type="number" min="1000" step="5000" value={config.roleExecution.tokenWarningThreshold}
-                  onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, tokenWarningThreshold: parseInt(e.target.value) || 15000 })}
-                  className="input w-24" />
-                <span className="text-sm" style={{ color: 'var(--text-tertiary)' }}>Token（超出时提醒）</span>
+          </section>
+
+          {/* 🖥️ 算力接入 — AS-020 P7 */}
+          <section className="space-y-4">
+            <h2 className="mc-block-label" style={{ margin: 0 }}>🖥️ 算力接入</h2>
+            <p className="text-sm u-text-2">
+              管理远程 Workspace 连接和 Token，让外部机器加入算力池
+            </p>
+            <div className="card p-4 space-y-4">
+              <div>
+                <h3 className="text-sm font-medium mb-2 u-text-2">已连接 Workspace</h3>
+                <WorkspaceStatusBar />
               </div>
-              <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>参考：需求分析 ~3000、代码生成 ~10000、复杂任务 ~20000</p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowJoinDialog(true)}
+                  className="btn btn-primary"
+                >
+                  + 加入算力
+                </button>
+              </div>
+              <div>
+                <h3 className="text-sm font-medium mb-2 u-text-2">Token 管理</h3>
+                <TokenManager />
+              </div>
             </div>
-            <div className="flex items-center gap-3">
+          </section>
+
+          {/* 📢 通知配置同步状态提示 */}
+          {notifySyncStatus === 'needs-resave' && (
+            <div className="p-3 rounded-lg border u-warn-dim u-warn-border">
+              <div className="flex items-center gap-2">
+                <span>⚠️</span>
+                <span className="text-sm font-medium u-warn">通知配置需要重新保存</span>
+              </div>
+              <p className="text-xs mt-1 u-text-2">
+                服务器配置已丢失（可能已重启），请点击"保存设置"重新同步配置。
+              </p>
+            </div>
+          )}
+          {notifySyncStatus === 'synced' && (
+            <div className="p-2 rounded-lg border u-ok-dim u-ok-border">
+              <div className="flex items-center gap-2">
+                <span>✅</span>
+                <span className="text-xs u-ok">通知配置已同步到服务器</span>
+              </div>
+            </div>
+          )}
+
+          {/* 📢 Discord */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="mc-block-label" style={{ margin: 0 }}>📢 Discord 通知</h2>
+              <span className={`tag ${config.discord.enabled ? 'tag-success' : 'tag-warning'}`}>{config.discord.enabled ? '已启用' : '未启用'}</span>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2 u-text-2">Webhook URL</label>
+              <input type="text" placeholder="https://discord.com/api/webhooks/..." value={config.discord.webhookUrl}
+                onChange={(e) => updateConfig('discord', { ...config.discord, webhookUrl: e.target.value, enabled: !!e.target.value })}
+                className="input w-full" />
+            </div>
+          </section>
+
+          {/* 💼 企业微信 */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="mc-block-label" style={{ margin: 0 }}>💼 企业微信通知</h2>
+              <span className={`tag ${config.wecom.enabled ? 'tag-success' : 'tag-warning'}`}>{config.wecom.enabled ? '已启用' : '未启用'}</span>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-2 u-text-2">Webhook URL</label>
+              <input type="text" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" value={config.wecom.webhookUrl}
+                onChange={(e) => updateConfig('wecom', { ...config.wecom, webhookUrl: e.target.value, enabled: !!e.target.value })}
+                className="input w-full" />
+            </div>
+          </section>
+
+          {/* 📱 Telegram */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="mc-block-label" style={{ margin: 0 }}>📱 Telegram 通知</h2>
+              <span className={`tag ${config.telegram.enabled ? 'tag-success' : 'tag-warning'}`}>{config.telegram.enabled ? '已启用' : '未启用'}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 u-text-2">Bot Token</label>
+                <input type="text" placeholder="123456:ABC-DEF..." value={config.telegram.botToken}
+                  onChange={(e) => updateConfig('telegram', { ...config.telegram, botToken: e.target.value, enabled: !!(e.target.value && config.telegram.chatId) })}
+                  className="input w-full" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2 u-text-2">Chat ID</label>
+                <input type="text" placeholder="-1001234567890" value={config.telegram.chatId}
+                  onChange={(e) => updateConfig('telegram', { ...config.telegram, chatId: e.target.value, enabled: !!(config.telegram.botToken && e.target.value) })}
+                  className="input w-full" />
+              </div>
+            </div>
+          </section>
+
+          {/* 📊 上下文监控 */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="mc-block-label" style={{ margin: 0 }}>📊 上下文监控</h2>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={config.roleExecution.showTokenUsage}
-                  onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, showTokenUsage: e.target.checked })}
+                <input type="checkbox" checked={config.contextMonitor.enabled}
+                  onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, enabled: e.target.checked })}
                   className="w-4 h-4 rounded" style={{ accentColor: 'var(--accent-primary)' }} />
-                <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>执行时显示 Token 消耗</span>
+                <span className="text-sm u-text-2">启用</span>
               </label>
             </div>
-          </div>
-        </section>
-
-        {/* 🖥️ 算力接入 — AS-020 P7 */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🖥️ 算力接入</h2>
-          <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
-            管理远程 Workspace 连接和 Token，让外部机器加入算力池
-          </p>
-          <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-            <div>
-              <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>已连接 Workspace</h3>
-              <WorkspaceStatusBar />
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium mb-2 u-text-2">提示阈值 (%)</label>
+                <input type="number" min="30" max="90" value={config.contextMonitor.warningThreshold}
+                  onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, warningThreshold: parseInt(e.target.value) || 50 })}
+                  className="input w-full" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2 u-text-2">警告阈值 (%)</label>
+                <input type="number" min="50" max="95" value={config.contextMonitor.criticalThreshold}
+                  onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, criticalThreshold: parseInt(e.target.value) || 70 })}
+                  className="input w-full" />
+              </div>
             </div>
-            <div className="flex gap-3">
-              <button
-                onClick={() => setShowJoinDialog(true)}
-                className="px-4 py-2 rounded-lg text-sm"
-                style={{ background: 'var(--accent-primary)', color: 'white' }}
-              >
-                + 加入算力
-              </button>
-            </div>
-            <div>
-              <h3 className="text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Token 管理</h3>
-              <TokenManager />
-            </div>
-          </div>
-        </section>
+          </section>
 
-        {/* 📢 通知配置同步状态提示 */}
-        {notifySyncStatus === 'needs-resave' && (
-          <div className="p-3 rounded-lg" style={{ background: 'rgba(245, 158, 11, 0.1)', border: '1px solid #f59e0b' }}>
-            <div className="flex items-center gap-2">
-              <span>⚠️</span>
-              <span className="text-sm font-medium" style={{ color: '#f59e0b' }}>通知配置需要重新保存</span>
+          {/* 🏢 公司信息 */}
+          <section className="space-y-4">
+            <h2 className="mc-block-label" style={{ margin: 0 }}>🏢 公司信息</h2>
+
+            <div className="card p-4 space-y-4">
+              {/* 公司名称 */}
+              <div>
+                <label className="block text-sm font-medium mb-2 u-text-2">公司名称</label>
+                <input type="text" value={company?.name || newCompanyName}
+                  onChange={(e) => {
+                    setNewCompanyName(e.target.value);
+                    if (company) {
+                      // 自动保存
+                      api.patch(`/companies/${company.id}`, { name: e.target.value }).then(() => {
+                        setCompany({ ...company!, name: e.target.value });
+                      }).catch(err => { console.error('Auto-save failed:', err); toast.error('自动保存失败'); });
+                    }
+                  }}
+                  placeholder="输入公司名称" className="input w-full" />
+              </div>
+
+              {/* 如果没有公司，显示创建提示 */}
+              {!company && newCompanyName.trim() && (
+                <button onClick={() => {
+                  api.post('/companies', { name: newCompanyName }).then(res => {
+                    if (res.data?.id) {
+                      localStorage.setItem('companyId', res.data.id);
+                      setCompany(res.data);
+                    }
+                  }).catch(err => toast.error('创建失败: ' + err.message));
+                }} className="btn btn-primary text-sm">保存为新公司</button>
+              )}
             </div>
-            <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-              服务器配置已丢失（可能已重启），请点击"保存设置"重新同步配置。
-            </p>
-          </div>
-        )}
-        {notifySyncStatus === 'synced' && (
-          <div className="p-2 rounded-lg" style={{ background: 'rgba(34, 197, 94, 0.1)', border: '1px solid #22c55e' }}>
-            <div className="flex items-center gap-2">
-              <span>✅</span>
-              <span className="text-xs" style={{ color: '#22c55e' }}>通知配置已同步到服务器</span>
+          </section>
+
+          {/* 📚 知识库 */}
+          <section className="space-y-4">
+            <h2 className="mc-block-label" style={{ margin: 0 }}>📚 公司知识库</h2>
+            <div className="card p-4">
+              <p className="text-sm mb-4 u-text-2">管理公司所有项目的文档资产</p>
+              <div className="flex gap-3">
+                <button onClick={() => {
+                  const companyId = localStorage.getItem('companyId') || '';
+                  window.location.href = `/knowledge?companyId=${companyId}`;
+                }} className="btn btn-primary">查看知识库 →</button>
+                <button onClick={() => { window.location.href = '/knowledge/import'; }}
+                  className="btn btn-secondary">
+                  📥 冷启动导入
+                </button>
+              </div>
             </div>
-          </div>
-        )}
-        
-        {/* 📢 Discord */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>📢 Discord 通知</h2>
-            <span className={`text-xs px-2 py-1 rounded-full ${config.discord.enabled ? 'status-running' : 'status-pending'}`}>{config.discord.enabled ? '已启用' : '未启用'}</span>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Webhook URL</label>
-            <input type="text" placeholder="https://discord.com/api/webhooks/..." value={config.discord.webhookUrl}
-              onChange={(e) => updateConfig('discord', { ...config.discord, webhookUrl: e.target.value, enabled: !!e.target.value })}
-              className="input w-full" />
-          </div>
-        </section>
+          </section>
 
-        {/* 💼 企业微信 */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>💼 企业微信通知</h2>
-            <span className={`text-xs px-2 py-1 rounded-full ${config.wecom.enabled ? 'status-running' : 'status-pending'}`}>{config.wecom.enabled ? '已启用' : '未启用'}</span>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Webhook URL</label>
-            <input type="text" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" value={config.wecom.webhookUrl}
-              onChange={(e) => updateConfig('wecom', { ...config.wecom, webhookUrl: e.target.value, enabled: !!e.target.value })}
-              className="input w-full" />
-          </div>
-        </section>
+          {/* 🌐 语言（最下面） */}
+          <section className="space-y-4">
+            <h2 className="mc-block-label" style={{ margin: 0 }}>🌐 语言设置</h2>
+            <LanguageSettings />
+          </section>
 
-        {/* 📱 Telegram */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>📱 Telegram 通知</h2>
-            <span className={`text-xs px-2 py-1 rounded-full ${config.telegram.enabled ? 'status-running' : 'status-pending'}`}>{config.telegram.enabled ? '已启用' : '未启用'}</span>
+          {/* 🎨 主题（最下面） */}
+          <section className="space-y-4">
+            <h2 className="mc-block-label" style={{ margin: 0 }}>🎨 主题设置</h2>
+            <ThemeSettings />
+          </section>
+
+          {/* 保存 */}
+          <div className="flex justify-end gap-3 pt-4 border-t u-border">
+            <button onClick={() => window.history.back()} className="btn btn-secondary" disabled={saving}>取消</button>
+            <button onClick={handleSave} disabled={saving} className="btn btn-primary">{saving ? '保存中...' : '💾 保存设置'}</button>
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Bot Token</label>
-              <input type="text" placeholder="123456:ABC-DEF..." value={config.telegram.botToken}
-                onChange={(e) => updateConfig('telegram', { ...config.telegram, botToken: e.target.value, enabled: !!(e.target.value && config.telegram.chatId) })}
-                className="input w-full" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>Chat ID</label>
-              <input type="text" placeholder="-1001234567890" value={config.telegram.chatId}
-                onChange={(e) => updateConfig('telegram', { ...config.telegram, chatId: e.target.value, enabled: !!(config.telegram.botToken && e.target.value) })}
-                className="input w-full" />
-            </div>
-          </div>
-        </section>
-
-        {/* 📊 上下文监控 */}
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>📊 上下文监控</h2>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input type="checkbox" checked={config.contextMonitor.enabled}
-                onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, enabled: e.target.checked })}
-                className="w-4 h-4 rounded" style={{ accentColor: 'var(--accent-primary)' }} />
-              <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>启用</span>
-            </label>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>提示阈值 (%)</label>
-              <input type="number" min="30" max="90" value={config.contextMonitor.warningThreshold}
-                onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, warningThreshold: parseInt(e.target.value) || 50 })}
-                className="input w-full" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>警告阈值 (%)</label>
-              <input type="number" min="50" max="95" value={config.contextMonitor.criticalThreshold}
-                onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, criticalThreshold: parseInt(e.target.value) || 70 })}
-                className="input w-full" />
-            </div>
-          </div>
-        </section>
-
-        {/* 🏢 公司信息 */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🏢 公司信息</h2>
-          
-          <div className="p-4 rounded-xl space-y-4" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-            {/* 公司名称 */}
-            <div>
-              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>公司名称</label>
-              <input type="text" value={company?.name || newCompanyName} 
-                onChange={(e) => {
-                  setNewCompanyName(e.target.value);
-                  if (company) {
-                    // 自动保存
-                    api.patch(`/companies/${company.id}`, { name: e.target.value }).then(() => {
-                      setCompany({ ...company!, name: e.target.value });
-                    }).catch(err => { console.error('Auto-save failed:', err); toast.error('自动保存失败'); });
-                  }
-                }}
-                placeholder="输入公司名称" className="input w-full" />
-            </div>
-
-            {/* 如果没有公司，显示创建提示 */}
-            {!company && newCompanyName.trim() && (
-              <button onClick={() => {
-                api.post('/companies', { name: newCompanyName }).then(res => {
-                  if (res.data?.id) {
-                    localStorage.setItem('companyId', res.data.id);
-                    setCompany(res.data);
-                  }
-                }).catch(err => toast.error('创建失败: ' + err.message));
-              }} className="btn btn-primary text-sm">保存为新公司</button>
-            )}
-          </div>
-        </section>
-
-        {/* 📚 知识库 */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>📚 公司知识库</h2>
-          <div className="p-4 rounded-xl" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-            <p className="text-sm mb-4" style={{ color: 'var(--text-secondary)' }}>管理公司所有项目的文档资产</p>
-            <div className="flex gap-3">
-              <button onClick={() => {
-                const companyId = localStorage.getItem('companyId') || '';
-                window.location.href = `/knowledge?companyId=${companyId}`;
-              }} className="px-4 py-2 rounded-lg text-sm" style={{ background: 'var(--accent-primary)', color: 'white' }}>查看知识库 →</button>
-              <button onClick={() => { window.location.href = '/knowledge/import'; }}
-                className="px-4 py-2 rounded-lg text-sm"
-                style={{ background: 'var(--bg-elevated)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>
-                📥 冷启动导入
-              </button>
-            </div>
-          </div>
-        </section>
-
-        {/* 🌐 语言（最下面） */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🌐 语言设置</h2>
-          <LanguageSettings />
-        </section>
-
-        {/* 🎨 主题（最下面） */}
-        <section className="space-y-4">
-          <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>🎨 主题设置</h2>
-          <ThemeSettings />
-        </section>
-
-        {/* 保存 */}
-        <div className="flex justify-end gap-3 pt-4" style={{ borderTop: '1px solid var(--border-subtle)' }}>
-          <button onClick={() => window.history.back()} className="btn btn-secondary" disabled={saving}>取消</button>
-          <button onClick={handleSave} disabled={saving} className="btn btn-primary">{saving ? '保存中...' : '💾 保存设置'}</button>
         </div>
       </div>
 

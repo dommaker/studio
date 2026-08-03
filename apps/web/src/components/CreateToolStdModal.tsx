@@ -177,7 +177,7 @@ export const CreateToolStdModal: React.FC<CreateToolStdModalProps> = ({
               </div>
 
               {error && (
-                <div className="p-3 rounded-lg text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--error)' }}>
+                <div className="p-3 rounded-lg text-sm" style={{ background: 'var(--error-dim)', border: '1px solid var(--error-border)', color: 'var(--error)' }}>
                   {error}
                 </div>
               )}
@@ -212,8 +212,7 @@ export const CreateToolStdModal: React.FC<CreateToolStdModalProps> = ({
                   {generatedSkill.intent.keywords.map((keyword, i) => (
                     <span
                       key={i}
-                      className="px-2 py-1 rounded text-sm"
-                      style={{ background: 'rgba(59,130,246,0.15)', color: 'var(--accent-primary)' }}
+                      className="px-2 py-1 rounded text-sm u-accent-dim"
                     >
                       {keyword}
                     </span>
@@ -243,15 +242,15 @@ export const CreateToolStdModal: React.FC<CreateToolStdModalProps> = ({
               </div>
 
               {/* YAML 预览 */}
-              <div className="rounded-lg p-4" style={{ background: '#1a1a2e' }}>
-                <h3 className="font-medium mb-3" style={{ color: '#94a3b8' }}>YAML 配置</h3>
-                <pre className="text-sm overflow-x-auto whitespace-pre-wrap" style={{ color: '#4ade80' }}>
+              <div className="rounded-lg p-4 u-surface-2">
+                <h3 className="font-medium mb-3 u-text-2">YAML 配置</h3>
+                <pre className="text-sm overflow-x-auto whitespace-pre-wrap u-ok">
                   {yamlContent}
                 </pre>
               </div>
 
               {error && (
-                <div className="p-3 rounded-lg text-sm" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', color: 'var(--error)' }}>
+                <div className="p-3 rounded-lg text-sm" style={{ background: 'var(--error-dim)', border: '1px solid var(--error-border)', color: 'var(--error)' }}>
                   {error}
                 </div>
               )}

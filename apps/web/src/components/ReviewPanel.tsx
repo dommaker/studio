@@ -76,7 +76,7 @@ export function ReviewPanel({ analysis, onConfirm, onModify, onCancel }: ReviewP
       <div 
         className="px-6 py-4"
         style={{ 
-          background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15))',
+          background: 'var(--accent-dim)',
           borderBottom: '1px solid var(--border-subtle)'
         }}
       >
@@ -84,7 +84,7 @@ export function ReviewPanel({ analysis, onConfirm, onModify, onCancel }: ReviewP
           <div className="flex items-center gap-3">
             <div 
               className="w-10 h-10 rounded-lg flex items-center justify-center text-xl"
-              style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+              style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))' }}
             >
               🎯
             </div>
@@ -305,8 +305,8 @@ export function ReviewPanel({ analysis, onConfirm, onModify, onCancel }: ReviewP
           </button>
           <button
             onClick={onConfirm}
-            className="px-5 py-2 text-sm rounded-lg font-medium u-on-bright transition-colors"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}
+            className="px-5 py-2 text-sm rounded-lg font-medium u-on-accent transition-colors"
+            style={{ background: 'var(--accent-primary)' }}
           >
             ✅ 开始执行
           </button>

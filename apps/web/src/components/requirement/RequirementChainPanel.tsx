@@ -60,7 +60,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
           {/* Requirement 信息 */}
           <div>
             <div className="flex items-center gap-2">
-              <span className="font-medium" style={{ color: 'var(--text-primary, #111)' }}>{req.title}</span>
+              <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{req.title}</span>
               <span className="text-xs px-2 py-0.5 rounded u-accent-dim u-accent">
                 {reqStatusLabels[req.status] ?? req.status}
               </span>
@@ -94,7 +94,7 @@ export function RequirementChainPanel({ reqId, onClose }: Props) {
                     <span className={`text-xs px-2 py-0.5 rounded flex-shrink-0 ${wuStatusColors[column] ?? 'u-surface-2 u-text-2'}`}>
                       {wuStatusLabels[column] ?? column}
                     </span>
-                    <span className="truncate" style={{ color: 'var(--text-primary, #111)' }}>{wu.title}</span>
+                    <span className="truncate" style={{ color: 'var(--text-primary)' }}>{wu.title}</span>
                     {wu.assigneeId && (
                       <span className="text-xs u-text-3 flex-shrink-0">@{wu.assigneeId.slice(0, 8)}</span>
                     )}

@@ -198,7 +198,7 @@ export function MonitoringPage() {
                   <div className="space-y-2">
                     {proposals.map(p => (
                       <div key={p.id} className="flex items-center gap-3 text-sm">
-                        <span className="u-text-1" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        <span className="u-text" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                           {p.title}
                         </span>
                         <span className="text-xs u-text-3">{formatAge(p.created)}</span>
@@ -284,8 +284,8 @@ function formatAge(iso?: string): string {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-lg p-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
-      <h2 className="text-sm font-medium u-text-3 mb-3">{title}</h2>
+    <div className="card p-4">
+      <h2 className="mc-block-label" style={{ margin: '0 0 10px' }}>{title}</h2>
       {children}
     </div>
   );
@@ -294,8 +294,8 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 function StatCard({ label, value, color }: { label: string; value: React.ReactNode; color: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={`text-lg font-bold ${color}`}>{value}</span>
-      <span className="text-sm u-text-3">{label}</span>
+      <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-title)' }}>{value}</span>
+      <span className="text-sm u-text-2">{label}</span>
     </div>
   );
 }

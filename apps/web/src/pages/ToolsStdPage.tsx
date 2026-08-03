@@ -68,7 +68,7 @@ export const ToolsStdPage: React.FC = () => {
         <div className="u-err mb-4">{error}</div>
         <button
           onClick={loadSkills}
-          className="px-4 py-2 u-accent-bg u-on-accent rounded u-hover-bg"
+          className="btn btn-primary"
         >
           重试
         </button>
@@ -77,7 +77,7 @@ export const ToolsStdPage: React.FC = () => {
   }
 
   const renderSkillCard = (skill: SkillMeta) => (
-    <div key={skill.id} className="u-surface border rounded-lg p-4 hover:shadow-md transition-shadow">
+    <div key={skill.id} className="card p-4">
       <div className="flex items-center gap-2 mb-2">
         {skill.openclaw?.emoji && (
           <span className="text-xl">{skill.openclaw.emoji}</span>
@@ -102,26 +102,29 @@ export const ToolsStdPage: React.FC = () => {
   );
 
   return (
-    <div className="p-6">
+    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">技能管理</h1>
-          <p className="u-text-2">
-            管理和配置 Skills（用户意图 → 工作流路由）
-          </p>
+      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="page-title">技能管理</h1>
+            <p className="page-subtitle">
+              管理和配置 Skills（用户意图 → 工作流路由）
+            </p>
+          </div>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="btn btn-primary"
+          >
+            <span>🤖</span>
+            <span>创建 Skill</span>
+          </button>
         </div>
-        <button
-          onClick={() => setShowCreateModal(true)}
-          className="px-4 py-2 u-accent-bg u-on-accent rounded-lg u-hover-bg flex items-center gap-2"
-        >
-          <span>🤖</span>
-          <span>创建 Skill</span>
-        </button>
       </div>
 
+      <div className="flex-1 overflow-auto px-8 py-6">
       {/* Stats */}
-      <div className="u-accent-dim rounded-lg p-4 mb-6">
+      <div className="u-accent-dim rounded p-4 mb-6">
         <div className="text-2xl font-bold u-accent">{skills.length}</div>
         <div className="text-sm u-accent">已注册 Skills</div>
       </div>
@@ -143,6 +146,7 @@ export const ToolsStdPage: React.FC = () => {
         onClose={() => setShowCreateModal(false)}
         onSuccess={handleCreateSuccess}
       />
+      </div>
     </div>
   );
 };

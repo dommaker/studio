@@ -125,15 +125,15 @@ export const IronLawWarningBanner: React.FC<IronLawWarningBannerProps> = ({
     <div
       className="rounded-lg border-l-4 p-4 mb-4"
       style={{
-        background: 'rgba(239, 68, 68, 0.1)',
-        borderColor: '#ef4444',
+        background: 'var(--error-dim)',
+        borderColor: 'var(--error)',
       }}
     >
       {/* Header */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
           <span className="text-lg">🚨</span>
-          <span className="font-medium" style={{ color: '#ef4444' }}>
+          <span className="font-medium u-err">
             Iron Law 提醒
           </span>
         </div>

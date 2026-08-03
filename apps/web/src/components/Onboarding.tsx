@@ -202,7 +202,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
               className="px-4 py-2 rounded"
               style={{
                 background: 'var(--accent-primary)',
-                color: '#fff',
+                color: 'var(--bg-primary)',
                 border: 'none',
               }}
             >

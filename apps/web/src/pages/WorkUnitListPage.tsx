@@ -111,7 +111,7 @@ export function WorkUnitListPage() {
         <div className="max-w-5xl">
           {/* Create form */}
           {showCreate && (
-            <div className="mt-4 p-4 rounded-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
+            <div className="card mt-4 p-4">
               <div className="flex gap-3 items-end">
                 <div className="flex-1">
                   <label className="text-xs u-text-3 mb-1 block">Scope（描述任务）</label>
@@ -228,7 +228,7 @@ function WorkUnitRow({
   }, [expanded, wu.channelId]);
 
   return (
-    <div className="rounded-lg" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}>
+    <div className="card">
       <div
         className="p-3 cursor-pointer flex items-center justify-between gap-4"
         onClick={() => setExpanded(!expanded)}

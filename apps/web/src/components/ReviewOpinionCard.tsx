@@ -2,12 +2,12 @@
 import type { ReviewOpinion } from './MultiStanceReviewPanel';
 import { StanceBadge } from './StanceBadge';
 
-// 审核结果配置
+// 审核结果配置（颜色走语义 token，docs/specs/ui/style-guide.md §2）
 const REVIEW_RESULTS = {
-  approve: { label: '支持', icon: '✅', color: '#4CAF50' },
-  reject: { label: '反对', icon: '❌', color: '#F44336' },
-  neutral: { label: '中立', icon: '⚖️', color: '#2196F3' },
-  conditional: { label: '有条件支持', icon: '⚠️', color: '#FF9800' },
+  approve: { label: '支持', icon: '✅', color: 'var(--success)', dim: 'var(--success-dim)' },
+  reject: { label: '反对', icon: '❌', color: 'var(--error)', dim: 'var(--error-dim)' },
+  neutral: { label: '中立', icon: '⚖️', color: 'var(--text-secondary)', dim: 'var(--bg-tertiary)' },
+  conditional: { label: '有条件支持', icon: '⚠️', color: 'var(--warning)', dim: 'var(--warning-dim)' },
 };
 
 interface ReviewOpinionCardProps {
@@ -70,7 +70,7 @@ export function ReviewOpinionCard({
         <div className="flex items-center gap-2">
           <span
             className="px-2 py-1 rounded text-sm font-bold"
-            style={{ background: resultInfo.color + '20', color: resultInfo.color }}
+            style={{ background: resultInfo.dim, color: resultInfo.color }}
           >
             {resultInfo.icon} {resultInfo.label}
           </span>

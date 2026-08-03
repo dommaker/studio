@@ -130,7 +130,7 @@ export function ThemeToggle() {
             borderRadius: '8px',
             padding: '8px 12px',
             fontSize: '13px',
-            color: theme === t.value ? '#000' : 'var(--text-primary)',
+            color: theme === t.value ? 'var(--bg-primary)' : 'var(--text-primary)',
             cursor: 'pointer',
             display: 'flex',
             alignItems: 'center',

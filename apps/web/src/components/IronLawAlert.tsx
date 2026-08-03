@@ -31,10 +31,11 @@ export const IronLawAlert: React.FC<IronLawAlertProps> = ({
 }) => {
   if (!visible) return null;
 
+  // 颜色全部走语义 token（docs/specs/ui/style-guide.md §2），深浅色自动适配
   const severityConfig = {
-    error: { bg: 'rgba(239,68,68,0.1)', border: '#ef4444', text: 'var(--error)' },
-    warning: { bg: 'rgba(234,179,8,0.1)', border: '#eab308', text: '#b45309' },
-    info: { bg: 'rgba(59,130,246,0.1)', border: '#3b82f6', text: 'var(--accent-primary)' },
+    error: { bg: 'var(--error-dim)', border: 'var(--error)', text: 'var(--error)' },
+    warning: { bg: 'var(--warning-dim)', border: 'var(--warning)', text: 'var(--warning)' },
+    info: { bg: 'var(--accent-dim)', border: 'var(--accent-primary)', text: 'var(--accent-primary)' },
   };
 
   const severityIcons = {

@@ -67,74 +67,72 @@ export function DeleteConfirmModal({
   };
 
   return (
-    <div className="modal-overlay">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/50"
-        onClick={handleClose}
-      />
-
-      {/* Modal */}
-      <div className="modal" style={{ maxWidth: '28rem' }}>
+    <div className="modal-overlay" onClick={handleClose}>
+      {/* Modal（modal-overlay 内置遮罩，点遮罩关闭；点内容不冒泡） */}
+      <div className="modal" style={{ maxWidth: '28rem' }} onClick={(e) => e.stopPropagation()}>
         {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
-          <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.1)' }}>
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" style={{ color: 'var(--error)' }}>
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
+        <div className="modal-header">
+          <div className="flex items-center gap-3">
+            <div className="flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center u-err-dim">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h3 className="modal-title">
+              删除 {resourceType}
+            </h3>
           </div>
-          <h3 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-            删除 {resourceType}
-          </h3>
         </div>
 
-        {/* Warning */}
-        <div className="mb-4 p-3 rounded-lg" style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-          <p className="text-sm font-medium" style={{ color: 'var(--error)' }}>
-            ⚠️ 此操作不可撤销
-          </p>
-          {warningMessage && (
-            <p className="text-sm mt-1" style={{ color: 'var(--error)', opacity: 0.8 }}>
-              {warningMessage}
+        <div className="modal-body">
+          {/* Warning */}
+          <div className="mb-4 p-3 rounded-lg border u-err-dim u-err-border">
+            <p className="text-sm font-medium">
+              ⚠️ 此操作不可撤销
             </p>
-          )}
-        </div>
-
-        {/* Resource Info */}
-        <div className="mb-4">
-          <p className="text-sm mb-2" style={{ color: 'var(--text-secondary)' }}>
-            您即将删除：
-          </p>
-          <div className="p-2 rounded font-mono text-sm" style={{ background: 'var(--bg-tertiary)' }}>
-            {resourceType}: <span className="font-semibold">{displayId}</span>
+            {warningMessage && (
+              <p className="text-sm mt-1" style={{ opacity: 0.8 }}>
+                {warningMessage}
+              </p>
+            )}
           </div>
-        </div>
 
-        {/* Confirmation Input */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-secondary)' }}>
-            请输入 "{displayId}" 以确认删除：
-          </label>
-          <input
-            type="text"
-            value={confirmInput}
-            onChange={(e) => {
-              setConfirmInput(e.target.value);
-              setError('');
-            }}
-            className="input w-full"
-            style={{ borderColor: error ? 'var(--error)' : undefined }}
-            placeholder={displayId}
-            disabled={isDeleting}
-            autoFocus
-          />
-          {error && (
-            <p className="text-sm mt-1" style={{ color: 'var(--error)' }}>{error}</p>
-          )}
+          {/* Resource Info */}
+          <div className="mb-4">
+            <p className="text-sm mb-2 u-text-2">
+              您即将删除：
+            </p>
+            <div className="p-2 rounded font-mono text-sm u-surface-2">
+              {resourceType}: <span className="font-semibold">{displayId}</span>
+            </div>
+          </div>
+
+          {/* Confirmation Input */}
+          <div>
+            <label className="block text-sm font-medium mb-2 u-text-2">
+              请输入 "{displayId}" 以确认删除：
+            </label>
+            <input
+              type="text"
+              value={confirmInput}
+              onChange={(e) => {
+                setConfirmInput(e.target.value);
+                setError('');
+              }}
+              className="input w-full"
+              style={{ borderColor: error ? 'var(--error)' : undefined }}
+              placeholder={displayId}
+              disabled={isDeleting}
+              autoFocus
+            />
+            {error && (
+              <p className="text-sm mt-1 u-err">{error}</p>
+            )}
+          </div>
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-3">
+        <div className="modal-footer">
           <button
             onClick={handleClose}
             disabled={isDeleting}
@@ -146,7 +144,6 @@ export function DeleteConfirmModal({
             onClick={handleConfirm}
             disabled={!isMatch || isDeleting}
             className="btn btn-danger"
-            style={{ opacity: isMatch ? 1 : 0.5, cursor: isMatch ? 'pointer' : 'not-allowed' }}
           >
             {isDeleting ? '删除中...' : '确认删除'}
           </button>
