@@ -76,6 +76,7 @@ import {
   checkKnowledgeHealth,
   runCircuitCheckAndRepair,
   gcStaleWorktrees,
+  knowledgeMaintenanceEnabled,
 } from '../monitor-system-probes.js';
 
 const DF_OK = '/dev/sda1 100G 50G 50G 50% /';
@@ -186,9 +187,28 @@ describe('checkKnowledgeHealth', () => {
     }));
     // state.lastDecayRun = 0 → 触发 24h 衰减循环 + 用户模型更新
     expect(mockRunDecayCycle).toHaveBeenCalledTimes(1);
-    expect(mockRunDailyMaintenance).toHaveBeenCalledTimes(1);
     expect(state.lastDecayRun).toBeGreaterThan(0);
     expect(state.lastUserModelRun).toBeGreaterThan(0);
+  });
+
+  it('B7: LLM daily maintenance is OFF by default (token burn guard)', async () => {
+    delete process.env.STUDIO_KNOWLEDGE_MAINTENANCE;
+    const state = { lastDecayRun: 0, lastUserModelRun: 0 };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockRunDecayCycle).toHaveBeenCalledTimes(1); // 本地衰减照常
+    expect(mockRunDailyMaintenance).not.toHaveBeenCalled(); // LLM 维护默认停用
+  });
+
+  it('B7: STUDIO_KNOWLEDGE_MAINTENANCE=on re-enables LLM daily maintenance', async () => {
+    vi.stubEnv('STUDIO_KNOWLEDGE_MAINTENANCE', 'on');
+    const state = { lastDecayRun: 0, lastUserModelRun: 0 };
+
+    await checkKnowledgeHealth(state);
+
+    expect(mockRunDailyMaintenance).toHaveBeenCalledTimes(1);
+    vi.unstubAllEnvs();
   });
 
   it('score ≥ 60 does not escalate; decay cycle skipped when ran < 24h ago', async () => {
@@ -200,6 +220,15 @@ describe('checkKnowledgeHealth', () => {
     expect(mockHandleAlert).not.toHaveBeenCalled();
     expect(mockEmitEvent).not.toHaveBeenCalled();
     expect(mockRunDecayCycle).not.toHaveBeenCalled();
+  });
+});
+
+describe('knowledgeMaintenanceEnabled (B7 开关)', () => {
+  it('默认关闭；=on 开启；其他值关闭', () => {
+    expect(knowledgeMaintenanceEnabled({} as NodeJS.ProcessEnv)).toBe(false);
+    expect(knowledgeMaintenanceEnabled({ STUDIO_KNOWLEDGE_MAINTENANCE: 'on' } as NodeJS.ProcessEnv)).toBe(true);
+    expect(knowledgeMaintenanceEnabled({ STUDIO_KNOWLEDGE_MAINTENANCE: 'off' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(knowledgeMaintenanceEnabled({ STUDIO_KNOWLEDGE_MAINTENANCE: '1' } as NodeJS.ProcessEnv)).toBe(false);
   });
 });
 

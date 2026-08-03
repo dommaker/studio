@@ -161,13 +161,16 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       const lintReport = linter.run(true);
       state.lastDecayRun = Date.now();
 
-      // F1: KnowledgeCurator LLM-powered maintenance (semantic dedup, quality, freshness, contradictions)
-      try {
-        const { knowledgeCurator } = await import('./knowledge-curator.service.js');
-        const maintenance = await knowledgeCurator.runDailyMaintenance();
-        logger.info('[MonitorService] KnowledgeCurator daily maintenance', maintenance);
-      } catch (err) {
-        logger.warn('[MonitorService] KnowledgeCurator maintenance failed', { error: String(err) });
+      // F1: KnowledgeCurator LLM-powered maintenance — B7 默认停用（见 knowledgeMaintenanceEnabled），
+      // STUDIO_KNOWLEDGE_MAINTENANCE=on 时才执行（semantic dedup, quality, freshness, contradictions）
+      if (knowledgeMaintenanceEnabled()) {
+        try {
+          const { knowledgeCurator } = await import('./knowledge-curator.service.js');
+          const maintenance = await knowledgeCurator.runDailyMaintenance();
+          logger.info('[MonitorService] KnowledgeCurator daily maintenance', maintenance);
+        } catch (err) {
+          logger.warn('[MonitorService] KnowledgeCurator maintenance failed', { error: String(err) });
+        }
       }
 
       logger.info('[MonitorService] Knowledge decay cycle completed', {
