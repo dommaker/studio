@@ -16,6 +16,7 @@ import { workunitApi } from '../api/workunit';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeDoc } from '../api/knowledge';
+import { maintenanceApi } from '../api/maintenance';
 import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { Timeline } from '../components/Timeline';
 import { IronLawWarningBanner } from '../components/IronLawWarningBanner';
@@ -23,6 +24,7 @@ import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
 import { ProjectActivity } from '../components/pmo/ProjectActivity';
 import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
 import { DocReaderDrawer } from '../components/knowledge/DocReaderDrawer';
+import { ManualTaskButton } from '../components/ui';
 import { toast } from '../utils/toast';
 import type { StatsPhase, NodeExecution } from '../types';
 
@@ -470,14 +472,23 @@ export function ProjectDetailPage() {
           {project.status === 'cancelled' && (
             <span className="text-xs px-2 py-1 rounded u-err-dim u-err">已取消</span>
           )}
-          {project.channelId && (
-            <button
-              onClick={() => navigate(`/channels/${project.channelId}`)}
-              className="ml-auto px-3 py-1.5 rounded text-xs u-accent-dim u-accent u-hover-bg"
-            >
-              💬 去频道
-            </button>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            {project.channelId && (
+              <button
+                onClick={() => navigate(`/channels/${project.channelId}`)}
+                className="px-3 py-1.5 rounded text-xs u-accent-dim u-accent u-hover-bg"
+              >
+                💬 去频道
+              </button>
+            )}
+            <ManualTaskButton
+              label="🔍 模式识别"
+              onRun={async () => {
+                const r = await maintenanceApi.runMesoEvolution(projectId!);
+                return `识别完成：发现 ${r.total} 个模式`;
+              }}
+            />
+          </div>
         </div>
       </div>
 

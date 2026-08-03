@@ -10,6 +10,7 @@ vi.mock('react', async () => {
 
 vi.mock('react-router-dom', () => ({
   Link: ({ children, to }: { children: React.ReactNode; to: string }) => React.createElement('a', { href: to }, children),
+  useNavigate: () => vi.fn(),
 }));
 
 vi.mock('../../api/monitoring', () => ({
@@ -61,6 +62,16 @@ const { mockListPendingReview, mockPromote } = vi.hoisted(() => ({
 }));
 vi.mock('../../api/knowledge', () => ({
   knowledgeApi: { listPendingReview: mockListPendingReview, promote: mockPromote, demote: vi.fn() },
+}));
+
+// 手动任务（健康巡检按钮 + 成本小字）
+vi.mock('../../api/maintenance', () => ({
+  maintenanceApi: {
+    getCosts: vi.fn().mockResolvedValue({ days: 30, byTrigger: {}, bySource: {} }),
+    fireTrigger: vi.fn(),
+    runKnowledgeMaintenance: vi.fn(),
+    runMesoEvolution: vi.fn(),
+  },
 }));
 
 import { MonitoringPage } from '../MonitoringPage';
