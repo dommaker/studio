@@ -2,8 +2,8 @@
 
 > AS-020 P2/P4/P5/P6: Workspace 管理 + Daemon 通信 + 任务分发
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workspaces/CONTEXT.md, apps/api/src/modules/workspaces/daemon-routes.ts, apps/api/src/modules/workspaces/discover-proxy.ts, apps/api/src/modules/workspaces/local-workspace.ts, apps/api/src/modules/workspaces/task-routes.ts, apps/api/src/modules/workspaces/token.routes.ts, apps/api/src/modules/workspaces/workspace.routes.ts, apps/api/src/modules/workspaces/ws-gateway.ts, apps/api/src/modules/workspaces/workspace-store.ts, apps/api/src/modules/workspaces/gc-service.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workspaces/CONTEXT.md, apps/api/src/modules/workspaces/task-routes.ts, apps/api/src/modules/workspaces/daemon-routes.ts, apps/api/src/modules/workspaces/discover-proxy.ts, apps/api/src/modules/workspaces/local-workspace.ts, apps/api/src/modules/workspaces/token.routes.ts, apps/api/src/modules/workspaces/workspace.routes.ts, apps/api/src/modules/workspaces/ws-gateway.ts, apps/api/src/modules/workspaces/workspace-store.ts, apps/api/src/modules/workspaces/gc-service.ts
 
 ## 职责
 

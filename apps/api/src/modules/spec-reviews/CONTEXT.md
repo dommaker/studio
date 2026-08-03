@@ -2,7 +2,7 @@
 
 > 此文件描述 apps/api/src/modules/spec-reviews 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
+<!-- STALE_SINCE: 2026-08-03 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/spec-reviews/CONTEXT.md, apps/api/src/modules/spec-reviews/routes.ts, apps/api/src/modules/spec-reviews/spec-review.service.ts
 
 ## 职责

@@ -2,8 +2,8 @@
 
 > 此文件描述 packages/studio-shared 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-29 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/package.json
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/CONTEXT.md, packages/studio-shared/package.json
 
 ## 职责
 

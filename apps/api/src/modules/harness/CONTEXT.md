@@ -2,7 +2,7 @@
 
 > 此文件描述 apps/api/src/modules/harness 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
+<!-- STALE_SINCE: 2026-08-03 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/harness/CONTEXT.md, apps/api/src/modules/harness/routes.ts, apps/api/src/modules/harness/agents.routes.ts, apps/api/src/modules/harness/constraints.routes.ts, apps/api/src/modules/harness/cso.routes.ts, apps/api/src/modules/harness/dashboard.routes.ts, apps/api/src/modules/harness/diagnostics.routes.ts, apps/api/src/modules/harness/guards.routes.ts, apps/api/src/modules/harness/knowledge.routes.ts, apps/api/src/modules/harness/proposals.routes.ts, apps/api/src/modules/harness/runtime.ts, apps/api/src/modules/harness/sessions.routes.ts, apps/api/src/modules/harness/traces.routes.ts, apps/api/src/modules/harness/evolution.service.ts
 
 ## 职责

@@ -2,7 +2,7 @@
 
 > 此文件描述 apps/api/src/modules/triggers 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
+<!-- STALE_SINCE: 2026-08-03 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/triggers/CONTEXT.md, apps/api/src/modules/triggers/trigger-action.ts, apps/api/src/modules/triggers/trigger-registry.ts, apps/api/src/modules/triggers/trigger-scheduler.ts, apps/api/src/modules/triggers/trigger.types.ts
 
 ## 职责
@@ -33,6 +33,7 @@ Trigger 子系统（AS-026，3.28c-4）：SCHEDULE（cron）+ EVENT（EventBus�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-08-03: B3 触发器幂等（token-burn issue，修 8/1 同分钟双触发）— tick() 增同分钟守卫（lastFiredAt 落在当前触发分钟内则跳过，cron 分钟粒度）；executeCreateAction 增 `dedupeWithinMinute` 选项：SCHEDULE 触发按「同 triggerId 同分钟已有 WU（metadata.triggerId+triggeredAt）」落盘去重返回 null（跨进程/重启兜底，in-memory 守卫挡不住的情形）；EVENT 触发不去重
 - ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
 - ✅ 2026-07-27: P0 触发器修复 — executeUpdateAction 查询支持 { lt, gt, lte, gte }（ISO 时间/数值）+ '$now' 占位符执行时刻求值；workunit-timeout 由 UPDATE 改为 EXECUTE（handler 在 workunit/timeout-release.ts）
 - ✅ 2026-07-24: API 鉴权收紧 — 挂载收 requireAuth+requireAdmin（触发器写操作 = 远程执行面）

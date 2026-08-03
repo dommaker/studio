@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/skills 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/skills/CONTEXT.md, apps/api/src/modules/skills/manifest-loader.ts, apps/api/src/modules/skills/skill-loader.ts, apps/api/src/modules/skills/skill-demotion.ts, apps/api/src/modules/skills/skill-selector.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/skills/CONTEXT.md, apps/api/src/modules/skills/skill-extraction.service.ts, apps/api/src/modules/skills/skill-loader.ts, apps/api/src/modules/skills/skill-store.ts, apps/api/src/modules/skills/routes.ts, apps/api/src/modules/skills/skill-promotion.ts, apps/api/src/modules/skills/skill-demotion.ts, apps/api/src/modules/skills/manifest-loader.ts, apps/api/src/modules/skills/skill-selector.ts, apps/api/src/modules/skills/skill-demotion-routes.ts, apps/api/src/modules/skills/skill-proposal-routes.ts, apps/api/src/modules/skills/manifest-generator.ts
 
 ## 职责
 
@@ -58,6 +58,8 @@ skills 模块负责技能（Skill）的完整生命周期管理，包括基于�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ `2a51e54f`: skill_used 口径校准 — uses 按 (skill, workUnitId) 去重
 - ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
 - ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup

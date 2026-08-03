@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/web/src 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-30 -->
-⚠️ 以下文件已变更，本节可能过期: apps/web/src/CONTEXT.md
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/web/src/App.tsx, apps/web/src/CONTEXT.md, apps/web/src/index.css, apps/web/src/types.ts
 
 ## 职责
 
@@ -50,7 +50,8 @@
 - 所有 API 模块返回的响应数据结构需与后端约定一致（如 `{ success, data }` 或 `{ data, total }`）。
 - **F6 派生口径铁律（决策 1，2026-07-28 分析文档）**：WU 状态/证据的展示一律过 `@dommaker/studio-shared` 的 `deriveDisplayState()`（列表页徽章/计数/按钮、抽屉详情/REQ 链路节点、RequirementChainPanel；进度统计用 `workFinished` 所有权口径）——禁止各自读 `metadata.attestations` 自行解释。列表页「待人工」pill = 派生过滤（done ∧ ¬l3 + 手写 in_review）；done 缺 l3 显示「确认」按钮（服务端幂等补写 l3）；`SelfReviewBadge`（components/workunit/）标记自评（评审 WU 自身 selfReview / 父 WU 台账 l2.selfReview）。MonitoringPage「证据台账」区块读 `/monitoring/overview` 的 evidence 段。
 - **PMO 页（决策 2/4 + PMO-b）**：PMOPage 有「新建 PMO」表单（标题/需求描述/gitRepo/交付策略，projectApi.create）；卡片显示杂务徽章与交付策略。ProjectDetailPage 头部显示 REQ 别名/分支/交付策略，「📦 交付」区块（projectApi.getDelivery/deliver）：台账（WU 完成度 + 三层证据缺口 + missing 清单）、auto-merge 显示交付合并按钮（human-only，409 缺口/冲突内联展示）、branch-only 只显示自行合并说明。
-- **PMO 驾驶舱（2026-07-31，§5.5/§5.6）**：ProjectDetailPage 自上而下 = 头部卡（原始需求可折叠块 + 状态 stepper 讨论→进行中→待验收→已交付 + channelId「去频道」）→「🚦 进度管道」（`components/pmo/ProjectPipeline`：总进度条 x/y（workFinished 口径）+ 待认领/执行中/评审中/阻塞/已完成五泳道；数据 = `requirementApi.getChain(reqAlias)`（条目仅 id/title/status/assigneeId/metadata）+ 逐 WU `workunitApi.get` 补全 type/时间戳（allSettled best-effort）+ `monitoringApi.getAgentSummary()` 名册解析认领人（assigneeId=instance.id → name，点击 →`/agents/:roleId`）；泳道/徽章走 deriveDisplayState 派生列，纯函数在 `components/pmo/pipelineUtils.ts`）→ 知识库（卡片点开 `components/knowledge/DocReaderDrawer` 右抽屉，`knowledgeApi`（`api/knowledge.ts`）listByProject/getDetail，正文渲染 = WikiDocPage 同款 plain text + pre-wrap；空态「暂无文档产出」）→ 交付台账（gaps 每行加「查看 WU ›」→`/workunits/:id`）→ 任务看板/执行历史 →「🕐 项目动态」（`ProjectActivity`，buildProjectTimeline 拼 WU createdAt/claimedAt/completedAt + deliveredAt，倒序 ≤20 条）。PMOPage 卡片徽章（§5.6）：列表加载后对可见项目并行 getChain（WU x/y）+ knowledgeApi.listByProject（📄 计数），allSettled 失败静默、0 值不显示。
+- **PMO 驾驶舱（2026-07-31，§5.5/§5.6/§10）**：ProjectDetailPage 自上而下 = 头部卡（原始需求可折叠块 + 状态 stepper 讨论→进行中→待验收→已交付 + channelId「去频道」）→「🚦 进度管道」（`components/pmo/ProjectPipeline`：总进度条 x/y（workFinished 口径）+ 待认领/执行中/评审中/阻塞/已完成五泳道；数据 = `requirementApi.getChain(reqAlias)`（§10 起条目自带 id/title/status/assigneeId/metadata + type/createdAt/claimedAt/completedAt，原逐 WU `workunitApi.get` N+1 补全已移除）+ `monitoringApi.getAgentSummary()` 名册解析认领人（assigneeId=instance.id → name，点击 →`/agents/:roleId`）；泳道/徽章走 deriveDisplayState 派生列，纯函数在 `components/pmo/pipelineUtils.ts`）→ 知识库（卡片点开 `components/knowledge/DocReaderDrawer` 右抽屉，`knowledgeApi`（`api/knowledge.ts`）listByProject/getDetail，正文渲染 = `components/knowledge/MarkdownBody`（见下条）；空态「暂无文档产出」）→ 交付台账（gaps 每行加「查看 WU ›」→`/workunits/:id`）→ 任务看板/执行历史 →「🕐 项目动态」（`ProjectActivity`，buildProjectTimeline 拼 chain WU 时间戳 + deliveredAt，倒序 ≤20 条）。§10 去重：「📈 项目进展」卡内旧四节点 stepper 已移除（与头部 stepper 重复，进度条/统计卡保留）。PMOPage 卡片徽章（§5.6）：列表加载后对可见项目并行 getChain（WU x/y）+ knowledgeApi.listByProject（📄 计数），allSettled 失败静默、0 值不显示。
+- **MarkdownBody 统一渲染（2026-07-31，§10 任务 4b）**：`components/knowledge/MarkdownBody.tsx` = react-markdown + remark-gfm（新依赖；默认不渲染原始 HTML，agent 产出按不可信输入免 DOMPurify），components 映射到 u-* 类/CSS 变量（--bg-tertiary/--border-subtle）适配暗色，不引 typography 插件；`[[wiki 链接]]` 预处理为 /wiki/<title> 站内 router Link（沿用 WikiDocPage 原 renderContent 语义），外链 target=_blank。DocReaderDrawer 与 WikiDocPage 正文统一接入（React.lazy 按需加载，fallback = 原 plain-text pre-wrap 形态；WikiDocPage 旧 renderContent 与无效 prose 类已删）。
 - **PMO 发起讨论弹窗（2026-07-29）**：选频道后实时解析「会响应的 Agent」（与 AgentLoop.observe 同口径——channel.members 非空取成员交集；空则回退 profile.channels，空 channels = 全频道可见；数据源 listAllAgents 客户端过滤 active/非 studio），0 人可响应时显示 ⚠ 警示（不阻断发起）；确认后跳转该频道闭环。
 - **频道线程内过程消息折叠（2026-07-29）**：ChannelDetailPage 线程回复里连续 ≥3 条「过程消息」聚合为一组默认折叠（`collapseProcessReplies`）；里程碑不折叠 = 人类消息 / 卡片消息 / NEED_INPUT 等待回复 / 最后一条回复（最新状态恒可见）。频道只留里程碑、过程可展开——防止 agent 每步 summary 淹没讨论。
 - **通知/消息可点击跳转（2026-07-31，§5.7）**：NotificationBell 从 SSE payload 取 `message.workUnitId` + `message.meta.pmoId`（老消息缺 pmoId → null，防御），每条通知右侧「WU」「PMO」直跳小按钮（stopPropagation + 标记已读 + 收起）；点本体优先级 WU 详情 `/workunits/:id` > PMO 详情 `/pmo/project/:id` > 频道。ChannelMessageItem 的 WU chip（仍开右抽屉）旁加「↗」直跳 `/workunits/:id`；`meta.pmoId` 存在时渲染「PMO ›」chip 直跳 `/pmo/project/:id`。
@@ -58,6 +59,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `cb5509ba`: web): F2 FirstRoleSetupModal 触发条件改为无已配置 provider 的角色
 - ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
 - ✅ 2026-07-29: StudioRoleSetupModal 按 style-guide §4.3 规范重写 — 旧版全量内联硬编码浅色样式（white 底、#2563eb 按钮、#666/#999 文字，规范 §6 反例同类）改为 modal-* 结构 + `.btn btn-secondary/primary` + `u-text/u-text-2` + Select 组件，与 FirstRoleSetupModal 同构；行为与 data-testid 零变更
 - ✅ 2026-07-29: 自定义主题感知 Select 替换全部原生 select（18 处 / 11 文件）— 新增 `components/ui/Select.tsx`（触发器 `.select-trigger` 视觉对齐 `.input`；选项面板 portal 到 `document.body`、fixed 定位、宽对齐触发器、max-height 240px、z-index 100；Enter/Space/↑↓/Escape 键盘导航 + listbox/option ARIA；点外部/滚动/resize 关闭；零动画全 token）；theme.css 增 `.select-*` 组件类并删除 2026-07-27 的 `select option` 死规则（全仓已无原生 select，`color-scheme` 保留）；style-guide §4.6 新增组件条目、§4.2 改为 input/textarea 通用；相关测试改为「点触发器 → 点选项」交互

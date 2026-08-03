@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/workunit 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-30 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md, apps/api/src/modules/workunit/workunit.service.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md, apps/api/src/modules/workunit/merge-on-review-pass.ts, apps/api/src/modules/workunit/timeout-release.ts, apps/api/src/modules/workunit/workunit.service.ts, apps/api/src/modules/workunit/workunit.routes.ts, apps/api/src/modules/workunit/waiting-input.ts, apps/api/src/modules/workunit/delegation-gate.ts
 
 ## 职责
 
@@ -36,13 +36,15 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - **F6-c 证据断链修复（2026-07-30）**：①`POST /:id/verify`（human-only，断点 2）人工重跑 L1——仅代码类 WU（否则 400）+ worktree 落档（否则 409），body.commands 视为 metadata.verifyCommands 覆盖，无可跑命令 422 `{verified:false,reason:'no-commands',hint}`；全绿落 l1 approved + verifyReport，失败只落 l1 rejected（**绝不写 verifyReport**——metrics 按其存在计通过，失败写入会虚增通过率），不动 status/verifyFailCount；service 方法 `recordL1Verification`。②`POST /:id/dispatch-review`（human-only，断点 3）人工补派评审，委托 ReviewDispatcher.dispatchReviewNow（守卫见 agents/CONTEXT.md），200 `{reviewWorkUnitId}`。③reviewPassed 新增 F6-c 幂等豁免：done + agent-review + l2 未达成（deriveDisplayState approved 口径，rejected 留痕不算）→ `writeAgentReviewAttestation` 只补写 l2（不动状态/completedAt、不触发合并；l2 已达成时重复回传仍抛 Cannot review）。**幂等补写证据后（l1/l2/l3 路径）均发 status_changed（状态值不变也发）**——pmo/progress-rollup 按证据齐备度重估；l3 人工确认路径（writeHumanConfirmation）2026-07-30 起同样补发（原为 F6-b 不发约定，rollup 证据感知化后 l3 常是最后一块证据，不发则项目状态无法即时翻转）
 - PMO-b（决策 3）：WU metadata 增 pmoProjectId/pmoBranch（agent-loop 首 step 落档，worktree base 与合并目标从默认分支改 PMO 分支）
 - **blockForManualRelease（2026-07-31 PMO-flow UX §4）**：terminate 语义修正配套——`AgentInstanceService.terminate` unclaim 后经本方法把 WU 置 blocked 转人工（unassigned→blocked 不在 VALID_TRANSITIONS，语义方法直写快照 + appendEvent('blocked') + publishStatusChanged，形态同 markMergeConflict；assigneeId/claimedAt 清空，metadata.manualRelease/manualReleaseReason 留痕；终态 done/closed 不动）。blocked 不在 loop 认领集合内，活 loop 不会回弹重领
-- **里程碑消息 meta（2026-07-31 PMO-flow UX §6-3）**：本模块 blocked 转人工系统消息（merge-on-review-pass 未提交改动/集成交合失败/合并冲突、timeout-release ≥3 次超时 blocked）meta 带 `{pmoId?, atHuman:true}`（pmoId 经 requirements `resolvePmoProjectIdForWU`，解析不到不携带）；释放回池/合并成功等非「需要人看」消息 meta 保持 `{}`。merge-on-review-pass 内 pmo-branch-resolver 走 lazy import（本模块被 workunit.service 静态依赖，静态引入会经 project.service 成循环）
+- **里程碑消息 meta（2026-07-31 PMO-flow UX §6-3 + §10）**：本模块 blocked 转人工系统消息（merge-on-review-pass 未提交改动/集成交合失败/合并冲突、timeout-release ≥3 次超时 blocked）meta 带 `{pmoId?, atHuman:true}`（pmoId 经 requirements `resolvePmoProjectIdForWU`，解析不到不携带）；§10 起**合并成功通知与 NEED_INPUT 挂起超时提醒（waiting-input）同口径带 meta**（通知铃铛可跳 PMO/WU 详情），仅释放回池等纯进度消息 meta 保持 `{}`。merge-on-review-pass 内 pmo-branch-resolver 走 lazy import（本模块被 workunit.service 静态依赖，静态引入会经 project.service 成循环）；waiting-input 静态引用安全（其闭环保底不回环）
 - review-passed/review-rejected 拒绝 authorType=agent 的调用（403，A2A §4.4：验收权只在人；UI/人类调用不发送 authorType 或发送 'human'）
 - **鉴权（2026-07-24 收紧）**：11 条写端点（CRUD/claim/unclaim/review/status/讨论区发消息/编辑消息）= `requireAuth()+requireNotGuest()`；GET 只读保持大门层。注意 authorType/agentName 仍是自声明身份（不作凭证，已知局限）
 
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-08-03: 无人值守 token 燃烧 B 档（docs/issues/2026-08-03-unattended-token-burn.md）— B4 blockReason 落盘：WorkUnitMetadata 新增 `blockReason`（含 `sessionCount`/`testWorkUnitGuard`，agents 侧消费见 agents/CONTEXT.md）；markMergeConflict / blockForManualRelease / reviewRejected(3x) / timeout-release(≥MAX) 四条 blocked 路径全部写入原因；waiting-input.resumeWaitingWorkUnit 恢复时清除 blockReason 并重置 sessionCount（人工接管 = 有人看护，重置 B5 会话预算）；新增 block-reason.test.ts（7 例）
+- ✅ 2026-07-31: PMO-flow UX §10 — 合并成功通知（merge-on-review-pass）与 NEED_INPUT 挂起超时提醒（waiting-input.scanWaitingForInputReminders）消息 meta 补 `{pmoId?, atHuman:true}`（与 §6-3 转人工里程碑同口径；postStudioSystemMessage 增 meta 选项，waiting-input 静态引 pmo-branch-resolver——其依赖本模块已引，闭环保底无回环）；merge/waiting 既有用例补 meta 断言
 - ✅ 2026-07-31: PMO-flow UX §4/§6-3 — ①workunit.service 增 `blockForManualRelease(id, reason)`：terminate 强制释放转人工（appendEvent('blocked') + 直写快照 status=blocked/assigneeId=null/claimedAt=null + publishStatusChanged + metadata.manualRelease/manualReleaseReason 留痕；终态不动），配套 `AgentInstanceService.terminate` 新语义（agents/CONTEXT.md）；②timeout-release（≥3 次超时 blocked）与 merge-on-review-pass（未提交改动/集成交合失败/合并冲突转人工）系统消息 meta 带 `{pmoId?, atHuman:true}`，非「需要人看」消息 meta 保持 `{}`；新增 workunit-manual-release 测试 4 例，timeout/merge 既有用例补 meta 断言
 - ✅ 2026-07-30: F6-c WorkUnit 三层证据断链修复 — workunit.service 增 `recordL1Verification`（人工重跑 L1 落台账，断点 2）与 reviewPassed F6-c 幂等豁免（done + agent-review + l2 未达成 → `writeAgentReviewAttestation` 只补 l2，断点 3）；workunit.routes 增 human-only 端点 `POST /:id/verify`、`POST /:id/dispatch-review`；幂等补写证据后发 status_changed（状态值不变也发）让 pmo rollup 重估；agents 侧配套（wu-verification 抽出/强制收口补验证/dispatchReviewNow/handleReviewChildDone 放宽）见 agents/CONTEXT.md
 - ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化

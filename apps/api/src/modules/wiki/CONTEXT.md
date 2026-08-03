@@ -2,7 +2,7 @@
 
 > 此文件描述 apps/api/src/modules/wiki 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
+<!-- STALE_SINCE: 2026-08-03 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/wiki/CONTEXT.md, apps/api/src/modules/wiki/wiki.routes.ts, apps/api/src/modules/wiki/wiki.service.ts
 
 ## 职责

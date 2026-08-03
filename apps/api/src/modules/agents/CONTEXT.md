@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/agents 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-30 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/review-dispatcher.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/review-dispatcher.ts, apps/api/src/modules/agents/wu-verification.ts, apps/api/src/modules/agents/token-usage.service.ts, apps/api/src/modules/agents/execution-step-events.ts, apps/api/src/modules/agents/system-executor.ts, apps/api/src/modules/agents/builtin-roles.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/default-provider.ts, apps/api/src/modules/agents/session-summary.service.ts, apps/api/src/modules/agents/auditor-execution.ts, apps/api/src/modules/agents/auditor-reports.ts, apps/api/src/modules/agents/auditor-rules.ts, apps/api/src/modules/agents/auditor.service.ts, apps/api/src/modules/agents/knowledge-cold-start.ts, apps/api/src/modules/agents/knowledge-curator.service.ts, apps/api/src/modules/agents/knowledge-extraction.ts, apps/api/src/modules/agents/knowledge-maintenance.ts, apps/api/src/modules/agents/monitor-alerts.ts, apps/api/src/modules/agents/monitor-lifecycle.ts, apps/api/src/modules/agents/monitor-probes.ts, apps/api/src/modules/agents/monitor-reports.ts, apps/api/src/modules/agents/monitor-system-probes.ts, apps/api/src/modules/agents/monitor.service.ts, apps/api/src/modules/agents/ops.service.ts, apps/api/src/modules/agents/review.service.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/triage.service.ts, apps/api/src/modules/agents/review-report.ts, apps/api/src/modules/agents/types.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/session-summary-agent.service.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/remote-executor.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/agent-loop-registry.ts, apps/api/src/modules/agents/token-usage.routes.ts, apps/api/src/modules/agents/executor.ts, apps/api/src/modules/agents/auditor-doc-freshness.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/knowledge-analysis.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/agent-context.ts, apps/api/src/modules/agents/data-analyst-agent.service.ts
 
 ## 职责
 
@@ -76,6 +76,25 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `8df569a9`: agents): L2 studio profile 缺省 provider seed（STUDIO_ROLE_DEFAULT_PROVIDER='claude'）
+- ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加
+- ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
+- ✅ `7e36fd19`: agent): 验收 e2e 抓出两修真链漏洞 — 提交守卫读合并视图 + 合并前数据防丢闸
+- ✅ `05f21551`: agents): SessionSummary checkpoint commit 失效时校验回退（P5）
+- ✅ `2dca78ab`: agent): 非 claude provider 会话续用改 cwd 维度形态（P3）
+- ✅ `b70951bb`: agent): harness 传播停写根目录 AGENTS.md/CLAUDE.md，杜绝 untracked 污染（P2）
+- ✅ `42b7ce27`: agent): review WU 豁免提交守卫 + stepCount 上限放宽至 30（P1）
+- ✅ `fed49d2b`: agent): 提交守卫排除工具产物 + 会话续用改 resume 语义
+- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
+- ✅ `f54153e1`: agents): isOnline 语义从 instance status 改为 loop 存活检测
+- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
+- ✅ `6eef7200`: agents,web): 清理行为模式读端残块 + 提案卡已审核态按 maturity 派生 + 文档约定补充
+- ✅ `07e8b650`: agent-loop): R2 tool:call 接线改读 rawOutput + wireup④ _cumulativeTokens 累计写回
+- ✅ `03a3c3eb`: agents): triage 修复动作默认 dry-run，危险命令需 STUDIO_TRIAGE_DESTRUCTIVE=true 显式开启
+- ✅ `11b8e70b`: spec4-cr): align middleware auth paths with service + remove studio-prisma
+- ✅ `f588061f`: spec4-post-p3): Prisma removal test cleanup — 19 files
+- ✅ 2026-08-03: 无人值守 token 燃烧 C3 档（docs/issues/2026-08-03-unattended-token-burn.md）— 新增 `daily-token-budget.ts`：每日 token 预算熔断（默认 2M/日 billed 口径，`STUDIO_DAILY_TOKEN_BUDGET` 覆盖，<=0 关闭；开关默认生产/开发启用、测试默认关，`STUDIO_TOKEN_BUDGET_GUARD=on/off` 覆盖）；agentStep 在 B2 守卫后检查，当日已耗（workunit:tokens 的 `billedTokens ?? totalTokens`）≥ 预算 → 不起会话、WU 转 need_input 挂起等次日复位/人工处置；进程内当日计数器（首次/跨天全量扫一次事件文件 bootstrap，之后 writeWorkunitTokenEvent 落盘时经 noteTokensWritten 累加）；超限当日全局只告警一次（notifyAlert 频道+企业微信）并落 `studio:budget-tripped` 事件留痕（重启扫描恢复 notified，不重复告警）
+- ✅ 2026-08-03: 无人值守 token 燃烧 B 档（docs/issues/2026-08-03-unattended-token-burn.md）— ①B2 测试特征 WU 守卫：agentStep 入口 `isTestLikeWorkUnit`（metadata.test/testWorkUnit 标记 + scope 独立 test/tests 单词模式），命中不起会话、置 closed 留痕 testWorkUnitGuard；测试环境默认关闭（STUDIO_TEST_WU_GUARD=on/off 覆盖），StepResult 新增 'skipped'（recordResult 早退）；②B5 每 WU 会话数上限 MAX_SESSIONS_PER_WU=2：新会话前检查 metadata.sessionCount（旧数据有 sessionId 按已用 1 计），超限转 need_input 等人工（人工回复经 waiting-input 重置 sessionCount），首 step 失败回滚计数；③B4 blockReason 落盘：verifyBlocked/stuck/need_input 写入，非 blocked 步清除；④B6 真实 token 记账：新增 resolveRealUsage（modelUsage 累积优先、extractUsage 兜底）+ 失败执行同样记账；workunit:tokens 载荷新增 billedTokens（含 cache 的账单口径）/outputTokens/costUsd/numTurns/triggerId，totalTokens 改按 billed 计；executionTokens 保持 input+output（delegation-gate 树预算口径不动）；studioEventsJsonlPath 改走 studio-log-path 测试隔离（原测试直写生产事件流）
 - ✅ 2026-07-31: PMO-flow UX §6-2/§6-3 + §4 — ①agent-loop 忙闲 SSE：claim 置 active 与 updateIdleState 两处发 `agent.instance.status_changed`（lastPublishedStatus 去重，状态变化才发；落 all topic）；②里程碑消息 meta：recordResult 四类里程碑（COMPLETE/NEED_INPUT/验证失败打回/blocked 转人工）与 ReviewDispatcher.postSystemMessage 带 `{pmoId?, atHuman:true}`（pmoId 走 requirements `resolvePmoProjectIdForWU`，普通 progress 不带）；③**`POST /agent-instances/:id/terminate` 行为变化**：原 unclaim 后 WU 回 unassigned（活 loop ≤15s 重新认领回弹，释放无效），现 unclaim 后 WU 经 `WorkUnitService.blockForManualRelease` 置 blocked 转人工（metadata.manualRelease 留痕），实例仍置 terminated；新增测试 agent-loop-instance-status（4 例）/agent-loop-milestone-meta（6 例），agent-instance terminate 用例按新语义改写
 - ✅ 2026-07-30: F6-c WorkUnit 三层证据断链修复 — 新增 `wu-verification.ts`（agent-loop 验证守卫逻辑原样抽出：CODE_WORKTREE_TYPES/resolveVerifyCommands/runWuVerification/extractExecOutputTail）；agent-loop 步骤超限强制收口路径补跑 L1（断点 1：此前强制 in_review 的代码类 WU 永远缺 l1）；review-dispatcher 增 `dispatchReviewNow` 人工补派评审 + handleReviewChildDone 放宽至 done 父 WU 幂等补写 l2（断点 3）；配套 workunit 两个 human-only 端点见 workunit/CONTEXT.md
 - ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
