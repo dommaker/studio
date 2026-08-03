@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/pmo 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/delivery.ts, apps/api/src/modules/pmo/evidence-summary.ts, apps/api/src/modules/pmo/progress-rollup.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/analysis-handoff.ts, apps/api/src/modules/pmo/project.service.ts, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/okr-anomaly-detector.ts
-
 ## 职责
 
 项目管理办公室（PMO）模块：OKR 管理 + 项目管理（CRUD、统一编号 PMO-<n> 自动生成）+ 交付守卫。PMO 是链条的脊椎（2026-07-28 分析文档 §4.5）：id = 分支名（gitBranch 默认 = pmoNumber）、需求文档挂载点（requirementsDocId）、状态 = WU 汇总 + 证据台账、交付策略（deliveryPolicy）挂在项目上。同时包含已停用的 OKR 异常检测功能（默认不启用）。
@@ -58,29 +55,3 @@
 - 所有服务都基于 FileStore（JSON 文件）而非数据库。
 - 测试中使用了 mock，注意 mock 目录与测试数据的路径约定。
 - **鉴权（2026-07-24 收紧）**：7 条写端点（POST /project、PUT /project/:id、PUT /project/:id/status、POST /project/:id/publish、POST /okr、PUT /okr/:id、PUT /projects/:id/okr）已收 requireAuth+requireNotGuest（此前 import 的 requireNotGuest 只声明未使用）；DELETE project/okr 原有 requireRole('Admin') 不变。OKR 写的 roleId 为 body 自声明、checkPermission 据此校验，属已知局限（未修）。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ 2026-07-30: 证据感知交付口径（根因修复「项目已完成 vs 交付未达成打架」）— 新增 evidence-summary.ts 共享证据口径（parseWuMetaPmoId 迁入，progress-rollup re-export 兼容）；progress-rollup 全部完结不再无条件 completed：deliverable → completed，证据缺口 → active/pending 置 in_review（completed/cancelled 不回退；同项目回写串行化防并发覆盖）；l2 豁免 review/analysis（对齐 review-dispatcher.ts:47 跳过集，修规则自相矛盾）；delivery 台账新增 tokens/gaps 字段；token-usage.service 新增 sumTokensForWorkUnits（只增不改）
-- ✅ `c136ce66`: pmo): analysis 派生链进度回写按 metadata.pmoId 回退归属
-- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
-- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
-- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
-- ✅ 2026-07-27: B5 D18 顺手修 — okr.service 读 knowledge:* 事件的时间口径从顶层 `e.timestamp`（StudioEvent 形态下不存在，恒被过滤、指标恒空）改为 getStudioEventTime（createdAt 优先、兼容历史 timestamp），10 处
-- ✅ 2026-07-27: B3a 工程归属链（决策 D2）— 新增 progress-rollup.ts：订阅 workunit.status_changed，WU 关联 Requirement 挂 projectId 时按该项目全部关联 WU 完结比例回写 progress（口径同 REQ 汇总 TERMINAL_WORKUNIT_STATUSES），全部完结置 completed（skipValidation 系统直写）；best-effort 不阻断
-- ✅ 2026-07-27: P0 修复 5 — executions/studio-events jsonl 读路径走 utils/studio-log-path 测试隔离（生产行为不变）
-- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
-- ✅ `0d1ef570`: ci): resolve type errors found by package-level tsc build
-- ✅ `1ac014a8`: ci): resolve type errors in worktree-resolver + okr.service
-- ✅ `13f60e68`: db-removal): migrate 9 more files from Prisma → FileStore (Round 2)
-- ✅ `3de4f489`: ops): code review fixes — Infinity filtering + studioEvent write
-- ✅ `c013381b`: pmo): AC-10 column index off-by-one + AC-6 test matcher
-- ✅ `9f5c871d`: okr): querySkillUsageRate count skills from disk (B59-003)
-- ✅ `a1eb8a3d`: OKR queries — rollback_rate N/A + goal_cost use StudioEvent.costUsd
-- ✅ `13cf6b7e`: deploy failure event enrichment + metricType registration
-- ✅ `36a91ee2`: O2-KR1 注入命中率接线 — consumption 事件 + metric query
-- ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes
-- ✅ `f80cfeae`: 203 TypeScript 错误全部清零
-- ✅ `78c6856d`: Prisma SQLite auto-parses JSON String fields — handle both string and object
-- ✅ `403d82df`: B8 cacheHitRate 公式修正 — cacheHit/(cacheHit+input) 替代 cacheHit/input

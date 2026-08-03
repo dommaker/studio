@@ -23,8 +23,3 @@
 - 飞书回调需返回 `challenge` 字段以通过 URL 验证
 - 按钮点击事件中 `action` 从 `event.action.value.action` 或 `event.action.value` 提取
 - 已移除会议模块，按钮点击仅记录日志并返回成功
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `f80cfeae`: 203 TypeScript 错误全部清零

@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/events 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/events/CONTEXT.md, apps/api/src/modules/events/event.routes.ts, apps/api/src/modules/events/sse.routes.ts, apps/api/src/modules/events/workunit-events-bridge.ts, apps/api/src/modules/events/session-summary-generator.ts, apps/api/src/modules/events/migration.sql
-
 ## 职责
 
 提供全局事件系统：StudioEvent CRUD（G30）、AgentEvent 批量写入（B9-014）、SSE 实时流（HZ-028）、Session 摘要生成（B9-015）。
@@ -49,14 +46,3 @@
 - session:summary 在 session:end 时触发，fire-and-forget
 - patternType 分类规则：纯 deterministic，不调 LLM
 - **鉴权（2026-07-24 收紧）**：event.routes 的 POST /、/agent-events 已收 requireAuth+requireNotGuest；GET /stream 保持公开（Lurk 设计有意放行，会广播内部事件总线）。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
-- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
-- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
-- ✅ 2026-07-27: B5 D18 — event.routes 写入改走统一入口 writeStudioEvent；POST / 空 payload 从默认 '{}' 落盘改为 400 拒收（空 payload knowledge 事件的唯一生产入口被封堵）
-- ✅ 2026-07-27: P0 修复 5 — session-summary-generator/event.routes 的 studio-events.jsonl 走 utils/studio-log-path 测试隔离（生产行为不变）
-- ✅ 2026-07-24: 写端点收 requireAuth+requireNotGuest
-- ✅ `b85449b1`: db-removal): final sweep — 全仓库 prisma 引用清零

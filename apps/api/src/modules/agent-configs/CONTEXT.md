@@ -30,8 +30,3 @@
 - 环境名称通过 `environments.json` 解析环境 ID。
 - 默认使用 `FileStore` 进行文件 I/O。
 - **鉴权（2026-07-24 收紧）**：/api/v1/agent-configs 挂载层已收 requireAuth+requireAdmin（配置含 systemPrompt）；:id 直接 path.join 无校验，存在路径穿越面（未修）。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ 2026-07-24: 挂载收 requireAuth+requireAdmin

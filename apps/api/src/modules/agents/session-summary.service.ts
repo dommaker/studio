@@ -67,9 +67,6 @@ class SessionSummaryService {
       // 提取 feat 摘要 → KnowledgeBus (用于下游 Agent 上下文注入)
       await this.extractFeatSummaries(classified);
 
-      // 更新受影响的目录的 CONTEXT.md
-      await this.updateContextFiles(classified);
-
       // 更新 checkpoint
       this.writeCheckpoint(commits[0].hash);
 
@@ -251,76 +248,6 @@ class SessionSummaryService {
       }
     } catch {
       // non-blocking
-    }
-  }
-
-  /**
-   * 更新受影响目录的 CONTEXT.md — 把 fix 模式写进去，加速下次 Analyst 探索。
-   */
-  private async updateContextFiles(commits: Array<{ hash: string; type: string; message: string; files: string[] }>): Promise<void> {
-    const dirs = new Set<string>();
-    for (const c of commits) {
-      if (c.type !== 'fix') continue;
-      for (const f of c.files) {
-        const dir = path.dirname(f);
-        if (dir && dir !== '.') dirs.add(path.join(REPO_DIR, dir));
-      }
-    }
-
-    const updated: string[] = [];
-    for (const dir of dirs) {
-      const ctxFile = path.join(dir, 'CONTEXT.md');
-      if (!fs.existsSync(ctxFile)) continue;
-      try {
-        const content = fs.readFileSync(ctxFile, 'utf-8');
-        // Only append if not already present
-        const commitsForDir = commits.filter(c => c.type === 'fix' && c.files.some(f => path.dirname(f) === path.relative(REPO_DIR, dir)));
-        const newEntries = commitsForDir
-          .filter(c => !content.includes(c.hash.slice(0, 8)))
-          .map(c => `- ✅ \`${c.hash.slice(0, 8)}\`: ${c.message.replace(/^fix[:(\[]\s*/i, '')}`);
-
-        if (newEntries.length === 0) continue;
-
-        const marker = '<!-- SESSION_SUMMARY_FIXES -->';
-        let newContent: string;
-        if (content.includes(marker)) {
-          newContent = content.replace(marker, marker + '\n' + newEntries.join('\n'));
-        } else {
-          newContent = content.trimEnd() + '\n\n## 修复历史\n\n' + marker + '\n' + newEntries.join('\n') + '\n';
-        }
-
-        fs.writeFileSync(ctxFile, newContent, 'utf-8');
-        updated.push(path.relative(REPO_DIR, ctxFile));
-      } catch {}
-    }
-
-    if (updated.length > 0) {
-      logger.info('[SessionSummary] Updated CONTEXT.md files', { count: updated.length, files: updated.join(', ') });
-    }
-
-    // Also mark CONTEXT.md files as stale when their monitored directories changed
-    for (const dir of dirs) {
-      const ctxFile = path.join(dir, 'CONTEXT.md');
-      if (!fs.existsSync(ctxFile)) continue;
-      try {
-        const changed = commits
-          .filter(c => c.files.some(f => path.dirname(f) === path.relative(REPO_DIR, dir)))
-          .map(c => c.files.filter(f => path.dirname(f) === path.relative(REPO_DIR, dir)))
-          .flat();
-        if (changed.length === 0) continue;
-
-        const content = fs.readFileSync(ctxFile, 'utf-8');
-        const staleMarker = `<!-- STALE_SINCE: ${new Date().toISOString().slice(0, 10)} -->`;
-        // Remove old stale markers AND their ⚠️ warning lines, then add fresh one
-        // （原实现只清 marker 不清 ⚠️ 行，每次运行多叠一条警告块——CONTEXT.md 越积越长）
-        const cleaned = content
-          .replace(/<!-- STALE_SINCE:.*?-->\n?/g, '')
-          .replace(/^⚠️ 以下文件已变更，本节可能过期:.*\n+/gm, '');
-        const withStale = cleaned.replace(/(## 核心导出|## 职责|verifiedAt)/, `${staleMarker}\n⚠️ 以下文件已变更，本节可能过期: ${[...new Set(changed)].join(', ')}\n\n$1`);
-        if (withStale !== cleaned) {
-          fs.writeFileSync(ctxFile, withStale, 'utf-8');
-        }
-      } catch {}
     }
   }
 

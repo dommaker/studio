@@ -133,7 +133,6 @@
 | signal-aggregator | src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 聚合趋势摘要 |
 | monitoring.routes | src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | monitoring.service | src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
-| sdd-freshness.service | src/modules/sdd/sdd-freshness.service.ts | SDD Doc Freshness Service |
 | failure-classifier | src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
 | manifest-loader | src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
 | proposal-store | src/modules/skills/proposal-store.ts | ProposalStore — File-based CRUD for SkillProposal |

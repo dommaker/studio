@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/workunit 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/workunit/CONTEXT.md, apps/api/src/modules/workunit/merge-on-review-pass.ts, apps/api/src/modules/workunit/timeout-release.ts, apps/api/src/modules/workunit/waiting-input.ts, apps/api/src/modules/workunit/workunit.service.ts, apps/api/src/modules/workunit/workunit.routes.ts, apps/api/src/modules/workunit/delegation-gate.ts
-
 ## 职责
 
 WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领（Claim）与状态机；F5 双向沟通的 NEED_INPUT 挂起/恢复与超时提醒。
@@ -39,31 +36,3 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - **里程碑消息 meta（2026-07-31 PMO-flow UX §6-3 + §10）**：本模块 blocked 转人工系统消息（merge-on-review-pass 未提交改动/集成交合失败/合并冲突、timeout-release ≥3 次超时 blocked）meta 带 `{pmoId?, atHuman:true}`（pmoId 经 requirements `resolvePmoProjectIdForWU`，解析不到不携带）；§10 起**合并成功通知与 NEED_INPUT 挂起超时提醒（waiting-input）同口径带 meta**（通知铃铛可跳 PMO/WU 详情），仅释放回池等纯进度消息 meta 保持 `{}`。merge-on-review-pass 内 pmo-branch-resolver 走 lazy import（本模块被 workunit.service 静态依赖，静态引入会经 project.service 成循环）；waiting-input 静态引用安全（其闭环保底不回环）
 - review-passed/review-rejected 拒绝 authorType=agent 的调用（403，A2A §4.4：验收权只在人；UI/人类调用不发送 authorType 或发送 'human'）
 - **鉴权（2026-07-24 收紧）**：11 条写端点（CRUD/claim/unclaim/review/status/讨论区发消息/编辑消息）= `requireAuth()+requireNotGuest()`；GET 只读保持大门层。注意 authorType/agentName 仍是自声明身份（不作凭证，已知局限）
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ 2026-08-03: 无人值守 token 燃烧 B 档（docs/issues/2026-08-03-unattended-token-burn.md）— B4 blockReason 落盘：WorkUnitMetadata 新增 `blockReason`（含 `sessionCount`/`testWorkUnitGuard`，agents 侧消费见 agents/CONTEXT.md）；markMergeConflict / blockForManualRelease / reviewRejected(3x) / timeout-release(≥MAX) 四条 blocked 路径全部写入原因；waiting-input.resumeWaitingWorkUnit 恢复时清除 blockReason 并重置 sessionCount（人工接管 = 有人看护，重置 B5 会话预算）；新增 block-reason.test.ts（7 例）
-- ✅ 2026-07-31: PMO-flow UX §10 — 合并成功通知（merge-on-review-pass）与 NEED_INPUT 挂起超时提醒（waiting-input.scanWaitingForInputReminders）消息 meta 补 `{pmoId?, atHuman:true}`（与 §6-3 转人工里程碑同口径；postStudioSystemMessage 增 meta 选项，waiting-input 静态引 pmo-branch-resolver——其依赖本模块已引，闭环保底无回环）；merge/waiting 既有用例补 meta 断言
-- ✅ 2026-07-31: PMO-flow UX §4/§6-3 — ①workunit.service 增 `blockForManualRelease(id, reason)`：terminate 强制释放转人工（appendEvent('blocked') + 直写快照 status=blocked/assigneeId=null/claimedAt=null + publishStatusChanged + metadata.manualRelease/manualReleaseReason 留痕；终态不动），配套 `AgentInstanceService.terminate` 新语义（agents/CONTEXT.md）；②timeout-release（≥3 次超时 blocked）与 merge-on-review-pass（未提交改动/集成交合失败/合并冲突转人工）系统消息 meta 带 `{pmoId?, atHuman:true}`，非「需要人看」消息 meta 保持 `{}`；新增 workunit-manual-release 测试 4 例，timeout/merge 既有用例补 meta 断言
-- ✅ 2026-07-30: F6-c WorkUnit 三层证据断链修复 — workunit.service 增 `recordL1Verification`（人工重跑 L1 落台账，断点 2）与 reviewPassed F6-c 幂等豁免（done + agent-review + l2 未达成 → `writeAgentReviewAttestation` 只补 l2，断点 3）；workunit.routes 增 human-only 端点 `POST /:id/verify`、`POST /:id/dispatch-review`；幂等补写证据后发 status_changed（状态值不变也发）让 pmo rollup 重估；agents 侧配套（wu-verification 抽出/强制收口补验证/dispatchReviewNow/handleReviewChildDone 放宽）见 agents/CONTEXT.md
-- ✅ `280a7329`: PMO 走查修复 — agent 执行可靠性 + 多实例单活 + 链路优化
-- ✅ `39b6af5f`: channels): L1 convert-to-task 人工指派卡死修复（指派统一建 unassigned 指名）
-- ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加
-- ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
-- ✅ `7e36fd19`: agent): 验收 e2e 抓出两修真链漏洞 — 提交守卫读合并视图 + 合并前数据防丢闸
-- ✅ 2026-07-28: 验收修复 B — merge-on-review-pass 加数据防丢闸：worktree 有未提交改动（或 git status 调用失败）时绝不合并/强删（原流程 `git merge` 对无提交分支 "Already up to date" 假成功后 `worktree remove --force` 静默丢弃未提交工作），转 blocked + 频道列清单转人工，worktree/分支保留；补测试 2 例
-- ✅ 2026-07-28: P5d assigneeId 语义全仓核对 — 唯一两处注释/行为不符已修：①claim 注释 "optimistic lock" 误名（实为 flock 悲观互斥锁，workunit.service/workunit.routes 三处）②token-usage 注释把 assigneeId 绝对化为实例 id（与 §1.2-b 双语义矛盾），并把树报表未认领指名节点的归因补上 profile.id 直查（原恒 null，补测试 1 例）；assigneeId 双语义写入注意事项；其余条目（waiting-input/agent-loop/delegation-gate/timeout-release/file-store/message-routing）核对均一致
-- ✅ `d7bd1e85`: workunit): ownership 归属绑定后 WU 置回 unassigned，修复永久卡死
-- ✅ `6f263685`: p0): 信任链六项修复 — 失败误判/超时机制/reviewReport回传/告警出口/日志隔离/traceId
-- ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
-- ✅ `f588061f`: spec4-post-p3): Prisma removal test cleanup — 19 files
-- ✅ `008912d6`: db-removal): complete Spec 1 AC-2/3/6 — dead table cleanup
-- ✅ `c3b1aab8`: channel-an): resolve 7 code review warnings
-- ✅ 2026-07-28: 修 ownership resume 卡死 — B3a 归属绑定后 WU 由置 active 改为置回 unassigned（保留 assigneeId=profile id）：此类 WU 创建即挂起从未被认领，active + assigneeId=profileId 时 loop 续跑查询（myActive 按 instance.id）与认领过滤（要求 unassigned）都看不到它，永久卡死；回 unassigned 后指名 profile 的 loop 在 unassigned 过滤中认领（claim 改写 assigneeId 为 instance.id）。agent 提问型 NEED_INPUT 的 resume（WU 已认领过）仍回 active 不变。同时修正 claim doc 注释：file-store.claimWorkUnit 只校验 status==='unassigned'，不校验 assigneeId 且认领即改写
-- ✅ 2026-07-27: B3b-ii 评审通过后自动合并（决策 D1/D3 后半）— 新增 merge-on-review-pass.ts：reviewPassed 收口 best-effort 触发 task/<wuId> --no-ff 合并回 base 分支（冲突 → abort + worktree rebase 重试一次 → 仍冲突清理现场取冲突文件清单，频道 Studio 消息转人工并置 blocked；成功 → worktree remove + branch -d + metadata.mergedAt/mergeCommit + 频道通知）；mergedAt 防重，无 worktree 落档旁路；workunit.service 增 markMergeConflict（直写快照 done→blocked）与 4 个 metadata 字段
-- ✅ 2026-07-27: B3b-i — WorkUnitMetadata 新增 worktreePath/worktreeBranch/worktreeBaseBranch/worktreeBaseRepo（每 WU 专属 worktree 落档）与 verifyCommands/verifyReport/verifyFailCount/verifyFailHint（COMPLETE 前自动验证：覆盖命令、全绿摘要、失败计数与提示）
-- ✅ 2026-07-27: B3a 工程归属链（决策 D2）— waiting-input 增 ownership 挂起分支：回复按 project-discovery 候选解析，唯一命中绑定 metadata.workspaceRoot 并复活、写回 Requirement.projectId（gitRepo 相同的既有 PMO 项目复用，否则新建锚点项目）；多候选/无命中继续等待并发 Studio 消息列候选；抽出 postStudioSystemMessage 统一系统消息形态（message-routing 复用）
-- ✅ 2026-07-27: P0 修复 5/6 — delegation-gate 的 studio-events.jsonl 走 studio-log-path 测试隔离（原测试直接写并 rm 真实 ~/.studio/logs/studio-events.jsonl，有删生产数据风险）；WorkUnitMetadata 新增 traceId 字段（P0 修复 6）
-- ✅ 2026-07-27: P0 WU 超时机制从零接上 — claim 写 timeoutAt；workunit-timeout 触发器 UPDATE→EXECUTE（workunit-timeout-scan，timeout-release.ts），UPDATE 查询支持 lt/gt/lte/gte 与 '$now' 执行时刻求值
-- ✅ 2026-07-24: API 鉴权收紧 — 写端点收 requireAuth+requireNotGuest（WU 派单/状态机此前无角色层）

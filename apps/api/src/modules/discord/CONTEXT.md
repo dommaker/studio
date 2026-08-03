@@ -2,9 +2,6 @@
 
 > 此文件描述 apps/api/src/modules/discord 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/discord/CONTEXT.md, apps/api/src/modules/discord/command-runner.ts, apps/api/src/modules/discord/routes.ts
-
 ## 职责
 
 处理 Discord 集成，包括命令行 (`studio run`) 和 Discord 斜杠命令 (`/studio run`) 共享的命令运行逻辑，以及 Discord 交互端点（按钮点击回调）的路由处理。
@@ -35,10 +32,3 @@
 - 必须配置环境变量 `DISCORD_PUBLIC_KEY`，否则交互端点返回 500
 - `triggerRequirement` 依赖 `#研发` 频道存在，否则抛出错误
 - WorkUnit 创建时 `creationMode` 标记为 `'discord'`，用于区分来源
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ `126982df`: channels): update stale @Analyst comment in command-runner
-- ✅ `f80cfeae`: 203 TypeScript 错误全部清零
-- ✅ `a88bccd6`: tsc-gate surgical baseline update + fix 13 pre-existing TS errors

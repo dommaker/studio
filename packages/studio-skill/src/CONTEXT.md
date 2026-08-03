@@ -31,8 +31,3 @@
 - Frontmatter 解析使用简易行正则，不依赖 YAML 库（`definition/index.ts` 为空文件，仅用作占位）。
 - `matchIntent` 使用简单的关键词包含计数算法，不涉及 NLP 或语义匹配。
 - `SkillLoader` 实例 `skillLoader` 是全局单例，导出时直接实例化，内部 `customSkillsProvided` 标记未在源码完整展现，但用于区分是否已手动注册自定义技能。
-
-## 修复历史
-
-<!-- SESSION_SUMMARY_FIXES -->
-- ✅ 2026-07-28: 任务规格档（tier）机制物理删除——`SkillTier` 类型与 `SkillDefinition.tier` 字段删除（无任何 SKILL.md 声明 tier，过滤恒为全通过）；`LoadOptions.tier` 与 load() 的 tierRank 过滤块摘除，frontmatter tier 键不再解析（存量磁盘文件中的 tier 行惰性忽略）
