@@ -33,6 +33,7 @@ import { entriesRoutes } from './entries.routes.js';
 import { evolutionRoutes } from './evolution.routes.js';
 import { searchRoutes } from './search.routes.js';
 import { internalRoutes } from './internal.routes.js';
+import { maintenanceRoutes } from './maintenance.routes.js';
 
 // Public routes (mounted at /api/v1/knowledge with auth — see route-registry.ts)
 export const knowledgeRoutes = Router();
@@ -45,5 +46,6 @@ knowledgeRoutes.use(documentsRoutes);
 knowledgeRoutes.use(entriesRoutes);
 knowledgeRoutes.use(evolutionRoutes);
 knowledgeRoutes.use(searchRoutes);
+knowledgeRoutes.use(maintenanceRoutes);
 
 knowledgeInternalRoutes.use(internalRoutes);
