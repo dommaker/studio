@@ -141,6 +141,8 @@ describe('scanWaitingForInputReminders', () => {
     expect(reminders[0].content).toContain('使用 OAuth 还是账号密码？');
     expect(reminders[0].authorType).toBe('agent');
     expect(reminders[0].replyToId).toBe(anchor.id); // 挂在同一线程
+    // 2026-07 PMO-flow UX §10：超时提醒带里程碑 meta（无 reqId 归属 → 不携带 pmoId）
+    expect(JSON.parse(reminders[0].meta)).toEqual({ atHuman: true });
     expect(metaOf(await findWu(wu.id)).waitingReminded).toBe(true);
   });
 

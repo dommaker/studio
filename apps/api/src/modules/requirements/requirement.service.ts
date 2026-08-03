@@ -109,6 +109,12 @@ export interface RequirementChainWorkUnit {
   title: string;
   status: string;
   assigneeId: string | null;
+  metadata: string | null;   // F6-b：链路节点徽章走 deriveDisplayState，需要台账
+  /** 2026-07-31 PMO-flow UX §10：管道/动态直接消费，消前端 N+1 详情补全 */
+  type: string;
+  createdAt: string;
+  claimedAt: string | null;
+  completedAt: string | null;
 }
 
 export interface RequirementChain {
@@ -251,7 +257,7 @@ export class RequirementService {
   }
 
   /**
-   * 全链路数据：需求 + 其 WorkUnit 摘要列表（id/title/status/assignee/metadata）。
+   * 全链路数据：需求 + 其 WorkUnit 摘要列表（id/title/status/assignee/metadata + type/时间戳）。
    * 需求不存在返回 null。决策 4：别名视图经 get() 单点解析，同样可出链路。
    */
   async getChain(id: string): Promise<RequirementChain | null> {
@@ -266,7 +272,11 @@ export class RequirementService {
         title: extractWorkUnitTitle(s.metadata, s.scope),
         status: s.status,
         assigneeId: s.assigneeId,
-        metadata: s.metadata,  // F6-b：链路节点徽章走 deriveDisplayState，需要台账
+        metadata: s.metadata,
+        type: s.type,
+        createdAt: s.createdAt,
+        claimedAt: s.claimedAt,
+        completedAt: s.completedAt,
       })),
     };
   }

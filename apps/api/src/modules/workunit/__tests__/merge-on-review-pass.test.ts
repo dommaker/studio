@@ -222,8 +222,8 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toContain(`已合并到 ${BASE}`);
     expect(msgs[0].content).toContain(HEAD.slice(0, 7));
-    // 合并成功通知非「需要人看」里程碑：meta 保持空（2026-07 §6-3 不动非转人工消息）
-    expect(msgs[0].meta).toBe('{}');
+    // 2026-07 PMO-flow UX §10：合并成功也带里程碑 meta（无归属 → 不携带 pmoId）
+    expect(JSON.parse(msgs[0].meta)).toEqual({ atHuman: true });
   });
 
   it('冲突重试成功：首次 merge 失败 → abort → worktree rebase 到 base → 再 merge 成功', async () => {

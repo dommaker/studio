@@ -5,73 +5,144 @@
  *  - 404：WU 不存在
  *  - 200：返回 TreeTokenReport 结构（rootId / nodes / rootTotal / budgetRemaining）
  *  - 200：无 collab metadata 时 rootId = WU 自身 id
+ *  - 200：有 collab.rootId 时 rootId 从 metadata 取
+ *  - 500：aggregateTreeTokens 抛错时返回 INTERNAL_ERROR
+ *
+ * 路由层契约测试，mock WorkUnitService + aggregateTreeTokens（同 workunit-evidence.routes.test.ts 模式）。
  */
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest';
 import express from 'express';
 import type { Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 
-let tmpHome: string;
-let prevHome: string | undefined;
-let server: Server;
-let base: string;
+const { mockGetById } = vi.hoisted(() => ({
+  mockGetById: vi.fn(),
+}));
 
-async function api(method: string, p: string, body?: unknown): Promise<{ status: number; json: any }> {
-  const res = await fetch(`${base}${p}`, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
-  const json = await res.json().catch(() => null);
-  return { status: res.status, json };
-}
+vi.mock('../workunit.service.js', () => ({
+  WorkUnitService: class {
+    getById = mockGetById;
+  },
+}));
 
-beforeAll(async () => {
-  tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'tree-tokens-route-'));
-  prevHome = process.env.HOME;
-  process.env.HOME = tmpHome;
+const { mockAggregateTreeTokens } = vi.hoisted(() => ({
+  mockAggregateTreeTokens: vi.fn(),
+}));
 
-  const { default: router } = await import('../workunit.routes.js');
-  const app = express();
-  app.use(express.json());
-  app.use('/api/v1/workunits', router);
-  await new Promise<void>(resolve => { server = app.listen(0, '127.0.0.1', () => resolve()); });
-  base = `http://127.0.0.1:${(server.address() as AddressInfo).port}/api/v1/workunits`;
-});
+vi.mock('../../agents/token-usage.service.js', () => ({
+  aggregateTreeTokens: mockAggregateTreeTokens,
+}));
 
-afterAll(async () => {
-  if (prevHome === undefined) delete process.env.HOME;
-  else process.env.HOME = prevHome;
-  await new Promise<void>(resolve => server.close(() => resolve()));
-  fs.rmSync(tmpHome, { recursive: true, force: true });
-});
+vi.mock('../../agents/wu-verification.js', () => ({
+  CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
+  resolveVerifyCommands: vi.fn(),
+  runWuVerification: vi.fn(),
+}));
+
+vi.mock('../../agents/review-dispatcher.js', () => ({
+  getReviewDispatcher: () => ({ dispatchReviewNow: vi.fn() }),
+}));
+
+import router from '../workunit.routes.js';
 
 describe('GET /:id/tree-tokens (AC-5.4)', () => {
+  let server: Server;
+  let base: string;
+
+  beforeAll(async () => {
+    const app = express();
+    app.use(express.json());
+    app.use('/workunits', router);
+    await new Promise<void>(resolve => {
+      server = app.listen(0, '127.0.0.1', () => resolve());
+    });
+    const addr = server.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+    base = `http://127.0.0.1:${port}/workunits`;
+  });
+
+  afterAll(async () => {
+    await new Promise(resolve => server.close(resolve));
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  async function get(p: string): Promise<{ status: number; json: any }> {
+    const res = await fetch(`${base}${p}`);
+    const json = await res.json().catch(() => null);
+    return { status: res.status, json };
+  }
+
   it('404：WU 不存在', async () => {
-    const res = await api('GET', '/nonexistent-wu/tree-tokens');
+    mockGetById.mockResolvedValue(null);
+
+    const res = await get('/nonexistent-wu/tree-tokens');
     expect(res.status).toBe(404);
     expect(res.json.error.code).toBe('NOT_FOUND');
   });
 
-  it('200：返回 TreeTokenReport 结构', async () => {
-    // 先创建一个 WU
-    const createRes = await api('POST', '/', { scope: 'tree-tokens test' });
-    expect(createRes.status).toBe(201);
-    const wuId = createRes.json.id;
+  it('200：无 collab metadata 时 rootId = WU 自身 id', async () => {
+    const wu = { id: 'wu-1', metadata: null };
+    mockGetById.mockResolvedValue(wu);
+    const report = {
+      rootId: 'wu-1',
+      nodes: [],
+      rootTotal: 0,
+      budgetRemaining: 100000,
+    };
+    mockAggregateTreeTokens.mockResolvedValue(report);
 
-    const res = await api('GET', `/${wuId}/tree-tokens`);
+    const res = await get('/wu-1/tree-tokens');
     expect(res.status).toBe(200);
-    expect(res.json).toHaveProperty('rootId');
-    expect(res.json).toHaveProperty('nodes');
-    expect(res.json).toHaveProperty('rootTotal');
-    expect(res.json).toHaveProperty('budgetRemaining');
-    expect(Array.isArray(res.json.nodes)).toBe(true);
-    // 无 collab metadata -> rootId = WU 自身
-    expect(res.json.rootId).toBe(wuId);
-    // 无事件 -> rootTotal = 0
+    expect(res.json.rootId).toBe('wu-1');
+    expect(res.json.nodes).toEqual([]);
     expect(res.json.rootTotal).toBe(0);
+    expect(res.json.budgetRemaining).toBe(100000);
+    // rootId 从 wu.id 取（metadata null）
+    expect(mockAggregateTreeTokens).toHaveBeenCalledWith('wu-1', expect.anything());
+  });
+
+  it('200：有 collab.rootId 时 rootId 从 metadata 取', async () => {
+    const wu = {
+      id: 'wu-child-1',
+      metadata: JSON.stringify({ collab: { rootId: 'wu-root' } }),
+    };
+    mockGetById.mockResolvedValue(wu);
+    const report = {
+      rootId: 'wu-root',
+      nodes: [
+        {
+          workUnitId: 'wu-root',
+          profileName: 'Analyst',
+          status: 'done',
+          injectedTokens: 5000,
+          executionTokens: 10000,
+          totalTokens: 15000,
+        },
+      ],
+      rootTotal: 10000,
+      budgetRemaining: 90000,
+    };
+    mockAggregateTreeTokens.mockResolvedValue(report);
+
+    const res = await get('/wu-child-1/tree-tokens');
+    expect(res.status).toBe(200);
+    expect(res.json.rootId).toBe('wu-root');
+    expect(res.json.nodes).toHaveLength(1);
+    expect(res.json.nodes[0].profileName).toBe('Analyst');
+    expect(res.json.rootTotal).toBe(10000);
+    // rootId 从 metadata.collab.rootId 取
+    expect(mockAggregateTreeTokens).toHaveBeenCalledWith('wu-root', expect.anything());
+  });
+
+  it('500：aggregateTreeTokens 抛错时返回 INTERNAL_ERROR', async () => {
+    const wu = { id: 'wu-2', metadata: null };
+    mockGetById.mockResolvedValue(wu);
+    mockAggregateTreeTokens.mockRejectedValue(new Error('scan failed'));
+
+    const res = await get('/wu-2/tree-tokens');
+    expect(res.status).toBe(500);
+    expect(res.json.error.code).toBe('INTERNAL_ERROR');
   });
 });

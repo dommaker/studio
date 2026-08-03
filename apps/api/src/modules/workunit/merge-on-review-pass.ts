@@ -108,7 +108,7 @@ async function findAnchor(workUnitId: string, fileStore: FileStore): Promise<Cha
 }
 
 /** 向 WU 所在频道发 Studio 系统消息（形态参照 waiting-input.postStudioSystemMessage）。
- *  meta 仅 blocked 转人工里程碑携带（2026-07 PMO-flow UX §6-3：pmoId/atHuman），合并成功通知不带。 */
+ *  meta 由里程碑消息携带（2026-07 PMO-flow UX §6-3/§10：转人工 + 合并成功均带 pmoId?/atHuman）。 */
 async function postSystemMessage(
   fileStore: FileStore,
   wu: WorkUnitData,
@@ -137,12 +137,17 @@ async function postSystemMessage(
  * 静态引入 pmo-branch-resolver（→ project.service → workunit.service）会成循环（同头部依赖说明）。
  */
 async function milestoneMeta(fileStore: FileStore, wu: WorkUnitData): Promise<MessageMeta> {
-  const { resolvePmoProjectIdForWU } = await import('../requirements/pmo-branch-resolver.js');
-  const pmoId = await resolvePmoProjectIdForWU(
-    { reqId: wu.reqId ?? null, metadata: wu.metadata },
-    fileStore,
-  ).catch(() => null); // best-effort：解析不到不带 pmoId
-  return { ...(pmoId ? { pmoId } : {}), atHuman: true };
+  try {
+    const { resolvePmoProjectIdForWU } = await import('../requirements/pmo-branch-resolver.js');
+    const pmoId = await resolvePmoProjectIdForWU(
+      { reqId: wu.reqId ?? null, metadata: wu.metadata },
+      fileStore,
+    ).catch(() => null); // best-effort：解析不到不带 pmoId
+    return { ...(pmoId ? { pmoId } : {}), atHuman: true };
+  } catch {
+    // import 失败（依赖链副作用 / 测试环境）-> 不阻断消息发送，只缺 pmoId
+    return { atHuman: true };
+  }
 }
 
 /**
@@ -295,6 +300,7 @@ export async function mergeWorktreeBranchOnReviewPass(
     fileStore,
     wu,
     `任务「${title}」已合并到 ${mergeContext.targetBranch}（merge commit ${mergeCommit.slice(0, 7) || '未知'}）`,
+    await milestoneMeta(fileStore, wu),
   ).catch(err => logger.warn('[MergeOnReviewPass] post merged message failed', { wuId: wu.id, error: String(err) }));
   logger.info('[MergeOnReviewPass] branch merged', { wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, mergeCommit });
   return { attempted: true, merged: true, mergeCommit };

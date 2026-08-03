@@ -1,11 +1,13 @@
 /**
  * B2-008: Wiki 文档详情页
  *
- * 功能：Markdown 内容渲染、[[链接]] 渲染、反向链接、编辑模式
+ * 功能：Markdown 内容渲染（§10 任务 4b 起统一走 MarkdownBody，含 [[链接]] 内链）、反向链接、编辑模式
  */
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, lazy, Suspense } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { wikiApi } from '../api';
+
+const MarkdownBody = lazy(() => import('../components/knowledge/MarkdownBody'));
 
 interface WikiDocDetail {
   id: string;
@@ -30,43 +32,6 @@ const statusLabels: Record<string, string> = {
   confirmed: '已确认',
   done: '已完成',
 };
-
-/**
- * 渲染 Markdown 内容，将 [[链接]] 转为可点击的 Link 组件
- */
-function renderContent(content: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = [];
-  const regex = /\[\[([^\]]+)\]\]/g;
-  let lastIndex = 0;
-  let match;
-  let key = 0;
-
-  while ((match = regex.exec(content)) !== null) {
-    // Text before the link
-    if (match.index > lastIndex) {
-      parts.push(<span key={key++}>{content.slice(lastIndex, match.index)}</span>);
-    }
-    // The [[link]]
-    const linkText = match[1].trim();
-    parts.push(
-      <Link
-        key={key++}
-        to={`/wiki/${linkText}`}
-        className="wiki-link"
-        style={{ color: '#3b82f6', textDecoration: 'underline', cursor: 'pointer' }}
-      >
-        {linkText}
-      </Link>
-    );
-    lastIndex = match.index + match[0].length;
-  }
-
-  if (lastIndex < content.length) {
-    parts.push(<span key={key++}>{content.slice(lastIndex)}</span>);
-  }
-
-  return parts;
-}
 
 export function WikiDocPage() {
   const { id } = useParams<{ id: string }>();
@@ -300,12 +265,18 @@ export function WikiDocPage() {
                 </div>
               </div>
             ) : (
-              <div
-                className="prose prose-invert max-w-none whitespace-pre-wrap"
-                style={{ color: 'var(--text-primary)', lineHeight: 1.8 }}
+              <Suspense
+                fallback={
+                  <div
+                    className="max-w-none whitespace-pre-wrap"
+                    style={{ color: 'var(--text-primary)', lineHeight: 1.8 }}
+                  >
+                    {doc.content}
+                  </div>
+                }
               >
-                {renderContent(doc.content)}
-              </div>
+                <MarkdownBody content={doc.content} className="max-w-none" />
+              </Suspense>
             )}
           </div>
 

@@ -39,7 +39,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
         scope: 'Run knowledge-quality-skill: audit semantic quality of ~/.studio/knowledge/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.',
       },
     },
-    enabled: true,
+    enabled: false, // 2026-08-03 停用：LLM 日任务无人值守空烧且全部 blocked 零产出（docs/issues/2026-08-03-unattended-token-burn.md），B/C 档修复后评估恢复
     scope: 'system',
   });
 
@@ -66,7 +66,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
         scope: 'Scan ~/.studio/data/sessions/ for unprocessed JSONL files. Extract knowledge using knowledge-extraction skill. Mark processed files with .done suffix.',
       },
     },
-    enabled: true,
+    enabled: false, // 2026-08-03 停用：LLM 日任务无人值守空烧且全部 blocked 零产出（docs/issues/2026-08-03-unattended-token-burn.md），B/C 档修复后评估恢复
     scope: 'system',
   });
 
@@ -83,7 +83,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
         scope: 'Scan ~/.studio/knowledge/ for entries with empty referencedBy. Output audit report to ~/.studio/data/knowledge-consumption-audit.md with entry list, creation dates, and recommendations (keep/archive).',
       },
     },
-    enabled: true,
+    enabled: false, // 2026-08-03 停用：LLM 日任务无人值守空烧且全部 blocked 零产出（docs/issues/2026-08-03-unattended-token-burn.md），B/C 档修复后评估恢复
     scope: 'system',
   });
 
@@ -100,7 +100,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
         scope: 'Execute knowledge-synthesis-skill: scan recent knowledge entries for semantic patterns. If 3+ entries share an underlying pattern, propose a new Skill via skill-creator.',
       },
     },
-    enabled: true,
+    enabled: false, // 2026-08-03 停用：8/3 同样 blocked 空烧，待 blocked 问题修复后评估恢复（docs/issues/2026-08-03-unattended-token-burn.md）
     scope: 'system',
   });
 

@@ -38,11 +38,18 @@ let authToken: string;
 // 本地或 e2e 环境启动服务器后自动运行。
 describe.skipIf(!serverAvailable)('Channel API', () => {
   beforeAll(async () => {
-    // Get auth token for endpoints that require it
+    // Register a non-guest test user for auth-required endpoints (requireNotGuest)
+    const testEmail = `test-channel-api-${Date.now()}@test.studio`;
     try {
-      const res = await fetch(`${BASE}/auth/guest-session`, { method: 'POST' });
-      const data = await res.json() as any;
-      authToken = data?.token || data?.data?.token || '';
+      const res = await fetch(`${BASE}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: testEmail, password: process.env.TEST_USER_PASSWORD || 'Test1234!', name: 'Channel API Test' }),
+      });
+      if (res.ok) {
+        const data = await res.json() as any;
+        authToken = data?.token || '';
+      }
     } catch { /* best effort */ }
     // DB cleanup removed (Spec 4 Phase 4) — FileStore handles data via API
   });
@@ -53,7 +60,7 @@ describe.skipIf(!serverAvailable)('Channel API', () => {
     it('creates a new channel', async () => {
       const res = await fetch(`${BASE}/channels`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ name: TEST_CHANNEL, type: 'rnd' }),
       });
       const data = await res.json() as any;
@@ -66,7 +73,7 @@ describe.skipIf(!serverAvailable)('Channel API', () => {
     it('rejects empty name', async () => {
       const res = await fetch(`${BASE}/channels`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ name: '' }),
       });
       expect(res.status).toBe(400);
@@ -75,7 +82,7 @@ describe.skipIf(!serverAvailable)('Channel API', () => {
     it('rejects duplicate name', async () => {
       const res = await fetch(`${BASE}/channels`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ name: TEST_CHANNEL, type: 'rnd' }),
       });
       expect(res.status).toBe(409);
@@ -99,7 +106,7 @@ describe.skipIf(!serverAvailable)('Channel API', () => {
     it('sends a message', async () => {
       const res = await fetch(`${BASE}/channels/${channelId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ content: 'Hello from test' }),
       });
       const data = await res.json() as any;
@@ -111,7 +118,7 @@ describe.skipIf(!serverAvailable)('Channel API', () => {
     it('rejects empty content', async () => {
       const res = await fetch(`${BASE}/channels/${channelId}/messages`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
         body: JSON.stringify({ content: '' }),
       });
       expect(res.status).toBe(400);
@@ -157,7 +164,10 @@ describe.skipIf(!serverAvailable)('Channel API', () => {
 
   afterAll(async () => {
     if (channelId) {
-      await fetch(`${BASE}/channels/${channelId}`, { method: 'DELETE' });
+      await fetch(`${BASE}/channels/${channelId}`, {
+        method: 'DELETE',
+        headers: { ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) },
+      });
     }
   });
 });

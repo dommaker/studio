@@ -23,6 +23,11 @@ export interface RequirementChainWorkUnit {
   status: string;
   assigneeId: string | null;
   metadata?: string | null;  // F6-b：链路节点徽章走 deriveDisplayState
+  /** 2026-07-31 §10：chain 自带类型/时间戳（管道与项目动态直接消费，无需 N+1 详情补全） */
+  type?: string;
+  createdAt?: string | null;
+  claimedAt?: string | null;
+  completedAt?: string | null;
 }
 
 export interface RequirementChain {

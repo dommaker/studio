@@ -370,7 +370,7 @@ export function buildSessionEnv(opts: SessionEnvOptions): NodeJS.ProcessEnv {
     IS_SANDBOX: process.env.IS_SANDBOX ?? '1',
     STUDIO_EXECUTION_ID: task.executionId,
     ...(task.parameters?.goalId ? { STUDIO_GOAL_ID: task.parameters.goalId as string } : {}),
-    ...(opts.withWorkUnitEnv && task.parameters?.workUnitId ? { STUDIO_WORKUNIT_ID: task.parameters.workUnitId as string } : {}),
+    ...(opts.withWorkUnitEnv && task.parameters?.workUnitId ? { STUDIO_WORKUNIT_ID: task.parameters.workUnitId as string } : { STUDIO_WORKUNIT_ID: undefined }),
     ...(opts.withWorkUnitEnv ? (task.parameters?.extraEnv as Record<string, string> || {}) : {}),
   };
 }

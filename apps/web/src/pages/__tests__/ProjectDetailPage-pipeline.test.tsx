@@ -10,7 +10,6 @@ const {
   mockGetDelivery,
   mockDeliver,
   mockGetChain,
-  mockWuGet,
   mockVerify,
   mockDispatchReview,
   mockReviewPassed,
@@ -24,7 +23,6 @@ const {
   mockGetDelivery: vi.fn(),
   mockDeliver: vi.fn(),
   mockGetChain: vi.fn(),
-  mockWuGet: vi.fn(),
   mockVerify: vi.fn(),
   mockDispatchReview: vi.fn(),
   mockReviewPassed: vi.fn(),
@@ -39,7 +37,6 @@ vi.mock('../../api', () => ({
 }));
 vi.mock('../../api/workunit', () => ({
   workunitApi: {
-    get: mockWuGet,
     verify: mockVerify,
     dispatchReview: mockDispatchReview,
     reviewPassed: mockReviewPassed,
@@ -53,6 +50,10 @@ vi.mock('../../api/monitoring', () => ({
 }));
 vi.mock('../../api/knowledge', () => ({
   knowledgeApi: { listByProject: mockListByProject, getDetail: mockGetDocDetail },
+}));
+// MarkdownBody lazy import 加载 react-markdown，pipeline 测试不验证 markdown 渲染，mock 掉避免 transform 超时
+vi.mock('../../components/knowledge/MarkdownBody', () => ({
+  default: ({ content }: { content: string }) => <div>{content}</div>,
 }));
 
 import { ProjectDetailPage } from '../ProjectDetailPage';
@@ -80,26 +81,21 @@ const mockProject = {
   createdAt: '2026-07-01',
 };
 
+// §10：chain 条目自带 type/createdAt/claimedAt/completedAt（原 wuDetails N+1 补全已移除）
 const chainWorkunits = [
-  { id: 'wu-1', title: '设计管道 UI', status: 'done', assigneeId: 'inst-1', metadata: attestMeta },
-  { id: 'wu-2', title: '实现分组逻辑', status: 'active', assigneeId: 'inst-2', metadata: null },
-  { id: 'wu-3', title: '写测试', status: 'unassigned', assigneeId: null, metadata: null },
+  {
+    id: 'wu-1', title: '设计管道 UI', status: 'done', assigneeId: 'inst-1', metadata: attestMeta,
+    type: 'task', createdAt: '2026-07-09T08:00:00Z', claimedAt: '2026-07-10T09:00:00Z', completedAt: '2026-07-11T10:00:00Z',
+  },
+  {
+    id: 'wu-2', title: '实现分组逻辑', status: 'active', assigneeId: 'inst-2', metadata: null,
+    type: 'feature', createdAt: '2026-07-10T08:00:00Z', claimedAt: '2026-07-10T10:00:00Z', completedAt: null,
+  },
+  {
+    id: 'wu-3', title: '写测试', status: 'unassigned', assigneeId: null, metadata: null,
+    type: 'task', createdAt: '2026-07-11T08:00:00Z', claimedAt: null, completedAt: null,
+  },
 ];
-
-const wuDetails: Record<string, unknown> = {
-  'wu-1': {
-    id: 'wu-1', type: 'task', status: 'done', assigneeId: 'inst-1', metadata: attestMeta,
-    createdAt: '2026-07-09T08:00:00Z', claimedAt: '2026-07-10T09:00:00Z', completedAt: '2026-07-11T10:00:00Z',
-  },
-  'wu-2': {
-    id: 'wu-2', type: 'feature', status: 'active', assigneeId: 'inst-2', metadata: null,
-    createdAt: '2026-07-10T08:00:00Z', claimedAt: '2026-07-10T10:00:00Z', completedAt: null,
-  },
-  'wu-3': {
-    id: 'wu-3', type: 'task', status: 'unassigned', assigneeId: null, metadata: null,
-    createdAt: '2026-07-11T08:00:00Z', claimedAt: null, completedAt: null,
-  },
-};
 
 const mockAgents = [
   { id: 'inst-1', roleId: 'role-dev', name: 'dev', status: 'idle', currentWorkUnitId: null, startedAt: '2026-07-01' },
@@ -122,7 +118,7 @@ const renderDetail = () =>
     </MemoryRouter>,
   );
 
-describe('AC-5: PMO 驾驶舱', () => {
+describe('AC-5: PMO 驾驶舱', { testTimeout: 15000 }, () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetProject.mockResolvedValue({ data: mockProject });
@@ -135,7 +131,6 @@ describe('AC-5: PMO 驾驶舱', () => {
     mockGetChain.mockResolvedValue({
       data: { data: { requirement: { id: 'REQ-0011', title: '驾驶舱' }, workunits: chainWorkunits } },
     });
-    mockWuGet.mockImplementation((id: string) => Promise.resolve({ data: wuDetails[id] }));
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: mockAgents, summary: { total: 2, idle: 1, active: 1, error: 0, terminated: 0 } },
     });

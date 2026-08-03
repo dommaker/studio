@@ -12,7 +12,7 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, api, type DeliveryStatus, type DeliveryGap } from '../api';
-import { workunitApi, type WorkUnit } from '../api/workunit';
+import { workunitApi } from '../api/workunit';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeDoc } from '../api/knowledge';
@@ -121,9 +121,8 @@ export function ProjectDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // 🆕 AC-5: 进度管道（REQ chain WU + 详情补全 + agent 名册）/ 文档阅读器 / 原始需求折叠
+  // 🆕 AC-5: 进度管道（REQ chain WU + agent 名册）/ 文档阅读器 / 原始需求折叠
   const [chainWus, setChainWus] = useState<RequirementChainWorkUnit[]>([]);
-  const [wuDetails, setWuDetails] = useState<Record<string, WorkUnit>>({});
   const [agents, setAgents] = useState<AgentInfo[]>([]);
   const [chainLoading, setChainLoading] = useState(false);
   const [readerDocId, setReaderDocId] = useState<string | null>(null);
@@ -176,26 +175,18 @@ export function ProjectDetailPage() {
         setDelivery(deliveryRes.data);
       } catch { setDelivery(null); }
 
-      // 🆕 AC-5: 进度管道数据（best-effort）——REQ 链路 WU + 详情补全（type/时间戳，chain 不含）+ agent 名册
+      // 🆕 AC-5: 进度管道数据（best-effort）——REQ 链路 WU（chain 自带 type/时间戳，§10 消 N+1）+ agent 名册
       if (projectData.reqAlias) {
         setChainLoading(true);
         try {
-          const chainRes = await requirementApi.getChain(projectData.reqAlias);
-          const wus = chainRes.data?.data?.workunits ?? [];
-          setChainWus(wus);
-          const [detailResults, agentsRes] = await Promise.all([
-            Promise.allSettled(wus.map(wu => workunitApi.get(wu.id))),
+          const [chainRes, agentsRes] = await Promise.all([
+            requirementApi.getChain(projectData.reqAlias),
             monitoringApi.getAgentSummary().catch(() => null),
           ]);
-          const details: Record<string, WorkUnit> = {};
-          detailResults.forEach((r, i) => {
-            if (r.status === 'fulfilled' && r.value?.data) details[wus[i].id] = r.value.data;
-          });
-          setWuDetails(details);
+          setChainWus(chainRes.data?.data?.workunits ?? []);
           setAgents(agentsRes?.data?.agents ?? []);
         } catch {
           setChainWus([]);
-          setWuDetails({});
         } finally {
           setChainLoading(false);
         }
@@ -366,17 +357,8 @@ export function ProjectDetailPage() {
   const tokenStats = getTokenStats();
   const tasksByStatus = getTasksByStatus();
 
-  // 🆕 AC-5: 管道 WU = chain 条目 + 详情补全（type/时间戳）；项目动态由 WU 时间戳 + deliveredAt 拼装
-  const pipelineWus: PipelineWorkUnit[] = chainWus.map(wu => {
-    const d = wuDetails[wu.id];
-    return {
-      ...wu,
-      type: d?.type,
-      createdAt: d?.createdAt ?? null,
-      claimedAt: d?.claimedAt ?? null,
-      completedAt: d?.completedAt ?? null,
-    };
-  });
+  // 🆕 AC-5: 管道 WU 直接用 chain 条目（§10：type/时间戳由 chain 自带）；项目动态由 WU 时间戳 + deliveredAt 拼装
+  const pipelineWus: PipelineWorkUnit[] = chainWus;
   const agentNameById: Record<string, string> = {};
   for (const a of agents) agentNameById[a.id] = a.name;
   const timelineEntries = buildProjectTimeline(pipelineWus, {
@@ -768,36 +750,6 @@ export function ProjectDetailPage() {
             </div>
           </div>
         )}
-        
-        {/* 时间线进度（可视化状态转换） */}
-        <div className="mt-4 flex items-center gap-2">
-          {['pending', 'active', 'in_review', 'completed'].map((s, i) => {
-            const isActive = project.status === s;
-            const isPast = ['pending', 'active', 'in_review', 'completed'].indexOf(s) < 
-                           ['pending', 'active', 'in_review', 'completed'].indexOf(project.status);
-            const labels: Record<string, string> = {
-              pending: '⏸️ 待启动',
-              active: '🔄 进行中',
-              in_review: '👀 审核中',
-              completed: '✅ 已完成'
-            };
-            
-            return (
-              <React.Fragment key={s}>
-                <div className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                  isActive ? 'u-accent-bg u-on-accent' :
-                  isPast ? 'u-ok-dim u-ok' :
-                  'u-surface-2 u-text-3'
-                }`}>
-                  {labels[s]}
-                </div>
-                {i < 3 && (
-                  <div className={`text-lg ${isPast || isActive ? 'u-ok' : 'u-text-3'}`}>→</div>
-                )}
-              </React.Fragment>
-            );
-          })}
-        </div>
 
         {/* 证据提示条：存量 completed 缺证据给警告；in_review 说明自动翻转 */}
         {project.status === 'completed' && delivery && !delivery.deliverable && evidenceGapSummary && (

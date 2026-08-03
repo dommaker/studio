@@ -1,8 +1,10 @@
 // 知识库文档阅读器 — PMO 驾驶舱文档区点开的右侧抽屉
 // 数据：GET /knowledge/detail/:documentId（后端早已存在，此前端首次接入）
-// 正文渲染复用 WikiDocPage 方案：项目无 markdown 渲染依赖，plain text + whitespace-pre-wrap
-import { useEffect, useState } from 'react';
+// 正文渲染：MarkdownBody（react-markdown + gfm，§10 任务 4b；lazy 按需加载，fallback 为原 plain-text 形态）
+import { useEffect, useState, lazy, Suspense } from 'react';
 import { knowledgeApi, type KnowledgeDocDetail } from '../../api/knowledge';
+
+const MarkdownBody = lazy(() => import('./MarkdownBody'));
 
 const TYPE_LABELS: Record<string, string> = {
   requirement: '需求',
@@ -57,9 +59,15 @@ export function DocReaderDrawer({ documentId, onClose }: Props) {
               <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">v{doc.version}</span>
               <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-2">{doc.status}</span>
             </div>
-            <div className="whitespace-pre-wrap text-sm u-text" style={{ lineHeight: 1.8 }}>
-              {doc.content}
-            </div>
+            <Suspense
+              fallback={
+                <div className="whitespace-pre-wrap text-sm u-text" style={{ lineHeight: 1.8 }}>
+                  {doc.content}
+                </div>
+              }
+            >
+              <MarkdownBody content={doc.content} />
+            </Suspense>
           </div>
         )}
       </div>

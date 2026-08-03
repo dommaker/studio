@@ -44,7 +44,7 @@ export default defineConfig({
           include: ['apps/api/src/**/*.test.ts'],
           exclude: ['apps/api/src/daemon/**', ...baseExclude],
           globalSetup: ['./tests/globalSetup.ts'],
-          setupFiles: ['./apps/api/tests/setup-db.ts'],
+          setupFiles: ['./apps/api/tests/setup-isolated-data.setup.ts'],
         },
       },
       // daemon 测试（mocked - 不需要 Claude CLI）
@@ -62,7 +62,7 @@ export default defineConfig({
           include: ['apps/**/tests/**/*.test.ts'],
           exclude: baseExclude,
           globalSetup: ['./tests/globalSetup.ts'],
-          setupFiles: ['./apps/api/tests/setup-db.ts'],
+          setupFiles: ['./apps/api/tests/setup-isolated-data.setup.ts'],
         },
       },
       // scripts 测试
