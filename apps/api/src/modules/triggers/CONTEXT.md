@@ -3,7 +3,7 @@
 > 此文件描述 apps/api/src/modules/triggers 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/triggers/CONTEXT.md, apps/api/src/modules/triggers/trigger-action.ts, apps/api/src/modules/triggers/trigger-registry.ts, apps/api/src/modules/triggers/trigger-scheduler.ts, apps/api/src/modules/triggers/trigger.types.ts
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/triggers/CONTEXT.md, apps/api/src/modules/triggers/trigger-action.ts, apps/api/src/modules/triggers/trigger-scheduler.ts, apps/api/src/modules/triggers/trigger-registry.ts
 
 ## 职责
 

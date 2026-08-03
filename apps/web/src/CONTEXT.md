@@ -3,7 +3,7 @@
 > 此文件描述 apps/web/src 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/web/src/App.tsx, apps/web/src/CONTEXT.md, apps/web/src/index.css, apps/web/src/types.ts
+⚠️ 以下文件已变更，本节可能过期: apps/web/src/CONTEXT.md, apps/web/src/App.tsx, apps/web/src/index.css, apps/web/src/types.ts
 
 ## 职责
 

@@ -140,7 +140,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
         scope: '审查 README.md 与 docs/ 手写文档（清单由 agent 自行定位）同当前代码结构/行为的一致性；产出差异清单（doc/行/文档声称/代码现状/建议）发频道；机械类差异同时给出 sync-docs 重生成命令。',
       },
     },
-    enabled: true,
+    enabled: false, // 2026-08-03 停用：LLM 周任务，与 5 个已停触发器同批止血（docs/issues/2026-08-03-unattended-token-burn.md），恢复前需先验证预算熔断生效
     scope: 'system',
   });
 

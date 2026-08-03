@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-31
+> 最后更新: 2026-08-03
 
 ---
 
@@ -342,3 +342,4 @@
 | evidence-summary | apps/api/src/modules/pmo/evidence-summary.ts | PMO 证据台账共享口径（2026-07-30 抽取）：delivery.ts 台账与 progress-rollup.ts |
 | pipelineUtils | apps/web/src/components/pmo/pipelineUtils.ts | WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。 |
 | agentStatus | apps/web/src/utils/agentStatus.ts | 状态推导：instance.status + 当前 WU.status → 卡片状态键。 |
+| daily-token-budget | apps/api/src/modules/agents/daily-token-budget.ts | C3（2026-08-03 unattended-token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。 |

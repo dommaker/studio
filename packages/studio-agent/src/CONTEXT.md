@@ -3,7 +3,7 @@
 > 此文件描述 packages/studio-agent/src 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/src/index.ts, packages/studio-agent/src/CONTEXT.md, packages/studio-agent/src/cli-adapter.ts, packages/studio-agent/src/types.ts, packages/studio-agent/src/registry.ts
+⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/src/CONTEXT.md, packages/studio-agent/src/index.ts, packages/studio-agent/src/cli-adapter.ts, packages/studio-agent/src/types.ts, packages/studio-agent/src/registry.ts
 
 ## 职责
 
