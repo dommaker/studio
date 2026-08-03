@@ -37,6 +37,17 @@ export interface KnowledgeCycleState {
 }
 
 /**
+ * B7 F1 LLM 每日维护开关（2026-08-03 token 止血，docs/issues/2026-08-03-unattended-token-burn.md）：
+ * KnowledgeCurator 每日维护（语义去重/质量评估/过期验证/矛盾审查）是日级 LLM 批调用，
+ * 无人值守期间每天 + 每次进程重启各烧一波（实测单次 ~2M token），且不走 C3 预算闸。
+ * 与 A 档停用的日级 LLM 触发器同类，默认停用；STUDIO_KNOWLEDGE_MAINTENANCE=on 显式开启。
+ * 注意：lastDecayRun 为内存态，开启后每次重启会在首个 5-min check 立即重跑一波。
+ */
+export function knowledgeMaintenanceEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.STUDIO_KNOWLEDGE_MAINTENANCE === 'on';
+}
+
+/**
  * GC: clean up stale git worktrees and orphaned task directories.
  * Non-blocking — runs as part of the 5-min check loop.
  */
