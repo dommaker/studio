@@ -13,6 +13,11 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/__tests__/**/*.test.{ts,tsx}'],
     setupFiles: ['./src/test/setup.ts'],
+    testTimeout: 10000,
+    // react-markdown / remark-gfm 是 ESM-only，transform 耗时长；inline 预打包避免测试超时
+    deps: {
+      inline: ['react-markdown', 'remark-gfm'],
+    },
   },
   resolve: {
     alias: {

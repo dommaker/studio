@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/projects 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-30 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/projects/CONTEXT.md, apps/api/src/modules/projects/project-discovery.service.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/projects/CONTEXT.md, apps/api/src/modules/projects/project-discovery.service.ts, apps/api/src/modules/projects/project.routes.ts
 
 ## 职责
 

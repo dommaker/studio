@@ -205,19 +205,30 @@ describe('RequirementService (vision §5.3)', () => {
   });
 
   describe('getChain', () => {
-    it('returns requirement + workunit summaries (id/title/status/assignee)', async () => {
+    it('returns requirement + workunit summaries (id/title/status/assignee + type/时间戳)', async () => {
       const req = await service.create({ title: '链路需求' });
       const wu1 = await workUnitService.create({ scope: '任务一', reqId: req.id, metadata: { title: '实现登录' } });
       const wu2 = await workUnitService.create({ scope: '任务二', reqId: req.id, assigneeId: 'agent-1' });
       await workUnitService.create({ scope: '别的需求任务', reqId: null });
+      // 认领 wu1 → claimedAt 落档（completedAt 仍为 null）
+      await workUnitService.claim(wu1.id, 'inst-1');
 
       const chain = await service.getChain(req.id);
       expect(chain).not.toBeNull();
       expect(chain!.requirement.id).toBe(req.id);
       expect(chain!.workunits.length).toBe(2);
       const byId = new Map(chain!.workunits.map(w => [w.id, w]));
-      expect(byId.get(wu1.id)).toMatchObject({ title: '实现登录', status: 'unassigned', assigneeId: null });
+      expect(byId.get(wu1.id)).toMatchObject({ title: '实现登录', status: 'active', assigneeId: 'inst-1' });
       expect(byId.get(wu2.id)).toMatchObject({ title: '任务二', status: 'unassigned', assigneeId: 'agent-1' });
+      // 2026-07-31 PMO-flow UX §10：chain 条目自带 type/createdAt/claimedAt/completedAt（前端免 N+1 补全）
+      const c1 = byId.get(wu1.id)!;
+      expect(c1.type).toBe('task');
+      expect(Number.isNaN(Date.parse(c1.createdAt))).toBe(false);
+      expect(c1.claimedAt).not.toBeNull();
+      expect(c1.completedAt).toBeNull();
+      const c2 = byId.get(wu2.id)!;
+      expect(c2.type).toBe('task');
+      expect(c2.claimedAt).toBeNull();
     });
 
     it('returns null for unknown id', async () => {

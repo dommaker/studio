@@ -2,7 +2,7 @@
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
 // Knowledge search analysis preserved as module-level exports.
 import { execSync } from 'child_process';
-import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, withAttestation, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, logger, parseStreamEvents, extractToolCalls, FileStore, parseChannels, estimateTokens, parseSessionMetrics, withAttestation, type RuntimeStateData, type ChannelMessageData } from '@dommaker/studio-shared';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';
 import { randomUUID } from 'crypto';
 import { appendFileSync, existsSync, mkdirSync } from 'fs';
@@ -25,6 +25,10 @@ import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU, resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import {
+  tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
+  noteTokensWritten, notifyBudgetTripped,
+} from './daily-token-budget.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 
@@ -32,10 +36,12 @@ import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 const SESSION_TOKEN_LIMIT = 100_000;
 
 /** M2: workunit:tokens 事件写入目标（与 knowledge consumption/outcome 事件同一事件流）。
- *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用），默认 ~/.studio/logs/studio-events.jsonl。
+ *  STUDIO_EVENTS_JSONL 环境变量可覆盖（测试隔离用）；缺省走 resolveStudioLogFile ——
+ *  测试环境（VITEST/NODE_ENV=test）自动改写 tmpdir，防止测试污染生产事件流
+ *  （2026-08-03 token-burn issue：生产 studio-events.jsonl 曾混入大量 wu-cumulative-tokens 测试行）。
  *  调用时惰性解析：测试在 import 本模块后仍可改 env 生效。 */
 function studioEventsJsonlPath(): string {
-  return process.env.STUDIO_EVENTS_JSONL || join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
+  return process.env.STUDIO_EVENTS_JSONL || resolveStudioLogFile('studio-events.jsonl');
 }
 
 /** B3b-i: 代码类 WU 判定与验证实现已抽到 ./wu-verification.js（F6-c，供强制收口与 /verify 端点复用） */
@@ -43,6 +49,30 @@ function studioEventsJsonlPath(): string {
  *  评审职责是读不是写，无提交守卫豁免后正常 ≤5 步收口；阈值仅是防死循环的安全阀 */
 const STEP_LIMIT = 15;
 const REVIEW_STEP_LIMIT = 30;
+
+/** B5（2026-08-03 token-burn issue P1-1）：每 WU 独立会话数上限。
+ *  会话反复重建（stuck 重开 / token 截断重开）意味着整段 transcript 全文重放重新烧一遍；
+ *  超限说明自动执行已失控，转 need_input 等人工评估（人工回复经 resumeWaitingWorkUnit 重置预算）。 */
+const MAX_SESSIONS_PER_WU = 2;
+
+/** B2（2026-08-03 token-burn issue P0-1c）：测试特征 scope 判定 ——
+ *  scope 中出现独立单词 test/tests 即视为测试 WU（命中历史污染源 'tree-tokens test' / 'test' 等）。
+ *  仅作 daemon 兜底：正常隔离由 B1（测试独立数据根）保证，这里是防漏网的第二道。 */
+const TEST_SCOPE_PATTERN = /(?:^|[\s\-_/:])tests?(?:[\s\-_/:]|$)/i;
+
+/** B2 守卫开关：默认仅生产/开发进程启用；测试环境（NODE_ENV=test / VITEST）默认关闭
+ *  （仓库自身单测用 scope 'test' 驱动 loop，守卫会误伤）；可用 STUDIO_TEST_WU_GUARD=on/off 显式覆盖。 */
+export function testWuGuardEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.STUDIO_TEST_WU_GUARD === 'on') return true;
+  if (env.STUDIO_TEST_WU_GUARD === 'off') return false;
+  return env.NODE_ENV !== 'test' && !env.VITEST;
+}
+
+/** B2 测试特征 WU 判定：metadata 显式标记（test/testWorkUnit）或 scope 命中测试名单模式 */
+export function isTestLikeWorkUnit(wu: { scope: string }, metadata: WorkUnitMetadata): boolean {
+  if (metadata.test === true || metadata.testWorkUnit === true) return true;
+  return TEST_SCOPE_PATTERN.test(wu.scope ?? '');
+}
 const metricsFileStore = new FileStore();
 
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
@@ -80,7 +110,8 @@ export interface KnowledgeSearchAnalysis {
 export interface StepResult {
   // 'failed': CLI 执行失败（runner 返回 success:false）的显式分支——记 consecutiveStuck、
   // 不发频道消息，达到 3 次走既有 blocked 路径（W-3 接线，见 agentStep）
-  action: 'progress' | 'complete' | 'need_input' | 'delegate' | 'failed';
+  // 'skipped': B2 测试特征 WU 守卫 —— agentStep 已自行关闭 WU，recordResult 直接跳过
+  action: 'progress' | 'complete' | 'need_input' | 'delegate' | 'failed' | 'skipped';
   summary: string;
   /** A2A §4.1: DELEGATE 协议解析结果（action='delegate' 时存在） */
   delegate?: { targetName: string; scope: string };
@@ -499,6 +530,50 @@ export class AgentLoop {
   private async agentStep(target: Target): Promise<StepResult> {
     const wu = target.workUnit;
     const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+
+    // B2 守卫（2026-08-03 token-burn issue P0-1c）：测试特征 WU 不起会话、直接关闭。
+    // 历史事故：路由测试经共享数据根把测试 WU 写进生产 FileStore，daemon 当真任务逐个
+    // 起 Claude 会话执行（16 个会话 420 万 token）。关闭留痕 testWorkUnitGuard + blockReason。
+    if (testWuGuardEnabled() && isTestLikeWorkUnit(wu, metadata)) {
+      logger.warn('[AgentLoop] Test-like WorkUnit guarded — closing without execution', {
+        workUnitId: wu.id, scope: wu.scope,
+      });
+      await this.workUnitService.update(wu.id, {
+        metadata: { ...metadata, testWorkUnitGuard: true, blockReason: 'test-wu-guard: 测试特征任务，守卫关闭' },
+      }).catch(err => logger.warn('[AgentLoop] test-wu guard metadata write failed', { workUnitId: wu.id, error: String(err) }));
+      if (wu.status !== 'closed') {
+        await this.workUnitService.transitionStatus(wu.id, 'closed')
+          .catch(err => logger.warn('[AgentLoop] test-wu guard close failed', { workUnitId: wu.id, error: String(err) }));
+      }
+      await this.postToDiscussionSpace(wu.id, '检测到测试特征任务，已跳过执行并关闭（防止测试数据空烧 token）')
+        .catch(() => {});
+      return { action: 'skipped', summary: '' };
+    }
+
+    // C3 守卫（2026-08-03 token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。
+    // 当日 billed 口径消耗 ≥ 预算（默认 2M/日，STUDIO_DAILY_TOKEN_BUDGET 覆盖，<=0 关闭）→
+    // 不起会话，WU 经 need_input 挂起（recordResult 落 waitingForInput + blockReason），
+    // 等次日本地零点预算复位或人工处置；全局当日只告警一次（studio:budget-tripped 事件留痕）。
+    // 用量走进程内计数器（daily-token-budget），仅首次/跨天全量扫一次事件文件，不拖慢热路径。
+    if (tokenBudgetGuardEnabled()) {
+      const dailyBudget = resolveDailyTokenBudget();
+      if (dailyBudget > 0) {
+        const eventsFile = studioEventsJsonlPath();
+        const daily = await getDailyTokenUsage({ eventsFile });
+        if (daily.usedTokens >= dailyBudget) {
+          logger.warn('[AgentLoop] Daily token budget tripped — pausing automatic execution', {
+            workUnitId: wu.id, usedTokens: daily.usedTokens, budget: dailyBudget,
+          });
+          if (!daily.notified) {
+            await notifyBudgetTripped({ eventsFile, usedTokens: daily.usedTokens, budget: dailyBudget });
+          }
+          return {
+            action: 'need_input' as const,
+            summary: `每日 token 预算已熔断（当日已用 ${daily.usedTokens.toLocaleString()} / 上限 ${dailyBudget.toLocaleString()}，billed 口径含 cache_read）：已暂停自动执行、不再起会话。次日（本地零点）预算复位后回复任意内容继续，或直接关闭任务`,
+          };
+        }
+      }
+    }
     // P0 修复 6: traceId 贯穿 — 频道消息 → WU metadata → 执行参数（extraEnv）与日志行
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
@@ -624,8 +699,24 @@ export class AgentLoop {
       : null;
     let newSessionId: string | null = null;
     if (!resumeSessionId) {
+      // B5（2026-08-03 token-burn issue P1-1，决策记录 #3）：每 WU 会话数上限。
+      // 新建会话 = 从零重读 SKILL.md/探索文件 + 后续 step 全文重放，是最大的 token 放大器；
+      // 超限转 need_input 等人工评估，替代静默重开。人工回复由 resumeWaitingWorkUnit 重置 sessionCount。
+      // 旧数据无 sessionCount 字段：已有 sessionId 的按已用 1 个计。
+      const sessionsUsed = metadata.sessionCount ?? (metadata.sessionId ? 1 : 0);
+      if (sessionsUsed >= MAX_SESSIONS_PER_WU) {
+        logger.warn('[AgentLoop] Session limit reached — need human evaluation', {
+          workUnitId: wu.id, sessionsUsed, max: MAX_SESSIONS_PER_WU,
+        });
+        return {
+          action: 'need_input' as const,
+          summary: `会话重建已达上限（${sessionsUsed}/${MAX_SESSIONS_PER_WU}）：反复从零重开会话会全文重放烧钱，已暂停自动执行。请人工评估后回复任意内容继续（回复会重置会话预算），或直接关闭任务`,
+          metadataUpdates,
+        };
+      }
       newSessionId = randomUUID();
       metadataUpdates.sessionId = newSessionId;
+      metadataUpdates.sessionCount = sessionsUsed + 1;
       metadataUpdates.startedAt = new Date().toISOString();
       // Persist sessionId to RuntimeInstance for cross-WorkUnit continuity
       if (this.instance) {
@@ -753,6 +844,31 @@ export class AgentLoop {
       },
     };
 
+    // M2 成本红线度量 + B6 真实 token 记账（2026-08-03 token-burn issue P1-2）：
+    // 成功与失败执行都记 workunit:tokens（失败照样烧 token）。fire-and-forget，绝不影响任务流程。
+    const recordTokenEvent = (res: ExecutionResult): RealUsage | null => {
+      const real = resolveRealUsage(res);
+      void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
+        workUnitId: wu.id,
+        executionId: task.executionId,
+        injectedTokens: estimateTokens(knowledgeContext.length),
+        executionTokens: real ? real.inputTokens + real.outputTokens : null,
+        // D16/B6: 缓存命中与真实账单数据源（CLI 回报 usage 时才有；未回报则缺省不编造）
+        ...(real ? {
+          inputTokens: real.inputTokens,
+          outputTokens: real.outputTokens,
+          cacheReadTokens: real.cacheReadTokens,
+          cacheCreationTokens: real.cacheCreationTokens,
+          billedTokens: real.billedTokens,
+          ...(real.costUsd ? { costUsd: real.costUsd } : {}),
+          ...(real.numTurns ? { numTurns: real.numTurns } : {}),
+        } : {}),
+        // B6: 触发器来源落盘（按触发器聚合的输入）
+        ...(typeof metadata.triggerId === 'string' && metadata.triggerId ? { triggerId: metadata.triggerId } : {}),
+      }).catch(() => {});
+      return real;
+    };
+
     try {
       // Layer B: step 开始信号（CLI 首行到达前抽屉即有反馈）
       void emitExecutionStreamStepStart({ workUnitId: wu.id, executionId, step: stepNo }).catch(() => {});
@@ -767,6 +883,8 @@ export class AgentLoop {
       if (result.success === false) {
         const detail = (result.error ?? '未知错误').slice(0, 500);
         logger.error(`[AgentLoop] agentStep execution failed for ${wu.id}: ${detail}`, { traceId });
+        // B6: 失败执行同样记账（CLI 已跑的轮次照样烧了 token，runner error 路径透出 usage）
+        recordTokenEvent(result);
         // 首 step 失败：会话未必已建立，重置避免下步 --resume 一个从未建立的会话
         if (newSessionId) await this.resetUnestablishedSession(metadataUpdates);
         return {
@@ -788,29 +906,14 @@ export class AgentLoop {
       metadataUpdates.errorDetail = undefined;
       metadataUpdates.errorAt = undefined;
 
-      // M2 成本红线度量: 每次 CLI 执行完成记一条 workunit:tokens 事件
-      // （注入估算 chars/4 vs 2K 红线；执行 tokens 取自 CLI usage，未回报则记 null 不编造）。
-      // fire-and-forget：绝不影响任务流程。
-      const executionTokens = result.usage && (result.usage.inputTokens + result.usage.outputTokens) > 0
-        ? result.usage.inputTokens + result.usage.outputTokens
-        : null;
-      void writeWorkunitTokenEvent(studioEventsJsonlPath(), {
-        workUnitId: wu.id,
-        executionId: task.executionId,
-        injectedTokens: estimateTokens(knowledgeContext.length),
-        executionTokens,
-        // D16: 缓存命中率数据源（CLI 回报 usage 时才有；未回报则缺省不编造）
-        ...(result.usage ? {
-          inputTokens: result.usage.inputTokens,
-          cacheReadTokens: result.usage.cacheReadTokens,
-          cacheCreationTokens: result.usage.cacheCreationTokens,
-        } : {}),
-      }).catch(() => {});
+      // M2 成本红线度量 + B6 真实记账: 每次 CLI 执行完成记一条 workunit:tokens 事件
+      // （注入估算 chars/4 vs 2K 红线；执行 tokens 取 CLI 真实 usage，未回报记 null 不编造）。
+      const realUsage = recordTokenEvent(result);
 
-      // wireup④ token 预算数据源: 本次 executionTokens 累加进 metadata._cumulativeTokens，
-      // 随 metadataUpdates 由 recordResult 单次原子写入（与 knowledgeExtractedAt 同路径）。
-      // CLI 未回报 usage（executionTokens=null）按 0 累加——即保持既有累计值不变。
-      metadataUpdates._cumulativeTokens = (metadata._cumulativeTokens ?? 0) + (executionTokens ?? 0);
+      // wireup④ token 预算数据源: 本次真实消耗（billed 口径，含 cache）累加进
+      // metadata._cumulativeTokens，随 metadataUpdates 由 recordResult 单次原子写入。
+      // CLI 未回报 usage（realUsage=null）按 0 累加——即保持既有累计值不变。
+      metadataUpdates._cumulativeTokens = (metadata._cumulativeTokens ?? 0) + (realUsage?.billedTokens ?? 0);
 
       // T-1.1: Record tool:call events for PatternMiner data source
       // D18: 写入统一事件文件（~/.studio/logs/studio-events.jsonl）
@@ -1163,6 +1266,8 @@ ${rosterLines.join('\n')}
       await this.fileStore.updateState(this.instance.id, { sessionId: null }).catch(() => {});
     }
     delete metadataUpdates.sessionId;
+    // B5: 会话未建立不计入会话预算（失败重试由 consecutiveStuck>=3 → blocked 兜底）
+    delete metadataUpdates.sessionCount;
   }
 
   /** Check execution output for input_tokens exceeding threshold, reset session if needed */
@@ -1194,6 +1299,8 @@ ${rosterLines.join('\n')}
 
   /** Record result: monitoring checkpoints + state transitions (zero token) */
   private async recordResult(target: Target, result: StepResult): Promise<void> {
+    // B2: 测试特征 WU 守卫已在 agentStep 自行关闭 WU 并留痕，无需任何簿记/状态迁移
+    if (result.action === 'skipped') return;
     const wuId = target.workUnit.id;
     const wu = await this.workUnitService.getById(wuId);
     if (!wu) return;
@@ -1433,10 +1540,25 @@ ${rosterLines.join('\n')}
         ? { waitingForInput: false, waitingReminded: false }
         : {};
 
+    // B4（2026-08-03 token-burn issue P0-2）：blocked 原因落盘 —— 审计类 WU 全部 blocked
+    // 却无据可查的事故教训；本步不走 blocked 路径时清除陈旧原因（恢复执行即翻篇）。
+    const blockReasonUpdates: Partial<WorkUnitMetadata> = {};
+    if (verifyBlocked) {
+      blockReasonUpdates.blockReason = `verify-failed x${guardUpdates.verifyFailCount}: 自动验证连续失败`;
+    } else if (consecutiveStuck >= 3) {
+      blockReasonUpdates.blockReason = action === 'failed' && result.summary
+        ? `stuck: 连续 3 步无进展（${result.summary.slice(0, 200)}）`
+        : 'stuck: 连续 3 步无进展';
+    } else if (action === 'need_input') {
+      blockReasonUpdates.blockReason = `need-input: ${result.summary.slice(0, 200)}`;
+    } else if (metadata.blockReason) {
+      blockReasonUpdates.blockReason = undefined; // undefined 在 JSON 序列化时丢弃 → 清除
+    }
+
     // Single atomic metadata write: merges agentStep updates (sessionId/startedAt/sessionResumes)
     // with monitoring counters (stepCount/consecutiveStuck) — fixes C-3 non-atomic write
     await this.workUnitService.update(wuId, {
-      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, stepCount, consecutiveStuck },
+      metadata: { ...metadata, ...result.metadataUpdates, ...waitingUpdates, ...guardUpdates, ...freshnessUpdates, ...blockReasonUpdates, stepCount, consecutiveStuck },
     });
 
     // P0 修复 6: trace 锚点 — 有 traceId 的 WU（频道消息链路）每步留一条可 grep 日志
@@ -1864,26 +1986,87 @@ export interface WorkunitTokenEventArgs {
   /** 注入上下文估算 tokens（调用方按 chars/4 约定估算，与 estimateTokens 一致） */
   injectedTokens: number;
   /**
-   * 执行总 tokens（CLI usage input+output）。CLI 未回报 usage 时传 null ——
+   * 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null ——
    * 聚合端据此把该事件排除在执行 tokens/开销比均值外（executionSource='unavailable'），不编造 0。
+   * 口径警告：delegation-gate 树预算（TREE_TOKEN_BUDGET=400K）按本字段校准，禁止改成含 cache；
+   * 账单/熔断口径看 billedTokens / totalTokens（2026-08-03 token-burn issue B6）。
    */
   executionTokens: number | null;
   /** LLM 提取 tokens（可选；R3 提取异步入库，通常由 knowledge:extraction 事件单独度量） */
   extractionTokens?: number;
   /** D16: CLI usage 的 input tokens（缓存命中率分子分母用；有 usage 时写入） */
   inputTokens?: number;
+  /** B6: CLI usage 的 output tokens（此前只记 input/cache，输出无账） */
+  outputTokens?: number;
   /** D16: CLI usage 的 cache read / creation tokens（缓存命中率用；有 usage 时写入） */
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
+  /** B6: 真实账单口径 = input+output+cacheRead+cacheCreation（有 usage 时写入） */
+  billedTokens?: number;
+  /** B6: CLI 回报的美元成本 / 轮数（modelUsage 可得时写入） */
+  costUsd?: number;
+  numTurns?: number;
+  /** B6: 触发器来源（trigger 创建的 WU；按触发器聚合的输入） */
+  triggerId?: string;
+}
+
+/** B6: 一次执行的真实 token 用量（账单口径，含 cache） */
+export interface RealUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  /** input+output+cacheRead+cacheCreation —— 账单/预算熔断口径 */
+  billedTokens: number;
+  costUsd?: number;
+  numTurns?: number;
+}
+
+/**
+ * B6（2026-08-03 token-burn issue P1-2）：真实 usage 解析链。
+ * 优先 modelUsage 累积（parseSessionMetrics 读 result 事件的 modelUsage.* —— 多轮会话全量；
+ * 顶层 usage.* 仅最后一轮，extractUsage 只见到它，是此前 cache_read 无账的结构性原因之一）；
+ * 兜底 runner 透出的 extractUsage 聚合（无 rawOutput 的失败路径）；全零 → null（不编造）。
+ */
+export function resolveRealUsage(result: ExecutionResult): RealUsage | null {
+  if (result.rawOutput) {
+    const m = parseSessionMetrics(result.rawOutput);
+    if (m.tokenInput + m.tokenOutput + m.tokenCacheRead + m.tokenCacheWrite > 0) {
+      return {
+        inputTokens: m.tokenInput,
+        outputTokens: m.tokenOutput,
+        cacheReadTokens: m.tokenCacheRead,
+        cacheCreationTokens: m.tokenCacheWrite,
+        billedTokens: m.tokenInput + m.tokenOutput + m.tokenCacheRead + m.tokenCacheWrite,
+        ...(m.costUsd ? { costUsd: m.costUsd } : {}),
+        ...(m.numTurns ? { numTurns: m.numTurns } : {}),
+      };
+    }
+  }
+  const u = result.usage;
+  if (u && u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheCreationTokens > 0) {
+    return {
+      inputTokens: u.inputTokens,
+      outputTokens: u.outputTokens,
+      cacheReadTokens: u.cacheReadTokens,
+      cacheCreationTokens: u.cacheCreationTokens,
+      billedTokens: u.inputTokens + u.outputTokens + u.cacheReadTokens + u.cacheCreationTokens,
+    };
+  }
+  return null;
 }
 
 /**
  * M2: 写一条 workunit:tokens 事件（模块级函数，供 agent-loop 与单测直接调用）。
- * totalTokens = injectedTokens + executionTokens（execution 未知时仅计注入部分）。
+ * totalTokens = injectedTokens + (billedTokens ?? executionTokens ?? 0)
+ * （B6：billed 含 cache 是账单口径；executionTokens 保持 input+output 旧语义供树预算闸门用）。
  */
 export async function writeWorkunitTokenEvent(eventsFile: string, args: WorkunitTokenEventArgs): Promise<void> {
   const executionTokens = typeof args.executionTokens === 'number' && Number.isFinite(args.executionTokens)
     ? args.executionTokens
+    : null;
+  const billedTokens = typeof args.billedTokens === 'number' && Number.isFinite(args.billedTokens)
+    ? args.billedTokens
     : null;
   await metricsFileStore.appendJsonl(eventsFile, {
     type: 'workunit:tokens',
@@ -1894,15 +2077,23 @@ export async function writeWorkunitTokenEvent(eventsFile: string, args: Workunit
       injectedTokens: args.injectedTokens,
       injectedSource: 'estimate:chars/4',
       executionTokens,
-      executionSource: executionTokens !== null ? 'cli-usage' : 'unavailable',
-      totalTokens: args.injectedTokens + (executionTokens ?? 0),
+      executionSource: executionTokens !== null || billedTokens !== null ? 'cli-usage' : 'unavailable',
+      totalTokens: args.injectedTokens + (billedTokens ?? executionTokens ?? 0),
       ...(typeof args.extractionTokens === 'number' ? { extractionTokens: args.extractionTokens } : {}),
       ...(typeof args.inputTokens === 'number' ? { inputTokens: args.inputTokens } : {}),
+      ...(typeof args.outputTokens === 'number' ? { outputTokens: args.outputTokens } : {}),
       ...(typeof args.cacheReadTokens === 'number' ? { cacheReadTokens: args.cacheReadTokens } : {}),
       ...(typeof args.cacheCreationTokens === 'number' ? { cacheCreationTokens: args.cacheCreationTokens } : {}),
+      ...(billedTokens !== null ? { billedTokens } : {}),
+      ...(typeof args.costUsd === 'number' ? { costUsd: args.costUsd } : {}),
+      ...(typeof args.numTurns === 'number' ? { numTurns: args.numTurns } : {}),
+      ...(args.triggerId ? { triggerId: args.triggerId } : {}),
     }),
     createdAt: new Date().toISOString(),
   });
+  // C3: 进程内当日预算计数器累加（口径与熔断扫描一致 = billed ?? total），
+  // 仅在落盘成功后计；未 bootstrap/跨天由 daily-token-budget 自重扫收敛。
+  noteTokensWritten(eventsFile, billedTokens ?? (args.injectedTokens + (executionTokens ?? 0)));
 }
 
 // ─── tool:call event recording ───

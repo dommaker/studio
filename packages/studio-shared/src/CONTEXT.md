@@ -4,8 +4,8 @@
 > 请阅读本目录的源代码，然后填写以下各节。
 > 如果使用 AI 编码助手，将本文件内容作为 prompt 请求它分析并填写。
 
-<!-- STALE_SINCE: 2026-07-31 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/src/file-store.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-shared/src/CONTEXT.md, packages/studio-shared/src/file-store.ts, packages/studio-shared/src/event-bus.ts, packages/studio-shared/src/index.ts, packages/studio-shared/src/web.ts, packages/studio-shared/src/attestation.ts, packages/studio-shared/src/domain-vocab.ts, packages/studio-shared/src/node.ts, packages/studio-shared/src/providers.ts
 
 ## 职责
 

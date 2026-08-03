@@ -2,6 +2,9 @@
 
 > 此文件描述 packages/studio-agent/src 目录的职责和上下文
 
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/src/CONTEXT.md, packages/studio-agent/src/index.ts, packages/studio-agent/src/cli-adapter.ts, packages/studio-agent/src/types.ts, packages/studio-agent/src/registry.ts
+
 ## 职责
 
 提供 Agent 执行引擎的核心能力，包括任务完成处理（AgentCompleter）、统一执行器（AgentRunner/AgentExecutor）与 Agent 注册中心（AgentRegistry）。负责将 provider 抽象参数转化为 CLI 参数（cli-adapter），管理 session 循环与轻量执行路径，并收集输出与指标。
@@ -43,4 +46,10 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加
+- ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）
+- ✅ `2dca78ab`: agent): 非 claude provider 会话续用改 cwd 维度形态（P3）
+- ✅ `b70951bb`: agent): harness 传播停写根目录 AGENTS.md/CLAUDE.md，杜绝 untracked 污染（P2）
+- ✅ `fed49d2b`: agent): 提交守卫排除工具产物 + 会话续用改 resume 语义
+- ✅ `03971453`: agent): 隔离 agent HOME 注入 claude CLI 鉴权 env，修复 401 authentication_failed
 - ✅ `bf4ad33d`: LLM architecture debt — 3-key routing + P0-P2 fixes

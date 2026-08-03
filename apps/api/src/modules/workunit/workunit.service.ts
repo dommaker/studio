@@ -34,6 +34,9 @@ export interface WorkUnitMetadata {
   startedAt?: string;         // 首次执行时间
   consecutiveStuck?: number;  // 连续无进展步数
   sessionResumes?: number;    // session 恢复次数
+  sessionCount?: number;      // B5（2026-08-03 token-burn issue）：本 WU 已建立的独立会话数（≥2 转人工，防全文重放烧钱）
+  blockReason?: string;       // B4（同上 P0-2）：最近一次转 blocked 的原因（恢复执行时清除，防事后无法诊断）
+  testWorkUnitGuard?: boolean; // B2（同上 P0-1c）：测试特征 WU 被 daemon 守卫关闭的留痕
   lastInputTokens?: number;   // 最新一次 execution 的 input_tokens (cache 追踪)
   // F5 双向沟通：NEED_INPUT 挂起/恢复状态
   waitingForInput?: boolean;  // NEED_INPUT 挂起中（status=blocked，等待人类回复）
@@ -917,6 +920,8 @@ export class WorkUnitService {
     const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
     metadata.mergeConflict = true;
     metadata.conflictFiles = conflictFiles;
+    // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
+    metadata.blockReason = `merge-conflict: 自动合并冲突（${conflictFiles.length} 个文件）`;
 
     const now = new Date();
     const isoNow = now.toISOString();
@@ -965,6 +970,8 @@ export class WorkUnitService {
     const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
     metadata.manualRelease = true;
     metadata.manualReleaseReason = reason;
+    // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
+    metadata.blockReason = `manual-release: ${reason}`;
 
     const now = new Date();
     const isoNow = now.toISOString();
@@ -1027,6 +1034,10 @@ export class WorkUnitService {
 
     // 3 consecutive rejections → auto-block
     const newStatus = rejections >= 3 ? 'blocked' : 'active';
+    if (newStatus === 'blocked') {
+      // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
+      metadata.blockReason = `review-rejected x${rejections}: ${reason ?? metadata._lastRejectionReason ?? '连续评审拒绝'}`.slice(0, 300);
+    }
 
     const now = new Date();
     const isoNow = now.toISOString();

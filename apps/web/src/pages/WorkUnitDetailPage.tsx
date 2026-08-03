@@ -14,6 +14,7 @@ import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
+import { TreeTokenDrawer } from '../components/workunit/TreeTokenDrawer';
 
 const statusLabels: Record<string, string> = {
   unassigned: '待分配',
@@ -78,6 +79,7 @@ export function WorkUnitDetailPage() {
   const [channelName, setChannelName] = useState<string | null>(null);
   const [assignee, setAssignee] = useState<{ name: string; roleId: string } | null>(null);
   const [chainReqId, setChainReqId] = useState<string | null>(null);
+  const [showTreeTokens, setShowTreeTokens] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -149,7 +151,18 @@ export function WorkUnitDetailPage() {
             )}
             <h1 className="page-title truncate">{wu ? title : 'WorkUnit 详情'}</h1>
           </div>
-          <button className="btn btn-secondary flex-shrink-0" onClick={handleBack}>返回</button>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {wu && (
+              <button
+                className="btn btn-secondary"
+                onClick={() => setShowTreeTokens(true)}
+                title="树级 Token 开销"
+              >
+                树开销
+              </button>
+            )}
+            <button className="btn btn-secondary flex-shrink-0" onClick={handleBack}>返回</button>
+          </div>
         </div>
         {wu && (
           <p className="page-subtitle">
@@ -281,6 +294,11 @@ export function WorkUnitDetailPage() {
 
       {/* REQ 全链路弹窗（复用 RequirementChainPanel） */}
       {chainReqId && <RequirementChainPanel reqId={chainReqId} onClose={() => setChainReqId(null)} />}
+
+      {/* AC-5.6: 树级 Token 开销抽屉 */}
+      {showTreeTokens && wu && (
+        <TreeTokenDrawer workUnitId={wu.id} onClose={() => setShowTreeTokens(false)} />
+      )}
     </div>
   );
 }

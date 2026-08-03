@@ -154,6 +154,14 @@ export class TriggerScheduler {
       try {
         const matcher = new CronMatcher(state.config.condition.cron);
         if (matcher.matches(now)) {
+          // B3 触发器幂等（2026-08-03 token-burn issue）：cron 匹配是分钟粒度，
+          // 同一分钟内不重复触发（事件循环 stall 两个 tick 落进同一分钟的兜底；
+          // 跨进程/重启的重复触发由 executeCreateAction 的落盘去重兜底）。
+          const minuteStart = new Date(now).setSeconds(0, 0);
+          if (state.lastFiredAt && state.lastFiredAt.getTime() >= minuteStart) {
+            this.log(id, 'tick', `Trigger "${state.config.name}" skipped: already fired this minute`);
+            continue;
+          }
           this.log(id, 'fired', `Trigger "${state.config.name}" fired`);
           this.executeTrigger(state.config).catch(err => {
             state.errorCount++;
@@ -172,7 +180,12 @@ export class TriggerScheduler {
   private async executeTrigger(config: TriggerConfig, context?: unknown): Promise<void> {
     switch (config.action.type) {
       case 'CREATE':
-        await executeCreateAction(config.action, config.id);
+        // B3 幂等：仅 SCHEDULE（cron）触发做同分钟落盘去重；EVENT 触发按事件语义不去重
+        await executeCreateAction(
+          config.action,
+          config.id,
+          config.condition.type === 'SCHEDULE' ? { dedupeWithinMinute: new Date() } : undefined,
+        );
         break;
       case 'EXECUTE':
         await executeExecuteAction(config.action, context);

@@ -31,7 +31,7 @@
 | `workunit.tools.ts` | 1 | createWorkUnit |
 | **合计** | **26** | |
 
-<!-- STALE_SINCE: 2026-07-28 -->
+<!-- STALE_SINCE: 2026-08-03 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/mcp/CONTEXT.md, apps/api/src/modules/mcp/system.tools.ts, apps/api/src/modules/mcp/tool-registry.ts, apps/api/src/modules/mcp/permission.service.ts, apps/api/src/modules/mcp/routes.ts, apps/api/src/modules/mcp/devops.tools.ts, apps/api/src/modules/mcp/economy.tools.ts, apps/api/src/modules/mcp/knowledge.tools.ts, apps/api/src/modules/mcp/pmo.tools.ts, apps/api/src/modules/mcp/safety.tools.ts, apps/api/src/modules/mcp/skill.tools.ts, apps/api/src/modules/mcp/spec.tools.ts, apps/api/src/modules/mcp/task.tools.ts, apps/api/src/modules/mcp/tool-store.ts, apps/api/src/modules/mcp/tools.ts, apps/api/src/modules/mcp/workunit.tools.ts
 
 ## 核心导出

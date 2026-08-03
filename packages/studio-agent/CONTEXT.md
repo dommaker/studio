@@ -3,8 +3,8 @@
 > 最后更新: 2026-05-05
 > Agent 执行器 — session loop 模型 + git worktree 隔离 + 文件桥上下文传递
 
-<!-- STALE_SINCE: 2026-07-30 -->
-⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/CONTEXT.md
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: packages/studio-agent/CONTEXT.md, packages/studio-agent/package.json
 
 ## 职责
 

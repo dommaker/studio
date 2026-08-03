@@ -95,3 +95,49 @@ describe('TriggerAction — CREATE WorkUnit', () => {
     await expect(executeCreateAction(action, 'test')).rejects.toThrow(/Unknown action type/);
   });
 });
+
+describe('TriggerAction — B3 幂等去重（2026-08-03 token-burn issue）', () => {
+  let tmpDir: string;
+
+  beforeAll(() => {
+    tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'trigger-action-dedupe-'));
+    setTriggerActionFileStore(new FileStore(tmpDir));
+  });
+
+  afterAll(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  const action: TriggerAction = {
+    type: 'CREATE',
+    target: 'WorkUnit',
+    payload: { type: 'analysis', scope: 'Dedupe scope' },
+  };
+
+  it('同一 triggerId 同一触发分钟：第二次返回 null，不重复建 WU', async () => {
+    const first = await executeCreateAction(action, 'dedupe-trigger', { dedupeWithinMinute: new Date() });
+    expect(first).not.toBeNull();
+
+    const second = await executeCreateAction(action, 'dedupe-trigger', { dedupeWithinMinute: new Date() });
+    expect(second).toBeNull();
+  });
+
+  it('不同 triggerId 互不去重', async () => {
+    const result = await executeCreateAction(action, 'another-trigger', { dedupeWithinMinute: new Date() });
+    expect(result).not.toBeNull();
+  });
+
+  it('触发分钟已过的历史 WU 不拦截新触发', async () => {
+    // 前两个用例已在当前分钟建了 dedupe-trigger 的 WU；用「下一分钟」作基准应放行
+    const nextMinute = new Date(Date.now() + 70_000);
+    const result = await executeCreateAction(action, 'dedupe-trigger', { dedupeWithinMinute: nextMinute });
+    expect(result).not.toBeNull();
+  });
+
+  it('不带 dedupe 选项保持原行为（EVENT 触发路径）', async () => {
+    const a = await executeCreateAction(action, 'dedupe-trigger');
+    const b = await executeCreateAction(action, 'dedupe-trigger');
+    expect(a).not.toBeNull();
+    expect(b).not.toBeNull();
+  });
+});

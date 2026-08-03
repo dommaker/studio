@@ -7,6 +7,9 @@
 
 import { spawn, type ChildProcess } from 'child_process';
 import { createConnection } from 'net';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 const API_PORT = 13001;
 const STARTUP_TIMEOUT = 60000;
@@ -71,6 +74,9 @@ export async function setup() {
 
   console.log(`\n[globalSetup] Starting API server on port ${API_PORT}...`);
 
+  // B1 测试数据隔离：e2e server 使用独立临时数据根，禁止写生产 ~/.studio/data
+  const isolatedRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'studio-e2e-data-'));
+
   serverProcess = spawn(
     'npx',
     ['tsx', 'apps/api/src/index.ts'],
@@ -81,6 +87,8 @@ export async function setup() {
         // 覆盖 .env 中的 production 配置，确保测试 server auth bypass
         STUDIO_AUTH: 'none',
         NODE_ENV: 'test',
+        STUDIO_DATA_DIR: path.join(isolatedRoot, 'data'),
+        STUDIO_EVENTS_DIR: path.join(isolatedRoot, 'events'),
       },
       stdio: ['ignore', 'pipe', 'pipe'],
       detached: false,

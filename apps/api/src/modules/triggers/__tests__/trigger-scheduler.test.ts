@@ -98,6 +98,19 @@ describe('TriggerScheduler', () => {
     expect(states[0].config.enabled).toBe(false);
   });
 
+  it('B3 幂等：同一分钟内重复 tick 不重复触发', () => {
+    store.save(sampleTrigger); // cron '* * * * *' 每分钟匹配
+    scheduler.loadTriggers();
+
+    scheduler.tick(new Date('2026-08-01T09:17:10'));
+    scheduler.tick(new Date('2026-08-01T09:17:50')); // 同一分钟 → 跳过
+    scheduler.tick(new Date('2026-08-01T09:18:00')); // 下一分钟 → 再次触发
+
+    const logs = scheduler.getLogs();
+    expect(logs.filter(l => l.event === 'fired')).toHaveLength(2);
+    expect(logs.some(l => l.message.includes('already fired this minute'))).toBe(true);
+  });
+
   it('getLogs returns log entries', () => {
     scheduler.start();
     // Force a tick

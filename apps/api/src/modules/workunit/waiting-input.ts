@@ -18,7 +18,9 @@ import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from './wor
 import { findAnchorMessage } from '../agents/agent-loop.js';
 import { ProjectDiscoveryService, type LocalProject } from '../projects/project-discovery.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
+import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
 import { projectService } from '../pmo/project.service.js';
+import type { MessageMeta } from '../channels/channel-message.service.js';
 
 /** 提醒阈值（毫秒）。默认 30 分钟，可用 STUDIO_INPUT_REMINDER_MINUTES 覆盖 */
 export function getReminderThresholdMs(env: NodeJS.ProcessEnv = process.env): number {
@@ -66,6 +68,8 @@ export async function resumeWaitingWorkUnit(
       ...metadata,
       waitingForInput: false,
       waitingReminded: false, // 重置提醒标记：下次挂起重新计一次
+      blockReason: undefined, // B4: 人工接管后清除 blocked 原因（JSON 序列化丢弃 undefined）
+      sessionCount: 0,        // B5: 人工回复 = 有人看护，重置会话预算（防无人值守反复重开会话烧 token）
       pendingReplies,
     },
   });
@@ -210,7 +214,7 @@ export async function postStudioSystemMessage(
   fileStore: FileStore,
   channelId: string,
   content: string,
-  opts?: { replyToId?: string | null; workUnitId?: string | null },
+  opts?: { replyToId?: string | null; workUnitId?: string | null; meta?: MessageMeta },
 ): Promise<void> {
   const msg: ChannelMessageData = {
     id: randomUUID(),
@@ -219,11 +223,24 @@ export async function postStudioSystemMessage(
     agentName: 'Studio',
     content,
     replyToId: opts?.replyToId ?? null,
-    meta: '{}',
+    meta: opts?.meta ? JSON.stringify(opts.meta) : '{}',
     workUnitId: opts?.workUnitId ?? null,
     createdAt: new Date().toISOString(),
   };
   await fileStore.appendMessage(channelId, msg);
+}
+
+/**
+ * 2026-07 PMO-flow UX（§10）：挂起超时提醒的里程碑 meta（pmoId 可解析时携带 + atHuman）。
+ * 静态引 pmo-branch-resolver 安全：其依赖（project.service/requirement.service）本模块已静态引用，
+ * 闭环保底不回环 waiting-input（message-routing 单向依赖本模块）。
+ */
+async function reminderMeta(fileStore: FileStore, wu: WorkUnitData): Promise<MessageMeta> {
+  const pmoId = await resolvePmoProjectIdForWU(
+    { reqId: wu.reqId ?? null, metadata: wu.metadata },
+    fileStore,
+  ).catch(() => null); // best-effort：解析不到不带 pmoId
+  return { ...(pmoId ? { pmoId } : {}), atHuman: true };
 }
 
 /**
@@ -254,7 +271,7 @@ export async function scanWaitingForInputReminders(fs?: FileStore, now: Date = n
       fileStore,
       wu.channelId,
       `任务「${title}」正在等待你的回复：${question}`,
-      { replyToId: anchor?.id ?? null, workUnitId: wu.id },
+      { replyToId: anchor?.id ?? null, workUnitId: wu.id, meta: await reminderMeta(fileStore, wu) },
     );
     await wuService.update(wu.id, { metadata: { ...metadata, waitingReminded: true } });
     reminded++;

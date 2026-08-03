@@ -75,17 +75,56 @@ export function setTriggerActionFileStore(fs: FileStore): void {
 }
 
 /**
+ * B3 触发器幂等（2026-08-03 token-burn issue）：同一 triggerId 在同一分钟内已创建过 WU 则跳过。
+ * 跨进程/重启兜底（in-memory lastFiredAt 挡不住）：两个实例共享数据根时第二个进程在此被拦。
+ * 判定依据是 executeCreateAction 自己写入的 metadata.triggerId + triggeredAt。
+ */
+async function findTriggerWorkUnitInMinute(triggerId: string, now: Date): Promise<boolean> {
+  const minuteStart = new Date(now).setSeconds(0, 0);
+  const snapshots = await fileStore.getIndex();
+  for (const s of snapshots) {
+    // 快速预筛：metadata 串不含该 triggerId 直接跳过（避免全量 JSON.parse）
+    if (!s.metadata || !s.metadata.includes(`"triggerId":"${triggerId}"`)) continue;
+    try {
+      const meta = JSON.parse(s.metadata) as { triggerId?: unknown; triggeredAt?: unknown };
+      if (meta.triggerId !== triggerId || typeof meta.triggeredAt !== 'string') continue;
+      const t = new Date(meta.triggeredAt).getTime();
+      if (Number.isFinite(t) && t >= minuteStart && t <= now.getTime()) return true;
+    } catch { /* metadata 损坏跳过 */ }
+  }
+  return false;
+}
+
+/**
  * Execute a CREATE action — creates a WorkUnit from trigger payload.
  * @param action - The trigger action definition
  * @param triggerId - The trigger ID (stored in WorkUnit metadata for traceability)
- * @returns The created WorkUnit
+ * @param opts.dedupeWithinMinute - B3 幂等：提供时按「同 triggerId 同分钟」去重（SCHEDULE 触发专用），命中返回 null
+ * @returns The created WorkUnit; 去重命中时返回 null
  */
 export async function executeCreateAction(
   action: TriggerAction,
   triggerId: string,
-): Promise<{ id: string; type: string; scope: string; status: string; channelId: string | null; metadata: string | null }> {
+): Promise<{ id: string; type: string; scope: string; status: string; channelId: string | null; metadata: string | null }>;
+export async function executeCreateAction(
+  action: TriggerAction,
+  triggerId: string,
+  opts: { dedupeWithinMinute?: Date },
+): Promise<{ id: string; type: string; scope: string; status: string; channelId: string | null; metadata: string | null } | null>;
+export async function executeCreateAction(
+  action: TriggerAction,
+  triggerId: string,
+  opts?: { dedupeWithinMinute?: Date },
+): Promise<{ id: string; type: string; scope: string; status: string; channelId: string | null; metadata: string | null } | null> {
   if (action.type !== 'CREATE') {
     throw new Error(`Unknown action type: ${action.type}`);
+  }
+
+  if (opts?.dedupeWithinMinute) {
+    if (await findTriggerWorkUnitInMinute(triggerId, opts.dedupeWithinMinute)) {
+      logger.info(`[TriggerAction] CREATE deduped: trigger "${triggerId}" already created a WorkUnit this minute`);
+      return null;
+    }
   }
 
   const { type, scope, channelId, metadata } = action.payload;

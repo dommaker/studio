@@ -147,9 +147,14 @@ describe('Requirement API (vision §5.3)', () => {
     expect(status).toBe(200);
     expect(json.success).toBe(true);
     expect(json.data.requirement.id).toBe(created.id);
-    expect(json.data.workunits).toEqual([
-      { id: wu.id, title: '链路任务', status: 'unassigned', assigneeId: 'agent-9', metadata: null },
-    ]);
+    // §10：chain 条目自带 type/createdAt/claimedAt/completedAt（createdAt 动态，分开断言）
+    expect(json.data.workunits).toHaveLength(1);
+    const [entry] = json.data.workunits;
+    expect(entry).toMatchObject({
+      id: wu.id, title: '链路任务', status: 'unassigned', assigneeId: 'agent-9',
+      metadata: null, type: 'task', claimedAt: null, completedAt: null,
+    });
+    expect(Number.isNaN(Date.parse(entry.createdAt))).toBe(false);
   });
 
   it('GET /:id/chain unknown → 404', async () => {

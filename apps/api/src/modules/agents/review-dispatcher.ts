@@ -206,6 +206,8 @@ export class ReviewDispatcher {
     delete childMeta.sessionId;
     delete childMeta.startedAt;
     delete childMeta.sessionResumes;
+    delete childMeta.sessionCount;   // B5: 会话预算不继承（否则父 WU 超限会连坐子 WU 直接转人工）
+    delete childMeta.blockReason;    // B4: blocked 原因不继承（子 WU 从未被 block）
     delete childMeta.stepCount;
     delete childMeta.consecutiveStuck;
     delete childMeta.errorType;

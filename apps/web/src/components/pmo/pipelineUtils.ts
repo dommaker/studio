@@ -5,14 +5,14 @@ import { deriveDisplayState } from '@dommaker/studio-shared/web';
 /** 进度管道五泳道 */
 export type PipelineLane = 'unassigned' | 'active' | 'in_review' | 'blocked' | 'done';
 
-/** 管道 WU：REQ chain 条目 + workunitApi.get 详情补全（type/时间戳，chain 不含，best-effort） */
+/** 管道 WU：REQ chain 条目（§10 起 chain 自带 type/时间戳，不再 N+1 详情补全） */
 export interface PipelineWorkUnit {
   id: string;
   title: string;
   status: string;
   assigneeId: string | null;
   metadata?: string | null;
-  /** 详情补全：类型 chip */
+  /** 类型 chip */
   type?: string;
   createdAt?: string | null;
   claimedAt?: string | null;

@@ -40,6 +40,10 @@ export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date
         ...metadata,
         timeoutReleasedAt: isoNow,
         timeoutReleaseCount: releases,
+        // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
+        ...(releases >= MAX_TIMEOUT_RELEASES
+          ? { blockReason: `timeout: ${releases} 次执行超时释放，不再回池` }
+          : {}),
       };
 
       if (releases >= MAX_TIMEOUT_RELEASES) {

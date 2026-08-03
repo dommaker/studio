@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/channels 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/CONTEXT.md, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/channel.routes.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/channels/CONTEXT.md, apps/api/src/modules/channels/channel-message.service.ts, apps/api/src/modules/channels/channel.routes.ts, apps/api/src/modules/channels/message-routing.ts, apps/api/src/modules/channels/convert-to-task.service.ts, apps/api/src/modules/channels/requirements-doc.routes.ts, apps/api/src/modules/channels/migrate-members.ts, apps/api/src/modules/channels/discovery-exposure.service.ts, apps/api/src/modules/channels/channel-init.ts, apps/api/src/modules/channels/acgroup-tier.ts, apps/api/src/modules/channels/analyst-executor.ts, apps/api/src/modules/channels/analyst-fact-verification.ts, apps/api/src/modules/channels/analyst-knowledge.ts, apps/api/src/modules/channels/analyst-prescan.ts, apps/api/src/modules/channels/analyst-prompt.ts, apps/api/src/modules/channels/analyst-scout.ts, apps/api/src/modules/channels/analyst-synthesizer.ts, apps/api/src/modules/channels/analyst-trigger.service.ts, apps/api/src/modules/channels/contract-test-red-check.ts, apps/api/src/modules/channels/contract-test-validator.ts, apps/api/src/modules/channels/conversation-converter.ts, apps/api/src/modules/channels/conversation-handler.ts, apps/api/src/modules/channels/multi-repo-split.ts, apps/api/src/modules/channels/sdd-verification.ts
 
 ## 职责
 

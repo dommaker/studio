@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/requirements 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/requirements/CONTEXT.md, apps/api/src/modules/requirements/ownership-resolver.ts, apps/api/src/modules/requirements/requirement.routes.ts, apps/api/src/modules/requirements/requirement.service.ts, apps/api/src/modules/requirements/req-binding.ts, apps/api/src/modules/requirements/rollup.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/requirements/CONTEXT.md, apps/api/src/modules/requirements/requirement.service.ts, apps/api/src/modules/requirements/pmo-branch-resolver.ts, apps/api/src/modules/requirements/req-binding.ts, apps/api/src/modules/requirements/ownership-resolver.ts, apps/api/src/modules/requirements/requirement.routes.ts, apps/api/src/modules/requirements/rollup.ts
 
 ## 职责
 
@@ -36,6 +36,7 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ 2026-07-31: PMO-flow UX §10 — `getChain` 条目补 `type/createdAt/claimedAt/completedAt` 四字段（数据源 WU 快照自带；`RequirementChainWorkUnit` 同步补声明含此前遗漏的 `metadata`），PMO 驾驶舱进度管道/项目动态直接消费 chain，前端逐 WU `workunitApi.get` N+1 补全移除；getChain 用例补字段断言
 - ✅ 2026-07-31: PMO-flow UX §6 — pmo-branch-resolver 新增 `resolvePmoProjectIdForWU`：WU → 归属 PMO 项目 id 解析（链序 ①metadata.ownershipProjectId ②reqId→Requirement.projectId ③metadata.pmoProjectId，项目存在校验逐级容错、全失败 null；无 gitBranch/pmoNumber 的项目也能命中——与 resolvePmoBranchForWU 的分支语义分离）；消费方 = monitoring /agents 聚合 + 四类里程碑消息 meta.pmoId；补测试 6 例
 - ✅ `782ac0a9`: 路由层防御纵深 — 写操作端点加 requireAuth+requireNotGuest/requireAdmin
 - ✅ 2026-07-27: B3a 工程归属链（决策 D2）— Requirement 增 projectId 挂接 PMO 项目（创建/更新校验存在，路由 POST/PATCH 暴露）；新增 ownership-resolver.ts（显式 > Requirement→PMO gitRepo > 频道默认 > none，各步容错）

@@ -2,7 +2,7 @@
 
 > 此文件描述 apps/api/src/modules/evolution 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-28 -->
+<!-- STALE_SINCE: 2026-08-03 -->
 ⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/evolution/CONTEXT.md, apps/api/src/modules/evolution/signals.ts, apps/api/src/modules/evolution/applier.ts, apps/api/src/modules/evolution/channel-review.ts, apps/api/src/modules/evolution/evolution.routes.ts, apps/api/src/modules/evolution/evolution.service.ts, apps/api/src/modules/evolution/generator.ts
 
 ## 职责

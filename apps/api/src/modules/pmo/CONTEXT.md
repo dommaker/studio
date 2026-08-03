@@ -2,8 +2,8 @@
 
 > 此文件描述 apps/api/src/modules/pmo 目录的职责和上下文
 
-<!-- STALE_SINCE: 2026-07-30 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/delivery.ts, apps/api/src/modules/pmo/evidence-summary.ts, apps/api/src/modules/pmo/progress-rollup.ts, apps/api/src/modules/pmo/routes.ts
+<!-- STALE_SINCE: 2026-08-03 -->
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/pmo/CONTEXT.md, apps/api/src/modules/pmo/delivery.ts, apps/api/src/modules/pmo/evidence-summary.ts, apps/api/src/modules/pmo/progress-rollup.ts, apps/api/src/modules/pmo/routes.ts, apps/api/src/modules/pmo/analysis-handoff.ts, apps/api/src/modules/pmo/project.service.ts, apps/api/src/modules/pmo/okr.service.ts, apps/api/src/modules/pmo/okr-anomaly-detector.ts
 
 ## 职责
 
