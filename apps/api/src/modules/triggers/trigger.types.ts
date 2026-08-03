@@ -16,6 +16,7 @@ export type TriggerAction =
         scope: string;  // WorkUnit scope
         channelId?: string;
         metadata?: Record<string, unknown>;
+        assigneeRole?: string;  // 点名角色名（如 'studio'）→ 创建时解析为 profile id 写 assigneeId（独占认领）；缺省 unassigned
       };
     }
   | {

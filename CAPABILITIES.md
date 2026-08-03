@@ -343,3 +343,5 @@
 | pipelineUtils | apps/web/src/components/pmo/pipelineUtils.ts | WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。 |
 | agentStatus | apps/web/src/utils/agentStatus.ts | 状态推导：instance.status + 当前 WU.status → 卡片状态键。 |
 | daily-token-budget | apps/api/src/modules/agents/daily-token-budget.ts | C3（2026-08-03 unattended-token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。 |
+| maintenance.routes | apps/api/src/modules/knowledge/maintenance.routes.ts | Knowledge Maintenance Routes — F1 知识库维护的手动触发入口 |
+| maintenance | apps/web/src/api/maintenance.ts | Maintenance API — 手动任务按钮（触发器手动 fire / 成本聚合 / 知识库维护 / 中层演化） |

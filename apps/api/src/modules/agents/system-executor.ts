@@ -29,6 +29,8 @@ export interface SystemExecutorOptions {
   timeoutMs?: number;
   /** 输出缓冲（默认 5MB） */
   maxBuffer?: number;
+  /** system:tokens 事件的 source 标记（默认 'system-executor'；调用方传入可按任务聚合成本，如 'knowledge-maintenance'） */
+  eventSource?: string;
 }
 
 export interface SystemExecutorResult {
@@ -137,6 +139,7 @@ export class SystemExecutor {
         usage,
         durationMs: result.durationMs,
         promptSignature: hashPrompt(prompt),
+        eventSource: opts.eventSource,
       });
     } catch (err) {
       logger.warn('[SystemExecutor] writeSystemTokenEvent failed', { error: String(err) });
@@ -159,11 +162,12 @@ export class SystemExecutor {
     usage?: { inputTokens: number; outputTokens: number };
     durationMs: number;
     promptSignature: string;
+    eventSource?: string;
   }): Promise<void> {
     const metricsFs = new FileStore();
     await metricsFs.appendJsonl(this.eventsFile, {
       type: 'system:tokens',
-      source: 'system-executor',
+      source: args.eventSource ?? 'system-executor',
       payload: JSON.stringify({
         provider: args.provider,
         inputTokens: args.usage?.inputTokens ?? null,

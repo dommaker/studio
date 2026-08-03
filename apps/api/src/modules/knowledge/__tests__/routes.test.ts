@@ -2,7 +2,7 @@
  * routes.ts 门面测试（T3 拆分新增，pre-commit TDD 门禁）。
  *
  * 验证拆分后门面（knowledgeRoutes / knowledgeInternalRoutes）：
- * 1. 所有 6 个子路由的 (method, path) 完整注册（集合比较，不依赖 Express 内部 flatten 顺序）；
+ * 1. 所有 7 个子路由的 (method, path) 完整注册（集合比较，不依赖 Express 内部 flatten 顺序）；
  * 2. 关键顺序约束：/requirements、/read-file、/file 必须在 /:projectId 之前（否则被遮蔽）；
  * 3. HTTP 层验证语义——字面路径可到达、原文件中的遮蔽行为保留。
  * HOME 指向临时目录隔离 sharedStore / FileStore。
@@ -48,6 +48,8 @@ const EXPECTED_PUBLIC: Array<[string, string]> = [
   // search.routes
   ['GET', '/resolutions'], ['GET', '/search'], ['GET', '/resolution/density'],
   ['GET', '/resolution/cross-session'],
+  // maintenance.routes（F1 手动触发入口，B7 token-burn issue）
+  ['POST', '/maintenance/run'],
 ];
 
 const EXPECTED_INTERNAL: Array<[string, string]> = [
@@ -108,7 +110,7 @@ describe('knowledge routes facade', () => {
     expect(typeof knowledgeInternalRoutes.use).toBe('function');
   });
 
-  it('all 6 sub-routers fully registered (set comparison)', () => {
+  it('all 7 sub-routers fully registered (set comparison)', () => {
     const flat = flattenRoutes(knowledgeRoutes);
     const actual = flat.map(r => [r.method, r.path] as [string, string]);
     const actualSet = toSet(actual);

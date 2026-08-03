@@ -3,7 +3,7 @@
 > 此文件描述 apps/api/src/modules/agents 目录的职责和上下文
 
 <!-- STALE_SINCE: 2026-08-03 -->
-⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/CONTEXT.md, apps/api/src/modules/agents/agent-loop.ts, apps/api/src/modules/agents/daily-token-budget.ts, apps/api/src/modules/agents/default-triggers.ts, apps/api/src/modules/agents/review-dispatcher.ts, apps/api/src/modules/agents/agent-instance.routes.ts, apps/api/src/modules/agents/agent-instance.service.ts, apps/api/src/modules/agents/wu-verification.ts, apps/api/src/modules/agents/token-usage.service.ts, apps/api/src/modules/agents/execution-step-events.ts, apps/api/src/modules/agents/system-executor.ts, apps/api/src/modules/agents/builtin-roles.ts, apps/api/src/modules/agents/agent-profile.service.ts, apps/api/src/modules/agents/default-provider.ts, apps/api/src/modules/agents/session-summary.service.ts, apps/api/src/modules/agents/auditor-execution.ts, apps/api/src/modules/agents/auditor-reports.ts, apps/api/src/modules/agents/auditor-rules.ts, apps/api/src/modules/agents/auditor.service.ts, apps/api/src/modules/agents/knowledge-cold-start.ts, apps/api/src/modules/agents/knowledge-curator.service.ts, apps/api/src/modules/agents/knowledge-extraction.ts, apps/api/src/modules/agents/knowledge-maintenance.ts, apps/api/src/modules/agents/monitor-alerts.ts, apps/api/src/modules/agents/monitor-lifecycle.ts, apps/api/src/modules/agents/monitor-probes.ts, apps/api/src/modules/agents/monitor-reports.ts, apps/api/src/modules/agents/monitor-system-probes.ts, apps/api/src/modules/agents/monitor.service.ts, apps/api/src/modules/agents/ops.service.ts, apps/api/src/modules/agents/review.service.ts, apps/api/src/modules/agents/routes.ts, apps/api/src/modules/agents/triage.service.ts, apps/api/src/modules/agents/review-report.ts, apps/api/src/modules/agents/types.ts, apps/api/src/modules/agents/review-agent.service.ts, apps/api/src/modules/agents/auditor-agent.service.ts, apps/api/src/modules/agents/session-summary-agent.service.ts, apps/api/src/modules/agents/ops-agent.service.ts, apps/api/src/modules/agents/triage-agent.service.ts, apps/api/src/modules/agents/agent-profile.routes.ts, apps/api/src/modules/agents/remote-executor.ts, apps/api/src/modules/agents/monitor-agent.service.ts, apps/api/src/modules/agents/agent-loop-registry.ts, apps/api/src/modules/agents/token-usage.routes.ts, apps/api/src/modules/agents/executor.ts, apps/api/src/modules/agents/auditor-doc-freshness.ts, apps/api/src/modules/agents/knowledge-agent.service.ts, apps/api/src/modules/agents/knowledge-analysis.ts, apps/api/src/modules/agents/system-health.ts, apps/api/src/modules/agents/agent-context.ts, apps/api/src/modules/agents/data-analyst-agent.service.ts
+⚠️ 以下文件已变更，本节可能过期: apps/api/src/modules/agents/monitor-system-probes.ts
 
 ## 职责
 
@@ -76,6 +76,7 @@
 ## 修复历史
 
 <!-- SESSION_SUMMARY_FIXES -->
+- ✅ `0091b7f4`: B7 KnowledgeCurator LLM 维护默认停用（token burn guard）
 - ✅ `8df569a9`: agents): L2 studio profile 缺省 provider seed（STUDIO_ROLE_DEFAULT_PROVIDER='claude'）
 - ✅ `a02f05cb`: agents): SessionSummary stale 标记同步清除旧警告块，修复 CONTEXT.md 重复叠加
 - ✅ `faa07b29`: agent): repoDir CLAUDE.md 仅同仓传播 + exclude 补 .harness/（验收修复 C，P2 续）

@@ -6,6 +6,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { wikiApi } from '../api';
+import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
+import { ManualTaskButton } from '../components/ui';
 import KnowledgeGraphView from '../components/KnowledgeGraphView';
 import type { KnowledgeGraph, KnowledgeNode, KnowledgeEdge } from '../components/KnowledgeGraphView';
 
@@ -42,6 +44,12 @@ export function WikiPage() {
   const [graphData, setGraphData] = useState<KnowledgeGraph | null>(null);
   const [graphLoading, setGraphLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 手动任务成本（近 30 天 token；失败静默，不阻塞页面）
+  const [costs, setCosts] = useState<TriggerCosts | null>(null);
+  useEffect(() => {
+    maintenanceApi.getCosts().then(setCosts).catch(() => setCosts(null));
+  }, []);
 
   const fetchDocs = useCallback(async (searchTerm: string) => {
     setLoading(true);
@@ -124,17 +132,31 @@ export function WikiPage() {
           <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
             文档
           </h1>
-          <button
-            onClick={handleToggleGraph}
-            className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            style={{
-              background: viewMode === 'graph' ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-              color: viewMode === 'graph' ? 'white' : 'var(--text-primary)',
-              border: '1px solid var(--border-subtle)',
-            }}
-          >
-            {viewMode === 'graph' ? '列表' : '图谱'}
-          </button>
+          <div className="flex gap-2">
+            <ManualTaskButton
+              label="🔍 语义审查"
+              costTokens={costs?.byTrigger['doc-semantic-review']}
+              onRun={async () => {
+                const r = await maintenanceApi.fireTrigger('doc-semantic-review');
+                if (r.workUnit?.id) {
+                  navigate(`/workunits/${r.workUnit.id}`);
+                  return '已创建审查任务，可在 WorkUnit 列表查看';
+                }
+                return '已创建审查任务';
+              }}
+            />
+            <button
+              onClick={handleToggleGraph}
+              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+              style={{
+                background: viewMode === 'graph' ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
+                color: viewMode === 'graph' ? 'white' : 'var(--text-primary)',
+                border: '1px solid var(--border-subtle)',
+              }}
+            >
+              {viewMode === 'graph' ? '列表' : '图谱'}
+            </button>
+          </div>
         </div>
 
         {/* Search bar (only in list mode) */}

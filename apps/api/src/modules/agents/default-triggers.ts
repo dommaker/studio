@@ -37,6 +37,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       payload: {
         type: 'analysis',
         scope: 'Run knowledge-quality-skill: audit semantic quality of ~/.studio/knowledge/. Check D1-D6 dimensions. Archive low_quality noise entries. Merge fragment clusters. Rebuild _index.md after convergence.',
+        assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
     enabled: false, // 2026-08-03 停用：LLM 日任务无人值守空烧且全部 blocked 零产出（docs/issues/2026-08-03-unattended-token-burn.md），B/C 档修复后评估恢复
@@ -64,6 +65,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       payload: {
         type: 'analysis',
         scope: 'Scan ~/.studio/data/sessions/ for unprocessed JSONL files. Extract knowledge using knowledge-extraction skill. Mark processed files with .done suffix.',
+        assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
     enabled: false, // 2026-08-03 停用：LLM 日任务无人值守空烧且全部 blocked 零产出（docs/issues/2026-08-03-unattended-token-burn.md），B/C 档修复后评估恢复
@@ -81,6 +83,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       payload: {
         type: 'analysis',
         scope: 'Scan ~/.studio/knowledge/ for entries with empty referencedBy. Output audit report to ~/.studio/data/knowledge-consumption-audit.md with entry list, creation dates, and recommendations (keep/archive).',
+        assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
     enabled: false, // 2026-08-03 停用：LLM 日任务无人值守空烧且全部 blocked 零产出（docs/issues/2026-08-03-unattended-token-burn.md），B/C 档修复后评估恢复
@@ -98,6 +101,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       payload: {
         type: 'analysis',
         scope: 'Execute knowledge-synthesis-skill: scan recent knowledge entries for semantic patterns. If 3+ entries share an underlying pattern, propose a new Skill via skill-creator.',
+        assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
     enabled: false, // 2026-08-03 停用：8/3 同样 blocked 空烧，待 blocked 问题修复后评估恢复（docs/issues/2026-08-03-unattended-token-burn.md）
@@ -138,6 +142,7 @@ export function registerDefaultTriggers(registry: TriggerScheduler): void {
       payload: {
         type: 'analysis',
         scope: '审查 README.md 与 docs/ 手写文档（清单由 agent 自行定位）同当前代码结构/行为的一致性；产出差异清单（doc/行/文档声称/代码现状/建议）发频道；机械类差异同时给出 sync-docs 重生成命令。',
+        assigneeRole: 'studio', // 系统维护任务钉死 studio 角色执行（独占认领，消除竞争；docs/issues/2026-08-03-unattended-token-burn.md）
       },
     },
     enabled: false, // 2026-08-03 停用：LLM 周任务，与 5 个已停触发器同批止血（docs/issues/2026-08-03-unattended-token-burn.md），恢复前需先验证预算熔断生效
