@@ -210,7 +210,6 @@
 | eval-case-store | apps/api/src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
 | monitoring.routes | apps/api/src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | monitoring.service | apps/api/src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
-| sdd-freshness.service | apps/api/src/modules/sdd/sdd-freshness.service.ts | SDD Doc Freshness Service |
 | manifest-loader | apps/api/src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
 | proposal-store | apps/api/src/modules/skills/proposal-store.ts | ProposalStore — File-based CRUD for SkillProposal |
 | skill-selector | apps/api/src/modules/skills/skill-selector.ts | skill-selector (AS-025 3.28c-5) |
