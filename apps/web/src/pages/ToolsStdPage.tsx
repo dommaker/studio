@@ -125,7 +125,7 @@ export const ToolsStdPage: React.FC = () => {
       <div className="flex-1 overflow-auto px-8 py-6">
       {/* Stats */}
       <div className="u-accent-dim rounded p-4 mb-6">
-        <div className="text-2xl font-bold u-accent">{skills.length}</div>
+        <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">{skills.length}</div>
         <div className="text-sm u-accent">已注册 Skills</div>
       </div>
 

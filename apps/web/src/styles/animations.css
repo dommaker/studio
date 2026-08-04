@@ -280,11 +280,6 @@
   animation: slideIn 0.3s ease-out;
 }
 
-/* 消息气泡 */
-.message-bubble {
-  animation: scaleIn 0.2s ease-out;
-}
-
 /* 角色状态切换 */
 .role-status-change {
   transition: all 0.3s ease;

@@ -72,8 +72,8 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
             onClick={() => handleNavClick(item.to)}
             className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all`}
             style={{
-              background: isActive(item.to) 
-                ? 'linear-gradient(to right, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1))'
+              background: isActive(item.to)
+                ? 'var(--accent-dim)'
                 : 'transparent',
               border: isActive(item.to) ? '1px solid var(--accent-primary)' : '1px solid transparent',
             }}

@@ -21,7 +21,6 @@ import {
   buildArgsFromTemplate,
   resetProviderRegistryCache,
 } from '@dommaker/studio-shared/node';
-import { buildSpawnArgs } from '../cli-adapter';
 
 const tmpFiles: string[] = [];
 
@@ -136,73 +135,6 @@ describe('health probe resolution', () => {
         expect(cmd, `${providerId} probe "${cmd}" must not contain "${pattern}"`).not.toContain(pattern);
       }
     }
-  });
-});
-
-describe('spawn-args templates (daemon buildSpawnArgs)', () => {
-  test('claude defaults are byte-identical to the pre-F4 adapter', () => {
-    expect(buildSpawnArgs('claude', {})).toEqual({
-      command: 'claude',
-      args: ['--print', '--output-format', 'stream-json', '--verbose'],
-      env: undefined,
-      promptViaStdin: true,
-    });
-  });
-
-  test('claude full params are byte-identical to the pre-F4 adapter', () => {
-    const result = buildSpawnArgs('claude', {
-      outputFormat: 'json',
-      sessionId: 'abc-123',
-      maxTurns: 10,
-      extraArgs: ['--allowedTools', 'Read'],
-    });
-    expect(result.args).toEqual([
-      '--print', '--output-format', 'json', '--verbose',
-      '--session-id', 'abc-123',
-      '--max-turns', '10',
-      '--allowedTools', 'Read',
-    ]);
-    expect(result.promptViaStdin).toBe(true);
-  });
-
-  test('kimi: print mode via --prompt flag, session via --session', () => {
-    const result = buildSpawnArgs('kimi', { prompt: 'do it', sessionId: '01HZX', model: 'k2' });
-    expect(result.command).toBe('kimi');
-    expect(result.args).toEqual([
-      '--output-format', 'stream-json',
-      '--session', '01HZX',
-      '--model', 'k2',
-      '--prompt', 'do it',
-    ]);
-    expect(result.promptViaStdin).toBe(false);
-  });
-
-  test('codex: exec --json, resume subcommand for sessions, positional prompt', () => {
-    expect(buildSpawnArgs('codex', {}).args).toEqual(['exec', '--json']);
-    expect(buildSpawnArgs('codex', {}).promptViaStdin).toBe(true);
-
-    const resumed = buildSpawnArgs('codex', { sessionId: 'sess-1', prompt: 'continue' });
-    expect(resumed.args).toEqual(['exec', 'resume', 'sess-1', '--json', 'continue']);
-    expect(resumed.promptViaStdin).toBe(false);
-  });
-
-  test('opencode: run --format json, --session, positional prompt', () => {
-    const result = buildSpawnArgs('opencode', { outputFormat: 'stream-json', sessionId: 's1', prompt: 'hi' });
-    expect(result.args).toEqual(['run', '--format', 'json', '--session', 's1', 'hi']);
-    expect(result.promptViaStdin).toBe(false);
-  });
-
-  test('openclaw keeps pre-F4 flags via its config-only definition', () => {
-    const result = buildSpawnArgs('openclaw', { model: 'm', sessionId: 's2', maxTurns: 3 });
-    expect(result.args).toEqual(['--session', 's2', '--model', 'm', '--max-turns', '3']);
-    expect(result.promptViaStdin).toBe(true);
-  });
-
-  test('unknown provider falls back to generic flags', () => {
-    const result = buildSpawnArgs('weirdcli', { outputFormat: 'json', sessionId: 'x' });
-    expect(result.command).toBe('weirdcli');
-    expect(result.args).toEqual(['--session-id', 'x', '--output-format', 'json']);
-    expect(result.promptViaStdin).toBe(true);
   });
 });
 

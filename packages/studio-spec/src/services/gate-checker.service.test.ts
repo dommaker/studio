@@ -6,13 +6,6 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.mock('@prisma/client', () => {
-  return {
-    PrismaClient: class {},
-    Prisma: { ModelName: {} },
-  };
-});
-
 import { GateCheckerService, gateCheckerService } from './gate-checker.service.js';
 import { changeHistoryService } from './change-history.service.js';
 import { isHarnessCheck } from '../types/gate.types.js';

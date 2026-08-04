@@ -501,7 +501,7 @@ function RoleCard({ role, activities, lastDone, channelNames, onTerminate }: {
 function StatBadge({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className={`text-lg font-bold ${color}`}>{value}</span>
+      <span className={`font-bold ${color}`} style={{ fontSize: 'var(--fs-stat)' }}>{value}</span>
       <span className="text-sm u-text-3">{label}</span>
     </div>
   );

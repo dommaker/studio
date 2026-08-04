@@ -185,20 +185,6 @@ export async function studioStatus() {
     console.log('  Agents:    ❌');
   }
 
-  // 4. Daemon status
-  try {
-    const { daemon } = await import('../daemon/studio-daemon.js');
-    if (daemon.isStarted()) {
-      const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean; taskCount: number } | null>;
-      const active = statuses.filter(s => s).length;
-      console.log(`  Daemon:    ✅ (${active} sessions)`);
-    } else {
-      console.log('  Daemon:    not started');
-    }
-  } catch (e) {
-    console.log('  Daemon:    ❌', String(e).slice(0, 80));
-  }
-
   // 5. G5: Model routing history
   try {
     const r = await fetch(`${baseUrl}/metrics/routing`);

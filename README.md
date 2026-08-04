@@ -126,7 +126,6 @@ OKR → PMO 项目（gitRepo 为工程锚点）→ Requirement（挂 PMO 项目�
 |------|------|-----------|
 | `CLOUDFLARED_ENABLED` | 公网 quick tunnel（Discord interactions 用） | 默认开；`=false` 关闭 |
 | `EVOLUTION_ENABLED` | 约束进化每日扫描 + 频道审核 watcher | 默认开；`=false` 关闭 |
-| `STUDIO_TASK_QUEUE_ENABLED` | pipeline 时代遗留任务队列 | 默认关（无存活生产者）；`=true` 仅为旧测试恢复 |
 
 ## 运行方式
 

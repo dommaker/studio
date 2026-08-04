@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-19
+> 最后更新: 2026-08-04
 
 ---
 
@@ -9,16 +9,10 @@
 | app | src/app.ts | 注册所有 API 路由（异步，启动时调用一次） |
 | studio-cli | src/cli/studio-cli.ts | Studio CLI — 统一入口（2026-05-09: Docker/tmux 已移除） |
 | event-store | src/core/event-store.ts | EventStore — EventEmitter + 内存 Map |
-| claim-loop | src/daemon/claim-loop.ts | Claim Loop — AS-020 P5-02: Per-Runtime task polling |
-| cli-adapter | src/daemon/cli-adapter.ts | CLI Adapter — translate common agent args to provider-specific spawn args |
 | cli-scanner | src/daemon/cli-scanner.ts | CLI Scanner — auto-detect available agent CLIs on the system |
 | discover-handler | src/daemon/discover-handler.ts | Discover Handler — AS-020 P6-03: Local directory scanning |
 | path-sandbox | src/daemon/path-sandbox.ts | Path Sandbox — AS-020 P6-02: Path traversal protection |
 | registration | src/daemon/registration.ts | Workspace Registration — HTTP registration flow |
-| session-manager | src/daemon/session-manager.ts | Session Manager — manages persistent Claude Code sessions via --session-id + --continue |
-| studio-daemon | src/daemon/studio-daemon.ts | Studio Daemon — persistent Agent session manager |
-| task-executor | src/daemon/task-executor.ts | Task Executor — AS-020 P5-03: Agent execution lifecycle |
-| task-logger | src/daemon/task-logger.ts | Task Logger — 结构化任务日志，供审计/进化/调试 |
 | workspace-config | src/daemon/workspace-config.ts | Workspace Config — manage ~/.studio/workspace.json |
 | api-cache | src/middleware/api-cache.ts | API 缓存中间件 — 内存 Map |
 | audit-logger | src/middleware/audit-logger.ts | 审计日志中间件 - Audit Logger Middleware |
@@ -33,7 +27,6 @@
 | monitor.service | src/modules/agents/monitor.service.ts | Monitor Service - 健康监控 + NA Step 7 渐进告警 |
 | ops.service | src/modules/agents/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
-| requirement-gate | src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
 | review.service | src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查 (daemon async spawn) |
 | review-report | src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
@@ -75,7 +68,6 @@
 | knowledge-sync.service | src/modules/knowledge/knowledge-sync.service.ts | KnowledgeSync — 自运转知识同步系统 |
 | pattern-miner | src/modules/knowledge/pattern-miner.ts | PatternMiner (G-005) — 从 MCP traces + 审查历史中挖掘交互模式 |
 | preference-observer | src/modules/knowledge/preference-observer.ts | PreferenceObserver (G-001) — 从 MCP traces + 路由反馈中推断用户偏好 |
-| external-fetcher | src/modules/knowledge/producers/external-fetcher.ts | ExternalFetcher — fetch external docs and ingest as reference knowledge. |
 | resolution.service | src/modules/knowledge/resolution.service.ts | ResolutionService — RKB 匹配/创建/验证 |
 | routes | src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理 |
 | rule-scanner | src/modules/knowledge/rule-scanner.ts | RuleScanner (G-002) — 从源码/harness 约束/配置中提取业务规则 |
@@ -103,23 +95,15 @@
 | skill-proposal-routes | src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |
 | error-class | src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
-| daemon-routes | src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
-| discover-proxy | src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
-| gc-service | src/modules/workspaces/gc-service.ts | GC Service — AS-020 P5: Garbage collection for old tasks and events |
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
-| task-routes | src/modules/workspaces/task-routes.ts | Task Routes — AS-020 P5: UI/Server task management |
 | token.routes | src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
 | workspace.routes | src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
-| ws-gateway | src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
 | route-registry | src/route-registry.ts | Route Registry - 模块化路由注册 |
 | seed-skills | src/scripts/seed-skills.ts | Seed 4 built-in Skills into the Skill table (D6). |
-| crypto | src/utils/crypto.ts | AES-256-GCM 加密工具 |
 | discord-notifier | src/utils/discord-notifier.ts | Discord 通知工具 |
 | errors | src/utils/errors.ts | errors |
-| git | src/utils/git.ts | Git utilities — branch detection, worktree helpers |
 | logger | src/utils/logger.ts | Logger 工具 |
 | pagination | src/utils/pagination.ts | 分页工具 - 统一 API 分页参数解析和响应格式 |
-| response | src/utils/response.ts | 统一响应格式工具 - 规范化 API 响应结构 |
 | services | src/utils/services.ts | 创建懒加载单例服务 |
 
 | agent-instance.routes | src/modules/agents/agent-instance.routes.ts | RuntimeInstance API 路由 (AS-026 AC-1) |
@@ -129,11 +113,8 @@
 | agent-profile.service | src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
 | eval-case-store | src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
-| improver-scheduler.service | src/modules/knowledge/improver-scheduler.service.ts | ImproverScheduler — 自文档化调度器 |
-| signal-aggregator | src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 聚合趋势摘要 |
 | monitoring.routes | src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | monitoring.service | src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
-| failure-classifier | src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
 | manifest-loader | src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
 | proposal-store | src/modules/skills/proposal-store.ts | ProposalStore — File-based CRUD for SkillProposal |
 | skill-selector | src/modules/skills/skill-selector.ts | skill-selector (AS-025 3.28c-5) |

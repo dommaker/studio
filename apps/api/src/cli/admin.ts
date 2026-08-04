@@ -96,29 +96,6 @@ export async function studioDaemonStart() {
   }
 }
 
-export async function studioDaemonStatus() {
-  const port = process.env.PORT || '3001';
-  try {
-    const resp = await fetch(`http://localhost:${port}/api/v1/daemon/status`);
-    if (!resp.ok) {
-      console.log('Daemon: API unreachable');
-      process.exit(1);
-    }
-    const data = await resp.json() as { started: boolean; sessions: Array<{ name: string; isBusy: boolean; lastUsed: number; taskCount: number }> };
-    if (!data.started) {
-      console.log('Daemon: not running');
-    } else {
-      console.log('Daemon sessions:');
-      for (const s of data.sessions) {
-        console.log(`  ${s.name}: ${s.isBusy ? 'busy' : 'idle'} | tasks: ${s.taskCount} | last: ${s.lastUsed ? new Date(s.lastUsed).toISOString() : 'never'}`);
-      }
-    }
-  } catch (err: any) {
-    console.log('Daemon: API unreachable —', err.message);
-    process.exit(1);
-  }
-}
-
 export function studioProject(subArgs: string[]) {
   if (subArgs[0] === 'add') {
     const projectPath = path.resolve(subArgs[1] || process.cwd());

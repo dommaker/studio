@@ -153,7 +153,6 @@ export const agentApi = {
 
 // Workflow Runtime API（已迁移到本地模块，Workflow CRUD 已删除）
 export const runtimeWorkflowApi = {
-  get: (id: string) => api.get(`/workflows/${id}`),
   execute: (workflowId: string, inputs: Record<string, any>, options?: any) =>
     api.post('/executions', { workflowId, parameters: { inputs, ...options } }),
   getStatus: (executionId: string) => api.get(`/executions/${executionId}`),
@@ -162,7 +161,6 @@ export const runtimeWorkflowApi = {
   getExecution: (id: string) => api.get(`/executions/${id}`),
   listSteps: () => api.get('/skills'),
   listSkills: () => api.get('/skills'),
-  listWorkflows: () => api.get('/workflows'),
   // 配置
   getConfig: () => api.get('/runtime-config'),
   updateConfig: (data: {
@@ -190,35 +188,7 @@ export const runtimeWorkflowApi = {
   deleteProject: (id: string) => api.delete(`/pmo/project/${id}`),
 };
 
-// Step API - 步骤管理
-export const stepApi = {
-  list: () => api.get('/steps'),
-  get: (id: string, category?: string) => api.get(`/steps/${id}`, { params: { category } }),
-  create: (data: {
-    name: string;
-    description?: string;
-    category?: string;
-    agent?: 'codex' | 'claude';
-    toolIds: string[];
-    inputs?: any[];
-    outputs?: any[];
-    execute?: any;
-  }) => api.post('/steps', data),
-  update: (id: string, data: {
-    name?: string;
-    description?: string;
-    category?: string;
-    agent?: 'codex' | 'claude';
-    toolIds?: string[];
-    inputs?: any[];
-    outputs?: any[];
-    execute?: any;
-    newCategory?: string;
-  }, currentCategory?: string) => api.put(`/steps/${id}`, data, { params: { category: currentCategory } }),
-  delete: (id: string, category?: string) => api.delete(`/steps/${id}`, { params: { category } }),
-};
-
-// Superpowers API - 铁律、检查点、Meta Skills（通过 agent-studio 代理到 agent-runtime）
+// Superpowers API - 铁律、检查点（通过 agent-studio 代理到 agent-runtime）
 export const superpowersApi = {
   // 铁律
   listIronLaws: () => api.get('/iron-laws'),
@@ -237,20 +207,8 @@ export const superpowersApi = {
   // 技能（CSO 优化后）
   listSkills: () => api.get('/skills'),
   
-  // Meta Skills
-  checkMetaSkills: (data: { message: string; projectDir?: string }) =>
-    api.post('/meta-skills/check', data),
-  
   // CSO 验证
   validateCSO: () => api.get('/cso/validate'),
-};
-
-
-
-// Capabilities Stage API（UI-001）
-export const capabilitiesStageApi = {
-  // 获取 Stage 分类数据
-  getStages: () => api.get('/capabilities/stages'),
 };
 
 // Auth API - 认证系统
@@ -393,8 +351,6 @@ export const wikiApi = {
 export const workspaceApi = {
   list: () => api.get('/workspaces'),
   get: (id: string) => api.get(`/workspaces/${id}`),
-  discover: (id: string, path: string, timeout?: number) =>
-    api.get(`/workspaces/${id}/discover`, { params: { path, timeout } }),
 };
 
 // Workspace Token API — AS-020 P2-05/P7-03

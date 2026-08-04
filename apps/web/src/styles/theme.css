@@ -39,6 +39,19 @@
   --error-dim: rgba(239, 68, 68, 0.08);
   --error-border: rgba(239, 68, 68, 0.25);
   --info: #3b82f6;
+  --info-dim: rgba(59, 130, 246, 0.08);
+  --info-border: rgba(59, 130, 246, 0.25);
+
+  /* 图表分类色（数据可视化 9 色板：知识图谱节点类型等；与状态语义色解耦，仅代表类别） */
+  --chart-1: #3b82f6; /* blue */
+  --chart-2: #8b5cf6; /* purple */
+  --chart-3: #10b981; /* green */
+  --chart-4: #6b7280; /* gray */
+  --chart-5: #f59e0b; /* amber */
+  --chart-6: #ef4444; /* red */
+  --chart-7: #06b6d4; /* cyan */
+  --chart-8: #ec4899; /* pink */
+  --chart-9: #84cc16; /* lime */
 
   /* 边框 */
   --border-subtle: rgba(255, 255, 255, 0.07);
@@ -59,6 +72,7 @@
   --fs-sm: 11.5px;
   --fs-xs: 10.5px;
   --fs-title: 13.5px;
+  --fs-stat: 18px; /* 统计卡大数字专用（数据展示，非标题） */
   --lh-base: 1.45;
 
   /* 主题标识 */
@@ -102,6 +116,19 @@
   --error-dim: rgba(207, 34, 46, 0.08);
   --error-border: rgba(207, 34, 46, 0.25);
   --info: #0550ae;
+  --info-dim: rgba(5, 80, 174, 0.08);
+  --info-border: rgba(5, 80, 174, 0.25);
+
+  /* 图表分类色（浅色：白底可读，各色较深色主题压暗一档） */
+  --chart-1: #1d4ed8; /* blue */
+  --chart-2: #7c3aed; /* purple */
+  --chart-3: #047857; /* green */
+  --chart-4: #4b5563; /* gray */
+  --chart-5: #b45309; /* amber */
+  --chart-6: #dc2626; /* red */
+  --chart-7: #0e7490; /* cyan */
+  --chart-8: #be185d; /* pink */
+  --chart-9: #4d7c0f; /* lime */
   
   /* 边框 */
   --border-subtle: rgba(0, 0, 0, 0.06);
@@ -122,6 +149,7 @@
   --fs-sm: 11.5px;
   --fs-xs: 10.5px;
   --fs-title: 13.5px;
+  --fs-stat: 18px;
   --lh-base: 1.45;
 
   /* 主题标识 */
@@ -215,7 +243,7 @@ body {
 
 .btn-primary {
   background: var(--accent-primary);
-  color: #050507;
+  color: var(--bg-primary);
   border: none;
 }
 
@@ -1273,235 +1301,4 @@ body {
   .data-board-page .stats-grid {
     grid-template-columns: 1fr;
   }
-}
-
-/* ============================================
-   SpeakingQueuePanel - MR-013 发言队列可视化
-   ============================================ */
-
-.speaking-queue-panel {
-  width: 280px;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  padding: 16px;
-  font-size: 14px;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
-.panel-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.panel-status {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.round-info {
-  display: flex;
-  justify-content: space-between;
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin-bottom: 12px;
-}
-
-.queue-section {
-  margin-bottom: 16px;
-}
-
-.section-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 8px;
-}
-
-.queue-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.queue-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  font-size: 13px;
-}
-
-.queue-item.waiting {
-  color: var(--text-primary);
-}
-
-.queue-item.spoken {
-  color: var(--text-secondary);
-  background: var(--bg-primary);
-}
-
-.queue-order {
-  width: 20px;
-  text-align: right;
-  color: var(--text-tertiary);
-}
-
-.stance-icon {
-  width: 20px;
-  text-align: center;
-}
-
-.role-name {
-  flex: 1;
-  color: var(--text-primary);
-}
-
-.role-level {
-  font-size: 11px;
-  color: var(--accent-primary);
-  background: var(--bg-primary);
-  padding: 2px 4px;
-  border-radius: 2px;
-}
-
-.stance-label {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-.speak-count {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-/* 投票表决 */
-.voting-section {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.vote-stats {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 8px;
-}
-
-.vote-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.vote-item.approve {
-  color: #10b981;
-}
-
-.vote-item.reject {
-  color: #ef4444;
-}
-
-.vote-item.abstain {
-  color: var(--text-tertiary);
-}
-
-.vote-item.pending {
-  color: var(--text-secondary);
-}
-
-.pending-voters {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  margin-bottom: 8px;
-}
-
-.voting-rule {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin-bottom: 8px;
-}
-
-.architect-veto {
-  font-size: 12px;
-}
-
-.vetoed {
-  color: #ef4444;
-}
-
-.can-veto {
-  color: var(--text-secondary);
-}
-
-/* 签名确认 */
-.signatures-section {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border-subtle);
-}
-
-.signature-progress {
-  font-size: 13px;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-}
-
-.signed-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-bottom: 8px;
-}
-
-.signature-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 4px;
-  font-size: 12px;
-}
-
-.verdict-icon {
-  width: 16px;
-  text-align: center;
-}
-
-.signed-at {
-  font-size: 11px;
-  color: var(--text-tertiary);
-}
-
-.pending-signatures {
-  font-size: 12px;
-  color: var(--text-tertiary);
-}
-
-.panel-loading,
-.panel-error {
-  text-align: center;
-  padding: 20px;
-  color: var(--text-secondary);
-}
-
-.panel-error {
-  color: var(--error);
 }

@@ -24,374 +24,75 @@ import type {
   KnowledgeLinter,
   QueryFilter,
   MaturityLevel,
-  KnowledgeSubsystem,
 } from '@dommaker/harness';
-import { FileStore, logger, estimateTokens } from '@dommaker/studio-shared';
+import { logger, estimateTokens } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
 import { join, basename } from 'path';
-import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
+import { ENTRY_TYPE_MAP } from './knowledge-types.js';
+import type {
+  KnowledgeServiceDeps,
+  PatternEntry,
+  IncidentEntry,
+  TrendEntry,
+  AnalystAccuracyInput,
+  ExtractionResult,
+  ConversationExtractionCtx,
+  ExecutionOutcome,
+  InjectContextResult,
+  InjectOpts,
+  SearchOpts,
+  SemanticSearchResult,
+  SearchResult,
+  FlywheelMetrics,
+  HealthReport,
+  AuditReport,
+  AuditFinding,
+  AccuracyReport,
+} from './knowledge-types.js';
+import { fileStore, STUDIO_EVENTS_JSONL, writeTrendData, RESOLUTIONS_DIR, listResolutions } from './knowledge-data-layer.js';
+import {
+  KNOWLEDGE_QUERY_GUIDANCE,
+  INJECT_TOKEN_BUDGET,
+  isInjectableMaturity,
+  hasSourceReferences,
+  injectPriority,
+  stripFormat,
+} from './inject-context.js';
+import { buildConversationTranscript, ingestConversationEntry, postKnowledgeProposalCard } from './conversation-extraction.js';
+import { computeOutcomeMetrics, scanKnowledgeEvents } from './knowledge-metrics.js';
+import { TYPE_WEIGHT, extractKeywords, RAG_PROBE_TTL_MS, probeMcpLocalRag, keywordHitsToSemantic } from './knowledge-search-helpers.js';
 
-// ── Type mapping (absorbed from KnowledgeBus) ──
-
-const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
-  pattern: 'guideline',
-  failure: 'pitfall',
-  incident: 'pitfall',
-  pitfall: 'pitfall',
-  guideline: 'guideline',
-  trend: 'process',
-  fix: 'guideline',
-  analyst_accuracy: 'model',
-  review: 'guideline',
-  alert: 'pitfall',
-  audit: 'guideline',
-  deploy: 'guideline',
-  gap: 'guideline',
-  resolution: 'guideline',
-};
-
-// ── Data layer: trends directory ──
-
-const DATA_TRENDS_DIR = path.join(os.homedir(), '.studio', 'data', 'trends');
-const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
-const fileStore = new FileStore();
-
-/**
- * 写入趋势数据到 data/trends/ 目录。
- * 替代原 recordTrend 写入 knowledge/ 的行为。
- * 被 knowledgeService.recordTrend/recordAnalystAccuracy、
- * monitorService.precipitateRouting、signalAggregator.upsertTrend 共用。
- */
-export function writeTrendData(filename: string, content: string): void {
-  fs.mkdirSync(DATA_TRENDS_DIR, { recursive: true });
-  const filePath = path.join(DATA_TRENDS_DIR, filename);
-  if (fs.existsSync(filePath)) {
-    const existing = fs.readFileSync(filePath, 'utf-8');
-    fs.writeFileSync(filePath, existing + '\n\n---\n\n' + content, 'utf-8');
-  } else {
-    fs.writeFileSync(filePath, content, 'utf-8');
-  }
-}
-
-// ── Form validation gate ──
-
-export interface FormValidationResult {
-  valid: boolean;
-  form: 'knowledge' | 'data' | 'skill' | 'rule';
-  reason?: string;
-}
-
-/**
- * 判断条目是否属于知识形态。
- * 代码层判断，不调 LLM。遵循 no_model_for_deterministic。
- */
-export function validateKnowledgeForm(entry: {
-  type: string;
-  content: string;
-  tags: string[];
-}): FormValidationResult {
-  // 规则形态检测：短指令式（优先于空检查，因为规则本身就短）
-  const rulePatterns = [/^禁止/, /^必须/, /^不得/];
-  if (rulePatterns.some(p => p.test(entry.content.trim())) && entry.content.length < 100) {
-    return { valid: false, form: 'rule', reason: 'short imperative directive' };
-  }
-
-  // 空内容或太短
-  if (!entry.content || entry.content.trim().length < 20) {
-    return { valid: false, form: 'data', reason: 'content too short' };
-  }
-
-  // 数据形态检测：含具体数值/百分比/日期
-  const dataPatterns = [
-    /\d+%/,
-    /\d{4}-\d{2}-\d{2}/,
-    /premium:\s*\d+/,
-    /analyst_accuracy/,
-  ];
-  if (entry.type === 'process' && dataPatterns.some(p => p.test(entry.content))) {
-    return { valid: false, form: 'data', reason: 'contains statistical data' };
-  }
-  if (entry.tags.includes('trend') || entry.tags.includes('analyst_accuracy')) {
-    return { valid: false, form: 'data', reason: 'data-type tag' };
-  }
-
-  // Skill 形态检测：多步骤流程
-  const skillPatterns = [
-    /step\s*\d/i,
-    /步骤\s*\d/,
-    /^\d+\.\s+.+\n\d+\.\s+.+\n\d+\./m,
-  ];
-  if (skillPatterns.some(p => p.test(entry.content)) && entry.content.length > 500) {
-    return { valid: false, form: 'skill', reason: 'multi-step process detected' };
-  }
-
-  // 默认：知识形态
-  return { valid: true, form: 'knowledge' };
-}
-
-// ── Stop words for keyword extraction ──
-
-const STOP_WORDS = new Set([
-  'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
-  'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could',
-  'should', 'may', 'might', 'can', 'shall', 'to', 'of', 'in', 'for',
-  'on', 'with', 'at', 'by', 'from', 'as', 'into', 'through', 'during',
-  'and', 'but', 'or', 'nor', 'not', 'so', 'yet', 'both', 'either',
-  'each', 'every', 'all', 'any', 'few', 'more', 'most', 'other', 'some',
-  'such', 'only', 'own', 'same', 'than', 'too', 'very', 'just',
-  'this', 'that', 'these', 'those', 'it', 'its',
-  '需要', '实现', '增加', '修改', '支持', '添加', '使用', '一个',
-]);
-
-const TYPE_WEIGHT: Record<string, number> = {
-  pitfall: 3, pattern: 2, guideline: 2, fix: 2,
-  process: 1, analysis: 1, trend: 1,
-};
-
-// ── Studio-side types ──
-
-export interface PatternEntry {
-  type: string;
-  title: string;
-  content: string;
-  tags: string[];
-  maturity?: MaturityLevel;
-}
-
-export interface IncidentEntry {
-  title: string;
-  content: string;
-  severity: 'low' | 'medium' | 'high' | 'critical';
-  tags: string[];
-}
-
-export interface TrendEntry {
-  title: string;
-  content: string;
-  metric: string;
-  tags: string[];
-}
-
-export interface AccuracyData {
-  analystId: string;
-  prediction: string;
-  actual: string;
-  accurate: boolean;
-  timestamp: string;
-}
-
-export interface AnalystAccuracyInput {
-  docId: string;
-  goalTitle: string;
-  predictedFiles: string[];
-  actualFiles: string[];
-  predictedDeps: string[];
-  actualDeps: string[];
-  acMatchRate: number;
-  missesByType: Record<string, number>;
-  tierStats?: Record<string, { total: number; succeeded: number; failed: number; avgDurationMs: number }>;
-}
-
-export interface ExtractionResult {
-  task: string;
-  diff: string;
-  success: boolean;
-  duration: number;
-  agentType: string;
-  consumedKnowledge: string[];
-  /** 来源 execution ID，用于 AC-3.2 来源追溯 */
-  sourceExecutionId?: string;
-}
-
-/** R3: extractFromConversation 的可选上下文（来源追溯 / 事件归因） */
-export interface ConversationExtractionCtx {
-  workUnitId?: string;
-  source?: string;
-}
-
-export interface ExecutionOutcome {
-  executionId: string;
-  agentType: string;
-  consumedKnowledge: string[];
-  success: boolean;
-  details: string;
-  timestamp: string;
-  mode?: 'external_agent' | 'channel';
-}
-
-export interface InjectContextResult {
-  prompt: string;
-  injectedIds: string[];
-}
-
-export interface InjectOpts {
-  tags?: string[];
-  maxTokens?: number;
-  includeRules?: boolean;
-}
-
-/**
- * E2 检索主动性（断点 G）：知识上下文注入时附带的「何时查知识库」指引。
- * signal 档只注入索引，agent 需要知道何时、如何主动检索全文。
- * 入口 = worktree `.claude/settings.json` 里注册的 local-rag MCP server
- * （studio-agent worktree-resolver propagateHarnessConfig 写入；agent CLI 以
- * worktree 为 cwd 启动，自动加载该配置），工具名 `mcp__local-rag__query_documents`。
- * 体量 ~3 行（约 80 tokens），计入 2K 注入红线内的固定小额开销。
- */
-export const KNOWLEDGE_QUERY_GUIDANCE = [
-  '## 何时查知识库',
-  '- 遇到不熟悉的报错、同一问题反复失败、涉及用户偏好、或大改/重构之前：先查知识库再动手。',
-  '- 查询入口：MCP 工具 `mcp__local-rag__query_documents`（local-rag server），query 传关键词或问题描述。',
-  '- 有现成经验就复用，不要重复踩坑；查不到再自行解决。',
-].join('\n');
-
-export interface SearchOpts {
-  limit?: number;
-  tags?: string[];
-  type?: string;
-  mode?: 'keyword' | 'semantic' | 'hybrid';
-}
-
-export interface SemanticSearchResult {
-  entryId: string;
-  filePath: string;
-  chunkIndex: number;
-  text: string;
-  score: number;
-  fileTitle: string;
-}
-
-export interface SearchResult {
-  entry: KnowledgeEntry;
-  score: number;
-  highlights: string[];
-}
-
-export interface FlywheelMetrics {
-  quality: number;
-  hitRate: number;
-  improvement: number;
-  freshness: number;
-  timestamp: string;
-  /**
-   * R1: 事件衍生指标（hitRate/improvement）的数据来源标记。
-   * 'events' = 滚动窗口内有 outcome 事件，指标为实算；
-   * 'insufficient-data' = 窗口内无 outcome 事件（或读取失败），hitRate/improvement 为 0 占位而非编造。
-   * quality/freshness 始终由 KnowledgeStore 实算，不受此标记影响。
-   */
-  source?: 'events' | 'insufficient-data';
-}
-
-export interface HealthReport {
-  score: number;
-  totalEntries: number;
-  staleEntries: number;
-  orphanEntries: number;
-  duplicateEntries: number;
-  timestamp: string;
-}
-
-export interface AuditReport {
-  findings: AuditFinding[];
-  trend: string;
-  timestamp: string;
-  /** M1: 事件流计数（滚动窗口，默认 30 天）。窗口内无任何相关事件 → 计数为显式 0 且 source='insufficient-data'（不编造）。 */
-  eventCounts: {
-    windowDays: number;
-    /** knowledge:consumption 事件数（lifecycle recordReference 驱动的消费记录） */
-    consumption: number;
-    /** knowledge:outcome:success 事件数 */
-    outcomeSuccess: number;
-    /** knowledge:outcome:failure 事件数 */
-    outcomeFailure: number;
-    /** knowledge:extraction 事件数（R3 LLM 提取） */
-    extraction: number;
-    source: 'events' | 'insufficient-data';
-  };
-  /** M1: 知识库条目按成熟度分布（store 实算，数据源恒为 store） */
-  entries: {
-    total: number;
-    byMaturity: Record<string, number>;
-    source: 'store';
-  };
-  /**
-   * M1: 引用次数最多的条目（top 5）。
-   * 数据源 = store 条目的 referencedBy 计数（harness KnowledgeLifecycle.recordReference 维护；
-   * 注意 recordReference 并不维护 ~/.studio/knowledge/.consumption-stats.json —— 该文件是
-   * monitor.service 写的每日聚合摘要 {date,dailyEvents,searchHits}，不含条目级数据）。
-   */
-  topReferenced: Array<{ id: string; title: string; references: number }>;
-  /** M1: 近 30 天 LLM 提取活动（knowledge:extraction 事件实算） */
-  extractionActivity: {
-    count: number;
-    totalTokens: number;
-    lastAt: string | null;
-    source: 'events' | 'insufficient-data';
-  };
-}
-
-export interface AuditFinding {
-  type: string;
-  severity: 'low' | 'medium' | 'high';
-  description: string;
-  entryId?: string;
-}
-
-/**
- * M1 诚实契约：系统中不存在 analyst 预测 vs 实际结果的结构化数据源
- * （recordAnalystAccuracy 仅被知识总线旧壳/测试引用，生产无调用方），
- * 因此 getAnalystAccuracy 返回 available:false + reason，而不是假空 stub。
- * 若未来接入真实数据源，返回 available:true 并填充度量字段。
- */
-export interface AccuracyReport {
-  available: boolean;
-  reason?: string;
-  overallAccuracy?: number;
-  byAnalyst?: Record<string, number>;
-  recentPredictions?: AccuracyData[];
-  timestamp: string;
-}
-
-// ── Dependencies interface ──
-
-export interface KnowledgeServiceDeps {
-  store: KnowledgeStore;
-  lifecycle: KnowledgeLifecycle;
-  ingest: KnowledgeIngest;
-  linter: KnowledgeLinter;
-  query: any;  // UnifiedQuery
-  eventEmitter: any; // EventEmitter
-}
-
-// ── Resolution FileStore helpers ──
-// 注意：~/.studio/data/resolutions 为影子库（legacy）。R3 起 createResolution 改写
-// resolutionService 主存储（~/.studio/knowledge/resolution-*.md）；
-// matchResolutions/verifyResolution 仍读影子库，存量数据合并由 γ 轨道清洗脚本完成。
-
-const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'resolutions');
-
-async function listResolutions(): Promise<any[]> {
-  try {
-    const entries = await fs.promises.readdir(RESOLUTIONS_DIR, { withFileTypes: true });
-    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
-    const results: any[] = [];
-    for (const f of files) {
-      const data = await fileStore.readJson<any>(path.join(RESOLUTIONS_DIR, f.name));
-      if (data) results.push(data);
-    }
-    return results;
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
-  }
-}
+// ── Re-export：模块级 helpers 已抽出至邻近模块（兼容既有 import 路径） ──
+export { writeTrendData } from './knowledge-data-layer.js';
+export { validateKnowledgeForm } from './knowledge-forms.js';
+export type { FormValidationResult } from './knowledge-forms.js';
+export { KNOWLEDGE_QUERY_GUIDANCE, INJECT_TOKEN_BUDGET } from './inject-context.js';
+export type {
+  PatternEntry,
+  IncidentEntry,
+  TrendEntry,
+  AccuracyData,
+  AnalystAccuracyInput,
+  ExtractionResult,
+  ConversationExtractionCtx,
+  ExecutionOutcome,
+  InjectContextResult,
+  InjectOpts,
+  SearchOpts,
+  SemanticSearchResult,
+  SearchResult,
+  FlywheelMetrics,
+  HealthReport,
+  AuditReport,
+  AuditFinding,
+  AccuracyReport,
+  KnowledgeServiceDeps,
+} from './knowledge-types.js';
 
 // ── KnowledgeService ─────────────────────────────────────────
 
@@ -1413,383 +1114,6 @@ export class KnowledgeService {
       // best-effort
     }
   }
-}
-
-// ── Utilities (absorbed from KnowledgeBus / prompt-builder) ──
-
-// ── R3 会话提取 + 提案闸门 ──
-
-/** R3: 会话提取 transcript 上限（字符）。提取输入独立度量，不占 2K 注入红线，但仍控制单次调用规模。 */
-const CONVERSATION_TRANSCRIPT_MAX_CHARS = 12_000;
-const CONVERSATION_MESSAGE_MAX_CHARS = 2_000;
-
-/**
- * R3 提案闸门：draft/archived/deprecated 不参与注入。
- * proposal（LLM 提取产物，maturity=draft）须经人工审核 promote 后才可注入。
- * 无 maturity 字段的条目（doc 来源 rule/preference/snapshot，恒为 approved 语义）不受限。
- */
-const NON_INJECTABLE_MATURITIES: ReadonlySet<string> = new Set(['draft', 'archived', 'deprecated']);
-
-function isInjectableMaturity(maturity: unknown): boolean {
-  return typeof maturity !== 'string' || !NON_INJECTABLE_MATURITIES.has(maturity);
-}
-
-/** ②（wireups）：生产条目来源凭证字段是 sourceReferences（复数数组），length>0 才算有凭证。 */
-function hasSourceReferences(entry: any): boolean {
-  return Array.isArray(entry?.sourceReferences) && entry.sourceReferences.length > 0;
-}
-
-/** ③（wireups）：注入 token 预算（vision D6「注入 ≤2K tokens」红线执行点） */
-export const INJECT_TOKEN_BUDGET = 2_000;
-
-/**
- * ③（wireups）：注入优先级 = 成熟度权重 × 10000 + 引用计数。
- * 成熟度高的先注入；同成熟度按 referencedBy 计数（被引用越多越有价值）。
- */
-function injectPriority(entry: any): number {
-  const maturityWeight: Record<string, number> = { proven: 3, verified: 2, active: 2, draft: 1 };
-  const w = maturityWeight[entry?.maturity] ?? 0;
-  const refs = Array.isArray(entry?.referencedBy) ? entry.referencedBy.length : 0;
-  return w * 10_000 + refs;
-}
-
-/** LLM 提取返回的合法知识类型（越界值回落 guideline） */
-const VALID_KNOWLEDGE_TYPES: ReadonlySet<string> = new Set(['model', 'decision', 'guideline', 'pitfall', 'process', 'architecture']);
-
-/**
- * R3: 会话消息 → 紧凑 transcript（role 标注 + 截断）。
- * 单条消息 2000 字符；整体 12000 字符，超出时保留头尾、中间标记省略。
- */
-function buildConversationTranscript(messages: { role: string; content: string }[]): string {
-  const lines = (messages || [])
-    .filter(m => m && typeof m.content === 'string' && m.content.trim().length > 0)
-    .map(m => `[${m.role || 'unknown'}] ${m.content.trim().slice(0, CONVERSATION_MESSAGE_MAX_CHARS)}`);
-  const full = lines.join('\n\n');
-  if (full.length <= CONVERSATION_TRANSCRIPT_MAX_CHARS) return full;
-  const head = full.slice(0, 4_000);
-  const tail = full.slice(-(CONVERSATION_TRANSCRIPT_MAX_CHARS - 4_000));
-  return `${head}\n\n...[truncated ${full.length - CONVERSATION_TRANSCRIPT_MAX_CHARS} chars]...\n\n${tail}`;
-}
-
-/**
- * R3: 单条 LLM 提取结果入库（proposal）。质量门：形态门禁（数据形态重定向 trends）→
- * linter 阻断跳过。maturity 恒为 draft（proposal），
- * 审核 promote 前不参与注入。返回入库条目 id；被门禁跳过/拒绝时返回 null。
- *
- * R1（type-repair）：type='decision' 条目补 tags ['decision', <category>] ——
- * category 取 LLM 产出的首个非 'decision' tag，缺省回落 'process'。
- * 决策链查询（decision-chain-extractor）以此 tag 约定为口径。
- *
- * 返回入库条目 {id,title,type}（提案卡聚合用）；被门禁跳过/拒绝时返回 null。
- */
-function ingestConversationEntry(
-  deps: { linter: KnowledgeLinter; ingest: KnowledgeIngest },
-  raw: { type?: string; title?: string; content?: string; tags?: string[] },
-  source: string,
-): { id: string; title: string; type: string } | null {
-  try {
-    const title = (raw.title || '').trim();
-    const content = (raw.content || '').trim();
-    if (!title || !content) return null;
-    const rawTags = Array.isArray(raw.tags) ? raw.tags.filter(t => typeof t === 'string') : [];
-    const type = (VALID_KNOWLEDGE_TYPES.has(raw.type ?? '') ? raw.type : 'guideline') as KnowledgeSubsystem;
-
-    // R1: decision 条目统一 tags 契约 ['decision', <category>]（前两位恒定）
-    let tags = rawTags;
-    if (type === 'decision') {
-      const category = rawTags.find(t => t !== 'decision') ?? 'process';
-      tags = ['decision', category, ...rawTags.filter(t => t !== 'decision' && t !== category)];
-    }
-
-    // 形态门禁：非知识形态不入库；数据形态重定向到 trends
-    const formResult = validateKnowledgeForm({ type, content, tags });
-    if (!formResult.valid) {
-      logger.info('[KnowledgeService] Conversation entry form-gate rejected', {
-        form: formResult.form, reason: formResult.reason, title: title.slice(0, 50),
-      });
-      if (formResult.form === 'data') {
-        const dateStr = new Date().toISOString().split('T')[0];
-        writeTrendData(`${dateStr}-extracted.md`, `## ${title}\n\n${content}\n\nsource: ${source}`);
-      }
-      return null;
-    }
-
-    const issues = deps.linter.validateEntry({ title, content, tags, type });
-    const blockers = issues.filter((i: any) => i.severity === 'high');
-    if (blockers.length > 0) {
-      logger.warn('[KnowledgeService] Conversation entry rejected by quality gate', {
-        title: title.slice(0, 50), issues: blockers.map((i: any) => i.description),
-      });
-      return null;
-    }
-
-    const saved = deps.ingest.ingestEntry(
-      { type, title, content, tags },
-      {
-        source,
-        layer: 'project',
-        maturity: 'draft', // R3: proposal — 审核前不参与注入
-        tags,
-        consumptionMode: 'signal',
-        origin: 'agent',
-      },
-    );
-    if ((saved as any)?.__rejected) return null;
-    const id = (saved as any)?.id;
-    return typeof id === 'string' && id ? { id, title, type } : null;
-  } catch (e) {
-    logger.warn('[KnowledgeService] Failed to ingest conversation entry', { error: String(e) });
-    return null;
-  }
-}
-
-/** 审核闭环：提案卡投放的目标频道（ensureDefaultChannels 启动播种） */
-const SYSTEM_CHANNEL_NAME = '#系统';
-
-/**
- * 审核闭环（2026-07 knowledge-review-loop）：提取产物入库后，聚合本次条目发一张
- * cardType='knowledge_proposal' 卡片到 #系统 频道。人在频道 approve → promote
- * （draft→verified，参与注入）；reject → demote（draft→archived）。
- *
- * 契约（γ 轨道依赖，不得偏离）：cardType='knowledge_proposal'；
- * cardData.entries=[{id,title,type}]；cardData.workUnitId 为来源 WorkUnit。
- * 无条目 / 频道缺失 / 发卡失败均静默跳过（提取链路绝不被通知阻断）。
- */
-async function postKnowledgeProposalCard(
-  entries: Array<{ id: string; title: string; type: string }>,
-  ctx: { workUnitId?: string; source: string },
-): Promise<void> {
-  if (entries.length === 0) return;
-  try {
-    const channel = (await fileStore.listChannels({ name: SYSTEM_CHANNEL_NAME }))[0] ?? null;
-    if (!channel) return; // 频道未播种 → 静默跳过（与 auditor postToSystemChannel 同款降级）
-
-    const { channelMessageService } = await import('../channels/channel-message.service.js');
-    const content = [
-      '## 📚 知识提案 — 待人工审核',
-      '',
-      ...entries.map((e, i) => `${i + 1}. **${e.title}**（${e.type}）`),
-      '',
-      `来源 WorkUnit: ${ctx.workUnitId ?? 'unknown'}`,
-      '审核通过后参与知识注入；拒绝则归档，不再注入。',
-    ].join('\n');
-
-    await channelMessageService.createCardMessage(
-      channel.id,
-      'KK',
-      content,
-      'knowledge_proposal',
-      { entries, workUnitId: ctx.workUnitId ?? null, source: ctx.source },
-    );
-    logger.info('[KnowledgeService] knowledge_proposal card posted', {
-      channel: SYSTEM_CHANNEL_NAME, entryCount: entries.length, workUnitId: ctx.workUnitId,
-    });
-  } catch (e) {
-    logger.warn('[KnowledgeService] Failed to post knowledge_proposal card', { error: String(e) });
-  }
-}
-
-/**
- * R1 反馈环度量 — 从 studio-events.jsonl 的 `knowledge:outcome:*` 事件实算。
- * （模块级纯函数，不依赖 KnowledgeService 实例，供 getFlywheelMetrics 调用。）
- *
- * 数据源：recordOutcome() 写入的事件
- *   { type: 'knowledge:outcome:success|failure', source, payload, createdAt }
- *   payload 为 JSON string：{ executionId, agentType, success, consumedKnowledge: string[], ... }
- *
- * 指标定义（刻意简单、诚实）：
- * - hitRate（0-100）：滚动窗口内，consumedKnowledge ≥ 1 条的任务（outcome）数 /
- *   窗口内有 outcome 记录的总任务数 × 100。衡量「执行任务时真的注入了知识」的比例。
- * - improvement（百分点，可为负）：窗口按时间中点对半切分，
- *   improvement = (后半窗口成功率 − 前半窗口成功率) × 100。
- *   任一半窗口无事件 → 趋势不可算，记 0（不编造）。
- * - 窗口默认 30 天（opts.windowDays 可覆盖）；opts.eventsFile 供测试注入 fixture。
- * - 窗口内无任何 outcome 事件 → hitRate/improvement = 0 且 source='insufficient-data'。
- */
-async function computeOutcomeMetrics(opts?: { eventsFile?: string; windowDays?: number }): Promise<{ hitRate: number; improvement: number; source: 'events' | 'insufficient-data' }> {
-  const windowDays = opts?.windowDays ?? 30;
-  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
-  const now = Date.now();
-  const windowStart = now - windowDays * 86400000;
-
-  let rows: any[] = [];
-  try {
-    rows = await fileStore.readJsonl<any>(eventsFile);
-  } catch {
-    rows = []; // 事件文件不存在/不可读 → 数据不足
-  }
-
-  const outcomes: Array<{ ts: number; success: boolean; consumed: number }> = [];
-  for (const row of rows) {
-    if (row?.type !== 'knowledge:outcome:success' && row?.type !== 'knowledge:outcome:failure') continue;
-    const tsRaw = row.createdAt ?? row.timestamp;
-    const ts = tsRaw ? new Date(tsRaw).getTime() : NaN;
-    // 容忍 1 分钟时钟偏移；超出窗口或时间戳非法 → 跳过
-    if (!Number.isFinite(ts) || ts < windowStart || ts > now + 60_000) continue;
-    let payload: any = {};
-    try {
-      payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload ?? {});
-    } catch {
-      continue; // payload 损坏的行不计入（与 readJsonl 跳过坏行一致，不编造 consumed=0）
-    }
-    const consumed = Array.isArray(payload.consumedKnowledge) ? payload.consumedKnowledge.length : 0;
-    outcomes.push({ ts, success: row.type === 'knowledge:outcome:success', consumed });
-  }
-
-  if (outcomes.length === 0) {
-    return { hitRate: 0, improvement: 0, source: 'insufficient-data' };
-  }
-
-  const hits = outcomes.filter(o => o.consumed > 0).length;
-  const hitRate = Math.round((hits / outcomes.length) * 100);
-
-  // improvement: 时间中点切半，后半成功率 − 前半成功率（百分点）
-  const midpoint = windowStart + (now - windowStart) / 2;
-  const firstHalf = outcomes.filter(o => o.ts < midpoint);
-  const secondHalf = outcomes.filter(o => o.ts >= midpoint);
-  let improvement = 0;
-  if (firstHalf.length > 0 && secondHalf.length > 0) {
-    const sr1 = firstHalf.filter(o => o.success).length / firstHalf.length;
-    const sr2 = secondHalf.filter(o => o.success).length / secondHalf.length;
-    improvement = Math.round((sr2 - sr1) * 100);
-  }
-
-  return { hitRate, improvement, source: 'events' };
-}
-
-/**
- * M1 审计扫描 — 从 studio-events.jsonl 实算 consumption/outcome/extraction 事件计数与提取活动。
- * （模块级纯函数，不依赖 KnowledgeService 实例，供 getAuditReport 调用；opts.eventsFile 供测试注入。）
- *
- * 计数口径（与 R1 computeOutcomeMetrics 一致的窗口/时钟容差约定）：
- * - 窗口默认 30 天，容忍 1 分钟时钟偏移；窗口外/时间戳非法的行跳过；payload 损坏的行跳过（不计为 0）。
- * - 窗口内四类事件全为 0 → eventCounts.source='insufficient-data'（计数为显式 0，不编造）。
- * - extractionActivity 仅由 knowledge:extraction 事件推导；totalTokens 取 payload.totalTokens 累加，
- *   缺失/非数值按 0 计；lastAt 为最近一次提取事件的 createdAt。
- */
-async function scanKnowledgeEvents(opts?: { eventsFile?: string; windowDays?: number }): Promise<{
-  eventCounts: { windowDays: number; consumption: number; outcomeSuccess: number; outcomeFailure: number; extraction: number; source: 'events' | 'insufficient-data' };
-  extractionActivity: { count: number; totalTokens: number; lastAt: string | null; source: 'events' | 'insufficient-data' };
-  outcomes: Array<{ ts: number; success: boolean }>;
-}> {
-  const windowDays = opts?.windowDays ?? 30;
-  const eventsFile = opts?.eventsFile ?? STUDIO_EVENTS_JSONL;
-  const now = Date.now();
-  const windowStart = now - windowDays * 86400000;
-
-  let rows: any[] = [];
-  try {
-    rows = await fileStore.readJsonl<any>(eventsFile);
-  } catch {
-    rows = []; // 事件文件不存在/不可读 → 数据不足
-  }
-
-  let consumption = 0;
-  let outcomeSuccess = 0;
-  let outcomeFailure = 0;
-  let extraction = 0;
-  let extractionTokens = 0;
-  let extractionLastAt: string | null = null;
-  const outcomes: Array<{ ts: number; success: boolean }> = [];
-
-  for (const row of rows) {
-    const type = row?.type;
-    if (type !== 'knowledge:consumption'
-      && type !== 'knowledge:outcome:success' && type !== 'knowledge:outcome:failure'
-      && type !== 'knowledge:extraction') continue;
-    const tsRaw = row.createdAt ?? row.timestamp;
-    const ts = tsRaw ? new Date(tsRaw).getTime() : NaN;
-    if (!Number.isFinite(ts) || ts < windowStart || ts > now + 60_000) continue;
-
-    if (type === 'knowledge:consumption') {
-      consumption++;
-    } else if (type === 'knowledge:extraction') {
-      extraction++;
-      let payload: any = {};
-      try {
-        payload = typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload ?? {});
-      } catch {
-        continue; // payload 损坏的行不计入
-      }
-      if (typeof payload.totalTokens === 'number' && Number.isFinite(payload.totalTokens)) {
-        extractionTokens += payload.totalTokens;
-      }
-      const at = row.createdAt ?? row.timestamp;
-      if (typeof at === 'string' && (!extractionLastAt || at > extractionLastAt)) extractionLastAt = at;
-    } else {
-      if (type === 'knowledge:outcome:success') outcomeSuccess++;
-      else outcomeFailure++;
-      outcomes.push({ ts, success: type === 'knowledge:outcome:success' });
-    }
-  }
-
-  const anyEvents = consumption + outcomeSuccess + outcomeFailure + extraction > 0;
-  return {
-    eventCounts: {
-      windowDays,
-      consumption,
-      outcomeSuccess,
-      outcomeFailure,
-      extraction,
-      source: anyEvents ? 'events' : 'insufficient-data',
-    },
-    extractionActivity: {
-      count: extraction,
-      totalTokens: extractionTokens,
-      lastAt: extractionLastAt,
-      source: extraction > 0 ? 'events' : 'insufficient-data',
-    },
-    outcomes,
-  };
-}
-
-function extractKeywords(prompt: string): string[] {
-  return prompt
-    .toLowerCase()
-    .split(/[\s,，。！？、；：""''（）\(\)\[\]{}<>\/\\|@#$%^&*+=~`!\-_]+/)
-    .filter(w => w.length >= 2 && !STOP_WORDS.has(w))
-    .slice(0, 8);
-}
-
-// ── E2（断点 G）：RAG 可用性探测 + 关键词降级（模块级，不占 prototype 方法数）──
-
-/** mcp-local-rag 可用性探测缓存 TTL（5 分钟） */
-const RAG_PROBE_TTL_MS = 5 * 60 * 1000;
-
-/**
- * 探测 mcp-local-rag CLI 是否可用。
- * 用 `--help` 做最轻量存活检查（该 CLI 不支持 --version；status 需加载向量库，太重）。
- */
-function probeMcpLocalRag(): Promise<boolean> {
-  return new Promise<boolean>((resolve) => {
-    execFile('mcp-local-rag', ['--help'], { timeout: 5_000 }, (err) => resolve(!err));
-  });
-}
-
-/**
- * RAG 不可用时的降级检索结果映射：searchKeyword 的 SearchResult → SemanticSearchResult。
- * 知识库确实无相关条目时 searchKeyword 返回 []，此处如实映射为空（不编造）。
- */
-function keywordHitsToSemantic(hits: SearchResult[]): SemanticSearchResult[] {
-  return hits.map(h => ({
-    entryId: h.entry.id,
-    filePath: (h.entry as any).sourceReference || '',
-    chunkIndex: 0,
-    text: h.highlights[0] || (h.entry.content || '').slice(0, 200),
-    score: h.score,
-    fileTitle: h.entry.title || '',
-  }));
-}
-
-function stripFormat(text: string): string {
-  return text
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/```[\s\S]*?```/g, '')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/^>\s+/gm, '')
-    .replace(/^\s*[-*+]\s+/gm, '- ')
-    .trim();
 }
 
 // ── Singleton ────────────────────────────────────────────────

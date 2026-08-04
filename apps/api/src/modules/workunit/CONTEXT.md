@@ -8,7 +8,8 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 
 ## 核心导出
 
-- `workunit.service.ts` — WorkUnit Service：CRUD + Claim + 状态机，`create()` 发布 `workunit.created` 事件；claim 进入 active 时按 type 写入 `timeoutAt`（task/bug/feature 60min，review/analysis 30min，metadata.timeoutAt 显式值优先）
+- `workunit.service.ts` — WorkUnit Service 门面（2026-08-04 拆分，导入面不变）：metadata 契约（WorkUnitMetadata/ReviewAttestationSource/ANALYSIS_TASKS_MAX）+ 查询（getById/list）+ 状态机迁移（transitionStatus）+ 评审验收收口（reviewPassed/reviewRejected/attestation 幂等补写/recordL1Verification/markMergeConflict/blockForManualRelease）；继承 workunit-crud.ts 的 `WorkUnitCrudService`，并 re-export 迁出符号（WorkUnitData/CreateWorkUnitInput/UpdateWorkUnitInput/WU_TIMEOUT_MINUTES/WU_DEFAULT_TIMEOUT_MINUTES）
+- `workunit-crud.ts` — `WorkUnitCrudService`（WorkUnitService 的基类，自 workunit.service.ts 拆分的纯代码移动）：CRUD（create/update/delete/createFromMessage + 频道默认管线首跳展开）+ Claim（claim/unclaim，flock 悲观互斥锁）+ 快照转换函数（snapshotToData/inputToSnapshot/patchSnapshot）；`create()` 发布 `workunit.created` 事件；claim 进入 active 时按 type 写入 `timeoutAt`（task/bug/feature 60min，review/analysis 30min，metadata.timeoutAt 显式值优先）；另含 `workunit.status_changed` 发布（publishStatusChanged）与父状态聚合（aggregateParentStatus）
 - `workunit.routes.ts` — WorkUnit API 路由
 - `waiting-input.ts` — F5 双向沟通：NEED_INPUT 挂起 WorkUnit 的恢复与超时提醒；B3a：waitingReason='ownership' 的挂起按回复解析工程归属（project-discovery 唯一命中 → 绑定 metadata.workspaceRoot + 写回 Requirement.projectId + 置回 unassigned（保留 assigneeId=profile id，待指名 loop 认领；此类 WU 从未被认领，置 active 会对所有 loop 不可见而卡死）；多候选/无命中 → 继续等待列候选）；导出 `postStudioSystemMessage`（Studio 系统消息统一形态）
 - `timeout-release.ts` — workunit-timeout-scan handler：执行超时 WU 释放回 unassigned（记 metadata.timeoutReleasedAt/timeoutReleaseCount + 频道系统消息），≥3 次转 blocked（**2026-07-31 起该转人工消息 meta 带 `{pmoId?, atHuman:true}`**，PMO-flow UX §6-3）

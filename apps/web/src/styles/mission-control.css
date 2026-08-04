@@ -678,7 +678,6 @@
 .u-warn-dim { background: var(--warning-dim); color: var(--warning); }
 .u-warn-border { border-color: var(--warning-border); }
 .u-on-accent { color: var(--bg-primary); }
-.u-on-bright { color: #f5f7fa; }
 .u-ph::placeholder { color: var(--text-muted); }
 
 /* 着色底 + u-hover-bg 组合修正：u-hover-bg 会把背景改写成 --bg-hover（近黑），

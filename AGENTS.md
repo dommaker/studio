@@ -16,7 +16,7 @@
 | `bin/` | 可执行入口/脚本 |
 | `docs/` | 项目文档 |
 | `node-compile-cache/` | — |
-| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-capability、studio-monitor、studio-notification、studio-shared、studio-skill、studio-spec、studio-task |
+| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-capability、studio-notification、studio-shared、studio-skill、studio-spec |
 | `scripts/` | 工具脚本 |
 | `tests/` | 测试 |
 
@@ -34,13 +34,12 @@ pnpm start  # 启动生产服务
 
 ## 约束与治理
 
-- 治理配置：`.harness/config.yml`（preset: standard）
 - 约束清单：`CLAUDE.md` Governance Rules 块（Iron Laws 11 条、Guidelines 25 条）
 
 ## 知识入口
 
 - `.harness/knowledge/`：项目知识库，用 `harness knowledge` 查询
-- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 47 个），改动代码时同步更新
+- 各源码目录的 `CONTEXT.md` 是权威模块文档（现有 44 个），改动代码时同步更新
 
 <!-- PRESERVE:modules -->
 <!-- AUTO-GENERATED:modules -->
@@ -93,21 +92,23 @@ pnpm start  # 启动生产服务
 | `packages/studio-agent` | Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude Code → session loop 监控 → 完成判定。 |
 | `packages/studio-audit` | 提供审计日志的记录、查询、导出和链式完整性验证功能。支持通过 AuditService 进行持久化日志操作，通过 CLI 模块进行离线查询和导出，并通过 audit-chain 实现基于哈希链的防篡改审计记录。 |
 | `packages/studio-capability` | 本目录负责能力管理（CapabilityService）与公司 MCP 资源池管理（company-mcp-pool）。CapabilityService 提供能力的 CRUD、同步、统计，并基于 FileStore JSON 文件存... |
-| `packages/studio-monitor` | 监控 Agent 健康状态，定时检查任务超时、心跳及僵尸任务，提供启动和停止监控的接口，确保任务运行的稳定性。 |
 | `packages/studio-notification` | 本目录提供 studio-notification 包的核心代码，包含通知的创建、查询、标记和 CLI 操作。CLI 部分提供模拟通知的发送、列表、标记功能，服务层基于 FileStore 实现持久化通知管理。 |
 | `packages/studio-shared` | 跨 apps/packages 的共享层：provider 注册表（agent CLI 定义与 spawn 模板）、FileStore（全部运行时数据的文件存储）、eventBus、共享类型与工具、 harness 运行时。Node-... |
 | `packages/studio-skill` | 本目录是 Studio Skill 的核心模块，负责 Skill 的定义类型、从磁盘加载 Skill 定义（支持 frontmatter 解析和缓存）、以及基于文本匹配的意图路由。为 Agent prompt 注入可加载的能力单元。 |
 | `packages/studio-spec` | 本目录提供 Spec 的验证、变更分析与门禁检查能力，是 Studio 中 Spec 质量管控与变更管理的核心模块。它整合三层验证（架构、API、验收），支持变更分级（L1-L4）与自动审批推荐，并实现门禁检查以管控变更上线。 |
-| `packages/studio-task` | 提供任务队列管理（TaskQueue）和任务执行器（TaskWorker），以及任务相关的 CLI 命令（查看队列、运行、重试、清理）和类型定义，支撑 studio 的任务调度与执行能力。 |
 <!-- /AUTO-GENERATED:modules -->
 <!-- /PRESERVE:modules -->
 
 <!-- PRESERVE:release-flow -->
 ## 发布流程（代码写完后怎么上线）
 
-**唯一权威说明：`/root/projects/studio-config/SHIP.md`**。一句话：`studio-ship` 走 PR → CI → auto-merge → 盯到合并；合并后 cron 每分钟 `auto-deploy.sh` 在生产 checkout `/root/projects/studio-prod`（git worktree，与开发仓解耦）上部署 → 健康检查 → 失败自动回滚。
+**唯一权威说明：`/root/projects/studio-config/SHIP.md`**。双轨制（2026-08-04 起）：
 
-- 部署状态：`studio-ship deploy-state`（state.json）或 Discord 告警频道
+- **日常快速部署（平时走这条）：`studio-deploy-quick`**（`~/projects/studio-config/bin/`）——本地校验（vitest --changed + harness check + sync-docs）+ 直部署生产 checkout `/root/projects/studio-prod`，3-5min 看效果，不走 PR/CI；写 `state.json mode=quick` 阻止 cron auto-deploy 覆盖；健康检查失败自动回滚 PREV（本地分支保留，不丢代码）；完成后异步 push 当前分支到 GitHub 备份。
+- **批次同步：`studio-ship`**——攒一批后手动跑：清 `mode=quick` → PR → CI → auto-merge → 盯到合并；合并后 cron 每分钟 `auto-deploy.sh` 在 studio-prod（git worktree，与开发仓解耦）部署 origin/master → 健康检查 → 失败自动回滚。
+
+- 部署状态：`studio-ship deploy-state`（state.json）或 PushPlus 微信告警
 - 部署日志：`/var/log/studio-deploy.log`
 - 本仓的任何分支/脏树/本地领先状态都**不影响**部署（2026-07-29 起）
+- **分批提交（用户要求，2026-08-04 起）**：长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动，避免工作丢失；提交落在本地 master 或 feature 分支均可。`studio-deploy-quick` 与 `studio-ship` 均由用户触发，agent 不主动执行、不主动 push。
 <!-- /PRESERVE:release-flow -->

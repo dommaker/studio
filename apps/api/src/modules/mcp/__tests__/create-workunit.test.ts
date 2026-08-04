@@ -8,11 +8,6 @@ const mockCreate = vi.fn().mockResolvedValue({
   status: 'unassigned',
 });
 
-// Mock prisma (needed by tools.ts module-level side effects)
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: { project: { findMany: vi.fn().mockResolvedValue([]) } },
-}));
-
 // Mock WorkUnitService
 vi.mock('../../workunit/workunit.service.js', () => ({
   WorkUnitService: vi.fn().mockImplementation(function () { return {

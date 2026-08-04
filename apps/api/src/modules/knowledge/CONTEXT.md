@@ -21,8 +21,13 @@
 | `UnifiedQuery` | `engine/unified-query.ts` | 双存储统一查询（Prisma + KnowledgeStore），knowledgeService 的 query 引擎（R4 修复接线） |
 | `knowledgeService.injectContext` | `knowledge-service.ts` | 统一 prompt 注入入口（absorbed from prompt-builder）；E2：有注入时附「何时查知识库」指引（`KNOWLEDGE_QUERY_GUIDANCE`） |
 | `knowledgeService.semanticSearch` | `knowledge-service.ts` | mcp-local-rag 语义检索；E2：可用性探测（进程内缓存 5min）+ 失败降级关键词检索，不再静默返回 [] |
-| `signalAggregator` | `signal-aggregator.ts` | 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
-| `fetchExternal` | `producers/external-fetcher.ts` | 外部文档抓取 + 摄入 |
+| `knowledge-types` | `knowledge-types.ts` | KnowledgeService 的 Studio 侧类型 + `KnowledgeServiceDeps` + `ENTRY_TYPE_MAP`（knowledge-service.ts 拆出，门面 re-export） |
+| `knowledge-data-layer` | `knowledge-data-layer.ts` | 数据层：`writeTrendData`（data/trends 趋势写入）+ resolution 影子库 FileStore helpers + 共享 `fileStore`/`STUDIO_EVENTS_JSONL`（knowledge-service.ts 拆出） |
+| `knowledge-forms` | `knowledge-forms.ts` | 知识形态门禁 `validateKnowledgeForm`（knowledge/data/skill/rule，代码层判断不调 LLM）（knowledge-service.ts 拆出，门面 re-export） |
+| `inject-context` | `inject-context.ts` | injectContext 注入闸门与预算：R3 提案闸门（isInjectableMaturity）、来源凭证、2K `INJECT_TOKEN_BUDGET`、注入优先级、`KNOWLEDGE_QUERY_GUIDANCE`、stripFormat（knowledge-service.ts 拆出，门面 re-export） |
+| `conversation-extraction` | `conversation-extraction.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门 + 审核闭环 knowledge_proposal 提案卡（knowledge-service.ts 拆出） |
+| `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
+| `knowledge-search-helpers` | `knowledge-search-helpers.ts` | 检索 helpers：关键词抽取（STOP_WORDS）/TYPE_WEIGHT + mcp-local-rag 探测与关键词降级映射（knowledge-service.ts 拆出） |
 | `knowledgeRoutes` | `routes.ts` | REST API 挂载门面（挂载下方 6 个子路由，含 /unified 统一浏览） |
 | `ImproverScheduler` | `improver-scheduler.service.ts` | 自文档化调度器（每小时刷新 stale CONTEXT.md + 生成架构文档） |
 
@@ -32,15 +37,19 @@
 knowledge/
 ├── engine/                    # 存储/查询层
 │   └── unified-query.ts       # 双存储统一查询
-├── producers/                 # 生产层
-│   └── external-fetcher.ts    # 外部文档抓取
 ├── knowledge-bus.service.ts   # 兼容层：KnowledgeBus 类 + 单例 re-export（R4）
 ├── knowledge-singletons.ts    # 共享单例/向量库同步/统一质量门（R4 收敛）
-├── knowledge-service.ts       # 统一知识能力层（injectContext + CRUD）
+├── knowledge-service.ts       # 统一知识能力层（核心类 KnowledgeService + 单例 + re-export 门面；模块级 helpers 拆至下列 7 个模块）
+├── knowledge-types.ts         # KnowledgeService 类型 + ENTRY_TYPE_MAP（knowledge-service 拆出）
+├── knowledge-data-layer.ts    # trends/resolutions 数据层 + 共享 fileStore（knowledge-service 拆出）
+├── knowledge-forms.ts         # 知识形态门禁 validateKnowledgeForm（knowledge-service 拆出）
+├── inject-context.ts          # injectContext 注入闸门/2K 预算/检索指引（knowledge-service 拆出）
+├── conversation-extraction.ts # R3 会话提取 + 提案卡（knowledge-service 拆出）
+├── knowledge-metrics.ts       # 飞轮/审计事件流度量纯函数（knowledge-service 拆出）
+├── knowledge-search-helpers.ts # 关键词/RAG 降级检索 helpers（knowledge-service 拆出）
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
 ├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测
-├── signal-aggregator.ts       # Signal 趋势聚合（PostEval 触发）
 ├── resolution.service.ts      # 解法库（独立子系统）
 ├── evolution.service.ts       # 知识演化
 ├── evolution-scheduler.ts     # 演化调度
@@ -71,6 +80,8 @@ knowledge/
 
 ## 注意事项
 
+- **测试稳定性候选（2026-08-04 记录，未修）**：`__tests__/knowledge-bus-sync.test.ts` 的「失败后恢复 → recovered」用例为预存 flake（假定时器固定步进对节奏敏感，全量跑约 50% 抖动，单跑稳定）。下批修法方向：断言改为轮询等待（`vi.waitFor`）或锁定退避序列的注入点，而非固定步进。
+- **knowledge-service.ts 类体不再拆分（2026-08-04 决议，接受现状 1143 行）**：模块级代码已全部抽至上述 7 个模块；KnowledgeService 类体（约 1021 行）整体保留，因 `__tests__/knowledge-service.test.ts` 锁定 prototype 恰好 35 个方法（含 5 个 private，TS private 运行时挂 prototype），任何拆类都会打破该测试。后续若要拆类，须先获批准放宽该断言（如改为 ≥35 或只锁 public 集合）。
 - Producer（preference-observer 等）直写 KnowledgeStore（FileStore 存储；Prisma 已全量移除）
 - Resolution 和 Incident 是独立子系统，不纳入统一查询
 - `knowledgeBus` 的 `formatIndexSummary()` 已删除（零调用方；替代者 `buildKnowledgeContext` 亦已于 2026-07-27 清理，现注入入口为 `knowledgeService.injectContext`）
