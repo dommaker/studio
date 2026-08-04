@@ -85,6 +85,7 @@ knowledge/
 
 ## 注意事项
 
+- **测试稳定性候选（2026-08-04 记录，未修）**：`__tests__/knowledge-bus-sync.test.ts` 的「失败后恢复 → recovered」用例为预存 flake（假定时器固定步进对节奏敏感，全量跑约 50% 抖动，单跑稳定）。下批修法方向：断言改为轮询等待（`vi.waitFor`）或锁定退避序列的注入点，而非固定步进。
 - **knowledge-service.ts 类体不再拆分（2026-08-04 决议，接受现状 1143 行）**：模块级代码已全部抽至上述 7 个模块；KnowledgeService 类体（约 1021 行）整体保留，因 `__tests__/knowledge-service.test.ts` 锁定 prototype 恰好 35 个方法（含 5 个 private，TS private 运行时挂 prototype），任何拆类都会打破该测试。后续若要拆类，须先获批准放宽该断言（如改为 ≥35 或只锁 public 集合）。
 - Producer（preference-observer 等）直写 KnowledgeStore（FileStore 存储；Prisma 已全量移除）
 - Resolution 和 Incident 是独立子系统，不纳入统一查询

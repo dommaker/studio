@@ -47,6 +47,7 @@
 ## 注意事项
 
 - OKR 异常检测默认禁用，需设置环境变量 `OKR_ANOMALY_DETECTOR_ENABLED=true` 才能启用。
+- **测试稳定性候选（2026-08-04 记录，未修）**：`__tests__/analysis-handoff.test.ts` 存在一例时序 flake（全量跑偶发，重跑即过）。下批修法方向：与 knowledge-bus-sync flake 一并处理，断言改轮询等待替代固定时序假设。
 - 项目数据存储在 `~/.studio/projects/{id}.json`，OKR 数据存储在 `~/.studio/okr/` 目录下的 JSONL 文件中。
 - 项目路由已应用 `requireNotGuest` 和 `requireRole` 中间件进行权限控制。
 - 统一编号（决策 4 修正版）：新 PMO 编号 = max(PM/PMO, REQ 两序列)+1，格式 PMO-<n>（即分支名）；`reqAlias` 与 pmoNumber 同号（REQ-XXXX 只读别名）；存量 PM-XXX/REQ-XXXX 不迁移（编号重叠，scripts/migrate-req-to-pmo.ts 出映射报告）。
