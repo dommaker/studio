@@ -474,6 +474,21 @@ describe('claim', () => {
     expect(deltaMs).toBeLessThanOrEqual(WU_DEFAULT_TIMEOUT_MINUTES * 60_000 + 60_000);
   });
 
+  it('metadata 损坏（非法 JSON）→ 不阻断 claim，回落默认 timeout', async () => {
+    const before = Date.now();
+    const wu = await service.create({ scope: '损坏元数据', type: 'task', channelId: 'ch-1' });
+    // 绕过 create 的 JSON.stringify，直接把损坏 metadata 写进索引
+    const snapshot = await findSnapshot(wu.id);
+    await fileStore.upsertSnapshot({ ...snapshot!, metadata: '{broken json' });
+
+    const claimed = await service.claim(wu.id, 'inst-1');
+
+    expect(claimed.status).toBe('active');
+    const deltaMs = claimed.timeoutAt!.getTime() - before;
+    expect(deltaMs).toBeGreaterThanOrEqual(WU_TIMEOUT_MINUTES.task * 60_000);
+    expect(deltaMs).toBeLessThanOrEqual(WU_TIMEOUT_MINUTES.task * 60_000 + 60_000);
+  });
+
   it('已有 timeoutAt 列值时 claim 不覆盖', async () => {
     const preset = new Date(Date.now() + 5 * 60_000);
     const wu = await service.create({

@@ -366,7 +366,13 @@ export class WorkUnitCrudService {
    */
   private async checkFileConflicts(id: string, metadataRaw: string | null): Promise<string[]> {
     if (!metadataRaw) return [];
-    const meta: WorkUnitMetadata = JSON.parse(metadataRaw);
+    let meta: WorkUnitMetadata;
+    try {
+      meta = JSON.parse(metadataRaw) as WorkUnitMetadata;
+    } catch {
+      // 元数据损坏按无显式值处理（与 resolveClaimTimeoutAt 容错口径一致），不阻断 claim
+      return [];
+    }
     const files = meta.files;
     if (!files || !Array.isArray(files) || files.length === 0) return [];
 
