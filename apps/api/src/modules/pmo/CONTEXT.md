@@ -13,6 +13,7 @@
 | `getCurrentQuarter` | `okr.service.ts` | 获取当前季度字符串（如 2025-Q2） |
 | `OKRService` 类 | `okr.service.ts` | OKR 核心服务类 |
 | `okrService` 实例 | `okr.service.ts` | OKRService 的单例 |
+| `OKRMetricQueries` 类 | `okr-metric-queries.ts` | B8 数据源查询基类（`OKRService` 的父类，2026-08-04 从 okr.service.ts 拆出）：路径常量（OKR_DIR/KR_HISTORY_JSONL/EXECUTIONS_JSONL/STUDIO_EVENTS_JSONL）+ `StudioEventRow` + `checkDataSourceHealth` + 22 个 `query*` metric 查询；`querySkillUsageRate` 例外留在 okr.service.ts（B59-003 测试按源码文本断言其位置） |
 | `projectService` 实例 | `project.service.ts` | 项目服务单例（含 `getByReqAlias`/`getByPmoNumber`（数字归一）/`ensureChoreProject`/`findChoreProject`） |
 | `generatePmoNumber` / `parsePmoSeq` | `project.service.ts` | 统一编号（决策 4：max(PM/PMO, REQ 两序列)+1，新格式 PMO-<n>） |
 | `resolveDeliveryPolicy` | `project.service.ts` | 交付策略缺省解析（未设置 = branch-only） |
