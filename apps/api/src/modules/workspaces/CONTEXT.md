@@ -12,13 +12,14 @@
 |------|------|
 | workspace.routes.ts | Workspace CRUD + 注册/心跳 API |
 | token.routes.ts | Token 生成/列表/撤销 API |
-| ws-gateway.ts | /ws/daemon WebSocket 网关（auth + 消息路由）；消费方：agent-loop RemoteExecutor（§9.6 P2）、monitor 节点离线检测 |
 | local-workspace.ts | VPS 本地 Workspace 自动注册 + 本地 CLI 运行时扫描（`rescanLocalRuntimes` 供按需重扫） |
 
 ## 依赖关系
 
-- 依赖：`ws`（WebSocket 库）
 - 被依赖：`agents/`（任务分发）、`channels/`（Channel Workspace 设置）、`web/`（UI 组件）
+
+> ws-gateway.ts（/ws/daemon 远程执行 WS 网关）已随远程节点方向放弃于 2026-08 删除：
+> 生产 594 个 profile 无 nodeId、UI 创建角色不下发 nodeId、WS 客户端从未实现。
 
 ## 注意事项
 

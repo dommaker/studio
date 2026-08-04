@@ -2,8 +2,8 @@
  * §9.6 Executor 接口 — AgentLoop 执行面抽象（P0）
  *
  * 任务生命周期只有一份（claim、状态机、token 度量、会话管理…全部留在 AgentLoop），
- * Executor 只负责「执行 AgentTask 并返回结果」。P1 远程节点执行（RemoteExecutor）
- * 经同一接口接入，无需 fork 任务生命周期。
+ * Executor 只负责「执行 AgentTask 并返回结果」。当前仅有 LocalExecutor（P0）——
+ * 远程节点执行方向已放弃，RemoteExecutor 于 2026-08 删除。
  */
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';

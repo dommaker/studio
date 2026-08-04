@@ -7,7 +7,6 @@ import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/st
 import { randomUUID } from 'crypto';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
-import { RemoteExecutor, RemoteNodeUnreachableError } from './remote-executor.js';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../triggers/trigger-registry.js';
@@ -88,14 +87,9 @@ export class AgentLoop {
     this.acceptedTypes = role.acceptedTypes ?? [];
     // W-4 fix + F3: parse channels from role.channels JSON（容错历史双重编码值）
     this.myChannels = parseChannels(role.channels);
-    // §9.6: 执行面走 Executor 接口。profile.nodeId: undefined/'local' → LocalExecutor
-    // 其他 → RemoteExecutor(nodeId)。P1 WS 通道留桩，RemoteExecutor 暂抛不可达错误。
-    if (role.nodeId && role.nodeId !== 'local') {
-      this.executor = new RemoteExecutor(role.nodeId);
-      logger.info('[AgentLoop] RemoteExecutor selected', { role: role.name, nodeId: role.nodeId });
-    } else {
-      this.executor = new LocalExecutor();
-    }
+    // §9.6: 执行面走 Executor 接口。远程节点执行（RemoteExecutor/ws-gateway）
+    // 已随远程节点方向放弃而删除（2026-08：生产 594 个 profile 无 nodeId，WS 客户端从未实现）。
+    this.executor = new LocalExecutor();
   }
 
   /** Start the agent loop: create instance, register EVENT trigger, enter observe-decide-act cycle.
@@ -562,7 +556,7 @@ export class AgentLoop {
       },
       timeoutMs: 120_000,
       // Layer B（WU 过程可视化）：步内 stream-json 行级透传 → SSE 实时过程。
-      // fire-and-forget；仅 LocalExecutor 同进程有效（RemoteExecutor 函数不可序列化，丢弃）。
+      // fire-and-forget；LocalExecutor 同进程有效。
       onStreamLine: (line) => {
         void emitExecutionStreamLine({ workUnitId: wu.id, executionId, step: stepNo, line }).catch(() => {});
       },
@@ -726,14 +720,6 @@ export class AgentLoop {
       if (newSessionId) await resetUnestablishedSession(this.instance, this.fileStore, metadataUpdates);
       const message = err instanceof Error ? err.message : String(err);
       logger.error(`[AgentLoop] agentStep execute failed: ${message}`, { traceId });
-      // AC-8.7: 远程节点不可达 → need_input，由人工评估是否需要切换节点
-      if (err instanceof RemoteNodeUnreachableError) {
-        return {
-          action: 'need_input' as const,
-          summary: `远程节点不可达: ${message}`,
-          metadataUpdates: { ...metadataUpdates, lastError: `remote-unreachable: ${this.executor instanceof RemoteExecutor ? (this.executor as any).nodeId : 'unknown'}` },
-        };
-      }
       return {
         action: 'need_input' as const, // increments consecutiveStuck
         summary: `Agent execution failed: ${message}`,

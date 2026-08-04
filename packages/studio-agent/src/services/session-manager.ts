@@ -77,12 +77,12 @@ export interface AgentTask {
   onProgress?: (progress: ProgressReport, session: number) => Promise<void>;
   /**
    * 步内 stream-json 行回调（WU 过程可视化 Layer B）：CLI stdout 每个完整行到达即回调。
-   * 仅 LocalExecutor 同进程有意义；RemoteExecutor 跨进程不可序列化，直接丢弃。
+   * 仅本地同进程执行有意义（远程节点方向已放弃，2026-08 删除 RemoteExecutor）。
    */
   onStreamLine?: (line: string) => void;
   /** P3: 覆盖扁平默认超时 (ms)。提供时替代默认 30min。 */
   timeoutMs?: number;
-  /** §9.6 P1: 远程节点 ID。undefined/'local' → LocalExecutor，否则 RemoteExecutor。 */
+  /** @deprecated §9.6 远程节点方向已放弃（2026-08）：字段仅为数据兼容保留，执行面恒为 LocalExecutor。 */
   nodeId?: string;
 }
 

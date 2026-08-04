@@ -117,11 +117,6 @@ async function start() {
     // 创建 HTTP 服务器
     const server = createServer(app);
 
-    // AS-020 P4: WebSocket gateway for Daemon persistent connections
-    const { attachWsGateway } = await import('./modules/workspaces/ws-gateway.js');
-    const detachWsGateway = attachWsGateway(server);
-    logger.info('[WsGateway] Attached to HTTP server at /ws/daemon');
-
     // ── 核心服务 ──
     monitorService.start();
     auditorService.start();
@@ -398,7 +393,6 @@ async function start() {
         agentLoopRegistry.unmountAll();
       } catch {}
 
-      detachWsGateway();
       if (cloudflaredProc) { cloudflaredProc.kill(); cloudflaredProc = null; }
       stopEvolutionScheduler();
       monitorService.stop();

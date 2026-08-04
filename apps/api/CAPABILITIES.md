@@ -98,7 +98,6 @@
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
 | token.routes | src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
 | workspace.routes | src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
-| ws-gateway | src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
 | route-registry | src/route-registry.ts | Route Registry - 模块化路由注册 |
 | seed-skills | src/scripts/seed-skills.ts | Seed 4 built-in Skills into the Skill table (D6). |
 | discord-notifier | src/utils/discord-notifier.ts | Discord 通知工具 |
