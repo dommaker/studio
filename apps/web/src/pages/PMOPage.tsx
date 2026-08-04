@@ -7,16 +7,13 @@ import { requirementApi } from '../api/requirements';
 import { knowledgeApi } from '../api/knowledge';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { toast } from '../utils/toast';
-import { Select } from '../components/ui';
-
-// 🆕 AS-016: 获取当前季度
-function getCurrentQuarter(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const quarter = Math.floor(month / 3) + 1;
-  return `${year}-Q${quarter}`;
-}
+import type { KR, OKR, Project } from '../components/pmo/types';
+import { getCurrentQuarter } from '../components/pmo/okrUtils';
+import { CreateOKRDialog } from '../components/pmo/CreateOKRDialog';
+import { CreatePMODialog } from '../components/pmo/CreatePMODialog';
+import { PublishProjectDialog } from '../components/pmo/PublishProjectDialog';
+import { ProjectCard } from '../components/pmo/ProjectCard';
+import { OKRCard } from '../components/pmo/OKRCard';
 
 /** 容错解析 id 数组 JSON（历史数据可能双重编码）；非数组/损坏 → [] */
 function parseIdArray(raw?: string | null): string[] {
@@ -28,109 +25,6 @@ function parseIdArray(raw?: string | null): string[] {
   } catch {
     return [];
   }
-}
-
-interface KR {
-  id: string;
-  objectiveId: string;
-  title: string;
-  target: number;
-  current: number;
-  unit: string;
-  metricType?: string;
-}
-
-interface OKRObjective {
-  id: string;
-  title: string;
-  description?: string;
-}
-
-interface OKR {
-  id: string;
-  title: string;
-  quarter: string;
-  status: string;
-  progress: number;
-  projectCount: number;
-  objectives?: OKRObjective[];
-  keyResults?: KR[];
-}
-
-const METRIC_TYPE_OPTIONS = [
-  { value: '', label: '手动更新' },
-  { value: 'pipeline_duration_p90', label: '管线耗时 (p90)' },
-  { value: 'pipeline_duration_per_phase', label: '单阶段耗时' },
-  { value: 'cache_hit_rate', label: '缓存命中率' },
-  { value: 'execution_success_rate', label: '执行成功率' },
-  { value: 'review_pass_rate', label: '审查通过率' },
-  { value: 'token_saving_ratio', label: 'Token 节省率' },
-];
-
-// B8 Phase 1.5: metricType 元数据
-const METRIC_META: Record<string, { unit: string; upperBound: number; baseline?: number }> = {
-  '': { unit: '', upperBound: 100 },
-  pipeline_duration_p90: { unit: 'min', upperBound: Infinity, baseline: 23 },
-  pipeline_duration_per_phase: { unit: 'min', upperBound: Infinity },
-  cache_hit_rate: { unit: '%', upperBound: 99.9, baseline: 94 },
-  execution_success_rate: { unit: '%', upperBound: 100, baseline: 12 },
-  review_pass_rate: { unit: '%', upperBound: 100 },
-  token_saving_ratio: { unit: '%', upperBound: 90 },
-};
-
-interface KRValidation {
-  status: 'pass' | 'warning' | 'blocked';
-  reason: string;
-}
-
-function validateKRTarget(kr: KR): KRValidation {
-  if (kr.target <= 0) return { status: 'blocked', reason: '目标必须大于 0' };
-  if (!kr.metricType) return { status: 'pass', reason: '' };
-
-  const meta = METRIC_META[kr.metricType];
-  if (!meta) return { status: 'pass', reason: '' };
-
-  // Baseline check: target below current level
-  if (meta.baseline !== undefined && kr.target < meta.baseline) {
-    return {
-      status: 'blocked',
-      reason: `目标 (${kr.target}${meta.unit}) 低于当前水平 (${meta.baseline}${meta.unit})。建议 >= ${Math.ceil(meta.baseline * 1.05)}${meta.unit}`,
-    };
-  }
-
-  // Upper bound check: target too close to theoretical limit
-  if (meta.upperBound !== Infinity && kr.target > meta.upperBound * 0.95) {
-    return {
-      status: 'warning',
-      reason: `接近理论上限 (${meta.upperBound}${meta.unit})，可能不可实现`,
-    };
-  }
-
-  // Gap check: target too far from baseline
-  if (meta.baseline !== undefined && kr.target > meta.baseline * 3) {
-    return {
-      status: 'warning',
-      reason: `距当前水平 (${meta.baseline}${meta.unit}) 差距大，建议分阶段`,
-    };
-  }
-
-  return { status: 'pass', reason: '' };
-}
-
-interface Project {
-  id: string;
-  pmoNumber: string;
-  title: string;
-  description?: string;
-  status: string;
-  progress: number;
-  createdAt: string;
-  // 🆕 PMO-a: REQ 只读别名 / 交付策略 / 分支 / 杂务标记
-  reqAlias?: string | null;
-  deliveryPolicy?: string;
-  gitBranch?: string | null;
-  isChore?: boolean;
-  OKR?: { id: string; title: string };
 }
 
 interface PMOPageProps {
@@ -147,7 +41,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
   // 🆕 AC-6: 卡片徽章数据（WU 完成度 / 文档计数；批量并行、失败静默不显示）
   const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
   const [docCounts, setDocCounts] = useState<Record<string, number>>({});
-  
+
   // 🆕 B8: OKR 创建弹窗 — 支持 KR 编辑
   const [showOKRDialog, setShowOKRDialog] = useState(false);
   const [newOKRTitle, setNewOKRTitle] = useState('');
@@ -175,7 +69,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const updateKR = (id: string, field: keyof KR, value: string | number) => {
     setKRs(prev => prev.map(kr => kr.id === id ? { ...kr, [field]: value } : kr));
   };
-  
+
   const tabParam = searchParams.get('tab');
   const defaultTab = tabParam === 'okr' ? 'okr' : 'projects';
   const [activeTab, setActiveTab] = useState<'projects' | 'okr'>(defaultTab);
@@ -484,78 +378,14 @@ export function PMOPage({ companyId }: PMOPageProps) {
               </div>
             ) : (
               projects.map(project => (
-                <div
+                <ProjectCard
                   key={project.id}
-                  className="card p-3 cursor-pointer"
-                  onClick={() => navigate(`/pmo/project/${project.id}`)}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="px-2 py-1 rounded text-sm font-bold u-accent-bg"
-                      >
-                        {project.pmoNumber}
-                      </div>
-                      <div>
-                        <div className="font-medium flex items-center gap-2 u-text">
-                          {project.title}
-                          {/* 🆕 PMO-a: 杂务徽章 */}
-                          {project.isChore && (
-                            <span className="text-xs px-1.5 py-0.5 rounded u-warn-dim">
-                              杂务
-                            </span>
-                          )}
-                        </div>
-                        <div className="text-xs u-text-3">
-                          {project.description || '无描述'}
-                          {/* 🆕 PMO-a: 交付策略小字标注 */}
-                          {project.deliveryPolicy && (
-                            <span className="ml-2">
-                              · {project.deliveryPolicy}
-                            </span>
-                          )}
-                          {/* 🆕 AC-6: WU 完成度 + 文档计数徽章（数据缺失/为 0 不显示） */}
-                          {wuStats[project.id] && wuStats[project.id].total > 0 && (
-                            <span className="ml-2 px-1.5 py-0.5 rounded u-surface-2 u-text-2">
-                              WU {wuStats[project.id].finished}/{wuStats[project.id].total}
-                            </span>
-                          )}
-                          {(docCounts[project.id] ?? 0) > 0 && (
-                            <span className="ml-1 px-1.5 py-0.5 rounded u-surface-2 u-text-2">
-                              📄 {docCounts[project.id]}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="w-16 h-2 rounded-full u-surface-2">
-                        <div
-                          className="h-2 rounded-full u-ok-bg"
-                          style={{ width: `${project.progress}%` }}
-                        />
-                      </div>
-                      <span className="text-xs u-text-3">
-                        {project.progress}%
-                      </span>
-                      {project.OKR && (
-                        <span className="text-xs px-2 py-1 rounded u-accent-dim">
-                          {project.OKR.title}
-                        </span>
-                      )}
-                      {project.status === 'pending' && (
-                        <button
-                          onClick={(e) => handlePublishClick(e, project.id)}
-                          disabled={channels.length === 0}
-                          className="btn btn-primary btn-sm"
-                          title={channels.length === 0 ? '无可用 Channel' : '选择频道，发起需求讨论'}
-                        >
-                          发起讨论
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                  project={project}
+                  wuStats={wuStats}
+                  docCounts={docCounts}
+                  channels={channels}
+                  handlePublishClick={handlePublishClick}
+                />
               ))
             )}
           </div>
@@ -581,345 +411,60 @@ export function PMOPage({ companyId }: PMOPageProps) {
               </div>
             ) : (
               okrs.map(okr => (
-                <div
-                  key={okr.id}
-                  className="card p-3"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <div className="font-medium u-text">
-                        {okr.title}
-                      </div>
-                      <div className="text-xs u-text-3">
-                        {okr.quarter} · {okr.projectCount} 个项目
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-ok">
-                          {Math.round(okr.progress * 100)}%
-                        </div>
-                        <div className="text-xs u-text-3">
-                          进度
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  {/* 🆕 B8: KR 列表 */}
-                  {okr.keyResults && okr.keyResults.length > 0 && (
-                    <div className="space-y-1 mt-2 pt-2 border-t u-border">
-                      {okr.keyResults.map((kr: KR) => (
-                        <div key={kr.id} className="flex items-center justify-between text-xs">
-                          <span className="u-text-2">
-                            {kr.title}
-                            {kr.metricType && (
-                              <span className="ml-1 px-1 py-0.5 rounded u-accent-dim" style={{ fontSize: 'var(--fs-xs)' }}>
-                                auto
-                              </span>
-                            )}
-                          </span>
-                          <span className="font-mono u-text-3">
-                            {kr.current}/{kr.target}{kr.unit}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <OKRCard key={okr.id} okr={okr} />
               ))
             )}
           </div>
         )}
       </div>
 
-      {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑) */}
       {showOKRDialog && (
-        <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 672 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">创建 OKR</h2>
-            </div>
-            <div className="modal-body">
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="text-sm u-text-2 mb-1">季度</label>
-                  <input
-                    type="text"
-                    value={newOKRQuarter}
-                    onChange={(e) => setNewOKRQuarter(e.target.value)}
-                    className="input w-full"
-                    placeholder="2026-Q3"
-                  />
-                </div>
-                <div>
-                  <label className="text-sm u-text-2 mb-1">标题</label>
-                  <input
-                    type="text"
-                    value={newOKRTitle}
-                    onChange={(e) => setNewOKRTitle(e.target.value)}
-                    className="input w-full"
-                    placeholder="管线效率提升 Q2"
-                  />
-                </div>
-              </div>
-
-              {/* 🆕 KR 编辑 */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm u-text-2">关键结果 (KR)</label>
-                  <button
-                    onClick={addKR}
-                    className="btn btn-secondary btn-sm"
-                  >
-                    + 添加 KR
-                  </button>
-                </div>
-                {krs.map((kr, idx) => (
-                  <div key={kr.id} className="p-3 rounded mb-2" style={{ background: 'var(--bg-secondary)' }}>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs font-bold u-text-3">
-                        KR{idx + 1}
-                      </span>
-                      <input
-                        type="text"
-                        value={kr.title}
-                        onChange={(e) => updateKR(kr.id, 'title', e.target.value)}
-                        className="input flex-1"
-                        placeholder="关键结果描述"
-                      />
-                      {krs.length > 1 && (
-                        <button
-                          onClick={() => removeKR(kr.id)}
-                          className="text-xs u-err u-hover-text"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-4 gap-2">
-                      <div>
-                        <label className="text-xs u-text-3">目标值</label>
-                        <input
-                          type="number"
-                          value={kr.target}
-                          min={1}
-                          onChange={(e) => updateKR(kr.id, 'target', Number(e.target.value))}
-                          className="input w-full"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs u-text-3">当前值</label>
-                        <input
-                          type="number"
-                          value={kr.current}
-                          min={0}
-                          onChange={(e) => updateKR(kr.id, 'current', Number(e.target.value))}
-                          className="input w-full"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs u-text-3">单位</label>
-                        <input
-                          type="text"
-                          value={kr.unit}
-                          onChange={(e) => updateKR(kr.id, 'unit', e.target.value)}
-                          className="input w-full"
-                          placeholder="% / min / 次"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-xs u-text-3">自动度量</label>
-                        <Select
-                          value={kr.metricType || ''}
-                          onChange={(v) => updateKR(kr.id, 'metricType', v)}
-                          options={METRIC_TYPE_OPTIONS}
-                          className="w-full"
-                        />
-                      </div>
-                    </div>
-                    {/* B8 Phase 1.5: inline validation */}
-                    {kr.metricType && (() => {
-                      const v = validateKRTarget(kr);
-                      const meta = METRIC_META[kr.metricType];
-                      if (v.status === 'pass' && !meta?.baseline) return null;
-                      const colorClass = v.status === 'blocked' ? 'u-err' : v.status === 'warning' ? 'u-warn' : 'u-ok';
-                      return (
-                        <div className={`mt-2 text-xs ${colorClass}`}>
-                          {meta?.baseline !== undefined && `基准: ${meta.baseline}${meta.unit}`}
-                          {meta?.baseline !== undefined && v.status !== 'pass' && ' · '}
-                          {v.status !== 'pass' ? v.reason : ''}
-                          {v.status === 'pass' && meta?.baseline !== undefined && ` ✓ 目标合理`}
-                        </div>
-                      );
-                    })()}
-                  </div>
-                ))}
-              </div>
-            </div>
-            </div>
-            <div className="modal-footer">
-              <button
-                onClick={() => {
-                  setShowOKRDialog(false);
-                  setKRs([{ id: 'kr1', objectiveId: 'o1', title: '', target: 100, current: 0, unit: '%', metricType: '' }]);
-                }}
-                className="btn btn-secondary"
-              >
-                取消
-              </button>
-              <button
-                onClick={handleCreateOKR}
-                className="btn btn-primary"
-              >
-                创建
-              </button>
-            </div>
-          </div>
-        </div>
+        <CreateOKRDialog
+          newOKRQuarter={newOKRQuarter}
+          setNewOKRQuarter={setNewOKRQuarter}
+          newOKRTitle={newOKRTitle}
+          setNewOKRTitle={setNewOKRTitle}
+          krs={krs}
+          setKRs={setKRs}
+          addKR={addKR}
+          removeKR={removeKR}
+          updateKR={updateKR}
+          setShowOKRDialog={setShowOKRDialog}
+          handleCreateOKR={handleCreateOKR}
+        />
       )}
 
-      {/* 🆕 PMO-a: 新建 PMO 弹窗（style-guide §4.3 标准结构） */}
       {showCreateForm && (
-        <div className="modal-overlay" onClick={() => setShowCreateForm(false)}>
-          <div className="modal" style={{ maxWidth: 520 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">新建 PMO</h2>
-              <button className="modal-close" onClick={() => setShowCreateForm(false)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal-body">
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div>
-                  <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>标题 *</label>
-                  <input
-                    type="text"
-                    value={newTitle}
-                    onChange={(e) => setNewTitle(e.target.value)}
-                    className="input"
-                    style={{ width: '100%' }}
-                    placeholder="项目标题"
-                  />
-                </div>
-                <div>
-                  <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>需求描述</label>
-                  <textarea
-                    value={newRequirement}
-                    onChange={(e) => setNewRequirement(e.target.value)}
-                    className="input"
-                    style={{ width: '100%', resize: 'none' }}
-                    rows={3}
-                    placeholder="需求背景、验收标准等"
-                  />
-                </div>
-                <div>
-                  <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>工程路径 (gitRepo)</label>
-                  <Select
-                    value={newGitRepo}
-                    onChange={setNewGitRepo}
-                    options={[
-                      { value: '', label: '（不关联工程）' },
-                      ...discoveredProjects.map(p => ({ value: p.path, label: `${p.name}（${p.path}）` })),
-                    ]}
-                    placeholder={projectsScanning ? '正在扫描本地工程…' : '选择扫描到的工程'}
-                    disabled={projectsScanning}
-                    aria-label="工程路径"
-                    className="input"
-                    style={{ width: '100%' }}
-                  />
-                  {projectsScanError && (
-                    <div className="text-xs mt-1 u-text-3">
-                      工程扫描失败（需要管理员权限）。
-                      <button
-                        onClick={loadDiscoveredProjects}
-                        className="u-accent"
-                        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, font: 'inherit' }}
-                      >
-                        重试
-                      </button>
-                    </div>
-                  )}
-                  {!projectsScanning && !projectsScanError && discoveredProjects.length === 0 && (
-                    <div className="text-xs mt-1 u-text-3">
-                      未扫描到本地工程（检查 STUDIO_PROJECTS_ROOT 配置）
-                    </div>
-                  )}
-                </div>
-                <div>
-                  <label className="mc-card-label" style={{ display: 'block', marginBottom: 4 }}>交付策略</label>
-                  <Select
-                    value={newDeliveryPolicy}
-                    onChange={(v) => setNewDeliveryPolicy(v as 'branch-only' | 'auto-merge')}
-                    options={[
-                      { value: 'branch-only', label: '分支交付（不碰合并/发布）' },
-                      { value: 'auto-merge', label: '自动合并（缺证据拒绝）' },
-                    ]}
-                    className="input"
-                    style={{ width: '100%' }}
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button onClick={() => setShowCreateForm(false)} className="btn btn-secondary">
-                取消
-              </button>
-              <button onClick={handleCreateProject} disabled={creating} className="btn btn-primary">
-                {creating ? '创建中...' : '创建'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <CreatePMODialog
+          newTitle={newTitle}
+          setNewTitle={setNewTitle}
+          newRequirement={newRequirement}
+          setNewRequirement={setNewRequirement}
+          newGitRepo={newGitRepo}
+          setNewGitRepo={setNewGitRepo}
+          newDeliveryPolicy={newDeliveryPolicy}
+          setNewDeliveryPolicy={setNewDeliveryPolicy}
+          creating={creating}
+          discoveredProjects={discoveredProjects}
+          projectsScanning={projectsScanning}
+          projectsScanError={projectsScanError}
+          loadDiscoveredProjects={loadDiscoveredProjects}
+          setShowCreateForm={setShowCreateForm}
+          handleCreateProject={handleCreateProject}
+        />
       )}
 
-      {/* AC-6: 发起需求讨论弹窗（选择目标频道） */}
       {showPublishDialog && (
-        <div className="modal-overlay" onClick={() => setShowPublishDialog(false)}>
-          <div className="modal" style={{ maxWidth: 400 }} onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2 className="modal-title">发起需求讨论</h2>
-              <button className="modal-close" onClick={() => setShowPublishDialog(false)} aria-label="关闭">×</button>
-            </div>
-            <div className="modal-body">
-              {channels.length === 0 ? (
-                <p className="u-text-3 text-sm">无可用 Channel，请先创建</p>
-              ) : (
-                <>
-                  <Select
-                    value={selectedChannelId}
-                    onChange={setSelectedChannelId}
-                    options={channels.map(ch => ({ value: ch.id, label: ch.name }))}
-                    className="input"
-                    style={{ width: '100%' }}
-                  />
-                  {agentsLoading ? (
-                    <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>加载频道成员…</p>
-                  ) : channelAgents.length > 0 ? (
-                    <p className="u-text-3 text-sm" style={{ marginTop: 8 }}>
-                      会响应的 Agent（{channelAgents.length}）：{channelAgents.map(a => a.name).join('、')}
-                      ——需求发到频道后由 TA 们认领并开始分析
-                    </p>
-                  ) : (
-                    <p className="u-warn text-sm" style={{ marginTop: 8 }}>
-                      ⚠ 该频道没有可响应的 Agent 成员，发起后需求可能无人认领；请先在频道里添加成员
-                    </p>
-                  )}
-                </>
-              )}
-            </div>
-            <div className="modal-footer">
-              <button onClick={() => setShowPublishDialog(false)} className="btn btn-secondary">
-                取消
-              </button>
-              <button
-                onClick={handlePublishConfirm}
-                disabled={publishing || channels.length === 0}
-                className="btn btn-primary"
-              >
-                {publishing ? '发起中...' : '确认发起'}
-              </button>
-            </div>
-          </div>
-        </div>
+        <PublishProjectDialog
+          channels={channels}
+          selectedChannelId={selectedChannelId}
+          setSelectedChannelId={setSelectedChannelId}
+          agentsLoading={agentsLoading}
+          channelAgents={channelAgents}
+          publishing={publishing}
+          setShowPublishDialog={setShowPublishDialog}
+          handlePublishConfirm={handlePublishConfirm}
+        />
       )}
     </div>
   );
