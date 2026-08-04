@@ -4,7 +4,7 @@
 
 ## 职责
 
-提供任务队列管理（TaskQueue）和任务执行器（TaskWorker），以及任务相关的 CLI 命令（查看队列、运行、重试、清理）和类型定义，支撑 studio 的任务调度与执行能力。
+提供任务队列管理（TaskQueue）和任务执行器（TaskWorker），支撑 studio 的任务调度与执行能力。
 
 ## 核心导出
 
@@ -17,12 +17,6 @@
 | `TaskWorker` | `services/task-worker.ts` | 任务队列消费者，支持事件订阅和 HTTP API 调用 agent-runtime |
 | `taskWorker` | `services/task-worker.ts` | TaskWorker 单例 |
 | `WorkerConfig` | `services/task-worker.ts` | Worker 配置接口 |
-| `runQueue` | `cli/queue.ts` | 查看任务队列 CLI 命令 |
-| `runRun` | `cli/run.ts` | 运行任务 CLI 命令 |
-| `runRetry` | `cli/retry.ts` | 重试任务 CLI 命令 |
-| `runClean` | `cli/clean.ts` | 清理已完成/过期任务 CLI 命令 |
-| `TaskListItem` | `types.ts` | CLI 命令中使用的任务列表项类型 |
-| `QueueOptions`, `RunOptions`, `RetryOptions`, `CleanOptions` | `types.ts` | CLI 命令选项类型 |
 
 ## 依赖关系
 
@@ -33,8 +27,6 @@
 
 ## 注意事项
 
-- CLI 命令全部为异步函数，返回 `{ output: string; error?: string }` 结构
-- CLI 命令使用静态 mock 数据（`mockTasks` 和 `companies`），实际开发需替换为真实数据源
 - 任务状态流转：pending → running → completed/failed，支持 retry 状态
 - TaskQueue 基于内存存储（MemoryStore），重启后数据丢失
 - TaskWorker 支持事件订阅（优先）和 fallback 轮询机制，轮询间隔 1 分钟
