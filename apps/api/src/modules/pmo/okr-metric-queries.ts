@@ -40,7 +40,10 @@ export class OKRMetricQueries {
   /** 从 studio 事件 jsonl 中按 type 和时间范围过滤 */
   private async readEvents(type: string, since: Date): Promise<StudioEventRow[]> {
     const rows = await this.fileStore.readJsonl<StudioEventRow>(STUDIO_EVENTS_JSONL);
-    return rows.filter(r => r.type === type && getStudioEventTime(r) >= since.getTime());
+    // 过滤非对象行：合法 JSON 的原始值/null 行无事件语义（null 行直接访问 .type 会抛 TypeError）
+    return rows.filter(
+      r => r !== null && typeof r === 'object' && r.type === type && getStudioEventTime(r) >= since.getTime(),
+    );
   }
 
   /**
@@ -156,6 +159,8 @@ export class OKRMetricQueries {
     try {
       const since = new Date(Date.now() - days * 86400000);
       const incidents = await this.fileStore.readJsonl<IncidentRow>(INCIDENTS_JSONL);
+      // 「无数据」返回 null（与兄弟查询口径一致），区别于「有数据且窗口内计数为 0」
+      if (incidents.length === 0) return null;
       return incidents.filter(i => i.detectedAt && new Date(i.detectedAt).getTime() >= since.getTime()).length;
     } catch { return null; }
   }

@@ -127,6 +127,7 @@ describe('OKRMetricQueries.readEvents', () => {
       { type: 'deploy.completed' },                                            // 无时间字段（NaN）
       '{corrupt-json-line',                                                    // 坏行 → 跳过
       '42',                                                                    // 合法 JSON 但非事件对象 → 过滤掉
+      'null',                                                                  // 合法 JSON null 行 → 过滤掉（不得抛 TypeError）
     ]);
     const rows = await queries.callReadEvents('deploy.completed', new Date(Date.now() - 7 * DAY_MS));
     expect(rows).toHaveLength(3);
@@ -248,10 +249,10 @@ describe('OKRMetricQueries.queryIncidentCount', () => {
     await expect(queries.callQueryIncidentCount(45)).resolves.toBe(2);
   });
 
-  it('returns 0 (not null) when incidents file does not exist', async () => {
+  it('returns null (no data) when incidents file does not exist', async () => {
     const { queries } = makeQueries();
     fs.rmSync(INCIDENTS_FILE, { force: true });
-    await expect(queries.callQueryIncidentCount(7)).resolves.toBe(0);
+    await expect(queries.callQueryIncidentCount(7)).resolves.toBeNull();
   });
 });
 
