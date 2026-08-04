@@ -28,8 +28,6 @@
 | `conversation-extraction` | `conversation-extraction.ts` | R3 会话提取：transcript 构建 + 单条入库 proposal 闸门 + 审核闭环 knowledge_proposal 提案卡（knowledge-service.ts 拆出） |
 | `knowledge-metrics` | `knowledge-metrics.ts` | R1/M1 事件流度量纯函数：computeOutcomeMetrics（hitRate/improvement）+ scanKnowledgeEvents（审计计数）（knowledge-service.ts 拆出） |
 | `knowledge-search-helpers` | `knowledge-search-helpers.ts` | 检索 helpers：关键词抽取（STOP_WORDS）/TYPE_WEIGHT + mcp-local-rag 探测与关键词降级映射（knowledge-service.ts 拆出） |
-| `signalAggregator` | `signal-aggregator.ts` | 原始 signal 条目 → 趋势聚合摘要（≥3次/7天）【未接线：PostEval 触发点已随 pipeline 删除，接入方案见文件头注】 |
-| `fetchExternal` | `producers/external-fetcher.ts` | 外部文档抓取 + 摄入【未接线：无调用方，接入前提=SSRF 防护，见文件头注】 |
 | `knowledgeRoutes` | `routes.ts` | REST API 挂载门面（挂载下方 6 个子路由，含 /unified 统一浏览） |
 | `ImproverScheduler` | `improver-scheduler.service.ts` | 自文档化调度器（每小时刷新 stale CONTEXT.md + 生成架构文档） |
 
@@ -39,8 +37,6 @@
 knowledge/
 ├── engine/                    # 存储/查询层
 │   └── unified-query.ts       # 双存储统一查询
-├── producers/                 # 生产层
-│   └── external-fetcher.ts    # 外部文档抓取
 ├── knowledge-bus.service.ts   # 兼容层：KnowledgeBus 类 + 单例 re-export（R4）
 ├── knowledge-singletons.ts    # 共享单例/向量库同步/统一质量门（R4 收敛）
 ├── knowledge-service.ts       # 统一知识能力层（核心类 KnowledgeService + 单例 + re-export 门面；模块级 helpers 拆至下列 7 个模块）
@@ -54,7 +50,6 @@ knowledge/
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
 ├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测
-├── signal-aggregator.ts       # Signal 趋势聚合【未接线：原 PostEval 触发点已删】
 ├── resolution.service.ts      # 解法库（独立子系统）
 ├── evolution.service.ts       # 知识演化
 ├── evolution-scheduler.ts     # 演化调度

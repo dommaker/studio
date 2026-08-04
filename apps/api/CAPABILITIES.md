@@ -9,15 +9,12 @@
 | app | src/app.ts | 注册所有 API 路由（异步，启动时调用一次） |
 | studio-cli | src/cli/studio-cli.ts | Studio CLI — 统一入口（2026-05-09: Docker/tmux 已移除） |
 | event-store | src/core/event-store.ts | EventStore — EventEmitter + 内存 Map |
-| claim-loop | src/daemon/claim-loop.ts | Claim Loop — AS-020 P5-02: Per-Runtime task polling |
-| cli-adapter | src/daemon/cli-adapter.ts | CLI Adapter — translate common agent args to provider-specific spawn args |
 | cli-scanner | src/daemon/cli-scanner.ts | CLI Scanner — auto-detect available agent CLIs on the system |
 | discover-handler | src/daemon/discover-handler.ts | Discover Handler — AS-020 P6-03: Local directory scanning |
 | path-sandbox | src/daemon/path-sandbox.ts | Path Sandbox — AS-020 P6-02: Path traversal protection |
 | registration | src/daemon/registration.ts | Workspace Registration — HTTP registration flow |
 | session-manager | src/daemon/session-manager.ts | Session Manager — manages persistent Claude Code sessions via --session-id + --continue |
 | studio-daemon | src/daemon/studio-daemon.ts | Studio Daemon — persistent Agent session manager |
-| task-executor | src/daemon/task-executor.ts | Task Executor — AS-020 P5-03: Agent execution lifecycle |
 | task-logger | src/daemon/task-logger.ts | Task Logger — 结构化任务日志，供审计/进化/调试 |
 | workspace-config | src/daemon/workspace-config.ts | Workspace Config — manage ~/.studio/workspace.json |
 | api-cache | src/middleware/api-cache.ts | API 缓存中间件 — 内存 Map |
@@ -74,7 +71,6 @@
 | knowledge-sync.service | src/modules/knowledge/knowledge-sync.service.ts | KnowledgeSync — 自运转知识同步系统 |
 | pattern-miner | src/modules/knowledge/pattern-miner.ts | PatternMiner (G-005) — 从 MCP traces + 审查历史中挖掘交互模式 |
 | preference-observer | src/modules/knowledge/preference-observer.ts | PreferenceObserver (G-001) — 从 MCP traces + 路由反馈中推断用户偏好 |
-| external-fetcher | src/modules/knowledge/producers/external-fetcher.ts | ExternalFetcher — fetch external docs and ingest as reference knowledge. |
 | resolution.service | src/modules/knowledge/resolution.service.ts | ResolutionService — RKB 匹配/创建/验证 |
 | routes | src/modules/knowledge/routes.ts | 知识库 API - 公司数字资产管理 |
 | rule-scanner | src/modules/knowledge/rule-scanner.ts | RuleScanner (G-002) — 从源码/harness 约束/配置中提取业务规则 |
@@ -104,7 +100,6 @@
 | wiki.routes | src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
 | daemon-routes | src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
 | discover-proxy | src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
-| gc-service | src/modules/workspaces/gc-service.ts | GC Service — AS-020 P5: Garbage collection for old tasks and events |
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
 | task-routes | src/modules/workspaces/task-routes.ts | Task Routes — AS-020 P5: UI/Server task management |
 | token.routes | src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
@@ -125,7 +120,6 @@
 | agent-profile.service | src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
 | eval-case-store | src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
-| signal-aggregator | src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 聚合趋势摘要 |
 | monitoring.routes | src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | monitoring.service | src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
 | manifest-loader | src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
