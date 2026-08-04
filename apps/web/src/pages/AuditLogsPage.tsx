@@ -173,29 +173,31 @@ export const AuditLogsPage: React.FC = () => {
   }
 
   return (
-    <div className="p-6">
+    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">📋 {t('auditLogs.title', '审计日志')}</h1>
-        <p className="u-text-2">{t('auditLogs.subtitle', '查看系统操作记录')}</p>
+      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <h1 className="page-title">📋 {t('auditLogs.title', '审计日志')}</h1>
+        <p className="page-subtitle">{t('auditLogs.subtitle', '查看系统操作记录')}</p>
       </div>
+
+      <div className="flex-1 overflow-auto px-8 py-6">
 
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-4 gap-4 mb-6">
-          <div className="u-accent-dim rounded-lg p-4">
+          <div className="u-accent-dim rounded p-4">
             <div className="text-2xl font-bold u-accent">{stats.totalLogs}</div>
             <div className="text-sm u-accent">{t('auditLogs.stats.total', '总日志数')}</div>
           </div>
-          <div className="u-ok-dim rounded-lg p-4">
+          <div className="u-ok-dim rounded p-4">
             <div className="text-2xl font-bold u-ok">{stats.successCount}</div>
             <div className="text-sm u-ok">{t('auditLogs.stats.success', '成功操作')}</div>
           </div>
-          <div className="u-err-dim rounded-lg p-4">
+          <div className="u-err-dim rounded p-4">
             <div className="text-2xl font-bold u-err">{stats.failureCount}</div>
             <div className="text-sm u-err">{t('auditLogs.stats.failure', '失败操作')}</div>
           </div>
-          <div className="u-accent-dim rounded-lg p-4">
+          <div className="u-accent-dim rounded p-4">
             <div className="text-2xl font-bold u-accent">
               {stats.successCount > 0 ? ((stats.successCount / stats.totalLogs) * 100).toFixed(1) : 0}%
             </div>
@@ -213,7 +215,6 @@ export const AuditLogsPage: React.FC = () => {
             { value: '', label: t('auditLogs.filters.allActions', '全部操作') },
             ...actions.map(action => ({ value: action, label: action })),
           ]}
-          className="px-3 py-2 border rounded-lg text-sm"
         />
 
         <Select
@@ -223,7 +224,6 @@ export const AuditLogsPage: React.FC = () => {
             { value: '', label: t('auditLogs.filters.allResources', '全部资源') },
             ...resources.map(resource => ({ value: resource, label: resource })),
           ]}
-          className="px-3 py-2 border rounded-lg text-sm"
         />
 
         <Select
@@ -234,7 +234,6 @@ export const AuditLogsPage: React.FC = () => {
             { value: 'success', label: t('auditLogs.status.success', '成功') },
             { value: 'failure', label: t('auditLogs.status.failure', '失败') },
           ]}
-          className="px-3 py-2 border rounded-lg text-sm"
         />
 
         <input
@@ -242,12 +241,12 @@ export const AuditLogsPage: React.FC = () => {
           placeholder={t('auditLogs.filters.userIdPlaceholder', '用户 ID')}
           value={filters.userId}
           onChange={(e) => setFilters({ ...filters, userId: e.target.value })}
-          className="px-3 py-2 border rounded-lg text-sm"
+          className="input"
         />
 
         <button
           onClick={handleExport}
-          className="px-4 py-2 u-accent-bg u-on-accent rounded-lg text-sm u-hover-bg"
+          className="btn btn-primary"
         >
           {t('auditLogs.export', '导出')}
         </button>
@@ -264,7 +263,7 @@ export const AuditLogsPage: React.FC = () => {
       <div className="overflow-x-auto">
         <table className="w-full">
           <thead>
-            <tr className="border-b">
+            <tr className="border-b u-border">
               <th className="text-left py-3 px-4 text-sm font-medium u-text-2">
                 {t('auditLogs.table.time', '时间')}
               </th>
@@ -297,7 +296,7 @@ export const AuditLogsPage: React.FC = () => {
               </tr>
             ) : (
               logs.map(log => (
-                <tr key={log.id} className="border-b u-hover-bg cursor-pointer" onClick={() => setSelectedLog(log)}>
+                <tr key={log.id} className="border-b u-border u-hover-bg cursor-pointer" onClick={() => setSelectedLog(log)}>
                   <td className="py-3 px-4 text-sm">
                     {new Date(log.createdAt).toLocaleString()}
                   </td>
@@ -345,14 +344,14 @@ export const AuditLogsPage: React.FC = () => {
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-3 py-1 border rounded text-sm disabled:opacity-50"
+              className="btn btn-secondary btn-sm"
             >
               {t('common.previous')}
             </button>
             <button
               onClick={() => setPage(p => p + 1)}
               disabled={page * limit >= total}
-              className="px-3 py-1 border rounded text-sm disabled:opacity-50"
+              className="btn btn-secondary btn-sm"
             >
               {t('common.next')}
             </button>
@@ -362,10 +361,12 @@ export const AuditLogsPage: React.FC = () => {
 
       {/* Detail Modal */}
       {selectedLog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="u-surface rounded-lg p-6 max-w-2xl w-full max-h-[80vh] overflow-auto">
-            <h2 className="text-xl font-bold mb-4">{t('auditLogs.detail.title', '日志详情')}</h2>
-            
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 672 }}>
+            <div className="modal-header">
+              <h2 className="modal-title">{t('auditLogs.detail.title', '日志详情')}</h2>
+            </div>
+            <div className="modal-body">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -436,16 +437,19 @@ export const AuditLogsPage: React.FC = () => {
                 </div>
               )}
             </div>
-
-            <button
-              onClick={() => setSelectedLog(null)}
-              className="mt-4 px-4 py-2 u-surface-2 u-text-2 rounded u-hover-bg"
-            >
-              {t('common.close')}
-            </button>
+            </div>
+            <div className="modal-footer">
+              <button
+                onClick={() => setSelectedLog(null)}
+                className="btn btn-secondary"
+              >
+                {t('common.close')}
+              </button>
+            </div>
           </div>
         </div>
       )}
+      </div>
     </div>
   );
 };

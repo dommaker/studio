@@ -135,228 +135,225 @@ export function KnowledgePage() {
       case 'resolution':
         return <ResolutionCard item={item} />;
       default:
-        return <pre className="text-xs">{JSON.stringify(item, null, 2)}</pre>;
+        return <pre className="text-xs u-text-3">{JSON.stringify(item, null, 2)}</pre>;
     }
   };
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      <div className="mb-6 flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold mb-2" style={{ color: 'var(--text-primary)' }}>知识库</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>七大知识类型 — 统一视图 / 偏好 / 规则 / 环境 / 决策链 / 交互模式 / 解法库</p>
-        </div>
-        <div className="flex gap-2">
-          <ManualTaskButton
-            label="🧪 质量审计"
-            costNote={costs != null ? `近 30 天 ${costs.callsBySource['knowledge-maintenance'] ?? 0} 次调用` : undefined}
-            onRun={async () => {
-              const r = await maintenanceApi.runKnowledgeMaintenance();
-              return `维护完成：合并 ${r.dedupMerged} / 归档 ${r.qualityArchived} / 更新 ${r.freshnessUpdated} / 解矛盾 ${r.contradictionsResolved}`;
-            }}
-          />
-          <ManualTaskButton
-            label="🧩 知识综合"
-            costTokens={costs?.byTrigger['knowledge-synthesis']}
-            onRun={async () => {
-              const r = await maintenanceApi.fireTrigger('knowledge-synthesis');
-              return r.workUnit
-                ? `已创建综合任务（WU ${r.workUnit.id.slice(0, 8)}…）`
-                : '已触发知识综合';
-            }}
-          />
-          <ManualTaskButton
-            label="📥 会话提取"
-            costTokens={costs?.byTrigger['session-knowledge-extraction']}
-            onRun={async () => {
-              const r = await maintenanceApi.fireTrigger('session-knowledge-extraction');
-              return r.workUnit
-                ? `已创建提取任务（WU ${r.workUnit.id.slice(0, 8)}…）`
-                : '已触发会话提取';
-            }}
-          />
-          <button onClick={() => navigate('/knowledge/import')} className="btn btn-primary text-sm">📥 冷启动导入</button>
-        </div>
-      </div>
-
-      {/* S11: Unified search across all knowledge types */}
-      <div className="mb-4 flex gap-2">
-        <input type="text" placeholder="全局搜索知识（解法 / 行为模式 / 交互模式）..."
-          value={globalSearch}
-          onChange={e => setGlobalSearch(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && handleGlobalSearch()}
-          className="flex-1 px-4 py-2 rounded-lg" style={{
-            background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)',
-            color: 'var(--text-primary)', outline: 'none',
-          }} />
-        <button onClick={handleGlobalSearch}
-          className="px-4 py-2 rounded-lg text-sm" style={{ background: 'var(--accent-primary)', color: 'white' }}>
-          搜索
-        </button>
-      </div>
-
-      {/* Search results overlay */}
-      {searchResults.length > 0 && (
-        <div className="mb-4 p-4 rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-              搜索结果 ({searchResults.length})
-            </span>
-            <button onClick={() => { setSearchResults([]); setGlobalSearch(''); }}
-              className="text-xs" style={{ color: 'var(--text-tertiary)' }}>清除</button>
+    <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
+      {/* Header */}
+      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="page-title">知识库</h1>
+            <p className="page-subtitle">七大知识类型 — 统一视图 / 偏好 / 规则 / 环境 / 决策链 / 交互模式 / 解法库</p>
           </div>
-          <div className="space-y-2">
-            {searchResults.map((r, i) => (
-              <div key={`${r.type}-${r.id}-${i}`} className="p-3 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
-                    {r.type === 'document' ? '📄' : r.type === 'resolution' ? '🔧' : r.type === 'behavior' ? '🧩' : '📊'} {r.type}
-                  </span>
-                  <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{r.title}</span>
-                </div>
-                <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{r.snippet}</p>
-              </div>
-            ))}
+          <div className="flex gap-2">
+            <ManualTaskButton
+              label="🧪 质量审计"
+              costNote={costs != null ? `近 30 天 ${costs.callsBySource['knowledge-maintenance'] ?? 0} 次调用` : undefined}
+              onRun={async () => {
+                const r = await maintenanceApi.runKnowledgeMaintenance();
+                return `维护完成：合并 ${r.dedupMerged} / 归档 ${r.qualityArchived} / 更新 ${r.freshnessUpdated} / 解矛盾 ${r.contradictionsResolved}`;
+              }}
+            />
+            <ManualTaskButton
+              label="🧩 知识综合"
+              costTokens={costs?.byTrigger['knowledge-synthesis']}
+              onRun={async () => {
+                const r = await maintenanceApi.fireTrigger('knowledge-synthesis');
+                return r.workUnit
+                  ? `已创建综合任务（WU ${r.workUnit.id.slice(0, 8)}…）`
+                  : '已触发知识综合';
+              }}
+            />
+            <ManualTaskButton
+              label="📥 会话提取"
+              costTokens={costs?.byTrigger['session-knowledge-extraction']}
+              onRun={async () => {
+                const r = await maintenanceApi.fireTrigger('session-knowledge-extraction');
+                return r.workUnit
+                  ? `已创建提取任务（WU ${r.workUnit.id.slice(0, 8)}…）`
+                  : '已触发会话提取';
+              }}
+            />
+            <button onClick={() => navigate('/knowledge/import')} className="btn btn-primary">📥 冷启动导入</button>
           </div>
         </div>
-      )}
-      {searchLoading && <div className="text-center py-2 text-sm" style={{ color: 'var(--text-tertiary)' }}>搜索中...</div>}
-
-      {/* Tab bar */}
-      <div className="flex gap-1 mb-6 overflow-x-auto pb-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-        {tabs.map(tab => (
-          <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className="px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition"
-            style={{
-              background: activeTab === tab.id ? 'var(--bg-elevated)' : 'transparent',
-              color: activeTab === tab.id ? 'var(--accent-primary)' : 'var(--text-tertiary)',
-              borderBottom: activeTab === tab.id ? '2px solid var(--accent-primary)' : '2px solid transparent',
-              marginBottom: '-1px',
-            }}>
-            {tab.icon} {tab.label}
-          </button>
-        ))}
       </div>
 
-      {/* ── AS-022: Unified Knowledge Tab ── */}
-      {activeTab === 'unified' && (
-        <div>
-          <div className="flex gap-2 mb-4">
-            <Select value={unifiedMode} onChange={v => { setUnifiedMode(v); setUnifiedOffset(0); }}
-              options={[
-                { value: '', label: '全部类型' },
-                { value: 'rule', label: '规则 (rule)' },
-                { value: 'context', label: '上下文 (context)' },
-                { value: 'signal', label: '信号 (signal)' },
-                { value: 'reference', label: '参考 (reference)' },
-              ]}
-              className="px-3 py-2 rounded-lg text-sm" />
-            <span className="text-sm self-center" style={{ color: 'var(--text-tertiary)' }}>
-              {unifiedTotal} 条
-            </span>
-            <button onClick={() => setShowManualEntry(!showManualEntry)} className="ml-auto px-3 py-2 rounded-lg text-sm" style={{ background: 'var(--accent-primary)', color: 'white' }}>
-              {showManualEntry ? '取消' : '+ 新建'}
+      <div className="flex-1 overflow-auto px-8 pb-8">
+        <div className="max-w-5xl">
+          {/* S11: Unified search across all knowledge types */}
+          <div className="mt-4 mb-4 flex gap-2">
+            <input type="text" placeholder="全局搜索知识（解法 / 行为模式 / 交互模式）..."
+              value={globalSearch}
+              onChange={e => setGlobalSearch(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleGlobalSearch()}
+              className="input flex-1" />
+            <button onClick={handleGlobalSearch} className="btn btn-primary">
+              搜索
             </button>
           </div>
-          {showManualEntry && (
-            <div className="mb-4 p-4 rounded-lg" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-subtle)' }}>
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                <Select value={manualForm.type} onChange={v => setManualForm({ ...manualForm, type: v })}
-                  options={[
-                    { value: 'guideline', label: '指南' },
-                    { value: 'pitfall', label: '踩坑' },
-                    { value: 'architecture', label: '架构' },
-                    { value: 'process', label: '流程' },
-                  ]}
-                  className="px-3 py-2 rounded text-sm" />
-                <Select value={manualForm.consumptionMode} onChange={v => setManualForm({ ...manualForm, consumptionMode: v })}
-                  options={[
-                    { value: 'reference', label: '参考 (reference)' },
-                    { value: 'signal', label: '信号 (signal)' },
-                    { value: 'rule', label: '规则 (rule)' },
-                    { value: 'context', label: '上下文 (context)' },
-                  ]}
-                  className="px-3 py-2 rounded text-sm" />
+
+          {/* Search results overlay */}
+          {searchResults.length > 0 && (
+            <div className="card p-4 mb-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-sm font-medium u-text">
+                  搜索结果 ({searchResults.length})
+                </span>
+                <button onClick={() => { setSearchResults([]); setGlobalSearch(''); }}
+                  className="text-xs u-text-3">清除</button>
               </div>
-              <input type="text" placeholder="标题" value={manualForm.title} onChange={e => setManualForm({ ...manualForm, title: e.target.value })}
-                className="w-full px-3 py-2 rounded text-sm mb-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />
-              <textarea placeholder="内容" value={manualForm.content} onChange={e => setManualForm({ ...manualForm, content: e.target.value })} rows={4}
-                className="w-full px-3 py-2 rounded text-sm mb-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />
-              <input type="text" placeholder="标签（逗号分隔）" value={manualForm.tags} onChange={e => setManualForm({ ...manualForm, tags: e.target.value })}
-                className="w-full px-3 py-2 rounded text-sm mb-3" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', color: 'var(--text-primary)' }} />
-              <button onClick={handleManualEntry} disabled={!manualForm.title || !manualForm.content}
-                className="px-4 py-2 rounded text-sm disabled:opacity-50" style={{ background: 'var(--accent-primary)', color: 'white' }}>
-                保存
-              </button>
+              <div className="space-y-2">
+                {searchResults.map((r, i) => (
+                  <div key={`${r.type}-${r.id}-${i}`} className="card p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
+                        {r.type === 'document' ? '📄' : r.type === 'resolution' ? '🔧' : r.type === 'behavior' ? '🧩' : '📊'} {r.type}
+                      </span>
+                      <span className="font-medium text-sm u-text">{r.title}</span>
+                    </div>
+                    <p className="text-xs u-text-3">{r.snippet}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-          {unifiedLoading ? (
-            <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>加载中...</div>
-          ) : unifiedEntries.length === 0 ? (
-            <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>暂无数据</div>
-          ) : (
-            <div className="space-y-3">
-              {unifiedEntries.map((entry, i) => (
-                <div key={entry.id || i} className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs px-2 py-0.5 rounded" style={{
-                      background: entry.consumptionMode === 'rule' ? 'var(--accent-danger)' :
-                        entry.consumptionMode === 'context' ? 'var(--accent-primary)' :
-                          entry.consumptionMode === 'signal' ? 'var(--accent-warning)' : 'var(--bg-elevated)',
-                      color: 'white',
-                    }}>
-                      {entry.consumptionMode}
-                    </span>
-                    <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
-                      {entry.source}
-                    </span>
-                    <span className="font-medium text-sm" style={{ color: 'var(--text-primary)' }}>{entry.title}</span>
+          {searchLoading && <div className="text-center py-2 text-sm u-text-3">搜索中...</div>}
+
+          {/* Tab bar */}
+          <div className="flex gap-1 mb-6 overflow-x-auto pb-1" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                className={`px-4 py-2 text-sm rounded-t-lg whitespace-nowrap transition ${activeTab === tab.id ? 'u-surface u-accent' : 'u-text-3'}`}
+                style={{
+                  borderBottom: activeTab === tab.id ? '2px solid var(--accent-primary)' : '2px solid transparent',
+                  marginBottom: '-1px',
+                }}>
+                {tab.icon} {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── AS-022: Unified Knowledge Tab ── */}
+          {activeTab === 'unified' && (
+            <div>
+              <div className="flex gap-2 mb-4">
+                <Select value={unifiedMode} onChange={v => { setUnifiedMode(v); setUnifiedOffset(0); }}
+                  options={[
+                    { value: '', label: '全部类型' },
+                    { value: 'rule', label: '规则 (rule)' },
+                    { value: 'context', label: '上下文 (context)' },
+                    { value: 'signal', label: '信号 (signal)' },
+                    { value: 'reference', label: '参考 (reference)' },
+                  ]} />
+                <span className="text-sm self-center u-text-3">
+                  {unifiedTotal} 条
+                </span>
+                <button onClick={() => setShowManualEntry(!showManualEntry)} className="ml-auto btn btn-primary">
+                  {showManualEntry ? '取消' : '+ 新建'}
+                </button>
+              </div>
+              {showManualEntry && (
+                <div className="card p-4 mb-4">
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <Select value={manualForm.type} onChange={v => setManualForm({ ...manualForm, type: v })}
+                      options={[
+                        { value: 'guideline', label: '指南' },
+                        { value: 'pitfall', label: '踩坑' },
+                        { value: 'architecture', label: '架构' },
+                        { value: 'process', label: '流程' },
+                      ]} />
+                    <Select value={manualForm.consumptionMode} onChange={v => setManualForm({ ...manualForm, consumptionMode: v })}
+                      options={[
+                        { value: 'reference', label: '参考 (reference)' },
+                        { value: 'signal', label: '信号 (signal)' },
+                        { value: 'rule', label: '规则 (rule)' },
+                        { value: 'context', label: '上下文 (context)' },
+                      ]} />
                   </div>
-                  <p className="text-xs mb-2" style={{ color: 'var(--text-tertiary)' }}>
-                    {entry.content?.slice(0, 200)}{entry.content?.length > 200 ? '...' : ''}
-                  </p>
-                  {entry.tags?.length > 0 && (
-                    <div className="flex gap-1 flex-wrap">
-                      {entry.tags.map((tag: string) => (
-                        <span key={tag} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
-                          {tag}
+                  <input type="text" placeholder="标题" value={manualForm.title} onChange={e => setManualForm({ ...manualForm, title: e.target.value })}
+                    className="input w-full mb-3" />
+                  <textarea placeholder="内容" value={manualForm.content} onChange={e => setManualForm({ ...manualForm, content: e.target.value })} rows={4}
+                    className="input w-full mb-3" />
+                  <input type="text" placeholder="标签（逗号分隔）" value={manualForm.tags} onChange={e => setManualForm({ ...manualForm, tags: e.target.value })}
+                    className="input w-full mb-3" />
+                  <button onClick={handleManualEntry} disabled={!manualForm.title || !manualForm.content}
+                    className="btn btn-primary">
+                    保存
+                  </button>
+                </div>
+              )}
+              {unifiedLoading ? (
+                <div className="text-center py-8 u-text-3">加载中...</div>
+              ) : unifiedEntries.length === 0 ? (
+                <div className="text-center py-8 u-text-3">暂无数据</div>
+              ) : (
+                <div className="space-y-3">
+                  {unifiedEntries.map((entry, i) => (
+                    <div key={entry.id || i} className="card p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`text-xs px-2 py-0.5 rounded ${
+                          entry.consumptionMode === 'rule' ? 'u-err-bg' :
+                            entry.consumptionMode === 'context' ? 'u-accent-bg' :
+                              entry.consumptionMode === 'signal' ? 'u-warn-bg' : 'u-surface-2 u-text-3'
+                        }`}>
+                          {entry.consumptionMode}
                         </span>
-                      ))}
+                        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
+                          {entry.source}
+                        </span>
+                        <span className="font-medium text-sm u-text">{entry.title}</span>
+                      </div>
+                      <p className="text-xs mb-2 u-text-3">
+                        {entry.content?.slice(0, 200)}{entry.content?.length > 200 ? '...' : ''}
+                      </p>
+                      {entry.tags?.length > 0 && (
+                        <div className="flex gap-1 flex-wrap">
+                          {entry.tags.map((tag: string) => (
+                            <span key={tag} className="text-xs px-1.5 py-0.5 rounded u-surface-2 u-text-3">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {unifiedTotal > unifiedOffset + 50 && (
+                    <div className="text-center mt-4">
+                      <button onClick={() => setUnifiedOffset(unifiedOffset + 50)} className="btn btn-secondary">加载更多</button>
                     </div>
                   )}
-                </div>
-              ))}
-              {unifiedTotal > unifiedOffset + 50 && (
-                <div className="text-center mt-4">
-                  <button onClick={() => setUnifiedOffset(unifiedOffset + 50)} className="px-4 py-2 rounded text-sm" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>加载更多</button>
                 </div>
               )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* ── Gap Type Tabs ── */}
-      {activeTab !== 'unified' && (
-        <div>
-          {gapLoading ? (
-            <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>加载中...</div>
-          ) : gapData.length === 0 ? (
-            <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>
-              暂无{gapLabels[activeTab as GapTab]}数据。系统会自动从 Agent 执行/交互中积累。
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {gapData.map((item, i) => (
-                <div key={item.id || i}>{renderGapItem(item)}</div>
-              ))}
+          {/* ── Gap Type Tabs ── */}
+          {activeTab !== 'unified' && (
+            <div>
+              {gapLoading ? (
+                <div className="text-center py-8 u-text-3">加载中...</div>
+              ) : gapData.length === 0 ? (
+                <div className="text-center py-8 u-text-3">
+                  暂无{gapLabels[activeTab as GapTab]}数据。系统会自动从 Agent 执行/交互中积累。
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {gapData.map((item, i) => (
+                    <div key={item.id || i}>{renderGapItem(item)}</div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
-      )}
 
-      <div className="mt-6">
-        <button onClick={() => navigate('/wiki')} className="px-4 py-2 rounded text-sm" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>← 前往文档</button>
+          <div className="mt-6">
+            <button onClick={() => navigate('/wiki')} className="btn btn-secondary">← 前往文档</button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -366,18 +363,18 @@ export function KnowledgePage() {
 
 function PreferenceCard({ item }: { item: any }) {
   return (
-    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+    <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
         <span>👤</span>
-        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>用户偏好</span>
-        {item.responseStyle && <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--accent-primary)', color: 'white' }}>{item.responseStyle}</span>}
-        {item.preferredModel && <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>{item.preferredModel}</span>}
-        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>置信度: {Math.round((item.confidence || 0) * 100)}%</span>
+        <span className="font-medium u-text">用户偏好</span>
+        {item.responseStyle && <span className="text-xs px-2 py-0.5 rounded u-accent-bg">{item.responseStyle}</span>}
+        {item.preferredModel && <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.preferredModel}</span>}
+        <span className="text-xs ml-auto u-text-3">置信度: {Math.round((item.confidence || 0) * 100)}%</span>
       </div>
       <div className="grid grid-cols-3 gap-3 text-sm">
-        {item.activeHours?.length > 0 && <div><span style={{ color: 'var(--text-tertiary)' }}>活跃时段: </span><span style={{ color: 'var(--text-primary)' }}>{(item.activeHours || []).join(', ')}点</span></div>}
-        {item.avgMessageLength && <div><span style={{ color: 'var(--text-tertiary)' }}>平均消息长度: </span><span style={{ color: 'var(--text-primary)' }}>{item.avgMessageLength} 字符</span></div>}
-        {item.autoApproveThreshold !== undefined && <div><span style={{ color: 'var(--text-tertiary)' }}>自动审批阈值: </span><span style={{ color: 'var(--text-primary)' }}>{Math.round(item.autoApproveThreshold * 100)}%</span></div>}
+        {item.activeHours?.length > 0 && <div><span className="u-text-3">活跃时段: </span><span className="u-text">{(item.activeHours || []).join(', ')}点</span></div>}
+        {item.avgMessageLength && <div><span className="u-text-3">平均消息长度: </span><span className="u-text">{item.avgMessageLength} 字符</span></div>}
+        {item.autoApproveThreshold !== undefined && <div><span className="u-text-3">自动审批阈值: </span><span className="u-text">{Math.round(item.autoApproveThreshold * 100)}%</span></div>}
       </div>
     </div>
   );
@@ -385,15 +382,15 @@ function PreferenceCard({ item }: { item: any }) {
 
 function BusinessRuleCard({ item }: { item: any }) {
   return (
-    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+    <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
         <span>📏</span>
-        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-        <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>{item.category}</span>
-        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>v{item.version}</span>
+        <span className="font-medium u-text">{item.name}</span>
+        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
+        <span className="text-xs ml-auto u-text-3">v{item.version}</span>
       </div>
-      <p className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>{item.description}</p>
-      <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+      <p className="text-sm mb-1 u-text">{item.description}</p>
+      <p className="text-xs u-text-3">
         {item.condition} → {item.action}
         {item.defaultValue && ` (默认: ${item.defaultValue})`}
         {' · '}{item.source}
@@ -404,24 +401,24 @@ function BusinessRuleCard({ item }: { item: any }) {
 
 function EnvSnapshotCard({ item }: { item: any }) {
   return (
-    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+    <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
         <span>🖥️</span>
-        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>环境快照</span>
-        <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>{item.nodeEnv}</span>
+        <span className="font-medium u-text">环境快照</span>
+        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.nodeEnv}</span>
       </div>
       <div className="grid grid-cols-4 gap-2 text-sm">
-        <div><span style={{ color: 'var(--text-tertiary)' }}>主机: </span><span style={{ color: 'var(--text-primary)' }}>{item.hostname}</span></div>
-        <div><span style={{ color: 'var(--text-tertiary)' }}>平台: </span><span style={{ color: 'var(--text-primary)' }}>{item.platform}</span></div>
-        <div><span style={{ color: 'var(--text-tertiary)' }}>Node: </span><span style={{ color: 'var(--text-primary)' }}>{item.nodeVersion}</span></div>
-        <div><span style={{ color: 'var(--text-tertiary)' }}>端口: </span><span style={{ color: 'var(--text-primary)' }}>{item.apiPort}</span></div>
+        <div><span className="u-text-3">主机: </span><span className="u-text">{item.hostname}</span></div>
+        <div><span className="u-text-3">平台: </span><span className="u-text">{item.platform}</span></div>
+        <div><span className="u-text-3">Node: </span><span className="u-text">{item.nodeVersion}</span></div>
+        <div><span className="u-text-3">端口: </span><span className="u-text">{item.apiPort}</span></div>
       </div>
       {(item.knownLimitations || []).length > 0 && (
-        <div className="mt-2 text-xs" style={{ color: 'var(--warning)' }}>
+        <div className="mt-2 text-xs u-warn">
           ⚠️ 已知限制: {(item.knownLimitations || []).map((l: any) => l.issue).join('; ')}
         </div>
       )}
-      {item.diffFromPrev && <div className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>变更: {item.diffFromPrev}</div>}
+      {item.diffFromPrev && <div className="mt-1 text-xs u-text-2">变更: {item.diffFromPrev}</div>}
     </div>
   );
 }
@@ -429,49 +426,49 @@ function EnvSnapshotCard({ item }: { item: any }) {
 function DecisionChainCard({ item }: { item: any }) {
   const options = typeof item.options === 'string' ? JSON.parse(item.options) : (item.options || []);
   return (
-    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+    <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
         <span>🔗</span>
-        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.topic}</span>
-        <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>{item.category}</span>
-        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>{item.sourceType}</span>
+        <span className="font-medium u-text">{item.topic}</span>
+        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
+        <span className="text-xs ml-auto u-text-3">{item.sourceType}</span>
       </div>
-      <p className="text-sm mb-1" style={{ color: 'var(--text-secondary)' }}>{item.context}</p>
+      <p className="text-sm mb-1 u-text-2">{item.context}</p>
       <div className="text-sm">
-        <span style={{ color: 'var(--text-tertiary)' }}>选择: </span>
-        <span className="font-medium" style={{ color: 'var(--accent-primary)' }}>{item.chosen}</span>
-        {options.length > 0 && <span style={{ color: 'var(--text-tertiary)' }}> (共 {options.length} 个方案)</span>}
+        <span className="u-text-3">选择: </span>
+        <span className="font-medium u-accent">{item.chosen}</span>
+        {options.length > 0 && <span className="u-text-3"> (共 {options.length} 个方案)</span>}
       </div>
-      <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>{item.rationale}</p>
-      {item.tradeoffs && <p className="text-xs" style={{ color: 'var(--warning)' }}>权衡: {item.tradeoffs}</p>}
+      <p className="text-xs mt-1 u-text-3">{item.rationale}</p>
+      {item.tradeoffs && <p className="text-xs u-warn">权衡: {item.tradeoffs}</p>}
     </div>
   );
 }
 
 function InteractionPatternCard({ item }: { item: any }) {
   return (
-    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+    <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
         <span>📊</span>
-        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.name}</span>
-        <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>{item.category}</span>
-        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>
+        <span className="font-medium u-text">{item.name}</span>
+        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">{item.category}</span>
+        <span className="text-xs ml-auto u-text-3">
           频次: {item.frequency}/天 · 置信度: {Math.round((item.confidence || 0) * 100)}%
         </span>
       </div>
-      <p className="text-sm mb-1" style={{ color: 'var(--text-primary)' }}>{item.description}</p>
-      {item.insight && <p className="text-sm" style={{ color: 'var(--accent-primary)' }}>💡 {item.insight}</p>}
-      {item.suggestion && <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>建议: {item.suggestion}</p>}
+      <p className="text-sm mb-1 u-text">{item.description}</p>
+      {item.insight && <p className="text-sm u-accent">💡 {item.insight}</p>}
+      {item.suggestion && <p className="text-xs u-text-2">建议: {item.suggestion}</p>}
     </div>
   );
 }
 
 function ResolutionCard({ item }: { item: any }) {
-  const statusColors: Record<string, string> = {
-    pending: 'var(--warning)',
-    verified: 'var(--accent-primary)',
-    canonical: 'var(--success, #22c55e)',
-    deprecated: 'var(--text-tertiary)',
+  const statusClasses: Record<string, string> = {
+    pending: 'u-warn-bg',
+    verified: 'u-accent-bg',
+    canonical: 'u-ok-bg',
+    deprecated: 'u-surface-2 u-text-3',
   };
   const layerLabels: Record<string, string> = {
     L3_tool_behavior: 'L3 工具行为',
@@ -484,34 +481,31 @@ function ResolutionCard({ item }: { item: any }) {
   try { tags = typeof item.tags === 'string' ? JSON.parse(item.tags) : (item.tags || []); } catch { /* ignore */ }
 
   return (
-    <div className="p-4 rounded-lg" style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)' }}>
+    <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
         <span>🔧</span>
-        <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{item.title}</span>
-        <span className="text-xs px-2 py-0.5 rounded" style={{
-          background: statusColors[item.status] || 'var(--text-tertiary)',
-          color: 'white',
-        }}>{item.status}</span>
-        <span className="text-xs px-2 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>
+        <span className="font-medium u-text">{item.title}</span>
+        <span className={`text-xs px-2 py-0.5 rounded ${statusClasses[item.status] || 'u-surface-2 u-text-3'}`}>{item.status}</span>
+        <span className="text-xs px-2 py-0.5 rounded u-surface-2 u-text-3">
           {layerLabels[item.layer] || item.layer}
         </span>
-        <span className="text-xs ml-auto" style={{ color: 'var(--text-tertiary)' }}>
+        <span className="text-xs ml-auto u-text-3">
           验证: {item.verifyCount}x
         </span>
       </div>
-      <p className="text-xs mb-1" style={{ color: 'var(--text-tertiary)' }}>
-        模式: <code className="px-1 rounded" style={{ background: 'var(--bg-elevated)' }}>{item.pattern}</code>
+      <p className="text-xs mb-1 u-text-3">
+        模式: <code className="px-1 rounded u-surface-2">{item.pattern}</code>
       </p>
-      <p className="text-sm mb-2" style={{ color: 'var(--text-primary)' }}>{item.fix}</p>
+      <p className="text-sm mb-2 u-text">{item.fix}</p>
       {tags.length > 0 && (
         <div className="flex gap-1 flex-wrap">
           {tags.map((t: string) => (
-            <span key={t} className="text-xs px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-elevated)', color: 'var(--text-tertiary)' }}>{t}</span>
+            <span key={t} className="text-xs px-1.5 py-0.5 rounded u-surface-2 u-text-3">{t}</span>
           ))}
         </div>
       )}
       {item.errorClass && (
-        <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+        <div className="text-xs mt-1 u-text-3">
           错误类型: {item.errorClass}
           {item.sourceGoalId && ` · 来源: ${item.sourceGoalId.slice(0, 8)}`}
         </div>

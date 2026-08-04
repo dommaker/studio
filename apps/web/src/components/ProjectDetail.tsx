@@ -116,7 +116,7 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 p-4" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
+    <div className="modal-overlay p-4">
       <div className="rounded-xl max-w-2xl w-full max-h-[90vh] overflow-auto shadow-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>
         {/* 头部 */}
         <div className="p-6 sticky top-0 z-10" style={{ borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-elevated)' }}>
@@ -175,7 +175,7 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
                     <div className="flex items-center justify-between">
                       <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{exec.workflowName}</span>
                       <span className="text-xs px-2 py-0.5 rounded-full" style={{ 
-                        background: exec.status === 'completed' ? 'rgba(16, 185, 129, 0.15)' : exec.status === 'running' ? 'rgba(0, 212, 255, 0.15)' : 'rgba(107, 118, 128, 0.15)',
+                        background: exec.status === 'completed' ? 'var(--success-dim)' : exec.status === 'running' ? 'var(--accent-dim)' : 'var(--bg-hover)',
                         color: exec.status === 'completed' ? 'var(--success)' : exec.status === 'running' ? 'var(--accent-primary)' : 'var(--text-secondary)',
                       }}>{exec.status}</span>
                     </div>
@@ -190,12 +190,12 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
         {/* 底部按钮 */}
         <div className="p-4 flex justify-between sticky bottom-0" style={{ borderTop: '1px solid var(--border-subtle)', background: 'var(--bg-secondary)' }}>
           <div className="flex gap-2">
-            <button onClick={handleArchive} disabled={loading} className="px-4 py-2 rounded-lg text-sm transition-all" style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)', border: '1px solid rgba(16, 185, 129, 0.3)' }}>📦 归档知识库</button>
-            <button onClick={() => setShowGuide(true)} className="px-4 py-2 rounded-lg text-sm transition-all" style={{ background: 'rgba(0, 212, 255, 0.1)', color: 'var(--accent-primary)', border: '1px solid rgba(0, 212, 255, 0.3)' }}>VS Code 打开</button>
-            <button onClick={() => setShowCodeServerGuide(true)} className="px-4 py-2 rounded-lg text-sm transition-all" style={{ background: 'rgba(139, 92, 246, 0.1)', color: '#8b5cf6', border: '1px solid rgba(139, 92, 246, 0.3)' }}>☁️ Cloud IDE</button>
+            <button onClick={handleArchive} disabled={loading} className="px-4 py-2 rounded-lg text-sm transition-all border u-ok-dim u-ok-border">📦 归档知识库</button>
+            <button onClick={() => setShowGuide(true)} className="px-4 py-2 rounded-lg text-sm transition-all border u-accent-dim u-accent-border">VS Code 打开</button>
+            <button onClick={() => setShowCodeServerGuide(true)} className="px-4 py-2 rounded-lg text-sm transition-all border u-accent-dim u-accent-border">☁️ Cloud IDE</button>
           </div>
           <div className="flex gap-2">
-            <button onClick={handleCopyPath} className="px-4 py-2 rounded-lg text-sm transition-all" style={{ background: copySuccess ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-tertiary)', color: copySuccess ? 'var(--success)' : 'var(--text-secondary)', border: '1px solid ' + (copySuccess ? 'var(--success)' : 'var(--border-subtle)') }}>{copySuccess ? '✓ 已复制' : '📋 复制路径'}</button>
+            <button onClick={handleCopyPath} className="px-4 py-2 rounded-lg text-sm transition-all" style={{ background: copySuccess ? 'var(--success-dim)' : 'var(--bg-tertiary)', color: copySuccess ? 'var(--success)' : 'var(--text-secondary)', border: '1px solid ' + (copySuccess ? 'var(--success)' : 'var(--border-subtle)') }}>{copySuccess ? '✓ 已复制' : '📋 复制路径'}</button>
             <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm transition-all" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>关闭</button>
           </div>
         </div>
@@ -203,7 +203,7 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
 
       {/* VS Code 操作指引弹窗 */}
       {showGuide && (
-        <div className="fixed inset-0 flex items-center justify-center z-[60] p-4" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
+        <div className="modal-overlay p-4" style={{ zIndex: 60 }}>
           <div className="rounded-xl max-w-md w-full shadow-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>
             <div className="p-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>📋 VS Code Remote SSH 操作步骤</h3>
@@ -218,7 +218,7 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
                   <button onClick={() => copyStep(step.text, i)} className="px-2 py-1 text-xs rounded shrink-0" style={{ background: 'var(--bg-elevated)', color: copiedStep === i ? 'var(--success)' : 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>{copiedStep === i ? '✓' : '复制'}</button>
                 </div>
               ))}
-              <div className="text-xs p-2 rounded" style={{ color: 'var(--text-tertiary)', background: 'rgba(0, 212, 255, 0.08)' }}>💡 提示：连接成功后选择 "File → Open Folder" 然后粘贴路径</div>
+              <div className="text-xs p-2 rounded" style={{ color: 'var(--text-tertiary)', background: 'var(--accent-dim)' }}>💡 提示：连接成功后选择 "File → Open Folder" 然后粘贴路径</div>
             </div>
             <div className="p-4 flex justify-end" style={{ borderTop: '1px solid var(--border-subtle)' }}>
               <button onClick={() => setShowGuide(false)} className="px-4 py-2 rounded-lg text-sm" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>关闭</button>
@@ -229,7 +229,7 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
 
       {/* Cloud IDE 操作指引弹窗 */}
       {showCodeServerGuide && (
-        <div className="fixed inset-0 flex items-center justify-center z-[60] p-4" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
+        <div className="modal-overlay p-4" style={{ zIndex: 60 }}>
           <div className="rounded-xl max-w-md w-full shadow-2xl" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>
             <div className="p-4" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
               <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>☁️ Cloud IDE (浏览器中的 VS Code)</h3>
@@ -249,7 +249,7 @@ export function ProjectDetail({ project, onClose }: ProjectDetailProps) {
                   <button onClick={() => copyStep(item.text, item.step)} className="px-2 py-1 text-xs rounded shrink-0" style={{ background: 'var(--bg-elevated)', color: copiedStep === item.step ? 'var(--success)' : 'var(--text-secondary)', border: '1px solid var(--border-subtle)' }}>{copiedStep === item.step ? '✓' : '复制'}</button>
                 </div>
               ))}
-              <div className="text-xs p-2 rounded" style={{ color: 'var(--text-tertiary)', background: 'rgba(139, 92, 246, 0.08)' }}>💡 提示：Cloud IDE 内置终端和浏览器预览，无需额外配置</div>
+              <div className="text-xs p-2 rounded" style={{ color: 'var(--text-tertiary)', background: 'var(--accent-dim)' }}>💡 提示：Cloud IDE 内置终端和浏览器预览，无需额外配置</div>
             </div>
             <div className="p-4 flex justify-end" style={{ borderTop: '1px solid var(--border-subtle)' }}>
               <button onClick={() => setShowCodeServerGuide(false)} className="px-4 py-2 rounded-lg text-sm" style={{ background: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}>关闭</button>

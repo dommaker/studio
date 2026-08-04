@@ -33,6 +33,12 @@ const statusLabels: Record<string, string> = {
   done: '已完成',
 };
 
+const statusColors: Record<string, string> = {
+  draft: 'u-warn-dim',
+  confirmed: 'u-ok-dim',
+  done: 'u-surface-2 u-text-3',
+};
+
 export function WikiDocPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -111,16 +117,11 @@ export function WikiDocPage() {
 
   if (!doc) {
     return (
-      <div className="flex flex-col items-center justify-center h-full" style={{ color: 'var(--text-muted)' }}>
+      <div className="flex flex-col items-center justify-center h-full u-text-3">
         <p className="text-lg mb-4">文档未找到</p>
         <button
           onClick={() => navigate('/wiki')}
-          className="px-4 py-2 rounded-lg"
-          style={{
-            background: 'var(--accent-primary)',
-            color: 'white',
-            border: 'none',
-          }}
+          className="btn btn-primary"
         >
           返回列表
         </button>
@@ -131,12 +132,11 @@ export function WikiDocPage() {
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
-      <div className="p-6 pb-0">
+      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
         <div className="flex items-center gap-3 mb-4">
           <button
             onClick={() => navigate('/wiki')}
-            className="text-sm"
-            style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
+            className="btn btn-ghost btn-sm"
           >
             ← 返回
           </button>
@@ -147,30 +147,22 @@ export function WikiDocPage() {
             type="text"
             value={editTitle}
             onChange={(e) => setEditTitle(e.target.value)}
-            className="w-full text-2xl font-bold px-3 py-2 rounded-lg mb-4"
-            style={{
-              background: 'var(--bg-secondary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-subtle)',
-            }}
+            className="input w-full"
+            style={{ fontSize: 'var(--fs-title)', fontWeight: 600 }}
           />
         ) : (
-          <h1 className="text-2xl font-bold mb-4" style={{ color: 'var(--text-primary)' }}>
+          <h1 className="page-title">
             {doc.title}
           </h1>
         )}
 
-        <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <div className="flex items-center gap-3 mt-4 flex-wrap">
           <span
-            className="text-xs px-2 py-0.5 rounded-full"
-            style={{
-              background: doc.status === 'confirmed' ? '#10b98120' : doc.status === 'done' ? '#6b728020' : '#f59e0b20',
-              color: doc.status === 'confirmed' ? '#10b981' : doc.status === 'done' ? '#6b7280' : '#f59e0b',
-            }}
+            className={`text-xs px-2 py-0.5 rounded-full ${statusColors[doc.status] || 'u-surface-2 u-text-3'}`}
           >
             {statusLabels[doc.status] || doc.status}
           </span>
-          <span className="text-xs" style={{ color: 'var(--text-muted)' }}>
+          <span className="text-xs u-text-3">
             更新于 {formatDate(doc.updatedAt)}
           </span>
         </div>
@@ -178,13 +170,7 @@ export function WikiDocPage() {
         {!editMode && (
           <button
             onClick={handleEdit}
-            className="px-4 py-1.5 rounded-lg text-sm mb-4"
-            style={{
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-subtle)',
-              cursor: 'pointer',
-            }}
+            className="btn btn-secondary btn-sm mt-4"
           >
             编辑
           </button>
@@ -192,46 +178,36 @@ export function WikiDocPage() {
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6 pt-0">
+      <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
         <div className="flex gap-6" style={{ maxWidth: '900px' }}>
           {/* Main content */}
           <div className="flex-1 min-w-0">
             {editMode ? (
               <div className="space-y-4">
                 <div>
-                  <label className="text-sm mb-1 block" style={{ color: 'var(--text-muted)' }}>
+                  <label className="text-sm mb-1 block u-text-3">
                     标签（逗号分隔的 RequirementsDoc ID）
                   </label>
                   <textarea
                     value={editTags}
                     onChange={(e) => setEditTags(e.target.value)}
                     rows={2}
-                    className="w-full px-3 py-2 rounded-lg text-sm"
-                    style={{
-                      background: 'var(--bg-secondary)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border-subtle)',
-                      resize: 'vertical',
-                    }}
+                    className="input w-full"
+                    style={{ resize: 'vertical' }}
                     placeholder="doc-id-1, doc-id-2"
                   />
                 </div>
 
                 <div>
-                  <label className="text-sm mb-1 block" style={{ color: 'var(--text-muted)' }}>
+                  <label className="text-sm mb-1 block u-text-3">
                     内容（Markdown）
                   </label>
                   <textarea
                     value={editContent}
                     onChange={(e) => setEditContent(e.target.value)}
                     rows={20}
-                    className="w-full px-3 py-2 rounded-lg font-mono text-sm"
-                    style={{
-                      background: 'var(--bg-secondary)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border-subtle)',
-                      resize: 'vertical',
-                    }}
+                    className="input w-full font-mono"
+                    style={{ resize: 'vertical' }}
                   />
                 </div>
 
@@ -239,26 +215,13 @@ export function WikiDocPage() {
                   <button
                     onClick={handleSave}
                     disabled={saving}
-                    className="px-4 py-2 rounded-lg text-sm font-medium"
-                    style={{
-                      background: 'var(--accent-primary)',
-                      color: 'white',
-                      border: 'none',
-                      opacity: saving ? 0.6 : 1,
-                      cursor: saving ? 'not-allowed' : 'pointer',
-                    }}
+                    className="btn btn-primary"
                   >
                     {saving ? '保存中...' : '保存'}
                   </button>
                   <button
                     onClick={handleCancel}
-                    className="px-4 py-2 rounded-lg text-sm"
-                    style={{
-                      background: 'var(--bg-tertiary)',
-                      color: 'var(--text-primary)',
-                      border: '1px solid var(--border-subtle)',
-                      cursor: 'pointer',
-                    }}
+                    className="btn btn-secondary"
                   >
                     取消
                   </button>
@@ -268,8 +231,8 @@ export function WikiDocPage() {
               <Suspense
                 fallback={
                   <div
-                    className="max-w-none whitespace-pre-wrap"
-                    style={{ color: 'var(--text-primary)', lineHeight: 1.8 }}
+                    className="max-w-none whitespace-pre-wrap u-text"
+                    style={{ lineHeight: 1.8 }}
                   >
                     {doc.content}
                   </div>
@@ -285,14 +248,8 @@ export function WikiDocPage() {
             <div className="w-64 flex-shrink-0 space-y-4">
               {/* Linked Docs */}
               {(doc.linkedDocs || []).length > 0 && (
-                <div
-                  className="p-3 rounded-lg"
-                  style={{
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                <div className="card p-3">
+                  <h3 className="mc-block-label" style={{ margin: '0 0 8px' }}>
                     链接的文档
                   </h3>
                   <div className="space-y-1">
@@ -300,8 +257,7 @@ export function WikiDocPage() {
                       <Link
                         key={ld.id}
                         to={`/wiki/${ld.id}`}
-                        className="block text-sm truncate"
-                        style={{ color: '#3b82f6' }}
+                        className="block text-sm truncate u-accent"
                       >
                         {ld.title}
                       </Link>
@@ -311,18 +267,12 @@ export function WikiDocPage() {
               )}
 
               {/* Backlinks */}
-              <div
-                className="p-3 rounded-lg"
-                style={{
-                  background: 'var(--bg-secondary)',
-                  border: '1px solid var(--border-subtle)',
-                }}
-              >
-                <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+              <div className="card p-3">
+                <h3 className="mc-block-label" style={{ margin: '0 0 8px' }}>
                   反向链接
                 </h3>
                 {(doc.backlinks || []).length === 0 ? (
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
+                  <p className="text-xs u-text-3">
                     暂无反向链接
                   </p>
                 ) : (
@@ -331,8 +281,7 @@ export function WikiDocPage() {
                       <Link
                         key={bl.id}
                         to={`/wiki/${bl.id}`}
-                        className="block text-sm truncate"
-                        style={{ color: '#3b82f6' }}
+                        className="block text-sm truncate u-accent"
                       >
                         {bl.title}
                       </Link>
@@ -343,14 +292,8 @@ export function WikiDocPage() {
 
               {/* Wiki Links from [[ ]] syntax */}
               {(doc.wikiLinks || []).length > 0 && (
-                <div
-                  className="p-3 rounded-lg"
-                  style={{
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
-                >
-                  <h3 className="text-sm font-semibold mb-2" style={{ color: 'var(--text-primary)' }}>
+                <div className="card p-3">
+                  <h3 className="mc-block-label" style={{ margin: '0 0 8px' }}>
                     文档内引用
                   </h3>
                   <div className="space-y-1">
@@ -358,8 +301,7 @@ export function WikiDocPage() {
                       <Link
                         key={wl.id}
                         to={`/wiki/${wl.id}`}
-                        className="block text-sm truncate"
-                        style={{ color: '#3b82f6' }}
+                        className="block text-sm truncate u-accent"
                       >
                         {wl.title}
                       </Link>

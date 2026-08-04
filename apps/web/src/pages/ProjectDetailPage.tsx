@@ -398,14 +398,13 @@ export function ProjectDetailPage() {
       <div className="mb-6">
         <button
           onClick={() => navigate('/pmo')}
-          className="text-sm mb-2"
-          style={{ color: 'var(--text-muted)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+          className="btn btn-ghost btn-sm mb-2"
         >
           ← 返回
         </button>
         <div className="flex items-center gap-3 mb-2">
           <PmoNumberBadge pmoNumber={project.pmoNumber} status={project.status as any} size="lg" />
-          <h1 className="text-2xl font-bold">{project.title}</h1>
+          <h1 className="page-title">{project.title}</h1>
         </div>
         <p className="u-text-2">{project.description || '无描述'}</p>
         {project.OKR && (
@@ -476,7 +475,7 @@ export function ProjectDetailPage() {
             {project.channelId && (
               <button
                 onClick={() => navigate(`/channels/${project.channelId}`)}
-                className="px-3 py-1.5 rounded text-xs u-accent-dim u-accent u-hover-bg"
+                className="btn btn-sm u-accent-dim u-accent u-hover-bg"
               >
                 💬 去频道
               </button>
@@ -493,20 +492,20 @@ export function ProjectDetailPage() {
       </div>
 
       {/* 🆕 AC-5: 进度管道（REQ 链路五泳道，WU 小卡可点 → /workunits/:id） */}
-      <div className="u-surface rounded-lg shadow p-4 mb-6">
+      <div className="card p-4 mb-6">
         <h3 className="text-sm font-medium u-text-2 mb-3">🚦 进度管道</h3>
         <ProjectPipeline workunits={pipelineWus} agents={agents} loading={chainLoading} />
       </div>
 
       {/* 📚 知识库（AC-5：卡片点开抽屉阅读器） */}
-      <div className="u-surface rounded-lg shadow p-4 mb-6">
+      <div className="card p-4 mb-6">
         <h3 className="text-sm font-medium u-text-2 mb-3">📚 知识库 ({documents.length})</h3>
         {documents.length === 0 ? (
           <div className="text-sm u-text-3">暂无文档产出</div>
         ) : (
           <div className="grid grid-cols-3 gap-2">
             {/* requirement */}
-            <div className="p-3 rounded-lg u-warn-dim">
+            <div className="p-3 rounded u-warn-dim">
               <div className="text-xs u-warn mb-2">📄 需求文档</div>
               <div className="space-y-1">
                 {documents.filter(d => d.type === 'requirement').map(doc => (
@@ -518,7 +517,7 @@ export function ProjectDetailPage() {
               </div>
             </div>
             {/* design/spec */}
-            <div className="p-3 rounded-lg u-accent-dim">
+            <div className="p-3 rounded u-accent-dim">
               <div className="text-xs u-accent mb-2">📐 设计/规范</div>
               <div className="space-y-1">
                 {documents.filter(d => d.type === 'design' || d.type === 'spec').map(doc => (
@@ -530,7 +529,7 @@ export function ProjectDetailPage() {
               </div>
             </div>
             {/* execution/archive */}
-            <div className="p-3 rounded-lg u-accent-dim">
+            <div className="p-3 rounded u-accent-dim">
               <div className="text-xs u-accent mb-2">📦 执行/归档</div>
               <div className="space-y-1">
                 {documents.filter(d => ['execution', 'archive'].includes(d.type)).map(doc => (
@@ -547,7 +546,7 @@ export function ProjectDetailPage() {
 
       {/* 🆕 PMO-b: 交付（台账 + human-only 合并 + F6-c 缺口行动） */}
       {delivery && (
-        <div className="u-surface rounded-lg shadow p-4 mb-6">
+        <div className="card p-4 mb-6">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-sm font-medium u-text-2">📦 交付</h3>
             {delivery.deliveredAt ? (
@@ -601,7 +600,7 @@ export function ProjectDetailPage() {
                       {/* AC-5: gap.id 即 WU id，直跳 WU 详情 */}
                       <button
                         onClick={() => navigate(`/workunits/${gap.id}`)}
-                        className="px-2 py-1 rounded u-surface-2 u-text-2 u-hover-bg"
+                        className="btn btn-sm u-surface-2 u-text-2 u-hover-bg"
                       >
                         查看 WU ›
                       </button>
@@ -609,7 +608,7 @@ export function ProjectDetailPage() {
                         <button
                           onClick={() => handleGapAction(gap, 'verify')}
                           disabled={!!gapActionPending[`${gap.id}:verify`]}
-                          className="px-2 py-1 rounded u-accent-dim u-accent u-hover-bg disabled:opacity-50"
+                          className="btn btn-sm u-accent-dim u-accent u-hover-bg"
                         >
                           {gapActionPending[`${gap.id}:verify`] ? '验证中...' : '重跑验证'}
                         </button>
@@ -618,7 +617,7 @@ export function ProjectDetailPage() {
                         <button
                           onClick={() => handleGapAction(gap, 'dispatchReview')}
                           disabled={!!gapActionPending[`${gap.id}:dispatchReview`]}
-                          className="px-2 py-1 rounded u-accent-dim u-accent u-hover-bg disabled:opacity-50"
+                          className="btn btn-sm u-accent-dim u-accent u-hover-bg"
                         >
                           {gapActionPending[`${gap.id}:dispatchReview`] ? '派发中...' : '派发评审'}
                         </button>
@@ -627,7 +626,7 @@ export function ProjectDetailPage() {
                         <button
                           onClick={() => handleGapAction(gap, 'reviewPassed')}
                           disabled={!!gapActionPending[`${gap.id}:reviewPassed`]}
-                          className="px-2 py-1 rounded u-ok-dim u-ok u-hover-bg disabled:opacity-50"
+                          className="btn btn-sm u-ok-dim u-ok u-hover-bg"
                         >
                           {gapActionPending[`${gap.id}:reviewPassed`] ? '确认中...' : '人工确认'}
                         </button>
@@ -654,7 +653,7 @@ export function ProjectDetailPage() {
               <button
                 onClick={handleDeliver}
                 disabled={delivering || !!delivery.deliveredAt}
-                className="px-4 py-2 u-ok-bg u-on-accent rounded u-hover-bg disabled:opacity-50"
+                className="btn u-ok-bg u-on-accent u-hover-bg"
               >
                 {delivering ? '交付中...' : delivery.deliveredAt ? '已交付' : '交付合并'}
               </button>
@@ -689,7 +688,7 @@ export function ProjectDetailPage() {
       )}
 
       {/* 📈 项目进展（AS-010 增强） */}
-      <div className="u-surface rounded-lg shadow p-4 mb-6">
+      <div className="card p-4 mb-6">
         <h3 className="text-sm font-medium u-text-2 mb-3">📈 项目进展</h3>
         
         {/* 主进度条 */}
@@ -699,8 +698,8 @@ export function ProjectDetailPage() {
               <div 
                 className={`h-full transition-all ${
                   progressStats.progress === 100 ? 'u-ok-bg' :
-                  progressStats.progress > 50 ? 'bg-gradient-to-r from-blue-400 to-blue-600' :
-                  'bg-gradient-to-r from-yellow-400 to-yellow-500'
+                  progressStats.progress > 50 ? 'u-accent-bg' :
+                  'u-warn-bg'
                 }`}
                 style={{ width: `${progressStats.progress}%` }}
               />
@@ -712,50 +711,50 @@ export function ProjectDetailPage() {
         {/* 统计卡片：老 Task 链路五卡 / WU 链路六卡（tasks 为空且有台账时） */}
         {tasks.length === 0 && delivery ? (
           <div className="grid grid-cols-6 gap-2">
-            <div className="p-2 rounded-lg u-ok-dim text-center">
+            <div className="p-2 rounded u-ok-dim text-center">
               <div className="text-lg font-bold u-ok">{delivery.wu.finished}</div>
               <div className="text-xs u-text-2">✅ 完成</div>
             </div>
-            <div className="p-2 rounded-lg u-warn-dim text-center">
+            <div className="p-2 rounded u-warn-dim text-center">
               <div className="text-lg font-bold u-warn">{delivery.wu.byStatus.inReview}</div>
               <div className="text-xs u-text-2">👀 待验收</div>
             </div>
-            <div className="p-2 rounded-lg u-accent-dim text-center">
+            <div className="p-2 rounded u-accent-dim text-center">
               <div className="text-lg font-bold u-accent">{delivery.wu.byStatus.active}</div>
               <div className="text-xs u-text-2">🔄 进行中</div>
             </div>
-            <div className="p-2 rounded-lg u-surface-2 text-center">
+            <div className="p-2 rounded u-surface-2 text-center">
               <div className="text-lg font-bold u-text-2">{delivery.wu.byStatus.unassigned}</div>
               <div className="text-xs u-text-2">⏳ 待领取</div>
             </div>
-            <div className="p-2 rounded-lg u-err-dim text-center">
+            <div className="p-2 rounded u-err-dim text-center">
               <div className="text-lg font-bold u-err">{delivery.wu.byStatus.blocked}</div>
               <div className="text-xs u-text-2">🚫 阻塞</div>
             </div>
-            <div className="p-2 rounded-lg u-accent-dim text-center">
+            <div className="p-2 rounded u-accent-dim text-center">
               <div className="text-lg font-bold u-accent">{delivery.tokens.toLocaleString()}</div>
               <div className="text-xs u-text-2">💰 Token</div>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-5 gap-2">
-            <div className="p-2 rounded-lg u-ok-dim text-center">
+            <div className="p-2 rounded u-ok-dim text-center">
               <div className="text-lg font-bold u-ok">{progressStats.completed}</div>
               <div className="text-xs u-text-2">✅ 完成</div>
             </div>
-            <div className="p-2 rounded-lg u-accent-dim text-center">
+            <div className="p-2 rounded u-accent-dim text-center">
               <div className="text-lg font-bold u-accent">{progressStats.inProgress}</div>
               <div className="text-xs u-text-2">🔄 进行中</div>
             </div>
-            <div className="p-2 rounded-lg u-surface-2 text-center">
+            <div className="p-2 rounded u-surface-2 text-center">
               <div className="text-lg font-bold u-text-2">{progressStats.pending}</div>
               <div className="text-xs u-text-2">⏳ 待领取</div>
             </div>
-            <div className="p-2 rounded-lg u-err-dim text-center">
+            <div className="p-2 rounded u-err-dim text-center">
               <div className="text-lg font-bold u-err">{progressStats.blocked}</div>
               <div className="text-xs u-text-2">🚫 阻塞</div>
             </div>
-            <div className="p-2 rounded-lg u-accent-dim text-center">
+            <div className="p-2 rounded u-accent-dim text-center">
               <div className="text-lg font-bold u-accent">{tokenStats.toLocaleString()}</div>
               <div className="text-xs u-text-2">💰 Token</div>
             </div>
@@ -777,7 +776,7 @@ export function ProjectDetailPage() {
 
       {/* 📋 任务看板 */}
       {tasks.length > 0 && (
-        <div className="u-surface rounded-lg shadow p-4 mb-6">
+        <div className="card p-4 mb-6">
           <h3 className="text-sm font-medium u-text-2 mb-3">📋 任务看板 ({tasks.length})</h3>
           
           {/* 🆕 AS-018: Iron Law 警告横幅 */}
@@ -792,7 +791,7 @@ export function ProjectDetailPage() {
           
           <div className="grid grid-cols-4 gap-2">
             {/* 待领取 */}
-            <div className="p-3 rounded-lg u-surface-2">
+            <div className="p-3 rounded u-surface-2">
               <div className="text-xs u-text-2 mb-2">待领取 ({tasksByStatus.pending.length})</div>
               <div className="space-y-2">
                 {tasksByStatus.pending.map(task => (
@@ -804,7 +803,7 @@ export function ProjectDetailPage() {
               </div>
             </div>
             {/* 进行中 */}
-            <div className="p-3 rounded-lg u-accent-dim">
+            <div className="p-3 rounded u-accent-dim">
               <div className="text-xs u-accent mb-2">进行中 ({tasksByStatus.inProgress.length})</div>
               <div className="space-y-2">
                 {tasksByStatus.inProgress.map(task => (
@@ -816,7 +815,7 @@ export function ProjectDetailPage() {
               </div>
             </div>
             {/* 已完成 */}
-            <div className="p-3 rounded-lg u-ok-dim">
+            <div className="p-3 rounded u-ok-dim">
               <div className="text-xs u-ok mb-2">已完成 ({tasksByStatus.completed.length})</div>
               <div className="space-y-2">
                 {tasksByStatus.completed.map(task => (
@@ -828,7 +827,7 @@ export function ProjectDetailPage() {
               </div>
             </div>
             {/* 阻塞 */}
-            <div className="p-3 rounded-lg u-err-dim">
+            <div className="p-3 rounded u-err-dim">
               <div className="text-xs u-err mb-2">阻塞 ({tasksByStatus.blocked.length})</div>
               <div className="space-y-2">
                 {tasksByStatus.blocked.map(task => (
@@ -845,7 +844,7 @@ export function ProjectDetailPage() {
 
       {/* 📦 执行历史（AS-010 增强） */}
       {project.Execution && project.Execution.length > 0 && (
-        <div className="u-surface rounded-lg shadow p-4 mb-6">
+        <div className="card p-4 mb-6">
           <h3 className="text-sm font-medium u-text-2 mb-3">📦 执行历史 ({project.Execution.length})</h3>
           <div className="space-y-3">
             {project.Execution.slice(0, 5).map(exec => {
@@ -884,7 +883,7 @@ export function ProjectDetailPage() {
                         <div className="flex-1 u-surface-2 rounded-full h-2">
                           <div 
                             className={`h-2 rounded-full transition-all ${
-                              exec.status === 'running' ? 'bg-gradient-to-r from-blue-400 to-blue-600' :
+                              exec.status === 'running' ? 'u-accent-bg' :
                               exec.status === 'failed' ? 'u-err-bg' : 'u-ok-bg'
                             }`}
                             style={{ width: `${progressPercent}%` }}
@@ -921,7 +920,7 @@ export function ProjectDetailPage() {
       )}
 
       {/* 🆕 AC-5: 项目动态（WU 时间戳 + deliveredAt 前端拼装，倒序 ≤20 条） */}
-      <div className="u-surface rounded-lg shadow p-4 mb-6">
+      <div className="card p-4 mb-6">
         <h3 className="text-sm font-medium u-text-2 mb-3">🕐 项目动态</h3>
         <ProjectActivity entries={timelineEntries} />
       </div>
@@ -930,13 +929,13 @@ export function ProjectDetailPage() {
       <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setShowVscodeGuide(true)}
-          className="px-4 py-2 u-accent-bg u-on-accent rounded u-hover-bg"
+          className="btn btn-primary"
         >
           VS Code 打开
         </button>
         <button
           onClick={() => setShowCloudIdeGuide(true)}
-          className="px-4 py-2 u-accent-bg u-on-accent rounded u-hover-bg"
+          className="btn btn-primary"
         >
           ☁️ Cloud IDE
         </button>
@@ -944,14 +943,14 @@ export function ProjectDetailPage() {
           <button
             onClick={handleArchive}
             disabled={archiveLoading}
-            className="px-4 py-2 u-ok-bg u-on-accent rounded u-hover-bg disabled:opacity-50"
+            className="btn u-ok-bg u-on-accent u-hover-bg"
           >
             {archiveLoading ? '归档中...' : '📦 归档知识'}
           </button>
         )}
         <button
           onClick={handleCopyPath}
-          className="px-4 py-2 u-surface-2 u-text rounded u-hover-bg"
+          className="btn btn-secondary"
         >
           {copySuccess ? '✓ 已复制' : '📋 复制路径'}
         </button>
@@ -962,25 +961,25 @@ export function ProjectDetailPage() {
 
       {/* VS Code 弹窗 */}
       {showVscodeGuide && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black/50">
-          <div className="u-surface rounded-xl max-w-md w-full shadow-2xl">
-            <div className="p-4 border-b">
-              <h3 className="text-lg font-bold">📋 VS Code Remote SSH</h3>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 448 }}>
+            <div className="modal-header">
+              <h3 className="modal-title">📋 VS Code Remote SSH</h3>
             </div>
-            <div className="p-4 space-y-3">
+            <div className="modal-body space-y-3">
               {vscodeSteps.map((step, i) => (
                 <div key={i} className="flex items-center gap-2 p-2 u-surface-2 rounded">
                   <span className="w-6 h-6 u-accent-bg u-on-accent rounded-full flex items-center justify-center text-sm">{step.step}</span>
                   <span className="text-sm flex-1">{step.text}</span>
-                  <button onClick={() => copyStep(step.text, i)} className="px-2 py-1 text-xs rounded u-surface-2 u-hover-bg">
+                  <button onClick={() => copyStep(step.text, i)} className="btn btn-sm btn-secondary">
                     {copiedStep === i ? '✓' : '复制'}
                   </button>
                 </div>
               ))}
               <div className="text-xs p-2 rounded u-accent-dim u-accent">💡 提示：连接成功后 File → Open Folder → 粘贴路径</div>
             </div>
-            <div className="p-4 border-t flex justify-end">
-              <button onClick={() => setShowVscodeGuide(false)} className="px-4 py-2 u-surface-2 rounded u-hover-bg">关闭</button>
+            <div className="modal-footer">
+              <button onClick={() => setShowVscodeGuide(false)} className="btn btn-secondary">关闭</button>
             </div>
           </div>
         </div>
@@ -988,25 +987,25 @@ export function ProjectDetailPage() {
 
       {/* Cloud IDE 弹窗 */}
       {showCloudIdeGuide && (
-        <div className="fixed inset-0 flex items-center justify-center z-50 p-4 bg-black/50">
-          <div className="u-surface rounded-xl max-w-md w-full shadow-2xl">
-            <div className="p-4 border-b">
-              <h3 className="text-lg font-bold">☁️ Cloud IDE (浏览器中的 VS Code)</h3>
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 448 }}>
+            <div className="modal-header">
+              <h3 className="modal-title">☁️ Cloud IDE (浏览器中的 VS Code)</h3>
             </div>
-            <div className="p-4 space-y-3">
+            <div className="modal-body space-y-3">
               {cloudIdeSteps.map((step, i) => (
                 <div key={i} className="flex items-center gap-2 p-2 u-surface-2 rounded">
                   <span className="w-6 h-6 u-accent-bg u-on-accent rounded-full flex items-center justify-center text-sm">{step.step}</span>
                   <span className="text-sm flex-1">{step.text}</span>
-                  <button onClick={() => copyStep(step.text, i)} className="px-2 py-1 text-xs rounded u-surface-2 u-hover-bg">
+                  <button onClick={() => copyStep(step.text, i)} className="btn btn-sm btn-secondary">
                     {copiedStep === i ? '✓' : '复制'}
                   </button>
                 </div>
               ))}
               <div className="text-xs p-2 rounded u-accent-dim u-accent">💡 Cloud IDE 内置终端和浏览器预览</div>
             </div>
-            <div className="p-4 border-t flex justify-end">
-              <button onClick={() => setShowCloudIdeGuide(false)} className="px-4 py-2 u-surface-2 rounded u-hover-bg">关闭</button>
+            <div className="modal-footer">
+              <button onClick={() => setShowCloudIdeGuide(false)} className="btn btn-secondary">关闭</button>
             </div>
           </div>
         </div>

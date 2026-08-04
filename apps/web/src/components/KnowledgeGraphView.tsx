@@ -85,9 +85,9 @@ const NODE_COLORS: Record<string, string> = {
  * 复杂度颜色映射
  */
 const COMPLEXITY_COLORS: Record<string, string> = {
-  simple: '#10b981',
-  moderate: '#f59e0b',
-  complex: '#ef4444',
+  simple: 'var(--success)',
+  moderate: 'var(--warning)',
+  complex: 'var(--error)',
 };
 
 /**
@@ -106,26 +106,26 @@ function CustomKnowledgeNode({ data }: { data: any }) {
     isDiffFaded,
   } = data;
 
-  let borderColor = NODE_COLORS[nodeType] || '#6b7280';
-  let bgColor = 'rgba(15, 23, 42, 0.9)';
+  let borderColor = NODE_COLORS[nodeType] || 'var(--text-muted)';
+  let bgColor = 'var(--bg-elevated)';
   let opacity = 1;
 
   if (isDiffChanged) {
-    borderColor = '#ef4444';
-    bgColor = 'rgba(239, 68, 68, 0.1)';
+    borderColor = 'var(--error)';
+    bgColor = 'var(--error-dim)';
   } else if (isDiffAffected) {
-    borderColor = '#f59e0b';
-    bgColor = 'rgba(245, 158, 11, 0.1)';
+    borderColor = 'var(--warning)';
+    bgColor = 'var(--warning-dim)';
   } else if (isDiffFaded) {
     opacity = 0.3;
   }
 
   if (isSelected) {
-    borderColor = '#00d4ff';
+    borderColor = 'var(--accent-primary)';
   }
 
   if (isHighlighted) {
-    bgColor = 'rgba(0, 212, 255, 0.1)';
+    bgColor = 'var(--accent-dim)';
   }
 
   return (
@@ -141,13 +141,13 @@ function CustomKnowledgeNode({ data }: { data: any }) {
         fontSize: '12px',
       }}
     >
-      <div style={{ fontWeight: 600, color: '#e6edf3', marginBottom: '4px' }}>
+      <div style={{ fontWeight: 600, color: 'var(--text-primary)', marginBottom: '4px' }}>
         {label}
       </div>
-      <div style={{ color: '#8b949e', fontSize: '10px', marginBottom: '4px' }}>
+      <div style={{ color: 'var(--text-secondary)', fontSize: '10px', marginBottom: '4px' }}>
         {nodeType}
       </div>
-      <div style={{ color: '#6e7681', fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div style={{ color: 'var(--text-tertiary)', fontSize: '10px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {summary}
       </div>
       <div style={{ marginTop: '4px', display: 'flex', gap: '4px' }}>
@@ -156,8 +156,8 @@ function CustomKnowledgeNode({ data }: { data: any }) {
             fontSize: '9px',
             padding: '2px 4px',
             borderRadius: '4px',
-            background: COMPLEXITY_COLORS[complexity] || '#6b7280',
-            color: 'white',
+            background: COMPLEXITY_COLORS[complexity] || 'var(--text-muted)',
+            color: 'var(--bg-primary)',
           }}
         >
           {complexity}
@@ -317,10 +317,10 @@ function KnowledgeGraphViewInner({
       label: edge.type,
       animated: edge.type === 'calls',
       style: {
-        stroke: 'rgba(212, 165, 116, 0.3)',
+        stroke: 'var(--border-default)',
         strokeWidth: 1 + edge.weight,
       },
-      labelStyle: { fill: '#a39787', fontSize: 10 },
+      labelStyle: { fill: 'var(--text-tertiary)', fontSize: 10 },
     }));
 
     return applySimpleLayout(flowNodes, flowEdges);

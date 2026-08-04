@@ -50,7 +50,7 @@ describe('RequirementChainPanel', () => {
     const onClose = vi.fn();
     render(<RequirementChainPanel reqId="REQ-0042" onClose={onClose} />);
     await waitFor(() => screen.getByText(/忘记密码流程修复/));
-    const btn = screen.getByRole('button', { name: /✕/ });
+    const btn = screen.getByRole('button', { name: /关闭|✕/ });
     fireEvent.click(btn);
     expect(onClose).toHaveBeenCalled();
   });

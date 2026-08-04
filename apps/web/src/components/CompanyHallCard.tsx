@@ -32,17 +32,17 @@ export interface HallCardProps {
 
 const variantStyles = {
   default: {
-    background: 'linear-gradient(to right, rgba(99, 102, 241, 0.05), rgba(139, 92, 246, 0.05))',
+    background: 'var(--accent-dim)',
     border: '2px solid transparent',
     hoverBorder: '2px solid var(--accent-primary)',
   },
   primary: {
-    background: 'linear-gradient(to right, rgba(16, 185, 129, 0.1), rgba(5, 150, 105, 0.1))',
+    background: 'var(--success-dim)',
     border: '2px solid var(--success)',
     hoverBorder: '2px solid var(--success)',
   },
   accent: {
-    background: 'linear-gradient(to right, rgba(245, 158, 11, 0.1), rgba(217, 119, 6, 0.1))',
+    background: 'var(--warning-dim)',
     border: '2px solid transparent', // 默认无边框
     hoverBorder: '2px solid transparent',
   },
@@ -52,7 +52,7 @@ const colorMap = {
   default: 'var(--text-secondary)',
   success: 'var(--success)',
   warning: 'var(--warning)',
-  danger: 'var(--danger)',
+  danger: 'var(--error)',
 };
 
 export function CompanyHallCard({
@@ -148,24 +148,16 @@ export function CompanyHallCard({
           {to ? (
             <Link
               to={to}
-              className="btn w-full text-center"
-              style={{ 
-                background: 'var(--accent-primary)',
-                color: '#fff',
-                padding: '8px 16px',
-              }}
+              className="btn btn-primary w-full text-center"
+              style={{ padding: '8px 16px' }}
             >
               {action.label} →
             </Link>
           ) : (
             <button
               onClick={action.onClick}
-              className="btn w-full"
-              style={{ 
-                background: 'var(--accent-primary)',
-                color: '#fff',
-                padding: '8px 16px',
-              }}
+              className="btn btn-primary w-full"
+              style={{ padding: '8px 16px' }}
             >
               {action.label} →
             </button>
@@ -189,7 +181,7 @@ export function CompanyHallCard({
     background: style.background,
     border: showBorder && variant === 'accent' ? '2px solid var(--warning)' : style.border,
     transform: isPressed ? 'scale(0.98)' : 'scale(1)',
-    boxShadow: isPressed ? '0 2px 8px rgba(0, 0, 0, 0.1)' : 'none',
+    boxShadow: isPressed ? 'var(--shadow-sm)' : 'none',
     transition: 'all 0.2s ease',
   };
 

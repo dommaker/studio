@@ -30,9 +30,9 @@ const statusLabels: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
-  draft: '#f59e0b',
-  confirmed: '#10b981',
-  done: '#6b7280',
+  draft: 'u-warn-dim',
+  confirmed: 'u-ok-dim',
+  done: 'u-surface-2 u-text-3',
 };
 
 export function WikiPage() {
@@ -127,11 +127,9 @@ export function WikiPage() {
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       {/* Header */}
-      <div className="p-6 pb-0">
-        <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--text-primary)' }}>
-            文档
-          </h1>
+      <div className="px-8 py-6" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <div className="flex items-center justify-between">
+          <h1 className="page-title">文档</h1>
           <div className="flex gap-2">
             <ManualTaskButton
               label="🔍 语义审查"
@@ -147,12 +145,7 @@ export function WikiPage() {
             />
             <button
               onClick={handleToggleGraph}
-              className="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-              style={{
-                background: viewMode === 'graph' ? 'var(--accent-primary)' : 'var(--bg-tertiary)',
-                color: viewMode === 'graph' ? 'white' : 'var(--text-primary)',
-                border: '1px solid var(--border-subtle)',
-              }}
+              className={viewMode === 'graph' ? 'btn btn-primary' : 'btn btn-secondary'}
             >
               {viewMode === 'graph' ? '列表' : '图谱'}
             </button>
@@ -166,31 +159,25 @@ export function WikiPage() {
             placeholder="搜索文档标题或内容..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full px-4 py-2 rounded-lg mb-4"
-            style={{
-              background: 'var(--bg-secondary)',
-              color: 'var(--text-primary)',
-              border: '1px solid var(--border-subtle)',
-              outline: 'none',
-            }}
+            className="input w-full mt-4"
           />
         )}
       </div>
 
       {/* Content */}
-      <div className="flex-1 overflow-auto p-6 pt-0">
+      <div className="flex-1 overflow-auto px-8 pb-8 pt-6">
         {viewMode === 'graph' ? (
           graphLoading ? (
             <div className="flex items-center justify-center h-full">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 u-border-2" />
             </div>
           ) : graphData ? (
-            <div className="h-full rounded-lg overflow-hidden" style={{ border: '1px solid var(--border-subtle)' }}>
+            <div className="h-full rounded overflow-hidden border u-border">
               <KnowledgeGraphView graph={graphData} />
             </div>
           ) : (
             <div className="flex items-center justify-center h-full">
-              <p style={{ color: 'var(--text-muted)' }}>暂无图谱数据</p>
+              <p className="u-text-3">暂无图谱数据</p>
             </div>
           )
         ) : loading ? (
@@ -199,7 +186,7 @@ export function WikiPage() {
           </div>
         ) : docs.length === 0 ? (
           <div className="flex items-center justify-center h-64">
-            <p style={{ color: 'var(--text-muted)' }}>
+            <p className="u-text-3">
               {search ? '没有匹配的文档' : '暂无需求文档'}
             </p>
           </div>
@@ -212,42 +199,30 @@ export function WikiPage() {
                 <div
                   key={doc.id}
                   onClick={() => navigate(`/wiki/${doc.id}`)}
-                  className="p-4 rounded-lg cursor-pointer transition-all hover:opacity-80"
-                  style={{
-                    background: 'var(--bg-secondary)',
-                    border: '1px solid var(--border-subtle)',
-                  }}
+                  className="card p-4 cursor-pointer"
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>
+                      <h3 className="font-semibold truncate u-text">
                         {doc.title}
                       </h3>
                       <div className="flex items-center gap-2 mt-2 flex-wrap">
                         <span
-                          className="text-xs px-2 py-0.5 rounded-full"
-                          style={{
-                            background: `${statusColors[doc.status] || '#6b7280'}20`,
-                            color: statusColors[doc.status] || '#6b7280',
-                          }}
+                          className={`text-xs px-2 py-0.5 rounded-full ${statusColors[doc.status] || 'u-surface-2 u-text-3'}`}
                         >
                           {statusLabels[doc.status] || doc.status}
                         </span>
                         {tags.map((tag: string, i: number) => (
                           <span
                             key={i}
-                            className="text-xs px-2 py-0.5 rounded-full"
-                            style={{
-                              background: 'var(--bg-tertiary)',
-                              color: 'var(--text-muted)',
-                            }}
+                            className="text-xs px-2 py-0.5 rounded-full u-surface-2 u-text-3"
                           >
                             {tag}
                           </span>
                         ))}
                       </div>
                     </div>
-                    <span className="text-xs ml-4 whitespace-nowrap" style={{ color: 'var(--text-muted)' }}>
+                    <span className="text-xs ml-4 whitespace-nowrap u-text-3">
                       {formatDate(doc.updatedAt)}
                     </span>
                   </div>

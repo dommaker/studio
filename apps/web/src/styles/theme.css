@@ -15,11 +15,11 @@
   --bg-hover: #101014;
   --bg-active: #0e1512;
 
-  /* 文字 */
+  /* 文字（2026-08 提对比度：secondary/tertiary/muted 原值在近黑底上仅 2.5–5.3:1，弱化文字看不清） */
   --text-primary: #d7dde3;
-  --text-secondary: #7d8590;
-  --text-tertiary: #5a616b;
-  --text-muted: #4a5058;
+  --text-secondary: #8b949f;
+  --text-tertiary: #7a838e;
+  --text-muted: #6e7782;
 
   /* 品牌色 - 磷光青绿（终端感） */
   --accent-primary: #2ee6a8;
@@ -1503,8 +1503,5 @@ body {
 }
 
 .panel-error {
-  color: #ef4444;
-}
-rror {
-  color: #ef4444;
+  color: var(--error);
 }

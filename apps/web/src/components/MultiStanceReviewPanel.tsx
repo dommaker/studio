@@ -4,23 +4,24 @@ import { ReviewOpinionCard } from './ReviewOpinionCard';
 import { StanceBadge } from './StanceBadge';
 
 // 立场配置（与 DiscussionDriver 统一）
+// 颜色按立场分组归并到语义 token（同 StanceBadge：赞成方=success / 反对方=error / 中立=text-secondary）
 const STANCES = {
-  advocate: { name: '倡导者', color: '#4CAF50', icon: '📢', desc: '论证方案可行性，提供证据' },
-  skeptic: { name: '质疑者', color: '#F44336', icon: '🔍', desc: '找出潜在问题，提出替代方案' },
-  neutral: { name: '中立者', color: '#2196F3', icon: '⚖️', desc: '客观分析各方观点，指出风险' },
-  pragmatist: { name: '实用主义者', color: '#FF9800', icon: '🔧', desc: '关注实施成本、时间线' },
-  visionary: { name: '远见者', color: '#9C27B0', icon: '🚀', desc: '关注长期影响、战略价值' },
-  executor: { name: '执行者', color: '#607D8B', icon: '⚙️', desc: '关注任务分配、验收标准' },
-  reviewer: { name: '审查者', color: '#E91E63', icon: '📋', desc: '确保质量合规性' },
-  architect: { name: '架构师', color: '#673AB7', icon: '🏗️', desc: '评估技术方案架构影响' },
+  advocate: { name: '倡导者', color: 'var(--success)', icon: '📢', desc: '论证方案可行性，提供证据' },
+  skeptic: { name: '质疑者', color: 'var(--error)', icon: '🔍', desc: '找出潜在问题，提出替代方案' },
+  neutral: { name: '中立者', color: 'var(--text-secondary)', icon: '⚖️', desc: '客观分析各方观点，指出风险' },
+  pragmatist: { name: '实用主义者', color: 'var(--success)', icon: '🔧', desc: '关注实施成本、时间线' },
+  visionary: { name: '远见者', color: 'var(--success)', icon: '🚀', desc: '关注长期影响、战略价值' },
+  executor: { name: '执行者', color: 'var(--success)', icon: '⚙️', desc: '关注任务分配、验收标准' },
+  reviewer: { name: '审查者', color: 'var(--error)', icon: '📋', desc: '确保质量合规性' },
+  architect: { name: '架构师', color: 'var(--error)', icon: '🏗️', desc: '评估技术方案架构影响' },
 };
 
 // 审核结果配置
 const REVIEW_RESULTS = {
-  approve: { label: '支持', icon: '✅', color: '#4CAF50' },
-  reject: { label: '反对', icon: '❌', color: '#F44336' },
-  neutral: { label: '中立', icon: '⚖️', color: '#2196F3' },
-  conditional: { label: '有条件支持', icon: '⚠️', color: '#FF9800' },
+  approve: { label: '支持', icon: '✅', color: 'var(--success)' },
+  reject: { label: '反对', icon: '❌', color: 'var(--error)' },
+  neutral: { label: '中立', icon: '⚖️', color: 'var(--text-secondary)' },
+  conditional: { label: '有条件支持', icon: '⚠️', color: 'var(--warning)' },
 };
 
 export interface ReviewOpinion {
@@ -123,8 +124,8 @@ export function MultiStanceReviewPanel({
           <span
             className="px-3 py-1 rounded text-sm"
             style={{
-              background: review.status === 'reviewing' ? '#FF980020' : '#4CAF5020',
-              color: review.status === 'reviewing' ? '#FF9800' : '#4CAF50',
+              background: review.status === 'reviewing' ? 'var(--warning-dim)' : 'var(--success-dim)',
+              color: review.status === 'reviewing' ? 'var(--warning)' : 'var(--success)',
             }}
           >
             {review.status === 'reviewing' ? '审核中' : review.status === 'decided' ? '已决策' : '待审核'}
@@ -150,17 +151,17 @@ export function MultiStanceReviewPanel({
           <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>审核数: </span>
           <span className="font-bold">{stats.total}</span>
         </div>
-        <div className="stat-card" style={{ background: '#4CAF5020' }}>
-          <span className="text-sm" style={{ color: '#4CAF50' }}>✅ 支持: {stats.approve}</span>
+        <div className="stat-card" style={{ background: 'var(--success-dim)' }}>
+          <span className="text-sm" style={{ color: 'var(--success)' }}>✅ 支持: {stats.approve}</span>
         </div>
-        <div className="stat-card" style={{ background: '#F4433620' }}>
-          <span className="text-sm" style={{ color: '#F44336' }}>❌ 反对: {stats.reject}</span>
+        <div className="stat-card" style={{ background: 'var(--error-dim)' }}>
+          <span className="text-sm" style={{ color: 'var(--error)' }}>❌ 反对: {stats.reject}</span>
         </div>
-        <div className="stat-card" style={{ background: '#2196F320' }}>
-          <span className="text-sm" style={{ color: '#2196F3' }}>⚖️ 中立: {stats.neutral}</span>
+        <div className="stat-card" style={{ background: 'var(--bg-tertiary)' }}>
+          <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>⚖️ 中立: {stats.neutral}</span>
         </div>
-        <div className="stat-card" style={{ background: '#FF980020' }}>
-          <span className="text-sm" style={{ color: '#FF9800' }}>⚠️ 有条件: {stats.conditional}</span>
+        <div className="stat-card" style={{ background: 'var(--warning-dim)' }}>
+          <span className="text-sm" style={{ color: 'var(--warning)' }}>⚠️ 有条件: {stats.conditional}</span>
         </div>
       </div>
 
@@ -270,12 +271,12 @@ export function MultiStanceReviewPanel({
         {/* 决策提示 */}
         <div>
           {hasIssues && (
-            <div className="text-sm" style={{ color: '#F44336' }}>
+            <div className="text-sm" style={{ color: 'var(--error)' }}>
               ⚠️ 存在反对意见，请谨慎决策
             </div>
           )}
           {canAdopt && (
-            <div className="text-sm" style={{ color: '#4CAF50' }}>
+            <div className="text-sm" style={{ color: 'var(--success)' }}>
               ✅ 所有审核者支持，可以采纳
             </div>
           )}
@@ -317,7 +318,7 @@ export function MultiStanceReviewPanel({
                   <button
                     onClick={() => handleDecision('adopt')}
                     className="p-3 rounded flex items-center gap-2"
-                    style={{ background: '#4CAF5020', border: '2px solid #4CAF50' }}
+                    style={{ background: 'var(--success-dim)', border: '2px solid var(--success)' }}
                     disabled={hasIssues}
                   >
                     <span>✅</span>
@@ -326,7 +327,7 @@ export function MultiStanceReviewPanel({
                   <button
                     onClick={() => handleDecision('adopt-with-mods')}
                     className="p-3 rounded flex items-center gap-2"
-                    style={{ background: '#FF980020', border: '2px solid #FF9800' }}
+                    style={{ background: 'var(--warning-dim)', border: '2px solid var(--warning)' }}
                   >
                     <span>⚠️</span>
                     <span>修改后采纳</span>
@@ -334,7 +335,7 @@ export function MultiStanceReviewPanel({
                   <button
                     onClick={() => handleDecision('reject')}
                     className="p-3 rounded flex items-center gap-2"
-                    style={{ background: '#F4433620', border: '2px solid #F44336' }}
+                    style={{ background: 'var(--error-dim)', border: '2px solid var(--error)' }}
                   >
                     <span>❌</span>
                     <span>拒绝方案</span>
@@ -342,7 +343,7 @@ export function MultiStanceReviewPanel({
                   <button
                     onClick={() => handleDecision('continue')}
                     className="p-3 rounded flex items-center gap-2"
-                    style={{ background: '#2196F320', border: '2px solid #2196F3' }}
+                    style={{ background: 'var(--accent-dim)', border: '2px solid var(--accent-primary)' }}
                   >
                     <span>🔍</span>
                     <span>继续审核</span>

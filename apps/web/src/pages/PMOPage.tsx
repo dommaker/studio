@@ -8,7 +8,6 @@ import { knowledgeApi } from '../api/knowledge';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { toast } from '../utils/toast';
 import { Select } from '../components/ui';
-import '../styles/theme.css';
 
 // 🆕 AS-016: 获取当前季度
 function getCurrentQuarter(): string {
@@ -279,18 +278,6 @@ export function PMOPage({ companyId }: PMOPageProps) {
     }
   };
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      running: '#2196F3',
-      pending: '#FF9800',
-      succeeded: '#4CAF50',
-      completed: '#4CAF50',
-      failed: '#F44336',
-      active: '#2196F3',
-    };
-    return colors[status] || '#9E9E9E';
-  };
-
   const loadChannels = async () => {
     try {
       const res = await channelApi.list();
@@ -453,24 +440,16 @@ export function PMOPage({ companyId }: PMOPageProps) {
 
       {/* Tabs */}
       <div className="px-8 py-4">
-        <div className="flex gap-2 p-1 rounded-lg" style={{ background: 'var(--bg-secondary)' }}>
+        <div className="flex gap-2 p-1 rounded" style={{ background: 'var(--bg-secondary)' }}>
           <button
             onClick={() => setActiveTab('projects')}
-            className="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all"
-            style={{
-              background: activeTab === 'projects' ? 'var(--bg-elevated)' : 'transparent',
-              color: activeTab === 'projects' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-            }}
+            className={`flex-1 py-2 px-4 rounded text-sm font-medium ${activeTab === 'projects' ? 'u-surface u-accent' : 'u-text-2'}`}
           >
             📁 项目 ({projects.length})
           </button>
           <button
             onClick={() => setActiveTab('okr')}
-            className="flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all"
-            style={{
-              background: activeTab === 'okr' ? 'var(--bg-elevated)' : 'transparent',
-              color: activeTab === 'okr' ? 'var(--accent-primary)' : 'var(--text-secondary)',
-            }}
+            className={`flex-1 py-2 px-4 rounded text-sm font-medium ${activeTab === 'okr' ? 'u-surface u-accent' : 'u-text-2'}`}
           >
             🎯 OKR ({okrs.length})
           </button>
@@ -480,7 +459,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 pb-8">
         {loading ? (
-          <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>
+          <div className="text-center py-8 u-text-3">
             加载中...
           </div>
         ) : activeTab === 'projects' ? (
@@ -488,19 +467,19 @@ export function PMOPage({ companyId }: PMOPageProps) {
             {/* 🆕 PMO-a: 新建 PMO 入口（表单为规范 modal，见页面底部） */}
             <button
               onClick={handleOpenCreateForm}
-              className="card w-full p-3 text-left cursor-pointer"
-              style={{ borderStyle: 'dashed', color: 'var(--text-secondary)' }}
+              className="card w-full p-3 text-left cursor-pointer u-text-2"
+              style={{ borderStyle: 'dashed' }}
             >
               <div className="flex items-center gap-2">
                 <span>+ 新建 PMO</span>
               </div>
-              <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+              <div className="text-xs mt-1 u-text-3">
                 直接下达项目指令，自动生成 PMO 号
               </div>
             </button>
 
             {projects.length === 0 ? (
-              <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>
+              <div className="text-center py-8 u-text-3">
                 暂无项目，点击上方「新建 PMO」创建
               </div>
             ) : (
@@ -518,40 +497,31 @@ export function PMOPage({ companyId }: PMOPageProps) {
                         {project.pmoNumber}
                       </div>
                       <div>
-                        <div className="font-medium flex items-center gap-2" style={{ color: 'var(--text-primary)' }}>
+                        <div className="font-medium flex items-center gap-2 u-text">
                           {project.title}
                           {/* 🆕 PMO-a: 杂务徽章 */}
                           {project.isChore && (
-                            <span className="text-xs px-1.5 py-0.5 rounded" style={{
-                              background: 'rgba(255, 152, 0, 0.12)',
-                              color: '#FF9800',
-                            }}>
+                            <span className="text-xs px-1.5 py-0.5 rounded u-warn-dim">
                               杂务
                             </span>
                           )}
                         </div>
-                        <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                        <div className="text-xs u-text-3">
                           {project.description || '无描述'}
                           {/* 🆕 PMO-a: 交付策略小字标注 */}
                           {project.deliveryPolicy && (
-                            <span className="ml-2" style={{ color: 'var(--text-tertiary)' }}>
+                            <span className="ml-2">
                               · {project.deliveryPolicy}
                             </span>
                           )}
                           {/* 🆕 AC-6: WU 完成度 + 文档计数徽章（数据缺失/为 0 不显示） */}
                           {wuStats[project.id] && wuStats[project.id].total > 0 && (
-                            <span className="ml-2 px-1.5 py-0.5 rounded" style={{
-                              background: 'var(--bg-tertiary)',
-                              color: 'var(--text-secondary)',
-                            }}>
+                            <span className="ml-2 px-1.5 py-0.5 rounded u-surface-2 u-text-2">
                               WU {wuStats[project.id].finished}/{wuStats[project.id].total}
                             </span>
                           )}
                           {(docCounts[project.id] ?? 0) > 0 && (
-                            <span className="ml-1 px-1.5 py-0.5 rounded" style={{
-                              background: 'var(--bg-tertiary)',
-                              color: 'var(--text-secondary)',
-                            }}>
+                            <span className="ml-1 px-1.5 py-0.5 rounded u-surface-2 u-text-2">
                               📄 {docCounts[project.id]}
                             </span>
                           )}
@@ -559,20 +529,17 @@ export function PMOPage({ companyId }: PMOPageProps) {
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
-                      <div className="w-16 h-2 rounded-full" style={{ background: 'var(--bg-tertiary)' }}>
+                      <div className="w-16 h-2 rounded-full u-surface-2">
                         <div
-                          className="h-2 rounded-full"
-                          style={{ width: `${project.progress}%`, background: 'var(--success)' }}
+                          className="h-2 rounded-full u-ok-bg"
+                          style={{ width: `${project.progress}%` }}
                         />
                       </div>
-                      <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                      <span className="text-xs u-text-3">
                         {project.progress}%
                       </span>
                       {project.OKR && (
-                        <span className="text-xs px-2 py-1 rounded" style={{
-                          background: 'rgba(99, 102, 241, 0.1)',
-                          color: 'var(--accent-primary)',
-                        }}>
+                        <span className="text-xs px-2 py-1 rounded u-accent-dim">
                           {project.OKR.title}
                         </span>
                       )}
@@ -597,19 +564,19 @@ export function PMOPage({ companyId }: PMOPageProps) {
             {/* 🆕 AS-016: 创建 OKR 按钮（打开弹窗） */}
             <button
               onClick={() => setShowOKRDialog(true)}
-              className="card w-full p-3 text-left cursor-pointer"
-              style={{ borderStyle: 'dashed', color: 'var(--text-secondary)' }}
+              className="card w-full p-3 text-left cursor-pointer u-text-2"
+              style={{ borderStyle: 'dashed' }}
             >
               <div className="flex items-center gap-2">
                 <span>+ 创建 OKR</span>
               </div>
-              <div className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
+              <div className="text-xs mt-1 u-text-3">
                 为新季度设置目标和关键结果
               </div>
             </button>
 
             {okrs.length === 0 ? (
-              <div className="text-center py-8" style={{ color: 'var(--text-tertiary)' }}>
+              <div className="text-center py-8 u-text-3">
                 暂无 OKR，点击上方按钮创建
               </div>
             ) : (
@@ -620,19 +587,19 @@ export function PMOPage({ companyId }: PMOPageProps) {
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div>
-                      <div className="font-medium" style={{ color: 'var(--text-primary)' }}>
+                      <div className="font-medium u-text">
                         {okr.title}
                       </div>
-                      <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                      <div className="text-xs u-text-3">
                         {okr.quarter} · {okr.projectCount} 个项目
                       </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <div className="text-lg font-bold" style={{ color: 'var(--success)' }}>
+                        <div className="text-lg font-bold u-ok">
                           {Math.round(okr.progress * 100)}%
                         </div>
-                        <div className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
+                        <div className="text-xs u-text-3">
                           进度
                         </div>
                       </div>
@@ -640,22 +607,18 @@ export function PMOPage({ companyId }: PMOPageProps) {
                   </div>
                   {/* 🆕 B8: KR 列表 */}
                   {okr.keyResults && okr.keyResults.length > 0 && (
-                    <div className="space-y-1 mt-2 pt-2" style={{ borderTop: '1px solid var(--border-subtle)' }}>
+                    <div className="space-y-1 mt-2 pt-2 border-t u-border">
                       {okr.keyResults.map((kr: KR) => (
                         <div key={kr.id} className="flex items-center justify-between text-xs">
-                          <span style={{ color: 'var(--text-secondary)' }}>
+                          <span className="u-text-2">
                             {kr.title}
                             {kr.metricType && (
-                              <span className="ml-1 px-1 py-0.5 rounded" style={{
-                                background: 'rgba(99, 102, 241, 0.1)',
-                                color: 'var(--accent-primary)',
-                                fontSize: '10px',
-                              }}>
+                              <span className="ml-1 px-1 py-0.5 rounded u-accent-dim" style={{ fontSize: 'var(--fs-xs)' }}>
                                 auto
                               </span>
                             )}
                           </span>
-                          <span className="font-mono" style={{ color: 'var(--text-tertiary)' }}>
+                          <span className="font-mono u-text-3">
                             {kr.current}/{kr.target}{kr.unit}
                           </span>
                         </div>
@@ -671,10 +634,12 @@ export function PMOPage({ companyId }: PMOPageProps) {
 
       {/* 🆕 B8: 创建 OKR 弹窗 (支持 KR 编辑) */}
       {showOKRDialog && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="u-surface rounded-lg shadow-xl max-w-2xl w-full mx-4 p-6" style={{ maxHeight: '80vh', overflow: 'auto' }}>
-            <h3 className="text-lg font-semibold mb-4">创建 OKR</h3>
-
+        <div className="modal-overlay">
+          <div className="modal" style={{ maxWidth: 672 }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 className="modal-title">创建 OKR</h2>
+            </div>
+            <div className="modal-body">
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -683,7 +648,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                     type="text"
                     value={newOKRQuarter}
                     onChange={(e) => setNewOKRQuarter(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
+                    className="input w-full"
                     placeholder="2026-Q3"
                   />
                 </div>
@@ -693,7 +658,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                     type="text"
                     value={newOKRTitle}
                     onChange={(e) => setNewOKRTitle(e.target.value)}
-                    className="w-full px-3 py-2 border rounded-lg"
+                    className="input w-full"
                     placeholder="管线效率提升 Q2"
                   />
                 </div>
@@ -705,22 +670,22 @@ export function PMOPage({ companyId }: PMOPageProps) {
                   <label className="text-sm u-text-2">关键结果 (KR)</label>
                   <button
                     onClick={addKR}
-                    className="text-xs px-2 py-1 rounded border u-border-2 u-hover-bg"
+                    className="btn btn-secondary btn-sm"
                   >
                     + 添加 KR
                   </button>
                 </div>
                 {krs.map((kr, idx) => (
-                  <div key={kr.id} className="p-3 rounded-lg mb-2" style={{ background: 'var(--bg-secondary)' }}>
+                  <div key={kr.id} className="p-3 rounded mb-2" style={{ background: 'var(--bg-secondary)' }}>
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-xs font-bold" style={{ color: 'var(--text-tertiary)' }}>
+                      <span className="text-xs font-bold u-text-3">
                         KR{idx + 1}
                       </span>
                       <input
                         type="text"
                         value={kr.title}
                         onChange={(e) => updateKR(kr.id, 'title', e.target.value)}
-                        className="flex-1 px-2 py-1 text-sm border rounded"
+                        className="input flex-1"
                         placeholder="关键结果描述"
                       />
                       {krs.length > 1 && (
@@ -740,7 +705,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                           value={kr.target}
                           min={1}
                           onChange={(e) => updateKR(kr.id, 'target', Number(e.target.value))}
-                          className="w-full px-2 py-1 text-sm border rounded"
+                          className="input w-full"
                         />
                       </div>
                       <div>
@@ -750,7 +715,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                           value={kr.current}
                           min={0}
                           onChange={(e) => updateKR(kr.id, 'current', Number(e.target.value))}
-                          className="w-full px-2 py-1 text-sm border rounded"
+                          className="input w-full"
                         />
                       </div>
                       <div>
@@ -759,7 +724,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                           type="text"
                           value={kr.unit}
                           onChange={(e) => updateKR(kr.id, 'unit', e.target.value)}
-                          className="w-full px-2 py-1 text-sm border rounded"
+                          className="input w-full"
                           placeholder="% / min / 次"
                         />
                       </div>
@@ -769,7 +734,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                           value={kr.metricType || ''}
                           onChange={(v) => updateKR(kr.id, 'metricType', v)}
                           options={METRIC_TYPE_OPTIONS}
-                          className="w-full px-2 py-1 text-sm border rounded"
+                          className="w-full"
                         />
                       </div>
                     </div>
@@ -778,9 +743,9 @@ export function PMOPage({ companyId }: PMOPageProps) {
                       const v = validateKRTarget(kr);
                       const meta = METRIC_META[kr.metricType];
                       if (v.status === 'pass' && !meta?.baseline) return null;
-                      const color = v.status === 'blocked' ? '#F44336' : v.status === 'warning' ? '#FF9800' : '#4CAF50';
+                      const colorClass = v.status === 'blocked' ? 'u-err' : v.status === 'warning' ? 'u-warn' : 'u-ok';
                       return (
-                        <div className="mt-2 text-xs" style={{ color }}>
+                        <div className={`mt-2 text-xs ${colorClass}`}>
                           {meta?.baseline !== undefined && `基准: ${meta.baseline}${meta.unit}`}
                           {meta?.baseline !== undefined && v.status !== 'pass' && ' · '}
                           {v.status !== 'pass' ? v.reason : ''}
@@ -792,20 +757,20 @@ export function PMOPage({ companyId }: PMOPageProps) {
                 ))}
               </div>
             </div>
-
-            <div className="flex gap-3 justify-end mt-6">
+            </div>
+            <div className="modal-footer">
               <button
                 onClick={() => {
                   setShowOKRDialog(false);
                   setKRs([{ id: 'kr1', objectiveId: 'o1', title: '', target: 100, current: 0, unit: '%', metricType: '' }]);
                 }}
-                className="px-4 py-2 u-text-2 u-hover-text"
+                className="btn btn-secondary"
               >
                 取消
               </button>
               <button
                 onClick={handleCreateOKR}
-                className="px-4 py-2 u-accent-bg u-on-accent rounded-lg u-hover-bg"
+                className="btn btn-primary"
               >
                 创建
               </button>

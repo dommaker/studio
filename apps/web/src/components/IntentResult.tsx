@@ -53,7 +53,7 @@ export function IntentResult({ analysis, onConfirm, onModify, onCancel, isExecut
         {/* 意图分析结果 */}
         <div className="flex items-start gap-4 mb-4">
           <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
-            style={{ background: 'linear-gradient(to bottom right, #10b981, #14b8a6)' }}
+            style={{ background: 'linear-gradient(135deg, var(--accent-primary), var(--accent-secondary))' }}
           >
             🎯
           </div>
@@ -61,7 +61,7 @@ export function IntentResult({ analysis, onConfirm, onModify, onCancel, isExecut
             <div className="flex items-center gap-2 mb-1">
               <h3 className="text-lg font-bold" style={{ color: 'var(--text-primary)' }}>意图识别结果</h3>
               <span className="text-xs px-2 py-0.5 rounded-full"
-                style={{ background: 'rgba(16, 185, 129, 0.1)', color: 'var(--success)' }}
+                style={{ background: 'var(--success-dim)', color: 'var(--success)' }}
               >
                 置信度 {Math.round(confidence * 100)}%
               </span>
@@ -122,8 +122,7 @@ export function IntentResult({ analysis, onConfirm, onModify, onCancel, isExecut
           <button
             onClick={onConfirm}
             disabled={isExecuting}
-            className="flex-1 py-3 u-on-bright rounded-xl font-medium flex items-center justify-center gap-2 disabled:opacity-50"
-            style={{ background: 'linear-gradient(to right, #6366f1, #8b5cf6)' }}
+            className="btn btn-primary flex-1 py-3"
           >
             {isExecuting ? (
               <>

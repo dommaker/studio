@@ -15,17 +15,17 @@ export function ExecutionResult({ execution, onClose }: ExecutionResultProps) {
   const isRunning = execution.status === 'running';
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50" style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }}>
+    <div className="modal-overlay">
       <div className="rounded-2xl shadow-2xl w-[600px] max-h-[80vh] flex flex-col overflow-hidden" style={{ background: 'var(--bg-elevated)', border: '1px solid var(--border-default)' }}>
         {/* Header */}
         <div className="h-14 flex items-center justify-between px-6" style={{
           background: isSuccess 
-            ? 'linear-gradient(to right, #10b981, #059669)' 
+            ? 'var(--success)' 
             : isRunning 
-              ? 'linear-gradient(to right, #3b82f6, #06b6d4)'
-              : 'linear-gradient(to right, #ef4444, #ec4899)'
+              ? 'var(--info)'
+              : 'var(--error)'
         }}>
-          <h2 className="font-bold u-on-bright flex items-center gap-2">
+          <h2 className="font-bold u-on-accent flex items-center gap-2">
             <span className="text-2xl">
               {isSuccess ? '✅' : isRunning ? '⏳' : '❌'}
             </span>
@@ -33,7 +33,7 @@ export function ExecutionResult({ execution, onClose }: ExecutionResultProps) {
               {isSuccess ? '执行成功' : isRunning ? '执行中...' : '执行失败'}
             </span>
           </h2>
-          <button onClick={onClose} className="text-2xl" style={{ color: 'rgba(255,255,255,0.7)' }}>
+          <button onClick={onClose} className="text-2xl u-on-accent" style={{ opacity: 0.7 }}>
             ✕
           </button>
         </div>
@@ -54,10 +54,10 @@ export function ExecutionResult({ execution, onClose }: ExecutionResultProps) {
                 <div key={node.nodeId || i} className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border-subtle)' }}>
                   <div className="px-4 py-3 flex items-center gap-2" style={{
                     background: node.status === 'succeeded' 
-                      ? 'rgba(16, 185, 129, 0.1)' 
+                      ? 'var(--success-dim)' 
                       : node.status === 'running'
-                        ? 'rgba(59, 130, 246, 0.1)'
-                        : 'rgba(239, 68, 68, 0.1)',
+                        ? 'var(--accent-dim)'
+                        : 'var(--error-dim)',
                     borderBottom: '1px solid var(--border-subtle)'
                   }}>
                     <span className="text-lg">
@@ -82,7 +82,7 @@ export function ExecutionResult({ execution, onClose }: ExecutionResultProps) {
 
           {/* 错误信息 */}
           {(execution as any).error && (
-            <div className="mt-4 p-4 rounded-xl" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+            <div className="mt-4 p-4 rounded-xl" style={{ background: 'var(--error-dim)', border: '1px solid var(--error-border)' }}>
               <div className="text-sm font-medium mb-1" style={{ color: 'var(--error)' }}>错误信息</div>
               <div className="text-sm" style={{ color: 'var(--error)' }}>{String((execution as any).error)}</div>
             </div>

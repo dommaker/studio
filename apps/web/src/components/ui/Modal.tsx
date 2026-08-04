@@ -16,7 +16,7 @@ interface ModalProps {
 
 /**
  * Reusable modal overlay + content shell.
- * Respects CSS custom properties (--bg-primary, --border-subtle, etc.).
+ * 结构走 theme.css 的 modal-* 组件类（style-guide §4.3），颜色全部经 CSS 变量解析。
  */
 export function Modal({
   open = true,
@@ -30,42 +30,18 @@ export function Modal({
   if (!open) return null;
 
   return (
-    <div
-      className="fixed inset-0 flex items-center justify-center"
-      style={{ background: 'rgba(0,0,0,0.5)', zIndex }}
-      onClick={onClose}
-    >
+    <div className="modal-overlay" style={{ zIndex }} onClick={onClose}>
       <div
-        className="w-full rounded-lg overflow-hidden"
-        style={{
-          maxWidth,
-          background: 'var(--bg-primary, #fff)',
-          border: '1px solid var(--border-subtle, #e5e7eb)',
-        }}
+        className="modal"
+        style={{ maxWidth }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         {title && (
-          <div
-            className="flex items-center justify-between px-6 py-4"
-            style={{ borderBottom: '1px solid var(--border-subtle, #e5e7eb)' }}
-          >
-            <h2
-              className="text-lg font-semibold"
-              style={{ color: 'var(--text-primary, #111)' }}
-            >
-              {title}
-            </h2>
+          <div className="modal-header">
+            <h2 className="modal-title">{title}</h2>
             {onClose && (
-              <button
-                onClick={onClose}
-                className="text-xl cursor-pointer"
-                style={{
-                  color: 'var(--text-secondary, #6b7280)',
-                  background: 'none',
-                  border: 'none',
-                }}
-              >
+              <button onClick={onClose} className="modal-close" aria-label="关闭">
                 ✕
               </button>
             )}
@@ -73,19 +49,12 @@ export function Modal({
         )}
 
         {/* Body */}
-        <div className="px-6 py-4 max-h-[70vh] overflow-auto">
+        <div className="modal-body" style={{ paddingTop: title ? undefined : 16 }}>
           {children}
         </div>
 
         {/* Footer */}
-        {footer && (
-          <div
-            className="flex justify-end gap-3 px-6 py-4"
-            style={{ borderTop: '1px solid var(--border-subtle, #e5e7eb)' }}
-          >
-            {footer}
-          </div>
-        )}
+        {footer && <div className="modal-footer">{footer}</div>}
       </div>
     </div>
   );

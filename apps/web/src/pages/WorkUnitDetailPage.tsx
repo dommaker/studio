@@ -187,8 +187,7 @@ export function WorkUnitDetailPage() {
               {/* 归属条（核心，四个跳转） */}
               {(pmo || wu.reqId || wu.channelId || wu.assigneeId) && (
                 <div
-                  className="mt-4 p-3 rounded-lg flex items-center gap-2 flex-wrap"
-                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}
+                  className="card mt-4 p-3 flex items-center gap-2 flex-wrap"
                 >
                   <span className="text-xs u-text-3">归属</span>
                   {pmo && (
@@ -241,8 +240,7 @@ export function WorkUnitDetailPage() {
 
               {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（数据路径同 WorkUnitDrawer） */}
               <div
-                className="mt-4 p-3 rounded-lg"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}
+                className="card mt-4 p-3"
               >
                 <div className="text-xs font-medium u-text-2 mb-2">证据台账</div>
                 {attestations === undefined ? (
@@ -279,8 +277,7 @@ export function WorkUnitDetailPage() {
 
               {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE） */}
               <div
-                className="mt-4 p-3 rounded-lg"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border-subtle)' }}
+                className="card mt-4 p-3"
               >
                 <ExecutionSteps workUnitId={wu.id} />
               </div>

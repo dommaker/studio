@@ -98,8 +98,8 @@ export function IronLawsSection() {
             Iron Laws
           </h2>
         </div>
-        <div className="p-4 rounded-xl" style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444' }}>
-          <p className="text-sm" style={{ color: '#ef4444' }}>{error}</p>
+        <div className="p-4 rounded-xl" style={{ background: 'var(--error-dim)', border: '1px solid var(--error-border)' }}>
+          <p className="text-sm" style={{ color: 'var(--error)' }}>{error}</p>
           <button onClick={fetchIronLaws} className="btn btn-secondary text-sm mt-2">
             重试
           </button>
@@ -182,7 +182,7 @@ export function IronLawsSection() {
               >
                 {/* 标题行 */}
                 <div className="flex items-center gap-2 mb-2">
-                  <span style={{ color: 'var(--accent-success)' }}>✅</span>
+                  <span style={{ color: 'var(--success)' }}>✅</span>
                   <span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
                     #{index + 1} {law.message}
                   </span>

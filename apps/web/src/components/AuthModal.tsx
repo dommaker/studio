@@ -35,11 +35,13 @@ export function AuthModal({ onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="modal-overlay" onClick={onClose}>
       <div
-        className="u-surface border u-border rounded-xl p-6 w-full max-w-sm shadow-2xl"
+        className="modal"
+        style={{ maxWidth: '24rem' }}
         onClick={(e) => e.stopPropagation()}
       >
+        <div className="modal-body" style={{ padding: '24px' }}>
         {/* OAuth buttons */}
         <div className="space-y-2 mb-4">
           <button
@@ -99,6 +101,7 @@ export function AuthModal({ onClose }: Props) {
           >
             忘记密码？
           </a>
+        </div>
         </div>
       </div>
     </div>
