@@ -9,19 +9,6 @@ import * as fs from 'fs';
 
 // ── Mocks (vi.mock is hoisted before imports) ──
 
-// Prisma mock — store on globalThis so tests can access it
-if (!(globalThis as any).__kbTestMocks) {
-  (globalThis as any).__kbTestMocks = {
-    studioEventCreate: vi.fn().mockResolvedValue({ id: 'mock-event-id' }),
-  };
-}
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    studioEvent: { create: (globalThis as any).__kbTestMocks.studioEventCreate },
-  },
-}));
-
 // Knowledge-bus mock — isolated temp store
 vi.mock('../knowledge-bus.service.js', async () => {
   const harness = await vi.importActual<any>('@dommaker/harness');
@@ -221,7 +208,6 @@ import { knowledgeBus, sharedStore, sharedIngest, upsertKnowledge, KnowledgeBus 
 
 afterAll(() => {
   try { fs.rmSync((globalThis as any).__kbTestTempDir, { recursive: true, force: true }); } catch {}
-  delete (globalThis as any).__kbTestMocks;
   delete (globalThis as any).__kbTestTempDir;
 });
 

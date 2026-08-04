@@ -38,25 +38,6 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-const mockPrisma = {
-  task: {
-    findMany: vi.fn().mockResolvedValue([]),
-  },
-  studioEvent: {
-    findMany: vi.fn().mockResolvedValue([]),
-    create: vi.fn().mockResolvedValue({}),
-    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
-    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-  },
-  session: {
-    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
-  },
-  $queryRaw: vi.fn().mockResolvedValue([{ 1: 1 }]),
-  $executeRawUnsafe: vi.fn().mockResolvedValue(0),
-};
-
-vi.mock('@dommaker/studio-prisma', () => ({ prisma: mockPrisma }));
-
 // Use dynamic import after mock setup
 const { triageService } = await import('../triage.service.js');
 const { systemHealthCheck } = await import('../monitor-system-probes.js');

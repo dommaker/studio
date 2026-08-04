@@ -12,9 +12,8 @@
 import { describe, test, expect, vi, beforeEach } from 'vitest';
 
 // Mock all heavy dependencies (vi.hoisted ensures availability before vi.mock hoisting)
-const { mockExecSh, mockPrismaEventCreate } = vi.hoisted(() => ({
+const { mockExecSh } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
-  mockPrismaEventCreate: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared', async (importOriginal) => {
@@ -29,13 +28,6 @@ vi.mock('@dommaker/studio-shared/node', () => ({
   execSh: mockExecSh,
   resolveSessionId: vi.fn(() => 'resolved-session-id'),
   readSessionIdFile: vi.fn(() => null),
-}));
-
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    studioEvent: { create: mockPrismaEventCreate },
-    resolution: { findMany: vi.fn().mockResolvedValue([]) },
-  },
 }));
 
 vi.mock('@dommaker/studio-skill', () => ({
@@ -94,7 +86,6 @@ function buildStreamStdout(opts?: { toolCalls?: Array<{ name: string; input: unk
 beforeEach(() => {
   vi.clearAllMocks();
   mockExecSh.mockResolvedValue({ stdout: buildStreamStdout() });
-  mockPrismaEventCreate.mockResolvedValue({});
 });
 
 describe('AgentExecutor stream-json migration', () => {

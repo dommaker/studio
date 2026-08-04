@@ -14,13 +14,6 @@ const {
   mockUpsertSnapshot: vi.fn(() => Promise.resolve()),
 }));
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    workUnit: { findMany: vi.fn(() => Promise.resolve([])), update: vi.fn(() => Promise.resolve({})) },
-    $queryRaw: vi.fn(() => Promise.resolve([])),
-  },
-}));
-
 vi.mock('@dommaker/studio-shared', () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
   FileStore: class {

@@ -31,12 +31,6 @@ vi.mock('../../skills/skill-store.js', () => ({
   },
 }));
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: {
-    role: { findMany: vi.fn().mockResolvedValue([]) },
-  },
-}));
-
 const mockFileStoreInstance = vi.hoisted(() => ({
   getIndex: vi.fn().mockResolvedValue([]),
   upsertSnapshot: vi.fn().mockResolvedValue(undefined),

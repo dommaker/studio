@@ -21,10 +21,6 @@ vi.mock('../permission.service.js', () => ({
   seedDefaultPermissions: mockSeed,
 }));
 
-vi.mock('@dommaker/studio-prisma', () => ({
-  prisma: { project: { findMany: vi.fn().mockResolvedValue([]) } },
-}));
-
 // 隔离 project.service 的重依赖链（channels/workunit）；仅保留 get → null 的最小行为
 vi.mock('../../pmo/project.service.js', () => ({
   projectService: { get: vi.fn().mockResolvedValue(null) },
