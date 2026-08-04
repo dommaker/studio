@@ -3,6 +3,10 @@
  *
  * P11-02: Extracted from agent-executor.ts
  *
+ * 2026-08-04: 按职责再拆分（零行为变更）：
+ *   prompt-builder.ts — prompt 构建（Session 1 全量 / Session 2+ 续接 / STRATEGY_HINTS）
+ *   prerequisite-checks.ts — 前置检查（CLI 探测 / 磁盘 / 目录 / git repo）+ PrerequisiteCheck 类型
+ *
  * 2026-05-09: Docker+tmux → async spawn (复用 SessionManager 的 execSh 模式)
  *   - 每个 GoalExecution 独立 worktree → 天然支持并行
  *   - Session 1: --session-id <UUID> --name <name>  创建命名 session
@@ -16,9 +20,8 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as os from 'os';
 import { logger, parseStreamEvents, extractResult, extractToolCalls, extractFilePath, FileStore } from '@dommaker/studio-shared';
-import { execSh, resolveSessionId, readSessionIdFile, resolveProviderDefinition, buildHealthProbeCommand, type ProviderId } from '@dommaker/studio-shared/node';
-import { beforeAgentExecute, buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hooks';
-import { skillLoader } from '@dommaker/studio-skill';
+import { execSh, resolveSessionId, readSessionIdFile, resolveProviderDefinition, type ProviderId } from '@dommaker/studio-shared/node';
+import { beforeAgentExecute } from '@dommaker/studio-shared/harness/hooks';
 import { buildSpawnArgs } from '../cli-adapter.js';
 
 import {
@@ -40,6 +43,8 @@ import {
   getConstraintMeta,
   type ProgressReport,
 } from './output-capture.js';
+import { buildPrompt } from './prompt-builder.js';
+import { checkPrerequisites, type PrerequisiteCheck } from './prerequisite-checks.js';
 
 // ─── 配置类型 ───
 
@@ -116,26 +121,13 @@ export interface ExecutionResult {
 
 // ─── 前置检查结果 ───
 
-export interface PrerequisiteCheck {
-  name: string;
-  passed: boolean;
-  message: string;
-  isWarning?: boolean;
-}
+// PrerequisiteCheck 移至 prerequisite-checks.ts；re-export 保持导出面不变
+export type { PrerequisiteCheck } from './prerequisite-checks.js';
 
 const DEFAULT_SESSION_TIMEOUT = 30; // 分钟
 const DEFAULT_MAX_SESSIONS = 5;
 const STUDIO_EVENTS_JSONL = path.join(os.homedir(), '.studio', 'logs', 'studio-events.jsonl');
 const fileStore = new FileStore();
-
-/** 策略切换指令 — 逐级升级 */
-const STRATEGY_HINTS: Record<number, string> = {
-  0: '',
-  1: `⚠️ 上次 session 停在同一个步骤无进展。不要重复相同的尝试。换一种实现思路，先解释你打算尝试的新方法（2-3 句），再动手。`,
-  2: `⚠️⚠️ 已经连续 2 次卡在同一处。缩小范围：只做当前步骤最核心的部分，跳过边缘情况。写完最小实现后立即跑测试验证。`,
-  3: `⚠️⚠️⚠️ 严重阻塞 — 连续 3 次无进展。强制切换模式：1) 先不要写代码，读 REQUIREMENTS.md 和现有代码；2) 写出 3 步以内的 mini plan；3) 只实现第 1 步，跑测试；4) 跑通后再继续`,
-  4: `🔴 最后一次机会 — 放弃当前方向，从第 0 行重新开始，用最简单、最朴素的方式实现（哪怕代码丑），先让测试通过。`,
-};
 
 /**
  * Agent 执行器（session loop + async spawn）
@@ -594,83 +586,16 @@ export class AgentExecutor {
   // 前置检查
   // ========================================
 
+  // 实现移至 prerequisite-checks.ts（零行为变更）
   async checkPrerequisites(provider: ProviderId = 'claude'): Promise<PrerequisiteCheck[]> {
-    const checks: PrerequisiteCheck[] = [];
-    logger.info('[AgentExecutor] Checking prerequisites', { repoDir: this.config.repoDir });
-
-    // F4: provider CLI health probe from the registry (claude keeps the old message/shape)
-    const providerDef = resolveProviderDefinition(provider);
-    const probeCmd = buildHealthProbeCommand(provider);
-    const cliCheckName = `${providerDef.displayName} CLI`;
-    const cliUnavailable = `${providerDef.binaries[0]} 命令不可用`;
-    try {
-      const { stdout } = await execSh(`${probeCmd} 2>&1 || echo "NOT_FOUND"`, {
-        cwd: '/tmp',
-        timeoutMs: 10_000,
-      });
-      if (stdout.includes('NOT_FOUND')) {
-        checks.push({ name: cliCheckName, passed: false, message: cliUnavailable });
-      } else {
-        checks.push({ name: cliCheckName, passed: true, message: stdout.trim().slice(0, 80) });
-      }
-    } catch {
-      checks.push({ name: cliCheckName, passed: false, message: cliUnavailable });
-    }
-
-    // 磁盘空间
-    try {
-      const { stdout } = await execSh("df -h . | tail -1 | awk '{print $4}'", {
-        cwd: this.config.worktreesDir,
-        timeoutMs: 5_000,
-      });
-      const cleaned = stdout.trim().replace(/[^0-9.]/g, '');
-      const availableGB = parseInt(cleaned, 10);
-      if (isNaN(availableGB)) {
-        checks.push({ name: '磁盘空间', passed: true, message: `无法解析: "${stdout.trim()}"`, isWarning: true });
-      } else {
-        checks.push({
-          name: '磁盘空间', passed: availableGB >= 5,
-          message: `磁盘空间: ${availableGB}GB`,
-          isWarning: availableGB < 5 && availableGB >= 2,
-        });
-      }
-    } catch {
-      checks.push({ name: '磁盘空间', passed: true, message: '无法检测', isWarning: true });
-    }
-
-    // worktrees 目录
-    try {
-      await fs.mkdir(this.config.worktreesDir, { recursive: true });
-      checks.push({ name: 'worktrees 目录', passed: true, message: `目录可写: ${this.config.worktreesDir}` });
-    } catch {
-      checks.push({ name: 'worktrees 目录', passed: false, message: `目录不可写: ${this.config.worktreesDir}` });
-    }
-
-    // git repo
-    try {
-      await execSh('git rev-parse --git-dir', {
-        cwd: this.config.repoDir,
-        timeoutMs: 5_000,
-      });
-      checks.push({ name: 'Git Repo', passed: true, message: `主仓库: ${this.config.repoDir}` });
-    } catch {
-      checks.push({ name: 'Git Repo', passed: false, message: `${this.config.repoDir} 不是 git 仓库` });
-    }
-
-    return checks;
+    return checkPrerequisites(this.config, provider);
   }
 
   // ========================================
   // Prompt 构建
   // ========================================
 
-  /**
-   * 构建 Agent prompt
-   *
-   * Session 1: 简要指令 + 读 REQUIREMENTS.md
-   * Session 2+: 极短续接（文件桥，上下文靠 worktree 文件）
-   * 卡住时注入策略切换指令
-   */
+  // 实现移至 prompt-builder.ts（零行为变更）
   buildPrompt(
     task: AgentTask,
     progress: ProgressReport | null,
@@ -681,99 +606,7 @@ export class AgentExecutor {
     resolutionHint?: string,
     role: 'analyst' | 'executor' | 'reviewer' | 'integration' | 'deploy' = 'executor',
   ): string {
-    // 约束注入
-    const constraintPrompt = buildAgentConstraintPrompt({
-      operation: 'code_implementation',
-      taskDescription: task.prompt,
-    });
-
-    const rawConstraints = task.parameters?.roleConstraints;
-    const roleConstraints: string[] = Array.isArray(rawConstraints) ? rawConstraints
-      : typeof rawConstraints === 'string' ? JSON.parse(rawConstraints)
-      : [];
-    const roleConstraintSection = roleConstraints.length
-      ? `\n## 角色约束\n以下约束优先于一般指导原则：\n${roleConstraints.map((c: string) => `- ${c}`).join('\n')}\n`
-      : '';
-
-    // G-001~003: 知识上下文（偏好 + 规则 + 环境 + 历史决策）
-    const knowledgeSection = knowledgeContext
-      ? `\n## 项目上下文\n${knowledgeContext}\n`
-      : '';
-
-    const constraintSection = constraintPrompt || roleConstraintSection || knowledgeSection
-      ? (constraintPrompt + roleConstraintSection + knowledgeSection + '\n---\n\n')
-      : '';
-
-    // O2f/O2g: Output style compression per Agent role
-    const OUTPUT_STYLE_MAP: Record<string, string> = {
-      analyst: 'Output style: Be concise. Drop filler words (just, really, basically). No sycophantic openers or closing fluff. Keep complete sentences. Technical terms exact.',
-      executor: 'Output style: Terse like caveman. Drop articles (a/an/the), filler words, pleasantries, hedging. Fragments OK. Short synonyms. Code blocks unchanged. Technical substance exact.',
-      reviewer: 'Output style: Terse like caveman. Drop articles (a/an/the), filler words, pleasantries, hedging. Fragments OK. Short synonyms. Code blocks unchanged. Technical substance exact.',
-      integration: 'Output style: Ultra-terse. Maximum compression. Telegraphic style. Drop all non-essential words. Code output only — no explanation unless error.',
-      deploy: 'Output style: Be concise. Drop filler words. No fluff. Keep complete sentences. Technical terms exact.',
-    };
-    const outputStyleSection = `## 输出风格\n${OUTPUT_STYLE_MAP[role] || OUTPUT_STYLE_MAP.executor}\n\n`;
-
-    // O2i: Skill on-demand injection
-    const skillsToInject = skillLoader.load({});
-    const skillPrompt = skillLoader.formatForPrompt(skillsToInject);
-
-    // [Skill Discovery] Log injected skills for Agent Network analysis
-    logger.info(`[SkillDiscovery] task=${task.id} skills=[${skillsToInject.map(s => s.id).join(',')}]`);
-
-    if (session === 1 || !progress) {
-      // O1c: Inject Analyst context to prevent re-exploring verified files
-      const analystContext = (task.parameters?.analystContext as any) || null;
-      const analystContextSection = analystContext ? [
-        '## 已有分析上下文（来自 Analyst 探索）',
-        '',
-        `**已验证文件** (不需要重新探索): ${(analystContext.verifiedFiles || []).join(', ')}`,
-        analystContext.architectureContext ? `\n**架构说明**: ${analystContext.architectureContext}` : '',
-        analystContext.gotchas?.length ? `\n**注意事项**: ${analystContext.gotchas.join('; ')}` : '',
-        '',
-        '只修改上述文件。如需查看额外文件，说明原因——Scheduler 将添加权限后继续。',
-        '',
-      ].join('\n') : '';
-
-      const verifyStep = acGroup?.architectureContext
-        ? '\n⚠️ REQUIREMENTS.md 包含架构上下文（Analyst 已探索的代码位置和签名）。\n第一步必须是验证关键函数签名和行号是否仍然有效，如果已偏移请修正后再实现。\n'
-        : '';
-      const base = `${constraintSection}${outputStyleSection}${analystContextSection}## 你的任务
-${task.prompt}
-
-
-读 REQUIREMENTS.md 了解你要完成的任务和验收标准。${verifyStep}
-${skillPrompt}
-
-## 完成后必须提交
-所有 AC 满足且测试通过后，执行 git 操作：
-1. \`git add\` 你修改的所有文件
-2. \`git commit -m "feat: <简要描述改动>"\` 提交代码
-3. 然后设置 allComplete: true
-不要跳过 commit —— 代码未提交视为未完成。`;
-      return resolutionHint ? `${base}\n\n${resolutionHint}` : base;
-    }
-
-    // Session 2+: 极短续接 prompt
-    const hintLevel = Math.min(stuckCount, 4);
-    const strategyHint = STRATEGY_HINTS[hintLevel];
-    const parts = [
-      `${constraintSection}${outputStyleSection}## 续接任务`,
-      '',
-      '读 REQUIREMENTS.md 了解任务。',
-      '读 .progress.json 了解进度。',
-      '',
-      `你上次做到：${progress.currentStep || '未知'}`,
-      `已完成：${progress.completedSteps?.join(', ') || '无'}`,
-      `测试结果：${progress.testResults?.passed || 0} passed / ${progress.testResults?.failed || 0} failed`,
-      `备注：${progress.notes || '无'}`,
-    ];
-    if (skillPrompt) parts.push('', skillPrompt);
-    if (strategyHint) parts.push('', strategyHint);
-    if (resolutionHint) parts.push('', resolutionHint);
-    parts.push('', '继续工作，从上次中断的地方开始。每完成一步后更新 .progress.json。');
-    parts.push('全部完成后 git add 你修改的文件 && git commit，然后设置 allComplete: true。');
-    return parts.join('\n');
+    return buildPrompt(task, progress, session, acGroup, stuckCount, knowledgeContext, resolutionHint, role);
   }
 
   // ========================================
