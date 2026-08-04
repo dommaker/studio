@@ -35,7 +35,7 @@
 ## 注意事项
 
 - **零行为变更原则**：模块拆分（如 agent-runner.ts 拆分为 runner-*.ts）及文件移动必须保持原有公共 API 签名与行为不变。
-- **门面模式**：agent-executor.ts 作为门面重新导出 session-manager.ts、agent-runner.ts、worktree-resolver.ts、output-capture.ts 的公共类型与函数，外部应通过门面导入。
+- **门面模式**：agent-executor.ts 作为门面重新导出 session-manager.ts、agent-runner.ts、worktree-resolver.ts、output-capture.ts 的公共类型与函数，外部应通过门面导入。worktree-resolver.ts 自身也是门面：scaffolding 写入（writeRequirementsMd/writeContractTests/ensureDeps，2026-08-04 拆出）位于 worktree-scaffolding.ts，经 worktree-resolver.ts re-export，消费方导入路径不变。
 - **避免循环依赖**：拆分后的子模块（runner-params、runner-output、runner-execution、runner-lightweight、prompt-builder、prerequisite-checks）不得反向依赖 agent-runner.ts 或 session-manager.ts 的类；状态通过 `RunnerExecutionState` 接口或参数传入。
 - **Session 循环与轻量路径**：AgentRunner 提供两套执行路径：多 session 循环（runner-execution.ts）和轻量单 session（runner-lightweight.ts），后者跳过 SDD 解析、REQUIREMENTS.md、contract tests、Iron Laws、依赖缓存等，适用于简单任务。
 - **Cache 与性能**：AgentRegistry 使用外部 CacheStore（如 Redis），注意 TTL 和缓存键约定（`agent:` 前缀）。
