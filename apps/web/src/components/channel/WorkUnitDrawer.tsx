@@ -12,7 +12,6 @@ import { monitoringApi, type OverheadStats } from '../../api/monitoring';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
-import { DelegateCard } from '../workunit/DelegateCard';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
 import { deriveDisplayState, parseAttestations, type AttestationEntry } from '@dommaker/studio-shared/web';
 
@@ -222,8 +221,6 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
         <>
           <div className="mc-block-label">等待人类回复</div>
           <div className="mc-need-q">{meta.waitingQuestion}</div>
-          {/* AC-5.7：NEED_INPUT（含委派失败降级）时展示树级 token 开销 */}
-          <DelegateCard workUnitId={id} />
         </>
       )}
 
