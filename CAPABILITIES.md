@@ -149,9 +149,7 @@
 | user-behavior | packages/studio-shared/src/types/user-behavior.ts | User Behavior Profile types — KE-003 |
 | skill-loader | apps/api/src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
 
-| daemon-routes | apps/api/src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
 | local-workspace | apps/api/src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
-| task-routes | apps/api/src/modules/workspaces/task-routes.ts | Task Routes — AS-020 P5: UI/Server task management |
 | token.routes | apps/api/src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
 | workspace.routes | apps/api/src/modules/workspaces/workspace.routes.ts | Workspace Routes — AS-020 P2: Workspace registration + heartbeat + token management |
 | ws-gateway | apps/api/src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
@@ -272,7 +270,6 @@
 | system-executor | apps/api/src/modules/agents/system-executor.ts | SystemExecutor - 系统级 LLM 调用执行器（AC-1.6 ~ AC-1.10） |
 | review-dispatcher | apps/api/src/modules/agents/review-dispatcher.ts | ReviewDispatcher - AC-4.1 ~ AC-4.5: 状态机驱动的 review 系统代派 |
 | remote-executor | apps/api/src/modules/agents/remote-executor.ts | RemoteExecutor — §9.6 P2: 远程节点执行器 |
-| discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
 | useDetectedProviders | apps/web/src/hooks/useDetectedProviders.ts | 当前运行环境已安装的 agent CLI 列表。 |
 

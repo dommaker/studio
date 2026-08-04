@@ -21,21 +21,6 @@ const commands = [
     description: 'Studio 服务管理',
     options: [
       {
-        name: 'status',
-        description: '查看 daemon 和 Agent 状态',
-        type: 1, // SUB_COMMAND
-      },
-      {
-        name: 'restart',
-        description: '重启 daemon（reload session cache）',
-        type: 1, // SUB_COMMAND
-      },
-      {
-        name: 'log',
-        description: '查看最近日志（最后 20 行）',
-        type: 1, // SUB_COMMAND
-      },
-      {
         name: 'send',
         description: '发送 shell 命令到服务器执行',
         type: 1, // SUB_COMMAND

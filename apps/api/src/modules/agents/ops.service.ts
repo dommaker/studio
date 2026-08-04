@@ -237,15 +237,9 @@ export class OpsService {
             tags: ['ops'],
           }).catch(() => { /* non-blocking */ });
         } catch { /* non-blocking */ }
-        // Don't auto-restart if daemon is running tasks — the load is likely from Claude
+        // Don't auto-restart if executor sessions are running — the load is likely from Claude
         let daemonBusy = false;
-        try {
-          const { daemon } = await import('../../daemon/studio-daemon.js');
-          const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean } | null>;
-          daemonBusy = (statuses || []).some((s: any) => s?.isBusy);
-        } catch {}
-        // Also check executor sessions (agentExecutor bypasses daemon)
-        if (!daemonBusy) {
+        {
           try {
             const snapshots = await this.fileStore.getIndex({ status: 'active' });
             const runningExecs = snapshots.filter(s => s.parentId !== null).length;

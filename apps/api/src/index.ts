@@ -17,7 +17,6 @@ import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowl
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
 import { monitorService } from './modules/agents/monitor.service.js';
 import { auditorService } from './modules/agents/auditor.service.js';
-import { daemon } from './daemon/studio-daemon.js';
 import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';
 import * as fs from 'fs';
@@ -126,11 +125,10 @@ async function start() {
     // ── 核心服务 ──
     monitorService.start();
     auditorService.start();
-    // B4a（决策 D8）: daemon.start() 已摘除 —— studio-daemon 是 pipeline 时代
-    // session 管理器，submitJob/submitAdhocJob 全库无生产调用方（仅测试），
-    // 且其 reviewer session 每次启动新建 git worktree（daemon/reviewer-* 分支
-    // 从不合从不删，泄漏源头）。代码文件保留：daemon-routes / discord /
-    // ops.service / cli 仍消费 getStatus/isStarted（未启动时安全降级为空状态）。
+    // B4a（决策 D8）: studio-daemon（pipeline 时代 session 管理器）已整体删除——
+    // start() 从未被调用、submitJob 无生产调用方、reviewer session 泄漏 worktree；
+    // AS-020 P5 HTTP claim 竖井（daemon-routes/task-routes/discover-proxy）随客户端
+    // 三件套删除后无任何消费者，一并删除（2026-08-04 第一性复审）。
     // REQ 需求编号体系（vision §5.3）：WorkUnit 终态 → Requirement done 状态汇总
     try {
       const { initRequirementRollup } = await import('./modules/requirements/rollup.js');
@@ -394,9 +392,6 @@ async function start() {
 
     // 优雅关闭
     const shutdown = async () => {
-      // Graceful: stop accepting new work, wait for running Claude tasks
-      try { await daemon.gracefulShutdown(); } catch {}
-
       // F1: unmount all AgentLoops
       try {
         const { agentLoopRegistry } = await import('./modules/agents/agent-loop-registry.js');

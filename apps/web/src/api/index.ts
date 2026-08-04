@@ -351,8 +351,6 @@ export const wikiApi = {
 export const workspaceApi = {
   list: () => api.get('/workspaces'),
   get: (id: string) => api.get(`/workspaces/${id}`),
-  discover: (id: string, path: string, timeout?: number) =>
-    api.get(`/workspaces/${id}/discover`, { params: { path, timeout } }),
 };
 
 // Workspace Token API — AS-020 P2-05/P7-03

@@ -114,35 +114,6 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
     try {
       if (name === 'studio') {
-        const daemon = require('../../daemon/studio-daemon.js').daemon;
-        const status = daemon.getStatus();
-
-        if (subcommand === 'status') {
-          const sessions = (status as any[]).filter(Boolean).map((s: any) =>
-            `- ${s.name}: ${s.isBusy ? '🔵 busy' : '🟢 idle'} (tasks: ${s.taskCount})`
-          ).join('\n');
-          res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `**Studio Status**\n${sessions || 'No active sessions'}` } });
-          return;
-        }
-
-        if (subcommand === 'restart') {
-          daemon.stop();
-          daemon.start();
-          res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: '✅ Daemon 已重启' } });
-          return;
-        }
-
-        if (subcommand === 'log') {
-          const { execSync } = await import('child_process');
-          try {
-            const logs = execSync('tail -20 /tmp/studio-daemon.log 2>/dev/null || echo "No log file found"', { encoding: 'utf-8', timeout: 5000 });
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `**Recent Logs**\n\`\`\`\n${logs.slice(-1500)}\n\`\`\`` } });
-          } catch {
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'No logs available' } });
-          }
-          return;
-        }
-
         if (subcommand === 'send') {
           const cmd = options?.[0]?.options?.find((o: any) => o.name === 'command')?.value;
           if (!cmd) {
