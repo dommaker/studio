@@ -10,10 +10,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnType<typeof vi.fn>, loggerDebug?: ReturnType<typeof vi.fn>, loggerError?: ReturnType<typeof vi.fn>) {
+function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnType<typeof vi.fn>, loggerDebug?: ReturnType<typeof vi.fn>, loggerError?: ReturnType<typeof vi.fn>, loggerInfo?: ReturnType<typeof vi.fn>) {
   vi.doMock('child_process', () => ({ execFile: execFileMock, execFileSync: vi.fn() }));
   vi.doMock('@dommaker/studio-shared', () => ({
-    logger: { info: vi.fn(), warn: loggerWarn ?? vi.fn(), error: loggerError ?? vi.fn(), debug: loggerDebug ?? vi.fn() },
+    logger: { info: loggerInfo ?? vi.fn(), warn: loggerWarn ?? vi.fn(), error: loggerError ?? vi.fn(), debug: loggerDebug ?? vi.fn() },
     FileStore: class {
       appendJsonl = vi.fn().mockResolvedValue(undefined);
     },
@@ -130,6 +130,7 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
   it('失败后恢复 → info 记录 recovered（一个 episode 结束）', async () => {
     const loggerWarn = vi.fn();
     const loggerInfo = vi.fn();
+    const loggerDebug = vi.fn();
     let calls = 0;
     const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
       calls++;
@@ -140,17 +141,20 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
       }
       return { pid: 123 };
     });
-    mockDeps(execFileMock, loggerWarn, undefined, undefined);
-    vi.doMock('@dommaker/studio-shared', () => ({
-      logger: { info: loggerInfo, warn: loggerWarn, error: vi.fn(), debug: vi.fn() },
-      FileStore: class { appendJsonl = vi.fn().mockResolvedValue(undefined); },
-    }));
+    // 注意：studio-shared 只注册这一次 mock（经 mockDeps 传入 loggerInfo）。
+    // 此前本用例在 mockDeps 之后又 vi.doMock 了第二次 studio-shared——同一模块
+    // 双重注册时 import 偶发解析到先注册的 factory（logger.info 是不可见的
+    // vi.fn()），导致 recovered/synced 断言 ~10-50% 抖动（0f7b4193 记录的
+    // flake 根因）。单一注册点后该竞态消除。
+    mockDeps(execFileMock, loggerWarn, loggerDebug, undefined, loggerInfo);
     const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
 
     scheduleVectorDbSync();
     await vi.advanceTimersByTimeAsync(5_000);   // 第 1 次失败（warn）
     await vi.advanceTimersByTimeAsync(20_000);  // 第 2 次失败（debug）
     await vi.advanceTimersByTimeAsync(40_000);  // 第 3 次成功
+    // execFile 回调经 process.nextTick 触发，显式 drain nextTick 队列后再断言
+    await new Promise<void>(resolve => process.nextTick(resolve));
     expect(loggerWarn).toHaveBeenCalledTimes(1);
     expect(loggerInfo.mock.calls.some(c => (c[0] as string).includes('recovered'))).toBe(true);
     expect(loggerInfo.mock.calls.some(c => (c[0] as string).includes('synced'))).toBe(true);
