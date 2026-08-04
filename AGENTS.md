@@ -16,7 +16,7 @@
 | `bin/` | 可执行入口/脚本 |
 | `docs/` | 项目文档 |
 | `node-compile-cache/` | — |
-| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-capability、studio-monitor、studio-notification、studio-shared、studio-skill、studio-spec、studio-task |
+| `packages/` | monorepo 共享包：studio-agent、studio-audit、studio-capability、studio-notification、studio-shared、studio-skill、studio-spec |
 | `scripts/` | 工具脚本 |
 | `tests/` | 测试 |
 
@@ -93,12 +93,10 @@ pnpm start  # 启动生产服务
 | `packages/studio-agent` | Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude Code → session loop 监控 → 完成判定。 |
 | `packages/studio-audit` | 提供审计日志的记录、查询、导出和链式完整性验证功能。支持通过 AuditService 进行持久化日志操作，通过 CLI 模块进行离线查询和导出，并通过 audit-chain 实现基于哈希链的防篡改审计记录。 |
 | `packages/studio-capability` | 本目录负责能力管理（CapabilityService）与公司 MCP 资源池管理（company-mcp-pool）。CapabilityService 提供能力的 CRUD、同步、统计，并基于 FileStore JSON 文件存... |
-| `packages/studio-monitor` | 监控 Agent 健康状态，定时检查任务超时、心跳及僵尸任务，提供启动和停止监控的接口，确保任务运行的稳定性。 |
 | `packages/studio-notification` | 本目录提供 studio-notification 包的核心代码，包含通知的创建、查询、标记和 CLI 操作。CLI 部分提供模拟通知的发送、列表、标记功能，服务层基于 FileStore 实现持久化通知管理。 |
 | `packages/studio-shared` | 跨 apps/packages 的共享层：provider 注册表（agent CLI 定义与 spawn 模板）、FileStore（全部运行时数据的文件存储）、eventBus、共享类型与工具、 harness 运行时。Node-... |
 | `packages/studio-skill` | 本目录是 Studio Skill 的核心模块，负责 Skill 的定义类型、从磁盘加载 Skill 定义（支持 frontmatter 解析和缓存）、以及基于文本匹配的意图路由。为 Agent prompt 注入可加载的能力单元。 |
 | `packages/studio-spec` | 本目录提供 Spec 的验证、变更分析与门禁检查能力，是 Studio 中 Spec 质量管控与变更管理的核心模块。它整合三层验证（架构、API、验收），支持变更分级（L1-L4）与自动审批推荐，并实现门禁检查以管控变更上线。 |
-| `packages/studio-task` | 提供任务队列管理（TaskQueue）和任务执行器（TaskWorker），以及任务相关的 CLI 命令（查看队列、运行、重试、清理）和类型定义，支撑 studio 的任务调度与执行能力。 |
 <!-- /AUTO-GENERATED:modules -->
 <!-- /PRESERVE:modules -->
 

@@ -219,23 +219,6 @@ router.get('/:executionId', async (req: Request, res: Response) => {
   }
 });
 
-// 获取 Worker 状态
-router.get('/worker/status', async (req: Request, res: Response) => {
-  try {
-    const { taskWorker } = await import('@dommaker/studio-task');
-    const status = taskWorker.getStatus();
-    res.json({
-      ...status,
-      executor: 'typescript',
-    });
-  } catch (error) {
-    logger.error('Failed to get worker status', { error: String(error) });
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get worker status' },
-    });
-  }
-});
-
 // 归档任务结果到知识库
 router.post('/:executionId/archive', async (req: Request, res: Response) => {
   try {

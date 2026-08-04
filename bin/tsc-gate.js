@@ -13,10 +13,9 @@ function opt(name) { const i = args.indexOf(name); return i >= 0 ? args[i + 1] :
 
 const PKGS = [
   'apps/api', 'apps/web',
-  'packages/studio-shared', 'packages/studio-agent', 'packages/studio-prisma',
+  'packages/studio-shared', 'packages/studio-agent',
   'packages/studio-skill', 'packages/studio-spec', 'packages/studio-audit',
-  'packages/studio-capability', 'packages/studio-monitor', 'packages/studio-notification',
-  'packages/studio-task',
+  'packages/studio-capability', 'packages/studio-notification',
 ];
 
 // ── Helpers ──

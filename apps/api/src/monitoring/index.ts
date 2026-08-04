@@ -25,19 +25,6 @@ const apiRequests = new client.Counter({
   labelNames: ['method', 'path', 'status'],
 });
 
-// 任务队列长度
-const taskQueueLength = new client.Gauge({
-  name: 'studio_task_queue_length',
-  help: 'Number of tasks in queue',
-});
-
-// 任务处理计数
-const taskProcessed = new client.Counter({
-  name: 'studio_tasks_processed_total',
-  help: 'Total tasks processed',
-  labelNames: ['status'], // success | failed
-});
-
 // LLM Proxy 请求计数
 const llmProxyRequests = new client.Counter({
   name: 'studio_llm_proxy_requests_total',
@@ -52,20 +39,6 @@ const llmProxyRequests = new client.Counter({
  */
 export function recordApiRequest(method: string, path: string, status: number): void {
   apiRequests.inc({ method, path, status: status.toString() });
-}
-
-/**
- * 更新任务队列长度
- */
-export function updateTaskQueueLength(length: number): void {
-  taskQueueLength.set(length);
-}
-
-/**
- * 记录任务处理
- */
-export function recordTaskProcessed(status: 'success' | 'failed'): void {
-  taskProcessed.inc({ status });
 }
 
 /**

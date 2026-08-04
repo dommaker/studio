@@ -12,7 +12,6 @@
 | types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
 | capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
-| health-monitor | packages/studio-monitor/src/services/health-monitor.ts | 启动健康监控 |
 | notification-service | packages/studio-notification/src/services/notification-service.ts | 通知服务 |
 | command | packages/studio-shared/src/cli/command.ts | 命令注册框架 |
 | config | packages/studio-shared/src/cli/config.ts | 配置加载器 |
@@ -55,8 +54,6 @@
 | gate-checker.service | packages/studio-spec/src/services/gate-checker.service.ts | 门禁检查服务 |
 | change.types | packages/studio-spec/src/types/change.types.ts | Spec 变更分级类型定义 |
 | gate.types | packages/studio-spec/src/types/gate.types.ts | 门禁类型定义 |
-| task-queue | packages/studio-task/src/services/task-queue.ts | TaskQueue - 任务队列管理器 |
-| task-worker | packages/studio-task/src/services/task-worker.ts | TaskWorker - 任务队列消费者 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
 | auditor.service | apps/api/src/modules/agents/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
