@@ -20,331 +20,62 @@
  *       lock             # seq 分配 flock 锁目录
  *       index.json       # { nextSeq } 序号计数器
  *       REQ-0042.json    # RequirementData（每需求一个文件）
+ *
+ * 本文件为门面：数据类型在 file-store-types.ts，JSON/锁原语在 file-store-base.ts，
+ * WorkUnit 事件溯源在 file-store-workunit.ts，channels 编解码在 channels-codec.ts，
+ * frontmatter 在 frontmatter.ts；全部符号在此 re-export，导出面不变。
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
-import os from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { isErrnoError } from './file-store-base';
+import { FileStoreWorkUnitBase } from './file-store-workunit';
+import { stringifyChannels } from './channels-codec';
+import { parseFrontmatter, serializeFrontmatter } from './frontmatter';
+import type {
+  AgentProfileData,
+  RuntimeStateData,
+  ChannelData,
+  ChannelMessageData,
+  ChannelMessageRow,
+  QueryOpts,
+  CountOpts,
+  RequirementData,
+  RequirementFilter,
+  EvolutionProposalData,
+  EvolutionProposalFilter,
+} from './file-store-types';
 
-// ─── 类型定义 ───
+// ─── re-export（保持原有导出面 100% 不变）───
 
-export interface AgentProfileData {
-  id: string;
-  name: string;
-  description: string | null;
-  channels: string;        // JSON: Channel ID[] — @deprecated §9.5: channel.members 为成员关系唯一事实源；过渡期保留可读，新代码勿写入
-  status: string;          // active | inactive
-  provider: string | null; // bound CLI: claude | kimi | codex | opencode | openclaw | null
-  createdAt: string;       // ISO 8601
-  updatedAt: string;       // ISO 8601
-  /** §9.6 P1: 节点 ID。undefined 或 'local' → 本地执行；其他 → RemoteExecutor 路由。 */
-  nodeId?: string;
-  /** 决策 9: 显式职能域（阶段词表，见 domain-vocab.ts）。创建时可从 .agents/roles/*.yaml 预设带入 */
-  acceptedTypes?: string[];
-  /** 决策 13: 角色自述（prompt「## 你的角色」段内容）；缺省回退 description */
-  persona?: string;
-}
-
-export interface RuntimeStateData {
-  id: string;
-  roleId: string;
-  sessionId: string | null;
-  status: string;          // idle | active | error | terminated
-  currentWorkUnitId: string | null;
-  startedAt: string;       // ISO 8601
-  terminatedAt: string | null;
-  lastHeartbeat: string | null;
-  metadata: string | null; // JSON
-  pid?: number;            // process.pid for dead-instance detection
-  lastError?: string | null;   // F2: last startup-fatal error (e.g. health probe failure)
-  lastErrorAt?: string | null; // ISO 8601
-}
-
-export interface ChannelData {
-  id: string;
-  name: string;
-  type: string;            // rnd | decision | system
-  defaultWorkspaceId: string | null;
-  defaultPath: string | null;
-  discordChannelId: string | null;
-  discordWebhookUrl: string | null;
-  members: string;         // JSON: AgentProfile ID[]
-  /** AC-6.1: 频道默认管线 AgentProfile name 数组。空数组=清除；undefined=未配置 */
-  defaultPipeline?: string[];
-  /** 决策 12: 无 @ 消息的默认认领角色（AgentProfile ID）。未配置（null/undefined）= 维持纯存储 */
-  defaultProfileId?: string | null;
-  createdAt: string;       // ISO 8601
-  updatedAt: string;       // ISO 8601
-}
-
-export interface ChannelMessageData {
-  id: string;
-  channelId: string;
-  workUnitId: string | null;
-  authorType: string;      // human | agent
-  agentName: string | null;
-  content: string;         // Markdown
-  replyToId: string | null;
-  meta: string;            // JSON
-  createdAt: string;       // ISO 8601
-}
-
-/** 带删除标记的消息（JSONL tombstone） */
-export interface ChannelMessageRow extends ChannelMessageData {
-  deleted?: boolean;
-}
-
-export interface QueryOpts {
-  workUnitId?: string;
-  authorType?: string;
-  since?: string;          // ISO 8601
-  limit?: number;
-}
-
-export interface CountOpts {
-  workUnitId?: string;
-  authorType?: string;
-}
-
-export type WorkUnitEventType = 'created' | 'claimed' | 'updated' | 'completed' | 'closed' | 'blocked';
-
-export interface WorkUnitEvent {
-  type: WorkUnitEventType;
-  wuId: string;
-  timestamp: string;       // ISO 8601
-  data?: Record<string, unknown>;
-}
-
-export interface WorkUnitSnapshot {
-  id: string;
-  parentId: string | null;
-  type: string;
-  scope: string;
-  assigneeId: string | null;
-  status: string;
-  failureType: string | null;
-  retryCount: number;
-  timeoutAt: string | null;
-  channelId: string | null;
-  projectPath: string | null;
-  workspaceId?: string | null;  // F6: 绑定的注册工程（可选 — 旧事件/快照无此字段仍可加载）
-  reqId?: string | null;        // REQ 需求编号（可选 — 旧事件/快照无此字段仍可加载）
-  metadata: string | null;
-  createdAt: string;
-  updatedAt: string;
-  claimedAt: string | null;
-  completedAt: string | null;
-}
-
-export interface WorkUnitFilter {
-  status?: string;
-  type?: string;
-  assigneeId?: string;
-  channelId?: string;
-}
-
-// ─── Requirement（REQ 需求编号体系, vision §5.3）───
-// Requirement 是 WorkUnit 的父实体：一个需求 = 一组 WorkUnit。
-// 编号 REQ-<递增序号> 在频道首次 @mention 派发时自动分配，也可手动创建。
-
-export type RequirementStatus = 'open' | 'in-progress' | 'done' | 'archived';
-
-export interface RequirementData {
-  id: string;                 // REQ-<zero-padded seq>，如 REQ-0042
-  seq: number;                // 递增序号（flock 原子分配）
-  title: string;
-  status: RequirementStatus;
-  channelId?: string | null;  // 来源频道（可选 — 手动创建可无）
-  createdAt: string;          // ISO 8601
-  createdBy: string;          // 创建来源：mention | convert | manual | api
-  docs?: string[];            // 关联文档（需求文档 / SDD 路径）
-  description?: string;
-}
-
-export interface RequirementFilter {
-  status?: string;
-  channelId?: string;
-}
-
-// ─── Evolution（E1 约束进化, vision §6 / docs/plans/2026-07-flywheel-repair.md §4）───
-//
-// 约束进化提案：signals（traces/模式挖掘）→ 提案 → 人在频道/API 审核 → 生效。
-// 存储复制 Requirement 模式：`~/.studio/data/evolution/EP-0042.json` + flock 序号。
-
-export type EvolutionTargetType = 'iron-law' | 'guideline' | 'prompt-template' | 'role-preset';
-export type EvolutionProposalStatus = 'pending' | 'approved' | 'rejected' | 'applied';
-
-export interface EvolutionProposalData {
-  id: string;                 // EP-<zero-padded seq>，如 EP-0042
-  seq: number;                // 递增序号（flock 原子分配）
-  targetType: EvolutionTargetType;
-  targetId: string;           // 约束 id | prompt templateId | role 名（.agents/roles/<name>.yaml）
-  action: 'add' | 'amend';    // add=新增条目（或 shadow 覆盖内置约束）；amend=修改既有条目
-  /** 仅 iron-law/guideline：变更种类（message=改提示文案；exception=加例外；new-entry=新增约束条目） */
-  constraintChange?: 'message' | 'exception' | 'new-entry';
-  currentText: string;        // 当前文本（add 时可为空串）
-  proposedText: string;       // 提案文本（message/模板/persona 全量替换内容）
-  rationale: string;          // 理由（含预期效果）
-  evidence: {                 // 证据（事件计数/样例）
-    windowHours: number;
-    eventCounts: Record<string, number>;
-    samples?: string[];
-  };
-  status: EvolutionProposalStatus;
-  source: string;             // 'harness-autoEvolve' | 'heuristic:prompt-failure' | 'heuristic:role-failure'
-  createdAt: string;          // ISO 8601
-  decidedBy?: string | null;  // 'channel' | 'api:<user>' 等
-  decidedAt?: string | null;
-  appliedAt?: string | null;
-  rejectReason?: string | null;
-}
-
-export interface EvolutionProposalFilter {
-  status?: string;
-  targetType?: string;
-}
-
-/** 锁超时错误 */
-export class LockTimeoutError extends Error {
-  constructor(timeoutMs: number) {
-    super(`Lock acquisition timed out after ${timeoutMs}ms`);
-    this.name = 'LockTimeoutError';
-  }
-}
-
-// ─── 常量 ───
-
-const LOCK_RETRY_INTERVAL_MS = 10;
-const DEFAULT_LOCK_TIMEOUT_MS = 5000;
+export type {
+  AgentProfileData,
+  RuntimeStateData,
+  ChannelData,
+  ChannelMessageData,
+  ChannelMessageRow,
+  QueryOpts,
+  CountOpts,
+  WorkUnitEventType,
+  WorkUnitEvent,
+  WorkUnitSnapshot,
+  WorkUnitFilter,
+  RequirementStatus,
+  RequirementData,
+  RequirementFilter,
+  EvolutionTargetType,
+  EvolutionProposalStatus,
+  EvolutionProposalData,
+  EvolutionProposalFilter,
+} from './file-store-types';
+export { formatRequirementId, formatEvolutionId } from './file-store-types';
+export { LockTimeoutError } from './file-store-base';
+export { parseChannels, stringifyChannels } from './channels-codec';
+export { parseFrontmatter, serializeFrontmatter } from './frontmatter';
 
 // ─── FileStore 类 ───
 
-export class FileStore {
-  private baseDir: string;
-
-  constructor(baseDir?: string) {
-    // CWD 陷阱修复：baseDir 解耦 HOME。
-    // buildSessionEnv 把 claude CLI 子进程 HOME 设成 agentHome（GAP-2 隔离），
-    // 子进程里 new FileStore() 无参构造时 os.homedir() 返回 agentHome，baseDir 漂移到
-    // ~/.studio/data/agents/<profile-id>/.studio/data 产生嵌套。STUDIO_DATA_DIR env
-    // 由 API server bootstrap 显式设置并经 buildSessionEnv 透传，提供绝对路径锚点。
-    this.baseDir = baseDir ?? process.env.STUDIO_DATA_DIR ?? path.join(os.homedir(), '.studio', 'data');
-  }
-
-  // ─── 内部工具方法 ───
-
-  /** 确保目录存在 */
-  private async ensureDir(dir: string): Promise<void> {
-    await fs.promises.mkdir(dir, { recursive: true });
-  }
-
-  /** 读取 JSON 文件，不存在或损坏返回 null */
-  public async readJson<T>(filePath: string): Promise<T | null> {
-    try {
-      const content = await fs.promises.readFile(filePath, 'utf-8');
-      try {
-        return JSON.parse(content) as T;
-      } catch {
-        return null; // corrupt JSON → treat as missing
-      }
-    } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return null;
-      throw err;
-    }
-  }
-
-  /**
-   * 写入 JSON 文件（原子写）。
-   * 同目录 tmp 文件 + rename（同分区 rename 原子），进程崩溃或并发读不会看到撕裂内容；
-   * tmp 名含 pid + 随机串防并发冲突；rename 前 fsync 落盘；失败时清理 tmp。
-   */
-  public async writeJson(filePath: string, data: unknown): Promise<void> {
-    await this.ensureDir(path.dirname(filePath));
-    const tmpPath = `${filePath}.tmp-${process.pid}-${randomUUID()}`;
-    try {
-      const fh = await fs.promises.open(tmpPath, 'w');
-      try {
-        await fh.writeFile(JSON.stringify(data, null, 2), 'utf-8');
-        await fh.sync();
-      } finally {
-        await fh.close();
-      }
-      await fs.promises.rename(tmpPath, filePath);
-    } catch (err) {
-      await fs.promises.unlink(tmpPath).catch(() => {});
-      throw err;
-    }
-  }
-
-  /** 追加一行 JSONL */
-  public async appendJsonl(filePath: string, data: unknown): Promise<void> {
-    await this.ensureDir(path.dirname(filePath));
-    await fs.promises.appendFile(filePath, JSON.stringify(data) + '\n', 'utf-8');
-  }
-
-  /** 写入全部 JSONL 行（覆盖） */
-  public async writeJsonl(filePath: string, data: unknown[]): Promise<void> {
-    await this.ensureDir(path.dirname(filePath));
-    const content = data.map(item => JSON.stringify(item)).join('\n') + (data.length > 0 ? '\n' : '');
-    await fs.promises.writeFile(filePath, content, 'utf-8');
-  }
-
-  /** 读取全部 JSONL 行（跳过解析失败的行） */
-  public async readJsonl<T>(filePath: string): Promise<T[]> {
-    try {
-      const content = await fs.promises.readFile(filePath, 'utf-8');
-      const lines = content.split('\n').filter(l => l.trim().length > 0);
-      const results: T[] = [];
-      for (const line of lines) {
-        try {
-          results.push(JSON.parse(line) as T);
-        } catch {
-          // skip corrupt lines
-        }
-      }
-      return results;
-    } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return [];
-      throw err;
-    }
-  }
-
-  // ─── 文件锁 ───
-
-  /**
-   * 基于 mkdir 原子性的跨进程文件锁。
-   * 获取锁后执行 fn，释放锁后返回结果。
-   * timeoutMs 为获取锁的超时时间。
-   */
-  async withLock<T>(lockDir: string, fn: () => Promise<T>, timeoutMs: number = DEFAULT_LOCK_TIMEOUT_MS): Promise<T> {
-    // 确保父目录存在，防止 mkdir 因 ENOENT 失败
-    await fs.promises.mkdir(path.dirname(lockDir), { recursive: true });
-    const start = Date.now();
-    while (true) {
-      try {
-        // 原子性创建锁目录（没有 recursive，存在即失败）
-        await fs.promises.mkdir(lockDir);
-        break;
-      } catch (err: unknown) {
-        // EEXIST 是预期中的锁冲突，其他错误直接抛
-        if (isErrnoError(err) && err.code !== 'EEXIST') throw err;
-        if (Date.now() - start > timeoutMs) {
-          throw new LockTimeoutError(timeoutMs);
-        }
-        await sleep(LOCK_RETRY_INTERVAL_MS);
-      }
-    }
-    try {
-      return await fn();
-    } finally {
-      await fs.promises.rmdir(lockDir).catch(() => {});
-    }
-  }
-
-  private get lockDir(): string {
-    return path.join(this.baseDir, 'workunits', 'lock');
-  }
+export class FileStore extends FileStoreWorkUnitBase {
 
   // ─── 路径生成 ───
 
@@ -362,14 +93,6 @@ export class FileStore {
 
   private messagesPath(channelId: string): string {
     return path.join(this.baseDir, 'channels', channelId, 'messages.jsonl');
-  }
-
-  private get eventsPath(): string {
-    return path.join(this.baseDir, 'workunits', 'events.jsonl');
-  }
-
-  private get indexPath(): string {
-    return path.join(this.baseDir, 'workunits', 'index.json');
   }
 
   private agentsDir(): string {
@@ -742,159 +465,6 @@ export class FileStore {
   }
 
   // ═══════════════════════
-  // WorkUnit Event Sourcing
-  // ═══════════════════════
-
-  async appendEvent(event: WorkUnitEvent): Promise<void> {
-    await this.appendJsonl(this.eventsPath, event);
-  }
-
-  /**
-   * 读取 workunits/index.json 原始快照数组。
-   * 文件不存在 → null（调用方按空处理）；存在但 JSON 撕裂/非数组 → 抛出带路径的错误。
-   * 损坏绝不静默当空数组——防止后续基于空数组回写把全部已有快照抹掉。
-   */
-  private async readIndexFile(): Promise<WorkUnitSnapshot[] | null> {
-    let content: string;
-    try {
-      content = await fs.promises.readFile(this.indexPath, 'utf-8');
-    } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return null;
-      throw err;
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(content);
-    } catch (err) {
-      throw new Error(
-        `WorkUnit index corrupted (JSON parse failed): ${this.indexPath}` +
-        `${err instanceof Error ? ` — ${err.message}` : ''}`
-      );
-    }
-    if (!Array.isArray(parsed)) {
-      throw new Error(`WorkUnit index corrupted (not an array): ${this.indexPath}`);
-    }
-    return parsed as WorkUnitSnapshot[];
-  }
-
-  async getIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
-    const snapshots = (await this.readIndexFile()) ?? [];
-    return applyFilter(snapshots, filter);
-  }
-
-  async rebuildIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
-    const events = await this.readJsonl<WorkUnitEvent>(this.eventsPath);
-    const snapshotMap = new Map<string, WorkUnitSnapshot>();
-
-    for (const event of events) {
-      switch (event.type) {
-        case 'created':
-          snapshotMap.set(event.wuId, event.data as unknown as WorkUnitSnapshot);
-          break;
-        case 'claimed':
-        case 'updated':
-        case 'completed':
-        case 'closed':
-        case 'blocked': {
-          const existing = snapshotMap.get(event.wuId);
-          if (existing && event.data) {
-            snapshotMap.set(event.wuId, { ...existing, ...event.data as Partial<WorkUnitSnapshot> } as WorkUnitSnapshot);
-          }
-          break;
-        }
-      }
-    }
-
-    const snapshots = Array.from(snapshotMap.values());
-
-    // 写回 index.json
-    await this.writeJson(this.indexPath, snapshots);
-
-    return applyFilter(snapshots, filter);
-  }
-
-  async claimWorkUnit(wuId: string, assigneeId: string): Promise<boolean> {
-    return this.withLock(this.lockDir, async () => {
-      // 读取当前 index（不存在 → 空；撕裂/损坏 → 抛错，不再幻影 "not found"）
-      const snapshots = (await this.readIndexFile()) ?? [];
-
-      const wu = snapshots.find(s => s.id === wuId);
-      if (!wu || wu.status !== 'unassigned') {
-        return false;
-      }
-
-      // append claim event
-      const timestamp = new Date().toISOString();
-      const claimEvent: WorkUnitEvent = {
-        type: 'claimed',
-        wuId,
-        timestamp,
-        data: {
-          assigneeId,
-          status: 'active',
-          claimedAt: timestamp,
-          updatedAt: timestamp,
-        },
-      };
-      await this.appendJsonl(this.eventsPath, claimEvent);
-
-      // update index snapshot
-      const updated = snapshots.map(s =>
-        s.id === wuId
-          ? { ...s, assigneeId, status: 'active' as const, claimedAt: timestamp, updatedAt: timestamp }
-          : s
-      );
-      await this.writeJson(this.indexPath, updated);
-
-      return true;
-    });
-  }
-
-  /**
-   * Upsert a single WorkUnit snapshot in index.json.
-   * 用于 service 层 create/update 后同步更新快照。
-   * read-modify-write 全程持有 workunits flock（与 claimWorkUnit 同一把锁），
-   * 跨进程并发写不会丢更新。
-   */
-  async upsertSnapshot(snapshot: WorkUnitSnapshot): Promise<void> {
-    return this.withLock(this.lockDir, () => this.upsertSnapshotLocked(snapshot));
-  }
-
-  /**
-   * upsertSnapshot 的无锁变体：仅供已持有 this.lockDir 的内部路径调用。
-   * withLock（mkdir）不可重入，持锁方若调公共 upsertSnapshot 会自死锁。
-   */
-  private async upsertSnapshotLocked(snapshot: WorkUnitSnapshot): Promise<void> {
-    // index 不存在 → 从空开始；撕裂/损坏 → 抛错，绝不基于空数组回写
-    const snapshots = (await this.readIndexFile()) ?? [];
-    const idx = snapshots.findIndex(s => s.id === snapshot.id);
-    if (idx >= 0) {
-      snapshots[idx] = snapshot;
-    } else {
-      snapshots.push(snapshot);
-    }
-    await this.writeJson(this.indexPath, snapshots);
-  }
-
-  /**
-   * Remove a WorkUnit snapshot from index.json by id.
-   * 用于 service 层 delete 后清理快照。
-   * 与 upsertSnapshot 同一把 workunits flock。
-   */
-  async removeSnapshot(id: string): Promise<void> {
-    return this.withLock(this.lockDir, () => this.removeSnapshotLocked(id));
-  }
-
-  /** removeSnapshot 的无锁变体：仅供已持有 this.lockDir 的内部路径调用 */
-  private async removeSnapshotLocked(id: string): Promise<void> {
-    // index 不存在 → nothing to remove；撕裂/损坏 → 抛错
-    const snapshots = await this.readIndexFile();
-    if (!snapshots) return;
-    const filtered = snapshots.filter(s => s.id !== id);
-    await this.writeJson(this.indexPath, filtered);
-  }
-
-  // ═══════════════════════
   // Requirement（REQ 需求编号体系, vision §5.3）
   // ═══════════════════════
 
@@ -1204,131 +774,4 @@ export class FileStore {
       } else { throw err; }
     }
   }
-}
-
-// ─── 工具函数 ───
-
-/**
- * F3: 容错解析「JSON 编码的字符串数组」字段（AgentProfile.channels / Channel.members）。
- * 历史写入 bug 曾把值二次 JSON 编码（"\"[\\\"id\\\"]\""），本函数最多解包 2 层编码；
- * 无法解析或不是字符串数组时返回 []。
- */
-export function parseChannels(raw: unknown): string[] {
-  let value: unknown = raw;
-  for (let depth = 0; depth <= 2; depth++) {
-    if (Array.isArray(value)) {
-      return value.filter((v): v is string => typeof v === 'string');
-    }
-    if (typeof value !== 'string' || value.trim() === '') return [];
-    try {
-      value = JSON.parse(value);
-    } catch {
-      return [];
-    }
-  }
-  return [];
-}
-
-/**
- * F3: 写入端归一化 — 接受 string[] 或（可能多次编码的）JSON 字符串，
- * 输出单层 JSON 编码，保证落盘的 channels/members 字段永远只有一层编码。
- */
-export function stringifyChannels(raw: unknown): string {
-  return JSON.stringify(parseChannels(raw));
-}
-
-function isErrnoError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
-}
-
-/**
- * REQ 需求编号格式化（vision §5.3）：seq → `REQ-<zero-padded>`（至少 4 位）。
- * formatRequirementId(42) === 'REQ-0042'
- */
-export function formatRequirementId(seq: number): string {
-  return `REQ-${String(seq).padStart(4, '0')}`;
-}
-
-/**
- * E1 约束进化提案编号格式化（vision §6）：seq → `EP-<zero-padded>`（至少 4 位）。
- * formatEvolutionId(42) === 'EP-0042'
- */
-export function formatEvolutionId(seq: number): string {
-  return `EP-${String(seq).padStart(4, '0')}`;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function applyFilter(snapshots: WorkUnitSnapshot[], filter?: WorkUnitFilter): WorkUnitSnapshot[] {
-  if (!filter) return snapshots;
-  return snapshots.filter(s => {
-    if (filter.status && s.status !== filter.status) return false;
-    if (filter.type && s.type !== filter.type) return false;
-    if (filter.assigneeId && s.assigneeId !== filter.assigneeId) return false;
-    if (filter.channelId && s.channelId !== filter.channelId) return false;
-    return true;
-  });
-}
-
-// ─── 通用 Markdown / Frontmatter ───
-
-/**
- * 解析 markdown 文件的 YAML frontmatter。
- * 泛化版 parseSddFrontmatter：meta 使用 Record<string, unknown> 而非 SDD 专用类型。
- */
-export function parseFrontmatter(content: string): { meta: Record<string, unknown>; body: string } | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return null;
-
-  const yaml = match[1];
-  const body = match[2].trim();
-  const meta: Record<string, unknown> = {};
-
-  for (const line of yaml.split('\n')) {
-    const kv = line.match(/^(\w+):\s*(.+)$/);
-    if (!kv) continue;
-    const [, key, val] = kv;
-
-    // 数组：[a, b, c]
-    if (val.startsWith('[') && val.endsWith(']')) {
-      meta[key] = val.slice(1, -1)
-        .split(',')
-        .map(s => s.trim().replace(/^["']|["']$/g, ''))
-        .filter(Boolean);
-    }
-    // 数字
-    else if (/^\d+$/.test(val)) {
-      meta[key] = parseInt(val, 10);
-    }
-    // 字符串（去引号）
-    else {
-      meta[key] = val.replace(/^["']|["']$/g, '');
-    }
-  }
-
-  return { meta, body };
-}
-
-/**
- * 序列化 meta + body 为 markdown 文件内容（含 YAML frontmatter）。
- */
-export function serializeFrontmatter(meta: Record<string, unknown>, body: string): string {
-  const lines: string[] = [];
-
-  for (const [key, val] of Object.entries(meta)) {
-    if (val === undefined || val === null) continue;
-    if (Array.isArray(val)) {
-      if (val.length > 0) {
-        lines.push(`${key}: [${val.map(v => `"${String(v)}"`).join(', ')}]`);
-      }
-    } else if (typeof val === 'number') {
-      lines.push(`${key}: ${val}`);
-    } else {
-      lines.push(`${key}: "${String(val)}"`);
-    }
-  }
-
-  return `---\n${lines.join('\n')}\n---\n\n${body}`;
 }
