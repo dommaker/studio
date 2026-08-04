@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-03
+> 最后更新: 2026-08-04
 
 ---
 
@@ -10,20 +10,10 @@
 | agent-executor | packages/studio-agent/src/services/agent-executor.ts | Agent Executor - Session Loop 执行模型 (daemon async spawn) |
 
 | types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
-| export | packages/studio-audit/src/cli/export.ts | Mock 数据 |
-| log | packages/studio-audit/src/cli/log.ts | Mock 数据 |
-| search | packages/studio-audit/src/cli/search.ts | Mock 数据 |
-| audit-chain | packages/studio-audit/src/services/audit-chain.ts | 审计链模块 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
-| types | packages/studio-audit/src/types.ts | types |
 | capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
-| company-mcp-pool | packages/studio-capability/src/services/company-mcp-pool.ts | 公司 MCP 资源池管理 |
 | health-monitor | packages/studio-monitor/src/services/health-monitor.ts | 启动健康监控 |
-| list | packages/studio-notification/src/cli/list.ts | Mock 数据 |
-| mark | packages/studio-notification/src/cli/mark.ts | Mock 数据 |
-| send | packages/studio-notification/src/cli/send.ts | Mock 数据存储 |
 | notification-service | packages/studio-notification/src/services/notification-service.ts | 通知服务 |
-| types | packages/studio-notification/src/types.ts | types |
 | command | packages/studio-shared/src/cli/command.ts | 命令注册框架 |
 | config | packages/studio-shared/src/cli/config.ts | 配置加载器 |
 | error | packages/studio-shared/src/cli/error.ts | 错误处理 |
@@ -52,35 +42,21 @@
 | goal-status | packages/studio-shared/src/types/goal-status.ts | Goal 状态类型 — SQLite 不支持 enum，用 TypeScript 类型守卫约束 |
 | resolution | packages/studio-shared/src/types/resolution.ts | Resolution types — RKB (Resolution Knowledge Base) |
 | stance | packages/studio-shared/src/types/stance.ts | 立场系统类型定义 |
-| event-emitter | packages/studio-shared/src/utils/event-emitter.ts | 事件系统 |
 | logger | packages/studio-shared/src/utils/logger.ts | Shared Logger - 统一日志接口 |
-| parallel-executor | packages/studio-shared/src/utils/parallel-executor.ts | 并行执行器 |
 | process-io | packages/studio-shared/src/utils/process-io.ts | Process I/O utilities — spawn, session-id persistence, file bridge |
-| scheduler | packages/studio-shared/src/utils/scheduler.ts | 资源感知调度器 |
 | spec-parser | packages/studio-shared/src/utils/spec-parser.ts | Spec Markdown 解析器 |
 | loader | packages/studio-skill/src/loader.ts | SkillLoader — 按 trigger 加载 Skill，注入 Agent prompt |
 | types | packages/studio-skill/src/types.ts | Skill 定义类型 |
-| acceptance-validator | packages/studio-spec/src/services/acceptance-validator.ts | 验收层验证器 |
-| api-validator | packages/studio-spec/src/services/api-validator.ts | API 层验证器 |
-| architecture-validator | packages/studio-spec/src/services/architecture-validator.ts | 架构层验证器 |
 | change-analyzer.service.test | packages/studio-spec/src/services/change-analyzer.service.test.ts | ChangeAnalyzerService 单元测试 |
 | change-analyzer.service | packages/studio-spec/src/services/change-analyzer.service.ts | 变更分析服务 |
 | change-history.service.test | packages/studio-spec/src/services/change-history.service.test.ts | ChangeHistoryService 单元测试 |
 | change-history.service | packages/studio-spec/src/services/change-history.service.ts | 变更历史服务 |
 | gate-checker.service.test | packages/studio-spec/src/services/gate-checker.service.test.ts | GateCheckerService 单元测试 |
 | gate-checker.service | packages/studio-spec/src/services/gate-checker.service.ts | 门禁检查服务 |
-| spec-validator.service.test | packages/studio-spec/src/services/spec-validator.service.test.ts | SpecValidator 单元测试 |
-| spec-validator.service | packages/studio-spec/src/services/spec-validator.service.ts | SpecValidator 主服务 |
 | change.types | packages/studio-spec/src/types/change.types.ts | Spec 变更分级类型定义 |
 | gate.types | packages/studio-spec/src/types/gate.types.ts | 门禁类型定义 |
-| validation.types | packages/studio-spec/src/types/validation.types.ts | Spec 验证类型定义 |
-| clean | packages/studio-task/src/cli/clean.ts | clean |
-| queue | packages/studio-task/src/cli/queue.ts | queue |
-| retry | packages/studio-task/src/cli/retry.ts | retry |
-| run | packages/studio-task/src/cli/run.ts | run |
 | task-queue | packages/studio-task/src/services/task-queue.ts | TaskQueue - 任务队列管理器 |
 | task-worker | packages/studio-task/src/services/task-worker.ts | TaskWorker - 任务队列消费者 |
-| types | packages/studio-task/src/types.ts | CLI 命令选项和输出类型 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
 | auditor.service | apps/api/src/modules/agents/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
@@ -88,7 +64,6 @@
 | monitor.service | apps/api/src/modules/agents/monitor.service.ts | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
 | ops.service | apps/api/src/modules/agents/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | apps/api/src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
-| requirement-gate | apps/api/src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
 | review.service | apps/api/src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查（/review/diff 管理端点）+ G33 非阻断发现自动曝光 |
 | review-report | apps/api/src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
@@ -154,22 +129,17 @@
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | apps/api/src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
 | channel | apps/web/src/api/channel.ts | Channel API — list + publish 发布 |
-| useCapabilities | apps/web/src/hooks/useCapabilities.ts | 获取 Stage 分类数据（UI-001） |
 | useChannelEvents | apps/web/src/hooks/useChannelEvents.ts | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
-| useCompanyId | apps/web/src/hooks/useCompanyId.ts | useCompanyId - 统一获取公司 ID |
 
 | useGlobalModals | apps/web/src/hooks/useGlobalModals.ts | 全局弹窗状态 hook |
-| useWebSocket | apps/web/src/hooks/useWebSocket.ts | WebSocket 连接管理 Hook（P2-4） |
 | useWebSocketHandlers | apps/web/src/hooks/useWebSocketHandlers.ts | WebSocket 事件处理 hook |
 | agentStore | apps/web/src/stores/agentStore.ts | agentStore |
 | authStore | apps/web/src/stores/authStore.ts | 认证状态管理 - Auth Store (Zustand) |
 | runtimeStore | apps/web/src/stores/runtimeStore.ts | runtimeStore |
 | uiStore | apps/web/src/stores/uiStore.ts | uiStore |
 | setup | apps/web/src/test/setup.ts | setup |
-| canvas | apps/web/src/types/canvas.ts | 共享画布类型（xyflow 兼容，避免直接导入 xyflow 打包） |
 | types | apps/web/src/types.ts | types.ts - Agent Studio 类型定义 |
 | api | apps/web/src/utils/api.ts | 获取 API 基础 URL |
-| format | apps/web/src/utils/format.ts | 格式化 Token 数量 |
 | toast | apps/web/src/utils/toast.ts | Lightweight toast notification system (zero dependencies) |
 
 | session-summary-generator | apps/api/src/modules/events/session-summary-generator.ts | B9-015: SessionSummaryGenerator — server-side session aggregation |
@@ -189,16 +159,12 @@
 | agent-runner | packages/studio-agent/src/services/agent-runner.ts | Agent Runner — unified executor merging AgentExecutor + TaskExecutor |
 
 | stream-json-parser | packages/studio-shared/src/llm/stream-json-parser.ts | Stream-JSON Parser — 解析 Claude CLI --output-format stream-json 输出 |
-| failure-classifier | apps/api/src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
 
 | unified-query | apps/api/src/modules/knowledge/engine/unified-query.ts | UnifiedQuery — dual-store unified query layer. |
 | knowledge-service.routes | apps/api/src/modules/knowledge/knowledge-service.routes.ts | KnowledgeService HTTP API + SSE |
 | knowledge-service | apps/api/src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |
 | signal-aggregator | apps/api/src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | external-fetcher | apps/api/src/modules/knowledge/producers/external-fetcher.ts | ExternalFetcher — fetch external docs and ingest as reference knowledge. |
-| concurrency-control | packages/studio-shared/src/utils/concurrency-control.ts | Concurrency control utilities extracted from Pipeline scheduler. |
-| error-file-extractor | packages/studio-shared/src/utils/error-file-extractor.ts | Extract affected file paths from compiler/test error messages. |
-| git-utils | packages/studio-shared/src/utils/git-utils.ts | Git utility functions extracted from Pipeline executor-subagent-spawner. |
 | sdd-utils | packages/studio-shared/src/utils/sdd-utils.ts | SDD 工具函数 — frontmatter 解析 + slug 生成 |
 | intent-router | packages/studio-skill/src/intent-router.ts | Match task text against skill name/description. |
 | agent-instance.routes | apps/api/src/modules/agents/agent-instance.routes.ts | RuntimeInstance API 路由 (AS-026 AC-1) |
@@ -231,14 +197,11 @@
 
 | file-store | packages/studio-shared/src/file-store.ts | FileStore — AN 运行时数据文件存储基类 |
 | anomaly-detector | packages/studio-shared/src/stats/anomaly-detector.ts | 计算数组的均值和标准差（总体标准差） |
-| system-health | apps/api/src/modules/agents/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
 | convert-to-task.service | apps/api/src/modules/channels/convert-to-task.service.ts | AC-E2: Convert to Task Service |
 | message-routing | apps/api/src/modules/channels/message-routing.ts | Message routing logic for channel messages (AC-B1-B4). |
-| okr-anomaly-detector | apps/api/src/modules/pmo/okr-anomaly-detector.ts | okr-anomaly-detector |
 | project-discovery.service | apps/api/src/modules/projects/project-discovery.service.ts | AC-D1+D3: Project Discovery Service |
 | project.routes | apps/api/src/modules/projects/project.routes.ts | AC-D3: Project Discovery API |
 | providers | packages/studio-shared/src/providers.ts | Provider Registry — single source of truth for agent CLI providers (F4) |
-| events-dir | packages/studio-shared/src/utils/events-dir.ts | R2 事件目录统一（断点 D，docs/plans/2026-07-flywheel-repair.md）。 |
 
 | knowledge-singletons | apps/api/src/modules/knowledge/knowledge-singletons.ts | knowledge-singletons — 知识子系统共享单例的唯一所有者 (R4 收敛, 断点 H) |
 | req-binding | apps/api/src/modules/requirements/req-binding.ts | REQ 绑定解析（vision §5.3）— @mention 派发 / convert-to-task 共用。 |
