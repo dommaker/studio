@@ -1,6 +1,11 @@
 /**
  * ExternalFetcher — fetch external docs and ingest as reference knowledge.
  *
+ * 【未接线】功能完整但无调用方（unified 路由仅手工录入，web 无 URL 入口）。
+ * 接入方案：POST /api/v1/knowledge/unified/fetch（约 30 行）+ KnowledgePage 加 URL 输入。
+ * 接入前提：必须先补 SSRF 防护（协议/内网地址校验、响应体大小上限）。
+ * 属「已实现未接入」保留资产，勿按死代码清理（2026-08-04 复审决议）。
+ *
  * Fetches URL content, strips HTML tags, and ingests into KnowledgeStore
  * with consumptionMode='reference', origin='external'.
  * Sanitization (injection patterns, length limit) handled by harness ingestExternal().

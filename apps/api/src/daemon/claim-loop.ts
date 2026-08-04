@@ -1,6 +1,13 @@
 /**
  * Claim Loop — AS-020 P5-02: Per-Runtime task polling
  *
+ * 【未接线】daemon 客户端三件套之一（claim-loop + cli-adapter + task-executor）：
+ * 服务端 6 个 /api/v1/daemon/tasks/* 端点已挂载并在等这个客户端，但
+ * `studio daemon start` 目前只注册 workspace 不启动轮询。接入点：cli/admin.ts
+ * studioDaemonStart()，约 40 行。接入前提：拍板 HTTP 轮询 vs WS agent-task vs
+ * studio-agent AgentRunner 的路线，以及 daemon 长驻进程形态；注意 claim 整文件
+ * 读改写的多 daemon 并发竞态。勿按死代码清理（2026-08-04 复审决议）。
+ *
  * Each runtime gets an independent poll loop (3s interval).
  * Max 10 concurrent tasks per daemon.
  * Server sends 200 { task } or 204 (no task).

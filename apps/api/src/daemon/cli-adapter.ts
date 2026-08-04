@@ -1,6 +1,10 @@
 /**
  * CLI Adapter — translate common agent args to provider-specific spawn args
  *
+ * 【未接线】daemon 客户端三件套之一，随 claim-loop 一起接入（见 claim-loop.ts 头注）。
+ * 注意与 packages/studio-agent/src/cli-adapter.ts 是签名分歧的并行实现，合并难度中。
+ * 勿按死代码清理（2026-08-04 复审决议）。
+ *
  * Provider definitions come from the shared provider registry (F4):
  * claude, kimi, codex, opencode built in (+ openclaw config-only),
  * user overrides via ~/.studio/providers.json.

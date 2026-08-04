@@ -1,6 +1,11 @@
 /**
  * GC Service — AS-020 P5: Garbage collection for old tasks and events
  *
+ * 【未接线】startGC 从未被启动流程调用（events.jsonl 只增不减，需求真实）。
+ * 接入点：apps/api/src/index.ts 启动段（startAuditSubscriber 后）+ stopGC 进优雅停机。
+ * 接入前提：TTL env 化、补真实测试（现有测试是 mirror 测试）、修复与 daemon 并发 append 的整文件覆写竞态、确认 24h 物理删除策略。
+ * 属「已实现未接入」保留资产，勿按死代码清理（2026-08-04 复审决议）。
+ *
  * Storage: ~/.studio/workspaces/{id}/tasks.jsonl + events.jsonl
  *
  * Runs every 1h via setInterval:

@@ -6,7 +6,11 @@
  *   Aggregator 把 KnowledgeStore 中的原始 signal 条目按 tag 聚合，
  *   达到阈值后生成趋势条目，供 prompt-builder 索引注入。
  *
- * 触发：管线完成（PostEval）后运行
+ * 触发：原管线 PostEval 已随 pipeline 删除（fb13e2b5）——【未接线】
+ * 接入方案：evolution-scheduler 每日 timer（兄弟 producer pattern-miner 同路径）约 10 行；
+ * 但趋势文件 data/trends/*.md 目前无生产读者（injectContext 只读原始 signal），
+ * 产生价值需先做「趋势注入 inject-context」设计；若决定不做，本文件可删。
+ * 属「已实现未接入」保留资产，勿按死代码清理（2026-08-04 复审决议）。
  * 阈值：≥3 次/7 天
  * 输出：consumptionMode=signal, tags=[trend-aggregated, <tag>]
  */

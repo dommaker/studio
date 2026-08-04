@@ -1,6 +1,9 @@
 /**
  * Task Executor — AS-020 P5-03: Agent execution lifecycle
  *
+ * 【未接线】daemon 客户端三件套之一，随 claim-loop 一起接入（见 claim-loop.ts 头注）。
+ * 勿按死代码清理（2026-08-04 复审决议）。
+ *
  * spawn → capture stdout → poll cancel → POST complete/fail → session pinning
  *
  * P5-04 output capture is inline (stream-json line parser + batcher).

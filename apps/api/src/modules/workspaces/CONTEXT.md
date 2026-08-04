@@ -16,7 +16,7 @@
 | discover-proxy.ts | WS 代理转发 /api/discover 到 Daemon |
 | task-routes.ts | POST /tasks/:id/claim（Daemon 拉取任务） |
 | daemon-routes.ts | Daemon 事件回报 API |
-| gc-service.ts | GC 策略（done 24h / orphan 72h / artifact 12h） |
+| gc-service.ts | GC 策略（done 24h / orphan 72h / artifact 12h）【未接线：startGC 未挂启动流程，接入前提见文件头注】 |
 | local-workspace.ts | VPS 本地 Workspace 自动注册 + 本地 CLI 运行时扫描（`rescanLocalRuntimes` 供按需重扫） |
 
 ## 依赖关系
