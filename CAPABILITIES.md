@@ -43,10 +43,19 @@
 | resolution | packages/studio-shared/src/types/resolution.ts | Resolution types — RKB (Resolution Knowledge Base) |
 | stance | packages/studio-shared/src/types/stance.ts | 立场系统类型定义 |
 | logger | packages/studio-shared/src/utils/logger.ts | Shared Logger - 统一日志接口 |
+| concurrency-control | packages/studio-shared/src/utils/concurrency-control.ts | Concurrency control utilities extracted from Pipeline scheduler. |
+| error-file-extractor | packages/studio-shared/src/utils/error-file-extractor.ts | Extract affected file paths from compiler/test error messages. |
+| git-utils | packages/studio-shared/src/utils/git-utils.ts | Git utility functions extracted from Pipeline executor-subagent-spawner. |
 | process-io | packages/studio-shared/src/utils/process-io.ts | Process I/O utilities — spawn, session-id persistence, file bridge |
 | spec-parser | packages/studio-shared/src/utils/spec-parser.ts | Spec Markdown 解析器 |
 | loader | packages/studio-skill/src/loader.ts | SkillLoader — 按 trigger 加载 Skill，注入 Agent prompt |
 | types | packages/studio-skill/src/types.ts | Skill 定义类型 |
+| acceptance-validator | packages/studio-spec/src/services/acceptance-validator.ts | 验收层验证器 |
+| api-validator | packages/studio-spec/src/services/api-validator.ts | API 层验证器 |
+| architecture-validator | packages/studio-spec/src/services/architecture-validator.ts | 架构层验证器 |
+| spec-validator.service | packages/studio-spec/src/services/spec-validator.service.ts | SpecValidator 主服务 |
+| spec-validator.service.test | packages/studio-spec/src/services/spec-validator.service.test.ts | SpecValidator 单元测试 |
+| validation.types | packages/studio-spec/src/types/validation.types.ts | Spec 验证类型定义 |
 | change-analyzer.service.test | packages/studio-spec/src/services/change-analyzer.service.test.ts | ChangeAnalyzerService 单元测试 |
 | change-analyzer.service | packages/studio-spec/src/services/change-analyzer.service.ts | 变更分析服务 |
 | change-history.service.test | packages/studio-spec/src/services/change-history.service.test.ts | ChangeHistoryService 单元测试 |
