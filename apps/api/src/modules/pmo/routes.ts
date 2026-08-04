@@ -10,7 +10,6 @@ import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { FileStore } from '@dommaker/studio-shared';
 import * as os from 'os';
 import * as path from 'path';
-import * as fs from 'node:fs';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 
 /** A2A §4.4 同款约定：agent 身份调用一律 403（交付权只在人） */
@@ -21,7 +20,6 @@ function resolveCallerAuthorType(req: Request): string {
 }
 
 const router = Router();
-const EXECUTIONS_JSONL = resolveStudioLogFile('executions.jsonl');
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 
 // ============================================
@@ -551,44 +549,6 @@ router.delete('/okr/:id', requireRole('Admin'), async (req: Request, res: Respon
     logger.error({ error }, 'Failed to delete OKR');
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: 'Failed to delete OKR' },
-    });
-  }
-});
-
-// ============================================
-// 项目 API（Execution）
-// ============================================
-
-/**
- * PUT /api/v1/pmo/projects/:id/okr
- * 设置项目关联的 OKR（需要管理员或 ProjectLead 权限）
- */
-router.put('/projects/:id/okr', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
-  try {
-    const executionId = req.params.id;
-    const { okrId } = req.body;
-
-    // 获取 Execution
-    const fileStore = new FileStore();
-    const allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
-    const execution = allRows.find((r: any) => r.id === executionId);
-
-    if (!execution) {
-      // Execution may not exist yet, create new row
-      await fileStore.appendJsonl(EXECUTIONS_JSONL, { id: executionId, roleId: null, okrId });
-      return res.json({ id: executionId, roleId: null, okrId });
-    }
-
-    // 更新 OKR 关联 — read-modify-write
-    const updated = { ...execution, okrId };
-    const content = allRows.map(r => JSON.stringify(r)).join('\n') + '\n';
-    await fs.promises.writeFile(EXECUTIONS_JSONL, content, 'utf-8');
-
-    res.json(updated);
-  } catch (error) {
-    logger.error({ error }, 'Failed to set project OKR');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to set project OKR' },
     });
   }
 });

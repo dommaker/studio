@@ -119,7 +119,6 @@ async function main() {
       console.log('  数据:');
       console.log('    studio knowledge <search>  Knowledge base search');
       console.log('    studio channel <list>      Channel list');
-      console.log('    studio role <list|show>    Role management');
       console.log('    studio task <queue|run>    Task management');
       console.log('    studio agent <status>      Agent status');
       console.log('    studio env <show>          Environment snapshot');
