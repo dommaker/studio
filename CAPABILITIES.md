@@ -296,3 +296,33 @@
 | daily-token-budget | apps/api/src/modules/agents/daily-token-budget.ts | C3（2026-08-03 unattended-token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。 |
 | maintenance.routes | apps/api/src/modules/knowledge/maintenance.routes.ts | Knowledge Maintenance Routes — F1 知识库维护的手动触发入口 |
 | maintenance | apps/web/src/api/maintenance.ts | Maintenance API — 手动任务按钮（触发器手动 fire / 成本聚合 / 知识库维护 / 中层演化） |
+| prerequisite-checks | packages/studio-agent/src/services/prerequisite-checks.ts | Prerequisite Checks — 执行前置检查（session-manager.ts 拆分模块） |
+| prompt-builder | packages/studio-agent/src/services/prompt-builder.ts | Prompt Builder — Agent prompt 构建（session-manager.ts 拆分模块） |
+| worktree-scaffolding | packages/studio-agent/src/services/worktree-scaffolding.ts | Worktree Scaffolding — worktree 内的脚手架写入：REQUIREMENTS.md / 契约测试 / 依赖缓存安装 |
+| channels-codec | packages/studio-shared/src/channels-codec.ts | channels/members 字段编解码（F3，从 file-store.ts 抽出） |
+| file-store-base | packages/studio-shared/src/file-store-base.ts | FileStoreBase — FileStore 的底层原语层（从 file-store.ts 抽出） |
+| file-store-types | packages/studio-shared/src/file-store-types.ts | file-store 数据类型定义（从 file-store.ts 抽出） |
+| file-store-workunit | packages/studio-shared/src/file-store-workunit.ts | FileStoreWorkUnitBase — FileStore 的 WorkUnit 事件溯源层（从 file-store.ts 抽出） |
+| frontmatter | packages/studio-shared/src/frontmatter.ts | 解析 markdown 文件的 YAML frontmatter。 |
+| agent-knowledge-analysis | apps/api/src/modules/agents/agent-knowledge-analysis.ts | Analyze agent log for knowledge search behavior. |
+| agent-loop-instance-state | apps/api/src/modules/agents/agent-loop-instance-state.ts | 2026-07 PMO-flow UX（§6-2）：instance 忙闲变化发 SSE（agent.instance.status_changed）。 |
+| agent-loop-prompts | apps/api/src/modules/agents/agent-loop-prompts.ts | §10 P0: 注入总预算（skill 段 + 知识段共用的 2K 红线）。 |
+| agent-loop-record-result | apps/api/src/modules/agents/agent-loop-record-result.ts | 2026-07 PMO-flow UX（§6-3）：里程碑消息 meta 的归属 PMO 解析。 |
+| agent-loop-session | apps/api/src/modules/agents/agent-loop-session.ts | 首 step（新建会话）执行失败时重置 sessionId：CLI 会话未必已建立（可能根本没 spawn 到）， |
+| agent-loop-step-guards | apps/api/src/modules/agents/agent-loop-step-guards.ts | AgentLoop agentStep 前置守卫（B2 测试特征 WU 关闭 / C3 每日 token 预算熔断）—— |
+| agent-loop-utils | apps/api/src/modules/agents/agent-loop-utils.ts | AgentLoop 进程/git 小工具 —— 从 agent-loop.ts 原样抽出，行为不变。 |
+| agent-loop-workspace | apps/api/src/modules/agents/agent-loop-workspace.ts | B3a 归属链：执行根目录解析 — metadata.workspaceRoot（Requirement→PMO gitRepo / |
+| agent-output-parser | apps/api/src/modules/agents/agent-output-parser.ts | P0 修复（reviewReport 回传断链）：解析 reviewer 最终输出为结构化审查结论。 |
+| agent-targeting | apps/api/src/modules/agents/agent-targeting.ts | AgentLoop 观察→目标解析（纯代码，零 LLM）—— 从 agent-loop.ts 原样抽出，行为不变。 |
+| workunit-token-events | apps/api/src/modules/agents/workunit-token-events.ts | 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null —— |
+| wu-test-guards | apps/api/src/modules/agents/wu-test-guards.ts | B2 测试特征 WU 守卫（2026-08-03 token-burn issue P0-1c）—— 从 agent-loop.ts 原样抽出，行为不变。 |
+| conversation-extraction | apps/api/src/modules/knowledge/conversation-extraction.ts | conversation-extraction — R3 会话提取 + 提案审核闭环 |
+| inject-context | apps/api/src/modules/knowledge/inject-context.ts | inject-context — injectContext 的注入闸门与 2K 预算 helpers |
+| knowledge-data-layer | apps/api/src/modules/knowledge/knowledge-data-layer.ts | knowledge-data-layer — KnowledgeService 的数据层（文件系统存取） |
+| knowledge-forms | apps/api/src/modules/knowledge/knowledge-forms.ts | knowledge-forms — 知识形态门禁（form validation gate） |
+| knowledge-metrics | apps/api/src/modules/knowledge/knowledge-metrics.ts | knowledge-metrics — 飞轮/审计的事件流度量（R1/M1） |
+| knowledge-search-helpers | apps/api/src/modules/knowledge/knowledge-search-helpers.ts | knowledge-search-helpers — 关键词检索与 RAG 降级 helpers |
+| knowledge-types | apps/api/src/modules/knowledge/knowledge-types.ts | knowledge-types — KnowledgeService 的 Studio 侧类型与类型映射 |
+| okr-metric-queries | apps/api/src/modules/pmo/okr-metric-queries.ts | OKR metric 查询基类（B8 数据源查询层） |
+| workunit-crud | apps/api/src/modules/workunit/workunit-crud.ts | WorkUnit CRUD + Claim 持久化层 —— WorkUnitService 的基类（自 workunit.service.ts 拆分，纯代码移动）。 |
+| okrUtils | apps/web/src/components/pmo/okrUtils.ts | OKR 度量工具 — 当前季度 / metricType 选项与元数据 / KR 目标校验（从 pages/PMOPage.tsx 抽出，纯代码移动） |
