@@ -705,57 +705,57 @@ export function ProjectDetailPage() {
               />
             </div>
           </div>
-          <span className="text-2xl font-bold u-text">{progressStats.progress}%</span>
+          <span style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-text">{progressStats.progress}%</span>
         </div>
         
         {/* 统计卡片：老 Task 链路五卡 / WU 链路六卡（tasks 为空且有台账时） */}
         {tasks.length === 0 && delivery ? (
           <div className="grid grid-cols-6 gap-2">
             <div className="p-2 rounded u-ok-dim text-center">
-              <div className="text-lg font-bold u-ok">{delivery.wu.finished}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-ok">{delivery.wu.finished}</div>
               <div className="text-xs u-text-2">✅ 完成</div>
             </div>
             <div className="p-2 rounded u-warn-dim text-center">
-              <div className="text-lg font-bold u-warn">{delivery.wu.byStatus.inReview}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-warn">{delivery.wu.byStatus.inReview}</div>
               <div className="text-xs u-text-2">👀 待验收</div>
             </div>
             <div className="p-2 rounded u-accent-dim text-center">
-              <div className="text-lg font-bold u-accent">{delivery.wu.byStatus.active}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">{delivery.wu.byStatus.active}</div>
               <div className="text-xs u-text-2">🔄 进行中</div>
             </div>
             <div className="p-2 rounded u-surface-2 text-center">
-              <div className="text-lg font-bold u-text-2">{delivery.wu.byStatus.unassigned}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-text-2">{delivery.wu.byStatus.unassigned}</div>
               <div className="text-xs u-text-2">⏳ 待领取</div>
             </div>
             <div className="p-2 rounded u-err-dim text-center">
-              <div className="text-lg font-bold u-err">{delivery.wu.byStatus.blocked}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-err">{delivery.wu.byStatus.blocked}</div>
               <div className="text-xs u-text-2">🚫 阻塞</div>
             </div>
             <div className="p-2 rounded u-accent-dim text-center">
-              <div className="text-lg font-bold u-accent">{delivery.tokens.toLocaleString()}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">{delivery.tokens.toLocaleString()}</div>
               <div className="text-xs u-text-2">💰 Token</div>
             </div>
           </div>
         ) : (
           <div className="grid grid-cols-5 gap-2">
             <div className="p-2 rounded u-ok-dim text-center">
-              <div className="text-lg font-bold u-ok">{progressStats.completed}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-ok">{progressStats.completed}</div>
               <div className="text-xs u-text-2">✅ 完成</div>
             </div>
             <div className="p-2 rounded u-accent-dim text-center">
-              <div className="text-lg font-bold u-accent">{progressStats.inProgress}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">{progressStats.inProgress}</div>
               <div className="text-xs u-text-2">🔄 进行中</div>
             </div>
             <div className="p-2 rounded u-surface-2 text-center">
-              <div className="text-lg font-bold u-text-2">{progressStats.pending}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-text-2">{progressStats.pending}</div>
               <div className="text-xs u-text-2">⏳ 待领取</div>
             </div>
             <div className="p-2 rounded u-err-dim text-center">
-              <div className="text-lg font-bold u-err">{progressStats.blocked}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-err">{progressStats.blocked}</div>
               <div className="text-xs u-text-2">🚫 阻塞</div>
             </div>
             <div className="p-2 rounded u-accent-dim text-center">
-              <div className="text-lg font-bold u-accent">{tokenStats.toLocaleString()}</div>
+              <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-accent">{tokenStats.toLocaleString()}</div>
               <div className="text-xs u-text-2">💰 Token</div>
             </div>
           </div>

@@ -596,7 +596,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="text-right">
-                        <div className="text-lg font-bold u-ok">
+                        <div style={{ fontSize: 'var(--fs-stat)' }} className="font-bold u-ok">
                           {Math.round(okr.progress * 100)}%
                         </div>
                         <div className="text-xs u-text-3">
