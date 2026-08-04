@@ -105,10 +105,13 @@ pnpm start  # 启动生产服务
 <!-- PRESERVE:release-flow -->
 ## 发布流程（代码写完后怎么上线）
 
-**唯一权威说明：`/root/projects/studio-config/SHIP.md`**。一句话：`studio-ship` 走 PR → CI → auto-merge → 盯到合并；合并后 cron 每分钟 `auto-deploy.sh` 在生产 checkout `/root/projects/studio-prod`（git worktree，与开发仓解耦）上部署 → 健康检查 → 失败自动回滚。
+**唯一权威说明：`/root/projects/studio-config/SHIP.md`**。双轨制（2026-08-04 起）：
 
-- 部署状态：`studio-ship deploy-state`（state.json）或 Discord 告警频道
+- **日常快速部署（平时走这条）：`studio-deploy-quick`**（`~/projects/studio-config/bin/`）——本地校验（vitest --changed + harness check + sync-docs）+ 直部署生产 checkout `/root/projects/studio-prod`，3-5min 看效果，不走 PR/CI；写 `state.json mode=quick` 阻止 cron auto-deploy 覆盖；健康检查失败自动回滚 PREV（本地分支保留，不丢代码）；完成后异步 push 当前分支到 GitHub 备份。
+- **批次同步：`studio-ship`**——攒一批后手动跑：清 `mode=quick` → PR → CI → auto-merge → 盯到合并；合并后 cron 每分钟 `auto-deploy.sh` 在 studio-prod（git worktree，与开发仓解耦）部署 origin/master → 健康检查 → 失败自动回滚。
+
+- 部署状态：`studio-ship deploy-state`（state.json）或 PushPlus 微信告警
 - 部署日志：`/var/log/studio-deploy.log`
 - 本仓的任何分支/脏树/本地领先状态都**不影响**部署（2026-07-29 起）
-- **分批提交（用户要求，2026-08-04 起）**：长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动，避免工作丢失；提交落在本地 master 或 feature 分支均可。上线仍只走 `studio-ship` 且由用户触发，agent 不主动 push。
+- **分批提交（用户要求，2026-08-04 起）**：长任务开发中按逻辑批次及时 `git commit`（feat/fix/chore/docs 前缀），不攒大批量未提交改动，避免工作丢失；提交落在本地 master 或 feature 分支均可。`studio-deploy-quick` 与 `studio-ship` 均由用户触发，agent 不主动执行、不主动 push。
 <!-- /PRESERVE:release-flow -->
