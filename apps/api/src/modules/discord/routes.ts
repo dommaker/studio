@@ -114,22 +114,8 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
     try {
       if (name === 'studio') {
-        if (subcommand === 'send') {
-          const cmd = options?.[0]?.options?.find((o: any) => o.name === 'command')?.value;
-          if (!cmd) {
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: 'Usage: /studio send <command>' } });
-            return;
-          }
-          const { execSync } = await import('child_process');
-          try {
-            const output = execSync(cmd as string, { encoding: 'utf-8', timeout: 10000 });
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `**Command output:**\n\`\`\`\n${output.slice(0, 1500)}\n\`\`\`` } });
-          } catch (err: any) {
-            res.json({ type: ResponseType.CHANNEL_MESSAGE_WITH_SOURCE, data: { content: `❌ Command failed: ${err.message?.slice(0, 200) || String(err)}` } });
-          }
-          return;
-        }
-
+        // /studio send 已下线（2026-08）：execSync 任意 shell 等于把服务器 shell 暴露给频道，
+        // 仅靠 Discord 签名守门不足，run/progress/stop 覆盖正当用例。
         if (subcommand === 'run') {
           const requirement = options?.[0]?.options?.find((o: any) => o.name === 'requirement')?.value;
           if (!requirement || !String(requirement).trim()) {
