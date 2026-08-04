@@ -63,8 +63,8 @@ export const CheckpointTimeline: React.FC<CheckpointTimelineProps> = ({
             key={checkpoint.checkpointId || index}
             className="checkpoint-item border rounded-lg p-4"
             style={{
-              borderColor: checkpoint.passed ? 'rgba(16, 185, 129, 0.3)' : 'rgba(239, 68, 68, 0.3)',
-              background: checkpoint.passed ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)'
+              borderColor: checkpoint.passed ? 'var(--success-border)' : 'var(--error-border)',
+              background: checkpoint.passed ? 'var(--success-dim)' : 'var(--error-dim)'
             }}
           >
             {/* Checkpoint Header */}

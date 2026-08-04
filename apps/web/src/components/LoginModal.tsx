@@ -49,22 +49,16 @@ export function LoginModal({ open, onClose, onSuccess }: LoginModalProps) {
   if (!open) return null;
 
   return (
-    <div className="modal-overlay">
-      {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/30"
-        onClick={handleClose}
-      />
-
+    <div className="modal-overlay" onClick={handleClose}>
       {/* Modal */}
-      <div className="modal" style={{ maxWidth: '28rem', width: '100%' }}>
-        <h2 className="text-lg font-semibold mb-4" style={{ color: 'var(--text-primary)' }}>
+      <div className="modal" style={{ maxWidth: '28rem', width: '100%' }} onClick={(e) => e.stopPropagation()}>
+        <h2 className="modal-title" style={{ marginBottom: '16px' }}>
           {isRegister ? '注册账号' : '登录'}
         </h2>
 
         {/* 错误提示 */}
         {error && (
-          <div className="mb-4 p-3 rounded-lg text-sm" style={{ background: 'rgba(239,68,68,0.1)', color: 'var(--error)' }}>
+          <div className="mb-4 p-3 rounded-lg text-sm" style={{ background: 'var(--error-dim)', color: 'var(--error)' }}>
             {error}
           </div>
         )}

@@ -104,7 +104,7 @@ export function FilePreview({ file, onClose }: FilePreviewProps) {
       
       {/* 头部工具栏 */}
       <div className="flex items-center justify-between px-4 py-3 border-b"
-           style={{ background: 'rgba(99, 102, 241, 0.08)', borderColor: 'var(--border-subtle)' }}>
+           style={{ background: 'var(--accent-dim)', borderColor: 'var(--border-subtle)' }}>
         <div className="flex items-center gap-3">
           <span className="text-xl">{fileIcon}</span>
           <div>

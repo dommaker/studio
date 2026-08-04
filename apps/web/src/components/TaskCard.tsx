@@ -41,9 +41,9 @@ export function TaskCard({ execution, thinkingMessages, isThinking, onCancel, on
           className="text-xs px-2 py-0.5 rounded-full"
           style={{
             background:
-              execution.status === 'running' ? 'rgba(59, 130, 246, 0.1)' :
-              execution.status === 'succeeded' ? 'rgba(16, 185, 129, 0.1)' :
-              execution.status === 'failed' ? 'rgba(239, 68, 68, 0.1)' :
+              execution.status === 'running' ? 'var(--info-dim)' :
+              execution.status === 'succeeded' ? 'var(--success-dim)' :
+              execution.status === 'failed' ? 'var(--error-dim)' :
               'var(--bg-tertiary)',
             color:
               execution.status === 'running' ? 'var(--info)' :

@@ -35,9 +35,9 @@ export function Timeline( { phases, executionId, onStepClick }: TimelineProps) {
               <div
                 className="flex items-center gap-2 px-3 py-2 rounded-lg border transition-all cursor-pointer"
                 style={{
-                  background: phase.status === 'running' ? 'rgba(0, 212, 255, 0.1)' :
-                    phase.status === 'succeeded' || phase.status === 'completed' ? 'rgba(16, 185, 129, 0.1)' :
-                    phase.status === 'failed' ? 'rgba(239, 68, 68, 0.1)' :
+                  background: phase.status === 'running' ? 'var(--accent-dim)' :
+                    phase.status === 'succeeded' || phase.status === 'completed' ? 'var(--success-dim)' :
+                    phase.status === 'failed' ? 'var(--error-dim)' :
                     'var(--bg-tertiary)',
                   color: phase.status === 'running' ? 'var(--accent-primary)' :
                     phase.status === 'succeeded' || phase.status === 'completed' ? 'var(--success)' :

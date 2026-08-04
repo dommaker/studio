@@ -69,7 +69,7 @@ export function ReviewPanel({ analysis, onConfirm, onModify, onCancel }: ReviewP
       style={{ 
         background: 'var(--bg-elevated)', 
         border: '1px solid var(--border-default)',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+        boxShadow: 'var(--shadow-md)'
       }}
     >
       {/* 头部 */}
@@ -100,7 +100,7 @@ export function ReviewPanel({ analysis, onConfirm, onModify, onCancel }: ReviewP
           {analysis.usedLLM && (
             <div 
               className="text-xs px-2 py-1 rounded-full"
-              style={{ background: 'rgba(16, 185, 129, 0.15)', color: 'var(--success)' }}
+              style={{ background: 'var(--success-dim)', color: 'var(--success)' }}
             >
               🧠 LLM 增强
             </div>
@@ -143,7 +143,7 @@ export function ReviewPanel({ analysis, onConfirm, onModify, onCancel }: ReviewP
               <span 
                 className="text-xs px-2 py-0.5 rounded-full"
                 style={{ 
-                  background: `rgba(${analysis.confidence >= 0.8 ? '16, 185, 129' : analysis.confidence >= 0.6 ? '0, 212, 255' : '251, 191, 36'}, 0.15)`,
+                  background: analysis.confidence >= 0.8 ? 'var(--success-dim)' : analysis.confidence >= 0.6 ? 'var(--accent-dim)' : 'var(--warning-dim)',
                   color: getConfidenceColor(analysis.confidence)
                 }}
               >
@@ -267,9 +267,9 @@ export function ReviewPanel({ analysis, onConfirm, onModify, onCancel }: ReviewP
           <div 
             className="p-3 rounded-lg text-sm"
             style={{ 
-              background: 'linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1))',
+              background: 'var(--accent-dim)',
               color: 'var(--text-secondary)',
-              border: '1px solid rgba(99, 102, 241, 0.2)'
+              border: '1px solid var(--accent-border)'
             }}
           >
             <span className="font-medium" style={{ color: 'var(--accent-primary)' }}>🎯 适用场景：</span>
