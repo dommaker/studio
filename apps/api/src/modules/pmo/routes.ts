@@ -560,67 +560,6 @@ router.delete('/okr/:id', requireRole('Admin'), async (req: Request, res: Respon
 // ============================================
 
 /**
- * GET /api/v1/pmo/projects
- * 获取项目列表（可按 OKR 分组）
- */
-router.get('/projects', async (req: Request, res: Response) => {
-  try {
-    const companyId = req.query.companyId as string;
-    const okrId = req.query.okrId as string | undefined;
-    const status = req.query.status as string | undefined;
-    const limit = parseInt(req.query.limit as string) || 20;
-
-    // 构建查询条件
-    const where: Record<string, unknown> = {};
-    if (okrId) {
-      where.okrId = okrId;
-    }
-    if (status) {
-      where.status = status;
-    }
-
-    // 从 runtime 获取执行列表（通过 runtime-proxy）
-    const runtimeUrl = process.env.AGENT_RUNTIME_URL || 'http://localhost:13202';  // 🆕 AS-017: 统一端口
-    const response = await fetch(`${runtimeUrl}/api/executions?limit=${limit}`);
-    const runtimeData = await response.json() as {
-      data: Record<string, unknown>[];
-      pagination: { page: number; limit: number; total: number; totalPages: number };
-    };
-
-    // runtime 数据不包含 roleId，依赖下方 DB 查询的 roleId IN 过滤
-    const executions = runtimeData.data;
-
-    // 获取数据库中的 Execution 记录（补充 okrId）
-    const fileStore = new FileStore();
-    let allRows = await fileStore.readJsonl<any>(EXECUTIONS_JSONL);
-    if (where.okrId) allRows = allRows.filter((r: any) => r.okrId === where.okrId);
-    if (where.status) allRows = allRows.filter((r: any) => r.status === where.status);
-    allRows.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const dbExecutions = allRows.slice(0, limit);
-
-    // 合并数据
-    const projects = executions.map((exec) => {
-      const dbExec = dbExecutions.find(d => d.id === exec.id);
-      return {
-        ...exec,
-        okrId: dbExec?.okrId || null,
-        dbId: dbExec?.id,
-      };
-    });
-
-    res.json({
-      data: projects,
-      pagination: runtimeData.pagination,
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to list projects');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to list projects' },
-    });
-  }
-});
-
-/**
  * PUT /api/v1/pmo/projects/:id/okr
  * 设置项目关联的 OKR（需要管理员或 ProjectLead 权限）
  */

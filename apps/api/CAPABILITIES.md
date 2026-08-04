@@ -1,6 +1,6 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-07-19
+> 最后更新: 2026-08-04
 
 ---
 
@@ -33,7 +33,6 @@
 | monitor.service | src/modules/agents/monitor.service.ts | Monitor Service - 健康监控 + NA Step 7 渐进告警 |
 | ops.service | src/modules/agents/ops.service.ts | Ops Service — 系统生命周期守护 |
 | ops-rules | src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
-| requirement-gate | src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
 | review.service | src/modules/agents/review.service.ts | Review Service - 跨分支 diff 多立场审查 (daemon async spawn) |
 | review-report | src/modules/agents/review-report.ts | 审查报告类型定义 |
 | routes | src/modules/agents/routes.ts | Agent API 路由 |
@@ -113,13 +112,10 @@
 | ws-gateway | src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
 | route-registry | src/route-registry.ts | Route Registry - 模块化路由注册 |
 | seed-skills | src/scripts/seed-skills.ts | Seed 4 built-in Skills into the Skill table (D6). |
-| crypto | src/utils/crypto.ts | AES-256-GCM 加密工具 |
 | discord-notifier | src/utils/discord-notifier.ts | Discord 通知工具 |
 | errors | src/utils/errors.ts | errors |
-| git | src/utils/git.ts | Git utilities — branch detection, worktree helpers |
 | logger | src/utils/logger.ts | Logger 工具 |
 | pagination | src/utils/pagination.ts | 分页工具 - 统一 API 分页参数解析和响应格式 |
-| response | src/utils/response.ts | 统一响应格式工具 - 规范化 API 响应结构 |
 | services | src/utils/services.ts | 创建懒加载单例服务 |
 
 | agent-instance.routes | src/modules/agents/agent-instance.routes.ts | RuntimeInstance API 路由 (AS-026 AC-1) |
@@ -129,11 +125,9 @@
 | agent-profile.service | src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
 | eval-case-store | src/modules/knowledge/eval-case-store.ts | EvalCaseStore — File-based CRUD for eval cases |
-| improver-scheduler.service | src/modules/knowledge/improver-scheduler.service.ts | ImproverScheduler — 自文档化调度器 |
 | signal-aggregator | src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 聚合趋势摘要 |
 | monitoring.routes | src/modules/monitoring/monitoring.routes.ts | Monitoring Routes — Agent Network (MVP-2 + MVP-6) |
 | monitoring.service | src/modules/monitoring/monitoring.service.ts | Monitoring Service — Agent Network aggregation (MVP-2 + MVP-6) |
-| failure-classifier | src/modules/shared/failure-classifier.ts | Failure classifier — pattern matching on error messages |
 | manifest-loader | src/modules/skills/manifest-loader.ts | manifest-loader (AS-025 3.28c-5) |
 | proposal-store | src/modules/skills/proposal-store.ts | ProposalStore — File-based CRUD for SkillProposal |
 | skill-selector | src/modules/skills/skill-selector.ts | skill-selector (AS-025 3.28c-5) |

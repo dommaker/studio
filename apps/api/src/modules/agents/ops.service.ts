@@ -62,31 +62,17 @@ export class OpsService {
       if (!c.passed && c.critical) criticalFailures.push(c.name);
     };
 
-    // 1. Check DB
+    // 1. Check storage (FileStore)
     try {
-      const dbUrl = process.env.DATABASE_URL || '';
-      const dbPath = dbUrl.replace('file:', '');
-      const dbExists = fs.existsSync(dbPath);
-
-      if (dbExists) {
-        // Try a simple query to verify schema matches
-        try {
-          // Storage health check via FileStore
-          const probeFile = path.join(os.homedir(), '.studio', 'data', '_health_probe');
-          await fs.promises.writeFile(probeFile, Date.now().toString());
-          await fs.promises.unlink(probeFile);
-          add({ name: 'storage', passed: true, message: `FileStore OK (${dbPath})`, critical: true });
-        } catch {
-          add({
-            name: 'db-schema', passed: false, critical: true,
-            message: `❌ FileStore error! Cannot write to ${dbPath}. Check disk space and permissions.`,
-          });
-        }
-      } else {
-        add({ name: 'db-exists', passed: true, message: `New DB will be created at ${dbPath}`, critical: false });
-      }
+      const probeFile = path.join(os.homedir(), '.studio', 'data', '_health_probe');
+      await fs.promises.writeFile(probeFile, Date.now().toString());
+      await fs.promises.unlink(probeFile);
+      add({ name: 'storage', passed: true, message: 'FileStore OK', critical: true });
     } catch (e: any) {
-      add({ name: 'db-schema', passed: false, critical: true, message: `❌ DB check failed: ${e.message}` });
+      add({
+        name: 'storage', passed: false, critical: true,
+        message: `❌ FileStore error! Cannot write to ~/.studio/data. Check disk space and permissions. (${e.message})`,
+      });
     }
 
     // 2. Check frontend dist
