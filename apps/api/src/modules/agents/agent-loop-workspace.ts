@@ -11,8 +11,8 @@ import { resetUnestablishedSession, type AgentLoopInstanceLike } from './agent-l
 import type { StepResult } from './agent-output-parser.js';
 
 /**
- * B3a 归属链：执行根目录解析 — metadata.workspaceRoot（Requirement→PMO gitRepo /
- * 人工回复绑定的直接路径）优先；否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）。
+ * B3a 归属链：执行根目录解析 — metadata.workspaceRoot 优先
+ * （Requirement→PMO gitRepo / 人工回复绑定的直接路径）；否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）。
  */
 export async function resolveExecutionWorkspaceRoot(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<string | null> {
   if (typeof metadata.workspaceRoot === 'string' && metadata.workspaceRoot.length > 0) {

@@ -311,7 +311,7 @@
 | agent-loop-session | apps/api/src/modules/agents/agent-loop-session.ts | 首 step（新建会话）执行失败时重置 sessionId：CLI 会话未必已建立（可能根本没 spawn 到）， |
 | agent-loop-step-guards | apps/api/src/modules/agents/agent-loop-step-guards.ts | AgentLoop agentStep 前置守卫（B2 测试特征 WU 关闭 / C3 每日 token 预算熔断）—— |
 | agent-loop-utils | apps/api/src/modules/agents/agent-loop-utils.ts | AgentLoop 进程/git 小工具 —— 从 agent-loop.ts 原样抽出，行为不变。 |
-| agent-loop-workspace | apps/api/src/modules/agents/agent-loop-workspace.ts | B3a 归属链：执行根目录解析 — metadata.workspaceRoot（Requirement→PMO gitRepo / |
+| agent-loop-workspace | apps/api/src/modules/agents/agent-loop-workspace.ts | B3a 归属链：执行根目录解析 — metadata.workspaceRoot 优先（Requirement→PMO gitRepo / 人工回复绑定的直接路径），否则按 wu.workspaceId 查 workspace 记录（F6 旧路径）。 |
 | agent-output-parser | apps/api/src/modules/agents/agent-output-parser.ts | P0 修复（reviewReport 回传断链）：解析 reviewer 最终输出为结构化审查结论。 |
 | agent-targeting | apps/api/src/modules/agents/agent-targeting.ts | AgentLoop 观察→目标解析（纯代码，零 LLM）—— 从 agent-loop.ts 原样抽出，行为不变。 |
 | workunit-token-events | apps/api/src/modules/agents/workunit-token-events.ts | 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null —— |
