@@ -156,9 +156,9 @@ export function WorkUnitDetailPage() {
               <button
                 className="btn btn-secondary"
                 onClick={() => setShowTreeTokens(true)}
-                title="树级 Token 开销"
+                title="查看整条协作树各节点的 Token 消耗与预算剩余"
               >
-                树开销
+                Token 开销
               </button>
             )}
             <button className="btn btn-secondary flex-shrink-0" onClick={handleBack}>返回</button>
@@ -292,7 +292,7 @@ export function WorkUnitDetailPage() {
       {/* REQ 全链路弹窗（复用 RequirementChainPanel） */}
       {chainReqId && <RequirementChainPanel reqId={chainReqId} onClose={() => setChainReqId(null)} />}
 
-      {/* AC-5.6: 树级 Token 开销抽屉 */}
+      {/* AC-5.6: 协作树 Token 开销弹窗 */}
       {showTreeTokens && wu && (
         <TreeTokenDrawer workUnitId={wu.id} onClose={() => setShowTreeTokens(false)} />
       )}
