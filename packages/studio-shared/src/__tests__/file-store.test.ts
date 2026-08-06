@@ -365,40 +365,14 @@ describe('FileStore', () => {
       };
     }
 
-    describe('appendEvent / getIndex / rebuildIndex', () => {
-      it('should append and rebuild index from events', async () => {
-        const wu1 = makeWuSnapshot('wu1');
-        await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-
-        const wu2 = makeWuSnapshot('wu2');
-        await store.appendEvent({ type: 'created', wuId: 'wu2', timestamp: new Date().toISOString(), data: wu2 as unknown as Record<string, unknown> });
-
-        const index = await store.rebuildIndex();
-        expect(index).toHaveLength(2);
-      });
-
-      it('should apply events in order and update snapshot', async () => {
-        const wu1 = makeWuSnapshot('wu1');
-        await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.appendEvent({
-          type: 'claimed',
-          wuId: 'wu1',
-          timestamp: new Date().toISOString(),
-          data: { assigneeId: 'agent1', status: 'active' } as unknown as Record<string, unknown>,
-        });
-
-        const index = await store.rebuildIndex();
-        const claimed = index.find(i => i.id === 'wu1');
-        expect(claimed?.status).toBe('active');
-        expect(claimed?.assigneeId).toBe('agent1');
-      });
-
+    describe('appendEvent / getIndex', () => {
       it('should filter index by status', async () => {
         const wu1 = makeWuSnapshot('wu1', { status: 'active' });
         const wu2 = makeWuSnapshot('wu2', { status: 'unassigned' });
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
         await store.appendEvent({ type: 'created', wuId: 'wu2', timestamp: new Date().toISOString(), data: wu2 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
+        await store.upsertSnapshot(wu2);
 
         const active = await store.getIndex({ status: 'active' });
         expect(active).toHaveLength(1);
@@ -408,9 +382,9 @@ describe('FileStore', () => {
       it('should return snapshots from getIndex when index.json exists', async () => {
         const wu1 = makeWuSnapshot('wu1');
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
 
-        // Now getIndex should read from index.json (already built by rebuildIndex)
+        // Now getIndex should read from index.json (already written by upsertSnapshot)
         const index = await store.getIndex();
         expect(index).toHaveLength(1);
         expect(index[0].id).toBe('wu1');
@@ -426,7 +400,7 @@ describe('FileStore', () => {
       it('should successfully claim an unassigned work unit', async () => {
         const wu1 = makeWuSnapshot('wu1');
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
 
         const claimed = await store.claimWorkUnit('wu1', 'agent1');
         expect(claimed).toBe(true);
@@ -440,7 +414,7 @@ describe('FileStore', () => {
       it('should not claim an already claimed work unit', async () => {
         const wu1 = makeWuSnapshot('wu1');
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
 
         const claim1 = await store.claimWorkUnit('wu1', 'agent1');
         expect(claim1).toBe(true);
@@ -457,7 +431,7 @@ describe('FileStore', () => {
       it('should handle concurrent claims using flock', async () => {
         const wu1 = makeWuSnapshot('wu1');
         await store.appendEvent({ type: 'created', wuId: 'wu1', timestamp: new Date().toISOString(), data: wu1 as unknown as Record<string, unknown> });
-        await store.rebuildIndex();
+        await store.upsertSnapshot(wu1);
 
         // 模拟并发 claim：2 个同时 claim，仅 1 个成功
         const results = await Promise.all([
@@ -621,23 +595,6 @@ describe('FileStore', () => {
       expect(fs.readFileSync(path.join(d, '_index.md'), 'utf-8')).toContain('pdoc.md|p1|');
     });
 
-    it('should return matching filenames for field=value query', async () => {
-      const d = path.join(tmpDir, 'kb');
-      await seedDocs(d);
-      await store.buildIndex(d, ['id', 'type', 'title', 'status']);
-      const r = await store.queryIndex(d, 'type', 'guideline');
-      expect(r).toHaveLength(2);
-      expect(r).toContain('doc-a');
-      expect(r).toContain('doc-c');
-    });
-
-    it('should return empty array when no match', async () => {
-      const d = path.join(tmpDir, 'kb');
-      await seedDocs(d);
-      await store.buildIndex(d, ['id', 'type']);
-      expect(await store.queryIndex(d, 'type', 'nope')).toEqual([]);
-    });
-
     it('should list docs from _index.md', async () => {
       const d = path.join(tmpDir, 'kb');
       await seedDocs(d);
@@ -656,20 +613,6 @@ describe('FileStore', () => {
       fs.mkdirSync(d, { recursive: true });
       expect(await store.listDocs(d)).toEqual([]);
     });
-
-    it('should return filename when field matches', async () => {
-      const d = path.join(tmpDir, 'kb');
-      await seedDocs(d);
-      await store.buildIndex(d, ['id', 'type']);
-      expect(await store.findByField(d, 'id', 'b2')).toBe('doc-b');
-    });
-
-    it('should return null when field does not match', async () => {
-      const d = path.join(tmpDir, 'kb');
-      await seedDocs(d);
-      await store.buildIndex(d, ['id']);
-      expect(await store.findByField(d, 'id', 'nope')).toBeNull();
-    });
   });
 
   describe('FileStore Version', () => {
@@ -678,27 +621,6 @@ describe('FileStore', () => {
 
     beforeEach(() => { tmpDir = createTempDir(); store = new FileStore(tmpDir); });
     afterEach(() => { if (fs.existsSync(tmpDir)) fs.rmSync(tmpDir, { recursive: true, force: true }); });
-
-    it('should increment version and write changeType/changeDesc', async () => {
-      const d = path.join(tmpDir, 'sdd');
-      await store.writeDoc(d, 'v', { version: 3, title: 'T' }, 'body');
-      await store.bumpVersion(d, 'v', 'L2', 'design updated');
-      const doc = await store.readDoc(d, 'v');
-      expect(doc!.meta.version).toBe(4);
-      expect(doc!.meta.changeType).toBe('L2');
-      expect(doc!.meta.changeDesc).toBe('design updated');
-    });
-
-    it('should init version to 1 when non-numeric', async () => {
-      const d = path.join(tmpDir, 'sdd');
-      await store.writeDoc(d, 'nv', { title: 'NV' }, 'body');
-      await store.bumpVersion(d, 'nv', 'L1', 'first');
-      expect((await store.readDoc(d, 'nv'))!.meta.version).toBe(1);
-    });
-
-    it('should throw when doc does not exist', async () => {
-      await expect(store.bumpVersion(path.join(tmpDir, 'sdd'), 'x', 'L1', 'x')).rejects.toThrow();
-    });
 
     it('should append changelog with ISO timestamp', async () => {
       const d = path.join(tmpDir, 'sdd');

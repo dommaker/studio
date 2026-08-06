@@ -782,37 +782,6 @@ export class FileStore {
     return applyFilter(snapshots, filter);
   }
 
-  async rebuildIndex(filter?: WorkUnitFilter): Promise<WorkUnitSnapshot[]> {
-    const events = await this.readJsonl<WorkUnitEvent>(this.eventsPath);
-    const snapshotMap = new Map<string, WorkUnitSnapshot>();
-
-    for (const event of events) {
-      switch (event.type) {
-        case 'created':
-          snapshotMap.set(event.wuId, event.data as unknown as WorkUnitSnapshot);
-          break;
-        case 'claimed':
-        case 'updated':
-        case 'completed':
-        case 'closed':
-        case 'blocked': {
-          const existing = snapshotMap.get(event.wuId);
-          if (existing && event.data) {
-            snapshotMap.set(event.wuId, { ...existing, ...event.data as Partial<WorkUnitSnapshot> } as WorkUnitSnapshot);
-          }
-          break;
-        }
-      }
-    }
-
-    const snapshots = Array.from(snapshotMap.values());
-
-    // 写回 index.json
-    await this.writeJson(this.indexPath, snapshots);
-
-    return applyFilter(snapshots, filter);
-  }
-
   async claimWorkUnit(wuId: string, assigneeId: string): Promise<boolean> {
     return this.withLock(this.lockDir, async () => {
       // 读取当前 index（不存在 → 空；撕裂/损坏 → 抛错，不再幻影 "not found"）
@@ -1138,23 +1107,6 @@ export class FileStore {
     await fs.promises.writeFile(path.join(dir, '_index.md'), header + '\n' + dataLines.join('\n') + '\n', 'utf-8');
   }
 
-  async queryIndex(dir: string, field: string, value: string): Promise<string[]> {
-    try {
-      const content = await fs.promises.readFile(path.join(dir, '_index.md'), 'utf-8');
-      const headerLine = content.split('\n').find(l => l.startsWith('# filename|'));
-      if (!headerLine) return [];
-      const columns = headerLine.replace(/^#\s*/, '').split('|');
-      const fieldIndex = columns.indexOf(field);
-      if (fieldIndex === -1) return [];
-      return content.split('\n').filter(l => l.trim() && !l.startsWith('#'))
-        .filter(l => l.split('|')[fieldIndex] === value)
-        .map(l => l.split('|')[0].replace(/\.md$/, ''));
-    } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return [];
-      throw err;
-    }
-  }
-
   async listDocs(dir: string): Promise<string[]> {
     try {
       const content = await fs.promises.readFile(path.join(dir, '_index.md'), 'utf-8');
@@ -1172,23 +1124,7 @@ export class FileStore {
     }
   }
 
-  async findByField(dir: string, field: string, value: string): Promise<string | null> {
-    const results = await this.queryIndex(dir, field, value);
-    return results.length > 0 ? results[0] : null;
-  }
-
   // ═══ 版本管理 ═══
-
-  async bumpVersion(dir: string, key: string, changeType: string, changeDesc: string): Promise<void> {
-    const doc = await this.readDoc(dir, key);
-    if (!doc) throw new Error(`Document not found: ${dir}/${key}`);
-    const currentVersion = typeof doc.meta.version === 'number' ? doc.meta.version : 0;
-    doc.meta.version = currentVersion + 1;
-    doc.meta.changeType = changeType;
-    doc.meta.changeDesc = changeDesc;
-    doc.meta.updatedAt = new Date().toISOString();
-    await this.writeDoc(dir, key, doc.meta, doc.body);
-  }
 
   async appendChangelog(dir: string, key: string, entry: string): Promise<void> {
     const changelogDir = path.join(dir, key);
