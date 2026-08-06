@@ -12,19 +12,16 @@
 import type { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fsSync from 'fs';
-import { logger, parseStreamEvents, extractToolCalls, extractFilePath as extractFilePathShared, extractResult, extractUsage } from '@dommaker/studio-shared';
+import { logger } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 
 import { resolveWorkspace, propagateHarnessConfig } from './worktree-resolver.js';
 import {
-  recordSessionMetrics,
   emitSessionStart,
   emitSessionEnd,
-  emitToolCall,
-  emitFileChange,
   recordExecutionError,
-  getConstraintMeta,
 } from './output-capture.js';
+import { processSessionOutput } from './runner-output.js';
 import {
   checkPrerequisites,
   buildAugmentedPrompt,
@@ -137,39 +134,17 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         onLine: task.onStreamLine,
       });
 
-      fsSync.writeFileSync(logFile, stdout, 'utf-8');
-
-      const events = parseStreamEvents(stdout);
-      const { text, isError } = extractResult(events);
-
-      // Emit tool:call + file:change events
-      const tools = extractToolCalls(events);
-      for (const tool of tools) {
-        await emitToolCall(tool.name, tool.input, sessionId, task.executionId);
-        const filePath = extractFilePathShared(tool.name, tool.input);
-        if (filePath) {
-          await emitFileChange(filePath, sessionId, task.executionId);
-        }
-      }
-
-      // Record session metrics
       const sessionMs = Date.now() - sessionStart;
-      const streamUsage = extractUsage(events);
-      const { hash: cHash, size: cSize } = await getConstraintMeta();
-      await recordSessionMetrics({
-        stdout,
+      const { text, isError, streamUsage } = await processSessionOutput(stdout, {
+        logFile,
+        sessionId,
         executionId: task.executionId,
-        agentRole,
         sessionCount: 1,
         isFirstSession: true,
         sessionMs,
+        agentRole,
         promptSize: task.prompt.length,
-        constraintHash: cHash,
-        constraintSize: cSize,
-        streamUsage,
       });
-
-      await emitSessionEnd(sessionId, task.executionId, 1);
 
       if (isError) {
         logger.warn('[AgentRunner] Lightweight session returned error', {
