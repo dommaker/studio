@@ -87,7 +87,6 @@
 | routes | apps/api/src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | command-runner | apps/api/src/modules/discord/command-runner.ts | B3-002/B3-003: Shared command runner for CLI and Discord |
 | routes | apps/api/src/modules/discord/routes.ts | Discord Interactions Endpoint |
-| routes | apps/api/src/modules/environments/routes.ts | environments/routes.ts — Environment Manager CRUD (HZ-023) |
 | event.routes | apps/api/src/modules/events/event.routes.ts | G30: StudioEvent API Endpoints |
 | sse.routes | apps/api/src/modules/events/sse.routes.ts | HZ-028: Event Stream (SSE) |
 | routes | apps/api/src/modules/executions/routes.ts | Execution API 路由 |
@@ -118,14 +117,11 @@
 | routes | apps/api/src/modules/notifications/routes.ts | 通知 API 路由 |
 | notify.service | apps/api/src/modules/outbound-notify/notify.service.ts | NotifyService - 通知服务 |
 | routes | apps/api/src/modules/outbound-notify/routes.ts | Notify API 路由 |
-| routes | apps/api/src/modules/outputs/routes.ts | 产出文档 API - 存储和展示执行结果 |
 | okr.service | apps/api/src/modules/pmo/okr.service.ts | 🆕 AS-016: 获取当前季度 |
 | project.service | apps/api/src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 + publish() → Channel + getLinkedSDDs() |
 | routes | apps/api/src/modules/pmo/routes.ts | PMO API — 项目 CRUD + POST publish + GET sdd 关联查询 |
 | routes | apps/api/src/modules/runtime-config/routes.ts | GET /api/v1/runtime-config |
 | routes | apps/api/src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
-| routes | apps/api/src/modules/spec-reviews/routes.ts | Spec 审查 API 路由 |
-| spec-review.service | apps/api/src/modules/spec-reviews/spec-review.service.ts | Spec 审查服务 |
 | routes | apps/api/src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | skill-extraction.service | apps/api/src/modules/skills/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
 | skill-proposal-routes | apps/api/src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |

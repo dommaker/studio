@@ -24,9 +24,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     agentRoutes,
     executionRoutes,
     capabilitiesRoutes,
-    outputsRoutes,
     auditLogRoutes,
-    { specReviewRoutes },
     { notificationRoutes },
     { knowledgeRoutes, knowledgeInternalRoutes },
     pmoRoutes,
@@ -42,9 +40,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     import('./modules/agents/routes.js').then(m => m.default),
     import('./modules/executions/routes.js').then(m => m.default),
     import('./modules/capabilities/routes.js').then(m => m.default),
-    import('./modules/outputs/routes.js').then(m => m.default),
     import('./modules/audit-logs/routes.js').then(m => m.default),
-    import('./modules/spec-reviews/routes.js') as Promise<{ specReviewRoutes: Router }>,
     import('./modules/notifications/routes.js') as Promise<{ notificationRoutes: Router }>,
     import('./modules/knowledge/routes.js') as Promise<{ knowledgeRoutes: Router; knowledgeInternalRoutes: Router }>,
     import('./modules/pmo/routes.js').then(m => m.default),
@@ -98,9 +94,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
   // CSO 验证子路由（2026-07 收紧：/api/v1/cso 只挂 validate，不再整挂 harness router——否则 /harness 的 Admin 收紧可被 /cso/* 双挂载绕过）
   const { csoRoutes } = await import('./modules/harness/cso.routes.js') as { csoRoutes: Router };
-
-  // Environment Manager routes (HZ-023)
-  const { default: environmentRoutes } = await import('./modules/environments/routes.js') as { default: Router };
 
   // Agent Manager routes (HZ-024)
   const { default: agentConfigRoutes } = await import('./modules/agent-configs/routes.js') as { default: Router };
@@ -211,16 +204,13 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/events', router: sseRoutes, comment: 'HZ-028: Event Stream SSE' },
     { path: '/api/v1/events', router: eventRoutes, middleware: auth, comment: 'G30: StudioEvent CRUD' },
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },
-    { path: '/api/v1/outputs', router: outputsRoutes },
     { path: '/api/v1/runtime-config', router: runtimeConfigRoutes, middleware: admin, comment: 'TaskWorker 配置' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
     { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },
-    { path: '/api/v1/environments', router: environmentRoutes, middleware: admin, comment: 'HZ-023: Environment Manager' },
     { path: '/api/v1/agent-configs', router: agentConfigRoutes, middleware: admin, comment: 'HZ-024: Agent Manager' },
     { path: '/api/v1/builtin-tools', router: builtinToolRoutes, middleware: admin, comment: 'HZ-026: Built-in Toolset' },
 
     // 文档与审查
-    { path: '/api/v1/spec-reviews', router: specReviewRoutes, middleware: auth },
     { path: '/api/v1/specs', router: specsRoutes, middleware: auth, comment: 'SP-002' },
 
     // 通知与知识

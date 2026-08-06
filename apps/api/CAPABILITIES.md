@@ -51,7 +51,6 @@
 | routes | src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | command-runner | src/modules/discord/command-runner.ts | B3-002/B3-003: Shared command runner for CLI and Discord |
 | routes | src/modules/discord/routes.ts | Discord Interactions Endpoint |
-| routes | src/modules/environments/routes.ts | environments/routes.ts — Environment Manager CRUD (HZ-023) |
 | event.routes | src/modules/events/event.routes.ts | G30: StudioEvent API Endpoints |
 | session-summary-generator | src/modules/events/session-summary-generator.ts | B9-015: SessionSummaryGenerator — server-side session aggregation |
 | sse.routes | src/modules/events/sse.routes.ts | HZ-028: Event Stream (SSE) |
@@ -86,15 +85,12 @@
 | routes | src/modules/notifications/routes.ts | 通知 API 路由 |
 | notify.service | src/modules/outbound-notify/notify.service.ts | NotifyService - 通知服务 |
 | routes | src/modules/outbound-notify/routes.ts | Notify API 路由 |
-| routes | src/modules/outputs/routes.ts | 产出文档 API - 存储和展示执行结果 |
 | okr.service | src/modules/pmo/okr.service.ts | 🆕 AS-016: 获取当前季度 |
 | project.service | src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 |
 | routes | src/modules/pmo/routes.ts | GET /api/v1/pmo/project |
 | routes | src/modules/runtime-config/routes.ts | GET /api/v1/runtime-config |
 | routes | src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | skill-loader | src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
-| routes | src/modules/spec-reviews/routes.ts | Spec 审查 API 路由 |
-| spec-review.service | src/modules/spec-reviews/spec-review.service.ts | Spec 审查服务 |
 | routes | src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |
 | skill-extraction.service | src/modules/skills/skill-extraction.service.ts | Skill Extraction Service — 面向新架构 GoalExecution |
 | skill-proposal-routes | src/modules/skills/skill-proposal-routes.ts | Skill Proposal API 路由 |
