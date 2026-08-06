@@ -112,7 +112,6 @@ export class ArchitectureValidator {
       'studio-notification',
       'studio-task',
       'studio-capability',
-      'studio-monitor',
       'studio-agent',
       'studio-audit',
       'studio-spec',

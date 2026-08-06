@@ -29,7 +29,6 @@
 - **上游依赖**：@dommaker/studio-shared（logger, memoryStore, FileStore）、node-fetch（HTTP 请求）、crypto（UUID）、os、path（Node 内置）
 - **下游引用**：
   - apps/api（通过 src/index.ts 和 modules/executions/routes.ts 引用任务队列相关功能）
-  - packages/studio-monitor（通过 services/health-monitor.ts 引用任务健康监控）
 
 ## 注意事项
 

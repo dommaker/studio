@@ -1,7 +1,7 @@
 # 09 — 下线 studio-monitor 整包
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 
 ## Question

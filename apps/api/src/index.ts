@@ -12,7 +12,6 @@ import { logger } from '@dommaker/studio-shared';
 // TODO(cleanup): @dommaker/studio-task 为 pipeline 时代队列，全库无存活生产者；
 // 默认关闭（启动/停止由 STUDIO_TASK_QUEUE_ENABLED=true 恢复）。
 // 包暂不删除 — 12 个 task-queue 测试为预存失败。
-import { startHealthMonitor, stopHealthMonitor } from '@dommaker/studio-monitor';
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
 import { monitorService } from './modules/agents/monitor.service.js';
@@ -409,8 +408,6 @@ async function start() {
       monitorService.stop();
       auditorService.stop();
       stopAuditSubscriber();
-      // Deprecated meeting services removed from startup — stops are no-ops
-      try { await stopHealthMonitor(); } catch {}
       // pipeline 时代任务队列默认关闭；STUDIO_TASK_QUEUE_ENABLED=true 时恢复停止/关闭
       if (process.env.STUDIO_TASK_QUEUE_ENABLED === 'true') {
         try {

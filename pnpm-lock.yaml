@@ -39,9 +39,6 @@ importers:
       '@dommaker/studio-capability':
         specifier: workspace:*
         version: link:../../packages/studio-capability
-      '@dommaker/studio-monitor':
-        specifier: workspace:*
-        version: link:../../packages/studio-monitor
       '@dommaker/studio-notification':
         specifier: workspace:*
         version: link:../../packages/studio-notification
@@ -346,34 +343,6 @@ importers:
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
-      zod:
-        specifier: ^3.22.0
-        version: 3.25.76
-    devDependencies:
-      '@types/node':
-        specifier: ^20.0.0
-        version: 20.19.43
-      tsx:
-        specifier: ^4.0.0
-        version: 4.23.1
-      typescript:
-        specifier: ^5.3.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.2
-        version: 4.1.10(@opentelemetry/api@1.9.1)(@types/node@20.19.43)(jsdom@29.1.1)(vite@8.1.5(@types/node@20.19.43)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.1)(yaml@2.9.0))
-
-  packages/studio-monitor:
-    dependencies:
-      '@dommaker/harness':
-        specifier: ^0.16.6
-        version: 0.16.6
-      '@dommaker/studio-shared':
-        specifier: workspace:*
-        version: link:../studio-shared
-      '@dommaker/studio-task':
-        specifier: workspace:*
-        version: link:../studio-task
       zod:
         specifier: ^3.22.0
         version: 3.25.76

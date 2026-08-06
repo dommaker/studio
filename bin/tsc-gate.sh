@@ -37,7 +37,7 @@ fi
 
 # Determine affected packages
 if $CHECK_ALL; then
-  PKGS="apps/api,apps/web,packages/studio-shared,packages/studio-agent,packages/studio-prisma,packages/studio-skill,packages/studio-spec,packages/studio-audit,packages/studio-capability,packages/studio-monitor,packages/studio-notification,packages/studio-task"
+  PKGS="apps/api,apps/web,packages/studio-shared,packages/studio-agent,packages/studio-prisma,packages/studio-skill,packages/studio-spec,packages/studio-audit,packages/studio-capability,packages/studio-notification,packages/studio-task"
 else
   STAGED=$(git diff --cached --name-only --diff-filter=ACMR 2>/dev/null || true)
   if [ -z "$STAGED" ]; then
