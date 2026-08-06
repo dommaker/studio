@@ -58,7 +58,7 @@ export function PmoNumberLink({
 }: PmoNumberBadgeProps & { projectId?: string }) {
   const handleClick = () => {
     if (projectId) {
-      window.location.href = `/projects/${projectId}`;
+      window.location.href = `/project/${projectId}`;
     }
   };
 

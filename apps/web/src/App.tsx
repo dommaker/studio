@@ -19,6 +19,7 @@ const OAuthCallback = lazy(() => import('./components/OAuthCallback').then(m => 
 const WorkUnitListPage = lazy(() => import('./pages/WorkUnitListPage').then(m => ({ default: m.WorkUnitListPage })));
 const WorkUnitDetailPage = lazy(() => import('./pages/WorkUnitDetailPage').then(m => ({ default: m.WorkUnitDetailPage })));
 const RolesSetup = lazy(() => import('./pages/RolesSetup').then(m => ({ default: m.RolesSetup })));
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
 const AgentDashboardPage = lazy(() => import('./pages/AgentDashboardPage').then(m => ({ default: m.AgentDashboardPage })));
 const AgentDetailPage = lazy(() => import('./pages/AgentDetailPage').then(m => ({ default: m.AgentDetailPage })));
 const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ default: m.MonitoringPage })));
@@ -198,6 +199,7 @@ export default function App() {
             <Route path="/monitoring" element={<Suspense fallback={<PageLoader />}><MonitoringPage /></Suspense>} />
             <Route path="/workspaces/:id" element={<Suspense fallback={<PageLoader />}><WorkspacePage /></Suspense>} />
             <Route path="/setup/roles" element={<Suspense fallback={<PageLoader />}><RolesSetup /></Suspense>} />
+            <Route path="*" element={<Suspense fallback={<PageLoader />}><NotFoundPage /></Suspense>} />
           </Routes>
         </div>
       </div>
