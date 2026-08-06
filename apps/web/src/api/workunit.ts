@@ -173,6 +173,38 @@ export function parseExecutionStreamChunk(data: unknown): ExecutionStreamChunk |
   }
 }
 
+/** 文本截断（超长追加省略号） */
+function truncateText(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text;
+}
+
+/**
+ * ExecutionStreamChunk → 面向人读的一行动态文案（chunk→text 映射全站唯一出处）。
+ * - tool → `🔧 工具 摘要`；thinking → `思考：…`；text → 原文；result → `✓/✗ …`；step-start → null（不产出文案）
+ * - 默认截断（summary/thinking 40、text 60）；对应项传 false 不截断（ExecutionSteps 完整展示）
+ * 消费方：useAgentRoster（角色卡「最近动态」）、ExecutionSteps（Layer B 实时区）
+ */
+export function formatExecutionStreamChunkText(
+  chunk: ExecutionStreamChunk,
+  opts: { maxTextLength?: number | false; maxSummaryLength?: number | false } = {},
+): string | null {
+  const maxText = opts.maxTextLength === undefined ? 60 : opts.maxTextLength;
+  const maxSummary = opts.maxSummaryLength === undefined ? 40 : opts.maxSummaryLength;
+  const cut = (s: string, max: number | false) => (max === false ? s : truncateText(s, max));
+  switch (chunk.kind) {
+    case 'tool':
+      return chunk.tool ? `🔧 ${chunk.tool}${chunk.summary ? ` ${cut(chunk.summary, maxSummary)}` : ''}` : null;
+    case 'thinking':
+      return chunk.text ? `思考：${cut(chunk.text, maxSummary)}` : null;
+    case 'text':
+      return chunk.text ? cut(chunk.text, maxText) : null;
+    case 'result':
+      return `${chunk.isError ? '✗' : '✓'} ${cut(chunk.text || '回合结束', maxText)}`;
+    default:
+      return null;
+  }
+}
+
 
 export const workunitApi = {
   list: (params?: {

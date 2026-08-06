@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import {
   workunitApi,
   parseExecutionStepEvents,
+  formatExecutionStreamChunkText,
   type ExecutionStepEvent,
 } from '../../api/workunit';
 import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
@@ -44,21 +45,20 @@ export function ExecutionSteps({ workUnitId }: { workUnitId: string }) {
               </span>
               <span className="mc-kv-v">第 {currentStep} 步进行中</span>
             </div>
-            {live.filter(c => c.kind !== 'step-start').map((c, i) => (
-              c.kind === 'tool' ? (
+            {live.map((c, i) => {
+              // chunk→文案映射唯一出处：api/workunit.ts formatExecutionStreamChunkText（step-start → null 不渲染）
+              const text = formatExecutionStreamChunkText(c, { maxTextLength: false, maxSummaryLength: false });
+              if (text === null) return null;
+              return c.kind === 'tool' ? (
                 <div key={i} className="mc-drawer-note" style={{ fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
-                  {c.tool}{c.summary ? `  ${c.summary}` : ''}
+                  {text}
                 </div>
               ) : (
                 <div key={i} className="mc-drawer-note" style={{ whiteSpace: 'pre-wrap' }}>
-                  {c.kind === 'thinking'
-                    ? `思考：${c.text}`
-                    : c.kind === 'result'
-                      ? `${c.isError ? '✗' : '✓'} ${c.text || '回合结束'}`
-                      : c.text}
+                  {text}
                 </div>
-              )
-            ))}
+              );
+            })}
           </div>
         );
       })()}
