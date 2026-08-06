@@ -154,13 +154,6 @@ export const runtimeWorkflowApi = {
   deleteProject: (id: string) => api.delete(`/pmo/project/${id}`),
 };
 
-// Superpowers API - 铁律（通过 agent-studio 代理到 agent-runtime；仅 listIronLaws 有调用方：components/IronLawWarningBanner.tsx）
-export const superpowersApi = {
-  listIronLaws: () => api.get('/iron-laws'),
-};
-
-
-
 // Capabilities Stage API（UI-001）
 export const capabilitiesStageApi = {
   // 获取 Stage 分类数据
