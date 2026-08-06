@@ -24,6 +24,7 @@ import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../wo
 import { readCollab } from '../workunit/delegation-gate.js';
 import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { parseWuMetadata, clearSessionBookkeeping } from '../workunit/wu-metadata.js';
+import type { ParsedReviewReport } from './review-contract.js';
 
 export class ReviewDispatcher {
   private subscribed = false;
@@ -261,9 +262,8 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
     if (parent.status !== 'in_review' && !parentDoneMissingL2) return; // 父已被手动处理 -> 跳过
 
     const childMeta = parseWuMetadata(child.metadata);
-    const report = childMeta.reviewReport as
-      | { approved: boolean; reason?: string; issues?: Array<{ severity: string; message: string }> }
-      | undefined;
+    // 落档形状由 review-contract.ts 定义（与 WorkUnitMetadata.reviewReport 结构一致）
+    const report = childMeta.reviewReport as ParsedReviewReport | undefined;
 
     if (!report) {
       // 父已 done：无可补写的结论，静默跳过（转人工提醒对一个已收口的 WU 是纯噪声）

@@ -6,7 +6,12 @@
  *   Stage 2: 代码质量 — 安全、可读性、类型安全（仅 Stage 1 全部通过后）
  *
  * 审查报告写入 worktree 根目录的 .review-report.json
+ *
+ * verdict/issue 语义归 review-contract.ts 所有 —— overallApproved 是 legacy 二态，
+ * 与规范 verdict（pass/reject/needs-info）的映射与裁决规则见该模块。
  */
+
+import type { ReviewIssueSeverity } from './review-contract.js';
 
 export interface StanceReport {
   issues: CodeQualityIssue[];
@@ -58,7 +63,7 @@ export interface SupplementaryTestResult {
 }
 
 export interface CodeQualityIssue {
-  severity: 'error' | 'warning' | 'info';
+  severity: ReviewIssueSeverity;
   file: string;
   line?: number;
   message: string;

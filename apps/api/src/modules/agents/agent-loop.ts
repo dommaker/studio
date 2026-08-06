@@ -33,6 +33,7 @@ import {
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
+import type { ParsedReviewReport } from './review-contract.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -1686,8 +1687,10 @@ export function dynamicInterval(result: { action: string }): number {
  *   REVIEW_RESULT: {"verdict":"pass"|"reject","summary":"...","issues":[...]}
  * 结尾的行。宽松策略：优先解析 REVIEW_RESULT 行 JSON；失败则从输出尾部提取
  * verdict 关键词；仍失败 → null（不写 reviewReport，由 ReviewDispatcher 转人工）。
+ * verdict 词表归 review-contract.ts 所有（needs-info 无 legacy 等价 → 解析层不落档）；
+ * 返回形状 ParsedReviewReport 同由契约模块定义。
  */
-export function parseReviewReport(text: string): { approved: boolean; reason?: string; issues?: Array<{ severity: string; message: string }> } | null {
+export function parseReviewReport(text: string): ParsedReviewReport | null {
   const lines = text.split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
     const match = lines[i].match(/REVIEW_RESULT:\s*(\{.*\})\s*$/);

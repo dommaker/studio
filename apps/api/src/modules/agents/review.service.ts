@@ -20,6 +20,15 @@ import * as path from 'path';
 import type { ReviewResult, ReviewDiffParams } from './types.js';
 import type { ReviewReport } from './review-report.js';
 import { buildReviewPrompt } from './review-report.js';
+import { deriveVerdictFromLegacyReport } from './review-contract.js';
+
+/**
+ * shell 单引号转义 —— execSh 走 bash -c 字符串拼接，这是唯一安全的插值方式。
+ * 修复原 baseRef/headRef/repoPath 直接拼进 shell 串的注入面（agents/CONTEXT.md 已挂账）。
+ */
+export function shellQuote(arg: string): string {
+  return `'${arg.replace(/'/g, `'\\''`)}'`;
+}
 
 /** 审查超时（分钟）— 环境变量覆盖默认值 */
 const REVIEW_TIMEOUT_MINUTES = parseInt(process.env.REVIEW_TIMEOUT_MINUTES || '15', 10);
@@ -86,15 +95,16 @@ export class ReviewService {
         }, null, 2), 'utf-8');
       }
 
+      const allowedTools = `Bash(git diff ${baseRef}..${headRef} --stat),Bash(git diff ${baseRef}..${headRef}),Bash(git log ${baseRef}..${headRef} --oneline),Read,Grep,Glob`;
       const cmd = [
-        `cd "${repoPath}"`,
+        `cd ${shellQuote(repoPath)}`,
         `&&`,
-        `cat '${promptFile}'`,
+        `cat ${shellQuote(promptFile)}`,
         `|`,
         `claude`,
         `--print`,
         `--output-format json`,
-        `--allowedTools "Bash(git diff ${baseRef}..${headRef} --stat),Bash(git diff ${baseRef}..${headRef}),Bash(git log ${baseRef}..${headRef} --oneline),Read,Grep,Glob"`,
+        `--allowedTools ${shellQuote(allowedTools)}`,
         `2>&1`,
       ].join(' ');
 
@@ -110,12 +120,14 @@ export class ReviewService {
       } catch (execErr: any) {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
         logger.error('[ReviewService] reviewDiff Claude Code failed', { baseRef, headRef, error: errMsg.slice(0, 200) });
+        try { fs.unlinkSync(promptFile); } catch { }
         return { approved: false, score: 0, issues: [{ severity: 'error', message: `审查异常: ${errMsg.slice(0, 200)}` }], suggestions: [] };
       }
 
       const reportPath = path.join(repoPath, '.review-report.json');
       if (!fs.existsSync(reportPath)) {
         logger.warn('[ReviewService] reviewDiff report not found, rejecting', { baseRef, headRef });
+        try { fs.unlinkSync(promptFile); } catch { }
         return { approved: false, score: 0, issues: [{ severity: 'error', message: '审查报告未生成' }], suggestions: [] };
       }
 
@@ -155,16 +167,17 @@ export class ReviewService {
         }))).catch(() => {});
       }
 
-      // FIX #8: error issues 存在时强制 rejected（reviewDiff 路径）
-      const totalErrorIssues = allIssues.filter(i => i.severity === 'error').length;
-      const finalApproved = totalErrorIssues > 0 ? false : report.overallApproved;
-      if (totalErrorIssues > 0 && report.overallApproved) {
+      // FIX #8（error issues 存在时强制 rejected）已收编进 review-contract
+      // .deriveVerdictFromLegacyReport —— verdict 裁决只此一处，本服务不再二次解读
+      const finalVerdict = deriveVerdictFromLegacyReport(report, allIssues);
+      if (finalVerdict === 'reject' && report.overallApproved) {
         logger.warn('[ReviewService] reviewDiff override: error issues present, forcing rejection', {
-          baseRef, headRef, totalErrorIssues,
+          baseRef, headRef,
+          totalErrorIssues: allIssues.filter(i => i.severity === 'error').length,
         });
       }
 
-      return { approved: finalApproved, score: reviewScore, issues: allIssues, suggestions: report.suggestions ?? [] };
+      return { approved: finalVerdict === 'pass', score: reviewScore, issues: allIssues, suggestions: report.suggestions ?? [] };
     } catch (error) {
       logger.error('[ReviewService] reviewDiff failed', { baseRef, headRef, error: String(error) });
       return { approved: false, score: 0, issues: [{ severity: 'error', message: `审查异常: ${String(error).slice(0, 200)}` }], suggestions: [] };
@@ -177,7 +190,7 @@ export class ReviewService {
   private async hasBranchChanges(repoPath: string, baseRef: string, headRef: string): Promise<boolean> {
     try {
       const { stdout } = await execSh(
-        `git diff ${baseRef}..${headRef} --stat 2>/dev/null || echo ""`,
+        `git diff ${shellQuote(baseRef)}..${shellQuote(headRef)} --stat 2>/dev/null || echo ""`,
         { cwd: repoPath, timeoutMs: 10_000 },
       );
       return stdout.trim().length > 0;

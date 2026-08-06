@@ -1,12 +1,40 @@
 // ReviewService reviewDiff + hasBranchChanges tests
 import { describe, it, expect } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import { reviewService } from '../review.service.js';
+import { reviewService, shellQuote } from '../review.service.js';
 import { execSh } from '@dommaker/studio-shared/node';
 
 const isCI = !!process.env.CI;
 const describeIf = isCI ? describe.skip : describe;
 const repoDir = path.resolve(process.cwd());
+
+// shellQuote 是纯函数，无需 git/Claude —— 全环境运行
+describe('shellQuote（execSh bash -c 注入防护）', () => {
+  it('普通值单引号包裹', () => {
+    expect(shellQuote('main')).toBe("'main'");
+    expect(shellQuote('release/1.0')).toBe("'release/1.0'");
+  });
+
+  it('内嵌单引号正确转义', () => {
+    expect(shellQuote("a'b")).toBe("'a'\\''b'");
+  });
+
+  it('命令替换/分号/重定向在引号内退化为字面量（行为级验证）', async () => {
+    const marker = path.join(os.tmpdir(), `shellquote-pwn-${Date.now()}`);
+    // 未转义时该串会经 $(...) / 反引号 / 分号落地 marker 文件
+    for (const payload of [
+      `$(touch ${marker})`,
+      `\`touch ${marker}\``,
+      `x;touch ${marker}`,
+      `x && touch ${marker}`,
+    ]) {
+      await execSh(`printf %s ${shellQuote(payload)}`, { cwd: '/tmp', timeoutMs: 5_000 });
+      expect(fs.existsSync(marker)).toBe(false);
+    }
+  });
+});
 
 describeIf('ReviewService (topology-agnostic)', () => {
   // ── hasBranchChanges (fast, no Claude) ──
