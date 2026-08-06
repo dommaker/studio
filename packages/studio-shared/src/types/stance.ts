@@ -92,23 +92,6 @@ export interface StanceInheritance {
   stepId?: string;
 }
 
-/**
- * 立场注入配置
- */
-export interface StanceInjectionConfig {
-  /** 是否启用立场注入 */
-  enabled: boolean;
-  
-  /** 立场继承 */
-  inheritance: StanceInheritance;
-  
-  /** 额外的 prompt 前缀 */
-  additionalPrompt?: string;
-  
-  /** 覆盖禁止行为 */
-  overrideForbiddenActions?: string[];
-}
-
 // ========== 立场审核 ==========
 
 /**
@@ -140,26 +123,6 @@ export interface StanceReviewConfig {
   
   /** 超时配置 */
   timeout?: number;
-}
-
-/**
- * 立场审核结果
- */
-export interface StanceReviewResult {
-  /** 审核配置 */
-  config: StanceReviewConfig;
-  
-  /** 各立场意见 */
-  opinions: StanceOpinion[];
-  
-  /** 最终决策 */
-  decision: 'approved' | 'rejected' | 'changes_requested';
-  
-  /** 决策理由 */
-  reason: string;
-  
-  /** 时间戳 */
-  timestamp: Date;
 }
 
 /**
@@ -205,20 +168,3 @@ export interface StanceIssue {
  * 系统默认立场
  */
 export const DEFAULT_STANCE: StanceId = 'executor';
-
-/**
- * 立场 prompt 模板变量
- */
-export interface StancePromptVariables {
-  /** 任务描述 */
-  task?: string;
-  
-  /** 输入内容 */
-  input?: string;
-  
-  /** 上下文 */
-  context?: string;
-  
-  /** 其他立场意见 */
-  otherOpinions?: StanceOpinion[];
-}

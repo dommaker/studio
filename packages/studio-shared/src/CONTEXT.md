@@ -19,8 +19,6 @@
 | `formatError`, `createCliError`, `CliError`, `ERROR_CODES` | cli/error | 统一错误处理与格式化为字符串 |
 | `loadConfigEnv`, `AgentStudioConfig` | config | 系统级配置加载 (~/.studio/config.env) 及类型定义 |
 | `LEVEL_CONFIG`, `getLevelConfig`, `getLevelSalary` 等 | constants/levels | 全局统一的职级配置与辅助函数 |
-| `RESPONSIBILITY_CHAIN`, `CHANGE_TYPE_EXPERTS`, `Stage`, `Role` 等 | constants/responsibility-chain | 责任链模型类型与常量定义 |
-| `STAGE_DEFINITIONS`, `StageDefinition` | constants/stage-definitions | 开发阶段详细定义、关键词与推荐函数 |
 | `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅 |
 | `AgentProfileData`, `RuntimeStateData`, `ChannelData`, `ChannelMessageData` 等 | file-store | 文件存储基础数据类型 |
 | `resolveVpsWorkspace`, `resolveWorkspacesDir` | vps-workspace（仅 /node 入口） | 'VPS' 工作区命名约定与 ~/.studio/workspaces 扫描的唯一属主（2026-08 起；worktree-resolver 与 local-workspace 均委托到此，禁止第三处手扫） |
@@ -40,5 +38,5 @@
 - 配置优先级：环境变量 > `~/.studio/config.env` > 默认值，且仅当环境变量未设置时才加载 config.env
 - `FileStore` 使用 `flock` 目录锁（`mkdir` 原子操作）保障 claim 原子性
 - 事件总线支持通配符（`*`）模式订阅，Handler 异常不会影响其他监听器
-- 级别与责任链常量为单一数据源，其他模块不应重复定义
+- 级别常量为单一数据源，其他模块不应重复定义
 - `constants/` 下各文件应保持无外部依赖（仅内部引用），便于前端复用

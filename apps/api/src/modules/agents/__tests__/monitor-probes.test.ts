@@ -28,7 +28,6 @@ vi.mock('fs', async (importOriginal) => {
 
 vi.mock('@dommaker/studio-shared', () => ({
   logger: mockLogger,
-  resolveEventsDir: () => tmpDir,
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({

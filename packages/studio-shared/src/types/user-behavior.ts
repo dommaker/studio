@@ -19,14 +19,3 @@ export interface UserBehaviorProfile {
   createdAt: string;
   updatedAt: string;
 }
-
-export interface ExtractBehaviorInput {
-  content: string; // Preprocessed transcript
-  source: string;  // "session:<uuid>"
-  threshold?: number; // Default 0.6
-}
-
-export interface ExtractBehaviorResult {
-  profiles: UserBehaviorProfile[];
-  existingPatterns: string[]; // Patterns injected for dedup
-}
