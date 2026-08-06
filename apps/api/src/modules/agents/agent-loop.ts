@@ -33,7 +33,7 @@ import {
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
 import { runCompletionGuards } from './completion-gates.js';
-import type { StepResult, KnowledgeSearchAnalysis, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
+import type { StepResult, Observations, Target, RuntimeInstanceRow } from './agent-loop.types.js';
 import {
   extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
@@ -46,6 +46,9 @@ export {
   extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
 } from './agent-loop-parsers.js';
+
+// 知识搜索分析块已抽到 ./knowledge-search-analysis.js（工单 28，行为不变）；re-export 保持对外导出语义不变
+export { analyzeKnowledgeSearch, extractKnowledgeEntryIds } from './knowledge-search-analysis.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -1555,65 +1558,6 @@ ${rosterLines.join('\n')}
     });
   }
 
-}
-
-// ─── Knowledge search analysis (preserved from original) ───
-
-/**
- * Analyze agent log for knowledge search behavior.
- * Pure function — takes log content string, no file I/O.
- */
-export function analyzeKnowledgeSearch(logContent: string): KnowledgeSearchAnalysis {
-  const events = parseStreamEvents(logContent);
-  const toolCalls = extractToolCalls(events);
-
-  const searchCalls: Array<{ tool: string; detail?: string }> = [];
-  for (const call of toolCalls) {
-    const detail = getKnowledgeSearchDetail(call.name, call.input);
-    if (detail !== null) {
-      searchCalls.push({ tool: call.name, detail });
-    }
-  }
-
-  return { searched: searchCalls.length > 0, searchCalls };
-}
-
-function getKnowledgeSearchDetail(toolName: string, input: unknown): string | null {
-  if (!input || typeof input !== 'object') return null;
-  const inp = input as Record<string, unknown>;
-
-  if (toolName === 'Read') {
-    const fp = inp.file_path;
-    if (typeof fp === 'string' && fp.includes('.studio/knowledge')) return fp;
-  }
-  if (toolName === 'Bash') {
-    const cmd = inp.command;
-    if (typeof cmd === 'string' && cmd.includes('.studio/knowledge')) return cmd;
-  }
-  if (toolName === 'Glob') {
-    const pattern = inp.pattern;
-    if (typeof pattern === 'string' && pattern.includes('.studio/knowledge')) return pattern;
-  }
-
-  return null;
-}
-
-/**
- * Extract knowledge entry IDs from search analysis results.
- * Parses file paths from Read/Bash tool call details.
- */
-export function extractKnowledgeEntryIds(analysis: KnowledgeSearchAnalysis): string[] {
-  const ids: string[] = [];
-  for (const call of analysis.searchCalls) {
-    if (!call.detail) continue;
-    const match = call.detail.match(/\.studio\/knowledge\/([^/\s]+(?:\/[^/\s]+)?\.md)/);
-    if (match) {
-      const filePart = match[1];
-      if (filePart === '_index.md' || filePart.endsWith('/_index.md')) continue;
-      ids.push(filePart.replace(/\.md$/, ''));
-    }
-  }
-  return Array.from(new Set(ids));
 }
 
 // ─── workunit:tokens event recording (M2) ───
