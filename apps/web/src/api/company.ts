@@ -1,4 +1,4 @@
-// Company API — 公司 CRUD（FileStore 存储；Settings 页 / useCompanyId / PMOPage 共用）
+// Company API — 公司 CRUD（FileStore 存储；Settings 页 / PMOPage 共用）
 // 响应形状：list = { data: Company[] }；get/create/update = 裸 Company 对象（后端直接 res.json(company)）
 import { api } from './index';
 

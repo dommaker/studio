@@ -144,20 +144,12 @@ export const runtimeWorkflowApi = {
   listExecutions: (options?: { page?: number; limit?: number }) =>
     api.get('/executions', { params: options }),
   getExecution: (id: string) => api.get(`/executions/${id}`),
-  listSteps: () => api.get('/skills'),
-  listSkills: () => api.get('/skills'),
   listWorkflows: () => api.get('/workflows'),
   // 项目
   listProjects: () => api.get('/pmo/project'),
   createProject: (data: { name: string; path: string; type?: string; description?: string }) =>
     api.post('/pmo/project', data),
   deleteProject: (id: string) => api.delete(`/pmo/project/${id}`),
-};
-
-// Capabilities Stage API（UI-001）
-export const capabilitiesStageApi = {
-  // 获取 Stage 分类数据
-  getStages: () => api.get('/capabilities/stages'),
 };
 
 // Auth API - 认证系统
