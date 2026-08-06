@@ -1,7 +1,6 @@
 // 设置页面 - API 配置 + 通知 + 公司 + 主题语言
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { runtimeWorkflowApi } from '../api';
 import { companyApi } from '../api/company';
 import { notifyApi } from '../api/notify';
 import { WorkspaceStatusBar } from '../components/WorkspaceStatusBar';
@@ -16,8 +15,6 @@ interface Config {
   discord: { enabled: boolean; webhookUrl: string };
   wecom: { enabled: boolean; webhookUrl: string };
   telegram: { enabled: boolean; botToken: string; chatId: string };
-  contextMonitor: { enabled: boolean; warningThreshold: number; criticalThreshold: number };
-  roleExecution: { maxConcurrent: number; tokenWarningThreshold: number; showTokenUsage: boolean };
 }
 
 interface Company { id: string; name: string; size: string }
@@ -76,8 +73,6 @@ export function Settings() {
     discord: { enabled: false, webhookUrl: '' },
     wecom: { enabled: false, webhookUrl: '' },
     telegram: { enabled: false, botToken: '', chatId: '' },
-    contextMonitor: { enabled: true, warningThreshold: 50, criticalThreshold: 70 },
-    roleExecution: { maxConcurrent: 3, tokenWarningThreshold: 15000, showTokenUsage: true },
   });
   const [company, setCompany] = useState<Company | null>(null);
   const [newCompanyName, setNewCompanyName] = useState('');
@@ -98,11 +93,8 @@ export function Settings() {
             discord: secrets.discord || prev.discord,
             wecom: secrets.wecom || prev.wecom,
             telegram: secrets.telegram || prev.telegram,
-            roleExecution: secrets.roleExecution || prev.roleExecution,
           }));
         }
-        const { data } = await runtimeWorkflowApi.getConfig();
-        setConfig(prev => ({ ...prev, contextMonitor: data.contextMonitor || prev.contextMonitor }));
 
         // 检查通知配置同步状态
         try {
@@ -187,7 +179,6 @@ export function Settings() {
         discord: config.discord,
         wecom: config.wecom,
         telegram: config.telegram,
-        roleExecution: config.roleExecution,
       });
 
       // 保存 Webhook 配置到进程内存
@@ -198,17 +189,6 @@ export function Settings() {
       });
       setNotifySyncStatus('synced');
 
-      // 保存角色执行配置到 Redis
-      await runtimeWorkflowApi.updateConfig({
-        maxConcurrent: config.roleExecution.maxConcurrent,
-        tokenWarningThreshold: config.roleExecution.tokenWarningThreshold,
-        showTokenUsage: config.roleExecution.showTokenUsage,
-      });
-
-      // 触发 TaskWorker 热更新
-      await runtimeWorkflowApi.reloadConfig();
-
-      await runtimeWorkflowApi.updateConfig({ contextMonitor: config.contextMonitor });
       toast.success('设置已保存');
     } catch (err) {
       console.error('Failed to save config:', err);
@@ -239,41 +219,6 @@ export function Settings() {
 
       <div className="flex-1 overflow-auto px-8 pb-8">
         <div className="max-w-5xl space-y-8 mt-4">
-          {/* 🎭 角色执行配置 */}
-          <section className="space-y-4">
-            <h2 className="mc-block-label" style={{ margin: 0 }}>🎭 角色执行配置</h2>
-            <p className="text-sm u-text-2">控制会议内角色并行执行的参数</p>
-            <div className="card p-4 space-y-4">
-              <div>
-                <label className="block text-sm font-medium mb-2 u-text-2">并发上限</label>
-                <div className="flex items-center gap-4">
-                  <input type="number" min="1" max="5" value={config.roleExecution.maxConcurrent}
-                    onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, maxConcurrent: parseInt(e.target.value) || 3 })}
-                    className="input w-20" />
-                  <span className="text-sm u-text-3">个角色同时执行（推荐 2-3）</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2 u-text-2">Token 警告阈值</label>
-                <div className="flex items-center gap-4">
-                  <input type="number" min="1000" step="5000" value={config.roleExecution.tokenWarningThreshold}
-                    onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, tokenWarningThreshold: parseInt(e.target.value) || 15000 })}
-                    className="input w-24" />
-                  <span className="text-sm u-text-3">Token（超出时提醒）</span>
-                </div>
-                <p className="text-xs mt-1 u-text-3">参考：需求分析 ~3000、代码生成 ~10000、复杂任务 ~20000</p>
-              </div>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={config.roleExecution.showTokenUsage}
-                    onChange={(e) => updateConfig('roleExecution', { ...config.roleExecution, showTokenUsage: e.target.checked })}
-                    className="w-4 h-4 rounded" style={{ accentColor: 'var(--accent-primary)' }} />
-                  <span className="text-sm u-text-2">执行时显示 Token 消耗</span>
-                </label>
-              </div>
-            </div>
-          </section>
-
           {/* 🖥️ 算力接入 — AS-020 P7 */}
           <section className="space-y-4">
             <h2 className="mc-block-label" style={{ margin: 0 }}>🖥️ 算力接入</h2>
@@ -366,33 +311,6 @@ export function Settings() {
                 <label className="block text-sm font-medium mb-2 u-text-2">Chat ID</label>
                 <input type="text" placeholder="-1001234567890" value={config.telegram.chatId}
                   onChange={(e) => updateConfig('telegram', { ...config.telegram, chatId: e.target.value, enabled: !!(config.telegram.botToken && e.target.value) })}
-                  className="input w-full" />
-              </div>
-            </div>
-          </section>
-
-          {/* 📊 上下文监控 */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="mc-block-label" style={{ margin: 0 }}>📊 上下文监控</h2>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={config.contextMonitor.enabled}
-                  onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, enabled: e.target.checked })}
-                  className="w-4 h-4 rounded" style={{ accentColor: 'var(--accent-primary)' }} />
-                <span className="text-sm u-text-2">启用</span>
-              </label>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-2 u-text-2">提示阈值 (%)</label>
-                <input type="number" min="30" max="90" value={config.contextMonitor.warningThreshold}
-                  onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, warningThreshold: parseInt(e.target.value) || 50 })}
-                  className="input w-full" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2 u-text-2">警告阈值 (%)</label>
-                <input type="number" min="50" max="95" value={config.contextMonitor.criticalThreshold}
-                  onChange={(e) => updateConfig('contextMonitor', { ...config.contextMonitor, criticalThreshold: parseInt(e.target.value) || 70 })}
                   className="input w-full" />
               </div>
             </div>

@@ -7,7 +7,7 @@
  *
  * 6 capabilities:
  *   Produce  — write knowledge (extract, record)
- *   Consume  — read knowledge (search, inject context, match resolutions)
+ *   Consume  — read knowledge (search, inject context)
  *   Track    — record consumption + outcomes (feedback loop)
  *   Lifecycle — promote, decay, merge, graduate
  *   Resolve  — known problem→fix management
@@ -29,7 +29,7 @@ import type {
 import { FileStore, logger, estimateTokens } from '@dommaker/studio-shared';
 import { getSystemExecutor, StudioRoleNotConfiguredError } from '../agents/system-executor.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
-import type { CreateResolutionInput, MatchResolutionResult, Resolution } from '@dommaker/studio-shared';
+import type { CreateResolutionInput } from '@dommaker/studio-shared';
 import { scheduleVectorDbSync, ingestWithQualityGate } from './knowledge-singletons.js';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
@@ -368,29 +368,6 @@ export interface KnowledgeServiceDeps {
   linter: KnowledgeLinter;
   query: any;  // UnifiedQuery
   eventEmitter: any; // EventEmitter
-}
-
-// ── Resolution FileStore helpers ──
-// 注意：~/.studio/data/resolutions 为影子库（legacy）。R3 起 createResolution 改写
-// resolutionService 主存储（~/.studio/knowledge/resolution-*.md）；
-// matchResolutions/verifyResolution 仍读影子库，存量数据合并由 γ 轨道清洗脚本完成。
-
-const RESOLUTIONS_DIR = path.join(os.homedir(), '.studio', 'data', 'resolutions');
-
-async function listResolutions(): Promise<any[]> {
-  try {
-    const entries = await fs.promises.readdir(RESOLUTIONS_DIR, { withFileTypes: true });
-    const files = entries.filter(e => e.isFile() && e.name.endsWith('.json'));
-    const results: any[] = [];
-    for (const f of files) {
-      const data = await fileStore.readJson<any>(path.join(RESOLUTIONS_DIR, f.name));
-      if (data) results.push(data);
-    }
-    return results;
-  } catch (err: unknown) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return [];
-    throw err;
-  }
 }
 
 // ── KnowledgeService ─────────────────────────────────────────
@@ -989,56 +966,6 @@ export class KnowledgeService {
       .slice(0, limit);
   }
 
-  async matchResolutions(problem: string): Promise<MatchResolutionResult> {
-    try {
-      const all = await listResolutions();
-      const candidates = all
-        .filter((r: any) => r.status === 'verified' || r.status === 'canonical')
-        .sort((a: any, b: any) => (b.verifyCount || 0) - (a.verifyCount || 0));
-
-      const matched: Resolution[] = [];
-      const lowerMsg = problem.toLowerCase();
-
-      for (const row of candidates) {
-        const pattern = row.pattern;
-        let isMatch = false;
-
-        // Try regex first
-        try {
-          const re = new RegExp(pattern, 'i');
-          if (re.test(problem)) isMatch = true;
-        } catch {
-          // Not valid regex, fall back to substring
-          if (lowerMsg.includes(pattern.toLowerCase())) isMatch = true;
-        }
-
-        if (isMatch) {
-          matched.push({
-            id: row.id,
-            pattern: row.pattern,
-            errorClass: row.errorClass || '',
-            layer: row.layer || 'L5_error_fix',
-            title: row.title || pattern,
-            fix: row.fix || '',
-            status: row.status,
-            verifyCount: row.verifyCount || 0,
-            tags: row.tags ? (typeof row.tags === 'string' ? JSON.parse(row.tags) : row.tags) : [],
-            createdAt: row.createdAt || '',
-            updatedAt: row.updatedAt || '',
-          });
-        }
-      }
-
-      const promptSnippet = matched.length > 0
-        ? matched.map(r => `[Known Fix] ${r.title}: ${r.fix}`).join('\n')
-        : '';
-
-      return { matched: matched.length > 0, resolutions: matched, promptSnippet };
-    } catch {
-      return { matched: false, resolutions: [], promptSnippet: '' };
-    }
-  }
-
   async list(filter?: QueryFilter): Promise<KnowledgeEntry[]> {
     // UnifiedQuery.listEntries 返回 { entries, total }（分页形态）；本方法对外保持数组契约。
     const result: any = await this.query.listEntries(filter || {});
@@ -1197,9 +1124,8 @@ export class KnowledgeService {
   // ═══════════ Resolve (known solutions) ════════════
 
   /**
-   * R3（type-repair）：写入 resolutionService 主存储（~/.studio/knowledge/resolution-*.md），
-   * 不再写 ~/.studio/data/resolutions/ 影子库（双库合并：UI/匹配只读主存储）。
-   * 按 pattern 去重由 resolutionService.createResolution 负责（语义与原影子库一致）。
+   * R3（type-repair）：写入 resolutionService 主存储（~/.studio/knowledge/resolution-*.md）。
+   * 按 pattern 去重由 resolutionService.createResolution 负责。
    * triage 调用方签名不变（Promise<void>）；失败 best-effort 吞掉。
    */
   async createResolution(input: CreateResolutionInput): Promise<void> {
@@ -1386,31 +1312,6 @@ export class KnowledgeService {
       return byType;
     } catch {
       return { total: 0 };
-    }
-  }
-
-  /**
-   * 验证 Resolution — verifyCount++，累积 3 次 → canonical
-   * Absorbed from ResolutionService.verifyResolution()
-   */
-  async verifyResolution(id: string): Promise<void> {
-    try {
-      const row = await fileStore.readJson<any>(path.join(RESOLUTIONS_DIR, `${id}.json`));
-      if (!row) return;
-
-      const newCount = (row.verifyCount || 0) + 1;
-      const newStatus = newCount >= 3 ? 'canonical' : (newCount >= 1 ? 'verified' : 'pending');
-
-      const updated = {
-        ...row,
-        verifyCount: newCount,
-        status: newStatus,
-        lastVerifiedAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      };
-      await fileStore.writeJson(path.join(RESOLUTIONS_DIR, `${id}.json`), updated);
-    } catch {
-      // best-effort
     }
   }
 }

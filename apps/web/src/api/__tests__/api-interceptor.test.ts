@@ -25,7 +25,7 @@ vi.mock('axios', () => ({
 }));
 
 import axios from 'axios';
-import { api, refreshToken, runtimeWorkflowApi } from '../index';
+import { api, refreshToken } from '../index';
 
 // Capture interceptor callbacks — set during module load
 let requestInterceptor: ((config: unknown) => unknown) | null = null;
@@ -241,15 +241,6 @@ describe('Axios auth interceptor', () => {
 
       expect(standalonePost).toHaveBeenCalled();
       expect(mockAxiosInstance.post).not.toHaveBeenCalled();
-    });
-  });
-
-  // ─── runtimeWorkflowApi.reloadConfig 契约 ───
-
-  describe('runtimeWorkflowApi.reloadConfig（TaskWorker 热更新）', () => {
-    it('POST /runtime-config/reload', () => {
-      runtimeWorkflowApi.reloadConfig();
-      expect(mockAxiosInstance.post).toHaveBeenCalledWith('/runtime-config/reload');
     });
   });
 });

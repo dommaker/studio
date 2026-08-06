@@ -88,7 +88,6 @@
 | okr.service | src/modules/pmo/okr.service.ts | 🆕 AS-016: 获取当前季度 |
 | project.service | src/modules/pmo/project.service.ts | Project Service - PMO 项目管理 |
 | routes | src/modules/pmo/routes.ts | GET /api/v1/pmo/project |
-| routes | src/modules/runtime-config/routes.ts | GET /api/v1/runtime-config |
 | routes | src/modules/skills/routes.ts | SkillHub API — CRUD + 生命周期 + Agent 可发现性 + 使用统计 |
 | skill-loader | src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
 | routes | src/modules/specs/routes.ts | POST /api/v1/specs/:id/analyze-change |

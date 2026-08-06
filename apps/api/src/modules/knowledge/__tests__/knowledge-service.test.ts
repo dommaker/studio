@@ -5,13 +5,9 @@
  * - recordPattern/Incident/Trend: ingest with quality gate + dedup
  * - search: keyword scoring + ranking
  * - injectContext: rule + context + signal assembly
- * - matchResolutions: Prisma delegation
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { estimateTokens } from '@dommaker/studio-shared';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import * as os from 'node:os';
 
 // ── Mock FileStore to intercept appendJsonl calls ──
 const { mockAppendJsonl, mockResolutionCreate } = vi.hoisted(() => ({
@@ -531,36 +527,6 @@ describe('KnowledgeService Phase 1A: Consume', () => {
       );
     });
   });
-
-  describe('matchResolutions', () => {
-    it('returns empty resolutions when no match', async () => {
-      const { ks } = createKS();
-      const result = await ks.matchResolutions('unknown problem');
-      expect(result.matched).toBe(false);
-      expect(result.resolutions).toEqual([]);
-    });
-
-    it.skip('matches resolutions via FileStore (TODO: mock readJson to read from temp dir)', async () => {
-      const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ks-resolutions-'));
-      const prevHome = process.env.HOME;
-      process.env.HOME = tmpHome;
-      try {
-        const resDir = path.join(tmpHome, '.studio', 'data', 'resolutions');
-        fs.mkdirSync(resDir, { recursive: true });
-        fs.writeFileSync(path.join(resDir, 'r1.json'), JSON.stringify({
-          id: 'r1', pattern: 'permission', fix: 'check perms', status: 'verified',
-          verifyCount: 3, errorClass: 'perm', layer: 'L5_error_fix', title: 'Permission fix',
-          tags: '[]', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
-        }));
-        const { ks } = createKS();
-        const result = await ks.matchResolutions('permission denied on file');
-        expect(result.resolutions.length).toBe(1);
-      } finally {
-        process.env.HOME = prevHome;
-        fs.rmSync(tmpHome, { recursive: true, force: true });
-      }
-    });
-  });
 });
 
 // ── Phase 1B: Track + Lifecycle + Resolve ──
@@ -1053,11 +1019,10 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('recordAnalystAccuracy exists', () => expect(typeof ks.recordAnalystAccuracy).toBe('function'));
   });
 
-  describe('Consume (6 methods)', () => {
+  describe('Consume (5 methods)', () => {
     it('injectContext exists', () => expect(typeof ks.injectContext).toBe('function'));
     it('search exists', () => expect(typeof ks.search).toBe('function'));
     it('semanticSearch exists', () => expect(typeof ks.semanticSearch).toBe('function'));
-    it('matchResolutions exists', () => expect(typeof ks.matchResolutions).toBe('function'));
     it('list exists', () => expect(typeof ks.list).toBe('function'));
     it('get exists', () => expect(typeof ks.get).toBe('function'));
   });
@@ -1075,9 +1040,8 @@ describe('KnowledgeService Phase 0: contract', () => {
     it('graduateConstraint exists', () => expect(typeof ks.graduateConstraint).toBe('function'));
   });
 
-  describe('Resolve (2 methods)', () => {
+  describe('Resolve (1 method)', () => {
     it('createResolution exists', () => expect(typeof ks.createResolution).toBe('function'));
-    it('verifyResolution exists', () => expect(typeof ks.verifyResolution).toBe('function'));
   });
 
   describe('Measure (5 methods)', () => {
@@ -1089,10 +1053,10 @@ describe('KnowledgeService Phase 0: contract', () => {
   });
 
   describe('method count', () => {
-    it('has exactly 35 public methods', () => {
+    it('has exactly 33 public methods', () => {
       const methods = Object.getOwnPropertyNames(KnowledgeService.prototype)
         .filter(m => m !== 'constructor');
-      expect(methods).toHaveLength(35);
+      expect(methods).toHaveLength(33);
     });
   });
 });

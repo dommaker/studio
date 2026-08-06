@@ -269,12 +269,13 @@ class TriageService {
     // B11-007: Resolution 查询 — 已知解法匹配
     let resolutionHint = '';
     try {
-      const matched = await knowledgeService.matchResolutions(input.message);
+      const { resolutionService } = await import('../knowledge/resolution.service.js');
+      const matched = await resolutionService.matchResolutions({ errorMessage: input.message });
       if (matched.resolutions.length > 0) {
         resolutionHint = matched.resolutions[0].fix;
         logger.info('[TriageService] Resolution matched', { incidentType, title: matched.resolutions[0].title });
         // B13-001: Verify matched resolution (pending→verified→canonical)
-        try { await knowledgeService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
+        try { await resolutionService.verifyResolution(matched.resolutions[0].id); } catch { /* non-blocking */ }
       }
     } catch { /* best-effort */ }
 

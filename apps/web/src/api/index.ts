@@ -147,32 +147,6 @@ export const runtimeWorkflowApi = {
   listSteps: () => api.get('/skills'),
   listSkills: () => api.get('/skills'),
   listWorkflows: () => api.get('/workflows'),
-  // 配置
-  getConfig: () => api.get('/runtime-config'),
-  updateConfig: (data: {
-    discordWebhook?: string;
-    discordEnabled?: boolean;
-    agents?: {
-      codex: { apiKey: string; endpoint?: string };
-      claude: { apiKey: string; endpoint?: string };
-    };
-    llm?: {
-      openai: { apiKey: string; enabled: boolean };
-      hunyuan: { apiKey: string; enabled: boolean };
-    };
-    defaultIntentLLM?: 'openai' | 'hunyuan';
-    contextMonitor?: {
-      enabled: boolean;
-      warningThreshold: number;
-      criticalThreshold: number;
-    };
-    // 角色执行配置（Settings 页保存到 Redis 后 /runtime-config/reload 热更新）
-    maxConcurrent?: number;
-    tokenWarningThreshold?: number;
-    showTokenUsage?: boolean;
-  }) => api.post('/runtime-config', data),
-  // 触发 TaskWorker 热更新（Settings 保存后调用；下次轮询重读配置）
-  reloadConfig: () => api.post('/runtime-config/reload'),
   // 项目
   listProjects: () => api.get('/pmo/project'),
   createProject: (data: { name: string; path: string; type?: string; description?: string }) =>

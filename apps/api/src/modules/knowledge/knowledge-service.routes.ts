@@ -222,7 +222,8 @@ knowledgeServiceRoutes.post('/match-resolutions', async (req, res) => {
   try {
     const { problem } = req.body;
     if (!problem) return res.status(400).json({ error: 'problem required' });
-    const result = await knowledgeService.matchResolutions(problem);
+    const { resolutionService } = await import('./resolution.service.js');
+    const result = await resolutionService.matchResolutions({ errorMessage: problem });
     res.json(result);
   } catch (e: any) {
     logger.error('[KnowledgeService API]', { path: req.path, error: String(e) });
