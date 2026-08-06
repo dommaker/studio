@@ -22,7 +22,7 @@
 
 下游：
 - `apps/api` 模块：`review-agent.service.ts`、`prompt-builder.ts`、`skill.tools.ts`、`skill-loader.ts`
-- `packages/studio-agent` 模块：`runner-params.ts`、`session-manager.ts`
+- `packages/studio-agent` 模块：`runner-params.ts`
 
 ## 注意事项
 

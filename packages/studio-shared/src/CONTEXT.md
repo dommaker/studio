@@ -23,6 +23,7 @@
 | `STAGE_DEFINITIONS`, `StageDefinition` | constants/stage-definitions | 开发阶段详细定义、关键词与推荐函数 |
 | `eventBus`, `StudioEventBus` | event-bus | 内存事件总线，支持通配符订阅 |
 | `AgentProfileData`, `RuntimeStateData`, `ChannelData`, `ChannelMessageData` 等 | file-store | 文件存储基础数据类型 |
+| `resolveVpsWorkspace`, `resolveWorkspacesDir` | vps-workspace（仅 /node 入口） | 'VPS' 工作区命名约定与 ~/.studio/workspaces 扫描的唯一属主（2026-08 起；worktree-resolver 与 local-workspace 均委托到此，禁止第三处手扫） |
 
 ## 依赖关系
 
