@@ -40,12 +40,10 @@ const PageLoader = () => (
 import { ThemeProvider } from './contexts/ThemeContext';
 import { TopNav } from './components/TopNav';
 import { Sidebar } from './components/SidebarNew';
-import { GlobalModals } from './components/GlobalModals';
 import { useAgentStore, useRuntimeStore } from './stores';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
 import { WebSocketProvider } from './api/websocket';
-import { useGlobalModals } from './hooks/useGlobalModals';
 import { channelApi } from './api/channel';
 import { StudioRoleSetupModal, isStudioRoleSetupDismissed } from './components/setup/StudioRoleSetupModal';
 import { FirstRoleSetupModal, isFirstRoleSetupDismissed } from './components/setup/FirstRoleSetupModal';
@@ -55,13 +53,9 @@ export default function App() {
   const { t } = useTranslation();
   const location = useLocation();
   const { loadAgents } = useAgentStore();
-  const { loadExecutions, runtimeExecutions } = useRuntimeStore();
+  const { loadExecutions } = useRuntimeStore();
   const isGuest = useAuthStore((s) => s.isGuest());
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
-
-  const {
-    selectedProject, setSelectedProject,
-  } = useGlobalModals();
 
   // 本地 state
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -157,11 +151,6 @@ export default function App() {
     <ThemeProvider>
     <WebSocketProvider>
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
-      <GlobalModals
-        selectedProject={selectedProject}
-        onCloseProject={() => setSelectedProject(null)}
-      />
-
       {/* AC-2.2: studio 角色 provider=null 弹框 */}
       <StudioRoleSetupModal
         open={studioRoleSetupOpen}
