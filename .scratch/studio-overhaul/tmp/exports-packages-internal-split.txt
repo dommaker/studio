@@ -1,0 +1,196 @@
+SELF-ONLY: AcceptanceValidator (def: packages/studio-spec/src/services/acceptance-validator.ts packages/studio-spec/src/services/spec-validator.service.ts packages/studio-spec/src/index.ts) :: packages/studio-spec/src/services/spec-validator.service.ts
+IMPORT-DEAD: AgentCapabilities (def: packages/studio-agent/src/types.ts) :: packages/studio-agent/dist/index.d.ts packages/studio-agent/src/index.ts
+IMPORT-DEAD: agentCompleter (def: packages/studio-agent/src/services/agent-completer.ts packages/studio-agent/src/index.ts) :: packages/studio-agent/dist/services/agent-completer.d.ts
+IMPORT-DEAD: AgentCompleter (def: packages/studio-agent/src/services/agent-completer.ts packages/studio-agent/src/index.ts) :: packages/studio-agent/dist/services/agent-completer.d.ts packages/studio-agent/src/services/agent-completer.ts
+IMPORT-DEAD: AgentRole (def: packages/studio-shared/src/harness/prompt-injection.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/dist/harness/prompt-injection.d.ts packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/prompt-injection.ts
+IMPORT-DEAD: agentStudioConfig (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts packages/studio-shared/src/config/index.ts
+IMPORT-DEAD: AgentStudioConfig (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts packages/studio-shared/src/config/index.ts
+SELF-ONLY: ApiValidator (def: packages/studio-spec/src/services/api-validator.ts packages/studio-spec/src/services/spec-validator.service.ts packages/studio-spec/src/index.ts) :: packages/studio-spec/src/services/spec-validator.service.ts
+SELF-ONLY: ArchitectureValidator (def: packages/studio-spec/src/services/architecture-validator.ts packages/studio-spec/src/services/spec-validator.service.ts packages/studio-spec/src/index.ts) :: packages/studio-spec/src/services/spec-validator.service.ts
+IMPORT-DEAD: assertGoalExecutionTransition (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts
+IMPORT-DEAD: assertGoalTransition (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts
+IMPORT-DEAD: AuditChain (def: packages/studio-audit/src/services/audit-chain.ts) :: packages/studio-audit/dist/services/audit-chain.d.ts packages/studio-audit/src/services/audit-chain.ts
+IMPORT-DEAD: AuditEvent (def: packages/studio-shared/src/harness/hooks/audit.ts) :: packages/studio-shared/dist/harness/hooks/audit.d.ts packages/studio-shared/src/harness/hooks/audit.ts
+IMPORT-DEAD: batchArray (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/parallel-executor.d.ts packages/studio-shared/src/utils/parallel-executor.ts
+IMPORT-DEAD: buildUICategories (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts
+IMPORT-DEAD: BuiltinProviderId (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts
+IMPORT-DEAD: cachedCheck (def: packages/studio-shared/src/harness/runtime/cache.ts) :: packages/studio-shared/dist/harness/runtime/cache.d.ts packages/studio-shared/src/harness/runtime/cache.ts
+IMPORT-DEAD: canRoleExecuteStage (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts
+IMPORT-DEAD: canTransitionGoal (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts
+IMPORT-DEAD: canTransitionGoalExecution (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts
+IMPORT-DEAD: canTransitionGoalPlan (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts
+IMPORT-DEAD: CHANGE_TYPE_EXPERTS (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts
+IMPORT-DEAD: ChannelMessageRow (def: packages/studio-shared/src/file-store.ts) :: packages/studio-shared/dist/index.d.ts packages/studio-shared/src/file-store.ts packages/studio-shared/src/index.ts
+IMPORT-DEAD: CheckConfig (def: packages/studio-spec/src/types/gate.types.ts) :: packages/studio-spec/src/index.ts
+IMPORT-DEAD: checkpointService (def: packages/studio-shared/src/harness/index.ts) :: packages/studio-shared/dist/harness/index.d.ts
+IMPORT-DEAD: CheckpointService (def: packages/studio-shared/src/harness/index.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/src/harness/index.ts
+IMPORT-DEAD: checkRequiredConfig (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts
+IMPORT-DEAD: clampLevel (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts
+IMPORT-DEAD: CleanOptions (def: packages/studio-task/src/types.ts) :: packages/studio-task/dist/cli/clean.d.ts packages/studio-task/src/cli/clean.ts
+IMPORT-DEAD: clearCommands (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts
+IMPORT-DEAD: clearConstraintCache (def: packages/studio-shared/src/harness/runtime/cache.ts) :: packages/studio-shared/dist/harness/runtime/cache.d.ts
+IMPORT-DEAD: CliError (def: packages/studio-shared/src/cli/error.ts) :: packages/studio-shared/dist/cli/error.d.ts packages/studio-shared/src/cli/error.ts
+SELF-ONLY: CompanyMCP (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+SELF-ONLY: CompanyMCPPoolConfig (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+SELF-ONLY: CompanyMCPPool (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+IMPORT-DEAD: CONSTRAINT_DEPTH (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts
+IMPORT-DEAD: ConstraintEffectAction (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts packages/studio-shared/src/harness/auditor/auditor-types.ts
+IMPORT-DEAD: ConstraintEffectReport (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts packages/studio-shared/src/harness/auditor/auditor-types.ts
+IMPORT-DEAD: ConstraintLevel (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/dist/index.d.ts packages/studio-shared/dist/node.d.ts packages/studio-shared/src/constants/responsibility-chain.ts packages/studio-shared/src/index.ts packages/studio-shared/src/node.ts
+IMPORT-DEAD: ConstraintService (def: packages/studio-shared/src/harness/index.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/src/harness/index.ts
+IMPORT-DEAD: createAuditChain (def: packages/studio-audit/src/services/audit-chain.ts) :: packages/studio-audit/dist/services/audit-chain.d.ts
+IMPORT-DEAD: createCliError (def: packages/studio-shared/src/cli/error.ts) :: packages/studio-shared/dist/cli/error.d.ts
+IMPORT-DEAD: createLogger (def: packages/studio-shared/src/utils/logger.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/logger.d.ts
+IMPORT-DEAD: createResourceScheduler (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts
+IMPORT-DEAD: decideConstraintAction (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts
+IMPORT-DEAD: decideParticipants (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts
+IMPORT-DEAD: DECISION_STANCES (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-shared/dist/types/stance.d.ts packages/studio-shared/src/types/stance.ts
+IMPORT-DEAD: DEFAULT_CONSUMPTION_RULES (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts
+IMPORT-DEAD: DEFAULT_STANCE (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-shared/dist/types/stance.d.ts
+IMPORT-DEAD: DEFAULT_THRESHOLDS (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts packages/studio-shared/src/utils/scheduler.ts
+IMPORT-DEAD: DeltaResult (def: packages/studio-shared/src/stats/anomaly-detector.ts) :: packages/studio-shared/dist/stats/anomaly-detector.d.ts packages/studio-shared/src/stats/anomaly-detector.ts
+IMPORT-DEAD: deriveRoleConfig (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts
+IMPORT-DEAD: ERROR_CODES (def: packages/studio-shared/src/cli/error.ts) :: packages/studio-shared/dist/cli/error.d.ts packages/studio-shared/src/cli/error.ts
+IMPORT-DEAD: evaluateResourceStatus (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts packages/studio-shared/src/utils/scheduler.ts
+IMPORT-DEAD: ExecShOptions (def: packages/studio-shared/src/utils/process-io.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/process-io.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/process-io.ts
+IMPORT-DEAD: ExecutableTask (def: packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/parallel-executor.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts
+IMPORT-DEAD: executeParallel (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/parallel-executor.d.ts
+IMPORT-DEAD: EXECUTION_STANCES (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-shared/dist/types/stance.d.ts packages/studio-shared/src/types/stance.ts
+IMPORT-DEAD: ExportOptions (def: packages/studio-audit/src/types.ts) :: packages/studio-audit/dist/cli/export.d.ts packages/studio-audit/src/cli/export.ts
+IMPORT-DEAD: extractAffectedFiles (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/error-file-extractor.ts) :: packages/studio-shared/dist/utils/error-file-extractor.d.ts
+IMPORT-DEAD: findSddDocByWorkUnitId (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/sdd-utils.ts) :: packages/studio-shared/dist/utils/sdd-utils.d.ts packages/studio-shared/src/utils/sdd-utils.ts
+IMPORT-DEAD: findSddDocs (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/sdd-utils.ts) :: packages/studio-shared/dist/utils/sdd-utils.d.ts
+IMPORT-DEAD: forceCommit (def: packages/studio-shared/src/utils/git-utils.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/git-utils.d.ts packages/studio-shared/src/utils/git-utils.ts
+IMPORT-DEAD: formatCsv (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts packages/studio-shared/src/cli/formatter.ts
+IMPORT-DEAD: formatError (def: packages/studio-shared/src/cli/error.ts) :: packages/studio-shared/dist/cli/error.d.ts
+IMPORT-DEAD: formatJson (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts packages/studio-shared/src/cli/formatter.ts
+IMPORT-DEAD: FormatOptions (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts packages/studio-shared/src/cli/formatter.ts
+IMPORT-DEAD: formatOutput (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts
+IMPORT-DEAD: formatTable (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts packages/studio-shared/src/cli/formatter.ts
+IMPORT-DEAD: GENERIC_PROVIDER_DEFINITION (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts
+IMPORT-DEAD: getAllHookConfigs (def: packages/studio-shared/src/harness/hooks/config.ts) :: packages/studio-shared/dist/harness/hooks/config.d.ts
+IMPORT-DEAD: getAllStages (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts
+IMPORT-DEAD: getApiKey (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts
+IMPORT-DEAD: getAvailableSlots (def: packages/studio-shared/src/utils/concurrency-control.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/concurrency-control.d.ts
+IMPORT-DEAD: getCacheStats (def: packages/studio-shared/src/harness/runtime/cache.ts) :: packages/studio-shared/dist/harness/runtime/cache.d.ts
+IMPORT-DEAD: getCommand (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts
+IMPORT-DEAD: getDefaultProvidersConfigPath (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts
+IMPORT-DEAD: getDispatchStrategy (def: packages/studio-shared/src/utils/concurrency-control.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/concurrency-control.d.ts
+IMPORT-DEAD: getHarness (def: packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/runtime/bootstrap.ts) :: packages/studio-shared/dist/harness/runtime/bootstrap.d.ts
+SELF-ONLY: getHealthMonitor (def: packages/studio-monitor/src/services/health-monitor.ts) :: packages/studio-monitor/src/services/health-monitor.ts
+IMPORT-DEAD: getLevelCapabilityLimit (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts
+IMPORT-DEAD: getLevelConfig (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts
+IMPORT-DEAD: getLevelSalary (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts
+IMPORT-DEAD: getPipeline (def: packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/runtime/bootstrap.ts) :: packages/studio-shared/dist/harness/runtime/bootstrap.d.ts
+IMPORT-DEAD: getProviderDefinition (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts
+IMPORT-DEAD: getRoleDepthInStage (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts
+IMPORT-DEAD: getStageDefinition (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts
+IMPORT-DEAD: getSystemMetrics (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts packages/studio-shared/src/utils/scheduler.ts
+IMPORT-DEAD: GoalExecutionStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts
+IMPORT-DEAD: GoalPlanStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts
+IMPORT-DEAD: GoalStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts
+SELF-ONLY: HARNESS_CHECK_TYPES (def: packages/studio-spec/src/index.ts packages/studio-spec/src/types/gate.types.ts) :: packages/studio-spec/src/types/gate.types.ts
+SELF-ONLY: HealthMonitorConfig (def: packages/studio-monitor/src/services/health-monitor.ts) :: packages/studio-monitor/src/services/health-monitor.ts
+SELF-ONLY: HealthMonitor (def: packages/studio-monitor/src/services/health-monitor.ts packages/studio-monitor/src/index.ts) :: packages/studio-monitor/src/services/health-monitor.ts
+IMPORT-DEAD: HookConfig (def: packages/studio-shared/src/harness/hooks/config.ts) :: packages/studio-shared/dist/harness/hooks/config.d.ts packages/studio-shared/src/harness/hooks/config.ts
+IMPORT-DEAD: isHarnessInitialized (def: packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/runtime/bootstrap.ts) :: packages/studio-shared/dist/harness/runtime/bootstrap.d.ts
+IMPORT-DEAD: isToolAllowedForStage (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts
+IMPORT-DEAD: isValidGoalExecutionStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts
+IMPORT-DEAD: isValidGoalPlanStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts
+IMPORT-DEAD: isValidGoalStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts
+IMPORT-DEAD: KKConsumptionRule (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts packages/studio-shared/src/harness/auditor/auditor-types.ts
+IMPORT-DEAD: LevelConfig (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts
+IMPORT-DEAD: LEVEL_CONFIG (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts
+IMPORT-DEAD: listCommands (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts
+IMPORT-DEAD: ListOptions (def: packages/studio-notification/src/types.ts) :: packages/studio-notification/dist/cli/list.d.ts packages/studio-notification/src/cli/list.ts
+IMPORT-DEAD: listScanProviders (def: packages/studio-shared/src/providers.ts) :: apps/api/src/daemon/cli-scanner.ts packages/studio-shared/dist/providers.d.ts
+IMPORT-DEAD: llmClient (def: packages/studio-shared/src/llm/index.ts packages/studio-shared/src/llm/llm-client.ts) :: packages/studio-shared/dist/llm/llm-client.d.ts
+IMPORT-DEAD: LLMClient (def: packages/studio-shared/src/llm/index.ts packages/studio-shared/src/llm/llm-client.ts) :: packages/studio-shared/dist/llm/llm-client.d.ts packages/studio-shared/src/llm/llm-client.ts
+IMPORT-DEAD: LlmProvider (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/index.d.ts packages/studio-shared/src/index.ts
+IMPORT-DEAD: loadAgentStudioConfig (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts packages/studio-shared/dist/node.d.ts packages/studio-shared/src/config/index.ts packages/studio-shared/src/node.ts
+IMPORT-DEAD: loadProviderRegistry (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts
+IMPORT-DEAD: loadSpecFile (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/spec-parser.ts) :: packages/studio-shared/dist/utils/spec-parser.d.ts packages/studio-shared/src/utils/spec-parser.ts
+IMPORT-DEAD: LockTimeoutError (def: packages/studio-shared/src/file-store.ts packages/studio-shared/src/index.ts) :: packages/studio-shared/dist/file-store.d.ts packages/studio-shared/src/file-store.ts
+IMPORT-DEAD: LogOptions (def: packages/studio-audit/src/types.ts) :: packages/studio-audit/dist/cli/log.d.ts packages/studio-audit/src/cli/log.ts
+IMPORT-DEAD: MarkOptions (def: packages/studio-notification/src/types.ts) :: packages/studio-notification/dist/cli/mark.d.ts packages/studio-notification/src/cli/mark.ts
+IMPORT-DEAD: matchIntent (def: packages/studio-skill/src/index.ts packages/studio-skill/src/intent-router.ts) :: packages/studio-skill/dist/intent-router.d.ts
+IMPORT-DEAD: MAX_LEVEL (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts
+SELF-ONLY: MCPSource (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+SELF-ONLY: MCPStatus (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+SELF-ONLY: MCPTool (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+SELF-ONLY: MCPTransport (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+SELF-ONLY: MCPUsageRecord (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+IMPORT-DEAD: meanAndStddev (def: packages/studio-shared/src/stats/anomaly-detector.ts) :: packages/studio-shared/dist/stats/anomaly-detector.d.ts packages/studio-shared/src/stats/anomaly-detector.ts
+IMPORT-DEAD: MIN_LEVEL (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts
+IMPORT-DEAD: ParallelExecutor (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/parallel-executor.d.ts packages/studio-shared/src/utils/parallel-executor.ts
+IMPORT-DEAD: parseArgs (def: packages/studio-shared/src/cli/parser.ts) :: packages/studio-shared/dist/cli/parser.d.ts packages/studio-shared/dist/node.d.ts packages/studio-shared/src/node.ts
+IMPORT-DEAD: parseJsonArg (def: packages/studio-shared/src/cli/parser.ts) :: packages/studio-shared/dist/cli/parser.d.ts packages/studio-shared/src/cli/parser.ts
+IMPORT-DEAD: parseJsonEnvelope (def: packages/studio-agent/src/services/output-capture.ts) :: packages/studio-agent/dist/services/output-capture.d.ts
+IMPORT-DEAD: parseKeyValueArg (def: packages/studio-shared/src/cli/parser.ts) :: packages/studio-shared/dist/cli/parser.d.ts
+IMPORT-DEAD: ParseOptions (def: packages/studio-shared/src/cli/parser.ts) :: packages/studio-shared/dist/cli/parser.d.ts packages/studio-shared/src/cli/parser.ts
+IMPORT-DEAD: PhaseBridge (def: packages/studio-shared/src/utils/process-io.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/process-io.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/process-io.ts
+SELF-ONLY: ProcessedSessionOutput (def: packages/studio-agent/src/services/runner-output.ts) :: packages/studio-agent/src/services/runner-output.ts
+SELF-ONLY: ProcessSessionOutputContext (def: packages/studio-agent/src/services/runner-output.ts) :: packages/studio-agent/src/services/runner-output.ts
+IMPORT-DEAD: PROFESSIONAL_STANCES (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-shared/dist/types/stance.d.ts packages/studio-shared/src/types/stance.ts
+IMPORT-DEAD: ProgressInfo (def: packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/parallel-executor.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts
+IMPORT-DEAD: ProviderDefinition (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts
+IMPORT-DEAD: ProviderSpawnParams (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts
+IMPORT-DEAD: QueueOptions (def: packages/studio-task/src/types.ts) :: packages/studio-task/dist/cli/queue.d.ts packages/studio-task/src/cli/queue.ts
+IMPORT-DEAD: readPhaseBridge (def: packages/studio-shared/src/utils/process-io.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/process-io.d.ts
+IMPORT-DEAD: readSddDocByWorkUnitId (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/sdd-utils.ts) :: packages/studio-shared/dist/utils/sdd-utils.d.ts
+IMPORT-DEAD: recordDecisions (def: packages/studio-shared/src/harness/hooks/audit.ts) :: packages/studio-shared/dist/harness/hooks/audit.d.ts
+IMPORT-DEAD: registerCommand (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts
+IMPORT-DEAD: renderWithOverride (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/prompt-overrides.ts) :: apps/api/src/modules/evolution/applier.ts packages/studio-shared/dist/utils/prompt-overrides.d.ts
+IMPORT-DEAD: resetProviderRegistryCache (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts
+IMPORT-DEAD: resolveEventsDir (def: packages/studio-shared/src/utils/events-dir.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/events-dir.d.ts
+IMPORT-DEAD: ResourceScheduler (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts packages/studio-shared/src/utils/scheduler.ts
+IMPORT-DEAD: RESPONSIBILITY_CHAIN (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts
+IMPORT-DEAD: RETRY_CONFIG (def: packages/studio-task/src/services/index.ts packages/studio-task/src/services/task-queue.ts) :: packages/studio-task/dist/services/task-queue.d.ts packages/studio-task/src/services/task-queue.ts
+IMPORT-DEAD: RetryOptions (def: packages/studio-task/src/types.ts) :: packages/studio-task/dist/cli/retry.d.ts packages/studio-task/src/cli/retry.ts
+IMPORT-DEAD: RoleDerivedConfig (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts
+IMPORT-DEAD: ROLE_DESCRIPTIONS (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts
+IMPORT-DEAD: ROLE_NAMES (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts
+IMPORT-DEAD: ROLE_TRIGGERS (def: packages/studio-shared/src/harness/prompt-injection.ts) :: packages/studio-shared/dist/harness/prompt-injection.d.ts packages/studio-shared/src/harness/prompt-injection.ts
+IMPORT-DEAD: runClean (def: packages/studio-task/src/cli/clean.ts) :: packages/studio-task/dist/cli/clean.d.ts
+IMPORT-DEAD: runCommand (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts
+IMPORT-DEAD: runExport (def: packages/studio-audit/src/cli/export.ts) :: packages/studio-audit/dist/cli/export.d.ts
+IMPORT-DEAD: runList (def: packages/studio-notification/src/cli/list.ts) :: packages/studio-notification/dist/cli/list.d.ts
+IMPORT-DEAD: runLog (def: packages/studio-audit/src/cli/log.ts) :: packages/studio-audit/dist/cli/log.d.ts
+IMPORT-DEAD: runMark (def: packages/studio-notification/src/cli/mark.ts) :: packages/studio-notification/dist/cli/mark.d.ts
+IMPORT-DEAD: RunnerExecutionState (def: packages/studio-agent/src/services/runner-execution.ts) :: packages/studio-agent/dist/services/runner-execution.d.ts packages/studio-agent/dist/services/runner-lightweight.d.ts packages/studio-agent/src/services/runner-execution.ts packages/studio-agent/src/services/runner-lightweight.ts
+IMPORT-DEAD: RunOptions (def: packages/studio-task/src/types.ts) :: packages/studio-task/dist/cli/run.d.ts packages/studio-task/src/cli/run.ts scripts/fill-context-docs.ts
+IMPORT-DEAD: runQueue (def: packages/studio-task/src/cli/queue.ts) :: packages/studio-task/dist/cli/queue.d.ts
+IMPORT-DEAD: runRetry (def: packages/studio-task/src/cli/retry.ts) :: packages/studio-task/dist/cli/retry.d.ts
+IMPORT-DEAD: runRun (def: packages/studio-task/src/cli/run.ts) :: packages/studio-task/dist/cli/run.d.ts
+IMPORT-DEAD: runSearch (def: packages/studio-audit/src/cli/search.ts) :: packages/studio-audit/dist/cli/search.d.ts
+IMPORT-DEAD: runSend (def: packages/studio-notification/src/cli/send.ts) :: packages/studio-notification/dist/cli/send.d.ts
+IMPORT-DEAD: SafetyService (def: packages/studio-shared/src/harness/index.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/src/harness/index.ts
+IMPORT-DEAD: SearchOptions (def: packages/studio-audit/src/types.ts) :: packages/studio-audit/dist/cli/search.d.ts packages/studio-audit/src/cli/search.ts
+IMPORT-DEAD: SendOptions (def: packages/studio-notification/src/types.ts) :: packages/studio-notification/dist/cli/send.d.ts packages/studio-notification/src/cli/send.ts
+IMPORT-DEAD: serializeFrontmatter (def: packages/studio-shared/src/file-store.ts packages/studio-shared/src/index.ts) :: packages/studio-shared/dist/file-store.d.ts packages/studio-shared/src/file-store.ts
+IMPORT-DEAD: SessionCommandOptions (def: packages/studio-agent/src/services/runner-params.ts) :: packages/studio-agent/dist/services/runner-params.d.ts packages/studio-agent/src/services/runner-params.ts
+IMPORT-DEAD: SessionEnvOptions (def: packages/studio-agent/src/services/runner-params.ts) :: packages/studio-agent/dist/services/runner-params.d.ts packages/studio-agent/src/services/runner-params.ts
+IMPORT-DEAD: SessionIdOptions (def: packages/studio-shared/src/utils/process-io.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/process-io.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/process-io.ts
+IMPORT-DEAD: SessionMetrics (def: packages/studio-shared/src/harness/session-metrics.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/dist/harness/session-metrics.d.ts packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/session-metrics.ts
+IMPORT-DEAD: SpecValidatorService (def: packages/studio-spec/src/services/spec-validator.service.ts packages/studio-spec/src/index.ts) :: packages/studio-shared/dist/utils/spec-parser.d.ts packages/studio-shared/src/utils/spec-parser.ts
+IMPORT-DEAD: StageDefinition (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts packages/studio-shared/src/constants/stage-definitions.ts
+IMPORT-DEAD: STAGE_DEFINITIONS (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts packages/studio-shared/src/constants/stage-definitions.ts
+IMPORT-DEAD: STAGE_KEY_QUESTIONS (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts
+IMPORT-DEAD: STAGE_KEYWORDS (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts
+SELF-ONLY: StageSuggestion (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/src/constants/stage-definitions.ts
+IMPORT-DEAD: STAGE_TOOLS (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts
+SELF-ONLY: StageType (def: packages/studio-shared/src/domain-vocab.ts) :: packages/studio-shared/src/domain-vocab.ts
+IMPORT-DEAD: STAGE_TYPES (def: packages/studio-shared/src/domain-vocab.ts) :: packages/studio-shared/dist/domain-vocab.d.ts packages/studio-shared/src/domain-vocab.ts
+IMPORT-DEAD: StageValidationResult (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts packages/studio-shared/src/constants/stage-definitions.ts
+IMPORT-DEAD: startHealthMonitor (def: packages/studio-monitor/src/services/health-monitor.ts packages/studio-monitor/src/index.ts) :: apps/api/src/index.ts
+SELF-ONLY: StreamUsage (def: packages/studio-agent/src/services/runner-output.ts) :: packages/studio-agent/src/services/runner-output.ts
+IMPORT-DEAD: suggestStage (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts packages/studio-shared/src/constants/stage-definitions.ts
+SELF-ONLY: SystemMCP (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts
+SELF-ONLY: TaskHealth (def: packages/studio-monitor/src/services/health-monitor.ts) :: packages/studio-monitor/src/services/health-monitor.ts
+IMPORT-DEAD: ToolCall (def: packages/studio-shared/src/llm/stream-json-parser.ts) :: packages/studio-shared/dist/llm/index.d.ts packages/studio-shared/dist/llm/stream-json-parser.d.ts packages/studio-shared/src/llm/index.ts packages/studio-shared/src/llm/stream-json-parser.ts
+IMPORT-DEAD: TrendResult (def: packages/studio-shared/src/stats/anomaly-detector.ts) :: packages/studio-shared/dist/stats/anomaly-detector.d.ts packages/studio-shared/src/stats/anomaly-detector.ts
+IMPORT-DEAD: UICategory (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts
+IMPORT-DEAD: updateDispatchOutcome (def: packages/studio-shared/src/utils/concurrency-control.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/concurrency-control.d.ts
+IMPORT-DEAD: validateStageField (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts
+IMPORT-DEAD: ValidationLayer (def: packages/studio-spec/src/types/validation.types.ts) :: packages/studio-spec/src/index.ts packages/studio-spec/src/types/validation.types.ts
+IMPORT-DEAD: writeProgress (def: packages/studio-shared/src/utils/process-io.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/process-io.d.ts

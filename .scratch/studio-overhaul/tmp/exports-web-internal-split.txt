@@ -1,0 +1,73 @@
+SELF-ONLY: AgentPmoRef (def: apps/web/src/api/monitoring.ts) :: apps/web/src/api/monitoring.ts
+SELF-ONLY: AgentStatus (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts
+SELF-ONLY: AgentStatusKey (def: apps/web/src/utils/agentStatus.ts) :: apps/web/src/utils/agentStatus.ts
+SELF-ONLY: apiFetch (def: apps/web/src/utils/api.ts) :: apps/web/src/utils/api.ts
+SELF-ONLY: BaseExecutionPhase (def: apps/web/src/types.ts apps/web/src/types/index.ts) :: apps/web/src/types/index.ts apps/web/src/types.ts
+SELF-ONLY: CardStatus (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts
+SELF-ONLY: CardType (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts
+SELF-ONLY: CheckpointCheck (def: apps/web/src/components/CheckpointTimeline.tsx) :: apps/web/src/components/CheckpointTimeline.tsx
+SELF-ONLY: CheckpointTimeline (def: apps/web/src/components/CheckpointTimeline.tsx) :: apps/web/src/components/CheckpointTimeline.tsx
+SELF-ONLY: CheckpointTimelineProps (def: apps/web/src/components/CheckpointTimeline.tsx) :: apps/web/src/components/CheckpointTimeline.tsx
+SELF-ONLY: CreateChannelInput (def: apps/web/src/hooks/useChannelList.ts) :: apps/web/src/hooks/useChannelList.ts
+SELF-ONLY: DeliveryPanelProps (def: apps/web/src/components/pmo/DeliveryPanel.tsx) :: apps/web/src/components/pmo/DeliveryPanel.tsx
+SELF-ONLY: DetectedProvider (def: apps/web/src/hooks/useDetectedProviders.ts) :: apps/web/src/hooks/useDetectedProviders.ts
+SELF-ONLY: DispatchReviewResult (def: apps/web/src/api/workunit.ts) :: apps/web/src/api/workunit.ts
+SELF-ONLY: FilePreview (def: apps/web/src/components/FilePreview.tsx) :: apps/web/src/components/FilePreview.tsx
+SELF-ONLY: FireTriggerResult (def: apps/web/src/api/maintenance.ts) :: apps/web/src/api/maintenance.ts
+SELF-ONLY: FirstRoleSetupModalProps (def: apps/web/src/components/setup/FirstRoleSetupModal.tsx) :: apps/web/src/components/setup/FirstRoleSetupModal.tsx
+SELF-ONLY: HallCardProps (def: apps/web/src/components/CompanyHallCard.tsx) :: apps/web/src/components/CompanyHallCard.tsx
+SELF-ONLY: ImportExecuteResult (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts
+SELF-ONLY: ImportScannedFile (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts
+SELF-ONLY: ImportScanResult (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts
+SELF-ONLY: IntentResult (def: apps/web/src/components/IntentResult.tsx) :: apps/web/src/components/IntentResult.tsx
+SELF-ONLY: IntentStep (def: apps/web/src/types/index.ts) :: apps/web/src/types/index.ts
+SELF-ONLY: IronLawAlert (def: apps/web/src/components/IronLawAlert.tsx) :: apps/web/src/components/IronLawAlert.tsx
+SELF-ONLY: IronLawAlertProps (def: apps/web/src/components/IronLawAlert.tsx) :: apps/web/src/components/IronLawAlert.tsx
+SELF-ONLY: IronLawsSection (def: apps/web/src/components/IronLawsSection.tsx) :: apps/web/src/components/IronLawsSection.tsx
+SELF-ONLY: IronLawWarningBannerProps (def: apps/web/src/components/IronLawWarningBanner.tsx) :: apps/web/src/components/IronLawWarningBanner.tsx
+SELF-ONLY: JSONSchemaProperty (def: apps/web/src/types.ts) :: apps/web/src/types.ts
+SELF-ONLY: KnowledgeMaintenanceResult (def: apps/web/src/api/maintenance.ts) :: apps/web/src/api/maintenance.ts
+SELF-ONLY: KnowledgeSearchResult (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts
+SELF-ONLY: LabAgent (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts
+SELF-ONLY: LabChannel (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts
+SELF-ONLY: LabDirection (def: apps/web/src/pages/design-lab/PrototypeShell.tsx) :: apps/web/src/pages/design-lab/PrototypeShell.tsx
+SELF-ONLY: LabTokenStat (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts
+SELF-ONLY: labWorkUnits (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts
+SELF-ONLY: laneOfWorkUnit (def: apps/web/src/components/pmo/pipelineUtils.ts) :: apps/web/src/components/pmo/pipelineUtils.ts
+SELF-ONLY: MAX_ACTIVITIES (def: apps/web/src/hooks/useAgentRoster.ts) :: apps/web/src/hooks/useAgentRoster.ts
+SELF-ONLY: MesoEvolutionResult (def: apps/web/src/api/maintenance.ts) :: apps/web/src/api/maintenance.ts
+SELF-ONLY: MultiStanceReview (def: apps/web/src/components/MultiStanceReviewPanel.tsx) :: apps/web/src/components/MultiStanceReviewPanel.tsx
+IMPORT-DEAD: MultiStanceReviewPanel (def: apps/web/src/components/MultiStanceReviewPanel.tsx) :: apps/web/src/components/MultiStanceReviewPanel.tsx apps/web/src/components/ReviewOpinionCard.tsx
+SELF-ONLY: NotifyConfigStatus (def: apps/web/src/api/notify.ts) :: apps/web/src/api/notify.ts
+SELF-ONLY: Okr (def: apps/web/src/api/pmo.ts) :: apps/web/src/api/pmo.ts
+SELF-ONLY: PipelineStep (def: apps/web/src/types.ts) :: apps/web/src/types.ts
+SELF-ONLY: PipelineSuggestion (def: apps/web/src/types/index.ts) :: apps/web/src/types/index.ts
+SELF-ONLY: Position (def: apps/web/src/types/canvas.ts) :: apps/web/src/types/canvas.ts
+SELF-ONLY: ProjectKnowledgeList (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts
+SELF-ONLY: ProviderOption (def: apps/web/src/hooks/useDetectedProviders.ts) :: apps/web/src/hooks/useDetectedProviders.ts
+SELF-ONLY: pushActivity (def: apps/web/src/hooks/useAgentRoster.ts) :: apps/web/src/hooks/useAgentRoster.ts
+SELF-ONLY: ResolutionItem (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts
+SELF-ONLY: ReviewHintProps (def: apps/web/src/components/workunit/ReviewHint.tsx) :: apps/web/src/components/workunit/ReviewHint.tsx
+SELF-ONLY: ReviewPanel (def: apps/web/src/components/ReviewPanel.tsx) :: apps/web/src/components/ReviewPanel.tsx
+SELF-ONLY: RoleCapability (def: apps/web/src/types.ts) :: apps/web/src/types.ts
+SELF-ONLY: RolePhase (def: apps/web/src/types.ts apps/web/src/types/index.ts) :: apps/web/src/types/index.ts apps/web/src/types.ts
+SELF-ONLY: ROSTER_POLL_INTERVAL_MS (def: apps/web/src/hooks/useAgentRoster.ts) :: apps/web/src/hooks/useAgentRoster.ts
+SELF-ONLY: RuntimePhase (def: apps/web/src/types.ts apps/web/src/types/index.ts) :: apps/web/src/types/index.ts apps/web/src/types.ts
+IMPORT-DEAD: SelectOption (def: apps/web/src/components/ui/Select.tsx) :: apps/web/src/components/ui/index.ts apps/web/src/components/ui/Select.tsx
+IMPORT-DEAD: SelectProps (def: apps/web/src/components/ui/Select.tsx) :: apps/web/src/components/ui/index.ts apps/web/src/components/ui/Select.tsx
+SELF-ONLY: setCompanyId (def: apps/web/src/hooks/useCompanyId.ts) :: apps/web/src/hooks/useCompanyId.ts
+SELF-ONLY: SpeakingQueuePanel (def: apps/web/src/components/SpeakingQueuePanel.tsx) :: apps/web/src/components/SpeakingQueuePanel.tsx
+SELF-ONLY: StageCategory (def: apps/web/src/hooks/useCapabilities.ts) :: apps/web/src/hooks/useCapabilities.ts
+SELF-ONLY: StudioRoleSetupModalProps (def: apps/web/src/components/setup/StudioRoleSetupModal.tsx) :: apps/web/src/components/setup/StudioRoleSetupModal.tsx
+SELF-ONLY: SuggestedPipeline (def: apps/web/src/types.ts) :: apps/web/src/types.ts
+SELF-ONLY: UnifiedEntry (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts
+SELF-ONLY: UseAgentRosterResult (def: apps/web/src/hooks/useAgentRoster.ts) :: apps/web/src/hooks/useAgentRoster.ts
+SELF-ONLY: useAppStore (def: apps/web/src/stores/index.ts) :: apps/web/src/stores/index.ts
+SELF-ONLY: useCapabilities (def: apps/web/src/hooks/useCapabilities.ts) :: apps/web/src/hooks/useCapabilities.ts
+SELF-ONLY: useUIStore (def: apps/web/src/stores/index.ts apps/web/src/stores/uiStore.ts) :: apps/web/src/stores/index.ts
+SELF-ONLY: useWebSocket (def: apps/web/src/api/websocket.tsx) :: apps/web/src/api/websocket.tsx
+SELF-ONLY: VerifyResult (def: apps/web/src/api/workunit.ts) :: apps/web/src/api/workunit.ts
+SELF-ONLY: WebSocketStatus (def: apps/web/src/api/websocket.tsx) :: apps/web/src/api/websocket.tsx
+SELF-ONLY: WorkflowStep (def: apps/web/src/types.ts) :: apps/web/src/types.ts
+SELF-ONLY: WorkflowTrigger (def: apps/web/src/types.ts) :: apps/web/src/types.ts
+SELF-ONLY: wuStatusClass (def: apps/web/src/components/channel/WorkUnitDrawer.tsx) :: apps/web/src/components/channel/WorkUnitDrawer.tsx

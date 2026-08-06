@@ -1,0 +1,211 @@
+DEAD-TOTAL: AcceptanceValidationInput (def: packages/studio-spec/src/types/validation.types.ts)
+DEAD-TOTAL: ApiValidationInput (def: packages/studio-spec/src/types/validation.types.ts)
+DEAD-TOTAL: ApproveChangeInput (def: packages/studio-spec/src/types/change.types.ts)
+DEAD-TOTAL: ArchitectureValidationInput (def: packages/studio-spec/src/types/validation.types.ts)
+DEAD-TOTAL: createCompanyMCPPool (def: packages/studio-capability/src/services/company-mcp-pool.ts)
+DEAD-TOTAL: ExtractBehaviorInput (def: packages/studio-shared/src/types/user-behavior.ts)
+DEAD-TOTAL: ExtractBehaviorResult (def: packages/studio-shared/src/types/user-behavior.ts)
+DEAD-TOTAL: IronLawService (def: packages/studio-shared/src/harness/index.ts)
+DEAD-TOTAL: StanceInjectionConfig (def: packages/studio-shared/src/types/stance.ts)
+DEAD-TOTAL: StancePromptVariables (def: packages/studio-shared/src/types/stance.ts)
+DEAD-TOTAL: StanceReviewResult (def: packages/studio-shared/src/types/stance.ts)
+DEAD-TOTAL: SubmitChangeInput (def: packages/studio-spec/src/types/change.types.ts)
+DEAD-TOTAL: SubmitChangeResult (def: packages/studio-spec/src/types/change.types.ts)
+INTERNAL-ONLY: AcceptanceValidator (def: packages/studio-spec/src/services/acceptance-validator.ts packages/studio-spec/src/services/spec-validator.service.ts packages/studio-spec/src/index.ts) :: packages/studio-spec/src/services/spec-validator.service.ts 
+INTERNAL-ONLY: AgentCapabilities (def: packages/studio-agent/src/types.ts) :: packages/studio-agent/dist/index.d.ts packages/studio-agent/src/index.ts 
+INTERNAL-ONLY: agentCompleter (def: packages/studio-agent/src/services/agent-completer.ts packages/studio-agent/src/index.ts) :: packages/studio-agent/dist/services/agent-completer.d.ts 
+INTERNAL-ONLY: AgentCompleter (def: packages/studio-agent/src/services/agent-completer.ts packages/studio-agent/src/index.ts) :: packages/studio-agent/dist/services/agent-completer.d.ts packages/studio-agent/src/services/agent-completer.ts 
+INTERNAL-ONLY: AgentRole (def: packages/studio-shared/src/harness/prompt-injection.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/dist/harness/prompt-injection.d.ts packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/prompt-injection.ts 
+INTERNAL-ONLY: agentStudioConfig (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts packages/studio-shared/src/config/index.ts 
+INTERNAL-ONLY: AgentStudioConfig (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts packages/studio-shared/src/config/index.ts 
+INTERNAL-ONLY: ApiValidator (def: packages/studio-spec/src/services/api-validator.ts packages/studio-spec/src/services/spec-validator.service.ts packages/studio-spec/src/index.ts) :: packages/studio-spec/src/services/spec-validator.service.ts 
+INTERNAL-ONLY: ArchitectureValidator (def: packages/studio-spec/src/services/architecture-validator.ts packages/studio-spec/src/services/spec-validator.service.ts packages/studio-spec/src/index.ts) :: packages/studio-spec/src/services/spec-validator.service.ts 
+INTERNAL-ONLY: assertGoalExecutionTransition (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts 
+INTERNAL-ONLY: assertGoalTransition (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts 
+INTERNAL-ONLY: AuditChain (def: packages/studio-audit/src/services/audit-chain.ts) :: packages/studio-audit/dist/services/audit-chain.d.ts packages/studio-audit/src/services/audit-chain.ts 
+INTERNAL-ONLY: AuditEvent (def: packages/studio-shared/src/harness/hooks/audit.ts) :: packages/studio-shared/dist/harness/hooks/audit.d.ts packages/studio-shared/src/harness/hooks/audit.ts 
+INTERNAL-ONLY: batchArray (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/parallel-executor.d.ts packages/studio-shared/src/utils/parallel-executor.ts 
+INTERNAL-ONLY: buildUICategories (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts 
+INTERNAL-ONLY: BuiltinProviderId (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts 
+INTERNAL-ONLY: cachedCheck (def: packages/studio-shared/src/harness/runtime/cache.ts) :: packages/studio-shared/dist/harness/runtime/cache.d.ts packages/studio-shared/src/harness/runtime/cache.ts 
+INTERNAL-ONLY: canRoleExecuteStage (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts 
+INTERNAL-ONLY: canTransitionGoal (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts 
+INTERNAL-ONLY: canTransitionGoalExecution (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts 
+INTERNAL-ONLY: canTransitionGoalPlan (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts 
+INTERNAL-ONLY: CHANGE_TYPE_EXPERTS (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts 
+INTERNAL-ONLY: ChannelMessageRow (def: packages/studio-shared/src/file-store.ts) :: packages/studio-shared/dist/index.d.ts packages/studio-shared/src/file-store.ts packages/studio-shared/src/index.ts 
+INTERNAL-ONLY: CheckConfig (def: packages/studio-spec/src/types/gate.types.ts) :: packages/studio-spec/src/index.ts 
+INTERNAL-ONLY: checkpointService (def: packages/studio-shared/src/harness/index.ts) :: packages/studio-shared/dist/harness/index.d.ts 
+INTERNAL-ONLY: CheckpointService (def: packages/studio-shared/src/harness/index.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/src/harness/index.ts 
+INTERNAL-ONLY: checkRequiredConfig (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts 
+INTERNAL-ONLY: clampLevel (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts 
+INTERNAL-ONLY: CleanOptions (def: packages/studio-task/src/types.ts) :: packages/studio-task/dist/cli/clean.d.ts packages/studio-task/src/cli/clean.ts 
+INTERNAL-ONLY: clearCommands (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts 
+INTERNAL-ONLY: clearConstraintCache (def: packages/studio-shared/src/harness/runtime/cache.ts) :: packages/studio-shared/dist/harness/runtime/cache.d.ts 
+INTERNAL-ONLY: CliError (def: packages/studio-shared/src/cli/error.ts) :: packages/studio-shared/dist/cli/error.d.ts packages/studio-shared/src/cli/error.ts 
+INTERNAL-ONLY: CompanyMCP (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: CompanyMCPPoolConfig (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: CompanyMCPPool (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: CONSTRAINT_DEPTH (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts 
+INTERNAL-ONLY: ConstraintEffectAction (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts packages/studio-shared/src/harness/auditor/auditor-types.ts 
+INTERNAL-ONLY: ConstraintEffectReport (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts packages/studio-shared/src/harness/auditor/auditor-types.ts 
+INTERNAL-ONLY: ConstraintLevel (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/dist/index.d.ts packages/studio-shared/dist/node.d.ts packages/studio-shared/src/constants/responsibility-chain.ts packages/studio-shared/src/index.ts packages/studio-shared/src/node.ts 
+INTERNAL-ONLY: ConstraintService (def: packages/studio-shared/src/harness/index.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/src/harness/index.ts 
+INTERNAL-ONLY: createAuditChain (def: packages/studio-audit/src/services/audit-chain.ts) :: packages/studio-audit/dist/services/audit-chain.d.ts 
+INTERNAL-ONLY: createCliError (def: packages/studio-shared/src/cli/error.ts) :: packages/studio-shared/dist/cli/error.d.ts 
+INTERNAL-ONLY: createLogger (def: packages/studio-shared/src/utils/logger.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/logger.d.ts 
+INTERNAL-ONLY: createResourceScheduler (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts 
+INTERNAL-ONLY: decideConstraintAction (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts 
+INTERNAL-ONLY: decideParticipants (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts 
+INTERNAL-ONLY: DECISION_STANCES (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-shared/dist/types/stance.d.ts packages/studio-shared/src/types/stance.ts 
+INTERNAL-ONLY: DEFAULT_CONSUMPTION_RULES (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts 
+INTERNAL-ONLY: DEFAULT_STANCE (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-shared/dist/types/stance.d.ts 
+INTERNAL-ONLY: DEFAULT_THRESHOLDS (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts packages/studio-shared/src/utils/scheduler.ts 
+INTERNAL-ONLY: DeltaResult (def: packages/studio-shared/src/stats/anomaly-detector.ts) :: packages/studio-shared/dist/stats/anomaly-detector.d.ts packages/studio-shared/src/stats/anomaly-detector.ts 
+INTERNAL-ONLY: deriveRoleConfig (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts 
+INTERNAL-ONLY: ERROR_CODES (def: packages/studio-shared/src/cli/error.ts) :: packages/studio-shared/dist/cli/error.d.ts packages/studio-shared/src/cli/error.ts 
+INTERNAL-ONLY: evaluateResourceStatus (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts packages/studio-shared/src/utils/scheduler.ts 
+INTERNAL-ONLY: ExecShOptions (def: packages/studio-shared/src/utils/process-io.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/process-io.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/process-io.ts 
+INTERNAL-ONLY: ExecutableTask (def: packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/parallel-executor.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts 
+INTERNAL-ONLY: executeParallel (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/parallel-executor.d.ts 
+INTERNAL-ONLY: EXECUTION_STANCES (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-shared/dist/types/stance.d.ts packages/studio-shared/src/types/stance.ts 
+INTERNAL-ONLY: ExportOptions (def: packages/studio-audit/src/types.ts) :: packages/studio-audit/dist/cli/export.d.ts packages/studio-audit/src/cli/export.ts 
+INTERNAL-ONLY: extractAffectedFiles (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/error-file-extractor.ts) :: packages/studio-shared/dist/utils/error-file-extractor.d.ts 
+INTERNAL-ONLY: findSddDocByWorkUnitId (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/sdd-utils.ts) :: packages/studio-shared/dist/utils/sdd-utils.d.ts packages/studio-shared/src/utils/sdd-utils.ts 
+INTERNAL-ONLY: findSddDocs (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/sdd-utils.ts) :: packages/studio-shared/dist/utils/sdd-utils.d.ts 
+INTERNAL-ONLY: forceCommit (def: packages/studio-shared/src/utils/git-utils.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/git-utils.d.ts packages/studio-shared/src/utils/git-utils.ts 
+INTERNAL-ONLY: formatCsv (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts packages/studio-shared/src/cli/formatter.ts 
+INTERNAL-ONLY: formatError (def: packages/studio-shared/src/cli/error.ts) :: packages/studio-shared/dist/cli/error.d.ts 
+INTERNAL-ONLY: formatJson (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts packages/studio-shared/src/cli/formatter.ts 
+INTERNAL-ONLY: FormatOptions (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts packages/studio-shared/src/cli/formatter.ts 
+INTERNAL-ONLY: formatOutput (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts 
+INTERNAL-ONLY: formatTable (def: packages/studio-shared/src/cli/formatter.ts) :: packages/studio-shared/dist/cli/formatter.d.ts packages/studio-shared/src/cli/formatter.ts 
+INTERNAL-ONLY: GENERIC_PROVIDER_DEFINITION (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts 
+INTERNAL-ONLY: getAllHookConfigs (def: packages/studio-shared/src/harness/hooks/config.ts) :: packages/studio-shared/dist/harness/hooks/config.d.ts 
+INTERNAL-ONLY: getAllStages (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts 
+INTERNAL-ONLY: getApiKey (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts 
+INTERNAL-ONLY: getAvailableSlots (def: packages/studio-shared/src/utils/concurrency-control.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/concurrency-control.d.ts 
+INTERNAL-ONLY: getCacheStats (def: packages/studio-shared/src/harness/runtime/cache.ts) :: packages/studio-shared/dist/harness/runtime/cache.d.ts 
+INTERNAL-ONLY: getCommand (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts 
+INTERNAL-ONLY: getDefaultProvidersConfigPath (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts 
+INTERNAL-ONLY: getDispatchStrategy (def: packages/studio-shared/src/utils/concurrency-control.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/concurrency-control.d.ts 
+INTERNAL-ONLY: getHarness (def: packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/runtime/bootstrap.ts) :: packages/studio-shared/dist/harness/runtime/bootstrap.d.ts 
+INTERNAL-ONLY: getHealthMonitor (def: packages/studio-monitor/src/services/health-monitor.ts) :: packages/studio-monitor/src/services/health-monitor.ts 
+INTERNAL-ONLY: getLevelCapabilityLimit (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts 
+INTERNAL-ONLY: getLevelConfig (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts 
+INTERNAL-ONLY: getLevelSalary (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts 
+INTERNAL-ONLY: getPipeline (def: packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/runtime/bootstrap.ts) :: packages/studio-shared/dist/harness/runtime/bootstrap.d.ts 
+INTERNAL-ONLY: getProviderDefinition (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts 
+INTERNAL-ONLY: getRoleDepthInStage (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts 
+INTERNAL-ONLY: getStageDefinition (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts 
+INTERNAL-ONLY: getSystemMetrics (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts packages/studio-shared/src/utils/scheduler.ts 
+INTERNAL-ONLY: GoalExecutionStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts 
+INTERNAL-ONLY: GoalPlanStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts 
+INTERNAL-ONLY: GoalStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts packages/studio-shared/src/types/goal-status.ts 
+INTERNAL-ONLY: HARNESS_CHECK_TYPES (def: packages/studio-spec/src/index.ts packages/studio-spec/src/types/gate.types.ts) :: packages/studio-spec/src/types/gate.types.ts 
+INTERNAL-ONLY: HealthMonitorConfig (def: packages/studio-monitor/src/services/health-monitor.ts) :: packages/studio-monitor/src/services/health-monitor.ts 
+INTERNAL-ONLY: HealthMonitor (def: packages/studio-monitor/src/services/health-monitor.ts packages/studio-monitor/src/index.ts) :: packages/studio-monitor/src/services/health-monitor.ts 
+INTERNAL-ONLY: HookConfig (def: packages/studio-shared/src/harness/hooks/config.ts) :: packages/studio-shared/dist/harness/hooks/config.d.ts packages/studio-shared/src/harness/hooks/config.ts 
+INTERNAL-ONLY: isHarnessInitialized (def: packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/runtime/bootstrap.ts) :: packages/studio-shared/dist/harness/runtime/bootstrap.d.ts 
+INTERNAL-ONLY: isToolAllowedForStage (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts 
+INTERNAL-ONLY: isValidGoalExecutionStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts 
+INTERNAL-ONLY: isValidGoalPlanStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts 
+INTERNAL-ONLY: isValidGoalStatus (def: packages/studio-shared/src/types/goal-status.ts) :: packages/studio-shared/dist/types/goal-status.d.ts 
+INTERNAL-ONLY: KKConsumptionRule (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/dist/harness/auditor/auditor-types.d.ts packages/studio-shared/src/harness/auditor/auditor-types.ts 
+INTERNAL-ONLY: LevelConfig (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts 
+INTERNAL-ONLY: LEVEL_CONFIG (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts 
+INTERNAL-ONLY: listCommands (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts 
+INTERNAL-ONLY: ListOptions (def: packages/studio-notification/src/types.ts) :: packages/studio-notification/dist/cli/list.d.ts packages/studio-notification/src/cli/list.ts 
+INTERNAL-ONLY: listScanProviders (def: packages/studio-shared/src/providers.ts) :: apps/api/src/daemon/cli-scanner.ts packages/studio-shared/dist/providers.d.ts 
+INTERNAL-ONLY: llmClient (def: packages/studio-shared/src/llm/index.ts packages/studio-shared/src/llm/llm-client.ts) :: packages/studio-shared/dist/llm/llm-client.d.ts 
+INTERNAL-ONLY: LLMClient (def: packages/studio-shared/src/llm/index.ts packages/studio-shared/src/llm/llm-client.ts) :: packages/studio-shared/dist/llm/llm-client.d.ts packages/studio-shared/src/llm/llm-client.ts 
+INTERNAL-ONLY: LlmProvider (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/index.d.ts packages/studio-shared/src/index.ts 
+INTERNAL-ONLY: loadAgentStudioConfig (def: packages/studio-shared/src/config/index.ts) :: packages/studio-shared/dist/config/index.d.ts packages/studio-shared/dist/node.d.ts packages/studio-shared/src/config/index.ts packages/studio-shared/src/node.ts 
+INTERNAL-ONLY: loadProviderRegistry (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts 
+INTERNAL-ONLY: loadSpecFile (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/spec-parser.ts) :: packages/studio-shared/dist/utils/spec-parser.d.ts packages/studio-shared/src/utils/spec-parser.ts 
+INTERNAL-ONLY: LockTimeoutError (def: packages/studio-shared/src/file-store.ts packages/studio-shared/src/index.ts) :: packages/studio-shared/dist/file-store.d.ts packages/studio-shared/src/file-store.ts 
+INTERNAL-ONLY: LogOptions (def: packages/studio-audit/src/types.ts) :: packages/studio-audit/dist/cli/log.d.ts packages/studio-audit/src/cli/log.ts 
+INTERNAL-ONLY: MarkOptions (def: packages/studio-notification/src/types.ts) :: packages/studio-notification/dist/cli/mark.d.ts packages/studio-notification/src/cli/mark.ts 
+INTERNAL-ONLY: matchIntent (def: packages/studio-skill/src/index.ts packages/studio-skill/src/intent-router.ts) :: packages/studio-skill/dist/intent-router.d.ts 
+INTERNAL-ONLY: MAX_LEVEL (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts 
+INTERNAL-ONLY: MCPSource (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: MCPStatus (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: MCPTool (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: MCPTransport (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: MCPUsageRecord (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: meanAndStddev (def: packages/studio-shared/src/stats/anomaly-detector.ts) :: packages/studio-shared/dist/stats/anomaly-detector.d.ts packages/studio-shared/src/stats/anomaly-detector.ts 
+INTERNAL-ONLY: MIN_LEVEL (def: packages/studio-shared/src/constants/levels.ts) :: packages/studio-shared/dist/constants/levels.d.ts packages/studio-shared/src/constants/levels.ts 
+INTERNAL-ONLY: ParallelExecutor (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/parallel-executor.d.ts packages/studio-shared/src/utils/parallel-executor.ts 
+INTERNAL-ONLY: parseArgs (def: packages/studio-shared/src/cli/parser.ts) :: packages/studio-shared/dist/cli/parser.d.ts packages/studio-shared/dist/node.d.ts packages/studio-shared/src/node.ts 
+INTERNAL-ONLY: parseJsonArg (def: packages/studio-shared/src/cli/parser.ts) :: packages/studio-shared/dist/cli/parser.d.ts packages/studio-shared/src/cli/parser.ts 
+INTERNAL-ONLY: parseJsonEnvelope (def: packages/studio-agent/src/services/output-capture.ts) :: packages/studio-agent/dist/services/output-capture.d.ts 
+INTERNAL-ONLY: parseKeyValueArg (def: packages/studio-shared/src/cli/parser.ts) :: packages/studio-shared/dist/cli/parser.d.ts 
+INTERNAL-ONLY: ParseOptions (def: packages/studio-shared/src/cli/parser.ts) :: packages/studio-shared/dist/cli/parser.d.ts packages/studio-shared/src/cli/parser.ts 
+INTERNAL-ONLY: PhaseBridge (def: packages/studio-shared/src/utils/process-io.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/process-io.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/process-io.ts 
+INTERNAL-ONLY: ProcessedSessionOutput (def: packages/studio-agent/src/services/runner-output.ts) :: packages/studio-agent/src/services/runner-output.ts 
+INTERNAL-ONLY: ProcessSessionOutputContext (def: packages/studio-agent/src/services/runner-output.ts) :: packages/studio-agent/src/services/runner-output.ts 
+INTERNAL-ONLY: PROFESSIONAL_STANCES (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-shared/dist/types/stance.d.ts packages/studio-shared/src/types/stance.ts 
+INTERNAL-ONLY: ProgressInfo (def: packages/studio-shared/src/utils/parallel-executor.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/parallel-executor.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/parallel-executor.ts 
+INTERNAL-ONLY: ProviderDefinition (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts 
+INTERNAL-ONLY: ProviderSpawnParams (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts packages/studio-shared/src/providers.ts 
+INTERNAL-ONLY: QueueOptions (def: packages/studio-task/src/types.ts) :: packages/studio-task/dist/cli/queue.d.ts packages/studio-task/src/cli/queue.ts 
+INTERNAL-ONLY: readPhaseBridge (def: packages/studio-shared/src/utils/process-io.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/process-io.d.ts 
+INTERNAL-ONLY: readSddDocByWorkUnitId (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/sdd-utils.ts) :: packages/studio-shared/dist/utils/sdd-utils.d.ts 
+INTERNAL-ONLY: recordDecisions (def: packages/studio-shared/src/harness/hooks/audit.ts) :: packages/studio-shared/dist/harness/hooks/audit.d.ts 
+INTERNAL-ONLY: registerCommand (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts 
+INTERNAL-ONLY: renderWithOverride (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/prompt-overrides.ts) :: apps/api/src/modules/evolution/applier.ts packages/studio-shared/dist/utils/prompt-overrides.d.ts 
+INTERNAL-ONLY: resetProviderRegistryCache (def: packages/studio-shared/src/providers.ts) :: packages/studio-shared/dist/providers.d.ts 
+INTERNAL-ONLY: resolveEventsDir (def: packages/studio-shared/src/utils/events-dir.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/events-dir.d.ts 
+INTERNAL-ONLY: ResourceScheduler (def: packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/scheduler.ts) :: packages/studio-shared/dist/utils/scheduler.d.ts packages/studio-shared/src/utils/scheduler.ts 
+INTERNAL-ONLY: RESPONSIBILITY_CHAIN (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts 
+INTERNAL-ONLY: RETRY_CONFIG (def: packages/studio-task/src/services/index.ts packages/studio-task/src/services/task-queue.ts) :: packages/studio-task/dist/services/task-queue.d.ts packages/studio-task/src/services/task-queue.ts 
+INTERNAL-ONLY: RetryOptions (def: packages/studio-task/src/types.ts) :: packages/studio-task/dist/cli/retry.d.ts packages/studio-task/src/cli/retry.ts 
+INTERNAL-ONLY: RoleDerivedConfig (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts 
+INTERNAL-ONLY: ROLE_DESCRIPTIONS (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts 
+INTERNAL-ONLY: ROLE_NAMES (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts 
+INTERNAL-ONLY: ROLE_TRIGGERS (def: packages/studio-shared/src/harness/prompt-injection.ts) :: packages/studio-shared/dist/harness/prompt-injection.d.ts packages/studio-shared/src/harness/prompt-injection.ts 
+INTERNAL-ONLY: runClean (def: packages/studio-task/src/cli/clean.ts) :: packages/studio-task/dist/cli/clean.d.ts 
+INTERNAL-ONLY: runCommand (def: packages/studio-shared/src/cli/command.ts) :: packages/studio-shared/dist/cli/command.d.ts 
+INTERNAL-ONLY: runExport (def: packages/studio-audit/src/cli/export.ts) :: packages/studio-audit/dist/cli/export.d.ts 
+INTERNAL-ONLY: runList (def: packages/studio-notification/src/cli/list.ts) :: packages/studio-notification/dist/cli/list.d.ts 
+INTERNAL-ONLY: runLog (def: packages/studio-audit/src/cli/log.ts) :: packages/studio-audit/dist/cli/log.d.ts 
+INTERNAL-ONLY: runMark (def: packages/studio-notification/src/cli/mark.ts) :: packages/studio-notification/dist/cli/mark.d.ts 
+INTERNAL-ONLY: RunnerExecutionState (def: packages/studio-agent/src/services/runner-execution.ts) :: packages/studio-agent/dist/services/runner-execution.d.ts packages/studio-agent/dist/services/runner-lightweight.d.ts packages/studio-agent/src/services/runner-execution.ts packages/studio-agent/src/services/runner-lightweight.ts 
+INTERNAL-ONLY: RunOptions (def: packages/studio-task/src/types.ts) :: packages/studio-task/dist/cli/run.d.ts packages/studio-task/src/cli/run.ts scripts/fill-context-docs.ts 
+INTERNAL-ONLY: runQueue (def: packages/studio-task/src/cli/queue.ts) :: packages/studio-task/dist/cli/queue.d.ts 
+INTERNAL-ONLY: runRetry (def: packages/studio-task/src/cli/retry.ts) :: packages/studio-task/dist/cli/retry.d.ts 
+INTERNAL-ONLY: runRun (def: packages/studio-task/src/cli/run.ts) :: packages/studio-task/dist/cli/run.d.ts 
+INTERNAL-ONLY: runSearch (def: packages/studio-audit/src/cli/search.ts) :: packages/studio-audit/dist/cli/search.d.ts 
+INTERNAL-ONLY: runSend (def: packages/studio-notification/src/cli/send.ts) :: packages/studio-notification/dist/cli/send.d.ts 
+INTERNAL-ONLY: SafetyService (def: packages/studio-shared/src/harness/index.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/src/harness/index.ts 
+INTERNAL-ONLY: SearchOptions (def: packages/studio-audit/src/types.ts) :: packages/studio-audit/dist/cli/search.d.ts packages/studio-audit/src/cli/search.ts 
+INTERNAL-ONLY: SendOptions (def: packages/studio-notification/src/types.ts) :: packages/studio-notification/dist/cli/send.d.ts packages/studio-notification/src/cli/send.ts 
+INTERNAL-ONLY: serializeFrontmatter (def: packages/studio-shared/src/file-store.ts packages/studio-shared/src/index.ts) :: packages/studio-shared/dist/file-store.d.ts packages/studio-shared/src/file-store.ts 
+INTERNAL-ONLY: SessionCommandOptions (def: packages/studio-agent/src/services/runner-params.ts) :: packages/studio-agent/dist/services/runner-params.d.ts packages/studio-agent/src/services/runner-params.ts 
+INTERNAL-ONLY: SessionEnvOptions (def: packages/studio-agent/src/services/runner-params.ts) :: packages/studio-agent/dist/services/runner-params.d.ts packages/studio-agent/src/services/runner-params.ts 
+INTERNAL-ONLY: SessionIdOptions (def: packages/studio-shared/src/utils/process-io.ts) :: packages/studio-shared/dist/utils/index.d.ts packages/studio-shared/dist/utils/process-io.d.ts packages/studio-shared/src/utils/index.ts packages/studio-shared/src/utils/process-io.ts 
+INTERNAL-ONLY: SessionMetrics (def: packages/studio-shared/src/harness/session-metrics.ts) :: packages/studio-shared/dist/harness/index.d.ts packages/studio-shared/dist/harness/session-metrics.d.ts packages/studio-shared/src/harness/index.ts packages/studio-shared/src/harness/session-metrics.ts 
+INTERNAL-ONLY: SpecValidatorService (def: packages/studio-spec/src/services/spec-validator.service.ts packages/studio-spec/src/index.ts) :: packages/studio-shared/dist/utils/spec-parser.d.ts packages/studio-shared/src/utils/spec-parser.ts 
+INTERNAL-ONLY: StageDefinition (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts packages/studio-shared/src/constants/stage-definitions.ts 
+INTERNAL-ONLY: STAGE_DEFINITIONS (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts packages/studio-shared/src/constants/stage-definitions.ts 
+INTERNAL-ONLY: STAGE_KEY_QUESTIONS (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts 
+INTERNAL-ONLY: STAGE_KEYWORDS (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts 
+INTERNAL-ONLY: StageSuggestion (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/src/constants/stage-definitions.ts 
+INTERNAL-ONLY: STAGE_TOOLS (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts 
+INTERNAL-ONLY: StageType (def: packages/studio-shared/src/domain-vocab.ts) :: packages/studio-shared/src/domain-vocab.ts 
+INTERNAL-ONLY: STAGE_TYPES (def: packages/studio-shared/src/domain-vocab.ts) :: packages/studio-shared/dist/domain-vocab.d.ts packages/studio-shared/src/domain-vocab.ts 
+INTERNAL-ONLY: StageValidationResult (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts packages/studio-shared/src/constants/stage-definitions.ts 
+INTERNAL-ONLY: startHealthMonitor (def: packages/studio-monitor/src/services/health-monitor.ts packages/studio-monitor/src/index.ts) :: apps/api/src/index.ts 
+INTERNAL-ONLY: StreamUsage (def: packages/studio-agent/src/services/runner-output.ts) :: packages/studio-agent/src/services/runner-output.ts 
+INTERNAL-ONLY: suggestStage (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts packages/studio-shared/src/constants/stage-definitions.ts 
+INTERNAL-ONLY: SystemMCP (def: packages/studio-capability/src/services/company-mcp-pool.ts) :: packages/studio-capability/src/services/company-mcp-pool.ts 
+INTERNAL-ONLY: TaskHealth (def: packages/studio-monitor/src/services/health-monitor.ts) :: packages/studio-monitor/src/services/health-monitor.ts 
+INTERNAL-ONLY: ToolCall (def: packages/studio-shared/src/llm/stream-json-parser.ts) :: packages/studio-shared/dist/llm/index.d.ts packages/studio-shared/dist/llm/stream-json-parser.d.ts packages/studio-shared/src/llm/index.ts packages/studio-shared/src/llm/stream-json-parser.ts 
+INTERNAL-ONLY: TrendResult (def: packages/studio-shared/src/stats/anomaly-detector.ts) :: packages/studio-shared/dist/stats/anomaly-detector.d.ts packages/studio-shared/src/stats/anomaly-detector.ts 
+INTERNAL-ONLY: UICategory (def: packages/studio-shared/src/constants/responsibility-chain.ts) :: packages/studio-shared/dist/constants/responsibility-chain.d.ts packages/studio-shared/src/constants/responsibility-chain.ts 
+INTERNAL-ONLY: updateDispatchOutcome (def: packages/studio-shared/src/utils/concurrency-control.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/concurrency-control.d.ts 
+INTERNAL-ONLY: validateStageField (def: packages/studio-shared/src/constants/stage-definitions.ts) :: packages/studio-shared/dist/constants/stage-definitions.d.ts 
+INTERNAL-ONLY: ValidationLayer (def: packages/studio-spec/src/types/validation.types.ts) :: packages/studio-spec/src/index.ts packages/studio-spec/src/types/validation.types.ts 
+INTERNAL-ONLY: writeProgress (def: packages/studio-shared/src/utils/process-io.ts packages/studio-shared/src/utils/index.ts) :: packages/studio-shared/dist/utils/process-io.d.ts 
+TEST-ONLY: AuditorConclusion (def: packages/studio-shared/src/harness/auditor/auditor-types.ts) :: packages/studio-shared/src/harness/auditor/__tests__/auditor-types.test.ts 
+TEST-ONLY: Stance (def: packages/studio-shared/src/types/stance.ts) :: packages/studio-skill/src/__tests__/skill-index.test.ts 

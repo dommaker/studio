@@ -111,3 +111,19 @@ pnpm start  # 启动生产服务
 - 部署日志：`/var/log/studio-deploy.log`
 - 本仓的任何分支/脏树/本地领先状态都**不影响**部署（2026-07-29 起）
 <!-- /PRESERVE:release-flow -->
+
+<!-- PRESERVE:agent-skills -->
+## Agent skills
+
+### Issue tracker
+
+Issues 存放在本仓库的 GitHub Issues（dommaker/studio），通过 `gh` CLI 操作。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+五个标准 triage 标签原名使用（needs-triage 等）。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+single-context：根 `CONTEXT.md` + `docs/adr/`。见 `docs/agents/domain.md`。
+<!-- /PRESERVE:agent-skills -->

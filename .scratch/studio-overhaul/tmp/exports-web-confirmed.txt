@@ -1,0 +1,88 @@
+DEAD-TOTAL: analyzeDiffImpact (def: apps/web/src/components/KnowledgeGraphView.tsx)
+DEAD-TOTAL: apiPost (def: apps/web/src/utils/api.ts)
+DEAD-TOTAL: buildKnowledgeGraphFromAnalysis (def: apps/web/src/components/KnowledgeGraphView.tsx)
+DEAD-TOTAL: CreateRoleInput (def: apps/web/src/types.ts)
+DEAD-TOTAL: DeleteButton (def: apps/web/src/components/DeleteButton.tsx)
+DEAD-TOTAL: formatTokensShort (def: apps/web/src/utils/format.ts)
+DEAD-TOTAL: Onboarding (def: apps/web/src/components/Onboarding.tsx)
+DEAD-TOTAL: PerformanceStats (def: apps/web/src/types.ts)
+DEAD-TOTAL: PmoNumberLink (def: apps/web/src/components/PmoNumberBadge.tsx)
+DEAD-TOTAL: ThemeToggle (def: apps/web/src/contexts/ThemeContext.tsx)
+DEAD-TOTAL: useStageCapabilities (def: apps/web/src/hooks/useCapabilities.ts)
+INTERNAL-ONLY: AgentPmoRef (def: apps/web/src/api/monitoring.ts) :: apps/web/src/api/monitoring.ts 
+INTERNAL-ONLY: AgentStatus (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts 
+INTERNAL-ONLY: AgentStatusKey (def: apps/web/src/utils/agentStatus.ts) :: apps/web/src/utils/agentStatus.ts 
+INTERNAL-ONLY: apiFetch (def: apps/web/src/utils/api.ts) :: apps/web/src/utils/api.ts 
+INTERNAL-ONLY: BaseExecutionPhase (def: apps/web/src/types.ts apps/web/src/types/index.ts) :: apps/web/src/types/index.ts apps/web/src/types.ts 
+INTERNAL-ONLY: CardStatus (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts 
+INTERNAL-ONLY: CardType (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts 
+INTERNAL-ONLY: CheckpointCheck (def: apps/web/src/components/CheckpointTimeline.tsx) :: apps/web/src/components/CheckpointTimeline.tsx 
+INTERNAL-ONLY: CheckpointTimeline (def: apps/web/src/components/CheckpointTimeline.tsx) :: apps/web/src/components/CheckpointTimeline.tsx 
+INTERNAL-ONLY: CheckpointTimelineProps (def: apps/web/src/components/CheckpointTimeline.tsx) :: apps/web/src/components/CheckpointTimeline.tsx 
+INTERNAL-ONLY: CreateChannelInput (def: apps/web/src/hooks/useChannelList.ts) :: apps/web/src/hooks/useChannelList.ts 
+INTERNAL-ONLY: DeliveryPanelProps (def: apps/web/src/components/pmo/DeliveryPanel.tsx) :: apps/web/src/components/pmo/DeliveryPanel.tsx 
+INTERNAL-ONLY: DetectedProvider (def: apps/web/src/hooks/useDetectedProviders.ts) :: apps/web/src/hooks/useDetectedProviders.ts 
+INTERNAL-ONLY: DispatchReviewResult (def: apps/web/src/api/workunit.ts) :: apps/web/src/api/workunit.ts 
+INTERNAL-ONLY: FilePreview (def: apps/web/src/components/FilePreview.tsx) :: apps/web/src/components/FilePreview.tsx 
+INTERNAL-ONLY: FireTriggerResult (def: apps/web/src/api/maintenance.ts) :: apps/web/src/api/maintenance.ts 
+INTERNAL-ONLY: FirstRoleSetupModalProps (def: apps/web/src/components/setup/FirstRoleSetupModal.tsx) :: apps/web/src/components/setup/FirstRoleSetupModal.tsx 
+INTERNAL-ONLY: HallCardProps (def: apps/web/src/components/CompanyHallCard.tsx) :: apps/web/src/components/CompanyHallCard.tsx 
+INTERNAL-ONLY: ImportExecuteResult (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts 
+INTERNAL-ONLY: ImportScannedFile (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts 
+INTERNAL-ONLY: ImportScanResult (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts 
+INTERNAL-ONLY: IntentResult (def: apps/web/src/components/IntentResult.tsx) :: apps/web/src/components/IntentResult.tsx 
+INTERNAL-ONLY: IntentStep (def: apps/web/src/types/index.ts) :: apps/web/src/types/index.ts 
+INTERNAL-ONLY: IronLawAlert (def: apps/web/src/components/IronLawAlert.tsx) :: apps/web/src/components/IronLawAlert.tsx 
+INTERNAL-ONLY: IronLawAlertProps (def: apps/web/src/components/IronLawAlert.tsx) :: apps/web/src/components/IronLawAlert.tsx 
+INTERNAL-ONLY: IronLawsSection (def: apps/web/src/components/IronLawsSection.tsx) :: apps/web/src/components/IronLawsSection.tsx 
+INTERNAL-ONLY: IronLawWarningBannerProps (def: apps/web/src/components/IronLawWarningBanner.tsx) :: apps/web/src/components/IronLawWarningBanner.tsx 
+INTERNAL-ONLY: JSONSchemaProperty (def: apps/web/src/types.ts) :: apps/web/src/types.ts 
+INTERNAL-ONLY: KnowledgeMaintenanceResult (def: apps/web/src/api/maintenance.ts) :: apps/web/src/api/maintenance.ts 
+INTERNAL-ONLY: KnowledgeSearchResult (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts 
+INTERNAL-ONLY: LabAgent (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts 
+INTERNAL-ONLY: LabChannel (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts 
+INTERNAL-ONLY: LabDirection (def: apps/web/src/pages/design-lab/PrototypeShell.tsx) :: apps/web/src/pages/design-lab/PrototypeShell.tsx 
+INTERNAL-ONLY: LabTokenStat (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts 
+INTERNAL-ONLY: labWorkUnits (def: apps/web/src/pages/design-lab/mock-data.ts) :: apps/web/src/pages/design-lab/mock-data.ts 
+INTERNAL-ONLY: laneOfWorkUnit (def: apps/web/src/components/pmo/pipelineUtils.ts) :: apps/web/src/components/pmo/pipelineUtils.ts 
+INTERNAL-ONLY: MAX_ACTIVITIES (def: apps/web/src/hooks/useAgentRoster.ts) :: apps/web/src/hooks/useAgentRoster.ts 
+INTERNAL-ONLY: MesoEvolutionResult (def: apps/web/src/api/maintenance.ts) :: apps/web/src/api/maintenance.ts 
+INTERNAL-ONLY: MultiStanceReview (def: apps/web/src/components/MultiStanceReviewPanel.tsx) :: apps/web/src/components/MultiStanceReviewPanel.tsx 
+INTERNAL-ONLY: MultiStanceReviewPanel (def: apps/web/src/components/MultiStanceReviewPanel.tsx) :: apps/web/src/components/MultiStanceReviewPanel.tsx apps/web/src/components/ReviewOpinionCard.tsx 
+INTERNAL-ONLY: NotifyConfigStatus (def: apps/web/src/api/notify.ts) :: apps/web/src/api/notify.ts 
+INTERNAL-ONLY: Okr (def: apps/web/src/api/pmo.ts) :: apps/web/src/api/pmo.ts 
+INTERNAL-ONLY: PipelineStep (def: apps/web/src/types.ts) :: apps/web/src/types.ts 
+INTERNAL-ONLY: PipelineSuggestion (def: apps/web/src/types/index.ts) :: apps/web/src/types/index.ts 
+INTERNAL-ONLY: Position (def: apps/web/src/types/canvas.ts) :: apps/web/src/types/canvas.ts 
+INTERNAL-ONLY: ProjectKnowledgeList (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts 
+INTERNAL-ONLY: ProviderOption (def: apps/web/src/hooks/useDetectedProviders.ts) :: apps/web/src/hooks/useDetectedProviders.ts 
+INTERNAL-ONLY: pushActivity (def: apps/web/src/hooks/useAgentRoster.ts) :: apps/web/src/hooks/useAgentRoster.ts 
+INTERNAL-ONLY: ResolutionItem (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts 
+INTERNAL-ONLY: ReviewHintProps (def: apps/web/src/components/workunit/ReviewHint.tsx) :: apps/web/src/components/workunit/ReviewHint.tsx 
+INTERNAL-ONLY: ReviewPanel (def: apps/web/src/components/ReviewPanel.tsx) :: apps/web/src/components/ReviewPanel.tsx 
+INTERNAL-ONLY: RoleCapability (def: apps/web/src/types.ts) :: apps/web/src/types.ts 
+INTERNAL-ONLY: RolePhase (def: apps/web/src/types.ts apps/web/src/types/index.ts) :: apps/web/src/types/index.ts apps/web/src/types.ts 
+INTERNAL-ONLY: ROSTER_POLL_INTERVAL_MS (def: apps/web/src/hooks/useAgentRoster.ts) :: apps/web/src/hooks/useAgentRoster.ts 
+INTERNAL-ONLY: RuntimePhase (def: apps/web/src/types.ts apps/web/src/types/index.ts) :: apps/web/src/types/index.ts apps/web/src/types.ts 
+INTERNAL-ONLY: SelectOption (def: apps/web/src/components/ui/Select.tsx) :: apps/web/src/components/ui/index.ts apps/web/src/components/ui/Select.tsx 
+INTERNAL-ONLY: SelectProps (def: apps/web/src/components/ui/Select.tsx) :: apps/web/src/components/ui/index.ts apps/web/src/components/ui/Select.tsx 
+INTERNAL-ONLY: setCompanyId (def: apps/web/src/hooks/useCompanyId.ts) :: apps/web/src/hooks/useCompanyId.ts 
+INTERNAL-ONLY: SpeakingQueuePanel (def: apps/web/src/components/SpeakingQueuePanel.tsx) :: apps/web/src/components/SpeakingQueuePanel.tsx 
+INTERNAL-ONLY: StageCategory (def: apps/web/src/hooks/useCapabilities.ts) :: apps/web/src/hooks/useCapabilities.ts 
+INTERNAL-ONLY: StudioRoleSetupModalProps (def: apps/web/src/components/setup/StudioRoleSetupModal.tsx) :: apps/web/src/components/setup/StudioRoleSetupModal.tsx 
+INTERNAL-ONLY: SuggestedPipeline (def: apps/web/src/types.ts) :: apps/web/src/types.ts 
+INTERNAL-ONLY: UnifiedEntry (def: apps/web/src/api/knowledge.ts) :: apps/web/src/api/knowledge.ts 
+INTERNAL-ONLY: UseAgentRosterResult (def: apps/web/src/hooks/useAgentRoster.ts) :: apps/web/src/hooks/useAgentRoster.ts 
+INTERNAL-ONLY: useAppStore (def: apps/web/src/stores/index.ts) :: apps/web/src/stores/index.ts 
+INTERNAL-ONLY: useCapabilities (def: apps/web/src/hooks/useCapabilities.ts) :: apps/web/src/hooks/useCapabilities.ts 
+INTERNAL-ONLY: useUIStore (def: apps/web/src/stores/index.ts apps/web/src/stores/uiStore.ts) :: apps/web/src/stores/index.ts 
+INTERNAL-ONLY: useWebSocket (def: apps/web/src/api/websocket.tsx) :: apps/web/src/api/websocket.tsx 
+INTERNAL-ONLY: VerifyResult (def: apps/web/src/api/workunit.ts) :: apps/web/src/api/workunit.ts 
+INTERNAL-ONLY: WebSocketStatus (def: apps/web/src/api/websocket.tsx) :: apps/web/src/api/websocket.tsx 
+INTERNAL-ONLY: WorkflowStep (def: apps/web/src/types.ts) :: apps/web/src/types.ts 
+INTERNAL-ONLY: WorkflowTrigger (def: apps/web/src/types.ts) :: apps/web/src/types.ts 
+INTERNAL-ONLY: wuStatusClass (def: apps/web/src/components/channel/WorkUnitDrawer.tsx) :: apps/web/src/components/channel/WorkUnitDrawer.tsx 
+TEST-ONLY: ConversationActions (def: apps/web/src/components/ConversationActions.tsx) :: apps/web/src/components/__tests__/ConversationActions.test.tsx 
+TEST-ONLY: ConversationMessageList (def: apps/web/src/components/ConversationMessageList.tsx) :: apps/web/src/components/__tests__/ConversationMessageList.test.tsx 
+TEST-ONLY: DirectoryBrowser (def: apps/web/src/components/DirectoryBrowser.tsx) :: apps/web/src/components/__tests__/DirectoryBrowser.test.tsx 
+TEST-ONLY: ExecutionTargetSelector (def: apps/web/src/components/ExecutionTargetSelector.tsx) :: apps/web/src/components/__tests__/ExecutionTargetSelector.test.tsx 

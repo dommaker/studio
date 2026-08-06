@@ -1,0 +1,364 @@
+DEAD-TOTAL: clearCache (def: apps/api/src/middleware/api-cache.ts)
+DEAD-TOTAL: createHealthRoutes (def: apps/api/src/modules/agents/ops.service.ts)
+DEAD-TOTAL: decrypt (def: apps/api/src/utils/crypto.ts)
+DEAD-TOTAL: discoveryExposure (def: apps/api/src/modules/channels/discovery-exposure.service.ts)
+DEAD-TOTAL: encrypt (def: apps/api/src/utils/crypto.ts)
+DEAD-TOTAL: ErrorResponse (def: apps/api/src/types/index.ts)
+DEAD-TOTAL: ExecutionRequest (def: apps/api/src/types/index.ts)
+DEAD-TOTAL: formatTriageMessage (def: apps/api/src/modules/triage/error-class.ts)
+DEAD-TOTAL: GenerateSkillsResponse (def: apps/api/src/types/index.ts)
+DEAD-TOTAL: getRegister (def: apps/api/src/monitoring/index.ts)
+DEAD-TOTAL: KnowledgeExtraction (def: apps/api/src/modules/agents/types.ts)
+DEAD-TOTAL: MergeBranchesParams (def: apps/api/src/modules/agents/types.ts)
+DEAD-TOTAL: MergeBranchesResult (def: apps/api/src/modules/agents/types.ts)
+DEAD-TOTAL: MergeToMasterRequest (def: apps/api/src/modules/agents/types.ts)
+DEAD-TOTAL: MergeToMasterResult (def: apps/api/src/modules/agents/types.ts)
+DEAD-TOTAL: ProjectStatus (def: apps/api/src/modules/pmo/project.service.ts)
+DEAD-TOTAL: recordApiRequest (def: apps/api/src/monitoring/index.ts)
+DEAD-TOTAL: recordLlmProxyRequest (def: apps/api/src/monitoring/index.ts)
+DEAD-TOTAL: recordTaskProcessed (def: apps/api/src/monitoring/index.ts)
+DEAD-TOTAL: resetEvolutionService (def: apps/api/src/modules/evolution/evolution.service.ts)
+DEAD-TOTAL: resetSystemExecutor (def: apps/api/src/modules/agents/system-executor.ts)
+DEAD-TOTAL: resolutionMatcher (def: apps/api/src/modules/knowledge/resolution.service.ts)
+DEAD-TOTAL: ReviewDiffParams (def: apps/api/src/modules/agents/types.ts)
+DEAD-TOTAL: ReviewResultBlock (def: apps/api/src/modules/agents/review-contract.ts)
+DEAD-TOTAL: ReviewResult (def: apps/api/src/modules/agents/types.ts)
+DEAD-TOTAL: routeFailure (def: apps/api/src/modules/triage/error-class.ts)
+DEAD-TOTAL: saveOutput (def: apps/api/src/modules/outputs/routes.ts)
+DEAD-TOTAL: saveRules (def: apps/api/src/modules/agents/ops-rules.ts)
+DEAD-TOTAL: sendBadRequest (def: apps/api/src/utils/response.ts)
+DEAD-TOTAL: sendDiscordNotification (def: apps/api/src/utils/discord-notifier.ts)
+DEAD-TOTAL: sendNotFound (def: apps/api/src/utils/response.ts)
+DEAD-TOTAL: sendSuccess (def: apps/api/src/utils/response.ts)
+DEAD-TOTAL: startGC (def: apps/api/src/modules/workspaces/gc-service.ts)
+DEAD-TOTAL: stopGC (def: apps/api/src/modules/workspaces/gc-service.ts)
+DEAD-TOTAL: updateTaskQueueLength (def: apps/api/src/monitoring/index.ts)
+INTERNAL-ONLY: AccuracyData (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: AccuracyReport (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: AcGroup (def: apps/api/src/modules/agents/requirement-gate.ts) :: apps/api/src/modules/agents/requirement-gate.ts 
+INTERNAL-ONLY: activeConnections (def: apps/api/src/modules/workspaces/ws-gateway.ts) :: apps/api/src/modules/workspaces/ws-gateway.ts 
+INTERNAL-ONLY: AgentCliParams (def: apps/api/src/daemon/cli-adapter.ts) :: apps/api/src/daemon/cli-adapter.ts apps/api/src/daemon/task-executor.ts 
+INTERNAL-ONLY: AgentMessageOptions (def: apps/api/src/modules/channels/channel-message.service.ts) :: apps/api/src/modules/channels/channel-message.service.ts 
+INTERNAL-ONLY: AgentPmoSummary (def: apps/api/src/modules/monitoring/monitoring.service.ts) :: apps/api/src/modules/monitoring/monitoring.service.ts 
+INTERNAL-ONLY: AgentProfileWithOnline (def: apps/api/src/modules/agents/agent-profile.service.ts) :: apps/api/src/modules/agents/agent-profile.service.ts 
+INTERNAL-ONLY: AgentTokenUsage (def: apps/api/src/modules/agents/token-usage.service.ts) :: apps/api/src/modules/agents/token-usage.service.ts 
+INTERNAL-ONLY: AggregateOptions (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: aggregateOverheadEvents (def: apps/api/src/modules/monitoring/monitoring.service.ts) :: apps/api/src/modules/monitoring/monitoring.service.ts 
+INTERNAL-ONLY: aggregateOverview (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: aggregateSkillUsage (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: Alert (def: apps/api/src/modules/agents/system-health.ts) :: apps/api/src/modules/agents/system-health.ts 
+INTERNAL-ONLY: AlertLevel (def: apps/api/src/utils/notifier.ts) :: apps/api/src/utils/notifier.ts 
+INTERNAL-ONLY: AlertMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: amendConstraintMessage (def: apps/api/src/modules/evolution/applier.ts) :: apps/api/src/modules/evolution/applier.ts 
+INTERNAL-ONLY: AnalystAccuracyInput (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: ApprovalInput (def: apps/api/src/modules/spec-reviews/spec-review.service.ts) :: apps/api/src/modules/spec-reviews/spec-review.service.ts 
+INTERNAL-ONLY: ARCHIVE_AGE_DAYS (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: AssigneeProfileResolverInput (def: apps/api/src/modules/workunit/assignee-resolver.ts) :: apps/api/src/modules/workunit/assignee-resolver.ts 
+INTERNAL-ONLY: AuditFinding (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: AuthResult (def: apps/api/src/modules/auth/service.ts) :: apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: BUDGET_TRIPPED_EVENT (def: apps/api/src/modules/agents/daily-token-budget.ts) :: apps/api/src/modules/agents/daily-token-budget.ts 
+INTERNAL-ONLY: BuildExecutionStepEventArgs (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: buildExecutionStepEvent (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: buildExecutionStreamChunks (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: BuildStreamChunksArgs (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: BusEntry (def: apps/api/src/modules/knowledge/knowledge-bus.service.ts) :: apps/api/src/modules/knowledge/knowledge-bus.service.ts 
+INTERNAL-ONLY: checkTreeBudget (def: apps/api/src/modules/workunit/delegation-gate.ts) :: apps/api/src/modules/workunit/delegation-gate.ts 
+INTERNAL-ONLY: ClaimLoopConfig (def: apps/api/src/daemon/claim-loop.ts) :: apps/api/src/daemon/claim-loop.ts 
+INTERNAL-ONLY: ClaimLoop (def: apps/api/src/daemon/claim-loop.ts) :: apps/api/src/daemon/claim-loop.ts 
+INTERNAL-ONLY: CODE_TYPES (def: apps/api/src/modules/pmo/evidence-summary.ts) :: apps/api/src/modules/pmo/evidence-summary.ts 
+INTERNAL-ONLY: CompletionGuardCtx (def: apps/api/src/modules/agents/completion-gates.ts) :: apps/api/src/modules/agents/completion-gates.ts 
+INTERNAL-ONLY: CompletionGuardDeps (def: apps/api/src/modules/agents/completion-gates.ts) :: apps/api/src/modules/agents/completion-gates.ts 
+INTERNAL-ONLY: CompletionGuardNotices (def: apps/api/src/modules/agents/completion-gates.ts) :: apps/api/src/modules/agents/completion-gates.ts 
+INTERNAL-ONLY: CompletionGuardOutcome (def: apps/api/src/modules/agents/completion-gates.ts) :: apps/api/src/modules/agents/completion-gates.ts 
+INTERNAL-ONLY: ConversationExtractionCtx (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: ConvertInput (def: apps/api/src/modules/channels/convert-to-task.service.ts) :: apps/api/src/modules/channels/convert-to-task.service.ts 
+INTERNAL-ONLY: CreateAgentProfileInput (def: apps/api/src/modules/agents/agent-profile.service.ts) :: apps/api/src/modules/agents/agent-profile.service.ts 
+INTERNAL-ONLY: createEvolutionRoutes (def: apps/api/src/modules/evolution/evolution.routes.ts) :: apps/api/src/modules/evolution/evolution.routes.ts 
+INTERNAL-ONLY: CreateInstanceInput (def: apps/api/src/modules/agents/agent-instance.service.ts) :: apps/api/src/modules/agents/agent-instance.service.ts 
+INTERNAL-ONLY: CreateOKRInput (def: apps/api/src/modules/pmo/okr.service.ts) :: apps/api/src/modules/pmo/okr.service.ts 
+INTERNAL-ONLY: CreateProjectInput (def: apps/api/src/modules/pmo/project.service.ts) :: apps/api/src/modules/pmo/project.service.ts 
+INTERNAL-ONLY: CreateRequirementInput (def: apps/api/src/modules/requirements/requirement.service.ts) :: apps/api/src/modules/requirements/requirement.service.ts 
+INTERNAL-ONLY: createRequirementRoutes (def: apps/api/src/modules/requirements/requirement.routes.ts) :: apps/api/src/modules/requirements/requirement.routes.ts 
+INTERNAL-ONLY: CreateReviewInput (def: apps/api/src/modules/spec-reviews/spec-review.service.ts) :: apps/api/src/modules/spec-reviews/spec-review.service.ts 
+INTERNAL-ONLY: CreateWorkUnitInput (def: apps/api/src/modules/workunit/workunit.service.ts) :: apps/api/src/modules/workunit/workunit.service.ts 
+INTERNAL-ONLY: CycleTimeMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: DailyTokenUsage (def: apps/api/src/modules/agents/daily-token-budget.ts) :: apps/api/src/modules/agents/daily-token-budget.ts 
+INTERNAL-ONLY: DecisionChainExtractor (def: apps/api/src/modules/knowledge/decision-chain-extractor.ts) :: apps/api/src/modules/knowledge/decision-chain-extractor.ts 
+INTERNAL-ONLY: DEFAULT_DAILY_TOKEN_BUDGET (def: apps/api/src/modules/agents/daily-token-budget.ts) :: apps/api/src/modules/agents/daily-token-budget.ts 
+INTERNAL-ONLY: DelegationCheckInput (def: apps/api/src/modules/workunit/delegation-gate.ts) :: apps/api/src/modules/workunit/delegation-gate.ts 
+INTERNAL-ONLY: DelegationCheckResult (def: apps/api/src/modules/workunit/delegation-gate.ts) :: apps/api/src/modules/workunit/delegation-gate.ts 
+INTERNAL-ONLY: DeliverOutcome (def: apps/api/src/modules/pmo/delivery.ts) :: apps/api/src/modules/pmo/delivery.ts 
+INTERNAL-ONLY: DeliveryDeps (def: apps/api/src/modules/pmo/delivery.ts) :: apps/api/src/modules/pmo/delivery.ts 
+INTERNAL-ONLY: DEMOTE_MAX_SUCCESS_RATE (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: DEMOTE_MIN_USES (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: DemotionKind (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: DemotionProposal (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: DemotionProposalStore (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: deriveTitle (def: apps/api/src/modules/requirements/requirement.service.ts) :: apps/api/src/modules/requirements/requirement.service.ts 
+INTERNAL-ONLY: detectMention (def: apps/api/src/modules/channels/message-routing.ts) :: apps/api/src/modules/channels/message-routing.ts 
+INTERNAL-ONLY: detectProvider (def: apps/api/src/daemon/cli-scanner.ts) :: apps/api/src/daemon/cli-scanner.ts 
+INTERNAL-ONLY: DiscordNotifier (def: apps/api/src/utils/discord-notifier.ts) :: apps/api/src/utils/discord-notifier.ts 
+INTERNAL-ONLY: DiscoveryEntry (def: apps/api/src/modules/channels/discovery-exposure.service.ts) :: apps/api/src/modules/channels/discovery-exposure.service.ts 
+INTERNAL-ONLY: DiscoveryExposureService (def: apps/api/src/modules/channels/discovery-exposure.service.ts) :: apps/api/src/modules/channels/discovery-exposure.service.ts 
+INTERNAL-ONLY: dynamicInterval (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: EdgeCondition (def: apps/api/src/types/index.ts) :: apps/api/src/types/index.ts 
+INTERNAL-ONLY: ensureRequestId (def: apps/api/src/middleware/audit-logger.ts) :: apps/api/src/middleware/audit-logger.ts 
+INTERNAL-ONLY: EnvSnapper (def: apps/api/src/modules/knowledge/env-snapper.ts) :: apps/api/src/modules/knowledge/env-snapper.ts 
+INTERNAL-ONLY: ErrorClass (def: apps/api/src/modules/triage/error-class.ts) :: apps/api/src/modules/triage/error-class.ts 
+INTERNAL-ONLY: EvalCaseGenerator (def: apps/api/src/modules/knowledge/eval-case-generator.ts) :: apps/api/src/modules/knowledge/eval-case-generator.ts 
+INTERNAL-ONLY: EvalCaseRecord (def: apps/api/src/modules/knowledge/eval-case-store.ts) :: apps/api/src/modules/knowledge/eval-case-store.ts 
+INTERNAL-ONLY: EvalTag (def: apps/api/src/modules/knowledge/eval-case-generator.ts) :: apps/api/src/modules/knowledge/eval-case-generator.ts 
+INTERNAL-ONLY: EvidenceMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: EvidenceSummary (def: apps/api/src/modules/pmo/evidence-summary.ts) :: apps/api/src/modules/pmo/evidence-summary.ts 
+INTERNAL-ONLY: EVOLUTION_AUTHOR (def: apps/api/src/modules/evolution/channel-review.ts) :: apps/api/src/modules/evolution/channel-review.ts 
+INTERNAL-ONLY: EvolutionResult (def: apps/api/src/modules/knowledge/evolution.service.ts) :: apps/api/src/modules/knowledge/evolution.service.ts 
+INTERNAL-ONLY: EvolutionServiceOptions (def: apps/api/src/modules/evolution/evolution.service.ts) :: apps/api/src/modules/evolution/evolution.service.ts 
+INTERNAL-ONLY: ExecutionError (def: apps/api/src/types/index.ts) :: apps/api/src/types/index.ts 
+INTERNAL-ONLY: ExecutionOutcome (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: ExecutionStepEventPayload (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: EXECUTION_STEP_EVENT_TYPE (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: EXECUTION_STEP_SSE_TYPE (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: ExecutionStreamChunkKind (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: EXECUTION_STREAM_SSE_TYPE (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: ExtractedSkillProposal (def: apps/api/src/modules/skills/skill-extraction.service.ts) :: apps/api/src/modules/skills/skill-extraction.service.ts 
+INTERNAL-ONLY: extractExecOutputTail (def: apps/api/src/modules/agents/wu-verification.ts) :: apps/api/src/modules/agents/wu-verification.ts 
+INTERNAL-ONLY: EXTRACT_FROM_TEXT_SYSTEM_PROMPT (def: apps/api/src/modules/agents/knowledge-curator.service.ts apps/api/src/modules/agents/knowledge-extraction.ts) :: apps/api/src/modules/agents/knowledge-curator.service.ts apps/api/src/modules/agents/knowledge-extraction.ts packages/studio-shared/src/utils/prompt-overrides.ts 
+INTERNAL-ONLY: extractInputTokens (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: ExtractionResult (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: extractReferencedPaths (def: apps/api/src/modules/skills/skill-promotion.ts) :: apps/api/src/modules/skills/skill-promotion.ts 
+INTERNAL-ONLY: extractTextSummary (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: extractThinking (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: FailureAction (def: apps/api/src/modules/shared/failure-classifier.ts) :: apps/api/src/modules/shared/failure-classifier.ts 
+INTERNAL-ONLY: FailureClass (def: apps/api/src/modules/shared/failure-classifier.ts) :: apps/api/src/modules/shared/failure-classifier.ts 
+INTERNAL-ONLY: FailureClassification (def: apps/api/src/modules/triage/error-class.ts) :: apps/api/src/modules/triage/error-class.ts 
+INTERNAL-ONLY: FailureRouteInput (def: apps/api/src/modules/triage/error-class.ts) :: apps/api/src/modules/triage/error-class.ts 
+INTERNAL-ONLY: FailureRouteResult (def: apps/api/src/modules/triage/error-class.ts) :: apps/api/src/modules/triage/error-class.ts 
+INTERNAL-ONLY: formatProposalMessage (def: apps/api/src/modules/evolution/channel-review.ts) :: apps/api/src/modules/evolution/channel-review.ts 
+INTERNAL-ONLY: FormType (def: apps/api/src/types/index.ts) :: apps/api/src/types/index.ts 
+INTERNAL-ONLY: FormValidationResult (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: GateCheck (def: apps/api/src/modules/agents/requirement-gate.ts) :: apps/api/src/modules/agents/requirement-gate.ts 
+INTERNAL-ONLY: GateResult (def: apps/api/src/modules/agents/requirement-gate.ts) :: apps/api/src/modules/agents/requirement-gate.ts 
+INTERNAL-ONLY: GCResult (def: apps/api/src/modules/agents/system-health.ts) :: apps/api/src/modules/agents/system-health.ts 
+INTERNAL-ONLY: generateAnonymousId (def: apps/api/src/middleware/auth.ts) :: apps/api/src/middleware/auth.ts 
+INTERNAL-ONLY: generatePmoNumber (def: apps/api/src/modules/pmo/project.service.ts) :: apps/api/src/modules/pmo/project.service.ts 
+INTERNAL-ONLY: generateRefreshToken (def: apps/api/src/modules/auth/service.ts) :: apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: GeneratorDeps (def: apps/api/src/modules/evolution/generator.ts) :: apps/api/src/modules/evolution/generator.ts 
+INTERNAL-ONLY: getAdminToken (def: apps/api/src/cli/dev.ts) :: apps/api/src/cli/dev.ts 
+INTERNAL-ONLY: getReminderThresholdMs (def: apps/api/src/modules/workunit/waiting-input.ts) :: apps/api/src/modules/workunit/waiting-input.ts 
+INTERNAL-ONLY: getResourceId (def: apps/api/src/middleware/audit-logger.ts) :: apps/api/src/middleware/audit-logger.ts 
+INTERNAL-ONLY: getResourceType (def: apps/api/src/middleware/audit-logger.ts) :: apps/api/src/middleware/audit-logger.ts 
+INTERNAL-ONLY: getRulesPath (def: apps/api/src/modules/agents/ops-rules.ts) :: apps/api/src/modules/agents/ops-rules.ts 
+INTERNAL-ONLY: HarnessModule (def: apps/api/src/modules/harness/runtime.ts) :: apps/api/src/modules/harness/runtime.ts 
+INTERNAL-ONLY: hasUncommittedChanges (def: apps/api/src/modules/agents/completion-gates.ts) :: apps/api/src/modules/agents/agent-loop.ts apps/api/src/modules/agents/completion-gates.ts 
+INTERNAL-ONLY: HealthReport (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: HumanInterventionMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: IncidentEntry (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: IndexEntry (def: apps/api/src/modules/knowledge/engine/unified-query.ts) :: apps/api/src/modules/knowledge/engine/unified-query.ts 
+INTERNAL-ONLY: InjectContextResult (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: INJECTED_TOKEN_BUDGET (def: apps/api/src/modules/monitoring/monitoring.service.ts) :: apps/api/src/modules/monitoring/monitoring.service.ts 
+INTERNAL-ONLY: InjectOpts (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: IntakeMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: isCriticalOperation (def: apps/api/src/middleware/audit-logger.ts) :: apps/api/src/middleware/audit-logger.ts 
+INTERNAL-ONLY: isGitRepoRoot (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: isTestLikeWorkUnit (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: KnowledgeEntryDraft (def: apps/api/src/modules/agents/types.ts) :: apps/api/src/modules/agents/types.ts 
+INTERNAL-ONLY: KnowledgeEvolutionService (def: apps/api/src/modules/knowledge/evolution.service.ts) :: apps/api/src/modules/knowledge/evolution.service.ts 
+INTERNAL-ONLY: knowledgeMaintenanceEnabled (def: apps/api/src/modules/agents/monitor-system-probes.ts) :: apps/api/src/modules/agents/monitor-system-probes.ts apps/api/src/modules/knowledge/maintenance.routes.ts 
+INTERNAL-ONLY: KnowledgeMetricsSource (def: apps/api/src/modules/monitoring/monitoring.service.ts) :: apps/api/src/modules/monitoring/monitoring.service.ts 
+INTERNAL-ONLY: KNOWLEDGE_QUERY_GUIDANCE (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: KnowledgeQueryService (def: apps/api/src/modules/knowledge/knowledge-query.service.ts) :: apps/api/src/modules/knowledge/knowledge-query.service.ts 
+INTERNAL-ONLY: KnowledgeSearchAnalysis (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: KnowledgeServiceDeps (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: KRActual (def: apps/api/src/modules/pmo/okr.service.ts) :: apps/api/src/modules/pmo/okr.service.ts 
+INTERNAL-ONLY: ListEntriesResult (def: apps/api/src/modules/knowledge/engine/unified-query.ts) :: apps/api/src/modules/knowledge/engine/unified-query.ts 
+INTERNAL-ONLY: LoadedSkill (def: apps/api/src/modules/skills/skill-loader.ts) :: apps/api/src/modules/skills/skill-loader.ts 
+INTERNAL-ONLY: loadRolePreset (def: apps/api/src/modules/agents/agent-profile.service.ts) :: apps/api/src/modules/agents/agent-profile.service.ts 
+INTERNAL-ONLY: LoadSkillOptions (def: apps/api/src/modules/skills/skill-loader.ts) :: apps/api/src/modules/skills/skill-loader.ts 
+INTERNAL-ONLY: LoginInput (def: apps/api/src/modules/auth/service.ts) :: apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: matchesQueryValue (def: apps/api/src/modules/triggers/trigger-action.ts) :: apps/api/src/modules/triggers/trigger-action.ts 
+INTERNAL-ONLY: MAX_TIMEOUT_RELEASES (def: apps/api/src/modules/workunit/timeout-release.ts) :: apps/api/src/modules/workunit/timeout-release.ts 
+INTERNAL-ONLY: MAX_TREE_SIZE (def: apps/api/src/modules/workunit/delegation-gate.ts) :: apps/api/src/modules/workunit/delegation-gate.ts 
+INTERNAL-ONLY: MCPPermissionService (def: apps/api/src/modules/mcp/permission.service.ts) :: apps/api/src/modules/mcp/permission.service.ts 
+INTERNAL-ONLY: mcpRateLimit (def: apps/api/src/middleware/rate-limit.ts) :: apps/api/src/route-registry.ts 
+INTERNAL-ONLY: MCPServer (def: apps/api/src/modules/mcp/server.ts) :: apps/api/src/modules/mcp/server.ts 
+INTERNAL-ONLY: MCPToolRegistry (def: apps/api/src/modules/mcp/tool-registry.ts) :: apps/api/src/modules/mcp/tool-registry.ts apps/api/src/modules/mcp/tools.ts 
+INTERNAL-ONLY: MembersMigrationResult (def: apps/api/src/modules/channels/migrate-members.ts) :: apps/api/src/modules/channels/migrate-members.ts 
+INTERNAL-ONLY: MergeOnReviewPassOutcome (def: apps/api/src/modules/workunit/merge-on-review-pass.ts) :: apps/api/src/modules/workunit/merge-on-review-pass.ts 
+INTERNAL-ONLY: MonitorAlertSource (def: apps/api/src/modules/agents/types.ts) :: apps/api/src/modules/agents/types.ts 
+INTERNAL-ONLY: MonitoringServiceDeps (def: apps/api/src/modules/monitoring/monitoring.service.ts) :: apps/api/src/modules/monitoring/monitoring.service.ts 
+INTERNAL-ONLY: MountedLoop (def: apps/api/src/modules/agents/agent-loop-registry.ts) :: apps/api/src/modules/agents/agent-loop-registry.ts 
+INTERNAL-ONLY: NodeExecutionStatus (def: apps/api/src/types/index.ts) :: apps/api/src/types/index.ts 
+INTERNAL-ONLY: normalizeReqId (def: apps/api/src/modules/requirements/req-binding.ts) :: apps/api/src/modules/requirements/req-binding.ts 
+INTERNAL-ONLY: NotifyEvent (def: apps/api/src/modules/outbound-notify/notify.service.ts) :: apps/api/src/modules/outbound-notify/index.ts 
+INTERNAL-ONLY: NotifyService (def: apps/api/src/modules/outbound-notify/notify.service.ts apps/api/src/modules/outbound-notify/index.ts) :: apps/api/src/modules/outbound-notify/notify.service.ts 
+INTERNAL-ONLY: NOW_PLACEHOLDER (def: apps/api/src/modules/triggers/trigger-action.ts) :: apps/api/src/modules/triggers/trigger-action.ts 
+INTERNAL-ONLY: OKRKeyResult (def: apps/api/src/modules/pmo/okr.service.ts) :: apps/api/src/modules/pmo/okr.service.ts 
+INTERNAL-ONLY: OpsPattern (def: apps/api/src/modules/agents/ops-rules.ts) :: apps/api/src/modules/agents/ops-rules.ts 
+INTERNAL-ONLY: OutcomeEvent (def: apps/api/src/modules/evolution/signals.ts) :: apps/api/src/modules/evolution/signals.ts 
+INTERNAL-ONLY: OVERHEAD_RATIO_BUDGET (def: apps/api/src/modules/monitoring/monitoring.service.ts) :: apps/api/src/modules/monitoring/monitoring.service.ts 
+INTERNAL-ONLY: OverviewAggregateInput (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: OverviewMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: OverviewOptions (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: OwnershipResolution (def: apps/api/src/modules/requirements/ownership-resolver.ts) :: apps/api/src/modules/requirements/ownership-resolver.ts 
+INTERNAL-ONLY: OwnershipSource (def: apps/api/src/modules/requirements/ownership-resolver.ts) :: apps/api/src/modules/requirements/ownership-resolver.ts 
+INTERNAL-ONLY: PaginationParams (def: apps/api/src/utils/pagination.ts) :: apps/api/src/utils/pagination.ts 
+INTERNAL-ONLY: parseAgentOutput (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: parseDecisionReply (def: apps/api/src/modules/evolution/channel-review.ts) :: apps/api/src/modules/evolution/channel-review.ts 
+INTERNAL-ONLY: parsePmoSeq (def: apps/api/src/modules/pmo/project.service.ts) :: apps/api/src/modules/pmo/project.service.ts 
+INTERNAL-ONLY: parsePmoToken (def: apps/api/src/modules/requirements/req-binding.ts) :: apps/api/src/modules/requirements/req-binding.ts 
+INTERNAL-ONLY: parseReqToken (def: apps/api/src/modules/requirements/req-binding.ts) :: apps/api/src/modules/requirements/req-binding.ts 
+INTERNAL-ONLY: parseTaskBreakdown (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: parseWuMetaPmoId (def: apps/api/src/modules/pmo/evidence-summary.ts apps/api/src/modules/pmo/progress-rollup.ts) :: apps/api/src/modules/pmo/progress-rollup.ts 
+INTERNAL-ONLY: PatternEntry (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: pendingDiscovers (def: apps/api/src/modules/workspaces/ws-gateway.ts) :: apps/api/src/modules/workspaces/ws-gateway.ts 
+INTERNAL-ONLY: pendingTasks (def: apps/api/src/modules/workspaces/ws-gateway.ts) :: apps/api/src/modules/workspaces/ws-gateway.ts 
+INTERNAL-ONLY: Percentile (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: PmoBranchResolution (def: apps/api/src/modules/requirements/pmo-branch-resolver.ts) :: apps/api/src/modules/requirements/pmo-branch-resolver.ts 
+INTERNAL-ONLY: PmoBranchResolverDeps (def: apps/api/src/modules/requirements/pmo-branch-resolver.ts) :: apps/api/src/modules/requirements/pmo-branch-resolver.ts 
+INTERNAL-ONLY: PostWuSystemMessageOptions (def: apps/api/src/modules/workunit/wu-messenger.ts) :: apps/api/src/modules/workunit/wu-messenger.ts 
+INTERNAL-ONLY: precipitate (def: apps/api/src/modules/agents/monitor-lifecycle.ts) :: apps/api/src/modules/agents/monitor-lifecycle.ts 
+INTERNAL-ONLY: PreferenceObserver (def: apps/api/src/modules/knowledge/preference-observer.ts) :: apps/api/src/modules/knowledge/preference-observer.ts 
+INTERNAL-ONLY: PreflightCheck (def: apps/api/src/modules/agents/ops.service.ts) :: apps/api/src/modules/agents/ops.service.ts 
+INTERNAL-ONLY: PreflightResult (def: apps/api/src/modules/agents/ops.service.ts) :: apps/api/src/modules/agents/ops.service.ts 
+INTERNAL-ONLY: ProjectListOptions (def: apps/api/src/modules/pmo/project.service.ts) :: apps/api/src/modules/pmo/project.service.ts 
+INTERNAL-ONLY: PromotionResult (def: apps/api/src/modules/skills/skill-promotion.ts) :: apps/api/src/modules/skills/skill-promotion.ts 
+INTERNAL-ONLY: ProposalCreateInput (def: apps/api/src/modules/skills/proposal-store.ts) :: apps/api/src/modules/skills/proposal-store.ts 
+INTERNAL-ONLY: ProposalListFilter (def: apps/api/src/modules/skills/proposal-store.ts) :: apps/api/src/modules/skills/proposal-store.ts 
+INTERNAL-ONLY: ProposalRecord (def: apps/api/src/modules/skills/proposal-store.ts) :: apps/api/src/modules/skills/proposal-store.ts 
+INTERNAL-ONLY: ProposalUpdateInput (def: apps/api/src/modules/skills/proposal-store.ts) :: apps/api/src/modules/skills/proposal-store.ts 
+INTERNAL-ONLY: QualityGateIngestInput (def: apps/api/src/modules/knowledge/knowledge-singletons.ts) :: apps/api/src/modules/knowledge/knowledge-singletons.ts 
+INTERNAL-ONLY: QualityMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: readHeadHash (def: apps/api/src/modules/agents/completion-gates.ts) :: apps/api/src/modules/agents/agent-loop.ts apps/api/src/modules/agents/completion-gates.ts 
+INTERNAL-ONLY: readWorkspaceConfig (def: apps/api/src/daemon/workspace-config.ts) :: apps/api/src/daemon/workspace-config.ts 
+INTERNAL-ONLY: RealUsage (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: recordAuditLog (def: apps/api/src/middleware/audit-logger.ts) :: apps/api/src/middleware/audit-logger.ts 
+INTERNAL-ONLY: RecursiveDiscoverEntry (def: apps/api/src/daemon/discover-handler.ts) :: apps/api/src/daemon/discover-handler.ts 
+INTERNAL-ONLY: RegisterInput (def: apps/api/src/modules/auth/service.ts) :: apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: RegistrationPayload (def: apps/api/src/daemon/registration.ts) :: apps/api/src/daemon/registration.ts 
+INTERNAL-ONLY: RegistrationResponse (def: apps/api/src/daemon/registration.ts) :: apps/api/src/daemon/registration.ts 
+INTERNAL-ONLY: replacePersonaBlock (def: apps/api/src/modules/evolution/applier.ts) :: apps/api/src/modules/evolution/applier.ts 
+INTERNAL-ONLY: RepoInfo (def: apps/api/src/daemon/registration.ts) :: apps/api/src/daemon/registration.ts 
+INTERNAL-ONLY: resolveRealUsage (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: ResolveReqIdInput (def: apps/api/src/modules/requirements/req-binding.ts) :: apps/api/src/modules/requirements/req-binding.ts 
+INTERNAL-ONLY: resolveTarget (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: resolveToolTraceFile (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: ResolveWorkspaceInput (def: apps/api/src/modules/requirements/ownership-resolver.ts) :: apps/api/src/modules/requirements/ownership-resolver.ts 
+INTERNAL-ONLY: ReviewAttestationSource (def: apps/api/src/modules/workunit/workunit.service.ts) :: apps/api/src/modules/workunit/workunit.service.ts 
+INTERNAL-ONLY: ReviewContractIssue (def: apps/api/src/modules/agents/review-contract.ts) :: apps/api/src/modules/agents/review-contract.ts 
+INTERNAL-ONLY: ReviewIssue (def: apps/api/src/modules/agents/types.ts) :: apps/api/src/modules/agents/types.ts 
+INTERNAL-ONLY: ReviewIssueSeverity (def: apps/api/src/modules/agents/review-contract.ts) :: apps/api/src/modules/agents/review-contract.ts 
+INTERNAL-ONLY: ReviewOptions (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: ReviewVerdict (def: apps/api/src/modules/agents/review-contract.ts) :: apps/api/src/modules/agents/review-contract.ts 
+INTERNAL-ONLY: RoleMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: RolePreset (def: apps/api/src/modules/agents/agent-profile.service.ts) :: apps/api/src/modules/agents/agent-profile.service.ts 
+INTERNAL-ONLY: RouteEntry (def: apps/api/src/route-registry.ts) :: apps/api/src/route-registry.ts 
+INTERNAL-ONLY: RouteTarget (def: apps/api/src/modules/triage/error-class.ts) :: apps/api/src/modules/triage/error-class.ts 
+INTERNAL-ONLY: runGC (def: apps/api/src/modules/workspaces/gc-service.ts apps/api/src/modules/agents/system-health.ts) :: apps/api/src/modules/workspaces/gc-service.ts 
+INTERNAL-ONLY: SafeUser (def: apps/api/src/modules/auth/service.ts) :: apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: ScanOptions (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: SearchOpts (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: SearchResult (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: selectSkills (def: apps/api/src/modules/skills/skill-selector.ts) :: apps/api/src/modules/skills/skill-selector.ts 
+INTERNAL-ONLY: SemanticSearchResult (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: sendError (def: apps/api/src/utils/response.ts) :: apps/api/src/utils/response.ts 
+INTERNAL-ONLY: sendToWorkspace (def: apps/api/src/modules/workspaces/ws-gateway.ts) :: apps/api/src/modules/workspaces/ws-gateway.ts 
+INTERNAL-ONLY: SessionConfig (def: apps/api/src/daemon/session-manager.ts) :: apps/api/src/daemon/session-manager.ts 
+INTERNAL-ONLY: SessionData (def: apps/api/src/middleware/auth.ts apps/api/src/modules/auth/service.ts) :: apps/api/src/middleware/auth.ts apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: SessionInput (def: apps/api/src/modules/auth/service.ts) :: apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: SessionSkillState (def: apps/api/src/modules/skills/skill-loader.ts) :: apps/api/src/modules/skills/skill-loader.ts 
+INTERNAL-ONLY: Severity (def: apps/api/src/modules/triage/error-class.ts) :: apps/api/src/modules/triage/error-class.ts 
+INTERNAL-ONLY: signalAggregator (def: apps/api/src/modules/knowledge/signal-aggregator.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: SignalAggregator (def: apps/api/src/modules/knowledge/signal-aggregator.ts) :: apps/api/src/modules/knowledge/signal-aggregator.ts 
+INTERNAL-ONLY: SkillCreateInput (def: apps/api/src/modules/skills/skill-store.ts) :: apps/api/src/modules/skills/skill-store.ts 
+INTERNAL-ONLY: SkillExtractionService (def: apps/api/src/modules/skills/skill-extraction.service.ts) :: apps/api/src/modules/skills/skill-extraction.service.ts 
+INTERNAL-ONLY: SkillListFilter (def: apps/api/src/modules/skills/skill-store.ts) :: apps/api/src/modules/skills/skill-store.ts 
+INTERNAL-ONLY: SkillRecord (def: apps/api/src/modules/skills/skill-store.ts) :: apps/api/src/modules/skills/skill-store.ts 
+INTERNAL-ONLY: SkillStore (def: apps/api/src/modules/skills/skill-store.ts) :: apps/api/src/modules/skills/routes.ts apps/api/src/modules/skills/skill-store.ts 
+INTERNAL-ONLY: SkillUpdateInput (def: apps/api/src/modules/skills/skill-store.ts) :: apps/api/src/modules/skills/skill-store.ts 
+INTERNAL-ONLY: SkillUsageStats (def: apps/api/src/modules/skills/skill-demotion.ts) :: apps/api/src/modules/skills/skill-demotion.ts 
+INTERNAL-ONLY: SpawnArgs (def: apps/api/src/daemon/cli-adapter.ts) :: apps/api/src/daemon/cli-adapter.ts packages/studio-agent/dist/cli-adapter.d.ts packages/studio-agent/dist/index.d.ts packages/studio-agent/src/cli-adapter.ts packages/studio-agent/src/index.ts 
+INTERNAL-ONLY: SpecChange (def: apps/api/src/modules/spec-reviews/spec-review.service.ts) :: apps/api/src/modules/spec-reviews/spec-review.service.ts 
+INTERNAL-ONLY: SpecReviewService (def: apps/api/src/modules/spec-reviews/spec-review.service.ts) :: apps/api/src/modules/spec-reviews/spec-review.service.ts 
+INTERNAL-ONLY: StaleReport (def: apps/api/src/modules/knowledge/knowledge-sync.service.ts) :: apps/api/src/modules/knowledge/knowledge-sync.service.ts 
+INTERNAL-ONLY: STUDIO_ROLE_DEFAULT_PROVIDER (def: apps/api/src/modules/agents/agent-profile.service.ts) :: apps/api/src/modules/agents/agent-profile.service.ts 
+INTERNAL-ONLY: STUDIO_ROLE_DESCRIPTION (def: apps/api/src/modules/agents/agent-profile.service.ts) :: apps/api/src/modules/agents/agent-profile.service.ts 
+INTERNAL-ONLY: summarizeToolInput (def: apps/api/src/modules/agents/execution-step-events.ts) :: apps/api/src/modules/agents/execution-step-events.ts 
+INTERNAL-ONLY: syncProjectProgressByReqId (def: apps/api/src/modules/pmo/progress-rollup.ts) :: apps/api/src/modules/pmo/progress-rollup.ts 
+INTERNAL-ONLY: SyncResult (def: apps/api/src/modules/knowledge/knowledge-sync.service.ts) :: apps/api/src/modules/knowledge/knowledge-sync.service.ts 
+INTERNAL-ONLY: SystemExecutorJsonParseError (def: apps/api/src/modules/agents/system-executor.ts) :: apps/api/src/modules/agents/system-executor.ts 
+INTERNAL-ONLY: SystemExecutorOptions (def: apps/api/src/modules/agents/system-executor.ts) :: apps/api/src/modules/agents/system-executor.ts 
+INTERNAL-ONLY: SystemExecutorResult (def: apps/api/src/modules/agents/system-executor.ts) :: apps/api/src/modules/agents/system-executor.ts 
+INTERNAL-ONLY: systemHealthCheck (def: apps/api/src/modules/agents/monitor-system-probes.ts) :: apps/api/src/modules/agents/monitor-system-probes.ts 
+INTERNAL-ONLY: SystemHealthSnapshot (def: apps/api/src/modules/agents/system-health.ts) :: apps/api/src/modules/agents/system-health.ts 
+INTERNAL-ONLY: TaskExecutorConfig (def: apps/api/src/daemon/task-executor.ts) :: apps/api/src/daemon/task-executor.ts 
+INTERNAL-ONLY: TaskExecutor (def: apps/api/src/daemon/task-executor.ts) :: apps/api/src/daemon/task-executor.ts packages/studio-agent/dist/services/agent-runner.d.ts 
+INTERNAL-ONLY: TaskFlowMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: TaskHandler (def: apps/api/src/daemon/claim-loop.ts) :: apps/api/src/daemon/claim-loop.ts 
+INTERNAL-ONLY: testWuGuardEnabled (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: TierRecommendation (def: apps/api/src/modules/agents/requirement-gate.ts) :: apps/api/src/modules/agents/requirement-gate.ts 
+INTERNAL-ONLY: TokenMetrics (def: apps/api/src/modules/monitoring/metrics.service.ts) :: apps/api/src/modules/monitoring/metrics.service.ts 
+INTERNAL-ONLY: TokenUsageOptions (def: apps/api/src/modules/agents/token-usage.service.ts) :: apps/api/src/modules/agents/token-usage.service.ts 
+INTERNAL-ONLY: TokenUsageWindow (def: apps/api/src/modules/agents/token-usage.service.ts) :: apps/api/src/modules/agents/token-usage.service.ts 
+INTERNAL-ONLY: ToolCallEvent (def: apps/api/src/modules/evolution/signals.ts) :: apps/api/src/modules/evolution/signals.ts 
+INTERNAL-ONLY: ToolRiskLevel (def: apps/api/src/modules/mcp/tool-registry.ts) :: apps/api/src/modules/mcp/tool-registry.ts 
+INTERNAL-ONLY: toRequirementAliasView (def: apps/api/src/modules/requirements/requirement.service.ts) :: apps/api/src/modules/requirements/requirement.service.ts 
+INTERNAL-ONLY: TrendEntry (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: TriageErrorClass (def: apps/api/src/modules/triage/error-class.ts) :: apps/api/src/modules/triage/error-class.ts 
+INTERNAL-ONLY: TriageResult (def: apps/api/src/modules/triage/error-class.ts) :: apps/api/src/modules/triage/error-class.ts 
+INTERNAL-ONLY: TriggerCondition (def: apps/api/src/modules/triggers/trigger.types.ts) :: apps/api/src/modules/triggers/trigger.types.ts 
+INTERNAL-ONLY: TriggerSchedulerDeps (def: apps/api/src/modules/triggers/trigger-scheduler.ts) :: apps/api/src/modules/triggers/trigger-scheduler.ts 
+INTERNAL-ONLY: UnifiedQueryFilter (def: apps/api/src/modules/knowledge/engine/unified-query.ts) :: apps/api/src/modules/knowledge/engine/unified-query.ts 
+INTERNAL-ONLY: UnmonitoredReport (def: apps/api/src/modules/knowledge/knowledge-sync.service.ts) :: apps/api/src/modules/knowledge/knowledge-sync.service.ts 
+INTERNAL-ONLY: UpdateAgentProfileInput (def: apps/api/src/modules/agents/agent-profile.service.ts) :: apps/api/src/modules/agents/agent-profile.service.ts 
+INTERNAL-ONLY: updateChannelMembers (def: apps/api/src/modules/channels/channel.routes.ts) :: apps/api/src/modules/channels/channel.routes.ts 
+INTERNAL-ONLY: UpdateInstanceInput (def: apps/api/src/modules/agents/agent-instance.service.ts) :: apps/api/src/modules/agents/agent-instance.service.ts 
+INTERNAL-ONLY: UpdateOKRInput (def: apps/api/src/modules/pmo/okr.service.ts) :: apps/api/src/modules/pmo/okr.service.ts 
+INTERNAL-ONLY: UpdateProjectInput (def: apps/api/src/modules/pmo/project.service.ts) :: apps/api/src/modules/pmo/project.service.ts 
+INTERNAL-ONLY: UpdateRequirementInput (def: apps/api/src/modules/requirements/requirement.service.ts) :: apps/api/src/modules/requirements/requirement.service.ts 
+INTERNAL-ONLY: UpdateWorkUnitInput (def: apps/api/src/modules/workunit/workunit.service.ts) :: apps/api/src/modules/workunit/workunit.service.ts 
+INTERNAL-ONLY: UserData (def: apps/api/src/middleware/auth.ts apps/api/src/modules/auth/service.ts) :: apps/api/src/middleware/auth.ts apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: validateDefaultPipeline (def: apps/api/src/modules/channels/channel.routes.ts) :: apps/api/src/modules/channels/channel.routes.ts 
+INTERNAL-ONLY: validateDefaultWorkspaceId (def: apps/api/src/modules/channels/channel.routes.ts) :: apps/api/src/modules/channels/channel.routes.ts 
+INTERNAL-ONLY: validateKnowledgeForm (def: apps/api/src/modules/knowledge/knowledge-service.ts) :: apps/api/src/modules/knowledge/knowledge-service.ts 
+INTERNAL-ONLY: validateSkillForPromotion (def: apps/api/src/modules/skills/skill-promotion.ts) :: apps/api/src/modules/skills/skill-promotion.ts 
+INTERNAL-ONLY: validateTransition (def: apps/api/src/modules/pmo/project.service.ts) :: apps/api/src/modules/pmo/project.service.ts 
+INTERNAL-ONLY: VERIFY_COMMAND_TIMEOUT_MS (def: apps/api/src/modules/agents/wu-verification.ts) :: apps/api/src/modules/agents/wu-verification.ts 
+INTERNAL-ONLY: VERIFY_FAIL_TAIL_CHARS (def: apps/api/src/modules/agents/wu-verification.ts) :: apps/api/src/modules/agents/wu-verification.ts 
+INTERNAL-ONLY: verifyPassword (def: apps/api/src/modules/auth/service.ts) :: apps/api/src/modules/auth/service.ts 
+INTERNAL-ONLY: WikiGraphEdge (def: apps/api/src/modules/wiki/wiki.service.ts) :: apps/api/src/modules/wiki/wiki.service.ts 
+INTERNAL-ONLY: WikiGraphNode (def: apps/api/src/modules/wiki/wiki.service.ts) :: apps/api/src/modules/wiki/wiki.service.ts 
+INTERNAL-ONLY: WikiListItem (def: apps/api/src/modules/wiki/wiki.service.ts) :: apps/api/src/modules/wiki/wiki.service.ts 
+INTERNAL-ONLY: WorkflowDefinition (def: apps/api/src/types/index.ts) :: apps/api/src/types/index.ts 
+INTERNAL-ONLY: WorkflowParameter (def: apps/api/src/types/index.ts) :: apps/api/src/types/index.ts 
+INTERNAL-ONLY: WorkspaceData (def: apps/api/src/middleware/auth.ts) :: apps/api/src/middleware/auth.ts 
+INTERNAL-ONLY: WorkspaceRecord (def: apps/api/src/modules/workspaces/workspace-store.ts) :: apps/api/src/modules/workspaces/workspace-store.ts 
+INTERNAL-ONLY: WorkspaceTokenData (def: apps/api/src/middleware/auth.ts) :: apps/api/src/middleware/auth.ts 
+INTERNAL-ONLY: WorkunitTokenEventArgs (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: WriteStudioEventOptions (def: apps/api/src/utils/studio-events.ts) :: apps/api/src/utils/studio-events.ts 
+INTERNAL-ONLY: writeToolCallEvents (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts 
+INTERNAL-ONLY: writeWorkunitTokenEvent (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/agent-loop.ts apps/api/src/modules/agents/daily-token-budget.ts 
+INTERNAL-ONLY: WsGatewayOptions (def: apps/api/src/modules/workspaces/ws-gateway.ts) :: apps/api/src/modules/workspaces/ws-gateway.ts 
+INTERNAL-ONLY: WU_DEFAULT_TIMEOUT_MINUTES (def: apps/api/src/modules/workunit/workunit.service.ts) :: apps/api/src/modules/workunit/workunit.service.ts 
+INTERNAL-ONLY: WU_TIMEOUT_MINUTES (def: apps/api/src/modules/workunit/workunit.service.ts) :: apps/api/src/modules/workunit/workunit.service.ts 
+TEST-ONLY: analyzeKnowledgeSearch (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/__tests__/agent-loop.test.ts 
+TEST-ONLY: apiRateLimit (def: apps/api/src/middleware/rate-limit.ts) :: apps/api/src/middleware/__tests__/rate-limit.test.ts apps/api/src/modules/auth/__tests__/routes.test.ts 
+TEST-ONLY: checkOwnership (def: apps/api/src/middleware/auth.ts) :: apps/api/src/middleware/__tests__/auth.test.ts 
+TEST-ONLY: checkThresholds (def: apps/api/src/modules/agents/system-health.ts) :: apps/api/src/modules/agents/__tests__/system-health.test.ts 
+TEST-ONLY: classifyFailureAction (def: apps/api/src/modules/shared/failure-classifier.ts) :: apps/api/src/modules/shared/__tests__/failure-classifier.test.ts 
+TEST-ONLY: collectSystemHealth (def: apps/api/src/modules/agents/system-health.ts) :: apps/api/src/modules/agents/__tests__/system-health.test.ts 
+TEST-ONLY: extractKnowledgeEntryIds (def: apps/api/src/modules/agents/agent-loop.ts) :: apps/api/src/modules/agents/__tests__/agent-loop.test.ts 
+TEST-ONLY: fetchExternal (def: apps/api/src/modules/knowledge/producers/external-fetcher.ts) :: apps/api/src/modules/knowledge/producers/__tests__/external-fetcher.test.ts 
+TEST-ONLY: getActiveConnectionCount (def: apps/api/src/modules/workspaces/ws-gateway.ts) :: apps/api/src/modules/workspaces/__tests__/ws-gateway.test.ts 
+TEST-ONLY: getConnectedWorkspaceIds (def: apps/api/src/modules/workspaces/ws-gateway.ts) :: apps/api/src/modules/workspaces/__tests__/ws-gateway.test.ts 
+TEST-ONLY: getDefaultTriggerConfigs (def: apps/api/src/modules/agents/default-triggers.ts) :: apps/api/src/modules/agents/__tests__/default-triggers.test.ts apps/api/src/modules/triggers/__tests__/trigger-cleanup.test.ts 
+TEST-ONLY: getSkillFilePath (def: apps/api/src/modules/skills/manifest-loader.ts) :: apps/api/src/modules/skills/__tests__/manifest-loader.test.ts apps/api/src/modules/workunit/__tests__/e2e-lifecycle.test.ts 
+TEST-ONLY: getWorkspaceFilePath (def: apps/api/src/daemon/workspace-config.ts) :: apps/api/src/daemon/__tests__/workspace-config.test.ts 
+TEST-ONLY: handleDiscover (def: apps/api/src/daemon/discover-handler.ts) :: apps/api/src/daemon/__tests__/discover-handler.test.ts 
+TEST-ONLY: invalidateEvalCaseCache (def: apps/api/src/modules/knowledge/eval-case-store.ts) :: apps/api/src/modules/knowledge/__tests__/eval-case-store.test.ts 
+TEST-ONLY: invalidateTokenUsageCache (def: apps/api/src/modules/agents/token-usage.service.ts) :: apps/api/src/modules/agents/__tests__/token-usage.service.test.ts 
+TEST-ONLY: notifyTaskAvailable (def: apps/api/src/modules/workspaces/ws-gateway.ts) :: apps/api/src/modules/workspaces/__tests__/ws-gateway.test.ts 
+TEST-ONLY: resetDailyTokenBudgetState (def: apps/api/src/modules/agents/daily-token-budget.ts) :: apps/api/src/modules/agents/__tests__/daily-token-budget.test.ts 
+TEST-ONLY: revokeRefreshToken (def: apps/api/src/modules/auth/service.ts) :: apps/api/src/modules/auth/__tests__/service.test.ts 
+TEST-ONLY: setTriggerActionFileStore (def: apps/api/src/modules/triggers/trigger-action.ts) :: apps/api/src/modules/triggers/__tests__/trigger-action.test.ts apps/api/src/modules/workunit/__tests__/e2e-lifecycle.test.ts 
+TEST-ONLY: unregisterExecuteHandler (def: apps/api/src/modules/triggers/trigger-action.ts) :: apps/api/src/modules/agents/__tests__/default-triggers.test.ts apps/api/src/modules/triggers/__tests__/trigger-execute.test.ts 
+TEST-ONLY: validateRequirementsDoc (def: apps/api/src/modules/agents/requirement-gate.ts) :: apps/api/src/modules/agents/__tests__/requirement-gate-stage2.test.ts 
