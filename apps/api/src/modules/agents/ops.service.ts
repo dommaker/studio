@@ -523,9 +523,12 @@ export class OpsService {
 
   /**
    * C2: Worktree GC — 清理超过 7 天的旧 worktree
+   *
+   * 目录口径与 agent-loop.resolveWorktreesDir 一致（WORKTREES_DIR > ~/worktrees），
+   * 即 WU worktree 的实际创建位置；此前默认 ~/.studio/worktrees 是扫空目录的死 GC。
    */
   async cleanupWorktrees(maxAgeDays = 7): Promise<number> {
-    const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), '.studio', 'worktrees');
+    const worktreesDir = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
     let cleaned = 0;
     try {
       if (!fs.existsSync(worktreesDir)) return 0;
