@@ -51,17 +51,3 @@ export interface AgentMetadata {
   createdAt?: string;
   updatedAt?: string;
 }
-
-export interface AgentConfig {
-  worktreesDir: string;
-  repoDir: string;
-  dockerImage: string;
-  taskTimeoutMinutes: number;
-}
-
-export interface AgentCapabilities {
-  canCode: boolean;
-  canReview: boolean;
-  canTest: boolean;
-  canDeploy: boolean;
-}

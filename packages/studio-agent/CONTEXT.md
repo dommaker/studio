@@ -13,10 +13,9 @@ Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude C
 |------|------|
 | `AgentRunner` | 统一执行器：session loop（execute）+ 轻量单 session（executeLightweight）+ stop |
 | `agentRunner` | 单例实例；stop() 所有权唯一在此（runningProcesses 只在本类注册，Discord /studio stop 与 monitor-probes 都调它） |
-| `AgentCompleter` | 执行完成后的后处理（worktree 清理等） |
-| `agentCompleter` | 单例实例 |
 
 > 2026-08：旧 `AgentExecutor`/`agentExecutor`（services/session-manager.ts）为 runner-* 拆分前的死代码双胞胎，无生产调用方，已删除；`AgentTask`/`ExecutionResult` 等类型移至 `src/services/types.ts`。
+> 2026-08：`AgentCompleter`/`agentCompleter`（services/agent-completer.ts，229 行）整模块零引用，已删除；`AgentConfig`/`AgentCapabilities` 等无人消费的类型导出同步移除（apps 各自本地重定义同名 interface，未从包导入）。
 
 ## 执行模型
 

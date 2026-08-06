@@ -2,14 +2,6 @@
 
 export { AgentRegistry } from './services/agent-registry.js';
 export { AgentRunner, agentRunner } from './services/agent-runner.js';
-export { AgentCompleter, agentCompleter } from './services/agent-completer.js';
-
-export type {
-  AgentMetadata,
-  JSONSchema,
-  AgentConfig,
-  AgentCapabilities,
-} from './types.js';
 
 export type { AgentTask, ExecutionResult } from './services/types.js';
 
