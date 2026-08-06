@@ -18,7 +18,6 @@
     "@dommaker/studio-api": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "@tailwindcss/postcss": "^4.2.2",
-    "@types/react-router-dom": "^5.3.3",
     "@xyflow/react": "^12.10.1",
     "axios": "^1.13.6",
     "i18next": "^26.0.4",

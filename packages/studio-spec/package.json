@@ -13,8 +13,7 @@
   },
   "dependencies": {
     "@dommaker/harness": "^0.16.6",
-    "@dommaker/studio-shared": "workspace:*",
-    "zod": "^3.22.0"
+    "@dommaker/studio-shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",
