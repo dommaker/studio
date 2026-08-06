@@ -11,3 +11,7 @@ Labels: enhancement, ready-for-agent
 ## 追加范围（自工单 10 移交）
 
 - bin/tsc-gate.js / tsc-gate.sh 包清单中的历史残留 studio-prisma（包已不存在），顺手清理。
+
+## 追加范围（自工单 23 移交）
+
+- apps/api package.json 的 node-fetch 声明无引用（studio-task 错位引用残留），顺手卸载并更新 lockfile。

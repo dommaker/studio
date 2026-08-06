@@ -32,6 +32,7 @@ studio（/root/projects/studio）全套代码优化重构完成：6 项优化清
 - [06 — 模块架构规划](issues/06-architecture-plan.md) — 执行顺序 B删除→C修bug→A性能→D后端结构→E前端结构→F交互→G i18n→H/I/J→巡检；FileStore 缓存为主杠杆；i18n 判定假 seam 移除
 - [07 — 完整重构方案](issues/07-refactor-spec.md) — spec.md：27 条用户故事 + 实现/测试决策 + 出范围清单，ready-for-agent
 - [08 — triage 拆解执行工单](issues/08-triage-execution.md) — 执行工单 09-43 共 35 张全部拆出并标注依赖边，进入串行执行
+- 删除批次 09-23+44 全部解决（12 张）：累计删 ~9000 行——两整包（monitor/task）、packages 七刀、api 三刀（含 OKR B8 引擎级联删除 1156→334 行）、web 两刀（含 design-lab/ToolsStdPage/review 簇）、依赖 8 项；test 4246→3933 全绿；期间纠正证据误判 3 处（PMOCard 活链、mc-*/u-* 活样式、js-yaml 类型）
 
 ## Not yet specified
 
