@@ -73,13 +73,6 @@
 | change.types | packages/studio-spec/src/types/change.types.ts | Spec 变更分级类型定义 |
 | gate.types | packages/studio-spec/src/types/gate.types.ts | 门禁类型定义 |
 | validation.types | packages/studio-spec/src/types/validation.types.ts | Spec 验证类型定义 |
-| clean | packages/studio-task/src/cli/clean.ts | clean |
-| queue | packages/studio-task/src/cli/queue.ts | queue |
-| retry | packages/studio-task/src/cli/retry.ts | retry |
-| run | packages/studio-task/src/cli/run.ts | run |
-| task-queue | packages/studio-task/src/services/task-queue.ts | TaskQueue - 任务队列管理器 |
-| task-worker | packages/studio-task/src/services/task-worker.ts | TaskWorker - 任务队列消费者 |
-| types | packages/studio-task/src/types.ts | CLI 命令选项和输出类型 |
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
 | routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
 | auditor.service | apps/api/src/modules/agents/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |

@@ -1,7 +1,7 @@
 # 10 — 下线 studio-task 整包与任务队列遗产
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 
 ## Question

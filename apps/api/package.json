@@ -21,7 +21,6 @@
     "@dommaker/studio-shared": "workspace:*",
     "@dommaker/studio-skill": "workspace:*",
     "@dommaker/studio-spec": "workspace:*",
-    "@dommaker/studio-task": "workspace:*",
     "@types/compression": "^1.8.1",
     "@types/express-rate-limit": "^6.0.2",
     "@types/js-yaml": "^4.0.9",

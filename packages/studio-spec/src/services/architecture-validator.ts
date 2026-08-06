@@ -110,7 +110,6 @@ export class ArchitectureValidator {
       'studio-shared',
       'studio-prisma',
       'studio-notification',
-      'studio-task',
       'studio-capability',
       'studio-agent',
       'studio-audit',

@@ -16,7 +16,6 @@ const PKGS = [
   'packages/studio-shared', 'packages/studio-agent', 'packages/studio-prisma',
   'packages/studio-skill', 'packages/studio-spec', 'packages/studio-audit',
   'packages/studio-capability', 'packages/studio-notification',
-  'packages/studio-task',
 ];
 
 // ── Helpers ──
