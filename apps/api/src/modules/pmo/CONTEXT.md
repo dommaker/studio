@@ -23,7 +23,6 @@
 | `AnalysisHandoff` / `initAnalysisHandoff` | `analysis-handoff.ts` | PMO 分析接力：订阅 workunit.status_changed——analysis → in_review 频道提示人工确认（ReviewDispatcher 对 analysis 不派自动评审）；→ done（人工确认）按 metadata.analysisTasks 建未指派 task 子 WU 派工（analysisTasksSpawnedAt 幂等；task 继承 analysis 的 workspaceRoot → 归属链接通 per-WU worktree + PMO 分支） |
 | `projectService.publish` | `project.service.ts` | 发频道卡片 + 建 analysis WU（scope 含只读约束 + TASK 输出约定）；metadata 落 pmoId/pmoNumber + workspaceRoot=project.gitRepo（B3a 归属链起点，2026-07-30 接通——此前 task WU 无归属根，直接在共享开发仓落地） |
 | `getDeliveryStatus` / `deliverProject` | `delivery.ts` | PMO-b 交付守卫：台账（WU 汇总 + l1/l2/l3 证据齐缺 + deliverable，口径走 evidence-summary）与 auto-merge 交付（证据齐才本地合并 PMO 分支 → 默认分支，不 push；branch-only 只标记不碰链路）。台账新增 `tokens`（sumTokensForWorkUnits 按项目 WU id 集求和 studio-events.jsonl 的 workunit:tokens，best-effort 出错按 0）与 `gaps`（已完成但证据有缺口的 WU 明细：id/title（metadata.title 回退 scope）/type/missing 按 l1→l2→l3 有序） |
-| `detectAnomalies` | `okr-anomaly-detector.ts` | OKR 异常检测（默认停用） |
 | 默认导出 Express Router | `routes.ts` | 提供 `/project`、`/objective`、`/key-result` 等 REST 路由（含 `GET /project/:id/delivery`、`POST /project/:id/deliver`（human-only）） |
 
 ## 依赖关系

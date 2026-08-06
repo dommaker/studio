@@ -30,4 +30,4 @@
 - `findTaskByExecutionId` 辅助函数会遍历 `TASKS_DIR` 下的所有 JSON 文件，需注意文件数量较多时的性能。
 - 路由 GET / 默认按 `createdAt` 降序排列，分页参数为 `page` 和 `limit`（默认 1/20）。
 - 该模块的长期规划是废弃并被 agent-profiles / workunit API 替代（见 `docs/vision-2026.md`）。
-- **已知风险（2026-07-24 记录）**：行为未变；POST /events 无任何鉴权/签名（内部 runtime 回调假设，全仓无调用方，生产靠大门兜底，建议后续 requireLocalhost 或共享密钥）；GET /:executionId 与 POST /:executionId/archive 回显服务器绝对路径。
+- **已知风险（2026-07-24 记录）**：行为未变；POST /events 无任何鉴权/签名（内部 runtime 回调假设，全仓无调用方，生产靠大门兜底，建议后续 requireLocalhost 或共享密钥）；GET /:executionId 回显服务器绝对路径（POST /:executionId/archive 已随工单 20 删除）。

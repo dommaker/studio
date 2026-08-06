@@ -199,20 +199,7 @@ export async function studioStatus() {
     console.log('  Daemon:    ❌', String(e).slice(0, 80));
   }
 
-  // 5. G5: Model routing history
-  try {
-    const r = await fetch(`${baseUrl}/metrics/routing`);
-    const { data: routes } = await r.json() as { data: Array<{ time: string; classified: string; final: string; taskType: string }> };
-    if (routes.length > 0) {
-      console.log(`  Routing:   ${routes.length} recent decisions`);
-      for (const rt of routes.slice(-3)) {
-        const indicator = rt.classified !== rt.final ? '🔧' : '🤖';
-        console.log(`    ${indicator} ${rt.taskType}: auto→${rt.classified}, final→${rt.final}`);
-      }
-    }
-  } catch { /* optional */ }
-
-  // 6. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
+  // 5. G4: Trajectory eval（D18: 统一事件文件，StudioEvent 形态）
   try {
     const fs = await import('fs');
     const { resolveStudioEventsFile, parseStudioEventPayload } = await import('../utils/studio-events.js');

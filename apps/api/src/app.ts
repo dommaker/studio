@@ -41,11 +41,6 @@ app.get('/health', (req: any, res: any) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// G5: 模型路由历史（Pipeline 已废弃，保留端点返回空）
-app.get('/metrics/routing', async (req: any, res: any) => {
-  res.json({ data: [], total: 0 });
-});
-
 // Prometheus 指标
 app.get('/metrics', async (req: any, res: any) => {
   try {

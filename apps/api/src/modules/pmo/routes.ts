@@ -1,6 +1,6 @@
 // PMO API Routes - 项目管理办公室
 import { Router, Request, Response } from 'express';
-import { okrService, OKRService } from './okr.service.js';
+import { okrService } from './okr.service.js';
 import { projectService, parsePmoNumberFromCommand } from './project.service.js';
 import { getDeliveryStatus, deliverProject } from './delivery.js';
 import { syncProjectProgress } from './progress-rollup.js';
@@ -370,17 +370,7 @@ router.get('/okr', apiCache(CACHE_CONFIG.medium), async (req: Request, res: Resp
  */
 router.post('/okr', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { companyId, title, objectives, keyResults, quarter, roleId } = req.body;
-
-    // 权限检查
-    if (roleId) {
-      const isAdmin = await okrService.checkPermission(roleId, companyId);
-      if (!isAdmin) {
-        return res.status(403).json({
-          error: { code: 'FORBIDDEN', message: 'Only admins can create OKR' },
-        });
-      }
-    }
+    const { companyId, title, objectives, keyResults, quarter } = req.body;
 
     const okr = await okrService.create({
       companyId,
@@ -395,81 +385,6 @@ router.post('/okr', requireAuth(), requireNotGuest(), async (req: Request, res: 
     logger.error({ error }, 'Failed to create OKR');
     res.status(500).json({
       error: { code: 'INTERNAL_ERROR', message: (error as Error).message },
-    });
-  }
-});
-
-/**
- * GET /api/v1/pmo/okr/metrics
- * B59-001: 返回所有注册 metricType 的实时基线值
- */
-router.get('/okr/metrics', async (req: Request, res: Response) => {
-  try {
-    const days = parseInt(req.query.days as string) || 7;
-    const metrics: Record<string, { value: number | null; status: string; dataSource: string; description: string }> = {};
-
-    for (const [metricType, entry] of Object.entries(OKRService.METRIC_REGISTRY)) {
-      try {
-        const value = await okrService.getMetricBaseline(metricType, days);
-        metrics[metricType] = {
-          value,
-          status: value !== null ? 'ok' : 'no_data',
-          dataSource: entry.dataSource,
-          description: entry.description,
-        };
-      } catch {
-        metrics[metricType] = {
-          value: null,
-          status: 'error',
-          dataSource: entry.dataSource,
-          description: entry.description,
-        };
-      }
-    }
-
-    res.json({ metrics, days });
-  } catch (error) {
-    logger.error({ error }, 'Failed to get OKR metrics');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get OKR metrics' },
-    });
-  }
-});
-
-/**
- * GET /api/v1/pmo/okr/data-health
- * B59-001: 返回数据源健康状态 + metricType 覆盖度
- */
-router.get('/okr/data-health', async (_req: Request, res: Response) => {
-  try {
-    const health = await okrService.checkDataSourceHealth();
-    const registrySize = Object.keys(OKRService.METRIC_REGISTRY).length;
-
-    // Count how many metrics have data available
-    let metricsWithData = 0;
-    let metricsWithoutData = 0;
-    for (const metricType of Object.keys(OKRService.METRIC_REGISTRY)) {
-      try {
-        const value = await okrService.getMetricBaseline(metricType);
-        if (value !== null) metricsWithData++;
-        else metricsWithoutData++;
-      } catch {
-        metricsWithoutData++;
-      }
-    }
-
-    res.json({
-      dataSources: health,
-      metricRegistry: {
-        total: registrySize,
-        withData: metricsWithData,
-        withoutData: metricsWithoutData,
-      },
-    });
-  } catch (error) {
-    logger.error({ error }, 'Failed to get data health');
-    res.status(500).json({
-      error: { code: 'INTERNAL_ERROR', message: 'Failed to get data health' },
     });
   }
 });
@@ -492,25 +407,12 @@ router.get('/okr/:id', async (req: Request, res: Response) => {
 
 /**
  * PUT /api/v1/pmo/okr/:id
- * 更新 OKR（需要管理员权限）
+ * 更新 OKR
  */
 router.put('/okr/:id', requireAuth(), requireNotGuest(), async (req: Request, res: Response) => {
   try {
-    const { roleId, ...updates } = req.body;
+    const updates = req.body;
     const okrId = req.params.id;
-
-    // 获取 OKR 以检查权限
-    const okr: any = await okrService.get(okrId);
-
-    // 权限检查
-    if (roleId) {
-      const isAdmin = await okrService.checkPermission(roleId, okr.companyId as string);
-      if (!isAdmin) {
-        return res.status(403).json({
-          error: { code: 'FORBIDDEN', message: 'Only admins can update OKR' },
-        });
-      }
-    }
 
     const updated = await okrService.update(okrId, updates);
     res.json(updated);
@@ -529,21 +431,7 @@ router.put('/okr/:id', requireAuth(), requireNotGuest(), async (req: Request, re
  */
 router.delete('/okr/:id', requireRole('Admin'), async (req: Request, res: Response) => {
   try {
-    const { roleId } = req.body;
     const okrId = req.params.id;
-
-    // 获取 OKR 以检查权限
-    const okr: any = await okrService.get(okrId);
-
-    // 权限检查
-    if (roleId) {
-      const isAdmin = await okrService.checkPermission(roleId, okr.companyId as string);
-      if (!isAdmin) {
-        return res.status(403).json({
-          error: { code: 'FORBIDDEN', message: 'Only admins can delete OKR' },
-        });
-      }
-    }
 
     const result = await okrService.delete(okrId);
     res.json(result);
