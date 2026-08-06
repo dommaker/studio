@@ -23,6 +23,7 @@ import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, ty
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { readCollab } from '../workunit/delegation-gate.js';
 import { postWuSystemMessage } from '../workunit/wu-messenger.js';
+import { parseWuMetadata, clearSessionBookkeeping } from '../workunit/wu-metadata.js';
 
 export class ReviewDispatcher {
   private subscribed = false;
@@ -172,7 +173,7 @@ export class ReviewDispatcher {
     parent: WorkUnitData,
     opts: { excludeAssignee: string | null; selfReview: boolean },
   ): Promise<WorkUnitData> {
-    const parentMeta = parent.metadata ? JSON.parse(parent.metadata) as WorkUnitMetadata : {};
+    const parentMeta = parseWuMetadata(parent.metadata);
     const parentCollab = parentMeta.collab ?? {
       rootId: parent.id,
       depth: 0,
@@ -180,7 +181,7 @@ export class ReviewDispatcher {
       delegationCount: 0,
     };
 
-    const childMeta: WorkUnitMetadata = {
+    const childMetaRaw: WorkUnitMetadata = {
       ...parentMeta,
       collab: {
         rootId: parentCollab.rootId,
@@ -196,23 +197,10 @@ export class ReviewDispatcher {
       reviewInput: { mode: 'diff-only', skill: 'code-review' },
     };
 
-    // 会话/执行簿记绝不继承到子 WU（2026-07-30 走查实锤）：继承 sessionId 会让子 WU
-    // 误续用父 WU 的 CLI 会话 —— agent-loop 续用守卫是 metadata.sessionId === instance.sessionId，
-    // 共享 ~/.studio 多实例下可错位命中；且 root + bypassPermissions settings 下
-    // claude --resume 自注入 --dangerously-skip-permissions 被 root guard 秒拒（code 1）。
-    // 跨 WU 续用本就违反"同一 WU 内才续用"约定（异 cwd 会话不存在）。
-    delete childMeta.sessionId;
-    delete childMeta.startedAt;
-    delete childMeta.sessionResumes;
-    delete childMeta.sessionCount;   // B5: 会话预算不继承（否则父 WU 超限会连坐子 WU 直接转人工）
-    delete childMeta.blockReason;    // B4: blocked 原因不继承（子 WU 从未被 block）
-    delete childMeta.stepCount;
-    delete childMeta.consecutiveStuck;
-    delete childMeta.errorType;
-    delete childMeta.errorDetail;
-    delete childMeta.errorAt;
-    delete childMeta._cumulativeTokens;
-    delete childMeta.lastInputTokens;
+    // 会话/执行簿记绝不继承到子 WU：12 字段权威清单与 2026-07-30 事故实录已收敛到
+    // workunit/wu-metadata.ts 的 clearSessionBookkeeping（返回浅拷贝，不改 childMetaRaw）——
+    // agent-loop 新增簿记字段必须同步该清单，否则静默泄漏进 review 子 WU
+    const childMeta = clearSessionBookkeeping(childMetaRaw);
 
     // R3 评审输入契约（2026-07-28 分析文档 §4-R3）：diff-only + code-review skill。
     // 独立性保障：只给代码差异，不给实现叙述当判断依据（父 scope 仅作背景定位）；
@@ -272,7 +260,7 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
       && !deriveDisplayState({ status: parent.status, metadata: parent.metadata }).evidence.l2;
     if (parent.status !== 'in_review' && !parentDoneMissingL2) return; // 父已被手动处理 -> 跳过
 
-    const childMeta = child.metadata ? JSON.parse(child.metadata) as WorkUnitMetadata : {};
+    const childMeta = parseWuMetadata(child.metadata);
     const report = childMeta.reviewReport as
       | { approved: boolean; reason?: string; issues?: Array<{ severity: string; message: string }> }
       | undefined;

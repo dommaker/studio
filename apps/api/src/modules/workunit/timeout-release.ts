@@ -12,6 +12,7 @@
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
+import { parseWuMetadata } from './wu-metadata.js';
 
 /** 同一 WU 的超时释放上限：达到后转 blocked，等待人工介入 */
 export const MAX_TIMEOUT_RELEASES = 3;
@@ -29,7 +30,7 @@ export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date
 
   for (const wu of timedOut.data) {
     try {
-      const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+      const metadata = parseWuMetadata(wu.metadata);
       const releases = (metadata.timeoutReleaseCount ?? 0) + 1;
       const isoNow = now.toISOString();
       const title = (metadata.title ?? wu.scope).slice(0, 50);

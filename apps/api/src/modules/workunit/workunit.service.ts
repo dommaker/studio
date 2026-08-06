@@ -8,6 +8,7 @@
 import { randomUUID } from 'crypto';
 import { logger, eventBus, FileStore, withAttestation, deriveDisplayState, type AgentProfileData, type AttestationEntry, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent, type WuAttestations } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass } from './merge-on-review-pass.js';
+import { parseWuMetadata } from './wu-metadata.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
 export interface WorkUnitMetadata {
@@ -220,14 +221,10 @@ export const ANALYSIS_TASKS_MAX = 8;
 
 /** claim 时的 timeoutAt 决策：metadata.timeoutAt 显式值优先，否则按 WU type 给默认时长 */
 function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date {
-  if (metadataRaw) {
-    try {
-      const meta = JSON.parse(metadataRaw) as WorkUnitMetadata;
-      if (typeof meta.timeoutAt === 'string') {
-        const explicit = new Date(meta.timeoutAt);
-        if (!Number.isNaN(explicit.getTime())) return explicit;
-      }
-    } catch { /* 元数据损坏按无显式值处理 */ }
+  const meta = parseWuMetadata(metadataRaw);
+  if (typeof meta.timeoutAt === 'string') {
+    const explicit = new Date(meta.timeoutAt);
+    if (!Number.isNaN(explicit.getTime())) return explicit;
   }
   const minutes = WU_TIMEOUT_MINUTES[wuType] ?? WU_DEFAULT_TIMEOUT_MINUTES;
   return new Date(Date.now() + minutes * 60_000);
@@ -550,7 +547,7 @@ export class WorkUnitService {
    */
   private async checkFileConflicts(id: string, metadataRaw: string | null): Promise<string[]> {
     if (!metadataRaw) return [];
-    const meta: WorkUnitMetadata = JSON.parse(metadataRaw);
+    const meta: WorkUnitMetadata = parseWuMetadata(metadataRaw);
     const files = meta.files;
     if (!files || !Array.isArray(files) || files.length === 0) return [];
 
@@ -566,7 +563,7 @@ export class WorkUnitService {
     const conflicts: string[] = [];
     for (const wu of activeWorkUnits) {
       if (!wu.metadata) continue;
-      const wuMeta: WorkUnitMetadata = JSON.parse(wu.metadata);
+      const wuMeta: WorkUnitMetadata = parseWuMetadata(wu.metadata);
       const wuFiles = wuMeta.files;
       if (!Array.isArray(wuFiles)) continue;
       const hasOverlap = wuFiles.some(f => fileSet.has(f));
@@ -738,7 +735,7 @@ export class WorkUnitService {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
     }
 
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     delete metadata._consecutiveReviewRejections;
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
@@ -783,7 +780,7 @@ export class WorkUnitService {
     current: WorkUnitSnapshot,
     attestation: ReviewAttestationSource,
   ): Promise<WorkUnitData> {
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.attestations = withAttestation(metadata.attestations, 'l3', this.buildAttestationEntry({
       verdict: 'approved',
       by: attestation.by,
@@ -806,7 +803,7 @@ export class WorkUnitService {
     current: WorkUnitSnapshot,
     attestation: ReviewAttestationSource,
   ): Promise<WorkUnitData> {
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.attestations = withAttestation(metadata.attestations, 'l2', this.buildAttestationEntry({
       verdict: 'approved',
       by: attestation.by,
@@ -837,7 +834,7 @@ export class WorkUnitService {
     if (!current) throw new Error('WorkUnit not found');
 
     const now = new Date().toISOString();
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.attestations = withAttestation(metadata.attestations, 'l1', input.failure
       ? {
           verdict: 'rejected',
@@ -865,7 +862,7 @@ export class WorkUnitService {
     const current = snapshots.find(s => s.id === id);
     if (!current) throw new Error('WorkUnit not found');
 
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.mergeConflict = true;
     metadata.conflictFiles = conflictFiles;
     // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
@@ -915,7 +912,7 @@ export class WorkUnitService {
       return snapshotToData(current);
     }
 
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     metadata.manualRelease = true;
     metadata.manualReleaseReason = reason;
     // B4: blocked 原因落盘（2026-08-03 token-burn issue P0-2）
@@ -963,7 +960,7 @@ export class WorkUnitService {
       throw new Error(`Cannot review: current status is ${current.status}, expected in_review`);
     }
 
-    const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(current.metadata);
     const rejections = (metadata._consecutiveReviewRejections ?? 0) + 1;
     metadata._consecutiveReviewRejections = rejections;
     if (reason) metadata._lastRejectionReason = reason;
@@ -1065,12 +1062,8 @@ export class WorkUnitService {
     let rebound = 0;
     for (const s of snapshots) {
       if (s.type !== 'task' || s.parentId !== null || !s.metadata) continue;
-      let meta: WorkUnitMetadata;
-      try {
-        meta = JSON.parse(s.metadata);
-      } catch {
-        continue; // 损坏 metadata 按无匹配处理
-      }
+      // 损坏 metadata → {} → context 缺失自然不匹配（按无匹配处理）
+      const meta = parseWuMetadata(s.metadata);
       // context 在 metadata 接口里声明为 legacy string 降级字段，但频道来源链路实际落的是对象
       // （{ sourceChannelId }，见原 channel delete 路由口径）——按运行时形态松散取值
       const raw = meta as Record<string, unknown>;

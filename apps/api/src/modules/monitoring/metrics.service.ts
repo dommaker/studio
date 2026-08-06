@@ -16,6 +16,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { FileStore, deriveDisplayState, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { readStudioEvents, parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
+import { parseWuMetadata } from '../workunit/wu-metadata.js';
 
 /** D16: 聚合缓存（60s——要扫 index + 多个 jsonl，避免连打） */
 const CACHE_TTL_MS = 60_000;
@@ -204,8 +205,7 @@ function percentile(values: number[]): { p50: number | null; p95: number | null 
 const msToHours = (ms: number) => Math.round((ms / 3600_000) * 10) / 10;
 
 function parseMeta(metadata: string | null): Record<string, any> {
-  if (!metadata) return {};
-  try { return JSON.parse(metadata) as Record<string, any>; } catch { return {}; }
+  return parseWuMetadata(metadata);
 }
 
 export function aggregateOverview(input: OverviewAggregateInput): OverviewMetrics {

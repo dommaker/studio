@@ -27,6 +27,7 @@
 import { Router, type Request, type Response } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
+import { parseWuMetadata } from './wu-metadata.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
 import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
@@ -173,7 +174,7 @@ router.get('/:id/tree-tokens', async (req: Request, res: Response) => {
         error: { code: 'NOT_FOUND', message: `WorkUnit ${req.params.id} not found` },
       });
     }
-    const meta = wu.metadata ? JSON.parse(wu.metadata) as { collab?: { rootId?: string } } : {};
+    const meta = parseWuMetadata(wu.metadata);
     const rootId = meta.collab?.rootId ?? wu.id;
     const report = await aggregateTreeTokens(rootId, fileStore);
     res.json(report);
@@ -327,7 +328,7 @@ router.post('/:id/verify', requireAuth(), requireNotGuest(), async (req: Request
         error: { code: 'INVALID_INPUT', message: `仅代码类 WU（task/bug/feature/refactor）支持 L1 验证（当前 type=${wu.type}）` },
       });
     }
-    const metadata: WorkUnitMetadata = wu.metadata ? JSON.parse(wu.metadata) : {};
+    const metadata: WorkUnitMetadata = parseWuMetadata(wu.metadata);
     const worktreePath = typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0
       ? metadata.worktreePath
       : null;
@@ -366,7 +367,7 @@ router.post('/:id/verify', requireAuth(), requireNotGuest(), async (req: Request
     if (outcome.failure) {
       return res.json({ verified: false, failed: [outcome.failure] });
     }
-    const report = (JSON.parse(updated.metadata ?? '{}') as WorkUnitMetadata).verifyReport
+    const report = parseWuMetadata(updated.metadata).verifyReport
       ?? { commands: outcome.ran, source: outcome.source };
     res.json({ verified: true, report });
   } catch (error) {

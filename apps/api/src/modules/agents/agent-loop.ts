@@ -21,6 +21,7 @@ import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
 import { eventStore } from '../../core/event-store.js';
 import { postWuSystemMessage } from '../workunit/wu-messenger.js';
+import { parseWuMetadata, mergedWuView } from '../workunit/wu-metadata.js';
 import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
 import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
@@ -530,7 +531,7 @@ export class AgentLoop {
   /** Execute one step via Agent process (Agent's token) */
   private async agentStep(target: Target): Promise<StepResult> {
     const wu = target.workUnit;
-    const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    const metadata = parseWuMetadata(wu.metadata);
 
     // B2 守卫（2026-08-03 token-burn issue P0-1c）：测试特征 WU 不起会话、直接关闭。
     // 历史事故：路由测试经共享数据根把测试 WU 写进生产 FileStore，daemon 当真任务逐个
@@ -1176,7 +1177,7 @@ ${rosterLines.join('\n')}
     if (!wu.parentId) return null;
     try {
       const parent = await this.workUnitService.getById(wu.parentId);
-      const parentMeta: WorkUnitMetadata = parent?.metadata ? JSON.parse(parent.metadata) : {};
+      const parentMeta: WorkUnitMetadata = parseWuMetadata(parent?.metadata);
       return typeof parentMeta.worktreePath === 'string' && parentMeta.worktreePath.length > 0
         ? parentMeta.worktreePath
         : null;
@@ -1289,12 +1290,10 @@ ${rosterLines.join('\n')}
     const wu = await this.workUnitService.getById(wuId);
     if (!wu) return;
 
-    const persisted = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
-    // 提交守卫/自动验证必须以「持久化 + 本 step metadataUpdates」的合并视图为准：
-    // 首个 step 的 worktreePath 等字段由 agentStep 经 result.metadataUpdates 传入、
-    // 此刻尚未落库；只看持久化值会让首 step 的 COMPLETE 退到主仓库（干净）做检查而漏拦
-    // （e2e 实测：dev 在 worktree 改了未提交，守卫查主仓库放行 → 假 complete）。
-    const metadata: WorkUnitMetadata = { ...persisted, ...result.metadataUpdates };
+    // 提交守卫/自动验证必须以「持久化 + 本 step metadataUpdates」的合并视图为准
+    // （首 step 的 worktreePath 尚未落库，只看持久化值会漏拦 → 假 complete；
+    //   完整事故实录与 undefined-清除口径见 workunit/wu-metadata.ts mergedWuView）
+    const metadata: WorkUnitMetadata = mergedWuView(wu.metadata, result.metadataUpdates);
     // P0 修复 6: traceId（与 agentStep 同一来源，供日志行携带）
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 

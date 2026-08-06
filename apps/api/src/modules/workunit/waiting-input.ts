@@ -15,6 +15,7 @@
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
+import { parseWuMetadata } from './wu-metadata.js';
 import { ProjectDiscoveryService, type LocalProject } from '../projects/project-discovery.service.js';
 import { RequirementService } from '../requirements/requirement.service.js';
 import { projectService } from '../pmo/project.service.js';
@@ -42,7 +43,7 @@ export async function resumeWaitingWorkUnit(
   const wu = await wuService.getById(workUnitId);
   if (!wu) return false;
 
-  const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+  const metadata = parseWuMetadata(wu.metadata);
 
   // 已恢复但 loop 尚未消费 pendingReplies 的窗口内，后续回复直接追加拼接
   if (wu.status === 'active' && Array.isArray(metadata.pendingReplies) && metadata.pendingReplies.length > 0) {
@@ -216,7 +217,7 @@ export async function scanWaitingForInputReminders(fs?: FileStore, now: Date = n
 
   for (const wu of blocked.data) {
     if (!wu.channelId) continue;
-    const metadata = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+    const metadata = parseWuMetadata(wu.metadata);
     if (!metadata.waitingForInput || metadata.waitingReminded) continue;
 
     const since = metadata.waitingSince ? new Date(metadata.waitingSince) : wu.updatedAt;

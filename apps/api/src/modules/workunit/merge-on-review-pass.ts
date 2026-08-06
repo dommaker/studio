@@ -35,8 +35,9 @@ import { execSh } from '@dommaker/studio-shared/node';
 import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import type { WorkUnitService, WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
+import type { WorkUnitService, WorkUnitData } from './workunit.service.js';
 import { postWuSystemMessage } from './wu-messenger.js';
+import { parseWuMetadata } from './wu-metadata.js';
 
 /** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > ~/worktrees） */
 function resolveWorktreesDir(): string {
@@ -118,7 +119,7 @@ export async function mergeWorktreeBranchOnReviewPass(
   wu: WorkUnitData,
   fileStore: FileStore,
 ): Promise<MergeOnReviewPassOutcome> {
-  const meta = (wu.metadata ? JSON.parse(wu.metadata) : {}) as WorkUnitMetadata;
+  const meta = parseWuMetadata(wu.metadata);
   const branch = meta.worktreeBranch;
   const baseRepo = meta.worktreeBaseRepo;
   const baseBranch = meta.worktreeBaseBranch;
@@ -273,7 +274,7 @@ export async function mergeWorktreeBranchOnReviewPass(
 
   // 落档 metadata（重读最新快照避免覆盖并发写；mergedAt 同时充当防重哨兵）
   const fresh = await wuService.getById(wu.id);
-  const freshMeta = (fresh?.metadata ? JSON.parse(fresh.metadata) : {}) as WorkUnitMetadata;
+  const freshMeta = parseWuMetadata(fresh?.metadata);
   delete freshMeta.mergeConflict;
   delete freshMeta.conflictFiles;
   await wuService.update(wu.id, {

@@ -17,6 +17,7 @@ import { projectService, resolveDeliveryPolicy, type DeliveryPolicy, type Projec
 import { RequirementService } from '../requirements/requirement.service.js';
 import { selectProjectSnapshots, summarizeEvidence } from './evidence-summary.js';
 import { sumTokensForWorkUnits } from '../agents/token-usage.service.js';
+import { parseWuMetadata } from '../workunit/wu-metadata.js';
 
 const GIT_OP_TIMEOUT_MS = 15_000;
 const MERGE_TIMEOUT_MS = 60_000;
@@ -70,13 +71,8 @@ function shq(s: string): string {
 
 /** WU 展示名：metadata.title 优先（metadata 是 JSON 字符串，解析失败/缺失回退 scope） */
 function wuTitle(s: WorkUnitSnapshot): string {
-  if (s.metadata) {
-    try {
-      const title = (JSON.parse(s.metadata) as { title?: unknown }).title;
-      if (typeof title === 'string' && title.length > 0) return title;
-    } catch { /* 坏 JSON 回退 scope */ }
-  }
-  return s.scope;
+  const title = parseWuMetadata(s.metadata).title;
+  return typeof title === 'string' && title.length > 0 ? title : s.scope;
 }
 
 /** PMO 台账：WU 汇总 + 证据齐缺（只读，无任何副作用） */

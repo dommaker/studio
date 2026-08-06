@@ -15,6 +15,7 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 - `timeout-release.ts` — workunit-timeout-scan handler：执行超时 WU 释放回 unassigned（记 metadata.timeoutReleasedAt/timeoutReleaseCount + 频道系统消息），≥3 次转 blocked（**2026-07-31 起该转人工消息 meta 带 `{pmoId?, atHuman:true}`**，PMO-flow UX §6-3；经 wu-messenger 里程碑通道）
 - `delegation-gate.ts` — A2A 委派闸门（§4.1/§4.2，纯代码零 LLM）：成员/自派生/深度(P1=1)/宽度3/树8/环/重复委派校验，预算留桩（TODO §4.3 P2）
 - `merge-on-review-pass.ts` — B3b-ii 评审通过后自动合并（决策 D1/D3 后半 + PMO-b 决策 3）：reviewPassed 收口触发（best-effort，不阻断 done 迁移），task/<wuId> --no-ff 合并回目标分支 → 冲突则 rebase 重试一次 → 仍冲突清理现场、取冲突文件清单、频道 Studio 系统消息转人工并置 blocked（metadata.mergeConflict/conflictFiles）；成功则移除 worktree、删 task 分支、记 metadata.mergedAt/mergeCommit 并发频道通知；mergedAt 为防重哨兵，无 worktree 落档的 WU 直接旁路。**PMO-b：metadata.pmoBranch 落档的 WU 目标 = PMO 分支**（`<worktreesDir>/pmo-<projectId>` 集成交合 worktree，不动 baseRepo 当前 checkout；集成交合建不起来直接转人工，不静默回落错目标）
+- `wu-metadata.ts` — WU metadata 访问器（2026-08-06 Card 8，零依赖叶子，schema 知识单一出口）：`parseWuMetadata`（容错解析，null/坏 JSON/非对象 → `{}`）、`clearSessionBookkeeping`（**12 字段会话/执行簿记权威清单**——sessionId/startedAt/sessionResumes/sessionCount/blockReason/stepCount/consecutiveStuck/errorType/errorDetail/errorAt/_cumulativeTokens/lastInputTokens，review 子 WU 不继承，事故实录见文件头；agent-loop 新增簿记字段必须同步该清单，否则静默泄漏进 review 子 WU）、`mergedWuView`（「持久化 + metadataUpdates」合并视图，agent-loop recordResult 口径；updates 显式 `undefined` 覆盖持久化值、序列化即清除——hint 消费清除依赖此语义）。窄接口不放宽：特殊取值形态（dotted key 兼容/跨实体 metadata/窄断言）就地保留
 
 ## 依赖关系
 
