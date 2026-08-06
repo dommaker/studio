@@ -10,12 +10,7 @@
 | agent-executor | packages/studio-agent/src/services/agent-executor.ts | Agent Executor - Session Loop 执行模型 (daemon async spawn) |
 
 | types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
-| export | packages/studio-audit/src/cli/export.ts | Mock 数据 |
-| log | packages/studio-audit/src/cli/log.ts | Mock 数据 |
-| search | packages/studio-audit/src/cli/search.ts | Mock 数据 |
-| audit-chain | packages/studio-audit/src/services/audit-chain.ts | 审计链模块 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
-| types | packages/studio-audit/src/types.ts | types |
 | capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
 | list | packages/studio-notification/src/cli/list.ts | Mock 数据 |
 | mark | packages/studio-notification/src/cli/mark.ts | Mock 数据 |
