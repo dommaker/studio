@@ -27,10 +27,8 @@ export * from './domain-vocab';
 export * from './attestation';
 
 // 导出 Types 模块
-export * from './types/stance';
 export * from './types/goal-status';
 export * from './types/resolution';
-export * from './types/user-behavior';
 
 // 导出 Harness 类型（供下游包使用）
 export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';

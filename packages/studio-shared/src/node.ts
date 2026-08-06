@@ -14,5 +14,4 @@ export * from './utils/index';
 export * from './llm/index';
 export * from './harness/index';
 export * from './constants/levels';
-export * from './types/stance';
 export type { ConstraintLevel, ConstraintContext, ConstraintResult } from '@dommaker/harness';
