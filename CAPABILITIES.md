@@ -17,7 +17,6 @@
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
 | types | packages/studio-audit/src/types.ts | types |
 | capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
-| company-mcp-pool | packages/studio-capability/src/services/company-mcp-pool.ts | 公司 MCP 资源池管理 |
 | list | packages/studio-notification/src/cli/list.ts | Mock 数据 |
 | mark | packages/studio-notification/src/cli/mark.ts | Mock 数据 |
 | send | packages/studio-notification/src/cli/send.ts | Mock 数据存储 |
