@@ -1,7 +1,7 @@
 # 15 — studio-skill 清理
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 
 ## Question
