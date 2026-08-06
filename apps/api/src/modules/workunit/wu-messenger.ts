@@ -35,9 +35,14 @@ export interface PostWuSystemMessageOptions {
   fileStore?: FileStore;
 }
 
-/** anchor 查找（原 agent-loop.findAnchorMessage，收敛于此、不再导出）：该 WU 频道线程的首条根消息 */
-async function findAnchorMessage(workUnitId: string, fileStore: FileStore): Promise<ChannelMessageData | null> {
-  const messages = await fileStore.queryAllMessages({ workUnitId });
+/** anchor 查找（原 agent-loop.findAnchorMessage，收敛于此、不再导出）：该 WU 频道线程的首条根消息。
+ * 工单 27：频道内预过滤——先只扫 WU 所在频道；仅当频道内没有该 WU 的任何消息
+ * （历史换频道等边界）才回退跨频道全扫描，返回结果与旧 queryAllMessages 口径一致。 */
+async function findAnchorMessage(workUnitId: string, channelId: string, fileStore: FileStore): Promise<ChannelMessageData | null> {
+  let messages = await fileStore.queryMessages(channelId, { workUnitId });
+  if (messages.length === 0) {
+    messages = await fileStore.queryAllMessages({ workUnitId });
+  }
   const anchors = messages
     .filter(m => !m.replyToId)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -75,7 +80,7 @@ export async function postWuSystemMessage(
 
   const fileStore = opts?.fileStore ?? new FileStore();
   const anchor = opts?.replyToId === undefined
-    ? await findAnchorMessage(wu.id, fileStore).catch(() => null) // anchor 查询失败不阻断发帖
+    ? await findAnchorMessage(wu.id, wu.channelId, fileStore).catch(() => null) // anchor 查询失败不阻断发帖
     : null;
   const meta: MessageMeta | undefined = opts?.milestone
     ? { ...await milestoneMeta(wu, fileStore), ...opts?.meta }

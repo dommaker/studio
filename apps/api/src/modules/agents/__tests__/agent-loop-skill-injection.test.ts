@@ -59,6 +59,7 @@ vi.mock('../../workunit/workunit.service', () => ({
     unclaim: vi.fn(),
     transitionStatus: vi.fn(),
   }; }),
+  snapshotToData: (s: unknown) => s,
 }));
 
 vi.mock('../../triggers/trigger-registry', () => ({

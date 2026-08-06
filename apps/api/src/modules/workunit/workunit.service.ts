@@ -232,7 +232,7 @@ function resolveClaimTimeoutAt(wuType: string, metadataRaw: string | null): Date
 
 // ── 转换函数 ──
 
-function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
+export function snapshotToData(s: WorkUnitSnapshot): WorkUnitData {
   return {
     id: s.id,
     parentId: s.parentId,

@@ -12,7 +12,7 @@ import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
 import { RemoteExecutor, RemoteNodeUnreachableError } from './remote-executor.js';
-import { WorkUnitService, ANALYSIS_TASKS_MAX, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
+import { WorkUnitService, ANALYSIS_TASKS_MAX, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
 import { checkDelegation, effectiveParentCollab, resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT, type CollabMeta } from '../workunit/delegation-gate.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../triggers/trigger-registry.js';
@@ -472,12 +472,19 @@ export class AgentLoop {
 
   /** Observe: collect state from DB (zero token) */
   private async observe(): Promise<Observations> {
-    // W-6 fix: batch query for newReplies instead of N+1
-    const myActive = (await this.workUnitService.list({
-      assigneeId: this.instance?.id,
-    })).data.filter(wu => wu.status === 'active' || wu.status === 'blocked');
-
+    // 工单 27：index.json 每轮只读一次——myActive 由同一批快照本地派生，
+    // 过滤/排序/分页口径与 workUnitService.list({assigneeId}) 完全一致
+    // （含先按 createdAt desc 取前 20 条、再按状态过滤的顺序）。
     const allSnapshots = await this.fileStore.getIndex();
+    const myAssigneeId = this.instance?.id;
+    const mine = myAssigneeId
+      ? allSnapshots.filter(s => s.assigneeId === myAssigneeId)
+      : [...allSnapshots];
+    const myActive = mine
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 20)
+      .map(snapshotToData)
+      .filter(wu => wu.status === 'active' || wu.status === 'blocked');
     // §9.5: channel.members 为成员关系唯一事实源 — observe 每轮加载一次频道配置
     // （FileStore 规模小，成本可忽略）。
     const channelMembers = await this.loadChannelMembers();

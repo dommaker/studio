@@ -50,6 +50,7 @@ vi.mock('../../workunit/workunit.service', () => ({
     getById: vi.fn().mockResolvedValue(null),
     update: vi.fn(),
   }; }),
+  snapshotToData: (s: unknown) => s,
 }));
 
 const { mockTriggerScheduler } = vi.hoisted(() => ({

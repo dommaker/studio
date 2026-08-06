@@ -53,6 +53,7 @@ vi.mock('../../workunit/workunit.service', () => ({
     unclaim: mockWuUnclaim,
     transitionStatus: mockWuTransitionStatus,
   }; }),
+  snapshotToData: (s: unknown) => s,
 }));
 
 vi.mock('../../triggers/trigger-scheduler', () => ({
