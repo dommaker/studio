@@ -19,7 +19,6 @@ Channel 驱动管线入口：@Analyst 触发 → RequirementsDoc 生成 → Goal
 | contract-test-validator.ts | `validateContractTests()` | Layer 1-3 契约测试质量检查（AC coverage / TS syntax / import path） |
 | contract-test-red-check.ts | `verifyRedState()` | Layer 4 RED 状态验证 |
 | requirement-gate.ts | `requirementGate()` | AC 结构验证 + 文件冲突检查 + architectureContext 质量门 |
-| discovery-exposure.service.ts | `discoveryExposure.expose()` | Analyst/Reviewer 发现统一曝光到 #系统 |
 | channel.routes.ts | Express router | Channel API 端点（消息/start_execution/cancel 等） |
 | requirements-doc.routes.ts | Express router | RequirementsDoc CRUD 端点 |
 

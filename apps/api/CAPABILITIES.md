@@ -9,7 +9,6 @@
 | app | src/app.ts | 注册所有 API 路由（异步，启动时调用一次） |
 | studio-cli | src/cli/studio-cli.ts | Studio CLI — 统一入口（2026-05-09: Docker/tmux 已移除） |
 | event-store | src/core/event-store.ts | EventStore — EventEmitter + 内存 Map |
-| claim-loop | src/daemon/claim-loop.ts | Claim Loop — AS-020 P5-02: Per-Runtime task polling |
 | cli-adapter | src/daemon/cli-adapter.ts | CLI Adapter — translate common agent args to provider-specific spawn args |
 | cli-scanner | src/daemon/cli-scanner.ts | CLI Scanner — auto-detect available agent CLIs on the system |
 | discover-handler | src/daemon/discover-handler.ts | Discover Handler — AS-020 P6-03: Local directory scanning |
@@ -17,7 +16,6 @@
 | registration | src/daemon/registration.ts | Workspace Registration — HTTP registration flow |
 | session-manager | src/daemon/session-manager.ts | Session Manager — manages persistent Claude Code sessions via --session-id + --continue |
 | studio-daemon | src/daemon/studio-daemon.ts | Studio Daemon — persistent Agent session manager |
-| task-executor | src/daemon/task-executor.ts | Task Executor — AS-020 P5-03: Agent execution lifecycle |
 | task-logger | src/daemon/task-logger.ts | Task Logger — 结构化任务日志，供审计/进化/调试 |
 | workspace-config | src/daemon/workspace-config.ts | Workspace Config — manage ~/.studio/workspace.json |
 | api-cache | src/middleware/api-cache.ts | API 缓存中间件 — 内存 Map |
@@ -49,7 +47,6 @@
 | channel-init | src/modules/channels/channel-init.ts | Seed default channels on startup (B1-001) |
 | channel-message.service | src/modules/channels/channel-message.service.ts | ChannelMessage Service — centralized message creation + event publishing |
 | channel.routes | src/modules/channels/channel.routes.ts | Channel Routes — B1-001/B1-002/B1-009/B1-011 |
-| discovery-exposure.service | src/modules/channels/discovery-exposure.service.ts | Discovery Exposure Service — G33 |
 | requirements-doc.routes | src/modules/channels/requirements-doc.routes.ts | RequirementsDoc edit routes — B2-009 |
 | routes | src/modules/dingtalk/routes.ts | 钉钉机器人交互回调 |
 | command-runner | src/modules/discord/command-runner.ts | B3-002/B3-003: Shared command runner for CLI and Discord |
@@ -105,7 +102,6 @@
 | wiki.routes | src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
 | daemon-routes | src/modules/workspaces/daemon-routes.ts | Daemon Routes — AS-020 P5: HTTP Claim + Event Reporting |
 | discover-proxy | src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
-| gc-service | src/modules/workspaces/gc-service.ts | GC Service — AS-020 P5: Garbage collection for old tasks and events |
 | local-workspace | src/modules/workspaces/local-workspace.ts | Local Workspace Registration — AS-020 P2-04 |
 | task-routes | src/modules/workspaces/task-routes.ts | Task Routes — AS-020 P5: UI/Server task management |
 | token.routes | src/modules/workspaces/token.routes.ts | Workspace Token Routes — AS-020 P2-05: Token management (admin) |
@@ -113,10 +109,8 @@
 | ws-gateway | src/modules/workspaces/ws-gateway.ts | WebSocket Gateway — AS-020 P4: Daemon persistent connection |
 | route-registry | src/route-registry.ts | Route Registry - 模块化路由注册 |
 | seed-skills | src/scripts/seed-skills.ts | Seed 4 built-in Skills into the Skill table (D6). |
-| crypto | src/utils/crypto.ts | AES-256-GCM 加密工具 |
 | discord-notifier | src/utils/discord-notifier.ts | Discord 通知工具 |
 | errors | src/utils/errors.ts | errors |
-| git | src/utils/git.ts | Git utilities — branch detection, worktree helpers |
 | logger | src/utils/logger.ts | Logger 工具 |
 | pagination | src/utils/pagination.ts | 分页工具 - 统一 API 分页参数解析和响应格式 |
 | response | src/utils/response.ts | 统一响应格式工具 - 规范化 API 响应结构 |
