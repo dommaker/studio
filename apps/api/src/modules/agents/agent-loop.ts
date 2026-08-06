@@ -31,6 +31,7 @@ import {
 } from './daily-token-budget.js';
 import { emitExecutionStepEvent, emitExecutionStreamLine, emitExecutionStreamStepStart } from './execution-step-events.js';
 import { CODE_WORKTREE_TYPES, runWuVerification } from './wu-verification.js';
+import { runCompletionGuards } from './completion-gates.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -1202,30 +1203,11 @@ ${rosterLines.join('\n')}
   }
 
   /**
-   * §10.5 提交守卫：worktree 是否有未提交改动。
-   * git 调用失败返回 false —— 守卫静默跳过，绝不因基础设施故障阻断完成。
-   */
-  private hasUncommittedChanges(cwd: string): boolean {
-    try {
-      const out = execSync('git status --porcelain', { cwd, timeout: 5000, encoding: 'utf-8' });
-      return out.trim().length > 0;
-    } catch {
-      return false;
-    }
-  }
-
-  /** §10.5: 读取 worktree 当前 HEAD hash（失败返回 null —— 无提交监视静默跳过） */
-  private readHeadHash(cwd: string): string | null {
-    try {
-      return execSync('git rev-parse HEAD', { cwd, timeout: 5000, encoding: 'utf-8' }).trim() || null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
    * B3b-i（决策 D3 前半）验证命令解析与执行已抽到 ./wu-verification.js（F6-c）——
    * resolveVerifyCommands / runWuVerification 为模块级导出，行为不变。
+   * §10.5 提交守卫的 git 探针（hasUncommittedChanges/readHeadHash）与收口守卫链
+   * 已抽到 ./completion-gates.js（2026-08，行为不变）；resolveExecutionCwd /
+   * listUnfinishedChildren 因绑定 workUnitService/fileStore 留在本类，经 deps 下传。
    */
 
   /** Record execution outcome to knowledge service (GAP-6, non-blocking).
@@ -1316,107 +1298,24 @@ ${rosterLines.join('\n')}
     // P0 修复 6: traceId（与 agentStep 同一来源，供日志行携带）
     const traceId = typeof metadata.traceId === 'string' && metadata.traceId ? metadata.traceId : undefined;
 
-    // §10.5 提交守卫（发生在状态迁移之前，与 stepCount 守卫同层 —— 不动 VALID_TRANSITIONS）。
-    // 路径解析或 git 调用失败一律静默跳过，绝不因基础设施故障阻断完成。
-    // B3b-i: cwd 改走 resolveExecutionCwd —— 代码类 WU 在专属 worktree 下跑 git status。
-    // review WU 整体豁免：评审职责是读不是写（cwd 解析到父 WU worktree，dev 的提交/
-    // 工具产物与评审无关），工作区洁净不是它的责任——否则 COMPLETE 被反复打回空转。
-    let action = result.action;
-    const guardUpdates: Partial<WorkUnitMetadata> = {};
-    let noCommitNotice = false;
-    const workspaceRoot = wu.type === 'review' ? null : await this.resolveExecutionCwd(wu, metadata);
-    if (workspaceRoot) {
-      if (action === 'complete' && this.hasUncommittedChanges(workspaceRoot)) {
-        // COMPLETE 守卫：有未提交改动 → 打回按 PROGRESS 处理，提示注入下一轮 prompt
-        action = 'progress';
-        guardUpdates.commitGuardHint = '有未提交改动，请先 git add/commit 再报告完成';
-        logger.info(`[AgentLoop] Commit guard: COMPLETE downgraded for ${wuId} (uncommitted changes)`);
-      }
-      if (action === 'progress') {
-        // PROGRESS 无提交监视：HEAD 不变 → 累计；连续 3 步发一次频道提醒并归零
-        const head = this.readHeadHash(workspaceRoot);
-        if (head) {
-          if (metadata.lastCommitHash === head) {
-            const next = (metadata.noCommitSteps ?? 0) + 1;
-            if (next >= 3) {
-              noCommitNotice = true;
-              guardUpdates.noCommitSteps = 0;
-            } else {
-              guardUpdates.noCommitSteps = next;
-            }
-          } else {
-            guardUpdates.lastCommitHash = head;
-            guardUpdates.noCommitSteps = 0;
-          }
-        }
-      }
-    }
-
-    // §6-2 父 complete 守卫（与提交守卫同层，同一降级为 progress 的模式）：
-    // 存在未完结（unassigned/active/blocked/in_review）子 WU 时不允许 complete ——
-    // 父一旦抢先 in_review，聚合的状态序防回退会让「子后完成」无法改写父状态（收口顺序：父必须等子）。
-    if (action === 'complete') {
-      const unfinishedChildren = await this.listUnfinishedChildren(wuId);
-      if (unfinishedChildren.length > 0) {
-        action = 'progress';
-        guardUpdates.childGuardHint = `存在未完结子任务（${unfinishedChildren.join(', ')}），等待其全部完成后再报告 COMPLETE`;
-        logger.info(`[AgentLoop] Child guard: COMPLETE downgraded for ${wuId} (unfinished children: ${unfinishedChildren.length})`);
-      }
-    }
-
-    // B3b-i（决策 D3 前半）: COMPLETE 前自动验证 —— 仅代码类 WU（有专属 worktree）。
-    // 提交守卫/子任务守卫已通过（action 仍为 complete）才跑；命令解析：覆盖 > 约定（见 resolveVerifyCommands）。
-    // 全绿 → verifyReport 落档 + 频道简报；任一失败 → 降级 progress，失败命令+输出尾部注入下一轮 prompt，
-    // verifyFailCount ≥3 → blocked。无 worktree / 无命令可跑 → 跳过（维持现状）。
-    let verifyBlocked = false;
-    let verifyPassNotice: string | null = null;
-    // F6-c：本 step 是否已跑过验证（COMPLETE 守卫）——步骤超限强制收口路径据此避免重复跑
-    let verifyGuardRan = false;
-    if (action === 'complete'
-      && CODE_WORKTREE_TYPES.has(wu.type)
-      && typeof metadata.worktreePath === 'string' && metadata.worktreePath.length > 0) {
-      const outcome = await runWuVerification(wu, metadata, metadata.worktreePath);
-      verifyGuardRan = true;
-      if (outcome.failure) {
-        const failCount = (metadata.verifyFailCount ?? 0) + 1;
-        guardUpdates.verifyFailCount = failCount;
-        guardUpdates.verifyFailHint = [
-          `自动验证未通过（第 ${failCount} 次），请先修复再报告完成`,
-          `失败命令: ${outcome.failure.command}`,
-          `输出尾部:\n${outcome.failure.tail}`,
-        ].join('\n');
-        // F6（决策 1）：验证失败同样落台账 l1（rejected 留痕，后续全绿 approved 覆盖）
-        guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
-          verdict: 'rejected',
-          by: this.role.id,
-          at: new Date().toISOString(),
-          kind: 'verify',
-          summary: `失败命令: ${outcome.failure.command}`.slice(0, 300),
-        });
-        action = 'progress';
-        verifyBlocked = failCount >= 3;
-        logger.info(`[AgentLoop] Verify guard: COMPLETE downgraded for ${wuId} (command failed: ${outcome.failure.command}, count ${failCount})`);
-      } else {
-        guardUpdates.verifyFailCount = 0;
-        if (outcome.ran.length > 0) {
-          guardUpdates.verifyReport = {
-            commands: outcome.ran,
-            source: outcome.source,
-            passedAt: new Date().toISOString(),
-          };
-          // F6（决策 1）：验证全绿落台账 l1
-          guardUpdates.attestations = withAttestation(metadata.attestations, 'l1', {
-            verdict: 'approved',
-            by: this.role.id,
-            at: new Date().toISOString(),
-            kind: 'verify',
-            summary: outcome.ran.join('；').slice(0, 300),
-          });
-          verifyPassNotice = `✅ 自动验证通过（${outcome.ran.length} 条）：${outcome.ran.join('；')}`;
-          logger.info(`[AgentLoop] Verify guard: all passed for ${wuId}`, { commands: outcome.ran, source: outcome.source });
-        }
-      }
-    }
+    // 收口守卫链（§10.5 提交守卫 → §6-2 子任务守卫 → B3b-i 自动验证守卫）已抽到
+    // ./completion-gates.js（行为一字不改，含守卫顺序/hint 写法/l1 台账/合并视图口径）——
+    // recordResult 只保留编排：构建合并视图（上方）→ 跑守卫 → delegate/新鲜度/强制收口 →
+    // 单次原子写 → 状态迁移与频道通知。git/子任务查询经 deps 注入（loop 绑定的两个方法下传）。
+    const guards = await runCompletionGuards(
+      { wu, wuId, metadata, action: result.action, roleId: this.role.id },
+      {
+        resolveExecutionCwd: (w, m) => this.resolveExecutionCwd(w, m),
+        listUnfinishedChildren: id => this.listUnfinishedChildren(id),
+      },
+    );
+    let action = guards.action;
+    const guardUpdates = guards.guardUpdates;
+    const noCommitNotice = guards.notices.noCommit;
+    const verifyBlocked = guards.notices.verifyBlocked;
+    const verifyPassNotice = guards.notices.verifyPassed;
+    // F6-c：本 step COMPLETE 守卫是否已跑过验证 —— 下方步骤超限强制收口路径据此避免重复跑
+    const verifyGuardRan = guards.notices.verifyGuardRan;
 
     // A2A §4.1: DELEGATE 分支 —— DelegationGate 纯代码校验（零 LLM）。
     // 通过：建子单 + collab 元数据 + delegate 卡片（父 WU 状态不变，按 progress 继续）；
