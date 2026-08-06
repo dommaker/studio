@@ -74,6 +74,9 @@ export class ReviewDispatcher {
    * assigneeId 有两种形态——指名未认领时是 profile id，
    * 已认领后被 claim 改写为 instance id（instance.state.roleId 才是 profile id）。
    * 排除约束/台账归属必须落在 profile id 上（agent-loop observe 按 this.role.id 比对）。
+   * 单 WU 变体（按 id 点查 getProfile → getState）；批量场景用
+   * workunit/assignee-resolver.ts 的 buildAssigneeProfileResolver（一次建 map，
+   * 同语义、map-first，仅当某 id 同时为 profile id 与 instance id 时顺序不同——实际不存在）。
    */
   private async resolveProfileId(assigneeId: string | null): Promise<string | null> {
     if (!assigneeId) return null;
