@@ -1,4 +1,4 @@
-// Notify API — 用户通知渠道配置（进程内存，重启丢失；Settings 页「已同步/需重存」提示 + 保存）
+// Notify API — 用户通知渠道配置（服务端持久化到 ~/.studio/notify-config.json；Settings 页「已同步/需重存」提示 + 保存）
 import { api } from './index';
 
 /** GET /notify/config/status 响应（每渠道一段：是否已有用户配置） */
@@ -19,7 +19,7 @@ export const notifyApi = {
   /** 各渠道用户配置状态（「已同步/需重存」指示的数据源） */
   getConfigStatus: () => api.get<NotifyConfigStatus>('/notify/config/status'),
 
-  /** 保存用户通知渠道配置到进程内存 → { success: true } */
+  /** 保存用户通知渠道配置（服务端落盘持久化） → { success: true } */
   saveConfig: (config: NotifyUserConfig) =>
     api.post<{ success: boolean }>('/notify/config', config),
 };

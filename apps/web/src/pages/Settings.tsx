@@ -181,7 +181,7 @@ export function Settings() {
         telegram: config.telegram,
       });
 
-      // 保存 Webhook 配置到进程内存
+      // 保存 Webhook 配置到服务端（落盘持久化，重启不丢）
       await notifyApi.saveConfig({
         discord: config.discord,
         wecom: config.wecom,
