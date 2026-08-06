@@ -63,7 +63,6 @@ vi.mock('../../components/channel/ChannelInput', () => ({
 vi.mock('../../components/channel/RequirementsDocCard', () => ({ RequirementsDocCard: () => null }));
 vi.mock('../../components/channel/KnowledgeConfirmCard', () => ({ KnowledgeConfirmCard: () => null }));
 vi.mock('../../components/channel/AuditorSuggestionCard', () => ({ AuditorSuggestionCard: () => null }));
-vi.mock('../../components/channel/DeployApprovalCard', () => ({ DeployApprovalCard: () => null }));
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelDetailPage } from '../ChannelDetailPage';

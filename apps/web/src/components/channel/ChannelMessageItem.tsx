@@ -8,7 +8,6 @@ import { RequirementsDocCard } from './RequirementsDocCard';
 import { KnowledgeConfirmCard } from './KnowledgeConfirmCard';
 import { KnowledgeProposalCard } from './KnowledgeProposalCard';
 import { AuditorSuggestionCard } from './AuditorSuggestionCard';
-import { DeployApprovalCard } from './DeployApprovalCard'; // M4a
 import { ConvertToTaskDialog } from './ConvertToTaskDialog';
 
 interface Props {
@@ -43,8 +42,6 @@ function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction
       return <KnowledgeProposalCard message={message} meta={meta} onAction={onAction} />;
     case 'auditor_suggestion':
       return <AuditorSuggestionCard message={message} meta={meta} onAction={onAction} />;
-    case 'deploy_approval': // M4a
-      return <DeployApprovalCard message={message} meta={meta} onAction={onAction} />;
     default:
       return null;
   }
