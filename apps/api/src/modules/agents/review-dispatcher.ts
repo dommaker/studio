@@ -16,7 +16,8 @@
  * 设计决策（design.md §1.2）：
  *   D5: 状态机驱动，不走 agent DELEGATE 协议
  *   D6: 绕过 DelegationGate（系统代派不是 agent 主动 DELEGATE）
- *   D7: 旧 reviewAgent.review() 已删除（2026-07-28，逾期收尾）；review.service 仅保留 reviewDiff() 供 /review/diff 管理端点
+ *   D7: 旧 reviewAgent.review() 已删除（2026-07-28，逾期收尾）；review.service/review-report
+ *   （/review/diff 管理端点链路）已于 2026-08-06 整体删除——端点零真实调用方
  */
 
 import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';

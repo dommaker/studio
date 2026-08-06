@@ -3,8 +3,7 @@
 // 计划迁移到 agent-profiles / workunit API（见 docs/vision-2026.md），迁移前请勿在此扩展新功能。
 import { Router, Request, Response } from 'express';
 import { AgentRegistry } from '@dommaker/studio-agent';
-import { reviewService } from './review.service.js';
-import { requireAuth, requireAdmin, requireNotGuest, requireRole } from '../../middleware/auth.js';
+import { requireAuth, requireNotGuest, requireRole } from '../../middleware/auth.js';
 import { eventStore } from '../../core/event-store.js';
 import { logger } from '@dommaker/studio-shared';
 
@@ -141,23 +140,5 @@ router.delete('/:agentId', requireRole('Admin'), async (req: Request, res: Respo
     });
   }
 });
-
-// ── Review diff between branches ──────────────────────────
-
-router.post('/review/diff', requireAuth(), requireAdmin(), async (req: Request, res: Response) => {
-  try {
-    const { baseRef, headRef, repoPath, description, acceptanceCriteria, stances } = req.body;
-    if (!baseRef || !headRef) {
-      return res.status(400).json({ error: { code: 'MISSING_PARAM', message: 'baseRef and headRef are required' } });
-    }
-    const repoDir = repoPath || process.env.REPO_DIR || '/root/projects/studio';
-    const result = await reviewService.reviewDiff({ baseRef, headRef, repoPath: repoDir, description, acceptanceCriteria, stances });
-    res.json(result);
-  } catch (error) {
-    logger.error('[Agents] Review diff failed', { error: String(error) });
-    res.status(500).json({ error: { code: 'REVIEW_FAILED', message: String(error) } });
-  }
-});
-
 
 export default router;
