@@ -171,6 +171,8 @@ export const runtimeWorkflowApi = {
     tokenWarningThreshold?: number;
     showTokenUsage?: boolean;
   }) => api.post('/runtime-config', data),
+  // 触发 TaskWorker 热更新（Settings 保存后调用；下次轮询重读配置）
+  reloadConfig: () => api.post('/runtime-config/reload'),
   // 项目
   listProjects: () => api.get('/pmo/project'),
   createProject: (data: { name: string; path: string; type?: string; description?: string }) =>

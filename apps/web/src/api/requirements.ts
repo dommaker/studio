@@ -51,3 +51,10 @@ export const requirementApi = {
   getChain: (id: string) =>
     api.get<{ success: boolean; data: RequirementChain }>(`/requirements/${id}/chain`),
 };
+
+// RequirementsDoc API — B2-009 SDD 需求文档编辑（≠ 上方 REQ 编号体系；后端路由挂在 channels 模块）
+export const requirementsDocApi = {
+  /** 更新文档内容（confirmed/done 状态后端 400 拒绝；requireAuth + requireNotGuest） */
+  update: (docId: string, content: string) =>
+    api.put<{ success: boolean; data: { updated: boolean } }>(`/requirements-docs/${docId}`, { content }),
+};

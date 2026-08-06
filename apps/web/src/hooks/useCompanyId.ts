@@ -1,6 +1,6 @@
 // useCompanyId - 统一获取公司 ID
 import { useState, useEffect } from 'react';
-import { api } from '../api';
+import { companyApi } from '../api/company';
 
 const LOCAL_STORAGE_KEY = 'companyId';
 
@@ -21,7 +21,7 @@ export function useCompanyId() {
         }
 
         // 2. 从 API 获取默认公司
-        const res = await api.get('/companies');
+        const res = await companyApi.list();
         if (res.data?.data?.length > 0) {
           const id = res.data.data[0].id;
           localStorage.setItem(LOCAL_STORAGE_KEY, id);

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api';
+import { knowledgeApi, type KnowledgeGapType } from '../api/knowledge';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
 import { Select, ManualTaskButton } from '../components/ui';
 
@@ -60,10 +60,10 @@ export function KnowledgePage() {
     setGapLoading(true);
     try {
       if (type === 'resolution') {
-        const res = await api.get('/knowledge/resolutions');
+        const res = await knowledgeApi.listResolutions();
         setGapData(res.data.resolutions || []);
       } else {
-        const res = await api.get(`/knowledge/gaps/${type}`);
+        const res = await knowledgeApi.listGaps(type as KnowledgeGapType);
         setGapData(res.data.data || []);
       }
     } catch { setGapData([]); }
@@ -74,9 +74,11 @@ export function KnowledgePage() {
   const loadUnified = useCallback(async () => {
     setUnifiedLoading(true);
     try {
-      const params = new URLSearchParams({ limit: '50', offset: String(unifiedOffset) });
-      if (unifiedMode) params.set('consumptionMode', unifiedMode);
-      const res = await api.get(`/knowledge/unified?${params}`);
+      const res = await knowledgeApi.listUnified({
+        limit: 50,
+        offset: unifiedOffset,
+        consumptionMode: unifiedMode || undefined,
+      });
       setUnifiedEntries(res.data.entries || []);
       setUnifiedTotal(res.data.total || 0);
     } catch { setUnifiedEntries([]); }
@@ -91,7 +93,7 @@ export function KnowledgePage() {
   // AS-022: Submit manual entry
   const handleManualEntry = async () => {
     try {
-      await api.post('/knowledge/unified', {
+      await knowledgeApi.createUnifiedEntry({
         ...manualForm,
         tags: manualForm.tags ? manualForm.tags.split(',').map(t => t.trim()) : [],
       });
@@ -106,7 +108,7 @@ export function KnowledgePage() {
     if (!globalSearch.trim()) { setSearchResults([]); return; }
     setSearchLoading(true);
     try {
-      const res = await api.get(`/knowledge/search?q=${encodeURIComponent(globalSearch)}`);
+      const res = await knowledgeApi.search(globalSearch);
       setSearchResults(res.data.results || []);
     } catch { setSearchResults([]); }
     finally { setSearchLoading(false); }

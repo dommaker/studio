@@ -3,11 +3,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
-const { mockGet, mockPost, mockChannelList, mockListAllAgents } = vi.hoisted(() => ({
+const { mockGet, mockPost, mockChannelList, mockListAllAgents, mockProjectList } = vi.hoisted(() => ({
   mockGet: vi.fn(),
   mockPost: vi.fn(),
   mockChannelList: vi.fn(),
   mockListAllAgents: vi.fn(),
+  mockProjectList: vi.fn(),
 }));
 
 vi.mock('../../api', () => ({
@@ -17,6 +18,7 @@ vi.mock('../../api', () => ({
   },
   projectApi: {
     publish: vi.fn(),
+    list: mockProjectList,
   },
 }));
 
@@ -49,11 +51,11 @@ describe('AC-6: PMO publish button', () => {
       { id: 'agent-2', name: 'pm', status: 'active', description: null, channels: '["ch-9"]' },
     ] } });
 
-    // Mock the loadData Promise.all — companies, okr, project
+    // Mock the loadData Promise.all — companies/okr 走 mockGet，project 走 projectApi.list
+    mockProjectList.mockResolvedValue({ data: { data: mockProjects } });
     mockGet.mockImplementation((url: string) => {
       if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });
       if (url.includes('/pmo/okr')) return Promise.resolve({ data: { data: [] } });
-      if (url.includes('/pmo/project')) return Promise.resolve({ data: { data: mockProjects } });
       return Promise.resolve({ data: { data: [] } });
     });
   });
@@ -75,13 +77,8 @@ describe('AC-6: PMO publish button', () => {
   });
 
   it('does not show publish button for non-pending project', async () => {
-    mockGet.mockImplementation((url: string) => {
-      if (url.includes('/companies')) return Promise.resolve({ data: { data: [{ id: 'co-1' }] } });
-      if (url.includes('/pmo/okr')) return Promise.resolve({ data: { data: [] } });
-      if (url.includes('/pmo/project')) return Promise.resolve({
-        data: { data: [mockProjects[1]] }, // only active project
-      });
-      return Promise.resolve({ data: { data: [] } });
+    mockProjectList.mockResolvedValue({
+      data: { data: [mockProjects[1]] }, // only active project
     });
 
     renderPMO();

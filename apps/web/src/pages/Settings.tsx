@@ -1,7 +1,9 @@
 // 设置页面 - API 配置 + 通知 + 公司 + 主题语言
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api, runtimeWorkflowApi } from '../api';
+import { runtimeWorkflowApi } from '../api';
+import { companyApi } from '../api/company';
+import { notifyApi } from '../api/notify';
 import { WorkspaceStatusBar } from '../components/WorkspaceStatusBar';
 import { JoinComputeDialog } from '../components/JoinComputeDialog';
 import { TokenManager } from '../components/TokenManager';
@@ -104,7 +106,7 @@ export function Settings() {
 
         // 检查通知配置同步状态
         try {
-          const notifyRes = await api.get('/notify/config/status');
+          const notifyRes = await notifyApi.getConfigStatus();
           const hasNotifyUserConfig = notifyRes.data?.discord?.hasUserConfig || notifyRes.data?.wecom?.hasUserConfig || notifyRes.data?.telegram?.hasUserConfig;
           if (hasNotifyUserConfig) {
             setNotifySyncStatus('synced');
@@ -130,7 +132,7 @@ export function Settings() {
         // 加载公司信息
         const storedCompanyId = localStorage.getItem('companyId');
         if (storedCompanyId) {
-          const companyRes = await api.get(`/companies/${storedCompanyId}`).catch(() => null);
+          const companyRes = await companyApi.get(storedCompanyId).catch(() => null);
           if (companyRes?.data) {
             setCompany(companyRes.data);
             setNewCompanyName(companyRes.data.name);
@@ -150,7 +152,7 @@ export function Settings() {
     };
 
     async function fetchOrCreateCompany() {
-      const companiesRes = await api.get('/companies');
+      const companiesRes = await companyApi.list();
       if (companiesRes.data?.data?.length > 0) {
         // 已有公司 → 使用第一个
         const firstCompany = companiesRes.data.data[0];
@@ -159,7 +161,7 @@ export function Settings() {
         setNewCompanyName(firstCompany.name);
       } else {
         // 无公司 → 创建默认公司
-        const createRes = await api.post('/companies', {
+        const createRes = await companyApi.create({
           name: '我的工作空间',
         }).catch(() => null);
         if (createRes?.data?.id) {
@@ -189,7 +191,7 @@ export function Settings() {
       });
 
       // 保存 Webhook 配置到进程内存
-      await api.post('/notify/config', {
+      await notifyApi.saveConfig({
         discord: config.discord,
         wecom: config.wecom,
         telegram: config.telegram,
@@ -204,7 +206,7 @@ export function Settings() {
       });
 
       // 触发 TaskWorker 热更新
-      await api.post('/runtime-config/reload');
+      await runtimeWorkflowApi.reloadConfig();
 
       await runtimeWorkflowApi.updateConfig({ contextMonitor: config.contextMonitor });
       toast.success('设置已保存');
@@ -409,7 +411,7 @@ export function Settings() {
                     setNewCompanyName(e.target.value);
                     if (company) {
                       // 自动保存
-                      api.patch(`/companies/${company.id}`, { name: e.target.value }).then(() => {
+                      companyApi.update(company.id, { name: e.target.value }).then(() => {
                         setCompany({ ...company!, name: e.target.value });
                       }).catch(err => { console.error('Auto-save failed:', err); toast.error('自动保存失败'); });
                     }
@@ -420,7 +422,7 @@ export function Settings() {
               {/* 如果没有公司，显示创建提示 */}
               {!company && newCompanyName.trim() && (
                 <button onClick={() => {
-                  api.post('/companies', { name: newCompanyName }).then(res => {
+                  companyApi.create({ name: newCompanyName }).then(res => {
                     if (res.data?.id) {
                       localStorage.setItem('companyId', res.data.id);
                       setCompany(res.data);

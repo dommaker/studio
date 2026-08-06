@@ -2,7 +2,8 @@
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { CompanyHallCard } from './CompanyHallCard';
-import { api } from '../api';
+import { runtimeWorkflowApi } from '../api';
+import { okrApi } from '../api/pmo';
 import '../styles/theme.css';
 
 interface PMOStats {
@@ -28,12 +29,12 @@ export function PMOCard({ companyId }: PMOCardProps) {
     try {
       setLoading(true);
 
-      // 并行获取 OKR 和项目数据
+      // 并行获取 OKR 和执行数据
       const [okrRes, projectsRes] = await Promise.all([
         companyId
-          ? api.get(`/pmo/okr?companyId=${companyId}`)
+          ? okrApi.list(companyId)
           : Promise.resolve({ data: { data: [] } }),
-        api.get('/executions?limit=50').catch(() => ({ data: { data: [] } })),
+        runtimeWorkflowApi.listExecutions({ limit: 50 }).catch(() => ({ data: { data: [] } })),
       ]);
 
       const okrs = okrRes.data?.data || [];

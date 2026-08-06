@@ -1,7 +1,9 @@
 // PMOPage - PMO 管理主页面（项目 + OKR）
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
-import { api, projectApi } from '../api';
+import { projectApi } from '../api';
+import { companyApi } from '../api/company';
+import { okrApi, type OkrKeyResult } from '../api/pmo';
 import { channelApi, type Channel, type AgentProfile, type LocalProject } from '../api/channel';
 import { requirementApi } from '../api/requirements';
 import { knowledgeApi } from '../api/knowledge';
@@ -54,7 +56,7 @@ interface OKR {
   progress: number;
   projectCount: number;
   objectives?: OKRObjective[];
-  keyResults?: KR[];
+  keyResults?: OkrKeyResult[];
 }
 
 const METRIC_TYPE_OPTIONS = [
@@ -254,7 +256,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
 
       let actualCompanyId = companyId;
       if (!actualCompanyId) {
-        const companiesRes = await api.get('/companies');
+        const companiesRes = await companyApi.list();
         if (companiesRes.data?.data?.length > 0) {
           actualCompanyId = companiesRes.data.data[0].id;
         }
@@ -262,10 +264,10 @@ export function PMOPage({ companyId }: PMOPageProps) {
 
       const [okrRes, projectsRes] = await Promise.all([
         actualCompanyId
-          ? api.get(`/pmo/okr?companyId=${actualCompanyId}`)
+          ? okrApi.list(actualCompanyId)
           : Promise.resolve({ data: { data: [] } }),
         actualCompanyId
-          ? api.get(`/pmo/project?companyId=${actualCompanyId}&limit=20`)
+          ? projectApi.list({ companyId: actualCompanyId, limit: 20 })
           : Promise.resolve({ data: { data: [] } }),
       ]);
 
@@ -356,7 +358,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
         return;
       }
 
-      await api.post('/pmo/okr', {
+      await okrApi.create({
         companyId: actualCompanyId,
         title: newOKRTitle,
         quarter: newOKRQuarter,
@@ -608,7 +610,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
                   {/* 🆕 B8: KR 列表 */}
                   {okr.keyResults && okr.keyResults.length > 0 && (
                     <div className="space-y-1 mt-2 pt-2 border-t u-border">
-                      {okr.keyResults.map((kr: KR) => (
+                      {okr.keyResults.map((kr: OkrKeyResult) => (
                         <div key={kr.id} className="flex items-center justify-between text-xs">
                           <span className="u-text-2">
                             {kr.title}
