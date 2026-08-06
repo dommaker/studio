@@ -37,6 +37,8 @@
 - CLI 命令注册表为全局单例，测试后需调用 `clearCommands()` 清理
 - 配置优先级：环境变量 > `~/.studio/config.env` > 默认值，且仅当环境变量未设置时才加载 config.env
 - `FileStore` 使用 `flock` 目录锁（`mkdir` 原子操作）保障 claim 原子性
+- `FileStore` 的 readJson/readJsonl/readdir 走模块级读穿缓存（stat mtime 校验 + 写/删精确失效，工单 26 A1）；缓存命中返回结构克隆，调用方 mutate 返回值不会污染缓存；`readIndexFile` 保持无缓存（锁内跨进程正确性）
+- `FileStore` 的 Requirement/Evolution 段共用泛型「序号分配型条目存储」实现（`SeqEntryStoreConfig`，工单 26 A2），新增同类存储应加配置而非复制段
 - 事件总线支持通配符（`*`）模式订阅，Handler 异常不会影响其他监听器
 - 级别常量为单一数据源，其他模块不应重复定义
 - `constants/` 下各文件应保持无外部依赖（仅内部引用），便于前端复用
