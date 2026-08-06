@@ -13,7 +13,8 @@ import { useWorkUnitEvents } from '../../hooks/useWorkUnitEvents';
 import { ExecutionSteps } from '../workunit/ExecutionSteps';
 import { TreeTokenDrawer } from '../workunit/TreeTokenDrawer';
 import { SelfReviewBadge } from '../workunit/SelfReviewBadge';
-import { deriveDisplayState, parseAttestations, type AttestationEntry } from '@dommaker/studio-shared/web';
+import { EvidenceLedger } from '../workunit/EvidenceLedger';
+import { deriveDisplayState, parseAttestations } from '@dommaker/studio-shared/web';
 
 export type DrawerState = { kind: 'wu'; id: string } | { kind: 'req'; id: string } | null;
 
@@ -165,29 +166,9 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
       {wu.claimedAt && <div className="mc-kv"><span className="mc-kv-k">认领</span><span className="mc-kv-v">{formatTime(wu.claimedAt)}</span></div>}
       {wu.completedAt && <div className="mc-kv"><span className="mc-kv-k">完成</span><span className="mc-kv-v">{formatTime(wu.completedAt)}</span></div>}
 
-      {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕 + 人工确认入口。
+      {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收 三层留痕（共享 EvidenceLedger，卡片变体见 WorkUnitDetailPage）。
           语义：L2 是流程硬门（过了即推进）；L3 是人工背书台账，不阻断流程（done 缺 l3 时展示回审查列）。 */}
-      <div className="mc-block-label">证据台账</div>
-      {attestations === undefined && (
-        <div className="mc-drawer-note">存量 WU，证据模型未介入（按存储状态展示）</div>
-      )}
-      {attestations !== undefined && (['l1', 'l2', 'l3'] as const).map(level => {
-        const entry: AttestationEntry | undefined = attestations[level];
-        const label = level === 'l1' ? 'L1 自动验证' : level === 'l2' ? 'L2 Agent 评审' : 'L3 人工验收';
-        return (
-          <div className="mc-kv" key={level}>
-            <span className="mc-kv-k">{label}</span>
-            <span className="mc-kv-v">
-              {entry
-                ? `${entry.verdict === 'approved' ? '✓' : '✗'} ${entry.kind} · ${entry.by.slice(0, 8)} · ${formatTime(entry.at)}`
-                : '—'}
-            </span>
-          </div>
-        );
-      })}
-      {attestations?.l2?.summary && (
-        <div className="mc-drawer-note">评审结论：{attestations.l2.summary}</div>
-      )}
+      <EvidenceLedger attestations={attestations} variant="drawer" />
       {wu.status === 'in_review' && (
         <div style={{ margin: '4px 0 8px' }}>
           <button

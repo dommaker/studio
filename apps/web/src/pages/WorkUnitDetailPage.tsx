@@ -15,6 +15,7 @@ import { DiscussionPanel } from '../components/DiscussionPanel';
 import { RequirementChainPanel } from '../components/requirement/RequirementChainPanel';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { TreeTokenDrawer } from '../components/workunit/TreeTokenDrawer';
+import { EvidenceLedger } from '../components/workunit/EvidenceLedger';
 
 const statusLabels: Record<string, string> = {
   unassigned: '待分配',
@@ -239,42 +240,8 @@ export function WorkUnitDetailPage() {
                 </div>
               )}
 
-              {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（数据路径同 WorkUnitDrawer） */}
-              <div
-                className="card mt-4 p-3"
-              >
-                <div className="text-xs font-medium u-text-2 mb-2">证据台账</div>
-                {attestations === undefined ? (
-                  <div className="text-xs u-text-3">存量 WU，证据模型未介入（按存储状态展示）</div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {(['l1', 'l2', 'l3'] as const).map(level => {
-                      const entry = attestations[level];
-                      const label = level === 'l1' ? 'L1 自动验证' : level === 'l2' ? 'L2 Agent 评审' : 'L3 人工验收';
-                      return (
-                        <div className="flex items-center gap-2 text-xs" key={level}>
-                          <span className="u-text-2 w-24 flex-shrink-0">{label}</span>
-                          {entry ? (
-                            <>
-                              <span className={`px-2 py-0.5 rounded ${entry.verdict === 'approved' ? 'u-ok-dim u-ok' : 'u-err-dim u-err'}`}>
-                                {entry.verdict === 'approved' ? '✓ 通过' : '✗ 拒绝'}
-                              </span>
-                              <span className="u-text-3">
-                                {entry.kind} · {entry.by.slice(0, 8)} · {formatTime(entry.at)}
-                              </span>
-                            </>
-                          ) : (
-                            <span className="u-text-3">—</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                    {attestations.l2?.summary && (
-                      <div className="text-xs u-text-3">评审结论：{attestations.l2.summary}</div>
-                    )}
-                  </div>
-                )}
-              </div>
+              {/* F6 证据台账：L1 自动验证 / L2 Agent 评审 / L3 人工验收（共享 EvidenceLedger，数据路径同 WorkUnitDrawer） */}
+              <EvidenceLedger attestations={attestations} variant="card" />
 
               {/* 执行过程（思考/工具调用/用量；组件自带 REST 回放 + SSE 实时流，页面不接 SSE） */}
               <div
