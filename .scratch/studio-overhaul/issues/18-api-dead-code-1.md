@@ -1,7 +1,7 @@
 # 18 — api 死文件与孤儿代码第一刀
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 
 ## Question
