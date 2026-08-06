@@ -218,6 +218,62 @@ export class LockTimeoutError extends Error {
 const LOCK_RETRY_INTERVAL_MS = 10;
 const DEFAULT_LOCK_TIMEOUT_MS = 5000;
 
+// ─── 读穿缓存（A1，工单 26）───
+//
+// 模块级（同进程共享、按绝对路径为 key），任何 FileStore 实例的写/删都会失效对应 key，
+// 因此同进程内写后读立即可见。命中时用 stat 的 mtimeMs 校验缓存新鲜度，
+// 其他进程的外部写入（mtime 变化）也会触发重读——不引入跨进程脏读。
+// 缓存对象一律不直接外发（命中返回结构克隆），调用方原地 mutate 返回值不会污染缓存。
+
+interface CacheEntry<T> {
+  value: T;
+  mtimeMs: number;
+}
+
+const jsonCache = new Map<string, CacheEntry<unknown>>();
+const jsonlCache = new Map<string, CacheEntry<unknown[]>>();
+const dirCache = new Map<string, CacheEntry<fs.Dirent[]>>();
+const MAX_CACHE_ENTRIES = 1000;
+
+function cacheSet<T>(map: Map<string, CacheEntry<T>>, key: string, entry: CacheEntry<T>): void {
+  if (map.size >= MAX_CACHE_ENTRIES) map.clear();
+  map.set(key, entry);
+}
+
+/** 文件/目录 mtimeMs；不存在返回 null；其他错误抛出（与 readFile 错误语义一致） */
+async function statMtimeMs(target: string): Promise<number | null> {
+  try {
+    const st = await fs.promises.stat(target);
+    return st.mtimeMs;
+  } catch (err: unknown) {
+    if (isErrnoError(err) && err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+/** 缓存值外发前结构克隆（null 直返），防调用方原地 mutate 污染缓存 */
+function cloneCached<T>(value: T): T {
+  return value === null || value === undefined ? value : structuredClone(value);
+}
+
+/** 写路径失效：精确删除对应文件 key；目录级 list 缓存清空（新建文件/目录可能落在同一 mtime 粒度内，不能只靠 mtime 校验） */
+function invalidateFileKey(filePath: string): void {
+  jsonCache.delete(filePath);
+  jsonlCache.delete(filePath);
+  dirCache.clear();
+}
+
+/** 删路径失效：文件或目录（递归）下所有 key + 目录级 list 缓存 */
+function invalidateRemovedPath(target: string): void {
+  const prefix = target.endsWith(path.sep) ? target : target + path.sep;
+  for (const map of [jsonCache, jsonlCache] as const) {
+    for (const key of map.keys()) {
+      if (key === target || key.startsWith(prefix)) map.delete(key);
+    }
+  }
+  dirCache.clear();
+}
+
 // ─── FileStore 类 ───
 
 export class FileStore {
@@ -239,19 +295,31 @@ export class FileStore {
     await fs.promises.mkdir(dir, { recursive: true });
   }
 
-  /** 读取 JSON 文件，不存在或损坏返回 null */
+  /** 读取 JSON 文件，不存在或损坏返回 null（A1: mtime 校验的读穿缓存） */
   public async readJson<T>(filePath: string): Promise<T | null> {
+    const mtimeMs = await statMtimeMs(filePath);
+    if (mtimeMs === null) {
+      jsonCache.delete(filePath);
+      return null;
+    }
+    const hit = jsonCache.get(filePath);
+    if (hit && hit.mtimeMs === mtimeMs) {
+      return cloneCached(hit.value) as T | null;
+    }
+    let value: unknown = null;
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       try {
-        return JSON.parse(content) as T;
+        value = JSON.parse(content);
       } catch {
-        return null; // corrupt JSON → treat as missing
+        value = null; // corrupt JSON → treat as missing
       }
     } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return null;
-      throw err;
+      if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
+      value = null; // stat 与 readFile 之间被删 → 按缺失处理
     }
+    cacheSet(jsonCache, filePath, { value, mtimeMs });
+    return cloneCached(value) as T | null;
   }
 
   /**
@@ -275,12 +343,14 @@ export class FileStore {
       await fs.promises.unlink(tmpPath).catch(() => {});
       throw err;
     }
+    invalidateFileKey(filePath);
   }
 
   /** 追加一行 JSONL */
   public async appendJsonl(filePath: string, data: unknown): Promise<void> {
     await this.ensureDir(path.dirname(filePath));
     await fs.promises.appendFile(filePath, JSON.stringify(data) + '\n', 'utf-8');
+    invalidateFileKey(filePath);
   }
 
   /** 写入全部 JSONL 行（覆盖） */
@@ -288,26 +358,55 @@ export class FileStore {
     await this.ensureDir(path.dirname(filePath));
     const content = data.map(item => JSON.stringify(item)).join('\n') + (data.length > 0 ? '\n' : '');
     await fs.promises.writeFile(filePath, content, 'utf-8');
+    invalidateFileKey(filePath);
   }
 
-  /** 读取全部 JSONL 行（跳过解析失败的行） */
+  /** 读取全部 JSONL 行（跳过解析失败的行；A1: mtime 校验的读穿缓存） */
   public async readJsonl<T>(filePath: string): Promise<T[]> {
+    const mtimeMs = await statMtimeMs(filePath);
+    if (mtimeMs === null) {
+      jsonlCache.delete(filePath);
+      return [];
+    }
+    const hit = jsonlCache.get(filePath);
+    if (hit && hit.mtimeMs === mtimeMs) {
+      return cloneCached(hit.value) as T[];
+    }
+    let rows: unknown[] = [];
     try {
       const content = await fs.promises.readFile(filePath, 'utf-8');
       const lines = content.split('\n').filter(l => l.trim().length > 0);
-      const results: T[] = [];
+      const results: unknown[] = [];
       for (const line of lines) {
         try {
-          results.push(JSON.parse(line) as T);
+          results.push(JSON.parse(line));
         } catch {
           // skip corrupt lines
         }
       }
-      return results;
+      rows = results;
     } catch (err: unknown) {
-      if (isErrnoError(err) && err.code === 'ENOENT') return [];
-      throw err;
+      if (!isErrnoError(err) || err.code !== 'ENOENT') throw err;
+      rows = []; // stat 与 readFile 之间被删 → 按空处理
     }
+    cacheSet(jsonlCache, filePath, { value: rows, mtimeMs });
+    return cloneCached(rows) as T[];
+  }
+
+  /** readdir（withFileTypes）读穿缓存：目录 mtime 校验，目录内容增删触发重读 */
+  private async readdirCached(dir: string): Promise<fs.Dirent[]> {
+    const mtimeMs = await statMtimeMs(dir);
+    if (mtimeMs === null) {
+      dirCache.delete(dir);
+      return fs.promises.readdir(dir, { withFileTypes: true }); // 保留 ENOENT 抛错语义
+    }
+    const hit = dirCache.get(dir);
+    if (hit && hit.mtimeMs === mtimeMs) {
+      return hit.value;
+    }
+    const entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    cacheSet(dirCache, dir, { value: entries, mtimeMs });
+    return entries;
   }
 
   // ─── 文件锁 ───
@@ -392,16 +491,14 @@ export class FileStore {
     const dir = this.agentsDir();
     try {
       await fs.promises.mkdir(dir, { recursive: true });
-      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-      const profiles: AgentProfileData[] = [];
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+      const entries = await this.readdirCached(dir);
+      const results = await Promise.all(entries.map(async entry => {
+        if (!entry.isDirectory()) return null;
         const profile = await this.readJson<AgentProfileData>(this.profilePath(entry.name));
-        if (profile && (!filter?.status || profile.status === filter.status)) {
-          profiles.push(profile);
-        }
-      }
-      return profiles;
+        if (profile && (!filter?.status || profile.status === filter.status)) return profile;
+        return null;
+      }));
+      return results.filter((p): p is AgentProfileData => p !== null);
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return [];
       throw err;
@@ -430,6 +527,7 @@ export class FileStore {
       if (isErrnoError(err) && err.code === 'ENOENT') throw new Error(`AgentProfile not found: ${id}`);
       throw err;
     }
+    invalidateRemovedPath(dir);
   }
 
   /**
@@ -477,14 +575,12 @@ export class FileStore {
     const dir = this.agentsDir();
     try {
       await fs.promises.mkdir(dir, { recursive: true });
-      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-      const states: RuntimeStateData[] = [];
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const state = await this.readJson<RuntimeStateData>(this.statePath(entry.name));
-        if (state) states.push(state);
-      }
-      return states;
+      const entries = await this.readdirCached(dir);
+      const results = await Promise.all(entries.map(async entry => {
+        if (!entry.isDirectory()) return null;
+        return this.readJson<RuntimeStateData>(this.statePath(entry.name));
+      }));
+      return results.filter((s): s is RuntimeStateData => s !== null);
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return [];
       throw err;
@@ -506,6 +602,7 @@ export class FileStore {
       if (isErrnoError(err) && err.code === 'ENOENT') throw new Error(`RuntimeState not found for agent: ${agentId}`);
       throw err;
     }
+    invalidateFileKey(statePath);
   }
 
   /** 创建新的 RuntimeState（不是 upsert，确保第一次创建不会覆盖已有） */
@@ -538,19 +635,17 @@ export class FileStore {
     const dir = this.channelsDir();
     try {
       await fs.promises.mkdir(dir, { recursive: true });
-      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-      const channels: ChannelData[] = [];
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+      const entries = await this.readdirCached(dir);
+      const results = await Promise.all(entries.map(async entry => {
+        if (!entry.isDirectory()) return null;
         const ch = await this.readJson<ChannelData>(this.channelConfigPath(entry.name));
-        if (ch) {
-          if (filter?.name && ch.name !== filter.name) continue;
-          if (filter?.type && ch.type !== filter.type) continue;
-          if (filter?.excludeArchived && /-archived-\d+$/.test(ch.name)) continue;
-          channels.push(ch);
-        }
-      }
-      return channels;
+        if (!ch) return null;
+        if (filter?.name && ch.name !== filter.name) return null;
+        if (filter?.type && ch.type !== filter.type) return null;
+        if (filter?.excludeArchived && /-archived-\d+$/.test(ch.name)) return null;
+        return ch;
+      }));
+      return results.filter((ch): ch is ChannelData => ch !== null);
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return [];
       throw err;
@@ -579,6 +674,7 @@ export class FileStore {
       if (isErrnoError(err) && err.code === 'ENOENT') throw new Error(`Channel not found: ${id}`);
       throw err;
     }
+    invalidateRemovedPath(dir);
   }
 
   // ═══════════════════════
@@ -699,19 +795,20 @@ export class FileStore {
     const result: ChannelMessageData[] = [];
     const dir = this.channelsDir();
     try {
-      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+      const entries = await this.readdirCached(dir);
+      const perChannel = await Promise.all(entries.map(async entry => {
+        if (!entry.isDirectory()) return [];
         const active = await this.resolveActiveMessages(entry.name);
-        for (const msg of active) {
-          if (filter?.workUnitId && msg.workUnitId !== filter.workUnitId) continue;
-          if (filter?.workUnitIds && msg.workUnitId && !filter.workUnitIds.includes(msg.workUnitId)) continue;
-          if (filter?.authorType && msg.authorType !== filter.authorType) continue;
-          if (filter?.agentName && msg.agentName !== filter.agentName) continue;
-          if (filter?.agentNames && msg.agentName && !filter.agentNames.includes(msg.agentName)) continue;
-          result.push(msg);
-        }
-      }
+        return active.filter(msg => {
+          if (filter?.workUnitId && msg.workUnitId !== filter.workUnitId) return false;
+          if (filter?.workUnitIds && msg.workUnitId && !filter.workUnitIds.includes(msg.workUnitId)) return false;
+          if (filter?.authorType && msg.authorType !== filter.authorType) return false;
+          if (filter?.agentName && msg.agentName !== filter.agentName) return false;
+          if (filter?.agentNames && msg.agentName && !filter.agentNames.includes(msg.agentName)) return false;
+          return true;
+        });
+      }));
+      for (const msgs of perChannel) result.push(...msgs);
     } catch {
       // channels dir 不存在 → 空结果
     }
@@ -722,9 +819,9 @@ export class FileStore {
   async getMessageById(messageId: string): Promise<{ channelId: string; message: ChannelMessageData } | null> {
     const dir = this.channelsDir();
     try {
-      const entries = await fs.promises.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
+      const entries = await this.readdirCached(dir);
+      const perChannel = await Promise.all(entries.map(async entry => {
+        if (!entry.isDirectory()) return null;
         const rows = await this.readJsonl<ChannelMessageRow>(this.messagesPath(entry.name));
         const latest = new Map<string, ChannelMessageRow>();
         for (const row of rows) latest.set(row.id, row);
@@ -734,7 +831,10 @@ export class FileStore {
             return { channelId: entry.name, message: rest };
           }
         }
-      }
+        return null;
+      }));
+      // 保持原串行语义：按 readdir 顺序返回首个命中
+      return perChannel.find(r => r !== null) ?? null;
     } catch {
       // channels dir 不存在 → 无消息
     }
@@ -931,20 +1031,20 @@ export class FileStore {
     let entries: fs.Dirent[];
     try {
       await this.ensureDir(this.requirementsDir);
-      entries = await fs.promises.readdir(this.requirementsDir, { withFileTypes: true });
+      entries = await this.readdirCached(this.requirementsDir);
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return [];
       throw err;
     }
-    const requirements: RequirementData[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === 'index.json') continue;
+    const results = await Promise.all(entries.map(async entry => {
+      if (!entry.isFile() || !entry.name.endsWith('.json') || entry.name === 'index.json') return null;
       const req = await this.readJson<RequirementData>(path.join(this.requirementsDir, entry.name));
-      if (!req || typeof req.id !== 'string' || typeof req.seq !== 'number') continue; // skip malformed
-      if (filter?.status && req.status !== filter.status) continue;
-      if (filter?.channelId && req.channelId !== filter.channelId) continue;
-      requirements.push(req);
-    }
+      if (!req || typeof req.id !== 'string' || typeof req.seq !== 'number') return null; // skip malformed
+      if (filter?.status && req.status !== filter.status) return null;
+      if (filter?.channelId && req.channelId !== filter.channelId) return null;
+      return req;
+    }));
+    const requirements = results.filter((r): r is RequirementData => r !== null);
     requirements.sort((a, b) => a.seq - b.seq);
     return requirements;
   }
@@ -1026,20 +1126,20 @@ export class FileStore {
     let entries: fs.Dirent[];
     try {
       await this.ensureDir(this.evolutionDir);
-      entries = await fs.promises.readdir(this.evolutionDir, { withFileTypes: true });
+      entries = await this.readdirCached(this.evolutionDir);
     } catch (err: unknown) {
       if (isErrnoError(err) && err.code === 'ENOENT') return [];
       throw err;
     }
-    const proposals: EvolutionProposalData[] = [];
-    for (const entry of entries) {
-      if (!entry.isFile() || !/^EP-\d+\.json$/.test(entry.name)) continue;
+    const results = await Promise.all(entries.map(async entry => {
+      if (!entry.isFile() || !/^EP-\d+\.json$/.test(entry.name)) return null;
       const p = await this.readJson<EvolutionProposalData>(path.join(this.evolutionDir, entry.name));
-      if (!p || typeof p.id !== 'string' || typeof p.seq !== 'number') continue; // skip malformed
-      if (filter?.status && p.status !== filter.status) continue;
-      if (filter?.targetType && p.targetType !== filter.targetType) continue;
-      proposals.push(p);
-    }
+      if (!p || typeof p.id !== 'string' || typeof p.seq !== 'number') return null; // skip malformed
+      if (filter?.status && p.status !== filter.status) return null;
+      if (filter?.targetType && p.targetType !== filter.targetType) return null;
+      return p;
+    }));
+    const proposals = results.filter((p): p is EvolutionProposalData => p !== null);
     proposals.sort((a, b) => a.seq - b.seq);
     return proposals;
   }
