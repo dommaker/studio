@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { logger, eventBus, FileStore, withAttestation, deriveDisplayState, type AgentProfileData, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent, type WuAttestations } from '@dommaker/studio-shared';
+import { logger, eventBus, FileStore, withAttestation, deriveDisplayState, type AgentProfileData, type AttestationEntry, type ChannelMessageData, type WorkUnitSnapshot, type WorkUnitEvent, type WuAttestations } from '@dommaker/studio-shared';
 import { mergeWorktreeBranchOnReviewPass } from './merge-on-review-pass.js';
 
 /** Metadata JSON schema — fields that don't warrant first-class columns */
@@ -742,38 +742,21 @@ export class WorkUnitService {
     delete metadata._consecutiveReviewRejections;
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
-      metadata.attestations = withAttestation(metadata.attestations, level, {
+      metadata.attestations = withAttestation(metadata.attestations, level, this.buildAttestationEntry({
         verdict: 'approved',
         by: attestation.by,
-        at: new Date().toISOString(),
         kind: attestation.kind,
-        ...(attestation.summary ? { summary: attestation.summary } : {}),
-        ...(attestation.selfReview === true ? { selfReview: true } : {}),
-        ...(attestation.ref ? { ref: attestation.ref } : {}),
-      });
+        summary: attestation.summary,
+        selfReview: attestation.selfReview,
+        ref: attestation.ref,
+      }));
     }
 
-    const now = new Date();
-    const isoNow = now.toISOString();
-    const updated: WorkUnitSnapshot = {
-      ...current,
+    const updated = await this.persistSnapshot(current, metadata, {
+      eventType: 'completed',
       status: 'done',
-      metadata: JSON.stringify(metadata),
-      completedAt: isoNow,
-      updatedAt: isoNow,
-    };
-
-    const event: WorkUnitEvent = {
-      type: 'completed',
-      wuId: id,
-      timestamp: isoNow,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-
-    // Publish status-change event（REQ roll-up 等订阅消费，best-effort）
-    this.publishStatusChanged(updated);
+      markCompleted: true,
+    });
 
     // Cascade: parent aggregation (best-effort)
     this.aggregateParentStatus(id).catch(err =>
@@ -801,28 +784,15 @@ export class WorkUnitService {
     attestation: ReviewAttestationSource,
   ): Promise<WorkUnitData> {
     const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
-    metadata.attestations = withAttestation(metadata.attestations, 'l3', {
+    metadata.attestations = withAttestation(metadata.attestations, 'l3', this.buildAttestationEntry({
       verdict: 'approved',
       by: attestation.by,
-      at: new Date().toISOString(),
       kind: 'human-confirm',
-      ...(attestation.summary ? { summary: attestation.summary } : {}),
-    });
+      summary: attestation.summary,
+    }));
 
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      metadata: JSON.stringify(metadata),
-      updatedAt: new Date().toISOString(),
-    };
-    const event: WorkUnitEvent = {
-      type: 'updated',
-      wuId: current.id,
-      timestamp: updated.updatedAt,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-    this.publishStatusChanged(updated); // 状态值不变也发：让 pmo rollup 即时重估交付证据
+    // 状态值不变也发 status_changed（persistSnapshot 尾部）：让 pmo rollup 即时重估交付证据
+    const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated' });
     return snapshotToData(updated);
   }
 
@@ -837,30 +807,16 @@ export class WorkUnitService {
     attestation: ReviewAttestationSource,
   ): Promise<WorkUnitData> {
     const metadata: WorkUnitMetadata = current.metadata ? JSON.parse(current.metadata) : {};
-    metadata.attestations = withAttestation(metadata.attestations, 'l2', {
+    metadata.attestations = withAttestation(metadata.attestations, 'l2', this.buildAttestationEntry({
       verdict: 'approved',
       by: attestation.by,
-      at: new Date().toISOString(),
       kind: 'agent-review',
-      ...(attestation.summary ? { summary: attestation.summary } : {}),
-      ...(attestation.selfReview === true ? { selfReview: true } : {}),
-      ...(attestation.ref ? { ref: attestation.ref } : {}),
-    });
+      summary: attestation.summary,
+      selfReview: attestation.selfReview,
+      ref: attestation.ref,
+    }));
 
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      metadata: JSON.stringify(metadata),
-      updatedAt: new Date().toISOString(),
-    };
-    const event: WorkUnitEvent = {
-      type: 'updated',
-      wuId: current.id,
-      timestamp: updated.updatedAt,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-    this.publishStatusChanged(updated);
+    const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated' });
     return snapshotToData(updated);
   }
 
@@ -901,20 +857,7 @@ export class WorkUnitService {
       metadata.verifyReport = { commands: input.ran, source: input.source, passedAt: now };
     }
 
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      metadata: JSON.stringify(metadata),
-      updatedAt: now,
-    };
-    const event: WorkUnitEvent = {
-      type: 'updated',
-      wuId: current.id,
-      timestamp: now,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-    this.publishStatusChanged(updated);
+    const updated = await this.persistSnapshot(current, metadata, { eventType: 'updated' });
     return snapshotToData(updated);
   }
   async markMergeConflict(id: string, conflictFiles: string[]): Promise<WorkUnitData> {
@@ -1026,15 +969,14 @@ export class WorkUnitService {
     if (reason) metadata._lastRejectionReason = reason;
     if (attestation) {
       const level = attestation.kind === 'agent-review' ? 'l2' : 'l3';
-      metadata.attestations = withAttestation(metadata.attestations, level, {
+      metadata.attestations = withAttestation(metadata.attestations, level, this.buildAttestationEntry({
         verdict: 'rejected',
         by: attestation.by,
-        at: new Date().toISOString(),
         kind: attestation.kind,
-        ...(attestation.summary ?? reason ? { summary: attestation.summary ?? reason } : {}),
-        ...(attestation.selfReview === true ? { selfReview: true } : {}),
-        ...(attestation.ref ? { ref: attestation.ref } : {}),
-      });
+        summary: attestation.summary ?? reason,
+        selfReview: attestation.selfReview,
+        ref: attestation.ref,
+      }));
     }
 
     // 3 consecutive rejections → auto-block
@@ -1044,33 +986,115 @@ export class WorkUnitService {
       metadata.blockReason = `review-rejected x${rejections}: ${reason ?? metadata._lastRejectionReason ?? '连续评审拒绝'}`.slice(0, 300);
     }
 
-    const now = new Date();
-    const isoNow = now.toISOString();
-    const updated: WorkUnitSnapshot = {
-      ...current,
-      status: newStatus,
-      metadata: JSON.stringify(metadata),
-      updatedAt: isoNow,
-    };
-
+    // in_review → active/blocked 也是状态变化：status_changed 由 persistSnapshot 尾部补发（列表实时刷新）
     const eventType: WorkUnitEvent['type'] = newStatus === 'blocked' ? 'blocked' : 'updated';
-    const event: WorkUnitEvent = {
-      type: eventType,
-      wuId: id,
-      timestamp: isoNow,
-      data: updated as unknown as Record<string, unknown>,
-    };
-    await this.fileStore.appendEvent(event);
-    await this.fileStore.upsertSnapshot(updated);
-
-    // in_review → active/blocked 也是状态变化：补发 status_changed（列表实时刷新）
-    this.publishStatusChanged(updated);
+    const updated = await this.persistSnapshot(current, metadata, { eventType, status: newStatus });
 
     if (newStatus === 'blocked') {
       logger.warn('[WorkUnit] Auto-blocked after 3 consecutive review rejections', { workUnitId: id });
     }
 
     return snapshotToData(updated);
+  }
+
+  /**
+   * F6 台账条目构建（评审/验证写入共用的 spread 规则收敛）：
+   * summary 有值才带；selfReview 仅 === true 才带；ref 有值才带。
+   * at 在条目构建时取当前时间（与原各写入点实现一致，独立于快照 updatedAt）。
+   * recordL1Verification 不用本 helper——其 summary 恒写（含空串截断规则），属该方法的策略。
+   */
+  private buildAttestationEntry(input: {
+    verdict: 'approved' | 'rejected';
+    by: string;
+    kind: string;
+    summary?: string;
+    selfReview?: boolean;
+    ref?: string;
+  }): AttestationEntry {
+    return {
+      verdict: input.verdict,
+      by: input.by,
+      at: new Date().toISOString(),
+      kind: input.kind,
+      ...(input.summary ? { summary: input.summary } : {}),
+      ...(input.selfReview === true ? { selfReview: true } : {}),
+      ...(input.ref ? { ref: input.ref } : {}),
+    };
+  }
+
+  /**
+   * 评审/验证写入的共用落库尾部：构建 updated 快照（updatedAt=now，可选 status 覆盖 /
+   * markCompleted 置 completedAt=同一此刻）→ appendEvent + upsertSnapshot + publishStatusChanged。
+   * 各调用方只保留自身策略：守卫、metadata 变更、事件类型、后续级联（父状态聚合/合并触发）。
+   */
+  private async persistSnapshot(
+    current: WorkUnitSnapshot,
+    metadata: WorkUnitMetadata,
+    opts: { eventType: WorkUnitEvent['type']; status?: string; markCompleted?: boolean },
+  ): Promise<WorkUnitSnapshot> {
+    const isoNow = new Date().toISOString();
+    const updated: WorkUnitSnapshot = {
+      ...current,
+      ...(opts.status !== undefined ? { status: opts.status } : {}),
+      metadata: JSON.stringify(metadata),
+      ...(opts.markCompleted ? { completedAt: isoNow } : {}),
+      updatedAt: isoNow,
+    };
+    const event: WorkUnitEvent = {
+      type: opts.eventType,
+      wuId: current.id,
+      timestamp: isoNow,
+      data: updated as unknown as Record<string, unknown>,
+    };
+    await this.fileStore.appendEvent(event);
+    await this.fileStore.upsertSnapshot(updated);
+    this.publishStatusChanged(updated);
+    return updated;
+  }
+
+  /**
+   * 频道删除兜底（B2-012）：把 context.sourceChannelId === fromChannelId 的顶层 task WU
+   * 重挂到 toChannelId，返回重绑数量。
+   * 字段相等匹配（解析 metadata 后比对 context.sourceChannelId）——不做 raw JSON 子串匹配
+   * （`metadata.includes(channelId)` 会误中其它字段恰好含同 id 的 WU）。
+   * 空/损坏 metadata 跳过。metadata-only 更新沿用 update() 惯例：appendEvent('updated') +
+   * upsertSnapshot，不发 status_changed（状态与证据均未变，无需 rollup 重估）。
+   */
+  async rebindSourceChannel(fromChannelId: string, toChannelId: string): Promise<number> {
+    const snapshots = await this.fileStore.getIndex();
+    let rebound = 0;
+    for (const s of snapshots) {
+      if (s.type !== 'task' || s.parentId !== null || !s.metadata) continue;
+      let meta: WorkUnitMetadata;
+      try {
+        meta = JSON.parse(s.metadata);
+      } catch {
+        continue; // 损坏 metadata 按无匹配处理
+      }
+      // context 在 metadata 接口里声明为 legacy string 降级字段，但频道来源链路实际落的是对象
+      // （{ sourceChannelId }，见原 channel delete 路由口径）——按运行时形态松散取值
+      const raw = meta as Record<string, unknown>;
+      const ctx = (raw.context ?? {}) as Record<string, unknown>;
+      if (ctx.sourceChannelId !== fromChannelId) continue;
+      ctx.sourceChannelId = toChannelId;
+      raw.context = ctx;
+
+      const now = new Date().toISOString();
+      const updated: WorkUnitSnapshot = { ...s, metadata: JSON.stringify(meta), updatedAt: now };
+      const event: WorkUnitEvent = {
+        type: 'updated',
+        wuId: s.id,
+        timestamp: now,
+        data: updated as unknown as Record<string, unknown>,
+      };
+      await this.fileStore.appendEvent(event);
+      await this.fileStore.upsertSnapshot(updated);
+      rebound++;
+    }
+    if (rebound > 0) {
+      logger.info('[WorkUnit] Rebound sourceChannelId', { fromChannelId, toChannelId, count: rebound });
+    }
+    return rebound;
   }
 
   /**

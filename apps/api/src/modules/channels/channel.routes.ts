@@ -8,12 +8,14 @@ import { projectService } from '../pmo/project.service.js';
 import { apiCache, CACHE_CONFIG } from '../../middleware/api-cache.js';
 import { requireAuth, requireNotGuest } from '../../middleware/auth.js';
 import { ConvertToTaskService } from './convert-to-task.service.js';
+import { WorkUnitService } from '../workunit/workunit.service.js';
 import { ProjectDiscoveryService } from '../projects/project-discovery.service.js';
 import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
 
 const router = Router();
 const fileStore = new FileStore();
 const convertToTaskService = new ConvertToTaskService(fileStore);
+const workUnitService = new WorkUnitService(fileStore);
 const projectDiscoveryService = new ProjectDiscoveryService();
 
 // ─── AC Group Parser ───────────────────────────────────────────────
@@ -392,18 +394,9 @@ router.delete('/:id', requireAuth(), requireNotGuest(), async (req, res) => {
     }
   } catch { /* non-blocking */ }
 
-  // Migrate WorkUnits via FileStore (context.sourceChannelId in metadata)
-  const allWus = await fileStore.getIndex();
-  const goals = allWus.filter(s => s.type === 'task' && s.parentId === null && s.metadata?.includes(channel.id));
-  for (const goal of goals) {
-    const meta = goal.metadata ? JSON.parse(goal.metadata) : {};
-    const ctx = meta.context || {};
-    if (ctx.sourceChannelId === channel.id) {
-      ctx.sourceChannelId = rndChannel.id;
-      meta.context = ctx;
-      await fileStore.upsertSnapshot({ ...goal, metadata: JSON.stringify(meta), updatedAt: new Date().toISOString() });
-    }
-  }
+  // Migrate WorkUnits via WorkUnitService (context.sourceChannelId in metadata)
+  // 存储归属收敛：匹配（字段相等）与写入（事件+快照）均由 WorkUnitService.rebindSourceChannel 负责
+  await workUnitService.rebindSourceChannel(channel.id, rndChannel.id);
 
   // Delete channel
   await fileStore.deleteChannel(channel.id);
