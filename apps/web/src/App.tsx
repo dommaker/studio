@@ -7,7 +7,6 @@ const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({
 
 // 路由级代码分割 - 懒加载页面组件
 const Settings = lazy(() => import('./pages/Settings').then(m => ({ default: m.Settings })));
-const ToolsStdPage = lazy(() => import('./pages/ToolsStdPage').then(m => ({ default: m.ToolsStdPage })));
 const AuditLogsPage = lazy(() => import('./pages/AuditLogsPage').then(m => ({ default: m.AuditLogsPage })));
 const PMOPage = lazy(() => import('./pages/PMOPage').then(m => ({ default: m.PMOPage })));
 const KnowledgePage = lazy(() => import('./pages/KnowledgePage').then(m => ({ default: m.KnowledgePage })));
@@ -26,10 +25,6 @@ const MonitoringPage = lazy(() => import('./pages/MonitoringPage').then(m => ({ 
 const WorkspacePage = lazy(() => import('./pages/WorkspacePage').then(m => ({ default: m.WorkspacePage })));
 const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
 const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
-// Design Lab：T1 视觉方向稿原型（mock 数据，全屏三栏，不套 TopNav/Sidebar 骨架）
-const DesignLabPage = lazy(() => import('./pages/design-lab/DesignLabPage').then(m => ({ default: m.DesignLabPage })));
-const DirectionAPage = lazy(() => import('./pages/design-lab/DirectionAPage').then(m => ({ default: m.DirectionAPage })));
-const DirectionBPage = lazy(() => import('./pages/design-lab/DirectionBPage').then(m => ({ default: m.DirectionBPage })));
 
 const PageLoader = () => (
   <div className="flex items-center justify-center h-full">
@@ -121,21 +116,6 @@ export default function App() {
     );
   }
 
-  // Design Lab: fullscreen prototypes, bypass guest wall (mock 数据，无真实请求)
-  if (location.pathname.startsWith('/design-lab')) {
-    return (
-      <ThemeProvider>
-        <Suspense fallback={<PageLoader />}>
-          <Routes>
-            <Route path="/design-lab" element={<DesignLabPage />} />
-            <Route path="/design-lab/a" element={<DirectionAPage />} />
-            <Route path="/design-lab/b" element={<DirectionBPage />} />
-          </Routes>
-        </Suspense>
-      </ThemeProvider>
-    );
-  }
-
   // Lurk Wall: guest sees LandingPage, admin sees full Studio
   if (isGuest) {
     return (
@@ -201,7 +181,6 @@ export default function App() {
             />
             <Route path="/project/:projectId" element={<Suspense fallback={<PageLoader />}><ProjectDetailPage /></Suspense>} />
             <Route path="/goals" element={<Navigate to="/workunits" replace />} />
-            <Route path="/skills" element={<Suspense fallback={<PageLoader />}><ToolsStdPage /></Suspense>} />
             <Route path="/settings" element={<Suspense fallback={<PageLoader />}><Settings /></Suspense>} />
             <Route path="/audit-logs" element={<Suspense fallback={<PageLoader />}><AuditLogsPage /></Suspense>} />
             <Route path="/channels" element={<Suspense fallback={<PageLoader />}><ChannelListPage /></Suspense>} />
