@@ -12,11 +12,7 @@
 | types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
 | capability.service | packages/studio-capability/src/services/capability.service.ts | Capability Service - 能力管理服务 |
-| list | packages/studio-notification/src/cli/list.ts | Mock 数据 |
-| mark | packages/studio-notification/src/cli/mark.ts | Mock 数据 |
-| send | packages/studio-notification/src/cli/send.ts | Mock 数据存储 |
 | notification-service | packages/studio-notification/src/services/notification-service.ts | 通知服务 |
-| types | packages/studio-notification/src/types.ts | types |
 | command | packages/studio-shared/src/cli/command.ts | 命令注册框架 |
 | config | packages/studio-shared/src/cli/config.ts | 配置加载器 |
 | error | packages/studio-shared/src/cli/error.ts | 错误处理 |
