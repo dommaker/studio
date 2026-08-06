@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@dommaker/harness": "^0.16.6",
-    "@dommaker/studio-notification": "workspace:*",
     "@dommaker/studio-shared": "workspace:*",
     "zod": "^3.22.0"
   },

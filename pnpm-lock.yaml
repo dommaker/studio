@@ -416,9 +416,6 @@ importers:
       '@dommaker/harness':
         specifier: ^0.16.6
         version: 0.16.6
-      '@dommaker/studio-notification':
-        specifier: workspace:*
-        version: link:../studio-notification
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
