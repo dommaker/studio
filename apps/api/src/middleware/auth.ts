@@ -9,7 +9,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { FileStore } from '@dommaker/studio-shared';
 import { logger } from '../utils/logger.js';
-import { verifyToken } from '../modules/auth/service.js';
+import { verifyToken, type UserData, type SessionData } from '../modules/auth/service.js';
 import crypto from 'crypto';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -23,29 +23,10 @@ const WORKSPACE_TOKENS_DIR = path.join(STUDIO_DIR, 'workspace-tokens');
 const WORKSPACES_DIR = path.join(STUDIO_DIR, 'workspaces');
 
 // ─── 本地类型（替代 Prisma model 类型） ───
+// UserData / SessionData 单一来源在 modules/auth/service.ts（users.json/sessions.json
+// 的唯一写入方），此处 re-export 保持既有 import 路径可用。
 
-export interface UserData {
-  id: string;
-  email: string;
-  passwordHash?: string | null;
-  name?: string | null;
-  avatar?: string | null;
-  role: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface SessionData {
-  id: string;
-  userId: string;
-  token: string;
-  guestId?: string | null;
-  ipAddress?: string | null;
-  userAgent?: string | null;
-  expiresAt: string;
-  createdAt: string;
-  updatedAt: string;
-}
+export type { UserData, SessionData };
 
 export interface WorkspaceData {
   id: string;
