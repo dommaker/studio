@@ -110,7 +110,7 @@ export interface AgentSummary {
     lastErrorAt: string | null;
     /** 2026-07 PMO-flow UX：当前 WU 快照（无 currentWorkUnitId 或 WU 已不存在 → null） */
     currentWorkUnit: AgentCurrentWorkUnit | null;
-    /** 2026-07 PMO-flow UX：归属 PMO（解析链 ①ownershipProjectId ②reqId→Requirement.projectId ③pmoProjectId；解析不到 → null） */
+    /** 2026-07 PMO-flow UX：归属 PMO（2026-08 归因统一后解析链 ①metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）②reqId→Requirement.projectId；解析不到 → null） */
     pmo: AgentPmoSummary | null;
     /** 2026-07 PMO-flow UX：当前 WU 所在频道（无当前 WU → null） */
     channelId: string | null;

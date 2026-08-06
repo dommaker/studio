@@ -48,16 +48,21 @@ export interface WorkUnitMetadata {
   // B3a 工程归属链（决策 D2）：归属解析结果落档
   workspaceRoot?: string;     // 直接可用的工程根路径（Requirement→PMO gitRepo / 人工回复绑定；agent-loop 优先于 workspaceId 消费）
   ownershipSource?: string;   // 归属来源：explicit / requirement / channel-default / none / human-reply
-  ownershipProjectId?: string; // 经 Requirement 解析到的 PMO 项目 id（审计用）
+  // 2026-08 归因统一：pmoId 是 canonical 创建期 PMO 归因戳（message-routing / project.service /
+  // analysis-handoff 创建时落档；pmo-branch-resolver 与证据归属过滤的唯一直读 key）
+  pmoId?: string;
+  ownershipProjectId?: string; // @deprecated legacy 同位名（原 B3a 审计字段），仅读兼容——wu-pmo-attribution 同级回退读；新写入一律用 pmoId
   // B3b-i 每 WU worktree 隔离（决策 D1）：代码类 WU 首个 step 创建并落档，后续 step 复用
   worktreePath?: string;      // 专属 worktree 路径（<worktreesDir>/wu-<wuId>；执行 cwd + 提交守卫 + 自动验证的消费点）
   worktreeBranch?: string;    // 专属分支名（task/<wuId>）
   worktreeBaseBranch?: string; // 创建时的 base 分支（origin/HEAD→main→master 探测；PMO-b：归属 PMO 时为 PMO 分支）
   worktreeBaseRepo?: string;  // 共享 git 仓库根（worktree 的母仓库）
-  // PMO-b（决策 3）：WU 归属的 PMO 项目与集成分支（agent-loop 首 step 落档；
+  // PMO-b（决策 3）：WU 归属 PMO 的集成分支（agent-loop 首 step 落档；
   // 非空时 merge-on-review-pass 合到 PMO 分支的集成交合 worktree，而非 baseRepo 当前分支）
-  pmoProjectId?: string;
   pmoBranch?: string;
+  // @deprecated 2026-08 归因统一：pmoProjectId 已移出解析链、agent-loop 不再落档
+  // （原为 pmoBranch 同批的冗余缓存，生产存量为零）；归属项目 id 经 resolvePmoProjectIdForWU 重解析
+  pmoProjectId?: string;
   // B3b-i COMPLETE 前自动验证（决策 D3 前半，约定优先可覆盖）
   verifyCommands?: string[];  // 覆盖验证命令（优先级高于 package.json scripts 约定；workspace 记录同名字段次之）
   verifyReport?: {            // 最近一次全绿的验证摘要（COMPLETE 接受前写入）

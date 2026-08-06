@@ -166,7 +166,9 @@ export async function routeMessage(
         // B3a: 归属解析结果落档（来源区分供日志/审计）
         ownershipSource: ownership?.source ?? 'fallback',
         ...(ownership?.workspaceRoot ? { workspaceRoot: ownership.workspaceRoot } : {}),
-        ...(ownership?.projectId ? { ownershipProjectId: ownership.projectId } : {}),
+        // 2026-08 归因统一：创建期 PMO 归因戳 canonical key = pmoId（legacy 名 ownershipProjectId 废弃，
+        // 读取侧同级兼容，见 requirements/wu-pmo-attribution.ts）
+        ...(ownership?.projectId ? { pmoId: ownership.projectId } : {}),
         ...(parked
           ? {
               waitingForInput: true,

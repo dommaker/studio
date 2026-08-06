@@ -70,7 +70,7 @@ const baseWu = {
   reqId: 'REQ-0042',
   metadata: JSON.stringify({
     title: '登录功能开发',
-    pmoProjectId: 'proj-1',
+    pmoId: 'proj-1',
     attestations: {
       l1: { verdict: 'approved', by: 'profile-aaa', at: '2026-07-30T10:00:00Z', kind: 'verify' },
       l2: { verdict: 'approved', by: 'profile-bbb', at: '2026-07-30T11:00:00Z', kind: 'agent-review', summary: 'LGTM' },
@@ -125,7 +125,7 @@ describe('WorkUnitDetailPage', () => {
 
   it('归属条：四种 chip 全部解析成功时齐备且链接正确', async () => {
     render(<WorkUnitDetailPage />);
-    // PMO chip（metadata.pmoProjectId 直查）→ /pmo/project/:id
+    // PMO chip（创建期戳 metadata.pmoId 直查）→ /pmo/project/:id
     const pmoLink = await screen.findByText('PM-0007 · 登录项目');
     expect(pmoLink.closest('a')?.getAttribute('href')).toBe('/pmo/project/proj-1');
     // REQ chip → 打开 RequirementChainPanel（非链接）
@@ -138,7 +138,7 @@ describe('WorkUnitDetailPage', () => {
     expect(agentLink.closest('a')?.getAttribute('href')).toBe('/agents/role-1');
   });
 
-  it('PMO 解析回落：metadata 无 pmoProjectId 时经 reqId → requirement.projectId 解析', async () => {
+  it('PMO 解析回落：metadata 无 pmoId 时经 reqId → requirement.projectId 解析', async () => {
     mockWuGet.mockResolvedValue({
       data: { ...baseWu, metadata: JSON.stringify({ title: '登录功能开发' }) },
     });

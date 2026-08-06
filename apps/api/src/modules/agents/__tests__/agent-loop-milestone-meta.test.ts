@@ -1,6 +1,7 @@
 // 2026-07 PMO-flow UX（§6-3）：里程碑频道消息委托 wu-messenger 的调用契约
 // 覆盖：COMPLETE 汇报 / NEED_INPUT / 验证失败打回（verifyFailCount≥3 → blocked）/
-//       blocked 转人工（连续 3 步无进展）四类里程碑以 milestone: true + 合并视图 wu 委托；
+//       blocked 转人工（连续 3 步无进展）四类里程碑以 milestone: true + 持久化 wu 本体委托
+//       （2026-08 归因统一：不再传「持久化 + 本 step metadataUpdates」合并视图）；
 //       普通 progress 消息不带里程碑标记。
 // meta 形状（pmoId/atHuman）契约已迁至 workunit/__tests__/wu-messenger.test.ts，本文件只断言委托参数。
 // 模式同 agent-loop-need-input.test.ts：真实 FileStore（tmpdir）+ 真实 WorkUnitService；
@@ -126,19 +127,19 @@ describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () =
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
   });
 
-  it('里程碑 wu 参数为「持久化 + 本 step metadataUpdates」合并视图（pmoProjectId 本 step 落档可见）', async () => {
+  it('里程碑 wu 参数为持久化 wu 本体（2026-08 归因统一：解析链只读创建期落档，不再传本 step 合并视图）', async () => {
     const wu = await setupActiveWorkUnit({ title: '登录' });
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
       { workUnit: wu },
-      { action: 'complete', summary: '登录功能已完成', metadataUpdates: { pmoProjectId: 'proj-x' } },
+      { action: 'complete', summary: '登录功能已完成', metadataUpdates: { lastCommitHash: 'abc123' } },
     );
 
     const call = findCall('登录功能已完成');
     expect(call).toBeDefined();
     const wuArgMeta = JSON.parse(String(call![0].metadata)) as WorkUnitMetadata;
-    expect(wuArgMeta.pmoProjectId).toBe('proj-x'); // 本 step 刚落档的字段
-    expect(wuArgMeta.title).toBe('登录');          // 持久化字段仍在
+    expect(wuArgMeta.title).toBe('登录');               // 持久化字段在
+    expect(wuArgMeta.lastCommitHash).toBeUndefined();   // 本 step metadataUpdates 不再并入 wu 参数
   });
 
   it('NEED_INPUT → milestone: true，消息文本不变', async () => {

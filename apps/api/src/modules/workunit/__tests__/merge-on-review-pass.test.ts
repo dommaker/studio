@@ -10,15 +10,22 @@ import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit.service.js';
 import { mergeWorktreeBranchOnReviewPass } from '../merge-on-review-pass.js';
 
-const { mockExecSh, mockPostWuSystemMessage } = vi.hoisted(() => ({
+const { mockExecSh, mockPostWuSystemMessage, mockResolvePmoProjectId } = vi.hoisted(() => ({
   mockExecSh: vi.fn(),
   mockPostWuSystemMessage: vi.fn(),
+  mockResolvePmoProjectId: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return { ...orig, execSh: mockExecSh };
 });
+
+// 2026-08 归因统一：merge-on-review-pass 经 lazy import 的 resolvePmoProjectIdForWU 重解析
+// 归属项目 id（不再读 metadata.pmoProjectId 缓存）；mock 按创建期戳 pmoId 解析
+vi.mock('../../requirements/pmo-branch-resolver.js', () => ({
+  resolvePmoProjectIdForWU: mockResolvePmoProjectId,
+}));
 
 // wu-messenger 间谍包装：真实发送保留（消息断言不受影响），另断言委托参数（milestone 等）
 vi.mock('../wu-messenger.js', async (importOriginal) => {
@@ -85,6 +92,14 @@ async function waitFor(cond: () => Promise<boolean>, ms = 3000): Promise<void> {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  // 归属解析 mock 默认实现：按创建期戳 metadata.pmoId 解析（坏 JSON / 无戳 → null）
+  mockResolvePmoProjectId.mockImplementation(async (wu: { metadata?: string | null }) => {
+    try {
+      return (JSON.parse(wu.metadata ?? '{}') as { pmoId?: string }).pmoId ?? null;
+    } catch {
+      return null;
+    }
+  });
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'merge-on-review-pass-'));
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
@@ -163,7 +178,8 @@ describe('B3b-ii: 评审通过后自动合并', () => {
   });
 
   it('PMO-b：落档 pmoBranch → 合到 PMO 分支的集成交合（不动 baseRepo checkout）', async () => {
-    const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11', pmoProjectId: 'proj-1' }));
+    // 2026-08 归因统一：项目 id 不再读 pmoProjectId 缓存，由创建期戳 pmoId 经 resolver 重解析
+    const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11', pmoId: 'proj-1' }));
 
     const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
 
@@ -192,7 +208,7 @@ describe('B3b-ii: 评审通过后自动合并', () => {
       if (cmd.includes('rev-parse HEAD')) return { stdout: `${HEAD}\n`, stderr: '' };
       return { stdout: '', stderr: '' };
     });
-    const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11', pmoProjectId: 'proj-1' }));
+    const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11', pmoId: 'proj-1' }));
 
     const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
 
@@ -210,6 +226,22 @@ describe('B3b-ii: 评审通过后自动合并', () => {
       expect.stringContaining('PMO 集成分支'),
       expect.objectContaining({ milestone: true, fileStore }),
     );
+  });
+
+  it('PMO-b：pmoBranch 落档但归属项目解析不出 → 转人工（不静默回落错误目标）', async () => {
+    // 无任何创建期戳（pmoId/reqId 均缺）→ resolver 返回 null
+    const wu = await createWu(worktreeMeta({ pmoBranch: 'PMO-11' }));
+
+    const outcome = await mergeWorktreeBranchOnReviewPass(wuService, wu, fileStore);
+
+    expect(outcome).toEqual({ attempted: true, merged: false, conflictFiles: [], reason: 'conflict' });
+    // 未执行 merge、未建集成交合；WU blocked 转人工
+    const cmds = calledCommands();
+    expect(cmds.some(c => c.includes('merge --no-ff'))).toBe(false);
+    expect(cmds.some(c => c.includes('worktree add'))).toBe(false);
+    expect((await wuService.getById(wu.id))!.status).toBe('blocked');
+    const msgs = await studioMessages(wu.id);
+    expect(msgs.some(m => m.content.includes('归属项目解析失败') && m.content.includes('转人工'))).toBe(true);
   });
 
   it('合并成功：--no-ff merge → 记 mergedAt/mergeCommit → 清理 worktree+分支 → 频道通知', async () => {

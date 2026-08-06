@@ -8,6 +8,8 @@
  * PMO-b（决策 3，2026-07-28 分析文档 §4.5）：metadata.pmoBranch 落档的 WU，
  *   目标 = PMO 分支——在 <worktreesDir>/pmo-<projectId> 集成交合 worktree 上执行
  *   （不动 baseRepo 当前 checkout；冲突集中在单一合并点；分支名 = PMO id）。
+ *   projectId 合并时经 resolvePmoProjectIdForWU 重解析（2026-08 归因统一：不再读
+ *   metadata.pmoProjectId 缓存）；解析不出 → 转人工，不静默回落错误目标。
  *   未落档 → 维持现状：合 baseRepo 当前分支（git -C baseRepo merge）。
  *
  * 流程：
@@ -161,14 +163,42 @@ export async function mergeWorktreeBranchOnReviewPass(
 
   // PMO-b（决策 3）：落档 pmoBranch 的 WU 合到 PMO 分支的集成交合 worktree
   // （不动 baseRepo 当前 checkout；冲突集中在单一合并点）。无落档 → 现状（合 baseRepo 当前分支）。
+  // 2026-08 归因统一：agent-loop 不再随 pmoBranch 缓存落档 pmoProjectId，项目 id 合并时经
+  // resolvePmoProjectIdForWU 从创建期戳（metadata.pmoId / reqId）重解析——lazy import：
+  // 静态引入会成 workunit.service → 本模块 → pmo-branch-resolver → project.service →
+  // workunit.service 循环（同 wu-messenger 头部依赖说明）。
+  let pmoProjectId: string | null = null;
+  if (meta.pmoBranch) {
+    try {
+      const { resolvePmoProjectIdForWU } = await import('../requirements/pmo-branch-resolver.js');
+      pmoProjectId = await resolvePmoProjectIdForWU(
+        { reqId: wu.reqId ?? null, metadata: wu.metadata },
+        fileStore,
+      ).catch(() => null); // best-effort：解析失败按无归属处理（下方转人工）
+    } catch {
+      pmoProjectId = null;
+    }
+  }
+
   let mergeContext: { cmd: string; cwd: string; targetBranch: string };
-  if (meta.pmoBranch && meta.pmoProjectId) {
+  if (meta.pmoBranch && !pmoProjectId) {
+    // pmoBranch 落档但归属项目解析不出（项目被删等）→ 转人工，不静默回落错误目标
+    await wuService.markMergeConflict(wu.id, []);
+    await postSystemMessage(
+      fileStore,
+      wu,
+      `任务「${title}」的 PMO 集成分支 ${meta.pmoBranch} 归属项目解析失败，已转人工处理`,
+    ).catch(e => logger.warn('[MergeOnReviewPass] post pmo-resolve message failed', { wuId: wu.id, error: String(e) }));
+    logger.warn('[MergeOnReviewPass] pmo attribution resolve failed', { wuId: wu.id, pmoBranch: meta.pmoBranch });
+    return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
+  }
+  if (meta.pmoBranch && pmoProjectId) {
     let integration: { worktreePath: string };
     try {
       integration = await ensurePmoIntegrationWorktree({
         repoDir: baseRepo,
         worktreesDir: resolveWorktreesDir(),
-        projectId: meta.pmoProjectId,
+        projectId: pmoProjectId,
         branch: meta.pmoBranch,
         baseBranch,
       });

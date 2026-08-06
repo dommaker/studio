@@ -14,7 +14,8 @@ PMO-a 别名层（2026-07-28 分析文档，决策 4）：REQ 退化为 PMO 的�
 - `requirement.routes.ts` — Requirement API 路由
 - `req-binding.ts` — REQ 绑定解析（显式 reqId > #REQ-XXXX token > #PMO-n/#PM-n token（决策 4 别名层解析，无别名存量拒绝歧义降级）> 自动新建），@mention 派发 / convert-to-task 共用
 - `ownership-resolver.ts` — B3a 工程归属解析（决策 D2）：显式 workspaceId > Requirement.projectId → PMO gitRepo > 频道默认 > none
-- `pmo-branch-resolver.ts` — PMO-b（决策 3）：WU → PMO 分支解析（metadata.ownershipProjectId > reqId→REQ→PMO；branch = gitBranch || pmoNumber，透出 deliveryPolicy），agent-loop worktree base 与 merge-on-review-pass 的目标分支来源；`resolvePmoProjectIdForWU`（2026-07 PMO-flow UX §6）：同链序只出项目 id（补第 ③ 级 metadata.pmoProjectId，项目存在校验逐级容错），monitoring /agents 聚合（map 版 deps 批量内存匹配）与里程碑消息 meta.pmoId（agent-loop/ReviewDispatcher/timeout-release/merge-on-review-pass）共用
+- `pmo-branch-resolver.ts` — PMO-b（决策 3）：WU → PMO 分支解析（2026-08 归因统一后两级链：①创建期直读戳 metadata.pmoId ‖ deprecated legacy ownershipProjectId（同级，pmoId 优先）②reqId→REQ→PMO；branch = gitBranch || pmoNumber，透出 deliveryPolicy），agent-loop worktree base 与 merge-on-review-pass 的目标分支来源；`resolvePmoProjectIdForWU`（2026-07 PMO-flow UX §6）：同链只出项目 id（与 resolvePmoBranchForWU 共享内部 resolveAttribution，项目存在校验逐级容错），monitoring /agents 聚合（map 版 deps 批量内存匹配）与里程碑消息 meta.pmoId（agent-loop/ReviewDispatcher/timeout-release/merge-on-review-pass）共用。原 ③ metadata.pmoProjectId 级 2026-08 移除（agent-loop 落档的冗余缓存，生产存量为零；修复 analysis 派生链仅 pmoId、reqId=null 的 task WU 解析不到 PMO 分支的 bug）
+- `wu-pmo-attribution.ts` — 2026-08 归因统一：创建期 PMO 归因戳纯解析叶子（零 app 依赖，防 pmo/ → pmo-branch-resolver → project.service → workunit.service 循环）；`parseWuPmoId` = metadata.pmoId（canonical）→ metadata.ownershipProjectId（deprecated legacy 同位）容错同步解析，pmo-branch-resolver 与 pmo/evidence-summary（内存过滤）共用
 - `rollup.ts` — REQ 状态汇总：订阅 `workunit.status_changed` 事件回写需求整体状态（别名视图跳过，PMO 侧 progress-rollup 拥有）
 
 ## 依赖关系

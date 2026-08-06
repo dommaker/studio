@@ -51,10 +51,11 @@ function parseMeta(metadata: string | null): Record<string, unknown> {
   try { return JSON.parse(metadata || '{}') as Record<string, unknown>; } catch { return {}; }
 }
 
-/** 归属条 PMO 解析：① metadata.pmoProjectId 直查；② 否则 reqId → requirement.projectId（REQ 别名视图 projectId = PMO 自身 id） */
+/** 归属条 PMO 解析（2026-08 归因统一）：① 创建期归因戳 metadata.pmoId（‖ deprecated legacy ownershipProjectId 同级）直查；② 否则 reqId → requirement.projectId（REQ 别名视图 projectId = PMO 自身 id） */
 async function resolvePmo(wu: WorkUnit): Promise<PmoInfo | null> {
-  const metaPmoId = parseMeta(wu.metadata).pmoProjectId;
-  let projectId = typeof metaPmoId === 'string' ? metaPmoId : null;
+  const meta = parseMeta(wu.metadata);
+  const stamp = meta.pmoId ?? meta.ownershipProjectId;
+  let projectId = typeof stamp === 'string' && stamp ? stamp : null;
   if (!projectId && wu.reqId) {
     try {
       const reqRes = await requirementApi.get(wu.reqId);

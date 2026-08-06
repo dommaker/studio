@@ -776,7 +776,9 @@ export class AgentLoop {
           metadataUpdates.worktreeBaseBranch = info.baseBranch;
           metadataUpdates.worktreeBaseRepo = info.baseRepo;
           if (pmoResolution && pmoBaseBranch) {
-            metadataUpdates.pmoProjectId = pmoResolution.projectId;
+            // 2026-08 归因统一：只落 pmoBranch（merge-on-review-pass 的合并目标）；
+            // 项目 id 不再缓存落档（原 pmoProjectId 为冗余缓存），消费方经
+            // resolvePmoProjectIdForWU 从创建期戳（metadata.pmoId / reqId）重解析
             metadataUpdates.pmoBranch = pmoResolution.branch;
           }
         }
@@ -1580,7 +1582,7 @@ ${rosterLines.join('\n')}
       await this.postToDiscussionSpace(
         wuId,
         `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
-        { ...wu, metadata: JSON.stringify(metadata) },
+        wu,
       );
       return;
     }
@@ -1606,7 +1608,7 @@ ${rosterLines.join('\n')}
       // W-3 接线：执行失败导致的 blocked 在频道说明失败原因（summary 含 CLI 错误详情）
       const stuckReason = action === 'failed' && result.summary ? `（${result.summary}）` : '';
       // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
-      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`, { ...wu, metadata: JSON.stringify(metadata) });
+      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`, wu);
       return;
     }
 
@@ -1622,7 +1624,7 @@ ${rosterLines.join('\n')}
       case 'complete':
         // 2026-07 PMO-flow UX（§6-3）：COMPLETE 完成汇报里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         if (!skipResultPost && result.summary.trim().length > 0) {
-          await this.postToDiscussionSpace(wuId, result.summary, { ...wu, metadata: JSON.stringify(metadata) });
+          await this.postToDiscussionSpace(wuId, result.summary, wu);
         }
         // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
         if (wu.status === 'blocked') {
@@ -1639,7 +1641,7 @@ ${rosterLines.join('\n')}
       case 'need_input':
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         if (!skipResultPost) {
-          await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, { ...wu, metadata: JSON.stringify(metadata) });
+          await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, wu);
         }
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
         if (wu.status !== 'blocked') {
@@ -1663,7 +1665,8 @@ ${rosterLines.join('\n')}
 
   /** Post message to discussion space（经 wu-messenger → ChannelMessageService：eventBus + SSE，频道页实时可见）。
    *  milestoneWu 存在时按里程碑消息处理（2026-07 PMO-flow UX §6-3：meta 带 pmoId?/atHuman，普通 progress 不带）；
-   *  调用方须传「持久化 + 本 step metadataUpdates」合并视图（pmoProjectId 可能本 step 刚落档）。 */
+   *  2026-08 归因统一后解析链只读创建期持久化数据（metadata.pmoId / reqId），调用方直接传持久化 wu 本体，
+   *  不再需要「持久化 + 本 step metadataUpdates」合并视图。 */
   private async postToDiscussionSpace(workUnitId: string, content: string, milestoneWu?: WorkUnitData): Promise<void> {
     if (!content.trim()) return;
     const wu = milestoneWu ?? await this.workUnitService.getById(workUnitId);
