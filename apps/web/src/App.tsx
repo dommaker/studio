@@ -44,8 +44,7 @@ import { GlobalModals } from './components/GlobalModals';
 import { useAgentStore, useRuntimeStore } from './stores';
 import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
-import { useWebSocket, WebSocketProvider } from './api/websocket';
-import { useWebSocketHandlers } from './hooks/useWebSocketHandlers';
+import { WebSocketProvider } from './api/websocket';
 import { useGlobalModals } from './hooks/useGlobalModals';
 import { channelApi } from './api/channel';
 import { StudioRoleSetupModal, isStudioRoleSetupDismissed } from './components/setup/StudioRoleSetupModal';
@@ -61,14 +60,7 @@ export default function App() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated());
 
   const {
-    currentExecution, setCurrentExecution,
-    handleWebSocketMessage,
-  } = useWebSocketHandlers(() => {});
-
-  const {
-    showResult, setShowResult,
     selectedProject, setSelectedProject,
-    handleViewDetails,
   } = useGlobalModals();
 
   // 本地 state
@@ -76,12 +68,6 @@ export default function App() {
   // AC-2.2/2.3: studio 角色 provider=null + 无用户角色 弹框提醒
   const [studioRoleSetupOpen, setStudioRoleSetupOpen] = useState(false);
   const [firstRoleSetupOpen, setFirstRoleSetupOpen] = useState(false);
-
-  // WebSocket
-  const { status: wsStatus } = useWebSocket({
-    onMessage: handleWebSocketMessage,
-    reconnect: true,
-  });
 
   // 初始化
   useEffect(() => {
@@ -172,9 +158,6 @@ export default function App() {
     <WebSocketProvider>
     <div className="h-screen flex flex-col" style={{ background: 'var(--bg-primary)' }}>
       <GlobalModals
-        showResult={showResult}
-        currentExecution={currentExecution}
-        onCloseResult={() => setShowResult(false)}
         selectedProject={selectedProject}
         onCloseProject={() => setSelectedProject(null)}
       />
@@ -201,7 +184,6 @@ export default function App() {
       />
 
       <TopNav
-        wsStatus={wsStatus === 'connected' ? 'connected' : 'disconnected'}
         onMenuClick={() => setIsSidebarOpen(true)}
       />
 

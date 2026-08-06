@@ -1,13 +1,12 @@
 /**
  * 全局弹窗状态 hook
- * - showResult, selectedProject
+ * - selectedProject
  * - handleViewDetails
  */
 import { useState } from 'react';
 import type { ExecutionState } from '../types';
 
 export function useGlobalModals() {
-  const [showResult, setShowResult] = useState(false);
   const [selectedProject, setSelectedProject] = useState<any>(null);
 
   const handleViewDetails = (execution: ExecutionState) => {
@@ -50,8 +49,6 @@ export function useGlobalModals() {
   };
 
   return {
-    showResult,
-    setShowResult,
     selectedProject,
     setSelectedProject,
     handleViewDetails,

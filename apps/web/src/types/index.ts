@@ -167,19 +167,3 @@ export interface ThinkingMessage {
   progress?: number;
   timestamp: Date;
 }
-
-export interface ThinkingStreamEvent {
-  event_id: string;
-  event_type: 'thinking.stream' | 'pipeline.step_started' | 'pipeline.step_completed' | 'pipeline.step_running' | 'pipeline.step_failed';
-  timestamp: string;
-  data: {
-    executionId: string;
-    type?: 'step_start' | 'step_progress' | 'step_output' | 'step_complete' | 'thinking' | 'action';
-    stepId?: string;
-    stepName?: string;
-    content?: string;
-    progress?: number;
-    status?: string;
-    output?: string;
-  };
-}

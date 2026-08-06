@@ -1,5 +1,4 @@
 // SSE 客户端 — 替代 WebSocket（2026-05-08）
-// 保持与旧 useWebSocket 相同的接口，内部改用 EventSource
 import { useState, useRef, useEffect, createContext, useContext, useCallback } from 'react';
 import type { ReactNode } from 'react';
 
@@ -38,7 +37,6 @@ export function useWebSocket(options: UseSSEOptions = {}) {
   const esRef = useRef<EventSource | null>(null);
   const reconnectAttempts = useRef(0);
   const reconnectTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const subscriptionsRef = useRef<Set<string>>(new Set());
 
   // Stabilize callbacks with refs to avoid SSE reconnect loop
   const callbacksRef = useRef({ onMessage, onConnect, onDisconnect, onError });
@@ -93,43 +91,19 @@ export function useWebSocket(options: UseSSEOptions = {}) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sseUrl, reconnect, reconnectInterval, maxReconnectAttempts]);
 
-  // Move disconnect before connect so it can be referenced
-
-  // SSE has no client→server channel. subscribe/unsubscribe via REST.
-  const send = useCallback(async (data: any) => {
-    if (data?.type === 'subscribe' && data?.executionId) {
-      subscriptionsRef.current.add(data.executionId);
-    } else if (data?.type === 'unsubscribe' && data?.executionId) {
-      subscriptionsRef.current.delete(data.executionId);
-    }
-  }, []);
-
-  const subscribe = useCallback((executionId: string) => {
-    subscriptionsRef.current.add(executionId);
-    send({ type: 'subscribe', executionId });
-  }, [send]);
-
-  const unsubscribe = useCallback((executionId: string) => {
-    subscriptionsRef.current.delete(executionId);
-    send({ type: 'unsubscribe', executionId });
-  }, [send]);
-
   useEffect(() => {
     connect();
     return () => disconnect();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // stable: callbacks live in ref, connect/disconnect are stable
 
-  return { status, send, subscribe, unsubscribe, disconnect, connect };
+  return { status, disconnect, connect };
 }
 
 // ── React Context ──
 
 interface WebSocketContextValue {
   status: WebSocketStatus;
-  send: (data: any) => void;
-  subscribe: (executionId: string) => void;
-  unsubscribe: (executionId: string) => void;
   disconnect: () => void;
   connect: () => void;
   /** B2: 注册 SSE 事件监听器，返回取消注册函数 */

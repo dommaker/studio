@@ -16,7 +16,7 @@
 | `monitoringApi` | `api/monitoring.ts` | 监控、飞轮指标、开销 API |
 | `requirementApi` | `api/requirements.ts` | 需求（REQ）CRUD 及关联工作单元链 API |
 | `workunitApi` | `api/workunit.ts` | 工作单元（WorkUnit）全生命周期 API + token 度量事件查询/解析 + 执行步事件查询/解析（`listExecutionStepEvents`/`parseExecutionStepEvents`，WU 过程可视化） |
-| `useWebSocket` / `WebSocketProvider` | `api/websocket.tsx` | SSE 客户端 hook 及 Context Provider（替代原生 WebSocket） |
+| `useWebSocket` / `WebSocketProvider` | `api/websocket.tsx` | SSE 客户端 hook 及 Context Provider；应用根部唯一 EventSource（/events/stream），事件经 `useWebSocketContext().onEvent` 分发 |
 | `useWorkUnitEvents` | `hooks/useWorkUnitEvents.ts` | workunit.created/status_changed/execution.step（SSE）订阅 hook（防抖合并）；WorkUnitListPage 列表与 WorkUnitDrawer 详情据此实时刷新（execution.step 驱动执行过程近实时更新） |
 | `useWorkUnitStreamEvents` | `hooks/useWorkUnitStreamEvents.ts` | workunit.execution.stream（Layer B 步内流式，SSE-only）订阅 hook：按 workUnitId 过滤、内存保留当前步 ≤50 条、新步 step-start 清空；WorkUnitDrawer「执行过程」实时区块消费 |
 | `useChannelList` | `hooks/useChannelList.ts` | 频道列表数据 hook（ChannelListPage 与 ChannelRail 共用：列表/未读 SSE/新建） |
@@ -34,7 +34,7 @@
 
 - 路由使用 `React.lazy` 进行代码分割，懒加载页面组件需通过 `Suspense` 包裹。
 - API 客户端（`api/index.ts`）的认证 token 直接从 `localStorage` 读取，避免与 `authStore` 的循环依赖。
-- 实时通信使用 SSE（EventSource）代替 WebSocket，`api/websocket.tsx` 提供与旧 `useWebSocket` 兼容的接口。
+- 实时通信使用 SSE（EventSource）代替 WebSocket。**单一连接不变量**：全应用仅 `App.tsx` 根部的 `WebSocketProvider` 建立一个 EventSource（/events/stream），所有实时消费走 `useWebSocketContext().onEvent`（domain hooks：useWorkUnitEvents/useWorkUnitStreamEvents/useChannelEvents/useChannelList + 页面级订阅），TopNav 连接状态点也读该 context；禁止再单独调用 `useWebSocket()` 开第二条连接。旧 realtime 链路（hooks/useWebSocket.ts、useWebSocketHandlers、ThinkingStream、GlobalModals 的 ExecutionResult 分支）已于 2026-08 随后端停发 legacy 事件（pipeline.*/thinking.stream/runtime.step.* 等）一并删除。
 - Design Lab 页面（`pages/design-lab/*`）使用 mock 数据，全屏三栏布局，不嵌入通用导航骨架；作为 A/B 方向参照保留。
 - 视觉体系（2026-07 T1b，方向 A「Mission Control」）：`styles/theme.css` 深色 `:root` 变量组 = A 方向 token（近纯黑 #050507、磷光青绿 #2ee6a8、终端黄 #e6c85c、全等宽、12.5px 基准）；`[data-theme="light"]` 浅色机制保留（ThemeContext 不变）。`styles/mission-control.css` 承载三栏布局（mc-*）与语义工具类（u-*）；页面禁止写死浅色 Tailwind 类（bg-white/text-gray-*），一律消费变量或 u-* 类。**样式规范唯一权威来源：`docs/specs/ui/style-guide.md`**（token、组件类、弹框标准结构、禁用规则）。
 - 频道工作区（`pages/ChannelDetailPage.tsx`）= 左 ChannelRail / 中对话流 / 右 WorkUnitDrawer；REQ 全链路原 Modal 形态（`components/requirement/RequirementChainPanel.tsx`）保留给其他页面使用。
