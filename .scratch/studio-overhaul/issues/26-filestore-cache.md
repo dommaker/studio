@@ -1,7 +1,7 @@
 # 26 — FileStore 缓存与复制段合并（A1+A2）
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 Blocked by: 16
 
