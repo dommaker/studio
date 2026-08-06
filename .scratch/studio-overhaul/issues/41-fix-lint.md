@@ -1,0 +1,9 @@
+# 41 — lint 修复（I）
+
+Type: task
+Status: open
+Labels: enhancement, ready-for-agent
+
+## Question
+
+修复 `pnpm lint` 不可跑问题（基线：packages/studio-capability 缺 eslint 依赖致 `pnpm -r` 首包即停；apps/web 无 flat config 致脚本失效）：对齐仓内既有 eslint 版本与配置形态，取最小修复路径；存量告警数量基线化记录，不要求清零。若某子包修复成本明显不成比例，记录后移除其 lint 脚本。验收：`pnpm lint` 全仓可跑通（exit 0 或仅存量告警），结果写入工单 Answer，独立 commit。

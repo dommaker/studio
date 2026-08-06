@@ -29,14 +29,13 @@ studio（/root/projects/studio）全套代码优化重构完成：6 项优化清
 - [03 — 死代码/冗余依赖/候选废弃功能调研](issues/03-research-dead-code.md) — 59 项确定死导出、12 项候选废弃功能、6 项冗余依赖，全部附引用链证据与连带孤儿清单
 - [04 — packages/ 子包调研](issues/04-research-packages.md) — 9 包健康档案；capability 67%/audit 63% 死代码；monitor/task 实质整包待删；file-store 两段逐行复制
 - [05 — 门控基线建立](issues/05-gate-baseline.md) — typecheck 全绿、test 全绿（4246 用例）、lint 损坏不可跑；基线提交 46a2cf8f
+- [06 — 模块架构规划](issues/06-architecture-plan.md) — 执行顺序 B删除→C修bug→A性能→D后端结构→E前端结构→F交互→G i18n→H/I/J→巡检；FileStore 缓存为主杠杆；i18n 判定假 seam 移除
+- [07 — 完整重构方案](issues/07-refactor-spec.md) — spec.md：27 条用户故事 + 实现/测试决策 + 出范围清单，ready-for-agent
+- [08 — triage 拆解执行工单](issues/08-triage-execution.md) — 执行工单 09-43 共 35 张全部拆出并标注依赖边，进入串行执行
 
 ## Not yet specified
 
-- 具体重构工单集：待 research + 架构规划 + to-spec 后由 triage 拆出
-- 前端交互断点清单：待 web 调研后具象化
-- 后端性能瓶颈清单：待 api 调研后具象化
-- 候选废弃功能清单：待死代码调研后具象化
-- 最终架构巡检（improve-codebase-architecture，重点查孤立死代码与无用导入）：全部执行工单闭环后触发
+- （全部已毕业为工单 09-43）
 
 ## Out of scope
 
