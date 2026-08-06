@@ -19,12 +19,10 @@
  *   D7: 旧 reviewAgent.review() 已删除（2026-07-28，逾期收尾）；review.service 仅保留 reviewDiff() 供 /review/diff 管理端点
  */
 
-import { randomUUID } from 'crypto';
-import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData, type ChannelMessageData } from '@dommaker/studio-shared';
+import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
 import { readCollab } from '../workunit/delegation-gate.js';
-import { findAnchorMessage } from './agent-loop.js';
-import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
+import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 
 export class ReviewDispatcher {
   private subscribed = false;
@@ -340,29 +338,12 @@ REVIEW_RESULT: {"verdict":"pass"|"reject"|"needs-info","summary":"一句话结�
   }
 
   /**
-   * 向父 WU 所在频道发系统消息（转人工通知；形态同 waiting-input 提醒）。
+   * 向父 WU 所在频道发系统消息（转人工通知；经 wu-messenger 统一出口：eventBus + SSE）。
    * 2026-07 PMO-flow UX（§6-3）：评审结果类转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
    * （NotificationBell 监听 meta.atHuman 的 SSE 消息，pmoId 供跳转 PMO 详情）。
    */
   private async postSystemMessage(parent: WorkUnitData, content: string): Promise<void> {
-    if (!parent.channelId) return;
-    const anchor = await findAnchorMessage(parent.id, this.fileStore);
-    const pmoId = await resolvePmoProjectIdForWU(
-      { reqId: parent.reqId ?? null, metadata: parent.metadata },
-      this.fileStore,
-    ).catch(() => null); // best-effort：解析不到不带 pmoId，不阻断发帖
-    const msg: ChannelMessageData = {
-      id: randomUUID(),
-      channelId: parent.channelId,
-      authorType: 'agent',
-      agentName: 'Studio',
-      content,
-      replyToId: anchor?.id ?? null,
-      meta: JSON.stringify({ ...(pmoId ? { pmoId } : {}), atHuman: true }),
-      workUnitId: parent.id,
-      createdAt: new Date().toISOString(),
-    };
-    await this.fileStore.appendMessage(parent.channelId, msg);
+    await postWuSystemMessage(parent, content, { milestone: true, fileStore: this.fileStore });
   }
 }
 

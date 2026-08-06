@@ -7,14 +7,11 @@
  *  - 释放次数 ≥ MAX_TIMEOUT_RELEASES → 不再回池，改 blocked 并频道说明，等待人工介入。
  *
  * 基准时间在每次 tick 现算（handler 入参 now），不再冻结在触发器注册时。
- * 发帖形态参照 waiting-input.ts（authorType:'agent', agentName:'Studio', 挂 anchor 线程）。
+ * 频道系统消息走 wu-messenger 统一出口（eventBus + SSE，挂 anchor 线程）。
  */
-import { randomUUID } from 'crypto';
-import { logger, FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from './workunit.service.js';
-import { findAnchorMessage } from '../agents/agent-loop.js';
-import { resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
-import type { MessageMeta } from '../channels/channel-message.service.js';
+import { logger, FileStore } from '@dommaker/studio-shared';
+import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
+import { postWuSystemMessage } from './wu-messenger.js';
 
 /** 同一 WU 的超时释放上限：达到后转 blocked，等待人工介入 */
 export const MAX_TIMEOUT_RELEASES = 3;
@@ -51,19 +48,21 @@ export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date
         await wuService.update(wu.id, { timeoutAt: null, metadata: nextMetadata });
         await wuService.transitionStatus(wu.id, 'blocked');
         // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
-        const pmoId = await resolvePmoProjectIdForWU(
-          { reqId: wu.reqId ?? null, metadata: JSON.stringify(nextMetadata) },
-          fileStore,
-        ).catch(() => null);
-        await postTimeoutSystemMessage(fileStore, wu,
+        // wu 参数带 nextMetadata 视图（pmoId 解析以最新落档为准）
+        await postWuSystemMessage(
+          { ...wu, metadata: JSON.stringify(nextMetadata) },
           `任务「${title}」已 ${releases} 次执行超时被释放回池，转为 blocked，请人工介入处理`,
-          { ...(pmoId ? { pmoId } : {}), atHuman: true });
+          { milestone: true, fileStore },
+        );
       } else {
         // 释放回 unassigned（unclaim 清 assigneeId/claimedAt），清 timeoutAt 等待重新认领后重写
         await wuService.unclaim(wu.id);
         await wuService.update(wu.id, { timeoutAt: null, metadata: nextMetadata });
-        await postTimeoutSystemMessage(fileStore, wu,
-          `任务「${title}」执行超时（第 ${releases} 次），已释放回任务池等待重新认领`);
+        await postWuSystemMessage(
+          wu,
+          `任务「${title}」执行超时（第 ${releases} 次），已释放回任务池等待重新认领`,
+          { fileStore },
+        );
       }
       handled++;
     } catch (err) {
@@ -78,28 +77,4 @@ export async function scanTimedOutWorkUnits(fs?: FileStore, now: Date = new Date
     logger.info(`[WorkUnitTimeout] Handled ${handled} timed-out WorkUnit(s)`);
   }
   return handled;
-}
-
-/** 向 WU 所在频道发超时系统消息（authorType:'agent', agentName:'Studio'，同 waiting-input 形态）。
- *  meta 仅 blocked 转人工里程碑携带（2026-07 PMO-flow UX §6-3：pmoId/atHuman），释放回池不带。 */
-async function postTimeoutSystemMessage(
-  fileStore: FileStore,
-  wu: WorkUnitData,
-  content: string,
-  meta?: MessageMeta,
-): Promise<void> {
-  if (!wu.channelId) return;
-  const anchor = await findAnchorMessage(wu.id, fileStore);
-  const msg: ChannelMessageData = {
-    id: randomUUID(),
-    channelId: wu.channelId,
-    authorType: 'agent',
-    agentName: 'Studio',
-    content,
-    replyToId: anchor?.id ?? null,
-    meta: meta ? JSON.stringify(meta) : '{}',
-    workUnitId: wu.id,
-    createdAt: new Date().toISOString(),
-  };
-  await fileStore.appendMessage(wu.channelId, msg);
 }

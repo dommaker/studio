@@ -1,21 +1,21 @@
-// 2026-07 PMO-flow UX（§6-3）：里程碑频道消息 meta（pmoId / atHuman）
+// 2026-07 PMO-flow UX（§6-3）：里程碑频道消息委托 wu-messenger 的调用契约
 // 覆盖：COMPLETE 汇报 / NEED_INPUT / 验证失败打回（verifyFailCount≥3 → blocked）/
-//       blocked 转人工（连续 3 步无进展）四类里程碑 meta 带 pmoId + atHuman；
-//       pmoId 解析不到时不携带；普通 progress 消息不带 meta。
+//       blocked 转人工（连续 3 步无进展）四类里程碑以 milestone: true + 合并视图 wu 委托；
+//       普通 progress 消息不带里程碑标记。
+// meta 形状（pmoId/atHuman）契约已迁至 workunit/__tests__/wu-messenger.test.ts，本文件只断言委托参数。
 // 模式同 agent-loop-need-input.test.ts：真实 FileStore（tmpdir）+ 真实 WorkUnitService；
-// CLI 执行 / knowledge-service / pmo-branch-resolver / wu-verification mock。
+// CLI 执行 / knowledge-service / pmo-branch-resolver / wu-verification / wu-messenger mock。
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { v4 as uuidv4 } from 'uuid';
-import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
-const { mockExecuteLightweight, mockResolvePmoProjectId, mockRunWuVerification } = vi.hoisted(() => ({
+const { mockExecuteLightweight, mockRunWuVerification, mockPostWuSystemMessage } = vi.hoisted(() => ({
   mockExecuteLightweight: vi.fn(),
-  mockResolvePmoProjectId: vi.fn(),
   mockRunWuVerification: vi.fn(),
+  mockPostWuSystemMessage: vi.fn(),
 }));
 
 vi.mock('@dommaker/studio-agent', () => ({
@@ -34,12 +34,16 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 
 vi.mock('../../requirements/pmo-branch-resolver', () => ({
   resolvePmoBranchForWU: vi.fn().mockResolvedValue(null),
-  resolvePmoProjectIdForWU: mockResolvePmoProjectId,
+  resolvePmoProjectIdForWU: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../wu-verification', () => ({
   CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
   runWuVerification: mockRunWuVerification,
+}));
+
+vi.mock('../../workunit/wu-messenger', () => ({
+  postWuSystemMessage: mockPostWuSystemMessage,
 }));
 
 import { AgentLoop } from '../agent-loop';
@@ -59,11 +63,13 @@ interface RecordResultCapable {
   recordResult(target: unknown, result: unknown): Promise<void>;
 }
 
-function parseMeta(msg: ChannelMessageData): Record<string, unknown> {
-  return JSON.parse(msg.meta) as Record<string, unknown>;
+/** 按消息文本定位一次 wu-messenger 委托调用 */
+function findCall(content: string | RegExp) {
+  return mockPostWuSystemMessage.mock.calls.find(c =>
+    typeof content === 'string' ? c[1] === content : content.test(String(c[1])));
 }
 
-describe('AgentLoop 里程碑消息 meta（2026-07 §6-3）', () => {
+describe('AgentLoop 里程碑消息委托 wu-messenger（2026-07 §6-3）', () => {
   let testDir: string;
   let fileStore: FileStore;
   let wuService: WorkUnitService;
@@ -72,7 +78,7 @@ describe('AgentLoop 里程碑消息 meta（2026-07 §6-3）', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
-    mockResolvePmoProjectId.mockResolvedValue('proj-1');
+    mockPostWuSystemMessage.mockResolvedValue(null);
     mockRunWuVerification.mockResolvedValue({ ran: [], source: 'convention' });
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-loop-ms-'));
     fileStore = new FileStore(testDir);
@@ -91,28 +97,16 @@ describe('AgentLoop 里程碑消息 meta（2026-07 §6-3）', () => {
     fs.rmSync(testDir, { recursive: true, force: true });
   });
 
-  /** 创建 active WorkUnit（@mention 派发形态，含 anchor 消息） */
+  /** 创建 active WorkUnit（@mention 派发形态） */
   async function setupActiveWorkUnit(metadata?: WorkUnitMetadata) {
-    const wu = await wuService.create({
+    return wuService.create({
       scope: '实现登录功能', channelId, type: 'task',
       status: 'active', assigneeId: 'instance-1',
       ...(metadata ? { metadata } : {}),
     });
-    const anchor: ChannelMessageData = {
-      id: uuidv4(), channelId, authorType: 'human', agentName: null,
-      content: '@ms-agent 实现登录功能', replyToId: null, meta: '{}',
-      workUnitId: wu.id, createdAt: new Date().toISOString(),
-    };
-    await fileStore.appendMessage(channelId, anchor);
-    return wu;
   }
 
-  async function agentMessages(wuId: string): Promise<ChannelMessageData[]> {
-    const messages = await fileStore.queryMessages(channelId, { workUnitId: wuId });
-    return messages.filter(m => m.authorType === 'agent');
-  }
-
-  it('COMPLETE 完成汇报 → meta 带 pmoId + atHuman，消息文本不变', async () => {
+  it('COMPLETE 完成汇报 → milestone: true + role.name 署名 + loop fileStore，消息文本不变', async () => {
     const wu = await setupActiveWorkUnit();
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
@@ -120,14 +114,34 @@ describe('AgentLoop 里程碑消息 meta（2026-07 §6-3）', () => {
       { action: 'complete', summary: '登录功能已完成' },
     );
 
-    const report = (await agentMessages(wu.id)).find(m => m.content === '登录功能已完成');
-    expect(report).toBeDefined();
-    expect(parseMeta(report!)).toEqual({ pmoId: 'proj-1', atHuman: true });
+    const call = findCall('登录功能已完成');
+    expect(call).toBeDefined();
+    expect(call![0]).toEqual(expect.objectContaining({ id: wu.id, channelId }));
+    expect(call![2]).toEqual(expect.objectContaining({
+      agentName: 'ms-agent',
+      milestone: true,
+      fileStore,
+    }));
     // 状态迁移不变（COMPLETE → in_review）
     expect((await wuService.getById(wu.id))!.status).toBe('in_review');
   });
 
-  it('NEED_INPUT → meta 带 pmoId + atHuman，消息文本不变', async () => {
+  it('里程碑 wu 参数为「持久化 + 本 step metadataUpdates」合并视图（pmoProjectId 本 step 落档可见）', async () => {
+    const wu = await setupActiveWorkUnit({ title: '登录' });
+
+    await (agentLoop as unknown as RecordResultCapable).recordResult(
+      { workUnit: wu },
+      { action: 'complete', summary: '登录功能已完成', metadataUpdates: { pmoProjectId: 'proj-x' } },
+    );
+
+    const call = findCall('登录功能已完成');
+    expect(call).toBeDefined();
+    const wuArgMeta = JSON.parse(String(call![0].metadata)) as WorkUnitMetadata;
+    expect(wuArgMeta.pmoProjectId).toBe('proj-x'); // 本 step 刚落档的字段
+    expect(wuArgMeta.title).toBe('登录');          // 持久化字段仍在
+  });
+
+  it('NEED_INPUT → milestone: true，消息文本不变', async () => {
     const wu = await setupActiveWorkUnit();
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
@@ -135,13 +149,12 @@ describe('AgentLoop 里程碑消息 meta（2026-07 §6-3）', () => {
       { action: 'need_input', summary: '使用 OAuth 还是账号密码？' },
     );
 
-    const question = (await agentMessages(wu.id)).find(m => m.content.includes('需要输入'));
-    expect(question).toBeDefined();
-    expect(question!.content).toBe('需要输入: 使用 OAuth 还是账号密码？');
-    expect(parseMeta(question!)).toEqual({ pmoId: 'proj-1', atHuman: true });
+    const call = findCall('需要输入: 使用 OAuth 还是账号密码？');
+    expect(call).toBeDefined();
+    expect(call![2]).toEqual(expect.objectContaining({ milestone: true }));
   });
 
-  it('验证失败打回（verifyFailCount≥3 → blocked）→ meta 带 pmoId + atHuman', async () => {
+  it('验证失败打回（verifyFailCount≥3 → blocked）→ milestone: true', async () => {
     mockRunWuVerification.mockResolvedValue({
       ran: [],
       source: 'convention',
@@ -154,13 +167,13 @@ describe('AgentLoop 里程碑消息 meta（2026-07 §6-3）', () => {
       { action: 'complete', summary: '登录功能已完成' },
     );
 
-    const notice = (await agentMessages(wu.id)).find(m => m.content.includes('自动验证连续失败'));
-    expect(notice).toBeDefined();
-    expect(parseMeta(notice!)).toEqual({ pmoId: 'proj-1', atHuman: true });
+    const call = findCall(/自动验证连续失败/);
+    expect(call).toBeDefined();
+    expect(call![2]).toEqual(expect.objectContaining({ milestone: true }));
     expect((await wuService.getById(wu.id))!.status).toBe('blocked');
   });
 
-  it('blocked 转人工（连续 3 步无进展）→ meta 带 pmoId + atHuman', async () => {
+  it('blocked 转人工（连续 3 步无进展）→ milestone: true', async () => {
     const wu = await setupActiveWorkUnit({ consecutiveStuck: 2 });
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
@@ -168,29 +181,13 @@ describe('AgentLoop 里程碑消息 meta（2026-07 §6-3）', () => {
       { action: 'need_input', summary: '又卡住了' },
     );
 
-    const notice = (await agentMessages(wu.id)).find(m => m.content.includes('连续 3 步无进展'));
-    expect(notice).toBeDefined();
-    expect(parseMeta(notice!)).toEqual({ pmoId: 'proj-1', atHuman: true });
+    const call = findCall(/连续 3 步无进展/);
+    expect(call).toBeDefined();
+    expect(call![2]).toEqual(expect.objectContaining({ milestone: true }));
     expect((await wuService.getById(wu.id))!.status).toBe('blocked');
   });
 
-  it('pmoId 解析不到 → meta 不携带 pmoId（atHuman 仍在）', async () => {
-    mockResolvePmoProjectId.mockResolvedValue(null);
-    const wu = await setupActiveWorkUnit();
-
-    await (agentLoop as unknown as RecordResultCapable).recordResult(
-      { workUnit: wu },
-      { action: 'complete', summary: '登录功能已完成' },
-    );
-
-    const report = (await agentMessages(wu.id)).find(m => m.content === '登录功能已完成');
-    expect(report).toBeDefined();
-    const meta = parseMeta(report!);
-    expect(meta.atHuman).toBe(true);
-    expect('pmoId' in meta).toBe(false);
-  });
-
-  it('普通 progress 消息不带 meta（非里程碑）', async () => {
+  it('普通 progress 消息不带里程碑标记', async () => {
     const wu = await setupActiveWorkUnit();
 
     await (agentLoop as unknown as RecordResultCapable).recordResult(
@@ -198,10 +195,10 @@ describe('AgentLoop 里程碑消息 meta（2026-07 §6-3）', () => {
       { action: 'progress', summary: '已完成第一步' },
     );
 
-    const progress = (await agentMessages(wu.id)).find(m => m.content === '已完成第一步');
-    expect(progress).toBeDefined();
-    const meta = parseMeta(progress!);
-    expect('pmoId' in meta).toBe(false);
-    expect('atHuman' in meta).toBe(false);
+    const call = findCall('已完成第一步');
+    expect(call).toBeDefined();
+    expect(call![0]).toEqual(expect.objectContaining({ id: wu.id }));
+    expect(call![2].milestone).toBeUndefined();
+    expect(call![2]).toEqual(expect.objectContaining({ agentName: 'ms-agent', fileStore }));
   });
 });

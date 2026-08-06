@@ -10,11 +10,21 @@ import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata, type WorkUnitData } from '../workunit.service.js';
 import { mergeWorktreeBranchOnReviewPass } from '../merge-on-review-pass.js';
 
-const { mockExecSh } = vi.hoisted(() => ({ mockExecSh: vi.fn() }));
+const { mockExecSh, mockPostWuSystemMessage } = vi.hoisted(() => ({
+  mockExecSh: vi.fn(),
+  mockPostWuSystemMessage: vi.fn(),
+}));
 
 vi.mock('@dommaker/studio-shared/node', async (importOriginal) => {
   const orig = await importOriginal() as Record<string, unknown>;
   return { ...orig, execSh: mockExecSh };
+});
+
+// wu-messenger 间谍包装：真实发送保留（消息断言不受影响），另断言委托参数（milestone 等）
+vi.mock('../wu-messenger.js', async (importOriginal) => {
+  const orig = await importOriginal() as { postWuSystemMessage: (...args: unknown[]) => Promise<unknown> };
+  mockPostWuSystemMessage.mockImplementation(orig.postWuSystemMessage);
+  return { ...orig, postWuSystemMessage: mockPostWuSystemMessage };
 });
 
 const REPO = '/repo/shared';
@@ -129,8 +139,12 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toContain('未提交改动');
     expect(msgs[0].content).toContain('README.md');
-    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 meta 带 atHuman（无归属 → 不携带 pmoId）
-    expect(JSON.parse(msgs[0].meta)).toEqual({ atHuman: true });
+    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工 → 以里程碑消息委托 wu-messenger
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining('未提交改动'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
   });
 
   it('数据防丢闸：git status 调用失败按有改动处理（宁可转人工不丢数据）', async () => {
@@ -190,8 +204,12 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     const msgs = await studioMessages(wu.id);
     const humanMsg = msgs.find(m => m.content.includes('PMO 集成分支') && m.content.includes('转人工'));
     expect(humanMsg).toBeDefined();
-    // 2026-07 PMO-flow UX（§6-3）：转人工里程碑 meta 带 atHuman（proj-1 不存在 → 不携带 pmoId）
-    expect(JSON.parse(humanMsg!.meta)).toEqual({ atHuman: true });
+    // 2026-07 PMO-flow UX（§6-3）：转人工 → 以里程碑消息委托 wu-messenger
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining('PMO 集成分支'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
   });
 
   it('合并成功：--no-ff merge → 记 mergedAt/mergeCommit → 清理 worktree+分支 → 频道通知', async () => {
@@ -222,8 +240,12 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(msgs).toHaveLength(1);
     expect(msgs[0].content).toContain(`已合并到 ${BASE}`);
     expect(msgs[0].content).toContain(HEAD.slice(0, 7));
-    // 2026-07 PMO-flow UX §10：合并成功也带里程碑 meta（无归属 → 不携带 pmoId）
-    expect(JSON.parse(msgs[0].meta)).toEqual({ atHuman: true });
+    // 2026-07 PMO-flow UX §10：合并成功 → 以里程碑消息委托 wu-messenger
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining(`已合并到 ${BASE}`),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
   });
 
   it('冲突重试成功：首次 merge 失败 → abort → worktree rebase 到 base → 再 merge 成功', async () => {
@@ -294,8 +316,12 @@ describe('B3b-ii: 评审通过后自动合并', () => {
     expect(msgs[0].content).toContain('转人工');
     expect(msgs[0].content).toContain('src/a.ts');
     expect(msgs[0].content).toContain('src/b.ts');
-    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 meta 带 atHuman（无归属 → 不携带 pmoId）
-    expect(JSON.parse(msgs[0].meta)).toEqual({ atHuman: true });
+    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工 → 以里程碑消息委托 wu-messenger
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining('转人工'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
   });
 
   it('冲突转人工（rebase 成功但二次 merge 仍冲突）：冲突文件取自 baseRepo 现场', async () => {

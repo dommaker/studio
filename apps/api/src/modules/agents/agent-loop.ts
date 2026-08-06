@@ -20,9 +20,9 @@ import { knowledgeService } from '../knowledge/knowledge-service.js';
 import { loadManifest } from '../skills/manifest-loader.js';
 import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
 import { eventStore } from '../../core/event-store.js';
-import { ChannelMessageService, type MessageMeta } from '../channels/channel-message.service.js';
+import { postWuSystemMessage } from '../workunit/wu-messenger.js';
 import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
-import { resolvePmoBranchForWU, resolvePmoProjectIdForWU } from '../requirements/pmo-branch-resolver.js';
+import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
 import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
 import { resolveStudioEventsFile } from '../../utils/studio-events.js';
 import {
@@ -1580,7 +1580,7 @@ ${rosterLines.join('\n')}
       await this.postToDiscussionSpace(
         wuId,
         `自动验证连续失败 ${guardUpdates.verifyFailCount} 次，任务已转 blocked，等待人类介入。最近失败命令与输出已记录到任务上下文`,
-        await this.milestoneMeta(wu, metadata),
+        { ...wu, metadata: JSON.stringify(metadata) },
       );
       return;
     }
@@ -1606,7 +1606,7 @@ ${rosterLines.join('\n')}
       // W-3 接线：执行失败导致的 blocked 在频道说明失败原因（summary 含 CLI 错误详情）
       const stuckReason = action === 'failed' && result.summary ? `（${result.summary}）` : '';
       // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 —— meta 带 pmoId（可解析时）+ atHuman
-      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`, await this.milestoneMeta(wu, metadata));
+      await this.postToDiscussionSpace(wuId, `连续 3 步无进展${stuckReason}，等待人类介入`, { ...wu, metadata: JSON.stringify(metadata) });
       return;
     }
 
@@ -1622,7 +1622,7 @@ ${rosterLines.join('\n')}
       case 'complete':
         // 2026-07 PMO-flow UX（§6-3）：COMPLETE 完成汇报里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         if (!skipResultPost && result.summary.trim().length > 0) {
-          await this.postToDiscussionSpace(wuId, result.summary, await this.milestoneMeta(wu, metadata));
+          await this.postToDiscussionSpace(wuId, result.summary, { ...wu, metadata: JSON.stringify(metadata) });
         }
         // C-2 fix: blocked→in_review is not in VALID_TRANSITIONS, go through active first
         if (wu.status === 'blocked') {
@@ -1639,7 +1639,7 @@ ${rosterLines.join('\n')}
       case 'need_input':
         // 2026-07 PMO-flow UX（§6-3）：NEED_INPUT 里程碑 —— meta 带 pmoId（可解析时）+ atHuman
         if (!skipResultPost) {
-          await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, await this.milestoneMeta(wu, metadata));
+          await this.postToDiscussionSpace(wuId, `需要输入: ${result.summary}`, { ...wu, metadata: JSON.stringify(metadata) });
         }
         // F5: 挂起 — 守卫重复 NEED_INPUT（blocked → blocked 不在 VALID_TRANSITIONS 中）
         if (wu.status !== 'blocked') {
@@ -1661,39 +1661,20 @@ ${rosterLines.join('\n')}
       .map(s => s.id);
   }
 
-  /** Post message to discussion space（经 ChannelMessageService：eventBus + SSE，频道页实时可见）。
-   *  meta 仅里程碑消息携带（2026-07 PMO-flow UX §6-3：pmoId/atHuman），普通 progress 不带。 */
-  private async postToDiscussionSpace(workUnitId: string, content: string, meta?: MessageMeta): Promise<void> {
+  /** Post message to discussion space（经 wu-messenger → ChannelMessageService：eventBus + SSE，频道页实时可见）。
+   *  milestoneWu 存在时按里程碑消息处理（2026-07 PMO-flow UX §6-3：meta 带 pmoId?/atHuman，普通 progress 不带）；
+   *  调用方须传「持久化 + 本 step metadataUpdates」合并视图（pmoProjectId 可能本 step 刚落档）。 */
+  private async postToDiscussionSpace(workUnitId: string, content: string, milestoneWu?: WorkUnitData): Promise<void> {
     if (!content.trim()) return;
-    const wu = await this.workUnitService.getById(workUnitId);
-    if (!wu?.channelId) return;
+    const wu = milestoneWu ?? await this.workUnitService.getById(workUnitId);
+    if (!wu) return;
 
-    const anchor = await findAnchorMessage(workUnitId, this.fileStore);
     // 绑定本 loop 的 fileStore（测试注入临时 store；生产与全局同目录），事件形状与全局 service 一致
-    await new ChannelMessageService(this.fileStore).createAgentMessage(wu.channelId, this.role.name, content, {
-      replyToId: anchor?.id,
-      workUnitId,
-      ...(meta ? { meta } : {}),
+    await postWuSystemMessage(wu, content, {
+      agentName: this.role.name,
+      fileStore: this.fileStore,
+      ...(milestoneWu ? { milestone: true } : {}),
     });
-  }
-
-  /**
-   * 2026-07 PMO-flow UX（§6-3）：里程碑消息 meta 的归属 PMO 解析。
-   * 解析链复用 pmo-branch-resolver（①ownershipProjectId ②reqId→Requirement.projectId ③pmoProjectId）；
-   * metadata 用「持久化 + 本 step metadataUpdates」合并视图（pmoProjectId 可能本 step 刚落档）。
-   * best-effort —— 解析失败/无归属 → null（消息 meta 不携带 pmoId）。
-   */
-  private async resolveMilestonePmoId(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<string | null> {
-    return resolvePmoProjectIdForWU(
-      { reqId: wu.reqId ?? null, metadata: JSON.stringify(metadata) },
-      this.fileStore,
-    ).catch(() => null);
-  }
-
-  /** 2026-07 PMO-flow UX（§6-3）：里程碑消息 meta（pmoId 解析不到则不携带；atHuman 标记需人看） */
-  private async milestoneMeta(wu: WorkUnitData, metadata: WorkUnitMetadata): Promise<MessageMeta> {
-    const pmoId = await this.resolveMilestonePmoId(wu, metadata);
-    return { ...(pmoId ? { pmoId } : {}), atHuman: true };
   }
 
 }
@@ -1738,16 +1719,6 @@ export function isGitRepoRoot(root: string): boolean {
 /** B3b-i: worktrees 根目录解析（与 AgentRunner config 口径一致：WORKTREES_DIR > ~/worktrees） */
 export function resolveWorktreesDir(): string {
   return process.env.WORKTREES_DIR || join(os.homedir(), 'worktrees');
-}
-
-/** Find the anchor message (first message, no replyToId) for a WorkUnit */
-export async function findAnchorMessage(workUnitId: string, fileStore?: FileStore): Promise<ChannelMessageData | null> {
-  const fs = fileStore ?? new FileStore();
-  const messages = await fs.queryAllMessages({ workUnitId });
-  const anchors = messages
-    .filter(m => !m.replyToId)
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  return anchors[0] ?? null;
 }
 
 /** Resolve target from observations (pure code, zero LLM) */

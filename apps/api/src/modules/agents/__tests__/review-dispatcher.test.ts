@@ -11,13 +11,22 @@
  *  - child done + rejected -> 父 reviewRejected
  *  - child done + 无 reviewReport -> 父保持 in_review + 频道转人工（P0 修复，不再默认拒绝）
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import { ReviewDispatcher } from '../review-dispatcher.js';
+
+const { mockPostWuSystemMessage } = vi.hoisted(() => ({ mockPostWuSystemMessage: vi.fn() }));
+
+// wu-messenger 间谍包装：真实发送保留（消息断言不受影响），另断言委托参数（milestone 等）
+vi.mock('../../workunit/wu-messenger.js', async (importOriginal) => {
+  const orig = await importOriginal() as { postWuSystemMessage: (...args: unknown[]) => Promise<unknown> };
+  mockPostWuSystemMessage.mockImplementation(orig.postWuSystemMessage);
+  return { ...orig, postWuSystemMessage: mockPostWuSystemMessage };
+});
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -61,6 +70,7 @@ async function waitFor(cond: () => Promise<boolean>, timeoutMs = 3000): Promise<
 }
 
 beforeEach(async () => {
+  mockPostWuSystemMessage.mockClear(); // 清调用记录（保留间谍包装的实现）
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'review-dispatcher-'));
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
@@ -342,8 +352,12 @@ describe('ReviewDispatcher (AC-4.1 ~ AC-4.5 + F4)', () => {
     const messages = await fileStore.queryMessages('ch-test', { workUnitId: parent.id });
     const sysMsg = messages.find(m => m.authorType === 'agent' && m.agentName === 'Studio' && m.content.includes('转人工'));
     expect(sysMsg).toBeDefined();
-    // 2026-07 PMO-flow UX（§6-3）：评审结果转人工里程碑 meta 带 atHuman（无归属 → 不携带 pmoId）
-    expect(JSON.parse(sysMsg!.meta)).toEqual({ atHuman: true });
+    // 2026-07 PMO-flow UX（§6-3）：评审结果转人工 → 以里程碑消息委托 wu-messenger
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: parent.id }),
+      expect.stringContaining('转人工'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
   });
 
   it('PMO 分析接力：analysis WU in_review -> 不派 review 子 WU（人工确认，analysis-handoff 接管）', async () => {

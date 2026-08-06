@@ -23,7 +23,7 @@ export interface AgentMessageOptions {
   workUnitId?: string; // AS-025 §5.16: 讨论空间关联
 }
 
-interface MessageRecord {
+export interface MessageRecord {
   id: string;
   channelId: string;
   workUnitId: string | null;

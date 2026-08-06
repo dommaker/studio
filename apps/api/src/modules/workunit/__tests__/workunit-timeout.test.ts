@@ -2,7 +2,7 @@
 // - claim 进入 active 时写入 timeoutAt（按 type 默认时长；metadata.timeoutAt 显式值优先；已有列值不动）
 // - scanTimedOutWorkUnits：超时 → 释放回 unassigned + metadata 记录 + 频道系统消息；≥3 次 → blocked
 // 约定与 waiting-input.test.ts 一致：真实 FileStore（tmpdir）+ 真实 WorkUnitService
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -10,12 +10,22 @@ import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, WU_TIMEOUT_MINUTES, type WorkUnitMetadata } from '../workunit.service.js';
 import { scanTimedOutWorkUnits, MAX_TIMEOUT_RELEASES } from '../timeout-release.js';
 
+const { mockPostWuSystemMessage } = vi.hoisted(() => ({ mockPostWuSystemMessage: vi.fn() }));
+
+// wu-messenger 间谍包装：真实发送保留（消息断言不受影响），另断言委托参数（milestone 等）
+vi.mock('../wu-messenger.js', async (importOriginal) => {
+  const orig = await importOriginal() as { postWuSystemMessage: (...args: unknown[]) => Promise<unknown> };
+  mockPostWuSystemMessage.mockImplementation(orig.postWuSystemMessage);
+  return { ...orig, postWuSystemMessage: mockPostWuSystemMessage };
+});
+
 let tmpDir: string;
 let fileStore: FileStore;
 let wuService: WorkUnitService;
 let channelId: string;
 
 beforeEach(async () => {
+  mockPostWuSystemMessage.mockClear(); // 清调用记录（保留间谍包装的实现）
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'workunit-timeout-test-'));
   fileStore = new FileStore(tmpDir);
   wuService = new WorkUnitService(fileStore);
@@ -100,8 +110,12 @@ describe('P0: scanTimedOutWorkUnits（workunit-timeout-scan handler）', () => {
     expect(messages[0].agentName).toBe('Studio');
     expect(messages[0].content).toContain('超时');
     expect(messages[0].content).toContain('释放回任务池');
-    // 释放回池非「需要人看」里程碑：meta 保持空（2026-07 §6-3 不动非转人工消息）
-    expect(messages[0].meta).toBe('{}');
+    // 释放回池非「需要人看」里程碑：委托 wu-messenger 时不带 milestone 标记（2026-07 §6-3）
+    const releaseCall = mockPostWuSystemMessage.mock.calls.find(c => String(c[1]).includes('释放回任务池'));
+    expect(releaseCall).toBeDefined();
+    expect(releaseCall![0]).toEqual(expect.objectContaining({ id: wu.id }));
+    expect(releaseCall![2].milestone).toBeUndefined();
+    expect(releaseCall![2]).toEqual(expect.objectContaining({ fileStore }));
   });
 
   it('未超时 / 非 active 的 WU 不受影响', async () => {
@@ -146,8 +160,12 @@ describe('P0: scanTimedOutWorkUnits（workunit-timeout-scan handler）', () => {
     expect(messages[0].agentName).toBe('Studio');
     expect(messages[0].content).toContain('blocked');
     expect(messages[0].content).toContain('人工介入');
-    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 meta 带 atHuman（无归属 → 不携带 pmoId）
-    expect(JSON.parse(messages[0].meta)).toEqual({ atHuman: true });
+    // 2026-07 PMO-flow UX（§6-3）：blocked 转人工 → 以里程碑消息委托 wu-messenger
+    expect(mockPostWuSystemMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ id: wu.id }),
+      expect.stringContaining('人工介入'),
+      expect.objectContaining({ milestone: true, fileStore }),
+    );
   });
 
   it('释放后可重新认领并获得新的 timeoutAt', async () => {

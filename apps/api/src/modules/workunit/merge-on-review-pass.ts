@@ -26,16 +26,15 @@
  *
  * 依赖说明：只依赖 studio-shared(+node) 与 WorkUnitService 类型，不 import
  * agent-loop（避免 workunit.service → 本模块 → agent-loop 的重依赖链与循环）；
- * anchor 查找内联实现（语义同 agent-loop.findAnchorMessage）。
+ * 频道系统消息走 wu-messenger 统一出口（eventBus + SSE）。
  */
-import { randomUUID } from 'crypto';
-import { logger, type FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+import { logger, type FileStore } from '@dommaker/studio-shared';
 import { execSh } from '@dommaker/studio-shared/node';
 import { ensurePmoIntegrationWorktree } from '@dommaker/studio-agent';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WorkUnitService, WorkUnitData, WorkUnitMetadata } from './workunit.service.js';
-import type { MessageMeta } from '../channels/channel-message.service.js';
+import { postWuSystemMessage } from './wu-messenger.js';
 
 /** worktrees 根目录（与 agent-loop.resolveWorktreesDir 同口径：WORKTREES_DIR > ~/worktrees） */
 function resolveWorktreesDir(): string {
@@ -98,56 +97,14 @@ async function abortMergeAndRebase(baseRepo: string, worktreePath?: string): Pro
   }
 }
 
-/** anchor 查找（语义同 agent-loop.findAnchorMessage：该 WU 频道线程的首条根消息） */
-async function findAnchor(workUnitId: string, fileStore: FileStore): Promise<ChannelMessageData | null> {
-  const messages = await fileStore.queryAllMessages({ workUnitId });
-  const anchors = messages
-    .filter(m => !m.replyToId)
-    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
-  return anchors[0] ?? null;
-}
-
-/** 向 WU 所在频道发 Studio 系统消息（形态参照 waiting-input.postStudioSystemMessage）。
+/** 向 WU 所在频道发 Studio 系统消息（经 wu-messenger 统一出口：eventBus + SSE）。
  *  meta 由里程碑消息携带（2026-07 PMO-flow UX §6-3/§10：转人工 + 合并成功均带 pmoId?/atHuman）。 */
 async function postSystemMessage(
   fileStore: FileStore,
   wu: WorkUnitData,
   content: string,
-  meta?: MessageMeta,
 ): Promise<void> {
-  if (!wu.channelId) return;
-  const anchor = await findAnchor(wu.id, fileStore).catch(() => null);
-  const msg: ChannelMessageData = {
-    id: randomUUID(),
-    channelId: wu.channelId,
-    authorType: 'agent',
-    agentName: 'Studio',
-    content,
-    replyToId: anchor?.id ?? null,
-    meta: meta ? JSON.stringify(meta) : '{}',
-    workUnitId: wu.id,
-    createdAt: new Date().toISOString(),
-  };
-  await fileStore.appendMessage(wu.channelId, msg);
-}
-
-/**
- * 2026-07 PMO-flow UX（§6-3）：blocked 转人工里程碑 meta（pmoId 可解析时携带 + atHuman）。
- * pmo-branch-resolver 走 lazy import——本模块被 workunit.service 静态依赖，
- * 静态引入 pmo-branch-resolver（→ project.service → workunit.service）会成循环（同头部依赖说明）。
- */
-async function milestoneMeta(fileStore: FileStore, wu: WorkUnitData): Promise<MessageMeta> {
-  try {
-    const { resolvePmoProjectIdForWU } = await import('../requirements/pmo-branch-resolver.js');
-    const pmoId = await resolvePmoProjectIdForWU(
-      { reqId: wu.reqId ?? null, metadata: wu.metadata },
-      fileStore,
-    ).catch(() => null); // best-effort：解析不到不带 pmoId
-    return { ...(pmoId ? { pmoId } : {}), atHuman: true };
-  } catch {
-    // import 失败（依赖链副作用 / 测试环境）-> 不阻断消息发送，只缺 pmoId
-    return { atHuman: true };
-  }
+  await postWuSystemMessage(wu, content, { milestone: true, fileStore });
 }
 
 /**
@@ -192,7 +149,6 @@ export async function mergeWorktreeBranchOnReviewPass(
         fileStore,
         wu,
         `任务「${title}」的 worktree 仍有未提交改动，未执行自动合并，已转人工处理${fileList}`,
-        await milestoneMeta(fileStore, wu),
       ).catch(err => logger.warn('[MergeOnReviewPass] post dirty message failed', { wuId: wu.id, error: String(err) }));
       logger.warn('[MergeOnReviewPass] dirty worktree escalated to human (merge skipped)', {
         wuId: wu.id, branch, worktreePath, dirtyCount: dirtyFiles?.length ?? -1,
@@ -224,7 +180,6 @@ export async function mergeWorktreeBranchOnReviewPass(
         fileStore,
         wu,
         `任务「${title}」的 PMO 集成分支 ${meta.pmoBranch} 准备失败（${message.slice(0, 200)}），已转人工处理`,
-        await milestoneMeta(fileStore, wu),
       ).catch(e => logger.warn('[MergeOnReviewPass] post pmo-setup message failed', { wuId: wu.id, error: String(e) }));
       logger.warn('[MergeOnReviewPass] pmo integration worktree setup failed', { wuId: wu.id, pmoBranch: meta.pmoBranch, error: message });
       return { attempted: true, merged: false, conflictFiles: [], reason: 'conflict' };
@@ -250,7 +205,6 @@ export async function mergeWorktreeBranchOnReviewPass(
       fileStore,
       wu,
       `任务「${title}」自动合并到 ${mergeContext.targetBranch} 失败（重试后仍冲突），已转人工处理${fileList}`,
-      await milestoneMeta(fileStore, wu),
     ).catch(err => logger.warn('[MergeOnReviewPass] post conflict message failed', { wuId: wu.id, error: String(err) }));
     logger.warn('[MergeOnReviewPass] merge conflict escalated to human', {
       wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, conflictFiles: merged.conflictFiles,
@@ -300,7 +254,6 @@ export async function mergeWorktreeBranchOnReviewPass(
     fileStore,
     wu,
     `任务「${title}」已合并到 ${mergeContext.targetBranch}（merge commit ${mergeCommit.slice(0, 7) || '未知'}）`,
-    await milestoneMeta(fileStore, wu),
   ).catch(err => logger.warn('[MergeOnReviewPass] post merged message failed', { wuId: wu.id, error: String(err) }));
   logger.info('[MergeOnReviewPass] branch merged', { wuId: wu.id, branch, targetBranch: mergeContext.targetBranch, mergeCommit });
   return { attempted: true, merged: true, mergeCommit };
