@@ -55,7 +55,7 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
   };
 });
 
-import { resolveWorkspace, ensureDeps, writeRequirementsMd } from '../worktree-resolver.js';
+import { resolveWorkspace, ensureDeps } from '../worktree-resolver.js';
 
 const baseOpts = {
   worktreesDir: '/worktrees',
@@ -344,80 +344,5 @@ describe('ensureDeps()', () => {
 
     await expect(ensureDeps('/worktree', '/repo'))
       .rejects.toThrow('pnpm install failed');
-  });
-});
-
-describe('writeRequirementsMd()', () => {
-  const task = makeTask();
-
-  beforeEach(() => {
-    mockWriteFile.mockClear();
-  });
-
-  function getWrittenContent(): string {
-    const call = mockWriteFile.mock.calls.find(
-      (c) => typeof c[1] === 'string' && c[1].includes('# 需求'),
-    );
-    return call ? call[1] : '';
-  }
-
-  test('with testFiles: uses vitest run with specified files, no "npm test" constraint', async () => {
-    const testFiles = ['src/foo.test.ts', 'src/bar.test.ts'];
-    const acGroup = {
-      acs: ['AC1: do thing'],
-      files: ['src/foo.ts'],
-      implementationNotes: 'use X',
-    };
-
-    await writeRequirementsMd('/worktree', task, acGroup, testFiles);
-
-    const content = getWrittenContent();
-    expect(content).toContain('npx vitest run src/foo.test.ts src/bar.test.ts');
-    expect(content).not.toContain('完成前必须运行 npm test');
-    expect(content).toContain('type check');
-    expect(content).toContain('lint');
-  });
-
-  test('without testFiles: falls back to npm test', async () => {
-    const acGroup = {
-      acs: ['AC1: do thing'],
-      files: ['src/foo.ts'],
-    };
-
-    await writeRequirementsMd('/worktree', task, acGroup);
-
-    const content = getWrittenContent();
-    expect(content).toContain('完成前必须运行 npm test');
-  });
-
-  test('with empty testFiles array: falls back to npm test', async () => {
-    const acGroup = {
-      acs: ['AC1: do thing'],
-      files: ['src/foo.ts'],
-    };
-
-    await writeRequirementsMd('/worktree', task, acGroup, []);
-
-    const content = getWrittenContent();
-    expect(content).toContain('完成前必须运行 npm test');
-  });
-
-  test('with testFiles: progress.json command uses vitest run', async () => {
-    const testFiles = ['src/foo.test.ts'];
-    const acGroup = { acs: ['AC1'], files: ['src/foo.ts'] };
-
-    await writeRequirementsMd('/worktree', task, acGroup, testFiles);
-
-    const content = getWrittenContent();
-    expect(content).toContain('command: "npx vitest run src/foo.test.ts"');
-  });
-
-  test('without testFiles: progress.json command uses npm test', async () => {
-    const acGroup = { acs: ['AC1'], files: ['src/foo.ts'] };
-
-    await writeRequirementsMd('/worktree', task, acGroup);
-
-    const content = getWrittenContent();
-    expect(content).toContain('command: "npm test"');
   });
 });

@@ -19,11 +19,13 @@ import { beforeAgentExecute } from '@dommaker/studio-shared/harness/hooks';
 import {
   resolveWorkspace,
   propagateHarnessConfig,
+  ensureDeps,
+} from './worktree-resolver.js';
+import {
   buildCachePrefix,
   writeRequirementsMd,
   writeContractTests,
-  ensureDeps,
-} from './worktree-resolver.js';
+} from './runner-briefing.js';
 import {
   readProgress,
   collectOutputFiles,
