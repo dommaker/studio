@@ -1,7 +1,7 @@
 // 频道列表数据 hook —— ChannelListPage 与 Mission Control 左栏 ChannelRail 共用
 // 数据来源与 B2-011 未读 SSE 逻辑单源化，避免两处实现漂移
 import { useState, useEffect, useCallback } from 'react';
-import { api } from '../api';
+import { channelApi } from '../api/channel';
 import { useWebSocketContext } from '../api/websocket';
 
 export interface ChannelListItem {
@@ -28,7 +28,7 @@ export function useChannelList() {
   const { onEvent } = useWebSocketContext();
 
   useEffect(() => {
-    api.get('/channels')
+    channelApi.list()
       .then(r => setChannels(r.data.data || []))
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -57,7 +57,7 @@ export function useChannelList() {
   // B2-007: Create new channel (with optional initial agents)
   const createChannel = useCallback(async (input: CreateChannelInput): Promise<ChannelListItem> => {
     const agents = input.agents.map(name => ({ name }));
-    const res = await api.post('/channels', {
+    const res = await channelApi.create({
       name: input.name,
       type: input.type,
       ...(agents.length > 0 ? { agents } : {}),

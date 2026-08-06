@@ -197,7 +197,7 @@ export function Settings() {
       setNotifySyncStatus('synced');
 
       // 保存角色执行配置到 Redis
-      await api.post('/runtime-config', {
+      await runtimeWorkflowApi.updateConfig({
         maxConcurrent: config.roleExecution.maxConcurrent,
         tokenWarningThreshold: config.roleExecution.tokenWarningThreshold,
         showTokenUsage: config.roleExecution.showTokenUsage,

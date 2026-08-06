@@ -23,4 +23,9 @@ describe('knowledgeApi（知识审核闭环）', () => {
     knowledgeApi.demote('k-2');
     expect(mockPost).toHaveBeenCalledWith('/knowledge-service/demote', { entryId: 'k-2' });
   });
+
+  it('archive → POST /knowledge/:id/archive（PMO 详情页归档知识库）', () => {
+    knowledgeApi.archive('doc-1');
+    expect(mockPost).toHaveBeenCalledWith('/knowledge/doc-1/archive');
+  });
 });

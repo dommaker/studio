@@ -15,7 +15,6 @@ import {
   type WorkUnit,
 } from '../api/workunit';
 import { useWebSocketContext, type WebSocketMessage } from '../api/websocket';
-import { api } from '../api/index';
 
 /** 卡片「最近动态」条目（SSE 实时追加，内存每 agent 最多保留 MAX_ACTIVITIES 条） */
 export interface RosterActivityItem {
@@ -252,7 +251,7 @@ export function useAgentRoster(): UseAgentRosterResult {
 
   const terminate = useCallback(async (instanceId: string) => {
     try {
-      await api.post(`/agent-instances/${instanceId}/terminate`);
+      await monitoringApi.terminateInstance(instanceId);
       await refresh(true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to terminate agent');

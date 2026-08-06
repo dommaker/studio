@@ -2,14 +2,14 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 
-const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockPost } = vi.hoisted(() => ({
+const { mockOnEvent, mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet } = vi.hoisted(() => ({
   mockOnEvent: vi.fn(),
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
   mockGetAgentSummary: vi.fn(),
+  mockTerminateInstance: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
-  mockPost: vi.fn(),
 }));
 
 vi.mock('../../api/websocket', () => ({
@@ -17,7 +17,7 @@ vi.mock('../../api/websocket', () => ({
 }));
 
 vi.mock('../../api/monitoring', () => ({
-  monitoringApi: { getAgentSummary: mockGetAgentSummary },
+  monitoringApi: { getAgentSummary: mockGetAgentSummary, terminateInstance: mockTerminateInstance },
 }));
 
 vi.mock('../../api/channel', () => ({
@@ -28,10 +28,6 @@ vi.mock('../../api/workunit', async () => {
   const actual = await vi.importActual('../../api/workunit');
   return { ...actual, workunitApi: { list: mockWuList, get: mockWuGet } };
 });
-
-vi.mock('../../api/index', () => ({
-  api: { post: mockPost },
-}));
 
 import { useAgentRoster, MAX_ACTIVITIES, ROSTER_POLL_INTERVAL_MS } from '../useAgentRoster';
 
@@ -63,7 +59,7 @@ describe('useAgentRoster', () => {
     mockListChannels.mockResolvedValue({ data: { data: [{ id: 'ch1', name: 'backend' }] } });
     mockWuList.mockResolvedValue({ data: { data: [], total: 0, page: 1, limit: 20 } });
     mockWuGet.mockResolvedValue({ data: { id: 'wu-9', scope: '补查的任务', type: 'DEV', status: 'active', claimedAt: null } });
-    mockPost.mockResolvedValue({});
+    mockTerminateInstance.mockResolvedValue({});
   });
 
   afterEach(() => {
@@ -224,10 +220,10 @@ describe('useAgentRoster', () => {
     const { result } = renderHook(() => useAgentRoster());
     await flush();
     await act(async () => { await result.current.terminate('i1'); });
-    expect(mockPost).toHaveBeenCalledWith('/agent-instances/i1/terminate');
+    expect(mockTerminateInstance).toHaveBeenCalledWith('i1');
     expect(mockListAllAgents).toHaveBeenCalledTimes(2);
 
-    mockPost.mockRejectedValueOnce(new Error('boom'));
+    mockTerminateInstance.mockRejectedValueOnce(new Error('boom'));
     await act(async () => { await result.current.terminate('i1'); });
     expect(result.current.error).toBe('boom');
   });

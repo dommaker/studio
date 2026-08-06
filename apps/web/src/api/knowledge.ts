@@ -63,4 +63,8 @@ export const knowledgeApi = {
   /** 文档详情（抽屉阅读器；此前端接口此前零调用） */
   getDetail: (documentId: string) =>
     api.get<KnowledgeDocDetail>(`/knowledge/detail/${documentId}`),
+
+  /** 归档单篇文档（PMO 详情页「归档知识库」，human-only） */
+  archive: (documentId: string) =>
+    api.post(`/knowledge/${documentId}/archive`),
 };

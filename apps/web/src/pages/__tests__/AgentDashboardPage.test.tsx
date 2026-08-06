@@ -8,15 +8,15 @@ vi.mock('react', async () => {
   return { ...actual, default: actual };
 });
 
-const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockWuList, mockWuGet, mockOnEvent, mockNavigate, mockPost } = vi.hoisted(() => ({
+const { mockListAllAgents, mockListChannels, mockGetAgentSummary, mockTerminateInstance, mockWuList, mockWuGet, mockOnEvent, mockNavigate } = vi.hoisted(() => ({
   mockListAllAgents: vi.fn(),
   mockListChannels: vi.fn(),
   mockGetAgentSummary: vi.fn(),
+  mockTerminateInstance: vi.fn(),
   mockWuList: vi.fn(),
   mockWuGet: vi.fn(),
   mockOnEvent: vi.fn(),
   mockNavigate: vi.fn(),
-  mockPost: vi.fn(),
 }));
 
 vi.mock('react-router-dom', () => ({
@@ -26,7 +26,7 @@ vi.mock('react-router-dom', () => ({
 }));
 
 vi.mock('../../api/monitoring', () => ({
-  monitoringApi: { getAgentSummary: mockGetAgentSummary },
+  monitoringApi: { getAgentSummary: mockGetAgentSummary, terminateInstance: mockTerminateInstance },
 }));
 
 vi.mock('../../api/channel', () => ({
@@ -41,10 +41,6 @@ vi.mock('../../api/workunit', async () => {
 // SSE：测试无 WebSocketProvider，onEvent 由用例接管
 vi.mock('../../api/websocket', () => ({
   useWebSocketContext: () => ({ onEvent: mockOnEvent }),
-}));
-
-vi.mock('../../api/index', () => ({
-  api: { post: mockPost },
 }));
 
 import { AgentDashboardPage } from '../../pages/AgentDashboardPage';
@@ -74,7 +70,7 @@ describe('AgentDashboardPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockOnEvent.mockImplementation(() => () => {});
-    mockPost.mockResolvedValue({});
+    mockTerminateInstance.mockResolvedValue({});
     mockListAllAgents.mockResolvedValue({ data: { data: [] } });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [], summary: { total: 0, idle: 0, active: 0, error: 0, terminated: 0 } },
@@ -163,7 +159,7 @@ describe('AgentDashboardPage', () => {
     const btn = await screen.findByText('强制停止');
     fireEvent.click(btn);
     expect(confirmSpy).toHaveBeenCalledWith('强制停止会将当前任务转人工处理，确认？');
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/agent-instances/i1/terminate'));
+    await waitFor(() => expect(mockTerminateInstance).toHaveBeenCalledWith('i1'));
     confirmSpy.mockRestore();
   });
 

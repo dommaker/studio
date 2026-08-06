@@ -2,7 +2,6 @@
 // 对话流逻辑与 B1-001/Phase 2 一致：日期分隔、已完成折叠、线程分组、NEED_INPUT 回复链路，零语义变更
 import { useParams } from 'react-router-dom';
 import { useEffect, useLayoutEffect, useState, useCallback, useRef } from 'react';
-import { api } from '../api';
 import { useChannelMessages } from '../hooks/useChannelEvents';
 import { ChannelMessageItem } from '../components/channel/ChannelMessageItem';
 import { ChannelInput } from '../components/channel/ChannelInput';
@@ -13,6 +12,8 @@ import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnit
 import { workunitApi } from '../api/workunit';
 import { requirementApi, type Requirement } from '../api/requirements';
 import type { ChannelMessage } from '../api/channel';
+import { channelApi } from '../api/channel';
+import { knowledgeApi } from '../api/knowledge';
 
 function isToday(d: Date) {
   const now = new Date();
@@ -103,7 +104,7 @@ export function ChannelDetailPage() {
 
   useEffect(() => {
     if (!id) return;
-    api.get(`/channels/${id}`).then(r => setChannel(r.data.data)).catch(() => {});
+    channelApi.get(id).then(r => setChannel(r.data.data)).catch(() => {});
   }, [id]);
 
   // F5: 拉取本频道挂起中的 WorkUnit（blocked + metadata.waitingForInput）
@@ -199,11 +200,11 @@ export function ChannelDetailPage() {
         }
       } catch { entryIds = []; }
       if (entryIds.length === 0) return false;
-      const endpoint = action === 'knowledge_proposal_approve'
-        ? '/knowledge-service/promote'
-        : '/knowledge-service/demote';
+      const review = action === 'knowledge_proposal_approve'
+        ? knowledgeApi.promote
+        : knowledgeApi.demote;
       try {
-        await Promise.all(entryIds.map(entryId => api.post(endpoint, { entryId })));
+        await Promise.all(entryIds.map(entryId => review(entryId)));
         refresh();
         return true;
       } catch {

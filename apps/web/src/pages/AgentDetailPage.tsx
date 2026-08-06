@@ -7,7 +7,6 @@ import { Link, useParams } from 'react-router-dom';
 import { monitoringApi, type AgentInfo, type AgentCurrentWorkUnit } from '../api/monitoring';
 import { channelApi, type AgentProfile } from '../api/channel';
 import { workunitApi, type WorkUnit } from '../api/workunit';
-import { api } from '../api/index';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
 import {
@@ -93,7 +92,7 @@ export function AgentDetailPage() {
     if (!instance) return;
     if (!window.confirm('强制停止会将当前任务转人工处理，确认？')) return;
     try {
-      await api.post(`/agent-instances/${instance.id}/terminate`);
+      await monitoringApi.terminateInstance(instance.id);
       await load(true);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to terminate agent');

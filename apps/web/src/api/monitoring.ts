@@ -117,4 +117,7 @@ export const monitoringApi = {
   getOverhead: () => api.get<OverheadStats>('/monitoring/overhead'),
   /** F6：概览（只消费 evidence 段，其余字段不声明不依赖） */
   getOverview: () => api.get<{ evidence: EvidenceStats }>('/monitoring/overview'),
+  /** 强制停止实例（当前任务转人工处理；AgentDashboardPage / AgentDetailPage 共用） */
+  terminateInstance: (instanceId: string) =>
+    api.post(`/agent-instances/${instanceId}/terminate`),
 };

@@ -12,8 +12,8 @@
 |------|------|------|
 | `App` | `App.tsx` | 根组件，包含路由定义、主题、全局布局（TopNav、Sidebar）及懒加载页面；频道工作区路由为满高三栏（各栏独立滚动） |
 | `api` (axios 实例) | `api/index.ts` | 统一 API 客户端，含 Bearer token 注入和 401 自动刷新 |
-| `channelApi` | `api/channel.ts` | 频道、消息、Agent 配置相关 API |
-| `monitoringApi` | `api/monitoring.ts` | 监控、飞轮指标、开销 API |
+| `channelApi` | `api/channel.ts` | 频道（list/get/create/update/members）、消息、Agent 配置相关 API |
+| `monitoringApi` | `api/monitoring.ts` | 监控、飞轮指标、开销 API + `terminateInstance`（强制停止实例，AgentDashboardPage/AgentDetailPage 共用） |
 | `requirementApi` | `api/requirements.ts` | 需求（REQ）CRUD 及关联工作单元链 API |
 | `workunitApi` | `api/workunit.ts` | 工作单元（WorkUnit）全生命周期 API + token 度量事件查询/解析 + 执行步事件查询/解析（`listExecutionStepEvents`/`parseExecutionStepEvents`，WU 过程可视化）+ 流式 chunk→文案共享格式化 `formatExecutionStreamChunkText`（chunk→text 映射全站唯一出处：useAgentRoster 卡片动态与 ExecutionSteps 实时区共用；默认截断，传 false 不截断） |
 | `useWebSocket` / `WebSocketProvider` | `api/websocket.tsx` | SSE 客户端 hook 及 Context Provider；应用根部唯一 EventSource（/events/stream），事件经 `useWebSocketContext().onEvent` 分发 |
@@ -24,6 +24,7 @@
 | `useDetectedProviders` / `buildProviderOptions` | `hooks/useDetectedProviders.ts` | 运行环境已装 agent CLI 探测（GET /workspaces/runtimes，服务端聚合前 best-effort 重扫本机）；provider 下拉统一数据源（FirstRoleSetupModal / StudioRoleSetupModal / ChannelMemberManager 创建表单），一个都没扫到时回退 4 个内置全量可选 |
 | `ChannelRail` | `components/channel/ChannelRail.tsx` | Mission Control 左栏：频道列表（未读 badge、agent 在线数）+ Agent 状态 |
 | `WorkUnitDrawer` | `components/channel/WorkUnitDrawer.tsx` | 右抽屉：WorkUnit 详情（证据台账 L1/L2/L3 + 人工确认入口（in_review=审查硬门/done 缺 l3=L3 留痕不阻断）、执行过程（步级时间线 + 步内实时流区块，REST 卡片落位后实时区自动让位）、token 开销与全局开销红线）/ REQ 全链路，只展示真实 API 数据 |
+| `EvidenceLedger` | `components/workunit/EvidenceLedger.tsx` | F6 证据台账 L1/L2/L3 共享组件（2026-08 从 WorkUnitDrawer / WorkUnitDetailPage 双份实现合并）：props = `{ attestations, variant: 'drawer' \| 'card' }`；共享层标签/行格式（`{kind} · {by 前 8 位} · {时间}`）/存量空态文案/l2.summary 评审结论行，variant 只承载外层标记（mc-kv vs card）与 verdict 呈现（✓/✗ 前缀 vs 通过/拒绝徽章）差异 |
 | `AuthModal` | `components/AuthModal.tsx` | 隐身认证模态框（双击手势触发） |
 
 ## 依赖关系
@@ -35,7 +36,8 @@
 
 - 路由使用 `React.lazy` 进行代码分割，懒加载页面组件需通过 `Suspense` 包裹。
 - API 客户端（`api/index.ts`）的认证 token 直接从 `localStorage` 读取，避免与 `authStore` 的循环依赖。
-- 实时通信使用 SSE（EventSource）代替 WebSocket。**单一连接不变量**：全应用仅 `App.tsx` 根部的 `WebSocketProvider` 建立一个 EventSource（/events/stream），所有实时消费走 `useWebSocketContext().onEvent`（domain hooks：useWorkUnitEvents/useWorkUnitStreamEvents/useChannelEvents/useChannelList + 页面级订阅），TopNav 连接状态点也读该 context；禁止再单独调用 `useWebSocket()` 开第二条连接。旧 realtime 链路（hooks/useWebSocket.ts、useWebSocketHandlers、ThinkingStream、GlobalModals 的 ExecutionResult 分支）已于 2026-08 随后端停发 legacy 事件（pipeline.*/thinking.stream/runtime.step.* 等）一并删除。
+- **API seam（2026-08 Wave-4）**：端点知识只存在于 `api/*` 适配模块，页面/hooks 不直接拼 URL。死命名空间已清除：`taskApi`（零调用，与 workunitApi 重复）、`stepApi`（零调用）整体删除；`agentApi` 只留 `list`（agentStore）、`superpowersApi` 只留 `listIronLaws`（IronLawWarningBanner）。本轮收编的原始调用：useChannelList 的 `/channels` list/create → `channelApi`（新增 `create`）；ChannelDetailPage 的 `GET /channels/:id` → 新增 `channelApi.get`、promote/demote → `knowledgeApi.promote/demote`；`useAgentRoster`/`AgentDetailPage` 的 terminate → 新增 `monitoringApi.terminateInstance`；ProjectDetailPage 归档 → 新增 `knowledgeApi.archive`；Settings 角色执行配置 → `runtimeWorkflowApi.updateConfig`（类型扩展 maxConcurrent/tokenWarningThreshold/showTokenUsage）。
+- 实时通信使用 SSE（EventSource）代替 WebSocket。**单一连接不变量**：全应用仅 `App.tsx` 根部的 `WebSocketProvider` 建立一个 EventSource（/events/stream），所有实时消费走 `useWebSocketContext().onEvent`（domain hooks：useWorkUnitEvents/useWorkUnitStreamEvents/useChannelEvents/useChannelList + 页面级订阅），TopNav 连接状态点也读该 context；禁止再单独调用 `useWebSocket()` 开第二条连接。旧 realtime 链路（hooks/useWebSocket.ts、useWebSocketHandlers、ThinkingStream、GlobalModals 的 ExecutionResult 分支）已于 2026-08 随后端停发 legacy 事件（pipeline.*/thinking.stream/runtime.step.* 等）一并删除；2026-08 复查确认 `useGlobalModals.handleViewDetails` 无任何调用方（`selectedProject` 恒为 null，弹窗分支永不渲染），GlobalModals 死链整体删除：`components/GlobalModals.tsx`、`hooks/useGlobalModals.ts`、`components/ExecutionResult.tsx`、`components/ProjectDetail.tsx`（注意 ≠ 活体 `pages/ProjectDetailPage.tsx`）及 App.tsx 接线（含顺带清理的未使用 `runtimeExecutions` 解构）。
 - Design Lab 页面（`pages/design-lab/*`）使用 mock 数据，全屏三栏布局，不嵌入通用导航骨架；作为 A/B 方向参照保留。
 - 视觉体系（2026-07 T1b，方向 A「Mission Control」）：`styles/theme.css` 深色 `:root` 变量组 = A 方向 token（近纯黑 #050507、磷光青绿 #2ee6a8、终端黄 #e6c85c、全等宽、12.5px 基准）；`[data-theme="light"]` 浅色机制保留（ThemeContext 不变）。`styles/mission-control.css` 承载三栏布局（mc-*）与语义工具类（u-*）；页面禁止写死浅色 Tailwind 类（bg-white/text-gray-*），一律消费变量或 u-* 类。**样式规范唯一权威来源：`docs/specs/ui/style-guide.md`**（token、组件类、弹框标准结构、禁用规则）。
 - 频道工作区（`pages/ChannelDetailPage.tsx`）= 左 ChannelRail / 中对话流 / 右 WorkUnitDrawer；REQ 全链路原 Modal 形态（`components/requirement/RequirementChainPanel.tsx`）保留给其他页面使用。

@@ -13,7 +13,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { projectApi, api, type DeliveryStatus } from '../api';
+import { projectApi, type DeliveryStatus } from '../api';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
 import { monitoringApi, type AgentInfo } from '../api/monitoring';
 import { knowledgeApi, type KnowledgeDoc } from '../api/knowledge';
@@ -175,7 +175,7 @@ export function ProjectDetailPage() {
     try {
       setArchiveLoading(true);
       const results = await Promise.allSettled(
-        archivableDocs.map(doc => api.post(`/knowledge/${doc.id}/archive`)),
+        archivableDocs.map(doc => knowledgeApi.archive(doc.id)),
       );
       const failed = results.filter(r => r.status === 'rejected').length;
       const succeeded = results.length - failed;
