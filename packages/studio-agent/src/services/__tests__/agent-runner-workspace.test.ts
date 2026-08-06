@@ -57,7 +57,7 @@ vi.mock('@dommaker/studio-shared/harness/hooks', () => ({
 }));
 
 import { AgentRunner } from '../agent-runner.js';
-import type { AgentTask } from '../session-manager.js';
+import type { AgentTask } from '../types.js';
 
 /** 最小 stream-json stdout（result 事件 → success） */
 function buildStreamStdout(): string {

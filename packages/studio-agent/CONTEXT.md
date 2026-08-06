@@ -1,6 +1,6 @@
 # studio-agent CONTEXT.md
 
-> 最后更新: 2026-05-05
+> 最后更新: 2026-08-06
 > Agent 执行器 — session loop 模型 + git worktree 隔离 + 文件桥上下文传递
 
 ## 职责
@@ -11,10 +11,12 @@ Sub-agent 的完整生命周期管理：创建隔离 worktree → spawn Claude C
 
 | 导出 | 说明 |
 |------|------|
-| `AgentExecutor` | session loop 执行器（max 5 sessions × 30 min） |
-| `agentExecutor` | 单例实例 |
+| `AgentRunner` | 统一执行器：session loop（execute）+ 轻量单 session（executeLightweight）+ stop |
+| `agentRunner` | 单例实例；stop() 所有权唯一在此（runningProcesses 只在本类注册，Discord /studio stop 与 monitor-probes 都调它） |
 | `AgentCompleter` | 执行完成后的后处理（worktree 清理等） |
 | `agentCompleter` | 单例实例 |
+
+> 2026-08：旧 `AgentExecutor`/`agentExecutor`（services/session-manager.ts）为 runner-* 拆分前的死代码双胞胎，无生产调用方，已删除；`AgentTask`/`ExecutionResult` 等类型移至 `src/services/types.ts`。
 
 ## 执行模型
 

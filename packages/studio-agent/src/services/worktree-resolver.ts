@@ -9,12 +9,10 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as crypto from 'crypto';
 import * as os from 'os';
-import { FileStore, logger } from '@dommaker/studio-shared';
-import { execSh } from '@dommaker/studio-shared/node';
+import { logger } from '@dommaker/studio-shared';
+import { execSh, resolveVpsWorkspace } from '@dommaker/studio-shared/node';
 
-const fileStore = new FileStore();
-
-import type { AgentTask } from './session-manager.js';
+import type { AgentTask } from './types.js';
 import { execSync } from 'child_process';
 
 /** 检测仓库默认分支名（不猜 main/master） */
@@ -109,7 +107,9 @@ async function writeGitExclude(repoDir: string): Promise<void> {
 /**
  * 3-priority workspace resolution:
  *   1. task.parameters.workspaceRoot (direct path)
- *   2. VPS workspace DB query (prisma.workspace.findFirst) — skipped when hasWorktree=true
+ *   2. VPS workspace lookup — resolveVpsWorkspace() from @dommaker/studio-shared/node
+ *      (reads ~/.studio/workspaces/*.json; 'VPS'-name convention owned there) —
+ *      skipped when hasWorktree=true
  *   3. createWorktree() fallback
  *
  * hasWorktree=true: caller explicitly wants isolated git worktree, skip VPS workspace.
@@ -128,31 +128,19 @@ export async function resolveWorkspace(opts: {
     return directRoot;
   }
 
-  // Priority 2: DB query for VPS workspace (skip when hasWorktree=true)
+  // Priority 2: VPS workspace lookup (skip when hasWorktree=true)
   const needsWorktree = task.parameters?.hasWorktree === true;
   if (needsWorktree) {
     logger.info('[WorktreeResolver] hasWorktree=true, skipping VPS workspace, creating git worktree');
   } else {
     try {
-      // Look up VPS workspace from FileStore
-      let ws: { id: string; workspaceRoot?: string; updatedAt?: string } | null = null;
-      try {
-        const wsDir = path.join(os.homedir(), '.studio', 'workspaces');
-        const entries = await fs.readdir(wsDir, { withFileTypes: true });
-        for (const e of entries) {
-          if (!e.isFile() || !e.name.endsWith('.json')) continue;
-          const data = await fileStore.readJson<any>(path.join(wsDir, e.name));
-          if (data && data.name === 'VPS' && !data.tokenId) {
-            if (!ws || new Date(data.updatedAt) > new Date(ws.updatedAt)) ws = data;
-          }
-        }
-      } catch { /* no workspace dir */ }
+      const ws = await resolveVpsWorkspace();
       if (ws?.workspaceRoot && fsSync.existsSync(ws.workspaceRoot)) {
-        logger.info('[WorktreeResolver] Using workspace from FileStore', { workspaceId: ws.id, workspaceRoot: ws.workspaceRoot });
+        logger.info('[WorktreeResolver] Using VPS workspace', { workspaceId: ws.id, workspaceRoot: ws.workspaceRoot });
         return ws.workspaceRoot;
       }
     } catch (e) {
-      logger.warn('[WorktreeResolver] DB workspace query failed, falling back to createWorktree', { error: String(e) });
+      logger.warn('[WorktreeResolver] VPS workspace lookup failed, falling back to createWorktree', { error: String(e) });
     }
   }
 

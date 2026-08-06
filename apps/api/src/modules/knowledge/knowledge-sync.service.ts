@@ -35,8 +35,8 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
     knowledgeType: 'process',
   },
   'pipeline-agents': {
-    // R5: agent-executor.ts 已拆分为 facade，真正实现为 session-manager.ts (P11-02)
-    files: ['apps/api/src/modules/agents/*.ts', 'packages/studio-agent/src/services/session-manager.ts'],
+    // R5: agent-executor.ts 已拆分为 facade，真正实现为 agent-runner.ts + runner-* 子模块
+    files: ['apps/api/src/modules/agents/*.ts', 'packages/studio-agent/src/services/agent-runner.ts'],
     title: 'Pipeline Agents',
     knowledgeType: 'architecture',
   },

@@ -19,7 +19,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { execSync } from 'child_process';
 import { ensureWuWorktree, createWorktree, resolveWorkspace } from '../worktree-resolver.js';
-import type { AgentTask } from '../session-manager.js';
+import type { AgentTask } from '../types.js';
 
 const TEST_TIMEOUT = 30_000;
 const PATTERNS = ['.claude/', '.studio/', '.daemon/', '.agent.log', '.harness/'];

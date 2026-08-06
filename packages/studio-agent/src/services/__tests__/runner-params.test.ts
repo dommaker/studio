@@ -30,7 +30,7 @@ import {
   buildSessionEnv,
   resolveSddTaskData,
 } from '../runner-params.js';
-import type { AgentTask } from '../session-manager.js';
+import type { AgentTask } from '../types.js';
 
 function makeTask(overrides: Partial<AgentTask> = {}): AgentTask {
   return {

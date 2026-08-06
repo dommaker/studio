@@ -1,7 +1,6 @@
 // studio-agent 入口
 
 export { AgentRegistry } from './services/agent-registry.js';
-export { AgentExecutor, agentExecutor } from './services/agent-executor.js';
 export { AgentRunner, agentRunner } from './services/agent-runner.js';
 export { AgentCompleter, agentCompleter } from './services/agent-completer.js';
 
@@ -12,7 +11,7 @@ export type {
   AgentCapabilities,
 } from './types.js';
 
-export type { AgentTask, ExecutionResult } from './services/session-manager.js';
+export type { AgentTask, ExecutionResult } from './services/types.js';
 
 // B3b-i: 每 WU 专属 worktree（按 WU id 键控，跨 step 复用；失败清理后抛错）
 export { ensureWuWorktree, ensureBranchExists, ensurePmoIntegrationWorktree, getDefaultBranch } from './services/worktree-resolver.js';

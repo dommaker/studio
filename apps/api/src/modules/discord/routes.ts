@@ -114,7 +114,7 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
     try {
       if (name === 'studio') {
-        const daemon = require('../../daemon/studio-daemon.js').daemon;
+        const { daemon } = await import('../../daemon/studio-daemon.js');
         const status = daemon.getStatus();
 
         if (subcommand === 'status') {
@@ -252,9 +252,9 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
                   return;
                 }
                 await closeAndEmit(match.id, 'Stopped by user via Discord');
-                // Try to kill running child process
-                const { agentExecutor } = await import('@dommaker/studio-agent');
-                await agentExecutor.stop(match.id);
+                // Try to kill running child process (agentRunner 持有真实的 runningProcesses)
+                const { agentRunner } = await import('@dommaker/studio-agent');
+                await agentRunner.stop(match.id);
                 // Publish event
                 eventStore.publish('events:goal-execution', JSON.stringify({
                   event_type: 'goal-execution.updated',
@@ -274,9 +274,9 @@ router.post('/interactions', async (req: Request, res: Response): Promise<void> 
 
             await closeAndEmit(exec.id, 'Stopped by user via Discord');
 
-            // Try to kill running child process
-            const { agentExecutor } = await import('@dommaker/studio-agent');
-            await agentExecutor.stop(exec.id);
+            // Try to kill running child process (agentRunner 持有真实的 runningProcesses)
+            const { agentRunner } = await import('@dommaker/studio-agent');
+            await agentRunner.stop(exec.id);
 
             // Publish event so GoalScheduler picks up the change
             eventStore.publish('events:goal-execution', JSON.stringify({

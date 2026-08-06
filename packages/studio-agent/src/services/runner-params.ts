@@ -17,7 +17,7 @@ import { buildAgentConstraintPrompt } from '@dommaker/studio-shared/harness/hook
 import { skillLoader } from '@dommaker/studio-skill';
 import { buildSpawnArgs, type Provider, type SpawnParams } from '../cli-adapter.js';
 
-import type { ExecutorConfig, AgentTask, PrerequisiteCheck } from './session-manager.js';
+import type { ExecutorConfig, AgentTask, PrerequisiteCheck } from './types.js';
 import type { ProgressReport } from './output-capture.js';
 
 // ─── Strategy hints (unicode-escaped to avoid linter issues) ───

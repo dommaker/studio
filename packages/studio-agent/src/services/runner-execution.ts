@@ -46,7 +46,7 @@ import {
 } from './runner-params.js';
 import { hasRecentActivity, queryResolutionHints } from './runner-output.js';
 
-import type { ExecutorConfig, AgentTask, ExecutionResult } from './session-manager.js';
+import type { ExecutorConfig, AgentTask, ExecutionResult } from './types.js';
 
 /** 执行所需的实例状态（由 AgentRunner 门面传入，避免模块反向依赖类）。 */
 export interface RunnerExecutionState {

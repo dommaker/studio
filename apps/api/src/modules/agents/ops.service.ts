@@ -258,7 +258,7 @@ export class OpsService {
           const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean } | null>;
           daemonBusy = (statuses || []).some((s: any) => s?.isBusy);
         } catch {}
-        // Also check executor sessions (agentExecutor bypasses daemon)
+        // Also check executor sessions (agentRunner bypasses daemon)
         if (!daemonBusy) {
           try {
             const snapshots = await this.fileStore.getIndex({ status: 'active' });

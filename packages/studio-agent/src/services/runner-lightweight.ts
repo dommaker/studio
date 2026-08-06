@@ -33,7 +33,7 @@ import {
 } from './runner-params.js';
 import type { RunnerExecutionState } from './runner-execution.js';
 
-import type { AgentTask, ExecutionResult } from './session-manager.js';
+import type { AgentTask, ExecutionResult } from './types.js';
 
 // ========================================
 // Lightweight mode (P9: Daemon→AgentRunner)

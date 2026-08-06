@@ -58,7 +58,7 @@ vi.mock('../output-capture.js', () => ({
 import { executeLightweightSession } from '../runner-lightweight.js';
 import type { RunnerExecutionState } from '../runner-execution.js';
 import { recordExecutionError, emitSessionEnd } from '../output-capture.js';
-import type { AgentTask } from '../session-manager.js';
+import type { AgentTask } from '../types.js';
 
 function buildStreamStdout(result: unknown): string {
   return [
