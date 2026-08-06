@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { FileStore, deriveDisplayState, type WorkUnitSnapshot, type WorkUnitEvent } from '@dommaker/studio-shared';
 import { readStudioEvents, parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
 import { parseWuMetadata } from '../workunit/wu-metadata.js';
+import { buildAssigneeProfileResolver, type AssigneeProfileResolver } from '../workunit/assignee-resolver.js';
 
 /** D16: 聚合缓存（60s——要扫 index + 多个 jsonl，避免连打） */
 const CACHE_TTL_MS = 60_000;
@@ -187,8 +188,8 @@ export interface OverviewAggregateInput {
   events: Array<Record<string, unknown>>;
   /** 频道人类消息（authorType=human；只需 createdAt） */
   humanMessages: Array<{ createdAt?: string }>;
-  /** instanceId → profileId */
-  instanceToProfile: Map<string, string>;
+  /** assigneeId → profileId 双语义解析（workunit/assignee-resolver；实例反查 + profile-id 直通） */
+  resolveAssigneeProfile: AssigneeProfileResolver;
   /** profileId → name */
   profileNames: Map<string, string>;
   now: number;
@@ -369,8 +370,7 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
   }>();
   const roleOfWu = (wuId: string): string | null => {
     const s = wuById.get(wuId);
-    if (!s?.assigneeId) return null;
-    return input.instanceToProfile.get(s.assigneeId) ?? null;
+    return input.resolveAssigneeProfile(s?.assigneeId);
   };
   const roleEntry = (profileId: string) => {
     let e = roleAgg.get(profileId);
@@ -386,11 +386,11 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     // claimed 事件的 data 携带 assigneeId
     const assigneeId = typeof (e.data as any)?.assigneeId === 'string' ? (e.data as any).assigneeId
       : input.snapshots.find(x => x.id === e.wuId)?.assigneeId;
-    const profileId = assigneeId ? input.instanceToProfile.get(assigneeId) : null;
+    const profileId = input.resolveAssigneeProfile(assigneeId);
     if (profileId) roleEntry(profileId).claims++;
   }
   for (const s of completedSnapshots) {
-    const profileId = s.assigneeId ? input.instanceToProfile.get(s.assigneeId) : null;
+    const profileId = input.resolveAssigneeProfile(s.assigneeId);
     if (!profileId) continue;
     const entry = roleEntry(profileId);
     entry.completions++;
@@ -484,7 +484,7 @@ export function aggregateOverview(input: OverviewAggregateInput): OverviewMetric
     if (wuId) {
       tokenWuIds.add(wuId);
       const wu = wuById.get(wuId);
-      const profileId = wu?.assigneeId ? input.instanceToProfile.get(wu.assigneeId) : null;
+      const profileId = input.resolveAssigneeProfile(wu?.assigneeId);
       if (profileId) {
         let rt = roleTokens.get(profileId);
         if (!rt) {
@@ -642,8 +642,10 @@ export class MetricsService {
       this.fileStore.listProfiles().catch(() => [] as Array<{ id: string; name: string }>),
     ]);
 
-    const instanceToProfile = new Map<string, string>();
-    for (const s of states) if (s?.id && s?.roleId) instanceToProfile.set(s.id, s.roleId);
+    const resolveAssigneeProfile = buildAssigneeProfileResolver({
+      states,
+      profileIds: new Set(profiles.map(p => p.id)),
+    });
     const profileNames = new Map<string, string>();
     for (const p of profiles) if (p?.id) profileNames.set(p.id, p.name);
 
@@ -652,7 +654,7 @@ export class MetricsService {
       wuEvents,
       events,
       humanMessages,
-      instanceToProfile,
+      resolveAssigneeProfile,
       profileNames,
       now,
       windowDays,

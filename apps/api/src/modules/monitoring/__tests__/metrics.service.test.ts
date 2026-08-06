@@ -7,6 +7,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { WorkUnitSnapshot, WorkUnitEvent } from '@dommaker/studio-shared';
 import { aggregateOverview, MetricsService } from '../metrics.service.js';
+import { buildAssigneeProfileResolver } from '../../workunit/assignee-resolver.js';
 
 const T = new Date('2026-07-27T12:00:00.000Z').getTime();
 const H = 3600_000;
@@ -97,8 +98,12 @@ function makeInput() {
 
   const instanceToProfile = new Map([['inst-1', 'dev'], ['inst-2', 'reviewer']]);
   const profileNames = new Map([['dev', '开发'], ['reviewer', '评审']]);
+  const resolveAssigneeProfile = buildAssigneeProfileResolver({
+    states: [...instanceToProfile].map(([id, roleId]) => ({ id, roleId })),
+    profileIds: new Set(profileNames.keys()),
+  });
 
-  return { snapshots, wuEvents, events, humanMessages, instanceToProfile, profileNames, now: T, windowDays: 7 };
+  return { snapshots, wuEvents, events, humanMessages, resolveAssigneeProfile, profileNames, now: T, windowDays: 7 };
 }
 
 describe('aggregateOverview (D16)', () => {
@@ -200,10 +205,46 @@ describe('aggregateOverview (D16)', () => {
     expect(m.alerts.byLevel).toEqual({ warning: 1, critical: 1 });
   });
 
+  // assignee-resolver 口径修复钉板：未认领指名 WU（assigneeId = profile id，无实例 state）
+  // 此前 instanceToProfile map 查找 miss → 静默归因为 null；修复后按 profile id 直通归因
+  it('未认领指名 WU（assigneeId=profile id）：角色完成数与 token 按 profile 归因', () => {
+    const input = makeInput();
+    input.snapshots.push(makeWu({
+      id: 'wu-f', status: 'done', assigneeId: 'dev', // profile-id 形态，无对应实例
+      createdAt: iso(T - 2 * D), claimedAt: iso(T - 2 * D), completedAt: iso(T - 1 * D), updatedAt: iso(T - 1 * D),
+    }));
+    input.events.push({
+      type: 'workunit:tokens', source: 'agent-loop',
+      payload: JSON.stringify({ workUnitId: 'wu-f', injectedTokens: 10, executionTokens: 90, totalTokens: 100 }),
+      createdAt: iso(T - 1 * D),
+    });
+
+    const m = aggregateOverview(input);
+    const dev = m.roles.roles.find(r => r.profileId === 'dev')!;
+    expect(dev.completions).toBe(2);       // wu-a + wu-f（修复前 wu-f 丢失）
+    const devTokens = m.tokens.byRole.find(r => r.profileId === 'dev')!;
+    expect(devTokens.totalTokens).toBe(1100); // 1000(wu-a) + 100(wu-f)
+    expect(devTokens.workUnits).toBe(2);
+  });
+
+  it('claimed 事件携带 profile-id 形态 assigneeId 也计入角色接单数', () => {
+    const input = makeInput();
+    input.snapshots.push(makeWu({
+      id: 'wu-g', status: 'active', assigneeId: 'reviewer',
+      createdAt: iso(T - 2 * D), claimedAt: iso(T - 2 * D), updatedAt: iso(T - 1 * D),
+    }));
+    input.wuEvents.push({ type: 'claimed', wuId: 'wu-g', timestamp: iso(T - 2 * D), data: { assigneeId: 'reviewer' } });
+
+    const m = aggregateOverview(input);
+    const reviewer = m.roles.roles.find(r => r.profileId === 'reviewer')!;
+    expect(reviewer.claims).toBe(2);       // wu-b + wu-g（修复前 wu-g 丢失）
+  });
+
   it('全空输入 → source=insufficient-data，比率型指标 null（不编造）', () => {
     const m = aggregateOverview({
       snapshots: [], wuEvents: [], events: [], humanMessages: [],
-      instanceToProfile: new Map(), profileNames: new Map(), now: T, windowDays: 7,
+      resolveAssigneeProfile: buildAssigneeProfileResolver({ states: [], profileIds: new Set() }),
+      profileNames: new Map(), now: T, windowDays: 7,
     });
     expect(m.source).toBe('insufficient-data');
     expect(m.intake.conversionPct).toBeNull();

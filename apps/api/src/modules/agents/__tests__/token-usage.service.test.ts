@@ -166,6 +166,25 @@ describe('§10.5 getAgentTokenUsage', () => {
     expect(usage.workUnitCount).toBe(1);
   });
 
+  it('未认领指名 WU（assigneeId=profile id）→ 直接按 profile 归因（共享 resolver 双形态口径）', async () => {
+    writeState(INSTANCE_1, PROFILE_A);
+    await fileStore.createProfile({ id: PROFILE_B, name: 'AgentB', description: null, channels: '[]', provider: 'claude', status: 'active', createdAt: '2026-07-01T00:00:00Z', updatedAt: '2026-07-01T00:00:00Z' });
+    writeIndex([
+      makeWu('wu-1', INSTANCE_1),
+      makeWu('wu-named', PROFILE_B), // @mention/委派指名未认领：assigneeId 本身是 profile id
+    ]);
+    const now = Date.now();
+    writeEvents([
+      tokenEvent('wu-1', { injected: 100, execution: 900 }, new Date(now).toISOString()),
+      tokenEvent('wu-named', { injected: 5, execution: 5 }, new Date(now).toISOString()),
+    ]);
+
+    const usage = await getAgentTokenUsage(PROFILE_B, { eventsFile, fileStore, now });
+    // 修复前（仅实例 map 查找）恒全零；修复后 profile-id 直通归因
+    expect(usage.totals.totalTokens).toBe(10);
+    expect(usage.workUnitCount).toBe(1);
+  });
+
   it('collab.rootId 树分组：参与的树数 + 平均树深（全量索引口径）', async () => {
     writeState(INSTANCE_1, PROFILE_A);
     writeState('inst-3', PROFILE_B);
