@@ -1,7 +1,7 @@
 # 28 — agent-loop.ts 拆分（D2a）
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 Blocked by: 18, 19, 20, 24, 27
 
