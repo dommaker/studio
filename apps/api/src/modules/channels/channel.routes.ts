@@ -127,10 +127,10 @@ router.get('/:id/messages', async (req, res) => {
   // Sort descending, take + 1 for hasMore
   messages.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const hasMore = messages.length > take;
-  if (hasMore) messages.pop();
+  const page = messages.slice(0, take);
 
   // 解析 meta JSON，转换 createdAt 类型
-  const data = messages.reverse().map(m => ({
+  const data = page.reverse().map(m => ({
     ...m,
     meta: typeof m.meta === 'string' ? JSON.parse(m.meta) : m.meta,
     createdAt: new Date(m.createdAt),
