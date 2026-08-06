@@ -93,9 +93,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // CSO 验证子路由（2026-07 收紧：/api/v1/cso 只挂 validate，不再整挂 harness router——否则 /harness 的 Admin 收紧可被 /cso/* 双挂载绕过）
   const { csoRoutes } = await import('./modules/harness/cso.routes.js') as { csoRoutes: Router };
 
-  // Agent Manager routes (HZ-024)
-  const { default: agentConfigRoutes } = await import('./modules/agent-configs/routes.js') as { default: Router };
-
   // Built-in Toolset routes (HZ-026)
   const { default: builtinToolRoutes } = await import('./modules/builtin-tools/routes.js') as { default: Router };
 
@@ -204,7 +201,6 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     { path: '/api/v1/mcp', router: mcpRoutes, comment: '§12.9: MCP Server (rate limit via tool-registry, auth via permission service)' },
     { path: '/api/v1/harness', router: harnessRoutes, middleware: admin, comment: 'T-015: Harness 监控集成' },
     { path: '/api/v1/cso', router: csoRoutes, comment: 'Decision #5: CSO 验证（无需认证；仅 csoRoutes，不再整挂 harness router）' },
-    { path: '/api/v1/agent-configs', router: agentConfigRoutes, middleware: admin, comment: 'HZ-024: Agent Manager' },
     { path: '/api/v1/builtin-tools', router: builtinToolRoutes, middleware: admin, comment: 'HZ-026: Built-in Toolset' },
 
     // 文档与审查
