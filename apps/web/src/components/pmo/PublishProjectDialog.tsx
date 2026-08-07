@@ -22,10 +22,13 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
   const [channelAgents, setChannelAgents] = useState<AgentProfile[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
 
-  // 打开弹窗时默认选中第一个频道（原 handlePublishClick 行为）
-  useEffect(() => {
+  // 打开弹窗时默认选中第一个频道（原 handlePublishClick 行为；prevOpen 上升沿渲染期调整：
+  // 只在打开瞬间默认，弹窗开着时父级刷新 channels 不再把用户已选重置回第一个）
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (open) setSelectedChannelId(channels.length > 0 ? channels[0].id : '');
-  }, [open, channels]);
+  }
 
   // 弹窗打开/切换频道时在渲染期同步置解析中标志（替代原 effect 内同步 setAgentsLoading）
   const respondersKey = open && selectedChannelId ? selectedChannelId : null;

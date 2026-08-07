@@ -159,7 +159,9 @@ export function useAgentRoster(): UseAgentRosterResult {
   }, [fillWorkUnit]);
 
   useEffect(() => {
-    void refresh();
+    // 挂载首查走静默路径（loading 初值已为 true，避免冗余的同步 setLoading 置位）；
+    // 微任务里触发：refresh 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(() => refresh(true));
     const timer = setInterval(() => void refresh(true), ROSTER_POLL_INTERVAL_MS);
     return () => clearInterval(timer);
   }, [refresh]);
