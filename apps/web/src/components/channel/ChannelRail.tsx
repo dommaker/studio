@@ -102,7 +102,7 @@ export function ChannelRail({ activeChannelId }: Props) {
       setNewName('');
       setNewAgents('');
       navigate(`/channels/${ch.id}`);
-    } catch (err: any) {
+    } catch (err) {
       setCreateError(err?.response?.data?.error || '创建失败');
     } finally {
       setCreating(false);

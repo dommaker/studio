@@ -57,7 +57,7 @@ export function WorkspacePage() {
       setCreateSuccess(true);
       setFormName('');
       setFormDesc('');
-    } catch (e: any) {
+    } catch (e) {
       const msg = e?.response?.data?.error?.message || e?.message || '创建失败';
       setCreateError(msg);
     } finally {

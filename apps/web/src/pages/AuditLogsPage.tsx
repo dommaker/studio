@@ -65,7 +65,7 @@ export const AuditLogsPage: React.FC = () => {
       setLogs(data.data || []);
       setTotal(data.pagination?.total || 0);
       setError(null);
-    } catch (err: any) {
+    } catch (err) {
       setError(err.message || '加载失败');
     } finally {
       setLoading(false);

@@ -56,7 +56,7 @@ export function ChannelListPage() {
       setNewName('');
       setNewAgents('');
       navigate(`/channels/${ch.id}`);
-    } catch (err: any) {
+    } catch (err) {
       setCreateError(err?.response?.data?.error || 'Failed to create channel');
     } finally {
       setCreating(false);

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { knowledgeApi, type KnowledgeGapType } from '../api/knowledge';
+import { knowledgeApi, type KnowledgeGapType, type KnowledgeSearchResult, type UnifiedEntry } from '../api/knowledge';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
 import { toast } from '../utils/toast';
 import { Select, ManualTaskButton, Button } from '../components/ui';
@@ -33,21 +33,24 @@ const gapIcons: Record<GapTab, string> = {
 
 type ActiveTab = GapTab | 'unified';
 
+/** Gap tab 条目：六类缺口形状各异（卡片自行解读字段），仅 id 用于列表 key */
+type GapItem = { id?: string } & Record<string, unknown>;
+
 export function KnowledgePage() {
   const navigate = useNavigate();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<ActiveTab>('unified');
-  const [gapData, setGapData] = useState<any[]>([]);
+  const [gapData, setGapData] = useState<GapItem[]>([]);
   const [gapLoading, setGapLoading] = useState(false);
 
   // S11: Unified search state
   const [globalSearch, setGlobalSearch] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [searchResults, setSearchResults] = useState<KnowledgeSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
   // AS-022: Unified knowledge view state
-  const [unifiedEntries, setUnifiedEntries] = useState<any[]>([]);
+  const [unifiedEntries, setUnifiedEntries] = useState<UnifiedEntry[]>([]);
   const [unifiedTotal, setUnifiedTotal] = useState(0);
   const [unifiedLoading, setUnifiedLoading] = useState(false);
   const [unifiedMode, setUnifiedMode] = useState('');
@@ -68,10 +71,10 @@ export function KnowledgePage() {
     try {
       if (type === 'resolution') {
         const res = await knowledgeApi.listResolutions();
-        setGapData(res.data.resolutions || []);
+        setGapData((res.data.resolutions || []) as GapItem[]);
       } else {
         const res = await knowledgeApi.listGaps(type as KnowledgeGapType);
-        setGapData(res.data.data || []);
+        setGapData((res.data.data || []) as GapItem[]);
       }
     } catch { setGapData([]); }
     finally { setGapLoading(false); }
@@ -109,7 +112,7 @@ export function KnowledgePage() {
       setShowManualEntry(false);
       setManualForm({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
       loadUnified();
-    } catch (err: any) {
+    } catch (err) {
       // 工单 38: 失败不再静默——toast 反馈且保留表单内容，用户可修正后重试
       console.error('Failed to create entry:', err);
       toast.error(err?.response?.data?.error || err?.message || '创建条目失败，请重试');
@@ -137,7 +140,7 @@ export function KnowledgePage() {
   ];
 
   // ── Gap type detail rendering ──
-  const renderGapItem = (item: any) => {
+  const renderGapItem = (item: GapItem) => {
     switch (activeTab as GapTab) {
       case 'preference':
         return <PreferenceCard item={item} />;

@@ -58,7 +58,16 @@ interface Props {
   onOpenReq: (id: string) => void;
 }
 
-function parseMeta(metadata: string | null): Record<string, any> {
+/** WU metadata JSON 解析产物（只声明本抽屉消费字段，其余透传） */
+interface WuMeta {
+  title?: string;
+  stepCount?: number;
+  waitingForInput?: boolean;
+  waitingQuestion?: string;
+  [key: string]: unknown;
+}
+
+function parseMeta(metadata: string | null): WuMeta {
   try { return JSON.parse(metadata || '{}'); } catch { return {}; }
 }
 

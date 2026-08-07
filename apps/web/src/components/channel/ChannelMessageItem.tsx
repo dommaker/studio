@@ -31,7 +31,7 @@ interface Props {
   onInlineReply?: (message: ChannelMessage, content: string) => void;
 }
 
-function renderCard(meta: Record<string, any>, message: ChannelMessage, onAction: Props['onAction']) {
+function renderCard(meta: CardMeta, message: ChannelMessage, onAction: Props['onAction']) {
   switch (meta.cardType) {
     case 'requirements_doc':
       return <RequirementsDocCard message={message} meta={meta} onAction={onAction} />;
@@ -205,7 +205,21 @@ export function ChannelMessageItem({
   );
 }
 
-function parseMeta(meta?: string): Record<string, any> {
+/** 卡片 meta：消息 meta JSON 解析产物；cardData 形状随 cardType 而异，卡片内按需断言 */
+export interface CardMeta {
+  cardType?: string;
+  status?: string;
+  cardData?: Record<string, unknown>;
+  projectPath?: string;
+  requirementsDocId?: string;
+  requirementId?: string;
+  reqId?: string;
+  pmoId?: string;
+  error?: string;
+  [key: string]: unknown;
+}
+
+function parseMeta(meta?: string): CardMeta {
   try { return JSON.parse(meta || '{}'); } catch { return {}; }
 }
 

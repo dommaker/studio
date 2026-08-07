@@ -54,7 +54,7 @@ export function WikiPage() {
   const fetchDocs = useCallback(async (searchTerm: string) => {
     setLoading(true);
     try {
-      const params: any = {};
+      const params: { search?: string } = {};
       if (searchTerm) params.search = searchTerm;
       const res = await wikiApi.list(params);
       setDocs(res.data?.data || []);
@@ -93,7 +93,7 @@ export function WikiPage() {
         const res = await wikiApi.getGraph();
         const raw = res.data?.data;
         if (raw) {
-          const nodes: KnowledgeNode[] = (raw.nodes || []).map((n: any) => ({
+          const nodes: KnowledgeNode[] = (raw.nodes || []).map((n: { id: string; name: string; status?: string }) => ({
             id: n.id,
             type: 'concept' as const,
             name: n.name,
@@ -101,7 +101,7 @@ export function WikiPage() {
             tags: [],
             complexity: 'simple' as const,
           }));
-          const edges: KnowledgeEdge[] = (raw.edges || []).map((e: any) => ({
+          const edges: KnowledgeEdge[] = (raw.edges || []).map((e: { source: string; target: string }) => ({
             source: e.source,
             target: e.target,
             type: 'related' as const,

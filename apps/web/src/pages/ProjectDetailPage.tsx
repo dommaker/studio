@@ -135,7 +135,7 @@ export function ProjectDetailPage() {
           setChainLoading(false);
         }
       }
-    } catch (err: any) {
+    } catch (err) {
       setError(err.response?.data?.error?.message || 'Failed to load project');
       setLoading(false);
     }
@@ -223,7 +223,7 @@ export function ProjectDetailPage() {
           ← 返回
         </button>
         <div className="flex items-center gap-3 mb-2">
-          <PmoNumberBadge pmoNumber={project.pmoNumber} status={project.status as any} size="lg" />
+          <PmoNumberBadge pmoNumber={project.pmoNumber} status={project.status as 'pending' | 'active' | 'in_review' | 'completed' | 'cancelled'} size="lg" />
           <h1 className="page-title">{project.title}</h1>
         </div>
         <p className="u-text-2">{project.description || '无描述'}</p>

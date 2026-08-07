@@ -4,8 +4,9 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { deriveDisplayState } from '@dommaker/studio-shared/web';
 import { requirementApi, requirementsDocApi } from '../../api/requirements';
-import { harnessApi } from '../../api/harness';
+import { harnessApi, type ConstraintCheckResult } from '../../api/harness';
 import type { ChannelMessage } from '../../api/channel';
+import type { CardMeta } from './ChannelMessageItem';
 
 // M2: quality gate check before execution
 interface QualityGateResult {
@@ -18,7 +19,7 @@ let _qualityGateCache: { projectPath: string; result: QualityGateResult } | null
 
 interface Props {
   message: ChannelMessage;
-  meta: Record<string, any>;
+  meta: CardMeta;
   onAction: (messageId: string, action: string) => void;
 }
 
@@ -86,10 +87,10 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
           hasRequirementReview: true,
           projectPath,
         });
-        const data: any = res.data.data || res.data;
+        const data = (res.data.data || res.data) as ConstraintCheckResult;
         const result: QualityGateResult = {
           passed: data.passed !== false,
-          ironLawFailures: (data.ironLaws || []).filter((r: any) => !r.satisfied).length,
+          ironLawFailures: (data.ironLaws || []).filter((r) => !r.satisfied).length,
           guidelineWarnings: data.warningCount || 0,
           totalConstraints: (data.ironLaws || []).length + (data.guidelines || []).length,
         };
@@ -118,7 +119,7 @@ export function RequirementsDocCard({ message, meta, onAction }: Props) {
 
   const handleSave = async () => {
     setSaving(true);
-    const docId = meta.requirementsDocId || meta.cardData?.requirementsDocId;
+    const docId = meta.requirementsDocId || (meta.cardData?.requirementsDocId as string | undefined);
     if (docId) {
       const ok = await updateRequirementsDoc(docId, editContent);
       if (ok) setEdited(true);

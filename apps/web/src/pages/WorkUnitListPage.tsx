@@ -7,6 +7,7 @@ import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
 import { ReviewHint } from '../components/workunit/ReviewHint';
 import { SelfReviewBadge } from '../components/workunit/SelfReviewBadge';
 import { channelApi, type AgentProfile } from '../api/channel';
+import type { WorkUnit } from '../api/workunit';
 import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
 import { Select } from '../components/ui';
 
@@ -205,7 +206,7 @@ export function WorkUnitListPage() {
 function WorkUnitRow({
   wu, onReviewPassed, onReviewRejected, formatTime,
 }: {
-  wu: any;
+  wu: WorkUnit;
   onReviewPassed: () => void;
   onReviewRejected: (reason?: string) => void;
   formatTime: (ts: string | null) => string;

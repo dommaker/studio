@@ -5,10 +5,11 @@
 import { useEffect, useState } from 'react';
 import type { ChannelMessage } from '../../api/channel';
 import { knowledgeApi } from '../../api/knowledge';
+import type { CardMeta } from './ChannelMessageItem';
 
 interface Props {
   message: ChannelMessage;
-  meta: Record<string, any>;
+  meta: CardMeta;
   /** approve/reject 由父级分发执行，返回是否成功（undefined 视为成功） */
   onAction: (messageId: string, action: string) => void | Promise<boolean>;
 }

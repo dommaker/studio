@@ -11,7 +11,7 @@ import { ChannelRail } from '../components/channel/ChannelRail';
 import { WorkUnitDrawer, type DrawerState } from '../components/channel/WorkUnitDrawer';
 import { workunitApi } from '../api/workunit';
 import { requirementApi, type Requirement } from '../api/requirements';
-import type { ChannelMessage } from '../api/channel';
+import type { Channel, ChannelMessage } from '../api/channel';
 import { channelApi } from '../api/channel';
 import { knowledgeApi } from '../api/knowledge';
 
@@ -90,7 +90,7 @@ function collapseProcessReplies(
 
 export function ChannelDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [channel, setChannel] = useState<any>(null);
+  const [channel, setChannel] = useState<Channel | null>(null);
   const { messages, loading, sendMessage, loadMore, hasMore, refresh } = useChannelMessages(id);
   const [sending, setSending] = useState(false);
   const [showCompleted, setShowCompleted] = useState(false);
@@ -196,7 +196,9 @@ export function ChannelDetailPage() {
         const meta = JSON.parse(typeof msg?.meta === 'string' ? msg.meta : '{}');
         const entries = meta?.cardData?.entries;
         if (Array.isArray(entries)) {
-          entryIds = entries.map((e: any) => e?.id).filter((id: any) => typeof id === 'string' && id.length > 0);
+          entryIds = entries
+            .map((e: { id?: unknown }) => e?.id)
+            .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0);
         }
       } catch { entryIds = []; }
       if (entryIds.length === 0) return false;
