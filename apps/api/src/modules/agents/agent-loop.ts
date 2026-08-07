@@ -1,6 +1,9 @@
 // AgentLoop — observe→resolveTarget→agentStep→recordResult decision loop (AS-025)
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
-// Knowledge search analysis preserved as module-level exports.
+// 工单 28（2026-08）拆分：类型契约 → agent-loop.types.js；输出解析/prompt 模板 →
+// agent-loop-parsers.js；token/tool:call 事件落盘 → agent-loop-events.js；B2/F4 守卫 →
+// agent-loop-guards.js；知识搜索分析 → knowledge-search-analysis.js。
+// 本文件保留 AgentLoop 类编排逻辑 + re-export（对外导出语义不变）。
 import { execSync } from 'child_process';
 import { eventBus, logger, FileStore, parseChannels, estimateTokens, withAttestation, type RuntimeStateData } from '@dommaker/studio-shared';
 import { resolveProviderDefinition, buildHealthProbeCommand } from '@dommaker/studio-shared/node';

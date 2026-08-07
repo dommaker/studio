@@ -29,6 +29,12 @@
 - `wu-verification.ts` — B3b-i WU 自动验证的可复用实现（2026-07-30 F6-c 从 agent-loop 原样抽出，行为不变）：`CODE_WORKTREE_TYPES` / `resolveVerifyCommands`（覆盖 > 约定）/ `runWuVerification` / `extractExecOutputTail`；消费方 = completion-gates 的 COMPLETE 验证守卫 + agent-loop 步骤超限强制收口路径 + workunit 模块 `POST /workunits/:id/verify`
 - `completion-gates.ts` — 收口守卫链（2026-08 从 agent-loop.recordResult 抽出，行为不变）：`runCompletionGuards(ctx, deps)` 依次跑 §10.5 提交守卫（含 PROGRESS 无提交监视）→ §6-2 子任务守卫 → B3b-i 自动验证守卫（消费 wu-verification），守卫顺序即优先级（前者降级后后者不触发）；hint 写入（commitGuardHint/childGuardHint/verifyFailHint）与 l1 台账（approved/rejected）在本模块，git 探针 `hasUncommittedChanges`/`readHeadHash` 与验证实现经 deps 注入（单测纯 ctx 对象驱动，无需模块工厂 mock）；recordResult 只保留编排（构建合并视图 → 守卫 → delegate/新鲜度/强制收口补验 → 单次原子写 → 状态迁移/频道通知）；hint 的消费与清除仍在 agentStep（属 prompt 组装，非守卫政策）
 - `review-contract.ts` — 审查结论（verdict）语义单一来源（2026-08 收编）：`ReviewVerdict`（pass/reject/needs-info）与 issue 词表 + `ParsedReviewReport` 落档形状。消费方：agent-loop parseReviewReport（返回类型）、review-dispatcher.ts（路径 B 消费同型）。**2026-08-06 旧管理端点链路整体删除**：review.service.ts / review-report.ts / `POST /review/diff` 端点零真实调用方（web/CLI/scripts 均无），legacy 映射函数（deriveVerdictFromLegacyReport 等）随之移除；verdict 语义仅剩新管线一处解释
+- `agent-loop.ts` — AgentLoop 决策循环编排（observe→resolveTarget→agentStep→recordResult）。工单 28（2026-08）拆分后本文件只保留类编排逻辑与 re-export（对外导出语义不变），纯函数/辅助各归其位：
+  - `agent-loop.types.ts` — 类型契约（`StepResult`/`Observations`/`Target`/`RuntimeInstanceRow`/`KnowledgeSearchAnalysis`，纯类型零运行时依赖）
+  - `agent-loop-parsers.ts` — 输出解析与 prompt 模板纯函数（ACTION 协议 `parseAgentOutput`/`parseReviewReport`/`parseTaskBreakdown`/`extractInputTokens`、目标选择 `resolveTarget`/`dynamicInterval`、进程/git 探针、continue/reply prompt 模板）
+  - `agent-loop-events.ts` — `workunit:tokens` 与 `tool:call` 事件落盘（`writeWorkunitTokenEvent`/`resolveRealUsage`/`writeToolCallEvents`，含共享 `metricsFileStore`）
+  - `agent-loop-guards.ts` — B2 测试特征 WU 守卫（`testWuGuardEnabled`/`isTestLikeWorkUnit`）+ F4 `parseExcludeAssignee`
+  - `knowledge-search-analysis.ts` — 知识搜索行为分析遗留块（`analyzeKnowledgeSearch`/`extractKnowledgeEntryIds`，仅单测消费）
 
 ## 依赖关系
 
