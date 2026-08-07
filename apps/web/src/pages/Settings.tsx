@@ -1,13 +1,15 @@
 // 设置页面 - API 配置 + 通知 + 公司 + 主题语言
+// 工单 35-E3（2026-08-07）：8 个 section 组件化抽至 components/settings/，本页只留加载/保存链路与组合
 import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
 import { companyApi } from '../api/company';
 import { notifyApi } from '../api/notify';
-import { WorkspaceStatusBar } from '../components/WorkspaceStatusBar';
-import { JoinComputeDialog } from '../components/JoinComputeDialog';
-import { TokenManager } from '../components/TokenManager';
-import { useTheme, type Theme } from '../contexts/ThemeContext';
-import { changeLanguage, getCurrentLanguage, supportedLanguages } from '../i18n';
+import { ComputeSection } from '../components/settings/ComputeSection';
+import { NotifySyncStatusHint, type NotifySyncStatus } from '../components/settings/NotifySyncStatusHint';
+import { NotifyChannelSection } from '../components/settings/NotifyChannelSection';
+import { CompanySection, type Company } from '../components/settings/CompanySection';
+import { KnowledgeEntrySection } from '../components/settings/KnowledgeEntrySection';
+import { LanguageSettings } from '../components/settings/LanguageSettings';
+import { ThemeSettings } from '../components/settings/ThemeSettings';
 import { toast } from '../utils/toast';
 import '../styles/theme.css';
 
@@ -15,57 +17,6 @@ interface Config {
   discord: { enabled: boolean; webhookUrl: string };
   wecom: { enabled: boolean; webhookUrl: string };
   telegram: { enabled: boolean; botToken: string; chatId: string };
-}
-
-interface Company { id: string; name: string; size: string }
-
-function LanguageSettings() {
-  const currentLang = getCurrentLanguage();
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {supportedLanguages.map((lang) => (
-        <button key={lang.code} onClick={() => changeLanguage(lang.code as 'zh-CN' | 'en-US')}
-          className="p-4 rounded-xl text-left transition-all flex items-center gap-3"
-          style={{
-            background: currentLang === lang.code || currentLang.startsWith(lang.code.split('-')[0]) ? 'var(--bg-elevated)' : 'var(--bg-tertiary)',
-            border: currentLang === lang.code || currentLang.startsWith(lang.code.split('-')[0]) ? '2px solid var(--accent-primary)' : '2px solid var(--border-subtle)',
-          }}>
-          <span className="text-2xl">{lang.flag}</span>
-          <div>
-            <div className="font-medium u-text">{lang.name}</div>
-            <div className="text-xs u-text-3">{lang.code === 'zh-CN' ? '默认语言' : 'English'}</div>
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ThemeSettings() {
-  const { t } = useTranslation();
-  const { theme, setTheme } = useTheme();
-  const themes: { value: Theme; label: string; icon: string; desc: string }[] = [
-    { value: 'dark', label: t('theme.dark'), icon: '🌙', desc: '适合夜间工作，科幻极简风格' },
-    { value: 'light', label: t('theme.light'), icon: '☀️', desc: '适合日间工作，明亮清爽' },
-    { value: 'system', label: t('theme.system'), icon: '💻', desc: '自动跟随系统主题设置' },
-  ];
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      {themes.map((t) => (
-        <button key={t.value} onClick={() => setTheme(t.value)}
-          className="p-4 rounded-xl text-left transition-all"
-          style={{
-            background: theme === t.value ? 'var(--bg-elevated)' : 'var(--bg-tertiary)',
-            border: theme === t.value ? '2px solid var(--accent-primary)' : '2px solid var(--border-subtle)',
-            boxShadow: theme === t.value ? 'var(--shadow-glow)' : 'none',
-          }}>
-          <div className="text-2xl mb-2">{t.icon}</div>
-          <div className="font-medium mb-1 u-text">{t.label}</div>
-          <div className="text-xs u-text-3">{t.desc}</div>
-        </button>
-      ))}
-    </div>
-  );
 }
 
 export function Settings() {
@@ -78,8 +29,7 @@ export function Settings() {
   const [newCompanyName, setNewCompanyName] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [notifySyncStatus, setNotifySyncStatus] = useState<'checking' | 'synced' | 'needs-resave' | 'no-config'>('checking');
-  const [showJoinDialog, setShowJoinDialog] = useState(false);
+  const [notifySyncStatus, setNotifySyncStatus] = useState<NotifySyncStatus>('checking');
   const LOCAL_STORAGE_KEY = 'agent-studio-secrets';
 
   useEffect(() => {
@@ -220,154 +170,53 @@ export function Settings() {
       <div className="flex-1 overflow-auto px-8 pb-8">
         <div className="max-w-5xl space-y-8 mt-4">
           {/* 🖥️ 算力接入 — AS-020 P7 */}
-          <section className="space-y-4">
-            <h2 className="mc-block-label" style={{ margin: 0 }}>🖥️ 算力接入</h2>
-            <p className="text-sm u-text-2">
-              管理远程 Workspace 连接和 Token，让外部机器加入算力池
-            </p>
-            <div className="card p-4 space-y-4">
-              <div>
-                <h3 className="text-sm font-medium mb-2 u-text-2">已连接 Workspace</h3>
-                <WorkspaceStatusBar />
-              </div>
-              <div className="flex gap-3">
-                <button
-                  onClick={() => setShowJoinDialog(true)}
-                  className="btn btn-primary"
-                >
-                  + 加入算力
-                </button>
-              </div>
-              <div>
-                <h3 className="text-sm font-medium mb-2 u-text-2">Token 管理</h3>
-                <TokenManager />
-              </div>
-            </div>
-          </section>
+          <ComputeSection />
 
           {/* 📢 通知配置同步状态提示 */}
-          {notifySyncStatus === 'needs-resave' && (
-            <div className="p-3 rounded-lg border u-warn-dim u-warn-border">
-              <div className="flex items-center gap-2">
-                <span>⚠️</span>
-                <span className="text-sm font-medium u-warn">通知配置需要重新保存</span>
-              </div>
-              <p className="text-xs mt-1 u-text-2">
-                服务器配置已丢失（可能已重启），请点击"保存设置"重新同步配置。
-              </p>
-            </div>
-          )}
-          {notifySyncStatus === 'synced' && (
-            <div className="p-2 rounded-lg border u-ok-dim u-ok-border">
-              <div className="flex items-center gap-2">
-                <span>✅</span>
-                <span className="text-xs u-ok">通知配置已同步到服务器</span>
-              </div>
-            </div>
-          )}
+          <NotifySyncStatusHint status={notifySyncStatus} />
 
           {/* 📢 Discord */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="mc-block-label" style={{ margin: 0 }}>📢 Discord 通知</h2>
-              <span className={`tag ${config.discord.enabled ? 'tag-success' : 'tag-warning'}`}>{config.discord.enabled ? '已启用' : '未启用'}</span>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2 u-text-2">Webhook URL</label>
-              <input type="text" placeholder="https://discord.com/api/webhooks/..." value={config.discord.webhookUrl}
-                onChange={(e) => updateConfig('discord', { ...config.discord, webhookUrl: e.target.value, enabled: !!e.target.value })}
-                className="input w-full" />
-            </div>
-          </section>
+          <NotifyChannelSection
+            title="📢 Discord 通知"
+            enabled={config.discord.enabled}
+            fields={[
+              { label: 'Webhook URL', placeholder: 'https://discord.com/api/webhooks/...', value: config.discord.webhookUrl,
+                onChange: (v) => updateConfig('discord', { ...config.discord, webhookUrl: v, enabled: !!v }) },
+            ]}
+          />
 
           {/* 💼 企业微信 */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="mc-block-label" style={{ margin: 0 }}>💼 企业微信通知</h2>
-              <span className={`tag ${config.wecom.enabled ? 'tag-success' : 'tag-warning'}`}>{config.wecom.enabled ? '已启用' : '未启用'}</span>
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-2 u-text-2">Webhook URL</label>
-              <input type="text" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx" value={config.wecom.webhookUrl}
-                onChange={(e) => updateConfig('wecom', { ...config.wecom, webhookUrl: e.target.value, enabled: !!e.target.value })}
-                className="input w-full" />
-            </div>
-          </section>
+          <NotifyChannelSection
+            title="💼 企业微信通知"
+            enabled={config.wecom.enabled}
+            fields={[
+              { label: 'Webhook URL', placeholder: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx', value: config.wecom.webhookUrl,
+                onChange: (v) => updateConfig('wecom', { ...config.wecom, webhookUrl: v, enabled: !!v }) },
+            ]}
+          />
 
           {/* 📱 Telegram */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="mc-block-label" style={{ margin: 0 }}>📱 Telegram 通知</h2>
-              <span className={`tag ${config.telegram.enabled ? 'tag-success' : 'tag-warning'}`}>{config.telegram.enabled ? '已启用' : '未启用'}</span>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium mb-2 u-text-2">Bot Token</label>
-                <input type="text" placeholder="123456:ABC-DEF..." value={config.telegram.botToken}
-                  onChange={(e) => updateConfig('telegram', { ...config.telegram, botToken: e.target.value, enabled: !!(e.target.value && config.telegram.chatId) })}
-                  className="input w-full" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-2 u-text-2">Chat ID</label>
-                <input type="text" placeholder="-1001234567890" value={config.telegram.chatId}
-                  onChange={(e) => updateConfig('telegram', { ...config.telegram, chatId: e.target.value, enabled: !!(config.telegram.botToken && e.target.value) })}
-                  className="input w-full" />
-              </div>
-            </div>
-          </section>
+          <NotifyChannelSection
+            title="📱 Telegram 通知"
+            enabled={config.telegram.enabled}
+            fields={[
+              { label: 'Bot Token', placeholder: '123456:ABC-DEF...', value: config.telegram.botToken,
+                onChange: (v) => updateConfig('telegram', { ...config.telegram, botToken: v, enabled: !!(v && config.telegram.chatId) }) },
+              { label: 'Chat ID', placeholder: '-1001234567890', value: config.telegram.chatId,
+                onChange: (v) => updateConfig('telegram', { ...config.telegram, chatId: v, enabled: !!(config.telegram.botToken && v) }) },
+            ]}
+          />
 
           {/* 🏢 公司信息 */}
-          <section className="space-y-4">
-            <h2 className="mc-block-label" style={{ margin: 0 }}>🏢 公司信息</h2>
-
-            <div className="card p-4 space-y-4">
-              {/* 公司名称 */}
-              <div>
-                <label className="block text-sm font-medium mb-2 u-text-2">公司名称</label>
-                <input type="text" value={company?.name || newCompanyName}
-                  onChange={(e) => {
-                    setNewCompanyName(e.target.value);
-                    if (company) {
-                      // 自动保存
-                      companyApi.update(company.id, { name: e.target.value }).then(() => {
-                        setCompany({ ...company!, name: e.target.value });
-                      }).catch(err => { console.error('Auto-save failed:', err); toast.error('自动保存失败'); });
-                    }
-                  }}
-                  placeholder="输入公司名称" className="input w-full" />
-              </div>
-
-              {/* 如果没有公司，显示创建提示 */}
-              {!company && newCompanyName.trim() && (
-                <button onClick={() => {
-                  companyApi.create({ name: newCompanyName }).then(res => {
-                    if (res.data?.id) {
-                      localStorage.setItem('companyId', res.data.id);
-                      setCompany(res.data);
-                    }
-                  }).catch(err => toast.error('创建失败: ' + err.message));
-                }} className="btn btn-primary text-sm">保存为新公司</button>
-              )}
-            </div>
-          </section>
+          <CompanySection
+            company={company}
+            newCompanyName={newCompanyName}
+            setCompany={setCompany}
+            setNewCompanyName={setNewCompanyName}
+          />
 
           {/* 📚 知识库 */}
-          <section className="space-y-4">
-            <h2 className="mc-block-label" style={{ margin: 0 }}>📚 公司知识库</h2>
-            <div className="card p-4">
-              <p className="text-sm mb-4 u-text-2">管理公司所有项目的文档资产</p>
-              <div className="flex gap-3">
-                <button onClick={() => {
-                  const companyId = localStorage.getItem('companyId') || '';
-                  window.location.href = `/knowledge?companyId=${companyId}`;
-                }} className="btn btn-primary">查看知识库 →</button>
-                <button onClick={() => { window.location.href = '/knowledge/import'; }}
-                  className="btn btn-secondary">
-                  📥 冷启动导入
-                </button>
-              </div>
-            </div>
-          </section>
+          <KnowledgeEntrySection />
 
           {/* 🌐 语言（最下面） */}
           <section className="space-y-4">
@@ -388,11 +237,6 @@ export function Settings() {
           </div>
         </div>
       </div>
-
-      <JoinComputeDialog
-        open={showJoinDialog}
-        onClose={() => setShowJoinDialog(false)}
-      />
     </div>
   );
 }
