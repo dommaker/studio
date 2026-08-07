@@ -57,7 +57,19 @@ const COMPLEXITY_COLORS: Record<string, string> = {
 /**
  * 自定义节点组件
  */
-function CustomKnowledgeNode({ data }: { data: any }) {
+interface CustomKnowledgeNodeData {
+  label: string;
+  nodeType: string;
+  summary: string;
+  complexity: string;
+  isSelected: boolean;
+  isHighlighted: boolean;
+  isDiffChanged: boolean;
+  isDiffAffected: boolean;
+  isDiffFaded: boolean;
+}
+
+function CustomKnowledgeNode({ data }: { data: CustomKnowledgeNodeData }) {
   const {
     label,
     nodeType,

@@ -18,7 +18,10 @@ export function TriageBanner() {
   useEffect(() => {
     const unsub = onEvent((msg) => {
       if (msg.event_type === 'incident.created' || msg.event_type === 'incident.escalated') {
-        const data = msg.data as any;
+        const data = msg.data as {
+          incidentId?: string; id?: string; type?: string;
+          severity?: TriageAlert['severity']; message?: string; resolution?: string;
+        };
         setAlerts(prev => [{
           id: data.incidentId || data.id || msg.event_id,
           type: data.type || 'unknown',

@@ -38,7 +38,7 @@ export function useChannelList() {
   useEffect(() => {
     const unsub = onEvent((msg) => {
       if (msg.event_type === 'channel.message_sent') {
-        const data = msg.data as any;
+        const data = msg.data as { channelId?: string; message?: { authorType?: string } };
         if (data?.channelId && data?.message?.authorType !== 'human') {
           setUnreadCounts(prev => ({
             ...prev,

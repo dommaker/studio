@@ -44,12 +44,12 @@ export function PMOCard({ companyId }: PMOCardProps) {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
       const pmoStats: PMOStats = {
-        activeOKRs: okrs.filter((o: any) => o.status === 'active').length,
+        activeOKRs: okrs.filter((o: { status?: string }) => o.status === 'active').length,
         totalProjects: projects.length,
-        activeProjects: projects.filter((p: any) =>
+        activeProjects: projects.filter((p: { status?: string; startedAt?: string }) =>
           p.status === 'running' || p.status === 'pending'
         ).length,
-        completedThisMonth: projects.filter((p: any) =>
+        completedThisMonth: projects.filter((p: { status?: string; startedAt?: string }) =>
           (p.status === 'succeeded' || p.status === 'completed') &&
           new Date(p.startedAt) >= monthStart
         ).length,

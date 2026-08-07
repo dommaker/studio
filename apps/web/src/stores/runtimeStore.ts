@@ -8,7 +8,7 @@ interface RuntimeWorkflow {
   description?: string;
   steps?: string[];
   stepIds?: string[];
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
   openclaw?: {
     userInvocable?: boolean;
     emoji?: string;
@@ -20,7 +20,7 @@ interface RuntimeState {
   runtimeWorkflows: RuntimeWorkflow[];
   runtimeExecutions: Execution[];
   loadRuntimeWorkflows: () => Promise<void>;
-  executeRuntimeWorkflow: (workflowId: string, inputs: Record<string, any>) => Promise<Execution>;
+  executeRuntimeWorkflow: (workflowId: string, inputs: Record<string, unknown>) => Promise<Execution>;
   loadExecutions: (options?: { page?: number; limit?: number }) => Promise<void>;
   updateExecution: (id: string, update: Partial<Execution>) => void;
   removeExecution: (id: string) => void;
