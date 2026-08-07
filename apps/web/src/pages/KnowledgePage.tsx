@@ -15,6 +15,10 @@ import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
   DecisionChainCard, InteractionPatternCard, ResolutionCard,
 } from '../components/knowledge/GapCards';
+import type {
+  PreferenceGap, BusinessRuleGap, EnvSnapshotGap,
+  DecisionChainGap, InteractionGap, ResolutionGap,
+} from '../components/knowledge/GapCards';
 
 type GapTab = 'preference' | 'business_rule' | 'environment' | 'decision_chain' | 'interaction' | 'resolution';
 
@@ -143,17 +147,17 @@ export function KnowledgePage() {
   const renderGapItem = (item: GapItem) => {
     switch (activeTab as GapTab) {
       case 'preference':
-        return <PreferenceCard item={item} />;
+        return <PreferenceCard item={item as PreferenceGap} />;
       case 'business_rule':
-        return <BusinessRuleCard item={item} />;
+        return <BusinessRuleCard item={item as BusinessRuleGap} />;
       case 'environment':
-        return <EnvSnapshotCard item={item} />;
+        return <EnvSnapshotCard item={item as EnvSnapshotGap} />;
       case 'decision_chain':
-        return <DecisionChainCard item={item} />;
+        return <DecisionChainCard item={item as DecisionChainGap} />;
       case 'interaction':
-        return <InteractionPatternCard item={item} />;
+        return <InteractionPatternCard item={item as InteractionGap} />;
       case 'resolution':
-        return <ResolutionCard item={item} />;
+        return <ResolutionCard item={item as ResolutionGap} />;
       default:
         return <pre className="text-xs u-text-3">{JSON.stringify(item, null, 2)}</pre>;
     }

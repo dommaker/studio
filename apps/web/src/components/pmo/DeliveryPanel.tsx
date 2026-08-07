@@ -58,7 +58,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
         toast.success('已确认，L3 已补齐');
         await onRefresh();
       }
-    } catch (err: any) {
+    } catch (err) {
       const status = err?.response?.status;
       const errData = err?.response?.data?.error;
       if (action === 'verify' && status === 422) {
@@ -84,7 +84,7 @@ export function DeliveryPanel({ projectId, delivery, onRefresh }: DeliveryPanelP
       toast.success(`交付成功${res.data?.deliverCommit ? ` (${String(res.data.deliverCommit).slice(0, 7)})` : ''}`);
       // 刷新台账与项目信息（显示 deliveredAt/deliveredBy/deliverCommit）
       await onRefresh();
-    } catch (err: any) {
+    } catch (err) {
       const errData = err?.response?.data?.error;
       if (err?.response?.status === 409 && errData) {
         setDeliverError({

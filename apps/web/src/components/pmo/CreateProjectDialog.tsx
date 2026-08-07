@@ -64,7 +64,7 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
       setNewGitRepo('');
       setNewDeliveryPolicy('branch-only');
       onCreated();
-    } catch (err: any) {
+    } catch (err) {
       const msg = err?.response?.data?.error?.message || err?.message || '创建 PMO 失败';
       toast.error(msg);
     } finally {

@@ -1,6 +1,70 @@
 // 知识库页面六类 Gap 明细卡片（2026-08 工单 34 从 pages/KnowledgePage.tsx 抽出，纯展示无逻辑变更）
+// 各卡片字段按 KnowledgePage gapData 对应 tab 的响应形状声明（全可选，缺失时沿用既有 ||/?. 兜底）
 
-export function PreferenceCard({ item }: { item: any }) {
+export type PreferenceGap = {
+  responseStyle?: string;
+  preferredModel?: string;
+  confidence?: number;
+  activeHours?: string[];
+  avgMessageLength?: number;
+  autoApproveThreshold?: number;
+};
+
+export type BusinessRuleGap = {
+  name?: string;
+  category?: string;
+  version?: string | number;
+  description?: string;
+  condition?: string;
+  action?: string;
+  defaultValue?: string;
+  source?: string;
+};
+
+export type EnvSnapshotGap = {
+  nodeEnv?: string;
+  hostname?: string;
+  platform?: string;
+  nodeVersion?: string;
+  apiPort?: string | number;
+  knownLimitations?: Array<{ issue?: string }>;
+  diffFromPrev?: string;
+};
+
+export type DecisionChainGap = {
+  topic?: string;
+  category?: string;
+  sourceType?: string;
+  context?: string;
+  chosen?: string;
+  rationale?: string;
+  tradeoffs?: string;
+  options?: string | unknown[];
+};
+
+export type InteractionGap = {
+  name?: string;
+  category?: string;
+  frequency?: number;
+  confidence?: number;
+  description?: string;
+  insight?: string;
+  suggestion?: string;
+};
+
+export type ResolutionGap = {
+  title?: string;
+  status?: string;
+  layer?: string;
+  verifyCount?: number;
+  pattern?: string;
+  fix?: string;
+  tags?: string | string[];
+  errorClass?: string;
+  sourceGoalId?: string;
+};
+
+export function PreferenceCard({ item }: { item: PreferenceGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -19,7 +83,7 @@ export function PreferenceCard({ item }: { item: any }) {
   );
 }
 
-export function BusinessRuleCard({ item }: { item: any }) {
+export function BusinessRuleCard({ item }: { item: BusinessRuleGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -38,7 +102,7 @@ export function BusinessRuleCard({ item }: { item: any }) {
   );
 }
 
-export function EnvSnapshotCard({ item }: { item: any }) {
+export function EnvSnapshotCard({ item }: { item: EnvSnapshotGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -54,7 +118,7 @@ export function EnvSnapshotCard({ item }: { item: any }) {
       </div>
       {(item.knownLimitations || []).length > 0 && (
         <div className="mt-2 text-xs u-warn">
-          ⚠️ 已知限制: {(item.knownLimitations || []).map((l: any) => l.issue).join('; ')}
+          ⚠️ 已知限制: {(item.knownLimitations || []).map((l) => l.issue).join('; ')}
         </div>
       )}
       {item.diffFromPrev && <div className="mt-1 text-xs u-text-2">变更: {item.diffFromPrev}</div>}
@@ -62,8 +126,8 @@ export function EnvSnapshotCard({ item }: { item: any }) {
   );
 }
 
-export function DecisionChainCard({ item }: { item: any }) {
-  const options = typeof item.options === 'string' ? JSON.parse(item.options) : (item.options || []);
+export function DecisionChainCard({ item }: { item: DecisionChainGap }) {
+  const options: unknown[] = typeof item.options === 'string' ? JSON.parse(item.options) : (item.options || []);
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -84,7 +148,7 @@ export function DecisionChainCard({ item }: { item: any }) {
   );
 }
 
-export function InteractionPatternCard({ item }: { item: any }) {
+export function InteractionPatternCard({ item }: { item: InteractionGap }) {
   return (
     <div className="card p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -102,7 +166,7 @@ export function InteractionPatternCard({ item }: { item: any }) {
   );
 }
 
-export function ResolutionCard({ item }: { item: any }) {
+export function ResolutionCard({ item }: { item: ResolutionGap }) {
   const statusClasses: Record<string, string> = {
     pending: 'u-warn-bg',
     verified: 'u-accent-bg',
