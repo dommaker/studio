@@ -119,8 +119,8 @@ describe('useAgentRoster', () => {
   });
 
   it('SSE agent.instance.status_changed：乐观更新卡片并增量补查 WU 详情', async () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     mockGetAgentSummary.mockResolvedValue({
       data: { agents: [instance({ status: 'idle', currentWorkUnitId: null, currentWorkUnit: null })], summary: { total: 1, idle: 1, active: 0, error: 0, terminated: 0 } },
     });
@@ -139,8 +139,8 @@ describe('useAgentRoster', () => {
   });
 
   it('SSE workunit.status_changed：按 currentWorkUnitId 反查归属并更新 WU 快照', async () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
 
@@ -157,8 +157,8 @@ describe('useAgentRoster', () => {
   });
 
   it('SSE workunit.execution.step：追加动态（工具调用优先文案）', async () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
 
@@ -174,8 +174,8 @@ describe('useAgentRoster', () => {
   });
 
   it('SSE workunit.execution.stream：共享 formatter 出文案，同 key 刷新同一行，上限截断', async () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const { result } = renderHook(() => useAgentRoster());
     await flush();
 

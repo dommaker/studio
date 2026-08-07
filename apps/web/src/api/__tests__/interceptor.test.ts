@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
+import type { AxiosError, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
 // Mock localStorage
 const store: Record<string, string> = {};
@@ -47,7 +48,7 @@ describe('api interceptor', () => {
       const { api } = await import('../index.js');
 
       // Use adapter to capture the request config
-      const captured: any[] = [];
+      const captured: InternalAxiosRequestConfig[] = [];
       api.defaults.adapter = async (config) => {
         captured.push(config);
         return { data: {}, status: 200, statusText: 'OK', headers: {}, config };
@@ -62,7 +63,7 @@ describe('api interceptor', () => {
       setAuthStorage('my-token', 'my-refresh');
       const { api } = await import('../index.js');
 
-      const captured: any[] = [];
+      const captured: InternalAxiosRequestConfig[] = [];
       api.defaults.adapter = async (config) => {
         captured.push(config);
         return { data: {}, status: 200, statusText: 'OK', headers: {}, config };
@@ -79,7 +80,7 @@ describe('api interceptor', () => {
       setAuthStorage(null, null);
       const { api } = await import('../index.js');
 
-      const captured: any[] = [];
+      const captured: InternalAxiosRequestConfig[] = [];
       api.defaults.adapter = async (config) => {
         captured.push(config);
         return { data: {}, status: 200, statusText: 'OK', headers: {}, config };
@@ -101,7 +102,7 @@ describe('api interceptor', () => {
         callCount++;
         // First call: return 401. Second call (retry): succeed.
         if (callCount === 1) {
-          const err = new Error('Unauthorized') as any;
+          const err = new Error('Unauthorized') as AxiosError;
           err.response = { status: 401, data: { error: 'Unauthorized' } };
           err.config = { ...config, _retry: false };
           throw err;
@@ -112,9 +113,9 @@ describe('api interceptor', () => {
       // Mock the refresh endpoint (standalone axios call to /auth/refresh)
       // The refreshToken function uses axios.post directly, so we mock the global axios.post
       const originalPost = axios.post;
-      vi.spyOn(axios, 'post').mockImplementation(async (url: string, data?: any) => {
+      vi.spyOn(axios, 'post').mockImplementation(async (url: string, data?: unknown) => {
         if (url.includes('/auth/refresh')) {
-          return { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } as any;
+          return { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } as AxiosResponse;
         }
         return originalPost(url, data);
       });
@@ -134,7 +135,7 @@ describe('api interceptor', () => {
       const { api } = await import('../index.js');
 
       api.defaults.adapter = async (config) => {
-        const err = new Error('Unauthorized') as any;
+        const err = new Error('Unauthorized') as AxiosError;
         err.response = { status: 401, data: { error: 'Unauthorized' } };
         err.config = { ...config, _retry: false };
         throw err;
@@ -150,7 +151,7 @@ describe('api interceptor', () => {
       const { api } = await import('../index.js');
 
       api.defaults.adapter = async (config) => {
-        const err = new Error('Unauthorized') as any;
+        const err = new Error('Unauthorized') as AxiosError;
         err.response = { status: 401, data: { error: 'Unauthorized' } };
         err.config = { ...config, _retry: false };
         throw err;
@@ -167,7 +168,7 @@ describe('api interceptor', () => {
       const { api } = await import('../index.js');
 
       api.defaults.adapter = async () => {
-        const err = new Error('Server Error') as any;
+        const err = new Error('Server Error') as AxiosError;
         err.response = { status: 500, data: { error: 'Internal' } };
         err.config = { url: '/tasks', _retry: false };
         throw err;
@@ -181,7 +182,7 @@ describe('api interceptor', () => {
       const { api } = await import('../index.js');
 
       api.defaults.adapter = async () => {
-        const err = new Error('Bad credentials') as any;
+        const err = new Error('Bad credentials') as AxiosError;
         err.response = { status: 401, data: { error: 'Bad credentials' } };
         err.config = { url: '/auth/login', _retry: false };
         throw err;
@@ -208,7 +209,7 @@ describe('api interceptor', () => {
         callCount++;
         if (callCount <= 2) {
           // First two requests get 401
-          const err = new Error('Unauthorized') as any;
+          const err = new Error('Unauthorized') as AxiosError;
           err.response = { status: 401, data: { error: 'Unauthorized' } };
           err.config = { ...config, _retry: false };
           throw err;
@@ -221,7 +222,7 @@ describe('api interceptor', () => {
       vi.spyOn(axios, 'post').mockImplementation(async (url: string) => {
         if (url.includes('/auth/refresh')) {
           refreshCount++;
-          return { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } as any;
+          return { data: { accessToken: 'new-token', refreshToken: 'new-refresh' } } as AxiosResponse;
         }
         throw new Error('unexpected post');
       });

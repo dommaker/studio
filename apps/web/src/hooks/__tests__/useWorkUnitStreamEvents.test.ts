@@ -23,12 +23,12 @@ const msg = (dataOver: Record<string, unknown> = {}) => ({
 });
 
 describe('useWorkUnitStreamEvents', () => {
-  let handler: ((m: any) => void) | null = null;
+  let handler: ((m: unknown) => void) | null = null;
 
   beforeEach(() => {
     vi.clearAllMocks();
     handler = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    mockOnEvent.mockImplementation((h: (m: unknown) => void) => { handler = h; return () => {}; });
   });
 
   it('收到本 WU 的 chunk → 累积；其他 WU / 其他事件类型 / 损坏行跳过', () => {

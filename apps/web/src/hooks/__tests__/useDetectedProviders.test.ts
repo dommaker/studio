@@ -104,7 +104,7 @@ describe('useDetectedProviders', () => {
   });
 
   it('cancelled 卸载后忽略异步结果', async () => {
-    let resolve: (v: any) => void = () => {};
+    let resolve: (v: unknown) => void = () => {};
     mockGet.mockReturnValue(new Promise((r) => { resolve = r; }));
     const { result, unmount } = renderHook(() => useDetectedProviders());
     unmount();

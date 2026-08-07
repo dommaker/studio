@@ -24,8 +24,8 @@ describe('useWorkUnitEvents', () => {
   });
 
   it('workunit.created / workunit.status_changed 触发回调（防抖窗口内多次合并为一次）', () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const onChange = vi.fn();
     renderHook(() => useWorkUnitEvents(onChange));
 
@@ -40,8 +40,8 @@ describe('useWorkUnitEvents', () => {
   });
 
   it('workunit.execution.step（执行过程事件）同样触发回调', () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const onChange = vi.fn();
     renderHook(() => useWorkUnitEvents(onChange));
 
@@ -53,8 +53,8 @@ describe('useWorkUnitEvents', () => {
   });
 
   it('忽略非 workunit 事件类型', () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const onChange = vi.fn();
     renderHook(() => useWorkUnitEvents(onChange));
 
@@ -68,8 +68,8 @@ describe('useWorkUnitEvents', () => {
 
   it('unmount 时退订并清掉未触发的防抖计时器', () => {
     const unsub = vi.fn();
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return unsub; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return unsub; });
     const onChange = vi.fn();
     const { unmount } = renderHook(() => useWorkUnitEvents(onChange));
 
@@ -83,8 +83,8 @@ describe('useWorkUnitEvents', () => {
   });
 
   it('回调引用随渲染更新（不闭包旧回调）', () => {
-    let handler: ((msg: any) => void) | null = null;
-    mockOnEvent.mockImplementation((h: any) => { handler = h; return () => {}; });
+    let handler: ((msg: unknown) => void) | null = null;
+    mockOnEvent.mockImplementation((h: (msg: unknown) => void) => { handler = h; return () => {}; });
     const first = vi.fn();
     const second = vi.fn();
     const { rerender } = renderHook(({ cb }) => useWorkUnitEvents(cb), { initialProps: { cb: first } });
