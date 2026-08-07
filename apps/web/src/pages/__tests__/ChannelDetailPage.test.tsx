@@ -37,11 +37,11 @@ vi.mock('../../api/requirements', () => ({
 
 // 左栏/右抽屉/顶栏控件：保留接口，隔离其内部 API 依赖
 vi.mock('../../components/channel/ChannelRail', () => ({
-  ChannelRail: ({ activeChannelId }: any) => <div data-testid="channel-rail" data-active={activeChannelId} />,
+  ChannelRail: ({ activeChannelId }: { activeChannelId?: string }) => <div data-testid="channel-rail" data-active={activeChannelId} />,
 }));
 
 vi.mock('../../components/channel/WorkUnitDrawer', () => ({
-  WorkUnitDrawer: (props: any) => {
+  WorkUnitDrawer: (props: { drawer: DrawerState }) => {
     mockDrawerSpy(props);
     return props.drawer ? <div data-testid="wu-drawer" data-kind={props.drawer.kind} data-id={props.drawer.id} /> : null;
   },
@@ -66,11 +66,13 @@ vi.mock('../../components/channel/AuditorSuggestionCard', () => ({ AuditorSugges
 vi.mock('../../components/channel/ConvertToTaskDialog', () => ({ ConvertToTaskDialog: () => null }));
 
 import { ChannelDetailPage } from '../ChannelDetailPage';
+import type { ChannelMessage } from '../../api/channel';
+import type { DrawerState } from '../../components/channel/WorkUnitDrawer';
 
 const now = Date.now();
 const iso = (offsetMin: number) => new Date(now + offsetMin * 60000).toISOString();
 
-const MESSAGES: any[] = [
+const MESSAGES: ChannelMessage[] = [
   // 活跃消息（NEED_INPUT 挂起，线程锚点）
   {
     id: 'm-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'librarian',
@@ -92,7 +94,7 @@ const MESSAGES: any[] = [
 ];
 
 // 过程消息折叠夹具：锚点 + 4 条连续过程回复 + 最后一条（里程碑：最新状态恒显示）
-const PROCESS_MESSAGES: any[] = [
+const PROCESS_MESSAGES: ChannelMessage[] = [
   {
     id: 'p-1', channelId: 'ch-1', authorType: 'agent' as const, agentName: 'pm',
     content: '需求已收到，开始分析', workUnitId: 'WU-2000', replyToId: null,
@@ -115,7 +117,7 @@ const REQS = [
 ];
 
 // useChannelEvents mock 的当前消息集（默认 MESSAGES，单测可替换为 PROCESS_MESSAGES 等夹具）
-let currentMessages: any[] = MESSAGES;
+let currentMessages: ChannelMessage[] = MESSAGES;
 
 const renderPage = () =>
   render(

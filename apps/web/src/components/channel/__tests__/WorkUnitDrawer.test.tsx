@@ -44,6 +44,7 @@ vi.mock('../../../hooks/useWorkUnitStreamEvents', () => ({
 }));
 
 import { WorkUnitDrawer } from '../WorkUnitDrawer';
+import type { DrawerState } from '../WorkUnitDrawer';
 
 const WU = {
   id: 'WU-1017',
@@ -100,7 +101,7 @@ const CHAIN = {
   ],
 };
 
-const renderDrawer = (drawer: any, extra: any = {}) =>
+const renderDrawer = (drawer: DrawerState, extra: { onClose?: () => void; onOpenWu?: (id: string) => void; onOpenReq?: (id: string) => void } = {}) =>
   render(
     <WorkUnitDrawer
       drawer={drawer}

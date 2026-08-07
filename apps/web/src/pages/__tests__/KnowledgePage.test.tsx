@@ -74,7 +74,7 @@ describe('工单 38: KnowledgePage 新建条目失败反馈', () => {
   });
 
   it('提交中保存按钮禁用（loading 态），连点只提交一次', async () => {
-    let resolveCreate: (v: any) => void;
+    let resolveCreate: (v: unknown) => void;
     mockCreateUnifiedEntry.mockImplementation(
       () => new Promise(resolve => { resolveCreate = resolve; })
     );

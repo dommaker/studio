@@ -148,7 +148,7 @@ describe('authStore', () => {
     it('sets loading state before request', async () => {
       let resolvePromise: (v: unknown) => void;
       vi.mocked(authApi.login).mockReturnValueOnce(
-        new Promise((resolve) => { resolvePromise = resolve; }) as any
+        new Promise((resolve) => { resolvePromise = resolve; }) as unknown as ReturnType<typeof authApi.login>
       );
 
       const promise = useAuthStore.getState().login('a@b.com', 'pass');

@@ -23,6 +23,7 @@ vi.mock('react-router-dom', async () => {
 });
 
 import { ChannelRail } from '../ChannelRail';
+import type { ChannelListItem } from '../../../hooks/useChannelList';
 
 const CHANNELS = [
   { id: 'ch-1', name: 'rnd-主研发', type: 'rnd', members: '["a1","a2"]' },
@@ -111,7 +112,7 @@ describe('ChannelRail', () => {
 
   // 工单 38: 提交中 Button loading 态防连点重复提交
   it('disables the create button while submission is in flight', async () => {
-    let resolveCreate: (v: any) => void;
+    let resolveCreate: (v: ChannelListItem) => void;
     const createChannel = vi.fn().mockImplementation(
       () => new Promise(resolve => { resolveCreate = resolve; })
     );

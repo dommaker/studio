@@ -39,7 +39,7 @@ const mockWorkspaces = [
 describe('WorkspaceStatusBar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (workspaceApi.list as any).mockResolvedValue({ data: { data: mockWorkspaces } });
+    vi.mocked(workspaceApi.list).mockResolvedValue({ data: { data: mockWorkspaces } });
   });
 
   it('renders workspace list', async () => {
@@ -60,13 +60,13 @@ describe('WorkspaceStatusBar', () => {
   });
 
   it('shows empty state when no workspaces', async () => {
-    (workspaceApi.list as any).mockResolvedValue({ data: { data: [] } });
+    vi.mocked(workspaceApi.list).mockResolvedValue({ data: { data: [] } });
     render(<WorkspaceStatusBar />);
     expect(await screen.findByText('No workspaces connected')).toBeInTheDocument();
   });
 
   it('shows loading state', () => {
-    (workspaceApi.list as any).mockReturnValue(new Promise(() => {}));
+    vi.mocked(workspaceApi.list).mockReturnValue(new Promise(() => {}));
     render(<WorkspaceStatusBar />);
     expect(screen.getByText('Loading...')).toBeInTheDocument();
   });

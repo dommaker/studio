@@ -22,7 +22,7 @@ const mockTokens = [
 describe('TokenManager', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    (workspaceTokenApi.list as any).mockResolvedValue({ data: { data: mockTokens } });
+    vi.mocked(workspaceTokenApi.list).mockResolvedValue({ data: { data: mockTokens } });
   });
 
   it('renders token list', async () => {
@@ -39,7 +39,7 @@ describe('TokenManager', () => {
   });
 
   it('revokes token on confirm', async () => {
-    (workspaceTokenApi.revoke as any).mockResolvedValue({});
+    vi.mocked(workspaceTokenApi.revoke).mockResolvedValue({});
     render(<TokenManager />);
     await screen.findByText('公司电脑');
 
@@ -51,7 +51,7 @@ describe('TokenManager', () => {
   });
 
   it('removes revoked token from list', async () => {
-    (workspaceTokenApi.revoke as any).mockResolvedValue({});
+    vi.mocked(workspaceTokenApi.revoke).mockResolvedValue({});
     render(<TokenManager />);
     await screen.findByText('公司电脑');
 
@@ -64,7 +64,7 @@ describe('TokenManager', () => {
   });
 
   it('shows empty state when no tokens', async () => {
-    (workspaceTokenApi.list as any).mockResolvedValue({ data: { data: [] } });
+    vi.mocked(workspaceTokenApi.list).mockResolvedValue({ data: { data: [] } });
     render(<TokenManager />);
     expect(await screen.findByText(/no tokens/i)).toBeInTheDocument();
   });

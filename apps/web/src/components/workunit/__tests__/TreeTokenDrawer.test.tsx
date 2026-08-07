@@ -42,13 +42,13 @@ describe('TreeTokenDrawer (AC-5.4 ~ AC-5.7)', () => {
   });
 
   it('renders loading state initially', () => {
-    (workunitApi.getTreeTokens as any).mockReturnValue(new Promise(() => {}));
+    vi.mocked(workunitApi.getTreeTokens).mockReturnValue(new Promise(() => {}));
     render(<TreeTokenDrawer workUnitId="wu-root" onClose={mockOnClose} />);
     expect(screen.getByText('加载中...')).toBeTruthy();
   });
 
   it('renders report on success', async () => {
-    (workunitApi.getTreeTokens as any).mockResolvedValue({ data: mockReport });
+    vi.mocked(workunitApi.getTreeTokens).mockResolvedValue({ data: mockReport });
     render(<TreeTokenDrawer workUnitId="wu-root" onClose={mockOnClose} />);
 
     await waitFor(() => {
@@ -66,7 +66,7 @@ describe('TreeTokenDrawer (AC-5.4 ~ AC-5.7)', () => {
   });
 
   it('renders error on API failure', async () => {
-    (workunitApi.getTreeTokens as any).mockRejectedValue(new Error('Network error'));
+    vi.mocked(workunitApi.getTreeTokens).mockRejectedValue(new Error('Network error'));
     render(<TreeTokenDrawer workUnitId="wu-root" onClose={mockOnClose} />);
 
     await waitFor(() => {
@@ -75,7 +75,7 @@ describe('TreeTokenDrawer (AC-5.4 ~ AC-5.7)', () => {
   });
 
   it('renders hyphen for null tokens', async () => {
-    (workunitApi.getTreeTokens as any).mockResolvedValue({ data: {
+    vi.mocked(workunitApi.getTreeTokens).mockResolvedValue({ data: {
       rootId: 'wu-root',
       nodes: [
         {
@@ -98,7 +98,7 @@ describe('TreeTokenDrawer (AC-5.4 ~ AC-5.7)', () => {
   });
 
   it('calls onClose when close button clicked', async () => {
-    (workunitApi.getTreeTokens as any).mockResolvedValue({ data: mockReport });
+    vi.mocked(workunitApi.getTreeTokens).mockResolvedValue({ data: mockReport });
     render(<TreeTokenDrawer workUnitId="wu-root" onClose={mockOnClose} />);
 
     await waitFor(() => {
@@ -109,7 +109,7 @@ describe('TreeTokenDrawer (AC-5.4 ~ AC-5.7)', () => {
   });
 
   it('cancels effect on unmount (no state update after unmount)', async () => {
-    (workunitApi.getTreeTokens as any).mockImplementation(
+    vi.mocked(workunitApi.getTreeTokens).mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve({ data: mockReport }), 100))
     );
     const { unmount } = render(

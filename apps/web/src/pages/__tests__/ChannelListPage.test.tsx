@@ -17,6 +17,7 @@ vi.mock('../../api/monitoring', () => ({
 }));
 
 import { ChannelListPage } from '../ChannelListPage';
+import type { ChannelListItem } from '../../hooks/useChannelList';
 
 const renderPage = () =>
   render(
@@ -32,7 +33,7 @@ describe('工单 38: ChannelListPage 创建频道 loading', () => {
   });
 
   it('提交中按钮禁用并显示 loading 文案，createChannel 只调用一次', async () => {
-    let resolveCreate: (v: any) => void;
+    let resolveCreate: (v: ChannelListItem) => void;
     const createChannel = vi.fn().mockImplementation(
       () => new Promise(resolve => { resolveCreate = resolve; })
     );
