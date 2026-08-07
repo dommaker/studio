@@ -33,6 +33,13 @@ studio（/root/projects/studio）全套代码优化重构完成：6 项优化清
 - [07 — 完整重构方案](issues/07-refactor-spec.md) — spec.md：27 条用户故事 + 实现/测试决策 + 出范围清单，ready-for-agent
 - [08 — triage 拆解执行工单](issues/08-triage-execution.md) — 执行工单 09-43 共 35 张全部拆出并标注依赖边，进入串行执行
 - 删除批次 09-23+44 全部解决（12 张）：累计删 ~9000 行——两整包（monitor/task）、packages 七刀、api 三刀（含 OKR B8 引擎级联删除 1156→334 行）、web 两刀（含 design-lab/ToolsStdPage/review 簇）、依赖 8 项；test 4246→3933 全绿；期间纠正证据误判 3 处（PMOCard 活链、mc-*/u-* 活样式、js-yaml 类型）
+- bug 批次 24-25 解决：C1-C5 全修复（GC 口径、分页 limit、auth 类型单一来源、死路由+404、通知配置落盘持久化），各附新测试
+- 性能批次 26-27 解决：FileStore 读穿缓存（mtime 校验 + structuredClone 防污染 + list 并发化 + 9 条新测）+ Requirement/Evolution 复制段泛型合并 + observe 双读消除 + wu-messenger 频道内预过滤
+- 后端结构批次 28-32 解决：agent-loop 2024→1542、knowledge-service 1720→1143、workunit 1179→889、metrics 666→113；agents/ 46 文件按 6 子域重组；route-registry 顺序断言 fail-fast
+- 前端结构批次 33-35 解决：PMOPage 929→403、KnowledgePage 519→368、KnowledgeGraphView 488→283、Settings 482→244、ProjectDetailPage 558→381；硬编码生产 IP 改走 vite env
+- 交互批次 36-38 解决：ui/ Button+ConfirmDialog 通用件、confirm/alert/整页跳转全替换、裸 fetch 收编 api/auditLogs、失败提示/loading 防重/公司名防抖
+- 收尾批次 39-42 解决：i18n 整层移除（54 处 t() 内联中文）、responsive.css 8 处 Tailwind 冲突消除、frontmatter/ID 收敛、eslint 9 flat 迁移 lint 可跑（0 错误 275 告警基线）
+- [43 — 最终架构巡检](issues/43-final-inspection.md) — **判定：达到交付状态**；三门控全绿（test 3973 双连绿）；专扫遗留 7 项全修；建议后续工单 5 项（档案/基线性质不阻塞）
 
 ## Not yet specified
 
