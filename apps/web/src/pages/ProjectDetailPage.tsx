@@ -9,6 +9,10 @@
  *
  * Card 7（2026-08）：老 Task 看板 / 执行历史 / 双轨统计已删除（WU 链路为唯一口径）；
  * 后端 /tasks API 与数据保留（存量 16 条 legacy task 仍可从 API 访问）。
+ *
+ * 工单 35-E4（2026-08-07）：IDE 指南弹窗（components/pmo/IdeGuideDialogs，服务器地址走
+ * VITE_IDE_SSH_HOST / VITE_IDE_CLOUD_IDE_URL，原硬编码生产 IP 已消除）、知识库三列网格
+ *（components/knowledge/KnowledgeDocGrid）、项目进展卡（components/pmo/ProjectProgressCard）抽出。
  */
 
 import React, { useEffect, useState } from 'react';
@@ -22,7 +26,10 @@ import { PmoNumberBadge } from '../components/PmoNumberBadge';
 import { ProjectPipeline } from '../components/pmo/ProjectPipeline';
 import { ProjectActivity } from '../components/pmo/ProjectActivity';
 import { DeliveryPanel } from '../components/pmo/DeliveryPanel';
+import { VscodeGuideDialog, CloudIdeGuideDialog } from '../components/pmo/IdeGuideDialogs';
+import { ProjectProgressCard } from '../components/pmo/ProjectProgressCard';
 import { buildProjectTimeline, type PipelineWorkUnit } from '../components/pmo/pipelineUtils';
+import { KnowledgeDocGrid } from '../components/knowledge/KnowledgeDocGrid';
 import { DocReaderDrawer } from '../components/knowledge/DocReaderDrawer';
 import { ManualTaskButton } from '../components/ui';
 import { toast } from '../utils/toast';
@@ -50,21 +57,6 @@ interface Project {
   createdAt: string;
   OKR?: { id: string; title: string; quarter: string };
 }
-
-// VS Code 连接步骤
-const vscodeSteps = [
-  { step: 1, text: '安装 VS Code + Remote SSH 扩展' },
-  { step: 2, text: '打开 VS Code，按 F1 输入 "Remote-SSH: Connect to Host"' },
-  { step: 3, text: '输入服务器地址：root@49.232.195.87' },
-  { step: 4, text: '连接成功后，File → Open Folder → 粘贴项目路径' },
-];
-
-// Cloud IDE 步骤
-const cloudIdeSteps = [
-  { step: 1, text: '访问 Cloud IDE：http://49.232.195.87:8443' },
-  { step: 2, text: '登录密码：从管理员获取' },
-  { step: 3, text: 'File → Open Folder → 粘贴项目路径' },
-];
 
 // 🆕 AC-5: 项目状态 stepper（讨论 → 进行中 → 待验收 → 已交付；delivered 归并到 completed）
 const PROJECT_STEPS = [
@@ -95,7 +87,6 @@ export function ProjectDetailPage() {
   const [showCloudIdeGuide, setShowCloudIdeGuide] = useState(false);
   const [archiveLoading, setArchiveLoading] = useState(false);
   const [copySuccess, setCopySuccess] = useState(false);
-  const [copiedStep, setCopiedStep] = useState<number | null>(null);
 
   // 🆕 PMO-b: 交付台账（delivery 数据由页面持有：管道时间线 / 进展卡 / 证据警告条共用；
   // 交互（缺口行动 / 交付合并）在 DeliveryPanel 内，经 onRefresh 回调刷新）
@@ -148,13 +139,6 @@ export function ProjectDetailPage() {
       setError(err.response?.data?.error?.message || 'Failed to load project');
       setLoading(false);
     }
-  };
-
-  // 复制步骤
-  const copyStep = async (text: string, stepIndex: number) => {
-    await navigator.clipboard.writeText(text);
-    setCopiedStep(stepIndex);
-    setTimeout(() => setCopiedStep(null), 2000);
   };
 
   // 复制路径
@@ -215,18 +199,6 @@ export function ProjectDetailPage() {
     deliveredAt: delivery?.deliveredAt ?? project?.deliveredAt ?? null,
     agentNameById,
   });
-
-  // 证据缺口摘要（L1/L2/L3 缺的层为 0 不显示），用于进展卡的琥珀警告条
-  const evidenceGapSummary = delivery
-    ? [
-        { label: 'L1', n: delivery.evidence.l1Missing.length },
-        { label: 'L2', n: delivery.evidence.l2Missing.length },
-        { label: 'L3', n: delivery.evidence.l3Missing.length },
-      ]
-        .filter(g => g.n > 0)
-        .map(g => `${g.label} 缺 ${g.n}`)
-        .join(' · ')
-    : '';
 
   if (loading) {
     return <div className="flex items-center justify-center h-64"><div className="u-text-2">加载中...</div></div>;
@@ -348,48 +320,7 @@ export function ProjectDetailPage() {
       {/* 📚 知识库（AC-5：卡片点开抽屉阅读器） */}
       <div className="card p-4 mb-6">
         <h3 className="text-sm font-medium u-text-2 mb-3">📚 知识库 ({documents.length})</h3>
-        {documents.length === 0 ? (
-          <div className="text-sm u-text-3">暂无文档产出</div>
-        ) : (
-          <div className="grid grid-cols-3 gap-2">
-            {/* requirement */}
-            <div className="p-3 rounded u-warn-dim">
-              <div className="text-xs u-warn mb-2">📄 需求文档</div>
-              <div className="space-y-1">
-                {documents.filter(d => d.type === 'requirement').map(doc => (
-                  <div key={doc.id} onClick={() => setReaderDocId(doc.id)} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
-                    <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs u-text-3">v{doc.version}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* design/spec */}
-            <div className="p-3 rounded u-accent-dim">
-              <div className="text-xs u-accent mb-2">📐 设计/规范</div>
-              <div className="space-y-1">
-                {documents.filter(d => d.type === 'design' || d.type === 'spec').map(doc => (
-                  <div key={doc.id} onClick={() => setReaderDocId(doc.id)} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
-                    <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs u-text-3">{doc.type} v{doc.version}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {/* execution/archive */}
-            <div className="p-3 rounded u-accent-dim">
-              <div className="text-xs u-accent mb-2">📦 执行/归档</div>
-              <div className="space-y-1">
-                {documents.filter(d => ['execution', 'archive'].includes(d.type)).map(doc => (
-                  <div key={doc.id} onClick={() => setReaderDocId(doc.id)} className="p-2 u-surface rounded text-sm cursor-pointer u-hover-bg">
-                    <div className="font-medium">{doc.title}</div>
-                    <div className="text-xs u-text-3">{doc.type}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+        <KnowledgeDocGrid documents={documents} onOpenDoc={setReaderDocId} />
       </div>
 
       {/* 🆕 PMO-b: 交付（台账 + human-only 合并 + F6-c 缺口行动）——Card 7 抽取为 DeliveryPanel */}
@@ -398,68 +329,7 @@ export function ProjectDetailPage() {
       )}
 
       {/* 📈 项目进展（AS-010 增强） */}
-      <div className="card p-4 mb-6">
-        <h3 className="text-sm font-medium u-text-2 mb-3">📈 项目进展</h3>
-        
-        {/* 主进度条 */}
-        <div className="flex items-center gap-3 mb-3">
-          <div className="flex-1">
-            <div className="h-4 u-surface-2 rounded-full overflow-hidden">
-              <div 
-                className={`h-full transition-all ${
-                  progress === 100 ? 'u-ok-bg' :
-                  progress > 50 ? 'u-accent-bg' :
-                  'u-warn-bg'
-                }`}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-          </div>
-          <span className="text-2xl font-bold u-text">{progress}%</span>
-        </div>
-        
-        {/* 统计卡片：WU 链路六卡（Card 7：老 Task 链路五卡已随双轨删除） */}
-        {delivery && (
-          <div className="grid grid-cols-6 gap-2">
-            <div className="p-2 rounded u-ok-dim text-center">
-              <div className="text-lg font-bold u-ok">{delivery.wu.finished}</div>
-              <div className="text-xs u-text-2">✅ 完成</div>
-            </div>
-            <div className="p-2 rounded u-warn-dim text-center">
-              <div className="text-lg font-bold u-warn">{delivery.wu.byStatus.inReview}</div>
-              <div className="text-xs u-text-2">👀 待验收</div>
-            </div>
-            <div className="p-2 rounded u-accent-dim text-center">
-              <div className="text-lg font-bold u-accent">{delivery.wu.byStatus.active}</div>
-              <div className="text-xs u-text-2">🔄 进行中</div>
-            </div>
-            <div className="p-2 rounded u-surface-2 text-center">
-              <div className="text-lg font-bold u-text-2">{delivery.wu.byStatus.unassigned}</div>
-              <div className="text-xs u-text-2">⏳ 待领取</div>
-            </div>
-            <div className="p-2 rounded u-err-dim text-center">
-              <div className="text-lg font-bold u-err">{delivery.wu.byStatus.blocked}</div>
-              <div className="text-xs u-text-2">🚫 阻塞</div>
-            </div>
-            <div className="p-2 rounded u-accent-dim text-center">
-              <div className="text-lg font-bold u-accent">{delivery.tokens.toLocaleString()}</div>
-              <div className="text-xs u-text-2">💰 Token</div>
-            </div>
-          </div>
-        )}
-
-        {/* 证据提示条：存量 completed 缺证据给警告；in_review 说明自动翻转 */}
-        {project.status === 'completed' && delivery && !delivery.deliverable && evidenceGapSummary && (
-          <div className="mt-3 text-xs u-warn u-warn-dim rounded p-2">
-            ⚠️ 项目已标记完成，但交付证据未齐（{evidenceGapSummary}）——在上方交付卡补齐后才算真正交付
-          </div>
-        )}
-        {project.status === 'in_review' && delivery && !delivery.deliverable && (
-          <div className="mt-3 text-xs u-accent u-accent-dim rounded p-2">
-            交付证据补齐后，项目将自动标记完成
-          </div>
-        )}
-      </div>
+      <ProjectProgressCard progress={progress} delivery={delivery} projectStatus={project.status} />
 
       {/* 🆕 AC-5: 项目动态（WU 时间戳 + deliveredAt 前端拼装，倒序 ≤20 条） */}
       <div className="card p-4 mb-6">
@@ -501,57 +371,9 @@ export function ProjectDetailPage() {
       {/* 🆕 AC-5: 知识库文档阅读抽屉 */}
       <DocReaderDrawer documentId={readerDocId} onClose={() => setReaderDocId(null)} />
 
-      {/* VS Code 弹窗 */}
-      {showVscodeGuide && (
-        <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 448 }}>
-            <div className="modal-header">
-              <h3 className="modal-title">📋 VS Code Remote SSH</h3>
-            </div>
-            <div className="modal-body space-y-3">
-              {vscodeSteps.map((step, i) => (
-                <div key={i} className="flex items-center gap-2 p-2 u-surface-2 rounded">
-                  <span className="w-6 h-6 u-accent-bg u-on-accent rounded-full flex items-center justify-center text-sm">{step.step}</span>
-                  <span className="text-sm flex-1">{step.text}</span>
-                  <button onClick={() => copyStep(step.text, i)} className="btn btn-sm btn-secondary">
-                    {copiedStep === i ? '✓' : '复制'}
-                  </button>
-                </div>
-              ))}
-              <div className="text-xs p-2 rounded u-accent-dim u-accent">💡 提示：连接成功后 File → Open Folder → 粘贴路径</div>
-            </div>
-            <div className="modal-footer">
-              <button onClick={() => setShowVscodeGuide(false)} className="btn btn-secondary">关闭</button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Cloud IDE 弹窗 */}
-      {showCloudIdeGuide && (
-        <div className="modal-overlay">
-          <div className="modal" style={{ maxWidth: 448 }}>
-            <div className="modal-header">
-              <h3 className="modal-title">☁️ Cloud IDE (浏览器中的 VS Code)</h3>
-            </div>
-            <div className="modal-body space-y-3">
-              {cloudIdeSteps.map((step, i) => (
-                <div key={i} className="flex items-center gap-2 p-2 u-surface-2 rounded">
-                  <span className="w-6 h-6 u-accent-bg u-on-accent rounded-full flex items-center justify-center text-sm">{step.step}</span>
-                  <span className="text-sm flex-1">{step.text}</span>
-                  <button onClick={() => copyStep(step.text, i)} className="btn btn-sm btn-secondary">
-                    {copiedStep === i ? '✓' : '复制'}
-                  </button>
-                </div>
-              ))}
-              <div className="text-xs p-2 rounded u-accent-dim u-accent">💡 Cloud IDE 内置终端和浏览器预览</div>
-            </div>
-            <div className="modal-footer">
-              <button onClick={() => setShowCloudIdeGuide(false)} className="btn btn-secondary">关闭</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* IDE 指南弹窗 */}
+      <VscodeGuideDialog open={showVscodeGuide} onClose={() => setShowVscodeGuide(false)} />
+      <CloudIdeGuideDialog open={showCloudIdeGuide} onClose={() => setShowCloudIdeGuide(false)} />
     </div>
   );
 }
