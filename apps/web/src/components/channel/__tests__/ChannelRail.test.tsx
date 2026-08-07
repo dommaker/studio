@@ -109,6 +109,30 @@ describe('ChannelRail', () => {
     await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-9'));
   });
 
+  // 工单 38: 提交中 Button loading 态防连点重复提交
+  it('disables the create button while submission is in flight', async () => {
+    let resolveCreate: (v: any) => void;
+    const createChannel = vi.fn().mockImplementation(
+      () => new Promise(resolve => { resolveCreate = resolve; })
+    );
+    mockUseChannelList.mockReturnValue({
+      channels: CHANNELS, loading: false, unreadCounts: {},
+      clearUnread: vi.fn(), createChannel,
+    });
+    renderRail();
+    fireEvent.click(screen.getByText('+ 新频道'));
+    fireEvent.change(screen.getByLabelText('频道名称'), { target: { value: 'ops' } });
+
+    fireEvent.click(screen.getByText('创建'));
+    fireEvent.click(screen.getByText('创建中...'));
+
+    expect(createChannel).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('创建中...').closest('button')!.disabled).toBe(true);
+
+    resolveCreate!({ id: 'ch-9', name: 'ops', type: 'rnd' });
+    await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith('/channels/ch-9'));
+  });
+
   it('renders agent status rows with pulse dot for active agents', async () => {
     renderRail();
     await waitFor(() => expect(screen.getByText('@coder-1')).toBeTruthy());

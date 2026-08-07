@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { knowledgeApi, type KnowledgeGapType } from '../api/knowledge';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
 import { toast } from '../utils/toast';
-import { Select, ManualTaskButton } from '../components/ui';
+import { Select, ManualTaskButton, Button } from '../components/ui';
 import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
   DecisionChainCard, InteractionPatternCard, ResolutionCard,
@@ -54,6 +54,8 @@ export function KnowledgePage() {
   const [unifiedOffset, setUnifiedOffset] = useState(0);
   const [showManualEntry, setShowManualEntry] = useState(false);
   const [manualForm, setManualForm] = useState({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
+  // 工单 38: 新建条目提交中状态——Button loading 态防连点重复提交
+  const [manualSaving, setManualSaving] = useState(false);
 
   // 手动任务成本（近 30 天 token；失败静默，不阻塞页面）
   const [costs, setCosts] = useState<TriggerCosts | null>(null);
@@ -97,6 +99,8 @@ export function KnowledgePage() {
 
   // AS-022: Submit manual entry
   const handleManualEntry = async () => {
+    if (manualSaving) return;
+    setManualSaving(true);
     try {
       await knowledgeApi.createUnifiedEntry({
         ...manualForm,
@@ -109,6 +113,8 @@ export function KnowledgePage() {
       // 工单 38: 失败不再静默——toast 反馈且保留表单内容，用户可修正后重试
       console.error('Failed to create entry:', err);
       toast.error(err?.response?.data?.error || err?.message || '创建条目失败，请重试');
+    } finally {
+      setManualSaving(false);
     }
   };
 
@@ -291,10 +297,10 @@ export function KnowledgePage() {
                     className="input w-full mb-3" />
                   <input type="text" placeholder="标签（逗号分隔）" value={manualForm.tags} onChange={e => setManualForm({ ...manualForm, tags: e.target.value })}
                     className="input w-full mb-3" />
-                  <button onClick={handleManualEntry} disabled={!manualForm.title || !manualForm.content}
-                    className="btn btn-primary">
+                  <Button onClick={handleManualEntry} disabled={!manualForm.title || !manualForm.content}
+                    loading={manualSaving} loadingLabel="保存中...">
                     保存
-                  </button>
+                  </Button>
                 </div>
               )}
               {unifiedLoading ? (

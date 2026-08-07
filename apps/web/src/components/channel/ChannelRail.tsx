@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../../api/monitoring';
-import { Select } from '../ui';
+import { Select, Button } from '../ui';
 
 const TYPE_LABELS: Record<string, string> = {
   rnd: '研发',
@@ -32,6 +32,8 @@ export function ChannelRail({ activeChannelId }: Props) {
   const [newType, setNewType] = useState('rnd');
   const [newAgents, setNewAgents] = useState('');
   const [createError, setCreateError] = useState('');
+  // 工单 38: 创建提交中状态——Button loading 态防连点重复提交
+  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
   // Agent 状态：挂载加载 + 30s 刷新（只读展示，与监控页同源）
@@ -90,8 +92,9 @@ export function ChannelRail({ activeChannelId }: Props) {
   };
 
   const handleCreate = async () => {
-    if (!newName.trim()) return;
+    if (!newName.trim() || creating) return;
     setCreateError('');
+    setCreating(true);
     try {
       const agents = newAgents.split(/[,\n]/).map(s => s.trim()).filter(Boolean);
       const ch = await createChannel({ name: newName.trim(), type: newType, agents });
@@ -101,6 +104,8 @@ export function ChannelRail({ activeChannelId }: Props) {
       navigate(`/channels/${ch.id}`);
     } catch (err: any) {
       setCreateError(err?.response?.data?.error || '创建失败');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -141,7 +146,7 @@ export function ChannelRail({ activeChannelId }: Props) {
               options={Object.entries(TYPE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
               aria-label="频道类型"
             />
-            <button className="mc-btn mc-btn-primary" onClick={handleCreate}>创建</button>
+            <Button size="sm" loading={creating} loadingLabel="创建中..." onClick={handleCreate}>创建</Button>
             <button className="mc-btn" onClick={() => { setShowNewForm(false); setNewName(''); setNewAgents(''); }}>
               取消
             </button>

@@ -72,4 +72,29 @@ describe('工单 38: KnowledgePage 新建条目失败反馈', () => {
     // 初次加载 + 成功后刷新各一次
     await waitFor(() => expect(mockListUnified).toHaveBeenCalledTimes(2));
   });
+
+  it('提交中保存按钮禁用（loading 态），连点只提交一次', async () => {
+    let resolveCreate: (v: any) => void;
+    mockCreateUnifiedEntry.mockImplementation(
+      () => new Promise(resolve => { resolveCreate = resolve; })
+    );
+    render(
+      <MemoryRouter>
+        <KnowledgePage />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByText('+ 新建'));
+    fireEvent.change(screen.getByPlaceholderText('标题'), { target: { value: '指南' } });
+    fireEvent.change(screen.getByPlaceholderText('内容'), { target: { value: '内容' } });
+
+    fireEvent.click(screen.getByText('保存'));
+    fireEvent.click(screen.getByText('保存中...'));
+
+    expect(mockCreateUnifiedEntry).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('保存中...').closest('button')!.disabled).toBe(true);
+
+    resolveCreate!({ data: {} });
+    await waitFor(() => expect(screen.queryByPlaceholderText('标题')).toBeNull());
+  });
 });

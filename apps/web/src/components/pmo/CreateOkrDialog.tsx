@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { okrApi } from '../../api/pmo';
 import { toast } from '../../utils/toast';
-import { Select } from '../ui';
+import { Select, Button } from '../ui';
 import {
   getCurrentQuarter,
   METRIC_TYPE_OPTIONS,
@@ -27,6 +27,8 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
   const [newOKRTitle, setNewOKRTitle] = useState('');
   const [newOKRQuarter, setNewOKRQuarter] = useState(getCurrentQuarter());
   const [krs, setKRs] = useState<KR[]>(emptyKRs);
+  // 工单 38: 创建提交中状态——Button loading 态防连点重复提交
+  const [creating, setCreating] = useState(false);
 
   const addKR = () => {
     setKRs(prev => [...prev, {
@@ -50,6 +52,7 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
 
   // 🆕 B8: 创建 OKR (支持 KR + metricType)
   const handleCreateOKR = async () => {
+    if (creating) return;
     if (!newOKRTitle.trim()) {
       toast.warning('请输入 OKR 标题');
       return;
@@ -68,6 +71,7 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
         return;
       }
 
+      setCreating(true);
       await okrApi.create({
         companyId: actualCompanyId,
         title: newOKRTitle,
@@ -83,6 +87,8 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
     } catch (err) {
       console.error('Failed to create OKR:', err);
       toast.error('创建 OKR 失败');
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -223,12 +229,13 @@ export function CreateOkrDialog({ open, companyId, onClose, onCreated }: CreateO
           >
             取消
           </button>
-          <button
+          <Button
             onClick={handleCreateOKR}
-            className="btn btn-primary"
+            loading={creating}
+            loadingLabel="创建中..."
           >
             创建
-          </button>
+          </Button>
         </div>
       </div>
     </div>
