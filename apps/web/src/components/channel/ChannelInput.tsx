@@ -13,6 +13,9 @@ interface Props {
 
 export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelId }: Props) {
   const [content, setContent] = useState('');
+  // 光标位置由 onChange/onSelect 事件写入 state（渲染期禁读 ref）。
+  // 顺带修复旧缺陷：原实现 memo 只依赖 content，光标点击移动不重算 mention 解析
+  const [cursorPos, setCursorPos] = useState(0);
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [mentionIdx, setMentionIdx] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -26,7 +29,7 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
 
   // Parse if we're in a mention: last @word before cursor
   const mentionState = useMemo(() => {
-    const pos = textareaRef.current?.selectionStart ?? content.length;
+    const pos = Math.min(cursorPos, content.length);
     const before = content.slice(0, pos);
     const lastAt = before.lastIndexOf('@');
     if (lastAt === -1) return null;
@@ -34,7 +37,7 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
     // Only show if there's no space after @ and before cursor
     if (query.includes(' ') || query.includes('\n')) return null;
     return { start: lastAt, query };
-  }, [content]);
+  }, [content, cursorPos]);
 
   const filteredAgents = useMemo(() => {
     if (!mentionState) return [];
@@ -44,28 +47,30 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
 
   const insertMention = useCallback((agentName: string) => {
     if (!mentionState) return;
-    const pos = textareaRef.current?.selectionStart ?? content.length;
+    const pos = Math.min(cursorPos, content.length);
     const before = content.slice(0, mentionState.start);
     const after = content.slice(pos);
     const newContent = `${before}@${agentName} ${after}`;
+    const newCursor = mentionState.start + agentName.length + 2; // @name[space]
     setContent(newContent);
+    setCursorPos(newCursor);
     setMentionIdx(0);
     // Set cursor after the inserted mention
     setTimeout(() => {
       const el = textareaRef.current;
       if (el) {
-        const cursorPos = mentionState.start + agentName.length + 2; // @name[space]
-        el.setSelectionRange(cursorPos, cursorPos);
+        el.setSelectionRange(newCursor, newCursor);
         el.focus();
       }
     }, 0);
-  }, [content, mentionState]);
+  }, [content, cursorPos, mentionState]);
 
   const handleSend = () => {
     const trimmed = content.trim();
     if (!trimmed || sending) return;
     onSend(trimmed, replyTo?.id);
     setContent('');
+    setCursorPos(0);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -119,7 +124,11 @@ export function ChannelInput({ onSend, sending, replyTo, onCancelReply, channelI
           <textarea
             ref={textareaRef}
             value={content}
-            onChange={e => setContent(e.target.value)}
+            onChange={e => {
+              setContent(e.target.value);
+              setCursorPos(e.target.selectionStart ?? e.target.value.length);
+            }}
+            onSelect={e => setCursorPos(e.currentTarget.selectionStart ?? e.currentTarget.value.length)}
             onKeyDown={handleKeyDown}
             placeholder="输入消息，@Agent 提及 Agent..."
             rows={2}
