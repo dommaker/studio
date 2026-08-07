@@ -51,8 +51,8 @@ export default defineConfig({
           if (id.includes('react/') || id.includes('react-dom/')) {
             return 'vendor-react';
           }
-          // React 生态库（router, i18n 等）
-          if (id.includes('react-router') || id.includes('react-i18next')) {
+          // React 生态库（router 等）
+          if (id.includes('react-router')) {
             return 'vendor-react-eco';
           }
           // 流程图库（大型，按需加载）
