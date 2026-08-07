@@ -57,7 +57,7 @@ export function WorkUnitListPage() {
 
   useEffect(() => {
     loadWorkUnits();
-  }, []);
+  }, [loadWorkUnits]);
 
   // WU 事件（SSE）：创建/状态变化时刷新列表（防抖合并在 hook 内）
   useWorkUnitEvents(() => { loadWorkUnits(); });

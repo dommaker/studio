@@ -213,7 +213,7 @@ function KnowledgeGraphViewInner({
       prevEdgesJson.current = edgesJson;
       setEdges(initialEdges);
     }
-  }, [initialNodes, initialEdges]);
+  }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   // 选中节点时聚焦
   useEffect(() => {

@@ -349,7 +349,6 @@ export function ChannelDetailPage() {
 
             {/* B2-002: Date separators + B2-006: collapse completed + AC-C3: threads */}
             {(() => {
-              let lastDate = '';
               const completed = messages.filter(m => {
                 try {
                   const meta = JSON.parse(typeof m.meta === 'string' ? m.meta : '{}');
@@ -362,6 +361,12 @@ export function ChannelDetailPage() {
 
               // Re-group visible messages into threads
               const items = groupIntoThreads(visibleMessages);
+
+              // 每项（线程组取 anchor）的日期串：日期分隔是否显示改为与前一项纯比较，避免渲染期重赋值
+              const itemDateStrs = items.map(item => {
+                const m = 'anchor' in item ? item.anchor : item;
+                return new Date(m.createdAt).toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
+              });
 
               const dateSep = (d: Date, dateStr: string, key: string) => (
                 <div className="mc-date" key={key}>
@@ -381,14 +386,13 @@ export function ChannelDetailPage() {
                       收起已完成消息
                     </button>
                   )}
-                  {items.map(item => {
+                  {items.map((item, idx) => {
                     if ('anchor' in item) {
                       // ThreadGroup
                       const msg = item.anchor;
                       const d = new Date(msg.createdAt);
                       const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-                      const showDate = dateStr !== lastDate;
-                      lastDate = dateStr;
+                      const showDate = idx === 0 || dateStr !== itemDateStrs[idx - 1];
                       const anchorId = msg.id;
                       const expanded = expandedThreads.has(anchorId);
 
@@ -428,8 +432,7 @@ export function ChannelDetailPage() {
                       const msg = item;
                       const d = new Date(msg.createdAt);
                       const dateStr = d.toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' });
-                      const showDate = dateStr !== lastDate;
-                      lastDate = dateStr;
+                      const showDate = idx === 0 || dateStr !== itemDateStrs[idx - 1];
                       return (
                         <div key={msg.id}>
                           {showDate && dateSep(d, dateStr, `date-${msg.id}`)}

@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, act } from '@testing-library/react';
+import { useEffect } from 'react';
 
 class FakeEventSource {
   static CONNECTING = 0;
@@ -38,7 +39,10 @@ import { useWebSocketContext } from '../websocketHooks';
 let ctx: ReturnType<typeof useWebSocketContext> | null = null;
 
 function Probe() {
-  ctx = useWebSocketContext();
+  const c = useWebSocketContext();
+  useEffect(() => {
+    ctx = c;
+  });
   return null;
 }
 

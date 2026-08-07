@@ -90,7 +90,9 @@ export function useAgentRoster(): UseAgentRosterResult {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const rolesRef = useRef<RosterRole[]>([]);
-  rolesRef.current = roles;
+  useEffect(() => {
+    rolesRef.current = roles;
+  }, [roles]);
 
   /** 增量补查某 WU 详情并写回对应卡片的 currentWorkUnit（后端聚合字段暂缺/SSE 切换任务时） */
   const fillWorkUnit = useCallback((roleId: string, workUnitId: string) => {

@@ -1,5 +1,5 @@
 // PMOCard - PMO 模块入口卡片
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { CompanyHallCard } from './CompanyHallCard';
 import { runtimeWorkflowApi } from '../api';
 import { okrApi } from '../api/pmo';
@@ -20,14 +20,15 @@ export function PMOCard({ companyId }: PMOCardProps) {
   const [stats, setStats] = useState<PMOStats | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    loadStats();
-  }, [companyId]);
+  // companyId 切换时在渲染期同步置回加载态（替代原 effect 内的同步 setLoading）
+  const [prevCompanyId, setPrevCompanyId] = useState(companyId);
+  if (prevCompanyId !== companyId) {
+    setPrevCompanyId(companyId);
+    setLoading(true);
+  }
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
-      setLoading(true);
-
       // 并行获取 OKR 和执行数据
       const [okrRes, projectsRes] = await Promise.all([
         companyId
@@ -61,7 +62,12 @@ export function PMOCard({ companyId }: PMOCardProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [companyId]);
+
+  useEffect(() => {
+    // 微任务里触发加载：loadStats 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(loadStats);
+  }, [loadStats]);
 
   if (loading) {
     return (

@@ -1,5 +1,5 @@
 // PMOPage - PMO 管理主页面（项目 + OKR；三个弹窗已抽至 components/pmo/，工单 33）
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import { projectApi } from '../api';
 import { companyApi } from '../api/company';
@@ -77,10 +77,66 @@ export function PMOPage({ companyId }: PMOPageProps) {
   // 🆕 PMO-a: 新建 PMO 弹窗（组件见 components/pmo/CreateProjectDialog）
   const [showCreateForm, setShowCreateForm] = useState(false);
 
-  useEffect(() => {
-    loadData();
-    loadChannels();
+  // companyId 切换时在渲染期同步置回加载态并清错误（替代原 loadData 内、由 effect 触发的同步 setState）
+  const [prevCompanyId, setPrevCompanyId] = useState(companyId);
+  if (prevCompanyId !== companyId) {
+    setPrevCompanyId(companyId);
+    setLoading(true);
+    setLoadError(null);
+  }
+
+  const loadData = useCallback(async () => {
+    try {
+      let actualCompanyId = companyId;
+      if (!actualCompanyId) {
+        const companiesRes = await companyApi.list();
+        if (companiesRes.data?.data?.length > 0) {
+          actualCompanyId = companiesRes.data.data[0].id;
+        }
+      }
+
+      const [okrRes, projectsRes] = await Promise.all([
+        actualCompanyId
+          ? okrApi.list(actualCompanyId)
+          : Promise.resolve({ data: { data: [] } }),
+        actualCompanyId
+          ? projectApi.list({ companyId: actualCompanyId, limit: 20 })
+          : Promise.resolve({ data: { data: [] } }),
+      ]);
+
+      setOKRs(okrRes.data?.data || []);
+      setProjects(projectsRes.data?.data || []);
+    } catch (err) {
+      console.error('Failed to load PMO data:', err);
+      setLoadError('加载 PMO 数据失败，请重试');
+    } finally {
+      setLoading(false);
+    }
   }, [companyId]);
+
+  const loadChannels = useCallback(async () => {
+    try {
+      const res = await channelApi.list();
+      setChannels(res.data?.data || []);
+    } catch {
+      // best-effort: channels may not be available
+    }
+  }, []);
+
+  useEffect(() => {
+    // 微任务里触发加载：loadData 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(() => {
+      loadData();
+      loadChannels();
+    });
+  }, [loadData, loadChannels]);
+
+  // 手动刷新路径（重试按钮 / 弹窗 onCreated）：在事件处理器里同步置加载态，保持原 loadData 行为
+  const handleReload = useCallback(() => {
+    setLoading(true);
+    setLoadError(null);
+    loadData();
+  }, [loadData]);
 
   // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain + 一次 knowledge；失败静默）
   useEffect(() => {
@@ -122,47 +178,6 @@ export function PMOPage({ companyId }: PMOPageProps) {
 
     return () => { cancelled = true; };
   }, [projects]);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setLoadError(null);
-
-      let actualCompanyId = companyId;
-      if (!actualCompanyId) {
-        const companiesRes = await companyApi.list();
-        if (companiesRes.data?.data?.length > 0) {
-          actualCompanyId = companiesRes.data.data[0].id;
-        }
-      }
-
-      const [okrRes, projectsRes] = await Promise.all([
-        actualCompanyId
-          ? okrApi.list(actualCompanyId)
-          : Promise.resolve({ data: { data: [] } }),
-        actualCompanyId
-          ? projectApi.list({ companyId: actualCompanyId, limit: 20 })
-          : Promise.resolve({ data: { data: [] } }),
-      ]);
-
-      setOKRs(okrRes.data?.data || []);
-      setProjects(projectsRes.data?.data || []);
-    } catch (err) {
-      console.error('Failed to load PMO data:', err);
-      setLoadError('加载 PMO 数据失败，请重试');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadChannels = async () => {
-    try {
-      const res = await channelApi.list();
-      setChannels(res.data?.data || []);
-    } catch {
-      // best-effort: channels may not be available
-    }
-  };
 
   const handlePublishClick = (e: React.MouseEvent, projectId: string) => {
     e.stopPropagation();
@@ -209,7 +224,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
         {!loading && loadError && (
           <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
             <span>{loadError}</span>
-            <button onClick={loadData} className="btn btn-secondary btn-sm">重试</button>
+            <button onClick={handleReload} className="btn btn-secondary btn-sm">重试</button>
           </div>
         )}
         {loading ? (
@@ -391,14 +406,14 @@ export function PMOPage({ companyId }: PMOPageProps) {
         open={showOKRDialog}
         companyId={companyId}
         onClose={() => setShowOKRDialog(false)}
-        onCreated={loadData}
+        onCreated={handleReload}
       />
 
       {/* 🆕 PMO-a: 新建 PMO 弹窗（style-guide §4.3 标准结构） */}
       <CreateProjectDialog
         open={showCreateForm}
         onClose={() => setShowCreateForm(false)}
-        onCreated={loadData}
+        onCreated={handleReload}
       />
 
       {/* AC-6: 发起需求讨论弹窗（选择目标频道） */}

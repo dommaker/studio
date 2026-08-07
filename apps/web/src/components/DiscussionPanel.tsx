@@ -1,5 +1,5 @@
 // DiscussionPanel — WorkUnit 讨论空间（MVP-4）
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { workunitApi } from '../api/workunit';
 import { AuthorAvatar } from './channel/AuthorAvatar';
 
@@ -18,7 +18,7 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
-  const loadMessages = async () => {
+  const loadMessages = useCallback(async () => {
     setLoading(true);
     try {
       const { data } = await workunitApi.getMessages(workUnitId);
@@ -29,11 +29,11 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [workUnitId]);
 
   useEffect(() => {
     loadMessages();
-  }, [workUnitId]);
+  }, [loadMessages]);
 
   useEffect(() => {
     if (listRef.current) {

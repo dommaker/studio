@@ -9,7 +9,9 @@ const WORKUNIT_EVENT_TYPES = new Set(['workunit.created', 'workunit.status_chang
 export function useWorkUnitEvents(onChange: () => void, debounceMs = 400) {
   const { onEvent } = useWebSocketContext();
   const cbRef = useRef(onChange);
-  cbRef.current = onChange;
+  useEffect(() => {
+    cbRef.current = onChange;
+  });
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | null = null;

@@ -40,7 +40,9 @@ export function useWebSocket(options: UseSSEOptions = {}) {
 
   // Stabilize callbacks with refs to avoid SSE reconnect loop
   const callbacksRef = useRef({ onMessage, onConnect, onDisconnect, onError });
-  callbacksRef.current = { onMessage, onConnect, onDisconnect, onError };
+  useEffect(() => {
+    callbacksRef.current = { onMessage, onConnect, onDisconnect, onError };
+  });
 
   const sseUrl = (() => {
     const apiUrl = import.meta.env.VITE_API_URL || '/api/v1';

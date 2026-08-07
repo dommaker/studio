@@ -15,7 +15,7 @@
  *（components/knowledge/KnowledgeDocGrid）、项目进展卡（components/pmo/ProjectProgressCard）抽出。
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { projectApi, type DeliveryStatus } from '../api';
 import { requirementApi, type RequirementChainWorkUnit } from '../api/requirements';
@@ -92,15 +92,15 @@ export function ProjectDetailPage() {
   // 交互（缺口行动 / 交付合并）在 DeliveryPanel 内，经 onRefresh 回调刷新）
   const [delivery, setDelivery] = useState<DeliveryStatus | null>(null);
 
-  useEffect(() => {
-    if (!projectId) return;
-    loadData();
-  }, [projectId]);
+  // projectId 切换时在渲染期同步置回加载态（替代原 loadData 内、由 effect 触发的同步 setLoading）
+  const [prevProjectId, setPrevProjectId] = useState(projectId);
+  if (prevProjectId !== projectId) {
+    setPrevProjectId(projectId);
+    setLoading(true);
+  }
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
-      setLoading(true);
-
       // 加载项目详情（必须成功）
       const projectRes = await projectApi.get(projectId!);
       const projectData = projectRes.data;
@@ -139,7 +139,13 @@ export function ProjectDetailPage() {
       setError(err.response?.data?.error?.message || 'Failed to load project');
       setLoading(false);
     }
-  };
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    // 微任务里触发加载：loadData 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(loadData);
+  }, [projectId, loadData]);
 
   // 复制路径
   const handleCopyPath = async () => {
@@ -185,6 +191,7 @@ export function ProjectDetailPage() {
       const deliveryRes = await projectApi.getDelivery(projectId);
       setDelivery(deliveryRes.data);
     } catch { /* best-effort */ }
+    setLoading(true);
     loadData();
   };
 

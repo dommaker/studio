@@ -4,7 +4,7 @@
  * 提供审计日志查询、筛选、导出功能
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
 import { Select } from '../components/ui';
 
@@ -30,13 +30,15 @@ export const AuditLogsPage: React.FC = () => {
   const [actions, setActions] = useState<string[]>([]);
   const [resources, setResources] = useState<string[]>([]);
 
-  useEffect(() => {
-    loadOptions();
-    loadLogs();
-    loadStats();
-  }, [filters, page]);
+  // 筛选/翻页变化时在渲染期同步置回加载态（替代原 loadLogs 内、由 effect 触发的同步 setLoading）
+  const filterKey = JSON.stringify([filters.action, filters.resource, filters.status, filters.userId, page]);
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (prevFilterKey !== filterKey) {
+    setPrevFilterKey(filterKey);
+    setLoading(true);
+  }
 
-  const loadOptions = async () => {
+  const loadOptions = useCallback(async () => {
     try {
       const [actionsRes, resourcesRes] = await Promise.all([
         auditLogApi.listActions(),
@@ -47,11 +49,10 @@ export const AuditLogsPage: React.FC = () => {
     } catch (err) {
       console.error('Failed to load options:', err);
     }
-  };
+  }, []);
 
-  const loadLogs = async () => {
+  const loadLogs = useCallback(async () => {
     try {
-      setLoading(true);
       const response = await auditLogApi.list({
         action: filters.action || undefined,
         resource: filters.resource || undefined,
@@ -70,16 +71,25 @@ export const AuditLogsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, page]);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const response = await auditLogApi.getStats();
       setStats(response.data);
     } catch (err) {
       console.error('Failed to load stats:', err);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    // 微任务里触发加载：loader 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(() => {
+      loadOptions();
+      loadLogs();
+      loadStats();
+    });
+  }, [loadOptions, loadLogs, loadStats]);
 
   const handleExport = () => {
     // 文件下载：浏览器跳转打开导出 URL（鉴权说明见 api/auditLogs.ts getExportUrl）
