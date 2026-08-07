@@ -8,7 +8,7 @@
 
 ## 目录结构（工单 31，2026-08 按子域重组）
 
-- `loop/` — 决策循环与 WU 执行链（agent-loop 及拆出文件、executor/remote-executor、completion-gates、wu-verification、execution-step-events、review-contract/review-dispatcher、daily-token-budget、knowledge-search-analysis）
+- `loop/` — 决策循环与 WU 执行链（agent-loop 及拆出文件、executor/remote-executor、completion-gates、wu-verification、execution-step-events、review-contract/review-dispatcher、daily-token-budget）
 - `auditor/` — Auditor 内部 Agent（service/rules/execution/reports）
 - `monitor/` — Monitor 内部 Agent（service/probes/system-probes/alerts/reports/lifecycle）
 - `ops/` — 进程级守护（ops.service/ops-rules/system-health）
@@ -44,7 +44,6 @@
   - `loop/agent-loop-parsers.ts` — 输出解析与 prompt 模板纯函数（ACTION 协议 `parseAgentOutput`/`parseReviewReport`/`parseTaskBreakdown`/`extractInputTokens`、目标选择 `resolveTarget`/`dynamicInterval`、进程/git 探针、continue/reply prompt 模板）
   - `loop/agent-loop-events.ts` — `workunit:tokens` 与 `tool:call` 事件落盘（`writeWorkunitTokenEvent`/`resolveRealUsage`/`writeToolCallEvents`，含共享 `metricsFileStore`）
   - `loop/agent-loop-guards.ts` — B2 测试特征 WU 守卫（`testWuGuardEnabled`/`isTestLikeWorkUnit`）+ F4 `parseExcludeAssignee`
-  - `loop/knowledge-search-analysis.ts` — 知识搜索行为分析遗留块（`analyzeKnowledgeSearch`/`extractKnowledgeEntryIds`，仅单测消费）
 
 ## 依赖关系
 
