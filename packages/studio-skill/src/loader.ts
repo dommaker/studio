@@ -8,6 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { parseFrontmatter } from '@dommaker/studio-shared';
 import type { SkillDefinition } from './types.js';
 
 export interface LoadOptions {
@@ -34,26 +35,11 @@ interface SkillFrontmatter {
   version?: number;
 }
 
-function parseFrontmatter(content: string): { meta: SkillFrontmatter; body: string } | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return null;
-
-  const yaml = match[1];
-  const body = match[2].trim();
-  const meta: Record<string, unknown> = {};
-
-  for (const line of yaml.split('\n')) {
-    const kv = line.match(/^(\w+):\s*(.+)$/);
-    if (!kv) continue;
-    const [, key, val] = kv;
-    if (val.startsWith('[') && val.endsWith(']')) {
-      meta[key] = val.slice(1, -1).split(',').map(s => s.trim().replace(/^["']|["']$/g, '')).filter(Boolean);
-    } else {
-      meta[key] = val.replace(/^["']|["']$/g, '');
-    }
-  }
-
-  return { meta: meta as unknown as SkillFrontmatter, body };
+// 解析逻辑统一收敛到 studio-shared 的 parseFrontmatter（工单42），此处仅做类型适配
+function parseSkillFrontmatter(content: string): { meta: SkillFrontmatter; body: string } | null {
+  const result = parseFrontmatter(content);
+  if (!result) return null;
+  return { meta: result.meta as unknown as SkillFrontmatter, body: result.body };
 }
 
 function frontmatterToSkillDefinition(meta: SkillFrontmatter, prompt: string): SkillDefinition {
@@ -162,7 +148,7 @@ export class SkillLoader {
       const filePath = path.join(skillsDir, skillName, 'SKILL.md');
       if (!fs.existsSync(filePath)) return null;
       const raw = fs.readFileSync(filePath, 'utf-8');
-      const parsed = parseFrontmatter(raw);
+      const parsed = parseSkillFrontmatter(raw);
       if (!parsed) return null;
       if (!parsed.meta.name || parsed.meta.name.trim() === '') return null;
       if (parsed.meta.status && parsed.meta.status !== 'published') return null;
@@ -202,7 +188,7 @@ export class SkillLoader {
         const filePath = path.join(skillsDir, entry.name, 'SKILL.md');
         if (!fs.existsSync(filePath)) continue;
         const raw = fs.readFileSync(filePath, 'utf-8');
-        const parsed = parseFrontmatter(raw);
+        const parsed = parseSkillFrontmatter(raw);
         if (!parsed) continue;
         if (!parsed.meta.name || parsed.meta.name.trim() === '') continue;
         if (parsed.meta.status && parsed.meta.status !== 'published') continue;

@@ -9,6 +9,9 @@
     "build": "tsc",
     "test": "vitest run"
   },
+  "dependencies": {
+    "@dommaker/studio-shared": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.0.0",
     "vitest": "^4.1.2"

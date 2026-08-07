@@ -17,7 +17,7 @@
 
 ## 依赖关系
 
-上游：仅依赖 Node 内置模块（`fs`、`path`、`os`）及同目录 `types.ts`（提供类型 `SkillDefinition`）。
+上游：`@dommaker/studio-shared`（frontmatter 解析复用其 `parseFrontmatter`）、Node 内置模块（`fs`、`path`、`os`）及同目录 `types.ts`（提供类型 `SkillDefinition`）。
 
 下游：
 - `apps/api` 模块：`review-agent.service.ts`、`prompt-builder.ts`、`skill.tools.ts`、`skill-loader.ts`
@@ -27,5 +27,5 @@
 
 - `SkillLoader.load()` 为同步方法，首次调用时扫描 `~/.studio/skills/<skillName>/SKILL.md` 目录，结果缓存 5 分钟后自动刷新。
 - 技能目录路径可通过环境变量 `SKILLS_DIR` 覆盖，便于测试隔离。
-- Frontmatter 解析使用简易行正则，不依赖 YAML 库。
+- Frontmatter 解析统一委托 `@dommaker/studio-shared` 的 `parseFrontmatter`（简易行正则，不依赖 YAML 库），本包仅做 `SkillFrontmatter` 类型适配。
 - `SkillLoader` 实例 `skillLoader` 是全局单例，导出时直接实例化，内部 `customSkillsProvided` 标记未在源码完整展现，但用于区分是否已手动注册自定义技能。
