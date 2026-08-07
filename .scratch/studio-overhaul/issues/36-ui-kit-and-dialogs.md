@@ -1,7 +1,7 @@
 # 36 — ui 通用件 + 确认/跳转改造（F4+F2）
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 Blocked by: 21, 22
 
