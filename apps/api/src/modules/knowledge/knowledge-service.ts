@@ -13,6 +13,13 @@
  *   Resolve  — known problem→fix management
  *   Measure  — flywheel metrics, health, audit, accuracy
  *
+ * 工单 29 拆分（纯搬运，导出语义经 re-export 保持不变）：
+ *   knowledge-metrics.ts          — Measure 纯函数内核 + 度量类型
+ *   trend-data.ts                 — trends 数据层（writeTrendData）
+ *   knowledge-form-gate.ts        — 知识形态门禁（validateKnowledgeForm）
+ *   conversation-extractor.ts     — R3 会话提取管道 + 提案卡
+ *   knowledge-semantic-search.ts  — mcp-local-rag 语义检索支撑
+ *
  * @see docs/specs/arch/knowledge-service.md
  */
 

@@ -36,7 +36,12 @@ knowledge/
 │   └── external-fetcher.ts    # 外部文档抓取
 ├── knowledge-bus.service.ts   # 兼容层：KnowledgeBus 类 + 单例 re-export（R4）
 ├── knowledge-singletons.ts    # 共享单例/向量库同步/统一质量门（R4 收敛）
-├── knowledge-service.ts       # 统一知识能力层（injectContext + CRUD）
+├── knowledge-service.ts       # 统一知识能力层（KnowledgeService 编排 + 单例接线；工单 29 拆分后聚焦编排）
+├── knowledge-metrics.ts       # Measure 纯函数内核：飞轮度量/健康/审计 + 度量类型（工单 29 拆出）
+├── trend-data.ts              # trends 数据层 writeTrendData（工单 29 拆出）
+├── knowledge-form-gate.ts     # 知识形态门禁 validateKnowledgeForm（工单 29 拆出）
+├── conversation-extractor.ts  # R3 会话提取管道 + knowledge_proposal 提案卡（工单 29 拆出）
+├── knowledge-semantic-search.ts # mcp-local-rag 语义检索支撑：探测/CLI/降级映射（工单 29 拆出）
 ├── knowledge-service.routes.ts # KnowledgeService HTTP API + SSE
 ├── knowledge-query.service.ts # 5 类缺口查询（query/getStats）
 ├── knowledge-sync.service.ts  # 自动同步 + 新鲜度检测
