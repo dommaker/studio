@@ -6,40 +6,8 @@
 
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getApiBase } from '../utils/api';
+import { auditLogApi, type AuditLog, type AuditLogStats } from '../api/auditLogs';
 import { Select } from '../components/ui';
-
-interface AuditLog {
-  id: string;
-  userId?: string;
-  roleId?: string;
-  companyId?: string;
-  ipAddress?: string;
-  userAgent?: string;
-  action: string;
-  resource: string;
-  resourceId?: string;
-  details?: Record<string, any>;
-  changes?: {
-    before?: Record<string, any>;
-    after?: Record<string, any>;
-    fields?: string[];
-  };
-  status: string;
-  errorCode?: string;
-  errorMessage?: string;
-  createdAt: string;
-}
-
-interface AuditLogStats {
-  totalLogs: number;
-  successCount: number;
-  failureCount: number;
-  topActions: Array<{ action: string; count: number }>;
-  topResources: Array<{ resource: string; count: number }>;
-  topUsers: Array<{ userId: string; count: number }>;
-  dailyStats: Array<{ date: string; count: number }>;
-}
 
 export const AuditLogsPage: React.FC = () => {
   const { t } = useTranslation();
@@ -72,15 +40,12 @@ export const AuditLogsPage: React.FC = () => {
 
   const loadOptions = async () => {
     try {
-      const apiBase = getApiBase();
       const [actionsRes, resourcesRes] = await Promise.all([
-        fetch(`${apiBase}/audit-logs/actions`),
-        fetch(`${apiBase}/audit-logs/resources`),
+        auditLogApi.listActions(),
+        auditLogApi.listResources(),
       ]);
-      const actionsData = await actionsRes.json();
-      const resourcesData = await resourcesRes.json();
-      setActions(actionsData.data || []);
-      setResources(resourcesData.data || []);
+      setActions(actionsRes.data.data || []);
+      setResources(resourcesRes.data.data || []);
     } catch (err) {
       console.error('Failed to load options:', err);
     }
@@ -89,17 +54,15 @@ export const AuditLogsPage: React.FC = () => {
   const loadLogs = async () => {
     try {
       setLoading(true);
-      const apiBase = getApiBase();
-      const params = new URLSearchParams();
-      if (filters.action) params.set('action', filters.action);
-      if (filters.resource) params.set('resource', filters.resource);
-      if (filters.status) params.set('status', filters.status);
-      if (filters.userId) params.set('userId', filters.userId);
-      params.set('page', String(page));
-      params.set('limit', String(limit));
-
-      const response = await fetch(`${apiBase}/audit-logs?${params}`);
-      const data = await response.json();
+      const response = await auditLogApi.list({
+        action: filters.action || undefined,
+        resource: filters.resource || undefined,
+        status: filters.status || undefined,
+        userId: filters.userId || undefined,
+        page,
+        limit,
+      });
+      const data = response.data;
 
       setLogs(data.data || []);
       setTotal(data.pagination?.total || 0);
@@ -113,26 +76,20 @@ export const AuditLogsPage: React.FC = () => {
 
   const loadStats = async () => {
     try {
-      const apiBase = getApiBase();
-      const response = await fetch(`${apiBase}/audit-logs/stats`);
-      const data = await response.json();
-      setStats(data);
+      const response = await auditLogApi.getStats();
+      setStats(response.data);
     } catch (err) {
       console.error('Failed to load stats:', err);
     }
   };
 
-  const handleExport = async () => {
-    try {
-      const params = new URLSearchParams();
-      if (filters.action) params.set('action', filters.action);
-      if (filters.resource) params.set('resource', filters.resource);
-      if (filters.userId) params.set('userId', filters.userId);
-
-      window.open(`${getApiBase()}/audit-logs/export?${params}`, '_blank');
-    } catch (err) {
-      console.error('Export failed:', err);
-    }
+  const handleExport = () => {
+    // 文件下载：浏览器跳转打开导出 URL（鉴权说明见 api/auditLogs.ts getExportUrl）
+    window.open(auditLogApi.getExportUrl({
+      action: filters.action || undefined,
+      resource: filters.resource || undefined,
+      userId: filters.userId || undefined,
+    }), '_blank');
   };
 
   const getStatusBadge = (status: string) => {
