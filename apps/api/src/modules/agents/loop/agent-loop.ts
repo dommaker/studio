@@ -2,7 +2,7 @@
 // Orchestration layer: zero LLM calls. Agent = external compute (Claude Code/OpenCode/Codex).
 // 工单 28（2026-08）拆分：类型契约 → agent-loop.types.js；输出解析/prompt 模板 →
 // agent-loop-parsers.js；token/tool:call 事件落盘 → agent-loop-events.js；B2/F4 守卫 →
-// agent-loop-guards.js；知识搜索分析 → knowledge-search-analysis.js。
+// agent-loop-guards.js。知识搜索分析块（knowledge-search-analysis）零生产调用方，工单 43 已删。
 // 本文件保留 AgentLoop 类编排逻辑 + re-export（对外导出语义不变）。
 import { execSync } from 'child_process';
 import { eventBus, logger, FileStore, parseChannels, estimateTokens, withAttestation, type RuntimeStateData } from '@dommaker/studio-shared';
@@ -51,9 +51,6 @@ export {
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
 } from './agent-loop-parsers.js';
 
-// 知识搜索分析块已抽到 ./knowledge-search-analysis.js（工单 28，行为不变）；re-export 保持对外导出语义不变
-export { analyzeKnowledgeSearch, extractKnowledgeEntryIds } from './knowledge-search-analysis.js';
-
 // workunit:tokens / tool:call 事件落盘已抽到 ./agent-loop-events.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
 export { resolveRealUsage, writeWorkunitTokenEvent, resolveToolTraceFile, writeToolCallEvents } from './agent-loop-events.js';
@@ -100,7 +97,7 @@ const LIVE_HOLDER_THRESHOLD_MS = 120_000;
 const INJECT_TOKEN_BUDGET = 2_000;
 
 // 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；re-export 保持对外导出语义不变
-export type { StepResult, KnowledgeSearchAnalysis } from './agent-loop.types.js';
+export type { StepResult } from './agent-loop.types.js';
 
 export class AgentLoop {
   private role: AgentProfileData;
