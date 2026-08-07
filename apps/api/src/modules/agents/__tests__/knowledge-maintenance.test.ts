@@ -49,7 +49,7 @@ vi.mock('child_process', () => {
   return { exec: execFn };
 });
 
-import { semanticDedup, assessQuality, validateFreshness, resolveContradictions } from '../knowledge-maintenance.js';
+import { semanticDedup, assessQuality, validateFreshness, resolveContradictions } from '../knowledge/knowledge-maintenance.js';
 
 function entry(id: string, over: Record<string, any> = {}): any {
   return {

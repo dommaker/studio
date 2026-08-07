@@ -11,8 +11,8 @@ import * as path from 'path';
 import * as os from 'os';
 import { logger, FileStore } from '@dommaker/studio-shared';
 import { loadRules, type OpsRules } from './ops-rules.js';
-import { hashPassword } from '../auth/service.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { hashPassword } from '../../auth/service.js';
+import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 
 export interface PreflightResult {
   passed: boolean;
@@ -243,7 +243,7 @@ export class OpsService {
         logger.error('[OpsService] CRITICAL: API not responding on port', { port: this.port });
         // B13-009: Record incident to KnowledgeService
         try {
-          const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+          const { knowledgeService } = await import('../../knowledge/knowledge-service.js');
           knowledgeService.recordIncident({
             title: 'API not responding',
             content: `API on port ${this.port} is not responding. Time: ${new Date().toISOString()}`,
@@ -254,7 +254,7 @@ export class OpsService {
         // Don't auto-restart if daemon is running tasks — the load is likely from Claude
         let daemonBusy = false;
         try {
-          const { daemon } = await import('../../daemon/studio-daemon.js');
+          const { daemon } = await import('../../../daemon/studio-daemon.js');
           const statuses = daemon.getStatus() as Array<{ name: string; isBusy: boolean } | null>;
           daemonBusy = (statuses || []).some((s: any) => s?.isBusy);
         } catch {}
@@ -280,7 +280,7 @@ export class OpsService {
         }
         // Push alert to #系统 Channel
         try {
-          const { channelMessageService } = await import('../channels/channel-message.service.js');
+          const { channelMessageService } = await import('../../channels/channel-message.service.js');
           const sysChannel = (await this.fileStore.listChannels({ name: '#系统' }))[0] ?? null;
           if (sysChannel) {
             await channelMessageService.createAgentMessage(sysChannel.id, 'OpsAgent',
@@ -297,7 +297,7 @@ export class OpsService {
         logger.error('[OpsService] CRITICAL: Disk nearly full', { usePercent: status.disk.usePercent });
         // B13-009: Record incident to KnowledgeService
         try {
-          const { knowledgeService } = await import('../knowledge/knowledge-service.js');
+          const { knowledgeService } = await import('../../knowledge/knowledge-service.js');
           knowledgeService.recordIncident({
             title: 'Disk nearly full',
             content: `Disk usage at ${status.disk.usePercent}% (threshold: ${this.rules.checks.disk_threshold_critical}%). Time: ${new Date().toISOString()}`,

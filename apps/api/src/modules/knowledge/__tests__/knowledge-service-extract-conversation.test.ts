@@ -48,7 +48,7 @@ vi.mock('../../agents/system-executor.js', async (importOriginal) => {
 });
 
 // R3: prompt 复用验证点 — 本模块导出共享 prompt 常量 + E1 override getter
-vi.mock('../../agents/knowledge-curator.service.js', () => ({
+vi.mock('../../agents/knowledge/knowledge-curator.service.js', () => ({
   EXTRACT_FROM_TEXT_SYSTEM_PROMPT: 'shared-extraction-system-prompt',
   getExtractFromTextSystemPrompt: () => 'shared-extraction-system-prompt',
 }));

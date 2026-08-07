@@ -36,12 +36,12 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
   },
   'pipeline-agents': {
     // R5: agent-executor.ts 已拆分为 facade，真正实现为 agent-runner.ts + runner-* 子模块
-    files: ['apps/api/src/modules/agents/*.ts', 'packages/studio-agent/src/services/agent-runner.ts'],
+    files: ['apps/api/src/modules/agents/**/*.ts', 'packages/studio-agent/src/services/agent-runner.ts'],
     title: 'Pipeline Agents',
     knowledgeType: 'architecture',
   },
   'pipeline-logging': {
-    files: ['apps/api/src/modules/agents/*.service.ts', 'apps/api/src/modules/agents/system-executor.ts'],
+    files: ['apps/api/src/modules/agents/**/*.service.ts', 'apps/api/src/modules/agents/system-executor.ts'],
     title: 'Pipeline Logging & Observability',
     knowledgeType: 'architecture',
   },

@@ -32,21 +32,21 @@ vi.spyOn(process, 'memoryUsage').mockReturnValue({
 
 describe('collectSystemHealth', () => {
   it('collects CPU stats', async () => {
-    const { collectSystemHealth } = await import('../system-health');
+    const { collectSystemHealth } = await import('../ops/system-health');
     const snapshot = await collectSystemHealth();
     expect(snapshot.cpu.loadAvg).toBe(2.5);
     expect(snapshot.cpu.cores).toBe(4);
   });
 
   it('collects memory stats', async () => {
-    const { collectSystemHealth } = await import('../system-health');
+    const { collectSystemHealth } = await import('../ops/system-health');
     const snapshot = await collectSystemHealth();
     expect(snapshot.memory.heapUsedMB).toBeGreaterThan(0);
     expect(snapshot.memory.percentUsed).toBeGreaterThan(0);
   });
 
   it('returns complete snapshot structure', async () => {
-    const { collectSystemHealth } = await import('../system-health');
+    const { collectSystemHealth } = await import('../ops/system-health');
     const snapshot = await collectSystemHealth();
     expect(snapshot).toHaveProperty('timestamp');
     expect(snapshot).toHaveProperty('cpu');
@@ -59,7 +59,7 @@ describe('collectSystemHealth', () => {
 
 describe('checkThresholds', () => {
   it('returns critical alert when CPU load exceeds cores', async () => {
-    const { checkThresholds } = await import('../system-health');
+    const { checkThresholds } = await import('../ops/system-health');
     const snapshot = {
       cpu: { loadAvg: 5, cores: 4 },
       memory: { heapUsedMB: 100, percentUsed: 50 },
@@ -73,7 +73,7 @@ describe('checkThresholds', () => {
   });
 
   it('returns critical alert when disk > 90%', async () => {
-    const { checkThresholds } = await import('../system-health');
+    const { checkThresholds } = await import('../ops/system-health');
     const snapshot = {
       cpu: { loadAvg: 1, cores: 4 },
       memory: { heapUsedMB: 100, percentUsed: 50 },
@@ -87,7 +87,7 @@ describe('checkThresholds', () => {
   });
 
   it('returns empty array when all within thresholds', async () => {
-    const { checkThresholds } = await import('../system-health');
+    const { checkThresholds } = await import('../ops/system-health');
     const snapshot = {
       cpu: { loadAvg: 1, cores: 4 },
       memory: { heapUsedMB: 100, percentUsed: 50 },
@@ -101,7 +101,7 @@ describe('checkThresholds', () => {
   });
 
   it('returns warning when heapUsedMB > 512', async () => {
-    const { checkThresholds } = await import('../system-health');
+    const { checkThresholds } = await import('../ops/system-health');
     const snapshot = {
       cpu: { loadAvg: 1, cores: 4 },
       memory: { heapUsedMB: 600, percentUsed: 50 },
@@ -115,7 +115,7 @@ describe('checkThresholds', () => {
   });
 
   it('returns critical when memory percentUsed > 80', async () => {
-    const { checkThresholds } = await import('../system-health');
+    const { checkThresholds } = await import('../ops/system-health');
     const snapshot = {
       cpu: { loadAvg: 1, cores: 4 },
       memory: { heapUsedMB: 100, percentUsed: 85 },
@@ -131,7 +131,7 @@ describe('checkThresholds', () => {
 
 describe('runGC', () => {
   it('returns success result structure', async () => {
-    const { runGC } = await import('../system-health');
+    const { runGC } = await import('../ops/system-health');
     const result = await runGC();
     expect(result).toHaveProperty('cleaned');
     expect(result).toHaveProperty('details');

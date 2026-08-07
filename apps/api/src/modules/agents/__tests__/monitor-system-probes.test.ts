@@ -66,7 +66,7 @@ vi.mock('../monitor/monitor-alerts.js', () => ({
   emitMonitorEvent: mockEmitEvent,
 }));
 
-vi.mock('../knowledge-curator.service.js', () => ({
+vi.mock('../knowledge/knowledge-curator.service.js', () => ({
   knowledgeCurator: { runDailyMaintenance: mockRunDailyMaintenance },
 }));
 

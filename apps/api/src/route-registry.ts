@@ -121,7 +121,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     try {
       const status = await Promise.race([
         (async () => {
-          const { createOpsService } = await import('./modules/agents/ops.service.js');
+          const { createOpsService } = await import('./modules/agents/ops/ops.service.js');
           return await createOpsService().getStatus();
         })(),
         new Promise<null>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),

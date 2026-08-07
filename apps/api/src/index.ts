@@ -93,7 +93,7 @@ async function start() {
     // G-004: 决策链提取（KK 提取时自动触发，见 knowledge-curator.service.ts）
 
     // P1b: 冷启动知识导入（异步，不阻塞启动）
-    import('./modules/agents/knowledge-curator.service.js').then(({ knowledgeCurator }) => {
+    import('./modules/agents/knowledge/knowledge-curator.service.js').then(({ knowledgeCurator }) => {
       knowledgeCurator.coldStartAll().catch(() => { /* non-blocking */ });
     });
 
@@ -141,7 +141,7 @@ async function start() {
     } catch (e) { logger.warn('[PMO] Progress rollup init failed', { error: String(e) }); }
     // ── Ops Service: runtime health loop ──
     try {
-      const { createOpsService } = await import('./modules/agents/ops.service.js');
+      const { createOpsService } = await import('./modules/agents/ops/ops.service.js');
       const opsService = createOpsService();
       opsService.start();
     } catch (e) { logger.warn('[OpsService] Failed to start', { error: String(e) }); }

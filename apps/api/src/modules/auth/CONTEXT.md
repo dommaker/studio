@@ -29,7 +29,7 @@
 
 **下游**
 - `apps/api/src/middleware/auth.ts`（可能使用本目录的认证中间件或类型）
-- `apps/api/src/modules/agents/ops.service.ts`（通过导入使用认证服务）
+- `apps/api/src/modules/agents/ops/ops.service.ts`（通过导入使用认证服务）
 - `apps/api/src/route-registry.ts`（注册本目录路由）
 
 ## 注意事项

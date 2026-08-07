@@ -7,7 +7,7 @@
 
 import { logger } from '@dommaker/studio-shared';
 import { ColdStartImporter } from '@dommaker/harness';
-import { sharedStore } from '../knowledge/knowledge-bus.service.js';
+import { sharedStore } from '../../knowledge/knowledge-bus.service.js';
 import * as os from 'os';
 import * as path from 'path';
 
@@ -67,7 +67,7 @@ export async function coldStartAll(): Promise<void> {
 
     // Discord notify
     try {
-      const { discordNotifier } = await import('../../utils/discord-notifier.js');
+      const { discordNotifier } = await import('../../../utils/discord-notifier.js');
       await discordNotifier.sendText(
         '📚 冷启动知识导入完成',
         `导入了 ${importedCount} 条知识 (${totalErrors} 个错误)\n来源: ${results.map(r => `${r.source.type}(${r.entries.length})`).join(', ')}`,

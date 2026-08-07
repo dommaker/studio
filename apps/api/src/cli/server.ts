@@ -121,7 +121,7 @@ export async function studioUp(configPath?: string) {
   // ── Ops Pre-flight Guard ──
   // Replace old --accept-data-loss db push + port check with full pre-flight
   try {
-    const { createOpsService } = await import('../modules/agents/ops.service.js');
+    const { createOpsService } = await import('../modules/agents/ops/ops.service.js');
     const ops = createOpsService(port);
     const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
     const preflight = await ops.preflight(process.env.REPO_DIR, frontendDist);

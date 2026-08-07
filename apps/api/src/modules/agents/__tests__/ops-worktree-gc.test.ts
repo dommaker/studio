@@ -11,7 +11,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { OpsService } from '../ops.service.js';
+import { OpsService } from '../ops/ops.service.js';
 
 let tmpHome: string;
 let savedHome: string | undefined;

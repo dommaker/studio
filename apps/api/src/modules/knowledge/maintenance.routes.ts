@@ -7,7 +7,7 @@
  * 不走 B7 开关。一次运行约几十批 LLM 调用、持续数分钟，端点同步等待返回聚合结果。
  */
 import { Router } from 'express';
-import { knowledgeCurator } from '../agents/knowledge-curator.service.js';
+import { knowledgeCurator } from '../agents/knowledge/knowledge-curator.service.js';
 
 const router = Router();
 

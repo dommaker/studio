@@ -165,7 +165,7 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       // STUDIO_KNOWLEDGE_MAINTENANCE=on 时才执行（semantic dedup, quality, freshness, contradictions）
       if (knowledgeMaintenanceEnabled()) {
         try {
-          const { knowledgeCurator } = await import('../knowledge-curator.service.js');
+          const { knowledgeCurator } = await import('../knowledge/knowledge-curator.service.js');
           const maintenance = await knowledgeCurator.runDailyMaintenance();
           logger.info('[MonitorService] KnowledgeCurator daily maintenance', maintenance);
         } catch (err) {

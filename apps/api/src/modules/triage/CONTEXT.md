@@ -21,7 +21,7 @@
 
 **上游依赖**：无（不依赖其他目录模块）
 **下游依赖**：
-- apps/api/src/modules/agents/triage.service.ts（agents 模块）
+- apps/api/src/modules/agents/triage/triage.service.ts（agents 模块）
 - apps/api/tests/b2-unit.test.ts（测试模块）
 
 ## 注意事项
