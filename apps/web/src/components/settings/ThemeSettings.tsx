@@ -1,14 +1,12 @@
 // 主题设置 section（从 pages/Settings.tsx 抽取，工单 35-E3）
-import { useTranslation } from 'react-i18next';
 import { useTheme, type Theme } from '../../contexts/ThemeContext';
 
 export function ThemeSettings() {
-  const { t } = useTranslation();
   const { theme, setTheme } = useTheme();
   const themes: { value: Theme; label: string; icon: string; desc: string }[] = [
-    { value: 'dark', label: t('theme.dark'), icon: '🌙', desc: '适合夜间工作，科幻极简风格' },
-    { value: 'light', label: t('theme.light'), icon: '☀️', desc: '适合日间工作，明亮清爽' },
-    { value: 'system', label: t('theme.system'), icon: '💻', desc: '自动跟随系统主题设置' },
+    { value: 'dark', label: '深色', icon: '🌙', desc: '适合夜间工作，科幻极简风格' },
+    { value: 'light', label: '浅色', icon: '☀️', desc: '适合日间工作，明亮清爽' },
+    { value: 'system', label: '跟随系统', icon: '💻', desc: '自动跟随系统主题设置' },
   ];
   return (
     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

@@ -8,7 +8,6 @@ import { NotifySyncStatusHint, type NotifySyncStatus } from '../components/setti
 import { NotifyChannelSection } from '../components/settings/NotifyChannelSection';
 import { CompanySection, type Company } from '../components/settings/CompanySection';
 import { KnowledgeEntrySection } from '../components/settings/KnowledgeEntrySection';
-import { LanguageSettings } from '../components/settings/LanguageSettings';
 import { ThemeSettings } from '../components/settings/ThemeSettings';
 import { toast } from '../utils/toast';
 import '../styles/theme.css';
@@ -217,12 +216,6 @@ export function Settings() {
 
           {/* 📚 知识库 */}
           <KnowledgeEntrySection />
-
-          {/* 🌐 语言（最下面） */}
-          <section className="space-y-4">
-            <h2 className="mc-block-label" style={{ margin: 0 }}>🌐 语言设置</h2>
-            <LanguageSettings />
-          </section>
 
           {/* 🎨 主题（最下面） */}
           <section className="space-y-4">
