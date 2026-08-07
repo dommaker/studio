@@ -39,6 +39,7 @@ import {
   metricsFileStore, resolveRealUsage, writeWorkunitTokenEvent,
   resolveToolTraceFile, writeToolCallEvents, type RealUsage,
 } from './agent-loop-events.js';
+import { testWuGuardEnabled, isTestLikeWorkUnit, parseExcludeAssignee } from './agent-loop-guards.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
@@ -54,6 +55,10 @@ export { analyzeKnowledgeSearch, extractKnowledgeEntryIds } from './knowledge-se
 // re-export 保持对外导出语义不变
 export { resolveRealUsage, writeWorkunitTokenEvent, resolveToolTraceFile, writeToolCallEvents } from './agent-loop-events.js';
 export type { WorkunitTokenEventArgs, RealUsage } from './agent-loop-events.js';
+
+// B2 测试特征 WU 守卫 + F4 excludeAssignee 解析已抽到 ./agent-loop-guards.js（工单 28，行为不变）；
+// re-export 保持对外导出语义不变
+export { testWuGuardEnabled, isTestLikeWorkUnit } from './agent-loop-guards.js';
 
 /** Threshold for input_tokens before session truncation (100K) */
 const SESSION_TOKEN_LIMIT = 100_000;
@@ -78,41 +83,10 @@ const REVIEW_STEP_LIMIT = 30;
  *  超限说明自动执行已失控，转 need_input 等人工评估（人工回复经 resumeWaitingWorkUnit 重置预算）。 */
 const MAX_SESSIONS_PER_WU = 2;
 
-/** B2（2026-08-03 token-burn issue P0-1c）：测试特征 scope 判定 ——
- *  scope 中出现独立单词 test/tests 即视为测试 WU（命中历史污染源 'tree-tokens test' / 'test' 等）。
- *  仅作 daemon 兜底：正常隔离由 B1（测试独立数据根）保证，这里是防漏网的第二道。 */
-const TEST_SCOPE_PATTERN = /(?:^|[\s\-_/:])tests?(?:[\s\-_/:]|$)/i;
-
-/** B2 守卫开关：默认仅生产/开发进程启用；测试环境（NODE_ENV=test / VITEST）默认关闭
- *  （仓库自身单测用 scope 'test' 驱动 loop，守卫会误伤）；可用 STUDIO_TEST_WU_GUARD=on/off 显式覆盖。 */
-export function testWuGuardEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  if (env.STUDIO_TEST_WU_GUARD === 'on') return true;
-  if (env.STUDIO_TEST_WU_GUARD === 'off') return false;
-  return env.NODE_ENV !== 'test' && !env.VITEST;
-}
-
-/** B2 测试特征 WU 判定：metadata 显式标记（test/testWorkUnit）或 scope 命中测试名单模式 */
-export function isTestLikeWorkUnit(wu: { scope: string }, metadata: WorkUnitMetadata): boolean {
-  if (metadata.test === true || metadata.testWorkUnit === true) return true;
-  return TEST_SCOPE_PATTERN.test(wu.scope ?? '');
-}
-
 /** F6-fix: 空闲分支心跳节流间隔 — agent-timeout-scan 阈值为 5min，45s 一次足够保活 */
 const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
 /** 单活实例守卫：心跳/启动时间新鲜度阈值（idle 心跳 45s 一跳，留近 3 跳余量） */
 const LIVE_HOLDER_THRESHOLD_MS = 120_000;
-
-/** F4（reviewer 解锚，决策 5）：安全解析 WU metadata.excludeAssignee ——
- *  评审 WU 禁止认领的 profile id；缺失/损坏/非字符串一律 null（不排除） */
-function parseExcludeAssignee(metadata: unknown): string | null {
-  try {
-    const m = typeof metadata === 'string' ? JSON.parse(metadata) : metadata;
-    const v = (m as { excludeAssignee?: unknown } | null)?.excludeAssignee;
-    return typeof v === 'string' && v ? v : null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * §10 P0: 注入总预算（skill 段 + 知识段共用的 2K 红线）。
