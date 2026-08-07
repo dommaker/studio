@@ -83,14 +83,20 @@ export function WorkUnitDetailPage() {
   const [chainReqId, setChainReqId] = useState<string | null>(null);
   const [showTreeTokens, setShowTreeTokens] = useState(false);
 
-  useEffect(() => {
-    if (!id) return;
-    let alive = true;
+  // id 切换时在渲染期同步清空上一 WU 的全部展示数据（替代原 effect 顶部的五处同步重置）
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
     setWu(null);
     setError('');
     setPmo(null);
     setChannelName(null);
     setAssignee(null);
+  }
+
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
     workunitApi.get(id)
       .then(r => {
         if (!alive) return;

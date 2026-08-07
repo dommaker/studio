@@ -14,8 +14,14 @@ export function useWorkUnitStreamEvents(workUnitId: string | null): ExecutionStr
   const { onEvent } = useWebSocketContext();
   const [chunks, setChunks] = useState<ExecutionStreamChunk[]>([]);
 
-  useEffect(() => {
+  // workUnitId 切换时在渲染期同步清空流式残留（替代原 effect 顶部的同步重置）
+  const [prevWorkUnitId, setPrevWorkUnitId] = useState(workUnitId);
+  if (prevWorkUnitId !== workUnitId) {
+    setPrevWorkUnitId(workUnitId);
     setChunks([]);
+  }
+
+  useEffect(() => {
     if (!workUnitId) return;
     const unsub = onEvent((msg) => {
       if (msg.event_type !== 'workunit.execution.stream') return;

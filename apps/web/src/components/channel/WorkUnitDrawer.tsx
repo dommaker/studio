@@ -298,10 +298,16 @@ function ReqChain({ id, onOpenWu }: { id: string; onOpenWu: (wuId: string) => vo
   const [chain, setChain] = useState<RequirementChain | null>(null);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    let alive = true;
+  // id 切换时在渲染期同步清空旧链路（替代原 effect 顶部的同步重置）
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
     setChain(null);
     setError('');
+  }
+
+  useEffect(() => {
+    let alive = true;
     requirementApi.getChain(id)
       .then(r => { if (alive) setChain(r.data.data); })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });

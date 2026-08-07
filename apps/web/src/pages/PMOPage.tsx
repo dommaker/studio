@@ -139,10 +139,19 @@ export function PMOPage({ companyId }: PMOPageProps) {
   }, [loadData]);
 
   // 🆕 AC-6: 列表加载后对可见项目批量并行查徽章数据（每项目一次 chain + 一次 knowledge；失败静默）
-  useEffect(() => {
-    if (projects.length === 0) {
+  // projects 变空时在渲染期同步清空徽章（派生重置，替代原 effect 顶部的同步清空）
+  const projectsEmpty = projects.length === 0;
+  const [prevProjectsEmpty, setPrevProjectsEmpty] = useState(projectsEmpty);
+  if (prevProjectsEmpty !== projectsEmpty) {
+    setPrevProjectsEmpty(projectsEmpty);
+    if (projectsEmpty) {
       setWuStats({});
       setDocCounts({});
+    }
+  }
+
+  useEffect(() => {
+    if (projects.length === 0) {
       return;
     }
     let cancelled = false;

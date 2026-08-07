@@ -32,16 +32,21 @@ export const ChannelMemberManager: React.FC<ChannelMemberManagerProps> = ({
 
   // membersJson 是异步加载的 — 初始 '[]' 只是占位，props 到达/切换频道时必须重新同步，
   // 否则刷新页面或切换频道后成员列表停留在初始空值（state 初始化器只跑一次）。
-  useEffect(() => {
+  // 渲染期调整模式：membersJson 变化时同步重解析，避免一帧旧值闪烁
+  const [prevMembersJson, setPrevMembersJson] = useState(membersJson);
+  if (prevMembersJson !== membersJson) {
+    setPrevMembersJson(membersJson);
     try { setMemberIds(JSON.parse(membersJson)); } catch { setMemberIds([]); }
-  }, [membersJson]);
+  }
 
-  // 切换频道时收起弹层与创建表单，避免把上个频道的上下文带过去
-  useEffect(() => {
+  // 切换频道时收起弹层与创建表单，避免把上个频道的上下文带过去（渲染期调整）
+  const [prevChannelId, setPrevChannelId] = useState(channelId);
+  if (prevChannelId !== channelId) {
+    setPrevChannelId(channelId);
     setIsOpen(false);
     setShowCreateForm(false);
     setCreateError(null);
-  }, [channelId]);
+  }
 
   // 打开创建表单后默认选中第一个可用 CLI
   useEffect(() => {

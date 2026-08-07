@@ -20,9 +20,12 @@ export function CompanySection({ company, newCompanyName, setCompany, setNewComp
   const [draftName, setDraftName] = useState(company?.name ?? '');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // 公司切换/新建后同步本地草稿
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { setDraftName(company?.name ?? ''); }, [company?.id]);
+  // 公司切换/新建后同步本地草稿（渲染期调整，替代原 effect + exhaustive-deps 抑制）
+  const [prevCompanyId, setPrevCompanyId] = useState(company?.id);
+  if (prevCompanyId !== company?.id) {
+    setPrevCompanyId(company?.id);
+    setDraftName(company?.name ?? '');
+  }
 
   // 卸载时清掉未触发的防抖计时器
   useEffect(() => () => { if (saveTimer.current) clearTimeout(saveTimer.current); }, []);

@@ -23,11 +23,17 @@ export function DocReaderDrawer({ documentId, onClose }: Props) {
   const [doc, setDoc] = useState<KnowledgeDocDetail | null>(null);
   const [error, setError] = useState('');
 
+  // documentId 切换时在渲染期同步清空旧文档（替代原 effect 顶部的同步重置）
+  const [prevDocumentId, setPrevDocumentId] = useState(documentId);
+  if (prevDocumentId !== documentId) {
+    setPrevDocumentId(documentId);
+    setDoc(null);
+    setError('');
+  }
+
   useEffect(() => {
     if (!documentId) return;
     let alive = true;
-    setDoc(null);
-    setError('');
     knowledgeApi.getDetail(documentId)
       .then(r => { if (alive) setDoc(r.data); })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });

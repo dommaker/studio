@@ -32,9 +32,15 @@ export function WorkspacePage() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [createSuccess, setCreateSuccess] = useState(false);
 
+  // id 切换时在渲染期同步置回加载态（替代原 effect 顶部的同步 setLoading）
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
+    setLoading(true);
+  }
+
   useEffect(() => {
     if (!id) return;
-    setLoading(true);
     workspaceApi.get(id)
       .then((res) => {
         setWorkspace(res.data.data);

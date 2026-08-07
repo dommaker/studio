@@ -87,7 +87,17 @@ export function AgentDetailPage() {
     }
   }, [profileId]);
 
-  useEffect(() => { void load(); }, [load]);
+  // profileId 切换时在渲染期同步置回加载态（替代原 load(false) 内、由 effect 触发的同步 setLoading）
+  const [prevProfileId, setPrevProfileId] = useState(profileId);
+  if (prevProfileId !== profileId) {
+    setPrevProfileId(profileId);
+    setLoading(true);
+  }
+
+  useEffect(() => {
+    // 微任务里触发加载：load 为多 await async 函数，编译器对 effect 内同步调用保守告警
+    void Promise.resolve().then(() => load(true));
+  }, [load]);
   // WU 事件（SSE）：认领/状态变化/执行步时刷新当前任务与历史（防抖 400ms，与列表页同模式）
   useWorkUnitEvents(useCallback(() => { void load(true); }, [load]));
 

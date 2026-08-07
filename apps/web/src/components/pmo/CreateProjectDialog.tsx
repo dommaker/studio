@@ -1,5 +1,5 @@
 // CreateProjectDialog - 新建 PMO 弹窗（工程扫描 + 交付策略；自 PMOPage 抽出，工单 33）
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { projectApi } from '../../api';
 import { channelApi, type LocalProject } from '../../api/channel';
 import { toast } from '../../utils/toast';
@@ -24,24 +24,35 @@ export function CreateProjectDialog({ open, onClose, onCreated }: CreateProjectD
   const [projectsScanError, setProjectsScanError] = useState(false);
 
   // 工程扫描：打开新建弹窗时调 GET /projects/discover 取最新列表（服务端 60s 缓存）
-  const loadDiscoveredProjects = async () => {
-    setProjectsScanning(true);
-    setProjectsScanError(false);
-    try {
-      const res = await channelApi.discoverProjects();
-      setDiscoveredProjects(res.data?.data || []);
-    } catch {
-      setDiscoveredProjects([]);
-      setProjectsScanError(true);
-    } finally {
-      setProjectsScanning(false);
+  //（promise 链写法：setState 全部在回调里，符合 set-state-in-effect 规则的外部同步口径）
+  const loadDiscoveredProjects = useCallback(() => {
+    channelApi.discoverProjects()
+      .then((res) => {
+        setDiscoveredProjects(res.data?.data || []);
+      })
+      .catch(() => {
+        setDiscoveredProjects([]);
+        setProjectsScanError(true);
+      })
+      .finally(() => {
+        setProjectsScanning(false);
+      });
+  }, []);
+
+  // 打开弹窗时在渲染期同步置扫描标志（prevOpen 上升沿，替代原 effect 内同步 setState）
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
+    if (open) {
+      setProjectsScanning(true);
+      setProjectsScanError(false);
     }
-  };
+  }
 
   // 打开弹窗时触发工程扫描（原 handleOpenCreateForm 行为）
   useEffect(() => {
     if (open) loadDiscoveredProjects();
-  }, [open]);
+  }, [open, loadDiscoveredProjects]);
 
   // 🆕 PMO-a: 创建 PMO（companyId 由服务端解析；成功后刷新列表并清空表单）
   const handleCreateProject = async () => {

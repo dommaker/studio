@@ -10,18 +10,8 @@ const THEME_STORAGE_KEY = 'agent-studio-theme';
  * 获取系统主题偏好
  */
 function getSystemTheme(): 'dark' | 'light' {
-  if (typeof window === 'undefined') return 'dark';
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'dark';
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
-/**
- * 解析主题（处理 'system' 选项）
- */
-function resolveTheme(theme: Theme): 'dark' | 'light' {
-  if (theme === 'system') {
-    return getSystemTheme();
-  }
-  return theme;
 }
 
 interface ThemeProviderProps {
@@ -41,32 +31,28 @@ export function ThemeProvider({ children, defaultTheme = 'dark' }: ThemeProvider
     return defaultTheme;
   });
 
-  const [resolvedTheme, setResolvedTheme] = useState<'dark' | 'light'>(() => 
-    resolveTheme(theme)
-  );
+  // 系统偏好为外部状态：独立 state + media listener 订阅更新；
+  // resolvedTheme 改为渲染期纯派生，不再是独立 state（替代原 effect 内同步 setResolvedTheme）
+  const [systemDark, setSystemDark] = useState(() => getSystemTheme() === 'dark');
+  const resolvedTheme: 'dark' | 'light' = theme === 'system' ? (systemDark ? 'dark' : 'light') : theme;
 
   // 应用主题到 DOM
   useEffect(() => {
-    const resolved = resolveTheme(theme);
-    setResolvedTheme(resolved);
-    
     // 设置 data-theme 属性
-    document.documentElement.setAttribute('data-theme', resolved);
-    
+    document.documentElement.setAttribute('data-theme', resolvedTheme);
+
     // 保存到 localStorage
     localStorage.setItem(THEME_STORAGE_KEY, theme);
-  }, [theme]);
+  }, [theme, resolvedTheme]);
 
   // 监听系统主题变化
   useEffect(() => {
     if (theme !== 'system') return;
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
-    
+
     const handleChange = () => {
-      const resolved = resolveTheme(theme);
-      setResolvedTheme(resolved);
-      document.documentElement.setAttribute('data-theme', resolved);
+      setSystemDark(mediaQuery.matches);
     };
 
     mediaQuery.addEventListener('change', handleChange);

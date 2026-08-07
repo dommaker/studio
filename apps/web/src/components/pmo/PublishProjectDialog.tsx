@@ -27,12 +27,19 @@ export function PublishProjectDialog({ open, projectId, channels, onClose, onPub
     if (open) setSelectedChannelId(channels.length > 0 ? channels[0].id : '');
   }, [open, channels]);
 
+  // 弹窗打开/切换频道时在渲染期同步置解析中标志（替代原 effect 内同步 setAgentsLoading）
+  const respondersKey = open && selectedChannelId ? selectedChannelId : null;
+  const [prevRespondersKey, setPrevRespondersKey] = useState(respondersKey);
+  if (prevRespondersKey !== respondersKey) {
+    setPrevRespondersKey(respondersKey);
+    if (respondersKey) setAgentsLoading(true);
+  }
+
   // 弹窗打开/切换频道时解析「谁会响应」：与 AgentLoop.observe 同一口径 ——
   // channel.members 非空 → 仅成员；为空（历史频道未回填）→ 回退 profile.channels（空 = 全频道可见）
   useEffect(() => {
     if (!open || !selectedChannelId) return;
     let cancelled = false;
-    setAgentsLoading(true);
     channelApi.listAllAgents()
       .then(res => {
         if (cancelled) return;

@@ -28,12 +28,15 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
   // 扫描进行中同样回退全量可选，避免加载窗口期无可选项
   const providerOptions = buildProviderOptions(detected, providersLoading || noneDetected);
 
-  useEffect(() => {
+  // 弹窗打开时在渲染期同步重置表单（prevOpen 上升沿，替代原 effect 同步重置）
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (prevOpen !== open) {
+    setPrevOpen(open);
     if (open) {
       setName('');
       setDescription('');
     }
-  }, [open]);
+  }
 
   // 选项就绪后默认选中第一个可用 CLI；当前选中项失效时同样回退
   useEffect(() => {
