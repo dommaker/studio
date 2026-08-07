@@ -17,6 +17,41 @@ export interface RouteEntry {
 }
 
 /**
+ * 顺序敏感注册约束：before 条目必须先于 after 条目挂载。
+ *
+ * Express 按注册顺序匹配，同前缀挂载时先注册者优先接管请求，
+ * 顺序错了不会报错而是静默路由错/404——所以用启动断言固化，fail-fast。
+ */
+export interface RouteOrderConstraint {
+  before: { path: string; router: Router };
+  after: { path: string; router: Router };
+  /** 顺序约束的原因（注释固化，断言失败时随报错输出） */
+  reason: string;
+}
+
+/**
+ * 启动断言：校验路由表满足全部顺序约束，违反即抛错（启动失败）。
+ */
+export function assertRouteOrder(table: RouteEntry[], constraints: RouteOrderConstraint[]): void {
+  const indexOf = (path: string, router: Router) =>
+    table.findIndex(e => e.path === path && e.router === router);
+  for (const c of constraints) {
+    const beforeIdx = indexOf(c.before.path, c.before.router);
+    const afterIdx = indexOf(c.after.path, c.after.router);
+    if (beforeIdx === -1 || afterIdx === -1) {
+      throw new Error(
+        `[route-registry] 顺序断言失败：注册项缺失（${c.before.path} idx=${beforeIdx}, ${c.after.path} idx=${afterIdx}）。${c.reason}`,
+      );
+    }
+    if (beforeIdx >= afterIdx) {
+      throw new Error(
+        `[route-registry] 注册顺序错误：${c.before.path}（指定 router）必须先于 ${c.after.path} 挂载。${c.reason}`,
+      );
+    }
+  }
+}
+
+/**
  * 构建完整路由表（延迟加载，避免循环依赖）
  */
 export async function buildRouteTable(): Promise<RouteEntry[]> {
@@ -166,11 +201,14 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   const admin = [requireAuth(), requireAdmin()];
   const localhost = [requireLocalhost()];
 
-  return [
+  const table: RouteEntry[] = [
     // 认证
     { path: '/api/v1/auth', router: authRoutes, comment: 'SEC-001: 认证系统' },
 
     // 核心业务
+    // 顺序约束①：tokenUsageRoutes 必须先于 legacy agentRoutes 挂载（见文件尾部 assertRouteOrder）。
+    // 原因：两者同挂 /api/v1/agents，token-usage 只处理 GET /:id/token-usage 并放行其余路径；
+    // 显式定序保证该聚合端点恒由 tokenUsageRoutes 接管，不被 legacy 路由的任何通配变更吞掉。
     { path: '/api/v1/agents', router: tokenUsageRoutes, comment: '§10.5: 角色级 token 视图（仅 /:id/token-usage，先于 legacy 注册）' },
     { path: '/api/v1/agents', router: agentRoutes },
     { path: '/api/v1/executions', router: executionRoutes },
@@ -190,6 +228,9 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
 
     // 能力与工具
     { path: '/api/v1/capabilities', router: capabilitiesRoutes },
+    // 顺序约束②：skillDemotionRoutes 必须先于 skillsRoutes 挂载（见文件尾部 assertRouteOrder）。
+    // 原因：skillsRoutes 的 GET /:id（routes.ts:80）未命中时直接 404 不 next()，
+    // 若 SkillHub 先挂载，GET /api/v1/skills/demotion-proposals 会被 :id='demotion-proposals' 吞掉，降级提案端点死路。
     { path: '/api/v1/skills/demotion-proposals', router: skillDemotionRoutes, comment: '§10.6: skill 降级提案（先于 SkillHub 注册）' },
     { path: '/api/v1/skills', router: skillsRoutes, comment: 'FL-025: SkillHub' },
     { path: '/api/v1/skills/proposals', router: skillProposalRoutes },
@@ -242,4 +283,21 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
     // DingTalk (钉钉)
     { path: '/api/v1/dingtalk', router: dingtalkRoutes, comment: '钉钉机器人回调' },
   ];
+
+  // 启动断言（fail-fast）：两处顺序敏感注册约束，顺序被改动破坏时启动即报错，
+  // 而不是上线后静默 404 / 路由错。约束原因见上方「顺序约束①/②」注释。
+  assertRouteOrder(table, [
+    {
+      before: { path: '/api/v1/agents', router: tokenUsageRoutes },
+      after: { path: '/api/v1/agents', router: agentRoutes },
+      reason: '§10.5: token-usage 聚合端点必须先于 legacy agentRoutes 挂载，保证 /:id/token-usage 恒由 tokenUsageRoutes 接管。',
+    },
+    {
+      before: { path: '/api/v1/skills/demotion-proposals', router: skillDemotionRoutes },
+      after: { path: '/api/v1/skills', router: skillsRoutes },
+      reason: '§10.6: skillsRoutes 的 GET /:id 未命中直接 404，降级提案必须先于 SkillHub 挂载，否则端点被 :id 吞掉。',
+    },
+  ]);
+
+  return table;
 }
