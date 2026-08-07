@@ -16,3 +16,7 @@ Blocked by: 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 
 ## 追加检查项（自工单 28 移交）
 
 - agents/knowledge-search-analysis.ts：无生产调用方、仅单测消费，巡检时评估删除（连带其测试）。
+
+## 追加检查项（自工单 42 移交）
+
+- studio-shared dist/ 被 git 部分跟踪：存在前序工单未重建的存量漂移。评估：重建 dist 一次性提交，或（更优）确认 dist 是否应跟踪——若不应跟踪则 gitignore + git rm --cached 清理。
