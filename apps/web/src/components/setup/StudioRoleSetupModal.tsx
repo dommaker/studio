@@ -7,7 +7,7 @@
  * 样式遵循方向 A「Mission Control」设计体系（docs/specs/ui/style-guide.md），
  * 一律消费 theme.css 组件类（modal-* / input / btn），禁止内联写死颜色。
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 import { STUDIO_ROLE_SETUP_SESSION_KEY } from './dismissed';
 import { Select } from '../ui';
@@ -20,19 +20,17 @@ export interface StudioRoleSetupModalProps {
 }
 
 export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupModalProps) {
-  const [selected, setSelected] = useState<string>('');
+  // 用户显式选择的 CLI；空 = 未选过（或选择已失效），由下方派生值回退默认
+  const [selectedOverride, setSelectedOverride] = useState<string>('');
   const { detected, loading: providersLoading, noneDetected } = useDetectedProviders();
   // 扫描进行中同样回退全量可选，避免加载窗口期无可选项
   const providerOptions = buildProviderOptions(detected, providersLoading || noneDetected);
 
-  // open 时重置；选项就绪后默认选中第一个可用 CLI
-  useEffect(() => {
-    if (!open) return;
-    setSelected((prev) => {
-      if (prev && providerOptions.some((o) => o.value === prev && !o.disabled)) return prev;
-      return providerOptions.find((o) => !o.disabled)?.value ?? '';
-    });
-  }, [open, providerOptions]);
+  // 生效的选中项为渲染期纯派生（替代原 effect 同步回填）：显式选择仍有效则用选择，
+  // 否则回退第一个可用 CLI——open 后选项异步晚到自动回填的语义不变
+  const selected = selectedOverride && providerOptions.some((o) => o.value === selectedOverride && !o.disabled)
+    ? selectedOverride
+    : providerOptions.find((o) => !o.disabled)?.value ?? '';
 
   if (!open) return null;
 
@@ -64,7 +62,7 @@ export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupM
               id="studio-provider-select"
               className="input"
               value={selected}
-              onChange={setSelected}
+              onChange={setSelectedOverride}
               options={providerOptions}
               style={{ width: '100%' }}
               data-testid="studio-provider-select"

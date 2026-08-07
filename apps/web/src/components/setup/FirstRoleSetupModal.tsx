@@ -8,7 +8,7 @@
  * 样式遵循方向 A「Mission Control」设计体系（docs/specs/ui/style-guide.md），
  * 一律消费 theme.css 组件类（modal-* / input / btn），禁止内联写死颜色。
  */
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
 import { FIRST_ROLE_SETUP_SESSION_KEY } from './dismissed';
 import { Select } from '../ui';
@@ -23,10 +23,17 @@ export interface FirstRoleSetupModalProps {
 export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupModalProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [provider, setProvider] = useState<string>('');
+  // 用户显式选择的 CLI；空 = 未选过（或选择已失效），由下方派生值回退默认
+  const [providerOverride, setProviderOverride] = useState<string>('');
   const { detected, loading: providersLoading, noneDetected } = useDetectedProviders();
   // 扫描进行中同样回退全量可选，避免加载窗口期无可选项
   const providerOptions = buildProviderOptions(detected, providersLoading || noneDetected);
+
+  // 生效的 provider 为渲染期纯派生（替代原 effect 同步回填）：显式选择仍有效则用选择，
+  // 否则回退第一个可用 CLI——选项异步晚到自动回填、选择失效自动回退的语义不变
+  const provider = providerOverride && providerOptions.some((o) => o.value === providerOverride && !o.disabled)
+    ? providerOverride
+    : providerOptions.find((o) => !o.disabled)?.value ?? '';
 
   // 弹窗打开时在渲染期同步重置表单（prevOpen 上升沿，替代原 effect 同步重置）
   const [prevOpen, setPrevOpen] = useState(open);
@@ -37,14 +44,6 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
       setDescription('');
     }
   }
-
-  // 选项就绪后默认选中第一个可用 CLI；当前选中项失效时同样回退
-  useEffect(() => {
-    if (!open) return;
-    if (provider && providerOptions.some((o) => o.value === provider && !o.disabled)) return;
-    const first = providerOptions.find((o) => !o.disabled);
-    if (first) setProvider(first.value);
-  }, [open, providerOptions, provider]);
 
   if (!open) return null;
 
@@ -106,7 +105,7 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
               id="first-role-provider"
               className="input"
               value={provider}
-              onChange={setProvider}
+              onChange={setProviderOverride}
               options={providerOptions}
               style={{ width: '100%' }}
               data-testid="first-role-provider"
