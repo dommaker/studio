@@ -106,7 +106,7 @@ export function useTheme() {
  * 主题切换按钮组件
  */
 export function ThemeToggle() {
-  const { theme, setTheme, resolvedTheme: _resolvedTheme } = useTheme();
+  const { theme, setTheme } = useTheme();
 
   const themes: { value: Theme; label: string; icon: string }[] = [
     { value: 'dark', label: '深色', icon: '🌙' },

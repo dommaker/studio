@@ -20,8 +20,7 @@ import {
   HarnessCheckConfig,
 } from '../types/gate.types.js';
 
-import { ChangeLevel, ChangeRecord, SpecContent } from '../types/change.types.js';
-import { changeAnalyzerService } from './change-analyzer.service.js';
+import { ChangeLevel, ChangeRecord } from '../types/change.types.js';
 import { changeHistoryService } from './change-history.service.js';
 import { logger } from '@dommaker/studio-shared';
 
@@ -36,7 +35,7 @@ async function getHarnessValidator() {
       // 动态导入避免循环依赖
       const harness = await import('@dommaker/harness');
       harnessValidator = harness.CheckpointValidator?.getInstance?.() || null;
-    } catch (error) {
+    } catch {
       logger.warn('[GateChecker] Harness 导入失败，跳过通用检查');
       harnessValidator = null;
     }

@@ -13,7 +13,7 @@ vi.mock('@prisma/client', () => {
   };
 });
 
-import { GateCheckerService, gateCheckerService } from './gate-checker.service.js';
+import { gateCheckerService } from './gate-checker.service.js';
 import { changeHistoryService } from './change-history.service.js';
 import { isHarnessCheck } from '../types/gate.types.js';
 import type { SpecContent } from '../types/gate.types.js';

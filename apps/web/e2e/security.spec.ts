@@ -21,32 +21,6 @@ async function handleOnboarding(page: Page) {
   }
 }
 
-// 登录操作
-async function login(page: Page, email: string, password: string) {
-  await page.goto(`${BASE_URL}`);
-  await handleOnboarding(page);
-  
-  // 找到登录按钮
-  const loginButton = page.locator('button:has-text("登录"), button:has-text("Login"), [data-testid="login-button"]').first();
-  if (await loginButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-    await loginButton.click();
-    
-    // 填写表单
-    const emailInput = page.locator('input[type="email"], input[name="email"]').first();
-    const passwordInput = page.locator('input[type="password"], input[name="password"]').first();
-    
-    if (await emailInput.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await emailInput.fill(email);
-      await passwordInput.fill(password);
-      
-      // 提交登录
-      const submitButton = page.locator('button[type="submit"], button:has-text("登录"), button:has-text("Login")').last();
-      await submitButton.click();
-      await page.waitForTimeout(1000);
-    }
-  }
-}
-
 test.describe('SEC-001: 用户认证', () => {
   test('未登录状态应该显示登录按钮', async ({ page }) => {
     await page.goto(BASE_URL);
@@ -103,10 +77,6 @@ test.describe('SEC-002: 删除权限', () => {
       await deleteButtons.first().click();
       await page.waitForTimeout(500);
       
-      // 检查是否弹出确认框或错误提示
-      const hasConfirm = await page.locator('[class*="modal"], [role="dialog"], [class*="confirm"]').isVisible({ timeout: 2000 }).catch(() => false);
-      const hasError = await page.locator('[class*="error"], [class*="toast"]').isVisible({ timeout: 1000 }).catch(() => false);
-      
       // 要么弹出确认，要么显示错误，要么静默失败
       expect(true).toBeTruthy();
     }
@@ -134,10 +104,6 @@ test.describe('SEC-005: 删除二次确认', () => {
       const hasConfirm = await confirmModal.isVisible({ timeout: 2000 }).catch(() => false);
       
       if (hasConfirm) {
-        // 检查确认框内容
-        const modalText = await confirmModal.textContent().catch(() => '');
-        const hasConfirmText = modalText?.includes('确认') || modalText?.includes('输入');
-        
         // 找取消按钮
         const cancelButton = page.locator('button:has-text("取消"), button:has-text("Cancel")').first();
         if (await cancelButton.isVisible({ timeout: 1000 }).catch(() => false)) {
@@ -224,12 +190,6 @@ test.describe('安全响应头', () => {
     const response = await page.goto(BASE_URL);
     
     if (response) {
-      const headers = response.headers();
-      
-      // 检查有 X-Content-Type-Options（helmet 默认）
-      const xContentType = headers['x-content-type-options'];
-      // 注意：开发环境可能禁用了某些安全头
-      
       // 页面应该正常加载
       expect(response.status()).toBeLessThan(500);
     }

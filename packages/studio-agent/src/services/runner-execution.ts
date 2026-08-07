@@ -133,8 +133,6 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
     // Session loop
     let sessionCount = 0;
     let stuckCount = 0;
-    let lastStep = '';
-    let lastCompletedCount = 0;
     let cumulativeSessionMs = 0;
     let resolutionHint = '';
     let cumulativeInputTokens = 0;
@@ -199,10 +197,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
       // Stuck detection — baseline tracking only.
       // Actual stuck detection is done post-session (after spawn) to avoid
       // comparing stale progress data. See T2 post-session stuck check.
-      const currentStep = progress?.currentStep || '';
       const completedCount = progress?.completedSteps?.length || 0;
-      lastStep = currentStep;
-      lastCompletedCount = completedCount;
 
       // Build prompt
       const knowledgeContext = (task.parameters?.knowledgeContext as string) || '';

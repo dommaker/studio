@@ -10,7 +10,7 @@
  * - Response interceptor: refresh failure → clear storage and reject
  * - Response interceptor: non-401 errors pass through
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 
 // Mock localStorage

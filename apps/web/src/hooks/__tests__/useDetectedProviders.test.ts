@@ -10,7 +10,7 @@ vi.mock('../../api', () => ({
   api: { get: mockGet },
 }));
 
-import { useDetectedProviders, buildProviderOptions, BUILTIN_PROVIDERS } from '../useDetectedProviders';
+import { useDetectedProviders, buildProviderOptions } from '../useDetectedProviders';
 
 // ── buildProviderOptions (纯函数) ──
 

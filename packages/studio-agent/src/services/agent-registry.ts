@@ -5,7 +5,6 @@ import * as path from 'path';
 import * as fs from 'fs';
 import Ajv from 'ajv';
 import addFormats from 'ajv-formats';
-import { v4 as uuidv4 } from 'uuid';
 import type { AgentMetadata, JSONSchema } from '../types';
 
 // Cache store interface
@@ -260,7 +259,7 @@ export class AgentRegistry {
   /**
    * 失效缓存
    */
-  private async invalidateCache(id: string, version: string): Promise<void> {
+  private async invalidateCache(id: string, _version: string): Promise<void> {
     const keys = await this.store.keys(`${this.cachePrefix}${id}:*`);
     if (keys.length > 0) {
       await this.store.del(...keys);

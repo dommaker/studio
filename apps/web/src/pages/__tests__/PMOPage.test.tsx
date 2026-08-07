@@ -30,7 +30,6 @@ vi.mock('../../api/channel', () => ({
 }));
 
 import { PMOPage } from '../PMOPage';
-import { projectApi } from '../../api';
 
 const mockProjects = [
   { id: 'p1', pmoNumber: 'PM-001', title: 'Pending Project', status: 'pending', progress: 0, createdAt: '2026-01-01' },

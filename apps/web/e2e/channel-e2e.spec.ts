@@ -237,7 +237,7 @@ test.describe('Triage 横幅', () => {
 
 test.describe('B3-005: Auditor 建议卡片', () => {
   let sysChannelId: string;
-  let testMessageIds: string[] = [];
+  const testMessageIds: string[] = [];
 
   test.beforeAll(async ({ request }) => {
     // Find #系统 channel
