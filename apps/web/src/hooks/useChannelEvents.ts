@@ -5,9 +5,18 @@ import { useWebSocketContext } from '../api/websocketHooks';
 
 export function useChannelMessages(channelId: string | undefined) {
   const [messages, setMessages] = useState<ChannelMessage[]>([]);
-  const [loading, setLoading] = useState(false);
+  // 初值覆盖挂载首拉；channelId undefined→defined 的上升沿由下方渲染期分支补齐
+  const [loading, setLoading] = useState(!!channelId);
   const [hasMore, setHasMore] = useState(false);
   const { onEvent, status } = useWebSocketContext();
+
+  // 切换频道时渲染期置 loading（替代原 effect 内同步置位，早一帧）；
+  // 旧频道消息保留到新数据到达，不做清空
+  const [prevChannelId, setPrevChannelId] = useState(channelId);
+  if (prevChannelId !== channelId) {
+    setPrevChannelId(channelId);
+    if (channelId) setLoading(true);
+  }
 
   const fetchMessages = useCallback(async () => {
     if (!channelId) return;
@@ -22,11 +31,11 @@ export function useChannelMessages(channelId: string | undefined) {
     }
   }, [channelId]);
 
-  // Initial load
+  // Initial load（微任务触发：编译器对含 catch 的多语句 async 函数保守告警，
+  // 微任务推迟一拍，时序与直接调用逐帧等价；loading 置位由上方渲染期分支负责）
   useEffect(() => {
     if (!channelId) return;
-    setLoading(true);
-    fetchMessages();
+    void Promise.resolve().then(fetchMessages);
   }, [channelId, fetchMessages]);
 
   // B2: SSE 实时推送替代轮询

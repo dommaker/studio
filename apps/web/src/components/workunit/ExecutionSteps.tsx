@@ -20,9 +20,16 @@ export function ExecutionSteps({ workUnitId }: { workUnitId: string }) {
   // Layer B 步内流式：执行中的实时 chunk（内存态，步级 REST 卡片落位后自动让位）
   const liveChunks = useWorkUnitStreamEvents(workUnitId);
 
+  // 渲染期按 workUnitId 重置（替代原 effect 内同步重置）：SSE eventTick 重拉不再清空 steps，
+  // 消除每次事件都闪"加载中…"的闪烁——事件刷新静默进行，旧列表留到新数据到达
+  const [prevWorkUnitId, setPrevWorkUnitId] = useState(workUnitId);
+  if (prevWorkUnitId !== workUnitId) {
+    setPrevWorkUnitId(workUnitId);
+    setSteps(null);
+  }
+
   useEffect(() => {
     let alive = true;
-    setSteps(null);
     workunitApi.listExecutionStepEvents(workUnitId)
       .then(r => { if (alive) setSteps(parseExecutionStepEvents(r.data.events || [], workUnitId)); })
       .catch(() => { if (alive) setSteps([]); });

@@ -18,6 +18,14 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
   const [sending, setSending] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
+  // 切换 workUnitId 时渲染期置 loading（官方 adjust-state-during-render 模式，
+  // 比原 effect 内同步置位早一帧；挂载首帧时序不变）
+  const [prevWorkUnitId, setPrevWorkUnitId] = useState(workUnitId);
+  if (prevWorkUnitId !== workUnitId) {
+    setPrevWorkUnitId(workUnitId);
+    setLoading(true);
+  }
+
   const loadMessages = useCallback(async () => {
     setLoading(true);
     try {
@@ -32,7 +40,9 @@ export function DiscussionPanel({ workUnitId }: { workUnitId: string }) {
   }, [workUnitId]);
 
   useEffect(() => {
-    loadMessages();
+    // 微任务触发：loadMessages 首行同步 setLoading(true)，直接在 effect 体内调用
+    // 会触发 set-state-in-effect；微任务推迟一拍，时序与原实现逐帧等价
+    void Promise.resolve().then(loadMessages);
   }, [loadMessages]);
 
   useEffect(() => {

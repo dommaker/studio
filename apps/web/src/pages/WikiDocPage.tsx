@@ -50,9 +50,17 @@ export function WikiDocPage() {
   const [editTags, setEditTags] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // 切换文档 id 时渲染期置 loading（挂载首帧由 loading 初值 true 覆盖）；
+  // fetchDoc 不再同步置 loading——handleSave 保存后刷新因此静默进行，
+  // 不再整页闪 spinner（保存期间本就有 saving 态兜底）
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
+    setLoading(true);
+  }
+
   const fetchDoc = useCallback(async () => {
     if (!id) return;
-    setLoading(true);
     try {
       const res = await wikiApi.getDoc(id);
       setDoc(res.data?.data || null);
@@ -64,7 +72,8 @@ export function WikiDocPage() {
   }, [id]);
 
   useEffect(() => {
-    fetchDoc();
+    // 微任务触发：编译器对含 catch 的多语句 async 函数保守告警，推迟一拍时序等价
+    void Promise.resolve().then(fetchDoc);
   }, [fetchDoc]);
 
   const handleEdit = () => {

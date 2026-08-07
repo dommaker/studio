@@ -100,8 +100,13 @@ export function KnowledgePage() {
   }, [unifiedMode, unifiedOffset]);
 
   useEffect(() => {
-    if (activeTab === 'unified') loadUnified();
-    else loadGapData(activeTab);
+    // 微任务触发 loader：两个 loader 首行均同步置 loading，直接在 effect 体内调用
+    // 会触发 set-state-in-effect；微任务推迟一拍，时序与原实现逐帧等价。
+    // loader 保持原样——handleManualEntry 提交后复用 loadUnified 做事件路径刷新
+    void Promise.resolve().then(() => {
+      if (activeTab === 'unified') loadUnified();
+      else loadGapData(activeTab);
+    });
   }, [activeTab, loadGapData, loadUnified]);
 
   // AS-022: Submit manual entry

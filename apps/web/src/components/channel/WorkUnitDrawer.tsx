@@ -103,11 +103,18 @@ function WuDetail({ id, onOpenReq }: { id: string; onOpenReq: (reqId: string) =>
   const [eventTick, setEventTick] = useState(0);
   useWorkUnitEvents(() => setEventTick(t => t + 1));
 
-  useEffect(() => {
-    let alive = true;
+  // 渲染期按 id 重置（替代原 effect 内同步重置）：SSE eventTick 触发的重拉不再重置，
+  // 消除每次事件都闪"加载中…"的骨架闪烁——事件刷新静默进行，旧数据留到新数据到达
+  const [prevId, setPrevId] = useState(id);
+  if (prevId !== id) {
+    setPrevId(id);
     setWu(null);
     setTokens(null);
     setError('');
+  }
+
+  useEffect(() => {
+    let alive = true;
     workunitApi.get(id)
       .then(r => { if (alive) setWu(r.data); })
       .catch(e => { if (alive) setError(e instanceof Error ? e.message : String(e)); });

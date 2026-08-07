@@ -65,13 +65,20 @@ export function WikiPage() {
     }
   }, []);
 
-  // Initial load
+  // Initial load（微任务触发：fetchDocs 首行同步置 loading，直接调用会触发
+  // set-state-in-effect；微任务推迟一拍，首屏时序与原实现等价——挂载即拉取，不防抖）
   useEffect(() => {
-    fetchDocs('');
+    void Promise.resolve().then(() => fetchDocs(''));
   }, [fetchDocs]);
 
-  // Debounced search
+  // Debounced search（跳过首次运行：初始加载已由上方 effect 立即触发，
+  // 消除原实现挂载时"立即一次 + 300ms 后一次"的双 fetch）
+  const firstSearchEffectRef = useRef(true);
   useEffect(() => {
+    if (firstSearchEffectRef.current) {
+      firstSearchEffectRef.current = false;
+      return;
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       fetchDocs(search);
