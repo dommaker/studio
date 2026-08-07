@@ -68,7 +68,7 @@ const publishPackage: RegisteredTool = {
     }
 
     // 4. Verify dist integrity
-    const criticalFiles = ['dist/core/constraints/prompt-injection.js', 'dist/knowledge/doctor.js', 'dist/index.js'];
+    const criticalFiles = ['dist/core/constraints/checker.js', 'dist/knowledge/doctor.js', 'dist/index.js'];
     const missing: string[] = [];
     for (const f of criticalFiles) {
       if (!fsMod.existsSync(pathMod.join(pkgPath, f))) missing.push(f);
