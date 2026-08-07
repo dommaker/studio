@@ -45,12 +45,16 @@ import {
 import type { FlywheelMetrics, HealthReport, AuditReport, AccuracyReport } from './knowledge-metrics.js';
 // Measure 类型已抽到 knowledge-metrics.ts（工单 29），此处 re-export 保持对外导出语义不变
 export type { FlywheelMetrics, HealthReport, AuditReport, AuditFinding, AccuracyReport, AccuracyData } from './knowledge-metrics.js';
+// trends 数据层与形态门禁已抽到 trend-data.ts / knowledge-form-gate.ts（工单 29），
+// 此处 re-export 保持对外导出语义不变
+import { writeTrendData } from './trend-data.js';
+import { validateKnowledgeForm } from './knowledge-form-gate.js';
+export { writeTrendData } from './trend-data.js';
+export { validateKnowledgeForm } from './knowledge-form-gate.js';
+export type { FormValidationResult } from './knowledge-form-gate.js';
 import { execFile } from 'child_process';
 import { readFile } from 'fs/promises';
 import { join, basename } from 'path';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 
 // ── Type mapping (absorbed from KnowledgeBus) ──
 
@@ -73,82 +77,8 @@ const ENTRY_TYPE_MAP: Record<string, KnowledgeSubsystem> = {
 
 // ── Data layer: trends directory ──
 
-const DATA_TRENDS_DIR = path.join(os.homedir(), '.studio', 'data', 'trends');
 const STUDIO_EVENTS_JSONL = resolveStudioLogFile('studio-events.jsonl');
 const fileStore = new FileStore();
-
-/**
- * 写入趋势数据到 data/trends/ 目录。
- * 替代原 recordTrend 写入 knowledge/ 的行为。
- * 被 knowledgeService.recordTrend/recordAnalystAccuracy、
- * monitorService.precipitateRouting、signalAggregator.upsertTrend 共用。
- */
-export function writeTrendData(filename: string, content: string): void {
-  fs.mkdirSync(DATA_TRENDS_DIR, { recursive: true });
-  const filePath = path.join(DATA_TRENDS_DIR, filename);
-  if (fs.existsSync(filePath)) {
-    const existing = fs.readFileSync(filePath, 'utf-8');
-    fs.writeFileSync(filePath, existing + '\n\n---\n\n' + content, 'utf-8');
-  } else {
-    fs.writeFileSync(filePath, content, 'utf-8');
-  }
-}
-
-// ── Form validation gate ──
-
-export interface FormValidationResult {
-  valid: boolean;
-  form: 'knowledge' | 'data' | 'skill' | 'rule';
-  reason?: string;
-}
-
-/**
- * 判断条目是否属于知识形态。
- * 代码层判断，不调 LLM。遵循 no_model_for_deterministic。
- */
-export function validateKnowledgeForm(entry: {
-  type: string;
-  content: string;
-  tags: string[];
-}): FormValidationResult {
-  // 规则形态检测：短指令式（优先于空检查，因为规则本身就短）
-  const rulePatterns = [/^禁止/, /^必须/, /^不得/];
-  if (rulePatterns.some(p => p.test(entry.content.trim())) && entry.content.length < 100) {
-    return { valid: false, form: 'rule', reason: 'short imperative directive' };
-  }
-
-  // 空内容或太短
-  if (!entry.content || entry.content.trim().length < 20) {
-    return { valid: false, form: 'data', reason: 'content too short' };
-  }
-
-  // 数据形态检测：含具体数值/百分比/日期
-  const dataPatterns = [
-    /\d+%/,
-    /\d{4}-\d{2}-\d{2}/,
-    /premium:\s*\d+/,
-    /analyst_accuracy/,
-  ];
-  if (entry.type === 'process' && dataPatterns.some(p => p.test(entry.content))) {
-    return { valid: false, form: 'data', reason: 'contains statistical data' };
-  }
-  if (entry.tags.includes('trend') || entry.tags.includes('analyst_accuracy')) {
-    return { valid: false, form: 'data', reason: 'data-type tag' };
-  }
-
-  // Skill 形态检测：多步骤流程
-  const skillPatterns = [
-    /step\s*\d/i,
-    /步骤\s*\d/,
-    /^\d+\.\s+.+\n\d+\.\s+.+\n\d+\./m,
-  ];
-  if (skillPatterns.some(p => p.test(entry.content)) && entry.content.length > 500) {
-    return { valid: false, form: 'skill', reason: 'multi-step process detected' };
-  }
-
-  // 默认：知识形态
-  return { valid: true, form: 'knowledge' };
-}
 
 // ── Stop words for keyword extraction ──
 
