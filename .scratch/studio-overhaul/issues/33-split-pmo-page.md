@@ -1,7 +1,7 @@
 # 33 — PMOPage.tsx 拆分（E1）
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 Blocked by: 21
 

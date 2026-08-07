@@ -12,3 +12,7 @@ Blocked by: 09, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 
 ## 追加检查项（自工单 22 移交）
 
 - apps/api 的 knowledge-bus-sync.test.ts 计时器 flake（vi.advanceTimersByTimeAsync + logger 计数），全量跑偶发失败、单跑稳定；巡检时评估修复或加固。
+
+## 追加检查项（自工单 28 移交）
+
+- agents/knowledge-search-analysis.ts：无生产调用方、仅单测消费，巡检时评估删除（连带其测试）。
