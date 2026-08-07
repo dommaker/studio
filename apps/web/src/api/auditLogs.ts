@@ -43,7 +43,7 @@ export interface AuditLogQuery {
 }
 
 /** 分页响应包（对应后端 formatPaginatedResponse） */
-export interface AuditLogListResponse {
+interface AuditLogListResponse {
   data: AuditLog[];
   pagination: { page: number; limit: number; total: number; totalPages: number };
 }

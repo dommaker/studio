@@ -1,6 +1,6 @@
 // 通知渠道 section（从 pages/Settings.tsx 抽取，工单 35-E3）：Discord/企微/Telegram 三段合并为数据驱动
 
-export interface NotifyField {
+interface NotifyField {
   label: string;
   placeholder: string;
   value: string;

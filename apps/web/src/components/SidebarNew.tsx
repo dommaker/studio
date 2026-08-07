@@ -27,7 +27,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
     return location.pathname.startsWith(path);
   };
 
-  const handleNavClick = (path: string) => {
+  const handleNavClick = () => {
     if (onClose && window.innerWidth < 640) {
       onClose();
     }
@@ -67,7 +67,7 @@ export function Sidebar({ isOpen = true, onClose }: SidebarProps) {
           <Link
             key={item.to}
             to={item.to}
-            onClick={() => handleNavClick(item.to)}
+            onClick={() => handleNavClick()}
             className={`flex items-center gap-3 px-3 py-2 rounded-lg transition-all`}
             style={{
               background: isActive(item.to) 

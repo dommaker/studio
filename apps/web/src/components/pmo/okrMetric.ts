@@ -52,7 +52,7 @@ export const METRIC_META: Record<string, { unit: string; upperBound: number; bas
   token_saving_ratio: { unit: '%', upperBound: 90 },
 };
 
-export interface KRValidation {
+interface KRValidation {
   status: 'pass' | 'warning' | 'blocked';
   reason: string;
 }
