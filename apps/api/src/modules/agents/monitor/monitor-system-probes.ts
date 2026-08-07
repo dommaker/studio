@@ -14,11 +14,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
-import type { TriageIncidentInput } from './types.js';
-import { triageService } from './triage.service.js';
+import type { TriageIncidentInput } from '../types.js';
+import { triageService } from '../triage/triage.service.js';
 import { KnowledgeLinter, KnowledgeHealthScorer, ReferenceTracker } from '@dommaker/harness';
-import { sharedStore, sharedLifecycle } from '../knowledge/knowledge-bus.service.js';
-import { knowledgeSync } from '../knowledge/knowledge-sync.service.js';
+import { sharedStore, sharedLifecycle } from '../../knowledge/knowledge-bus.service.js';
+import { knowledgeSync } from '../../knowledge/knowledge-sync.service.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 
 const WORKTREES_DIR = process.env.WORKTREES_DIR || path.join(os.homedir(), 'worktrees');
@@ -165,7 +165,7 @@ export async function checkKnowledgeHealth(state: KnowledgeCycleState): Promise<
       // STUDIO_KNOWLEDGE_MAINTENANCE=on 时才执行（semantic dedup, quality, freshness, contradictions）
       if (knowledgeMaintenanceEnabled()) {
         try {
-          const { knowledgeCurator } = await import('./knowledge-curator.service.js');
+          const { knowledgeCurator } = await import('../knowledge-curator.service.js');
           const maintenance = await knowledgeCurator.runDailyMaintenance();
           logger.info('[MonitorService] KnowledgeCurator daily maintenance', maintenance);
         } catch (err) {

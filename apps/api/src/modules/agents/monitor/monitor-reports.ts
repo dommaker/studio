@@ -13,15 +13,15 @@ import * as path from 'path';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
-import { knowledgeService } from '../knowledge/knowledge-service.js';
-import { preferenceObserver } from '../knowledge/preference-observer.js';
+import { knowledgeService } from '../../knowledge/knowledge-service.js';
+import { preferenceObserver } from '../../knowledge/preference-observer.js';
 import { emitMonitorEvent } from './monitor-alerts.js';
 import {
   readStudioEvents,
   writeStudioEvent,
   parseStudioEventPayload,
   getStudioEventTime,
-} from '../../utils/studio-events.js';
+} from '../../../utils/studio-events.js';
 
 /** 事件字段拉平：StudioEvent（payload 嵌套）与历史扁平事件（字段在顶层）统一为平面对象 */
 function flattenEvent(e: Record<string, unknown>): Record<string, any> {
@@ -361,7 +361,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
           if (sorted.length > 0) {
             lines.push('', '### 周交互画像');
             lines.push(`- Top 模式: ${sorted.slice(0, 3).map(([t, c]) => `${t}(${c})`).join(', ')}`);
-            const { sharedStore } = await import('../knowledge/knowledge-bus.service.js');
+            const { sharedStore } = await import('../../knowledge/knowledge-bus.service.js');
             const prefEntries = sharedStore.list({ tags: ['preference', 'user-default'] });
             const prefData = prefEntries.length > 0 ? JSON.parse((prefEntries[0] as any).content || '{}') : {};
             const preferredRaw = prefData.preferredPatternTypes;
@@ -381,7 +381,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
       const sysChannels = await fileStore.listChannels({ name: '#系统' });
       const sysChannel = sysChannels[0] ?? null;
       if (sysChannel) {
-        const { channelMessageService } = await import('../channels/channel-message.service.js');
+        const { channelMessageService } = await import('../../channels/channel-message.service.js');
         await channelMessageService.createAgentMessage(sysChannel.id, 'DailyReflection', content, {
           meta: { cardType: 'daily_reflection', date: today },
         });
@@ -396,7 +396,7 @@ export async function dailyReflection(fileStore: FileStore, state: ReportState):
     try {
       const channel = process.env.DISCORD_DAILY_CHANNEL || null;
       if (channel) {
-        const { discordNotifier } = await import('../../utils/discord-notifier.js');
+        const { discordNotifier } = await import('../../../utils/discord-notifier.js');
         await discordNotifier.sendChannelMessage(channel, 'DailyReflection', content, {
           cardType: 'daily_reflection',
         });

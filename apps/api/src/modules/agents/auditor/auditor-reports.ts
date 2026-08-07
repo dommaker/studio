@@ -14,7 +14,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
-import { readStudioEvents, parseStudioEventPayload, getStudioEventTime } from '../../utils/studio-events.js';
+import { readStudioEvents, parseStudioEventPayload, getStudioEventTime } from '../../../utils/studio-events.js';
 
 const SYSTEM_CHANNEL_NAME = '#系统';
 
@@ -207,7 +207,7 @@ export async function postToSystemChannel(fileStore: FileStore, content: string)
       return;
     }
 
-    const { channelMessageService } = await import('../channels/channel-message.service.js');
+    const { channelMessageService } = await import('../../channels/channel-message.service.js');
     await channelMessageService.createAgentMessage(
       channel.id,
       'Auditor',

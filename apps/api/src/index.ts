@@ -11,8 +11,8 @@ import { logger } from '@dommaker/studio-shared';
 // database.ts removed (Spec 4 Phase 4) — FileStore auto-creates directories
 import { startEvolutionScheduler, stopEvolutionScheduler } from './modules/knowledge/evolution-scheduler.js';
 import { startAuditSubscriber, stopAuditSubscriber } from './modules/audit/audit-subscriber.js';
-import { monitorService } from './modules/agents/monitor.service.js';
-import { auditorService } from './modules/agents/auditor.service.js';
+import { monitorService } from './modules/agents/monitor/monitor.service.js';
+import { auditorService } from './modules/agents/auditor/auditor.service.js';
 import { daemon } from './daemon/studio-daemon.js';
 import { spawn, type ChildProcess } from 'child_process';
 import { bootstrapHarness } from '@dommaker/studio-shared';

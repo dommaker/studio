@@ -12,7 +12,7 @@ const snapshotFile = path.join(os.homedir(), '.studio', 'auditor', 'daily-snapsh
 
 // Dynamic import to avoid Prisma initialization at module level
 async function getAgent() {
-  const { AuditorService } = await import('../auditor.service.js');
+  const { AuditorService } = await import('../auditor/auditor.service.js');
   return new AuditorService();
 }
 

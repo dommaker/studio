@@ -13,7 +13,7 @@ import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
 import { studioEventsJsonl } from './monitor-alerts.js';
-import { getStudioEventTime } from '../../utils/studio-events.js';
+import { getStudioEventTime } from '../../../utils/studio-events.js';
 
 /**
  * 生命周期的实例级状态（由 MonitorService 实例持有并传入，保持 per-instance 语义）。

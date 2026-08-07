@@ -58,11 +58,11 @@ vi.mock('../../knowledge/knowledge-sync.service.js', () => ({
   knowledgeSync: { runSyncCycle: mockRunSyncCycle },
 }));
 
-vi.mock('../triage.service.js', () => ({
+vi.mock('../triage/triage.service.js', () => ({
   triageService: { handleAlert: mockHandleAlert },
 }));
 
-vi.mock('../monitor-alerts.js', () => ({
+vi.mock('../monitor/monitor-alerts.js', () => ({
   emitMonitorEvent: mockEmitEvent,
 }));
 
@@ -77,7 +77,7 @@ import {
   runCircuitCheckAndRepair,
   gcStaleWorktrees,
   knowledgeMaintenanceEnabled,
-} from '../monitor-system-probes.js';
+} from '../monitor/monitor-system-probes.js';
 
 const DF_OK = '/dev/sda1 100G 50G 50G 50% /';
 const DF_FULL = '/dev/sda1 100G 95G 5G 95% /';

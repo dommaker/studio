@@ -25,7 +25,7 @@ vi.mock('os', async (importOriginal) => {
   return { ...actual, homedir: () => tmpHome };
 });
 
-vi.mock('../triage.service.js', () => ({
+vi.mock('../triage/triage.service.js', () => ({
   triageService: { handleAlert: mockHandleAlert },
 }));
 
@@ -44,7 +44,7 @@ import {
   autoCreateResolutions,
   escalateToTriage,
   generateEvalCases,
-} from '../auditor-execution.js';
+} from '../auditor/auditor-execution.js';
 
 // ── applyLowRiskSuggestions ──
 

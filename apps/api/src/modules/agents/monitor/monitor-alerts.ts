@@ -9,11 +9,11 @@
  */
 
 import { logger } from '@dommaker/studio-shared';
-import { knowledgeService } from '../knowledge/knowledge-service.js';
-import { notifyAlert } from '../../utils/notifier.js';
-import type { MonitorAlert } from './types.js';
-import { triageService } from './triage.service.js';
-import { resolveStudioEventsFile, writeStudioEvent } from '../../utils/studio-events.js';
+import { knowledgeService } from '../../knowledge/knowledge-service.js';
+import { notifyAlert } from '../../../utils/notifier.js';
+import type { MonitorAlert } from '../types.js';
+import { triageService } from '../triage/triage.service.js';
+import { resolveStudioEventsFile, writeStudioEvent } from '../../../utils/studio-events.js';
 
 /**
  * D18 事件入口统一：事件文件 = ~/.studio/logs/studio-events.jsonl
@@ -61,7 +61,7 @@ export function dispatchMonitorAlerts(alerts: MonitorAlert[]): void {
  * Only critical alerts are escalated. Fire-and-forget, does not block check loop.
  */
 export function escalateToTriage(alerts: MonitorAlert[]): void {
-  const sourceToType: Record<MonitorAlert['source'], import('./types.js').TriageIncidentType | null> = {
+  const sourceToType: Record<MonitorAlert['source'], import('../types.js').TriageIncidentType | null> = {
     failure_trend: 'execution_repeated_failure',
     session_escalation: 'execution_session_exhausted',
     total_time: 'execution_timeout',

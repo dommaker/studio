@@ -67,7 +67,7 @@ vi.mock('child_process', () => ({
   }),
 }));
 
-const { triageService, guarded } = await import('../triage.service.js');
+const { triageService, guarded } = await import('../triage/triage.service.js');
 
 const DRY_RUN_PREFIX = `echo '[Triage] DRY-RUN`;
 // 破坏性 token：出现即说明该命令"含破坏性意图"

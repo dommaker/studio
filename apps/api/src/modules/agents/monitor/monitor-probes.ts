@@ -13,7 +13,7 @@ import * as os from 'os';
 import { logger } from '@dommaker/studio-shared';
 import type { FileStore } from '@dommaker/studio-shared';
 import { agentRunner } from '@dommaker/studio-agent';
-import type { MonitorAlert } from './types.js';
+import type { MonitorAlert } from '../types.js';
 
 const FAILURE_THRESHOLD = 3;
 
@@ -229,7 +229,7 @@ export async function checkSessionFileHealth(): Promise<MonitorAlert[]> {
 export async function checkToolPatterns(): Promise<MonitorAlert[]> {
   const alerts: MonitorAlert[] = [];
   try {
-    const { toolRegistry } = await import('../mcp/tool-registry.js');
+    const { toolRegistry } = await import('../../mcp/tool-registry.js');
     const allStats = toolRegistry.getStats();
 
     for (const [toolName, stats] of Object.entries(allStats)) {

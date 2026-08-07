@@ -17,13 +17,13 @@
  */
 
 import { logger, FileStore } from '@dommaker/studio-shared';
-import type { MonitorAlert } from './types.js';
+import type { MonitorAlert } from '../types.js';
 import * as probes from './monitor-probes.js';
 import * as systemProbes from './monitor-system-probes.js';
 import * as alerting from './monitor-alerts.js';
 import * as reports from './monitor-reports.js';
 import * as lifecycle from './monitor-lifecycle.js';
-import { isWorkspaceConnected } from '../workspaces/ws-gateway.js';
+import { isWorkspaceConnected } from '../../workspaces/ws-gateway.js';
 
 const CHECK_INTERVAL = 5 * 60_000; // 5 min
 

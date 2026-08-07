@@ -1,13 +1,13 @@
 // Triage Service — incident response: diagnose → classify → act → resolve/escalate
 import { logger, eventBus, FileStore } from '@dommaker/studio-shared';
-import { classifySystemError } from '../triage/error-class.js';
-import { knowledgeService } from '../knowledge/knowledge-service.js';
-import type { SystemTriageResult } from '../triage/error-class.js';
-import type { TriageIncidentInput, TriageLogEntry } from './types.js';
+import { classifySystemError } from '../../triage/error-class.js';
+import { knowledgeService } from '../../knowledge/knowledge-service.js';
+import type { SystemTriageResult } from '../../triage/error-class.js';
+import type { TriageIncidentInput, TriageLogEntry } from '../types.js';
 import * as path from 'path';
 import * as os from 'os';
 import * as fs from 'fs';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 
 const MAX_TRIAGE_TIME_MS = 10 * 60_000; // 10 min
 const MAX_FIX_ATTEMPTS = 3;
@@ -269,7 +269,7 @@ class TriageService {
     // B11-007: Resolution 查询 — 已知解法匹配
     let resolutionHint = '';
     try {
-      const { resolutionService } = await import('../knowledge/resolution.service.js');
+      const { resolutionService } = await import('../../knowledge/resolution.service.js');
       const matched = await resolutionService.matchResolutions({ errorMessage: input.message });
       if (matched.resolutions.length > 0) {
         resolutionHint = matched.resolutions[0].fix;
@@ -367,7 +367,7 @@ class TriageService {
       const errMsg = String(e).slice(0, 500);
       let llmDiagnosis = '';
       try {
-        const { getSystemExecutor } = await import('./system-executor.js');
+        const { getSystemExecutor } = await import('../system-executor.js');
         const diagPrompt = [
           `事件类型: ${incidentType}`,
           `消息: ${input.message}`,

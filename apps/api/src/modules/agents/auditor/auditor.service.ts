@@ -11,7 +11,7 @@
  */
 
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { knowledgeService } from '../knowledge/knowledge-service.js';
+import { knowledgeService } from '../../knowledge/knowledge-service.js';
 import * as rules from './auditor-rules.js';
 import type { Suggestion } from './auditor-rules.js';
 import * as execution from './auditor-execution.js';
@@ -75,7 +75,7 @@ export class AuditorService {
       }
 
       // 3. 最近 24h 的审计事件统计 (KnowledgeStore)
-      const { sharedStore: auditStore } = await import('../knowledge/knowledge-bus.service.js');
+      const { sharedStore: auditStore } = await import('../../knowledge/knowledge-bus.service.js');
       const auditEntries = auditStore.list({ tags: ['audit'] });
       const auditCount = auditEntries.filter((e: any) =>
         new Date(e.created).getTime() >= yesterday.getTime()
