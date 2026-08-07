@@ -39,7 +39,7 @@ vi.mock('../../api/workunit', async () => {
 });
 
 // SSE：测试无 WebSocketProvider，onEvent 由用例接管
-vi.mock('../../api/websocket', () => ({
+vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: mockOnEvent }),
 }));
 

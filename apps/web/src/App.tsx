@@ -40,8 +40,9 @@ import { useAuthStore } from './stores/authStore';
 import { LandingPage } from './components/LandingPage';
 import { WebSocketProvider } from './api/websocket';
 import { channelApi } from './api/channel';
-import { StudioRoleSetupModal, isStudioRoleSetupDismissed } from './components/setup/StudioRoleSetupModal';
-import { FirstRoleSetupModal, isFirstRoleSetupDismissed } from './components/setup/FirstRoleSetupModal';
+import { StudioRoleSetupModal } from './components/setup/StudioRoleSetupModal';
+import { FirstRoleSetupModal } from './components/setup/FirstRoleSetupModal';
+import { isStudioRoleSetupDismissed, isFirstRoleSetupDismissed } from './components/setup/dismissed';
 import './styles/theme.css';
 
 export default function App() {

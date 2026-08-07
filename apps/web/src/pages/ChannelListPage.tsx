@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList, type ChannelListItem } from '../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../api/monitoring';
-import { agentDotClass } from '../components/channel/ChannelRail';
+import { agentDotClass } from '../components/channel/statusClasses';
 import { Select, ConfirmDialog, Button } from '../components/ui';
 
 const TYPE_LABELS: Record<string, string> = {

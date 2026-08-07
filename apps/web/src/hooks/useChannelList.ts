@@ -2,7 +2,7 @@
 // 数据来源与 B2-011 未读 SSE 逻辑单源化，避免两处实现漂移
 import { useState, useEffect, useCallback } from 'react';
 import { channelApi } from '../api/channel';
-import { useWebSocketContext } from '../api/websocket';
+import { useWebSocketContext } from '../api/websocketHooks';
 
 export interface ChannelListItem {
   id: string;

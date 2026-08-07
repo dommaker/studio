@@ -1,6 +1,6 @@
 // Triage Global Banner — B2-005: 页面顶部常驻告警横幅
 import { useState, useEffect } from 'react';
-import { useWebSocketContext } from '../api/websocket';
+import { useWebSocketContext } from '../api/websocketHooks';
 
 interface TriageAlert {
   id: string;

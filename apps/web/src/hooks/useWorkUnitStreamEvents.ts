@@ -5,7 +5,7 @@
 //   - 上限 50 条（超出丢最旧）
 // 消费方：WorkUnitDrawer「执行过程」实时区块
 import { useEffect, useState } from 'react';
-import { useWebSocketContext } from '../api/websocket';
+import { useWebSocketContext } from '../api/websocketHooks';
 import { parseExecutionStreamChunk, type ExecutionStreamChunk } from '../api/workunit';
 
 const MAX_LIVE_CHUNKS = 50;

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom';
 import { ThemeToggleButton } from '../contexts/ThemeContext';
 import { MoreDropdown } from './MoreDropdown';
 import { NotificationBell } from './NotificationBell';
-import { useWebSocketContext } from '../api/websocket';
+import { useWebSocketContext } from '../api/websocketHooks';
 import '../styles/theme.css';
 
 interface TopNavProps {

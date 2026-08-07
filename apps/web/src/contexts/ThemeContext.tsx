@@ -1,15 +1,8 @@
-// Theme Context - 主题切换
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+// Theme Context - 主题切换（组件门面；Theme 类型 / ThemeContext / useTheme 见 ./useTheme）
+import { useEffect, useState, type ReactNode } from 'react';
+import { ThemeContext, useTheme, type Theme } from './useTheme';
 
-export type Theme = 'dark' | 'light' | 'system';
-
-interface ThemeContextType {
-  theme: Theme;
-  resolvedTheme: 'dark' | 'light';
-  setTheme: (theme: Theme) => void;
-}
-
-const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
+export type { Theme } from './useTheme';
 
 const THEME_STORAGE_KEY = 'agent-studio-theme';
 
@@ -89,17 +82,6 @@ export function ThemeProvider({ children, defaultTheme = 'dark' }: ThemeProvider
       {children}
     </ThemeContext.Provider>
   );
-}
-
-/**
- * 使用主题 Hook
- */
-export function useTheme() {
-  const context = useContext(ThemeContext);
-  if (context === undefined) {
-    throw new Error('useTheme must be used within a ThemeProvider');
-  }
-  return context;
 }
 
 /**

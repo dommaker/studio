@@ -12,7 +12,7 @@ vi.mock('../../api', () => ({
   api: { get: mockGet, post: mockPost },
 }));
 
-vi.mock('../../api/websocket', () => ({
+vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: mockOnEvent }),
 }));
 

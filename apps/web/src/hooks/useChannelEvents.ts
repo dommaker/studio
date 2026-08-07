@@ -1,7 +1,7 @@
 // Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询
 import { useState, useEffect, useCallback } from 'react';
 import { channelApi, type ChannelMessage } from '../api/channel';
-import { useWebSocketContext } from '../api/websocket';
+import { useWebSocketContext } from '../api/websocketHooks';
 
 export function useChannelMessages(channelId: string | undefined) {
   const [messages, setMessages] = useState<ChannelMessage[]>([]);

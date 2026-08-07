@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChannelList } from '../../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../../api/monitoring';
+import { agentDotClass } from './statusClasses';
 import { Select, Button } from '../ui';
 
 const TYPE_LABELS: Record<string, string> = {
@@ -11,14 +12,6 @@ const TYPE_LABELS: Record<string, string> = {
   decision: '决策',
   system: '系统',
 };
-
-/** agent 状态 → 状态点修饰类（active=执行中 pulse / idle=在线 / error=故障 / 其余=离线） */
-export function agentDotClass(status: string): string {
-  if (status === 'active') return 'mc-dot mc-dot-busy';
-  if (status === 'idle') return 'mc-dot mc-dot-online';
-  if (status === 'error') return 'mc-dot mc-dot-error';
-  return 'mc-dot mc-dot-offline';
-}
 
 interface Props {
   activeChannelId?: string;

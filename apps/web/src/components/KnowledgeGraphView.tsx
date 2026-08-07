@@ -16,9 +16,9 @@ import { applySimpleLayout } from './knowledge/graphUtils';
 import type { KnowledgeGraph } from './knowledge/graphUtils';
 
 // 图谱数据类型与纯函数（布局/diff 分析/构建）已抽至 components/knowledge/graphUtils（工单 34-E5）；
-// 此处保留原导出面，既有 import 路径（如 WikiPage）不受影响。
+// 此处仅保留类型 re-export 门面（既有 import 路径如 WikiPage 不受影响）；
+// buildKnowledgeGraphFromAnalysis / analyzeDiffImpact 无经本文件的 import 方，请直接从 graphUtils 导入。
 export type { KnowledgeNode, KnowledgeEdge, Layer, KnowledgeGraph } from './knowledge/graphUtils';
-export { buildKnowledgeGraphFromAnalysis, analyzeDiffImpact } from './knowledge/graphUtils';
 
 interface KnowledgeGraphViewProps {
   graph: KnowledgeGraph;

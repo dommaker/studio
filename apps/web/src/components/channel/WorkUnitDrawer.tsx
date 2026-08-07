@@ -35,7 +35,7 @@ const WU_STATUS_LABELS: Record<string, string> = {
 };
 
 /** wu 状态 → 状态 chip 修饰类（active=执行中 pulse / blocked=待确认 / done|closed=完成 / 其余=待定） */
-export function wuStatusClass(status: string): string {
+function wuStatusClass(status: string): string {
   if (status === 'active') return 'mc-status mc-status-running';
   if (status === 'blocked') return 'mc-status mc-status-need';
   if (status === 'done' || status === 'closed') return 'mc-status mc-status-done';
@@ -47,7 +47,7 @@ function deriveWuColumn(wu: { status: string; metadata?: string | null }): strin
   return deriveDisplayState({ status: wu.status, metadata: wu.metadata }).column;
 }
 
-export function formatTokens(n: number): string {
+function formatTokens(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
 }
 

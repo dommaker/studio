@@ -17,7 +17,7 @@ vi.mock('react-router-dom', async () => {
   return { ...actual, useNavigate: () => mockNavigate };
 });
 
-vi.mock('../../api/websocket', () => ({
+vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({
     onEvent: (handler: (msg: unknown) => void) => {
       sseHandlers.add(handler);

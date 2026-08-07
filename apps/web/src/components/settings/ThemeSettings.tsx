@@ -1,5 +1,5 @@
 // 主题设置 section（从 pages/Settings.tsx 抽取，工单 35-E3）
-import { useTheme, type Theme } from '../../contexts/ThemeContext';
+import { useTheme, type Theme } from '../../contexts/useTheme';
 
 export function ThemeSettings() {
   const { theme, setTheme } = useTheme();

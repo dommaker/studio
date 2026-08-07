@@ -6,7 +6,7 @@ const { mockOnEvent } = vi.hoisted(() => ({
   mockOnEvent: vi.fn(),
 }));
 
-vi.mock('../../api/websocket', () => ({
+vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: mockOnEvent }),
 }));
 

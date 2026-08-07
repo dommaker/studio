@@ -9,6 +9,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
+import { STUDIO_ROLE_SETUP_SESSION_KEY } from './dismissed';
 import { Select } from '../ui';
 import '../../styles/theme.css';
 
@@ -17,8 +18,6 @@ export interface StudioRoleSetupModalProps {
   onClose: () => void;
   onSave: (provider: string) => void;
 }
-
-const SESSION_KEY = 'studio-role-setup-dismissed';
 
 export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupModalProps) {
   const [selected, setSelected] = useState<string>('');
@@ -44,7 +43,7 @@ export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupM
   };
 
   const handleDismiss = () => {
-    try { sessionStorage.setItem(SESSION_KEY, '1'); } catch { /* sessionStorage 不可用 */ }
+    try { sessionStorage.setItem(STUDIO_ROLE_SETUP_SESSION_KEY, '1'); } catch { /* sessionStorage 不可用 */ }
     onClose();
   };
 
@@ -91,9 +90,4 @@ export function StudioRoleSetupModal({ open, onClose, onSave }: StudioRoleSetupM
       </div>
     </div>
   );
-}
-
-/** 检查本次会话是否已dismiss */
-export function isStudioRoleSetupDismissed(): boolean {
-  try { return sessionStorage.getItem(SESSION_KEY) === '1'; } catch { return false; }
 }

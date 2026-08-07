@@ -14,7 +14,7 @@ import {
   formatExecutionStreamChunkText,
   type WorkUnit,
 } from '../api/workunit';
-import { useWebSocketContext, type WebSocketMessage } from '../api/websocket';
+import { useWebSocketContext, type WebSocketMessage } from '../api/websocketHooks';
 
 /** 卡片「最近动态」条目（SSE 实时追加，内存每 agent 最多保留 MAX_ACTIVITIES 条） */
 export interface RosterActivityItem {

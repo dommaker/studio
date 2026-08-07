@@ -10,6 +10,7 @@
  */
 import { useState, useEffect } from 'react';
 import { useDetectedProviders, buildProviderOptions } from '../../hooks/useDetectedProviders';
+import { FIRST_ROLE_SETUP_SESSION_KEY } from './dismissed';
 import { Select } from '../ui';
 import '../../styles/theme.css';
 
@@ -18,8 +19,6 @@ export interface FirstRoleSetupModalProps {
   onClose: () => void;
   onCreate: (data: { name: string; description?: string; provider?: string }) => void;
 }
-
-const SESSION_KEY = 'first-role-setup-dismissed';
 
 export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupModalProps) {
   const [name, setName] = useState('');
@@ -57,7 +56,7 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
   };
 
   const handleDismiss = () => {
-    try { sessionStorage.setItem(SESSION_KEY, '1'); } catch { /* ignore */ }
+    try { sessionStorage.setItem(FIRST_ROLE_SETUP_SESSION_KEY, '1'); } catch { /* ignore */ }
     onClose();
   };
 
@@ -130,8 +129,4 @@ export function FirstRoleSetupModal({ open, onClose, onCreate }: FirstRoleSetupM
       </div>
     </div>
   );
-}
-
-export function isFirstRoleSetupDismissed(): boolean {
-  try { return sessionStorage.getItem(SESSION_KEY) === '1'; } catch { return false; }
 }

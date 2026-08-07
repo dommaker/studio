@@ -9,7 +9,7 @@ import { ThemeProvider } from '../../contexts/ThemeContext';
 
 const { state } = vi.hoisted(() => ({ state: { status: 'disconnected' as string } }));
 
-vi.mock('../../api/websocket', () => ({
+vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({
     status: state.status,
     onEvent: () => () => {},

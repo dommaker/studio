@@ -46,7 +46,7 @@ vi.mock('../../hooks/useWorkUnitEvents', () => ({
 vi.mock('../../hooks/useWorkUnitStreamEvents', () => ({
   useWorkUnitStreamEvents: () => [],
 }));
-vi.mock('../../api/websocket', () => ({
+vi.mock('../../api/websocketHooks', () => ({
   useWebSocketContext: () => ({ onEvent: () => () => {} }),
 }));
 

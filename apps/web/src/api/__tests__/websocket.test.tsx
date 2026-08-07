@@ -32,7 +32,8 @@ class FakeEventSource {
 
 vi.stubGlobal('EventSource', FakeEventSource);
 
-import { WebSocketProvider, useWebSocketContext } from '../websocket';
+import { WebSocketProvider } from '../websocket';
+import { useWebSocketContext } from '../websocketHooks';
 
 let ctx: ReturnType<typeof useWebSocketContext> | null = null;
 
