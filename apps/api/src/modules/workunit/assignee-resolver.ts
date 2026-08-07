@@ -8,7 +8,7 @@
  * 此前各消费方自建 instance→profile map 且口径不一（metrics 缺 profile-id 直通，
  * 未认领指名 WU 静默归因为 null）。本模块收敛为：一次建 map + 双形态解析。
  *
- * 单 WU 变体见 agents/review-dispatcher.ts resolveProfileId（按 getProfile → getState
+ * 单 WU 变体见 agents/loop/review-dispatcher.ts resolveProfileId（按 getProfile → getState
  * 逐个查询，语义相同；如需单点解析可基于本模块包一层）。
  *
  * 零依赖叶子：仅 type 引用 studio-shared，禁止引入本模块外的运行时依赖（防循环）。

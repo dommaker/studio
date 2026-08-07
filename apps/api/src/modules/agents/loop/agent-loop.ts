@@ -12,19 +12,19 @@ import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommaker/studio-agent';
 import { LocalExecutor, type Executor } from './executor.js';
 import { RemoteExecutor, RemoteNodeUnreachableError } from './remote-executor.js';
-import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../workunit/workunit.service.js';
-import { checkDelegation, effectiveParentCollab, resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT, type CollabMeta } from '../workunit/delegation-gate.js';
+import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
+import { checkDelegation, effectiveParentCollab, resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT, type CollabMeta } from '../../workunit/delegation-gate.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
-import { getTriggerScheduler } from '../triggers/trigger-registry.js';
-import { knowledgeService } from '../knowledge/knowledge-service.js';
-import { loadManifest } from '../skills/manifest-loader.js';
-import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../skills/skill-selector.js';
-import { eventStore } from '../../core/event-store.js';
-import { postWuSystemMessage } from '../workunit/wu-messenger.js';
-import { parseWuMetadata, mergedWuView } from '../workunit/wu-metadata.js';
-import { resolveWorkspaceRoot } from '../workspaces/workspace-store.js';
-import { resolvePmoBranchForWU } from '../requirements/pmo-branch-resolver.js';
-import { resolveStudioLogFile } from '../../utils/studio-log-path.js';
+import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
+import { knowledgeService } from '../../knowledge/knowledge-service.js';
+import { loadManifest } from '../../skills/manifest-loader.js';
+import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../../skills/skill-selector.js';
+import { eventStore } from '../../../core/event-store.js';
+import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
+import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
+import { resolveWorkspaceRoot } from '../../workspaces/workspace-store.js';
+import { resolvePmoBranchForWU } from '../../requirements/pmo-branch-resolver.js';
+import { resolveStudioLogFile } from '../../../utils/studio-log-path.js';
 import {
   tokenBudgetGuardEnabled, resolveDailyTokenBudget, getDailyTokenUsage,
   notifyBudgetTripped,

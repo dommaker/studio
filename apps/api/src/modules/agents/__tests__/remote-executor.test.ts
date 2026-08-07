@@ -5,8 +5,8 @@
  * P2: WS 通道接通 — execute() 调 sendAgentTask，mock 验证 WS 调用路径。
  */
 import { describe, it, expect, vi } from 'vitest';
-import { RemoteExecutor, RemoteNodeUnreachableError } from '../remote-executor.js';
-import type { Executor } from '../executor.js';
+import { RemoteExecutor, RemoteNodeUnreachableError } from '../loop/remote-executor.js';
+import type { Executor } from '../loop/executor.js';
 
 // Mock sendAgentTask from ws-gateway
 vi.mock('../../workspaces/ws-gateway.js', () => ({

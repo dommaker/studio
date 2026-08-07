@@ -1,7 +1,7 @@
 // AgentLoop 类型契约（2026-08 工单 28 从 agent-loop.ts 原样抽出，行为不变）：
 // StepResult/Observations/Target/RuntimeInstanceRow/KnowledgeSearchAnalysis。
 // 纯类型模块，零运行时依赖；agent-loop.ts re-export 保持对外导出语义不变。
-import type { WorkUnitMetadata, WorkUnitData } from '../workunit/workunit.service.js';
+import type { WorkUnitMetadata, WorkUnitData } from '../../workunit/workunit.service.js';
 import type { ChannelMessageData } from '@dommaker/studio-shared';
 
 /** Result of analyzing agent log for knowledge search behavior */

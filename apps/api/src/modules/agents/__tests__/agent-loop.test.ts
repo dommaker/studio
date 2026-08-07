@@ -93,7 +93,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds, extractInputTokens, isProcessAlive, writeToolCallEvents, resolveToolTraceFile } from '../agent-loop';
+import { AgentLoop, analyzeKnowledgeSearch, extractKnowledgeEntryIds, extractInputTokens, isProcessAlive, writeToolCallEvents, resolveToolTraceFile } from '../loop/agent-loop';
 
 describe('AgentLoop', () => {
   let agentLoop: AgentLoop;

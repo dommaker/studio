@@ -26,8 +26,8 @@
 
 import { parseStreamEvents, parseStreamLine, extractToolCalls, extractUsage, logger, type StreamEvent } from '@dommaker/studio-shared';
 import { v4 as uuidv4 } from 'uuid';
-import { eventStore } from '../../core/event-store.js';
-import { writeStudioEvent } from '../../utils/studio-events.js';
+import { eventStore } from '../../../core/event-store.js';
+import { writeStudioEvent } from '../../../utils/studio-events.js';
 
 export const EXECUTION_STEP_EVENT_TYPE = 'workunit:execution_step';
 /** SSE 信封的 event_type（workunit. 前缀 → workunits topic） */

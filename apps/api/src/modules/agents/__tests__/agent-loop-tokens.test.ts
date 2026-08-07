@@ -11,7 +11,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { estimateTokens } from '@dommaker/studio-shared';
 
-import { writeWorkunitTokenEvent } from '../agent-loop.js';
+import { writeWorkunitTokenEvent } from '../loop/agent-loop.js';
 
 function withTmpFile(fn: (eventsFile: string) => Promise<void>): Promise<void> {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'workunit-tokens-'));

@@ -21,7 +21,7 @@
  */
 
 import { logger, FileStore } from '@dommaker/studio-shared';
-import { notifyAlert } from '../../utils/notifier.js';
+import { notifyAlert } from '../../../utils/notifier.js';
 
 /** 默认每日预算：2M token（billed 口径）——决策记录 #4 与用户确认的阈值 */
 export const DEFAULT_DAILY_TOKEN_BUDGET = 2_000_000;

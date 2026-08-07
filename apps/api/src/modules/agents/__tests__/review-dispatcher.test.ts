@@ -17,7 +17,7 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { FileStore, eventBus, stringifyChannels, type AgentProfileData } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
-import { ReviewDispatcher } from '../review-dispatcher.js';
+import { ReviewDispatcher } from '../loop/review-dispatcher.js';
 
 const { mockPostWuSystemMessage } = vi.hoisted(() => ({ mockPostWuSystemMessage: vi.fn() }));
 

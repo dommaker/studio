@@ -27,7 +27,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoop } from '../agent-loop';
+import { AgentLoop } from '../loop/agent-loop';
 import { eventStore } from '../../../core/event-store.js';
 
 const mockRole = {

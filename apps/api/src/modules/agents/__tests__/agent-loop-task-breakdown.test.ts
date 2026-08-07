@@ -2,7 +2,7 @@
  * parseTaskBreakdown 单测（PMO 分析接力：analysis WU 输出的 TASK: 行解析）
  */
 import { describe, it, expect } from 'vitest';
-import { parseTaskBreakdown } from '../agent-loop.js';
+import { parseTaskBreakdown } from '../loop/agent-loop.js';
 import { ANALYSIS_TASKS_MAX } from '../../workunit/workunit.service.js';
 
 describe('parseTaskBreakdown', () => {

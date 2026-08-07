@@ -10,7 +10,7 @@ import {
   hasUncommittedChanges,
   readHeadHash,
   type CompletionGuardDeps,
-} from '../completion-gates';
+} from '../loop/completion-gates';
 import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
 const COMMIT_HINT = '有未提交改动，请先 git add/commit 再报告完成';

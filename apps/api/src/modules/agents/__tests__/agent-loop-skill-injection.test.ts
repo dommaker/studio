@@ -83,7 +83,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
 import { FileStore, estimateTokens } from '@dommaker/studio-shared';
 
 // 动态 import：保证 process.env.SKILLS_DIR 赋值先于 manifest-loader 模块加载
-const { AgentLoop } = await import('../agent-loop');
+const { AgentLoop } = await import('../loop/agent-loop');
 const { invalidateManifestCache } = await import('../../skills/manifest-loader.js');
 
 /** 新注入契约的固定文本（与 agent-loop buildSkillSection 保持一致） */

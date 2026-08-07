@@ -11,7 +11,7 @@
  * Requires: running API server, valid ANTHROPIC_API_KEY, Claude CLI installed
  */
 const prisma = undefined as never; // @dommaker/studio-prisma removed (Spec 4 Phase 4)
-import { AgentLoop, parseAgentOutput, resolveTarget, dynamicInterval } from '../agent-loop.js';
+import { AgentLoop, parseAgentOutput, resolveTarget, dynamicInterval } from '../loop/agent-loop.js';
 import { agentRunner } from '@dommaker/studio-agent';
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import type { WorkUnit, AgentProfile, ChannelMessage } from '@prisma/client';
@@ -76,7 +76,7 @@ async function verifyAssumption2() {
     id: workUnitId,
     executionId: `${workUnitId}-step1`,
     agentType: 'claude',
-    prompt: 'You are a test agent. Read the file /root/projects/studio/apps/api/src/modules/agents/agent-loop.ts and tell me the first function name you see. Output ACTION: PROGRESS:<answer>',
+    prompt: 'You are a test agent. Read the file /root/projects/studio/apps/api/src/modules/agents/loop/agent-loop.ts and tell me the first function name you see. Output ACTION: PROGRESS:<answer>',
     parameters: {
       sessionFlags: `--session-id ${sessionId}`,
       agentRole: 'executor',

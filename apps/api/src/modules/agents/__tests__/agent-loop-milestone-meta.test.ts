@@ -38,7 +38,7 @@ vi.mock('../../requirements/pmo-branch-resolver', () => ({
   resolvePmoProjectIdForWU: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../wu-verification', () => ({
+vi.mock('../loop/wu-verification', () => ({
   CODE_WORKTREE_TYPES: new Set(['task', 'bug', 'feature', 'refactor']),
   runWuVerification: mockRunWuVerification,
 }));
@@ -47,7 +47,7 @@ vi.mock('../../workunit/wu-messenger', () => ({
   postWuSystemMessage: mockPostWuSystemMessage,
 }));
 
-import { AgentLoop } from '../agent-loop';
+import { AgentLoop } from '../loop/agent-loop';
 
 const mockRole = {
   id: 'role-ms',

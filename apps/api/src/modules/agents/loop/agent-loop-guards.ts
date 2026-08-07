@@ -1,7 +1,7 @@
 // AgentLoop 守卫函数区（2026-08 工单 28 从 agent-loop.ts 原样抽出，行为不变）：
 // B2 测试特征 WU 守卫（防测试数据空烧 token）+ F4 评审解锚 excludeAssignee 解析。
 // agent-loop.ts re-export 公开导出保持对外语义不变。
-import type { WorkUnitMetadata } from '../workunit/workunit.service.js';
+import type { WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
 /** B2（2026-08-03 token-burn issue P0-1c）：测试特征 scope 判定 ——
  *  scope 中出现独立单词 test/tests 即视为测试 WU（命中历史污染源 'tree-tokens test' / 'test' 等）。

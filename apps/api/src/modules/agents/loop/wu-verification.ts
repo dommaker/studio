@@ -10,8 +10,8 @@
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { execSh } from '@dommaker/studio-shared/node';
-import { getWorkspaceRecord } from '../workspaces/workspace-store.js';
-import type { WorkUnitData, WorkUnitMetadata } from '../workunit/workunit.service.js';
+import { getWorkspaceRecord } from '../../workspaces/workspace-store.js';
+import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 
 /** B3b-i: 代码类 WU（执行面强制专属 worktree 隔离） */
 export const CODE_WORKTREE_TYPES = new Set(['task', 'bug', 'feature', 'refactor']);

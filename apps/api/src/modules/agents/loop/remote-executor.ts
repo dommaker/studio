@@ -10,7 +10,7 @@
  */
 import type { AgentTask, ExecutionResult } from '@dommaker/studio-agent';
 import type { Executor } from './executor.js';
-import { sendAgentTask } from '../workspaces/ws-gateway.js';
+import { sendAgentTask } from '../../workspaces/ws-gateway.js';
 
 /** 节点不可达时抛出的错误 */
 export class RemoteNodeUnreachableError extends Error {

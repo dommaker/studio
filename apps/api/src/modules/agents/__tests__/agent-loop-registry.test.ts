@@ -74,7 +74,7 @@ vi.mock('../../knowledge/knowledge-service', () => ({
   },
 }));
 
-import { AgentLoopRegistry } from '../agent-loop-registry';
+import { AgentLoopRegistry } from '../loop/agent-loop-registry';
 
 function makeProfile(id: string, overrides: Partial<AgentProfileData> = {}): AgentProfileData {
   return {

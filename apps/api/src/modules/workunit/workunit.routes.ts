@@ -29,7 +29,7 @@ import { FileStore } from '@dommaker/studio-shared';
 import { WorkUnitService, type WorkUnitMetadata } from './workunit.service.js';
 import { parseWuMetadata } from './wu-metadata.js';
 import { aggregateTreeTokens } from '../agents/token-usage.service.js';
-import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/wu-verification.js';
+import { CODE_WORKTREE_TYPES, resolveVerifyCommands, runWuVerification } from '../agents/loop/wu-verification.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { getErrorMessage } from '../../utils/errors.js';
 import { parsePagination, formatPaginatedResponse } from '../../utils/pagination.js';
@@ -388,7 +388,7 @@ router.post('/:id/dispatch-review', requireAuth(), requireNotGuest(), async (req
       });
     }
     // 与 index.ts 启动时同款动态 import：避免路由模块加载时拉起整个 agents 模块图
-    const { getReviewDispatcher } = await import('../agents/review-dispatcher.js') as typeof import('../agents/review-dispatcher.js');
+    const { getReviewDispatcher } = await import('../agents/loop/review-dispatcher.js') as typeof import('../agents/loop/review-dispatcher.js');
     const child = await getReviewDispatcher().dispatchReviewNow(req.params.id);
     res.json({ reviewWorkUnitId: child.id });
   } catch (error) {

@@ -16,7 +16,7 @@
 import { execSync } from 'child_process';
 import { logger, withAttestation } from '@dommaker/studio-shared';
 import { CODE_WORKTREE_TYPES, runWuVerification, type WuVerifyOutcome } from './wu-verification.js';
-import type { WorkUnitData, WorkUnitMetadata } from '../workunit/workunit.service.js';
+import type { WorkUnitData, WorkUnitMetadata } from '../../workunit/workunit.service.js';
 import type { StepResult } from './agent-loop.js';
 
 /** §10.5 提交守卫：worktree 是否有未提交改动。

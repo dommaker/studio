@@ -5,7 +5,7 @@
 import { existsSync } from 'fs';
 import { join } from 'path';
 import * as os from 'os';
-import { ANALYSIS_TASKS_MAX, type WorkUnitData } from '../workunit/workunit.service.js';
+import { ANALYSIS_TASKS_MAX, type WorkUnitData } from '../../workunit/workunit.service.js';
 import type { ParsedReviewReport } from './review-contract.js';
 import type { StepResult, Observations, Target } from './agent-loop.types.js';
 

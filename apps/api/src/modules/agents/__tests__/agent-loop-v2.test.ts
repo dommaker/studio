@@ -27,7 +27,7 @@ let resolveTarget: (obs: {
 // Dynamic import to handle RED phase (module doesn't exist yet)
 beforeEach(async () => {
   try {
-    const mod = await import('../agent-loop.js');
+    const mod = await import('../loop/agent-loop.js');
     parseAgentOutput = mod.parseAgentOutput;
     dynamicInterval = mod.dynamicInterval;
     resolveTarget = mod.resolveTarget;

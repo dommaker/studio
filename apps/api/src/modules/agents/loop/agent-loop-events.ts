@@ -7,7 +7,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'fs';
 import { parseStreamEvents, extractToolCalls, parseSessionMetrics, FileStore } from '@dommaker/studio-shared';
 import type { ExecutionResult } from '@dommaker/studio-agent';
 import { noteTokensWritten } from './daily-token-budget.js';
-import { resolveStudioEventsFile } from '../../utils/studio-events.js';
+import { resolveStudioEventsFile } from '../../../utils/studio-events.js';
 
 /** 事件落盘共享 FileStore（appendJsonl 写入用；agent-loop 的 skill 注入度量同用此实例） */
 export const metricsFileStore = new FileStore();

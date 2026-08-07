@@ -74,7 +74,7 @@ const DEFAULT_SCOPE_REGISTRY: Record<string, ScopeConfig> = {
       'apps/api/src/modules/agents/auditor.service.ts',
       // R5: agent-event-listener.ts 已随 pipeline-removal 删除（fb13e2b）；
       // 会话→知识提取现由 agent-loop 触发（R3 extractFromConversation）。
-      'apps/api/src/modules/agents/agent-loop.ts',
+      'apps/api/src/modules/agents/loop/agent-loop.ts',
       // R5: packages/studio-shared/src/services/knowledge-*.ts 从未存在，已移除。
       'packages/studio-shared/src/types/resolution.ts',
       // R5: 原 ../../harness/src/... 三条已移除（npm 依赖，见上方说明）。

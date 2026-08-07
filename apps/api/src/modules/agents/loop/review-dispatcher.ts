@@ -21,10 +21,10 @@
  */
 
 import { eventBus, logger, parseChannels, deriveDisplayState, type FileStore, type AgentProfileData } from '@dommaker/studio-shared';
-import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../workunit/workunit.service.js';
-import { readCollab } from '../workunit/delegation-gate.js';
-import { postWuSystemMessage } from '../workunit/wu-messenger.js';
-import { parseWuMetadata, clearSessionBookkeeping } from '../workunit/wu-metadata.js';
+import { WorkUnitService, type WorkUnitData, type WorkUnitMetadata } from '../../workunit/workunit.service.js';
+import { readCollab } from '../../workunit/delegation-gate.js';
+import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
+import { parseWuMetadata, clearSessionBookkeeping } from '../../workunit/wu-metadata.js';
 import type { ParsedReviewReport } from './review-contract.js';
 
 export class ReviewDispatcher {
@@ -345,7 +345,7 @@ let _reviewDispatcher: ReviewDispatcher | null = null;
 export function getReviewDispatcher(): ReviewDispatcher {
   if (!_reviewDispatcher) {
     const { FileStore } = require('@dommaker/studio-shared') as typeof import('@dommaker/studio-shared');
-    const { WorkUnitService } = require('../workunit/workunit.service.js') as typeof import('../workunit/workunit.service.js');
+    const { WorkUnitService } = require('../../workunit/workunit.service.js') as typeof import('../../workunit/workunit.service.js');
     const fileStore = new FileStore();
     const workUnitService = new WorkUnitService(fileStore);
     _reviewDispatcher = new ReviewDispatcher(fileStore, workUnitService);
