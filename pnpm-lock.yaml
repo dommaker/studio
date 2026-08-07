@@ -69,12 +69,6 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
-      ajv:
-        specifier: ^8.18.0
-        version: 8.20.0
-      ajv-formats:
-        specifier: ^3.0.1
-        version: 3.0.1(ajv@8.20.0)
       bcryptjs:
         specifier: ^2.4.3
         version: 2.4.3
@@ -120,9 +114,6 @@ importers:
       ws:
         specifier: ^8.16.0
         version: 8.21.1
-      yaml:
-        specifier: ^2.4.0
-        version: 2.9.0
     devDependencies:
       '@types/bcryptjs':
         specifier: ^2.4.6
@@ -160,12 +151,6 @@ importers:
 
   apps/web:
     dependencies:
-      '@dommaker/harness':
-        specifier: ^0.16.6
-        version: 0.16.6
-      '@dommaker/studio-api':
-        specifier: workspace:*
-        version: link:../api
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../../packages/studio-shared
@@ -297,9 +282,6 @@ importers:
 
   packages/studio-audit:
     dependencies:
-      '@dommaker/harness':
-        specifier: ^0.16.6
-        version: 0.16.6
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -335,9 +317,6 @@ importers:
 
   packages/studio-notification:
     dependencies:
-      '@dommaker/harness':
-        specifier: ^0.16.6
-        version: 0.16.6
       '@dommaker/studio-shared':
         specifier: workspace:*
         version: link:../studio-shared
@@ -6264,7 +6243,8 @@ snapshots:
 
   yaml@2.3.0: {}
 
-  yaml@2.9.0: {}
+  yaml@2.9.0:
+    optional: true
 
   yocto-queue@0.1.0: {}
 
