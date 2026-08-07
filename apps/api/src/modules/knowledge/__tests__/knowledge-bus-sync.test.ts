@@ -30,6 +30,11 @@ function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnTyp
 }
 
 describe('scheduleVectorDbSync (B48-2E)', () => {
+  // flake 加固（工单 43-B1）：mock execFile 同步触发回调。原 process.nextTick
+  // 写法游离于假时钟外，依赖 advanceTimersByTimeAsync 内部 yield 与 nextTick
+  // 队列的交错时序，全量跑 CPU 竞争下 logger 计数断言偶发漂移；setTimeout(cb,0)
+  // 变体则撞上 sinon 边界语义——推进窗口内新建、到期点恰等于窗口终点的定时器
+  // 本轮不触发。同步回调使全部状态迁移发生在定时器触发栈内，完全确定。
   beforeEach(() => {
     vi.resetModules();
     vi.useFakeTimers();
@@ -72,9 +77,9 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     const loggerDebug = vi.fn();
     const loggerError = vi.fn();
     const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error, stdout: string, stderr: string) => void) => {
-      process.nextTick(() => cb(new Error('Command failed: systemd-run ...'),
+      cb(new Error('Command failed: systemd-run ...'),
         'Found 1905 file(s) to ingest.\nVectorStore initialized',
-        'EmbeddingError: ONNX runtime crashed — real reason at the TAIL'));
+        'EmbeddingError: ONNX runtime crashed — real reason at the TAIL');
       return { pid: 123 };
     });
     mockDeps(execFileMock, loggerWarn, loggerDebug, loggerError);
@@ -110,7 +115,7 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     const loggerWarn = vi.fn();
     const loggerDebug = vi.fn();
     const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error, stdout: string, stderr: string) => void) => {
-      process.nextTick(() => cb(new Error('Command failed: systemd-run ...'), '', ''));
+      cb(new Error('Command failed: systemd-run ...'), '', '');
       return { pid: 123 };
     });
     mockDeps(execFileMock, loggerWarn, loggerDebug);
@@ -134,9 +139,9 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error | null, stdout: string, stderr: string) => void) => {
       calls++;
       if (calls <= 2) {
-        process.nextTick(() => cb(new Error('Command failed'), 'Found 10 file(s)', 'boom'));
+        cb(new Error('Command failed'), 'Found 10 file(s)', 'boom');
       } else {
-        process.nextTick(() => cb(null, 'Succeeded: 2\nFailed: 0\nTotal chunks: 4', ''));
+        cb(null, 'Succeeded: 2\nFailed: 0\nTotal chunks: 4', '');
       }
       return { pid: 123 };
     });
@@ -162,15 +167,19 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
     vi.setSystemTime(0);
     const execFileMock = vi.fn().mockImplementation((_c: string, _a: string[], _o: unknown, cb: (err: Error, stdout: string, stderr: string) => void) => {
       callTimes.push(Date.now());
-      process.nextTick(() => cb(new Error('Command failed'), 'Found 10 file(s)', 'boom'));
+      cb(new Error('Command failed'), 'Found 10 file(s)', 'boom');
       return { pid: 123 };
     });
     mockDeps(execFileMock);
     const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
 
     scheduleVectorDbSync();
-    // 逐步推进：5s 防抖后第 1 次；之后 (backoff + 5s 防抖) 节奏
-    const steps = [5_000, 15_000, 25_000, 45_000, 85_000, 125_000, 125_000];
+    // 逐步推进：5s 防抖后第 1 次；之后 (backoff + 5s 防抖) 节奏。
+    // 第二步 +1ms：sinon 对"推进窗口内新建、到期点恰等于窗口终点"的定时器本轮
+    // 不触发（留到下一轮）；第 2 次执行到期点 20s 恰等于原窗口终点会漏触发，
+    // 导致后续断言少一次调用。垫 1ms 后各执行到期点均严格小于窗口终点，
+    // 到期点本身（Date.now 口径）不变，gap 断言不受影响。
+    const steps = [5_000, 15_001, 25_000, 45_000, 85_000, 125_000, 125_000];
     for (const s of steps) {
       await vi.advanceTimersByTimeAsync(s);
     }
