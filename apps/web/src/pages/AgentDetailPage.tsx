@@ -8,6 +8,7 @@ import { monitoringApi, type AgentInfo, type AgentCurrentWorkUnit } from '../api
 import { channelApi, type AgentProfile } from '../api/channel';
 import { workunitApi, type WorkUnit } from '../api/workunit';
 import { ExecutionSteps } from '../components/workunit/ExecutionSteps';
+import { ConfirmDialog } from '../components/ui';
 import { useWorkUnitEvents } from '../hooks/useWorkUnitEvents';
 import {
   deriveAgentStatus,
@@ -27,6 +28,8 @@ export function AgentDetailPage() {
   const [channelName, setChannelName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // 强制停止二次确认（ui/ConfirmDialog，替代原生 window.confirm）
+  const [confirmTerminate, setConfirmTerminate] = useState(false);
 
   const load = useCallback(async (silent = false) => {
     if (!profileId) return;
@@ -89,8 +92,8 @@ export function AgentDetailPage() {
   useWorkUnitEvents(useCallback(() => { void load(true); }, [load]));
 
   const handleTerminate = async () => {
+    setConfirmTerminate(false);
     if (!instance) return;
-    if (!window.confirm('强制停止会将当前任务转人工处理，确认？')) return;
     try {
       await monitoringApi.terminateInstance(instance.id);
       await load(true);
@@ -139,7 +142,7 @@ export function AgentDetailPage() {
             {instance && instance.status !== 'terminated' && (
               <button
                 className="text-xs px-2 py-1 rounded u-err-dim u-err u-hover-bg"
-                onClick={handleTerminate}
+                onClick={() => setConfirmTerminate(true)}
               >
                 强制停止
               </button>
@@ -246,6 +249,16 @@ export function AgentDetailPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmTerminate}
+        title="强制停止"
+        message="强制停止会将当前任务转人工处理，确认？"
+        confirmLabel="确认停止"
+        danger
+        onConfirm={() => void handleTerminate()}
+        onCancel={() => setConfirmTerminate(false)}
+      />
     </div>
   );
 }

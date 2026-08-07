@@ -1,5 +1,6 @@
 // 隐形认证 — 仅通过手势触发（双击 ⚡ 或 Ctrl+Enter）
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
 import { authApi } from '../api';
 
@@ -13,6 +14,7 @@ export function AuthModal({ onClose }: Props) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const login = useAuthStore((s) => s.login);
+  const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -21,7 +23,8 @@ export function AuthModal({ onClose }: Props) {
     setError('');
     try {
       const ok = await login(email.trim(), password);
-      if (ok) window.location.href = '/channels';
+      // SPA 导航（替代整页刷新）；token 由 authStore 持久化，axios 拦截器逐请求读取
+      if (ok) navigate('/channels');
       else setError('密码错误');
     } catch {
       setError('密码错误');
@@ -31,6 +34,7 @@ export function AuthModal({ onClose }: Props) {
   };
 
   const handleOAuth = (provider: 'google' | 'github') => {
+    // 必要的外部跳转：OAuth 提供方授权页在站外，必须整页离开 SPA
     window.location.href = authApi.getOAuthUrl(provider);
   };
 

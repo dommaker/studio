@@ -5,6 +5,7 @@
  */
 
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 
 interface PmoNumberBadgeProps {
   pmoNumber: string;  // PM-001
@@ -56,9 +57,10 @@ export function PmoNumberLink({
   status,
   projectId,
 }: PmoNumberBadgeProps & { projectId?: string }) {
+  const navigate = useNavigate();
   const handleClick = () => {
     if (projectId) {
-      window.location.href = `/project/${projectId}`;
+      navigate(`/project/${projectId}`);
     }
   };
 

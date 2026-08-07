@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAgentRoster, type RosterRole, type RosterActivityItem } from '../hooks/useAgentRoster';
 import { type WorkUnit } from '../api/workunit';
+import { ConfirmDialog } from '../components/ui';
 import {
   deriveAgentStatus,
   AGENT_STATUS_LABELS,
@@ -16,10 +17,13 @@ import {
 export function AgentDashboardPage() {
   const navigate = useNavigate();
   const { roles, activities, lastDone, channelNames, loading, error, terminate } = useAgentRoster();
+  // 强制停止二次确认（ui/ConfirmDialog，替代原生 window.confirm）
+  const [terminateTarget, setTerminateTarget] = useState<string | null>(null);
 
-  const handleTerminate = async (instanceId: string) => {
-    if (!window.confirm('强制停止会将当前任务转人工处理，确认？')) return;
-    await terminate(instanceId);
+  const handleConfirmTerminate = () => {
+    const id = terminateTarget;
+    setTerminateTarget(null);
+    if (id) void terminate(id);
   };
 
   const stats = {
@@ -76,13 +80,23 @@ export function AgentDashboardPage() {
                   activities={activities[r.profile.id] ?? []}
                   lastDone={lastDone[r.profile.id] ?? null}
                   channelNames={channelNames}
-                  onTerminate={handleTerminate}
+                  onTerminate={setTerminateTarget}
                 />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={terminateTarget != null}
+        title="强制停止"
+        message="强制停止会将当前任务转人工处理，确认？"
+        confirmLabel="确认停止"
+        danger
+        onConfirm={handleConfirmTerminate}
+        onCancel={() => setTerminateTarget(null)}
+      />
     </div>
   );
 }

@@ -6,7 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { useChannelList, type ChannelListItem } from '../hooks/useChannelList';
 import { monitoringApi, type AgentSummary } from '../api/monitoring';
 import { agentDotClass } from '../components/channel/ChannelRail';
-import { Select } from '../components/ui';
+import { Select, ConfirmDialog } from '../components/ui';
 
 const TYPE_LABELS: Record<string, string> = {
   rnd: '研发',
@@ -21,6 +21,8 @@ export function ChannelListPage() {
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('rnd');
   const [newAgents, setNewAgents] = useState(''); // comma-separated agent names
+  // 创建失败提示（ui/ConfirmDialog 单按钮 alert 模式，替代原生 alert）
+  const [createError, setCreateError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   // B2-010: 默认展开 #研发
@@ -52,7 +54,7 @@ export function ChannelListPage() {
       setNewAgents('');
       navigate(`/channels/${ch.id}`);
     } catch (err: any) {
-      alert(err?.response?.data?.error || 'Failed to create channel');
+      setCreateError(err?.response?.data?.error || 'Failed to create channel');
     }
   };
 
@@ -155,6 +157,16 @@ export function ChannelListPage() {
           </div>
         ))}
       </div>
+
+      <ConfirmDialog
+        open={createError != null}
+        title="创建频道失败"
+        message={createError ?? ''}
+        confirmLabel="知道了"
+        cancelLabel={null}
+        onConfirm={() => setCreateError(null)}
+        onCancel={() => setCreateError(null)}
+      />
     </div>
   );
 }

@@ -152,15 +152,24 @@ describe('AgentDashboardPage', () => {
     expect(await screen.findByText('未启动')).toBeDefined();
   });
 
-  it('强制停止：新确认文案，确认后调 terminate 接口', async () => {
-    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('强制停止：ConfirmDialog 二次确认，确认后调 terminate 接口', async () => {
     mockApis();
     render(<AgentDashboardPage />);
-    const btn = await screen.findByText('强制停止');
-    fireEvent.click(btn);
-    expect(confirmSpy).toHaveBeenCalledWith('强制停止会将当前任务转人工处理，确认？');
+    fireEvent.click(await screen.findByText('强制停止'));
+    // 弹窗文案；未确认前不调接口
+    expect(await screen.findByText('强制停止会将当前任务转人工处理，确认？')).toBeDefined();
+    expect(mockTerminateInstance).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '确认停止' }));
     await waitFor(() => expect(mockTerminateInstance).toHaveBeenCalledWith('i1'));
-    confirmSpy.mockRestore();
+  });
+
+  it('强制停止：取消则不调 terminate 接口', async () => {
+    mockApis();
+    render(<AgentDashboardPage />);
+    fireEvent.click(await screen.findByText('强制停止'));
+    fireEvent.click(await screen.findByRole('button', { name: '取消' }));
+    expect(mockTerminateInstance).not.toHaveBeenCalled();
+    expect(screen.queryByText('强制停止会将当前任务转人工处理，确认？')).toBeNull();
   });
 
   it('SSE agent.instance.status_changed：更新卡片并增量补查 WU 详情', async () => {
