@@ -40,11 +40,22 @@ vi.mock('node:os', async (importOriginal) => {
 const jsonlDir = path.join(tempDir, '.studio', 'logs');
 const jsonlPath = path.join(jsonlDir, 'audit.jsonl');
 
+// FileStore.readJsonl 是模块级读穿缓存，用 stat 的 mtimeMs 校验新鲜度
+// （packages/studio-shared/src/file-store.ts）。本测试用裸 fs 写 fixture、
+// 裸 rm 清理，绕过 FileStore 的写失效逻辑；而「删除 + 同毫秒重建」会得到
+// 与缓存一致的 mtimeMs，导致 readJsonl 返回上一个用例缓存的脏数据
+// （getStats 偶发 `expected 1 to be 5` 的根因：命中 getById 用例缓存的 1 行）。
+// 这里强制 fixture 文件 mtime 单调递增（取过去时间点，不影响按 createdAt 的断言），
+// 保证每次写入的 mtimeMs 都不同于任何已缓存值，缓存必然未命中、重读磁盘。
+let fixtureMtimeSeq = 0;
+
 /** 写预填充行到 audit.jsonl */
 function writeFixture(rows: Record<string, unknown>[]): void {
   fs.mkdirSync(jsonlDir, { recursive: true });
   const content = rows.map(r => JSON.stringify(r)).join('\n') + '\n';
   fs.writeFileSync(jsonlPath, content, 'utf-8');
+  const mtime = new Date(1700000000000 + ++fixtureMtimeSeq * 1000);
+  fs.utimesSync(jsonlPath, mtime, mtime);
 }
 
 /** 解析 audit.jsonl 所有行 */
