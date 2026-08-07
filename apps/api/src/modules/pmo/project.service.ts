@@ -5,7 +5,7 @@
  * Spec 3: 迁移到 FileStore (~/.studio/projects/{id}.json)
  */
 
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { channelMessageService } from '../channels/channel-message.service.js';
 import { WorkUnitService } from '../workunit/workunit.service.js';
@@ -137,10 +137,6 @@ function projectPath(projectId: string): string {
   return path.join(PROJECTS_DIR, `${projectId}.json`);
 }
 
-function generateId(): string {
-  return `proj_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-}
-
 async function readAllProjects(): Promise<ProjectData[]> {
   try {
     const dirents = await fs.promises.readdir(PROJECTS_DIR, { withFileTypes: true });
@@ -238,7 +234,7 @@ export function parsePmoNumberFromCommand(command: string): {
 export const projectService = {
   async create(input: CreateProjectInput) {
     const pmoNumber = await generatePmoNumber();
-    const id = generateId();
+    const id = generateId('proj');
     const now = new Date().toISOString();
     // 决策 4：REQ 别名与 PMO 同号（REQ-0042 ↔ PMO-42）；决策 3/§4.5：分支名 = PMO id
     const seq = parsePmoSeq(pmoNumber);

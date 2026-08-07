@@ -9,7 +9,7 @@
  * 知识成熟度：draft → verified → proven → archived (与 harness 对齐)
  */
 
-import { logger, FileStore } from '@dommaker/studio-shared';
+import { logger, FileStore, generateId } from '@dommaker/studio-shared';
 import { getSystemExecutor } from '../agents/system-executor.js';
 import * as os from 'os';
 import * as path from 'path';
@@ -128,7 +128,7 @@ export class KnowledgeEvolutionService {
           });
         } else {
           // 创建新条目
-          const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          const docId = generateId('doc');
           const now = new Date().toISOString();
           const doc: DocRecord = {
             id: docId, projectId, companyId,
@@ -208,7 +208,7 @@ export class KnowledgeEvolutionService {
             // Gap 2: 写入结果
             const proj = await fileStore.readJson<any>(path.join(PROJECTS_DIR, `${projectId}.json`));
             if (proj?.companyId) {
-              const docId2 = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+              const docId2 = generateId('doc');
               const now2 = new Date().toISOString();
               const doc2: DocRecord = {
                 id: docId2, projectId, companyId: proj.companyId,
@@ -295,7 +295,7 @@ export class KnowledgeEvolutionService {
                 .filter(d => d.projectId === sourceProject.project.id && d.type === (missingType as any) && d.status === 'active')
                 .sort((a: DocRecord, b: DocRecord) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())[0] || null;
               if (sourceDoc) {
-                const did = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+                const did = generateId('doc');
                 const dn = new Date().toISOString();
                 const md: DocRecord = {
                   id: did, projectId: ps.project.id, companyId,

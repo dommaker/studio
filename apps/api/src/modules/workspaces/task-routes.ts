@@ -12,7 +12,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireAdmin } from '../../middleware/auth.js';
 import * as path from 'node:path';
@@ -116,7 +116,7 @@ router.post('/:id/tasks', requireAuth(), requireAdmin(), async (req: Request, re
 
     const now = new Date().toISOString();
     const task = {
-      id: `t_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: generateId('t'),
       workspaceId,
       path: taskPath,
       prompt,
@@ -217,7 +217,7 @@ router.post('/:id/tasks/:taskId/cancel', requireAuth(), requireAdmin(), async (r
 
     // Emit cancel event
     await appendEvent(workspaceId, {
-      id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: generateId('evt'),
       workspaceId,
       taskId,
       type: 'done',

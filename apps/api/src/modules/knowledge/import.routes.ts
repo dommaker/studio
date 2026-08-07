@@ -9,7 +9,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, generateId } from '@dommaker/studio-shared';
 import * as fs from 'fs';
 import * as path from "path";
 import * as os from "os";
@@ -276,7 +276,7 @@ knowledgeImportRoutes.post('/execute', requireAuth(), requireNotGuest(), async (
         const tags = file.tags || inferTags(fileName, resolvedPath);
 
         // Create document via FileStore
-        const docId = `doc_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+        const docId = generateId('doc');
         const now = new Date().toISOString();
         const doc = {
           id: docId,

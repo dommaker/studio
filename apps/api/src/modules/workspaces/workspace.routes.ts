@@ -11,7 +11,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { requireAuth, requireAdmin, workspaceAuth, AuthRequest } from '../../middleware/auth.js';
 import discoverProxyRouter from './discover-proxy.js';
@@ -153,7 +153,7 @@ router.post('/register', workspaceAuth(), async (req: Request, res: Response) =>
         if (!repo.path || !repo.name) continue;
         const idx = wsrepos.findIndex((r: any) => r.path === repo.path);
         const repoData = {
-          id: idx >= 0 ? wsrepos[idx].id : `wr_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+          id: idx >= 0 ? wsrepos[idx].id : generateId('wr'),
           path: repo.path,
           name: repo.name,
           category: repo.category || null,

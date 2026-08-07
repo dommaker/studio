@@ -15,7 +15,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
 import { logger } from '../../utils/logger.js';
 import { workspaceAuth, AuthRequest, requireAuth, requireAdmin } from '../../middleware/auth.js';
 import * as path from 'node:path';
@@ -134,7 +134,7 @@ router.post('/tasks/:id/messages', workspaceAuth(), async (req: Request, res: Re
 
     // Batch append events
     const events = messages.map((msg: { seq?: number; type: string; content: string; tool?: string; input?: string }) => ({
-      id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: generateId('evt'),
       workspaceId: workspace.id,
       taskId: id,
       type: msg.type,
@@ -201,7 +201,7 @@ router.post('/tasks/:id/complete', workspaceAuth(), async (req: Request, res: Re
 
     // Emit done event
     await appendEvent(workspace.id, {
-      id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: generateId('evt'),
       workspaceId: workspace.id,
       taskId: id,
       type: 'done',
@@ -261,7 +261,7 @@ router.post('/tasks/:id/fail', workspaceAuth(), async (req: Request, res: Respon
 
     // Emit error event
     await appendEvent(workspace.id, {
-      id: `evt_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`,
+      id: generateId('evt'),
       workspaceId: workspace.id,
       taskId: id,
       type: 'error',

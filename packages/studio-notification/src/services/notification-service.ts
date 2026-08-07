@@ -2,7 +2,7 @@
  * 通知服务
  */
 
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import * as path from 'node:path';
 import * as os from 'node:os';
 
@@ -182,7 +182,7 @@ export class NotificationService {
    * 生成 ID
    */
   private generateId(): string {
-    return `notif_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return sharedGenerateId('notif');
   }
 }
 

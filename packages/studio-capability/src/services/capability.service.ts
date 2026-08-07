@@ -7,7 +7,7 @@
  * 每个能力存储为 ~/.studio/capabilities/{name}.json
  */
 
-import { FileStore, logger } from '@dommaker/studio-shared';
+import { FileStore, logger, generateId as sharedGenerateId } from '@dommaker/studio-shared';
 import { getRegistryPath } from '@dommaker/harness';
 import * as fs from 'fs';
 import * as path from 'node:path';
@@ -76,7 +76,7 @@ export class CapabilityService {
 
   /** 生成唯一 ID */
   private generateId(): string {
-    return `cap_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    return sharedGenerateId('cap');
   }
 
   /** 扫描 capabilities 目录，读取所有能力文件 */

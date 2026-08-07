@@ -13,7 +13,7 @@
  * 每次启动 + GET /workspaces/runtimes 时重扫，保证前端可见、新鲜。
  */
 
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, generateId } from '@dommaker/studio-shared';
 import { resolveVpsWorkspace, resolveWorkspacesDir } from '@dommaker/studio-shared/node';
 import { logger } from '../../utils/logger.js';
 import * as path from 'node:path';
@@ -55,7 +55,7 @@ export async function ensureLocalWorkspace(): Promise<string> {
     || process.cwd();
 
   // Create local workspace (no token) — FileStore
-  const id = `ws_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  const id = generateId('ws');
   const now = new Date().toISOString();
   const workspace = {
     id,
