@@ -168,7 +168,7 @@ export async function executeLightweightSession(state: RunnerExecutionState, tas
         rawOutput: stdout, // R2: 原始 stream-json，供 agent-loop 提取 tool:call 事件
         usage: streamUsage, // M2: 透出 CLI usage，供 agent-loop 记录 workunit:tokens
       };
-    } catch (execErr: any) {
+    } catch (execErr) {
       const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
       const stdoutText = execErr?.stdout?.toString().slice(0, 2000) || '';
       const stderrText = execErr?.stderr?.toString().slice(0, 500) || '';

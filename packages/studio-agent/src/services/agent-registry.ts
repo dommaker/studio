@@ -18,6 +18,22 @@ interface CacheStore {
 const ajv = new Ajv({ allErrors: true, useDefaults: true });
 addFormats(ajv);
 
+/**
+ * agents-registry JSON 文件的磁盘形态：日期字段读入时是 ISO 字符串
+ * （scanAgents/get 读入后就地转成 Date）；tags 兼容历史遗留的序列化字符串形态。
+ */
+type StoredAgentJson = Omit<AgentMetadata, 'createdAt' | 'updatedAt' | 'tags'> & {
+  tags?: string[] | string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+};
+
+/** 读入并完成日期转换后的内存形态 */
+type StoredAgent = Omit<StoredAgentJson, 'createdAt' | 'updatedAt'> & {
+  createdAt: Date;
+  updatedAt: Date;
+};
+
 export class AgentRegistry {
   private fileStore: FileStore;
   private store: CacheStore;
@@ -34,12 +50,12 @@ export class AgentRegistry {
     return path.join(this.agentsDir, `${id}_${version}.json`);
   }
 
-  private async scanAgents(filter?: { category?: string; tags?: string[] }): Promise<any[]> {
+  private async scanAgents(filter?: { category?: string; tags?: string[] }): Promise<StoredAgent[]> {
     const files = await fs.promises.readdir(this.agentsDir).catch(() => [] as string[]);
-    const agents: any[] = [];
+    const agents: StoredAgent[] = [];
     for (const f of files) {
       if (!f.endsWith('.json')) continue;
-      const data = await this.fileStore.readJson<any>(path.join(this.agentsDir, f));
+      const data = await this.fileStore.readJson<StoredAgentJson>(path.join(this.agentsDir, f));
       if (data) {
         if (typeof data.createdAt === 'string') data.createdAt = new Date(data.createdAt);
         if (typeof data.updatedAt === 'string') data.updatedAt = new Date(data.updatedAt);
@@ -48,7 +64,7 @@ export class AgentRegistry {
           const agentTags: string[] = typeof data.tags === 'string' ? JSON.parse(data.tags) : (data.tags || []);
           if (!filter.tags.some((t: string) => agentTags.includes(t))) continue;
         }
-        agents.push(data);
+        agents.push(data as StoredAgent);
       }
     }
     return agents;
@@ -63,7 +79,7 @@ export class AgentRegistry {
 
     // 检查是否已存在
     const existingPath = this.agentPath(metadata.id, metadata.version);
-    const existing = await this.fileStore.readJson<any>(existingPath);
+    const existing = await this.fileStore.readJson<unknown>(existingPath);
     if (existing) {
       throw new Error(`Agent ${metadata.id} version ${metadata.version} already exists`);
     }
@@ -141,15 +157,15 @@ export class AgentRegistry {
       return JSON.parse(cached);
     }
 
-    let agent: any = null;
+    let agent: StoredAgent | null = null;
 
     if (version) {
       // 精确版本查找
-      const data = await this.fileStore.readJson<any>(this.agentPath(id, version));
+      const data = await this.fileStore.readJson<StoredAgentJson>(this.agentPath(id, version));
       if (data) {
         if (typeof data.createdAt === 'string') data.createdAt = new Date(data.createdAt);
         if (typeof data.updatedAt === 'string') data.updatedAt = new Date(data.updatedAt);
-        agent = data;
+        agent = data as StoredAgent;
       }
     } else {
       // 查找最新版本
@@ -182,7 +198,7 @@ export class AgentRegistry {
     updates: Partial<AgentMetadata>
   ): Promise<AgentMetadata> {
     const filePath = this.agentPath(id, version);
-    const agent = await this.fileStore.readJson<any>(filePath);
+    const agent = await this.fileStore.readJson<StoredAgentJson>(filePath);
 
     if (!agent) {
       throw new Error(`Agent ${id} version ${version} not found`);
@@ -269,7 +285,7 @@ export class AgentRegistry {
   /**
    * 转换为 AgentMetadata
    */
-  private toMetadata(agent: any): AgentMetadata {
+  private toMetadata(agent: StoredAgent): AgentMetadata {
     return {
       id: agent.id,
       name: agent.name,
@@ -277,7 +293,8 @@ export class AgentRegistry {
       description: agent.description || undefined,
       category: agent.category,
       icon: agent.icon || undefined,
-      tags: agent.tags || undefined,
+      // 历史数据 tags 可能是序列化字符串（见 StoredAgentJson），此处原样透传不改运行时行为
+      tags: (agent.tags || undefined) as string[] | undefined,
       inputSchema: agent.inputSchema,
       outputSchema: agent.outputSchema,
       configSchema: agent.configSchema,

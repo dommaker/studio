@@ -48,6 +48,36 @@ export interface AgentTask {
   nodeId?: string;
 }
 
+// ─── Analyst 产出上下文（经 task.parameters 传入 executor） ───
+
+/** AC 分组（task.parameters.acGroup，Analyst 需求拆分产物） */
+export interface AcGroup {
+  acs?: string[];
+  files?: string[];
+  implementationNotes?: string;
+  codePatterns?: string[];
+  gotchas?: string[];
+  architectureContext?: AcArchitectureContext;
+}
+
+/** AcGroup 附带的架构上下文（Analyst 已探索验证的代码位置与签名） */
+export interface AcArchitectureContext {
+  functions?: string[];
+  callChain?: string;
+  imports?: string[];
+  typesInScope?: string[];
+  dangerZones?: string[];
+  testMock?: string[];
+  verifiedAt?: string;
+}
+
+/** Analyst 探索产出的上下文（task.parameters.analystContext） */
+export interface AnalystContext {
+  verifiedFiles?: string[];
+  architectureContext?: string;
+  gotchas?: string[];
+}
+
 // ─── 执行结果 ───
 
 export interface ExecutionResult {

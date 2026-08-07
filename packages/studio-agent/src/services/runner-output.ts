@@ -193,26 +193,37 @@ export function hasRecentActivity(worktreePath: string, thresholdMs = 3 * 60 * 1
  * RKB: query known resolutions for a session error message.
  * 返回可注入下一轮 prompt 的 resolutionHint；无匹配或查询失败返回 ''（调用方保留旧值）。
  */
+
+/** RKB 知识条目（~/.studio/knowledge/resolution-* 文档的 meta 摘要） */
+interface ResolutionEntry {
+  id: string;
+  pattern: string;
+  title: string;
+  fix: string;
+  verifyCount: number;
+  status: unknown;
+}
+
 export async function queryResolutionHints(errMsg: string): Promise<string> {
   try {
     const knowledgeDir = path.join(os.homedir(), '.studio', 'knowledge');
     const allKeys = await fileStore.listDocs(knowledgeDir);
     const resKeys = allKeys.filter((k: string) => k.startsWith('resolution-'));
-    const resolutions: any[] = [];
+    const resolutions: ResolutionEntry[] = [];
     for (const key of resKeys) {
       const doc = await fileStore.readDoc(knowledgeDir, key);
       if (doc && (doc.meta.maturity === 'verified' || doc.meta.maturity === 'canonical')) {
         resolutions.push({
           id: key.replace('resolution-', ''),
-          pattern: doc.meta.pattern || '',
-          title: doc.meta.title || '',
+          pattern: (doc.meta.pattern || '') as string,
+          title: (doc.meta.title || '') as string,
           fix: (doc.body || '').replace(/^#.*\n/, '').replace(/^## Solution\n/, '').trim(),
-          verifyCount: doc.meta.verifyCount || 0,
+          verifyCount: (doc.meta.verifyCount || 0) as number,
           status: doc.meta.maturity,
         });
       }
     }
-    resolutions.sort((a: any, b: any) => (b.verifyCount || 0) - (a.verifyCount || 0));
+    resolutions.sort((a, b) => (b.verifyCount || 0) - (a.verifyCount || 0));
     const matched: string[] = [];
     const lowerMsg = errMsg.toLowerCase();
     for (const r of resolutions) {

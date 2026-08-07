@@ -16,8 +16,7 @@ vi.mock('@prisma/client', () => {
 import { gateCheckerService } from './gate-checker.service.js';
 import { changeHistoryService } from './change-history.service.js';
 import { isHarnessCheck } from '../types/gate.types.js';
-import type { SpecContent } from '../types/gate.types.js';
-import type { ChangeRecord } from '../types/change.types.js';
+import type { SpecContent, ChangeRecord } from '../types/change.types.js';
 
 describe('GateCheckerService', () => {
   beforeEach(() => {
@@ -25,7 +24,7 @@ describe('GateCheckerService', () => {
   });
 
   // Helper: 构造并保存 ChangeRecord
-  function saveChange(overrides: Partial<ChangeRecord> & { specId: string; newVersion: any }): ChangeRecord {
+  function saveChange(overrides: Partial<ChangeRecord> & { specId: string; newVersion: SpecContent }): ChangeRecord {
     const record: ChangeRecord = {
       // 默认值
       level: 'L3',
@@ -106,7 +105,7 @@ describe('GateCheckerService', () => {
 
     const submitResult = saveChange({
       specId: 'spec-gate-fail',
-      newVersion: badSpec as any,
+      newVersion: badSpec,
       level: 'L3',
     });
 
@@ -146,7 +145,7 @@ describe('GateCheckerService', () => {
 
     const submitResult = saveChange({
       specId: 'spec-gate-pass',
-      newVersion: goodSpec as any,
+      newVersion: goodSpec,
       level: 'L3',
     });
 
@@ -171,7 +170,7 @@ describe('GateCheckerService', () => {
 
     const submitResult = saveChange({
       specId: 'spec-custom-check',
-      newVersion: spec as any,
+      newVersion: spec,
       level: 'L3',
     });
 
@@ -193,7 +192,7 @@ describe('GateCheckerService', () => {
 
     const submitResult = saveChange({
       specId: 'spec-strict',
-      newVersion: spec as any,
+      newVersion: spec,
       level: 'L3',
     });
 
@@ -219,7 +218,7 @@ describe('GateCheckerService', () => {
 
     const submitResult = saveChange({
       specId: 'spec-l2-harness',
-      newVersion: spec as any,
+      newVersion: spec,
       level: 'L1',
     });
 

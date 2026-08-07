@@ -68,12 +68,12 @@ export async function createWorktree(worktree: string, baseBranch: string, repoD
       `git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`,
       { cwd: repoDir, timeoutMs: 30_000 },
     );
-  } catch (e: any) {
+  } catch (e) {
     if (e.message?.includes("already exists")) {
       try {
         await execSh(`git branch -D "${resolvedBranch}" 2>/dev/null || true`, { cwd: repoDir, timeoutMs: 5_000 });
         await execSh(`git worktree add -b "${resolvedBranch}" "${worktree}" "${baseBranch}"`, { cwd: repoDir, timeoutMs: 30_000 });
-      } catch (e2: any) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
+      } catch (e2) { throw new Error(`Worktree creation failed after cleanup: ${e2.message}`); }
     } else { throw e; }
   }
   logger.info('[WorktreeResolver] Git worktree created', { worktree, branch: branchName, base: baseBranch, repo: repoDir });

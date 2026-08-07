@@ -17,7 +17,7 @@ import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import { logger } from '@dommaker/studio-shared';
 
-import type { AgentTask } from './types.js';
+import type { AgentTask, AcGroup } from './types.js';
 
 /**
  * Build shared cache prefix — byte-identical across all worktrees
@@ -61,7 +61,7 @@ export function buildCachePrefix(repoDir: string): string {
 export async function writeRequirementsMd(
   worktree: string,
   task: AgentTask,
-  acGroup?: Record<string, any>,
+  acGroup?: AcGroup,
   testFiles?: string[],
 ): Promise<void> {
   const acs: string[] = acGroup?.acs || [];
@@ -69,7 +69,7 @@ export async function writeRequirementsMd(
   const notes: string = acGroup?.implementationNotes || '';
   const patterns: string[] = acGroup?.codePatterns || [];
   const gotchas: string[] = acGroup?.gotchas || [];
-  const archCtx = acGroup?.architectureContext as Record<string, any> | undefined;
+  const archCtx = acGroup?.architectureContext;
 
   const isSimple = files.length <= 1 && acs.length <= 3 && gotchas.length <= 2;
 

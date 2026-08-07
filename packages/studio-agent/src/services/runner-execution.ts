@@ -44,7 +44,7 @@ import {
 } from './runner-params.js';
 import { hasRecentActivity, queryResolutionHints, processSessionOutput } from './runner-output.js';
 
-import type { ExecutorConfig, AgentTask, ExecutionResult } from './types.js';
+import type { ExecutorConfig, AgentTask, ExecutionResult, AcGroup } from './types.js';
 
 /** 执行所需的实例状态（由 AgentRunner 门面传入，避免模块反向依赖类）。 */
 export interface RunnerExecutionState {
@@ -122,7 +122,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
     const testFiles = sddTaskData.testFiles;
 
     // Write REQUIREMENTS.md (with testFiles for GREEN phase verification)
-    const acGroup = task.parameters?.acGroup as Record<string, any> | undefined;
+    const acGroup = task.parameters?.acGroup as AcGroup | undefined;
     await writeRequirementsMd(worktree, task, acGroup, testFiles);
 
     // Write contract tests (RED phase)
@@ -286,7 +286,7 @@ export async function executeSessionLoop(state: RunnerExecutionState, task: Agen
         if (isError) {
           logger.warn('[AgentRunner] Claude Code returned error', { taskId: task.id, executionId: task.executionId, session: sessionCount, text: text.slice(0, 200) });
         }
-      } catch (execErr: any) {
+      } catch (execErr) {
         const errMsg = execErr instanceof Error ? execErr.message : String(execErr);
         const errStack = execErr instanceof Error ? execErr.stack?.slice(0, 2000) : undefined;
         // 2>&1 重定向 stderr→stdout，stderr 为空；实际错误信息在 stdout
