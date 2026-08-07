@@ -1,7 +1,7 @@
 # 39 — i18n 层移除（G）
 
 Type: task
-Status: open
+Status: claimed
 Labels: enhancement, ready-for-agent
 Blocked by: 33, 34, 35, 36, 37, 38
 
