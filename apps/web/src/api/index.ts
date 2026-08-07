@@ -138,7 +138,7 @@ export const agentApi = {
 // Workflow Runtime API（已迁移到本地模块，Workflow CRUD 已删除）
 export const runtimeWorkflowApi = {
   get: (id: string) => api.get(`/workflows/${id}`),
-  execute: (workflowId: string, inputs: Record<string, any>, options?: any) =>
+  execute: (workflowId: string, inputs: Record<string, unknown>, options?: Record<string, unknown>) =>
     api.post('/executions', { workflowId, parameters: { inputs, ...options } }),
   getStatus: (executionId: string) => api.get(`/executions/${executionId}`),
   listExecutions: (options?: { page?: number; limit?: number }) =>

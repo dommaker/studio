@@ -7,7 +7,7 @@ export interface Position {
   y: number;
 }
 
-export interface Node<T = any> {
+export interface Node<T = unknown> {
   id: string;
   position: Position;
   data: T;

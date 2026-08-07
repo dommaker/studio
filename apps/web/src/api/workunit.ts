@@ -119,7 +119,10 @@ export function parseExecutionStepEvents(
         action: typeof p.action === 'string' ? p.action : undefined,
         thinking: Array.isArray(p.thinking) ? p.thinking.filter((t: unknown) => typeof t === 'string') : [],
         toolCalls: Array.isArray(p.toolCalls)
-          ? p.toolCalls.filter((c: any) => c && typeof c.tool === 'string').map((c: any) => ({ tool: c.tool, summary: typeof c.summary === 'string' ? c.summary : '' }))
+          ? p.toolCalls
+              .filter((c: unknown): c is { tool: string; summary?: unknown } =>
+                !!c && typeof (c as { tool?: unknown }).tool === 'string')
+              .map((c) => ({ tool: c.tool, summary: typeof c.summary === 'string' ? c.summary : '' }))
           : [],
         skills: Array.isArray(p.skills) ? p.skills.filter((s: unknown) => typeof s === 'string') : [],
         text: typeof p.text === 'string' ? p.text : undefined,

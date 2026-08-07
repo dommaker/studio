@@ -9,7 +9,8 @@ setup('authenticate via guest endpoint', async ({ request }) => {
     data: { name: 'e2e-test-user' },
   });
   const data = await res.json();
-  const token = (data as any).session?.token || (data as any).token;
+  const body = data as { session?: { token?: string }; token?: string };
+  const token = body.session?.token || body.token;
   if (!token) throw new Error('Failed to get guest token: ' + JSON.stringify(data));
 
   // Save token + cookies to file (Playwright StorageState format)

@@ -6,7 +6,7 @@ export interface WebSocketMessage {
   event_id: string;
   event_type: string;
   timestamp: string;
-  data: any;
+  data: unknown;
 }
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error';

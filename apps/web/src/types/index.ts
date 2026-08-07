@@ -12,7 +12,7 @@ export interface BaseExecutionPhase {
   id: string;
   name: string;
   status: ExecutionStatus;
-  output?: any;
+  output?: unknown;
   error?: string;
   startedAt?: string;
   completedAt?: string;
@@ -69,7 +69,7 @@ export interface NodeExecution {
   status: 'pending' | 'running' | 'succeeded' | 'failed' | 'skipped';
   startTime?: string;
   endTime?: string;
-  output?: any;
+  output?: unknown;
   error?: { code: string; message: string };
 }
 
@@ -95,14 +95,14 @@ export interface JSONSchema {
   type?: string;
   properties?: Record<string, JSONSchema>;
   required?: string[];
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface WorkflowNode {
   id: string;
   name: string;
   agentType: string;
-  config?: Record<string, any>;
+  config?: Record<string, unknown>;
   position?: { x: number; y: number };
 }
 
@@ -121,7 +121,7 @@ export interface Workflow {
   version: number;
   nodes: WorkflowNode[];
   edges: WorkflowEdge[];
-  parameters?: any[];
+  parameters?: unknown[];
   createdAt: string;
   updatedAt: string;
 }
@@ -136,7 +136,7 @@ export interface IntentAnalysis {
   confidence: number;
   steps: IntentStep[];
   suggestedPipelines?: PipelineSuggestion[];
-  extractedParams: Record<string, any>;
+  extractedParams: Record<string, unknown>;
   reasoning?: string;
   usedLLM?: boolean;
   usageScenario?: string;
