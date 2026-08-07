@@ -8,7 +8,9 @@ WorkUnit 核心域（AS-025 §3.28c-1, §5.16）：任务单元的 CRUD、认领
 
 ## 核心导出
 
-- `workunit.service.ts` — WorkUnit Service：CRUD + Claim + 状态机，`create()` 发布 `workunit.created` 事件；claim 进入 active 时按 type 写入 `timeoutAt`（task/bug/feature 60min，review/analysis 30min，metadata.timeoutAt 显式值优先）
+- `workunit.service.ts` — WorkUnit Service：CRUD + Claim + 状态机，`create()` 发布 `workunit.created` 事件；claim 进入 active 时按 type 写入 `timeoutAt`（task/bug/feature 60min，review/analysis 30min，metadata.timeoutAt 显式值优先）。工单 30 起头部类型/常量/转换层抽出（re-export 保持导出路径兼容，消费方 import 不变）
+- `workunit.types.ts` — WU 类型契约 + 状态机表/超时常量（工单 30 抽自 workunit.service 头部，零服务依赖）：`WorkUnitMetadata` / 输入输出 DTO / `VALID_TRANSITIONS` / `WU_TIMEOUT_MINUTES` / `ANALYSIS_TASKS_MAX` / `resolveClaimTimeoutAt`
+- `workunit.mappers.ts` — 快照 ↔ DTO 转换层（工单 30 抽出）：`snapshotToData` / `inputToSnapshot` / `patchSnapshot`
 - `workunit.routes.ts` — WorkUnit API 路由
 - `waiting-input.ts` — F5 双向沟通：NEED_INPUT 挂起 WorkUnit 的恢复与超时提醒；B3a：waitingReason='ownership' 的挂起按回复解析工程归属（project-discovery 唯一命中 → 绑定 metadata.workspaceRoot + 写回 Requirement.projectId + 置回 unassigned（保留 assigneeId=profile id，待指名 loop 认领；此类 WU 从未被认领，置 active 会对所有 loop 不可见而卡死）；多候选/无命中 → 继续等待列候选）；频道系统消息经 `wu-messenger` 发送
 - `wu-messenger.ts` — WU 频道系统消息统一出口 `postWuSystemMessage(wu, content, opts)`（2026-08 收敛此前 5 处重复实现：agent-loop/review-dispatcher/merge-on-review-pass/waiting-input/timeout-release——其中 4 处裸写 FileStore 不发事件）：统一走 `ChannelMessageService.createAgentMessage`（**append + eventBus `channel.message_sent` + SSE**，频道页实时可见、NotificationBell 可响）；默认 agentName='Studio'、挂 WU 线程 anchor（首条根消息，显式 `replyToId` 时跳过查找）；`milestone: true` → best-effort 解析 pmoId + `atHuman: true`（`opts.meta` 合并覆盖）；空 content / 无 channelId 返回 null 不发帖。pmo-branch-resolver 走 lazy import（本模块经 merge-on-review-pass 被 workunit.service 静态依赖，静态引入会经 project.service 成循环）

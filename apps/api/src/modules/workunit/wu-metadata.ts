@@ -9,7 +9,7 @@
  * 本模块是零运行时依赖的叶子（仅 type import WorkUnitMetadata），任何模块可安全引入。
  */
 
-import type { WorkUnitMetadata } from './workunit.service.js';
+import type { WorkUnitMetadata } from './workunit.types.js';
 
 /**
  * metadata JSON 串容错解析：null/undefined/空串/坏 JSON/非对象 JSON（数组、标量）一律 `{}`。
