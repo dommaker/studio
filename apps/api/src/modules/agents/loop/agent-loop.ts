@@ -3,6 +3,8 @@
 // 工单 28（2026-08）拆分：类型契约 → agent-loop.types.js；输出解析/prompt 模板 →
 // agent-loop-parsers.js；token/tool:call 事件落盘 → agent-loop-events.js；B2/F4 守卫 →
 // agent-loop-guards.js。知识搜索分析块（knowledge-search-analysis）零生产调用方，工单 43 已删。
+// 工单 05（2026-08）：prompt/上下文组装（含 buildSkill/Persona/RosterSection）→ prompt-composer.js；
+// DELEGATE 分支（建子单 + collab 元数据 + 降级文案）→ delegate-branch.js。
 // 本文件保留 AgentLoop 类编排逻辑 + re-export（对外导出语义不变）。
 import { execSync } from 'child_process';
 import { eventBus, logger, FileStore, parseChannels, estimateTokens, withAttestation, type RuntimeStateData } from '@dommaker/studio-shared';
@@ -13,12 +15,9 @@ import { ensureWuWorktree, ensureBranchExists, getDefaultBranch } from '@dommake
 import { LocalExecutor, type Executor } from './executor.js';
 import { RemoteExecutor, RemoteNodeUnreachableError } from './remote-executor.js';
 import { WorkUnitService, snapshotToData, type WorkUnitMetadata, type WorkUnitData } from '../../workunit/workunit.service.js';
-import { checkDelegation, effectiveParentCollab, resolveMaxDepth, MAX_DELEGATIONS_PER_PARENT, type CollabMeta } from '../../workunit/delegation-gate.js';
 import type { AgentProfileData } from '@dommaker/studio-shared';
 import { getTriggerScheduler } from '../../triggers/trigger-registry.js';
 import { knowledgeService } from '../../knowledge/knowledge-service.js';
-import { loadManifest } from '../../skills/manifest-loader.js';
-import { selectSkillsWithDomain, parseSkillHintsFromScope } from '../../skills/skill-selector.js';
 import { eventStore } from '../../../core/event-store.js';
 import { postWuSystemMessage } from '../../workunit/wu-messenger.js';
 import { parseWuMetadata, mergedWuView } from '../../workunit/wu-metadata.js';
@@ -36,13 +35,15 @@ import type { StepResult, Observations, Target, RuntimeInstanceRow } from './age
 import {
   extractInputTokens, isProcessAlive, isGitRepoRoot, resolveWorktreesDir,
   resolveTarget, parseAgentOutput, dynamicInterval, parseReviewReport, parseTaskBreakdown,
-  sleep, buildContinuePrompt, buildReplyPrompt,
+  sleep,
 } from './agent-loop-parsers.js';
 import {
-  metricsFileStore, resolveRealUsage, writeWorkunitTokenEvent,
+  resolveRealUsage, writeWorkunitTokenEvent,
   resolveToolTraceFile, writeToolCallEvents, type RealUsage,
 } from './agent-loop-events.js';
 import { testWuGuardEnabled, isTestLikeWorkUnit, parseExcludeAssignee } from './agent-loop-guards.js';
+import { composeStepPrompt } from './prompt-composer.js';
+import { handleDelegateBranch } from './delegate-branch.js';
 
 // 输出解析/prompt 构建纯函数已抽到 ./agent-loop-parsers.js（工单 28，行为不变）；
 // re-export 保持对外导出语义不变
@@ -88,13 +89,7 @@ const IDLE_HEARTBEAT_INTERVAL_MS = 45_000;
 /** 单活实例守卫：心跳/启动时间新鲜度阈值（idle 心跳 45s 一跳，留近 3 跳余量） */
 const LIVE_HOLDER_THRESHOLD_MS = 120_000;
 
-/**
- * §10 P0: 注入总预算（skill 段 + 知识段共用的 2K 红线）。
- * 必须与 knowledge-service 的 INJECT_TOKEN_BUDGET 保持一致——
- * 不从 knowledge-service import：现有测试以 vi.mock 工厂替换整个 knowledge-service
- * 模块（只暴露 knowledgeService），新增命名导入会在 mock 模块上访问不到而抛错。
- */
-const INJECT_TOKEN_BUDGET = 2_000;
+// §10 P0 注入总预算（2K 红线）随 prompt 组装段一并迁到 ./prompt-composer.js（2026-08 工单 05）
 
 // 类型契约已抽到 ./agent-loop.types.js（工单 28，行为不变）；re-export 保持对外导出语义不变
 export type { StepResult } from './agent-loop.types.js';
@@ -543,88 +538,14 @@ export class AgentLoop {
       ? await this.fileStore.getChannelVersion(wu.channelId).catch(() => undefined)
       : undefined;
 
-    // F5: 恢复挂起时由 message-routing 写入的人类回复（优先级最高，注入后即消费）
-    const pendingReplies = Array.isArray(metadata.pendingReplies)
-      ? metadata.pendingReplies.filter((r): r is string => typeof r === 'string' && r.trim().length > 0)
-      : [];
-
-    // §10.5 提交守卫：上一轮 COMPLETE 被打回时 recordResult 写入的提示（注入后即消费）
-    const commitGuardHint = typeof metadata.commitGuardHint === 'string' && metadata.commitGuardHint.length > 0
-      ? metadata.commitGuardHint
-      : null;
-
-    // B3b-i 自动验证：上一轮 COMPLETE 因验证失败被打回时 recordResult 写入的提示（注入后即消费）
-    const verifyFailHint = typeof metadata.verifyFailHint === 'string' && metadata.verifyFailHint.length > 0
-      ? metadata.verifyFailHint
-      : null;
-
-    // §6-2 父 complete 守卫：上一轮 COMPLETE 因子任务未完结被打回时的提示（注入后即消费）
-    const childGuardHint = typeof metadata.childGuardHint === 'string' && metadata.childGuardHint.length > 0
-      ? metadata.childGuardHint
-      : null;
-
-    const basePrompt = pendingReplies.length > 0
-      ? buildReplyPrompt(wu, pendingReplies)
-      : target.newReplies?.length
-        ? buildReplyPrompt(wu, target.newReplies.map(r => r.content))
-        : buildContinuePrompt(wu);
-    let prompt = basePrompt;
-    if (commitGuardHint) prompt = `${prompt}\n\n## 提交提醒\n\n${commitGuardHint}`;
-    if (verifyFailHint) prompt = `${prompt}\n\n## 验证失败\n\n${verifyFailHint}`;
-    if (childGuardHint) prompt = `${prompt}\n\n## 子任务提醒\n\n${childGuardHint}`;
-
-    // GAP-5: Knowledge injection — non-blocking
-    // R1 反馈环: 接住 injectContext 返回的 injectedIds，贯穿到 recordOutcome /
-    // extractFromExecution 的 consumedKnowledge（断点 A：此前注入 id 被丢弃，
-    // outcome 永远上报 consumedKnowledge: []，飞轮无反馈数据）。
-    // §10 P0 + 决策 7/13: 注入段共用 2K 红线，优先级 skills > persona > roster > knowledge——
-    // skill 段（## 本次任务 Skills）step 时计算，先占预算；persona 段（## 你的角色）次之；
-    // 成员花名册段（## 频道成员与委派）再次；剩余额度传给 injectContext。
-    let skillSection = '';
-    let skillTokens = 0;
-    let skillMatched: string[] = [];
-    try {
-      const composed = await this.buildSkillSection(wu);
-      skillSection = composed.section;
-      skillTokens = composed.tokens;
-      skillMatched = composed.matched;
-    } catch {
-      // Non-blocking: agent continues without skill section
-    }
-
-    // 决策 13: `## 你的角色` 段（persona ?? description；为空则省略）。纯字符串组装，不抛错
-    const persona = this.buildPersonaSection(Math.max(0, INJECT_TOKEN_BUDGET - skillTokens));
-    const personaSection = persona.section;
-    const personaTokens = persona.tokens;
-
-    let rosterSection = '';
-    let rosterTokens = 0;
-    try {
-      const roster = await this.buildRosterSection(wu, Math.max(0, INJECT_TOKEN_BUDGET - skillTokens - personaTokens));
-      rosterSection = roster.section;
-      rosterTokens = roster.tokens;
-    } catch {
-      // Non-blocking: agent continues without roster section
-    }
-
-    let knowledgeContext = '';
-    let injectedKnowledgeIds: string[] = [];
-    try {
-      const ctx = await knowledgeService.injectContext(wu.type, {
-        tags: [wu.type],
-        maxTokens: Math.max(0, INJECT_TOKEN_BUDGET - skillTokens - personaTokens - rosterTokens),
-      });
-      knowledgeContext = ctx.prompt;
-      injectedKnowledgeIds = ctx.injectedIds ?? [];
-    } catch {
-      // Non-blocking: agent continues without knowledge context
-    }
-    const leadSections = [skillSection, personaSection, rosterSection].filter(s => s.length > 0).join('\n\n');
-    if (leadSections) {
-      knowledgeContext = knowledgeContext
-        ? `${leadSections}\n\n## 项目上下文\n${knowledgeContext}`
-        : leadSections;
-    }
+    // prompt 组装与上下文注入（hint 读取/注入/消费清除、skill > persona > roster > knowledge
+    // 共用 2K 预算注入、三个 build 段函数）已抽到 ./prompt-composer.js（2026-08 工单 05，
+    // 行为一字不改，事故档案注释随代码迁走）——agentStep 只保留编排。
+    const composed = await composeStepPrompt(
+      { wu, metadata, newReplies: target.newReplies?.map(r => r.content) },
+      { role: this.role, acceptedTypes: this.acceptedTypes, fileStore: this.fileStore, resolveEventsFile: studioEventsJsonlPath },
+    );
+    const { prompt, pendingReplies, knowledgeContext, skillMatched, injectedKnowledgeIds } = composed;
 
     // Session management — per-WU session (RuntimeInstance.sessionId, cwd-scoped)
     const metadataUpdates: Partial<WorkUnitMetadata> = {};
@@ -633,22 +554,9 @@ export class AgentLoop {
       // 供 skill-demotion 成功率与被无视率度量——替代原 claim 时 fire-and-forget 落盘，消竞态）
       metadataUpdates.matchedSkills = skillMatched;
     }
-    if (pendingReplies.length > 0) {
-      // F5: 回复已注入 prompt，清除避免后续步骤重复注入（undefined 在 JSON 序列化时丢弃）
-      metadataUpdates.pendingReplies = undefined;
-    }
-    if (commitGuardHint) {
-      // §10.5: 提示已注入 prompt，清除避免后续步骤重复注入
-      metadataUpdates.commitGuardHint = undefined;
-    }
-    if (verifyFailHint) {
-      // B3b-i: 提示已注入 prompt，清除避免后续步骤重复注入
-      metadataUpdates.verifyFailHint = undefined;
-    }
-    if (childGuardHint) {
-      // §6-2: 提示已注入 prompt，清除避免后续步骤重复注入
-      metadataUpdates.childGuardHint = undefined;
-    }
+    // 已消费 hint（pendingReplies/commitGuardHint/verifyFailHint/childGuardHint）的清除增量
+    // （undefined 在 JSON 序列化时丢弃，清除避免后续步骤重复注入）
+    Object.assign(metadataUpdates, composed.consumedHintUpdates);
     // 续用判定（fix/guard-and-resume）：同一 WU 内才续用。claude 会话按 (HOME, cwd) 存储
     // （2.1.80 实测：异 cwd --resume 报 "No conversation found with session ID"）。
     // HOME 不再 per-agent 隔离（GAP-2 已移除），会话区分靠 cwd；token 由 process.env 透传。
@@ -980,124 +888,8 @@ export class AgentLoop {
     }
   }
 
-  /**
-   * §10 P0 + 决策 7/11: 组装 `## 本次任务 Skills` 段 —— step 时计算（不再读 claim 落盘的
-   * metadata.matchedSkills，消竞态并吃到 skill 库最新版）。
-   * 匹配（selectSkillsWithDomain）：+skill 显式点名（wu.scope 解析）> 域匹配
-   * （role.acceptedTypes ∪ 归一化 wu.type ∩ skill.agentTypes）> scope 文本 > 其余按热度——
-   * 产出相关度排序全量列表，由 2K 预算块级截断（取代封顶 3）。
-   * index-on-demand：索引行 = name + description + triggers 摘要 + 全文指针
-   * （~/.studio/skills/<name>/SKILL.md，agent 按需阅读），不注入正文；段首协议行说明按需语义。
-   * 返回 matched = 实际进入注入段的 skill 名（调用方落盘 metadata.matchedSkills；
-   * 此处并发 knowledge:skill_used 事件，fire-and-forget，供度量/被无视率）。
-   */
-  private async buildSkillSection(wu: WorkUnitData): Promise<{ section: string; tokens: number; matched: string[] }> {
-    const manifest = loadManifest();
-    if (manifest.length === 0) return { section: '', tokens: 0, matched: [] };
-
-    const hints = parseSkillHintsFromScope(wu.scope ?? '');
-    const ranked = selectSkillsWithDomain(wu.scope ?? '', manifest, {
-      acceptedTypes: this.acceptedTypes,
-      wuType: wu.type,
-    }, hints);
-    if (ranked.length === 0) return { section: '', tokens: 0, matched: [] };
-
-    const header = '## 本次任务 Skills\n\n以下 skill 按相关度排序；任务内容命中其触发条件时，先读全文再按此执行；不相关则忽略。';
-    let tokens = estimateTokens(header.length);
-    const blocks: string[] = [];
-    const matched: string[] = [];
-    for (const entry of ranked) {
-      const triggerSummary = Array.isArray(entry.triggers) && entry.triggers.length > 0
-        ? `｜触发：${entry.triggers.slice(0, 5).join(', ')}`
-        : '';
-      const block = `### ${entry.name}\n${entry.description || '（无描述）'}${triggerSummary}\n全文：~/.studio/skills/${entry.name}/SKILL.md`;
-      const blockTokens = estimateTokens(block.length + 2); // + \n\n 分隔符
-      if (tokens + blockTokens > INJECT_TOKEN_BUDGET) {
-        // 首个块即超预算：截断塞入，保证段不为空（沿用原整段截断口径）
-        if (blocks.length === 0) {
-          blocks.push(block.slice(0, Math.max(0, (INJECT_TOKEN_BUDGET - tokens) * 4)));
-          matched.push(entry.name);
-          tokens = INJECT_TOKEN_BUDGET;
-        }
-        break;
-      }
-      blocks.push(block);
-      matched.push(entry.name);
-      tokens += blockTokens;
-    }
-
-    // 度量（fire-and-forget）：每个实际注入的 skill 记一条 knowledge:skill_used 事件
-    for (const skillName of matched) {
-      void metricsFileStore.appendJsonl(studioEventsJsonlPath(), {
-        type: 'knowledge:skill_used',
-        source: 'agent-loop',
-        payload: JSON.stringify({ skillName, workUnitId: wu.id }),
-        createdAt: new Date().toISOString(),
-      }).catch(() => {});
-    }
-
-    return { section: `${header}\n\n${blocks.join('\n\n')}`, tokens, matched };
-  }
-
-  /**
-   * 决策 13: 组装 `## 你的角色` 段（角色自述）。
-   * 内容 = role.persona ?? role.description（皆空则段省略）；
-   * 与 skill/roster/知识段共用 2K 红线（skills > persona > roster > knowledge），
-   * 调用方传入剩余额度，超出按 chars/4 口径截断。
-   */
-  private buildPersonaSection(tokenBudget: number): { section: string; tokens: number } {
-    const persona = this.role.persona ?? this.role.description;
-    if (!persona || tokenBudget <= 0) return { section: '', tokens: 0 };
-
-    let section = `## 你的角色\n\n${persona}`;
-    let tokens = estimateTokens(section.length);
-    if (tokens > tokenBudget) {
-      section = section.slice(0, tokenBudget * 4);
-      tokens = tokenBudget;
-    }
-    return { section, tokens };
-  }
-
-  /**
-   * A2A §4.1 机制 2: 组装 `## 频道成员与委派` 段（成员花名册 + DELEGATE 协议教学）。
-   * 花名册 = 本频道 active 成员的 name + description + provider（排除自己——委派质量取决于
-   * 模型对角色能力的理解，没有花名册的 DELEGATE 是盲派）；members 为空（历史频道未回填）
-   * 时回退到全部 active profile，与 DelegationGate 的过渡期口径一致。
-   * 预算：与 skill/知识段共用 2K 红线，优先级 skills index > roster > knowledge——
-   * 调用方传入 skill 之后的剩余额度，超出按 chars/4 口径截断。
-   */
-  private async buildRosterSection(wu: WorkUnitData, tokenBudget: number): Promise<{ section: string; tokens: number }> {
-    if (!wu.channelId || tokenBudget <= 0) return { section: '', tokens: 0 };
-
-    const channel = await this.fileStore.getChannel(wu.channelId);
-    const memberIds = parseChannels(channel?.members);
-    let members: AgentProfileData[];
-    if (memberIds.length > 0) {
-      const resolved = await Promise.all(memberIds.map(id => this.fileStore.getProfile(id).catch(() => null)));
-      members = resolved.filter((p): p is AgentProfileData => !!p && p.status === 'active');
-    } else {
-      members = await this.fileStore.listProfiles({ status: 'active' });
-    }
-    members = members.filter(p => p.id !== this.role.id);
-    if (members.length === 0) return { section: '', tokens: 0 };
-
-    const rosterLines = members.map(p =>
-      `- ${p.name}（provider: ${p.provider ?? 'claude'}）：${p.description || '（无描述）'}`
-    );
-    let section = `## 频道成员与委派
-
-本频道可协作成员：
-${rosterLines.join('\n')}
-
-如需把一部分工作交给更合适的成员，输出一行：ACTION: DELEGATE:@<成员名>:<子任务 scope>（scope 为该行剩余内容）。仅可委派给上述成员，不可委派给自己；委派深度上限 ${resolveMaxDepth()} 跳（根任务 depth=0），同一任务最多委派 ${MAX_DELEGATIONS_PER_PARENT} 次，不可对同一成员重复委派。系统校验通过后会创建子任务并在频道发卡片，你继续按 PROGRESS 推进自己的部分；校验不通过则转为 NEED_INPUT 请人裁决。`;
-
-    let tokens = estimateTokens(section.length);
-    if (tokens > tokenBudget) {
-      section = section.slice(0, tokenBudget * 4);
-      tokens = tokenBudget;
-    }
-    return { section, tokens };
-  }
+  // §10 P0 + 决策 7/11/13 + A2A §4.1 机制 2: buildSkillSection / buildPersonaSection /
+  // buildRosterSection 已随 prompt 组装段一并抽到 ./prompt-composer.js（2026-08 工单 05，行为不变）。
 
   /**
    * B3a 归属链：执行根目录解析 — metadata.workspaceRoot（Requirement→PMO gitRepo /
@@ -1274,48 +1066,17 @@ ${rosterLines.join('\n')}
     // F6-c：本 step COMPLETE 守卫是否已跑过验证 —— 下方步骤超限强制收口路径据此避免重复跑
     const verifyGuardRan = guards.notices.verifyGuardRan;
 
-    // A2A §4.1: DELEGATE 分支 —— DelegationGate 纯代码校验（零 LLM）。
-    // 通过：建子单 + collab 元数据 + delegate 卡片（父 WU 状态不变，按 progress 继续）；
-    // 拒绝：降级 NEED_INPUT（现有 blocked 路径），频道发「拟委派…需人工确认」请人裁决。
+    // A2A §4.1: DELEGATE 分支 —— DelegationGate 纯代码校验（零 LLM）后的委派政策
+    // （通过：建子单 + collab 元数据 + delegate 卡片，父 WU 按 progress 继续；
+    //  拒绝：降级 NEED_INPUT 请人裁决）已抽到 ./delegate-branch.js（2026-08 工单 05，行为不变）。
     if (action === 'delegate' && result.delegate) {
-      const gate = await checkDelegation({
-        fileStore: this.fileStore,
-        parent: wu,
-        delegator: this.role,
-        targetName: result.delegate.targetName,
-      });
-      if (gate.pass && gate.target) {
-        const parentCollab = effectiveParentCollab(wu, this.role.id);
-        const childCollab: CollabMeta = {
-          rootId: parentCollab.rootId,
-          depth: parentCollab.depth + 1,
-          chain: [...parentCollab.chain, gate.target.id],
-          delegatedBy: { profileId: this.role.id, workUnitId: wuId },
-          delegationCount: 0,
-        };
-        await this.workUnitService.create({
-          scope: result.delegate.scope,
-          type: wu.type,
-          parentId: wuId,
-          assigneeId: gate.target.id, // unassigned 语义 = 目标 profile id（同 @mention 点名，§1.2-b）
-          channelId: wu.channelId,
-          projectPath: wu.projectPath,
-          workspaceId: wu.workspaceId ?? null,
-          reqId: wu.reqId ?? null,
-          status: 'unassigned',
-          metadata: { creationMode: 'agent-delegate', collab: childCollab },
-        });
-        // 父 WU 补记/累加 collab（根 WU 首次委派时从无 collab 合并为 depth=0 的根记录）
-        guardUpdates.collab = { ...parentCollab, delegationCount: (parentCollab.delegationCount ?? 0) + 1 };
-        action = 'progress';
-        // delegate 卡片即本步的 progress 消息（走下方统一回帖路径，含新鲜度检查）
-        result.summary = `@${this.role.name} 委派 @${gate.target.name}：${result.delegate.scope}（深度 ${childCollab.depth}/${resolveMaxDepth()}）`;
-        logger.info(`[AgentLoop] Delegation created: ${wuId} → @${gate.target.name} (depth ${childCollab.depth})`);
-      } else {
-        action = 'need_input';
-        result.summary = `拟委派 @${result.delegate.targetName}：${result.delegate.scope}，因 ${gate.reason ?? '未知原因'} 需人工确认`;
-        logger.info(`[AgentLoop] Delegation rejected for ${wuId}: ${gate.reason}`);
-      }
+      const d = await handleDelegateBranch(
+        { wu, wuId, delegate: result.delegate },
+        { fileStore: this.fileStore, role: this.role, createWorkUnit: input => this.workUnitService.create(input) },
+      );
+      action = d.action;
+      result.summary = d.summary;
+      if (d.collabUpdate) guardUpdates.collab = d.collabUpdate;
     }
 
     // §4.2 发言层新鲜度检查（仅 recordResult → postToDiscussionSpace 结果回帖路径，系统通知不受影响）：
