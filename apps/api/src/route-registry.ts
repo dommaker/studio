@@ -99,7 +99,7 @@ export async function buildRouteTable(): Promise<RouteEntry[]> {
   // Knowledge Import routes (冷启动导入)
   const { default: knowledgeImportRoutes } = await import('./modules/knowledge/import.routes.js') as { default: Router };
 
-  // Company routes (FileStore 存储；PMO 页 / Settings / useCompanyId 依赖)
+  // Company routes (FileStore 存储；PMO 页 / Settings 依赖)
   const { default: companyRoutes } = await import('./modules/companies/routes.js') as { default: Router };
 
   // KnowledgeService HTTP API + SSE

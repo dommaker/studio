@@ -73,7 +73,6 @@ worktree/
 |------|------|
 | `@dommaker/harness` | buildConstraintPrompt() + checkBeforeExecution() |
 | `@dommaker/studio-shared` | logger |
-| `ioredis` | 事件发布（agent.progress/agent.heartbeat） |
 
 ## 事件
 

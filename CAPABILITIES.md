@@ -1,13 +1,11 @@
 # CAPABILITIES.md
 
-> 最后更新: 2026-08-03
+> 最后更新: 2026-08-07
 
 ---
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
-| agent-completer | packages/studio-agent/src/services/agent-completer.ts | Agent Completer - TypeScript 实现的任务完成处理器 |
-| agent-executor | packages/studio-agent/src/services/agent-executor.ts | Agent Executor - Session Loop 执行模型 (daemon async spawn) |
 
 | types | packages/studio-agent/src/types.ts | studio-agent 类型定义 |
 | audit-service | packages/studio-audit/src/services/audit-service.ts | Audit Service - 审计日志服务 (AR-012) |
@@ -19,8 +17,7 @@
 | formatter | packages/studio-shared/src/cli/formatter.ts | 输出格式化器 |
 | parser | packages/studio-shared/src/cli/parser.ts | 参数解析器 |
 | levels | packages/studio-shared/src/constants/levels.ts | 级别配置 - 全局统一的职级定义 |
-| responsibility-chain | packages/studio-shared/src/constants/responsibility-chain.ts | 责任链模型 - 类型定义 |
-| stage-definitions | packages/studio-shared/src/constants/stage-definitions.ts | Stage Definitions - 阶段定义 + 关键词 + 推荐函数 |
+
 | event-bus | packages/studio-shared/src/event-bus.ts | Studio Event Bus — 替代 Redis pub/sub（2026-05-08） |
 | auditor-types | packages/studio-shared/src/harness/auditor/auditor-types.ts | Auditor ↔ 其他角色协议定义（BP-013 + BP-014） |
 | agent.hooks | packages/studio-shared/src/harness/hooks/agent.hooks.ts | Agent Execution Phase Hooks |
@@ -34,45 +31,41 @@
 | bootstrap | packages/studio-shared/src/harness/runtime/bootstrap.ts | Harness Runtime Bootstrap — Phase 2 迁移 |
 | cache | packages/studio-shared/src/harness/runtime/cache.ts | Constraint Check Cache（S7 修复） |
 | session-metrics | packages/studio-shared/src/harness/session-metrics.ts | Session Metrics — parse claude --output-format json output into structured metrics. |
-| llm-client | packages/studio-shared/src/llm/llm-client.ts | LLM 客户端 |
+
 | system-executor | apps/api/src/modules/agents/system-executor.ts | SystemExecutor — 系统级 LLM 调用抽象，替代 modelGateway |
 | memory-store | packages/studio-shared/src/memory-store.ts | MemoryStore — 内存替代 Redis (B0-011) |
 | node | packages/studio-shared/src/node.ts | Node.js 专用入口 — 包含 CLI 和 Config 模块 |
 | goal-status | packages/studio-shared/src/types/goal-status.ts | Goal 状态类型 — SQLite 不支持 enum，用 TypeScript 类型守卫约束 |
 | resolution | packages/studio-shared/src/types/resolution.ts | Resolution types — RKB (Resolution Knowledge Base) |
-| event-emitter | packages/studio-shared/src/utils/event-emitter.ts | 事件系统 |
+
 | logger | packages/studio-shared/src/utils/logger.ts | Shared Logger - 统一日志接口 |
-| parallel-executor | packages/studio-shared/src/utils/parallel-executor.ts | 并行执行器 |
+
 | process-io | packages/studio-shared/src/utils/process-io.ts | Process I/O utilities — spawn, session-id persistence, file bridge |
-| scheduler | packages/studio-shared/src/utils/scheduler.ts | 资源感知调度器 |
+
 | spec-parser | packages/studio-shared/src/utils/spec-parser.ts | Spec Markdown 解析器 |
 | loader | packages/studio-skill/src/loader.ts | SkillLoader — 按 trigger 加载 Skill，注入 Agent prompt |
 | types | packages/studio-skill/src/types.ts | Skill 定义类型 |
-| acceptance-validator | packages/studio-spec/src/services/acceptance-validator.ts | 验收层验证器 |
-| api-validator | packages/studio-spec/src/services/api-validator.ts | API 层验证器 |
-| architecture-validator | packages/studio-spec/src/services/architecture-validator.ts | 架构层验证器 |
+
 | change-analyzer.service.test | packages/studio-spec/src/services/change-analyzer.service.test.ts | ChangeAnalyzerService 单元测试 |
 | change-analyzer.service | packages/studio-spec/src/services/change-analyzer.service.ts | 变更分析服务 |
 | change-history.service.test | packages/studio-spec/src/services/change-history.service.test.ts | ChangeHistoryService 单元测试 |
 | change-history.service | packages/studio-spec/src/services/change-history.service.ts | 变更历史服务 |
 | gate-checker.service.test | packages/studio-spec/src/services/gate-checker.service.test.ts | GateCheckerService 单元测试 |
 | gate-checker.service | packages/studio-spec/src/services/gate-checker.service.ts | 门禁检查服务 |
-| spec-validator.service.test | packages/studio-spec/src/services/spec-validator.service.test.ts | SpecValidator 单元测试 |
-| spec-validator.service | packages/studio-spec/src/services/spec-validator.service.ts | SpecValidator 主服务 |
+
 | change.types | packages/studio-spec/src/types/change.types.ts | Spec 变更分级类型定义 |
 | gate.types | packages/studio-spec/src/types/gate.types.ts | 门禁类型定义 |
-| validation.types | packages/studio-spec/src/types/validation.types.ts | Spec 验证类型定义 |
+
 | docs-freshness.routes | apps/api/src/modules/admin/docs-freshness.routes.ts | T-020 + T-059: CLAUDE.md + CAPABILITIES.md Freshness Check |
-| routes | apps/api/src/modules/agent-configs/routes.ts | agent-configs/routes.ts — Agent Manager + Version Control (HZ-024, HZ-025) |
-| auditor.service | apps/api/src/modules/agents/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
-| knowledge-curator.service | apps/api/src/modules/agents/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
-| monitor.service | apps/api/src/modules/agents/monitor.service.ts | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
-| ops.service | apps/api/src/modules/agents/ops.service.ts | Ops Service — 系统生命周期守护 |
-| ops-rules | apps/api/src/modules/agents/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
+| auditor.service | apps/api/src/modules/agents/auditor/auditor.service.ts | Auditor Service — 跨任务审计 + 周期洞察 |
+| knowledge-curator.service | apps/api/src/modules/agents/knowledge/knowledge-curator.service.ts | Knowledge Curator - 知识库冷启动 + F1 每日维护 + 提取 prompt 单一来源 |
+| monitor.service | apps/api/src/modules/agents/monitor/monitor.service.ts | Monitor Service - 健康监控 + 渐进告警 + G31 知识沉淀闸门(precipitate→TTL) |
+| ops.service | apps/api/src/modules/agents/ops/ops.service.ts | Ops Service — 系统生命周期守护 |
+| ops-rules | apps/api/src/modules/agents/ops/ops-rules.ts | Ops Rules — 运行时数据，不在代码里 |
 | requirement-gate | apps/api/src/modules/agents/requirement-gate.ts | RequirementGate — RequirementsDoc 质量门 (2026-05-21) |
 | routes | apps/api/src/modules/agents/routes.ts | Agent API 路由 |
 | session-summary.service | apps/api/src/modules/agents/session-summary.service.ts | SessionSummaryService — 会话级知识提取 (2026-05-25) |
-| triage.service | apps/api/src/modules/agents/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
+| triage.service | apps/api/src/modules/agents/triage/triage.service.ts | Triage Service — incident response: diagnose → classify → act → resolve/escalate |
 | types | apps/api/src/modules/agents/types.ts | Agent 团队类型定义 |
 | audit-subscriber | apps/api/src/modules/audit/audit-subscriber.ts | Audit Event Subscriber — EventBus 审计事件持久化到 DB (B0-002) |
 | routes | apps/api/src/modules/audit-logs/routes.ts | GET /api/audit-logs - 查询审计日志 |
@@ -95,7 +88,7 @@
 | decision-chain-extractor | apps/api/src/modules/knowledge/decision-chain-extractor.ts | DecisionChainExtractor (G-004) — 从 Meeting 辩论 + Goal 执行中提取决策链 |
 | env-snapper | apps/api/src/modules/knowledge/env-snapper.ts | EnvSnapper (G-003) — 系统环境自动快照 |
 | eval-case-generator | apps/api/src/modules/knowledge/eval-case-generator.ts | EvalCaseGenerator — Better-Harness hill-climbing 吸收 |
-| evolution-scheduler | apps/api/src/modules/knowledge/evolution-scheduler.ts | Knowledge Evolution Scheduler |
+
 | evolution.service | apps/api/src/modules/knowledge/evolution.service.ts | Knowledge Evolution Engine (§12.12) |
 | import.routes | apps/api/src/modules/knowledge/import.routes.ts | Knowledge Import API - 冷启动导入 |
 | knowledge-bus.service | apps/api/src/modules/knowledge/knowledge-bus.service.ts | KnowledgeBus — Agent 间共享知识总线 (H1, 2026-05-21) |
@@ -127,13 +120,9 @@
 | error-class | apps/api/src/modules/triage/error-class.ts | Triage ErrorClass — B1-007: 八类错误标签 + 严重度三级 + 策略路由 |
 | wiki.routes | apps/api/src/modules/wiki/wiki.routes.ts | GET /api/v1/wiki |
 | channel | apps/web/src/api/channel.ts | Channel API — list + publish 发布 |
-| useCapabilities | apps/web/src/hooks/useCapabilities.ts | 获取 Stage 分类数据（UI-001） |
-| useChannelEvents | apps/web/src/hooks/useChannelEvents.ts | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
-| useCompanyId | apps/web/src/hooks/useCompanyId.ts | useCompanyId - 统一获取公司 ID |
 
-| useGlobalModals | apps/web/src/hooks/useGlobalModals.ts | 全局弹窗状态 hook |
-| useWebSocket | apps/web/src/hooks/useWebSocket.ts | WebSocket 连接管理 Hook（P2-4） |
-| useWebSocketHandlers | apps/web/src/hooks/useWebSocketHandlers.ts | WebSocket 事件处理 hook |
+| useChannelEvents | apps/web/src/hooks/useChannelEvents.ts | Channel SSE hook — B2: EventSource 实时推送替代 3s 轮询 |
+
 | agentStore | apps/web/src/stores/agentStore.ts | agentStore |
 | authStore | apps/web/src/stores/authStore.ts | 认证状态管理 - Auth Store (Zustand) |
 | runtimeStore | apps/web/src/stores/runtimeStore.ts | runtimeStore |
@@ -141,13 +130,13 @@
 | setup | apps/web/src/test/setup.ts | setup |
 | canvas | apps/web/src/types/canvas.ts | 共享画布类型（xyflow 兼容，避免直接导入 xyflow 打包） |
 | types | apps/web/src/types.ts | types.ts - Agent Studio 类型定义 |
-| api | apps/web/src/utils/api.ts | 获取 API 基础 URL |
+
 | format | apps/web/src/utils/format.ts | 格式化 Token 数量 |
 | toast | apps/web/src/utils/toast.ts | Lightweight toast notification system (zero dependencies) |
 
 | session-summary-generator | apps/api/src/modules/events/session-summary-generator.ts | B9-015: SessionSummaryGenerator — server-side session aggregation |
 | output-capture | packages/studio-agent/src/services/output-capture.ts | Output Capture — 进度读取 + 输出文件收集 + session 指标记录 |
-| session-manager | packages/studio-agent/src/services/session-manager.ts | Session Manager — Agent 执行器核心（session loop + async spawn） |
+
 | worktree-resolver | packages/studio-agent/src/services/worktree-resolver.ts | Worktree Resolver — git worktree 创建 + harness 配置传播 + 文件桥 |
 | skill-loader | apps/api/src/modules/skills/skill-loader.ts | SkillLoader API Service — DB-driven skill loading with session lifecycle |
 
@@ -167,14 +156,12 @@
 | knowledge-service | apps/api/src/modules/knowledge/knowledge-service.ts | KnowledgeService — Unified knowledge capability layer |
 | signal-aggregator | apps/api/src/modules/knowledge/signal-aggregator.ts | Signal Aggregator — 原始 signal 条目 → 趋势聚合摘要（≥3次/7天） |
 | external-fetcher | apps/api/src/modules/knowledge/producers/external-fetcher.ts | ExternalFetcher — fetch external docs and ingest as reference knowledge. |
-| concurrency-control | packages/studio-shared/src/utils/concurrency-control.ts | Concurrency control utilities extracted from Pipeline scheduler. |
-| error-file-extractor | packages/studio-shared/src/utils/error-file-extractor.ts | Extract affected file paths from compiler/test error messages. |
-| git-utils | packages/studio-shared/src/utils/git-utils.ts | Git utility functions extracted from Pipeline executor-subagent-spawner. |
+
 | sdd-utils | packages/studio-shared/src/utils/sdd-utils.ts | SDD 工具函数 — frontmatter 解析 + slug 生成 |
-| intent-router | packages/studio-skill/src/intent-router.ts | Match task text against skill name/description. |
+
 | agent-instance.routes | apps/api/src/modules/agents/agent-instance.routes.ts | RuntimeInstance API 路由 (AS-026 AC-1) |
 | agent-instance.service | apps/api/src/modules/agents/agent-instance.service.ts | AgentInstance Service — RuntimeInstance CRUD |
-| agent-loop | apps/api/src/modules/agents/agent-loop.ts | Analyze agent log for knowledge search behavior. |
+| agent-loop | apps/api/src/modules/agents/loop/agent-loop.ts | Analyze agent log for knowledge search behavior. |
 | agent-profile.routes | apps/api/src/modules/agents/agent-profile.routes.ts | AgentProfile API 路由 (AS-025 Phase 2) |
 | agent-profile.service | apps/api/src/modules/agents/agent-profile.service.ts | AgentProfile Service — 简化 Agent 身份 CRUD |
 | default-triggers | apps/api/src/modules/agents/default-triggers.ts | Default Triggers — 6 system triggers for Agent Network |
@@ -188,7 +175,6 @@
 | cron-matcher | apps/api/src/modules/triggers/cron-matcher.ts | Cron Matcher — minimal cron expression evaluator (3.28c-4) |
 | trigger-action | apps/api/src/modules/triggers/trigger-action.ts | Execute a CREATE action — creates a WorkUnit from trigger payload. |
 
-| trigger-scheduler | apps/api/src/modules/triggers/trigger-scheduler.ts | TriggerScheduler — SCHEDULE tick + EVENT EventBus subscription |
 | trigger-store | apps/api/src/modules/triggers/trigger-store.ts | Trigger Store — YAML-based trigger config persistence (3.28c-4) |
 | trigger.routes | apps/api/src/modules/triggers/trigger.routes.ts | Trigger Routes — REST API for trigger management (3.28c-4) |
 | trigger.types | apps/api/src/modules/triggers/trigger.types.ts | Trigger Types — SCHEDULE + EVENT discriminated union (AS-026) |
@@ -202,14 +188,13 @@
 
 | file-store | packages/studio-shared/src/file-store.ts | FileStore — AN 运行时数据文件存储基类 |
 | anomaly-detector | packages/studio-shared/src/stats/anomaly-detector.ts | 计算数组的均值和标准差（总体标准差） |
-| system-health | apps/api/src/modules/agents/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
+| system-health | apps/api/src/modules/agents/ops/system-health.ts | 系统健康采集模块（纯代码，零 LLM） |
 | convert-to-task.service | apps/api/src/modules/channels/convert-to-task.service.ts | AC-E2: Convert to Task Service |
 | message-routing | apps/api/src/modules/channels/message-routing.ts | Message routing logic for channel messages (AC-B1-B4). |
-| okr-anomaly-detector | apps/api/src/modules/pmo/okr-anomaly-detector.ts | okr-anomaly-detector |
+
 | project-discovery.service | apps/api/src/modules/projects/project-discovery.service.ts | AC-D1+D3: Project Discovery Service |
 | project.routes | apps/api/src/modules/projects/project.routes.ts | AC-D3: Project Discovery API |
 | providers | packages/studio-shared/src/providers.ts | Provider Registry — single source of truth for agent CLI providers (F4) |
-| events-dir | packages/studio-shared/src/utils/events-dir.ts | R2 事件目录统一（断点 D，docs/plans/2026-07-flywheel-repair.md）。 |
 
 | knowledge-singletons | apps/api/src/modules/knowledge/knowledge-singletons.ts | knowledge-singletons — 知识子系统共享单例的唯一所有者 (R4 收敛, 断点 H) |
 | req-binding | apps/api/src/modules/requirements/req-binding.ts | REQ 绑定解析（vision §5.3）— @mention 派发 / convert-to-task 共用。 |
@@ -230,17 +215,17 @@
 | runner-lightweight | packages/studio-agent/src/services/runner-lightweight.ts | Runner Lightweight — 轻量单 session 执行（agent-runner.ts 拆分模块） |
 | runner-output | packages/studio-agent/src/services/runner-output.ts | Runner Output — 输出解析（agent-runner.ts 拆分模块） |
 | runner-params | packages/studio-agent/src/services/runner-params.ts | Runner Params — 参数构建（agent-runner.ts 拆分模块） |
-| auditor-execution | apps/api/src/modules/agents/auditor-execution.ts | Auditor Agent — 建议执行 / 升级 / 闭环 |
-| auditor-reports | apps/api/src/modules/agents/auditor-reports.ts | Auditor Agent — 洞察与报告输出 |
-| auditor-rules | apps/api/src/modules/agents/auditor-rules.ts | Auditor Agent — 审计规则（检测 → 建议） |
-| knowledge-cold-start | apps/api/src/modules/agents/knowledge-cold-start.ts | Knowledge Agent — 冷启动子模块 |
-| knowledge-extraction | apps/api/src/modules/agents/knowledge-extraction.ts | Knowledge Agent — 提取 prompt 单一来源 |
-| knowledge-maintenance | apps/api/src/modules/agents/knowledge-maintenance.ts | Knowledge Agent — 语料分析（每日维护）子模块 |
-| monitor-alerts | apps/api/src/modules/agents/monitor-alerts.ts | Monitor Agent — 告警分发 / Triage 升级 / 事件写入 |
-| monitor-lifecycle | apps/api/src/modules/agents/monitor-lifecycle.ts | Monitor Agent — G31 数据生命周期：知识沉淀闸门 + TTL 清理 |
-| monitor-probes | apps/api/src/modules/agents/monitor-probes.ts | Monitor Agent — 任务/WorkUnit 级探测 |
-| monitor-reports | apps/api/src/modules/agents/monitor-reports.ts | Monitor Agent — 报告：轨迹评估 / 每日洞察 / 交互模式观察 |
-| monitor-system-probes | apps/api/src/modules/agents/monitor-system-probes.ts | Monitor Agent — 系统/知识级探测与自修复 |
+| auditor-execution | apps/api/src/modules/agents/auditor/auditor-execution.ts | Auditor Agent — 建议执行 / 升级 / 闭环 |
+| auditor-reports | apps/api/src/modules/agents/auditor/auditor-reports.ts | Auditor Agent — 洞察与报告输出 |
+| auditor-rules | apps/api/src/modules/agents/auditor/auditor-rules.ts | Auditor Agent — 审计规则（检测 → 建议） |
+| knowledge-cold-start | apps/api/src/modules/agents/knowledge/knowledge-cold-start.ts | Knowledge Agent — 冷启动子模块 |
+| knowledge-extraction | apps/api/src/modules/agents/knowledge/knowledge-extraction.ts | Knowledge Agent — 提取 prompt 单一来源 |
+| knowledge-maintenance | apps/api/src/modules/agents/knowledge/knowledge-maintenance.ts | Knowledge Agent — 语料分析（每日维护）子模块 |
+| monitor-alerts | apps/api/src/modules/agents/monitor/monitor-alerts.ts | Monitor Agent — 告警分发 / Triage 升级 / 事件写入 |
+| monitor-lifecycle | apps/api/src/modules/agents/monitor/monitor-lifecycle.ts | Monitor Agent — G31 数据生命周期：知识沉淀闸门 + TTL 清理 |
+| monitor-probes | apps/api/src/modules/agents/monitor/monitor-probes.ts | Monitor Agent — 任务/WorkUnit 级探测 |
+| monitor-reports | apps/api/src/modules/agents/monitor/monitor-reports.ts | Monitor Agent — 报告：轨迹评估 / 每日洞察 / 交互模式观察 |
+| monitor-system-probes | apps/api/src/modules/agents/monitor/monitor-system-probes.ts | Monitor Agent — 系统/知识级探测与自修复 |
 | agents.routes | apps/api/src/modules/harness/agents.routes.ts | agents.routes — Harness Agent 生命周期子路由（T-014） |
 | constraints.routes | apps/api/src/modules/harness/constraints.routes.ts | constraints.routes — Harness 约束生命周期与质量门子路由（T-002 / M2） |
 | cso.routes | apps/api/src/modules/harness/cso.routes.ts | cso.routes — CSO 验证子路由（Decision #5） |
@@ -269,10 +254,10 @@
 | task.tools | apps/api/src/modules/mcp/task.tools.ts | MCP Tools — 任务管理（FileStore） |
 | tool-store | apps/api/src/modules/mcp/tool-store.ts | MCP Tools 共享 FileStore 存取助手 |
 | workunit.tools | apps/api/src/modules/mcp/workunit.tools.ts | MCP Tools — WorkUnit |
-| mock-data | apps/web/src/pages/design-lab/mock-data.ts | Design Lab — 视觉方向稿共用 mock 数据（T1 方向稿专用，不接任何真实 API） |
+
 | useChannelList | apps/web/src/hooks/useChannelList.ts | 频道列表数据 hook —— ChannelListPage 与 Mission Control 左栏 ChannelRail 共用 |
 | knowledge | apps/web/src/api/knowledge.ts | Knowledge Service API — 2026-07 知识审核闭环 |
-| executor | apps/api/src/modules/agents/executor.ts | §9.6 Executor 接口 — AgentLoop 执行面抽象（P0） |
+| executor | apps/api/src/modules/agents/loop/executor.ts | §9.6 Executor 接口 — AgentLoop 执行面抽象（P0） |
 | token-usage.routes | apps/api/src/modules/agents/token-usage.routes.ts | §10.5 角色级 token 视图路由（只读）。 |
 | token-usage.service | apps/api/src/modules/agents/token-usage.service.ts | §10.5 角色级 token 滚动视图（只读聚合）。 |
 | migrate-members | apps/api/src/modules/channels/migrate-members.ts | §9.5 成员关系统一 — 迁移：把各 profile.channels 合并进对应 channel.members。 |
@@ -281,8 +266,8 @@
 | skill-demotion | apps/api/src/modules/skills/skill-demotion.ts | §10.6 skill 生命周期降级通路（聚合 + 降级提案）。 |
 | delegation-gate | apps/api/src/modules/workunit/delegation-gate.ts | DelegationGate — A2A 协作委派闸门（2026-07-agent-to-agent-collab-design §4.1 机制 3 / §4.2） |
 | system-executor | apps/api/src/modules/agents/system-executor.ts | SystemExecutor - 系统级 LLM 调用执行器（AC-1.6 ~ AC-1.10） |
-| review-dispatcher | apps/api/src/modules/agents/review-dispatcher.ts | ReviewDispatcher - AC-4.1 ~ AC-4.5: 状态机驱动的 review 系统代派 |
-| remote-executor | apps/api/src/modules/agents/remote-executor.ts | RemoteExecutor — §9.6 P2: 远程节点执行器 |
+| review-dispatcher | apps/api/src/modules/agents/loop/review-dispatcher.ts | ReviewDispatcher - AC-4.1 ~ AC-4.5: 状态机驱动的 review 系统代派 |
+| remote-executor | apps/api/src/modules/agents/loop/remote-executor.ts | RemoteExecutor — §9.6 P2: 远程节点执行器 |
 | discover-proxy | apps/api/src/modules/workspaces/discover-proxy.ts | Discover Proxy — AS-020 P4: Proxy directory discovery through WS |
 | webhook.routes | apps/api/src/modules/deploy/webhook.routes.ts | Deploy Webhook — GitHub push 事件触发的部署入口（触发式部署，替代每分钟轮询的主通道） |
 | useDetectedProviders | apps/web/src/hooks/useDetectedProviders.ts | 当前运行环境已安装的 agent CLI 列表。 |
@@ -295,7 +280,7 @@
 | timeout-release | apps/api/src/modules/workunit/timeout-release.ts | P0 修复（WU 超时机制）：workunit-timeout 触发器的 EXECUTE handler。 |
 | domain-vocab | packages/studio-shared/src/domain-vocab.ts | 职能域词表（决策 8，docs/plans/2026-07-27-agents-md-skill-governance.md） |
 | agent-registry | packages/studio-agent/src/services/agent-registry.ts | 注册新 Agent |
-| agent-loop-registry | apps/api/src/modules/agents/agent-loop-registry.ts | AgentLoopRegistry — profileId → running AgentLoop (F1: AgentLoop 动态挂载) |
+| agent-loop-registry | apps/api/src/modules/agents/loop/agent-loop-registry.ts | AgentLoopRegistry — profileId → running AgentLoop (F1: AgentLoop 动态挂载) |
 | tool-registry | apps/api/src/modules/mcp/tool-registry.ts | MCP Tool Registry — dynamic registration, health, rate limiting |
 | trigger-registry | apps/api/src/modules/triggers/trigger-registry.ts | Trigger Registry — singleton TriggerScheduler instance |
 | default-provider | apps/api/src/modules/agents/default-provider.ts | F1 provider 默认选取工具（2026-07-28 内置角色与信任模型分析，决策见 |
@@ -306,12 +291,42 @@
 | workunit-events-bridge | apps/api/src/modules/events/workunit-events-bridge.ts | WorkUnit 事件 → SSE 桥 |
 | analysis-handoff | apps/api/src/modules/pmo/analysis-handoff.ts | Analysis Handoff — PMO 分析接力（分析结论 → 拆任务 → 派工） |
 | useWorkUnitEvents | apps/web/src/hooks/useWorkUnitEvents.ts | WorkUnit 事件订阅 — workunit.created / workunit.status_changed（SSE） |
-| execution-step-events | apps/api/src/modules/agents/execution-step-events.ts | 执行步事件（WU 过程可视化） |
+| execution-step-events | apps/api/src/modules/agents/loop/execution-step-events.ts | 执行步事件（WU 过程可视化） |
 | useWorkUnitStreamEvents | apps/web/src/hooks/useWorkUnitStreamEvents.ts | WU 步内流式订阅（Layer B）— SSE `workunit.execution.stream` 实时 chunk |
-| wu-verification | apps/api/src/modules/agents/wu-verification.ts | B3b-i（决策 D3 前半）WU 自动验证 —— 从 agent-loop 抽出的可复用实现（2026-07-30 F6-c 断链修复）。 |
+| wu-verification | apps/api/src/modules/agents/loop/wu-verification.ts | B3b-i（决策 D3 前半）WU 自动验证 —— 从 agent-loop 抽出的可复用实现（2026-07-30 F6-c 断链修复）。 |
 | evidence-summary | apps/api/src/modules/pmo/evidence-summary.ts | PMO 证据台账共享口径（2026-07-30 抽取）：delivery.ts 台账与 progress-rollup.ts |
 | pipelineUtils | apps/web/src/components/pmo/pipelineUtils.ts | WU → 泳道。F6 铁律：分列只准看 deriveDisplayState 派生列（done 缺 L3 回「评审中」等人工确认）。 |
 | agentStatus | apps/web/src/utils/agentStatus.ts | 状态推导：instance.status + 当前 WU.status → 卡片状态键。 |
-| daily-token-budget | apps/api/src/modules/agents/daily-token-budget.ts | C3（2026-08-03 unattended-token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。 |
+| daily-token-budget | apps/api/src/modules/agents/loop/daily-token-budget.ts | C3（2026-08-03 unattended-token-burn issue P2-2，决策记录 #4）：每日 token 预算熔断。 |
 | maintenance.routes | apps/api/src/modules/knowledge/maintenance.routes.ts | Knowledge Maintenance Routes — F1 知识库维护的手动触发入口 |
 | maintenance | apps/web/src/api/maintenance.ts | Maintenance API — 手动任务按钮（触发器手动 fire / 成本聚合 / 知识库维护 / 中层演化） |
+| runner-briefing | packages/studio-agent/src/services/runner-briefing.ts | Runner Briefing — "agent 被告知的內容"的 worktree 文件桥 |
+| id | packages/studio-shared/src/utils/id.ts | 生成带前缀的唯一 ID：`${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`。 |
+| vps-workspace | packages/studio-shared/src/vps-workspace.ts | VPS Workspace 解析 — 'VPS' 命名约定 + ~/.studio/workspaces 读取的唯一属主 |
+| agent-loop-events | apps/api/src/modules/agents/loop/agent-loop-events.ts | 非缓存执行 tokens（CLI usage input+output，不含 cache）。CLI 未回报 usage 时传 null —— |
+| agent-loop-guards | apps/api/src/modules/agents/loop/agent-loop-guards.ts | AgentLoop 守卫函数区（2026-08 工单 28 从 agent-loop.ts 原样抽出，行为不变）： |
+| agent-loop-parsers | apps/api/src/modules/agents/loop/agent-loop-parsers.ts | P0 修复（reviewReport 回传断链）：解析 reviewer 最终输出为结构化审查结论。 |
+| agent-loop.types | apps/api/src/modules/agents/loop/agent-loop.types.ts | AgentLoop 类型契约（2026-08 工单 28 从 agent-loop.ts 原样抽出，行为不变）： |
+| completion-gates | apps/api/src/modules/agents/loop/completion-gates.ts | 收口守卫链（2026-08 从 agent-loop.recordResult 抽出，行为一字不改）： |
+| review-contract | apps/api/src/modules/agents/loop/review-contract.ts | Review Contract — 审查结论（verdict）语义的单一来源 |
+| conversation-extractor | apps/api/src/modules/knowledge/conversation-extractor.ts | conversation-extractor — R3 会话提取管道 + 审核闭环提案卡。 |
+| knowledge-form-gate | apps/api/src/modules/knowledge/knowledge-form-gate.ts | knowledge-form-gate — 知识形态门禁（knowledge / data / skill / rule 判定）。 |
+| knowledge-metrics | apps/api/src/modules/knowledge/knowledge-metrics.ts | knowledge-metrics — KnowledgeService 的 Measure 能力带（飞轮度量 / 健康 / 审计 / 准确度）。 |
+| knowledge-semantic-search | apps/api/src/modules/knowledge/knowledge-semantic-search.ts | knowledge-semantic-search — mcp-local-rag 语义检索支撑。 |
+| trend-data | apps/api/src/modules/knowledge/trend-data.ts | trend-data — 趋势数据层（~/.studio/data/trends/ 目录写入）。 |
+| metrics-aggregate | apps/api/src/modules/monitoring/metrics-aggregate.ts | D16 聚合核心纯函数（工单 30 自 metrics.service.ts 纯函数区抽出，纯搬运零逻辑变更）： |
+| metrics.types | apps/api/src/modules/monitoring/metrics.types.ts | D16 监控指标类型契约（工单 30 自 metrics.service.ts 类型区抽出，纯搬运零逻辑变更）： |
+| wu-pmo-attribution | apps/api/src/modules/requirements/wu-pmo-attribution.ts | WU → PMO 创建期归因戳（2026-08 归因统一）：canonical metadata key = `pmoId`。 |
+| assignee-resolver | apps/api/src/modules/workunit/assignee-resolver.ts | assigneeId 双语义批量解析器（语义权威：workunit/CONTEXT.md「assigneeId 双语义」条）。 |
+| workunit.mappers | apps/api/src/modules/workunit/workunit.mappers.ts | WorkUnit 快照 ↔ DTO 转换层（工单 30 自 workunit.service.ts 抽出，纯搬运零逻辑变更）。 |
+| workunit.types | apps/api/src/modules/workunit/workunit.types.ts | WorkUnit 类型契约 + 状态机表/超时常量（工单 30 自 workunit.service.ts 头部抽出，纯搬运零逻辑变更）。 |
+| wu-messenger | apps/api/src/modules/workunit/wu-messenger.ts | WU 频道系统消息统一出口（wu-messenger）。 |
+| wu-metadata | apps/api/src/modules/workunit/wu-metadata.ts | WU metadata 访问器（2026-08-06 Card 8）：WorkUnitMetadata 的容错解析 / 会话簿记清理 / |
+| auditLogs | apps/web/src/api/auditLogs.ts | 导出为文件下载 URL（浏览器跳转触发下载）。 |
+| company | apps/web/src/api/company.ts | Company API — 公司 CRUD（FileStore 存储；Settings 页 / PMOPage 共用） |
+| harness | apps/web/src/api/harness.ts | Harness API — /harness/*（T-015 Harness 监控集成，admin 中间件） |
+| notify | apps/web/src/api/notify.ts | Notify API — 用户通知渠道配置（服务端持久化到 ~/.studio/notify-config.json；Settings 页「已同步/需重存」提示 + 保存） |
+| pmo | apps/web/src/api/pmo.ts | PMO OKR API — /pmo/okr（PMOPage OKR 列表/新建、PMOCard 统计） |
+| graphUtils | apps/web/src/components/knowledge/graphUtils.ts | 知识图谱节点数据 |
+| okrMetric | apps/web/src/components/pmo/okrMetric.ts | okrMetric - OKR/KR 度量纯函数与常量（零依赖，自 PMOPage 抽出，工单 33） |
+| useAgentRoster | apps/web/src/hooks/useAgentRoster.ts | Agent 作战视图数据 hook — 角色名册（profile × runtime 合并）+ SSE 事件路由 + 轮询兜底 |
