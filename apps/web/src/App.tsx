@@ -1,7 +1,6 @@
 // App.tsx - Agent Studio - 路由重构
 import { useState, useEffect, lazy, Suspense } from 'react';
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 const ChannelListPage = lazy(() => import('./pages/ChannelListPage').then(m => ({ default: m.ChannelListPage })));
 const TriageBanner = lazy(() => import('./components/TriageBanner').then(m => ({ default: m.TriageBanner })));
 
@@ -46,7 +45,6 @@ import { FirstRoleSetupModal, isFirstRoleSetupDismissed } from './components/set
 import './styles/theme.css';
 
 export default function App() {
-  const { t } = useTranslation();
   const location = useLocation();
   const { loadAgents } = useAgentStore();
   const { loadExecutions } = useRuntimeStore();

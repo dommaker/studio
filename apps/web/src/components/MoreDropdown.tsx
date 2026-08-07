@@ -1,27 +1,24 @@
 // MoreDropdown.tsx - "更多"下拉菜单组件（L4 高级功能）
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import '../styles/theme.css';
 
 interface DropdownItem {
   to: string;
   icon: string;
   label: string;
-  i18nKey?: string;
 }
 
 const MORE_ITEMS: DropdownItem[] = [
-  { to: '/audit-logs', icon: '🔍', label: '审计日志', i18nKey: 'nav.auditLogs' },
-  { to: '/pmo', icon: '📊', label: 'PMO', i18nKey: 'nav.pmo' },
+  { to: '/audit-logs', icon: '🔍', label: '审计日志' },
+  { to: '/pmo', icon: '📊', label: 'PMO' },
 ];
 
 const CONFIG_ITEMS: DropdownItem[] = [
-  { to: '/settings', icon: '⚙️', label: '设置', i18nKey: 'nav.settings' },
+  { to: '/settings', icon: '⚙️', label: '设置' },
 ];
 
 export function MoreDropdown() {
-  const { t } = useTranslation();
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -48,7 +45,7 @@ export function MoreDropdown() {
       onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}
     >
       <span>{item.icon}</span>
-      <span>{item.i18nKey ? t(item.i18nKey, item.label) : item.label}</span>
+      <span>{item.label}</span>
     </Link>
   );
 
@@ -60,7 +57,7 @@ export function MoreDropdown() {
         style={{ color: 'var(--text-secondary)' }}
       >
         <span>📈</span>
-        <span className="hidden sm:inline">{t('nav.more', '更多')}</span>
+        <span className="hidden sm:inline">更多</span>
         <span className="text-xs">{isOpen ? '▼' : '▶'}</span>
       </button>
 
@@ -75,7 +72,7 @@ export function MoreDropdown() {
           {/* 高级功能 */}
           <div className="px-2 pb-1">
             <span className="text-xs font-medium px-2" style={{ color: 'var(--text-tertiary)' }}>
-              {t('nav.advanced', '高级功能')}
+              高级功能
             </span>
           </div>
           {MORE_ITEMS.map(renderItem)}
@@ -85,7 +82,7 @@ export function MoreDropdown() {
           {/* 配置功能 */}
           <div className="px-2 pb-1">
             <span className="text-xs font-medium px-2" style={{ color: 'var(--text-tertiary)' }}>
-              {t('nav.config', '配置')}
+              配置
             </span>
           </div>
           {CONFIG_ITEMS.map(renderItem)}
