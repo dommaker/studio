@@ -55,6 +55,8 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const [okrs, setOKRs] = useState<OKR[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
+  // 工单 38: loadData 失败反馈（页面内错误条 + 重试，原先仅 console.error 静默）
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   // 🆕 AC-6: 卡片徽章数据（WU 完成度 / 文档计数；批量并行、失败静默不显示）
   const [wuStats, setWuStats] = useState<Record<string, { finished: number; total: number }>>({});
@@ -124,6 +126,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
   const loadData = async () => {
     try {
       setLoading(true);
+      setLoadError(null);
 
       let actualCompanyId = companyId;
       if (!actualCompanyId) {
@@ -146,6 +149,7 @@ export function PMOPage({ companyId }: PMOPageProps) {
       setProjects(projectsRes.data?.data || []);
     } catch (err) {
       console.error('Failed to load PMO data:', err);
+      setLoadError('加载 PMO 数据失败，请重试');
     } finally {
       setLoading(false);
     }
@@ -201,6 +205,13 @@ export function PMOPage({ companyId }: PMOPageProps) {
 
       {/* Content */}
       <div className="flex-1 overflow-auto px-8 pb-8">
+        {/* 工单 38: 加载失败错误条（跟随 WorkUnitDetailPage 的 u-err-dim 错误条形态）+ 重试入口 */}
+        {!loading && loadError && (
+          <div className="mb-3 p-3 rounded u-err-dim u-err text-sm flex items-center justify-between">
+            <span>{loadError}</span>
+            <button onClick={loadData} className="btn btn-secondary btn-sm">重试</button>
+          </div>
+        )}
         {loading ? (
           <div className="text-center py-8 u-text-3">
             加载中...

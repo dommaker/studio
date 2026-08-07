@@ -9,6 +9,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { knowledgeApi, type KnowledgeGapType } from '../api/knowledge';
 import { maintenanceApi, type TriggerCosts } from '../api/maintenance';
+import { toast } from '../utils/toast';
 import { Select, ManualTaskButton } from '../components/ui';
 import {
   PreferenceCard, BusinessRuleCard, EnvSnapshotCard,
@@ -104,7 +105,11 @@ export function KnowledgePage() {
       setShowManualEntry(false);
       setManualForm({ type: 'guideline', title: '', content: '', consumptionMode: 'reference', tags: '' });
       loadUnified();
-    } catch (err) { console.error('Failed to create entry:', err); }
+    } catch (err: any) {
+      // 工单 38: 失败不再静默——toast 反馈且保留表单内容，用户可修正后重试
+      console.error('Failed to create entry:', err);
+      toast.error(err?.response?.data?.error || err?.message || '创建条目失败，请重试');
+    }
   };
 
   // S11: Unified search across all types
