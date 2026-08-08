@@ -14,9 +14,6 @@
 | discover-handler | src/daemon/discover-handler.ts | Discover Handler — AS-020 P6-03: Local directory scanning |
 | path-sandbox | src/daemon/path-sandbox.ts | Path Sandbox — AS-020 P6-02: Path traversal protection |
 | registration | src/daemon/registration.ts | Workspace Registration — HTTP registration flow |
-| session-manager | src/daemon/session-manager.ts | Session Manager — manages persistent Claude Code sessions via --session-id + --continue |
-| studio-daemon | src/daemon/studio-daemon.ts | Studio Daemon — persistent Agent session manager |
-| task-logger | src/daemon/task-logger.ts | Task Logger — 结构化任务日志，供审计/进化/调试 |
 | workspace-config | src/daemon/workspace-config.ts | Workspace Config — manage ~/.studio/workspace.json |
 | api-cache | src/middleware/api-cache.ts | API 缓存中间件 — 内存 Map |
 | audit-logger | src/middleware/audit-logger.ts | 审计日志中间件 - Audit Logger Middleware |
