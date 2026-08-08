@@ -10,10 +10,10 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
-function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnType<typeof vi.fn>, loggerDebug?: ReturnType<typeof vi.fn>, loggerError?: ReturnType<typeof vi.fn>) {
+function mockDeps(execFileMock: ReturnType<typeof vi.fn>, loggerWarn?: ReturnType<typeof vi.fn>, loggerDebug?: ReturnType<typeof vi.fn>, loggerError?: ReturnType<typeof vi.fn>, loggerInfo?: ReturnType<typeof vi.fn>) {
   vi.doMock('child_process', () => ({ execFile: execFileMock, execFileSync: vi.fn() }));
   vi.doMock('@dommaker/studio-shared', () => ({
-    logger: { info: vi.fn(), warn: loggerWarn ?? vi.fn(), error: loggerError ?? vi.fn(), debug: loggerDebug ?? vi.fn() },
+    logger: { info: loggerInfo ?? vi.fn(), warn: loggerWarn ?? vi.fn(), error: loggerError ?? vi.fn(), debug: loggerDebug ?? vi.fn() },
     FileStore: class {
       appendJsonl = vi.fn().mockResolvedValue(undefined);
     },
@@ -145,11 +145,7 @@ describe('scheduleVectorDbSync (B48-2E)', () => {
       }
       return { pid: 123 };
     });
-    mockDeps(execFileMock, loggerWarn, undefined, undefined);
-    vi.doMock('@dommaker/studio-shared', () => ({
-      logger: { info: loggerInfo, warn: loggerWarn, error: vi.fn(), debug: vi.fn() },
-      FileStore: class { appendJsonl = vi.fn().mockResolvedValue(undefined); },
-    }));
+    mockDeps(execFileMock, loggerWarn, undefined, undefined, loggerInfo);
     const { scheduleVectorDbSync } = await import('../knowledge-singletons.js');
 
     scheduleVectorDbSync();
