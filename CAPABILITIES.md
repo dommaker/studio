@@ -340,6 +340,5 @@
 | knowledge-metrics | apps/api/src/modules/knowledge/knowledge-metrics.ts | knowledge-metrics — 飞轮/审计的事件流度量（R1/M1） |
 | knowledge-search-helpers | apps/api/src/modules/knowledge/knowledge-search-helpers.ts | knowledge-search-helpers — 关键词检索与 RAG 降级 helpers |
 | knowledge-types | apps/api/src/modules/knowledge/knowledge-types.ts | knowledge-types — KnowledgeService 的 Studio 侧类型与类型映射 |
-| okr-metric-queries | apps/api/src/modules/pmo/okr-metric-queries.ts | OKR metric 查询基类（B8 数据源查询层） |
 | workunit-crud | apps/api/src/modules/workunit/workunit-crud.ts | WorkUnit CRUD + Claim 持久化层 —— WorkUnitService 的基类（自 workunit.service.ts 拆分，纯代码移动）。 |
 | okrUtils | apps/web/src/components/pmo/okrUtils.ts | OKR 度量工具 — 当前季度 / metricType 选项与元数据 / KR 目标校验（从 pages/PMOPage.tsx 抽出，纯代码移动） |
