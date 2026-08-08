@@ -84,7 +84,7 @@ describe('DELETE /channels/:id fallback', () => {
     const wuEmpty = await wuService.create({ scope: 'empty' });
 
     const res = await fetch(`${baseUrl}/${CH_DEL}`, { method: 'DELETE' });
-    const body = await res.json() as any;
+    const body: { success: boolean; data: { deleted: boolean; fallbackChannelId: string } } = await res.json();
 
     // 响应形状不变
     expect(res.status).toBe(200);

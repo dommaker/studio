@@ -13,7 +13,15 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import express from 'express';
 import type { Server } from 'node:http';
-import { FileStore } from '@dommaker/studio-shared';
+import { FileStore, type ChannelMessageData } from '@dommaker/studio-shared';
+
+/** GET /:id/messages 响应体（data 内 meta 已 JSON.parse、createdAt 经 JSON 序列化回字符串） */
+interface MessagesPageResponse {
+  success: boolean;
+  data: Array<Omit<ChannelMessageData, 'meta' | 'createdAt'> & { meta: unknown; createdAt: string }>;
+  total: number;
+  hasMore: boolean;
+}
 
 let tmpDir: string;
 let fileStore: FileStore;
@@ -71,7 +79,7 @@ afterAll(async () => {
 describe('GET /channels/:id/messages 分页 limit（C2）', () => {
   it('limit=3 只返回最新 3 条（升序），hasMore=true，total 为全量', async () => {
     const res = await fetch(`${baseUrl}/${CH}/messages?limit=3`);
-    const body = await res.json() as any;
+    const body: MessagesPageResponse = await res.json();
 
     expect(res.status).toBe(200);
     expect(body.success).toBe(true);
@@ -79,12 +87,12 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
     expect(body.total).toBe(MSG_COUNT);
     expect(body.hasMore).toBe(true);
     // 最新 3 条，页内升序
-    expect(body.data.map((m: any) => m.id)).toEqual(['msg-07', 'msg-08', 'msg-09']);
+    expect(body.data.map(m => m.id)).toEqual(['msg-07', 'msg-08', 'msg-09']);
   });
 
   it('limit 大于消息总数时返回全部，hasMore=false', async () => {
     const res = await fetch(`${baseUrl}/${CH}/messages?limit=50`);
-    const body = await res.json() as any;
+    const body: MessagesPageResponse = await res.json();
 
     expect(body.data).toHaveLength(MSG_COUNT);
     expect(body.hasMore).toBe(false);
@@ -93,11 +101,11 @@ describe('GET /channels/:id/messages 分页 limit（C2）', () => {
   it('before + limit 组合：窗口内仍只取最新 take 条', async () => {
     const before = new Date(Date.now() - 5.5 * 1000).toISOString(); // 只含 msg-00..msg-04
     const res = await fetch(`${baseUrl}/${CH}/messages?limit=2&before=${encodeURIComponent(before)}`);
-    const body = await res.json() as any;
+    const body: MessagesPageResponse = await res.json();
 
     expect(body.total).toBe(5);
     expect(body.data).toHaveLength(2);
     expect(body.hasMore).toBe(true);
-    expect(body.data.map((m: any) => m.id)).toEqual(['msg-03', 'msg-04']);
+    expect(body.data.map(m => m.id)).toEqual(['msg-03', 'msg-04']);
   });
 });

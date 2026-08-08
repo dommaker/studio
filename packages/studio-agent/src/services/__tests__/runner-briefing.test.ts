@@ -43,14 +43,16 @@ vi.mock('@dommaker/studio-shared', async (importOriginal) => {
 });
 
 import { buildCachePrefix, writeRequirementsMd, writeContractTests } from '../runner-briefing.js';
+import type { AgentTask } from '../types.js';
 
-function makeTask(overrides?: Record<string, unknown>) {
+function makeTask(overrides?: AgentTask['parameters']): AgentTask {
   return {
     id: 'task-1',
     executionId: 'exec-1',
+    provider: 'claude',
     prompt: 'do something',
     parameters: { ...overrides },
-  } as any;
+  };
 }
 
 beforeEach(() => {
